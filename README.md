@@ -2,7 +2,7 @@
 
 A batteries-included C++20 project template that handles all the boilerplate of linking [raylib](https://www.raylib.es/) statically via CMake. Clone or use the template button, and start writing code immediately.
 
-It's fine to say that this template modifies raylib slightly to adapt it to the template, but it's mainly CMakeList stuff
+It's fine to say that this template modifies raylib and raymob slightly to adapt it to the template, but it's mainly CMakeList stuff
 
 Based on [meemknight/raylibCmakeSetup](https://github.com/meemknight/raylibCmakeSetup).
 
