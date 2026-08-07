@@ -54,6 +54,10 @@ android {
         buildConfigField("boolean", "FEATURE_DISPLAY_IMMERSIVE", project.properties['display.immersive'] ?: "false")
         buildConfigField("boolean", "FEATURE_DISPLAY_INTO_CUTOUT", project.properties['display.into_cutout'] ?: "false")
 
+        // AdMob ad-unit ids (from gradle.properties), exposed to Java via BuildConfig
+        buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"" + (project.properties['admob.interstitial_id'] ?: "ca-app-pub-3940256099942544/1033173712") + "\"")
+        buildConfigField("String", "ADMOB_REWARDED_ID", "\"" + (project.properties['admob.rewarded_id'] ?: "ca-app-pub-3940256099942544/5224354917") + "\"")
+
         // Substitution variables for the manifest
         manifestPlaceholders = [
             'GL_VERSION_CODE': getGLVersionCode(project.properties['gl.version']) ?: "0x00020000",
@@ -63,7 +67,8 @@ android {
             'REQUIRE_INTERNET': project.properties['requirements.internet'] ?: "false",
             'REQUIRE_VIBRATION': project.properties['requirements.vibration'] ?: "false",
             'REQUIRE_GYROSCOPE': project.properties['requirements.gyroscope'] ?: "false",
-            'REQUIRE_ACCELEROMETER': project.properties['requirements.accelerometer'] ?: "false"
+            'REQUIRE_ACCELEROMETER': project.properties['requirements.accelerometer'] ?: "false",
+            'ADMOB_APP_ID': project.properties['admob.app_id'] ?: "ca-app-pub-3940256099942544~3347511713"
         ]
 
         // Give to CMake the name of the library
@@ -197,5 +202,7 @@ buildFeatures {
 // To add a new dependency, use the 'implementation' or 'api' keyword followed by the library's coordinate or name.
 
 dependencies {
-
+    // Google Mobile Ads SDK (AdMob). 24.x targets compileSdk 34; bump together
+    // with compileSdk/Android platform when moving to a newer major.
+    implementation 'com.google.android.gms:play-services-ads:24.9.0'
 }

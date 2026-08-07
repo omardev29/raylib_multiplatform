@@ -2,6 +2,7 @@
 #ifdef __ANDROID__
 #include <raymob.h>
 #endif // __ANDROID__
+#include <admob.h>
 #include <assets.h>
 #include <test.h>
 
@@ -16,6 +17,7 @@
 // ---------------------------------------------------------------------------
 
 static GameAssets assets;
+static int lastRewardAmount = 0;   // last rewarded-ad amount (demo feedback)
 
 // Called once at startup: set config flags, create the window, load assets.
 static void _ready() {
@@ -28,10 +30,32 @@ static void _ready() {
 
   Assets::Init();          // use resources.rres if present, else loose files
   assets = LoadGameAssets();
+
+  // AdMob: preload both ad types. These are no-ops outside Android, so the
+  // same code runs everywhere.
+  RequestInterstitialAd();
+  RequestRewardedAd();
 }
 
 // Called once per frame: update + draw. Use GetFrameTime() for delta time.
 static void _process() {
+  // AdMob example (no-op outside Android):
+  //   SPACE -> show interstitial, R -> show rewarded. Preload the next one
+  //   right after showing, and poll the reward flag each frame.
+  if (IsKeyPressed(KEY_SPACE) && IsInterstitialAdLoaded()) {
+    ShowInterstitialAd();
+    RequestInterstitialAd();
+  }
+  if (IsKeyPressed(KEY_R) && IsRewardedAdLoaded()) {
+    ShowRewardedAd();
+    RequestRewardedAd();
+  }
+  if (TakeRewardEarned()) {
+    lastRewardAmount = GetRewardAmount();
+    TraceLog(LOG_INFO, "ADMOB: reward earned, amount=%d", lastRewardAmount);
+    // Grant the reward to the player here (coins, extra life, ...).
+  }
+
   int screen_x = GetScreenWidth();
   int screen_y = GetScreenHeight();
 
@@ -42,6 +66,10 @@ static void _process() {
               screen_y / 2 - assets.rabbit.height / 2, WHITE);
 
   DrawText("Omar's raylib template!", 190, 200, 20, LIGHTGRAY);
+  DrawText("SPACE: interstitial   R: rewarded", 10, screen_y - 40, 20, GRAY);
+  if (lastRewardAmount > 0) {
+    DrawText(TextFormat("Last reward: %d", lastRewardAmount), 10, screen_y - 70, 20, DARKGREEN);
+  }
 
   EndDrawing();
 }

@@ -7,6 +7,7 @@ set(RAYMOB_SOURCES
     display.c
     soft_keyboard.c
     callback.c
+    admob.c
 )
 
 add_library(raymoblib STATIC ${RAYMOB_SOURCES})

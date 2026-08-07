@@ -167,6 +167,41 @@ This is what makes the same code run everywhere, including iOS.
 
 ---
 
+## AdMob ads (Android) — interstitial + rewarded
+
+AdMob is wired for **Android** (via raymob) with **interstitial** and **rewarded**
+formats (banners are intentionally not supported). Include `<admob.h>` and call the
+functions — they are **real on Android** and **no-ops on every other platform**, so the
+same game code builds everywhere without `#ifdef`s.
+
+API (see `thirdparty/raymob/admob.h`):
+
+| Function | Purpose |
+|---|---|
+| `RequestInterstitialAd()` / `IsInterstitialAdLoaded()` / `ShowInterstitialAd()` | Interstitial |
+| `RequestRewardedAd()` / `IsRewardedAdLoaded()` / `ShowRewardedAd()` | Rewarded |
+| `TakeRewardEarned()` (returns once & clears) + `GetRewardAmount()` | Poll the reward |
+
+`src/main.cpp` shows a working example: preload both in `_ready()`, show on `SPACE` /
+`R`, preload the next ad right after showing, and poll `TakeRewardEarned()` in the loop.
+
+**Setup / your own ads** — everything is configured in `raymob/gradle.properties`:
+```properties
+admob.app_id=ca-app-pub-...~...          # AdMob application id (manifest)
+admob.interstitial_id=ca-app-pub-.../... # interstitial ad unit
+admob.rewarded_id=ca-app-pub-.../...     # rewarded ad unit
+```
+These default to **Google's test ids**; replace them with your own before publishing.
+The app id goes into the manifest (`com.google.android.gms.ads.APPLICATION_ID`), and the
+ad units are exposed to Java via `BuildConfig`. The Google Mobile Ads SDK
+(`play-services-ads`, pinned in `raymob/app/build.gradle`) is added automatically.
+
+> Notes: ads load/show on the Android UI thread; an ad is consumed when shown (request a
+> new one to show again); Android 13+ needs the `AD_ID` permission (already in the
+> manifest). iOS ads are **not** implemented (see `ios/README.md`).
+
+---
+
 ## Editor Setup
 
 ### Visual Studio 2022
