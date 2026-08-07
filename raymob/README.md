@@ -30,7 +30,7 @@ This project is fully C/C++ compatible for the logical part with raylib and you 
 
 ## Additional Features
 
-In this project, you have access to the header file [raymob.h](app/src/main/cpp/deps/raymob/raymob.h), which provides functions for controlling sensors, vibration, and the Android soft keyboard, as well as lower-level functions such as obtaining the `android_app`, manipulating the cache, managing resources, and calling Java functions from your native code.
+In this project, you have access to the header file [raymob.h](../thirdparty/raymob/raymob.h), which provides functions for controlling sensors, vibration, and the Android soft keyboard, as well as lower-level functions such as obtaining the `android_app`, manipulating the cache, managing resources, and calling Java functions from your native code.
 
 ## Useful Links
 

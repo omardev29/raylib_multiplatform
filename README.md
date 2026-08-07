@@ -135,12 +135,35 @@ During development, `RESOURCES_PATH` expands to the absolute path of your `resou
 
 In production, it becomes `"./resources/"`, so the folder must be next to the `.exe`.
 
-Use it in code like this:
+Prefer the asset layer below (`Assets::LoadImage` / `Assets::LoadTexture`) over raw
+`RESOURCES_PATH` calls — it transparently switches between loose files and a packed,
+optionally-encrypted `resources.rres`.
 
-```cpp
-Texture2D tex  = LoadTexture(RESOURCES_PATH "textures/player.png");
-Sound     shot = LoadSound(RESOURCES_PATH "sounds/shoot.wav");
-```
+---
+
+## Resources packing (rres) + encryption
+
+Assets can be packed into a single `resources.rres` container ([rres](https://github.com/raysan5/rres)),
+optionally **AES-256 encrypted**. The game auto-detects which mode to use at startup
+(`Assets::Init()`): if `resources.rres` exists next to the resources it loads from it,
+otherwise it loads loose files. **No code changes needed** to switch.
+
+- Pack (AES): `cmake --build build --target pack_resources`
+- Unpack (back to loose): `cmake --build build --target unpack_resources`
+- The packer is the open `tools/rres_pack` (no paid/closed tooling required). The official
+  `rrespacker` output is also compatible if you own it.
+- Set the password with `-DRRES_PACK_PASSWORD="..."` (default `raylib-template`). This is
+  **obfuscation, not real security** — the password is embedded in the binary.
+
+> Note: encryption only adds load-time cost (Argon2i key derivation per resource), never
+> per-frame cost.
+
+## Game lifecycle (Godot style)
+
+Your game logic lives in three functions in `src/main.cpp` — `_ready()`, `_process()`,
+`_exit()` — and a small platform runner drives them: a classic `while` loop on
+desktop/BSD/Android/Web, and `ios_ready`/`ios_update`/`ios_destroy` callbacks on iOS.
+This is what makes the same code run everywhere, including iOS.
 
 ---
 
@@ -362,8 +385,20 @@ int main() {
 ```
 
 ## CI/CD
-- The template comes with a pre-configured GitHub Actions .yaml, you can access it in the actions tab, The first and most important thing you need to do is change the "PROJECT_NAME" variable at the top of the file, you need to enter the exact name of your project, the one you put in the CMakeList.txt file.
-- After that, you can simply run the workflow, and it will genera#te binaries for Linux, Mac, Windows, and web. Yes, literally, you can use this and forget about compiling by hand, but I think it's good that you know the commands behind this, so don't overuse it and only use it for deployment. For debugging, use `cmake --build build`, it will only recompile your C++ code and will be much faster
+- The template ships a multiplatform GitHub Actions workflow (`.github/workflows/build.yaml`).
+  Change `PROJECT_NAME` (and `BUILD_IMAGE`, see below) at the top to your project's values.
+- It builds: **Linux x64 / ARM64 / RISC-V, Windows x64 / ARM64, macOS, iOS, Web, Android,
+  FreeBSD, OpenBSD, NetBSD**. On a tag push it also creates a Release with the artifacts.
+- **Frozen build image:** Linux jobs run inside a Docker image with every toolchain pinned.
+  The image lives in its **own repo** (`raylib-build-image`, next to this one: `Dockerfile` +
+  `docker-image.yaml` → GHCR). This is what makes builds reproducible (nothing is downloaded
+  at job time). Set `BUILD_IMAGE` at the top of `build.yaml` to your published image.
+- **Reproducibility:** all third-party actions are pinned by full commit SHA, and raylib /
+  raylib-iOS versions are frozen (see `thirdparty/FROZEN_VERSIONS.md`).
+- The experimental targets (RISC-V, Windows ARM64, iOS, BSDs) are `continue-on-error`, so they
+  don't block a release while they're being tuned; their artifacts are uploaded when they succeed.
+- For local debugging keep using `cmake --build build` — it only recompiles your C++ and is much
+  faster than waiting on CI.
 
 ## FAQ
 

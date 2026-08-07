@@ -132,8 +132,10 @@ android {
         updateFile("proguard-rules.pro", "com.raylib.raymob", project.properties['app.application_id'])
 
         // Modify the library name in raymob C source
-        updateFile("src/main/cpp/deps/raymob/display.c", "com/raylib/raymob", project.properties['app.application_id'].replace(".", "/"))
-        updateFile("src/main/cpp/deps/raymob/soft_keyboard.c", "com/raylib/raymob", project.properties['app.application_id'].replace(".", "/"))
+        // NOTE: the Android build compiles thirdparty/raymob (see app/src/main/cpp/CMakeLists.txt),
+        // so the JNI class paths must be patched there
+        updateFile("../../thirdparty/raymob/display.c", "com/raylib/raymob", project.properties['app.application_id'].replace(".", "/"))
+        updateFile("../../thirdparty/raymob/soft_keyboard.c", "com/raylib/raymob", project.properties['app.application_id'].replace(".", "/"))
 
     }
 
@@ -152,8 +154,8 @@ android {
         updateFile("proguard-rules.pro", project.properties['app.application_id'], "com.raylib.raymob")
 
         // Restore the library name in raymob C source
-        updateFile("src/main/cpp/deps/raymob/display.c", project.properties['app.application_id'].replace(".", "/"), "com/raylib/raymob")
-        updateFile("src/main/cpp/deps/raymob/soft_keyboard.c", project.properties['app.application_id'].replace(".", "/"), "com/raylib/raymob")
+        updateFile("../../thirdparty/raymob/display.c", project.properties['app.application_id'].replace(".", "/"), "com/raylib/raymob")
+        updateFile("../../thirdparty/raymob/soft_keyboard.c", project.properties['app.application_id'].replace(".", "/"), "com/raylib/raymob")
 
     }
 

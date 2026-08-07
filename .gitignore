@@ -6,6 +6,8 @@ build/
 Makefile
 /.cache
 compile_commands.json
+# Generated resource pack (created by `cmake --build build --target pack_resources` or CI)
+/resources/resources.rres
 /temp_apk
 /raymob/app/src/main/assets/*
 !/raymob/app/src/main/assets/.gitkeep

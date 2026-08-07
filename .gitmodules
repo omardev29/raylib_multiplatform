@@ -1,0 +1,3 @@
+[submodule "thirdparty/raylib-ios"]
+	path = thirdparty/raylib-ios
+	url = https://github.com/ghera/raylib-iOS.git

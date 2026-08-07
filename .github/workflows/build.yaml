@@ -1,3 +1,13 @@
+# Multiplatform build & release.
+#
+# Linux jobs run INSIDE the frozen build-image (see docker/Dockerfile and
+# docker-image.yaml), so toolchains are pinned and nothing is downloaded at job
+# time. Windows/macOS/BSD jobs run on their native hosted runners. All
+# third-party actions are pinned by full commit SHA (version in the comment).
+#
+# Platforms: Linux x64/ARM64/RISC-V, Windows x64/ARM64, macOS, iOS, Web,
+# Android, FreeBSD, OpenBSD, NetBSD.
+
 name: Build and Release
 
 on:
@@ -8,172 +18,396 @@ on:
 
 env:
   PROJECT_NAME: ray_test
+  # Image built by .github/workflows/docker-image.yaml. Change the owner to yours.
+  BUILD_IMAGE: ghcr.io/omardev29/raylib-build:latest
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Configure
-        run: cmake --preset release
-
-      - name: Build
-        run: cmake --build --preset release
-
-      - name: Zip windows build
-        run: |
-         Compress-Archive -Path build/${{ env.PROJECT_NAME }}.exe -DestinationPath windows-build.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: windows-build
-          path: windows-build.zip
-
-  build-linux:
+  # ---------------------------------------------------------------------------
+  # Linux x64 (inside the frozen container)
+  # ---------------------------------------------------------------------------
+  build-linux-x64:
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.BUILD_IMAGE }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - name: Install dependencies
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build (game + rres packer)
+        run: cmake --build build
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Package
         run: |
-          sudo apt update
-          sudo apt install -y ninja-build libgl1-mesa-dev \
-            libx11-dev libxrandr-dev libxi-dev \
-            libxinerama-dev libxcursor-dev
+          mkdir -p package/resources
+          cp build/${{ env.PROJECT_NAME }} package/
+          cp resources/resources.rres package/resources/
+          cd package && zip -r ../linux-x64-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: linux-x64-build
+          path: linux-x64-build.zip
+
+  # ---------------------------------------------------------------------------
+  # Linux ARM64 (native arm64 runner + arm64 image variant)
+  # ---------------------------------------------------------------------------
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ${{ env.BUILD_IMAGE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Configure
         run: cmake --preset release
 
       - name: Build
-        run: cmake --build --preset release
+        run: cmake --build build
 
-      - name: Zip linux build
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Package
         run: |
-         zip linux-build.zip build/${{ env.PROJECT_NAME }}
+          mkdir -p package/resources
+          cp build/${{ env.PROJECT_NAME }} package/
+          cp resources/resources.rres package/resources/
+          cd package && zip -r ../linux-arm64-build.zip .
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
-          name: linux-build
-          path: linux-build.zip
+          name: linux-arm64-build
+          path: linux-arm64-build.zip
 
-  build-mac:
-    runs-on: macos-latest
+  # ---------------------------------------------------------------------------
+  # Linux RISC-V (cross-compiled inside the amd64 container). Best-effort: the
+  # riscv64 X11 multiarch detection may need tuning per raylib version.
+  # ---------------------------------------------------------------------------
+  build-linux-riscv64:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: ${{ env.BUILD_IMAGE }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - name: Configure
-        run: cmake --preset release
+      - name: Configure (riscv64 toolchain)
+        run: >
+          cmake -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64-linux.cmake
 
       - name: Build
-        run: cmake --build --preset release
+        run: cmake --build build
 
-      - name: Zip mac build
+      - name: Package
         run: |
-         zip mac-build.zip build/${{ env.PROJECT_NAME }}
+          mkdir -p package/resources
+          cp build/${{ env.PROJECT_NAME }} package/
+          cp -r resources package/
+          cd package && zip -r ../linux-riscv64-build.zip .
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
-          name: mac-build
-          path: mac-build.zip
+          name: linux-riscv64-build
+          path: linux-riscv64-build.zip
 
+  # ---------------------------------------------------------------------------
+  # Web (Emscripten from the frozen image)
+  # ---------------------------------------------------------------------------
   build-web:
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.BUILD_IMAGE }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        submodules: recursive
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-    - name: Install Ninja
-      run: sudo apt install -y ninja-build
+      - name: Configure
+        run: cmake --preset web
 
-    - name: Install Emscripten
-      uses: mymindstorm/setup-emsdk@v16
-      with:
-        version: latest
+      - name: Build
+        run: cmake --build --preset web
 
-    - name: Configure
-      run: cmake --preset web
+      - name: Package
+        run: |
+          cd build/web
+          zip -r ../../web-build.zip \
+            ${{ env.PROJECT_NAME }}.html ${{ env.PROJECT_NAME }}.js \
+            ${{ env.PROJECT_NAME }}.wasm ${{ env.PROJECT_NAME }}.data
 
-    - name: Build
-      run: cmake --build --preset web
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: web-build
+          path: web-build.zip
 
-    - name: Zip web build
-      run: |
-       cd build/web
-       zip -r ../../web-build.zip ${{ env.PROJECT_NAME }}.html ${{ env.PROJECT_NAME }}.js ${{ env.PROJECT_NAME }}.wasm ${{ env.PROJECT_NAME }}.data
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v6
-      with:
-        name: web-build
-        path: |
-          web-build.zip
-
+  # ---------------------------------------------------------------------------
+  # Android (SDK/NDK from the frozen image; gradle caches reduce downloads)
+  # ---------------------------------------------------------------------------
   build-android:
     runs-on: ubuntu-latest
+    container:
+      image: ${{ env.BUILD_IMAGE }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6
         with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.30.3'
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('raymob/**/*.gradle*', 'raymob/**/gradle-wrapper.properties') }}
 
       - name: Build debug APK
-        working-directory: ./raymob
+        working-directory: raymob
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: android-debug-apk
           path: raymob/app/build/outputs/apk/debug/*.apk
 
-  release:
-    needs: [build-windows, build-linux, build-mac, build-web, build-android]
+  # ---------------------------------------------------------------------------
+  # Windows x64
+  # ---------------------------------------------------------------------------
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Package
+        run: |
+          New-Item -ItemType Directory -Force -Path package/resources | Out-Null
+          Copy-Item build/${{ env.PROJECT_NAME }}.exe package/
+          Copy-Item resources/resources.rres package/resources/
+          Compress-Archive -Path package/* -DestinationPath windows-x64-build.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: windows-x64-build
+          path: windows-x64-build.zip
+
+  # ---------------------------------------------------------------------------
+  # Windows ARM64 (MSVC cross-compile). Best-effort.
+  # ---------------------------------------------------------------------------
+  build-windows-arm64:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      # Inline vcvarsall (no third-party action: the common ones still run Node 20)
+      - name: Set up MSVC arm64 cross environment (vcvarsall)
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vcvars = & $vswhere -latest -products * -find "VC\Auxiliary\Build\vcvarsall.bat" | Select-Object -First 1
+          if (-not $vcvars) { throw "vcvarsall.bat not found" }
+          cmd /c "`"$vcvars`" amd64_arm64 >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Package
+        run: |
+          New-Item -ItemType Directory -Force -Path package/resources | Out-Null
+          Copy-Item build/${{ env.PROJECT_NAME }}.exe package/
+          Copy-Item resources package/ -Recurse
+          Compress-Archive -Path package/* -DestinationPath windows-arm64-build.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: windows-arm64-build
+          path: windows-arm64-build.zip
+
+  # ---------------------------------------------------------------------------
+  # macOS
+  # ---------------------------------------------------------------------------
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Package
+        run: |
+          mkdir -p package/resources
+          cp build/${{ env.PROJECT_NAME }} package/
+          cp resources/resources.rres package/resources/
+          cd package && zip -r ../macos-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: macos-build
+          path: macos-build.zip
+
+  # ---------------------------------------------------------------------------
+  # iOS (raylib-iOS fork + Xcode). Best-effort scaffold; requires macOS + Xcode.
+  # ---------------------------------------------------------------------------
+  build-ios:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          submodules: recursive
+
+      - name: Build raylib.xcframework (device + simulator)
+        run: |
+          cd thirdparty/raylib-ios/projects/scripts
+          chmod +x build-ios-xcframework.sh
+          ./build-ios-xcframework.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: cd ios && xcodegen generate
+
+      - name: Build app (simulator, no signing)
+        run: |
+          cd ios
+          xcodebuild -project ray_test.xcodeproj -scheme ray_test \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: ios-raylib-xcframework
+          path: thirdparty/raylib-ios/raylib.xcframework
+
+  # ---------------------------------------------------------------------------
+  # BSDs via QEMU on a hosted Linux runner (cross-platform-actions).
+  # Best-effort: per-BSD package names may need adjusting.
+  # ---------------------------------------------------------------------------
+  build-bsd:
     runs-on: ubuntu-latest
-    if: github.ref_type == 'tag'
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: freebsd
+            version: '15.1'
+            arch: x86-64
+          - os: freebsd
+            version: '15.1'
+            arch: arm64
+          - os: freebsd
+            version: '15.1'
+            arch: riscv64
+          - os: openbsd
+            version: '7.9'
+            arch: x86-64
+          - os: netbsd
+            version: '10.1'
+            arch: x86-64
+    defaults:
+      run:
+        shell: cpa.sh {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Start ${{ matrix.os }} ${{ matrix.version }} (${{ matrix.arch }}) VM
+        uses: cross-platform-actions/action@5ea7e8e4677bd726033a10b094ba1c5762b15dee  # v1.3.0
+        with:
+          operating_system: ${{ matrix.os }}
+          version: ${{ matrix.version }}
+          architecture: ${{ matrix.arch }}
+          memory: 6G
+          cpu_count: 2
+
+      - name: Install deps + build inside the VM
+        run: |
+          set -e
+          pwd; ls -la
+          case "${{ matrix.os }}" in
+            freebsd)
+              sudo pkg install -y cmake ninja git pkgconf \
+                libX11 libXrandr libXi libXcursor libXinerama libglvnd mesa-libs ;;
+            openbsd)
+              sudo pkg_add cmake ninja git pkgconf ;;
+            netbsd)
+              sudo /usr/sbin/pkgin -y install cmake ninja git pkgconf ;;
+          esac
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON || \
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON
+          cmake --build build
+
+  # ---------------------------------------------------------------------------
+  # Release (on tag). Runs once the core builds succeed; experimental targets
+  # (riscv64, windows-arm64, ios, bsd) don't block it, and their artifacts are
+  # included when they succeeded.
+  # ---------------------------------------------------------------------------
+  release:
+    needs:
+      - build-linux-x64
+      - build-linux-arm64
+      - build-linux-riscv64
+      - build-web
+      - build-android
+      - build-windows-x64
+      - build-windows-arm64
+      - build-macos
+      - build-ios
+      - build-bsd
+    runs-on: ubuntu-latest
+    if: >
+      always() &&
+      needs.build-linux-x64.result == 'success' &&
+      needs.build-linux-arm64.result == 'success' &&
+      needs.build-web.result == 'success' &&
+      needs.build-windows-x64.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      github.ref_type == 'tag'
     permissions:
-     contents: write
+      contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
 
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3
         with:
           generate_release_notes: true
           files: |
-           windows-build/windows-build.zip
-           linux-build/linux-build.zip
-           mac-build/mac-build.zip
-           web-build/web-build.zip
-           android-debug-apk/android-debug-apk/*.apk
+            linux-x64-build/linux-x64-build.zip
+            linux-arm64-build/linux-arm64-build.zip
+            linux-riscv64-build/linux-riscv64-build.zip
+            web-build/web-build.zip
+            android-debug-apk/*.apk
+            windows-x64-build/windows-x64-build.zip
+            windows-arm64-build/windows-arm64-build.zip
+            macos-build/macos-build.zip
+            ios-raylib-xcframework/**

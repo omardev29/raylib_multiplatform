@@ -19,7 +19,7 @@ endif()
 option(PRODUCTION_BUILD "Make this a production build" OFF)
 
 if(MSVC)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Release>:Release>")
+  # Static CRT in every configuration (/MT for Release, /MTd for Debug)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_compile_options(/arch:AVX2) #make sure SIMD optimizations take place
 endif()
@@ -62,10 +62,21 @@ endif()
 
 # MY_SOURCES is defined to be a list of all the source files for my game
 # DON'T ADD THE SOURCES BY HAND, they are already added with this macro
-file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
+)
 
-set(RESOURCES_PATH "../resources/")
-target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RESOURCES_PATH="./resources/")
+# RESOURCES_PATH macro used by the game code to locate its assets
+if(PRODUCTION_BUILD)
+  # Production: relative to the executable, ship resources/ next to it
+  set(RESOURCES_PATH "./resources/")
+else()
+  # Development: absolute path so the game loads its assets no matter
+  # which working directory it is launched from
+  set(RESOURCES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
+endif()
+target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RESOURCES_PATH="${RESOURCES_PATH}")
 
 
 set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY CXX_STANDARD 20)
@@ -114,7 +125,36 @@ endif()
 
 message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 
-target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
+)
+
+# --- rres resource packing --------------------------------------------------
+# Password shared by the packer and the runtime loader. Obfuscation only (the
+# password ends up in the binary). Override with -DRRES_PACK_PASSWORD="...".
+if(NOT DEFINED RRES_PACK_PASSWORD)
+  set(RRES_PACK_PASSWORD "raylib-template")
+endif()
+target_compile_definitions("${CMAKE_PROJECT_NAME}" PRIVATE RRES_PASSWORD="${RRES_PACK_PASSWORD}")
+
+# Open packing tool (alternative to the paid rrespacker). Standalone C, no raylib.
+add_executable(rres_pack tools/rres_pack.c tools/md5.c)
+target_include_directories(rres_pack PRIVATE tools "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
+
+# Pack every loose resource into resources.rres (AES-encrypted).
+file(GLOB PACK_FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+list(FILTER PACK_FILES EXCLUDE REGEX "\\.rres$")
+add_custom_target(pack_resources
+  COMMAND $<TARGET_FILE:rres_pack> "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres" "${RRES_PACK_PASSWORD}" ${PACK_FILES}
+  DEPENDS rres_pack
+  COMMENT "Packing resources into resources.rres (AES)"
+)
+# Remove the generated pack (e.g. to fall back to loose files in dev).
+add_custom_target(unpack_resources
+  COMMAND ${CMAKE_COMMAND} -E rm -f "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres"
+  COMMENT "Removing resources.rres (back to loose files)"
+)
 
 # if you want to see the assembler
 # This target generates .s (assembler) files for all sources in the project
@@ -130,53 +170,51 @@ endif()
 # Create defines based on build type (same as the main target)
 if(PRODUCTION_BUILD)
   set(ASM_PROD_BUILD "1")
-  set(ASM_RESOURCES_PATH "../resources/")
 else()
   set(ASM_PROD_BUILD "0")
-  set(ASM_RESOURCES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
 endif()
 
-# Build include paths as a single string
-set(ASM_INCLUDES_STR "")
-foreach(inc "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib-5.5/src" "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/raylib-5.5/include")
-  set(ASM_INCLUDES_STR "${ASM_INCLUDES_STR} -I${inc}")
-endforeach()
+# Include paths needed to recompile the sources standalone
+set(ASM_INCLUDE_FLAGS
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
+)
 
 # Create a header file that defines RESOURCES_PATH as a string literal (with quotes included)
 # This allows proper string concatenation in C preprocessor
 file(WRITE ${CMAKE_BINARY_DIR}/asm_defines.h "#pragma once
-#define RESOURCES_PATH \"../resources/\"
+#define RESOURCES_PATH \"${RESOURCES_PATH}\"
 ")
 
-# Create a wrapper script that generates assembler using the defines header
-file(WRITE ${CMAKE_BINARY_DIR}/generate_asm.bat"
+# Add assembler target
+# Generates the .s file for src/main.cpp
+if(MSVC)
+  # MSVC: wrapper batch script invoked through cmd.exe
+  string(JOIN " " ASM_INCLUDES_STR ${ASM_INCLUDE_FLAGS})
+  file(WRITE ${CMAKE_BINARY_DIR}/generate_asm.bat"
 @echo off
 cd /D ${CMAKE_CURRENT_SOURCE_DIR}
 \"${CMAKE_CXX_COMPILER}\" -S -fverbose-asm ${ASM_OPT_FLAGS}${ASM_INCLUDES_STR} -DPRODUCTION_BUILD=${ASM_PROD_BUILD} -include ${CMAKE_BINARY_DIR}/asm_defines.h %* -o ${CMAKE_BINARY_DIR}/main.s
 ")
-
-# Add assembler target
-# Generates .s files for each source in the project
-if(MSVC)
-  # MSVC: generate .asm files
   add_custom_target(assembler
     COMMAND cmd /C ${CMAKE_BINARY_DIR}/generate_asm.bat ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
-    DEPENDS ${CMAKE_PROJECT_NAME}
     COMMENT "Generating assembler files"
     VERBATIM
   )
 else()
-  # GCC/Clang/MinGW: generate .s files
-  # Use wrapper script to set RESOURCES_PATH in environment before compilation
+  # GCC/Clang/MinGW: invoke the compiler directly (cmd.exe does not exist on Unix)
   add_custom_target(assembler
-    COMMAND cmd /C ${CMAKE_BINARY_DIR}/generate_asm.bat ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
-    DEPENDS ${CMAKE_PROJECT_NAME}
+    COMMAND ${CMAKE_CXX_COMPILER} -S -fverbose-asm ${ASM_OPT_FLAGS} ${ASM_INCLUDE_FLAGS}
+            -DPRODUCTION_BUILD=${ASM_PROD_BUILD}
+            -include ${CMAKE_BINARY_DIR}/asm_defines.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
+            -o ${CMAKE_BINARY_DIR}/main.s
     COMMENT "Generating assembler files"
     VERBATIM
   )
 endif()
 
-if(${PLATFORM} STREQUAL "Web")
+if(PLATFORM STREQUAL "Web")
   set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
         SUFFIX ".html"
         LINK_FLAGS "-s USE_GLFW=3 -s ASYNCIFY -s TOTAL_MEMORY=67108864 --preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"

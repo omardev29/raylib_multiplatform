@@ -29,7 +29,7 @@ add_subdirectory(${RAYLIB_DIR} "${CMAKE_BINARY_DIR}/raylib-5.5")
 add_subdirectory(${RAYMOB_DIR} "${CMAKE_BINARY_DIR}/raymob")
 
 # Fetch all source files from the user's src/ directory (recursively)
-file(GLOB_RECURSE SOURCES
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "${USER_SRC_DIR}/*.c"
     "${USER_SRC_DIR}/*.cpp"
 )
@@ -56,6 +56,7 @@ target_include_directories(${APP_LIB_NAME} PRIVATE
     "${USER_INCLUDE_DIR}"
     "${RAYLIB_DIR}/src"
     "${RAYMOB_DIR}"
+    "${USER_ROOT_DIR}/thirdparty/rres"
 )
 
 # Apply optimizations based on build type (same as root CMakeLists.txt)
