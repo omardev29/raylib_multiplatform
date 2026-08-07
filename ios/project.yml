@@ -51,7 +51,8 @@ targets:
         GCC_PREPROCESSOR_DEFINITIONS:
           - PLATFORM_IOS
           - GRAPHICS_API_OPENGL_ES3
-          - RESOURCES_PATH="./resources/"
+          # Escaped quotes so RESOURCES_PATH expands to a real string literal
+          - RESOURCES_PATH=\"./resources/\"
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         CLANG_CXX_LIBRARY: libc++
         HEADER_SEARCH_PATHS:

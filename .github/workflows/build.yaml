@@ -373,9 +373,11 @@ jobs:
                 -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
             netbsd)
               # NetBSD base has pkg_add (no pkgin by default); point it at the
-              # pkgsrc binary packages for this release/arch. Skip git: it pulls
-              # a curl newer than the base system's and conflicts; git is not
-              # needed to build (sources are already synced).
+              # pkgsrc binary packages for this release/arch. pkgsrc cmake wants
+              # a curl newer than the one already installed and pkg_add refuses
+              # to upgrade in place, so drop the old curl first. Skip git (not
+              # needed to build; sources are already synced).
+              sudo /usr/sbin/pkg_delete curl 2>/dev/null || true
               sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -m)/${{ matrix.version }}/All/" \
                 /usr/sbin/pkg_add cmake ninja pkgconf ;;
           esac
