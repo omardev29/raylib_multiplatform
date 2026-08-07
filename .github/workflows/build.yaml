@@ -85,12 +85,11 @@ jobs:
           path: linux-arm64-build.zip
 
   # ---------------------------------------------------------------------------
-  # Linux RISC-V (cross-compiled inside the amd64 container). Best-effort: the
-  # riscv64 X11 multiarch detection may need tuning per raylib version.
+  # Linux RISC-V (cross-compiled inside the amd64 container). First-class target:
+  # the build image ships the riscv64 X11/GL multiarch libs.
   # ---------------------------------------------------------------------------
   build-linux-riscv64:
     runs-on: ubuntu-latest
-    continue-on-error: true
     container:
       image: ${{ env.BUILD_IMAGE }}
     steps:
@@ -204,11 +203,10 @@ jobs:
           path: windows-x64-build.zip
 
   # ---------------------------------------------------------------------------
-  # Windows ARM64 (MSVC cross-compile). Best-effort.
+  # Windows ARM64 (MSVC cross-compile). First-class target.
   # ---------------------------------------------------------------------------
   build-windows-arm64:
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -273,11 +271,10 @@ jobs:
           path: macos-build.zip
 
   # ---------------------------------------------------------------------------
-  # iOS (raylib-iOS fork + Xcode). Best-effort scaffold; requires macOS + Xcode.
+  # iOS (raylib-iOS fork + Xcode). First-class target; requires macOS + Xcode.
   # ---------------------------------------------------------------------------
   build-ios:
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -309,11 +306,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # BSDs via QEMU on a hosted Linux runner (cross-platform-actions).
-  # Best-effort: per-BSD package names may need adjusting.
+  # First-class targets: FreeBSD, OpenBSD, NetBSD.
   # ---------------------------------------------------------------------------
   build-bsd:
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -366,9 +362,8 @@ jobs:
           cmake --build build
 
   # ---------------------------------------------------------------------------
-  # Release (on tag). Runs once the core builds succeed; experimental targets
-  # (riscv64, windows-arm64, ios, bsd) don't block it, and their artifacts are
-  # included when they succeeded.
+  # Release (on tag). Every platform is first-class: the release only runs when
+  # ALL builds succeed — no target is silently skipped.
   # ---------------------------------------------------------------------------
   release:
     needs:
@@ -387,9 +382,14 @@ jobs:
       always() &&
       needs.build-linux-x64.result == 'success' &&
       needs.build-linux-arm64.result == 'success' &&
+      needs.build-linux-riscv64.result == 'success' &&
       needs.build-web.result == 'success' &&
+      needs.build-android.result == 'success' &&
       needs.build-windows-x64.result == 'success' &&
+      needs.build-windows-arm64.result == 'success' &&
       needs.build-macos.result == 'success' &&
+      needs.build-ios.result == 'success' &&
+      needs.build-bsd.result == 'success' &&
       github.ref_type == 'tag'
     permissions:
       contents: write
