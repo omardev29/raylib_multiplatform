@@ -322,6 +322,8 @@ jobs:
   # ---------------------------------------------------------------------------
   build-bsd:
     runs-on: ubuntu-latest
+    # Guard against the VM-readiness step hanging forever (see cross-platform-actions #158).
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -348,7 +350,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Start ${{ matrix.os }} ${{ matrix.version }} (${{ matrix.arch }}) VM
-        uses: cross-platform-actions/action@5ea7e8e4677bd726033a10b094ba1c5762b15dee  # v1.3.0
+        # Pinned to cross-platform-actions master @ "Don't expose AMX to the
+        # guests": fixes NetBSD boot failures on Intel-AMX runners (issue #158).
+        # Switch back to a tagged release once one ships this fix.
+        uses: cross-platform-actions/action@9bc6a97170f220f554b6eb45d92439b9f676e150
         with:
           operating_system: ${{ matrix.os }}
           version: ${{ matrix.version }}
