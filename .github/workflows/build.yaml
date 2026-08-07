@@ -236,14 +236,13 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
-      - name: Pack resources (AES rres)
-        run: cmake --build build --target pack_resources
-
+      # Cross-compiled target: the rres packer is built for ARM64 and cannot run
+      # on the x64 host, so ship loose resources (the game falls back to them).
       - name: Package
         run: |
-          New-Item -ItemType Directory -Force -Path package/resources | Out-Null
+          New-Item -ItemType Directory -Force -Path package | Out-Null
           Copy-Item build/${{ env.PROJECT_NAME }}.exe package/
-          Copy-Item resources/resources.rres package/resources/
+          Copy-Item resources package/ -Recurse
           Compress-Archive -Path package/* -DestinationPath windows-arm64-build.zip
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
@@ -368,13 +367,17 @@ jobs:
                 libX11 libXrandr libXi libXcursor libXinerama libglvnd mesa-libs ;;
             openbsd)
               sudo pkg_add cmake ninja git pkgconf
-              # CMake cannot auto-detect the archiver for OpenBSD's clang
-              EXTRA_CMAKE="-DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib" ;;
+              # CMake cannot auto-detect the archiver for OpenBSD's clang; set
+              # both CMAKE_AR and the compiler-specific CMAKE_C_COMPILER_AR.
+              EXTRA_CMAKE="-DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib \
+                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
             netbsd)
               # NetBSD base has pkg_add (no pkgin by default); point it at the
-              # pkgsrc binary packages for this release/arch.
+              # pkgsrc binary packages for this release/arch. Skip git: it pulls
+              # a curl newer than the base system's and conflicts; git is not
+              # needed to build (sources are already synced).
               sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -m)/${{ matrix.version }}/All/" \
-                /usr/sbin/pkg_add cmake ninja git pkgconf ;;
+                /usr/sbin/pkg_add cmake ninja pkgconf ;;
           esac
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE || \
             cmake -B build -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE

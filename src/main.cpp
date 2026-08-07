@@ -6,6 +6,13 @@
 #include <assets.h>
 #include <test.h>
 
+// The raylib-iOS fork's raylib.h predates some of the extra named colors
+// (e.g. ALICEBLUE) that upstream raylib defines. Provide a fallback so the
+// same game code compiles on every backend.
+#ifndef ALICEBLUE
+#define ALICEBLUE CLITERAL(Color){ 0, 240, 248, 255 }
+#endif
+
 // ---------------------------------------------------------------------------
 // Game lifecycle (Godot SceneTree style).
 //
