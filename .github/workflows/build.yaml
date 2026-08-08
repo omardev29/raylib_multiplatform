@@ -495,12 +495,14 @@ jobs:
           - os: netbsd
             version: '10.1'
             arch: x86-64
-          - os: netbsd
-            version: '10.1'
-            arch: arm64
+          # NOTE: NetBSD arm64 is intentionally not built — the pkgsrc binary
+          # packages for 10.1/arm64 are built against newer lib versions than the
+          # base image ships, and pkg_add/pkg_delete cannot reconcile the cascade
+          # of version conflicts (building deps from source is impractical under
+          # QEMU). NetBSD is covered by the x86-64 job.
           # NOTE: OpenBSD/NetBSD riscv64 are not available — cross-platform-actions
           # publishes no riscv64 disk image for them. RISC-V is still covered by
-          # linux-riscv64 and freebsd-riscv64.
+          # linux-riscv64.
     defaults:
       run:
         shell: cpa.sh {0}
