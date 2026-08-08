@@ -389,7 +389,11 @@ jobs:
               sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -m)/${{ matrix.version }}/All/" \
                 /usr/sbin/pkg_add cmake pkgconf gmake
               GENERATOR="Unix Makefiles"
-              EXTRA_CMAKE="-DCMAKE_MAKE_PROGRAM=/usr/pkg/bin/gmake" ;;
+              # CMake can't auto-detect the archiver on NetBSD either; point it
+              # at the base ar/ranlib.
+              EXTRA_CMAKE="-DCMAKE_MAKE_PROGRAM=/usr/pkg/bin/gmake \
+                -DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib \
+                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
           esac
           rm -rf build
           cmake -B build -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE
