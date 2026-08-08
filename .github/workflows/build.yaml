@@ -366,6 +366,7 @@ jobs:
           set -e
           pwd; ls -la
           EXTRA_CMAKE=""
+          GENERATOR="Ninja"
           case "${{ matrix.os }}" in
             freebsd)
               sudo pkg install -y cmake ninja git pkgconf \
@@ -381,13 +382,17 @@ jobs:
               # pkgsrc binary packages for this release/arch. pkgsrc cmake wants
               # a curl newer than the one already installed and pkg_add refuses
               # to upgrade in place, so drop the old curl first. Skip git (not
-              # needed to build; sources are already synced).
+              # needed to build; sources are already synced). NOTE: pkgsrc's
+              # 'ninja' package is an IRC client, not the build tool, so build
+              # with GNU make + the "Unix Makefiles" generator instead.
               sudo /usr/sbin/pkg_delete curl 2>/dev/null || true
               sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -m)/${{ matrix.version }}/All/" \
-                /usr/sbin/pkg_add cmake ninja pkgconf ;;
+                /usr/sbin/pkg_add cmake pkgconf gmake
+              GENERATOR="Unix Makefiles"
+              EXTRA_CMAKE="-DCMAKE_MAKE_PROGRAM=/usr/pkg/bin/gmake" ;;
           esac
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE || \
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE
+          rm -rf build
+          cmake -B build -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE
           cmake --build build
 
   # ---------------------------------------------------------------------------
