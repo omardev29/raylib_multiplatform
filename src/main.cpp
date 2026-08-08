@@ -6,6 +6,8 @@
 #include <assets.h>
 #include <test.h>
 
+#include <cstdlib>  // getenv, atoi
+
 // The raylib-iOS fork's raylib.h predates some of the extra named colors
 // (e.g. ALICEBLUE) that upstream raylib defines. Provide a fallback so the
 // same game code compiles on every backend.
@@ -26,6 +28,17 @@
 static GameAssets assets;
 static int lastRewardAmount = 0;   // last rewarded-ad amount (demo feedback)
 
+// ---------------------------------------------------------------------------
+// CI smoke-test hook.
+// Set RAY_TEST_MAX_FRAMES=<N> to make the game boot, render <N> frames and
+// exit cleanly (exit code 0) instead of looping until the window is closed.
+// Used by the headless CI tests; in a normal run the variable is unset and the
+// game behaves exactly as before.
+// ---------------------------------------------------------------------------
+static int g_frame = 0;
+static int g_maxFrames = 0;      // 0 = run until the window is closed
+static bool g_testWantsExit = false;
+
 // Called once at startup: set config flags, create the window, load assets.
 static void _ready() {
 #ifdef __ANDROID__
@@ -42,6 +55,12 @@ static void _ready() {
   // same code runs everywhere.
   RequestInterstitialAd();
   RequestRewardedAd();
+
+  // CI smoke-test hook: read the frame budget (if any) and emit a boot marker.
+  const char *envFrames = getenv("RAY_TEST_MAX_FRAMES");
+  if (envFrames && envFrames[0]) g_maxFrames = atoi(envFrames);
+  TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK texture=%dx%d testFrames=%d",
+           assets.rabbit.width, assets.rabbit.height, g_maxFrames);
 }
 
 // Called once per frame: update + draw. Use GetFrameTime() for delta time.
@@ -79,6 +98,14 @@ static void _process() {
   }
 
   EndDrawing();
+
+  // CI smoke-test hook: stop once the frame budget is exhausted.
+  if (g_maxFrames > 0) {
+    if (++g_frame >= g_maxFrames) {
+      TraceLog(LOG_INFO, "RAY_TEST_DONE_FRAMES rendered=%d", g_frame);
+      g_testWantsExit = true;
+    }
+  }
 }
 
 // Called once at shutdown: unload assets, close the window.
@@ -106,7 +133,8 @@ extern "C" void ios_destroy() { _exit(); }
 int main() {
   _ready();
 
-  while (!WindowShouldClose()) {
+  // g_testWantsExit lets the CI smoke test stop the loop after N frames.
+  while (!WindowShouldClose() && !g_testWantsExit) {
     _process();
   }
 

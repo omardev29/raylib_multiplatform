@@ -43,6 +43,30 @@ jobs:
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
 
+      - name: Test (static) — binary exists, is x86-64 ELF, executable
+        run: |
+          set -e
+          BIN=build/${{ env.PROJECT_NAME }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          file "$BIN"
+          file "$BIN" | grep -q "ELF 64-bit"  || { echo "FAIL: not a 64-bit ELF"; exit 1; }
+          file "$BIN" | grep -qi "x86-64"     || { echo "FAIL: not x86-64"; exit 1; }
+          file "$BIN" | grep -qi "executable" || { echo "FAIL: not an executable"; exit 1; }
+          echo "PASS: static binary checks"
+
+      - name: Test (runtime) — boot headless, render frames, verify output
+        run: |
+          set -e
+          OUT=/tmp/ray_test_out.txt
+          # Run headless under a virtual X server for a bounded number of frames.
+          RAY_TEST_MAX_FRAMES=30 xvfb-run -a timeout 180 ./build/${{ env.PROJECT_NAME }} >"$OUT" 2>&1 \
+            || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
+          echo "--- captured output ---"; cat "$OUT"
+          grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          echo "PASS: runtime smoke test"
+
       - name: Package
         run: |
           mkdir -p package/resources
@@ -75,6 +99,29 @@ jobs:
 
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
+
+      - name: Test (static) — binary exists, is aarch64 ELF, executable
+        run: |
+          set -e
+          BIN=build/${{ env.PROJECT_NAME }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          file "$BIN"
+          file "$BIN" | grep -q "ELF 64-bit" || { echo "FAIL: not a 64-bit ELF"; exit 1; }
+          file "$BIN" | grep -qi "aarch64\|arm" || { echo "FAIL: not ARM64"; exit 1; }
+          file "$BIN" | grep -qi "executable"   || { echo "FAIL: not an executable"; exit 1; }
+          echo "PASS: static binary checks"
+
+      - name: Test (runtime) — boot headless, render frames, verify output
+        run: |
+          set -e
+          OUT=/tmp/ray_test_out.txt
+          RAY_TEST_MAX_FRAMES=30 xvfb-run -a timeout 180 ./build/${{ env.PROJECT_NAME }} >"$OUT" 2>&1 \
+            || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
+          echo "--- captured output ---"; cat "$OUT"
+          grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          echo "PASS: runtime smoke test"
 
       - name: Package
         run: |
@@ -110,6 +157,18 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      - name: Test (static) — binary exists, is RISC-V ELF, executable
+        run: |
+          set -e
+          BIN=build/${{ env.PROJECT_NAME }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          file "$BIN"
+          file "$BIN" | grep -q "ELF 64-bit"   || { echo "FAIL: not a 64-bit ELF"; exit 1; }
+          file "$BIN" | grep -qi "riscv"       || { echo "FAIL: not RISC-V"; exit 1; }
+          file "$BIN" | grep -qi "executable"  || { echo "FAIL: not an executable"; exit 1; }
+          echo "PASS: static binary checks"
+
       - name: Package
         run: |
           mkdir -p package/resources
@@ -139,6 +198,17 @@ jobs:
 
       - name: Build
         run: cmake --build --preset web
+
+      - name: Test (static) — web artifacts exist and are non-empty
+        run: |
+          set -e
+          cd build/web
+          for f in ${{ env.PROJECT_NAME }}.html ${{ env.PROJECT_NAME }}.js \
+                   ${{ env.PROJECT_NAME }}.wasm ${{ env.PROJECT_NAME }}.data; do
+            test -s "$f" || { echo "FAIL: $f missing or empty"; exit 1; }
+            echo "ok: $f ($(stat -c%s "$f") bytes)"
+          done
+          echo "PASS: web artifact checks"
 
       - name: Package
         run: |
@@ -178,6 +248,16 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Test (static) — APK exists, is a valid zip with manifest + native lib
+        run: |
+          set -e
+          APK=$(ls raymob/app/build/outputs/apk/debug/*.apk | head -1)
+          test -s "$APK" || { echo "FAIL: APK missing or empty"; exit 1; }
+          echo "ok: $APK ($(stat -c%s "$APK") bytes)"
+          unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "FAIL: no AndroidManifest.xml"; exit 1; }
+          unzip -l "$APK" | grep -q "\.so"                || { echo "FAIL: no native .so"; exit 1; }
+          echo "PASS: APK checks"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: android-debug-apk
@@ -199,6 +279,30 @@ jobs:
 
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
+
+      - name: Test (static) — .exe exists and is a PE executable
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = "build/${{ env.PROJECT_NAME }}.exe"
+          if (-not (Test-Path $exe)) { Write-Host "FAIL: $exe not found"; exit 1 }
+          if ((Get-Item $exe).Length -eq 0) { Write-Host "FAIL: $exe is empty"; exit 1 }
+          $head = [System.IO.File]::ReadAllBytes($exe)[0..1]
+          if (-not ($head[0] -eq 0x4D -and $head[1] -eq 0x5A)) { Write-Host "FAIL: not a PE (no MZ header)"; exit 1 }
+          Write-Host "PASS: static binary checks ($((Get-Item $exe).Length) bytes)"
+
+      - name: Test (runtime) — boot, render frames, verify output (180s timeout)
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:RAY_TEST_MAX_FRAMES = "30"
+          $exe = Resolve-Path "build/${{ env.PROJECT_NAME }}.exe"
+          $proc = Start-Process -FilePath $exe -RedirectStandardOutput out.txt -RedirectStandardError err.txt -PassThru
+          if (-not $proc.WaitForExit(180000)) { $proc.Kill(); Get-Content out.txt,err.txt; Write-Host "FAIL: timed out"; exit 1 }
+          Get-Content out.txt,err.txt
+          if ($proc.ExitCode -ne 0) { Write-Host "FAIL: exit code $($proc.ExitCode)"; exit 1 }
+          $all = (Get-Content out.txt,err.txt) -join "`n"
+          if ($all -notmatch "RAY_TEST_BOOT_OK")     { Write-Host "FAIL: boot marker missing"; exit 1 }
+          if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }
+          Write-Host "PASS: runtime smoke test"
 
       - name: Package
         run: |
@@ -236,6 +340,21 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
+      # Cross-compiled ARM64 binary: static checks only (cannot run on x64 host).
+      - name: Test (static) — .exe exists, is a PE, targets ARM64
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = "build/${{ env.PROJECT_NAME }}.exe"
+          if (-not (Test-Path $exe)) { Write-Host "FAIL: $exe not found"; exit 1 }
+          if ((Get-Item $exe).Length -eq 0) { Write-Host "FAIL: $exe is empty"; exit 1 }
+          $b = [System.IO.File]::ReadAllBytes($exe)
+          if (-not ($b[0] -eq 0x4D -and $b[1] -eq 0x5A)) { Write-Host "FAIL: not a PE (no MZ header)"; exit 1 }
+          # PE header: e_lfanew at 0x3C -> machine type at +4 (0xAA64 = ARM64)
+          $pe = [BitConverter]::ToInt32($b, 0x3C)
+          $machine = [BitConverter]::ToUInt16($b, $pe + 4)
+          if ($machine -ne 0xAA64) { Write-Host "FAIL: machine type 0x$($machine.ToString('X4')) != ARM64 (0xAA64)"; exit 1 }
+          Write-Host "PASS: static binary checks (ARM64 PE, $((Get-Item $exe).Length) bytes)"
+
       # Cross-compiled target: the rres packer is built for ARM64 and cannot run
       # on the x64 host, so ship loose resources (the game falls back to them).
       - name: Package
@@ -269,6 +388,16 @@ jobs:
 
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
+
+      - name: Test (static) — binary exists, is Mach-O, executable
+        run: |
+          set -e
+          BIN=build/${{ env.PROJECT_NAME }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          file "$BIN"
+          file "$BIN" | grep -qi "Mach-O" || { echo "FAIL: not a Mach-O binary"; exit 1; }
+          echo "PASS: static binary checks"
 
       - name: Package
         run: |
@@ -311,6 +440,16 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO build
 
+      - name: Test (static) — xcframework + .app bundle exist
+        run: |
+          set -e
+          test -d thirdparty/raylib-ios/raylib.xcframework || { echo "FAIL: raylib.xcframework missing"; exit 1; }
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "ray_test.app" -path "*iphonesimulator*" | head -1)
+          test -n "$APP" -a -d "$APP" || { echo "FAIL: ray_test.app not built"; exit 1; }
+          test -x "$APP/ray_test" || { echo "FAIL: app binary missing"; exit 1; }
+          file "$APP/ray_test" | grep -qi "Mach-O" || { echo "FAIL: not Mach-O"; exit 1; }
+          echo "PASS: iOS artifact checks ($APP)"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ios-raylib-xcframework
@@ -334,15 +473,26 @@ jobs:
           - os: freebsd
             version: '15.1'
             arch: arm64
-          # NOTE: FreeBSD riscv64 is intentionally absent — cross-platform-actions
-          # does not provide a riscv64 FreeBSD image ("Invalid architecture").
-          # RISC-V is still covered by the linux-riscv64 job.
+          # FreeBSD riscv64 needs the cross-platform-actions master pin below
+          # (older tagged releases predate the riscv64 FreeBSD VM support).
+          - os: freebsd
+            version: '15.1'
+            arch: riscv64
           - os: openbsd
             version: '7.9'
             arch: x86-64
+          - os: openbsd
+            version: '7.9'
+            arch: arm64
           - os: netbsd
             version: '10.1'
             arch: x86-64
+          - os: netbsd
+            version: '10.1'
+            arch: arm64
+          # NOTE: OpenBSD/NetBSD riscv64 are not available — cross-platform-actions
+          # publishes no riscv64 disk image for them. RISC-V is still covered by
+          # linux-riscv64 and freebsd-riscv64.
     defaults:
       run:
         shell: cpa.sh {0}
@@ -385,8 +535,15 @@ jobs:
               # needed to build; sources are already synced). NOTE: pkgsrc's
               # 'ninja' package is an IRC client, not the build tool, so build
               # with GNU make + the "Unix Makefiles" generator instead.
+              # pkgsrc dirs use their own arch names (arm64 -> aarch64); uname -m
+              # does not match, so map explicitly.
+              case "${{ matrix.arch }}" in
+                x86-64) PKG_ARCH="amd64" ;;
+                arm64)  PKG_ARCH="aarch64" ;;
+                *)      PKG_ARCH="$(uname -m)" ;;
+              esac
               sudo /usr/sbin/pkg_delete curl 2>/dev/null || true
-              sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -m)/${{ matrix.version }}/All/" \
+              sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$PKG_ARCH/${{ matrix.version }}/All/" \
                 /usr/sbin/pkg_add cmake pkgconf gmake
               GENERATOR="Unix Makefiles"
               # CMake can't auto-detect the archiver on NetBSD either; point it
@@ -398,6 +555,15 @@ jobs:
           rm -rf build
           cmake -B build -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE
           cmake --build build
+          # Static test: the binary exists, is executable, and has the ELF magic
+          # (portable check with od; `file` is not always present on the BSDs).
+          BIN=build/${{ env.PROJECT_NAME }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
+          MAGIC=$(od -An -tx1 -N4 "$BIN" | tr -d ' \n')
+          [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
+          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
 
   # ---------------------------------------------------------------------------
   # Release (on tag). Every platform is first-class: the release only runs when
