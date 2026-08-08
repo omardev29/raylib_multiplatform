@@ -106,9 +106,16 @@ if(PRODUCTION_BUILD)
     endif()
     target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -O3)
     target_compile_options(raylib PRIVATE -O3)
-    set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-    set_property(TARGET raylib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-    message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG===")
+    if(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+      # NetBSD's linker does not process the GCC LTO bytecode stored in static
+      # archives, leaving raylib symbols (TraceLog, LoadImage, ...) undefined at
+      # link time. Skip LTO there; keep it everywhere else.
+      message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG (NetBSD: LTO disabled)===")
+    else()
+      set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+      set_property(TARGET raylib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+      message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG===")
+    endif()
   endif()
   # There´s no console to quit on Linux/MacOS
 else()
