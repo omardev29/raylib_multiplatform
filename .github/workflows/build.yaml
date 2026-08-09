@@ -308,6 +308,51 @@ jobs:
           name: android-debug-apk
           path: raymob/app/build/outputs/apk/debug/*.apk
 
+      # --- Signed release AAB for Google Play (opt-in via secrets) ----------
+      # Provide these repo secrets to enable it:
+      #   ANDROID_KEYSTORE_BASE64    base64 -w0 your-upload-keystore.jks
+      #   ANDROID_KEYSTORE_PASSWORD
+      #   ANDROID_KEY_ALIAS
+      #   ANDROID_KEY_PASSWORD
+      - name: Decode release keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: raymob
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+
+      - name: Build signed release AAB
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: raymob
+        env:
+          # Absolute path: Gradle resolves relative file() paths against the
+          # app module dir (raymob/app), not the step working directory.
+          ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/raymob/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew bundleRelease --no-daemon
+
+      - name: Test (static) — AAB exists and is signed
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: |
+          set -e
+          BUNDLE=$(ls raymob/app/build/outputs/bundle/release/*.aab | head -1)
+          test -s "$BUNDLE" || { echo "FAIL: AAB missing or empty"; exit 1; }
+          echo "ok: $BUNDLE ($(stat -c%s "$BUNDLE") bytes)"
+          unzip -l "$BUNDLE" | grep -q "BundleConfig.pb"  || { echo "FAIL: no BundleConfig.pb"; exit 1; }
+          unzip -l "$BUNDLE" | grep -q "META-INF/.*\.SF"  || { echo "FAIL: AAB is not signed"; exit 1; }
+          echo "PASS: signed AAB checks"
+
+      - name: Upload release AAB
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: android-release-aab
+          path: raymob/app/build/outputs/bundle/release/*.aab
+
   # ---------------------------------------------------------------------------
   # Windows x64
   # ---------------------------------------------------------------------------
@@ -678,6 +723,7 @@ jobs:
             linux-riscv64-build/linux-riscv64-build.zip
             web-build/web-build.zip
             android-debug-apk/*.apk
+            android-release-aab/*.aab
             windows-x64-build/windows-x64-build.zip
             windows-arm64-build/windows-arm64-build.zip
             macos-build/macos-build.zip

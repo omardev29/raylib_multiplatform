@@ -211,6 +211,46 @@ off-Android, so you can `#include <raymob.h>` unconditionally:
 App identity (`app.name`, `app.application_id`, `app.native_library_name`) is set in
 `raymob/gradle.properties`. The build renames the Java package + native lib accordingly.
 
+### Publishing to Google Play (signed AAB)
+
+Google Play requires a **signed Android App Bundle (AAB)** — not an APK, and not the debug
+build. The template produces it via `./gradlew bundleRelease` plus an env-driven signing
+config, so **no secret ever lives in the repo**.
+
+1. **Create an upload keystore** (once; keep it safe. Enable *Play App Signing* in the Play
+   Console so Google can reset it if you ever lose it):
+
+   ```bash
+   keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 \
+           -validity 10000 -alias upload
+   ```
+
+2. **Build the signed AAB.** Export these variables, then run the bundle task:
+
+   | Env var | Value |
+   |---|---|
+   | `ANDROID_KEYSTORE_FILE` | path to `upload-keystore.jks` |
+   | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+   | `ANDROID_KEY_ALIAS` | key alias (`upload` above) |
+   | `ANDROID_KEY_PASSWORD` | key password |
+
+   ```bash
+   cd raymob && ./gradlew bundleRelease
+   # -> raymob/app/build/outputs/bundle/release/*.aab
+   ```
+
+   Without `ANDROID_KEYSTORE_FILE` the release build is unsigned (fine for a local check,
+   rejected by Play).
+
+3. **CI (automatic).** Add four **repository secrets** with those exact names
+   (*Settings → Secrets and variables → Actions*), where `ANDROID_KEYSTORE_BASE64` is
+   `base64 -w0 upload-keystore.jks`. Every push then builds and static-tests the signed AAB
+   (artifact `android-release-aab`), and tag pushes attach it to the Release. If the secrets
+   aren't set, those steps are skipped and everything else still builds.
+
+> **Never commit the keystore or its passwords.** And before publishing, replace the AdMob
+> test ids in `raymob/gradle.properties` and set your real `app.application_id`.
+
 ---
 
 ## iOS

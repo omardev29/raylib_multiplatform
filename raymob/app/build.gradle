@@ -164,6 +164,22 @@ android {
 
     }
 
+    // Release signing for Google Play (AAB). The keystore is provided at build
+    // time via environment variables (see the CI job / docs) and is NEVER
+    // committed. If no keystore is provided, bundleRelease yields an unsigned
+    // bundle (fine for local checks, but Play requires a signed AAB).
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()) {
+                storeFile file(ksPath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: ""
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
@@ -178,6 +194,11 @@ android {
             jniDebuggable false
             pseudoLocalesEnabled false
             zipAlignEnabled true
+
+            def ksPath = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
