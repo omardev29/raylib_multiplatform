@@ -230,6 +230,44 @@ jobs:
           path: web-build.zip
 
   # ---------------------------------------------------------------------------
+  # Web boot test (level 2): boot the web build in headless Chromium with
+  # Playwright and verify the engine initialises and renders. Runs on the
+  # ubuntu runner (node preinstalled), downloading the web artifact.
+  # ---------------------------------------------------------------------------
+  test-web:
+    needs: build-web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Download web artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: web-build
+          path: web
+
+      - name: Unpack web build
+        run: |
+          cd web
+          unzip -o web-build.zip
+          ls -la
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Serve and boot test (headless Chromium)
+        run: |
+          python3 -m http.server 8000 --directory web &
+          SRV=$!
+          sleep 3
+          node .github/scripts/web_boot_test.js "http://localhost:8000/${{ env.PROJECT_NAME }}.html"
+          rc=$?
+          kill $SRV 2>/dev/null || true
+          exit $rc
+
+  # ---------------------------------------------------------------------------
   # Android (SDK/NDK from the frozen image; gradle caches reduce downloads)
   # ---------------------------------------------------------------------------
   build-android:
@@ -575,6 +613,24 @@ jobs:
           MAGIC=$(od -An -tx1 -N4 "$BIN" | tr -d ' \n')
           [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
           echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
+
+      # The cpa.sh shell syncs the VM filesystem back to the runner after each
+      # step, so build/ is available here. This step runs on the RUNNER (shell:
+      # bash overrides the job's cpa.sh default) to package + upload the artifact.
+      - name: Package BSD artifact
+        shell: bash
+        run: |
+          set -e
+          test -f build/${{ env.PROJECT_NAME }} || { echo "FAIL: binary not synced back from VM"; exit 1; }
+          mkdir -p package/resources
+          cp build/${{ env.PROJECT_NAME }} package/
+          cp -r resources package/
+          cd package && zip -r "../bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip" .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: bsd-${{ matrix.os }}-${{ matrix.arch }}-build
+          path: bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip
 
   # ---------------------------------------------------------------------------
   # Release (on tag). Every platform is first-class: the release only runs when
