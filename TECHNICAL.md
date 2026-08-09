@@ -250,9 +250,10 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 
 - **Linux jobs** run **inside a frozen Docker build image** (`container:`), so toolchains are
   pinned and nothing is downloaded at job time. The image is built from its **own repo**
-  (`raylib-build-image`: `Dockerfile` + `docker-image.yaml` → GHCR). Set `BUILD_IMAGE` at the top
-  of `build.yaml` to the image you publish. **For a public template** others can either pull the
-  shared image or build/publish their own.
+  (`raylib-build-image`: `Dockerfile` + `docker-image.yaml` → GHCR). `BUILD_IMAGE` at the top of
+  `build.yaml` points at the shared public image `ghcr.io/omardev29/raylib-build:latest` — **you
+  can use it as-is** (it's public). If you prefer full control you can build & publish your own and
+  point `BUILD_IMAGE` at it, but that's usually unnecessary.
 - **Windows / macOS / BSD** jobs run on native runners. Windows uses MSVC; BSDs use QEMU VMs.
 - **Reproducibility:** every third-party action is pinned by full commit SHA; raylib (6.0) and
   raylib-iOS (`6.0.3-iOS`) are frozen. See `thirdparty/FROZEN_VERSIONS.md`.
@@ -264,6 +265,43 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
     engine initialised a canvas; Windows boots and verifies boot + asset load.
 - On a tag push the `release` job downloads **all** artifacts (including the BSDs) and publishes a
   Release. It only runs when every required build succeeded.
+
+> **What the tests do NOT cover.** These tests prove each target *builds* and (where feasible)
+> *boots* — they are **not end-to-end**. The BSD jobs in particular only compile the sample inside a
+> headless VM; they never open a window or run your real game. macOS/iOS/Android are likewise only
+> built (no device/emulator run). **You must test your actual game on each platform you ship**, and
+> add your own tests if you need stronger guarantees.
+
+---
+
+## Maintenance & platform longevity
+
+Everything is pinned (frozen image + pinned actions + frozen raylib), so the pipeline keeps
+**building** unchanged for a long time. The thing that forces updates is not the build — it's the
+**app-store SDK requirements**, which move on their own schedule.
+
+| Platform | Builds keep working… | Publishing constraint |
+|---|---|---|
+| Windows / macOS / Linux | Years. Frozen toolchain in the image. | None (no store gate). |
+| Web (Emscripten) | Years. emsdk is pinned in the image; newer emsdk only needed for new features. | None. |
+| **Android** | Builds fine as-is. | **Play Store demands a recent `targetSdk`** (roughly yearly). You'll bump `compileSdk`/`targetSdk` + NDK + AGP + Gradle + Java about once a year to keep publishing. |
+| **iOS** | Builds via the fork. | **App Store requires a recent Xcode/SDK** (roughly yearly). Requires updating the `raylib-iOS` fork / ANGLE. |
+| BSD | Stable. `cross-platform-actions` and its disk images update occasionally. | None (no store). |
+
+**Bottom line:** *building* stays green for years without touching anything. *Publishing* to the
+Play Store / App Store is what forces SDK bumps — roughly **once a year for Android and iOS**.
+Desktop/BSD/Web have no such gate.
+
+Specifics to expect when the stores move:
+
+- **Android:** Google Play requires new apps/updates to target an API level within ~1 year of the
+  latest (e.g. 35 in 2025, 36 in 2026…). The template currently targets SDK 34. To keep publishing
+  you bump `compileSdk`/`targetSdk` in `raymob/app/build.gradle`, plus the NDK, AGP, Gradle and Java
+  versions to compatible ones. The native raylib/raymob code usually needs no change.
+- **iOS:** Apple requires submission with a recent Xcode. The `raylib-iOS` fork (and its bundled
+  ANGLE) must be updated to build against the new SDK/Xcode. Watch the fork for releases.
+- **Note:** the frozen image pins today's SDKs. When you bump SDKs you may also rebuild the build
+  image (for Android SDK/NDK) — the image repo is the single place that changes.
 
 ---
 

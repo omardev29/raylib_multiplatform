@@ -91,7 +91,7 @@ static void _process() {
   DrawTexture(assets.rabbit, screen_x / 2 - assets.rabbit.width / 2,
               screen_y / 2 - assets.rabbit.height / 2, WHITE);
 
-  DrawText("Your game starts here! Edit src/main.cpp", 120, 200, 20, LIGHTGRAY);
+  DrawText("Omar's raylib template!", 190, 200, 20, LIGHTGRAY);
   DrawText("SPACE: interstitial   R: rewarded", 10, screen_y - 40, 20, GRAY);
   if (lastRewardAmount > 0) {
     DrawText(TextFormat("Last reward: %d", lastRewardAmount), 10, screen_y - 70, 20, DARKGREEN);
