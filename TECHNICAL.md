@@ -297,6 +297,10 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 - **Windows / macOS / BSD** jobs run on native runners. Windows uses MSVC; BSDs use QEMU VMs.
 - **Reproducibility:** every third-party action is pinned by full commit SHA; raylib (6.0) and
   raylib-iOS (`6.0.3-iOS`) are frozen. See `thirdparty/FROZEN_VERSIONS.md`.
+- **Google Play AAB (opt-in):** if the repo defines the four `ANDROID_KEYSTORE_*` secrets, the
+  Android job also builds, static-tests and uploads a **signed release AAB**
+  (`android-release-aab`), and tag pushes attach it to the Release. Without the secrets those
+  steps are skipped. See [Publishing to Google Play (signed AAB)](#publishing-to-google-play-signed-aab).
 - **Tests (two levels):**
   - *Static* — every target: binary exists, is executable, and has the right format/architecture
     (ELF `e_machine`, PE/Mach-O, web artifacts, APK contents).
