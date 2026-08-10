@@ -32,6 +32,12 @@ inline static void _process(float delta) {
 
   DrawText("Omar's raylib template!", 190, 200, 20, LIGHTGRAY);
 
+  // CI smoke-test hook: read the frame back and check something was actually
+  // drawn. Must sit here, between the last draw call and EndDrawing() — see
+  // tests/smoke_test.h for why either side of that line is wrong. No-op unless
+  // RAY_TEST_MAX_FRAMES is set.
+  SmokeTest_CaptureFrame();
+
   EndDrawing();
 }
 

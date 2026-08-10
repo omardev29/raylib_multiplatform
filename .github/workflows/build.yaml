@@ -80,12 +80,18 @@ jobs:
           set -e
           OUT=/tmp/ray_test_out.txt
           # Run headless under a virtual X server for a bounded number of frames.
-          RAY_TEST_MAX_FRAMES=30 xvfb-run -a timeout 180 ./build/${{ env.PROJECT_NAME }} >"$OUT" 2>&1 \
+          # Explicit 24-bit screen: the render read-back needs a real colour
+          # depth, and xvfb-run's default has changed across versions.
+          RAY_TEST_MAX_FRAMES=30 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 180 ./build/${{ env.PROJECT_NAME }} >"$OUT" 2>&1 \
             || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
           echo "--- captured output ---"; cat "$OUT"
           grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          # Booting proves the window and the assets are fine and nothing more.
+          # RAY_TEST_RENDER_OK is the gate that a blank frame cannot pass.
+          grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
-          echo "PASS: runtime smoke test"
+          echo "PASS: runtime boot + render test"
 
       - name: Package
         run: |
@@ -143,12 +149,18 @@ jobs:
         run: |
           set -e
           OUT=/tmp/ray_test_out.txt
-          RAY_TEST_MAX_FRAMES=30 xvfb-run -a timeout 180 ./build/${{ env.PROJECT_NAME }} >"$OUT" 2>&1 \
+          # Explicit 24-bit screen: the render read-back needs a real colour
+          # depth, and xvfb-run's default has changed across versions.
+          RAY_TEST_MAX_FRAMES=30 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 180 ./build/${{ env.PROJECT_NAME }} >"$OUT" 2>&1 \
             || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
           echo "--- captured output ---"; cat "$OUT"
           grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          # Booting proves the window and the assets are fine and nothing more.
+          # RAY_TEST_RENDER_OK is the gate that a blank frame cannot pass.
+          grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
-          echo "PASS: runtime smoke test"
+          echo "PASS: runtime boot + render test"
 
       - name: Package
         run: |
@@ -286,12 +298,18 @@ jobs:
           unzip -o web-build.zip
           ls -la
 
+      # Pinned via the committed package-lock.json. The Chromium build is
+      # keyed to the Playwright version, so `npm ci` pins the browser too.
       - name: Install Playwright + Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
         run: |
-          npm install playwright
+          npm ci
           npx playwright install chromium --with-deps
 
-      - name: Serve and boot test (headless Chromium)
+      - name: Serve and boot + render test (headless Chromium)
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
         run: |
           python3 -m http.server 8000 --directory web &
           SRV=$!
@@ -425,28 +443,88 @@ jobs:
           if (-not ($head[0] -eq 0x4D -and $head[1] -eq 0x5A)) { Write-Host "FAIL: not a PE (no MZ header)"; exit 1 }
           Write-Host "PASS: static binary checks ($((Get-Item $exe).Length) bytes)"
 
-      - name: Test (runtime) — boot + asset load (render not testable, no headless GPU)
+      # Hosted Windows runners have no GPU, so GLFW used to fail to create a GL
+      # context and the render loop faulted right after boot. The old test
+      # tolerated that crash, which meant ANY render regression passed CI in
+      # silence. Mesa's software rasteriser gives a real WGL context on the
+      # real runner, so the shipped binary can be rendered and checked for
+      # actual pixels — no emulation, no translation layer.
+      - name: Set up Mesa software OpenGL (pinned)
         run: |
           $ErrorActionPreference = "Stop"
-          $env:RAY_TEST_MAX_FRAMES = "30"
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/26.1.6/mesa3d-26.1.6-release-msvc.7z"
+          $sha = "86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb"
+          Invoke-WebRequest -Uri $url -OutFile mesa.7z
+          $got = (Get-FileHash mesa.7z -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $sha) { Write-Host "FAIL: mesa sha256 mismatch`n  got      $got`n  expected $sha"; exit 1 }
+          7z x mesa.7z -omesa -y | Out-Null
+          # Windows resolves DLLs from the application directory first, so
+          # dropping these next to the .exe overrides the system opengl32.
+          # They are deleted again before packaging: they must never ship.
+          Copy-Item mesa/x64/opengl32.dll,mesa/x64/libgallium_wgl.dll,mesa/x64/dxil.dll build/
+          Write-Host "Mesa 26.1.6 staged next to the executable"
+
+      - name: Test (runtime) — boot, render frames, verify pixels
+        run: |
+          $ErrorActionPreference = "Stop"
           $exe = Resolve-Path "build/${{ env.PROJECT_NAME }}.exe"
-          $proc = Start-Process -FilePath $exe -RedirectStandardOutput out.txt -RedirectStandardError err.txt -PassThru
-          if (-not $proc.WaitForExit(180000)) { $proc.Kill(); Get-Content out.txt,err.txt; Write-Host "FAIL: timed out"; exit 1 }
-          Get-Content out.txt,err.txt
-          $all = (Get-Content out.txt,err.txt) -join "`n"
-          # Headless Windows runners have no GPU/OpenGL, so GLFW cannot create a
-          # window and the render loop faults AFTER boot. We therefore verify the
-          # boot marker with a loaded (non-zero) texture and tolerate the render
-          # crash; full-frame rendering is not testable without a GPU.
+
+          function Invoke-Game([string]$driver) {
+            Remove-Item out.txt,err.txt -ErrorAction SilentlyContinue
+            $env:RAY_TEST_MAX_FRAMES = "30"
+            $env:GALLIUM_DRIVER = $driver
+            $proc = Start-Process -FilePath $exe -RedirectStandardOutput out.txt `
+                                  -RedirectStandardError err.txt -PassThru
+            if (-not $proc.WaitForExit(180000)) {
+              $proc.Kill()
+              return @{ ok = $false; code = -1; text = "TIMEOUT" }
+            }
+            $text = ((Get-Content out.txt -ErrorAction SilentlyContinue) +
+                     (Get-Content err.txt -ErrorAction SilentlyContinue)) -join "`n"
+            return @{ ok = ($proc.ExitCode -eq 0); code = $proc.ExitCode; text = $text }
+          }
+
+          # Fallback ladder. llvmpipe is the fast, well-supported path; softpipe
+          # is the reference rasteriser; d3d12 goes through WARP. If all three
+          # fail we genuinely cannot render here and the job should say so.
+          $result = $null
+          foreach ($drv in @("llvmpipe", "softpipe", "d3d12")) {
+            Write-Host "=== attempt: GALLIUM_DRIVER=$drv ==="
+            $r = Invoke-Game $drv
+            Write-Host $r.text
+            if ($r.ok -and $r.text -match "RAY_TEST_RENDER_OK") { $result = $r; $used = $drv; break }
+            Write-Host "--- $drv did not produce a rendered frame (exit=$($r.code)) ---"
+          }
+
+          if ($null -eq $result) { Write-Host "FAIL: no Mesa driver produced a rendered frame"; exit 1 }
+
+          $all = $result.text
           if ($all -notmatch "RAY_TEST_BOOT_OK texture=[1-9]\d*x[1-9]\d*") { Write-Host "FAIL: boot marker missing or texture not loaded"; exit 1 }
-          Write-Host "PASS: Windows boot + asset load verified (exit=$($proc.ExitCode), render skipped: no headless GPU)"
+          if ($all -notmatch "RAY_TEST_RENDER_OK")   { Write-Host "FAIL: render marker missing (blank frame?)"; exit 1 }
+          if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }
+          Write-Host "PASS: Windows boot + render verified on GALLIUM_DRIVER=$used"
+
+      # The game must ship against the user's real driver. A stray Mesa
+      # opengl32.dll in the zip would silently force software rendering on
+      # every player's machine.
+      - name: Remove Mesa from the build directory
+        run: |
+          Remove-Item build/opengl32.dll,build/libgallium_wgl.dll,build/dxil.dll -ErrorAction SilentlyContinue
+          Remove-Item mesa.7z -ErrorAction SilentlyContinue
+          Remove-Item mesa -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Package
         run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path package/resources | Out-Null
           Copy-Item build/${{ env.PROJECT_NAME }}.exe package/
           Copy-Item resources/resources.rres package/resources/
           Compress-Archive -Path package/* -DestinationPath windows-x64-build.zip
+          # Belt and braces: forcing software GL on every player would be a
+          # miserable bug to diagnose from a support ticket.
+          $names = [IO.Compression.ZipFile]::OpenRead((Resolve-Path windows-x64-build.zip)).Entries.FullName
+          if ($names -match 'opengl32\.dll|libgallium_wgl\.dll') { Write-Host "FAIL: Mesa leaked into the release zip"; exit 1 }
+          Write-Host "PASS: package clean ($($names.Count) entries)"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:

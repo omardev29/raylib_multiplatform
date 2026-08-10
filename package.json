@@ -1,0 +1,14 @@
+{
+  "name": "raylib-multiplatform-ci",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only dependencies for the CI web boot/render test. Not part of the game.",
+  "license": "MIT",
+  "scripts": {
+    "web-test": "node .github/scripts/web_boot_test.js"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1",
+    "pngjs": "7.0.0"
+  }
+}

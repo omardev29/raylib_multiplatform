@@ -1,18 +1,35 @@
 #!/usr/bin/env node
-// Web boot test: boot the (Emscripten) web build in headless Chromium and
-// verify the engine actually initialises and renders, not just that the page
-// loads. Modelled on the Godot CI web_boot_test pattern.
+// Web boot + render test: boot the (Emscripten) web build in headless Chromium
+// and verify the engine actually PUTS PIXELS ON THE CANVAS — not merely that
+// the page loads and a canvas element exists.
 //
 // Usage: node web_boot_test.js <url>
 // Exit codes: 0 = boot + render OK, 1 = failure.
+//
+// Why the pixel check lives here and not in tests/smoke_test.h:
+// the native targets gate on RAY_TEST_RENDER_OK, which the game emits itself
+// when RAY_TEST_MAX_FRAMES is set. Emscripten's getenv() reads an internal ENV
+// object that is only reachable from inside the generated module scope, so
+// plumbing that variable in from outside would mean exporting emscripten
+// runtime internals just for a test. Screenshotting the canvas is both simpler
+// and a stronger claim: it checks what the browser actually composited, which
+// is what a player would see.
 
 'use strict';
 
 const { chromium } = require('playwright');
+const { PNG } = require('pngjs');
 
 const url = process.argv[2] || 'http://localhost:8000/index.html';
 const BOOT_TIMEOUT_MS = 60000;   // total boot budget
 const SETTLE_MS = 15000;         // time to let the engine render a few frames
+
+// Same thresholds as the native gate in tests/smoke_test.h: enough non-
+// background pixels to prove something was drawn, but not so many that the
+// "background" is itself the anomaly (a fully garbage frame is just as broken
+// as a blank one).
+const MIN_RATIO = 0.0005;
+const MAX_RATIO = 0.98;
 
 // Console "error" messages matching these are expected noise on a headless
 // browser (no real audio device / GPU / gamepad) and must not fail the test.
@@ -26,9 +43,33 @@ const BENIGN = [
   /autoplay/i,
 ];
 
+// Ratio of pixels differing from the top-left pixel, which for this scene is
+// the ClearBackground colour. +/-2 per channel of slack absorbs dithering.
+function contentRatio(pngBuffer) {
+  const img = PNG.sync.read(pngBuffer);
+  const d = img.data;                       // RGBA8
+  const total = img.width * img.height;
+  if (total === 0) return { ratio: 0, differing: 0, width: 0, height: 0 };
+
+  const bg = [d[0], d[1], d[2]];
+  let differing = 0;
+  for (let i = 0; i < total; i++) {
+    const o = i * 4;
+    if (Math.abs(d[o] - bg[0]) > 2 ||
+        Math.abs(d[o + 1] - bg[1]) > 2 ||
+        Math.abs(d[o + 2] - bg[2]) > 2) {
+      differing++;
+    }
+  }
+  return { ratio: differing / total, differing, width: img.width, height: img.height };
+}
+
 (async () => {
   const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
+    // SwiftShader gives a real (software) GL implementation, so this exercises
+    // the actual render path rather than a stub. --no-sandbox because CI may
+    // run this as root inside a container.
+    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
   });
 
   try {
@@ -56,7 +97,7 @@ const BENIGN = [
     // Give the engine time to initialise GL and render a few frames.
     await page.waitForTimeout(SETTLE_MS);
 
-    // Positive signal: the canvas must have a non-zero drawing-buffer size,
+    // Positive signal 1: the canvas must have a non-zero drawing-buffer size,
     // which only happens once the engine has initialised its viewport.
     const size = await page.evaluate(() => {
       const c = document.querySelector('canvas');
@@ -81,7 +122,27 @@ const BENIGN = [
       return;
     }
 
-    console.log('PASS: web boot OK, canvas ' + size.w + 'x' + size.h);
+    // Positive signal 2: the composited canvas actually has content. Element
+    // screenshots go through the browser compositor, so this works on a WebGL
+    // canvas without preserveDrawingBuffer — unlike canvas.toDataURL(), which
+    // would come back blank.
+    const shot = await canvas.screenshot({ type: 'png' });
+    const { ratio, differing, width, height } = contentRatio(shot);
+    console.log(
+      'render: ' + width + 'x' + height +
+      ' non-background pixels=' + differing +
+      ' ratio=' + ratio.toFixed(5));
+
+    if (!(ratio > MIN_RATIO && ratio < MAX_RATIO)) {
+      console.error(
+        'FAIL: RAY_TEST_RENDER_FAIL canvas is ' +
+        (ratio <= MIN_RATIO ? 'blank' : 'uniformly non-background') +
+        ' (ratio=' + ratio.toFixed(5) + '); the engine booted but did not draw');
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log('PASS: RAY_TEST_RENDER_OK web boot + render, canvas ' + size.w + 'x' + size.h);
     process.exitCode = 0;
   } finally {
     await browser.close();

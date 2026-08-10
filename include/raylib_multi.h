@@ -17,9 +17,19 @@
 
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
 // extern "C" so the symbols match the C declarations in rcore_ios.c.
+//
+// The SmokeTest_Tick() branch is what makes the app terminable under CI. On
+// desktop the frame budget just ends the while loop in main(); UIKit owns the
+// run loop here and offers no way to return from it, so the CI path tears down
+// and exits explicitly. Outside CI (RAY_TEST_MAX_FRAMES unset) Tick() always
+// returns 0 and this is dead code.
 #define IOS_FUNCS                                                              \
   extern "C" void ios_ready() { _ready(); }                                    \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
+    if (SmokeTest_Tick()) {                                                    \
+      _exit();                                                                 \
+      exit(0);                                                                 \
+    }                                                                          \
   }                                                                            \
   extern "C" void ios_destroy() { _exit(); }
