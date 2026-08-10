@@ -1,9 +1,12 @@
 # Multiplatform build & release.
 #
-# Linux jobs run INSIDE the frozen build-image (see docker/Dockerfile and
-# docker-image.yaml), so toolchains are pinned and nothing is downloaded at job
-# time. Windows/macOS/BSD jobs run on their native hosted runners. All
-# third-party actions are pinned by full commit SHA (version in the comment).
+# Linux jobs run INSIDE the frozen build-image, so toolchains are pinned and
+# nothing is downloaded at job time. That image is built from its own repo:
+# https://github.com/omardev29/raylib-build-image
+#
+# Windows/macOS/BSD jobs run on their native hosted runners. Every runner label
+# is pinned to a concrete image (never `-latest`) and every third-party action
+# is pinned by full commit SHA, with the tag it resolves to in the comment.
 #
 # Platforms: Linux x64/ARM64/RISC-V, Windows x64/ARM64, macOS, iOS, Web,
 # Android, FreeBSD, OpenBSD, NetBSD.
@@ -16,6 +19,16 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Least privilege by default; the jobs that need more ask for it explicitly.
+permissions:
+  contents: read
+
+# Superseded runs on a branch are wasted minutes, but a tag build is a release
+# artifact — never cancel one of those out from under itself.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 env:
   PROJECT_NAME: ray_test
   # Image built by .github/workflows/docker-image.yaml. Change the owner to yours.
@@ -26,7 +39,11 @@ jobs:
   # Linux x64 (inside the frozen container)
   # ---------------------------------------------------------------------------
   build-linux-x64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     container:
       # NOTE: GitHub Actions does not allow the `env` context in container.image,
       # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
@@ -81,12 +98,17 @@ jobs:
         with:
           name: linux-x64-build
           path: linux-x64-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Linux ARM64 (native arm64 runner + arm64 image variant)
   # ---------------------------------------------------------------------------
   build-linux-arm64:
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
     container:
       # NOTE: GitHub Actions does not allow the `env` context in container.image,
       # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
@@ -139,13 +161,18 @@ jobs:
         with:
           name: linux-arm64-build
           path: linux-arm64-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Linux RISC-V (cross-compiled inside the amd64 container). First-class target:
   # the build image ships the riscv64 X11/GL multiarch libs.
   # ---------------------------------------------------------------------------
   build-linux-riscv64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     container:
       # NOTE: GitHub Actions does not allow the `env` context in container.image,
       # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
@@ -187,12 +214,17 @@ jobs:
         with:
           name: linux-riscv64-build
           path: linux-riscv64-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Web (Emscripten from the frozen image)
   # ---------------------------------------------------------------------------
   build-web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     container:
       # NOTE: GitHub Actions does not allow the `env` context in container.image,
       # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
@@ -228,6 +260,7 @@ jobs:
         with:
           name: web-build
           path: web-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Web boot test (level 2): boot the web build in headless Chromium with
@@ -236,7 +269,8 @@ jobs:
   # ---------------------------------------------------------------------------
   test-web:
     needs: build-web
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -271,7 +305,11 @@ jobs:
   # Android (SDK/NDK from the frozen image; gradle caches reduce downloads)
   # ---------------------------------------------------------------------------
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
     container:
       # NOTE: GitHub Actions does not allow the `env` context in container.image,
       # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
@@ -300,7 +338,7 @@ jobs:
       - name: Test (static) — APK exists, is a valid zip with manifest + native lib
         run: |
           set -e
-          APK=$(ls raymob/app/build/outputs/apk/debug/*.apk | head -1)
+          APK=$(find raymob/app/build/outputs/apk/debug -name '*.apk' | head -1)
           test -s "$APK" || { echo "FAIL: APK missing or empty"; exit 1; }
           echo "ok: $APK ($(stat -c%s "$APK") bytes)"
           unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "FAIL: no AndroidManifest.xml"; exit 1; }
@@ -311,6 +349,7 @@ jobs:
         with:
           name: android-debug-apk
           path: raymob/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
 
       # --- Signed release AAB for Google Play (opt-in via secrets) ----------
       # Provide these repo secrets to enable it:
@@ -343,7 +382,7 @@ jobs:
         if: ${{ env.HAS_RELEASE_KEYSTORE == 'true' }}
         run: |
           set -e
-          BUNDLE=$(ls raymob/app/build/outputs/bundle/release/*.aab | head -1)
+          BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
           test -s "$BUNDLE" || { echo "FAIL: AAB missing or empty"; exit 1; }
           echo "ok: $BUNDLE ($(stat -c%s "$BUNDLE") bytes)"
           unzip -l "$BUNDLE" | grep -q "BundleConfig.pb"  || { echo "FAIL: no BundleConfig.pb"; exit 1; }
@@ -356,12 +395,14 @@ jobs:
         with:
           name: android-release-aab
           path: raymob/app/build/outputs/bundle/release/*.aab
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Windows x64
   # ---------------------------------------------------------------------------
   build-windows-x64:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -411,12 +452,14 @@ jobs:
         with:
           name: windows-x64-build
           path: windows-x64-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Windows ARM64 (MSVC cross-compile). First-class target.
   # ---------------------------------------------------------------------------
   build-windows-arm64:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -464,12 +507,14 @@ jobs:
         with:
           name: windows-arm64-build
           path: windows-arm64-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # macOS
   # ---------------------------------------------------------------------------
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -506,12 +551,14 @@ jobs:
         with:
           name: macos-build
           path: macos-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # iOS (raylib-iOS fork + Xcode). First-class target; requires macOS + Xcode.
   # ---------------------------------------------------------------------------
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -550,13 +597,14 @@ jobs:
         with:
           name: ios-raylib-xcframework
           path: thirdparty/raylib-ios/raylib.xcframework
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # BSDs via QEMU on a hosted Linux runner (cross-platform-actions).
   # First-class targets: FreeBSD, OpenBSD, NetBSD.
   # ---------------------------------------------------------------------------
   build-bsd:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Guard against the VM-readiness step hanging forever (see cross-platform-actions #158).
     timeout-minutes: 60
     strategy:
@@ -597,10 +645,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Start ${{ matrix.os }} ${{ matrix.version }} (${{ matrix.arch }}) VM
-        # Pinned to cross-platform-actions master @ "Don't expose AMX to the
-        # guests": fixes NetBSD boot failures on Intel-AMX runners (issue #158).
-        # Switch back to a tagged release once one ships this fix.
-        uses: cross-platform-actions/action@9bc6a97170f220f554b6eb45d92439b9f676e150
+        # v1.4.0. The AMX fix this job used to pin an untagged master commit
+        # for ("Don't expose AMX to the guests", NetBSD boot failures on
+        # Intel-AMX runners, issue #158) shipped in v1.3.0, so we are back on
+        # a real release.
+        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963  # v1.4.0
         with:
           operating_system: ${{ matrix.os }}
           version: ${{ matrix.version }}
@@ -680,6 +729,7 @@ jobs:
         with:
           name: bsd-${{ matrix.os }}-${{ matrix.arch }}-build
           path: bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Release (on tag). Every platform is first-class: the release only runs when
@@ -691,19 +741,24 @@ jobs:
       - build-linux-arm64
       - build-linux-riscv64
       - build-web
+      - test-web
       - build-android
       - build-windows-x64
       - build-windows-arm64
       - build-macos
       - build-ios
       - build-bsd
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # `always()` makes `needs` non-gating on its own, so every dependency has to
+    # be re-asserted here by hand. Miss one and it silently stops blocking.
     if: >
       always() &&
       needs.build-linux-x64.result == 'success' &&
       needs.build-linux-arm64.result == 'success' &&
       needs.build-linux-riscv64.result == 'success' &&
       needs.build-web.result == 'success' &&
+      needs.test-web.result == 'success' &&
       needs.build-android.result == 'success' &&
       needs.build-windows-x64.result == 'success' &&
       needs.build-windows-arm64.result == 'success' &&
@@ -714,6 +769,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # No `path:` — each artifact lands in a directory named after itself,
+      # which is what the `files:` globs below expect.
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
 
@@ -728,10 +787,27 @@ jobs:
             zip -rq ios-raylib-xcframework.zip raylib.xcframework
           fi
 
+      # Lets anyone verify a download without having to trust the transport.
+      # Release assets are flat, so the sums are recorded by basename — that is
+      # what `sha256sum -c SHA256SUMS` expects next to the downloaded files.
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          ROOT=$PWD
+          : > "$ROOT/SHA256SUMS"
+          find . -maxdepth 2 \( -name '*.zip' -o -name '*.apk' -o -name '*.aab' \) \
+            -print0 | sort -z | while IFS= read -r -d '' f; do
+              ( cd "$(dirname "$f")" && sha256sum "$(basename "$f")" ) >> "$ROOT/SHA256SUMS"
+            done
+          echo "--- SHA256SUMS ---"; cat "$ROOT/SHA256SUMS"
+
       - name: Create Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3
         with:
           generate_release_notes: true
+          # The AAB is opt-in (it needs signing secrets), so its glob will not
+          # always match. Be explicit rather than relying on the default.
+          fail_on_unmatched_files: false
           files: |
             linux-x64-build/linux-x64-build.zip
             linux-arm64-build/linux-arm64-build.zip
@@ -744,3 +820,5 @@ jobs:
             macos-build/macos-build.zip
             bsd-*-build/*.zip
             ios-raylib-xcframework.zip
+            THIRD_PARTY_LICENSES.md
+            SHA256SUMS

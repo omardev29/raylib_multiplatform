@@ -1,0 +1,25 @@
+# Pinning by SHA without automated bumps rots into "pinned to something with a
+# known CVE". Dependabot opens the PRs; a human still decides to merge.
+#
+# Not covered here, on purpose:
+#   * The build image digest — bumped by hand from the raylib-build-image run
+#     summary; tools/versions_check.sh is what stops it drifting silently.
+#   * Gradle/AGP/Android SDK — the versions are a compatibility *set* (AGP 8.13
+#     needs Gradle >= 8.13 and caps at API 36.1), so they get bumped together
+#     and deliberately, not one PR at a time.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+
+  # Playwright, used by the web boot test.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "test"
