@@ -337,11 +337,23 @@ config, so **no secret ever lives in the repo**.
    Without `ANDROID_KEYSTORE_FILE` the release build is unsigned (fine for a local check,
    rejected by Play).
 
-3. **CI (automatic).** Add four **repository secrets** with those exact names
+3. **CI.** The AAB is built, signed and verified on **every** run, secrets or not — the
+   bundle is the one artifact you cannot afford to first test on release day. What changes is
+   *which key* signs it:
+
+   | | Key | Artifact | Attached to the Release? |
+   |---|---|---|---|
+   | No secrets set (the default) | throwaway key generated in the job | `android-unsigned-aab` → `*-NOT-FOR-PLAY.aab` | **No** |
+   | Secrets set | your upload key | `android-release-aab` | Yes |
+
+   To switch to the second row, add four **repository secrets** with those exact names
    (*Settings → Secrets and variables → Actions*), where `ANDROID_KEYSTORE_BASE64` is
-   `base64 -w0 upload-keystore.jks`. Every push then builds and static-tests the signed AAB
-   (artifact `android-release-aab`), and tag pushes attach it to the Release. If the secrets
-   aren't set, those steps are skipped and everything else still builds.
+   `base64 -w0 upload-keystore.jks`.
+
+   Verification is `jarsigner -verify -strict` plus an assertion on the signer's CN, checked
+   both ways: a run configured with a real key fails if the bundle turns out to carry the
+   throwaway signature, and vice versa. (`unzip -l | grep META-INF/.*\.SF`, which the template
+   used to do, only proves that *a* signature exists — not whose, and not that it verifies.)
 
 > **Never commit the keystore or its passwords.** And before publishing, replace the AdMob
 > test ids in `raymob/gradle.properties` and set your real `app.application_id`.
@@ -381,35 +393,161 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 
 ## CI/CD pipeline
 
-`.github/workflows/build.yaml` builds **14 targets** and cuts a Release on tag push:
+### Layout
 
-- **Linux jobs** run **inside a frozen Docker build image** (`container:`), so toolchains are
-  pinned and nothing is downloaded at job time. The image is built from its **own repo**
-  (`raylib-build-image`: `Dockerfile` + `docker-image.yaml` → GHCR). `BUILD_IMAGE` at the top of
-  `build.yaml` points at the shared public image `ghcr.io/omardev29/raylib-build:latest` — **you
-  can use it as-is** (it's public). If you prefer full control you can build & publish your own and
-  point `BUILD_IMAGE` at it, but that's usually unnecessary.
-- **Windows / macOS / BSD** jobs run on native runners. Windows uses MSVC; BSDs use QEMU VMs.
-- **Reproducibility:** every third-party action is pinned by full commit SHA; raylib (6.0) and
-  raylib-iOS (`6.0.3-iOS`) are frozen. See `thirdparty/FROZEN_VERSIONS.md`.
-- **Google Play AAB (opt-in):** if the repo defines the four `ANDROID_KEYSTORE_*` secrets, the
-  Android job also builds, static-tests and uploads a **signed release AAB**
-  (`android-release-aab`), and tag pushes attach it to the Release. Without the secrets those
-  steps are skipped. See [Publishing to Google Play (signed AAB)](#publishing-to-google-play-signed-aab).
-- **Tests (two levels):**
-  - *Static* — every target: binary exists, is executable, and has the right format/architecture
-    (ELF `e_machine`, PE/Mach-O, web artifacts, APK contents).
-  - *Runtime* — Linux x64/ARM64 boot headless under `xvfb` with `RAY_TEST_MAX_FRAMES`; Web boots
-    in **headless Chromium via Playwright** (`.github/scripts/web_boot_test.js`) and checks the
-    engine initialised a canvas; Windows boots and verifies boot + asset load.
-- On a tag push the `release` job downloads **all** artifacts (including the BSDs) and publishes a
-  Release. It only runs when every required build succeeded.
+One orchestrator plus one reusable workflow per platform group. `ci.yml` is the only file you
+normally read or edit.
 
-> **What the tests do NOT cover.** These tests prove each target *builds* and (where feasible)
-> *boots* — they are **not end-to-end**. The BSD jobs in particular only compile the sample inside a
-> headless VM; they never open a window or run your real game. macOS/iOS/Android are likewise only
-> built (no device/emulator run). **You must test your actual game on each platform you ship**, and
-> add your own tests if you need stronger guarantees.
+| File | What it does |
+|---|---|
+| `ci.yml` | Triggers, the fast-lane/full decision, the build-image pin, and the job graph |
+| `_linux.yml` | x64, ARM64, RISC-V (in the frozen image) |
+| `_web.yml` | Emscripten build + headless-Chromium boot/render test |
+| `_windows.yml` | x64 (native, real render test) and ARM64 (MSVC cross) |
+| `_apple.yml` | macOS universal binary + iOS xcframework, app and simulator test |
+| `_android.yml` | Debug APK + release AAB |
+| `_bsd.yml` | FreeBSD / OpenBSD / NetBSD in QEMU VMs |
+| `_release.yml` | `SHA256SUMS` + GitHub Release |
+| `_itch.yml` | itch.io upload with butler |
+| `_firebase.yml` | Firebase Test Lab robo test on a real Android device |
+
+Three things bite everyone who splits workflows this way, so they are called out in comments
+in `ci.yml` too: workflow-level `env` does **not** cross the `workflow_call` boundary (hence
+`project_name` as an input); called workflows receive no secrets without `secrets: inherit`;
+and `concurrency` must live only in the orchestrator or parent and children cancel each other.
+
+### When it runs
+
+| Trigger | What builds |
+|---|---|
+| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64 (~10 min) |
+| tag `v*` | All 14 targets, then Release, then itch.io |
+| `workflow_dispatch` | Fast lane, or everything with the `full` input |
+
+The full matrix costs about an hour of BSD QEMU and macOS runner time. Paying that per commit
+buys either a slow loop or, worse, a team that has learned to ignore CI.
+
+`workflow_dispatch` also takes `image_digest`, so you can smoke-test a candidate build image
+without committing the pin.
+
+### What is pinned, and how
+
+- **Linux/Web/Android jobs run inside a frozen Docker image**, referenced by **digest**
+  (`ghcr.io/omardev29/raylib-build@sha256:…`), never by `:latest`. A tag can be moved; a digest
+  cannot. The image is built from its [own repo](https://github.com/omardev29/raylib-build-image),
+  where the base image is digest-pinned, every apt source points at an **Ubuntu snapshot
+  timestamp**, every download is sha256-verified, and emsdk is fetched by commit rather than
+  tag. Every container job prints `/etc/raylib-build-image.json` as its first step, so a
+  failing log always states which toolchain produced it.
+- **Runner labels are pinned** (`ubuntu-24.04`, `windows-2025`, `macos-26`) — never `-latest`,
+  which moves. On macOS the Xcode version is also selected explicitly, with a guard that lists
+  what is installed and fails loudly if the pin is gone.
+- **No `brew install` at job time.** Ninja and XcodeGen are pinned release binaries with
+  checksums; brew formulae are unversioned and raise their macOS requirements on Homebrew's
+  schedule, not yours.
+- **Every action is pinned by full commit SHA**, with the tag it resolves to in a comment.
+- `tools/versions_check.sh` runs in CI and fails if any of this has drifted apart. See
+  [`thirdparty/FROZEN_VERSIONS.md`](thirdparty/FROZEN_VERSIONS.md).
+
+The honest exception is **BSD**: the QEMU images and the `pkg`/`pkgsrc` mirrors are both
+rolling and there is no snapshot service for either.
+
+### Tests
+
+**Static** — every target: the binary exists, is executable, and has the right format and
+architecture (ELF `e_machine`, PE machine type, Mach-O slices, web artifacts, APK/AAB contents
+and signature).
+
+**Runtime** — the game is actually started and the frame it draws is inspected:
+
+| Target | How |
+|---|---|
+| Linux x64 / ARM64 | headless under `xvfb` with `RAY_TEST_MAX_FRAMES` |
+| Windows x64 | on the real runner, with Mesa's software rasteriser staged next to the `.exe` |
+| Web | headless Chromium; the composited canvas is screenshotted and measured |
+| iOS | installed and launched in the iOS Simulator |
+
+Booting is not the interesting part. A broken shader, a lost texture binding or a draw call
+that silently no-ops still boots, still exits 0, and used to pass. So each of these asserts
+`RAY_TEST_RENDER_OK`: the frame is read back and the fraction of pixels differing from the
+**most common** colour must fall in a sane range. Blank frame → no marker → red.
+
+Windows deserves a note, because it used to be the worst case. Hosted runners have no GPU, so
+GLFW could not create a GL context and the render loop faulted right after boot — and the old
+test explicitly tolerated that crash, which meant no Windows render regression could ever fail
+CI. Mesa gives the shipped binary a genuine WGL context on real Windows; the DLLs are deleted
+before packaging and the package step asserts they are not in the zip, because shipping them
+would force software rendering on every player.
+
+The gate is a **ratio, never a pixel hash**: llvmpipe, ANGLE-on-Metal, SwiftShader and mobile
+GPUs disagree about text antialiasing and texture filtering, so a hash would be red on half the
+matrix for no reason. The hash is logged as a diagnostic only.
+
+> **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
+> format-checked but never run — there is no runner or emulator for them here. Android is built
+> and can optionally be smoke-run on real hardware via Firebase Test Lab (below). iOS is
+> simulator-only. **Test your actual game on each platform you ship.**
+
+### Releasing
+
+Tag pushes run everything, then `_release.yml` collects the artifacts, generates `SHA256SUMS`
+and publishes a Release with the games, the iOS xcframework and `.app`, the APK, the signed AAB
+(when real signing secrets exist) and `THIRD_PARTY_LICENSES.md`.
+
+### Publishing to itch.io
+
+Set these on the repository, and tag pushes publish automatically:
+
+| Key | Type |
+|---|---|
+| `ITCH_USER` | Variable — your itch.io username |
+| `ITCH_GAME` | Variable — the game's URL slug |
+| `BUTLER_API_KEY` | Secret — from <https://itch.io/user/settings/api-keys> |
+
+Without them the job logs a warning and skips; cloning this template must not give you a red
+pipeline for a service you have not signed up to.
+
+Two details that are easy to get wrong and are handled for you:
+
+- **HTML5 must be uploaded as a directory containing `index.html`.** Pushing a `.zip` gives you
+  a downloadable file that nobody can play in the browser. The job unpacks the web build and
+  copies `ray_test.html` to `index.html`.
+- **itch infers the platform from the channel name**, and only recognises a fixed set. The
+  `linux-x64`, `windows-x64`, `osx`, `android` and `html5` channels get tagged correctly;
+  `linux-riscv64` and the BSDs are published as plain downloads with no platform tag, because
+  itch has no concept of them.
+
+### Firebase Test Lab (real Android hardware)
+
+An emulator inside an unaccelerated runner is slow and fails for reasons unrelated to your
+game. Test Lab runs the actual APK on actual hardware, which is the one thing CI cannot
+otherwise check.
+
+| Key | Type |
+|---|---|
+| `FIREBASE_PROJECT` | Variable — the GCP project id |
+| `GCP_SA_KEY` | Secret — the service-account JSON, whole file |
+| `FIREBASE_DEVICE` | Variable, optional — Google retires device models every few years |
+| `FIREBASE_RESULTS_BUCKET` | Variable, optional — a GCS bucket to pull results back from |
+
+Setup, once:
+
+1. Create (or pick) a GCP project and **enable Blaze billing**. Test Lab's free Spark-tier
+   quota no longer exists.
+2. Enable the APIs: `gcloud services enable testing.googleapis.com toolresults.googleapis.com`
+3. Create a service account and grant it
+   `roles/cloudtesting.testAdmin` and `roles/cloudtoolresults.testAdmin`.
+   If you set `FIREBASE_RESULTS_BUCKET`, also grant `roles/storage.objectAdmin` on that bucket.
+4. Create a JSON key for it and paste the whole file into the `GCP_SA_KEY` secret.
+5. Check the device model still exists: `gcloud firebase test android models list`.
+
+The job only ever submits the **debug** APK, and refuses anything else. Robo crawls the UI and
+will happily click an ad banner; the debug build uses Google's official test ad unit ids, so
+those clicks are harmless, whereas a release build would generate invalid traffic against your
+real ad units.
+
+**iOS is not possible here**, and that is not an oversight: `gcloud firebase test ios run`
+requires a signed `.ipa`, which requires an Apple developer account.
 
 ---
 
@@ -433,14 +571,28 @@ Desktop/BSD/Web have no such gate.
 
 Specifics to expect when the stores move:
 
-- **Android:** Google Play requires new apps/updates to target an API level within ~1 year of the
-  latest (e.g. 35 in 2025, 36 in 2026…). The template currently targets SDK 34. To keep publishing
-  you bump `compileSdk`/`targetSdk` in `raymob/app/build.gradle`, plus the NDK, AGP, Gradle and Java
-  versions to compatible ones. The native raylib/raymob code usually needs no change.
+- **Android:** Google Play requires new apps and updates to target an API level within about a
+  year of the latest — **API 36 from 2026-08-31**, which is what the template targets today. To
+  keep publishing you bump, *together*, `compileSdk`/`targetSdk`/`buildToolsVersion`/`ndkVersion`
+  in `raymob/app/build.gradle`, AGP in `raymob/build.gradle`, Gradle in `gradle-wrapper.properties`
+  (with its `distributionSha256Sum`), the matching packages in the build image, and the
+  ```versions block in `thirdparty/FROZEN_VERSIONS.md`. These are a compatibility **set**, not
+  independent knobs: AGP 8.13 requires Gradle ≥ 8.13 and JDK 17 and caps at API 36.1.
+  `tools/versions_check.sh` fails CI if you miss one. The native raylib/raymob code usually needs
+  no change.
+
+  One trap when you get there: **do not move to AGP 9 without rewriting `raymob/app/build.gradle`
+  first.** Gradle 9 removes `gradle.buildFinished` and AGP 9 removes `applicationVariants`, and
+  that file uses both. AGP 8.13.2 is the last line that tolerates it.
 - **iOS:** Apple requires submission with a recent Xcode. The `raylib-iOS` fork (and its bundled
   ANGLE) must be updated to build against the new SDK/Xcode. Watch the fork for releases.
-- **Note:** the frozen image pins today's SDKs. When you bump SDKs you may also rebuild the build
-  image (for Android SDK/NDK) — the image repo is the single place that changes.
+- **Note:** the frozen image pins today's SDKs, so an Android SDK bump means rebuilding the image
+  too. The order matters: bump the image repo first, take the digest from its run summary, then
+  update `PINNED_IMAGE` in `ci.yml` and the ```versions block in the same commit as the Gradle
+  changes. Bump only one side and `tools/versions_check.sh` will tell you — which is the point of
+  it. A container job also refuses to build if Gradle asks for an SDK platform the image does not
+  carry, because AGP would otherwise silently download it at job time and quietly void the whole
+  "nothing is downloaded at job time" claim.
 
 ---
 

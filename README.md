@@ -25,7 +25,9 @@ Based on [meemknight/raylibCmakeSetup](https://github.com/meemknight/raylibCmake
 - **Resource packing & encryption** — pack assets into a single AES-encrypted `resources.rres`
   ([rres](https://github.com/raysan5/rres)) with one command.
 - **AdMob** — interstitial + rewarded ads on Android via a cross-platform API (no-ops elsewhere).
-- **CI/CD** — GitHub Actions builds all targets, tests them, and cuts a Release on tag push.
+- **CI/CD** — GitHub Actions builds all targets, **boots them and checks they actually render**,
+  then cuts a Release and publishes to itch.io on tag push. Pushes and PRs get a ~10 minute fast
+  lane instead of the full hour.
 
 ---
 

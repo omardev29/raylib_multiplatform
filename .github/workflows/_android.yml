@@ -69,8 +69,13 @@ jobs:
           APK=$(find raymob/app/build/outputs/apk/debug -name '*.apk' | head -1)
           test -s "$APK" || { echo "FAIL: APK missing or empty"; exit 1; }
           echo "ok: $APK ($(stat -c%s "$APK") bytes)"
-          unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "FAIL: no AndroidManifest.xml"; exit 1; }
-          unzip -l "$APK" | grep -q "\.so"                || { echo "FAIL: no native .so"; exit 1; }
+          # Listing captured once, then grepped from a variable. `unzip -l | grep -q`
+          # looks fine and is a trap under `shell: bash`, which GitHub runs with
+          # -o pipefail: grep -q exits at the first match, unzip dies of SIGPIPE,
+          # and pipefail turns that into a failed step on a perfectly good APK.
+          LIST=$(unzip -l "$APK")
+          grep -q "AndroidManifest.xml" <<<"$LIST" || { echo "FAIL: no AndroidManifest.xml"; exit 1; }
+          grep -q "\.so"                <<<"$LIST" || { echo "FAIL: no native .so"; exit 1; }
           echo "PASS: APK checks"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -128,7 +133,8 @@ jobs:
           BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
           test -s "$BUNDLE" || { echo "FAIL: AAB missing or empty"; exit 1; }
           echo "ok: $BUNDLE ($(stat -c%s "$BUNDLE") bytes)"
-          unzip -l "$BUNDLE" | grep -q "BundleConfig.pb" || { echo "FAIL: no BundleConfig.pb"; exit 1; }
+          # Same SIGPIPE-under-pipefail trap as the APK check above.
+          grep -q "BundleConfig.pb" <<<"$(unzip -l "$BUNDLE")" || { echo "FAIL: no BundleConfig.pb"; exit 1; }
 
           # `unzip -l | grep META-INF/.*\.SF` only proves a signature block is
           # present, not whose it is or whether it verifies. jarsigner checks it.

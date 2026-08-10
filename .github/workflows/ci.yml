@@ -100,7 +100,11 @@ jobs:
             "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
           echo "${SHA}  /tmp/actionlint.tgz" | sha256sum -c -
           tar -xzf /tmp/actionlint.tgz -C /tmp actionlint
-          /tmp/actionlint -color .github/workflows/*.yml .github/workflows/*.yaml || exit 1
+          # No file arguments: actionlint finds .github/workflows itself. An
+          # explicit glob breaks the moment an extension stops being used —
+          # `*.yaml` matched nothing once build.yaml was split up, and the shell
+          # passed the literal pattern straight through as a filename.
+          /tmp/actionlint -color
           echo "PASS: actionlint clean"
 
       - name: Pinned versions agree

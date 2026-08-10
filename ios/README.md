@@ -19,10 +19,12 @@ Upstream raylib has no iOS backend, so this fork provides `rcore_ios.c`
 
 ## CI builds this automatically
 
-The `build-ios` job in `.github/workflows/build.yaml` runs on GitHub's **hosted
-macOS runners** (`macos-latest`) — you do **not** need a local Mac. It builds the
+The `ios` job in `.github/workflows/_apple.yml` runs on GitHub's **hosted
+macOS runners** (`macos-26`, with Xcode pinned explicitly) — you do **not** need a local Mac. It builds the
 `raylib.xcframework`, generates the Xcode project with XcodeGen, and compiles the
-app for the simulator (no signing). It is `continue-on-error` while the scaffold
+app for the simulator (no signing), then installs and launches it in the iOS
+Simulator and requires the boot and render markers. The job is a hard gate on
+releases; only the simulator-launch step is `continue-on-error` while it
 is being tuned. A local Mac is only needed for running on a physical device or
 interactive debugging/signing.
 
