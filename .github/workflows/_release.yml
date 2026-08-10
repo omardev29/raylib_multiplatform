@@ -59,6 +59,11 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           generate_release_notes: true
+          # Semver says a hyphen in the version marks a pre-release, so `v1.2.0`
+          # publishes as a full release and `v1.2.0-rc1` or `v1.2.0-beta.2` gets
+          # flagged. The action does not infer this on its own, and an RC
+          # announced as stable is a bad surprise for anyone watching the repo.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           # android-release-aab only exists when real signing secrets are set,
           # so its glob will not always match. Be explicit rather than relying
           # on the default. Note what is NOT here: android-unsigned-aab, the
