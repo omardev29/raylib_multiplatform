@@ -472,7 +472,7 @@ and signature).
 | Linux x64 / ARM64 | headless under `xvfb` with `RAY_TEST_MAX_FRAMES` |
 | Windows x64 | on the real runner, with Mesa's software rasteriser staged next to the `.exe` |
 | Web | headless Chromium; the composited canvas is screenshotted and measured |
-| iOS | installed and launched in the iOS Simulator |
+| iOS | *(disabled)* — written, but the `macos-26` simulator will not boot under `simctl`. Set `vars.IOS_SIMULATOR_TEST=true` to try it. |
 
 Booting is not the interesting part. A broken shader, a lost texture binding or a draw call
 that silently no-ops still boots, still exits 0, and used to pass. So each of these asserts
@@ -492,8 +492,10 @@ matrix for no reason. The hash is logged as a diagnostic only.
 
 > **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
 > format-checked but never run — there is no runner or emulator for them here. Android is built
-> and can optionally be smoke-run on real hardware via Firebase Test Lab (below). iOS is
-> simulator-only. **Test your actual game on each platform you ship.**
+> and can optionally be smoke-run on real hardware via Firebase Test Lab (below). iOS is built
+> and statically verified (the app bundle must contain a readable `CFBundleIdentifier` and its
+> `resources/` folder) but not executed, because the hosted simulator does not boot reliably.
+> **Test your actual game on each platform you ship.**
 
 ### Releasing
 
