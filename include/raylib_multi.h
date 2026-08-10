@@ -10,5 +10,7 @@
 #include <test.h>
 
 // More colors
+#ifndef ALICEBLUE
 #define ALICEBLUE CLITERAL(Color){0, 240, 248, 255}
+#endif
 #define GIORNOGOLD CLITERAL(Color){238, 207, 34, 255} // The Golden Experience

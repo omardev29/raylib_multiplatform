@@ -3,7 +3,7 @@
 static GameAssets assets;
 
 // Called once at startup: set config flags, create the window, load assets.
-static void _ready() {
+inline static void _ready() {
 
   // CI smoke-test hook: read the frame budget before the game starts.
   SmokeTest_Begin();
@@ -19,7 +19,7 @@ static void _ready() {
 }
 
 // Called each frame
-static void _process(float delta) {
+inline static void _process(float delta) {
 
   int screen_x = GetScreenWidth();
   int screen_y = GetScreenHeight();
@@ -36,7 +36,7 @@ static void _process(float delta) {
 }
 
 // Called once at shutdown: unload assets, close the window.
-static void _exit() {
+inline static void _exit() {
   UnloadTexture(assets.rabbit);
   UnloadImage(assets.img);
   Assets::Shutdown();
