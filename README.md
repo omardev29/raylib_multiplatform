@@ -1,4 +1,4 @@
-# raylib CMake Template
+# raylib_multiplatform
 
 A batteries-included **C++20** template for making games with [raylib](https://www.raylib.com/).
 Static linking, no DLLs to ship, cross-platform, and a CI pipeline that builds **14 targets**
