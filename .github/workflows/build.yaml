@@ -717,6 +717,17 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
 
+      # Release asset names are flat (no directories). The xcframework holds
+      # repeated file names across its slices (Info.plist, raylib.h, ...), so
+      # uploading it file-by-file collides. Zip it into a single asset instead,
+      # keeping the raylib.xcframework/ folder name Xcode expects.
+      - name: Zip iOS xcframework
+        run: |
+          if [ -d ios-raylib-xcframework ]; then
+            cp -r ios-raylib-xcframework raylib.xcframework
+            zip -rq ios-raylib-xcframework.zip raylib.xcframework
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3
         with:
@@ -731,4 +742,5 @@ jobs:
             windows-x64-build/windows-x64-build.zip
             windows-arm64-build/windows-arm64-build.zip
             macos-build/macos-build.zip
-            ios-raylib-xcframework/**
+            bsd-*-build/*.zip
+            ios-raylib-xcframework.zip
