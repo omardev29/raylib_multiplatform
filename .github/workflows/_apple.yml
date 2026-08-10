@@ -173,7 +173,22 @@ jobs:
           test -d "$APP" || { echo "FAIL: $APP not built"; ls -R ios/dd/Build/Products || true; exit 1; }
           test -x "$APP/${{ inputs.project_name }}" || { echo "FAIL: app binary missing"; exit 1; }
           file "$APP/${{ inputs.project_name }}" | grep -qi "Mach-O" || { echo "FAIL: not Mach-O"; exit 1; }
-          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+
+          # `simctl install` says "Missing bundle ID" both for a malformed
+          # bundle and for a simulator that failed to boot, which is not a
+          # useful distinction at 2am. Rule out the bundle here, where the
+          # error can actually name the problem.
+          test -f "$APP/Info.plist" || { echo "FAIL: no Info.plist in the .app"; ls -la "$APP"; exit 1; }
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist") \
+            || { echo "FAIL: Info.plist has no CFBundleIdentifier"; plutil -p "$APP/Info.plist"; exit 1; }
+          echo "bundle id: $BUNDLE_ID"
+
+          # The assets fix: resources/ must actually be inside the bundle.
+          test -d "$APP/resources" || { echo "FAIL: resources/ not copied into the .app"; ls -la "$APP"; exit 1; }
+          ls "$APP/resources"
+
+          echo "APP_PATH=$APP"   >> "$GITHUB_ENV"
+          echo "BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
           echo "PASS: iOS artifact checks ($APP)"
 
       # Runtime coverage. Until now iOS only proved a Mach-O file existed on
@@ -182,32 +197,39 @@ jobs:
       # which is what makes this possible at all; plain GL ES in the simulator
       # is dead.
       #
-      # continue-on-error while it settles: it is new, it is the most
-      # environment-sensitive step here, and a flaky gate that blocks releases
-      # is worse than no gate. Promote it once it has a run of green behind it.
+      # No continue-on-error. A step that reports green while it is failing is
+      # the exact defect this whole change set exists to remove, and this one
+      # did precisely that: it died on a missing `timeout`, then on a simulator
+      # that never finished booting, and the job stayed green both times.
       - name: Test (runtime) — boot in the iOS Simulator
-        continue-on-error: true
         run: |
           set -euo pipefail
-          # Discover the runtime rather than hard-coding a version: the pinned
-          # Xcode ships whatever iOS runtime it ships.
-          RT=$(xcrun simctl list runtimes -j \
-                | python3 -c "import json,sys; rs=[r['identifier'] for r in json.load(sys.stdin)['runtimes'] if r.get('isAvailable') and 'iOS' in r['identifier']]; print(rs[-1] if rs else '')")
-          test -n "$RT" || { echo "FAIL: no available iOS simulator runtime"; xcrun simctl list runtimes; exit 1; }
-          echo "runtime: $RT"
+          # Use a simulator the runner image already created, rather than
+          # `simctl create`. A freshly created device runs first-boot Data
+          # Migration, which took over four minutes and then ended in
+          # Status=4294967295 — after which `simctl install` fails with a
+          # misleading "Missing bundle ID". The pre-baked devices are already
+          # migrated and boot in seconds.
+          UDID=$(xcrun simctl list devices available -j | jq -r '
+            first(.devices | to_entries[]
+                  | select(.key | test("iOS"))
+                  | .value[]
+                  | select(.isAvailable and (.name | test("iPhone")))
+                  | .udid)')
+          test -n "$UDID" && test "$UDID" != "null" || {
+            echo "FAIL: no available iPhone simulator on this runner"
+            xcrun simctl list devices available
+            exit 1
+          }
+          echo "simulator: $UDID"
+          xcrun simctl list devices available | grep -m1 "$UDID" || true
 
-          UDID=$(xcrun simctl create ci-sim "iPhone 16" "$RT")
-          trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true; xcrun simctl delete "$UDID" >/dev/null 2>&1 || true' EXIT
-          xcrun simctl boot "$UDID"
+          trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true' EXIT
+          xcrun simctl boot "$UDID" || true      # already-booted is not an error
           xcrun simctl bootstatus "$UDID" -b
 
           xcrun simctl install "$UDID" "$APP_PATH"
-
-          # Read the bundle id out of the built app rather than hard-coding it.
-          # It is set in ios/project.yml, and a hard-coded copy here would break
-          # silently the moment anyone renames the game.
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")
-          echo "bundle id: $BUNDLE_ID"
+          echo "installed $BUNDLE_ID"
 
           # No `timeout` here: macOS does not ship GNU coreutils, so `timeout`
           # is simply not a command and the step dies with "command not found"
