@@ -36,11 +36,21 @@ static def getGLVersionCode(String version) {
 
 android {
     namespace project.properties['app.application_id']
-    compileSdk 34
+
+    // API 36 = Android 16. Google Play requires targetSdk >= 36 for every new
+    // app and every update from 2026-08-31. compileSdk matches so the new APIs
+    // and their lint rules are actually visible.
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    // Pinned explicitly rather than left to AGP's default. NDK r28 is also what
+    // gives 16 KB ELF page alignment by default, which Play requires alongside
+    // the API 36 target.
+    ndkVersion '28.2.13676358'
 
     defaultConfig {
         minSdk 24
-        targetSdk 34
+        targetSdk 36
 
         applicationId project.properties['app.application_id']
         versionCode Integer.parseInt(project.properties['app.version_code'])
@@ -202,13 +212,19 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        // AGP 8.13 requires JDK 17 to run; the language level follows so the
+        // toolchain is one consistent story rather than 17-running-8.
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     externalNativeBuild {
         cmake {
             path file('src/main/cpp/CMakeLists.txt')
-            version '3.30.3'
+            // Resolved from the Android SDK ("cmake;3.31.6", installed in the
+            // build image), NOT from PATH. Binding to whatever /opt/cmake
+            // happens to be made the Android build break every time the
+            // image's CMake was bumped.
+            version '3.31.6'
         }
     }
 buildFeatures {
@@ -223,7 +239,9 @@ buildFeatures {
 // To add a new dependency, use the 'implementation' or 'api' keyword followed by the library's coordinate or name.
 
 dependencies {
-    // Google Mobile Ads SDK (AdMob). 24.x targets compileSdk 34; bump together
-    // with compileSdk/Android platform when moving to a newer major.
+    // Google Mobile Ads SDK (AdMob). An AAR compiled against a lower SDK is
+    // always fine under a higher compileSdk, so this deliberately did NOT move
+    // with the API 36 bump: keeping them in separate commits means a broken
+    // build can be bisected to one or the other. 25.x exists when you want it.
     implementation 'com.google.android.gms:play-services-ads:24.9.0'
 }

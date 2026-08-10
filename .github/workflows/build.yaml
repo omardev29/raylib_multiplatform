@@ -31,8 +31,6 @@ concurrency:
 
 env:
   PROJECT_NAME: ray_test
-  # Image built by .github/workflows/docker-image.yaml. Change the owner to yours.
-  BUILD_IMAGE: ghcr.io/omardev29/raylib-build:latest
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -45,10 +43,17 @@ jobs:
       contents: read
       packages: read
     container:
-      # NOTE: GitHub Actions does not allow the `env` context in container.image,
-      # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
-      image: ghcr.io/omardev29/raylib-build:latest
+      # Pinned by DIGEST, not by tag. `:latest` moves; a digest cannot, so a
+      # rebuild of the image repo can never silently change what this job
+      # compiles with. Bump it from the raylib-build-image run summary.
+      # NOTE: the `env` context is not allowed in container.image, which is why
+      # this literal is repeated per job until the reusable-workflow split
+      # turns it into a single input.
+      image: ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655
     steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Configure
@@ -116,10 +121,17 @@ jobs:
       contents: read
       packages: read
     container:
-      # NOTE: GitHub Actions does not allow the `env` context in container.image,
-      # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
-      image: ghcr.io/omardev29/raylib-build:latest
+      # Pinned by DIGEST, not by tag. `:latest` moves; a digest cannot, so a
+      # rebuild of the image repo can never silently change what this job
+      # compiles with. Bump it from the raylib-build-image run summary.
+      # NOTE: the `env` context is not allowed in container.image, which is why
+      # this literal is repeated per job until the reusable-workflow split
+      # turns it into a single input.
+      image: ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655
     steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Configure
@@ -186,10 +198,17 @@ jobs:
       contents: read
       packages: read
     container:
-      # NOTE: GitHub Actions does not allow the `env` context in container.image,
-      # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
-      image: ghcr.io/omardev29/raylib-build:latest
+      # Pinned by DIGEST, not by tag. `:latest` moves; a digest cannot, so a
+      # rebuild of the image repo can never silently change what this job
+      # compiles with. Bump it from the raylib-build-image run summary.
+      # NOTE: the `env` context is not allowed in container.image, which is why
+      # this literal is repeated per job until the reusable-workflow split
+      # turns it into a single input.
+      image: ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655
     steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Configure (riscv64 toolchain)
@@ -238,10 +257,17 @@ jobs:
       contents: read
       packages: read
     container:
-      # NOTE: GitHub Actions does not allow the `env` context in container.image,
-      # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
-      image: ghcr.io/omardev29/raylib-build:latest
+      # Pinned by DIGEST, not by tag. `:latest` moves; a digest cannot, so a
+      # rebuild of the image repo can never silently change what this job
+      # compiles with. Bump it from the raylib-build-image run summary.
+      # NOTE: the `env` context is not allowed in container.image, which is why
+      # this literal is repeated per job until the reusable-workflow split
+      # turns it into a single input.
+      image: ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655
     steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Configure
@@ -329,14 +355,17 @@ jobs:
       contents: read
       packages: read
     container:
-      # NOTE: GitHub Actions does not allow the `env` context in container.image,
-      # so the build image is hardcoded here (keep in sync with BUILD_IMAGE above).
-      image: ghcr.io/omardev29/raylib-build:latest
-    env:
-      # 'true' when the Play-signing secrets are configured. Gates the AAB
-      # steps below (the secrets context is not allowed in step `if:`).
-      HAS_RELEASE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      # Pinned by DIGEST, not by tag. `:latest` moves; a digest cannot, so a
+      # rebuild of the image repo can never silently change what this job
+      # compiles with. Bump it from the raylib-build-image run summary.
+      # NOTE: the `env` context is not allowed in container.image, which is why
+      # this literal is repeated per job until the reusable-workflow split
+      # turns it into a single input.
+      image: ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655
     steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Cache Gradle
@@ -346,6 +375,8 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('raymob/**/*.gradle*', 'raymob/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
 
       - name: Build debug APK
         working-directory: raymob
@@ -369,51 +400,127 @@ jobs:
           path: raymob/app/build/outputs/apk/debug/*.apk
           retention-days: 7
 
-      # --- Signed release AAB for Google Play (opt-in via secrets) ----------
-      # Provide these repo secrets to enable it:
+      # --- Release AAB -----------------------------------------------------
+      # The AAB used to be built ONLY when Play-signing secrets existed, which
+      # meant that on this repo, and in every fork, the bundle path was never
+      # exercised at all — the one artifact you cannot afford to discover is
+      # broken on release day. It is now always built and always verified. When
+      # no real key is configured CI signs with a throwaway one and labels the
+      # result so it can never be mistaken for something publishable.
+      #
+      # To publish for real, add these repo secrets:
       #   ANDROID_KEYSTORE_BASE64    base64 -w0 your-upload-keystore.jks
       #   ANDROID_KEYSTORE_PASSWORD
       #   ANDROID_KEY_ALIAS
       #   ANDROID_KEY_PASSWORD
-      - name: Decode release keystore
-        if: ${{ env.HAS_RELEASE_KEYSTORE == 'true' }}
+      - name: Prepare signing key
+        id: signing
         working-directory: raymob
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+        run: |
+          set -euo pipefail
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            echo "Using the configured upload key."
+          else
+            # Throwaway key, generated fresh every run and never reused. Its CN
+            # is asserted below, which is what stops a CI-signed bundle passing
+            # itself off as a real one.
+            keytool -genkeypair -v \
+              -keystore release.keystore -storetype PKCS12 \
+              -alias ci-throwaway -keyalg RSA -keysize 2048 -validity 3650 \
+              -storepass ci-throwaway -keypass ci-throwaway \
+              -dname "CN=CI THROWAWAY NOT FOR PLAY, OU=CI, O=raylib-template, C=ZZ"
+            echo "mode=ci" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret; signing the AAB with a throwaway CI key. It is NOT publishable to Google Play."
+          fi
 
-      - name: Build signed release AAB
-        if: ${{ env.HAS_RELEASE_KEYSTORE == 'true' }}
+      - name: Build release AAB
         working-directory: raymob
         env:
           # Absolute path: Gradle resolves relative file() paths against the
           # app module dir (raymob/app), not the step working directory.
           ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/raymob/release.keystore
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'ci-throwaway' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'ci-throwaway' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'ci-throwaway' }}
         run: |
           chmod +x ./gradlew
           ./gradlew bundleRelease --no-daemon
 
-      - name: Test (static) — AAB exists and is signed
-        if: ${{ env.HAS_RELEASE_KEYSTORE == 'true' }}
+      - name: Test (static) — AAB is well-formed and correctly signed
         run: |
-          set -e
+          set -euo pipefail
           BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
           test -s "$BUNDLE" || { echo "FAIL: AAB missing or empty"; exit 1; }
           echo "ok: $BUNDLE ($(stat -c%s "$BUNDLE") bytes)"
-          unzip -l "$BUNDLE" | grep -q "BundleConfig.pb"  || { echo "FAIL: no BundleConfig.pb"; exit 1; }
-          unzip -l "$BUNDLE" | grep -q "META-INF/.*\.SF"  || { echo "FAIL: AAB is not signed"; exit 1; }
-          echo "PASS: signed AAB checks"
+          unzip -l "$BUNDLE" | grep -q "BundleConfig.pb" || { echo "FAIL: no BundleConfig.pb"; exit 1; }
 
-      - name: Upload release AAB
-        if: ${{ env.HAS_RELEASE_KEYSTORE == 'true' }}
+          # `unzip -l | grep META-INF/.*\.SF` only proves a signature block is
+          # present, not whose it is or whether it verifies. jarsigner actually
+          # checks it.
+          jarsigner -verify -strict "$BUNDLE" | tee /tmp/jarsigner.txt
+          grep -q "jar verified" /tmp/jarsigner.txt || { echo "FAIL: AAB signature does not verify"; exit 1; }
+
+          SIGNER_CN=$(keytool -printcert -jarfile "$BUNDLE" | grep -m1 "Owner:" || true)
+          echo "signer: $SIGNER_CN"
+          case "${{ steps.signing.outputs.mode }}" in
+            release)
+              # A real key must not be the throwaway one — that would mean the
+              # secret was empty and we silently shipped a CI signature.
+              echo "$SIGNER_CN" | grep -q "CI THROWAWAY" \
+                && { echo "FAIL: mode=release but the bundle is signed with the throwaway CI key"; exit 1; }
+              echo "PASS: AAB verified and signed with the configured upload key" ;;
+            *)
+              echo "$SIGNER_CN" | grep -q "CI THROWAWAY" \
+                || { echo "FAIL: mode=ci but the signer is not the throwaway key"; exit 1; }
+              echo "PASS: AAB verified (throwaway CI signature, not publishable)" ;;
+          esac
+
+      # Two artifact names, on purpose. Only `android-release-aab` is attached
+      # to the GitHub release, so a throwaway-signed bundle physically cannot
+      # end up as a release asset.
+      - name: Upload release AAB (real upload key)
+        if: steps.signing.outputs.mode == 'release'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: android-release-aab
           path: raymob/app/build/outputs/bundle/release/*.aab
           retention-days: 7
+
+      - name: Rename + upload CI-signed AAB
+        if: steps.signing.outputs.mode != 'release'
+        run: |
+          set -euo pipefail
+          BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
+          mv "$BUNDLE" "${BUNDLE%.aab}-NOT-FOR-PLAY.aab"
+          ls -la raymob/app/build/outputs/bundle/release/
+
+      - name: Upload CI-signed AAB
+        if: steps.signing.outputs.mode != 'release'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: android-unsigned-aab
+          path: raymob/app/build/outputs/bundle/release/*-NOT-FOR-PLAY.aab
+          retention-days: 7
+
+      # raymob's preBuild rewrites tracked sources in place (package renames in
+      # thirdparty/raymob/*.c and app/src/main/java/**) and only puts them back
+      # in gradle.buildFinished. A cancelled, timed-out or OOM-killed build
+      # therefore leaves the working tree quietly corrupted, and the NEXT run
+      # then "restores" the wrong thing. Fail loudly instead of carrying on.
+      - name: Guard — Gradle restored the sources it rewrote
+        if: always()
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git diff --exit-code -- \
+            thirdparty/raymob \
+            raymob/app/src/main/java \
+            raymob/app/proguard-rules.pro \
+            || { echo "FAIL: Gradle left the working tree modified (preBuild rewrite not restored)"; exit 1; }
+          echo "PASS: working tree clean"
 
   # ---------------------------------------------------------------------------
   # Windows x64
@@ -596,11 +703,44 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - name: Install Ninja
-        run: brew install ninja
+      # Pinned Xcode, with a loud failure instead of a silent slide. `macos-26`
+      # ships several Xcodes and prunes the non-default ones first, so pinning
+      # the current default buys the most shelf life. When it does eventually
+      # disappear this fails with the list of what IS installed, rather than
+      # quietly building with a different compiler.
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          WANT=26.6
+          APP="/Applications/Xcode_${WANT}.app"
+          if [ ! -d "$APP" ]; then
+            echo "FAIL: Xcode ${WANT} is not installed on this runner. Available:"
+            ls -d /Applications/Xcode*.app
+            echo "Update the pin in .github/workflows (search for Xcode_)."
+            exit 1
+          fi
+          sudo xcode-select -s "$APP/Contents/Developer"
+          xcodebuild -version
+          echo "SDKs:"; xcodebuild -showsdks | head -20
 
+      # `brew install ninja` was a network call to an unversioned formula whose
+      # macOS requirements move on Homebrew's schedule, not ours. A pinned,
+      # checksummed release binary cannot surprise us.
+      - name: Install Ninja (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/ninja-mac.zip \
+            https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip
+          echo "c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b  /tmp/ninja-mac.zip" \
+            | shasum -a 256 -c -
+          unzip -o -q /tmp/ninja-mac.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/ninja
+          ninja --version
+
+      # Universal binary: the runners are Apple Silicon, so an arm64-only build
+      # left every Intel Mac user with nothing.
       - name: Configure
-        run: cmake --preset release
+        run: cmake --preset release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: Build
         run: cmake --build --preset release
@@ -608,7 +748,7 @@ jobs:
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
 
-      - name: Test (static) — binary exists, is Mach-O, executable
+      - name: Test (static) — binary is a universal Mach-O with both slices
         run: |
           set -e
           BIN=build/${{ env.PROJECT_NAME }}
@@ -616,7 +756,10 @@ jobs:
           test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
           file "$BIN"
           file "$BIN" | grep -qi "Mach-O" || { echo "FAIL: not a Mach-O binary"; exit 1; }
-          echo "PASS: static binary checks"
+          lipo -info "$BIN"
+          lipo -info "$BIN" | grep -q "arm64"  || { echo "FAIL: no arm64 slice"; exit 1; }
+          lipo -info "$BIN" | grep -q "x86_64" || { echo "FAIL: no x86_64 slice"; exit 1; }
+          echo "PASS: universal Mach-O (arm64 + x86_64)"
 
       - name: Package
         run: |
@@ -642,39 +785,143 @@ jobs:
         with:
           submodules: recursive
 
+      # Pinned Xcode, with a loud failure instead of a silent slide. `macos-26`
+      # ships several Xcodes and prunes the non-default ones first, so pinning
+      # the current default buys the most shelf life. When it does eventually
+      # disappear this fails with the list of what IS installed, rather than
+      # quietly building with a different compiler.
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          WANT=26.6
+          APP="/Applications/Xcode_${WANT}.app"
+          if [ ! -d "$APP" ]; then
+            echo "FAIL: Xcode ${WANT} is not installed on this runner. Available:"
+            ls -d /Applications/Xcode*.app
+            echo "Update the pin in .github/workflows (search for Xcode_)."
+            exit 1
+          fi
+          sudo xcode-select -s "$APP/Contents/Developer"
+          xcodebuild -version
+          echo "SDKs:"; xcodebuild -showsdks | head -20
+
+      # ios/project.yml hard-codes .../projects/Xcode26/raylib/bridge in its
+      # header search path. That is upstream's folder name and the submodule is
+      # pinned to a commit, so the path cannot move underneath us — but it WILL
+      # break the day the submodule is bumped past a reorganisation. This turns
+      # that into an obvious red step with an instruction, instead of a wall of
+      # "IOSBridge.h not found" from clang.
+      - name: Guard — the raylib-iOS bridge is where project.yml expects
+        run: |
+          BRIDGE=thirdparty/raylib-ios/projects/Xcode26/raylib/bridge/IOSBridge.h
+          if [ ! -f "$BRIDGE" ]; then
+            echo "FAIL: $BRIDGE is gone — the fork reorganised its projects/ layout."
+            echo "Update HEADER_SEARCH_PATHS in ios/project.yml. Found instead:"
+            find thirdparty/raylib-ios/projects -name 'IOSBridge.h' -o -name '*.h' | head -20
+            exit 1
+          fi
+          echo "PASS: bridge header present"
+
       - name: Build raylib.xcframework (device + simulator)
         run: |
           cd thirdparty/raylib-ios/projects/scripts
           chmod +x build-ios-xcframework.sh
           ./build-ios-xcframework.sh
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      # Same reasoning as ninja on macOS: a pinned, checksummed release binary
+      # instead of an unversioned brew formula resolved at job time.
+      - name: Install XcodeGen (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/xcodegen.zip \
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  /tmp/xcodegen.zip" \
+            | shasum -a 256 -c -
+          unzip -o -q /tmp/xcodegen.zip -d /tmp/xcodegen-dist
+          # Keep the bin/ + share/ layout: xcodegen resolves its SettingPresets
+          # relative to the binary, so a bare copy of bin/xcodegen breaks.
+          echo "/tmp/xcodegen-dist/xcodegen/bin" >> "$GITHUB_PATH"
+          /tmp/xcodegen-dist/xcodegen/bin/xcodegen --version
 
       - name: Generate Xcode project
         run: cd ios && xcodegen generate
 
+      # Explicit derived-data path so the .app has one known location, instead
+      # of being hunted for with `find` across ~/Library/Developer.
       - name: Build app (simulator, no signing)
         run: |
           cd ios
           xcodebuild -project ray_test.xcodeproj -scheme ray_test \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ./dd \
             CODE_SIGNING_ALLOWED=NO build
 
       - name: Test (static) — xcframework + .app bundle exist
         run: |
           set -e
           test -d thirdparty/raylib-ios/raylib.xcframework || { echo "FAIL: raylib.xcframework missing"; exit 1; }
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "ray_test.app" -path "*iphonesimulator*" | head -1)
-          test -n "$APP" -a -d "$APP" || { echo "FAIL: ray_test.app not built"; exit 1; }
+          APP=ios/dd/Build/Products/Debug-iphonesimulator/ray_test.app
+          test -d "$APP" || { echo "FAIL: $APP not built"; ls -R ios/dd/Build/Products || true; exit 1; }
           test -x "$APP/ray_test" || { echo "FAIL: app binary missing"; exit 1; }
           file "$APP/ray_test" | grep -qi "Mach-O" || { echo "FAIL: not Mach-O"; exit 1; }
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
           echo "PASS: iOS artifact checks ($APP)"
+
+      # Runtime coverage. Until now iOS only proved a Mach-O file existed on
+      # disk — the app was never once started. The simulator on these runners is
+      # Apple Silicon with real Metal, and the app links ANGLE (ES3 over Metal),
+      # which is what makes this possible at all; plain GL ES in the simulator
+      # is dead.
+      #
+      # continue-on-error while it settles: it is new, it is the most
+      # environment-sensitive step here, and a flaky gate that blocks releases
+      # is worse than no gate. Promote it once it has a run of green behind it.
+      - name: Test (runtime) — boot in the iOS Simulator
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Discover the runtime rather than hard-coding a version: the pinned
+          # Xcode ships whatever iOS runtime it ships.
+          RT=$(xcrun simctl list runtimes -j \
+                | python3 -c "import json,sys; rs=[r['identifier'] for r in json.load(sys.stdin)['runtimes'] if r.get('isAvailable') and 'iOS' in r['identifier']]; print(rs[-1] if rs else '')")
+          test -n "$RT" || { echo "FAIL: no available iOS simulator runtime"; xcrun simctl list runtimes; exit 1; }
+          echo "runtime: $RT"
+
+          UDID=$(xcrun simctl create ci-sim "iPhone 16" "$RT")
+          trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true; xcrun simctl delete "$UDID" >/dev/null 2>&1 || true' EXIT
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+          xcrun simctl install "$UDID" "$APP_PATH"
+          # SIMCTL_CHILD_* forwards the variable into the app process. Without
+          # the frame budget the app never exits — UIKit owns the run loop.
+          SIMCTL_CHILD_RAY_TEST_MAX_FRAMES=60 \
+            timeout 240 xcrun simctl launch --console-pty "$UDID" com.example.raytest 2>&1 | tee /tmp/sim.log || true
+
+          echo "--- simulator log ---"; cat /tmp/sim.log
+          grep -q "RAY_TEST_BOOT_OK"   /tmp/sim.log || { echo "FAIL: boot marker missing"; exit 1; }
+          grep -q "RAY_TEST_RENDER_OK" /tmp/sim.log || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
+          echo "PASS: iOS simulator boot + render"
+
+      - name: Package .app
+        run: |
+          set -e
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ios-app-simulator.zip
+          ls -la ios-app-simulator.zip
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ios-raylib-xcframework
           path: thirdparty/raylib-ios/raylib.xcframework
+          retention-days: 7
+
+      # The release used to ship only the xcframework — a library, not the game.
+      # This is the simulator build of the app itself; it is unsigned and NOT
+      # installable on a device (that needs an Apple developer account).
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: ios-app-simulator
+          path: ios-app-simulator.zip
           retention-days: 7
 
   # ---------------------------------------------------------------------------
@@ -898,5 +1145,6 @@ jobs:
             macos-build/macos-build.zip
             bsd-*-build/*.zip
             ios-raylib-xcframework.zip
+            ios-app-simulator/ios-app-simulator.zip
             THIRD_PARTY_LICENSES.md
             SHA256SUMS

@@ -1,3 +1,12 @@
+# Pinned to a fork under our own org, not to ghera/raylib-iOS directly.
+#
+# The commit is the same one it always was (29ce933d) — this is purely about
+# availability. A submodule pointing at a third party's repo means that if that
+# repo is deleted, made private, or garbage-collects the object, every iOS build
+# fails forever and there is nothing we can do about it. A fork costs one click
+# and removes that failure mode permanently.
+#
+# Upstream: https://github.com/ghera/raylib-iOS
 [submodule "thirdparty/raylib-ios"]
 	path = thirdparty/raylib-ios
-	url = https://github.com/ghera/raylib-iOS.git
+	url = https://github.com/omardev29/raylib-iOS.git

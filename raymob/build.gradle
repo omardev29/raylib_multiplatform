@@ -1,5 +1,11 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
+// AGP 8.13.2 is the last 8.x line. It needs Gradle >= 8.13 and JDK 17, and
+// supports up to API 36.1 — enough for the targetSdk 36 that Play requires.
+//
+// Do not jump to AGP 9 without rewriting app/build.gradle first: Gradle 9
+// removes `gradle.buildFinished` and AGP 9 removes `applicationVariants`, and
+// this module uses both.
 plugins {
-    id 'com.android.application' version '8.6.1' apply false
-    id 'com.android.library' version '8.6.1' apply false
+    id 'com.android.application' version '8.13.2' apply false
+    id 'com.android.library' version '8.13.2' apply false
 }
