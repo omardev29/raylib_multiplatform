@@ -223,9 +223,6 @@
 #define MAGENTA CLITERAL(Color){255, 0, 255, 255} // Magenta
 #define RAYWHITE                                                               \
   CLITERAL(Color){245, 245, 245, 255} // My own White (raylib logo)
-#define ALICEBLUE CLITERAL(Color){0, 240, 248, 255} // Other blue from Godot
-#define GIORNOGOLD                                                             \
-  CLITERAL(Color){238, 207, 34, 255} // The Golden Experience of Giorno
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
