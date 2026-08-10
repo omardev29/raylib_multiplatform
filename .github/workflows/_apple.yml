@@ -209,10 +209,25 @@ jobs:
           BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")
           echo "bundle id: $BUNDLE_ID"
 
+          # No `timeout` here: macOS does not ship GNU coreutils, so `timeout`
+          # is simply not a command and the step dies with "command not found"
+          # before simctl ever runs. Background the launch and poll instead.
+          #
           # SIMCTL_CHILD_* forwards the variable into the app process. Without
           # the frame budget the app never exits — UIKit owns the run loop.
+          : > /tmp/sim.log
           SIMCTL_CHILD_RAY_TEST_MAX_FRAMES=60 \
-            timeout 240 xcrun simctl launch --console-pty "$UDID" "$BUNDLE_ID" 2>&1 | tee /tmp/sim.log || true
+            xcrun simctl launch --console-pty "$UDID" "$BUNDLE_ID" >/tmp/sim.log 2>&1 &
+          LAUNCH_PID=$!
+
+          # 240s ceiling, but exit as soon as the app says it is done.
+          for _ in $(seq 1 120); do
+            grep -q "RAY_TEST_DONE_FRAMES" /tmp/sim.log && break
+            kill -0 "$LAUNCH_PID" 2>/dev/null || break
+            sleep 2
+          done
+          kill "$LAUNCH_PID" 2>/dev/null || true
+          wait "$LAUNCH_PID" 2>/dev/null || true
 
           echo "--- simulator log ---"; cat /tmp/sim.log
           grep -q "RAY_TEST_BOOT_OK"   /tmp/sim.log || { echo "FAIL: boot marker missing"; exit 1; }

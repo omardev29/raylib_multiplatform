@@ -17,6 +17,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [iOS](#ios)
 - [BSD & RISC-V targets](#bsd--risc-v-targets)
 - [CI/CD pipeline](#cicd-pipeline)
+- [Maintenance & platform longevity](#maintenance--platform-longevity)
 - [Adding source files & libraries](#adding-source-files--libraries)
 - [FAQ & troubleshooting](#faq--troubleshooting)
 
