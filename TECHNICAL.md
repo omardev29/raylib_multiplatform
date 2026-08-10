@@ -8,6 +8,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Build system](#build-system)
 - [Editor / clangd (LSP)](#editor--clangd-lsp)
 - [Compile-time definitions](#compile-time-definitions)
+- [Platform detection macros](#platform-detection-macros)
 - [Resources: `RESOURCES_PATH` and rres](#resources-resources_path-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
 - [AdMob (Android)](#admob-android)
@@ -115,6 +116,73 @@ get indexed). It requires the NDK:
 ```cpp
 Texture2D tex = LoadTexture(RESOURCES_PATH "player.png");  // raw path form
 ```
+
+---
+
+## Platform detection macros
+
+Two families of macros are available, and they answer different questions:
+
+- **`PLATFORM_*`** — set by the **build system** (raylib's CMake / the app shell). They tell you
+  which **raylib backend** you are on. Prefer these for gameplay/rendering branches.
+- **Compiler-predefined** (`__ANDROID__`, `_WIN32`, …) — always defined by the **compiler**, no
+  setup needed. They tell you the **OS / CPU**. Use these for OS-specific code, and for the
+  platforms raylib lumps together (the BSDs).
+
+### raylib `PLATFORM_*` (set by the build)
+
+| Macro | Defined when | Set by |
+|---|---|---|
+| `PLATFORM_DESKTOP` | Windows, Linux, macOS **and the BSDs** (desktop GLFW backend) | raylib CMake (propagates `PUBLIC` to the game) |
+| `PLATFORM_WEB` | Web / Emscripten | `web` preset (`-DPLATFORM=Web`) → raylib CMake |
+| `PLATFORM_ANDROID` | Android | raymob CMake (`-DPLATFORM=Android`) |
+| `PLATFORM_IOS` | iOS | `ios/project.yml` (`GCC_PREPROCESSOR_DEFINITIONS`) |
+
+Example — this is exactly how `src/main.cpp` picks the runner, and how `include/raylib_multi.h`
+pulls in `<raymob.h>`:
+
+```cpp
+#if defined(PLATFORM_IOS)
+  // iOS: OS-driven frame callbacks (ios_ready/ios_update/ios_destroy)
+#else
+  // Desktop / BSD / Android / Web: blocking main() loop
+#endif
+```
+
+> **Note:** there is **no per-BSD `PLATFORM_*`** — FreeBSD/OpenBSD/NetBSD all build as
+> `PLATFORM_DESKTOP`. To single out a BSD (or Linux vs Windows vs macOS) use the compiler macros
+> below.
+
+### Compiler-predefined: OS
+
+| Macro | Platform |
+|---|---|
+| `_WIN32` | Windows (32- and 64-bit; add `_WIN64` to require 64-bit) |
+| `__APPLE__` | macOS **or** iOS (see note) |
+| `__linux__` | Linux (also defined on Android — check `__ANDROID__` first) |
+| `__ANDROID__` | Android (NDK). This is what `<raymob.h>`/`<admob.h>` test. |
+| `__EMSCRIPTEN__` | Web / Emscripten |
+| `__FreeBSD__` / `__OpenBSD__` / `__NetBSD__` | the three BSDs |
+
+> **Apple note:** `__APPLE__` is set for both macOS and iOS. To split them, combine with the
+> raylib macro: iOS defines `PLATFORM_IOS`, macOS builds are `PLATFORM_DESKTOP && __APPLE__`.
+> (You can also include `<TargetConditionals.h>` and test `TARGET_OS_IPHONE`.)
+
+### Compiler-predefined: CPU architecture
+
+| Macro | Architecture |
+|---|---|
+| `__x86_64__` (GCC/Clang) / `_M_X64` (MSVC) | x86-64 |
+| `__aarch64__` (GCC/Clang) / `_M_ARM64` (MSVC) | ARM64 |
+| `__riscv` (with `__riscv_xlen == 64`) | RISC-V 64 |
+
+### Which one do I use?
+
+- **"Am I on mobile / web / desktop?"** → `PLATFORM_ANDROID` / `PLATFORM_WEB` / `PLATFORM_IOS` /
+  `PLATFORM_DESKTOP`.
+- **"Am I on Windows / Linux / a BSD?"** → compiler macros (`_WIN32`, `__linux__`, `__FreeBSD__`, …).
+- **"Is this ARM64 vs x86-64?"** → architecture macros.
+- For anything the template's own headers gate (raymob/admob), match them with `__ANDROID__`.
 
 ---
 
