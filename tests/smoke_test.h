@@ -92,27 +92,36 @@ static inline void SmokeTest_CaptureFrame(void) {
     const unsigned char* px = (const unsigned char*)img.data;
     const long total = (long)img.width * (long)img.height;
 
-    // Treat the top-left pixel as the background. Everything the game draws is
-    // inset from the corner, so anything differing from it is real content.
-    // We deliberately do NOT assert a pixel hash: llvmpipe, ANGLE-on-Metal,
+    // "Background" is the most common colour in the frame, found with a
+    // histogram — not the corner pixel. The corner is the obvious choice and it
+    // is fragile: any border, letterbox or overscan row makes (0,0) a colour
+    // that matches nothing else, and the check then reports ~100% content on a
+    // frame that is actually blank. The modal colour is whatever
+    // ClearBackground painted, regardless of what the edges do.
+    //
+    // Colours are bucketed to RGB565: that keeps the histogram a flat 64K array
+    // and folds in a dithering tolerance for free.
+    //
+    // We deliberately do NOT assert a pixel hash. llvmpipe, ANGLE-on-Metal,
     // SwiftShader and mobile GPUs disagree on text antialiasing and texture
     // filtering, so a hash gate would be red on half the matrix for no reason.
     // The hash is logged as a diagnostic only.
-    const unsigned char bg[3] = { px[0], px[1], px[2] };
+    unsigned int* hist = (unsigned int*)calloc(65536, sizeof(unsigned int));
+    if (hist == NULL) { UnloadImage(img); return; }
 
-    long differing = 0;
     unsigned int hash = 2166136261u;                    // FNV-1a
     for (long i = 0; i < total; ++i) {
         const unsigned char* p = px + i * 4;
-        const int dr = (int)p[0] - (int)bg[0];
-        const int dg = (int)p[1] - (int)bg[1];
-        const int db = (int)p[2] - (int)bg[2];
-        // +/-2 per channel of slack absorbs dithering and rounding.
-        if (dr > 2 || dr < -2 || dg > 2 || dg < -2 || db > 2 || db < -2) ++differing;
+        hist[((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3)]++;
         hash = (hash ^ p[0]) * 16777619u;
         hash = (hash ^ p[1]) * 16777619u;
         hash = (hash ^ p[2]) * 16777619u;
     }
+
+    int bg = 0;
+    for (int k = 1; k < 65536; ++k) if (hist[k] > hist[bg]) bg = k;
+    const long differing = total - (long)hist[bg];
+    free(hist);
     UnloadImage(img);
 
     const double ratio = (total > 0) ? (double)differing / (double)total : 0.0;

@@ -1,0 +1,146 @@
+# Run the Android build on a REAL device via Firebase Test Lab.
+#
+# Reusable (`workflow_call`) — called from ci.yml after the Android job.
+#
+# An emulator inside an unaccelerated runner is slow and fails for reasons that
+# have nothing to do with the game. Test Lab runs the actual APK on actual
+# hardware and tells you whether it survives a cold start on a real GPU driver,
+# which is the one thing CI cannot otherwise check.
+#
+# Configure it by setting, on the repository:
+#   vars.FIREBASE_PROJECT   the GCP project id
+#   secrets.GCP_SA_KEY      the service-account JSON (whole file contents)
+#   vars.FIREBASE_DEVICE    optional; Google retires device models periodically
+#
+# With those missing the job warns and skips. Setup steps are in TECHNICAL.md —
+# note that Test Lab now requires a Blaze (pay-as-you-go) billing account; the
+# old free Spark quota is gone.
+
+name: Firebase Test Lab (Android)
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: 'Base name of the built artifacts'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  robo:
+    name: Real device — Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # No GCP account must not turn the pipeline red.
+    continue-on-error: true
+    steps:
+      - name: Check configuration
+        id: cfg
+        env:
+          PROJECT: ${{ vars.FIREBASE_PROJECT }}
+          SA: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "$PROJECT" ] || MISSING="$MISSING vars.FIREBASE_PROJECT"
+          [ -n "$SA" ]      || MISSING="$MISSING secrets.GCP_SA_KEY"
+          if [ -n "$MISSING" ]; then
+            echo "::warning::Firebase Test Lab not configured; missing:$MISSING — skipping. See TECHNICAL.md."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download debug APK
+        id: dl
+        if: steps.cfg.outputs.ok == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: android-debug-apk
+          path: apk
+
+      - name: Robo test on a real device
+        id: run
+        if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
+        env:
+          SA_JSON: ${{ secrets.GCP_SA_KEY }}
+          PROJECT: ${{ vars.FIREBASE_PROJECT }}
+          # Overridable: Google retires device models every couple of years, and
+          # a hard-coded model turns into a mystery failure long after the fact.
+          DEVICE: ${{ vars.FIREBASE_DEVICE || 'model=MediumPhone.arm,version=33,locale=en,orientation=portrait' }}
+        run: |
+          set -euo pipefail
+
+          # Deliberately the DEBUG apk only. Robo crawls the UI and will happily
+          # click an ad banner; the debug build uses Google's official test ad
+          # unit ids, so those clicks are harmless. Sending a release build here
+          # would generate invalid traffic against real ad units.
+          APP=$(find apk -name '*.apk' | head -1)
+          [ -n "$APP" ] || { echo "::error::no APK in the artifact"; exit 1; }
+          case "$APP" in
+            *debug*) : ;;
+            *) echo "::error::refusing to run Test Lab on a non-debug APK ($APP)"; exit 1 ;;
+          esac
+          echo "app: $APP"
+
+          # Via a file with a private umask, never as an argument: command-line
+          # arguments are visible in the runner's process list.
+          umask 077
+          SA_FILE=$(mktemp)
+          trap 'rm -f "$SA_FILE"' EXIT
+          printf '%s' "$SA_JSON" > "$SA_FILE"
+          gcloud auth activate-service-account --key-file="$SA_FILE"
+          gcloud config set project "$PROJECT"
+
+          # Results go to a known bucket/dir so they can be pulled back as
+          # artifacts instead of living only in a console nobody opens.
+          RESULTS_DIR="ci-${{ github.run_id }}-${{ github.run_attempt }}"
+          BUCKET="${{ vars.FIREBASE_RESULTS_BUCKET }}"
+          BUCKET_ARG=""
+          [ -n "$BUCKET" ] && BUCKET_ARG="--results-bucket=$BUCKET"
+          echo "results-dir=$RESULTS_DIR" >> "$GITHUB_OUTPUT"
+
+          # --type robo explores the app on its own with no test code. For a
+          # game it will not discover much, but it does establish the thing that
+          # matters here: that it starts on real hardware without crashing.
+          RC=0
+          # shellcheck disable=SC2086
+          gcloud firebase test android run \
+            --type robo \
+            --app "$APP" \
+            --device "$DEVICE" \
+            --timeout 5m \
+            --results-dir "$RESULTS_DIR" \
+            $BUCKET_ARG \
+            --format json > /tmp/testlab.json || RC=$?
+
+          echo "--- result ---"
+          python3 -c "import json;d=json.load(open('/tmp/testlab.json'));print(json.dumps(d,indent=2)[:2000])" \
+            2>/dev/null || cat /tmp/testlab.json
+          exit "$RC"
+
+      - name: Fetch Test Lab results
+        if: always() && steps.run.outcome != 'skipped' && vars.FIREBASE_RESULTS_BUCKET != ''
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p testlab-results
+          gsutil -m cp -r "gs://${{ vars.FIREBASE_RESULTS_BUCKET }}/${{ steps.run.outputs.results-dir }}/*" \
+            testlab-results/ || echo "::warning::could not fetch results from the bucket"
+          find testlab-results -maxdepth 3 | head -40
+
+      - name: Upload Test Lab results
+        if: always() && steps.run.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: firebase-testlab-results
+          path: |
+            testlab-results
+            /tmp/testlab.json
+          if-no-files-found: ignore
+          retention-days: 7

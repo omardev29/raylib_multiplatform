@@ -1,0 +1,232 @@
+# Linux targets: x64, ARM64, RISC-V.
+#
+# Reusable (`workflow_call`) — called from ci.yml.
+#
+# All three build inside the frozen image, so the toolchain is identical to the
+# one recorded in thirdparty/FROZEN_VERSIONS.md and nothing is downloaded at job
+# time. x64 and ARM64 additionally boot the game headless under xvfb and assert
+# it renders; RISC-V is cross-compiled and only checked statically, since there
+# is no riscv64 runner to run it on.
+
+name: Linux
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+      build_image:
+        description: 'Digest-pinned build image (ghcr.io/…@sha256:…)'
+        required: true
+        type: string
+      full:
+        description: 'false = fast lane (x64 only)'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  x64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        # Container jobs default to `sh -e {0}`, which has no `pipefail`;
+        # `set -euo pipefail` dies with "Illegal option". Be explicit.
+        shell: bash
+    steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build (game + rres packer)
+        run: cmake --build build
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Test (static) — binary exists, is x86-64 ELF, executable
+        run: |
+          set -e
+          BIN=build/${{ inputs.project_name }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
+          # Portable ELF checks with od (`file` is not installed in the image):
+          # magic 7f454c46, e_machine at offset 0x12 (x86-64 = 0x003E -> "3e00").
+          MAGIC=$(od -An -tx1 -N4 "$BIN" | tr -d ' \n')
+          [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
+          MACHINE=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
+          [ "$MACHINE" = "3e00" ] || { echo "FAIL: not x86-64 (e_machine=$MACHINE)"; exit 1; }
+          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
+
+      - name: Test (runtime) — boot headless, render frames, verify pixels
+        run: |
+          set -e
+          OUT=/tmp/ray_test_out.txt
+          # Explicit 24-bit screen: the render read-back needs a real colour
+          # depth, and xvfb-run's default has changed across versions.
+          RAY_TEST_MAX_FRAMES=30 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 180 ./build/${{ inputs.project_name }} >"$OUT" 2>&1 \
+            || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
+          echo "--- captured output ---"; cat "$OUT"
+          grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          # Booting proves the window and the assets are fine and nothing more.
+          # RAY_TEST_RENDER_OK is the gate that a blank frame cannot pass.
+          grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          echo "PASS: runtime boot + render test"
+
+      - name: Package
+        run: |
+          mkdir -p package/resources
+          cp build/${{ inputs.project_name }} package/
+          cp resources/resources.rres package/resources/
+          cd package && zip -r ../linux-x64-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-x64-build
+          path: linux-x64-build.zip
+          retention-days: 7
+
+  arm64:
+    if: inputs.full
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        # Container jobs default to `sh -e {0}`, which has no `pipefail`;
+        # `set -euo pipefail` dies with "Illegal option". Be explicit.
+        shell: bash
+    steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Test (static) — binary exists, is aarch64 ELF, executable
+        run: |
+          set -e
+          BIN=build/${{ inputs.project_name }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
+          # Portable ELF checks with od: magic + e_machine (ARM64 = 0x00B7 -> "b700").
+          MAGIC=$(od -An -tx1 -N4 "$BIN" | tr -d ' \n')
+          [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
+          MACHINE=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
+          [ "$MACHINE" = "b700" ] || { echo "FAIL: not ARM64 (e_machine=$MACHINE)"; exit 1; }
+          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
+
+      - name: Test (runtime) — boot headless, render frames, verify pixels
+        run: |
+          set -e
+          OUT=/tmp/ray_test_out.txt
+          RAY_TEST_MAX_FRAMES=30 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 180 ./build/${{ inputs.project_name }} >"$OUT" 2>&1 \
+            || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
+          echo "--- captured output ---"; cat "$OUT"
+          grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          echo "PASS: runtime boot + render test"
+
+      - name: Package
+        run: |
+          mkdir -p package/resources
+          cp build/${{ inputs.project_name }} package/
+          cp resources/resources.rres package/resources/
+          cd package && zip -r ../linux-arm64-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-arm64-build
+          path: linux-arm64-build.zip
+          retention-days: 7
+
+  riscv64:
+    # Cross-compiled inside the amd64 container: the image ships the riscv64
+    # X11/GL multiarch libraries. Static checks only — there is no riscv64
+    # runner to boot it on.
+    if: inputs.full
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        # Container jobs default to `sh -e {0}`, which has no `pipefail`;
+        # `set -euo pipefail` dies with "Illegal option". Be explicit.
+        shell: bash
+    steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Configure (riscv64 toolchain)
+        run: >
+          cmake -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64-linux.cmake
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test (static) — binary exists, is RISC-V ELF, executable
+        run: |
+          set -e
+          BIN=build/${{ inputs.project_name }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
+          # Portable ELF checks with od: magic + e_machine (RISC-V = 0x00F3 -> "f300").
+          MAGIC=$(od -An -tx1 -N4 "$BIN" | tr -d ' \n')
+          [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
+          MACHINE=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
+          [ "$MACHINE" = "f300" ] || { echo "FAIL: not RISC-V (e_machine=$MACHINE)"; exit 1; }
+          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
+
+      - name: Package
+        run: |
+          mkdir -p package/resources
+          cp build/${{ inputs.project_name }} package/
+          cp -r resources package/
+          cd package && zip -r ../linux-riscv64-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-riscv64-build
+          path: linux-riscv64-build.zip
+          retention-days: 7

@@ -1,0 +1,234 @@
+# macOS and iOS.
+#
+# Reusable (`workflow_call`) — called from ci.yml.
+#
+# Both jobs pin the runner image AND select Xcode explicitly. `macos-latest`
+# moved from macOS 15 to macOS 26 within a few months, taking the default Xcode
+# with it, which is exactly the kind of drift an iOS build trips over first.
+
+name: Apple
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # macos-26 ships several Xcodes and prunes the non-default ones first, so
+  # pinning the current default buys the most shelf life.
+  XCODE_VERSION: '26.6'
+  NINJA_VERSION: '1.13.2'
+  NINJA_MAC_SHA256: 'c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b'
+  XCODEGEN_VERSION: '2.46.0'
+  XCODEGEN_SHA256: '4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806'
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ ! -d "$APP" ]; then
+            echo "FAIL: Xcode ${XCODE_VERSION} is not installed on this runner. Available:"
+            ls -d /Applications/Xcode*.app
+            echo "Update XCODE_VERSION in .github/workflows/_apple.yml."
+            exit 1
+          fi
+          sudo xcode-select -s "$APP/Contents/Developer"
+          xcodebuild -version
+
+      # `brew install ninja` was a network call to an unversioned formula whose
+      # macOS requirements move on Homebrew's schedule, not ours.
+      - name: Install Ninja (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/ninja-mac.zip \
+            "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-mac.zip"
+          echo "${NINJA_MAC_SHA256}  /tmp/ninja-mac.zip" | shasum -a 256 -c -
+          unzip -o -q /tmp/ninja-mac.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/ninja
+          ninja --version
+
+      # Universal binary: the runners are Apple Silicon, so an arm64-only build
+      # left every Intel Mac user with nothing.
+      - name: Configure
+        run: cmake --preset release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Test (static) — binary is a universal Mach-O with both slices
+        run: |
+          set -e
+          BIN=build/${{ inputs.project_name }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          file "$BIN"
+          file "$BIN" | grep -qi "Mach-O" || { echo "FAIL: not a Mach-O binary"; exit 1; }
+          lipo -info "$BIN"
+          lipo -info "$BIN" | grep -q "arm64"  || { echo "FAIL: no arm64 slice"; exit 1; }
+          lipo -info "$BIN" | grep -q "x86_64" || { echo "FAIL: no x86_64 slice"; exit 1; }
+          echo "PASS: universal Mach-O (arm64 + x86_64)"
+
+      - name: Package
+        run: |
+          mkdir -p package/resources
+          cp build/${{ inputs.project_name }} package/
+          cp resources/resources.rres package/resources/
+          cd package && zip -r ../macos-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: macos-build
+          path: macos-build.zip
+          retention-days: 7
+
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ ! -d "$APP" ]; then
+            echo "FAIL: Xcode ${XCODE_VERSION} is not installed on this runner. Available:"
+            ls -d /Applications/Xcode*.app
+            echo "Update XCODE_VERSION in .github/workflows/_apple.yml."
+            exit 1
+          fi
+          sudo xcode-select -s "$APP/Contents/Developer"
+          xcodebuild -version
+
+      # ios/project.yml hard-codes .../projects/Xcode26/raylib/bridge in its
+      # header search path. That is upstream's folder name and the submodule is
+      # pinned to a commit, so the path cannot move underneath us — but it WILL
+      # break the day the submodule is bumped past a reorganisation. This turns
+      # that into an obvious red step with an instruction, instead of a wall of
+      # "IOSBridge.h not found" from clang.
+      - name: Guard — the raylib-iOS bridge is where project.yml expects
+        run: |
+          BRIDGE=thirdparty/raylib-ios/projects/Xcode26/raylib/bridge/IOSBridge.h
+          if [ ! -f "$BRIDGE" ]; then
+            echo "FAIL: $BRIDGE is gone — the fork reorganised its projects/ layout."
+            echo "Update HEADER_SEARCH_PATHS in ios/project.yml. Found instead:"
+            find thirdparty/raylib-ios/projects -name '*.h' | head -20
+            exit 1
+          fi
+          echo "PASS: bridge header present"
+
+      - name: Build raylib.xcframework (device + simulator)
+        run: |
+          cd thirdparty/raylib-ios/projects/scripts
+          chmod +x build-ios-xcframework.sh
+          ./build-ios-xcframework.sh
+
+      - name: Install XcodeGen (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 -c -
+          unzip -o -q /tmp/xcodegen.zip -d /tmp/xcodegen-dist
+          # Keep the bin/ + share/ layout: xcodegen resolves its SettingPresets
+          # relative to the binary, so a bare copy of bin/xcodegen breaks.
+          echo "/tmp/xcodegen-dist/xcodegen/bin" >> "$GITHUB_PATH"
+          /tmp/xcodegen-dist/xcodegen/bin/xcodegen --version
+
+      - name: Generate Xcode project
+        run: cd ios && xcodegen generate
+
+      # Explicit derived-data path so the .app has one known location, instead
+      # of being hunted for with `find` across ~/Library/Developer.
+      - name: Build app (simulator, no signing)
+        run: |
+          cd ios
+          xcodebuild -project ${{ inputs.project_name }}.xcodeproj -scheme ${{ inputs.project_name }} \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ./dd \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Test (static) — xcframework + .app bundle exist
+        run: |
+          set -e
+          test -d thirdparty/raylib-ios/raylib.xcframework || { echo "FAIL: raylib.xcframework missing"; exit 1; }
+          APP=ios/dd/Build/Products/Debug-iphonesimulator/${{ inputs.project_name }}.app
+          test -d "$APP" || { echo "FAIL: $APP not built"; ls -R ios/dd/Build/Products || true; exit 1; }
+          test -x "$APP/${{ inputs.project_name }}" || { echo "FAIL: app binary missing"; exit 1; }
+          file "$APP/${{ inputs.project_name }}" | grep -qi "Mach-O" || { echo "FAIL: not Mach-O"; exit 1; }
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+          echo "PASS: iOS artifact checks ($APP)"
+
+      # Runtime coverage. Until now iOS only proved a Mach-O file existed on
+      # disk — the app was never once started. The simulator on these runners is
+      # Apple Silicon with real Metal, and the app links ANGLE (ES3 over Metal),
+      # which is what makes this possible at all; plain GL ES in the simulator
+      # is dead.
+      #
+      # continue-on-error while it settles: it is new, it is the most
+      # environment-sensitive step here, and a flaky gate that blocks releases
+      # is worse than no gate. Promote it once it has a run of green behind it.
+      - name: Test (runtime) — boot in the iOS Simulator
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Discover the runtime rather than hard-coding a version: the pinned
+          # Xcode ships whatever iOS runtime it ships.
+          RT=$(xcrun simctl list runtimes -j \
+                | python3 -c "import json,sys; rs=[r['identifier'] for r in json.load(sys.stdin)['runtimes'] if r.get('isAvailable') and 'iOS' in r['identifier']]; print(rs[-1] if rs else '')")
+          test -n "$RT" || { echo "FAIL: no available iOS simulator runtime"; xcrun simctl list runtimes; exit 1; }
+          echo "runtime: $RT"
+
+          UDID=$(xcrun simctl create ci-sim "iPhone 16" "$RT")
+          trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true; xcrun simctl delete "$UDID" >/dev/null 2>&1 || true' EXIT
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+          xcrun simctl install "$UDID" "$APP_PATH"
+          # SIMCTL_CHILD_* forwards the variable into the app process. Without
+          # the frame budget the app never exits — UIKit owns the run loop.
+          SIMCTL_CHILD_RAY_TEST_MAX_FRAMES=60 \
+            timeout 240 xcrun simctl launch --console-pty "$UDID" com.example.raytest 2>&1 | tee /tmp/sim.log || true
+
+          echo "--- simulator log ---"; cat /tmp/sim.log
+          grep -q "RAY_TEST_BOOT_OK"   /tmp/sim.log || { echo "FAIL: boot marker missing"; exit 1; }
+          grep -q "RAY_TEST_RENDER_OK" /tmp/sim.log || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
+          echo "PASS: iOS simulator boot + render"
+
+      - name: Package .app
+        run: |
+          set -e
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ios-app-simulator.zip
+          ls -la ios-app-simulator.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ios-raylib-xcframework
+          path: thirdparty/raylib-ios/raylib.xcframework
+          retention-days: 7
+
+      # The release used to ship only the xcframework — a library, not the game.
+      # This is the simulator build of the app itself; it is unsigned and NOT
+      # installable on a device (that needs an Apple developer account).
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ios-app-simulator
+          path: ios-app-simulator.zip
+          retention-days: 7

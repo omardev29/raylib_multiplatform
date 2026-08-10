@@ -1,0 +1,204 @@
+# Orchestrator. This is the only workflow you normally read or edit.
+#
+#   push / pull_request  ->  fast lane: Linux x64, Web, Android, Windows x64
+#   tag v*               ->  all 14 targets, then Release and itch.io
+#   workflow_dispatch    ->  either, via the `full` input
+#
+# Why a fast lane: the full matrix spends about an hour of BSD QEMU and macOS
+# runner time. Paying that on every commit means either a slow loop or (much
+# worse) people learning to ignore CI. The subset below covers the four targets
+# that catch most regressions, in about ten minutes.
+#
+# Every platform lives in its own `_*.yml` reusable workflow. Three things
+# routinely go wrong when splitting workflows this way, so they are worth
+# stating once:
+#
+#   1. Workflow-level `env` does NOT cross the `workflow_call` boundary. That is
+#      why PROJECT_NAME is passed as an input to every leaf instead of being an
+#      `env` here — otherwise the leaves silently build paths like `.exe` off an
+#      empty string.
+#   2. Called workflows get no secrets unless you say `secrets: inherit`. Miss it
+#      and the signing / butler / GCP steps all quietly take their "not
+#      configured, skipping" branch and the pipeline looks green.
+#   3. `concurrency` belongs HERE and nowhere else. Repeat it in the leaves and
+#      the parent and its children start cancelling each other.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['**.md', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**.md', 'LICENSE']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Build all 14 targets (default: fast lane only)'
+        type: boolean
+        default: false
+      image_digest:
+        description: 'Override the build image, e.g. ghcr.io/…@sha256:… (blank = the pinned one)'
+        type: string
+        default: ''
+
+# Superseded runs on a branch are wasted minutes, but a tag build is a release
+# artifact — never cancel one of those out from under itself.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Single source of truth for everything the leaves need to agree on.
+  config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      project_name: ray_test
+      build_image: ${{ steps.o.outputs.build_image }}
+      full: ${{ steps.o.outputs.full }}
+      version: ${{ steps.o.outputs.version }}
+    steps:
+      - id: o
+        env:
+          # The one place the image pin lives. Bump it from the run summary of
+          # the raylib-build-image repo. Pinned by DIGEST, never by tag: a tag
+          # can be moved, so `:latest` would let an unrelated rebuild silently
+          # change what every Linux job compiles with.
+          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655'
+          OVERRIDE: ${{ inputs.image_digest }}
+        run: |
+          set -euo pipefail
+          echo "build_image=${OVERRIDE:-$PINNED_IMAGE}" >> "$GITHUB_OUTPUT"
+          # Tags always build everything; branches and PRs only if asked.
+          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ inputs.full }}" = "true" ]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+  # Cheap, fast, and catches the class of mistake that otherwise only shows up
+  # on a tag: a typo'd input name in a reusable workflow, or pins that have
+  # drifted apart across files.
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          VERSION=1.7.12
+          SHA=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          curl -fsSL -o /tmp/actionlint.tgz \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
+          echo "${SHA}  /tmp/actionlint.tgz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tgz -C /tmp actionlint
+          /tmp/actionlint -color .github/workflows/*.yml .github/workflows/*.yaml || exit 1
+          echo "PASS: actionlint clean"
+
+      - name: Pinned versions agree
+        run: bash tools/versions_check.sh
+
+  linux:
+    needs: config
+    uses: ./.github/workflows/_linux.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      build_image: ${{ needs.config.outputs.build_image }}
+      full: ${{ needs.config.outputs.full == 'true' }}
+    permissions:
+      contents: read
+      packages: read
+
+  web:
+    needs: config
+    uses: ./.github/workflows/_web.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      build_image: ${{ needs.config.outputs.build_image }}
+    permissions:
+      contents: read
+      packages: read
+
+  windows:
+    needs: config
+    uses: ./.github/workflows/_windows.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      full: ${{ needs.config.outputs.full == 'true' }}
+
+  android:
+    needs: config
+    uses: ./.github/workflows/_android.yml
+    with:
+      build_image: ${{ needs.config.outputs.build_image }}
+    permissions:
+      contents: read
+      packages: read
+    secrets: inherit
+
+  apple:
+    needs: config
+    if: needs.config.outputs.full == 'true'
+    uses: ./.github/workflows/_apple.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+
+  bsd:
+    needs: config
+    if: needs.config.outputs.full == 'true'
+    uses: ./.github/workflows/_bsd.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+
+  # Optional: runs the debug APK on real hardware. Skips with a warning when
+  # vars.FIREBASE_PROJECT / secrets.GCP_SA_KEY are absent, which is the default.
+  firebase:
+    needs: [config, android]
+    if: needs.config.outputs.full == 'true'
+    uses: ./.github/workflows/_firebase.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Release. Tag builds only, and only when every target actually succeeded.
+  #
+  # `always()` is required so this job is evaluated even though some upstreams
+  # may have been skipped — but `always()` also makes `needs` stop gating on its
+  # own, so every dependency has to be re-asserted by hand below. Forgetting one
+  # means it silently stops blocking the release.
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [config, lint, linux, web, windows, android, apple, bsd]
+    if: >
+      always() &&
+      github.ref_type == 'tag' &&
+      needs.lint.result == 'success' &&
+      needs.linux.result == 'success' &&
+      needs.web.result == 'success' &&
+      needs.windows.result == 'success' &&
+      needs.android.result == 'success' &&
+      needs.apple.result == 'success' &&
+      needs.bsd.result == 'success'
+    uses: ./.github/workflows/_release.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+    permissions:
+      contents: write
+
+  itch:
+    needs: [config, release]
+    if: always() && github.ref_type == 'tag' && needs.release.result == 'success'
+    uses: ./.github/workflows/_itch.yml
+    with:
+      version: ${{ needs.config.outputs.version }}
+      project_name: ${{ needs.config.outputs.project_name }}
+    secrets: inherit

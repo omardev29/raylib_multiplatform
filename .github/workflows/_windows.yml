@@ -1,0 +1,202 @@
+# Windows targets: x64 (native, with a real render test) and ARM64 (MSVC cross).
+#
+# Reusable (`workflow_call`) — called from ci.yml.
+#
+# The x64 job renders for real. Hosted Windows runners have no GPU, so GLFW
+# could not create a GL context and the render loop faulted immediately after
+# boot; the old test tolerated that crash, which meant every render regression
+# passed CI in silence. Mesa's software rasteriser is staged next to the
+# executable so the SHIPPED binary gets a genuine WGL context on REAL Windows —
+# no emulation and no translation layer in the way.
+
+name: Windows
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+      full:
+        description: 'false = fast lane (x64 only)'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  MESA_VERSION: '26.1.6'
+  MESA_SHA256: '86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb'
+
+jobs:
+  x64:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # MSVC's toolset version floats with the runner image. Recording it means
+      # a compiler-specific failure can at least be correlated after the fact.
+      - name: Record MSVC toolset
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          & $vswhere -latest -products * -property catalog_productDisplayVersion
+          Get-Content "$(& $vswhere -latest -products * -property installationPath)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Pack resources (AES rres)
+        run: cmake --build build --target pack_resources
+
+      - name: Test (static) — .exe exists and is a PE executable
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = "build/${{ inputs.project_name }}.exe"
+          if (-not (Test-Path $exe)) { Write-Host "FAIL: $exe not found"; exit 1 }
+          if ((Get-Item $exe).Length -eq 0) { Write-Host "FAIL: $exe is empty"; exit 1 }
+          $head = [System.IO.File]::ReadAllBytes($exe)[0..1]
+          if (-not ($head[0] -eq 0x4D -and $head[1] -eq 0x5A)) { Write-Host "FAIL: not a PE (no MZ header)"; exit 1 }
+          Write-Host "PASS: static binary checks ($((Get-Item $exe).Length) bytes)"
+
+      - name: Set up Mesa software OpenGL (pinned)
+        run: |
+          $ErrorActionPreference = "Stop"
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${env:MESA_VERSION}/mesa3d-${env:MESA_VERSION}-release-msvc.7z"
+          Invoke-WebRequest -Uri $url -OutFile mesa.7z
+          $got = (Get-FileHash mesa.7z -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $env:MESA_SHA256) { Write-Host "FAIL: mesa sha256 mismatch`n  got      $got`n  expected $env:MESA_SHA256"; exit 1 }
+          7z x mesa.7z -omesa -y | Out-Null
+          # Windows resolves DLLs from the application directory first, so
+          # dropping these next to the .exe overrides the system opengl32.
+          # They are deleted again before packaging: they must never ship.
+          Copy-Item mesa/x64/opengl32.dll,mesa/x64/libgallium_wgl.dll,mesa/x64/dxil.dll build/
+          Write-Host "Mesa ${env:MESA_VERSION} staged next to the executable"
+
+      - name: Test (runtime) — boot, render frames, verify pixels
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Resolve-Path "build/${{ inputs.project_name }}.exe"
+
+          function Invoke-Game([string]$driver) {
+            Remove-Item out.txt,err.txt -ErrorAction SilentlyContinue
+            $env:RAY_TEST_MAX_FRAMES = "30"
+            $env:GALLIUM_DRIVER = $driver
+            $proc = Start-Process -FilePath $exe -RedirectStandardOutput out.txt `
+                                  -RedirectStandardError err.txt -PassThru
+            if (-not $proc.WaitForExit(180000)) {
+              $proc.Kill()
+              return @{ ok = $false; code = -1; text = "TIMEOUT" }
+            }
+            $text = ((Get-Content out.txt -ErrorAction SilentlyContinue) +
+                     (Get-Content err.txt -ErrorAction SilentlyContinue)) -join "`n"
+            return @{ ok = ($proc.ExitCode -eq 0); code = $proc.ExitCode; text = $text }
+          }
+
+          # Fallback ladder. llvmpipe is the fast, well-supported path; softpipe
+          # is the reference rasteriser; d3d12 goes through WARP. If all three
+          # fail we genuinely cannot render here and the job should say so.
+          $result = $null
+          $used = ""
+          foreach ($drv in @("llvmpipe", "softpipe", "d3d12")) {
+            Write-Host "=== attempt: GALLIUM_DRIVER=$drv ==="
+            $r = Invoke-Game $drv
+            Write-Host $r.text
+            if ($r.ok -and $r.text -match "RAY_TEST_RENDER_OK") { $result = $r; $used = $drv; break }
+            Write-Host "--- $drv did not produce a rendered frame (exit=$($r.code)) ---"
+          }
+
+          if ($null -eq $result) { Write-Host "FAIL: no Mesa driver produced a rendered frame"; exit 1 }
+
+          $all = $result.text
+          if ($all -notmatch "RAY_TEST_BOOT_OK texture=[1-9]\d*x[1-9]\d*") { Write-Host "FAIL: boot marker missing or texture not loaded"; exit 1 }
+          if ($all -notmatch "RAY_TEST_RENDER_OK")   { Write-Host "FAIL: render marker missing (blank frame?)"; exit 1 }
+          if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }
+          Write-Host "PASS: Windows boot + render verified on GALLIUM_DRIVER=$used"
+
+      # The game must ship against the player's real driver. A stray Mesa
+      # opengl32.dll in the zip would silently force software rendering on every
+      # machine that installs it — a miserable bug to diagnose from a support
+      # ticket.
+      - name: Remove Mesa from the build directory
+        if: always()
+        run: |
+          Remove-Item build/opengl32.dll,build/libgallium_wgl.dll,build/dxil.dll -ErrorAction SilentlyContinue
+          Remove-Item mesa.7z -ErrorAction SilentlyContinue
+          Remove-Item mesa -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Package
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path package/resources | Out-Null
+          Copy-Item build/${{ inputs.project_name }}.exe package/
+          Copy-Item resources/resources.rres package/resources/
+          Compress-Archive -Path package/* -DestinationPath windows-x64-build.zip
+          $names = [IO.Compression.ZipFile]::OpenRead((Resolve-Path windows-x64-build.zip)).Entries.FullName
+          if ($names -match 'opengl32\.dll|libgallium_wgl\.dll') { Write-Host "FAIL: Mesa leaked into the release zip"; exit 1 }
+          Write-Host "PASS: package clean ($($names.Count) entries)"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: windows-x64-build
+          path: windows-x64-build.zip
+          retention-days: 7
+
+  arm64:
+    # Cross-compiled with MSVC. Static checks only: an ARM64 PE cannot run on
+    # the x64 host, and there is no ARM64 Windows runner in the free tier.
+    if: inputs.full
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Inline vcvarsall (no third-party action: the common ones still run Node 20)
+      - name: Set up MSVC arm64 cross environment (vcvarsall)
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vcvars = & $vswhere -latest -products * -find "VC\Auxiliary\Build\vcvarsall.bat" | Select-Object -First 1
+          if (-not $vcvars) { throw "vcvarsall.bat not found" }
+          cmd /c "`"$vcvars`" amd64_arm64 >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test (static) — .exe exists, is a PE, targets ARM64
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = "build/${{ inputs.project_name }}.exe"
+          if (-not (Test-Path $exe)) { Write-Host "FAIL: $exe not found"; exit 1 }
+          if ((Get-Item $exe).Length -eq 0) { Write-Host "FAIL: $exe is empty"; exit 1 }
+          $b = [System.IO.File]::ReadAllBytes($exe)
+          if (-not ($b[0] -eq 0x4D -and $b[1] -eq 0x5A)) { Write-Host "FAIL: not a PE (no MZ header)"; exit 1 }
+          # PE header: e_lfanew at 0x3C -> machine type at +4 (0xAA64 = ARM64)
+          $pe = [BitConverter]::ToInt32($b, 0x3C)
+          $machine = [BitConverter]::ToUInt16($b, $pe + 4)
+          if ($machine -ne 0xAA64) { Write-Host "FAIL: machine type 0x$($machine.ToString('X4')) != ARM64 (0xAA64)"; exit 1 }
+          Write-Host "PASS: static binary checks (ARM64 PE, $((Get-Item $exe).Length) bytes)"
+
+      # Cross-compiled target: the rres packer is built for ARM64 and cannot run
+      # on the x64 host, so ship loose resources (the game falls back to them).
+      - name: Package
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item build/${{ inputs.project_name }}.exe package/
+          Copy-Item resources package/ -Recurse
+          Compress-Archive -Path package/* -DestinationPath windows-arm64-build.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: windows-arm64-build
+          path: windows-arm64-build.zip
+          retention-days: 7

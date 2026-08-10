@@ -1,0 +1,196 @@
+# Android: debug APK + release AAB.
+#
+# Reusable (`workflow_call`) — called from ci.yml.
+#
+# The AAB is built on EVERY run, not only when signing secrets exist. It used to
+# be gated behind those secrets, which meant that here and in every fork the
+# bundle path was never exercised at all — and the bundle is the one artifact
+# you cannot afford to first test on release day. With no secrets configured CI
+# signs with a throwaway key and labels the result so it can never be mistaken
+# for something publishable.
+
+name: Android
+
+on:
+  workflow_call:
+    inputs:
+      build_image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        # Container jobs default to `sh -e {0}`, which has no `pipefail`;
+        # `set -euo pipefail` dies with "Illegal option". Be explicit.
+        shell: bash
+    steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Catches the specific nasty case where Gradle asks for an SDK platform
+      # the image does not carry: AGP would silently download it at job time and
+      # the "nothing is downloaded at job time" claim would quietly be false.
+      - name: Check pinned versions agree
+        run: bash tools/versions_check.sh
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('raymob/**/*.gradle*', 'raymob/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Build debug APK
+        working-directory: raymob
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Test (static) — APK exists, is a valid zip with manifest + native lib
+        run: |
+          set -e
+          APK=$(find raymob/app/build/outputs/apk/debug -name '*.apk' | head -1)
+          test -s "$APK" || { echo "FAIL: APK missing or empty"; exit 1; }
+          echo "ok: $APK ($(stat -c%s "$APK") bytes)"
+          unzip -l "$APK" | grep -q "AndroidManifest.xml" || { echo "FAIL: no AndroidManifest.xml"; exit 1; }
+          unzip -l "$APK" | grep -q "\.so"                || { echo "FAIL: no native .so"; exit 1; }
+          echo "PASS: APK checks"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: android-debug-apk
+          path: raymob/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+      # --- Release AAB -----------------------------------------------------
+      # To publish for real, add these repository secrets:
+      #   ANDROID_KEYSTORE_BASE64    base64 -w0 your-upload-keystore.jks
+      #   ANDROID_KEYSTORE_PASSWORD
+      #   ANDROID_KEY_ALIAS
+      #   ANDROID_KEY_PASSWORD
+      - name: Prepare signing key
+        id: signing
+        working-directory: raymob
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            echo "Using the configured upload key."
+          else
+            # Throwaway key, generated fresh every run and never reused. Its CN
+            # is asserted below, which is what stops a CI-signed bundle passing
+            # itself off as a real one.
+            keytool -genkeypair \
+              -keystore release.keystore -storetype PKCS12 \
+              -alias ci-throwaway -keyalg RSA -keysize 2048 -validity 3650 \
+              -storepass ci-throwaway -keypass ci-throwaway \
+              -dname "CN=CI THROWAWAY NOT FOR PLAY, OU=CI, O=raylib-template, C=ZZ"
+            echo "mode=ci" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret; signing the AAB with a throwaway CI key. It is NOT publishable to Google Play."
+          fi
+
+      - name: Build release AAB
+        working-directory: raymob
+        env:
+          # Absolute path: Gradle resolves relative file() paths against the app
+          # module dir (raymob/app), not the step working directory.
+          ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/raymob/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'ci-throwaway' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'ci-throwaway' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'ci-throwaway' }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew bundleRelease --no-daemon
+
+      - name: Test (static) — AAB is well-formed and correctly signed
+        run: |
+          set -euo pipefail
+          BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
+          test -s "$BUNDLE" || { echo "FAIL: AAB missing or empty"; exit 1; }
+          echo "ok: $BUNDLE ($(stat -c%s "$BUNDLE") bytes)"
+          unzip -l "$BUNDLE" | grep -q "BundleConfig.pb" || { echo "FAIL: no BundleConfig.pb"; exit 1; }
+
+          # `unzip -l | grep META-INF/.*\.SF` only proves a signature block is
+          # present, not whose it is or whether it verifies. jarsigner checks it.
+          jarsigner -verify -strict "$BUNDLE" | tee /tmp/jarsigner.txt || true
+          grep -q "jar verified" /tmp/jarsigner.txt || { echo "FAIL: AAB signature does not verify"; exit 1; }
+
+          SIGNER=$(keytool -printcert -jarfile "$BUNDLE" | grep -m1 "Owner:" || true)
+          echo "signer: $SIGNER"
+          case "${{ steps.signing.outputs.mode }}" in
+            release)
+              # A real key must not be the throwaway one — that would mean the
+              # secret was empty and we silently shipped a CI signature.
+              if echo "$SIGNER" | grep -q "CI THROWAWAY"; then
+                echo "FAIL: mode=release but the bundle is signed with the throwaway CI key"; exit 1
+              fi
+              echo "PASS: AAB verified and signed with the configured upload key" ;;
+            *)
+              if ! echo "$SIGNER" | grep -q "CI THROWAWAY"; then
+                echo "FAIL: mode=ci but the signer is not the throwaway key"; exit 1
+              fi
+              echo "PASS: AAB verified (throwaway CI signature, not publishable)" ;;
+          esac
+
+      # Two artifact names, on purpose. Only `android-release-aab` is attached to
+      # the GitHub release, so a throwaway-signed bundle physically cannot end up
+      # as a release asset.
+      - name: Upload release AAB (real upload key)
+        if: steps.signing.outputs.mode == 'release'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: android-release-aab
+          path: raymob/app/build/outputs/bundle/release/*.aab
+          retention-days: 7
+
+      - name: Rename CI-signed AAB
+        if: steps.signing.outputs.mode != 'release'
+        run: |
+          set -euo pipefail
+          BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
+          mv "$BUNDLE" "${BUNDLE%.aab}-NOT-FOR-PLAY.aab"
+          ls -la raymob/app/build/outputs/bundle/release/
+
+      - name: Upload CI-signed AAB
+        if: steps.signing.outputs.mode != 'release'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: android-unsigned-aab
+          path: raymob/app/build/outputs/bundle/release/*-NOT-FOR-PLAY.aab
+          retention-days: 7
+
+      # raymob's preBuild rewrites tracked sources in place (package renames in
+      # thirdparty/raymob/*.c and app/src/main/java/**) and only puts them back
+      # in gradle.buildFinished. A cancelled, timed-out or OOM-killed build
+      # therefore leaves the working tree quietly corrupted, and the NEXT run
+      # then "restores" the wrong thing. Fail loudly instead of carrying on.
+      - name: Guard — Gradle restored the sources it rewrote
+        if: always()
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git diff --exit-code -- \
+            thirdparty/raymob \
+            raymob/app/src/main/java \
+            raymob/app/proguard-rules.pro \
+            || { echo "FAIL: Gradle left the working tree modified (preBuild rewrite not restored)"; exit 1; }
+          echo "PASS: working tree clean"

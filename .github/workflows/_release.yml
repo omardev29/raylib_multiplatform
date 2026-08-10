@@ -1,0 +1,81 @@
+# Publish a GitHub Release from the artifacts every platform job uploaded.
+#
+# Reusable (`workflow_call`) — called from ci.yml on tag builds only. The gating
+# ("did every target actually succeed?") lives in ci.yml, where the job graph
+# is; this workflow only assembles and publishes.
+
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # No `path:` — each artifact lands in a directory named after itself,
+      # which is what the `files:` globs below expect.
+      - name: Download all artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+
+      # Release asset names are flat (no directories). The xcframework holds
+      # repeated file names across its slices (Info.plist, raylib.h, ...), so
+      # uploading it file-by-file collides. Zip it into a single asset instead,
+      # keeping the raylib.xcframework/ folder name Xcode expects.
+      - name: Zip iOS xcframework
+        run: |
+          if [ -d ios-raylib-xcframework ]; then
+            cp -r ios-raylib-xcframework raylib.xcframework
+            zip -rq ios-raylib-xcframework.zip raylib.xcframework
+          fi
+
+      # Lets anyone verify a download without having to trust the transport.
+      # Release assets are flat, so the sums are recorded by basename — that is
+      # what `sha256sum -c SHA256SUMS` expects next to the downloaded files.
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          ROOT=$PWD
+          : > "$ROOT/SHA256SUMS"
+          find . -maxdepth 2 \( -name '*.zip' -o -name '*.apk' -o -name '*.aab' \) \
+            -print0 | sort -z | while IFS= read -r -d '' f; do
+              ( cd "$(dirname "$f")" && sha256sum "$(basename "$f")" ) >> "$ROOT/SHA256SUMS"
+            done
+          echo "--- SHA256SUMS ---"; cat "$ROOT/SHA256SUMS"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        with:
+          generate_release_notes: true
+          # android-release-aab only exists when real signing secrets are set,
+          # so its glob will not always match. Be explicit rather than relying
+          # on the default. Note what is NOT here: android-unsigned-aab, the
+          # throwaway-signed bundle, which must never become a release asset.
+          fail_on_unmatched_files: false
+          files: |
+            linux-x64-build/linux-x64-build.zip
+            linux-arm64-build/linux-arm64-build.zip
+            linux-riscv64-build/linux-riscv64-build.zip
+            web-build/web-build.zip
+            android-debug-apk/*.apk
+            android-release-aab/*.aab
+            windows-x64-build/windows-x64-build.zip
+            windows-arm64-build/windows-arm64-build.zip
+            macos-build/macos-build.zip
+            bsd-*-build/*.zip
+            ios-raylib-xcframework.zip
+            ios-app-simulator/ios-app-simulator.zip
+            THIRD_PARTY_LICENSES.md
+            SHA256SUMS

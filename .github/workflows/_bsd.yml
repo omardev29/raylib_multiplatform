@@ -1,0 +1,148 @@
+# FreeBSD, OpenBSD and NetBSD, built in QEMU VMs on a hosted Linux runner.
+#
+# Reusable (`workflow_call`) — called from ci.yml on full runs only.
+#
+# These are the least frozen jobs in the pipeline and honestly so: the VM images
+# and the BSD package mirrors are both rolling, and there is no snapshot service
+# for either. They compile the sample and check the binary format; they never
+# open a window.
+
+name: BSD
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # Guard against the VM-readiness step hanging forever (cross-platform-actions #158).
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: freebsd
+            version: '15.1'
+            arch: x86-64
+          - os: freebsd
+            version: '15.1'
+            arch: arm64
+          # NOTE: FreeBSD riscv64 is intentionally not built — FreeBSD publishes
+          # no riscv64 binary packages (pkg reports "No packages available"),
+          # so cmake/X11 cannot be installed there. RISC-V is covered by
+          # linux-riscv64.
+          - os: openbsd
+            version: '7.9'
+            arch: x86-64
+          - os: openbsd
+            version: '7.9'
+            arch: arm64
+          - os: netbsd
+            version: '10.1'
+            arch: x86-64
+          # NOTE: NetBSD arm64 is intentionally not built — the pkgsrc binary
+          # packages for 10.1/arm64 are built against newer lib versions than the
+          # base image ships, and pkg_add/pkg_delete cannot reconcile the cascade
+          # of version conflicts (building deps from source is impractical under
+          # QEMU). NetBSD is covered by the x86-64 job.
+          # NOTE: OpenBSD/NetBSD riscv64 are not available — cross-platform-actions
+          # publishes no riscv64 disk image for them. RISC-V is still covered by
+          # linux-riscv64.
+    defaults:
+      run:
+        shell: cpa.sh {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Start ${{ matrix.os }} ${{ matrix.version }} (${{ matrix.arch }}) VM
+        # v1.4.0. This used to pin an untagged master commit for the AMX fix
+        # behind the NetBSD boot failures on Intel-AMX runners (issue #158);
+        # that fix shipped in v1.3.0, so we are back on a real release.
+        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963  # v1.4.0
+        with:
+          operating_system: ${{ matrix.os }}
+          version: ${{ matrix.version }}
+          architecture: ${{ matrix.arch }}
+          memory: 6G
+          cpu_count: 2
+
+      - name: Install deps + build inside the VM
+        run: |
+          set -e
+          pwd; ls -la
+          EXTRA_CMAKE=""
+          GENERATOR="Ninja"
+          case "${{ matrix.os }}" in
+            freebsd)
+              sudo pkg install -y cmake ninja git pkgconf \
+                libX11 libXrandr libXi libXcursor libXinerama libglvnd mesa-libs ;;
+            openbsd)
+              sudo pkg_add cmake ninja git pkgconf
+              # CMake cannot auto-detect the archiver for OpenBSD's clang; set
+              # both CMAKE_AR and the compiler-specific CMAKE_C_COMPILER_AR.
+              EXTRA_CMAKE="-DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib \
+                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
+            netbsd)
+              # NetBSD base has pkg_add (no pkgin by default); point it at the
+              # pkgsrc binary packages for this release/arch. The pkgsrc binaries
+              # are built against newer curl/nghttp2 than the base image ships and
+              # pkg_add refuses to upgrade installed packages in place, so drop the
+              # old curl/nghttp2 first so the new ones install cleanly. Skip git
+              # (not needed to build; sources are already synced). NOTE: pkgsrc's
+              # 'ninja' package is an IRC client, not the build tool, so build
+              # with GNU make + the "Unix Makefiles" generator instead.
+              # pkgsrc dirs use their own arch names (arm64 -> aarch64); uname -m
+              # does not match, so map explicitly.
+              case "${{ matrix.arch }}" in
+                x86-64) PKG_ARCH="amd64" ;;
+                arm64)  PKG_ARCH="aarch64" ;;
+                *)      PKG_ARCH="$(uname -m)" ;;
+              esac
+              sudo /usr/sbin/pkg_delete curl nghttp2 2>/dev/null || true
+              sudo env PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$PKG_ARCH/${{ matrix.version }}/All/" \
+                /usr/sbin/pkg_add cmake pkgconf gmake
+              GENERATOR="Unix Makefiles"
+              # CMake can't auto-detect the archiver on NetBSD either; point it
+              # at the base ar/ranlib.
+              EXTRA_CMAKE="-DCMAKE_MAKE_PROGRAM=/usr/pkg/bin/gmake \
+                -DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib \
+                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
+          esac
+          rm -rf build
+          cmake -B build -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE
+          cmake --build build
+          # Static test: the binary exists, is executable, and has the ELF magic
+          # (portable check with od; `file` is not always present on the BSDs).
+          BIN=build/${{ inputs.project_name }}
+          test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
+          test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
+          test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
+          MAGIC=$(od -An -tx1 -N4 "$BIN" | tr -d ' \n')
+          [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
+          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
+
+      # The cpa.sh shell syncs the VM filesystem back to the runner after each
+      # step, so build/ is available here. This step runs on the RUNNER (shell:
+      # bash overrides the job's cpa.sh default) to package + upload the artifact.
+      - name: Package BSD artifact
+        shell: bash
+        run: |
+          set -e
+          test -f build/${{ inputs.project_name }} || { echo "FAIL: binary not synced back from VM"; exit 1; }
+          mkdir -p package/resources
+          cp build/${{ inputs.project_name }} package/
+          cp -r resources package/
+          cd package && zip -r "../bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip" .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: bsd-${{ matrix.os }}-${{ matrix.arch }}-build
+          path: bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip
+          retention-days: 7

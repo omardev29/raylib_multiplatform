@@ -43,24 +43,32 @@ const BENIGN = [
   /autoplay/i,
 ];
 
-// Ratio of pixels differing from the top-left pixel, which for this scene is
-// the ClearBackground colour. +/-2 per channel of slack absorbs dithering.
+// Fraction of pixels that are NOT the background colour.
+//
+// "Background" is the most common colour in the frame, not the corner pixel.
+// The corner is the obvious choice and it is wrong here: the composited canvas
+// carries a few pixels of border that match nothing else on screen, so keying
+// off (0,0) reported 99% of the frame as "content" on a perfectly good build.
+// The modal colour is what ClearBackground actually painted, whatever the
+// canvas does around the edges.
+//
+// Colours are bucketed to RGB565, which both makes the histogram a flat 64K
+// array and folds in a tolerance for dithering for free.
 function contentRatio(pngBuffer) {
   const img = PNG.sync.read(pngBuffer);
   const d = img.data;                       // RGBA8
   const total = img.width * img.height;
   if (total === 0) return { ratio: 0, differing: 0, width: 0, height: 0 };
 
-  const bg = [d[0], d[1], d[2]];
-  let differing = 0;
-  for (let i = 0; i < total; i++) {
-    const o = i * 4;
-    if (Math.abs(d[o] - bg[0]) > 2 ||
-        Math.abs(d[o + 1] - bg[1]) > 2 ||
-        Math.abs(d[o + 2] - bg[2]) > 2) {
-      differing++;
-    }
-  }
+  const hist = new Uint32Array(65536);
+  const key = (o) => ((d[o] >> 3) << 11) | ((d[o + 1] >> 2) << 5) | (d[o + 2] >> 3);
+
+  for (let i = 0; i < total; i++) hist[key(i * 4)]++;
+
+  let bg = 0;
+  for (let k = 1; k < 65536; k++) if (hist[k] > hist[bg]) bg = k;
+
+  const differing = total - hist[bg];
   return { ratio: differing / total, differing, width: img.width, height: img.height };
 }
 
@@ -127,6 +135,9 @@ function contentRatio(pngBuffer) {
     // canvas without preserveDrawingBuffer — unlike canvas.toDataURL(), which
     // would come back blank.
     const shot = await canvas.screenshot({ type: 'png' });
+    // Keep the frame around: a ratio in a log line tells you the check failed,
+    // the actual image tells you why.
+    try { require('fs').writeFileSync('/tmp/web_canvas.png', shot); } catch (_) { /* best effort */ }
     const { ratio, differing, width, height } = contentRatio(shot);
     console.log(
       'render: ' + width + 'x' + height +

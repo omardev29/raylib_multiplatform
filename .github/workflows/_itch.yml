@@ -1,0 +1,154 @@
+# Publish the built games to itch.io with butler.
+#
+# Reusable (`workflow_call`) — called from ci.yml on tag builds.
+#
+# Configure it by setting, on the repository:
+#   vars.ITCH_USER          your itch.io username
+#   vars.ITCH_GAME          the game's URL slug
+#   secrets.BUTLER_API_KEY  an API key from https://itch.io/user/settings/api-keys
+#
+# With any of those missing the job logs a warning and skips. That is the
+# correct behaviour for a template: cloning it must not produce a red pipeline
+# for a service you have not signed up to.
+
+name: Deploy to itch.io
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string shown on itch (usually the tag)'
+        required: true
+        type: string
+      project_name:
+        description: 'Base name of the built artifacts'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Pinned. butler self-updates if you let it, which is the opposite of what a
+  # frozen pipeline wants.
+  BUTLER_VERSION: '15.24.0'
+
+jobs:
+  itch:
+    name: itch.io — ${{ matrix.channel }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # One channel failing must not stop the other eight from publishing.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # itch infers the platform from the CHANNEL NAME, and only recognises
+          # a fixed set: linux, windows, osx, android, html5 (plus -x64/-arm64
+          # style suffixes on the first two). The riscv64 and BSD channels below
+          # are therefore published as plain downloads with no platform tag —
+          # that is expected, not a bug.
+          - { artifact: linux-x64-build,     channel: linux-x64,     kind: zip }
+          - { artifact: linux-arm64-build,   channel: linux-arm64,   kind: zip }
+          - { artifact: linux-riscv64-build, channel: linux-riscv64, kind: zip }
+          - { artifact: windows-x64-build,   channel: windows-x64,   kind: zip }
+          - { artifact: windows-arm64-build, channel: windows-arm64, kind: zip }
+          - { artifact: macos-build,         channel: osx,           kind: zip }
+          - { artifact: web-build,           channel: html5,         kind: web }
+          - { artifact: android-debug-apk,   channel: android,       kind: raw }
+    steps:
+      - name: Check configuration
+        id: cfg
+        env:
+          ITCH_USER: ${{ vars.ITCH_USER }}
+          ITCH_GAME: ${{ vars.ITCH_GAME }}
+          API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "$ITCH_USER" ] || MISSING="$MISSING vars.ITCH_USER"
+          [ -n "$ITCH_GAME" ] || MISSING="$MISSING vars.ITCH_GAME"
+          [ -n "$API_KEY" ]   || MISSING="$MISSING secrets.BUTLER_API_KEY"
+          if [ -n "$MISSING" ]; then
+            echo "::warning::itch.io not configured; missing:$MISSING — skipping upload. See TECHNICAL.md."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download artifact
+        id: dl
+        if: steps.cfg.outputs.ok == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+
+      - name: Install butler (pinned)
+        if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-delay 3 \
+            -o butler.zip \
+            "https://broth.itch.zone/butler/linux-amd64/${BUTLER_VERSION}/archive/default"
+          unzip -q butler.zip -d butler-bin
+          chmod +x butler-bin/butler
+          ./butler-bin/butler -V
+
+      - name: Prepare payload
+        id: payload
+        if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
+        env:
+          PROJECT_NAME: ${{ inputs.project_name }}
+        run: |
+          set -euo pipefail
+          test -n "$(ls -A dist 2>/dev/null)" || { echo "::error::artifact came back empty"; exit 1; }
+          mkdir -p payload
+
+          case "${{ matrix.kind }}" in
+            web)
+              # itch's HTML5 embed loads index.html from the root of an
+              # UPLOADED DIRECTORY. Pushing a .zip instead produces a
+              # downloadable file that nobody can play in the browser, which is
+              # the single easiest way to ship a broken web build.
+              unzip -q dist/*.zip -d payload
+              if [ ! -f payload/index.html ]; then
+                test -f "payload/${PROJECT_NAME}.html" \
+                  || { echo "::error::no ${PROJECT_NAME}.html in the web artifact"; exit 1; }
+                cp "payload/${PROJECT_NAME}.html" payload/index.html
+              fi
+              ;;
+            zip)
+              # Unpack so itch stores individual files: butler can then do
+              # differential uploads, and players get a folder rather than a
+              # zip inside a zip.
+              unzip -q dist/*.zip -d payload
+              ;;
+            raw)
+              cp -r dist/. payload/
+              ;;
+          esac
+          echo "--- payload ---"; find payload -maxdepth 2 | head -20
+
+      - name: Push to itch.io
+        if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_USER: ${{ vars.ITCH_USER }}
+          ITCH_GAME: ${{ vars.ITCH_GAME }}
+          CHANNEL: ${{ matrix.channel }}
+          # Passed through env, never interpolated into the script body: the
+          # version comes from a tag name, and whoever pushes the tag chooses
+          # that string. `${{ }}` inside `run:` would make it executable.
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # --userversion puts the number on the itch page and makes the push
+          # idempotent: re-running the same tag does not create a duplicate build.
+          ./butler-bin/butler push \
+            payload \
+            "${ITCH_USER}/${ITCH_GAME}:${CHANNEL}" \
+            --userversion "$VERSION"
+          echo "published ${ITCH_USER}/${ITCH_GAME}:${CHANNEL} @ ${VERSION}"
