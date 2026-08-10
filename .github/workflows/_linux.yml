@@ -83,7 +83,10 @@ jobs:
             timeout 180 ./build/${{ inputs.project_name }} >"$OUT" 2>&1 \
             || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
           echo "--- captured output ---"; cat "$OUT"
-          grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          # Non-zero texture dimensions, not just the marker: a missing asset
+          # still boots and still "renders" a background.
+          grep -qE "RAY_TEST_BOOT_OK texture=[1-9][0-9]*x[1-9][0-9]*" "$OUT" \
+            || { echo "FAIL: boot marker missing or texture not loaded"; exit 1; }
           # Booting proves the window and the assets are fine and nothing more.
           # RAY_TEST_RENDER_OK is the gate that a blank frame cannot pass.
           grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
@@ -154,7 +157,10 @@ jobs:
             timeout 180 ./build/${{ inputs.project_name }} >"$OUT" 2>&1 \
             || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
           echo "--- captured output ---"; cat "$OUT"
-          grep -q "RAY_TEST_BOOT_OK"     "$OUT" || { echo "FAIL: boot marker missing"; exit 1; }
+          # Non-zero texture dimensions, not just the marker: a missing asset
+          # still boots and still "renders" a background.
+          grep -qE "RAY_TEST_BOOT_OK texture=[1-9][0-9]*x[1-9][0-9]*" "$OUT" \
+            || { echo "FAIL: boot marker missing or texture not loaded"; exit 1; }
           grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
           echo "PASS: runtime boot + render test"

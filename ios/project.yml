@@ -28,6 +28,13 @@ targets:
     sources:
       - path: ../src
       - path: ../include
+      # Folder reference (not a group): the whole directory is copied into the
+      # bundle as `resources/`, so RESOURCES_PATH="./resources/" resolves once
+      # the app chdir's to its bundle (see IOS_FUNCS in include/raylib_multi.h).
+      # Without this the app builds and boots but every LoadTexture returns 0x0.
+      - path: ../resources
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: ../thirdparty/raylib-ios/raylib.xcframework
         embed: false

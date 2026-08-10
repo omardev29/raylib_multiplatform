@@ -24,7 +24,15 @@
 // and exits explicitly. Outside CI (RAY_TEST_MAX_FRAMES unset) Tick() always
 // returns 0 and this is dead code.
 #define IOS_FUNCS                                                              \
-  extern "C" void ios_ready() { _ready(); }                                    \
+  extern "C" void ios_ready() {                                                \
+    /* iOS starts the process in the app container, not inside the bundle, and \
+       raylib's iOS backend does not chdir for you — so the relative           \
+       RESOURCES_PATH would resolve to nothing and every asset would silently  \
+       load as 0x0. GetApplicationDirectory() is the .app root on iOS, which   \
+       is exactly where bundle resources live. */                              \
+    ChangeDirectory(GetApplicationDirectory());                                \
+    _ready();                                                                  \
+  }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
     if (SmokeTest_Tick()) {                                                    \
