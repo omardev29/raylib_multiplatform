@@ -98,13 +98,26 @@ cmake --build build           # build the current config
 
 ## Editor setup (one-time)
 
-Generate `compile_commands.json` so your LSP (clangd) understands the project, including Android:
+clangd works out of the box and **does not need the Android NDK**. Just configure
+once so `build/compile_commands.json` exists:
 
 ```bash
-./generate_android_commands.sh   # Linux / macOS
-# or  .\generate_android_commands.ps1   (Windows)
-./update_clangd.sh               # writes .clangd
+cmake --preset debug       # generates build/compile_commands.json
 ```
+
+The committed `.clangd` points clangd at that host build, so the whole project —
+including `<admob.h>` and the asset layer — resolves without any extra toolchain.
+
+> **Optional — Android intellisense.** If you also want clangd to index the code
+> *as an Android build* (defines `__ANDROID__`, processes `<raymob.h>` and the NDK
+> headers), that is opt-in and requires the NDK:
+>
+> ```bash
+> ./generate_android_commands.sh   # Linux / macOS   (.\generate_android_commands.ps1 on Windows)
+> ./update_clangd.sh               # rewrites .clangd to use the Android compile database
+> ```
+>
+> To go back to the default host config: `git checkout -- .clangd`.
 
 Then:
 
@@ -128,6 +141,9 @@ Everything about **how the template works** lives in **[TECHNICAL.md](TECHNICAL.
 - AdMob setup, Web export, Android (raymob), iOS, and the BSD/RISC-V targets.
 - The CI/CD pipeline and how to point it at your own build image.
 - FAQ & troubleshooting.
+
+Hands-on examples of the template's own features (lifecycle, AdMob, the raymob
+mobile API, asset loading) live in **[examples/](examples/)**.
 
 ## License
 

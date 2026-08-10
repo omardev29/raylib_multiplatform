@@ -5,14 +5,13 @@
 #include <admob.h>
 #include <assets.h>
 #include <test.h>
-
-#include <cstdlib>  // getenv, atoi
+#include <smoke_test.h> // CI smoke-test hook (lives in tests/)
 
 // The raylib-iOS fork's raylib.h predates some of the extra named colors
 // (e.g. ALICEBLUE) that upstream raylib defines. Provide a fallback so the
 // same game code compiles on every backend.
 #ifndef ALICEBLUE
-#define ALICEBLUE CLITERAL(Color){ 0, 240, 248, 255 }
+#define ALICEBLUE CLITERAL(Color){0, 240, 248, 255}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -26,18 +25,14 @@
 // ---------------------------------------------------------------------------
 
 static GameAssets assets;
-static int lastRewardAmount = 0;   // last rewarded-ad amount (demo feedback)
+static int lastRewardAmount = 0; // last rewarded-ad amount (demo feedback)
 
 // ---------------------------------------------------------------------------
 // CI smoke-test hook.
-// Set RAY_TEST_MAX_FRAMES=<N> to make the game boot, render <N> frames and
-// exit cleanly (exit code 0) instead of looping until the window is closed.
-// Used by the headless CI tests; in a normal run the variable is unset and the
-// game behaves exactly as before.
+// The actual implementation lives in tests/smoke_test.h (header-only, include
+// once). Set RAY_TEST_MAX_FRAMES=<N> to make the game boot, render <N> frames
+// and exit cleanly. In a normal run it is unset and nothing changes.
 // ---------------------------------------------------------------------------
-static int g_frame = 0;
-static int g_maxFrames = 0;      // 0 = run until the window is closed
-static bool g_testWantsExit = false;
 
 // Called once at startup: set config flags, create the window, load assets.
 static void _ready() {
@@ -48,7 +43,7 @@ static void _ready() {
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(800, 450, "raylib [core] example - basic window");
 
-  Assets::Init();          // use resources.rres if present, else loose files
+  Assets::Init(); // use resources.rres if present, else loose files
   assets = LoadGameAssets();
 
   // AdMob: preload both ad types. These are no-ops outside Android, so the
@@ -56,15 +51,11 @@ static void _ready() {
   RequestInterstitialAd();
   RequestRewardedAd();
 
-  // CI smoke-test hook: read the frame budget (if any) and emit a boot marker.
-  const char *envFrames = getenv("RAY_TEST_MAX_FRAMES");
-  if (envFrames && envFrames[0]) g_maxFrames = atoi(envFrames);
-  TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK texture=%dx%d testFrames=%d",
-           assets.rabbit.width, assets.rabbit.height, g_maxFrames);
+  // CI smoke-test hook: emit the boot marker (see tests/smoke_test.h).
+  SmokeTest_ReportBoot(assets.rabbit.width, assets.rabbit.height);
 }
 
-// Called once per frame: update + draw. Use GetFrameTime() for delta time.
-static void _process() {
+static void _process(float delta) {
   // AdMob example (no-op outside Android):
   //   SPACE -> show interstitial, R -> show rewarded. Preload the next one
   //   right after showing, and poll the reward flag each frame.
@@ -94,18 +85,11 @@ static void _process() {
   DrawText("Omar's raylib template!", 190, 200, 20, LIGHTGRAY);
   DrawText("SPACE: interstitial   R: rewarded", 10, screen_y - 40, 20, GRAY);
   if (lastRewardAmount > 0) {
-    DrawText(TextFormat("Last reward: %d", lastRewardAmount), 10, screen_y - 70, 20, DARKGREEN);
+    DrawText(TextFormat("Last reward: %d", lastRewardAmount), 10, screen_y - 70,
+             20, DARKGREEN);
   }
 
   EndDrawing();
-
-  // CI smoke-test hook: stop once the frame budget is exhausted.
-  if (g_maxFrames > 0) {
-    if (++g_frame >= g_maxFrames) {
-      TraceLog(LOG_INFO, "RAY_TEST_DONE_FRAMES rendered=%d", g_frame);
-      g_testWantsExit = true;
-    }
-  }
 }
 
 // Called once at shutdown: unload assets, close the window.
@@ -124,18 +108,22 @@ static void _exit() {
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
 // extern "C" so the symbols match the C declarations in rcore_ios.c.
 extern "C" void ios_ready() { _ready(); }
-extern "C" void ios_update(bool /*viewResized*/) { _process(); }
+extern "C" void ios_update(bool /*viewResized*/) { _process(GetFrameTime()); }
 extern "C" void ios_destroy() { _exit(); }
 
 #else
 
 // Desktop, BSD, Android and Web all run a classic blocking loop.
 int main() {
+  // CI smoke-test hook: read the frame budget before the game starts.
+  SmokeTest_Begin();
   _ready();
 
-  // g_testWantsExit lets the CI smoke test stop the loop after N frames.
-  while (!WindowShouldClose() && !g_testWantsExit) {
-    _process();
+  // SmokeTest_Tick() lets the CI smoke test stop the loop after N frames.
+  int smokeDone = 0;
+  while (!WindowShouldClose() && !smokeDone) {
+    _process(GetFrameTime());
+    smokeDone = SmokeTest_Tick();
   }
 
   _exit();

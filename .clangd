@@ -1,15 +1,22 @@
+# clangd configuration — DEFAULT (host / desktop).
+#
+# This makes clangd use the compile commands produced by a normal host build
+# (build/compile_commands.json), so the project resolves WITHOUT the Android
+# NDK. With no Android target forced, __ANDROID__ is not defined, <raymob.h>
+# is never pulled in, and no NDK headers are needed.
+#
+#   Prereq: configure once so the compile database exists:  cmake --preset debug
+#
+# Want Android intellisense instead? That is OPT-IN and requires the NDK:
+#   ./generate_android_commands.sh   (or .ps1)  -> writes raymob/.cxx/...
+#   ./update_clangd.sh               (or .ps1)  -> rewrites this file for Android
+# To come back to this host config:  git checkout -- .clangd
+
 CompileFlags:
-  CompilationDatabase:
-    - build
-    - raymob/.cxx/compile_commands
-  Add:
-    - "--target=aarch64-linux-android24"
+  CompilationDatabase: build
   Remove:
     - "-fmodules-ts"
     - "-fmodule-mapper=*"
     - "-fdeps-format=*"
     - "-fno-fat-lto-objects"
     - "-flto=*"
-
-If:
-  PathMatch: .*

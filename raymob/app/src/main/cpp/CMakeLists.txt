@@ -57,6 +57,7 @@ target_include_directories(${APP_LIB_NAME} PRIVATE
     "${RAYLIB_DIR}/src"
     "${RAYMOB_DIR}"
     "${USER_ROOT_DIR}/thirdparty/rres"
+    "${USER_ROOT_DIR}/tests"
 )
 
 # Apply optimizations based on build type (same as root CMakeLists.txt)

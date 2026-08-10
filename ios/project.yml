@@ -57,6 +57,7 @@ targets:
         CLANG_CXX_LIBRARY: libc++
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/../include
+          - $(SRCROOT)/../tests
           - $(SRCROOT)/../thirdparty/raylib-ios/src
           - $(SRCROOT)/../thirdparty/raylib-ios/projects/Xcode26/raylib/bridge
           - $(SRCROOT)/../thirdparty/rres

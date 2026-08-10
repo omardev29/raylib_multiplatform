@@ -136,6 +136,7 @@ target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
 # --- rres resource packing --------------------------------------------------
@@ -186,6 +187,9 @@ endif()
 set(ASM_INCLUDE_FLAGS
   "-I${CMAKE_CURRENT_SOURCE_DIR}/include"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
 # Create a header file that defines RESOURCES_PATH as a string literal (with quotes included)
