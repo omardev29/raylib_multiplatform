@@ -58,6 +58,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
+      # RENAME YOUR GAME HERE. This is the only place the name lives; every
+      # workflow takes it as an input. It must match `project()` in
+      # CMakeLists.txt and `name:` in ios/project.yml.
       project_name: ray_test
       build_image: ${{ steps.o.outputs.build_image }}
       full: ${{ steps.o.outputs.full }}
@@ -168,8 +171,6 @@ jobs:
     needs: [config, android]
     if: needs.config.outputs.full == 'true'
     uses: ./.github/workflows/_firebase.yml
-    with:
-      project_name: ${{ needs.config.outputs.project_name }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------

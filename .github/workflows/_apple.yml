@@ -202,10 +202,17 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
 
           xcrun simctl install "$UDID" "$APP_PATH"
+
+          # Read the bundle id out of the built app rather than hard-coding it.
+          # It is set in ios/project.yml, and a hard-coded copy here would break
+          # silently the moment anyone renames the game.
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")
+          echo "bundle id: $BUNDLE_ID"
+
           # SIMCTL_CHILD_* forwards the variable into the app process. Without
           # the frame budget the app never exits — UIKit owns the run loop.
           SIMCTL_CHILD_RAY_TEST_MAX_FRAMES=60 \
-            timeout 240 xcrun simctl launch --console-pty "$UDID" com.example.raytest 2>&1 | tee /tmp/sim.log || true
+            timeout 240 xcrun simctl launch --console-pty "$UDID" "$BUNDLE_ID" 2>&1 | tee /tmp/sim.log || true
 
           echo "--- simulator log ---"; cat /tmp/sim.log
           grep -q "RAY_TEST_BOOT_OK"   /tmp/sim.log || { echo "FAIL: boot marker missing"; exit 1; }

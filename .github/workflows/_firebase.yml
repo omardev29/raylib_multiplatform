@@ -20,11 +20,6 @@ name: Firebase Test Lab (Android)
 
 on:
   workflow_call:
-    inputs:
-      project_name:
-        description: 'Base name of the built artifacts'
-        required: true
-        type: string
 
 permissions:
   contents: read

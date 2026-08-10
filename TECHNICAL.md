@@ -449,8 +449,13 @@ without committing the pin.
 - `tools/versions_check.sh` runs in CI and fails if any of this has drifted apart. See
   [`thirdparty/FROZEN_VERSIONS.md`](thirdparty/FROZEN_VERSIONS.md).
 
-The honest exception is **BSD**: the QEMU images and the `pkg`/`pkgsrc` mirrors are both
-rolling and there is no snapshot service for either.
+The honest exception is **BSD**. The QEMU disk images and the `pkg`/`pkgsrc` mirrors are both
+rolling, and neither project runs a snapshot service, so those three jobs genuinely install
+whatever the mirror is serving that day. If a BSD job starts failing for no reason you changed,
+that is the first thing to suspect. The one lever available is switching FreeBSD's repository
+from `latest` to `quarterly` (edit `/usr/local/etc/pkg/repos/` inside the VM step), which moves
+four times a year instead of continuously — it is not pinning, just a slower drift, so it is
+left off by default rather than pretending otherwise.
 
 ### Tests
 
@@ -513,9 +518,11 @@ Two details that are easy to get wrong and are handled for you:
   a downloadable file that nobody can play in the browser. The job unpacks the web build and
   copies `ray_test.html` to `index.html`.
 - **itch infers the platform from the channel name**, and only recognises a fixed set. The
-  `linux-x64`, `windows-x64`, `osx`, `android` and `html5` channels get tagged correctly;
-  `linux-riscv64` and the BSDs are published as plain downloads with no platform tag, because
-  itch has no concept of them.
+  `linux-x64`, `linux-arm64`, `windows-x64`, `windows-arm64`, `osx`, `android` and `html5`
+  channels get tagged correctly; `linux-riscv64` is uploaded as a plain download because itch
+  has no concept of it. The BSD builds are deliberately **not** pushed to itch at all — they
+  would be untagged downloads on a storefront with no BSD audience. They are still attached to
+  the GitHub Release.
 
 ### Firebase Test Lab (real Android hardware)
 
