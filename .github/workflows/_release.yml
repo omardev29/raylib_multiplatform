@@ -49,7 +49,12 @@ jobs:
           set -euo pipefail
           ROOT=$PWD
           : > "$ROOT/SHA256SUMS"
+          # -path exclusion, not just a name filter: the CI-signed bundle is
+          # downloaded as an artifact but deliberately not attached to the
+          # release, and listing it here would make `sha256sum -c SHA256SUMS`
+          # complain about a file that was never shipped.
           find . -maxdepth 2 \( -name '*.zip' -o -name '*.apk' -o -name '*.aab' \) \
+            -not -path './android-unsigned-aab/*' \
             -print0 | sort -z | while IFS= read -r -d '' f; do
               ( cd "$(dirname "$f")" && sha256sum "$(basename "$f")" ) >> "$ROOT/SHA256SUMS"
             done
