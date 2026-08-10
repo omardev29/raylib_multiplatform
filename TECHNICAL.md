@@ -49,7 +49,8 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 ├── raymob/                   # Android app shell (Gradle). See "Android (raymob)".
 ├── ios/                      # iOS app scaffold (XcodeGen). See "iOS".
 ├── .github/
-│   ├── workflows/build.yaml  # multiplatform CI (14 targets) + release
+│   ├── workflows/ci.yml     # orchestrator: triggers, image pin, job graph
+│   ├── workflows/_*.yml     # one reusable workflow per platform group
 │   └── scripts/web_boot_test.js  # Playwright web boot test
 └── thirdparty/
     ├── raylib/               # raylib 6.0 (frozen, slightly patched for this template)
