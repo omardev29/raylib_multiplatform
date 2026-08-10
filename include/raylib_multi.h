@@ -9,6 +9,15 @@
 #include <smoke_test.h> // CI smoke-test hook (lives in tests/)
 #include <test.h>
 
+// cross compiler inlining macro to force the inlining
+#if defined(_MSC_VER)
+#define inlining static __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define inlining static inline __attribute__((always_inline))
+#else
+#define inlining static inline
+#endif
+
 // More colors
 #ifndef ALICEBLUE
 #define ALICEBLUE CLITERAL(Color){0, 240, 248, 255}
@@ -26,12 +35,14 @@
 #define IOS_FUNCS                                                              \
   extern "C" void ios_ready() {                                                \
     /* iOS starts the process in the app container, not inside the bundle, and \
-       raylib's iOS backend does not chdir for you — so the relative           \
+       raylib's iOS backend does not chdir for you — so the relative         \
        RESOURCES_PATH would resolve to nothing and every asset would silently  \
        load as 0x0. GetApplicationDirectory() is the .app root on iOS, which   \
        is exactly where bundle resources live. */                              \
+    SmokeTest_Begin();                                                         \
     ChangeDirectory(GetApplicationDirectory());                                \
     _ready();                                                                  \
+    SmokeTest_ReportBoot(assets.rabbit.width, assets.rabbit.height);           \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
@@ -41,3 +52,25 @@
     }                                                                          \
   }                                                                            \
   extern "C" void ios_destroy() { _exit(); }
+
+// Main loop body macro
+// 1. Definición condicional de la macro
+#if defined(PLATFORM_IOS)
+#define MAIN_LOOP_BODY                                                         \
+  do {                                                                         \
+    IOS_FUNCS;                                                                 \
+  } while (0)
+#else
+#define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY                                    \
+  do {                                                                         \
+    SmokeTest_Begin();                                                         \
+    _ready();                                                                  \
+    SmokeTest_ReportBoot(assets.rabbit.width, assets.rabbit.height);           \
+    int smokeDone = 0;                                                         \
+    while (!WindowShouldClose() && !smokeDone) {                               \
+      _process(GetFrameTime());                                                \
+      smokeDone = SmokeTest_Tick();                                            \
+    }                                                                          \
+    _exit();                                                                   \
+  } while (0)
+#endif

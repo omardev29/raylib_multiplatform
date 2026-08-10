@@ -3,23 +3,17 @@
 static GameAssets assets;
 
 // Called once at startup: set config flags, create the window, load assets.
-inline static void _ready() {
-
-  // CI smoke-test hook: read the frame budget before the game starts.
-  SmokeTest_Begin();
+inlining void _ready() {
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(800, 450, "raylib [core] example - basic window");
 
   Assets::Init(); // use resources.rres if present, else loose files
   assets = LoadGameAssets();
-
-  // CI smoke-test hook: emit the boot marker (see tests/smoke_test.h).
-  SmokeTest_ReportBoot(assets.rabbit.width, assets.rabbit.height);
 }
 
 // Called each frame
-inline static void _process(float delta) {
+inlining void _process(float delta) {
 
   int screen_x{GetScreenWidth()};
   int screen_y{GetScreenHeight()};
@@ -30,7 +24,7 @@ inline static void _process(float delta) {
   DrawTexture(assets.rabbit, screen_x / 2 - assets.rabbit.width / 2,
               screen_y / 2 - assets.rabbit.height / 2, WHITE);
 
-  DrawText("Omar's raylib template!", 190, 200, 20, LIGHTGRAY);
+  DrawText("Raylib is Multiplatform!", 190, 200, 20, LIGHTGRAY);
 
   // CI smoke-test hook: read the frame back and check something was actually
   // drawn. Must sit here, between the last draw call and EndDrawing() — see
@@ -42,32 +36,11 @@ inline static void _process(float delta) {
 }
 
 // Called once at shutdown: unload assets, close the window.
-inline static void _exit() {
+inlining void _exit() {
   UnloadTexture(assets.rabbit);
   UnloadImage(assets.img);
   Assets::Shutdown();
   CloseWindow();
 }
 
-// ---------------------------------------------------------------------------
-// Platform runner (entry point).
-// ---------------------------------------------------------------------------
-#if defined(PLATFORM_IOS)
-IOS_FUNCS;
-#else
-
-// Desktop, BSD, Android and Web all run a classic blocking loop.
-int main() {
-  _ready();
-
-  // SmokeTest_Tick() lets the CI smoke test stop the loop after N frames.
-  int smokeDone{};
-  while (!WindowShouldClose() && !smokeDone) {
-    _process(GetFrameTime());
-    smokeDone = SmokeTest_Tick();
-  }
-
-  _exit();
-}
-
-#endif
+int main() { RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY; }
