@@ -21,8 +21,8 @@ inline static void _ready() {
 // Called each frame
 inline static void _process(float delta) {
 
-  int screen_x = GetScreenWidth();
-  int screen_y = GetScreenHeight();
+  int screen_x{GetScreenWidth()};
+  int screen_y{GetScreenHeight()};
 
   BeginDrawing();
   ClearBackground(ALICEBLUE);
@@ -47,12 +47,7 @@ inline static void _exit() {
 // Platform runner (entry point).
 // ---------------------------------------------------------------------------
 #if defined(PLATFORM_IOS)
-
-// iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
-// extern "C" so the symbols match the C declarations in rcore_ios.c.
-extern "C" void ios_ready() { _ready(); }
-extern "C" void ios_update(bool /*viewResized*/) { _process(GetFrameTime()); }
-extern "C" void ios_destroy() { _exit(); }
+IOS_FUNCS;
 #else
 
 // Desktop, BSD, Android and Web all run a classic blocking loop.
@@ -67,7 +62,6 @@ int main() {
   }
 
   _exit();
-  return 0;
 }
 
 #endif
