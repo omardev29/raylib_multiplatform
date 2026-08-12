@@ -56,21 +56,17 @@
 // Main loop body macro
 // 1. Definición condicional de la macro
 #if defined(PLATFORM_IOS)
-#define MAIN_LOOP_BODY                                                         \
-  do {                                                                         \
-    IOS_FUNCS;                                                                 \
-  } while (0)
+#define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY IOS_FUNCS
 #else
 #define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY                                    \
-  do {                                                                         \
+  int main() {                                                                 \
     SmokeTest_Begin();                                                         \
     _ready();                                                                  \
-    SmokeTest_ReportBoot(assets.rabbit.width, assets.rabbit.height);           \
     int smokeDone = 0;                                                         \
     while (!WindowShouldClose() && !smokeDone) {                               \
       _process(GetFrameTime());                                                \
       smokeDone = SmokeTest_Tick();                                            \
     }                                                                          \
     _exit();                                                                   \
-  } while (0)
+  }
 #endif

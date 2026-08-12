@@ -2,6 +2,9 @@
 
 static GameAssets assets;
 
+int screen_x{};
+int screen_y{};
+
 // Called once at startup: set config flags, create the window, load assets.
 inlining void _ready() {
 
@@ -10,13 +13,14 @@ inlining void _ready() {
 
   Assets::Init(); // use resources.rres if present, else loose files
   assets = LoadGameAssets();
+  SmokeTest_ReportBoot(assets.rabbit.width, assets.rabbit.height);
 }
 
 // Called each frame
 inlining void _process(float delta) {
 
-  int screen_x{GetScreenWidth()};
-  int screen_y{GetScreenHeight()};
+  screen_x = GetScreenWidth();
+  screen_y = GetScreenHeight();
 
   BeginDrawing();
   ClearBackground(ALICEBLUE);
@@ -43,4 +47,5 @@ inlining void _exit() {
   CloseWindow();
 }
 
-int main() { RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY; }
+// Main function or ios functions + smoke tests
+RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
