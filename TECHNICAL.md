@@ -27,37 +27,50 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 
 ```
 .
-├── CMakeLists.txt            # Root build: links raylib statically, sets presets, tests, rres
+├── raylib_multiplatform.toml # THE config. Name, ids, targets, icon, modules. Yours.
+├── CMakeLists.txt            # Root build: links raylib statically, presets, rres
 ├── CMakePresets.json         # debug / release / web profiles
-├── .clangd                   # clangd config (LSP) — host by default; update_clangd.* = Android opt-in
 ├── src/                      # YOUR code. Every .cpp here is auto-compiled (GLOB_RECURSE).
 │   ├── main.cpp              # lifecycle runner + your game
 │   ├── assets.cpp            # rres-backed asset layer (Assets::*)
-│   ├── assets_rres.c         # rres implementation TU (C)
-│   └── md5.c                 # MD5 for rres AES integrity
+│   └── assets_rres.c         # rres implementation TU (C)
 ├── include/                  # YOUR headers (already on the include path)
 │   ├── assets.h              # asset-layer API
+│   ├── raylib_multi.h        # the umbrella header + lifecycle macros
 │   └── test.h                # sample asset struct (replace with your game)
-├── tests/
-│   └── smoke_test.h          # CI smoke-test hook (RAY_TEST_MAX_FRAMES), header-only
-├── resources/                # Game assets (auto-packed by the `pack_resources` target)
-│   └── rabbit.png            # sample asset
+├── tests/smoke_test.h        # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
+├── resources/                # Your assets, and icon.png (the source for every app icon)
 ├── tools/
+│   ├── configure.py          # the config -> every build system. Run by CMake.
+│   ├── versions_check.sh     # fails CI when the pins drift apart
+│   ├── dev_shell.sh          # run a command inside the pinned CI image
 │   └── rres_pack.c           # open rres packer (AES-256) — no paid tooling needed
 ├── cmake/
-│   └── toolchain-riscv64-linux.cmake   # cross-toolchain for Linux RISC-V
+│   ├── configure_hook.cmake  # runs the generator before project()
+│   ├── generated/            # GENERATED, git-ignored
+│   └── toolchain-riscv64-linux.cmake
 ├── raymob/                   # Android app shell (Gradle). See "Android (raymob)".
-├── ios/                      # iOS app scaffold (XcodeGen). See "iOS".
+├── ios/                      # iOS scaffold. project.yml is GENERATED.
 ├── .github/
-│   ├── workflows/ci.yml     # orchestrator: triggers, image pin, job graph
-│   ├── workflows/_*.yml     # one reusable workflow per platform group
-│   └── scripts/web_boot_test.js  # Playwright web boot test
+│   ├── workflows/ci.yml      # orchestrator: triggers, pins, job graph
+│   ├── workflows/canary.yml  # weekly build against floating versions
+│   ├── workflows/autofix.yml # agent dispatched onto the runner that broke
+│   ├── workflows/_*.yml      # one reusable workflow per platform group
+│   ├── known-breakage.md     # canary failures we have seen and chosen not to chase
+│   └── scripts/              # web boot test, canary triage, upstream report
 └── thirdparty/
     ├── raylib/               # raylib 6.0 (frozen, slightly patched for this template)
-    ├── raylib-ios/           # raylib-iOS fork (submodule, tag 6.0.3-iOS) — iOS only
+    ├── raylib-ios/           # raylib-iOS fork (submodule) — iOS only
     ├── raymob/               # raymob C sources (Android native bridge + admob)
-    └── rres/                 # rres.h + rres-raylib.h + externals (aes/monocypher/lz4/qoi)
+    ├── rres/                 # rres.h + rres-raylib.h + externals
+    └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
+
+**Generated, and never committed** — `cmake/generated/`, `include/generated/app_config.h`,
+`raymob/generated.properties`, `ios/project.yml`, `ios/Assets.xcassets/` and the Android
+`mipmap-*` icons. They are rebuilt from `raylib_multiplatform.toml` on every configure, which is
+why they cannot drift out of sync with it. `cmake --preset debug` produces all of them; Gradle and
+XcodeGen never invoke CMake, so those two jobs run `python3 tools/configure.py` explicitly.
 
 `examples/` holds small reference examples of the template's own features
 (lifecycle, AdMob, raymob mobile API, asset loading). They are **not** compiled
@@ -250,12 +263,13 @@ Android** and a **no-op on every other platform**, so no `#ifdef`s in your game 
 | `RequestRewardedAd()` / `IsRewardedAdLoaded()` / `ShowRewardedAd()` | rewarded |
 | `TakeRewardEarned()` (returns once & clears) + `GetRewardAmount()` | poll the reward |
 
-Configuration is in `raymob/gradle.properties`:
+Configuration is in `raylib_multiplatform.toml`:
 
-```properties
-admob.app_id=ca-app-pub-...~...          # AdMob application id (manifest)
-admob.interstitial_id=ca-app-pub-.../... # interstitial ad unit
-admob.rewarded_id=ca-app-pub-.../...     # rewarded ad unit
+```toml
+[android.admob]
+app_id          = "ca-app-pub-...~..."   # AdMob application id (goes into the manifest)
+interstitial_id = "ca-app-pub-.../..."   # interstitial ad unit
+rewarded_id     = "ca-app-pub-.../..."   # rewarded ad unit
 ```
 
 These default to **Google's official test ids**; replace them before publishing. The app id is
@@ -305,8 +319,15 @@ off-Android, so you can `#include <raymob.h>` unconditionally:
 #endif
 ```
 
-App identity (`app.name`, `app.application_id`, `app.native_library_name`) is set in
-`raymob/gradle.properties`. The build renames the Java package + native lib accordingly.
+App identity comes from `raylib_multiplatform.toml` (`[project] name`, `[window] title`,
+`[android] application_id`). `tools/configure.py` writes it to `raymob/generated.properties`,
+`settings.gradle` loads that and injects it as Gradle `ext`, and the build renames the Java package
+and native library accordingly.
+
+`raymob/gradle.properties` still exists but holds only Gradle/AGP infrastructure — `jvmargs`,
+`useAndroidX`. Those have to be in that file because Gradle reads it during initialisation, before
+`settings.gradle` is even evaluated and before the daemon JVM starts, so nothing generated exists
+early enough. Everything about your game moved out.
 
 ### Publishing to Google Play (signed AAB)
 
@@ -358,7 +379,9 @@ config, so **no secret ever lives in the repo**.
    used to do, only proves that *a* signature exists — not whose, and not that it verifies.)
 
 > **Never commit the keystore or its passwords.** And before publishing, replace the AdMob
-> test ids in `raymob/gradle.properties` and set your real `app.application_id`.
+> test ids and set your real `application_id` in `raylib_multiplatform.toml`. CI refuses to build
+> a tag while the id is still `com.example.*`, because a Google Play application id can never be
+> changed once published.
 
 ---
 
