@@ -999,6 +999,10 @@ def main(argv: list[str]) -> int:
     version_name, _ = resolve_version()
     print(f"configure: {cfg['project']['name']} {version_name} — "
           f"{len(targets)} target(s): {' '.join(targets)}")
+    if _warnings:
+        # Repeated at the end because the individual warnings scroll past in the
+        # middle of CMake's own output, where nobody sees them.
+        print(f"configure: {len(_warnings)} warning(s) above", file=sys.stderr)
     return 0
 
 

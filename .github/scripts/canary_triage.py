@@ -166,7 +166,7 @@ def failing_step(job: dict) -> dict | None:
     return None
 
 
-def error_slice(log: str, step_name: str | None) -> list[str]:
+def error_slice(log: str) -> list[str]:
     """The lines worth reading.
 
     Not a structural parse of the log: `##[group]` framing has changed before
@@ -263,7 +263,7 @@ def main() -> int:
             "step": step["name"] if step else None,
             "version_delta": delta,
             "observed": obs,
-            "error_lines": error_slice(log, step["name"] if step else None),
+            "error_lines": error_slice(log),
             "key": key,
             "known": key in known_keys(),
         }
