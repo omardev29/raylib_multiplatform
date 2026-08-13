@@ -45,7 +45,10 @@ jobs:
       # the launcher icons and the CMake config. CMake runs this itself, but
       # Gradle and XcodeGen never invoke CMake, so they need it spelled out.
       - name: Generate configuration
-        run: python3 tools/configure.py
+        # --require-icons: this is one of the two platforms that actually ships
+        # the launcher icons, so a missing Pillow here is a real failure rather
+        # than something to warn about.
+        run: python3 tools/configure.py --require-icons
 
       # Catches the specific nasty case where Gradle asks for an SDK platform
       # the image does not carry: AGP would silently download it at job time and

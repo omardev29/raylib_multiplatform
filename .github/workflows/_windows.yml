@@ -26,18 +26,41 @@ on:
         description: 'JSON array of enabled target ids (from [targets] in the config)'
         required: true
         type: string
+      # Floated by the weekly canary; ci.yml passes the values from
+      # FROZEN_VERSIONS.md.
+      runner:
+        required: false
+        default: windows-2025
+        type: string
+      mesa_version:
+        description: 'Exact version, or "latest" to resolve the newest release'
+        required: false
+        default: '26.1.6'
+        type: string
+      mesa_sha256:
+        description: 'Empty skips verification — required when the version floats'
+        required: false
+        default: '86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb'
+        type: string
 
 permissions:
   contents: read
 
+# A caller cannot override a callee's `env:`, but a callee's `env:` can read its
+# own inputs — so the steps below keep using $MESA_VERSION unchanged.
 env:
-  MESA_VERSION: '26.1.6'
-  MESA_SHA256: '86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb'
+  MESA_VERSION: ${{ inputs.mesa_version }}
+  MESA_SHA256: ${{ inputs.mesa_sha256 }}
 
 jobs:
   x64:
     if: contains(fromJSON(inputs.targets), 'windows-x64')
-    runs-on: windows-2025
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        # `runs-on` is an expression, so nothing can infer the platform any
+        # more — actionlint was shellchecking these PowerShell steps as bash.
+        shell: pwsh
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -72,16 +95,29 @@ jobs:
       - name: Set up Mesa software OpenGL (pinned)
         run: |
           $ErrorActionPreference = "Stop"
-          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${env:MESA_VERSION}/mesa3d-${env:MESA_VERSION}-release-msvc.7z"
+          $ver = $env:MESA_VERSION
+          if ($ver -eq "latest") {
+            # Canary mode: whatever mesa-dist-win released most recently.
+            $ver = (Invoke-RestMethod "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest").tag_name
+            Write-Host "resolved mesa latest -> $ver"
+          }
+          "observed_mesa=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${ver}/mesa3d-${ver}-release-msvc.7z"
           Invoke-WebRequest -Uri $url -OutFile mesa.7z
           $got = (Get-FileHash mesa.7z -Algorithm SHA256).Hash.ToLower()
-          if ($got -ne $env:MESA_SHA256) { Write-Host "FAIL: mesa sha256 mismatch`n  got      $got`n  expected $env:MESA_SHA256"; exit 1 }
+          if ($env:MESA_SHA256) {
+            if ($got -ne $env:MESA_SHA256) { Write-Host "FAIL: mesa sha256 mismatch`n  got      $got`n  expected $env:MESA_SHA256"; exit 1 }
+          } else {
+            # Not an oversight: a floating version cannot have a pinned hash, and
+            # failing here would stop the canary before it tested anything.
+            Write-Host "::warning::mesa sha256 not pinned; observed $got"
+          }
           7z x mesa.7z -omesa -y | Out-Null
           # Windows resolves DLLs from the application directory first, so
           # dropping these next to the .exe overrides the system opengl32.
           # They are deleted again before packaging: they must never ship.
           Copy-Item mesa/x64/opengl32.dll,mesa/x64/libgallium_wgl.dll,mesa/x64/dxil.dll build/
-          Write-Host "Mesa ${env:MESA_VERSION} staged next to the executable"
+          Write-Host "Mesa $ver staged next to the executable"
 
       - name: Test (runtime) — boot, render frames, verify pixels
         run: |
@@ -156,7 +192,12 @@ jobs:
     # Cross-compiled with MSVC. Static checks only: an ARM64 PE cannot run on
     # the x64 host, and there is no ARM64 Windows runner in the free tier.
     if: inputs.full && contains(fromJSON(inputs.targets), 'windows-arm64')
-    runs-on: windows-2025
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        # `runs-on` is an expression, so nothing can infer the platform any
+        # more — actionlint was shellchecking these PowerShell steps as bash.
+        shell: pwsh
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

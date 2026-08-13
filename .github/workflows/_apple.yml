@@ -18,23 +18,54 @@ on:
         description: 'JSON array of enabled target ids (from [targets] in the config)'
         required: true
         type: string
+      # Everything below is a pin the weekly canary floats to find out what is
+      # about to break. Defaults match FROZEN_VERSIONS.md, but ci.yml always
+      # passes explicit values read from there, so this file is never the
+      # source of truth.
+      runner:
+        required: false
+        default: macos-26
+        type: string
+      xcode_version:
+        description: 'Exact version, or "latest" for the newest installed'
+        required: false
+        default: '26.6'
+        type: string
+      ninja_version:
+        required: false
+        default: '1.13.2'
+        type: string
+      ninja_sha256:
+        description: 'Empty skips verification — required when a version floats'
+        required: false
+        default: 'c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b'
+        type: string
+      xcodegen_version:
+        required: false
+        default: '2.46.0'
+        type: string
+      xcodegen_sha256:
+        required: false
+        default: '4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806'
+        type: string
 
 permissions:
   contents: read
 
+# A caller cannot override a callee's `env:`, but a callee's `env:` can read its
+# own inputs — so this keeps every `$XCODE_VERSION` in the steps below working
+# untouched while making the values overridable from outside.
 env:
-  # macos-26 ships several Xcodes and prunes the non-default ones first, so
-  # pinning the current default buys the most shelf life.
-  XCODE_VERSION: '26.6'
-  NINJA_VERSION: '1.13.2'
-  NINJA_MAC_SHA256: 'c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b'
-  XCODEGEN_VERSION: '2.46.0'
-  XCODEGEN_SHA256: '4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806'
+  XCODE_VERSION: ${{ inputs.xcode_version }}
+  NINJA_VERSION: ${{ inputs.ninja_version }}
+  NINJA_MAC_SHA256: ${{ inputs.ninja_sha256 }}
+  XCODEGEN_VERSION: ${{ inputs.xcodegen_version }}
+  XCODEGEN_SHA256: ${{ inputs.xcodegen_sha256 }}
 
 jobs:
   macos:
     if: contains(fromJSON(inputs.targets), 'macos')
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -42,15 +73,25 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ "$XCODE_VERSION" = "latest" ]; then
+            # Canary mode: whatever the runner image ships today.
+            APP=$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -1)
+          else
+            APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          fi
           if [ ! -d "$APP" ]; then
             echo "FAIL: Xcode ${XCODE_VERSION} is not installed on this runner. Available:"
-            ls -d /Applications/Xcode*.app
-            echo "Update XCODE_VERSION in .github/workflows/_apple.yml."
+            find /Applications -maxdepth 1 -name 'Xcode*.app'
+            echo "Update the 'xcode' pin in thirdparty/FROZEN_VERSIONS.md."
             exit 1
           fi
           sudo xcode-select -s "$APP/Contents/Developer"
           xcodebuild -version
+          # Recorded for the canary's frozen-vs-observed diff.
+          {
+            echo "observed_xcode=$(xcodebuild -version | head -1 | awk '{print $2}')"
+            echo "observed_runner=${ImageOS:-unknown}/${ImageVersion:-unknown}"
+          } >> "$GITHUB_ENV"
 
       # `brew install ninja` was a network call to an unversioned formula whose
       # macOS requirements move on Homebrew's schedule, not ours.
@@ -59,7 +100,11 @@ jobs:
           set -euo pipefail
           curl -fsSL -o /tmp/ninja-mac.zip \
             "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-mac.zip"
-          echo "${NINJA_MAC_SHA256}  /tmp/ninja-mac.zip" | shasum -a 256 -c -
+          if [ -n "$NINJA_MAC_SHA256" ]; then
+            echo "${NINJA_MAC_SHA256}  /tmp/ninja-mac.zip" | shasum -a 256 -c -
+          else
+            echo "::warning::ninja sha256 not pinned; observed $(shasum -a 256 /tmp/ninja-mac.zip | cut -d' ' -f1)"
+          fi
           unzip -o -q /tmp/ninja-mac.zip -d /usr/local/bin
           chmod +x /usr/local/bin/ninja
           ninja --version
@@ -103,7 +148,7 @@ jobs:
 
   ios:
     if: contains(fromJSON(inputs.targets), 'ios')
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -113,21 +158,34 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ "$XCODE_VERSION" = "latest" ]; then
+            # Canary mode: whatever the runner image ships today.
+            APP=$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -1)
+          else
+            APP="/Applications/Xcode_${XCODE_VERSION}.app"
+          fi
           if [ ! -d "$APP" ]; then
             echo "FAIL: Xcode ${XCODE_VERSION} is not installed on this runner. Available:"
-            ls -d /Applications/Xcode*.app
-            echo "Update XCODE_VERSION in .github/workflows/_apple.yml."
+            find /Applications -maxdepth 1 -name 'Xcode*.app'
+            echo "Update the 'xcode' pin in thirdparty/FROZEN_VERSIONS.md."
             exit 1
           fi
           sudo xcode-select -s "$APP/Contents/Developer"
           xcodebuild -version
+          # Recorded for the canary's frozen-vs-observed diff.
+          {
+            echo "observed_xcode=$(xcodebuild -version | head -1 | awk '{print $2}')"
+            echo "observed_runner=${ImageOS:-unknown}/${ImageVersion:-unknown}"
+          } >> "$GITHUB_ENV"
 
       # raylib_multiplatform.toml becomes gradle.properties, the XcodeGen spec,
       # the launcher icons and the CMake config. CMake runs this itself, but
       # Gradle and XcodeGen never invoke CMake, so they need it spelled out.
       - name: Generate configuration
-        run: python3 tools/configure.py
+        # --require-icons: this is one of the two platforms that actually ships
+        # the launcher icons, so a missing Pillow here is a real failure rather
+        # than something to warn about.
+        run: python3 tools/configure.py --require-icons
 
       # ios/project.yml hard-codes .../projects/Xcode26/raylib/bridge in its
       # header search path. That is upstream's folder name and the submodule is
@@ -157,7 +215,11 @@ jobs:
           set -euo pipefail
           curl -fsSL -o /tmp/xcodegen.zip \
             "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
-          echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 -c -
+          if [ -n "$XCODEGEN_SHA256" ]; then
+            echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 -c -
+          else
+            echo "::warning::xcodegen sha256 not pinned; observed $(shasum -a 256 /tmp/xcodegen.zip | cut -d' ' -f1)"
+          fi
           unzip -o -q /tmp/xcodegen.zip -d /tmp/xcodegen-dist
           # Keep the bin/ + share/ layout: xcodegen resolves its SettingPresets
           # relative to the binary, so a bare copy of bin/xcodegen breaks.

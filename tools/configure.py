@@ -30,6 +30,7 @@ Usage:
     tools/configure.py --print-families    JSON array of CI families in play
     tools/configure.py --print-matrix bsd  JSON matrix for one CI family
     tools/configure.py --print-config      the resolved config, as JSON
+    tools/configure.py --print-pins        the frozen pins, as key=value
     tools/configure.py --make-default-icon regenerate resources/icon.png
 """
 
@@ -745,7 +746,7 @@ targets:
 DENSITIES = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
 
 
-def generate_icons(cfg: dict) -> None:
+def generate_icons(cfg: dict, required: bool) -> None:
     src = REPO / cfg["icon"]["source"]
     res = REPO / "raymob" / "app" / "src" / "main" / "res"
     appicon = REPO / "ios" / "Assets.xcassets" / "AppIcon.appiconset"
@@ -765,10 +766,17 @@ def generate_icons(cfg: dict) -> None:
     try:
         from PIL import Image, ImageDraw
     except ImportError:
-        raise ConfigError(
-            "[icon] the icon changed but Pillow is not installed, so it cannot be resized.\n"
-            "  pip install pillow      (or: apt install python3-pil)\n"
-            "Or revert resources/icon.png to skip icon generation.") from None
+        # Only Android and iOS consume the generated icons, and those two jobs
+        # ask for them explicitly. Everywhere else — the lint job, a macOS or
+        # Windows runner, a contributor's laptop — a missing Pillow must not
+        # stop the build over an asset that platform will never look at.
+        msg = ("[icon] resources/icon.png changed but Pillow is not installed, so the "
+               "launcher icons cannot be regenerated.\n"
+               "  pip install pillow      (or: apt install python3-pil)")
+        if required:
+            raise ConfigError(msg) from None
+        warn(msg + "\n         Skipping — this only matters for Android and iOS builds.")
+        return
 
     source = Image.open(src).convert("RGBA")
     if source.width != source.height:
@@ -909,7 +917,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--print-matrix", metavar="FAMILY")
     ap.add_argument("--print-config", action="store_true")
     ap.add_argument("--print-stamp", action="store_true")
+    ap.add_argument("--print-pins", action="store_true",
+                    help="the ```versions block as key=value, for $GITHUB_OUTPUT")
     ap.add_argument("--make-default-icon", action="store_true")
+    ap.add_argument("--require-icons", action="store_true",
+                    help="fail if the icons cannot be generated (Android/iOS jobs)")
     args = ap.parse_args(argv)
 
     if args.make_default_icon:
@@ -932,6 +944,10 @@ def main(argv: list[str]) -> int:
     if args.print_matrix:
         _print_matrix(cfg, args.print_matrix)
         return 0
+    if args.print_pins:
+        for k, v in frozen_versions().items():
+            print(f"{k}={v}")
+        return 0
     if args.print_stamp:
         print(compute_stamp())
         return 0
@@ -950,7 +966,7 @@ def main(argv: list[str]) -> int:
     gen_cmake(cfg)
     gen_app_config(cfg)
     gen_gradle_properties(cfg)
-    generate_icons(cfg)
+    generate_icons(cfg, required=args.require_icons)
     gen_ios_project(cfg)   # after icons: it references the asset catalog if present
     STAMP.parent.mkdir(parents=True, exist_ok=True)
     STAMP.write_text(compute_stamp() + "\n")
