@@ -66,12 +66,17 @@ jobs:
       families: ${{ steps.o.outputs.families }}
       bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
       build_image: ${{ steps.o.outputs.build_image }}
+      floating: ${{ steps.o.outputs.floating }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - id: o
         env:
           IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          XCODE: ${{ inputs.xcode_version || 'latest' }}
+          MACOS_RUNNER: ${{ inputs.macos_runner || 'macos-latest' }}
+          WINDOWS_RUNNER: ${{ inputs.windows_runner || 'windows-latest' }}
+          MESA: ${{ inputs.mesa_version || 'latest' }}
         run: |
           set -euo pipefail
           {
@@ -81,6 +86,20 @@ jobs:
             echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
             echo "build_image=ghcr.io/omardev29/raylib-build:${IMAGE_TAG}"
           } >> "$GITHUB_OUTPUT"
+
+          # What we ASKED for, so triage can still show a delta when a job dies
+          # before it gets to report what it resolved to — a bad Xcode pin fails
+          # at "Select Xcode", which is exactly the case where the delta is the
+          # whole answer.
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os
+          print("floating=" + json.dumps({
+              "xcode":          os.environ["XCODE"],
+              "macos_runner":   os.environ["MACOS_RUNNER"],
+              "windows_runner": os.environ["WINDOWS_RUNNER"],
+              "mesa":           os.environ["MESA"],
+          }, separators=(",", ":")))
+          PY
 
   linux:
     needs: config
@@ -163,7 +182,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: What is newer than our pins
         continue-on-error: true
-        run: python3 .github/scripts/upstream_report.py >> "$GITHUB_STEP_SUMMARY"
+        # tee, not >>: sending it only to the summary leaves the job log empty,
+        # which is exactly where you look when the summary is not rendering.
+        run: python3 .github/scripts/upstream_report.py | tee -a "$GITHUB_STEP_SUMMARY"
 
   # `failure()` would miss a cancellation, and BSD reaches its 60-minute timeout
   # often enough that ignoring that would hide real breakage.
@@ -182,6 +203,7 @@ jobs:
       - name: Triage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANARY_FLOATING: ${{ needs.config.outputs.floating }}
         run: python3 .github/scripts/canary_triage.py
 
       # fix.yml (workflow_run) picks this up from the finished canary run.

@@ -31,3 +31,5 @@ compile_commands.json
 /raymob/app/src/main/res/values/ic_launcher_background.xml
 /raymob/app/src/main/res/.icon-stamp
 /raymob/app/src/main/ic_launcher-playstore.png
+# Written by the canary's triage job and uploaded as an artifact, never committed.
+/.github/canary-report.json

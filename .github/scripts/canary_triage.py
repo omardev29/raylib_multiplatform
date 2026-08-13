@@ -68,17 +68,47 @@ def api(path: str) -> dict | list:
         return json.load(r)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Stop at the 302 so the redirect can be followed by hand."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        raise _Redirect(newurl)
+
+
+class _Redirect(Exception):
+    def __init__(self, url: str):
+        super().__init__(url)
+        self.url = url
+
+
 def job_log(job_id: int) -> str:
-    """A completed job's log, even while the run is still in progress."""
+    """A completed job's log, even while the run is still in progress.
+
+    The redirect has to be followed manually. The API answers 302 to a storage
+    URL that authenticates through its own signed query string, and urllib
+    helpfully re-sends our `Authorization: Bearer` header to it — which the
+    storage backend rejects outright with 401. curl -L drops credentials on a
+    cross-host redirect; urllib does not, so we do it ourselves.
+    """
+    opener = urllib.request.build_opener(_NoRedirect)
     req = urllib.request.Request(
         f"{API}/repos/{REPO}/actions/jobs/{job_id}/logs",
         headers={"Authorization": f"Bearer {TOKEN}",
                  "User-Agent": "raylib-multiplatform-canary"})
     try:
-        with urllib.request.urlopen(req, timeout=120) as r:   # follows the 302
-            raw = r.read().decode("utf-8", errors="replace")
+        try:
+            with opener.open(req, timeout=120) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+        except _Redirect as redir:
+            # Deliberately no Authorization header here.
+            plain = urllib.request.Request(
+                redir.url, headers={"User-Agent": "raylib-multiplatform-canary"})
+            with urllib.request.urlopen(plain, timeout=120) as r:
+                raw = r.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         return f"<could not fetch log: HTTP {e.code}>"
+    except urllib.error.URLError as e:
+        return f"<could not fetch log: {e.reason}>"
     return "\n".join(TIMESTAMP.sub("", ANSI.sub("", ln)).rstrip()
                      for ln in raw.splitlines())
 
@@ -117,7 +147,11 @@ def observed(log: str) -> dict[str, str]:
     contract rather than log-scraping: a regex over `xcodebuild -version` output
     would work today and quietly stop the day Apple reformats it.
     """
-    found = dict(re.findall(r"CANARY_OBSERVED\s+([a-z_]+)=(\S+)", log))
+    # Anchored to the start of a line on purpose. Actions echoes the script
+    # source into the log before running it, so an unanchored match happily
+    # picks up `echo "CANARY_OBSERVED xcode=$(xcodebuild ...)"` and reports the
+    # version as `$(xcodebuild`. Only the real output starts the line.
+    found = dict(re.findall(r"^CANARY_OBSERVED\s+([a-z_]+)=(\S+)\s*$", log, re.M))
     # The container jobs print /etc/raylib-build-image.json, which is a superset.
     m = re.search(r'"android_ndk":\s*"([^"]+)"', log)
     if m:
@@ -169,6 +203,15 @@ def known_keys() -> set[str]:
     return set(re.findall(r"^-\s+`([^`]+)`", LEDGER.read_text(encoding="utf-8"), re.M))
 
 
+def _dedupe(rows: list[dict]) -> list[dict]:
+    seen, out = set(), []
+    for r in rows:
+        if r["key"] not in seen:
+            seen.add(r["key"])
+            out.append(r)
+    return out
+
+
 def main() -> int:
     if not (TOKEN and REPO and RUN_ID):
         print("canary_triage: GITHUB_TOKEN / GITHUB_REPOSITORY / GITHUB_RUN_ID required",
@@ -188,6 +231,15 @@ def main() -> int:
         log = job_log(job["id"])
         step = failing_step(job)
         obs = observed(log)
+
+        # A job that dies early — a bad Xcode pin fails at "Select Xcode",
+        # before anything gets a chance to echo what it resolved to — would
+        # otherwise report no delta at all, which is the one thing the report
+        # exists to show. So fall back to what the canary ASKED for, marked as
+        # requested rather than observed.
+        requested = json.loads(os.environ.get("CANARY_FLOATING", "{}"))
+        for k, v in requested.items():
+            obs.setdefault(k, v)
 
         delta = [{"key": k, "frozen": pins[k], "observed": v}
                  for k, v in sorted(obs.items())
@@ -224,10 +276,13 @@ def main() -> int:
         "repository": REPO,
         "failed": bool(families),
         "families": families,
-        # Consumed as a matrix by fix.yml: one agent per broken family, each on
-        # that family's own runner.
-        "fix_matrix": [{"family": f["family"], "runner": f["runner"], "key": f["key"]}
-                       for f in families if not f["known"]],
+        # Consumed as a matrix by autofix.yml: one agent per broken family, on
+        # that family's own runner. Deduplicated by key — `apple / macos` and
+        # `apple / ios` failing on the same Xcode bump is ONE problem, and
+        # dispatching two agents at it means two PRs racing to make the same
+        # change.
+        "fix_matrix": _dedupe([{"family": f["family"], "runner": f["runner"], "key": f["key"]}
+                               for f in families if not f["known"]]),
     }
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
