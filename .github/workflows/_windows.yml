@@ -101,7 +101,10 @@ jobs:
             $ver = (Invoke-RestMethod "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest").tag_name
             Write-Host "resolved mesa latest -> $ver"
           }
-          "observed_mesa=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # Contract line for the canary's triage; the key matches the pin name
+          # in FROZEN_VERSIONS.md so the frozen-vs-observed diff lines up.
+          Write-Host "CANARY_OBSERVED mesa=$ver"
+          Write-Host "runner image: $env:ImageOS $env:ImageVersion"
           $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${ver}/mesa3d-${ver}-release-msvc.7z"
           Invoke-WebRequest -Uri $url -OutFile mesa.7z
           $got = (Get-FileHash mesa.7z -Algorithm SHA256).Hash.ToLower()

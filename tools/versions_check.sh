@@ -90,8 +90,16 @@ check "gradle"        gradle        "$(sed -nE 's#.*/gradle-([0-9.]+)-bin\.zip.*
 check "gradle sha256" gradle_sha256 "$(sed -nE 's/^distributionSha256Sum=(.*)$/\1/p' $WRAP | head -1)"
 
 echo "== Build image pin (workflows) =="
+# canary.yml is excluded from both checks below, deliberately and by name. Its
+# entire purpose is to run the pipeline against the FLOATING `:latest` image to
+# find out what is about to break, so the two rules here — "exactly one digest"
+# and "never :latest" — are exactly wrong for it. Without this exclusion the
+# canary would fail the lint job on the day it was added.
+WORKFLOWS=$(find .github/workflows -name '*.yml' ! -name 'canary.yml')
+
 # Every container job must pin the same digest, and it must be the declared one.
-mapfile -t DIGESTS < <(grep -rhoE 'raylib-build@sha256:[0-9a-f]{64}' .github/workflows/ \
+# shellcheck disable=SC2086
+mapfile -t DIGESTS < <(grep -hoE 'raylib-build@sha256:[0-9a-f]{64}' $WORKFLOWS \
                         | sed 's/.*@//' | sort -u)
 if [ ${#DIGESTS[@]} -eq 0 ]; then
     echo "  DRIFT build image             no digest-pinned image found in .github/workflows/"
@@ -103,8 +111,9 @@ else
     check "build image digest" build_image_digest "${DIGESTS[0]}"
 fi
 
-# A `:latest` reference anywhere defeats the whole point.
-if grep -rqE 'raylib-build:latest' .github/workflows/; then
+# A `:latest` reference anywhere defeats the whole point — outside the canary.
+# shellcheck disable=SC2086
+if grep -qE 'raylib-build:latest' $WORKFLOWS; then
     echo "  DRIFT build image             a :latest reference is still present (use the digest)"
     fails=$((fails + 1)); checks=$((checks + 1))
 fi

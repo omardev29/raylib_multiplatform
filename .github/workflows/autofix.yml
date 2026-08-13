@@ -1,0 +1,175 @@
+# When the canary breaks, try to fix it — on the platform that broke.
+#
+# The point of running the agent on the failing family's own runner is that it
+# can compile and test in-session instead of guessing. An agent on Ubuntu
+# reasoning about an Xcode failure is writing fiction; the same agent on
+# macos-26 can run `xcodebuild` and see.
+#
+#   Apple              macos-26, natively — GitHub's macOS runners have no Docker
+#   Linux/Web/Android  ubuntu-24.04, using tools/dev_shell.sh against the pinned
+#                      image. The image has neither node nor bun, so the action
+#                      itself cannot run inside the container.
+#   BSD                ubuntu-24.04, semi-blind. It proposes; the PR validates.
+#
+# Two guardrails are structural rather than instructions, which is what makes
+# this safe to leave running:
+#
+#   1. GITHUB_TOKEN cannot push changes to .github/workflows at all. That is a
+#      hard limit the agent cannot argue its way past, and it is why every
+#      floating pin was moved into thirdparty/FROZEN_VERSIONS.md first — so the
+#      fix has somewhere legal to land.
+#   2. tools/versions_check.sh fails the PR if a version was bumped in one place
+#      and not the other. It was written to stop humans leaving the docs lying;
+#      it turns out to be exactly the check that stops an agent doing it.
+#
+# The remaining risk is prompt injection through the build log the agent reads,
+# so permissions are the minimum that lets it open a draft PR, and nothing more.
+
+name: autofix
+
+on:
+  workflow_run:
+    workflows: [canary]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Canary run id to fix (workflow_run only fires from the default branch, so this is the only way to test)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: >
+      github.repository == 'omardev29/raylib_multiplatform' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read       # downloading an artifact from the canary's run
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      any: ${{ steps.plan.outputs.any }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Fetch the canary report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: canary-report
+          path: report
+          run-id: ${{ inputs.run_id || github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: plan
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, pathlib
+          rep = json.loads(pathlib.Path("report/canary-report.json").read_text())
+          # Entries already in known-breakage.md are filtered out upstream, so
+          # a repeat of something we decided not to chase does not reopen a PR
+          # every Monday.
+          rows = rep.get("fix_matrix", [])
+          print(f"matrix={json.dumps({'include': rows}, separators=(',', ':'))}")
+          print(f"any={'true' if rows else 'false'}")
+          PY
+          cat report/canary-report.json
+
+  fix:
+    needs: plan
+    # An empty matrix is a hard error in Actions, not a skip.
+    if: needs.plan.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      # One agent per broken family. A job has exactly one `runs-on`, so Apple
+      # and Linux failing in the same week needs one job each.
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: write         # push the autofix branch
+      pull-requests: write    # open the draft PR
+      actions: read
+    env:
+      # The `secrets` context is not available in a job-level `if:`, so the
+      # presence check has to happen at step level through env.
+      HAS_KEY: ${{ (secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '') && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: canary-report
+          path: report
+          run-id: ${{ inputs.run_id || github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: No API key configured
+        if: env.HAS_KEY != 'true'
+        run: |
+          echo "::warning::autofix is wired up but has no credentials."
+          echo "Add ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN as a repository secret to enable it."
+          echo "The canary report is still attached to the canary run."
+          {
+            echo "## autofix skipped"
+            echo
+            echo "No \`ANTHROPIC_API_KEY\` / \`CLAUDE_CODE_OAUTH_TOKEN\` secret."
+            echo "Broken family: \`${{ matrix.family }}\` (\`${{ matrix.key }}\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attempt a fix
+        if: env.HAS_KEY == 'true'
+        uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126  # v1.0.191
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch_prefix: autofix/
+          claude_args: '--max-turns 40'
+          prompt: |
+            The weekly canary for this raylib template failed. You are running on
+            ${{ matrix.runner }}, the same platform that broke, so you can build and
+            test the change rather than guessing at it.
+
+            Read `report/canary-report.json` first. It leads with a
+            frozen-versus-observed version delta — that delta is almost always the
+            cause, and the error lines below it are the symptom.
+
+            Fix ONLY the `${{ matrix.family }}` family. Breakage key: `${{ matrix.key }}`.
+
+            You may edit:
+              - thirdparty/FROZEN_VERSIONS.md  (this is where every floating pin lives)
+              - .github/workflows/_${{ matrix.family }}.yml
+              - tools/ and the platform's own build files
+
+            You may NOT edit:
+              - .github/workflows/ci.yml, canary.yml or autofix.yml
+              - anything to do with releases or code signing
+              - src/ or include/, which belong to whoever uses this template
+
+            You could not commit a change under .github/workflows even if you tried:
+            GITHUB_TOKEN is refused there without the `workflows` permission. That is
+            deliberate. If the only real fix is a workflow edit, do not fake one —
+            describe it in the PR body and stop.
+
+            Before committing, run:
+              bash tools/versions_check.sh
+            It fails if a version was bumped in one place and not the other. On Linux,
+            Web and Android you can reproduce the CI toolchain exactly with
+            `tools/dev_shell.sh <command>`; on macOS build natively, there is no Docker.
+
+            Open a DRAFT pull request. In the body state: what moved, what you changed,
+            what you verified, and what you could not verify. If you are not confident,
+            say so plainly — a draft PR that says "this is a guess, here is why" is
+            useful; one that overstates its confidence is worse than nothing.
+
+            If the failure looks like a flake rather than a real break, do not invent a
+            fix. Say so and propose adding it to `.github/known-breakage.md` instead.

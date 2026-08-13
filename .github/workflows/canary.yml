@@ -1,0 +1,192 @@
+# The weekly canary: build everything against the versions we are NOT pinned to,
+# so the pipeline tells us what is about to break before it breaks.
+#
+# Freezing protects you from change; it does not tell you change happened. CI
+# stays green on Xcode 26.6 while the world moves to 27, and you find out the
+# day you finally need to bump the pin — usually the day you are trying to ship.
+#
+# This calls exactly the same reusable workflows as ci.yml, with the pins
+# overridden to their floating values. Testing the same code is the entire
+# point: a canary that runs its own copy of the build tests the copy.
+#
+#   Linux / Web / Android   frozen by image digest  ->  the `:latest` image
+#   Apple                   macos-26 + Xcode 26.6   ->  macos-latest, newest Xcode
+#   Windows                 windows-2025 + Mesa pin ->  windows-latest, newest Mesa
+#   BSD                     nothing                 ->  already floating; the cron is enough
+#
+# No continue-on-error anywhere. This is its own workflow, so its failure blocks
+# nothing, and there is no reason to lie about the result.
+#
+# ONLY RUNS ON THE TEMPLATE REPO. A repository created from a template is a real
+# copy, not a fork, so GitHub's "scheduled workflows are disabled in forks" does
+# not protect anybody — the repository check does. Someone who used this
+# template should never see a canary run, let alone an autofix PR.
+
+name: canary
+
+on:
+  schedule:
+    # Mondays 04:00 UTC. GitHub disables cron after 60 days of repository
+    # inactivity, so a dormant template stops being watched — that is a
+    # limitation to know about, not a bug to fix here.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      xcode_version:
+        description: 'Xcode: "latest" or an exact version (use a bogus one to test triage)'
+        type: string
+        default: 'latest'
+      macos_runner:
+        type: string
+        default: 'macos-latest'
+      windows_runner:
+        type: string
+        default: 'windows-latest'
+      mesa_version:
+        type: string
+        default: 'latest'
+      image_tag:
+        description: 'Tag of the build image to float to'
+        type: string
+        default: 'latest'
+
+permissions:
+  contents: read
+
+jobs:
+  # There is no workflow-level `if`, so the guard lives here and every other job
+  # depends on it: a skipped `needs` skips the lot.
+  config:
+    if: github.repository == 'omardev29/raylib_multiplatform'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      project_name: ${{ steps.o.outputs.project_name }}
+      targets: ${{ steps.o.outputs.targets }}
+      families: ${{ steps.o.outputs.families }}
+      bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
+      build_image: ${{ steps.o.outputs.build_image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - id: o
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+        run: |
+          set -euo pipefail
+          {
+            echo "project_name=$(python3 tools/configure.py --print-name)"
+            echo "targets=$(python3 tools/configure.py --print-targets)"
+            echo "families=$(python3 tools/configure.py --print-families)"
+            echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
+            echo "build_image=ghcr.io/omardev29/raylib-build:${IMAGE_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'linux')
+    uses: ./.github/workflows/_linux.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      build_image: ${{ needs.config.outputs.build_image }}
+      full: true
+      targets: ${{ needs.config.outputs.targets }}
+    permissions:
+      contents: read
+      packages: read
+
+  web:
+    needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'web')
+    uses: ./.github/workflows/_web.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      build_image: ${{ needs.config.outputs.build_image }}
+    permissions:
+      contents: read
+      packages: read
+
+  android:
+    needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'android')
+    uses: ./.github/workflows/_android.yml
+    with:
+      build_image: ${{ needs.config.outputs.build_image }}
+    permissions:
+      contents: read
+      packages: read
+    secrets: inherit
+
+  windows:
+    needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'windows')
+    uses: ./.github/workflows/_windows.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      full: true
+      targets: ${{ needs.config.outputs.targets }}
+      runner: ${{ inputs.windows_runner || 'windows-latest' }}
+      mesa_version: ${{ inputs.mesa_version || 'latest' }}
+      # Empty on purpose. A floating version cannot have a pinned hash, and
+      # verifying against a stale one would fail the canary at the checksum
+      # before it ever built anything. The job reports the hash it saw instead.
+      mesa_sha256: ''
+
+  apple:
+    needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'apple')
+    uses: ./.github/workflows/_apple.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      targets: ${{ needs.config.outputs.targets }}
+      runner: ${{ inputs.macos_runner || 'macos-latest' }}
+      xcode_version: ${{ inputs.xcode_version || 'latest' }}
+      # Ninja and XcodeGen keep their pins: they are not what drifts. Apple is.
+      # Floating everything at once would tell us something broke without
+      # telling us which change did it.
+
+  bsd:
+    needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'bsd')
+    uses: ./.github/workflows/_bsd.yml
+    with:
+      project_name: ${{ needs.config.outputs.project_name }}
+      matrix: ${{ needs.config.outputs.bsd_matrix }}
+
+  # Advisory only, never fails. Answers "what is out there?" so a human can
+  # decide whether to bump a pin, without the canary deciding for them.
+  upstream:
+    needs: config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: What is newer than our pins
+        continue-on-error: true
+        run: python3 .github/scripts/upstream_report.py >> "$GITHUB_STEP_SUMMARY"
+
+  # `failure()` would miss a cancellation, and BSD reaches its 60-minute timeout
+  # often enough that ignoring that would hide real breakage.
+  triage:
+    needs: [config, linux, web, android, windows, apple, bsd]
+    if: always() && github.repository == 'omardev29/raylib_multiplatform' &&
+        (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read      # reading sibling jobs' logs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Triage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/canary_triage.py
+
+      # fix.yml (workflow_run) picks this up from the finished canary run.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: canary-report
+          path: .github/canary-report.json
+          retention-days: 30

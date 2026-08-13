@@ -746,14 +746,49 @@ targets:
 DENSITIES = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
 
 
+def png_size(path: Path) -> tuple[int, int]:
+    """Width and height straight out of the IHDR chunk. No dependencies."""
+    data = path.read_bytes()[:33]
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+        raise ConfigError(f"[icon] {path.name} is not a PNG.")
+    return (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
+
+
+def generate_ios_icon(cfg: dict, src: Path) -> None:
+    """The iOS app icon, without Pillow.
+
+    Since Xcode 14 a single 1024x1024 image is a complete AppIcon — Xcode
+    derives every other size. So this is a file copy, not a resize, which means
+    iOS icons work on a macOS runner that has no image library at all. Only
+    Android needs real resampling.
+    """
+    appicon = REPO / "ios" / "Assets.xcassets" / "AppIcon.appiconset"
+    w, h = png_size(src)
+    if w != h:
+        raise ConfigError(f"[icon] {cfg['icon']['source']} is {w}x{h}; it must be square.")
+    if w != 1024:
+        warn(f"[icon] {cfg['icon']['source']} is {w}x{w}; the App Store requires exactly "
+             "1024x1024. Simulator builds will still work.")
+    appicon.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, appicon / "icon-1024.png")
+    (appicon / "Contents.json").write_text(json.dumps({
+        "images": [{"filename": "icon-1024.png", "idiom": "universal",
+                    "platform": "ios", "size": "1024x1024"}],
+        "info": {"author": "xcode", "version": 1},
+    }, indent=2) + "\n")
+    (REPO / "ios" / "Assets.xcassets" / "Contents.json").write_text(
+        json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
+
+
 def generate_icons(cfg: dict, required: bool) -> None:
     src = REPO / cfg["icon"]["source"]
     res = REPO / "raymob" / "app" / "src" / "main" / "res"
-    appicon = REPO / "ios" / "Assets.xcassets" / "AppIcon.appiconset"
 
     if not src.exists():
         warn(f"[icon] source = {cfg['icon']['source']!r} not found; keeping whatever icons exist.")
         return
+
+    generate_ios_icon(cfg, src)
 
     # Skip the work when the inputs have not moved. Also the graceful path for a
     # dev machine without Pillow: as long as the icon is unchanged, nobody needs it.
@@ -771,8 +806,9 @@ def generate_icons(cfg: dict, required: bool) -> None:
         # Windows runner, a contributor's laptop — a missing Pillow must not
         # stop the build over an asset that platform will never look at.
         msg = ("[icon] resources/icon.png changed but Pillow is not installed, so the "
-               "launcher icons cannot be regenerated.\n"
-               "  pip install pillow      (or: apt install python3-pil)")
+               "ANDROID launcher icons cannot be regenerated.\n"
+               "  pip install pillow      (or: apt install python3-pil)\n"
+               "(iOS is unaffected — its icon is a copy, not a resize.)")
         if required:
             raise ConfigError(msg) from None
         warn(msg + "\n         Skipping — this only matters for Android and iOS builds.")
@@ -831,17 +867,6 @@ def generate_icons(cfg: dict, required: bool) -> None:
     (values / "ic_launcher_background.xml").write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
         f'    <color name="ic_launcher_background">{bg or "#000000"}</color>\n</resources>\n')
-
-    # iOS: one 1024 image is enough since Xcode 14 — it derives the rest.
-    appicon.mkdir(parents=True, exist_ok=True)
-    scaled(1024).save(appicon / "icon-1024.png")
-    (appicon / "Contents.json").write_text(json.dumps({
-        "images": [{"filename": "icon-1024.png", "idiom": "universal",
-                    "platform": "ios", "size": "1024x1024"}],
-        "info": {"author": "xcode", "version": 1},
-    }, indent=2) + "\n")
-    (REPO / "ios" / "Assets.xcassets" / "Contents.json").write_text(
-        json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
 
     marker.write_text(want + "\n")
 

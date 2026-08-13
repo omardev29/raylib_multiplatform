@@ -87,11 +87,12 @@ jobs:
           fi
           sudo xcode-select -s "$APP/Contents/Developer"
           xcodebuild -version
-          # Recorded for the canary's frozen-vs-observed diff.
-          {
-            echo "observed_xcode=$(xcodebuild -version | head -1 | awk '{print $2}')"
-            echo "observed_runner=${ImageOS:-unknown}/${ImageVersion:-unknown}"
-          } >> "$GITHUB_ENV"
+          # A contract line the canary's triage greps for. Deliberately not a
+          # regex over `xcodebuild -version` output, which would work today and
+          # break silently the day Apple reformats it. The key matches the pin
+          # name in FROZEN_VERSIONS.md so the diff lines up.
+          echo "CANARY_OBSERVED xcode=$(xcodebuild -version | head -1 | awk '{print $2}')"
+          echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
 
       # `brew install ninja` was a network call to an unversioned formula whose
       # macOS requirements move on Homebrew's schedule, not ours.
@@ -172,20 +173,21 @@ jobs:
           fi
           sudo xcode-select -s "$APP/Contents/Developer"
           xcodebuild -version
-          # Recorded for the canary's frozen-vs-observed diff.
-          {
-            echo "observed_xcode=$(xcodebuild -version | head -1 | awk '{print $2}')"
-            echo "observed_runner=${ImageOS:-unknown}/${ImageVersion:-unknown}"
-          } >> "$GITHUB_ENV"
+          # A contract line the canary's triage greps for. Deliberately not a
+          # regex over `xcodebuild -version` output, which would work today and
+          # break silently the day Apple reformats it. The key matches the pin
+          # name in FROZEN_VERSIONS.md so the diff lines up.
+          echo "CANARY_OBSERVED xcode=$(xcodebuild -version | head -1 | awk '{print $2}')"
+          echo "runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
 
       # raylib_multiplatform.toml becomes gradle.properties, the XcodeGen spec,
       # the launcher icons and the CMake config. CMake runs this itself, but
       # Gradle and XcodeGen never invoke CMake, so they need it spelled out.
       - name: Generate configuration
-        # --require-icons: this is one of the two platforms that actually ships
-        # the launcher icons, so a missing Pillow here is a real failure rather
-        # than something to warn about.
-        run: python3 tools/configure.py --require-icons
+        # No --require-icons: the iOS app icon is a copy of the 1024px source,
+        # not a resize, so it needs no image library — and macOS runners have
+        # none. Only the Android mipmaps need Pillow.
+        run: python3 tools/configure.py
 
       # ios/project.yml hard-codes .../projects/Xcode26/raylib/bridge in its
       # header search path. That is upstream's folder name and the submodule is
