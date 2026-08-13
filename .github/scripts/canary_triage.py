@@ -53,6 +53,26 @@ FAMILY_RUNNER = {
     "bsd": "ubuntu-24.04",     # semi-blind: the agent proposes, the PR validates
 }
 
+# Which pins belong to which family, most-likely-cause first. Two jobs depend
+# on this ordering:
+#
+#   * The fallback below fills in what the canary ASKED for when a job died
+#     before reporting what it resolved to. Unfiltered, that hands every family
+#     every floating value — the Apple report was listing a Mesa delta, which
+#     would send an agent looking at Windows for an Xcode problem.
+#   * The dedup key names the FIRST delta as the cause, so the order has to be
+#     "what most likely broke this", not alphabetical. Sorted alphabetically,
+#     an Xcode failure got keyed on `macos_runner`.
+FAMILY_PINS = {
+    "apple":   ["xcode", "macos_runner", "xcodegen", "ninja_mac"],
+    "windows": ["mesa", "windows_runner"],
+    "linux":   ["build_image_digest", "android_ndk", "android_platform"],
+    "web":     ["build_image_digest"],
+    "android": ["build_image_digest", "android_ndk", "android_platform",
+                "android_build_tools", "android_sdk_cmake"],
+    "bsd":     ["freebsd", "openbsd", "netbsd"],
+}
+
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?")
 MAX_LOG_CHARS = 40_000        # a 6 MB Gradle log is read by nobody, human or model
@@ -237,13 +257,18 @@ def main() -> int:
         # otherwise report no delta at all, which is the one thing the report
         # exists to show. So fall back to what the canary ASKED for, marked as
         # requested rather than observed.
+        relevant = FAMILY_PINS.get(family, [])
         requested = json.loads(os.environ.get("CANARY_FLOATING", "{}"))
         for k, v in requested.items():
-            obs.setdefault(k, v)
+            if k in relevant:
+                obs.setdefault(k, v)
 
+        # Ordered by FAMILY_PINS, not alphabetically, so the first entry is the
+        # likeliest cause and the key below names it.
+        order = {k: i for i, k in enumerate(relevant)}
         delta = [{"key": k, "frozen": pins[k], "observed": v}
-                 for k, v in sorted(obs.items())
-                 if k in pins and pins[k] != v]
+                 for k, v in sorted(obs.items(), key=lambda kv: order.get(kv[0], 99))
+                 if k in pins and pins[k] != v and (not relevant or k in relevant)]
 
         # The key is what deduplicates a recurring breakage across weeks. It has
         # to name the cause, not the symptom, or every rerun looks new.
