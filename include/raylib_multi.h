@@ -1,6 +1,8 @@
 #pragma once
 
 #include <raylib.h>
+// Generated from raylib_multiplatform.toml by tools/configure.py.
+#include <generated/app_config.h>
 #ifdef __ANDROID__
 #include <raymob.h>
 #endif // __ANDROID__

@@ -12,5 +12,32 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = projectName
+
+// The project's identity comes from raylib_multiplatform.toml, via
+// tools/configure.py, via generated.properties.
+//
+// It cannot simply BE gradle.properties: Gradle reads that during
+// initialisation, before this file is evaluated, so nothing inside Gradle could
+// create it in time — and org.gradle.jvmargs has to exist before the daemon JVM
+// even starts. So gradle.properties keeps only the Gradle/AGP infrastructure
+// settings, and everything about *your game* is loaded here instead.
+def generated = new File(settingsDir, 'generated.properties')
+if (!generated.exists()) {
+    throw new GradleException(
+        "raymob/generated.properties is missing.\n" +
+        "It is generated from raylib_multiplatform.toml. Run this once from the repo root:\n" +
+        "    python3 tools/configure.py\n" +
+        "(`cmake --preset debug` does it for you; Gradle never invokes CMake early enough.)")
+}
+def generatedProps = new Properties()
+generated.withInputStream { generatedProps.load(it) }
+
+// Inject as extra properties, so `project.properties['app.application_id']` and
+// `project.findProperty(...)` keep working in app/build.gradle exactly as they
+// did when these lived in gradle.properties.
+gradle.beforeProject { proj ->
+    generatedProps.each { k, v -> proj.ext.set(k as String, v) }
+}
+
+rootProject.name = generatedProps.getProperty('projectName')
 include ':app'

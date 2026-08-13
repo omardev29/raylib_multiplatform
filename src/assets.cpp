@@ -11,11 +11,16 @@
 #define RRES_PACK_FILE "resources.rres"
 #endif
 
-// Password used to decrypt encrypted packs. Overridable at build time with
-// -DRRES_PASSWORD="...". This is obfuscation, not real security: the password
-// ends up in the binary.
+// Password used to decrypt encrypted packs. Obfuscation, not real security:
+// it ends up in the binary.
+//
+// It used to be hard-coded here AND in CMakeLists.txt. Only the desktop build
+// passes -DRRES_PASSWORD, so Android and iOS silently used this copy — change
+// one and those two platforms could no longer read their own asset pack, with
+// no error that pointed at the cause. Both now come from the config.
+#include <generated/app_config.h>
 #ifndef RRES_PASSWORD
-#define RRES_PASSWORD "raylib-template"
+#define RRES_PASSWORD APP_RRES_PASSWORD
 #endif
 
 namespace {

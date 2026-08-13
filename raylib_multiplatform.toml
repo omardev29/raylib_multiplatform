@@ -1,0 +1,125 @@
+# raylib_multiplatform — project configuration
+#
+# This file plus `src/` and `include/` is the whole of your side of the
+# template. Everything else — CMake, Gradle, the Xcode spec, the 14-target CI —
+# is generated or driven from here and you should not need to open it.
+#
+# Delete this file and the build still works, on defaults, with a warning.
+# Change a value and `cmake --preset debug` regenerates everything that depends
+# on it. Nothing generated is committed, so it cannot drift out of sync.
+
+[project]
+# Binary name, CMake target, Xcode scheme, artifact names. Letters, digits,
+# `_` and `-` only — no spaces, because it becomes a filename on five OSes.
+name = "ray_test"
+
+# There is deliberately no `version` here. It comes from the git tag: `v1.2.3`
+# becomes versionName 1.2.3 everywhere, and Android's versionCode is derived
+# from it. An untagged build is 0.0.0-dev. One source, nothing to remember to
+# bump twice.
+
+[window]
+title  = "Raylib is Multiplatform!"
+width  = 800
+height = 450
+# "landscape" | "portrait" | "unspecified" — applied to Android and iOS at once.
+# On desktop it only decides the initial window shape.
+orientation = "landscape"
+
+[targets]
+# Which platforms to build. Groups expand and deduplicate; there is no
+# precedence to reason about because there are no conflicts.
+#   groups : all | desktop | mobile | linux | windows | apple | bsd | web | android
+#   exact  : linux-x64 linux-arm64 linux-riscv64 windows-x64 windows-arm64
+#            macos ios web android
+#            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
+enabled  = ["all"]
+# Subtracted from whatever `enabled` expanded to. Use it to keep a group and
+# drop one member: enabled = ["all"], disabled = ["ios"].
+disabled = []
+
+[android]
+# IRREVERSIBLE ON GOOGLE PLAY. Once an app is published under this id you can
+# never change it — you would have to ship a new listing and lose your installs.
+# Get it right before your first upload. CI refuses to build a tag while this
+# still says com.example.*.
+application_id = "com.example.raytest"
+
+min_sdk = 24
+# ES20 | ES30 | ES31 | ES32. Devices without the requested version are not
+# offered your app on the Play Store.
+gl_version = "ES30"
+# LAUNCHER | GAME | HOME | ...
+category = "LAUNCHER"
+
+[android.display]
+keep_on     = true    # never sleep while playing
+immersive   = true    # hide the system bars
+into_cutout = true    # draw behind the notch
+
+[android.features]
+# true = the Play Store will not offer your app to devices lacking the feature.
+internet      = false
+vibration     = false
+gyroscope     = false
+accelerometer = false
+
+[android.admob]
+# Google's official TEST ids. Replace with your own before publishing, or
+# remove the AdMob dependency entirely. Clicking real ads from your own build
+# is the fastest way to get an AdMob account suspended.
+app_id          = "ca-app-pub-3940256099942544~3347511713"
+interstitial_id = "ca-app-pub-3940256099942544/1033173712"
+rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
+
+[ios]
+# Same warning as Android: this is your App Store identity.
+bundle_id = "com.example.raytest"
+deployment_target = "15.6"
+
+[ios.settings]
+# Raw Xcode build settings, copied verbatim into the generated XcodeGen spec.
+# For a device build you will need something like:
+#   DEVELOPMENT_TEAM = "ABCDE12345"
+#   CODE_SIGN_STYLE  = "Automatic"
+
+[icon]
+# One square PNG, 1024x1024 recommended. Every Android density, the round
+# variant, the adaptive foreground, the Play Store asset and the iOS AppIcon
+# are generated from it.
+source = "resources/icon.png"
+# Behind the adaptive icon on Android 8+. Hex, or "" to use the source image
+# as its own background.
+adaptive_background = "#3DDC84"
+
+[raylib]
+# Modules you do not use, to shrink the binary. rcore and rlgl are mandatory
+# and are not listed on purpose.
+#   rshapes | rmodels | raudio
+# rtextures and rtext cannot be disabled: the asset layer and the CI render
+# gate are built on them, and rres calls into both.
+# NOTE: this does not affect iOS, which links a prebuilt xcframework.
+disabled_modules = []
+
+[dev]
+# Local development only — the `debug` preset. CI builds `release`/`web` and is
+# unaffected by anything in this section.
+compiler = "clang"   # clang | gcc | default
+linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
+
+[resources]
+# Obfuscation, not security: the password ends up inside the binary. It exists
+# so casual unpacking of your assets is inconvenient, nothing more.
+rres_password = "raylib-template"
+
+[deploy.itch]
+# Leave empty to skip publishing. The API key is a GitHub secret
+# (BUTLER_API_KEY), never here.
+user = ""
+game = ""
+
+[deploy.firebase]
+# Runs the debug APK on real hardware. Needs the GCP_SA_KEY secret and a Blaze
+# billing account. Empty = skip.
+project_id = ""
+device     = "model=MediumPhone.arm,version=33,locale=en,orientation=portrait"

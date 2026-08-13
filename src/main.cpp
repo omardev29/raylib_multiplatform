@@ -9,7 +9,8 @@ int screen_y{};
 inlining void _ready() {
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-  InitWindow(800, 450, "raylib [core] example - basic window");
+  // Title and size come from raylib_multiplatform.toml — see [window].
+  InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
 
   Assets::Init(); // use resources.rres if present, else loose files
   assets = LoadGameAssets();

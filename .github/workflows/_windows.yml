@@ -22,6 +22,10 @@ on:
         required: false
         default: true
         type: boolean
+      targets:
+        description: 'JSON array of enabled target ids (from [targets] in the config)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -32,6 +36,7 @@ env:
 
 jobs:
   x64:
+    if: contains(fromJSON(inputs.targets), 'windows-x64')
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
@@ -150,7 +155,7 @@ jobs:
   arm64:
     # Cross-compiled with MSVC. Static checks only: an ARM64 PE cannot run on
     # the x64 host, and there is no ARM64 Windows runner in the free tier.
-    if: inputs.full
+    if: inputs.full && contains(fromJSON(inputs.targets), 'windows-arm64')
     runs-on: windows-2025
     timeout-minutes: 40
     steps:

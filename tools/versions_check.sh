@@ -65,7 +65,17 @@ echo "== Android (raymob/) =="
 APP=raymob/app/build.gradle
 check "compileSdk"        android_compile_sdk  "$(gradle_val $APP compileSdk)"
 check "targetSdk"         android_target_sdk   "$(gradle_val $APP targetSdk)"
-check "minSdk"            android_min_sdk      "$(gradle_val $APP minSdk)"
+# minSdk now comes from raylib_multiplatform.toml, so it is read from the
+# generated properties rather than from build.gradle — where the line is now
+# `Integer.parseInt(project.properties[...])` and the old regex would happily
+# report the literal `project.properties[` as the version, forever.
+GEN_PROPS=raymob/generated.properties
+if [ -r "$GEN_PROPS" ]; then
+    check "minSdk" android_min_sdk \
+        "$(sed -nE 's/^app\.min_sdk=(.*)$/\1/p' "$GEN_PROPS" | head -1)"
+else
+    echo "  skip  minSdk                     $GEN_PROPS not generated yet (run tools/configure.py)"
+fi
 check "buildToolsVersion" android_build_tools  "$(gradle_val $APP buildToolsVersion)"
 check "ndkVersion"        android_ndk          "$(gradle_val $APP ndkVersion)"
 # The externalNativeBuild `version` line, not the CMakeLists path above it.

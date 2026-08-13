@@ -14,6 +14,10 @@ on:
       project_name:
         required: true
         type: string
+      targets:
+        description: 'JSON array of enabled target ids (from [targets] in the config)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -29,6 +33,7 @@ env:
 
 jobs:
   macos:
+    if: contains(fromJSON(inputs.targets), 'macos')
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -97,6 +102,7 @@ jobs:
           retention-days: 7
 
   ios:
+    if: contains(fromJSON(inputs.targets), 'ios')
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -116,6 +122,12 @@ jobs:
           fi
           sudo xcode-select -s "$APP/Contents/Developer"
           xcodebuild -version
+
+      # raylib_multiplatform.toml becomes gradle.properties, the XcodeGen spec,
+      # the launcher icons and the CMake config. CMake runs this itself, but
+      # Gradle and XcodeGen never invoke CMake, so they need it spelled out.
+      - name: Generate configuration
+        run: python3 tools/configure.py
 
       # ios/project.yml hard-codes .../projects/Xcode26/raylib/bridge in its
       # header search path. That is upstream's folder name and the submodule is

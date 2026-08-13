@@ -25,12 +25,17 @@ on:
         required: false
         default: true
         type: boolean
+      targets:
+        description: 'JSON array of enabled target ids (from [targets] in the config)'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   x64:
+    if: contains(fromJSON(inputs.targets), 'linux-x64')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -107,7 +112,7 @@ jobs:
           retention-days: 7
 
   arm64:
-    if: inputs.full
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-arm64')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     permissions:
@@ -182,7 +187,7 @@ jobs:
     # Cross-compiled inside the amd64 container: the image ships the riscv64
     # X11/GL multiarch libraries. Static checks only — there is no riscv64
     # runner to boot it on.
-    if: inputs.full
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-riscv64')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

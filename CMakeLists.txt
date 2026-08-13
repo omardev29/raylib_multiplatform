@@ -3,6 +3,15 @@
 
 cmake_minimum_required(VERSION 3.30)
 
+# --- Project configuration --------------------------------------------------
+# raylib_multiplatform.toml is the single source of truth for the project's
+# identity. tools/configure.py turns it into the files below plus the Gradle
+# properties and the XcodeGen spec; none of that is committed, so it cannot
+# drift. This has to run before project(), because the project name comes out
+# of it.
+include(cmake/configure_hook.cmake)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/project.cmake")
+
 set(CMAKE_CXX_STANDARD 20)
 
 # i bet you don't want modules here, but if you want, turn this on
@@ -18,6 +27,13 @@ endif()
 
 option(PRODUCTION_BUILD "Make this a production build" OFF)
 
+# [dev] compiler/linker from the config. Deliberately only for development
+# builds: CI builds `release`/`web`, so nothing here can change what ships.
+# Must precede project(), which is where CMake locks in the compiler.
+if(NOT PRODUCTION_BUILD)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_toolchain.cmake" OPTIONAL)
+endif()
+
 if(MSVC)
   # Static CRT in every configuration (/MT for Release, /MTd for Debug)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -29,13 +45,22 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Raylib as static libraries" FORCE)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json" FORCE)
 
-project(ray_test)
+project(${TEMPLATE_PROJECT_NAME})
 add_executable("${CMAKE_PROJECT_NAME}")
 
 
 
 #Add raylib, and here you would add other libraries if needed!
 add_subdirectory(thirdparty/raylib)
+
+# [raylib] disabled_modules. raylib's own SUPPORT_* CMake options are not used:
+# they only take effect with CUSTOMIZE_BUILD=ON, and turning that on flips
+# roughly fifteen flags that are 0 in config.h to ON, because
+# cmake/ParseConfigHeader.cmake maps any uncommented #define to ON without
+# reading its value. Supplying the complete set with EXTERNAL_CONFIG_FLAGS is
+# the only way to get what the config actually asked for.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/raylib_flags.cmake")
+target_compile_definitions(raylib PRIVATE ${RAYLIB_CONFIG_DEFS})
 if (NOT PRODUCTION_BUILD)
   add_subdirectory(thirdparty/raymob)
 endif()
@@ -81,7 +106,9 @@ target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RESOURCES_PATH="${RESO
 
 set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY CXX_STANDARD 20)
 
-target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${MY_SOURCES} )
+# RAYLIB_STUB_SOURCES is empty unless a module was disabled that rres still
+# references. It lives in cmake/generated/, never in src/, which is the user's.
+target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${MY_SOURCES} ${RAYLIB_STUB_SOURCES})
 
 if(PRODUCTION_BUILD)
   # setup the ASSETS_PATH macro to be in the root folder of your exe
@@ -134,6 +161,7 @@ message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 
 target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/generated/"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
@@ -143,7 +171,7 @@ target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
 # Password shared by the packer and the runtime loader. Obfuscation only (the
 # password ends up in the binary). Override with -DRRES_PACK_PASSWORD="...".
 if(NOT DEFINED RRES_PACK_PASSWORD)
-  set(RRES_PACK_PASSWORD "raylib-template")
+  set(RRES_PACK_PASSWORD "${TEMPLATE_RRES_PASSWORD}")
 endif()
 target_compile_definitions("${CMAKE_PROJECT_NAME}" PRIVATE RRES_PASSWORD="${RRES_PACK_PASSWORD}")
 

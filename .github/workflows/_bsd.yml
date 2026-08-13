@@ -15,6 +15,12 @@ on:
       project_name:
         required: true
         type: string
+      matrix:
+        description: 'JSON matrix, already filtered by [targets]. Never empty: ci.yml
+          skips this workflow entirely when no BSD target is enabled, because an
+          empty `include` is a hard error rather than a skip.'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -26,40 +32,31 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: freebsd
-            version: '15.1'
-            arch: x86-64
-          - os: freebsd
-            version: '15.1'
-            arch: arm64
-          # NOTE: FreeBSD riscv64 is intentionally not built — FreeBSD publishes
-          # no riscv64 binary packages (pkg reports "No packages available"),
-          # so cmake/X11 cannot be installed there. RISC-V is covered by
-          # linux-riscv64.
-          - os: openbsd
-            version: '7.9'
-            arch: x86-64
-          - os: openbsd
-            version: '7.9'
-            arch: arm64
-          - os: netbsd
-            version: '10.1'
-            arch: x86-64
-          # NOTE: NetBSD arm64 is intentionally not built — the pkgsrc binary
-          # packages for 10.1/arm64 are built against newer lib versions than the
-          # base image ships, and pkg_add/pkg_delete cannot reconcile the cascade
-          # of version conflicts (building deps from source is impractical under
-          # QEMU). NetBSD is covered by the x86-64 job.
-          # NOTE: OpenBSD/NetBSD riscv64 are not available — cross-platform-actions
-          # publishes no riscv64 disk image for them. RISC-V is still covered by
-          # linux-riscv64.
+      # Built by tools/configure.py from [targets]. The OS versions live in the
+      # matrix so the canary can float them without touching this file.
+      #
+      # Deliberately absent, and why:
+      #   FreeBSD riscv64 — FreeBSD publishes no riscv64 binary packages, so
+      #     cmake/X11 cannot be installed. RISC-V is covered by linux-riscv64.
+      #   NetBSD arm64    — the pkgsrc binaries for 10.1/arm64 are built against
+      #     newer libs than the base image ships and pkg_add cannot reconcile
+      #     the cascade; building from source under QEMU is impractical.
+      #   OpenBSD/NetBSD riscv64 — cross-platform-actions publishes no image.
+      matrix: ${{ fromJSON(inputs.matrix) }}
     defaults:
       run:
         shell: cpa.sh {0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # On the RUNNER, before the VM exists: none of the FreeBSD, OpenBSD or
+      # NetBSD images ship Python, so CMake inside the VM cannot generate this
+      # itself. cross-platform-actions rsyncs the workspace in before each
+      # step, so what is written here is what the VM builds with, and the
+      # CMake hook degrades to "use what is already generated".
+      - name: Generate configuration
+        shell: bash
+        run: python3 tools/configure.py
 
       - name: Start ${{ matrix.os }} ${{ matrix.version }} (${{ matrix.arch }}) VM
         # v1.4.0. This used to pin an untagged master commit for the AMX fix

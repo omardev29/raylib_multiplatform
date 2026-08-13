@@ -25,8 +25,14 @@ set(RESOURCES_PATH "")
 set(BUILD_SHARED_LIBS_RAYLIB OFF CACHE BOOL "" FORCE)
 
 # Include raylib and raymob as subdirectories (using absolute paths)
-add_subdirectory(${RAYLIB_DIR} "${CMAKE_BINARY_DIR}/raylib-5.5")
+add_subdirectory(${RAYLIB_DIR} "${CMAKE_BINARY_DIR}/raylib-build")
 add_subdirectory(${RAYMOB_DIR} "${CMAKE_BINARY_DIR}/raymob")
+
+# Android builds its OWN copy of raylib, so [raylib] disabled_modules has to be
+# applied here too. Injecting it only in the root CMakeLists.txt would leave
+# Android silently linking the full engine while every other platform shrank.
+include("${USER_ROOT_DIR}/cmake/generated/raylib_flags.cmake")
+target_compile_definitions(raylib PRIVATE ${RAYLIB_CONFIG_DEFS})
 
 # Fetch all source files from the user's src/ directory (recursively)
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
@@ -39,7 +45,7 @@ include_directories(${ANDROID_NDK}/sources/android/native_app_glue/)
 list(APPEND SOURCES ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c)
 
 # Create a shared library with game source files
-add_library(${APP_LIB_NAME} SHARED ${SOURCES})
+add_library(${APP_LIB_NAME} SHARED ${SOURCES} ${RAYLIB_STUB_SOURCES})
 
 # Define compiler macros for the library
 target_compile_definitions(${APP_LIB_NAME} PRIVATE
@@ -54,6 +60,7 @@ endif()
 # Include directories
 target_include_directories(${APP_LIB_NAME} PRIVATE
     "${USER_INCLUDE_DIR}"
+    "${USER_INCLUDE_DIR}/generated"
     "${RAYLIB_DIR}/src"
     "${RAYMOB_DIR}"
     "${USER_ROOT_DIR}/thirdparty/rres"

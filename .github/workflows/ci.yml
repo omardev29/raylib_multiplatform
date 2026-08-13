@@ -58,21 +58,25 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      # RENAME YOUR GAME HERE. This is the only place the name lives; every
-      # workflow takes it as an input. It must match `project()` in
-      # CMakeLists.txt and `name:` in ios/project.yml.
-      project_name: ray_test
+      # Everything downstream agrees on these. The project's own values come
+      # from raylib_multiplatform.toml, so there is no second place to rename.
+      project_name: ${{ steps.o.outputs.project_name }}
+      targets: ${{ steps.o.outputs.targets }}
+      families: ${{ steps.o.outputs.families }}
+      bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
       build_image: ${{ steps.o.outputs.build_image }}
       full: ${{ steps.o.outputs.full }}
       version: ${{ steps.o.outputs.version }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
       - id: o
         env:
           # The one place the image pin lives. Bump it from the run summary of
           # the raylib-build-image repo. Pinned by DIGEST, never by tag: a tag
           # can be moved, so `:latest` would let an unrelated rebuild silently
           # change what every Linux job compiles with.
-          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655'
+          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:a3b5bc2190612d99000e2048ef36e315b9a97f8dc9cca25e3e66dc96e604b670'
           OVERRIDE: ${{ inputs.image_digest }}
         run: |
           set -euo pipefail
@@ -84,6 +88,16 @@ jobs:
             echo "full=false" >> "$GITHUB_OUTPUT"
           fi
           echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+          # Read once here, so every leaf gets the same answer and no workflow
+          # has to learn to parse TOML.
+          {
+            echo "project_name=$(python3 tools/configure.py --print-name)"
+            echo "targets=$(python3 tools/configure.py --print-targets)"
+            echo "families=$(python3 tools/configure.py --print-families)"
+            echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
+          } >> "$GITHUB_OUTPUT"
+          python3 tools/configure.py --print-targets | sed 's/^/targets: /'
 
   # Cheap, fast, and catches the class of mistake that otherwise only shows up
   # on a tag: a typo'd input name in a reusable workflow, or pins that have
@@ -110,22 +124,35 @@ jobs:
           /tmp/actionlint -color
           echo "PASS: actionlint clean"
 
+      - name: Generate configuration
+        run: python3 tools/configure.py
+
       - name: Pinned versions agree
         run: bash tools/versions_check.sh
 
+      # A Google Play application id can never be changed once published, so
+      # shipping com.example.* is a mistake you cannot walk back. Refuse it at
+      # the only moment where being strict costs nobody anything: a release.
+      - name: Config is release-ready
+        if: github.ref_type == 'tag'
+        run: python3 tools/configure.py --check --strict-release
+
   linux:
     needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'linux')
     uses: ./.github/workflows/_linux.yml
     with:
       project_name: ${{ needs.config.outputs.project_name }}
       build_image: ${{ needs.config.outputs.build_image }}
       full: ${{ needs.config.outputs.full == 'true' }}
+      targets: ${{ needs.config.outputs.targets }}
     permissions:
       contents: read
       packages: read
 
   web:
     needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'web')
     uses: ./.github/workflows/_web.yml
     with:
       project_name: ${{ needs.config.outputs.project_name }}
@@ -136,13 +163,16 @@ jobs:
 
   windows:
     needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'windows')
     uses: ./.github/workflows/_windows.yml
     with:
       project_name: ${{ needs.config.outputs.project_name }}
       full: ${{ needs.config.outputs.full == 'true' }}
+      targets: ${{ needs.config.outputs.targets }}
 
   android:
     needs: config
+    if: contains(fromJSON(needs.config.outputs.families), 'android')
     uses: ./.github/workflows/_android.yml
     with:
       build_image: ${{ needs.config.outputs.build_image }}
@@ -153,23 +183,30 @@ jobs:
 
   apple:
     needs: config
-    if: needs.config.outputs.full == 'true'
+    if: needs.config.outputs.full == 'true' &&
+        contains(fromJSON(needs.config.outputs.families), 'apple')
     uses: ./.github/workflows/_apple.yml
     with:
       project_name: ${{ needs.config.outputs.project_name }}
+      targets: ${{ needs.config.outputs.targets }}
 
   bsd:
     needs: config
-    if: needs.config.outputs.full == 'true'
+    # Never called with an empty matrix: an empty `include` is a hard error in
+    # GitHub Actions, not a skip.
+    if: needs.config.outputs.full == 'true' &&
+        contains(fromJSON(needs.config.outputs.families), 'bsd')
     uses: ./.github/workflows/_bsd.yml
     with:
       project_name: ${{ needs.config.outputs.project_name }}
+      matrix: ${{ needs.config.outputs.bsd_matrix }}
 
   # Optional: runs the debug APK on real hardware. Skips with a warning when
   # vars.FIREBASE_PROJECT / secrets.GCP_SA_KEY are absent, which is the default.
   firebase:
     needs: [config, android]
-    if: needs.config.outputs.full == 'true'
+    if: needs.config.outputs.full == 'true' &&
+        contains(fromJSON(needs.config.outputs.families), 'android')
     uses: ./.github/workflows/_firebase.yml
     secrets: inherit
 
@@ -180,6 +217,10 @@ jobs:
   # may have been skipped — but `always()` also makes `needs` stop gating on its
   # own, so every dependency has to be re-asserted by hand below. Forgetting one
   # means it silently stops blocking the release.
+  #
+  # The test is "did not fail", not "succeeded": a family the user turned off in
+  # [targets] reports `skipped`, and demanding success would mean disabling any
+  # platform silently disables releases too.
   # ---------------------------------------------------------------------------
   release:
     needs: [config, lint, linux, web, windows, android, apple, bsd]
@@ -187,12 +228,12 @@ jobs:
       always() &&
       github.ref_type == 'tag' &&
       needs.lint.result == 'success' &&
-      needs.linux.result == 'success' &&
-      needs.web.result == 'success' &&
-      needs.windows.result == 'success' &&
-      needs.android.result == 'success' &&
-      needs.apple.result == 'success' &&
-      needs.bsd.result == 'success'
+      needs.linux.result != 'failure'   && needs.linux.result != 'cancelled' &&
+      needs.web.result != 'failure'     && needs.web.result != 'cancelled' &&
+      needs.windows.result != 'failure' && needs.windows.result != 'cancelled' &&
+      needs.android.result != 'failure' && needs.android.result != 'cancelled' &&
+      needs.apple.result != 'failure'   && needs.apple.result != 'cancelled' &&
+      needs.bsd.result != 'failure'     && needs.bsd.result != 'cancelled'
     uses: ./.github/workflows/_release.yml
     with:
       project_name: ${{ needs.config.outputs.project_name }}

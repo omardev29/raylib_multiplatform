@@ -13,7 +13,7 @@ CI checks is documentation that stays true.
 
 ```versions
 # key                     value
-build_image_digest        sha256:a79c538bfa11d0732b7dc2994ee8c255acba2d136696e497cbf2ea59b77d9655
+build_image_digest        sha256:a3b5bc2190612d99000e2048ef36e315b9a97f8dc9cca25e3e66dc96e604b670
 android_platform          android-36
 android_build_tools       36.0.0
 android_ndk               28.2.13676358
@@ -24,6 +24,23 @@ android_min_sdk           24
 agp                       8.13.2
 gradle                    8.14.5
 gradle_sha256             6f74b601422d6d6fc4e1f9a1ab6522f642c2fdcbc15ae33ebd30ba3d7198e854
+# Runner images and host toolchains. These live here rather than in the
+# workflow YAML for two reasons: the weekly canary overrides them with floating
+# values to find out what is about to break, and the autofix agent can only
+# push changes to files that are NOT under .github/workflows — GITHUB_TOKEN is
+# refused there without the `workflows` permission.
+macos_runner              macos-26
+xcode                     26.6
+ninja_mac                 1.13.2
+ninja_mac_sha256          c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b
+xcodegen                  2.46.0
+xcodegen_sha256           4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+windows_runner            windows-2025
+mesa                      26.1.6
+mesa_sha256               86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb
+freebsd                   15.1
+openbsd                   7.9
+netbsd                    10.1
 ```
 
 | Dependency | Version | How it is pinned |
