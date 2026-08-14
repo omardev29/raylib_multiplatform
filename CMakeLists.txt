@@ -1,6 +1,3 @@
-#https://github.com/meemknight/raylibCmakeSetup
-#Version 1.0.0
-
 cmake_minimum_required(VERSION 3.30)
 
 # --- Project configuration --------------------------------------------------
