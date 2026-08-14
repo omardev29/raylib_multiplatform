@@ -49,6 +49,11 @@ on:
         description: 'Tag of the build image to float to'
         type: string
         default: 'latest'
+      families:
+        description: 'Limit to these families, comma-separated (blank = all). Testing the canary
+          otherwise costs a full BSD hour.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -77,15 +82,29 @@ jobs:
           MACOS_RUNNER: ${{ inputs.macos_runner || 'macos-latest' }}
           WINDOWS_RUNNER: ${{ inputs.windows_runner || 'windows-latest' }}
           MESA: ${{ inputs.mesa_version || 'latest' }}
+          ONLY_FAMILIES: ${{ inputs.families }}
         run: |
           set -euo pipefail
+          ALL_FAMILIES=$(python3 tools/configure.py --print-families)
+          export ALL_FAMILIES
           {
             echo "project_name=$(python3 tools/configure.py --print-name)"
             echo "targets=$(python3 tools/configure.py --print-targets)"
-            echo "families=$(python3 tools/configure.py --print-families)"
+            echo "families=${ALL_FAMILIES}"
             echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
             echo "build_image=ghcr.io/omardev29/raylib-build:${IMAGE_TAG}"
           } >> "$GITHUB_OUTPUT"
+
+          # Optional narrowing, for testing the canary without paying for the
+          # whole matrix. Empty means everything, which is what the cron does.
+          if [ -n "${ONLY_FAMILIES}" ]; then
+            python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os
+          want = {f.strip() for f in os.environ["ONLY_FAMILIES"].split(",") if f.strip()}
+          have = json.loads(os.environ["ALL_FAMILIES"])
+          print("families=" + json.dumps(sorted(want & set(have)), separators=(",", ":")))
+          PY
+          fi
 
           # What we ASKED for, so triage can still show a delta when a job dies
           # before it gets to report what it resolved to — a bad Xcode pin fails

@@ -196,7 +196,7 @@ DEFAULTS: dict = {
                   "rewarded_id": "ca-app-pub-3940256099942544/5224354917"},
     },
     "ios": {"bundle_id": "com.example.raytest", "deployment_target": "15.6", "settings": {}},
-    "icon": {"source": "resources/icon.png", "adaptive_background": "#3DDC84"},
+    "icon": {"source": "branding/icon.png", "adaptive_background": "#3DDC84"},
     "raylib": {"disabled_modules": []},
     "dev": {"compiler": "clang", "linker": "auto"},
     "resources": {"rres_password": "raylib-template"},
@@ -266,6 +266,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "Use letters, digits, '_' and '-', starting with a letter. It becomes the "
             "executable name on five operating systems.")
 
+    if "\n" in cfg["window"]["title"] or "\r" in cfg["window"]["title"]:
+        raise ConfigError("[window] title must be a single line: it becomes a Java "
+                          ".properties value and an Xcode build setting.")
+
     orient = cfg["window"]["orientation"]
     if orient not in ("landscape", "portrait", "unspecified"):
         raise ConfigError(f"[window] orientation = {orient!r} must be "
@@ -327,6 +331,20 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if bg and not re.match(r"^#[0-9a-fA-F]{6}$", bg):
         raise ConfigError(f"[icon] adaptive_background = {bg!r} must be #RRGGBB, or \"\".")
 
+    # These reach the workflows through $GITHUB_OUTPUT as key=value lines, so the
+    # charsets are deliberately tight: a newline in any of them would let the
+    # config file define arbitrary job outputs.
+    for key, value, pattern, shape in (
+        ("[deploy.itch] user", cfg["deploy"]["itch"]["user"], r"^[A-Za-z0-9_-]*$", "an itch.io username"),
+        ("[deploy.itch] game", cfg["deploy"]["itch"]["game"], r"^[A-Za-z0-9_-]*$", "an itch.io game slug"),
+        ("[deploy.firebase] project_id", cfg["deploy"]["firebase"]["project_id"],
+         r"^[a-z0-9-]*$", "a GCP project id (lowercase, digits, hyphens)"),
+        ("[deploy.firebase] device", cfg["deploy"]["firebase"]["device"],
+         r"^[A-Za-z0-9_.,=-]*$", "a gcloud device spec, e.g. model=MediumPhone.arm,version=33"),
+    ):
+        if not isinstance(value, str) or not re.match(pattern, value):
+            raise ConfigError(f"{key} = {value!r} must be {shape}, or \"\".")
+
     targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
 
     if cfg["raylib"]["disabled_modules"] and "ios" in targets:
@@ -369,7 +387,12 @@ def resolve_version() -> tuple[str, int]:
     ref_type = os.environ.get("GITHUB_REF_TYPE", "")
     ref_name = os.environ.get("GITHUB_REF_NAME", "")
     if ref_type == "tag" and ref_name.startswith("v"):
-        m = re.match(r"^v(\d+)\.(\d+)\.(\d+)", ref_name)
+        # Anchored at both ends, and only a -prerelease/+build suffix may follow.
+        # Unanchored, 'v1.2.3.4' matched its own prefix: versionName kept the .4
+        # while versionCode silently became 1002003, so v1.2.3.4 and v1.2.3.5
+        # would collide and Play would reject the second upload for no visible
+        # reason.
+        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.\-+]*)?", ref_name)
         if m:
             major, minor, patch = (int(g) for g in m.groups())
             if minor > 999 or patch > 999:
@@ -377,7 +400,15 @@ def resolve_version() -> tuple[str, int]:
                     f"tag {ref_name!r}: minor and patch must each stay below 1000 so the Android "
                     "versionCode stays monotonic.")
             return ref_name[1:], major * 1_000_000 + minor * 1_000 + patch
-        warn(f"tag {ref_name!r} is not vMAJOR.MINOR.PATCH; using 0.0.0-dev.")
+        # ci.yml releases on 'v*', so a v-tag that does not parse is on the
+        # release path. Falling back would publish a release named 0.0.0-dev.
+        raise ConfigError(
+            f"tag {ref_name!r} is not vMAJOR.MINOR.PATCH (optionally -rc1 / +build).\n"
+            "Releases take their version from the tag and there is no fallback that "
+            "would not be a lie.\nDelete the tag and re-tag: git tag -d "
+            f"{ref_name} && git push origin :refs/tags/{ref_name}")
+    if ref_type == "tag" and ref_name:
+        warn(f"tag {ref_name!r} does not start with 'v'; using 0.0.0-dev.")
     return "0.0.0-dev", 1
 
 
@@ -628,7 +659,12 @@ def gen_gradle_properties(cfg: dict) -> None:
         "requirements.gyroscope": str(a["features"]["gyroscope"]).lower(),
         "requirements.accelerometer": str(a["features"]["accelerometer"]).lower(),
     }
-    body = "\n".join(f"{k}={v}" for k, v in props.items())
+    # Java .properties treats a backslash as an escape, so an unescaped one in
+    # a window title would silently mangle the Android app label.
+    def esc(v) -> str:
+        return str(v).replace("\\", "\\\\")
+
+    body = "\n".join(f"{k}={esc(v)}" for k, v in props.items())
     write(REPO / "raymob" / "generated.properties", f"# {GEN_HEADER}\n{body}\n")
 
 
@@ -792,7 +828,10 @@ def generate_icons(cfg: dict, required: bool) -> None:
 
     # Skip the work when the inputs have not moved. Also the graceful path for a
     # dev machine without Pillow: as long as the icon is unchanged, nobody needs it.
-    marker = res / ".icon-stamp"
+    # Not in res/: that is an Android resource directory with a strict layout,
+    # and a stray file there is one AAPT version away from an error.
+    marker = REPO / "cmake" / "generated" / "icon.stamp"
+    marker.parent.mkdir(parents=True, exist_ok=True)
     want = hashlib.sha256(
         src.read_bytes() + cfg["icon"]["adaptive_background"].encode()).hexdigest()
     if marker.exists() and marker.read_text().strip() == want:
@@ -881,7 +920,7 @@ def make_default_icon() -> None:
                         outline=(245, 245, 245, 255), width=44)
     d.rounded_rectangle((330, 330, size - 330, size - 330), radius=40,
                         fill=(230, 69, 57, 255))
-    out = REPO / "resources" / "icon.png"
+    out = REPO / "branding" / "icon.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out)
     print(f"wrote {out.relative_to(REPO)}")
@@ -944,6 +983,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--print-stamp", action="store_true")
     ap.add_argument("--print-pins", action="store_true",
                     help="the ```versions block as key=value, for $GITHUB_OUTPUT")
+    ap.add_argument("--print-deploy", action="store_true",
+                    help="[deploy] as key=value, for $GITHUB_OUTPUT")
     ap.add_argument("--make-default-icon", action="store_true")
     ap.add_argument("--require-icons", action="store_true",
                     help="fail if the icons cannot be generated (Android/iOS jobs)")
@@ -971,6 +1012,14 @@ def main(argv: list[str]) -> int:
         return 0
     if args.print_pins:
         for k, v in frozen_versions().items():
+            print(f"{k}={v}")
+        return 0
+    if args.print_deploy:
+        dep = cfg["deploy"]
+        for k, v in (("itch_user", dep["itch"]["user"]),
+                     ("itch_game", dep["itch"]["game"]),
+                     ("firebase_project", dep["firebase"]["project_id"]),
+                     ("firebase_device", dep["firebase"]["device"])):
             print(f"{k}={v}")
         return 0
     if args.print_stamp:

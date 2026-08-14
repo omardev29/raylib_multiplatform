@@ -33,3 +33,7 @@ compile_commands.json
 /raymob/app/src/main/ic_launcher-playstore.png
 # Written by the canary's triage job and uploaded as an artifact, never committed.
 /.github/canary-report.json
+
+# Python bytecode from tools/ and .github/scripts/
+__pycache__/
+*.py[cod]

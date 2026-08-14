@@ -67,6 +67,10 @@ jobs:
       build_image: ${{ steps.o.outputs.build_image }}
       full: ${{ steps.o.outputs.full }}
       version: ${{ steps.o.outputs.version }}
+      itch_user: ${{ steps.o.outputs.itch_user }}
+      itch_game: ${{ steps.o.outputs.itch_game }}
+      firebase_project: ${{ steps.o.outputs.firebase_project }}
+      firebase_device: ${{ steps.o.outputs.firebase_device }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -96,6 +100,7 @@ jobs:
             echo "targets=$(python3 tools/configure.py --print-targets)"
             echo "families=$(python3 tools/configure.py --print-families)"
             echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
+            python3 tools/configure.py --print-deploy
           } >> "$GITHUB_OUTPUT"
           python3 tools/configure.py --print-targets | sed 's/^/targets: /'
 
@@ -208,6 +213,9 @@ jobs:
     if: needs.config.outputs.full == 'true' &&
         contains(fromJSON(needs.config.outputs.families), 'android')
     uses: ./.github/workflows/_firebase.yml
+    with:
+      project_id: ${{ needs.config.outputs.firebase_project }}
+      device: ${{ needs.config.outputs.firebase_device }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------
@@ -247,4 +255,6 @@ jobs:
     with:
       version: ${{ needs.config.outputs.version }}
       project_name: ${{ needs.config.outputs.project_name }}
+      itch_user: ${{ needs.config.outputs.itch_user }}
+      itch_game: ${{ needs.config.outputs.itch_game }}
     secrets: inherit

@@ -1,7 +1,6 @@
 #include "assets.h"
 
 #include <cstdio>
-#include <cstring>
 
 // rres declarations/types (implementation lives in assets_rres.c). rres-raylib.h
 // includes rres.h. raylib.h must come first (already included via assets.h).
@@ -100,6 +99,89 @@ Texture2D LoadTexture(const char *name) {
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
+}
+
+// Everything below follows the same shape as LoadImage: try the pack, fall back
+// to a loose file. The fallback is what keeps a dev build working while you
+// iterate without repacking.
+
+Sound LoadSound(const char *name) {
+    if (g_usingPack) {
+        unsigned int id = rresGetResourceId(g_cdir, name);
+        if (id != 0) {
+            rresResourceChunk chunk = rresLoadResourceChunk(g_packPath, id);
+            if (UnpackResourceChunk(&chunk) == 0) {
+                Wave wave = LoadWaveFromResource(chunk);
+                rresUnloadResourceChunk(chunk);
+                if (wave.data != nullptr) {
+                    Sound snd = LoadSoundFromWave(wave);
+                    UnloadWave(wave);
+                    return snd;
+                }
+            } else {
+                rresUnloadResourceChunk(chunk);
+            }
+        }
+        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+    }
+
+    char path[2048];
+    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    return ::LoadSound(path);
+}
+
+Font LoadFont(const char *name, int fontSize) {
+    if (g_usingPack) {
+        unsigned int id = rresGetResourceId(g_cdir, name);
+        // The extension has to come from the name: rres stores the file verbatim
+        // and LoadFontFromMemory needs to know what it is. An extensionless name
+        // would reach TextToLower(NULL) inside raylib, so it never gets there.
+        const char *ext = GetFileExtension(name);
+        if (id != 0 && ext != nullptr) {
+            int size = 0;
+            unsigned char *data = LoadData(name, &size);
+            if (data != nullptr) {
+                Font font = LoadFontFromMemory(ext, data, size, fontSize, nullptr, 0);
+                UnloadFileData(data);
+                if (font.glyphCount > 0) return font;
+            }
+        }
+        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+    }
+
+    char path[2048];
+    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    return ::LoadFontEx(path, fontSize, nullptr, 0);
+}
+
+unsigned char *LoadData(const char *name, int *size) {
+    if (size != nullptr) *size = 0;
+
+    if (g_usingPack) {
+        unsigned int id = rresGetResourceId(g_cdir, name);
+        if (id != 0) {
+            rresResourceChunk chunk = rresLoadResourceChunk(g_packPath, id);
+            if (UnpackResourceChunk(&chunk) == 0) {
+                unsigned int dataSize = 0;
+                // LoadDataFromResource, not ...FromResourceChunk: the latter is
+                // static inside rres-raylib.h. The public one also transparently
+                // follows a LINK chunk to an external file.
+                void *data = LoadDataFromResource(chunk, &dataSize);
+                rresUnloadResourceChunk(chunk);
+                if (data != nullptr) {
+                    if (size != nullptr) *size = static_cast<int>(dataSize);
+                    return static_cast<unsigned char *>(data);
+                }
+            } else {
+                rresUnloadResourceChunk(chunk);
+            }
+        }
+        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+    }
+
+    char path[2048];
+    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    return LoadFileData(path, size);
 }
 
 }  // namespace Assets

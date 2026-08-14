@@ -3,8 +3,9 @@
 # Reusable (`workflow_call`) — called from ci.yml on tag builds.
 #
 # Configure it by setting, on the repository:
-#   vars.ITCH_USER          your itch.io username
-#   vars.ITCH_GAME          the game's URL slug
+#   [deploy.itch] user      your itch.io username, in raylib_multiplatform.toml
+#   [deploy.itch] game      the game's URL slug, same file
+# (vars.ITCH_USER / vars.ITCH_GAME still work and take precedence.)
 #   secrets.BUTLER_API_KEY  an API key from https://itch.io/user/settings/api-keys
 #
 # With any of those missing the job logs a warning and skips. That is the
@@ -23,6 +24,16 @@ on:
       project_name:
         description: 'Base name of the built artifacts'
         required: true
+        type: string
+      itch_user:
+        description: 'itch.io username, from [deploy.itch] in the config'
+        required: false
+        default: ''
+        type: string
+      itch_game:
+        description: 'itch.io game slug, from [deploy.itch] in the config'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -61,14 +72,14 @@ jobs:
       - name: Check configuration
         id: cfg
         env:
-          ITCH_USER: ${{ vars.ITCH_USER }}
-          ITCH_GAME: ${{ vars.ITCH_GAME }}
+          ITCH_USER: ${{ vars.ITCH_USER || inputs.itch_user }}
+          ITCH_GAME: ${{ vars.ITCH_GAME || inputs.itch_game }}
           API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
           set -euo pipefail
           MISSING=""
-          [ -n "$ITCH_USER" ] || MISSING="$MISSING vars.ITCH_USER"
-          [ -n "$ITCH_GAME" ] || MISSING="$MISSING vars.ITCH_GAME"
+          [ -n "$ITCH_USER" ] || MISSING="$MISSING [deploy.itch] user"
+          [ -n "$ITCH_GAME" ] || MISSING="$MISSING [deploy.itch] game"
           [ -n "$API_KEY" ]   || MISSING="$MISSING secrets.BUTLER_API_KEY"
           if [ -n "$MISSING" ]; then
             echo "::warning::itch.io not configured; missing:$MISSING — skipping upload. See TECHNICAL.md."
@@ -136,8 +147,8 @@ jobs:
         if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
-          ITCH_USER: ${{ vars.ITCH_USER }}
-          ITCH_GAME: ${{ vars.ITCH_GAME }}
+          ITCH_USER: ${{ vars.ITCH_USER || inputs.itch_user }}
+          ITCH_GAME: ${{ vars.ITCH_GAME || inputs.itch_game }}
           CHANNEL: ${{ matrix.channel }}
           # Passed through env, never interpolated into the script body: the
           # version comes from a tag name, and whoever pushes the tag chooses

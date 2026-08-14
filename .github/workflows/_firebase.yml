@@ -7,10 +7,14 @@
 # hardware and tells you whether it survives a cold start on a real GPU driver,
 # which is the one thing CI cannot otherwise check.
 #
-# Configure it by setting, on the repository:
-#   vars.FIREBASE_PROJECT   the GCP project id
-#   secrets.GCP_SA_KEY      the service-account JSON (whole file contents)
-#   vars.FIREBASE_DEVICE    optional; Google retires device models periodically
+# Configure it in raylib_multiplatform.toml:
+#   [deploy.firebase] project_id   the GCP project id
+#   [deploy.firebase] device       optional; Google retires device models
+# and on the repository:
+#   secrets.GCP_SA_KEY             the service-account JSON (whole file contents)
+#
+# vars.FIREBASE_PROJECT / vars.FIREBASE_DEVICE still work and take precedence,
+# for anyone who set them up before the config file existed.
 #
 # With those missing the job warns and skips. Setup steps are in TECHNICAL.md —
 # note that Test Lab now requires a Blaze (pay-as-you-go) billing account; the
@@ -20,6 +24,17 @@ name: Firebase Test Lab (Android)
 
 on:
   workflow_call:
+    inputs:
+      project_id:
+        description: 'GCP project id, from [deploy.firebase] in the config'
+        required: false
+        default: ''
+        type: string
+      device:
+        description: 'gcloud device spec, from [deploy.firebase] in the config'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -35,12 +50,12 @@ jobs:
       - name: Check configuration
         id: cfg
         env:
-          PROJECT: ${{ vars.FIREBASE_PROJECT }}
+          PROJECT: ${{ vars.FIREBASE_PROJECT || inputs.project_id }}
           SA: ${{ secrets.GCP_SA_KEY }}
         run: |
           set -euo pipefail
           MISSING=""
-          [ -n "$PROJECT" ] || MISSING="$MISSING vars.FIREBASE_PROJECT"
+          [ -n "$PROJECT" ] || MISSING="$MISSING [deploy.firebase] project_id"
           [ -n "$SA" ]      || MISSING="$MISSING secrets.GCP_SA_KEY"
           if [ -n "$MISSING" ]; then
             echo "::warning::Firebase Test Lab not configured; missing:$MISSING — skipping. See TECHNICAL.md."
@@ -63,10 +78,10 @@ jobs:
         if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
         env:
           SA_JSON: ${{ secrets.GCP_SA_KEY }}
-          PROJECT: ${{ vars.FIREBASE_PROJECT }}
+          PROJECT: ${{ vars.FIREBASE_PROJECT || inputs.project_id }}
           # Overridable: Google retires device models every couple of years, and
           # a hard-coded model turns into a mystery failure long after the fact.
-          DEVICE: ${{ vars.FIREBASE_DEVICE || 'model=MediumPhone.arm,version=33,locale=en,orientation=portrait' }}
+          DEVICE: ${{ vars.FIREBASE_DEVICE || inputs.device || 'model=MediumPhone.arm,version=33,locale=en,orientation=portrait' }}
         run: |
           set -euo pipefail
 

@@ -187,6 +187,33 @@ add_custom_target(pack_resources
   DEPENDS rres_pack
   COMMENT "Packing resources into resources.rres (AES)"
 )
+# 3D models are the one thing the pack cannot serve. raylib's LoadModel takes a
+# path, not a buffer, because it has to resolve the material and texture paths
+# the file refers to — there is no LoadModelFromMemory to build Assets:: on.
+#
+# That matters because a release ships resources.rres and NOT the loose files,
+# so a model would be packed, unreachable, and absent. It works in development
+# and fails only in the shipped build, which is the worst possible way to find
+# out. Say it at configure time instead.
+set(_UNSERVABLE "")
+foreach(_f ${PACK_FILES})
+  get_filename_component(_ext "${_f}" LAST_EXT)
+  string(TOLOWER "${_ext}" _ext)
+  if(_ext MATCHES "^\\.(obj|mtl|gltf|glb|iqm|vox|m3d)$")
+    get_filename_component(_n "${_f}" NAME)
+    list(APPEND _UNSERVABLE "${_n}")
+  endif()
+endforeach()
+if(_UNSERVABLE AND PRODUCTION_BUILD)
+  string(JOIN ", " _u ${_UNSERVABLE})
+  message(WARNING
+    "resources/ contains 3D model files that the resource pack cannot serve: ${_u}\n"
+    "  raylib has no LoadModelFromMemory, so Assets:: cannot read them, and a release "
+    "ships only resources.rres.\n"
+    "  Ship them next to the executable and load them with ::LoadModel(RESOURCES_PATH \"...\"). "
+    "See TECHNICAL.md, \"Resources\".")
+endif()
+
 # Remove the generated pack (e.g. to fall back to loose files in dev).
 add_custom_target(unpack_resources
   COMMAND ${CMAKE_COMMAND} -E rm -f "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres"
@@ -231,10 +258,10 @@ file(WRITE ${CMAKE_BINARY_DIR}/asm_defines.h "#pragma once
 if(MSVC)
   # MSVC: wrapper batch script invoked through cmd.exe
   string(JOIN " " ASM_INCLUDES_STR ${ASM_INCLUDE_FLAGS})
-  file(WRITE ${CMAKE_BINARY_DIR}/generate_asm.bat"
+  file(WRITE "${CMAKE_BINARY_DIR}/generate_asm.bat" "\
 @echo off
 cd /D ${CMAKE_CURRENT_SOURCE_DIR}
-\"${CMAKE_CXX_COMPILER}\" -S -fverbose-asm ${ASM_OPT_FLAGS}${ASM_INCLUDES_STR} -DPRODUCTION_BUILD=${ASM_PROD_BUILD} -include ${CMAKE_BINARY_DIR}/asm_defines.h %* -o ${CMAKE_BINARY_DIR}/main.s
+\"${CMAKE_CXX_COMPILER}\" -S -fverbose-asm ${ASM_OPT_FLAGS} ${ASM_INCLUDES_STR} -DPRODUCTION_BUILD=${ASM_PROD_BUILD} -include ${CMAKE_BINARY_DIR}/asm_defines.h %* -o ${CMAKE_BINARY_DIR}/main.s
 ")
   add_custom_target(assembler
     COMMAND cmd /C ${CMAKE_BINARY_DIR}/generate_asm.bat ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp

@@ -33,4 +33,28 @@ Image LoadImage(const char *name);
 // owns the returned Texture2D and must UnloadTexture() it.
 Texture2D LoadTexture(const char *name);
 
+// Load a sound effect (.wav/.ogg/.mp3/.qoa/...). InitAudioDevice() must have
+// been called first. The caller owns it and must UnloadSound() it.
+Sound LoadSound(const char *name);
+
+// Load a font (.ttf/.otf). fontSize is the baked glyph size.
+// The caller owns it and must UnloadFont() it.
+Font LoadFont(const char *name, int fontSize);
+
+// Raw bytes for anything else — a level file, a shader, JSON. `size` receives
+// the byte count. Free with UnloadFileData().
+unsigned char *LoadData(const char *name, int *size);
+
 }  // namespace Assets
+
+// WHAT THE PACK CANNOT DO
+//
+// 3D models are the one real gap, and it is raylib's rather than ours: LoadModel
+// takes a path, not a memory buffer, because it has to resolve the material and
+// texture paths a .obj/.gltf refers to. There is no LoadModelFromMemory to build
+// on. Load models with plain raylib —
+//
+//     Model m = ::LoadModel(RESOURCES_PATH "ship.obj");
+//
+// — and see TECHNICAL.md, because a release built with a resource pack ships
+// only the pack, so anything loaded by path needs shipping alongside it.

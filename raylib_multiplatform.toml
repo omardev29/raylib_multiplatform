@@ -87,7 +87,11 @@ deployment_target = "15.6"
 # One square PNG, 1024x1024 recommended. Every Android density, the round
 # variant, the adaptive foreground, the Play Store asset and the iOS AppIcon
 # are generated from it.
-source = "resources/icon.png"
+#
+# Deliberately NOT in resources/: everything in there is packed into
+# resources.rres and shipped with the game, and your launcher icon is a build
+# input, not a game asset.
+source = "branding/icon.png"
 # Behind the adaptive icon on Android 8+. Hex, or "" to use the source image
 # as its own background.
 adaptive_background = "#3DDC84"

@@ -9,7 +9,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Editor / clangd (LSP)](#editor--clangd-lsp)
 - [Compile-time definitions](#compile-time-definitions)
 - [Platform detection macros](#platform-detection-macros)
-- [Resources: `RESOURCES_PATH` and rres](#resources-resources_path-and-rres)
+- [Resources: `RESOURCES_PATH`, `Assets::` and rres](#resources-resources_path-assets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
@@ -17,6 +17,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [iOS](#ios)
 - [BSD & RISC-V targets](#bsd--risc-v-targets)
 - [CI/CD pipeline](#cicd-pipeline)
+  - [The canary, and the thing that fixes itself](#the-canary-and-the-thing-that-fixes-itself)
 - [Maintenance & platform longevity](#maintenance--platform-longevity)
 - [Adding source files & libraries](#adding-source-files--libraries)
 - [FAQ & troubleshooting](#faq--troubleshooting)
@@ -201,29 +202,156 @@ pulls in `<raymob.h>`:
 
 ---
 
-## Resources: `RESOURCES_PATH` and rres
+## Resources: `RESOURCES_PATH`, `Assets::` and rres
 
-`RESOURCES_PATH` is an absolute path in development (run from any CWD) and `"./resources/"`
-in production (must sit next to the executable).
+### The problem this solves
 
-Assets can be packed into a single `resources.rres` container
-([rres](https://github.com/raysan5/rres)), **optionally AES-256 encrypted**:
+raylib loads assets from **paths**: `LoadTexture("resources/player.png")`. That is fine until you
+ship. Then you have a folder of loose files next to the executable that anyone can open, replace or
+copy; on Web every one of them is a separate HTTP request; and the path that worked from your IDE
+(CWD = project root) does not work when the user double-clicks the binary (CWD = anywhere).
+
+Two mechanisms handle that here, and they are independent.
+
+### 1. `RESOURCES_PATH` — where "resources/" is
+
+A compile-time string, defined in `CMakeLists.txt`:
+
+| Build | Value |
+|---|---|
+| Development | absolute path to `<repo>/resources/` — run the binary from any CWD |
+| `PRODUCTION_BUILD=ON` | `"./resources/"` — relative to the executable, which is how the packages are laid out |
+
+Always build your paths from it (`Assets::` does this for you). A bare `"resources/foo.png"`
+works in dev and silently fails in a release.
+
+### 2. rres — one file instead of a folder
+
+[rres](https://github.com/raysan5/rres) is raysan's resource-container format: a header, N data
+chunks, and a central directory mapping names to chunk ids. This template ships its own packer,
+`tools/rres_pack.c`, built as a CMake target:
 
 ```bash
-cmake --build build --target pack_resources    # -> resources/resources.rres
-cmake --build build --target unpack_resources  # remove the pack
+cmake --build build --target pack_resources    # resources/ -> resources/resources.rres
+cmake --build build --target unpack_resources  # delete the pack, go back to loose files
 ```
 
-At startup `Assets::Init()` auto-detects: if `resources.rres` exists it loads from it,
-otherwise it falls back to loose files. **No code change** needed to switch.
+**You do not need [rrespacker](https://raylibtech.itch.io/rrespacker).** That is raysan's paid GUI
+for authoring containers by hand — picking per-resource compression, previewing, editing an existing
+`.rres`. The packer here does the one thing a build needs, non-interactively, in CI, with no
+licence: walk `resources/`, and write every file into the container.
 
-- The packer is the open **`tools/rres_pack`** (built as a CMake target). It's compatible with
-  the official `rrespacker` output if you own it. Format: AES-256-CTR, key = Argon2i(password, salt)
-  (16 MiB / 3 passes / 1 lane), MD5 integrity per resource.
-- Password: `-DRRES_PACK_PASSWORD="..."` (default `raylib-template`).
+What it writes, per file:
 
-> **Security note:** the password is embedded in the binary, so this is **obfuscation, not real
-> security**. Encryption adds only *load-time* cost (Argon2i per resource), never per-frame cost.
+| Field | Value |
+|---|---|
+| chunk type | `RAWD` (raw data) — *every* file, whatever it is |
+| id | `CRC32(relative filename)` — this is why lookup is by name |
+| props | `[size, ext[0..3], ext[4..7], 0]` — the original extension travels **inside** the chunk |
+| compression | `RRES_COMP_NONE` |
+| cipher | AES-256-CTR, key = Argon2i(password, salt), + MD5 of the plaintext |
+
+Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `Assets::` can resolve
+a name to an id without knowing the password up front.
+
+The packer emits standard rres containers, so the official rrespacker can open them — but nothing
+in this template requires it.
+
+### Why `Assets::Init()` exists
+
+`Assets::Init()` (called for you by `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY`, before `_ready()`) does
+three things that have to happen exactly once:
+
+1. **Decides which mode you are in.** It looks for `resources/resources.rres`. Found → pack mode.
+   Not found → loose-file mode. This is why packing needs no code change: the same
+   `Assets::LoadTexture("player.png")` call works both ways, and you can iterate all day on loose
+   files and pack only when you build a release.
+2. **Loads the central directory into memory**, once. Without it there is no name→id mapping, and
+   the ids are CRC32 hashes — not something you can compute by looking at the container. Reloading
+   the CDIR per asset would mean re-reading and re-parsing the file header on every load.
+3. **Installs the cipher password** (`rresSetCipherPassword`), which rres keeps as a global.
+
+`Assets::Shutdown()` frees the directory. If you skip `Init()`, nothing crashes — `g_usingPack`
+stays false and every load silently falls through to loose files, which is precisely the bug that
+works on your machine and ships broken.
+
+### What you actually get
+
+```cpp
+Texture2D      Assets::LoadTexture(const char *name);
+Image          Assets::LoadImage  (const char *name);
+Sound          Assets::LoadSound  (const char *name);
+Font           Assets::LoadFont   (const char *name, int fontSize);
+unsigned char *Assets::LoadData   (const char *name, int *size);   // free with UnloadFileData
+bool           Assets::UsingPack();
+```
+
+`name` is always relative to `resources/`, forward slashes, subfolders included:
+`Assets::LoadSound("sfx/jump.wav")`.
+
+Every one of them has the same shape: if in pack mode, look the name up, decrypt, decode from
+memory; if anything fails, **log a warning and fall back to the loose file**. A missing entry
+degrades instead of crashing, and the warning names the asset.
+
+### What happens to each kind of file in `resources/`
+
+Everything in the folder is packed — the packer does not filter. Whether you can *read* it back
+depends on whether raylib has a from-memory loader:
+
+| You put in `resources/` | Packed? | Load it with | Notes |
+|---|---|---|---|
+| `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | yes | `Assets::LoadTexture` / `LoadImage` | the extension in props tells raylib which decoder to use |
+| `.wav .ogg .mp3 .flac .qoa .xm .mod` | yes | `Assets::LoadSound` | short sounds; fully decoded into RAM |
+| `.ttf .otf` | yes | `Assets::LoadFont(name, size)` | size is baked at load time, as always in raylib |
+| `.json .txt .csv .glsl .vs .fs` and anything else | yes | `Assets::LoadData` | you get the bytes; shaders need `LoadShaderFromMemory` |
+| **`.obj .gltf .glb .iqm .vox .m3d` (3D models)** | yes | **nothing** | see below |
+| **long music** (`.ogg/.mp3` streamed) | yes | **nothing** | see below |
+
+### The two gaps, and why they are raylib's and not this template's
+
+**3D models.** raylib exposes `LoadModel(const char *fileName)` and nothing else — there is no
+`LoadModelFromMemory`. The loaders open the file themselves (and `.gltf`/`.obj` then resolve
+*sibling* files: `.bin` buffers, `.mtl` materials, texture images, by relative path). A buffer in
+RAM cannot satisfy that.
+
+**Streamed music.** `LoadMusicStream` is also path-only by design: the point of a music stream is
+that it is *not* fully in memory. (`LoadMusicStreamFromMemory` exists in recent raylib, but it
+requires you to keep the whole encoded buffer alive for the lifetime of the stream, which defeats
+the purpose. Short sound effects have no such problem — use `Assets::LoadSound`.)
+
+For both: load them with plain raylib from `RESOURCES_PATH` and make sure the files actually ship.
+
+```cpp
+Model m = LoadModel(TextFormat("%sship.obj", RESOURCES_PATH));
+Music bgm = LoadMusicStream(TextFormat("%smusic/theme.ogg", RESOURCES_PATH));
+```
+
+**This is where it bites**, and the build warns you about it. The release packages are not uniform:
+
+| Target | What ships in the package |
+|---|---|
+| Linux x64/arm64, Windows x64, macOS | **`resources.rres` only** — nothing else is copied in |
+| Linux riscv64, Windows arm64, the three BSDs | the whole `resources/` folder |
+| Web | the whole folder, preloaded into the Emscripten virtual FS |
+| Android | the whole folder, copied into `assets/` |
+
+So a model works in development, works on Web and Android, works on BSD — and is missing only in
+the four packaged desktop builds. That is the worst possible failure mode, so `CMakeLists.txt`
+emits a `WARNING` at configure time when `PRODUCTION_BUILD=ON` and it finds a model extension in
+`resources/`. If you need models in those packages, extend the `package/` step in
+`.github/workflows/_linux.yml`, `_windows.yml` and `_apple.yml` to copy them alongside the pack.
+
+### Encryption
+
+Password: `[resources] rres_password` in `raylib_multiplatform.toml`, which reaches both sides from
+one place — `RRES_PACK_PASSWORD` for the packer and `APP_RRES_PASSWORD` in
+`include/generated/app_config.h` for the game. (They used to be two hardcoded literals in
+`CMakeLists.txt` and `src/assets.cpp`; desynchronising them broke loading at runtime only.)
+
+> **This is obfuscation, not security.** The password is a string inside a binary you hand to the
+> player; anyone determined will find it. What it does buy is that assets are not casually
+> extractable by dragging the folder open. Cost is *load-time* only — Argon2i (16 MiB, 3 passes)
+> per resource, nothing per frame.
 
 ---
 
@@ -482,6 +610,99 @@ from `latest` to `quarterly` (edit `/usr/local/etc/pkg/repos/` inside the VM ste
 four times a year instead of continuously — it is not pinning, just a slower drift, so it is
 left off by default rather than pretending otherwise.
 
+### The canary, and the thing that fixes itself
+
+Everything above is pinned, which stops the world from breaking your build — and also stops you
+from finding out that the world moved. A green pipeline in six months means nothing if it is green
+against Xcode 26.6 while everyone else is on 28.
+
+> This is **template infrastructure, not something a user of the template runs.** Every job in
+> `canary.yml` and `autofix.yml` is guarded by
+> `if: github.repository == 'omardev29/raylib_multiplatform'`. A repository created from this
+> template is a real copy, not a fork, so its cron *would* fire — the guard makes every job skip
+> immediately. Nobody's private game repo ends up with a weekly build it did not ask for, or an
+> agent opening PRs against it. If you fork the template to maintain your own, change that string
+> in both files; otherwise leave it alone.
+
+**`canary.yml`** runs `0 4 * * 1` (Mondays) and on dispatch. It calls **the same reusable
+workflows** as `ci.yml` — not copies, which would drift — with the pins deliberately unset:
+
+| Family | CI uses | The canary uses |
+|---|---|---|
+| Linux / Web / Android | image digest | `ghcr.io/omardev29/raylib-build:latest` |
+| Apple | `macos-26`, Xcode 26.6 | `macos-latest`, newest Xcode on the image |
+| Windows | `windows-2025`, Mesa pinned + sha256 | `windows-latest`, Mesa `latest`, **no** checksum |
+| BSD | nothing (mirrors are rolling) | nothing — it is already a canary |
+
+The empty `mesa_sha256` is intentional: with a checksum the job would die at verification before
+testing the thing that matters. Each family prints `CANARY_OBSERVED <key>=<value>` lines, and that
+**version delta is the product** — more than the log. `workflow_dispatch` takes a `families` input
+(`apple`, or `apple,windows`) so a single family can be exercised without paying for all six, and
+`xcode_version`/`image_tag` overrides so a failure can be forced deliberately.
+
+There is no `continue-on-error`. It is its own workflow, it gates nothing, and a red canary should
+look red.
+
+**`.github/scripts/canary_triage.py`** runs when any family fails, under
+`if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))` —
+`failure()` alone misses the cancelled case, and BSD hits its 60-minute timeout often enough to
+matter. It writes `.github/canary-report.json`:
+
+```json
+{ "family": "apple", "runner": "macos-26", "job": "apple / ios",
+  "step": "Build raylib.xcframework", "known": false,
+  "version_delta": [{"key": "xcode", "frozen": "26.6", "observed": "99.9"}],
+  "error_lines": ["..."], "key": "apple/xcode-99.9/build-raylib-xcframework" }
+```
+
+Three things about it are non-obvious and were learned the hard way:
+
+- Logs come from `GET /repos/{o}/{r}/actions/jobs/{id}/logs` per job. `gh run view --log` refuses
+  while a run is in progress; the per-job endpoint works for any job that has finished.
+- That endpoint 302s to Azure blob storage, which **rejects the request if the `Authorization`
+  header is replayed**. urllib follows redirects with headers intact, so the redirect is
+  intercepted and the second fetch made unauthenticated.
+- Actions echoes each script line before running it, so a log contains both
+  `xcode: $(xcodebuild -version…)` and the real output. The `CANARY_OBSERVED` regex is anchored to
+  line start and end, or the report reads back the source of its own probe.
+
+The delta is filtered to the family's own keys and ordered by likely cause (Xcode before the runner
+label, image tag before everything) — otherwise an alphabetical sort puts `macos_runner` first and
+an Apple report leads with a Windows Mesa version. Findings are keyed and recorded in
+`.github/known-breakage.md`; a key already in the ledger with an unchanged signature comes back
+`known: true` and does not raise the alarm twice.
+
+**`autofix.yml`** triggers on `workflow_run: [canary] completed` with `conclusion == 'failure'`,
+plus `workflow_dispatch` with a `run_id` (a `workflow_run` workflow always runs from the default
+branch, so without the manual input there is no way to test a change before merging it). It reads
+the triage artifact and builds a matrix of one job per broken family, deduplicated — Apple failing
+on both macOS and iOS is one problem, not two.
+
+The important part: `runs-on: ${{ matrix.runner }}`. **The agent runs on the platform that broke.**
+A job has exactly one `runs-on`, so a single job could not repair an Apple and a Linux regression in
+the same run; the matrix gives each family its own runner. On Apple that means a real `macos-26`
+session (macOS runners have no Docker); on Linux/Web/Android it is `ubuntu-24.04` driving the pinned
+image through `docker run` (the action cannot run *inside* the image — it has no node); BSD is
+semi-blind, so the agent proposes and the PR validates.
+
+It uses `anthropics/claude-code-action` pinned by SHA, and **skips cleanly when no
+`CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY` is configured** — the `secrets` context is not
+available in a job-level `if:`, so the check is a step-level `HAS_KEY` env comparison.
+
+Guardrails, in order of how much they matter:
+
+1. `GITHUB_TOKEN` **cannot write to `.github/workflows/`**. This started as the obstacle that made
+   the whole idea look unworkable (every floating pin lived in workflow YAML, so the agent's PR
+   would have been empty) and became the design: the pins moved into
+   `thirdparty/FROZEN_VERSIONS.md`, and the agent now *cannot* rewrite the CI even if it decides it
+   should.
+2. `tools/versions_check.sh` runs in the same PR. Bump the NDK in one place and not the other and
+   the agent's own PR goes red.
+3. `permissions: {contents: write, pull-requests: write, actions: read}`, branch `autofix/<key>`,
+   **draft** PR, deduplicated against an open PR with the same key.
+4. The prompt is scoped to one family, its reusable, and `FROZEN_VERSIONS.md` — explicitly not
+   `ci.yml`, the release path, or anything to do with signing.
+
 ### Tests
 
 **Static** — every target: the binary exists, is executable, and has the right format and
@@ -528,13 +749,18 @@ and publishes a Release with the games, the iOS xcframework and `.app`, the APK,
 
 ### Publishing to itch.io
 
-Set these on the repository, and tag pushes publish automatically:
+Tag pushes publish automatically once these are set:
 
-| Key | Type |
+| Key | Where |
 |---|---|
-| `ITCH_USER` | Variable — your itch.io username |
-| `ITCH_GAME` | Variable — the game's URL slug |
-| `BUTLER_API_KEY` | Secret — from <https://itch.io/user/settings/api-keys> |
+| `user` | `[deploy.itch]` in `raylib_multiplatform.toml` — your itch.io username |
+| `game` | `[deploy.itch]` — the game's URL slug |
+| `BUTLER_API_KEY` | Repository **secret** — from <https://itch.io/user/settings/api-keys> |
+
+The first two are not secrets, so they live in the config file with everything else. Repository
+variables `ITCH_USER` / `ITCH_GAME` still work and **take precedence** over the config, which is
+there for setups that predate the config file — if a value looks ignored, check whether a variable
+is shadowing it.
 
 Without them the job logs a warning and skips; cloning this template must not give you a red
 pipeline for a service you have not signed up to.
@@ -557,12 +783,15 @@ An emulator inside an unaccelerated runner is slow and fails for reasons unrelat
 game. Test Lab runs the actual APK on actual hardware, which is the one thing CI cannot
 otherwise check.
 
-| Key | Type |
+| Key | Where |
 |---|---|
-| `FIREBASE_PROJECT` | Variable — the GCP project id |
-| `GCP_SA_KEY` | Secret — the service-account JSON, whole file |
-| `FIREBASE_DEVICE` | Variable, optional — Google retires device models every few years |
-| `FIREBASE_RESULTS_BUCKET` | Variable, optional — a GCS bucket to pull results back from |
+| `project_id` | `[deploy.firebase]` in `raylib_multiplatform.toml` — the GCP project id |
+| `device` | `[deploy.firebase]`, optional — Google retires device models every few years |
+| `GCP_SA_KEY` | Repository **secret** — the service-account JSON, whole file |
+| `FIREBASE_RESULTS_BUCKET` | Repository variable, optional — a GCS bucket to pull results back from |
+
+As with itch, `vars.FIREBASE_PROJECT` / `vars.FIREBASE_DEVICE` still work and take precedence over
+the config file.
 
 Setup, once:
 

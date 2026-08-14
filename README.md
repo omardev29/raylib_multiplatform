@@ -85,7 +85,7 @@ bundle_id = "com.yourname.yourgame"
 deployment_target = "15.6"
 
 [icon]
-source = "resources/icon.png"          # one 1024x1024 PNG -> every Android density + iOS AppIcon
+source = "branding/icon.png"           # one 1024x1024 PNG -> every Android density + iOS AppIcon
 adaptive_background = "#3DDC84"
 
 [raylib]
@@ -148,12 +148,26 @@ inlining void _exit()    { /* unload */ }
 RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
 ```
 
-Assets go in `resources/`. `cmake --build build --target pack_resources` packs them into a single
-AES-encrypted [rres](https://github.com/raysan5/rres) file; without it the game reads loose files,
-so you can iterate without repacking.
+Assets go in `resources/` and load through the `Assets::` layer:
 
-See [TECHNICAL.md](TECHNICAL.md) for the asset layer, the platform-detection macros, AdMob, and
-adding third-party libraries.
+```cpp
+Texture2D tex = Assets::LoadTexture("player.png");
+Sound     sfx = Assets::LoadSound("jump.wav");
+Font      f   = Assets::LoadFont("ui.ttf", 32);
+unsigned char *lvl = Assets::LoadData("level1.json", &size);
+```
+
+`cmake --build build --target pack_resources` bundles everything into one AES-encrypted
+[rres](https://github.com/raysan5/rres) file. Without it the game reads loose files, so you can
+iterate without repacking, and `Assets::` reads whichever exists — the same code ships either way.
+You do **not** need the paid rrespacker tool; `tools/rres_pack.c` does the packing.
+
+**3D models are the exception.** raylib's `LoadModel` takes a path, not a buffer, so it cannot read
+from the pack. Load them with plain raylib and ship them next to the executable — the build warns
+you if it finds a model in `resources/` that a release would leave behind.
+
+See [TECHNICAL.md](TECHNICAL.md) for how the pack actually works, the platform-detection macros,
+AdMob, and adding third-party libraries.
 
 ---
 
@@ -232,6 +246,53 @@ CODE_SIGN_STYLE  = "Automatic"
 Select your device and press Run. For TestFlight and the App Store, archive from Xcode — that path
 is deliberately not automated here, because it needs credentials that should not be in CI.
 
+### Cutting a release
+
+Releases are driven entirely by git tags. There is no version anywhere in the
+repo to bump — `v1.2.3` becomes the version name on every platform and the
+Android `versionCode`, so there is nothing to forget.
+
+```bash
+git tag -a v1.2.3 -m "What changed in this release"
+git push origin v1.2.3
+```
+
+**Annotated (`-a`), not lightweight.** A lightweight tag is just a moving
+pointer; an annotated one is a real object with an author, a date and a message,
+and it is what `git describe` and most tooling expect from a release.
+
+The tag must be `vMAJOR.MINOR.PATCH`:
+
+| Tag | versionName | Android versionCode | Release |
+|---|---|---|---|
+| `v1.2.3` | `1.2.3` | `1002003` | normal |
+| `v1.2.3-rc1` | `1.2.3-rc1` | `1002003` | marked pre-release |
+| `v1.2` | rejected — CI fails at config | | |
+
+`versionCode` is `major*1000000 + minor*1000 + patch`, so it only ever increases
+as long as your versions do. Minor and patch must stay under 1000; the config
+refuses a tag that would break monotonicity, because Play rejects an upload
+whose versionCode is not higher than the last one.
+
+A pre-release tag shares its base version's `versionCode` (`v1.2.3-rc1` and
+`v1.2.3` are both `1002003`). Fine here — nothing uploads to Play
+automatically — but do not hand Play both.
+
+Tagging runs all 14 targets, then publishes. It also runs one extra check the
+fast lane skips: **the build is refused while your application id is still
+`com.example.*`**, so you cannot accidentally cut your first release under a
+placeholder identity you can never change.
+
+Undo a tag you have not published yet:
+
+```bash
+git tag -d v1.2.3
+git push origin :refs/tags/v1.2.3      # only if you already pushed it
+```
+
+Deleting a pushed tag does not delete the GitHub Release it created — remove
+that from the Releases page, or with `gh release delete v1.2.3 --cleanup-tag`.
+
 ### itch.io
 
 Set `user` and `game` under `[deploy.itch]` in the config, add `BUTLER_API_KEY` as a secret
@@ -294,28 +355,6 @@ commit SHA. `tools/versions_check.sh` fails CI when any of it drifts apart.
 The honest exception is **BSD**: the QEMU images and the `pkg`/`pkgsrc` mirrors are both rolling and
 neither project runs a snapshot service, so those jobs install whatever the mirror serves that day.
 If a BSD job fails for no reason you caused, suspect that first.
-
----
-
-## The canary, and the thing that fixes itself
-
-Pinning protects you from change; it does not tell you change happened. Left alone, this pipeline
-would stay green on Xcode 26.6 while the world moved to 27, and you would find out the day you
-finally needed to bump it.
-
-So every Monday a **canary** builds everything against the versions we are deliberately *not*
-pinned to — the `:latest` image, `macos-latest` with the newest Xcode, `windows-latest` with the
-newest Mesa — using the same workflows the real pipeline uses. When it breaks it produces a report
-that leads with *what moved*, because "a build broke" is a ticket and "Xcode went to 27" is a fix.
-It only ever runs on the template's own repository, so a project made from this template never sees
-it.
-
-If a key is configured, an **agent** then gets dispatched onto the runner of the family that broke —
-macOS for an Xcode problem, the build container for a Linux one — so it can compile and test rather
-than guess, and it opens a draft PR. Two guardrails make that safe to leave running, and neither is
-a polite instruction: `GITHUB_TOKEN` physically cannot modify anything under `.github/workflows`,
-and `tools/versions_check.sh` fails the PR if a version is bumped in one place and not another. It
-is entirely optional and skips cleanly when no key is set.
 
 ---
 
