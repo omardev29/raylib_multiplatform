@@ -192,11 +192,23 @@ def error_slice(log: str) -> list[str]:
     Not a structural parse of the log: `##[group]` framing has changed before
     and will again. Anchor on `##[error]` and keep enough context to see the
     command that produced it, then fall back to the tail.
+
+    A flat 60-line lookback is too much when the failing step is short: on a
+    real canary the window opened inside actions/checkout and the report handed
+    the agent forty lines of `git submodule foreach` instead of `FAIL: Xcode
+    99.9 is not installed`. So the window is pulled forward to the step's own
+    `##[group]Run …` boundary when there is one — a refinement, not a
+    dependency: if the framing changes and no marker is found, the old fixed
+    lookback still applies.
     """
     lines = log.splitlines()
     idx = [i for i, ln in enumerate(lines) if "##[error]" in ln]
     if idx:
         start = max(0, idx[0] - 60)
+        for i in range(idx[0], start - 1, -1):
+            if lines[i].startswith("##[group]Run "):
+                start = i
+                break
         end = min(len(lines), idx[-1] + 10)
         chunk = lines[start:end]
     else:

@@ -126,6 +126,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Attempt a fix
+        id: agent
         if: env.HAS_KEY == 'true'
         uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126  # v1.0.191
         with:
@@ -173,3 +174,35 @@ jobs:
 
             If the failure looks like a flake rather than a real break, do not invent a
             fix. Say so and propose adding it to `.github/known-breakage.md` instead.
+
+      # The action hides the SDK's output on purpose, so a credential problem
+      # and a genuine "the agent could not fix it" look identical from the log:
+      # both are just "Claude execution failed". Observed once already — the SDK
+      # initialised and returned is_error after 234 ms at $0, which is not a
+      # task failure at all. This step is here so the next person does not have
+      # to re-derive that.
+      - name: Why the agent failed
+        if: failure() && steps.agent.outcome == 'failure'
+        run: |
+          {
+            echo "## The agent did not complete"
+            echo
+            echo "Family \`${{ matrix.family }}\`, key \`${{ matrix.key }}\`."
+            echo
+            echo "The canary report is still attached to the canary run, so nothing is lost —"
+            echo "the diagnosis is there whether or not the agent ran."
+            echo
+            echo "A **fast** failure (a second or two, \$0 cost, one turn) is almost never the"
+            echo "task. In order of likelihood:"
+            echo
+            echo "1. \`CLAUDE_CODE_OAUTH_TOKEN\` has expired. They are not permanent —"
+            echo "   re-mint with \`claude setup-token\` and update the secret."
+            echo "2. The account behind the token has hit its usage limit."
+            echo "3. The token was pasted from the wrong place (a session key is not an"
+            echo "   OAuth token)."
+            echo
+            echo "To see the real reason, add \`show_full_output: true\` to the *Attempt a fix*"
+            echo "step and re-run. Take it back out afterwards: it prints the whole SDK"
+            echo "transcript into a log that anyone who can read the repo can read."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Agent did not complete — see the job summary. Check the token before assuming the fix was impossible."
