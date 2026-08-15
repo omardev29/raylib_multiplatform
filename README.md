@@ -16,7 +16,7 @@ Based on [meemknight/raylibCmakeSetup](https://github.com/meemknight/raylibCmake
 
 ## Look how little you have to do
 
-Three things are yours. Everything else is generated, pinned or automated, and you should never
+This is the whole list. Everything else is generated, pinned or automated, and you should never
 need to open it.
 
 | You edit | For |
@@ -397,8 +397,12 @@ If a BSD job fails for no reason you caused, suspect that first.
 
 ```
 raylib_multiplatform.toml   your configuration — the only non-code file you edit
-src/  include/              your game
-resources/                  your assets, plus icon.png
+src/main.cpp                your game
+resources/                  your assets — flat, the pack does not recurse
+branding/icon.png           the source for every app icon on every platform
+include/raylib_multiplatform.h
+src/raylib_multiplatform.cpp
+                            the template's two files. Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tools/configure.py          turns the config into build files
 cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
