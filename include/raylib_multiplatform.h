@@ -26,15 +26,6 @@
 #include <admob.h>
 #include <smoke_test.h> // CI smoke-test hook (lives in tests/); no-op outside CI
 
-// cross compiler inlining macro to force the inlining
-#if defined(_MSC_VER)
-#define inlining static __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-#define inlining static inline __attribute__((always_inline))
-#else
-#define inlining static inline
-#endif
-
 // More colors
 #ifndef ALICEBLUE
 #define ALICEBLUE CLITERAL(Color){0, 240, 248, 255}
@@ -153,7 +144,6 @@ int FailedLoads();
   }
 
 // Main loop body macro
-// 1. Definición condicional de la macro
 #if defined(PLATFORM_IOS)
 #define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY IOS_FUNCS
 #else

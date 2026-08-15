@@ -2,12 +2,11 @@
 
 // This file is yours. Everything below is the template's demo — replace it.
 
-struct GameAssets {
-  Texture2D rabbit;
+class GameAssets {
+public:
   Image img;
-};
-
-static GameAssets game;
+  Texture2D rabbit;
+} game;
 
 int screen_x{};
 int screen_y{};
@@ -17,7 +16,7 @@ int screen_y{};
 // The resource pack is already open by the time you get here: the entry point
 // in raylib_multiplatform.h calls assets::Init() before this, and
 // assets::Shutdown() after _exit(). Neither is yours to remember.
-inlining void _ready() {
+static inline void _ready() {
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   // Title and size come from raylib_multiplatform.toml — see [window].
@@ -30,7 +29,7 @@ inlining void _ready() {
 }
 
 // Called each frame
-inlining void _process(float delta) {
+static inline void _process(float delta) {
 
   screen_x = GetScreenWidth();
   screen_y = GetScreenHeight();
@@ -53,7 +52,7 @@ inlining void _process(float delta) {
 }
 
 // Called once at shutdown: unload assets, close the window.
-inlining void _exit() {
+static inline void _exit() {
   UnloadTexture(game.rabbit);
   UnloadImage(game.img);
   CloseWindow();
