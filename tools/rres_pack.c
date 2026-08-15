@@ -36,14 +36,26 @@ static const char *base_name(const char *path) {
     return s ? s + 1 : path;
 }
 
+// Read a whole file, or fail. Every step is checked, which is not paranoia:
+// glibc lets fopen() succeed on a *directory*, and the loose version of this
+// function then packed one — malloc'd buffer, fread() reads nothing, and the
+// uninitialised heap behind it went into the .rres as a resource. Where ftell()
+// returns -1 for the directory instead, the (unsigned) size became 4294967295
+// and the chunk arithmetic downstream overflowed.
 static unsigned char *read_file(const char *path, unsigned int *outSize) {
+    *outSize = 0;
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
     long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    unsigned char *buf = (unsigned char *)malloc(sz > 0 ? sz : 1);
-    if (sz > 0) fread(buf, 1, sz, f);
+    if (sz < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
+    unsigned char *buf = (unsigned char *)calloc(sz > 0 ? (size_t)sz : 1, 1);
+    if (!buf) { fclose(f); return NULL; }
+    if (sz > 0 && fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
     fclose(f);
     *outSize = (unsigned int)sz;
     return buf;

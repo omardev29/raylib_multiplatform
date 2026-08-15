@@ -51,10 +51,13 @@ For a **device** build, set a development team / signing identity and use
 
 ## Known caveats / TODO
 
-- **Resources:** `RESOURCES_PATH` must resolve inside the iOS app bundle. The
-  asset layer (`src/assets.cpp`) currently uses `RESOURCES_PATH`; on iOS this
-  should be pointed at the bundle (see the fork's `GetIOSDocumentsPath()` in
-  `IOSBridge`). Wire this before shipping.
+- **Resources:** `RESOURCES_PATH` is `./resources/` here, and the process does
+  not start inside the bundle — iOS launches it in the app container. `IOS_FUNCS`
+  in `include/raylib_multiplatform.h` handles that with a
+  `ChangeDirectory(GetApplicationDirectory())` before anything loads, so the
+  relative path resolves against the `.app`. Write to
+  `GetIOSDocumentsPath()` instead if you need somewhere writable; the bundle is
+  read-only.
 - **Audio:** verify miniaudio output on device (the experimental upstream PR had
   audio issues; this fork uses a different path, but confirm).
 - The `ios/project.yml` scaffold is best-effort and should be validated/tuned on

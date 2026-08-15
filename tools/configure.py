@@ -31,7 +31,7 @@ Usage:
     tools/configure.py --print-matrix bsd  JSON matrix for one CI family
     tools/configure.py --print-config      the resolved config, as JSON
     tools/configure.py --print-pins        the frozen pins, as key=value
-    tools/configure.py --make-default-icon regenerate resources/icon.png
+    tools/configure.py --make-default-icon write a placeholder at [icon] source
 """
 
 from __future__ import annotations
@@ -248,7 +248,7 @@ APPID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 BUNDLE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$")
 
 PROTECTED_MODULES = {
-    "rtextures": "the asset layer (src/assets.cpp), the rres loader and the CI render gate "
+    "rtextures": "the asset layer (src/raylib_multiplatform.cpp), the rres loader and the CI render gate "
                  "(tests/smoke_test.h calls LoadImageFromScreen) are all built on it",
     "rtext":     "rres-raylib.h calls TextLength from a code path that is always live, so no "
                  "amount of --gc-sections will drop it",
@@ -492,35 +492,60 @@ def raylib_defs(cfg: dict) -> tuple[list[str], list[str]]:
 
     defs = ["EXTERNAL_CONFIG_FLAGS"] + [f"{k}={v}" for k, v in sorted(flags.items())]
 
-    # src/assets_rres.c compiles the whole of rres-raylib.h, which references
-    # LoadWaveFromMemory even though nothing calls LoadWaveFromResource. Apple's
-    # ld64 resolves undefined symbols BEFORE dead-stripping, so relying on
-    # --gc-sections to drop it works on GNU ld and fails on macOS. A stub costs
-    # nothing and works on every linker.
+    # Disabling raudio leaves the asset layer referencing symbols that no longer
+    # exist: assets::LoadSound calls LoadWaveFromMemory, LoadSoundFromWave,
+    # UnloadWave and raylib's own LoadSound, and rres-raylib.h compiles audio
+    # loaders regardless of which raylib modules are on.
+    #
+    # GNU ld hides this. It garbage-collects the unreachable sections before it
+    # complains, so a Linux build of `disabled_modules = ["raudio"]` links
+    # cleanly. Apple's ld64 resolves undefined symbols BEFORE dead-stripping, so
+    # the identical config fails on macOS and iOS only. Stubs cost nothing and
+    # work on every linker.
     stubs = ["raudio"] if "raudio" in cfg["raylib"]["disabled_modules"] else []
     return defs, stubs
 
 
 STUB_SOURCE = """/* {header}
  *
- * rres-raylib.h compiles loaders for every resource type, including audio,
- * regardless of which raylib modules are enabled. Nothing in this template
- * calls LoadWaveFromResource, but the reference still has to resolve: Apple's
- * ld64 errors on undefined symbols before it ever dead-strips them.
+ * [raylib] disabled_modules = ["raudio"] removes these from libraylib, but the
+ * template's asset layer still refers to them — assets::LoadSound decodes a
+ * Wave and turns it into a Sound, and rres-raylib.h compiles audio loaders
+ * whatever the module flags say.
+ *
+ * They have to resolve even though nothing reachable calls them: Apple's ld64
+ * errors on undefined symbols before it ever dead-strips them, so without this
+ * file the config that links fine on Linux fails on macOS and iOS only.
+ *
+ * raylib.h supplies the real types, so these cannot drift out of ABI with the
+ * declarations they are standing in for.
  */
-#include <stddef.h>
+#include <raylib.h>
 
-typedef struct rl_stub_Wave {{
-    unsigned int frameCount, sampleRate, sampleSize, channels;
-    void *data;
-}} rl_stub_Wave;
-
-rl_stub_Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData,
-                                int dataSize)
+Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int dataSize)
 {{
     (void)fileType; (void)fileData; (void)dataSize;
-    rl_stub_Wave empty = {{0}};
+    Wave empty = {{0}};
     return empty;
+}}
+
+Sound LoadSoundFromWave(Wave wave)
+{{
+    (void)wave;
+    Sound empty = {{0}};
+    return empty;
+}}
+
+Sound LoadSound(const char *fileName)
+{{
+    (void)fileName;
+    Sound empty = {{0}};
+    return empty;
+}}
+
+void UnloadWave(Wave wave)
+{{
+    (void)wave;
 }}
 """
 
@@ -729,7 +754,7 @@ targets:
       - path: ../include
       # Folder reference (not a group): the whole directory is copied into the
       # bundle as `resources/`, so RESOURCES_PATH="./resources/" resolves once
-      # the app chdir's to its bundle (see IOS_FUNCS in include/raylib_multi.h).
+      # the app chdir's to its bundle (see IOS_FUNCS in raylib_multiplatform.h).
       # Without this the app builds and boots but every LoadTexture returns 0x0.
       - path: ../resources
         type: folder
@@ -910,8 +935,13 @@ def generate_icons(cfg: dict, required: bool) -> None:
     marker.write_text(want + "\n")
 
 
-def make_default_icon() -> None:
-    """Draw the placeholder icon shipped with the template."""
+def make_default_icon(dest: Path) -> None:
+    """Draw the placeholder icon shipped with the template, at [icon] source.
+
+    The destination follows the config rather than being hardcoded to
+    branding/icon.png: the folder is the user's to rename, and writing the
+    placeholder somewhere the build is not looking would be worse than not
+    writing it at all."""
     from PIL import Image, ImageDraw
     size = 1024
     img = Image.new("RGBA", (size, size), (26, 28, 44, 255))
@@ -920,10 +950,9 @@ def make_default_icon() -> None:
                         outline=(245, 245, 245, 255), width=44)
     d.rounded_rectangle((330, 330, size - 330, size - 330), radius=40,
                         fill=(230, 69, 57, 255))
-    out = REPO / "branding" / "icon.png"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out)
-    print(f"wrote {out.relative_to(REPO)}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img.save(dest)
+    print(f"wrote {dest.relative_to(REPO)}")
 
 
 # ---------------------------------------------------------------------------
@@ -990,11 +1019,11 @@ def main(argv: list[str]) -> int:
                     help="fail if the icons cannot be generated (Android/iOS jobs)")
     args = ap.parse_args(argv)
 
+    cfg = load_config()
     if args.make_default_icon:
-        make_default_icon()
+        make_default_icon(REPO / cfg["icon"]["source"])
         return 0
 
-    cfg = load_config()
     validate(cfg, strict_release=args.strict_release)
     targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
 

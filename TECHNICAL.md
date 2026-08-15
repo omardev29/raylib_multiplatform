@@ -9,7 +9,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Editor / clangd (LSP)](#editor--clangd-lsp)
 - [Compile-time definitions](#compile-time-definitions)
 - [Platform detection macros](#platform-detection-macros)
-- [Resources: `RESOURCES_PATH`, `Assets::` and rres](#resources-resources_path-assets-and-rres)
+- [Resources: `RESOURCES_PATH`, `assets::` and rres](#resources-resources_path-assets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
@@ -31,16 +31,15 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 ├── raylib_multiplatform.toml # THE config. Name, ids, targets, icon, modules. Yours.
 ├── CMakeLists.txt            # Root build: links raylib statically, presets, rres
 ├── CMakePresets.json         # debug / release / web profiles
-├── src/                      # YOUR code. Every .cpp here is auto-compiled (GLOB_RECURSE).
-│   ├── main.cpp              # lifecycle runner + your game
-│   ├── assets.cpp            # rres-backed asset layer (Assets::*)
-│   └── assets_rres.c         # rres implementation TU (C)
+├── src/                      # YOUR code. Every .cpp/.c here is auto-compiled (GLOB_RECURSE).
+│   ├── main.cpp              # your game
+│   └── raylib_multiplatform.cpp  # THE template's implementation: rres + assets::
 ├── include/                  # YOUR headers (already on the include path)
-│   ├── assets.h              # asset-layer API
-│   ├── raylib_multi.h        # the umbrella header + lifecycle macros
-│   └── test.h                # sample asset struct (replace with your game)
+│   └── raylib_multiplatform.h    # THE template's header: assets:: + lifecycle macros
+├── examples/main.c           # the opt-out: plain C, <raylib.h> only, your own main()
 ├── tests/smoke_test.h        # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
-├── resources/                # Your assets, and icon.png (the source for every app icon)
+├── resources/                # Your assets (flat — the pack does not recurse)
+├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
 │   ├── configure.py          # the config -> every build system. Run by CMake.
 │   ├── versions_check.sh     # fails CI when the pins drift apart
@@ -154,8 +153,8 @@ Two families of macros are available, and they answer different questions:
 | `PLATFORM_ANDROID` | Android | raymob CMake (`-DPLATFORM=Android`) |
 | `PLATFORM_IOS` | iOS | `ios/project.yml` (`GCC_PREPROCESSOR_DEFINITIONS`) |
 
-Example — this is exactly how `src/main.cpp` picks the runner, and how `include/raylib_multi.h`
-pulls in `<raymob.h>`:
+Example — this is exactly how the entry-point macro picks the runner, and how
+`include/raylib_multiplatform.h` pulls in `<raymob.h>`:
 
 ```cpp
 #if defined(PLATFORM_IOS)
@@ -202,7 +201,7 @@ pulls in `<raymob.h>`:
 
 ---
 
-## Resources: `RESOURCES_PATH`, `Assets::` and rres
+## Resources: `RESOURCES_PATH`, `assets::` and rres
 
 ### The problem this solves
 
@@ -222,7 +221,7 @@ A compile-time string, defined in `CMakeLists.txt`:
 | Development | absolute path to `<repo>/resources/` — run the binary from any CWD |
 | `PRODUCTION_BUILD=ON` | `"./resources/"` — relative to the executable, which is how the packages are laid out |
 
-Always build your paths from it (`Assets::` does this for you). A bare `"resources/foo.png"`
+Always build your paths from it (`assets::` does this for you). A bare `"resources/foo.png"`
 works in dev and silently fails in a release.
 
 ### 2. rres — one file instead of a folder
@@ -251,43 +250,72 @@ What it writes, per file:
 | compression | `RRES_COMP_NONE` |
 | cipher | AES-256-CTR, key = Argon2i(password, salt), + MD5 of the plaintext |
 
-Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `Assets::` can resolve
+Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `assets::` can resolve
 a name to an id without knowing the password up front.
 
 The packer emits standard rres containers, so the official rrespacker can open them — but nothing
 in this template requires it.
 
-### Why `Assets::Init()` exists
+### Why `assets::Init()` exists
 
-`Assets::Init()` (called for you by `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY`, before `_ready()`) does
-three things that have to happen exactly once:
+`assets::Init()` (called for you by `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY`, before `_ready()`) does
+four things that have to happen exactly once:
 
 1. **Decides which mode you are in.** It looks for `resources/resources.rres`. Found → pack mode.
    Not found → loose-file mode. This is why packing needs no code change: the same
-   `Assets::LoadTexture("player.png")` call works both ways, and you can iterate all day on loose
+   `assets::LoadTexture("player.png")` call works both ways, and you can iterate all day on loose
    files and pack only when you build a release.
 2. **Loads the central directory into memory**, once. Without it there is no name→id mapping, and
    the ids are CRC32 hashes — not something you can compute by looking at the container. Reloading
    the CDIR per asset would mean re-reading and re-parsing the file header on every load.
 3. **Installs the cipher password** (`rresSetCipherPassword`), which rres keeps as a global.
+4. **Routes raylib's own file loading through the pack**, via `SetLoadFileDataCallback` and
+   `SetLoadFileTextCallback` — but only in pack mode, so a development build is untouched.
 
-`Assets::Shutdown()` frees the directory. If you skip `Init()`, nothing crashes — `g_usingPack`
-stays false and every load silently falls through to loose files, which is precisely the bug that
-works on your machine and ships broken.
+Point 4 is what makes plain raylib work:
+
+```cpp
+Texture2D t = LoadTexture(RESOURCES_PATH "player.png");   // reads the pack
+Model     m = LoadModel(RESOURCES_PATH "ship.obj");       // and so does this
+```
+
+It matters more than it looks. Without the hook, `LoadTexture(RESOURCES_PATH "x.png")` works
+perfectly in development and comes back `0x0` in a release — because a release ships
+`resources.rres` and not the loose files. Nothing warns you; the texture is just blank. Anyone who
+had not read this page would write that line, and it would be the last thing they suspected.
+
+Three details make the hook safe rather than clever:
+
+- **raylib returns the callback's result verbatim.** `rcore.c` reads
+  `if (loadFileData) return loadFileData(fileName, dataSize);` — there is no fallback to the
+  filesystem behind it. So a miss has to delegate by hand, and the exact way to delegate is to
+  *unhook, call raylib, hook back*. That runs raylib's own reader, including the Android one, where
+  `fopen` is redirected into the APK's asset manager and stdio of our own would find nothing.
+- **It only answers for files under `RESOURCES_PATH`.** The pack is keyed by bare file name, so
+  matching on the name alone would let a save file called `level1.json` anywhere on disk be
+  answered with the packed `level1.json`.
+- **Models come along for free.** `rmodels.c` loads `.obj` with `LoadFileText` and
+  `.gltf`/`.glb`/`.iqm`/`.vox`/`.m3d` with `LoadFileData`, and it resolves the sibling files an
+  `.obj` or `.gltf` refers to — the `.mtl`, the `.bin` buffers, the textures named inside the
+  material — through the same two functions. Hooking those two hooks the whole chain.
+
+`assets::Shutdown()` unhooks and frees the directory. Calling `Init()` twice is a no-op.
 
 ### What you actually get
 
 ```cpp
-Texture2D      Assets::LoadTexture(const char *name);
-Image          Assets::LoadImage  (const char *name);
-Sound          Assets::LoadSound  (const char *name);
-Font           Assets::LoadFont   (const char *name, int fontSize);
-unsigned char *Assets::LoadData   (const char *name, int *size);   // free with UnloadFileData
-bool           Assets::UsingPack();
+Texture2D      assets::LoadTexture(const char *name);
+Image          assets::LoadImage  (const char *name);
+Sound          assets::LoadSound  (const char *name);
+Font           assets::LoadFont   (const char *name, int fontSize);
+unsigned char *assets::LoadData   (const char *name, int *size);   // free with UnloadFileData
+bool           assets::UsingPack();
 ```
 
-`name` is always relative to `resources/`, forward slashes, subfolders included:
-`Assets::LoadSound("sfx/jump.wav")`.
+`name` is the **bare file name** — `assets::LoadSound("jump.wav")`. Not a path. `tools/rres_pack.c`
+stores every entry under its basename and the CMake glob does not recurse, so `resources/sfx/` is
+not packed at all and there is nothing for a nested name to resolve to. See the subfolder note
+below.
 
 Every one of them has the same shape: if in pack mode, look the name up, decrypt, decode from
 memory; if anything fails, **log a warning and fall back to the loose file**. A missing entry
@@ -295,38 +323,32 @@ degrades instead of crashing, and the warning names the asset.
 
 ### What happens to each kind of file in `resources/`
 
-Everything in the folder is packed — the packer does not filter. Whether you can *read* it back
-depends on whether raylib has a from-memory loader:
+Everything directly in the folder is packed — the packer does not filter by type:
 
-| You put in `resources/` | Packed? | Load it with | Notes |
-|---|---|---|---|
-| `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | yes | `Assets::LoadTexture` / `LoadImage` | the extension in props tells raylib which decoder to use |
-| `.wav .ogg .mp3 .flac .qoa .xm .mod` | yes | `Assets::LoadSound` | short sounds; fully decoded into RAM |
-| `.ttf .otf` | yes | `Assets::LoadFont(name, size)` | size is baked at load time, as always in raylib |
-| `.json .txt .csv .glsl .vs .fs` and anything else | yes | `Assets::LoadData` | you get the bytes; shaders need `LoadShaderFromMemory` |
-| **`.obj .gltf .glb .iqm .vox .m3d` (3D models)** | yes | **nothing** | see below |
-| **long music** (`.ogg/.mp3` streamed) | yes | **nothing** | see below |
+| You put in `resources/` | Load it with | Notes |
+|---|---|---|
+| `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | `assets::LoadTexture` / `LoadImage`, or plain `LoadTexture` | the extension in props tells raylib which decoder to use |
+| `.wav .ogg .mp3 .flac .qoa .xm .mod` | `assets::LoadSound` | short sounds; fully decoded into RAM |
+| `.ttf .otf` | `assets::LoadFont(name, size)` | size is baked at load time, as always in raylib |
+| `.obj .mtl .gltf .glb .bin .iqm .vox .m3d` | plain `LoadModel(RESOURCES_PATH "…")` | works through the loader hook, siblings included — keep them all directly in `resources/` |
+| `.vs .fs .glsl` | plain `LoadShader(RESOURCES_PATH "…")` | also hooked; `LoadShaderFromMemory` if you prefer |
+| `.json .txt .csv` and anything else | `assets::LoadData` | you get the bytes |
+| **long music** (`.ogg/.mp3` streamed) | see below | the one real exception |
 
-### The two gaps, and why they are raylib's and not this template's
+### The two things that stay outside the pack
 
-**3D models.** raylib exposes `LoadModel(const char *fileName)` and nothing else — there is no
-`LoadModelFromMemory`. The loaders open the file themselves (and `.gltf`/`.obj` then resolve
-*sibling* files: `.bin` buffers, `.mtl` materials, texture images, by relative path). A buffer in
-RAM cannot satisfy that.
+**Streamed music.** `LoadMusicStream` is path-only by design, and unlike the model loaders it does
+not go through `LoadFileData`: `raudio.c` hands the file name straight to `drwav_init_file`,
+`drmp3_init_file` or `jar_xm_create_context_from_file`, which open it themselves. The point of a
+music stream is that it is *not* fully in memory, so there is nothing for the hook to intercept.
+(`LoadMusicStreamFromMemory` exists in recent raylib, but it requires you to keep the whole encoded
+buffer alive for the lifetime of the stream, which defeats the purpose. Short sound effects have no
+such problem — use `assets::LoadSound`.)
 
-**Streamed music.** `LoadMusicStream` is also path-only by design: the point of a music stream is
-that it is *not* fully in memory. (`LoadMusicStreamFromMemory` exists in recent raylib, but it
-requires you to keep the whole encoded buffer alive for the lifetime of the stream, which defeats
-the purpose. Short sound effects have no such problem — use `Assets::LoadSound`.)
+**Subfolders.** `file(GLOB …)` in `CMakeLists.txt` does not recurse and resource names are flat, so
+nothing inside `resources/art/` is packed.
 
-For both: load them with plain raylib from `RESOURCES_PATH` and make sure the files actually ship.
-
-```cpp
-Model m = LoadModel(TextFormat("%sship.obj", RESOURCES_PATH));
-Music bgm = LoadMusicStream(TextFormat("%smusic/theme.ogg", RESOURCES_PATH));
-```
-
-**This is where it bites**, and the build warns you about it. The release packages are not uniform:
+For both: the files have to actually ship, and **the release packages are not uniform**:
 
 | Target | What ships in the package |
 |---|---|
@@ -335,18 +357,25 @@ Music bgm = LoadMusicStream(TextFormat("%smusic/theme.ogg", RESOURCES_PATH));
 | Web | the whole folder, preloaded into the Emscripten virtual FS |
 | Android | the whole folder, copied into `assets/` |
 
-So a model works in development, works on Web and Android, works on BSD — and is missing only in
-the four packaged desktop builds. That is the worst possible failure mode, so `CMakeLists.txt`
-emits a `WARNING` at configure time when `PRODUCTION_BUILD=ON` and it finds a model extension in
-`resources/`. If you need models in those packages, extend the `package/` step in
-`.github/workflows/_linux.yml`, `_windows.yml` and `_apple.yml` to copy them alongside the pack.
+So an un-packable file works in development, works on Web and Android, works on BSD — and is
+missing only in the four packaged desktop builds. That is the worst possible failure mode, so
+`CMakeLists.txt` emits a `WARNING` at configure time when `PRODUCTION_BUILD=ON` and it finds a
+subfolder in `resources/`. If you need one anyway, extend the `package/` step in
+`.github/workflows/_linux.yml`, `_windows.yml` and `_apple.yml` to copy it alongside the pack.
+
+> The pack is also never used on **Android**, whatever you do. rres opens the container with plain
+> `fopen`, and inside an APK there is no such file — raylib reaches its assets through
+> `AAssetManager`, which only its own internal `fopen` redirect knows about. `FileExists` returns
+> false, `assets::Init()` reports loose-file mode, and the loose files are there because the
+> Android job copies the whole folder in. Nothing breaks; it just means `[resources]
+> rres_password` buys you nothing on that one platform.
 
 ### Encryption
 
 Password: `[resources] rres_password` in `raylib_multiplatform.toml`, which reaches both sides from
 one place — `RRES_PACK_PASSWORD` for the packer and `APP_RRES_PASSWORD` in
 `include/generated/app_config.h` for the game. (They used to be two hardcoded literals in
-`CMakeLists.txt` and `src/assets.cpp`; desynchronising them broke loading at runtime only.)
+`CMakeLists.txt` and the asset layer; desynchronising them broke loading at runtime only.)
 
 > **This is obfuscation, not security.** The password is a string inside a binary you hand to the
 > player; anyone determined will find it. What it does buy is that assets are not casually
@@ -372,11 +401,19 @@ A small platform runner drives them:
 
 This is what lets the **same game code** run on every platform, including iOS.
 
+`RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY` in `include/raylib_multiplatform.h` is that runner. It also
+brackets your three hooks with `assets::Init()` before `_ready()` and `assets::Shutdown()` after
+`_exit()`, so opening the resource pack is not something `src/main.cpp` has to remember — and so
+that rewriting `main.cpp` from scratch cannot accidentally drop it.
+
 A CI smoke-test hook is built in: set the env var `RAY_TEST_MAX_FRAMES=N` and the game renders
-N frames then exits with code 0, printing `RAY_TEST_BOOT_OK` and `RAY_TEST_DONE_FRAMES`. The CI
-uses this for the runtime tests. The hook itself lives in **`tests/smoke_test.h`** (header-only,
-so it compiles on every target without wiring extra sources); `src/main.cpp` only calls
-`SmokeTest_Begin()` / `SmokeTest_ReportBoot()` / `SmokeTest_Tick()`.
+N frames then exits with code 0, printing `RAY_TEST_BOOT_OK` and `RAY_TEST_DONE_FRAMES`. The hook
+itself lives in **`tests/smoke_test.h`** (header-only, so it compiles on every target without
+wiring extra sources). `SmokeTest_Begin()` and `SmokeTest_Tick()` are called by the runner;
+`SmokeTest_ReportBoot()` and `SmokeTest_CaptureFrame()` are called from `src/main.cpp`, and they
+have to be: only your code knows which asset proves the load worked and where the last draw call
+is. **CI greps for `RAY_TEST_BOOT_OK texture=WxH` with non-zero dimensions**, so a `main.cpp` that
+drops that call fails the build.
 
 ---
 

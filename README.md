@@ -21,13 +21,25 @@ need to open it.
 
 | You edit | For |
 |---|---|
-| `src/` | Your game. Every `.cpp`/`.c` in here is compiled automatically, subfolders included. |
+| `src/main.cpp` | Your game. Every `.cpp`/`.c` under `src/` is compiled automatically, subfolders included. |
 | `include/` | Your headers. |
-| `raylib_multiplatform.toml` | Your name, app ids, icon, which platforms to build, everything else. |
+| `resources/` | Your assets — images, sounds, fonts, levels, models. |
+| `branding/icon.png` | Your app icon. One 1024×1024 PNG. |
+| `raylib_multiplatform.toml` | Your name, app ids, which platforms to build, everything else. |
 
 That is the list. You do **not** edit CMakeLists.txt to rename your game, or `gradle.properties`
 for Android, or `project.yml` for iOS, or any workflow file to choose platforms. Those are
 generated from the config on every build, which is why they cannot drift out of sync with it.
+
+Two files in there are the template's, not yours: `include/raylib_multiplatform.h` and
+`src/raylib_multiplatform.cpp`. They are the only ones, and you can delete both — see
+[`examples/main.c`](examples/main.c), which is a plain C entry point that keeps the fourteen build
+targets and none of the runtime layer.
+
+`branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
+has to agree with it, so `art/logo.png` is just as valid. If the file is missing the build warns
+and keeps whatever icons are already there instead of failing — `python3 tools/configure.py
+--make-default-icon` writes a fresh 1024×1024 placeholder if you want one to draw over.
 
 If you want CD you will also add a few **secrets** on GitHub — never in the repo. See
 [Publishing](#publishing).
@@ -139,35 +151,58 @@ The lifecycle is Godot-shaped, and the same three functions run on every platfor
 where the OS owns the run loop:
 
 ```cpp
-#include <raylib_multi.h>
+#include <raylib_multiplatform.h>          // the only template header there is
 
-inlining void _ready()   { /* InitWindow is already done for you */ }
+inlining void _ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
 inlining void _process(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
-inlining void _exit()    { /* unload */ }
+inlining void _exit()    { /* unload */ CloseWindow(); }
 
 RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
 ```
 
-Assets go in `resources/` and load through the `Assets::` layer:
+The macro on the last line writes the entry point for whichever platform you are building —
+`main()` with a frame loop on desktop and Web, the three callbacks UIKit demands on iOS — and
+opens and closes the asset pack around your three functions. Nothing about it is yours to
+remember.
+
+### Assets
+
+Put files in `resources/` and load them by name:
 
 ```cpp
-Texture2D tex = Assets::LoadTexture("player.png");
-Sound     sfx = Assets::LoadSound("jump.wav");
-Font      f   = Assets::LoadFont("ui.ttf", 32);
-unsigned char *lvl = Assets::LoadData("level1.json", &size);
+Texture2D tex = assets::LoadTexture("player.png");
+Sound     sfx = assets::LoadSound("jump.wav");
+Font      f   = assets::LoadFont("ui.ttf", 32);
+unsigned char *lvl = assets::LoadData("level1.json", &size);
 ```
 
 `cmake --build build --target pack_resources` bundles everything into one AES-encrypted
-[rres](https://github.com/raysan5/rres) file. Without it the game reads loose files, so you can
-iterate without repacking, and `Assets::` reads whichever exists — the same code ships either way.
+[rres](https://github.com/raysan5/rres) file, which is what a release ships. Without it the game
+reads loose files, so you can iterate without repacking, and the same code reads whichever exists.
 You do **not** need the paid rrespacker tool; `tools/rres_pack.c` does the packing.
 
-**3D models are the exception.** raylib's `LoadModel` takes a path, not a buffer, so it cannot read
-from the pack. Load them with plain raylib and ship them next to the executable — the build warns
-you if it finds a model in `resources/` that a release would leave behind.
+**Plain raylib works too.** `LoadTexture(RESOURCES_PATH "player.png")`, `LoadModel`, `LoadShader`
+— all of them read the pack, because opening it also routes raylib's own file loading through it.
+`assets::` is the shorter spelling, not a requirement, and mixing the two is fine.
+
+Two things stay outside that, and both are raylib's design rather than a gap here:
+
+- **`LoadMusicStream`** opens the file itself so it can stream instead of holding the song in
+  memory. Ship music as a loose file next to the executable.
+- **Subfolders.** Resource names are flat and the packer does not recurse, so `resources/art/x.png`
+  is not packed. Keep assets directly in `resources/`; a release build warns you if it finds a
+  subfolder.
 
 See [TECHNICAL.md](TECHNICAL.md) for how the pack actually works, the platform-detection macros,
 AdMob, and adding third-party libraries.
+
+### If you would rather write plain C
+
+[`examples/main.c`](examples/main.c) is a complete entry point that includes only `<raylib.h>` — no
+template header, no `assets::`, your own `main()`. Copy it over `src/`, delete
+`src/raylib_multiplatform.cpp`, and you keep the fourteen build targets, the pinned toolchains, the
+generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
+raylib cannot read, and iOS, whose entry point the macro exists to provide.
 
 ---
 

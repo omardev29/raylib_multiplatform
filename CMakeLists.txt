@@ -177,38 +177,42 @@ add_executable(rres_pack tools/rres_pack.c tools/md5.c)
 target_include_directories(rres_pack PRIVATE tools "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
 
 # Pack every loose resource into resources.rres (AES-encrypted).
-file(GLOB PACK_FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+#
+# LIST_DIRECTORIES false is load-bearing. file(GLOB) lists directories by
+# default, and fopen() on a directory succeeds on glibc, so a resources/
+# containing a subfolder used to pack that subfolder as a resource — and drop
+# every file inside it.
+file(GLOB PACK_FILES LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 list(FILTER PACK_FILES EXCLUDE REGEX "\\.rres$")
 add_custom_target(pack_resources
   COMMAND $<TARGET_FILE:rres_pack> "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres" "${RRES_PACK_PASSWORD}" ${PACK_FILES}
   DEPENDS rres_pack
   COMMENT "Packing resources into resources.rres (AES)"
 )
-# 3D models are the one thing the pack cannot serve. raylib's LoadModel takes a
-# path, not a buffer, because it has to resolve the material and texture paths
-# the file refers to — there is no LoadModelFromMemory to build Assets:: on.
+# The pack is flat: names are bare file names and this glob does not recurse.
+# So a file in resources/textures/ is not packed, and the four targets that
+# ship resources.rres *alone* (Linux x64/arm64, Windows x64, macOS) would ship
+# a release without it — working in development, broken only once released.
 #
-# That matters because a release ships resources.rres and NOT the loose files,
-# so a model would be packed, unreachable, and absent. It works in development
-# and fails only in the shipped build, which is the worst possible way to find
-# out. Say it at configure time instead.
-set(_UNSERVABLE "")
-foreach(_f ${PACK_FILES})
-  get_filename_component(_ext "${_f}" LAST_EXT)
-  string(TOLOWER "${_ext}" _ext)
-  if(_ext MATCHES "^\\.(obj|mtl|gltf|glb|iqm|vox|m3d)$")
+# Streamed music is the other one. LoadMusicStream opens the file itself
+# (drwav/drmp3/jar_xm take a path, by design: the point is not to hold the song
+# in memory), so it never reaches the loader hook that serves everything else.
+set(_PACK_SUBDIRS "")
+file(GLOB _RES_ENTRIES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+foreach(_f ${_RES_ENTRIES})
+  if(IS_DIRECTORY "${_f}")
     get_filename_component(_n "${_f}" NAME)
-    list(APPEND _UNSERVABLE "${_n}")
+    list(APPEND _PACK_SUBDIRS "${_n}")
   endif()
 endforeach()
-if(_UNSERVABLE AND PRODUCTION_BUILD)
-  string(JOIN ", " _u ${_UNSERVABLE})
+if(_PACK_SUBDIRS AND PRODUCTION_BUILD)
+  string(JOIN ", " _d ${_PACK_SUBDIRS})
   message(WARNING
-    "resources/ contains 3D model files that the resource pack cannot serve: ${_u}\n"
-    "  raylib has no LoadModelFromMemory, so Assets:: cannot read them, and a release "
-    "ships only resources.rres.\n"
-    "  Ship them next to the executable and load them with ::LoadModel(RESOURCES_PATH \"...\"). "
-    "See TECHNICAL.md, \"Resources\".")
+    "resources/ has subfolders the pack does not reach: ${_d}\n"
+    "  Resource names are flat, so nothing inside them is packed, and Linux, Windows x64 "
+    "and macOS releases ship resources.rres on its own.\n"
+    "  Move those files up into resources/, or ship the folder next to the executable "
+    "yourself. See TECHNICAL.md, \"Resources\".")
 endif()
 
 # Remove the generated pack (e.g. to fall back to loose files in dev).

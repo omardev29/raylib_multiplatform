@@ -134,7 +134,20 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch_prefix: autofix/
-          claude_args: '--max-turns 40'
+          # --allowedTools is not optional here, and its absence does not look
+          # like a failure. Without it the SDK runs with default permissions,
+          # which in a non-interactive session means every tool that would have
+          # prompted is denied: the first real run burned 32 turns and $1.25,
+          # reported `"is_error": false`, and produced no branch, no PR and no
+          # complaint — just `"permission_denials_count": 18` buried in the
+          # result JSON.
+          #
+          # WebFetch and WebSearch are left out deliberately. The agent reads a
+          # build log it did not write, so the one capability worth withholding
+          # is the one that could carry anything it finds back out.
+          claude_args: >-
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,Edit,Write,Bash,TodoWrite,NotebookEdit"
           prompt: |
             The weekly canary for this raylib template failed. You are running on
             ${{ matrix.runner }}, the same platform that broke, so you can build and
@@ -206,3 +219,38 @@ jobs:
             echo "transcript into a log that anyone who can read the repo can read."
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning::Agent did not complete — see the job summary. Check the token before assuming the fix was impossible."
+
+      # A green "Attempt a fix" does not mean a fix was attempted.
+      #
+      # The SDK reports success as long as the session ran to completion, so a
+      # run that was denied every tool it needed still exits 0. That is exactly
+      # what happened the first time this worked: 32 turns, $1.25, is_error
+      # false, nothing on the remote. Check for the artefact, not the exit code.
+      - name: Did the agent produce anything?
+        if: steps.agent.outcome == 'success'
+        run: |
+          set -euo pipefail
+          # checkout left the token in the remote URL, so this is authenticated.
+          if [ -n "$(git ls-remote --heads origin 'autofix/*')" ]; then
+            echo "Branch pushed:"
+            git ls-remote --heads origin 'autofix/*'
+            exit 0
+          fi
+          {
+            echo "## The agent ran but left nothing behind"
+            echo
+            echo "Family \`${{ matrix.family }}\`, key \`${{ matrix.key }}\`. No \`autofix/*\`"
+            echo "branch exists on the remote, so there is no PR to review."
+            echo
+            echo "The likely cause is tool permissions, not the task. The SDK denies any"
+            echo "tool that would have prompted, and reports the session as a success"
+            echo "regardless; look for \`permission_denials_count\` in the *Attempt a fix*"
+            echo "step output. If it is non-zero, \`--allowedTools\` in \`claude_args\` is"
+            echo "missing something the agent needed."
+            echo
+            echo "The other possibility is the honest one: the agent read the report and"
+            echo "decided the fix was a workflow edit it is not allowed to make. It was"
+            echo "asked to say so in a PR body, which it cannot do without a branch —"
+            echo "so that case looks identical from here and needs the run log."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Agent completed without opening a PR — see the job summary."
