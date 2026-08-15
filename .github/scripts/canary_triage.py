@@ -267,18 +267,27 @@ def main() -> int:
         # A job that dies early — a bad Xcode pin fails at "Select Xcode",
         # before anything gets a chance to echo what it resolved to — would
         # otherwise report no delta at all, which is the one thing the report
-        # exists to show. So fall back to what the canary ASKED for, marked as
-        # requested rather than observed.
+        # exists to show. So fall back to what the canary ASKED for.
+        #
+        # That distinction has to survive into the JSON. It used to be a comment
+        # here and nothing else: every entry said "observed", so a value nobody
+        # observed looked like a measurement. The autofix agent worked out on
+        # its own that a run reporting Xcode 99.9 could not have observed
+        # anything, by reading this file — which is turns it should not have had
+        # to spend, and a conclusion a less careful reader would have missed.
         relevant = FAMILY_PINS.get(family, [])
         requested = json.loads(os.environ.get("CANARY_FLOATING", "{}"))
+        assumed = set()
         for k, v in requested.items():
-            if k in relevant:
-                obs.setdefault(k, v)
+            if k in relevant and k not in obs:
+                obs[k] = v
+                assumed.add(k)
 
         # Ordered by FAMILY_PINS, not alphabetically, so the first entry is the
         # likeliest cause and the key below names it.
         order = {k: i for i, k in enumerate(relevant)}
-        delta = [{"key": k, "frozen": pins[k], "observed": v}
+        delta = [{"key": k, "frozen": pins[k], "observed": v,
+                  "source": "requested" if k in assumed else "measured"}
                  for k, v in sorted(obs.items(), key=lambda kv: order.get(kv[0], 99))
                  if k in pins and pins[k] != v and (not relevant or k in relevant)]
 

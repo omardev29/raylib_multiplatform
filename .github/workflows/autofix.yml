@@ -145,13 +145,11 @@ jobs:
           # WebFetch and WebSearch are left out deliberately. The agent reads a
           # build log it did not write, so the one capability worth withholding
           # is the one that could carry anything it finds back out.
-          # TEMPORARY, remove after this run. Three runs in a row ended with the
-          # agent producing nothing at all, and the action hides the SDK output,
-          # so there is no way to tell good reasoning that went nowhere from no
-          # reasoning. The repo is public, so this prints the transcript where
-          # anyone can read it — acceptable for one diagnostic run on a template
-          # with no secrets in it, not acceptable as a standing setting.
-          show_full_output: true
+          # show_full_output was on for exactly one run (31890557261) to find out
+          # where the agent's answers were going. They were going nowhere: it
+          # was replying in prose and the action discards the SDK's final
+          # message. Hence autofix-verdict.md below. Do not leave that setting
+          # on — the repo is public and it prints the whole transcript.
           claude_args: >-
             --max-turns 40
             --allowedTools "Read,Glob,Grep,Edit,Write,Bash,TodoWrite,NotebookEdit"
@@ -163,6 +161,12 @@ jobs:
             Read `report/canary-report.json` first. It leads with a
             frozen-versus-observed version delta — that delta is almost always the
             cause, and the error lines below it are the symptom.
+
+            Check each delta entry's `source`. `measured` means the runner really
+            reported that version. `requested` means the job died before it could
+            say, so the value is only what the canary asked for — and a `requested`
+            value that looks impossible usually means someone was testing the
+            pipeline by hand, not that anything is broken.
 
             Fix ONLY the `${{ matrix.family }}` family. Breakage key: `${{ matrix.key }}`.
 

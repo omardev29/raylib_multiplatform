@@ -720,7 +720,7 @@ matter. It writes `.github/canary-report.json`:
 ```json
 { "family": "apple", "runner": "macos-26", "job": "apple / ios",
   "step": "Build raylib.xcframework", "known": false,
-  "version_delta": [{"key": "xcode", "frozen": "26.6", "observed": "99.9"}],
+  "version_delta": [{"key": "xcode", "frozen": "26.6", "observed": "27.0", "source": "measured"}],
   "error_lines": ["..."], "key": "apple/xcode-99.9/build-raylib-xcframework" }
 ```
 
@@ -771,6 +771,13 @@ Guardrails, in order of how much they matter:
    **draft** PR, deduplicated against an open PR with the same key.
 4. The prompt is scoped to one family, its reusable, and `FROZEN_VERSIONS.md` — explicitly not
    `ci.yml`, the release path, or anything to do with signing.
+
+`source` on a delta entry is `measured` when the runner really reported that version, and
+`requested` when the job died before it could — a bad Xcode pin fails at *Select Xcode*, before
+anything echoes what it resolved to, and a report with no delta at all would be useless. The
+distinction used to be a comment in `canary_triage.py` and nothing more, so a value nobody observed
+arrived looking like a measurement. The autofix agent worked that out for itself by reading the
+script, which is turns it should not have needed and a trap a less careful reader would fall into.
 
 ### Tests
 
