@@ -36,14 +36,14 @@ orientation = "landscape"
 enabled  = ["all"]
 # Subtracted from whatever `enabled` expanded to. Use it to keep a group and
 # drop one member: enabled = ["all"], disabled = ["ios"].
-disabled = ["bsd", "ios"]
+disabled = []
 
 [android]
 # IRREVERSIBLE ON GOOGLE PLAY. Once an app is published under this id you can
 # never change it — you would have to ship a new listing and lose your installs.
 # Get it right before your first upload. CI refuses to build a tag while this
 # still says com.example.*.
-application_id = "com.rayex.raytest"
+application_id = "com.example.raytest"
 
 min_sdk = 24
 # ES20 | ES30 | ES31 | ES32. Devices without the requested version are not
@@ -74,7 +74,7 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 
 [ios]
 # Same warning as Android: this is your App Store identity.
-bundle_id = "com.rayex.raytest"
+bundle_id = "com.example.raytest"
 deployment_target = "15.6"
 
 [ios.settings]
@@ -103,7 +103,7 @@ adaptive_background = "#3DDC84"
 # rtextures and rtext cannot be disabled: the asset layer and the CI render
 # gate are built on them, and rres calls into both.
 # NOTE: this does not affect iOS, which links a prebuilt xcframework.
-disabled_modules = ["rshapes", "raudio", "rmodels"]
+disabled_modules = []
 
 [dev]
 # Local development only — the `debug` preset. CI builds `release`/`web` and is
