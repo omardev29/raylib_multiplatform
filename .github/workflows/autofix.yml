@@ -242,12 +242,37 @@ jobs:
       # false, nothing on the remote. Check for the artefact, not the exit code.
       - name: Did the agent produce anything?
         if: steps.agent.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # for the `gh pr list` below
         run: |
           set -euo pipefail
           # checkout left the token in the remote URL, so this is authenticated.
-          if [ -n "$(git ls-remote --heads origin 'autofix/*')" ]; then
+          branches=$(git ls-remote --heads origin 'autofix/*' || true)
+          if [ -n "$branches" ]; then
             echo "Branch pushed:"
-            git ls-remote --heads origin 'autofix/*'
+            echo "$branches"
+            # A branch with no PR behind it is the signature of one specific
+            # repository setting, not of anything the agent did wrong. Measured
+            # with a probe job holding exactly these permissions: the push
+            # succeeds, and `gh pr create` comes back with "GitHub Actions is
+            # not permitted to create or approve pull requests".
+            if [ -z "$(gh pr list --state open --head "${branches%%$'\n'*}" --json number -q '.[].number' 2>/dev/null)" ]; then
+              {
+                echo "## Branch pushed, but no pull request"
+                echo
+                echo "The agent got its work onto the remote and could not open a PR for it."
+                echo
+                echo "That is almost certainly **Settings → Actions → General → Workflow"
+                echo "permissions → \"Allow GitHub Actions to create and approve pull"
+                echo "requests\"**, which is off by default. \`GITHUB_TOKEN\` is refused the"
+                echo "\`createPullRequest\` mutation while it is, no matter what"
+                echo "\`permissions:\` this workflow asks for."
+                echo
+                echo "The branch is there either way — open the PR by hand, or tick the box"
+                echo "and re-run."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::Branch pushed but no PR — check 'Allow GitHub Actions to create and approve pull requests'."
+            fi
             exit 0
           fi
 

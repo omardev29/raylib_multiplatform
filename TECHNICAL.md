@@ -675,6 +675,16 @@ Everything above is pinned, which stops the world from breaking your build — a
 from finding out that the world moved. A green pipeline in six months means nothing if it is green
 against Xcode 26.6 while everyone else is on 28.
 
+> **One repository setting has to be on, or the agent cannot finish.**
+> *Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and
+> approve pull requests."* It is off by default, and while it is off `GITHUB_TOKEN` is refused the
+> `createPullRequest` GraphQL mutation no matter what `permissions:` the workflow asks for. The
+> push succeeds and the PR does not, so the agent does all the work and leaves a branch nobody is
+> looking at. Measured with a probe job holding exactly the permissions `autofix.yml` grants:
+> `pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull
+> requests`. The *Did the agent produce anything?* step now names this specifically when it sees a
+> branch with no PR behind it.
+
 > This is **template infrastructure, not something a user of the template runs.** Every job in
 > `canary.yml` and `autofix.yml` is guarded by
 > `if: github.repository == 'omardev29/raylib_multiplatform'`. A repository created from this
