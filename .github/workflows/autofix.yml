@@ -150,8 +150,15 @@ jobs:
           # was replying in prose and the action discards the SDK's final
           # message. Hence autofix-verdict.md below. Do not leave that setting
           # on — the repo is public and it prints the whole transcript.
+          #
+          # --model: the action defaults to Sonnet, and this job only ever runs
+          # when something is already broken across a platform matrix — a few
+          # times a year, on a diagnosis nobody is watching. Capability is worth
+          # more than the token price here. Roughly 2.5x the per-token cost of
+          # the default, against runs that have been costing about a dollar.
           claude_args: >-
             --max-turns 40
+            --model claude-opus-5
             --allowedTools "Read,Glob,Grep,Edit,Write,Bash,TodoWrite,NotebookEdit"
           prompt: |
             The weekly canary for this raylib template failed. You are running on
