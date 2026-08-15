@@ -123,14 +123,25 @@ const char *SkipDotSlash(const char *p) {
 // a save file called level1.json anywhere on disk be answered with the packed
 // level1.json instead. Requiring the directory to match keeps the hook to the
 // files it is responsible for; anything else falls through to the real reader.
+//
+// '\' and '/' compare equal. CMake writes RESOURCES_PATH with forward slashes
+// on every platform, but nothing stops a Windows user writing
+// RESOURCES_PATH "art\\x.png" — and a miss here sends them to the loose file,
+// which is exactly what a packaged release does not ship.
 bool InResourcesDir(const char *path) {
     const char *root = SkipDotSlash(RESOURCES_PATH);
-    const size_t n = std::strlen(root);
+    const char *p = SkipDotSlash(path);
     // Android sets RESOURCES_PATH to "" — every asset is at the root of the
     // APK's assets/. No pack is ever open there, so this branch is moot, but
     // an empty prefix matching everything is the right reading of it anyway.
-    if (n == 0) return true;
-    return std::strncmp(SkipDotSlash(path), root, n) == 0;
+    for (size_t i = 0; root[i] != '\0'; i++) {
+        char a = p[i];
+        char b = root[i];
+        if (a == '\\') a = '/';
+        if (b == '\\') b = '/';
+        if (a != b) return false;
+    }
+    return true;
 }
 
 unsigned char *HookedLoadFileData(const char *fileName, int *dataSize) {
