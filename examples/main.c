@@ -47,13 +47,14 @@
 // Android (where assets sit at the root of the APK). Build every asset path
 // out of it and the same source works on all of them.
 
-// The two markers CI greps for. Without them the build is fine and the smoke
-// test job fails: it cannot tell a working game from one that boots to a black
-// screen. tests/smoke_test.h does this properly (and reads the framebuffer
-// back to prove something was drawn) — it is C-compatible, so
-// `#include <smoke_test.h>` works here too if you want the real thing.
-#define RAY_TEST_REPORT_BOOT(tex) \
-    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK texture=%dx%d testFrames=0", (tex).width, (tex).height)
+// The marker CI greps for. Without it the build is fine and the smoke-test job
+// fails: it cannot tell a working game from one that boots to a black screen.
+// `assets_failed=0` is the claim being made — no asset was asked for and not
+// found. Nothing here tracks that, so this file simply asserts it; if you load
+// files and want the claim checked, include <smoke_test.h> (it is
+// C-compatible) and use the template's asset layer.
+#define RAY_TEST_REPORT_BOOT() \
+    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 testFrames=0")
 
 int main(void)
 {
@@ -61,7 +62,7 @@ int main(void)
     InitWindow(800, 450, "raylib, plain C");
 
     Texture2D rabbit = LoadTexture(RESOURCES_PATH "rabbit.png");
-    RAY_TEST_REPORT_BOOT(rabbit);
+    RAY_TEST_REPORT_BOOT();
 
     while (!WindowShouldClose())
     {

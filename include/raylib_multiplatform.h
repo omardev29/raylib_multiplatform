@@ -95,6 +95,12 @@ Font LoadFont(const char *name, int fontSize);
 // the byte count. Free with UnloadFileData().
 unsigned char *LoadData(const char *name, int *size);
 
+// How many assets:: loads were asked for, and how many found nothing in the
+// pack and nothing on disk either. The entry point below reports these to the
+// CI boot gate; you are unlikely to need them yourself.
+int RequestedLoads();
+int FailedLoads();
+
 } // namespace assets
 
 // ---------------------------------------------------------------------------
@@ -105,8 +111,10 @@ unsigned char *LoadData(const char *name, int *size);
 // iOS gets the three callbacks UIKit expects, because there the run loop
 // belongs to the OS and there is nothing to return to.
 //
-// Both spellings do the same four things around your code: start the smoke
-// test, open the asset pack, run you, and close the pack afterwards.
+// Both spellings do the same things around your code: start the smoke test,
+// open the asset pack, run you, report to CI whether any asset failed to load,
+// and close the pack afterwards. None of it is yours to remember, and there is
+// nothing you have to keep in _ready() to keep CI happy.
 // ---------------------------------------------------------------------------
 
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
@@ -129,6 +137,7 @@ unsigned char *LoadData(const char *name, int *size);
     ChangeDirectory(GetApplicationDirectory());                                \
     assets::Init();                                                            \
     _ready();                                                                  \
+    SmokeTest_ReportBoot(assets::FailedLoads(), assets::RequestedLoads());     \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
@@ -153,6 +162,7 @@ unsigned char *LoadData(const char *name, int *size);
     SmokeTest_Begin();                                                         \
     assets::Init();                                                            \
     _ready();                                                                  \
+    SmokeTest_ReportBoot(assets::FailedLoads(), assets::RequestedLoads());     \
     int smokeDone = 0;                                                         \
     while (!WindowShouldClose() && !smokeDone) {                               \
       _process(GetFrameTime());                                                \

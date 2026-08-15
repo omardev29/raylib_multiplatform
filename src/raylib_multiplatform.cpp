@@ -59,6 +59,23 @@ bool g_hooked = false;
 rresCentralDir g_cdir = {0, nullptr};
 char g_packPath[2048] = {0};
 
+int g_requested = 0;
+int g_failed = 0;
+
+// Build the loose-file path for `name`, and notice when there is nothing
+// behind it. This is the one place that can tell "you asked for a resource and
+// there is nothing to give you" apart from "you never asked for anything" —
+// which is what lets the CI boot gate stop demanding that every game ship an
+// image. See tests/smoke_test.h.
+//
+// Only assets:: calls are counted, deliberately. The loader hook sees raylib's
+// internal probing too — an .obj looking for a .mtl that legitimately is not
+// there — and counting those would turn a working build red.
+void FallbackPath(const char *name, char *out, size_t n) {
+    std::snprintf(out, n, "%s%s", RESOURCES_PATH, name);
+    if (!FileExists(out)) g_failed++;
+}
+
 // Pull one entry out of the pack by its name in the central directory.
 // Returns bytes owned by the caller (malloc'd, so RL_FREE/UnloadFileData frees
 // them) or nullptr if the name is not packed or does not decrypt.
@@ -227,7 +244,13 @@ void Shutdown() {
 
 bool UsingPack() { return g_usingPack; }
 
+// For the CI boot gate. FailedLoads() is the number of assets:: requests that
+// found nothing in the pack and nothing on disk either.
+int RequestedLoads() { return g_requested; }
+int FailedLoads() { return g_failed; }
+
 Image LoadImage(const char *name) {
+    g_requested++;
     if (g_usingPack) {
         unsigned int id = rresGetResourceId(g_cdir, name);
         if (id != 0) {
@@ -255,12 +278,12 @@ Image LoadImage(const char *name) {
     }
 
     char path[2048];
-    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    FallbackPath(name, path, sizeof(path));
     return ::LoadImage(path);
 }
 
 Texture2D LoadTexture(const char *name) {
-    Image img = LoadImage(name);
+    Image img = LoadImage(name);   // counts the request for us
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
@@ -271,6 +294,7 @@ Texture2D LoadTexture(const char *name) {
 // iterate without repacking.
 
 Sound LoadSound(const char *name) {
+    g_requested++;
     if (g_usingPack) {
         // The extension names the decoder, exactly as rres itself does for a
         // raw chunk (rres-raylib.h reads it back out of props and calls
@@ -294,11 +318,12 @@ Sound LoadSound(const char *name) {
     }
 
     char path[2048];
-    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    FallbackPath(name, path, sizeof(path));
     return ::LoadSound(path);
 }
 
 Font LoadFont(const char *name, int fontSize) {
+    g_requested++;
     if (g_usingPack) {
         // The extension has to come from the name: rres stores the file verbatim
         // and LoadFontFromMemory needs to know what it is. An extensionless name
@@ -317,11 +342,12 @@ Font LoadFont(const char *name, int fontSize) {
     }
 
     char path[2048];
-    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    FallbackPath(name, path, sizeof(path));
     return ::LoadFontEx(path, fontSize, nullptr, 0);
 }
 
 unsigned char *LoadData(const char *name, int *size) {
+    g_requested++;
     if (g_usingPack) {
         unsigned char *data = PackRead(name, size);
         if (data != nullptr) return data;
@@ -329,7 +355,7 @@ unsigned char *LoadData(const char *name, int *size) {
     }
 
     char path[2048];
-    std::snprintf(path, sizeof(path), "%s%s", RESOURCES_PATH, name);
+    FallbackPath(name, path, sizeof(path));
     return LoadFileData(path, size);
 }
 

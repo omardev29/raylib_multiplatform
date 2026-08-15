@@ -158,7 +158,7 @@ jobs:
           if ($null -eq $result) { Write-Host "FAIL: no Mesa driver produced a rendered frame"; exit 1 }
 
           $all = $result.text
-          if ($all -notmatch "RAY_TEST_BOOT_OK texture=[1-9]\d*x[1-9]\d*") { Write-Host "FAIL: boot marker missing or texture not loaded"; exit 1 }
+          if ($all -notmatch "RAY_TEST_BOOT_OK assets_failed=0 ") { Write-Host "FAIL: boot marker missing, or an asset failed to load"; exit 1 }
           if ($all -notmatch "RAY_TEST_RENDER_OK")   { Write-Host "FAIL: render marker missing (blank frame?)"; exit 1 }
           if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }
           Write-Host "PASS: Windows boot + render verified on GALLIUM_DRIVER=$used"

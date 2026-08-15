@@ -90,7 +90,7 @@ jobs:
           echo "--- captured output ---"; cat "$OUT"
           # Non-zero texture dimensions, not just the marker: a missing asset
           # still boots and still "renders" a background.
-          grep -qE "RAY_TEST_BOOT_OK texture=[1-9][0-9]*x[1-9][0-9]*" "$OUT" \
+          grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
             || { echo "FAIL: boot marker missing or texture not loaded"; exit 1; }
           # Booting proves the window and the assets are fine and nothing more.
           # RAY_TEST_RENDER_OK is the gate that a blank frame cannot pass.
@@ -164,7 +164,7 @@ jobs:
           echo "--- captured output ---"; cat "$OUT"
           # Non-zero texture dimensions, not just the marker: a missing asset
           # still boots and still "renders" a background.
-          grep -qE "RAY_TEST_BOOT_OK texture=[1-9][0-9]*x[1-9][0-9]*" "$OUT" \
+          grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
             || { echo "FAIL: boot marker missing or texture not loaded"; exit 1; }
           grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }

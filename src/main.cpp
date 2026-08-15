@@ -27,8 +27,6 @@ inlining void _ready() {
   // in resources/ otherwise. Same call either way.
   game.img = assets::LoadImage("rabbit.png");
   game.rabbit = LoadTextureFromImage(game.img);
-
-  SmokeTest_ReportBoot(game.rabbit.width, game.rabbit.height);
 }
 
 // Called each frame

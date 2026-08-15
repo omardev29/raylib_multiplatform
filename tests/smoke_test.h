@@ -52,11 +52,20 @@ static inline void SmokeTest_Begin(void) {
     if (env && env[0]) SmokeTest_maxFrames = atoi(env);
 }
 
-// Call once after your assets have loaded. Emits the boot marker the CI greps
-// for. texW/texH are the size of a loaded asset, proving assets loaded.
-static inline void SmokeTest_ReportBoot(int texW, int texH) {
-    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK texture=%dx%d testFrames=%d",
-             texW, texH, SmokeTest_maxFrames);
+// Call once after startup. Emits the boot marker the CI greps for.
+//
+// It reports asset *failures*, not successes, and that is the whole point. The
+// marker used to carry the dimensions of a texture the game had loaded, and CI
+// insisted they were non-zero — which quietly made "ship at least one image"
+// a requirement of the template. A game drawing nothing but shapes could not
+// pass, and there is no reason it should not.
+//
+// Counting failures keeps the check that mattered (iOS once shipped a bundle
+// with no resources/ in it, and every texture came back 0x0) without inventing
+// one nobody asked for: request nothing, fail nothing, pass.
+static inline void SmokeTest_ReportBoot(int assetsFailed, int assetsRequested) {
+    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK assets_failed=%d assets_requested=%d testFrames=%d",
+             assetsFailed, assetsRequested, SmokeTest_maxFrames);
 }
 
 // Which frame to read back. Not frame 0: the first frames of a fresh swap

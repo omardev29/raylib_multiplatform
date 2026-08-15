@@ -415,11 +415,21 @@ that rewriting `main.cpp` from scratch cannot accidentally drop it.
 A CI smoke-test hook is built in: set the env var `RAY_TEST_MAX_FRAMES=N` and the game renders
 N frames then exits with code 0, printing `RAY_TEST_BOOT_OK` and `RAY_TEST_DONE_FRAMES`. The hook
 itself lives in **`tests/smoke_test.h`** (header-only, so it compiles on every target without
-wiring extra sources). `SmokeTest_Begin()` and `SmokeTest_Tick()` are called by the runner;
-`SmokeTest_ReportBoot()` and `SmokeTest_CaptureFrame()` are called from `src/main.cpp`, and they
-have to be: only your code knows which asset proves the load worked and where the last draw call
-is. **CI greps for `RAY_TEST_BOOT_OK texture=WxH` with non-zero dimensions**, so a `main.cpp` that
-drops that call fails the build.
+wiring extra sources). `SmokeTest_Begin()`, `SmokeTest_ReportBoot()` and `SmokeTest_Tick()` are all
+called by the runner. The only one left in `src/main.cpp` is `SmokeTest_CaptureFrame()`, and it has
+to be: only your code knows where the last draw call is.
+
+**The boot marker reports asset failures, not successes** — `RAY_TEST_BOOT_OK assets_failed=0
+assets_requested=1`, and CI fails unless `assets_failed=0`. It used to carry the dimensions of a
+texture your `_ready()` passed in, with CI insisting they were non-zero, which quietly made "ship
+at least one image" a rule of the template: a game drawing nothing but shapes could not pass, and
+deleting the call failed the build. Counting failures keeps the check that mattered — iOS once
+shipped a bundle with no `resources/` in it and every texture came back 0x0 — while a game that
+requests nothing fails nothing and passes.
+
+Only `assets::` calls are counted. The loader hook sees raylib's internal probing as well, such as
+an `.obj` looking for a `.mtl` that legitimately is not there, and counting those would turn a
+working build red.
 
 Call them from wherever your drawing actually lives, including another file. The two counters are
 `inline` variables in C++ precisely so that works: as file-scope statics each translation unit got

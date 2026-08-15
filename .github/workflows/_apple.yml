@@ -350,7 +350,7 @@ jobs:
           # texture=0x0 means the app booted but its assets are not in the
           # bundle — which is exactly what this test caught the first time
           # it ran, so assert the dimensions, not just the marker.
-          grep -qE "RAY_TEST_BOOT_OK texture=[1-9][0-9]*x[1-9][0-9]*" /tmp/sim.log \
+          grep -q "RAY_TEST_BOOT_OK assets_failed=0 " /tmp/sim.log \
             || { echo "FAIL: boot marker missing or assets not in the .app bundle"; exit 1; }
           grep -q "RAY_TEST_RENDER_OK" /tmp/sim.log || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           echo "PASS: iOS simulator boot + render"
