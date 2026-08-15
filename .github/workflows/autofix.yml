@@ -250,21 +250,28 @@ jobs:
             git ls-remote --heads origin 'autofix/*'
             exit 0
           fi
+
+          # No branch is not the same as nothing to say. The agent is asked to
+          # write its reasoning to this same file when it decides against a PR,
+          # and every step in the job appends to one summary — so if it did,
+          # there is content here already and the run is a success, not a dud.
+          if [ -s "$GITHUB_STEP_SUMMARY" ]; then
+            echo "No PR, but the agent left a verdict on the job summary ($(wc -c < "$GITHUB_STEP_SUMMARY") bytes)."
+            exit 0
+          fi
           {
-            echo "## The agent ran but left nothing behind"
+            echo "## The agent ran and said nothing"
             echo
             echo "Family \`${{ matrix.family }}\`, key \`${{ matrix.key }}\`. No \`autofix/*\`"
-            echo "branch exists on the remote, so there is no PR to review."
+            echo "branch on the remote, and nothing written to this summary either — so"
+            echo "the session produced no output at all, which is a different thing from"
+            echo "deciding there was nothing to fix. It was asked to write that decision"
+            echo "here precisely so the two would stop looking alike."
             echo
             echo "The likely cause is tool permissions, not the task. The SDK denies any"
             echo "tool that would have prompted, and reports the session as a success"
             echo "regardless; look for \`permission_denials_count\` in the *Attempt a fix*"
             echo "step output. If it is non-zero, \`--allowedTools\` in \`claude_args\` is"
             echo "missing something the agent needed."
-            echo
-            echo "The other possibility is the honest one: the agent read the report and"
-            echo "decided the fix was a workflow edit it is not allowed to make. It was"
-            echo "asked to say so in a PR body, which it cannot do without a branch —"
-            echo "so that case looks identical from here and needs the run log."
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning::Agent completed without opening a PR — see the job summary."
