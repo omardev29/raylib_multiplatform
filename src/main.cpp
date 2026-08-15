@@ -1,7 +1,5 @@
 #include <raylib_multiplatform.h>
 
-// This file is yours. Everything below is the template's demo — replace it.
-
 class GameAssets {
 public:
   Image img;

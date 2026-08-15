@@ -36,7 +36,7 @@ orientation = "landscape"
 enabled  = ["all"]
 # Subtracted from whatever `enabled` expanded to. Use it to keep a group and
 # drop one member: enabled = ["all"], disabled = ["ios"].
-disabled = []
+disabled = ["bsd", "ios"]
 
 [android]
 # IRREVERSIBLE ON GOOGLE PLAY. Once an app is published under this id you can
@@ -50,7 +50,7 @@ min_sdk = 24
 # offered your app on the Play Store.
 gl_version = "ES30"
 # LAUNCHER | GAME | HOME | ...
-category = "LAUNCHER"
+category = "GAME"
 
 [android.display]
 keep_on     = true    # never sleep while playing
@@ -103,7 +103,7 @@ adaptive_background = "#3DDC84"
 # rtextures and rtext cannot be disabled: the asset layer and the CI render
 # gate are built on them, and rres calls into both.
 # NOTE: this does not affect iOS, which links a prebuilt xcframework.
-disabled_modules = []
+disabled_modules = ["rshapes", "raudio", "rmodels"]
 
 [dev]
 # Local development only — the `debug` preset. CI builds `release`/`web` and is
