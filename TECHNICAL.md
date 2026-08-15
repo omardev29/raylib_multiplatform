@@ -350,12 +350,18 @@ nothing inside `resources/art/` is packed.
 
 For both: the files have to actually ship, and **the release packages are not uniform**:
 
-| Target | What ships in the package |
-|---|---|
-| Linux x64/arm64, Windows x64, macOS | **`resources.rres` only** — nothing else is copied in |
-| Linux riscv64, Windows arm64, the three BSDs | the whole `resources/` folder |
-| Web | the whole folder, preloaded into the Emscripten virtual FS |
-| Android | the whole folder, copied into `assets/` |
+| Target | Packs? | What ships in the package |
+|---|---|---|
+| Linux x64/arm64, Windows x64, macOS | yes | **`resources.rres` only** — nothing else is copied in |
+| Linux riscv64, Windows arm64, the three BSDs | no | the whole `resources/` folder |
+| Web | no | the whole folder, preloaded into the Emscripten virtual FS |
+| Android | no | the whole folder, copied into `assets/` (minus any `.rres`) |
+| iOS | no | the whole folder, as a folder reference inside the `.app` |
+
+Only the first row runs `pack_resources`, which has a consequence worth saying out loud: **the
+encryption applies to four targets and no others.** On Web, Android, iOS, BSD and riscv64 your
+assets ship as ordinary files that anyone can open. If that matters, pack them yourself in the job
+that builds those targets — but see the Android note below before you try it there.
 
 So an un-packable file works in development, works on Web and Android, works on BSD — and is
 missing only in the four packaged desktop builds. That is the worst possible failure mode, so
@@ -414,6 +420,12 @@ wiring extra sources). `SmokeTest_Begin()` and `SmokeTest_Tick()` are called by 
 have to be: only your code knows which asset proves the load worked and where the last draw call
 is. **CI greps for `RAY_TEST_BOOT_OK texture=WxH` with non-zero dimensions**, so a `main.cpp` that
 drops that call fails the build.
+
+Call them from wherever your drawing actually lives, including another file. The two counters are
+`inline` variables in C++ precisely so that works: as file-scope statics each translation unit got
+its own pair, so `SmokeTest_CaptureFrame()` in a second `.cpp` read a budget nothing had set,
+returned immediately, and the render gate went silent — leaving CI passing a blank screen with no
+sign anything was wrong.
 
 ---
 

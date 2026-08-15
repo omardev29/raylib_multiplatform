@@ -7,10 +7,17 @@
 // In a normal run the variable is unset and every function here is a no-op, so
 // shipped builds behave exactly as if this file did not exist.
 //
-// This is a single-file, header-only module: include it in EXACTLY ONE
-// translation unit (your main.cpp). It is intentionally dependency-light so it
-// compiles on every target (desktop, Web, Android, iOS) without wiring extra
-// sources into each build system. You normally never need to touch it.
+// Header-only, and intentionally dependency-light, so it compiles on every
+// target (desktop, Web, Android, iOS) without wiring extra sources into each
+// build system. You normally never need to touch it.
+//
+// In C++ the two counters below are `inline` variables, so every translation
+// unit that includes this header shares one set. That is not a detail: a game
+// of any size draws from somewhere other than main.cpp, and with per-TU statics
+// SmokeTest_CaptureFrame() would be reading a frame counter that nothing ever
+// advanced — the render gate would go quiet and CI would pass on a blank
+// screen. In C they stay file-scope statics, which is correct there, because
+// the C entry point (examples/main.c) is a single translation unit.
 //
 // Markers emitted (the CI greps for these):
 //   RAY_TEST_BOOT_OK      — the game booted and loaded its assets
@@ -31,8 +38,13 @@
 #include <rlgl.h>     // rlDrawRenderBatchActive (declaration only)
 #include <stdlib.h>   // getenv, atoi
 
+#if defined(__cplusplus)
+inline int SmokeTest_frame     = 0;
+inline int SmokeTest_maxFrames = 0;   // 0 = run until the window is closed
+#else
 static int SmokeTest_frame     = 0;
-static int SmokeTest_maxFrames = 0;   // 0 = run until the window is closed
+static int SmokeTest_maxFrames = 0;
+#endif
 
 // Call once at startup, before entering the game loop. Reads RAY_TEST_MAX_FRAMES.
 static inline void SmokeTest_Begin(void) {

@@ -119,6 +119,15 @@ android {
         if (rootDir.exists()) {
             rootDir.eachFileRecurse() { f ->
                 def relPath = f.canonicalPath.replace(rootDir.canonicalPath + File.separator, "")
+                // Skip the resource pack. Android cannot read it — rres opens the
+                // container with plain fopen(), and inside an APK there is no such
+                // file — so the loose copies below are what the game actually
+                // loads. Including it anyway would put every asset in the APK
+                // twice, once in the clear and once encrypted for nobody.
+                if (f.name.endsWith(".rres")) {
+                    println "Skipped (unreadable on Android): $relPath"
+                    return
+                }
                 def target = new File(destDir, relPath)
                 if (f.directory) {
                     target.mkdirs()
