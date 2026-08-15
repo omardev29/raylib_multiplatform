@@ -145,6 +145,13 @@ jobs:
           # WebFetch and WebSearch are left out deliberately. The agent reads a
           # build log it did not write, so the one capability worth withholding
           # is the one that could carry anything it finds back out.
+          # TEMPORARY, remove after this run. Three runs in a row ended with the
+          # agent producing nothing at all, and the action hides the SDK output,
+          # so there is no way to tell good reasoning that went nowhere from no
+          # reasoning. The repo is public, so this prints the transcript where
+          # anyone can read it — acceptable for one diagnostic run on a template
+          # with no secrets in it, not acceptable as a standing setting.
+          show_full_output: true
           claude_args: >-
             --max-turns 40
             --allowedTools "Read,Glob,Grep,Edit,Write,Bash,TodoWrite,NotebookEdit"
@@ -188,19 +195,19 @@ jobs:
             If the failure looks like a flake rather than a real break, do not invent a
             fix. Say so and propose adding it to `.github/known-breakage.md` instead.
 
-            Whatever you conclude, leave it somewhere a human will find it. If you are
-            NOT opening a PR — flake, out of scope, the fix is a workflow edit you are
-            not allowed to make, or you simply could not work it out — append your
-            reasoning to the job summary before you finish:
+            Whatever you conclude, leave it in a FILE. Do not answer in prose: this
+            action discards your final message, so anything you only say is thrown
+            away and the run looks identical to one that never happened.
 
-              cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-              ## No PR: <one line on why>
-              <what you found, what you ruled out, what you would do next>
-              EOF
+            If you are NOT opening a PR — flake, out of scope, the fix is a workflow
+            edit you are not allowed to make, or you simply could not work it out —
+            write `autofix-verdict.md` in the repository root before you finish:
 
-            An agent that investigates for thirty turns and exits silently is
-            indistinguishable from one that never ran. That is worse than a wrong
-            answer, because a wrong answer can be corrected.
+              # <one line: why there is no PR>
+              What I found, what I ruled out, and what I would do next.
+
+            Do not commit it. A later step picks it up and puts it on the job summary.
+            Writing that file is the minimum acceptable outcome of this run.
 
       # The action hides the SDK's output on purpose, so a credential problem
       # and a genuine "the agent could not fix it" look identical from the log:
@@ -277,11 +284,17 @@ jobs:
           fi
 
           # No branch is not the same as nothing to say. The agent is asked to
-          # write its reasoning to this same file when it decides against a PR,
-          # and every step in the job appends to one summary — so if it did,
-          # there is content here already and the run is a success, not a dud.
-          if [ -s "$GITHUB_STEP_SUMMARY" ]; then
-            echo "No PR, but the agent left a verdict on the job summary ($(wc -c < "$GITHUB_STEP_SUMMARY") bytes)."
+          # write its reasoning to autofix-verdict.md when it decides against a
+          # PR — a file, not a reply, because this action discards the SDK's
+          # final message and a spoken answer would go nowhere.
+          if [ -f autofix-verdict.md ]; then
+            echo "No PR, but the agent left a verdict:"
+            cat autofix-verdict.md
+            {
+              echo "## The agent decided not to open a PR"
+              echo
+              cat autofix-verdict.md
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           {
