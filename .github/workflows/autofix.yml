@@ -188,6 +188,20 @@ jobs:
             If the failure looks like a flake rather than a real break, do not invent a
             fix. Say so and propose adding it to `.github/known-breakage.md` instead.
 
+            Whatever you conclude, leave it somewhere a human will find it. If you are
+            NOT opening a PR — flake, out of scope, the fix is a workflow edit you are
+            not allowed to make, or you simply could not work it out — append your
+            reasoning to the job summary before you finish:
+
+              cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+              ## No PR: <one line on why>
+              <what you found, what you ruled out, what you would do next>
+              EOF
+
+            An agent that investigates for thirty turns and exits silently is
+            indistinguishable from one that never ran. That is worse than a wrong
+            answer, because a wrong answer can be corrected.
+
       # The action hides the SDK's output on purpose, so a credential problem
       # and a genuine "the agent could not fix it" look identical from the log:
       # both are just "Claude execution failed". Observed once already — the SDK
