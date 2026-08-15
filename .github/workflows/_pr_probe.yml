@@ -1,0 +1,29 @@
+# THROWAWAY. One question: with exactly the permissions autofix.yml grants, can
+# this job push a branch and open a draft PR? Delete once it has answered.
+name: pr-probe
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.repository == 'omardev29/raylib_multiplatform'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name  "probe[bot]"
+          git config user.email "probe@example.invalid"
+          git checkout -b autofix/probe
+          echo "" >> .github/known-breakage.md
+          git commit -qam "probe: can this job open a PR?"
+          git push -u origin autofix/probe
+          gh pr create --draft --base main --head autofix/probe \
+            --title "probe: delete me" --body "Permissions probe. Safe to close."
+          echo "RESULT: pull request created"
