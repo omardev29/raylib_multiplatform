@@ -34,14 +34,7 @@
 
 namespace rmp::ui {
 
-namespace {
-
-theme g_theme{};
-
-} // namespace
-
-const theme &current_theme() { return g_theme; }
-void set_theme(const theme &t) { g_theme = t; }
+// current_theme() / set_theme() live in theme.cpp.
 
 namespace detail {
 

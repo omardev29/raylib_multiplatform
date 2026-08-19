@@ -109,6 +109,11 @@ deployment_target = "15.6"
 source = "branding/icon.png"           # one 1024x1024 PNG -> every Android density + iOS AppIcon
 adaptive_background = "#3DDC84"
 
+[ui]
+font      = ""                         # "" = raylib's built-in font; or a .ttf in resources/
+font_size = 20                         # at the [window] resolution; rmp::ui scales from there
+scale     = 0                          # 0 = automatic
+
 [raylib]
 disabled_modules = []                  # rshapes | rmodels | raudio — shrink the binary
 
@@ -174,6 +179,37 @@ The macro on the last line writes the entry point for whichever platform you are
 opens and closes the asset pack around your three functions. Nothing about it is yours to
 remember.
 
+### What we add on top of raylib
+
+All of raylib is there, unchanged: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. On top
+of it this template adds three small namespaces, all under `rmp::`, all included by that single
+header. They exist because they are the three things every game needs and raylib deliberately does
+not decide for you.
+
+| Namespace | What it is for |
+|---|---|
+| **`rmp::ui`** | Menus, buttons and text. Responsive by default: a menu written once is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. |
+| **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. |
+| **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
+
+A main menu, complete:
+
+```cpp
+rmp::ui::begin();
+if (rmp::ui::button("Play"))    play();
+if (rmp::ui::button("Options")) options();
+if (rmp::ui::button("Quit"))    quit();
+rmp::ui::end();
+```
+
+No coordinates, no sizes, no fonts, no hitboxes, and it does not change when the window does.
+Everything past that — layout containers, themes, sizing, scaling — is optional and costs you
+nothing until you ask for it.
+
+**The full API of all three is in [TECHNICAL.md](TECHNICAL.md)**; there are working examples of
+each in [`examples/`](examples/). Everything under `rmp::` is ours, everything else is raylib's, so
+in a file that mixes them you can always tell which is which.
+
 ### Assets
 
 Put files in `resources/` and load them by name:
@@ -208,7 +244,7 @@ AdMob, and adding third-party libraries.
 ### If you would rather write plain C
 
 [`examples/main.c`](examples/main.c) is a complete entry point that includes only `<raylib.h>` — no
-template header, no `rmp::assets::`, your own `main()`. Copy it over `src/`, delete
+template header, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
 `src/raylib_multiplatform/`, and you keep the fourteen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
 raylib cannot read, and iOS, whose entry point the macro exists to provide.
@@ -425,11 +461,13 @@ resources/                  your assets — flat, the pack does not recurse
 branding/icon.png           the source for every app icon on every platform
 include/raylib_multiplatform.h
 include/raylib_multiplatform/
-src/raylib_multiplatform/   the template's own code. Not yours; deletable.
+src/raylib_multiplatform/   the template's own code — rmp::ui, rmp::assets, rmp::ads.
+                            Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
+tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
 tools/configure.py          turns the config into build files
 cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
-thirdparty/                 raylib 6.0, raymob, rres, the raylib-iOS fork
+thirdparty/                 raylib 6.0, raymob, rres, Clay, the raylib-iOS fork
 .github/workflows/          ci.yml + one reusable workflow per platform
 ```
 

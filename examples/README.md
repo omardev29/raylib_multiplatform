@@ -12,10 +12,11 @@ covers the template's own features.
 | Example | Shows |
 |---|---|
 | [lifecycle_ready_process_exit.cpp](lifecycle_ready_process_exit.cpp) | The core `_ready()` / `_process()` / `_exit()` (Godot-style) pattern every game in this template uses. |
-| [admob_interstitial_rewarded.cpp](admob_interstitial_rewarded.cpp) | AdMob interstitial + rewarded ads via `<admob.h>` — cross-platform, no-op outside Android. |
+| [ui_menu.cpp](ui_menu.cpp) | **`rmp::ui`.** A main menu in three lines, then options, a confirm dialog and a HUD — variants, disabled controls, explicit ids, placement, and the theme. |
+| [admob_interstitial_rewarded.cpp](admob_interstitial_rewarded.cpp) | **`rmp::ads`.** Interstitial + rewarded ads — cross-platform, no-op outside Android. |
 | [raymob_mobile_features.cpp](raymob_mobile_features.cpp) | The raymob mobile API via `<raymob.h>` — vibration, soft keyboard, sensors, orientation, app storage (Android-only). |
-| [assets_rres_loading.cpp](assets_rres_loading.cpp) | Loading assets with `rmp::assets::` — the same code whether it is loose files or a packed/AES-encrypted `resources.rres`. |
-| [main.c](main.c) | **The opt-out.** A plain C entry point that includes only `<raylib.h>`: no template header, no `rmp::assets::`, your own `main()`. You keep the fourteen build targets and lose the runtime layer. |
+| [assets_rres_loading.cpp](assets_rres_loading.cpp) | **`rmp::assets`.** Loading by name — the same code whether it is loose files or a packed, AES-encrypted `resources.rres`. |
+| [main.c](main.c) | **The opt-out.** A plain C entry point that includes only `<raylib.h>`: no template header, none of `rmp::`, your own `main()`. You keep the fourteen build targets and lose the runtime layer. |
 
 ## Notes
 
@@ -27,6 +28,10 @@ covers the template's own features.
   `<raylib_multiplatform.h>`. There is nothing else to include — it is an
   umbrella over `include/raylib_multiplatform/`, which you never include from
   directly.
+- It gives you three namespaces: **`rmp::ui`** (menus, buttons, text),
+  **`rmp::assets`** (loading from `resources/`) and **`rmp::ads`**. Everything
+  under `rmp::` is the template's; everything else is raylib's, unchanged.
+  The full API is in [TECHNICAL.md](../TECHNICAL.md).
 - `rmp::ads` is safe everywhere (no-op off Android, no `#ifdef` needed).
   `<raymob.h>` only declares its functions on Android, so guard those calls
   with `#ifdef __ANDROID__`.

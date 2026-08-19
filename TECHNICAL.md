@@ -11,6 +11,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Platform detection macros](#platform-detection-macros)
 - [Resources: `RESOURCES_PATH`, `rmp::assets` and rres](#resources-resources_path-rmpassets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
+- [`rmp::ui` — the interface layer](#rmpui--the-interface-layer)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
 - [Android (raymob)](#android-raymob)
@@ -38,17 +39,28 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
-│       └── assets.cpp        #   rmp::assets:: — the public surface, with the loose-file fallback
+│       ├── assets.cpp        #   rmp::assets — the public surface, with the loose-file fallback
+│       └── ui/               #   rmp::ui
+│           ├── clay_impl.cpp #     compiles Clay once
+│           ├── internal.h    #     the only place Clay is allowed to exist
+│           ├── context.cpp   #     lazy start, scale, font, text arena, element ids
+│           ├── widgets.cpp   #     begin / end / button / text
+│           ├── render.cpp    #     draw commands -> raylib calls
+│           └── theme.cpp     #     the default dark theme
 ├── include/                  # YOUR headers (already on the include path)
 │   ├── raylib_multiplatform.h    # THE template's header — the umbrella you include
 │   └── raylib_multiplatform/ # its parts, split by concern — not yours
 │       ├── platform.h        #   raymob / admob / smoke_test wiring
 │       ├── colors.h          #   a couple of colors raylib does not ship
-│       ├── assets.h          #   the rmp::assets:: declarations
+│       ├── assets.h          #   the rmp::assets declarations
+│       ├── ads.h             #   rmp::ads — inline wrappers over <admob.h>
+│       ├── ui.h              #   rmp::ui — the public API and the theme
 │       ├── lifecycle.h       #   RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY + IOS_FUNCS
 │       └── generated/        #   GENERATED app_config.h, git-ignored
 ├── examples/main.c           # the opt-out: plain C, <raylib.h> only, your own main()
-├── tests/smoke_test.h        # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
+├── tests/
+│   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
+│   └── ui_layout_test.cpp    # layout checks with no window (-DBUILD_UI_TESTS=ON)
 ├── resources/                # Your assets (flat — the pack does not recurse)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
@@ -78,6 +90,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
     ├── raylib/               # raylib 6.0 (frozen, slightly patched for this template)
     ├── raylib-ios/           # raylib-iOS fork (submodule) — iOS only
     ├── raymob/               # raymob C sources (Android native bridge + admob)
+    ├── clay/                 # Clay — the layout engine behind rmp::ui (zlib)
     ├── rres/                 # rres.h + rres-raylib.h + externals
     └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
@@ -144,6 +157,8 @@ get indexed). It requires the NDK:
 | `RESOURCES_PATH` | absolute (dev) or `"./resources/"` (prod) | Asset folder path |
 | `PRODUCTION_BUILD` | `0` / `1` | `#if PRODUCTION_BUILD` to strip debug code |
 | `RRES_PASSWORD` | string | rres decryption password (see below) |
+| `APP_NAME`, `APP_WINDOW_TITLE`, `APP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
+| `APP_UI_FONT`, `APP_UI_FONT_SIZE`, `APP_UI_SCALE`, `APP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
 
 ```cpp
 Texture2D tex = LoadTexture(RESOURCES_PATH "player.png");  // raw path form
@@ -454,6 +469,246 @@ Call them from wherever your drawing actually lives, including another file. The
 its own pair, so `SmokeTest_CaptureFrame()` in a second `.cpp` read a budget nothing had set,
 returned immediately, and the render gate went silent — leaving CI passing a blank screen with no
 sign anything was wrong.
+
+---
+
+## `rmp::ui` — the interface layer
+
+Immediate mode: you describe the interface during the frame that shows it, and there is no widget
+tree to keep, no objects to create and destroy, no state of ours to synchronise with state of
+yours. What persists is your data; what is rebuilt every frame is the picture.
+
+```cpp
+rmp::ui::begin();
+if (rmp::ui::button("Play"))    play();
+if (rmp::ui::button("Options")) options();
+if (rmp::ui::button("Quit"))    quit();
+rmp::ui::end();
+```
+
+That is a centred main menu that holds up from 800×600 to 4K. The rest of this section is what to
+reach for when the default is not what you want.
+
+### The three rules
+
+1. **`end()` draws.** The pair goes inside `BeginDrawing()`/`EndDrawing()`, and before
+   `SmokeTest_CaptureFrame()` if you keep the CI hook.
+2. **One UI frame per game frame.** A second `begin()` without an `end()` warns and is ignored.
+3. **Interaction uses the previous frame's geometry.** A button cannot be clicked on the first
+   frame it appears — see [Why one frame behind](#why-one-frame-behind).
+
+### The frame
+
+```cpp
+struct frame_options {
+    align placement = align::center;   // where the root's content sits
+    float gap       = -1;              // between children; -1 = the theme's
+    float padding   = -1;              // inside the root;  -1 = the theme's
+};
+
+void begin();
+void begin(const frame_options &o);
+void end();
+```
+
+`align` has the nine you would expect: `top_left`, `top_center`, `top_right`, `center_left`,
+`center`, `center_right`, `bottom_left`, `bottom_center`, `bottom_right`.
+
+The default is `center` and that is deliberate. A plain top-to-bottom layout would put a menu in
+the top-left corner, and then "a menu is three functions" would be a lie.
+
+### Widgets
+
+```cpp
+bool button(std::string_view label);
+bool button(std::string_view label, const button_options &o);
+
+void text(std::string_view s);
+void text(std::string_view s, const text_options &o);
+```
+
+```cpp
+struct button_options {
+    variant     style   = variant::normal;   // normal | primary | danger
+    bool        enabled = true;
+    const char *id      = nullptr;
+};
+
+struct text_options {
+    color_role color = color_role::text;     // text | muted | primary | danger
+    float      size  = -1;                   // -1 = the theme's font_size
+    bool       wrap  = true;
+};
+```
+
+`button` returns `true` on the frame the pointer is **released over it**, having been pressed on
+it. Drag off and let go and nothing happens, which is what every interface worth using does.
+
+`variant` is semantic on purpose. `variant::danger` says what the button *is*; the theme decides
+what red means. Restyling a game then never involves revisiting call sites.
+
+```cpp
+rmp::ui::button("Delete save", { .style = rmp::ui::variant::danger });
+rmp::ui::text("Paused", { .color = rmp::ui::color_role::muted, .size = 32 });
+```
+
+### Strings are copied
+
+`std::string_view` accepts a literal, a `std::string`, or a temporary — and the text is copied into
+a per-frame arena the moment you pass it. So this is correct:
+
+```cpp
+rmp::ui::text(std::to_string(score));
+```
+
+It matters because the layout engine underneath keeps pointers to text and reads them later, during
+`end()`. Without the copy that temporary would be long gone, and the bug would be the kind that
+only shows up in a release build. There is nothing to remember here; it is written down because
+the absence of a rule is worth knowing about.
+
+### Scale — how "responsive" is actually implemented
+
+Layout happens in pixels, and pixels are not a unit you can design in: a 40 px button is 6.7 % of a
+600 px screen and 1.9 % of a 2160 px one. So every metric in the theme is in **design units**, and
+everything is multiplied by one number before it is drawn:
+
+```
+scale = clamp( min( width / APP_WINDOW_WIDTH, height / APP_WINDOW_HEIGHT ), 0.5, 4.0 )
+```
+
+`APP_WINDOW_WIDTH/HEIGHT` come from `[window]` in `raylib_multiplatform.toml`, which gives that
+block a second and more useful meaning: **it is the resolution you are designing for**. Declare
+800×450 and the UI is drawn as if for 800×450, whatever the window turns out to be.
+
+`min()` and not `max()`: what does not fit is worse than what is left over, so the tighter axis
+wins and the interface stays on screen. On a 3840×480 window the height decides.
+
+The clamps stop the two absurd ends — a window too small to read, and a monitor big enough to turn
+a button into a billboard.
+
+```cpp
+float rmp::ui::scale();          // what it is right now
+void  rmp::ui::set_scale(float); // pin it; 0 goes back to automatic
+```
+
+Pinning it is how you would build an "interface size" option in a settings menu.
+
+**The built-in font is a bitmap**, so its scale — and only its scale — is rounded to a whole
+number. It steps 1×, 2×, 3× instead of sliding, and stays sharp instead of going blurry. A `.ttf`
+set in `[ui] font` rasterises at any size, so it keeps the continuous scale and is re-baked when
+the size it is asked for changes.
+
+### Theme
+
+Plain data, no logic, no inheritance, no cascade:
+
+```cpp
+rmp::ui::theme t = rmp::ui::current_theme();
+t.primary       = GOLD;
+t.corner_radius = 0;
+rmp::ui::set_theme(t);
+```
+
+Colours use raylib's `Color`, because you already have `RED` and `CLITERAL` and a second colour
+type would only add conversions. Every metric — `font_size`, `padding_x`, `padding_y`, `gap`,
+`panel_padding`, `corner_radius`, `border_width`, `min_touch_size` — is in design units.
+
+`min_touch_size` (44 by default) is the floor on a control's height. It is Apple's touch-target
+guidance, close to Material's 48 dp, and it is the difference between a menu you can use with a
+thumb and one you cannot. Four of the fourteen targets are touch screens.
+
+States are handled for you: `normal`, `hovered`, `pressed`, `disabled`. You never ask where the
+mouse is.
+
+### Touch
+
+raylib maps touch to the mouse, so a menu works on Android and iOS with no extra code. Two
+adjustments happen underneath:
+
+- **Hover is suppressed when nothing is touching the screen.** A touch device has no pointer at
+  rest, so the last place tapped would otherwise stay lit up forever.
+- **The safe area is reserved** at the root. `[android.display] into_cutout = true` draws the game
+  behind the notch — right for a background, wrong for a menu. The current inset is a conservative
+  approximation; real per-device insets need platform code and are a later job.
+
+### Configuration
+
+```toml
+[ui]
+font         = ""    # "" = raylib's built-in font, or a .ttf in resources/
+font_size    = 20    # design units, i.e. at the [window] resolution
+scale        = 0     # 0 = automatic
+max_elements = 512   # ceiling on the UI tree; it sizes the layout arena
+```
+
+The font goes through `rmp::assets::load_font`, so one packed into the `.rres` works exactly like
+a loose one. If it is missing, the UI says so once and falls back to the built-in font — a missing
+font must not switch off the interface.
+
+`max_elements` is what sizes the arena, and 512 is generous for menus and HUDs. The engine's own
+default is 8192, which would reserve megabytes for three buttons.
+
+### Why one frame behind
+
+When `button("Play")` has to return true or false, this frame's layout does not exist yet — it is
+computed in `end()`. So the hit test uses the rectangle that button had **last** frame.
+
+Two consequences, both acceptable: the first frame a button appears it cannot be clicked (16 ms at
+60 fps), and while the interface is moving the sensitive area trails what you see by one frame.
+
+The engine documents a fix — run the layout twice per frame — and it is **deliberately not used**.
+It would mean running your code twice, so a `score++` inside the UI block would count double. One
+frame of lag is far cheaper than that class of surprise.
+
+### What is underneath, and why you cannot see it
+
+The layout engine is [Clay](https://github.com/nicbarker/clay), vendored at `thirdparty/clay/`
+under the zlib licence. It is held to one rule: **no Clay type, macro or enum appears anywhere
+under `include/`.** The public API takes `std::string_view` and raylib's own types, so the engine
+can be replaced without any of your code changing.
+
+The implementation is five files under `src/raylib_multiplatform/ui/`: `clay_impl.cpp` (compiles
+the engine once, same idea as `rres_impl.cpp`), `context.cpp` (start-up, scale, font, the text
+arena, element identity), `widgets.cpp`, `render.cpp` (draw commands into raylib calls) and
+`theme.cpp`.
+
+Two details from that boundary that are worth knowing:
+
+- **Element identity.** Elements are identified by their label, which would make two "Back" buttons
+  in two different screens the same element — hover one, both light up. Ids carry an occurrence
+  counter, so identical labels in one frame are told apart automatically. When the UI is
+  conditional and elements come and go, pass an explicit `.id`.
+- **Start-up and shutdown.** The UI starts itself on the first `begin()`, because
+  `rmp::assets::init()` runs before `InitWindow()` and a font is a GPU texture. It shuts down
+  *before* `_exit()`, because `_exit()` is where you call `CloseWindow()` and releasing a font
+  after that is touching a context that no longer exists. Neither is yours to call.
+
+### Testing layout without a window
+
+`tests/ui_layout_test.cpp` runs the real `begin/button/text/end` with the text measurement, the
+pointer and the viewport injected. No window, no GL context, no display:
+
+```bash
+cmake --preset debug -DBUILD_UI_TESTS=ON
+cmake --build build --target ui_layout_test && ./build/ui_layout_test
+```
+
+It checks the menu is centred at four resolutions, that buttons do not overlap and share a width,
+that none is shorter than `min_touch_size`, that nothing leaves the screen, and that the scale
+clamps at both ends. Those are the things a person verifies once by hand and then never again.
+
+### What is not here yet
+
+`row`, `column`, `panel`, `center`, `stack`, `spacer`, `image`, `progress`, `grid`, `scroll`,
+`checkbox`, `slider`, text input, focus, keyboard and gamepad navigation. Containers will take a
+lambda for their contents, so the compiler enforces the nesting:
+
+```cpp
+rmp::ui::row([]{
+    rmp::ui::button("Yes");
+    rmp::ui::button("No");
+});
+```
 
 ---
 
