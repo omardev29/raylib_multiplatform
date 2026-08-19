@@ -24,9 +24,11 @@ covers the template's own features.
   deliberate exception — it is what you copy over `src/` if you want none of
   the above.
 - Everything the template offers comes from one header,
-  `<raylib_multiplatform.h>`. There is nothing else to include.
+  `<raylib_multiplatform.h>`. There is nothing else to include — it is an
+  umbrella over `include/raylib_multiplatform/`, which you never include from
+  directly.
 - `<admob.h>` is safe everywhere (no-op off Android, no `#ifdef` needed).
   `<raymob.h>` only declares its functions on Android, so guard those calls
   with `#ifdef __ANDROID__`.
-- Replace the AdMob **test** ids in `raymob/gradle.properties` with your own
-  before publishing.
+- Replace the AdMob **test** ids in `[android.admob]` in
+  `raylib_multiplatform.toml` with your own before publishing.

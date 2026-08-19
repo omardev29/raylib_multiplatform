@@ -60,7 +60,6 @@ endif()
 # Include directories
 target_include_directories(${APP_LIB_NAME} PRIVATE
     "${USER_INCLUDE_DIR}"
-    "${USER_INCLUDE_DIR}/generated"
     "${RAYLIB_DIR}/src"
     "${RAYMOB_DIR}"
     "${USER_ROOT_DIR}/thirdparty/rres"

@@ -158,7 +158,6 @@ message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 
 target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/generated/"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"

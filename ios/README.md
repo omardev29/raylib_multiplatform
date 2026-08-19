@@ -53,7 +53,7 @@ For a **device** build, set a development team / signing identity and use
 
 - **Resources:** `RESOURCES_PATH` is `./resources/` here, and the process does
   not start inside the bundle — iOS launches it in the app container. `IOS_FUNCS`
-  in `include/raylib_multiplatform.h` handles that with a
+  in `include/raylib_multiplatform/lifecycle.h` handles that with a
   `ChangeDirectory(GetApplicationDirectory())` before anything loads, so the
   relative path resolves against the `.app`. Write to
   `GetIOSDocumentsPath()` instead if you need somewhere writable; the bundle is

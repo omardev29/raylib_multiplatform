@@ -33,9 +33,20 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 ├── CMakePresets.json         # debug / release / web profiles
 ├── src/                      # YOUR code. Every .cpp/.c here is auto-compiled (GLOB_RECURSE).
 │   ├── main.cpp              # your game
-│   └── raylib_multiplatform.cpp  # THE template's implementation: rres + assets::
+│   └── raylib_multiplatform/ # THE template's implementation — not yours
+│       ├── internal.h        #   private surface, deliberately not in include/
+│       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
+│       ├── pack.cpp          #   open/close resources.rres, read one entry
+│       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
+│       └── assets.cpp        #   assets:: — the public surface, with the loose-file fallback
 ├── include/                  # YOUR headers (already on the include path)
-│   └── raylib_multiplatform.h    # THE template's header: assets:: + lifecycle macros
+│   ├── raylib_multiplatform.h    # THE template's header — the umbrella you include
+│   └── raylib_multiplatform/ # its parts, split by concern — not yours
+│       ├── platform.h        #   raymob / admob / smoke_test wiring
+│       ├── colors.h          #   a couple of colors raylib does not ship
+│       ├── assets.h          #   the assets:: declarations
+│       ├── lifecycle.h       #   RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY + IOS_FUNCS
+│       └── generated/        #   GENERATED app_config.h, git-ignored
 ├── examples/main.c           # the opt-out: plain C, <raylib.h> only, your own main()
 ├── tests/smoke_test.h        # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
 ├── resources/                # Your assets (flat — the pack does not recurse)
@@ -66,7 +77,8 @@ How this template works, in depth. For the quick-start see [README.md](README.md
     └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
 
-**Generated, and never committed** — `cmake/generated/`, `include/generated/app_config.h`,
+**Generated, and never committed** — `cmake/generated/`,
+`include/raylib_multiplatform/generated/app_config.h`,
 `raymob/generated.properties`, `ios/project.yml`, `ios/Assets.xcassets/` and the Android
 `mipmap-*` icons. They are rebuilt from `raylib_multiplatform.toml` on every configure, which is
 why they cannot drift out of sync with it. `cmake --preset debug` produces all of them; Gradle and
@@ -154,7 +166,7 @@ Two families of macros are available, and they answer different questions:
 | `PLATFORM_IOS` | iOS | `ios/project.yml` (`GCC_PREPROCESSOR_DEFINITIONS`) |
 
 Example — this is exactly how the entry-point macro picks the runner, and how
-`include/raylib_multiplatform.h` pulls in `<raymob.h>`:
+`include/raylib_multiplatform/platform.h` pulls in `<raymob.h>`:
 
 ```cpp
 #if defined(PLATFORM_IOS)
@@ -380,7 +392,7 @@ subfolder in `resources/`. If you need one anyway, extend the `package/` step in
 
 Password: `[resources] rres_password` in `raylib_multiplatform.toml`, which reaches both sides from
 one place — `RRES_PACK_PASSWORD` for the packer and `APP_RRES_PASSWORD` in
-`include/generated/app_config.h` for the game. (They used to be two hardcoded literals in
+`include/raylib_multiplatform/generated/app_config.h` for the game. (They used to be two hardcoded literals in
 `CMakeLists.txt` and the asset layer; desynchronising them broke loading at runtime only.)
 
 > **This is obfuscation, not security.** The password is a string inside a binary you hand to the
@@ -407,7 +419,8 @@ A small platform runner drives them:
 
 This is what lets the **same game code** run on every platform, including iOS.
 
-`RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY` in `include/raylib_multiplatform.h` is that runner. It also
+`RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY` in `include/raylib_multiplatform/lifecycle.h` is that
+runner. It also
 brackets your three hooks with `assets::Init()` before `_ready()` and `assets::Shutdown()` after
 `_exit()`, so opening the resource pack is not something `src/main.cpp` has to remember — and so
 that rewriting `main.cpp` from scratch cannot accidentally drop it.

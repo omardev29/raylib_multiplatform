@@ -9,15 +9,17 @@
 //
 // To use it:
 //
-//     rm src/main.cpp src/raylib_multiplatform.cpp   # yes, both
+//     rm -r src/main.cpp src/raylib_multiplatform/   # yes, both
 //     cp examples/main.c src/
 //     cmake --preset debug && cmake --build build
 //
 // src/ is globbed by all four build systems (CMake, the Android CMakeLists,
 // XcodeGen, Emscripten), so nothing else needs editing. Delete
-// src/raylib_multiplatform.cpp too or you will link two main()s — it does not
+// src/raylib_multiplatform/ too or you will link two main()s — it does not
 // define one itself, but it is the other half of a header you are no longer
-// using, and it drags rres in for nothing.
+// using, and it drags rres in for nothing. include/raylib_multiplatform.h and
+// include/raylib_multiplatform/ can go with it; nothing includes them once
+// src/main.cpp is gone.
 //
 // What you give up, and what replaces it:
 //
@@ -26,9 +28,11 @@
 //                              pack_resources target; a release built with a
 //                              pack ships resources.rres and nothing else, and
 //                              raw raylib cannot read it. (That is what
-//                              src/raylib_multiplatform.cpp was teaching it.)
-//   APP_WINDOW_TITLE, ...  ->  #include <generated/app_config.h> if you want
-//                              them; they are plain #defines and work in C.
+//                              src/raylib_multiplatform/ was teaching it.)
+//   APP_WINDOW_TITLE, ...  ->  #include <raylib_multiplatform/generated/app_config.h>
+//                              if you want them; they are plain #defines and
+//                              work in C. Keeping that one generated header
+//                              costs you nothing else.
 //   the smoke-test hooks   ->  see below. CI checks for those two log lines and
 //                              fails the build without them.
 //

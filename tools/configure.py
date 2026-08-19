@@ -248,7 +248,7 @@ APPID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 BUNDLE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$")
 
 PROTECTED_MODULES = {
-    "rtextures": "the asset layer (src/raylib_multiplatform.cpp), the rres loader and the CI render gate "
+    "rtextures": "the asset layer (src/raylib_multiplatform/), the rres loader and the CI render gate "
                  "(tests/smoke_test.h calls LoadImageFromScreen) are all built on it",
     "rtext":     "rres-raylib.h calls TextLength from a code path that is always live, so no "
                  "amount of --gc-sections will drop it",
@@ -633,7 +633,7 @@ set(TEMPLATE_RRES_PASSWORD "{cmake_escape(cfg['resources']['rres_password'])}")
 
 def gen_app_config(cfg: dict) -> None:
     w = cfg["window"]
-    write(REPO / "include" / "generated" / "app_config.h", f"""/* {GEN_HEADER} */
+    write(REPO / "include" / "raylib_multiplatform" / "generated" / "app_config.h", f"""/* {GEN_HEADER} */
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
@@ -754,7 +754,7 @@ targets:
       - path: ../include
       # Folder reference (not a group): the whole directory is copied into the
       # bundle as `resources/`, so RESOURCES_PATH="./resources/" resolves once
-      # the app chdir's to its bundle (see IOS_FUNCS in raylib_multiplatform.h).
+      # the app chdir's to its bundle (see IOS_FUNCS in raylib_multiplatform/lifecycle.h).
       # Without this the app builds and boots but every LoadTexture returns 0x0.
       - path: ../resources
         type: folder

@@ -31,10 +31,12 @@ That is the list. You do **not** edit CMakeLists.txt to rename your game, or `gr
 for Android, or `project.yml` for iOS, or any workflow file to choose platforms. Those are
 generated from the config on every build, which is why they cannot drift out of sync with it.
 
-Two files in there are the template's, not yours: `include/raylib_multiplatform.h` and
-`src/raylib_multiplatform.cpp`. They are the only ones, and you can delete both — see
-[`examples/main.c`](examples/main.c), which is a plain C entry point that keeps the fourteen build
-targets and none of the runtime layer.
+Three paths in there are the template's, not yours, and they all carry the same name so you can
+tell at a glance: `include/raylib_multiplatform.h` (the only header you include),
+`include/raylib_multiplatform/` (its parts, and the generated config) and
+`src/raylib_multiplatform/` (the implementation). Everything else under `src/` and `include/` is
+yours. You can delete all three — see [`examples/main.c`](examples/main.c), which is a plain C
+entry point that keeps the fourteen build targets and none of the runtime layer.
 
 `branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
 has to agree with it, so `art/logo.png` is just as valid. If the file is missing the build warns
@@ -200,7 +202,7 @@ AdMob, and adding third-party libraries.
 
 [`examples/main.c`](examples/main.c) is a complete entry point that includes only `<raylib.h>` — no
 template header, no `assets::`, your own `main()`. Copy it over `src/`, delete
-`src/raylib_multiplatform.cpp`, and you keep the fourteen build targets, the pinned toolchains, the
+`src/raylib_multiplatform/`, and you keep the fourteen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
 raylib cannot read, and iOS, whose entry point the macro exists to provide.
 
@@ -401,8 +403,8 @@ src/main.cpp                your game
 resources/                  your assets — flat, the pack does not recurse
 branding/icon.png           the source for every app icon on every platform
 include/raylib_multiplatform.h
-src/raylib_multiplatform.cpp
-                            the template's two files. Not yours; deletable.
+include/raylib_multiplatform/
+src/raylib_multiplatform/   the template's own code. Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tools/configure.py          turns the config into build files
 cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
