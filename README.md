@@ -179,10 +179,10 @@ remember.
 Put files in `resources/` and load them by name:
 
 ```cpp
-Texture2D tex = assets::LoadTexture("player.png");
-Sound     sfx = assets::LoadSound("jump.wav");
-Font      f   = assets::LoadFont("ui.ttf", 32);
-unsigned char *lvl = assets::LoadData("level1.json", &size);
+Texture2D tex = rmp::assets::load_texture("player.png");
+Sound     sfx = rmp::assets::load_sound("jump.wav");
+Font      f   = rmp::assets::load_font("ui.ttf", 32);
+unsigned char *lvl = rmp::assets::load_data("level1.json", &size);
 ```
 
 `cmake --build build --target pack_resources` bundles everything into one AES-encrypted
@@ -192,7 +192,7 @@ You do **not** need the paid rrespacker tool; `tools/rres_pack.c` does the packi
 
 **Plain raylib works too.** `LoadTexture(RESOURCES_PATH "player.png")`, `LoadModel`, `LoadShader`
 — all of them read the pack, because opening it also routes raylib's own file loading through it.
-`assets::` is the shorter spelling, not a requirement, and mixing the two is fine.
+`rmp::assets::` is the shorter spelling, not a requirement, and mixing the two is fine.
 
 Two things stay outside that, and both are raylib's design rather than a gap here:
 
@@ -208,7 +208,7 @@ AdMob, and adding third-party libraries.
 ### If you would rather write plain C
 
 [`examples/main.c`](examples/main.c) is a complete entry point that includes only `<raylib.h>` — no
-template header, no `assets::`, your own `main()`. Copy it over `src/`, delete
+template header, no `rmp::assets::`, your own `main()`. Copy it over `src/`, delete
 `src/raylib_multiplatform/`, and you keep the fourteen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
 raylib cannot read, and iOS, whose entry point the macro exists to provide.

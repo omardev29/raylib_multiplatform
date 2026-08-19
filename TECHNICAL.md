@@ -9,7 +9,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Editor / clangd (LSP)](#editor--clangd-lsp)
 - [Compile-time definitions](#compile-time-definitions)
 - [Platform detection macros](#platform-detection-macros)
-- [Resources: `RESOURCES_PATH`, `assets::` and rres](#resources-resources_path-assets-and-rres)
+- [Resources: `RESOURCES_PATH`, `rmp::assets` and rres](#resources-resources_path-rmpassets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
@@ -38,13 +38,13 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
-│       └── assets.cpp        #   assets:: — the public surface, with the loose-file fallback
+│       └── assets.cpp        #   rmp::assets:: — the public surface, with the loose-file fallback
 ├── include/                  # YOUR headers (already on the include path)
 │   ├── raylib_multiplatform.h    # THE template's header — the umbrella you include
 │   └── raylib_multiplatform/ # its parts, split by concern — not yours
 │       ├── platform.h        #   raymob / admob / smoke_test wiring
 │       ├── colors.h          #   a couple of colors raylib does not ship
-│       ├── assets.h          #   the assets:: declarations
+│       ├── assets.h          #   the rmp::assets:: declarations
 │       ├── lifecycle.h       #   RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY + IOS_FUNCS
 │       └── generated/        #   GENERATED app_config.h, git-ignored
 ├── examples/main.c           # the opt-out: plain C, <raylib.h> only, your own main()
@@ -218,7 +218,7 @@ Example — this is exactly how the entry-point macro picks the runner, and how
 
 ---
 
-## Resources: `RESOURCES_PATH`, `assets::` and rres
+## Resources: `RESOURCES_PATH`, `rmp::assets` and rres
 
 ### The problem this solves
 
@@ -238,7 +238,7 @@ A compile-time string, defined in `CMakeLists.txt`:
 | Development | absolute path to `<repo>/resources/` — run the binary from any CWD |
 | `PRODUCTION_BUILD=ON` | `"./resources/"` — relative to the executable, which is how the packages are laid out |
 
-Always build your paths from it (`assets::` does this for you). A bare `"resources/foo.png"`
+Always build your paths from it (`rmp::assets::` does this for you). A bare `"resources/foo.png"`
 works in dev and silently fails in a release.
 
 ### 2. rres — one file instead of a folder
@@ -267,20 +267,20 @@ What it writes, per file:
 | compression | `RRES_COMP_NONE` |
 | cipher | AES-256-CTR, key = Argon2i(password, salt), + MD5 of the plaintext |
 
-Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `assets::` can resolve
+Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `rmp::assets::` can resolve
 a name to an id without knowing the password up front.
 
 The packer emits standard rres containers, so the official rrespacker can open them — but nothing
 in this template requires it.
 
-### Why `assets::Init()` exists
+### Why `rmp::assets::init()` exists
 
-`assets::Init()` (called for you by `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY`, before `_ready()`) does
+`rmp::assets::init()` (called for you by `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY`, before `_ready()`) does
 four things that have to happen exactly once:
 
 1. **Decides which mode you are in.** It looks for `resources/resources.rres`. Found → pack mode.
    Not found → loose-file mode. This is why packing needs no code change: the same
-   `assets::LoadTexture("player.png")` call works both ways, and you can iterate all day on loose
+   `rmp::assets::load_texture("player.png")` call works both ways, and you can iterate all day on loose
    files and pack only when you build a release.
 2. **Loads the central directory into memory**, once. Without it there is no name→id mapping, and
    the ids are CRC32 hashes — not something you can compute by looking at the container. Reloading
@@ -316,20 +316,20 @@ Three details make the hook safe rather than clever:
   `.obj` or `.gltf` refers to — the `.mtl`, the `.bin` buffers, the textures named inside the
   material — through the same two functions. Hooking those two hooks the whole chain.
 
-`assets::Shutdown()` unhooks and frees the directory. Calling `Init()` twice is a no-op.
+`rmp::assets::shutdown()` unhooks and frees the directory. Calling `Init()` twice is a no-op.
 
 ### What you actually get
 
 ```cpp
-Texture2D      assets::LoadTexture(const char *name);
-Image          assets::LoadImage  (const char *name);
-Sound          assets::LoadSound  (const char *name);
-Font           assets::LoadFont   (const char *name, int fontSize);
-unsigned char *assets::LoadData   (const char *name, int *size);   // free with UnloadFileData
-bool           assets::UsingPack();
+Texture2D      rmp::assets::load_texture(const char *name);
+Image          rmp::assets::load_image  (const char *name);
+Sound          rmp::assets::load_sound  (const char *name);
+Font           rmp::assets::load_font   (const char *name, int fontSize);
+unsigned char *rmp::assets::load_data   (const char *name, int *size);   // free with UnloadFileData
+bool           rmp::assets::using_pack();
 ```
 
-`name` is the **bare file name** — `assets::LoadSound("jump.wav")`. Not a path. `tools/rres_pack.c`
+`name` is the **bare file name** — `rmp::assets::load_sound("jump.wav")`. Not a path. `tools/rres_pack.c`
 stores every entry under its basename and the CMake glob does not recurse, so `resources/sfx/` is
 not packed at all and there is nothing for a nested name to resolve to. See the subfolder note
 below.
@@ -344,12 +344,12 @@ Everything directly in the folder is packed — the packer does not filter by ty
 
 | You put in `resources/` | Load it with | Notes |
 |---|---|---|
-| `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | `assets::LoadTexture` / `LoadImage`, or plain `LoadTexture` | the extension in props tells raylib which decoder to use |
-| `.wav .ogg .mp3 .flac .qoa .xm .mod` | `assets::LoadSound` | short sounds; fully decoded into RAM |
-| `.ttf .otf` | `assets::LoadFont(name, size)` | size is baked at load time, as always in raylib |
+| `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | `rmp::assets::load_texture` / `LoadImage`, or plain `LoadTexture` | the extension in props tells raylib which decoder to use |
+| `.wav .ogg .mp3 .flac .qoa .xm .mod` | `rmp::assets::load_sound` | short sounds; fully decoded into RAM |
+| `.ttf .otf` | `rmp::assets::load_font(name, size)` | size is baked at load time, as always in raylib |
 | `.obj .mtl .gltf .glb .bin .iqm .vox .m3d` | plain `LoadModel(RESOURCES_PATH "…")` | works through the loader hook, siblings included — keep them all directly in `resources/` |
 | `.vs .fs .glsl` | plain `LoadShader(RESOURCES_PATH "…")` | also hooked; `LoadShaderFromMemory` if you prefer |
-| `.json .txt .csv` and anything else | `assets::LoadData` | you get the bytes |
+| `.json .txt .csv` and anything else | `rmp::assets::load_data` | you get the bytes |
 | **long music** (`.ogg/.mp3` streamed) | see below | the one real exception |
 
 ### The two things that stay outside the pack
@@ -360,7 +360,7 @@ not go through `LoadFileData`: `raudio.c` hands the file name straight to `drwav
 music stream is that it is *not* fully in memory, so there is nothing for the hook to intercept.
 (`LoadMusicStreamFromMemory` exists in recent raylib, but it requires you to keep the whole encoded
 buffer alive for the lifetime of the stream, which defeats the purpose. Short sound effects have no
-such problem — use `assets::LoadSound`.)
+such problem — use `rmp::assets::load_sound`.)
 
 **Subfolders.** `file(GLOB …)` in `CMakeLists.txt` does not recurse and resource names are flat, so
 nothing inside `resources/art/` is packed.
@@ -389,7 +389,7 @@ subfolder in `resources/`. If you need one anyway, extend the `package/` step in
 > The pack is also never used on **Android**, whatever you do. rres opens the container with plain
 > `fopen`, and inside an APK there is no such file — raylib reaches its assets through
 > `AAssetManager`, which only its own internal `fopen` redirect knows about. `FileExists` returns
-> false, `assets::Init()` reports loose-file mode, and the loose files are there because the
+> false, `rmp::assets::init()` reports loose-file mode, and the loose files are there because the
 > Android job copies the whole folder in. Nothing breaks; it just means `[resources]
 > rres_password` buys you nothing on that one platform.
 
@@ -426,7 +426,7 @@ This is what lets the **same game code** run on every platform, including iOS.
 
 `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY` in `include/raylib_multiplatform/lifecycle.h` is that
 runner. It also
-brackets your three hooks with `assets::Init()` before `_ready()` and `assets::Shutdown()` after
+brackets your three hooks with `rmp::assets::init()` before `_ready()` and `rmp::assets::shutdown()` after
 `_exit()`, so opening the resource pack is not something `src/main.cpp` has to remember — and so
 that rewriting `main.cpp` from scratch cannot accidentally drop it.
 
@@ -445,7 +445,7 @@ deleting the call failed the build. Counting failures keeps the check that matte
 shipped a bundle with no `resources/` in it and every texture came back 0x0 — while a game that
 requests nothing fails nothing and passes.
 
-Only `assets::` calls are counted. The loader hook sees raylib's internal probing as well, such as
+Only `rmp::assets::` calls are counted. The loader hook sees raylib's internal probing as well, such as
 an `.obj` looking for a `.mtl` that legitimately is not there, and counting those would turn a
 working build red.
 
@@ -459,14 +459,18 @@ sign anything was wrong.
 
 ## AdMob (Android)
 
-Interstitial + rewarded ads via raymob. Include `<admob.h>` and call the API — it's **real on
-Android** and a **no-op on every other platform**, so no `#ifdef`s in your game code.
+Interstitial + rewarded ads. The API is `rmp::ads`, and it arrives with
+`<raylib_multiplatform.h>` — **real on Android**, a **no-op on every other platform**, so no
+`#ifdef`s in your game code.
 
 | Function | Purpose |
 |---|---|
-| `RequestInterstitialAd()` / `IsInterstitialAdLoaded()` / `ShowInterstitialAd()` | interstitial |
-| `RequestRewardedAd()` / `IsRewardedAdLoaded()` / `ShowRewardedAd()` | rewarded |
-| `TakeRewardEarned()` (returns once & clears) + `GetRewardAmount()` | poll the reward |
+| `rmp::ads::request_interstitial()` / `is_interstitial_loaded()` / `show_interstitial()` | interstitial |
+| `rmp::ads::request_rewarded()` / `is_rewarded_loaded()` / `show_rewarded()` | rewarded |
+| `rmp::ads::take_reward_earned()` (true once, then clears) + `reward_amount()` | poll the reward |
+
+They are `inline` wrappers over the C functions in `<admob.h>`, which stay where they are: that
+header is the real JNI boundary, and the pure-C entry point has no namespaces to call into.
 
 Configuration is in `raylib_multiplatform.toml`:
 

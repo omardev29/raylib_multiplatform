@@ -34,24 +34,24 @@
        RESOURCES_PATH would resolve to nothing and every asset would silently  \
        load as 0x0. GetApplicationDirectory() is the .app root on iOS, which   \
        is exactly where bundle resources live. This has to happen before       \
-       assets::Init(), which looks for the pack along that same path. */       \
+       rmp::assets::init(), which looks for the pack along that same path. */       \
     SmokeTest_Begin();                                                         \
     ChangeDirectory(GetApplicationDirectory());                                \
-    assets::Init();                                                            \
+    rmp::assets::init();                                                            \
     _ready();                                                                  \
-    SmokeTest_ReportBoot(assets::FailedLoads(), assets::RequestedLoads());     \
+    SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());     \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
     if (SmokeTest_Tick()) {                                                    \
       _exit();                                                                 \
-      assets::Shutdown();                                                      \
+      rmp::assets::shutdown();                                                      \
       exit(0);                                                                 \
     }                                                                          \
   }                                                                            \
   extern "C" void ios_destroy() {                                              \
     _exit();                                                                   \
-    assets::Shutdown();                                                        \
+    rmp::assets::shutdown();                                                        \
   }
 
 // Main loop body macro
@@ -61,16 +61,16 @@
 #define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY                                    \
   int main() {                                                                 \
     SmokeTest_Begin();                                                         \
-    assets::Init();                                                            \
+    rmp::assets::init();                                                            \
     _ready();                                                                  \
-    SmokeTest_ReportBoot(assets::FailedLoads(), assets::RequestedLoads());     \
+    SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());     \
     int smokeDone = 0;                                                         \
     while (!WindowShouldClose() && !smokeDone) {                               \
       _process(GetFrameTime());                                                \
       smokeDone = SmokeTest_Tick();                                            \
     }                                                                          \
     _exit();                                                                   \
-    assets::Shutdown();                                                        \
+    rmp::assets::shutdown();                                                        \
     return 0;                                                                  \
   }
 #endif

@@ -30,7 +30,7 @@
 #define RRES_PASSWORD APP_RRES_PASSWORD
 #endif
 
-namespace assets {
+namespace rmp::assets {
 namespace detail {
 
 namespace {
@@ -41,7 +41,7 @@ char g_packPath[2048] = {0};
 
 } // namespace
 
-bool OpenPack() {
+bool open_pack() {
     if (g_usingPack) return true; // idempotent: the lifecycle macro already called it
 
     std::snprintf(g_packPath, sizeof(g_packPath), "%s%s", RESOURCES_PATH, RRES_PACK_FILE);
@@ -63,7 +63,7 @@ bool OpenPack() {
     return true;
 }
 
-void ClosePack() {
+void close_pack() {
     if (!g_usingPack) return;
     rresUnloadCentralDirectory(g_cdir);
     g_cdir.count = 0;
@@ -71,9 +71,9 @@ void ClosePack() {
     g_usingPack = false;
 }
 
-bool PackIsOpen() { return g_usingPack; }
+bool pack_is_open() { return g_usingPack; }
 
-unsigned char *PackRead(const char *name, int *size) {
+unsigned char *pack_read(const char *name, int *size) {
     if (size != nullptr) *size = 0;
     if (!g_usingPack || name == nullptr) return nullptr;
 
@@ -100,13 +100,13 @@ unsigned char *PackRead(const char *name, int *size) {
 
 // Images are the one thing the pack can hold as a *decoded* resource rather
 // than as the original file: rrespacker stores them as an IMGE chunk, and rres
-// gives us back an Image directly. So this cannot go through PackRead(), which
+// gives us back an Image directly. So this cannot go through pack_read(), which
 // hands out bytes. Everything else (sounds, fonts, raw data) is stored
 // verbatim and is loaded from memory by the caller.
 //
 // Returns a zeroed Image if the name is not packed or does not decode; the
 // caller falls back to the loose file.
-Image PackReadImage(const char *name) {
+Image pack_read_image(const char *name) {
     Image img = {0};
     if (!g_usingPack || name == nullptr) return img;
 
@@ -137,4 +137,4 @@ Image PackReadImage(const char *name) {
 }
 
 } // namespace detail
-} // namespace assets
+} // namespace rmp::assets

@@ -8,7 +8,7 @@
 //   cmake --build build --target pack_resources     # -> resources/resources.rres
 //   cmake --build build --target unpack_resources   # back to loose files
 //
-// Note what is missing: there is no assets::Init() call anywhere below. The
+// Note what is missing: there is no rmp::assets::init() call anywhere below. The
 // entry point macro opens the pack before _ready() and closes it after
 // _exit(), so there is nothing to remember and nothing to get wrong.
 //
@@ -28,13 +28,13 @@ inlining void _ready() {
 
     // Load by resource name — no path, no extension guessing, and no #ifdef
     // for "did this build get a pack or not".
-    player = assets::LoadTexture("rabbit.png");
-    ui     = assets::LoadFont("ui.ttf", 20);
-    jump   = assets::LoadSound("jump.wav");
+    player = rmp::assets::load_texture("rabbit.png");
+    ui     = rmp::assets::load_font("ui.ttf", 20);
+    jump   = rmp::assets::load_sound("jump.wav");
 
     // Anything else, as bytes. Free it with UnloadFileData().
     int size = 0;
-    unsigned char *level = assets::LoadData("level1.json", &size);
+    unsigned char *level = rmp::assets::load_data("level1.json", &size);
     if (level != nullptr) UnloadFileData(level);
 
     // Plain raylib works too, and reads the pack just the same: opening the
@@ -55,7 +55,7 @@ inlining void _process(float delta) {
     ClearBackground(RAYWHITE);
     DrawTexture(player, GetScreenWidth() / 2 - player.width / 2,
                 GetScreenHeight() / 2 - player.height / 2, WHITE);
-    DrawTextEx(ui, assets::UsingPack() ? "serving from resources.rres"
+    DrawTextEx(ui, rmp::assets::using_pack() ? "serving from resources.rres"
                                        : "serving loose files",
                Vector2{10, 40}, 20, 1, GRAY);
     EndDrawing();

@@ -28,7 +28,7 @@
 #include <cstdlib> // RL_MALLOC/RL_FREE expand to malloc/free; raylib.h does not include this
 #include <cstring>
 
-namespace assets {
+namespace rmp::assets {
 namespace detail {
 
 namespace {
@@ -37,27 +37,27 @@ bool g_hooked = false;
 
 // "./resources/x" and "resources/x" are the same path. raylib builds the
 // second form out of GetDirectoryPath() when an .obj goes looking for its .mtl.
-const char *SkipDotSlash(const char *p) {
+const char *skip_dot_slash(const char *p) {
     while (p[0] == '.' && p[1] == '/') p += 2;
     return p;
 }
 
-unsigned char *HookedLoadFileData(const char *fileName, int *dataSize) {
-    if (fileName != nullptr && InResourcesDir(fileName)) {
-        unsigned char *data = PackRead(GetFileName(fileName), dataSize);
+unsigned char *hooked_load_file_data(const char *fileName, int *dataSize) {
+    if (fileName != nullptr && in_resources_dir(fileName)) {
+        unsigned char *data = pack_read(GetFileName(fileName), dataSize);
         if (data != nullptr) return data;
     }
 
     SetLoadFileDataCallback(nullptr);
     unsigned char *data = ::LoadFileData(fileName, dataSize);
-    SetLoadFileDataCallback(HookedLoadFileData);
+    SetLoadFileDataCallback(hooked_load_file_data);
     return data;
 }
 
-char *HookedLoadFileText(const char *fileName) {
-    if (fileName != nullptr && InResourcesDir(fileName)) {
+char *hooked_load_file_text(const char *fileName) {
+    if (fileName != nullptr && in_resources_dir(fileName)) {
         int size = 0;
-        unsigned char *data = PackRead(GetFileName(fileName), &size);
+        unsigned char *data = pack_read(GetFileName(fileName), &size);
         if (data != nullptr) {
             // LoadFileText's contract is a NUL-terminated string. The pack
             // stores the file byte for byte, without one.
@@ -73,7 +73,7 @@ char *HookedLoadFileText(const char *fileName) {
 
     SetLoadFileTextCallback(nullptr);
     char *text = ::LoadFileText(fileName);
-    SetLoadFileTextCallback(HookedLoadFileText);
+    SetLoadFileTextCallback(hooked_load_file_text);
     return text;
 }
 
@@ -90,9 +90,9 @@ char *HookedLoadFileText(const char *fileName) {
 // on every platform, but nothing stops a Windows user writing
 // RESOURCES_PATH "art\\x.png" — and a miss here sends them to the loose file,
 // which is exactly what a packaged release does not ship.
-bool InResourcesDir(const char *path) {
-    const char *root = SkipDotSlash(RESOURCES_PATH);
-    const char *p = SkipDotSlash(path);
+bool in_resources_dir(const char *path) {
+    const char *root = skip_dot_slash(RESOURCES_PATH);
+    const char *p = skip_dot_slash(path);
     // Android sets RESOURCES_PATH to "" — every asset is at the root of the
     // APK's assets/. No pack is ever open there, so this branch is moot, but
     // an empty prefix matching everything is the right reading of it anyway.
@@ -106,15 +106,15 @@ bool InResourcesDir(const char *path) {
     return true;
 }
 
-void InstallLoaderHook() {
+void install_loader_hook() {
     if (g_hooked) return;
-    SetLoadFileDataCallback(HookedLoadFileData);
-    SetLoadFileTextCallback(HookedLoadFileText);
+    SetLoadFileDataCallback(hooked_load_file_data);
+    SetLoadFileTextCallback(hooked_load_file_text);
     g_hooked = true;
     TraceLog(LOG_INFO, "ASSETS: raylib's own loaders will read the pack too");
 }
 
-void RemoveLoaderHook() {
+void remove_loader_hook() {
     if (!g_hooked) return;
     SetLoadFileDataCallback(nullptr);
     SetLoadFileTextCallback(nullptr);
@@ -122,4 +122,4 @@ void RemoveLoaderHook() {
 }
 
 } // namespace detail
-} // namespace assets
+} // namespace rmp::assets

@@ -12,8 +12,8 @@ int screen_y{};
 // Called once at startup: set config flags, create the window, load assets.
 //
 // The resource pack is already open by the time you get here: the entry point
-// in raylib_multiplatform.h calls assets::Init() before this, and
-// assets::Shutdown() after _exit(). Neither is yours to remember.
+// in raylib_multiplatform.h calls rmp::assets::init() before this, and
+// rmp::assets::shutdown() after _exit(). Neither is yours to remember.
 static inline void _ready() {
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -22,7 +22,7 @@ static inline void _ready() {
 
   // Served from resources.rres when a release packed one, from the loose file
   // in resources/ otherwise. Same call either way.
-  game.img = assets::LoadImage("rabbit.png");
+  game.img = rmp::assets::load_image("rabbit.png");
   game.rabbit = LoadTextureFromImage(game.img);
 }
 
