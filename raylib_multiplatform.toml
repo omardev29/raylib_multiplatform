@@ -130,6 +130,26 @@ disabled_modules = []
 compiler = "clang"   # clang | gcc | default
 linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
 
+[ui]
+# rmp::ui — the interface layer. Nothing here is required: with all four at
+# their defaults a menu is still three lines of code.
+#
+# font       "" uses the font built into raylib: no asset, no licence, works on
+#            all fourteen targets. It is a pixel font, so its scale is rounded
+#            to a whole number and it stays sharp instead of going blurry.
+#            Point it at a .ttf in resources/ for something less retro.
+# font_size  In DESIGN units, i.e. at the [window] resolution above. The UI
+#            scales it from there, so this is a size you pick once.
+# scale      0 = automatic, derived from [window] and the real window size.
+#            Set a number to pin it (an "interface size" option would do this).
+# max_elements  Ceiling on the UI tree; it is what sizes the layout arena.
+#            512 is plenty for menus and HUDs — Clay's own default of 8192
+#            would reserve megabytes for three buttons.
+font         = ""
+font_size    = 20
+scale        = 0
+max_elements = 512
+
 [resources]
 # Obfuscation, not security: the password ends up inside the binary. It exists
 # so casual unpacking of your assets is inconvenient, nothing more.

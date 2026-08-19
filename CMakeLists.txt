@@ -215,6 +215,32 @@ if(_PACK_SUBDIRS AND PRODUCTION_BUILD)
     "yourself. See TECHNICAL.md, \"Resources\".")
 endif()
 
+# --- Headless UI layout test ------------------------------------------------
+# Off by default: it is a developer tool, not part of a game build. The layout
+# runs with the text measurement, the pointer and the viewport all injected, so
+# it needs no window, no GL context and no display — which is what lets it run
+# in a container.
+#
+#   cmake --preset debug -DBUILD_UI_TESTS=ON
+#   cmake --build build --target ui_layout_test && ./build/ui_layout_test
+option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
+if(BUILD_UI_TESTS)
+  file(GLOB UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/raylib_multiplatform/ui/*.cpp")
+  add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp" ${UI_SOURCES})
+  set_property(TARGET ui_layout_test PROPERTY CXX_STANDARD 20)
+  target_include_directories(ui_layout_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  )
+  # raylib is linked but never asked to open anything: MeasureTextEx and the
+  # drawing calls are all behind the injected seams.
+  target_compile_definitions(ui_layout_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
+  target_link_libraries(ui_layout_test PRIVATE raylib_static)
+endif()
+
 # Remove the generated pack (e.g. to fall back to loose files in dev).
 add_custom_target(unpack_resources
   COMMAND ${CMAKE_COMMAND} -E rm -f "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres"

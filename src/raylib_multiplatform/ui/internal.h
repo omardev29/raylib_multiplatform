@@ -44,6 +44,10 @@ void read_pointer(Clay_Vector2 *position, bool *down);
 // stays lit up forever.
 bool touch_only();
 
+// The size to lay out for: the window, or the test viewport when one is set.
+Clay_Dimensions viewport();
+bool            test_mode();
+
 // Pixels to keep clear at the edge of the screen. [android.display]
 // into_cutout draws the game behind the notch, which is right for a background
 // and wrong for a menu.
@@ -89,6 +93,17 @@ using pointer_fn = void (*)(Clay_Vector2 *position, bool *down);
 
 void set_measure_provider(measure_fn fn);
 void set_pointer_provider(pointer_fn fn);
+
+// Test mode: use the viewport given here instead of asking raylib, and skip
+// drawing in end(). With this on there is no window and no GL context, and
+// Clay_EndLayout is pure computation — which is the whole point.
+// Width or height of 0 means "ask raylib", i.e. normal operation.
+void set_test_viewport(float width, float height);
+
+// The box an element ended up with in the last completed frame. `occurrence` is
+// 0 for the first element with that label, 1 for the second, and so on — the
+// same numbering element_id() assigns.
+bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *out);
 
 // The defaults, exposed so a test can put them back.
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config, void *user);

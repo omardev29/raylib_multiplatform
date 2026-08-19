@@ -98,8 +98,7 @@ void begin(const frame_options &o) {
 
     const theme &t = current_theme();
 
-    Clay_SetLayoutDimensions(Clay_Dimensions{ static_cast<float>(GetScreenWidth()),
-                                              static_cast<float>(GetScreenHeight()) });
+    Clay_SetLayoutDimensions(detail::viewport());
 
     Clay_Vector2 pointer{};
     bool down = false;
@@ -156,7 +155,9 @@ void end() {
     Clay__CloseElement();   // the root
 
     Clay_RenderCommandArray commands = Clay_EndLayout(GetFrameTime());
-    detail::draw(commands);
+    // In test mode there is no GL context to draw into; the layout is the
+    // whole point and it has already happened.
+    if (!detail::test_mode()) detail::draw(commands);
 
     if (!g_pointerDown) g_pressedId = 0;
 }

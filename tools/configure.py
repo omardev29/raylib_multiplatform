@@ -215,6 +215,7 @@ DEFAULTS: dict = {
     "ios": {"bundle_id": "com.example.raytest", "deployment_target": "15.6", "settings": {}},
     "icon": {"source": "branding/icon.png", "adaptive_background": "#3DDC84"},
     "raylib": {"disabled_modules": []},
+    "ui": {"font": "", "font_size": 20, "scale": 0, "max_elements": 512},
     "dev": {"compiler": "clang", "linker": "auto"},
     "resources": {"rres_password": "raylib-template"},
     "deploy": {"itch": {"user": "", "game": ""},
@@ -373,6 +374,20 @@ def validate(cfg: dict, strict_release: bool) -> None:
     ):
         if not isinstance(value, str) or not re.match(pattern, value):
             raise ConfigError(f"{key} = {value!r} must be {shape}, or \"\".")
+
+    ui = cfg["ui"]
+    if not isinstance(ui["font"], str):
+        raise ConfigError("[ui] font must be a string; \"\" means raylib's built-in font.")
+    if not isinstance(ui["font_size"], int) or not (6 <= ui["font_size"] <= 200):
+        raise ConfigError(f"[ui] font_size = {ui['font_size']!r} must be an integer between 6 and 200.")
+    if not isinstance(ui["scale"], (int, float)) or isinstance(ui["scale"], bool) \
+            or ui["scale"] < 0 or ui["scale"] > 8:
+        raise ConfigError(f"[ui] scale = {ui['scale']!r} must be a number between 0 and 8 "
+                          "(0 = derive it from [window] and the real window size).")
+    if not isinstance(ui["max_elements"], int) or not (16 <= ui["max_elements"] <= 65536):
+        raise ConfigError(f"[ui] max_elements = {ui['max_elements']!r} must be an integer between "
+                          "16 and 65536. It sizes the layout arena, so a large value costs memory "
+                          "on every platform including phones.")
 
     targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
 
@@ -662,6 +677,7 @@ set(TEMPLATE_RRES_PASSWORD "{cmake_escape(cfg['resources']['rres_password'])}")
 
 def gen_app_config(cfg: dict) -> None:
     w = cfg["window"]
+    ui = cfg["ui"]
     write(REPO / "include" / "raylib_multiplatform" / "generated" / "app_config.h", f"""/* {GEN_HEADER} */
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
@@ -675,6 +691,14 @@ def gen_app_config(cfg: dict) -> None:
    because Android and iOS never get -DRRES_PASSWORD from their build systems,
    so a value defined only in CMakeLists.txt would silently differ there. */
 #define APP_RRES_PASSWORD "{cfg['resources']['rres_password'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
+
+/* [ui]. APP_UI_FONT is "" for raylib's built-in font. APP_UI_FONT_SIZE is in
+   design units, i.e. at the APP_WINDOW_* resolution above: rmp::ui scales it
+   from there. APP_UI_SCALE of 0 means derive the scale automatically. */
+#define APP_UI_FONT         "{ui['font'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
+#define APP_UI_FONT_SIZE    {ui['font_size']}
+#define APP_UI_SCALE        {float(ui['scale'])}f
+#define APP_UI_MAX_ELEMENTS {ui['max_elements']}
 
 #endif /* APP_CONFIG_H */
 """)

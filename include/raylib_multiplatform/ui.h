@@ -31,7 +31,15 @@
 
 #include <raylib.h>
 
+// APP_UI_FONT_SIZE, so the theme's default type size is the one you set in
+// [ui] rather than a number baked into this header.
+#include <raylib_multiplatform/generated/app_config.h>
+
 #include <string_view>
+
+#ifndef APP_UI_FONT_SIZE
+#define APP_UI_FONT_SIZE 20
+#endif
 
 namespace rmp::ui {
 
@@ -92,8 +100,8 @@ struct theme {
     Color disabled       = CLITERAL(Color){  60,  60,  70, 255 };
     Color disabled_text  = CLITERAL(Color){ 110, 110, 124, 255 };
 
-    float font_size       = 20;
-    float font_size_small = 16;
+    float font_size       = APP_UI_FONT_SIZE;         // [ui] font_size
+    float font_size_small = APP_UI_FONT_SIZE * 0.8f;
     float padding_x       = 20;   // inside a button
     float padding_y       = 12;
     float gap             = 12;   // between siblings

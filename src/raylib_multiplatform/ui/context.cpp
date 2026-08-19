@@ -79,6 +79,10 @@ int        g_labelCount = 0;
 measure_fn g_measure = measure_with_raylib;
 pointer_fn g_pointer = pointer_from_raylib;
 
+// Test viewport. 0 means "ask raylib", which is every real run.
+float g_testWidth  = 0.0f;
+float g_testHeight = 0.0f;
+
 void on_clay_error(Clay_ErrorData e) {
     TraceLog(LOG_WARNING, "UI: clay: %.*s", e.errorText.length, e.errorText.chars);
 }
@@ -115,10 +119,7 @@ bool ensure_started() {
     }
 
     Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, g_arena);
-    Clay_Initialize(arena,
-                    Clay_Dimensions{ static_cast<float>(GetScreenWidth()),
-                                     static_cast<float>(GetScreenHeight()) },
-                    Clay_ErrorHandler{ on_clay_error, nullptr });
+    Clay_Initialize(arena, viewport(), Clay_ErrorHandler{ on_clay_error, nullptr });
     Clay_SetMeasureTextFunction(g_measure, nullptr);
 
     g_started = true;
@@ -151,8 +152,9 @@ void update_scale() {
         // Against the design resolution declared in [window]. min(), not max():
         // a UI that does not fit is worse than one with room to spare, so the
         // tighter axis wins and everything stays on screen.
-        float sx = static_cast<float>(GetScreenWidth())  / static_cast<float>(APP_WINDOW_WIDTH);
-        float sy = static_cast<float>(GetScreenHeight()) / static_cast<float>(APP_WINDOW_HEIGHT);
+        Clay_Dimensions v = viewport();
+        float sx = v.width  / static_cast<float>(APP_WINDOW_WIDTH);
+        float sy = v.height / static_cast<float>(APP_WINDOW_HEIGHT);
         float s  = sx < sy ? sx : sy;
         if (s < 0.5f) s = 0.5f;
         if (s > 4.0f) s = 4.0f;
@@ -284,6 +286,29 @@ void set_measure_provider(measure_fn fn) {
 
 void set_pointer_provider(pointer_fn fn) {
     g_pointer = (fn != nullptr) ? fn : pointer_from_raylib;
+}
+
+void set_test_viewport(float width, float height) {
+    g_testWidth  = width;
+    g_testHeight = height;
+}
+
+bool test_mode() { return g_testWidth > 0.0f && g_testHeight > 0.0f; }
+
+Clay_Dimensions viewport() {
+    if (test_mode()) return Clay_Dimensions{ g_testWidth, g_testHeight };
+    return Clay_Dimensions{ static_cast<float>(GetScreenWidth()),
+                            static_cast<float>(GetScreenHeight()) };
+}
+
+bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *out) {
+    // Hashing only: no interning, so this does not disturb the frame arena or
+    // the occurrence counters.
+    Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
+    Clay_ElementData data = Clay_GetElementData(Clay_GetElementIdWithIndex(s, occurrence));
+    if (!data.found) return false;
+    if (out != nullptr) *out = data.boundingBox;
+    return true;
 }
 
 void read_pointer(Clay_Vector2 *position, bool *down) { g_pointer(position, down); }
