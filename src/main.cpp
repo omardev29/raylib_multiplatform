@@ -1,4 +1,3 @@
-#include <cstdlib>
 #include <raylib_multiplatform.h>
 
 class GameAssets {
@@ -48,8 +47,12 @@ static inline void _process(float delta) {
     TraceLog(LOG_INFO, "MENU: play");
   if (rmp::ui::button("Options"))
     TraceLog(LOG_INFO, "MENU: options");
+  // Not std::exit(0): that would end the process on the spot, so _exit() and
+  // CloseWindow() below would never run. This asks the entry point to leave
+  // the loop, and the shutdown happens the same way it does when you close the
+  // window with the X.
   if (rmp::ui::button("Quit"))
-    std::exit(0);
+    rmp::utils::exit();
   rmp::ui::end();
 
   // CI smoke-test hook: read the frame back and check something was actually

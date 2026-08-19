@@ -25,6 +25,7 @@
 #include <raylib.h>
 #include <raylib_multiplatform/assets.h>
 #include <raylib_multiplatform/ui.h>
+#include <raylib_multiplatform/utils.h>
 #include <smoke_test.h>
 
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
@@ -51,7 +52,11 @@
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
-    if (SmokeTest_Tick()) {                                                    \
+    /* Two ways out, and both land here because UIKit never gives the run loop \
+       back: the CI frame budget, and rmp::utils::exit(). Apple discourages    \
+       quitting programmatically, but a template that silently ignored a Quit  \
+       button on one platform out of fourteen would be worse. */               \
+    if (SmokeTest_Tick() || rmp::utils::exit_requested()) {                    \
       rmp::ui::shutdown();                                                     \
       _exit();                                                                 \
       rmp::assets::shutdown();                                                 \
@@ -75,7 +80,11 @@
     _ready();                                                                  \
     SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());     \
     int smokeDone = 0;                                                         \
-    while (!WindowShouldClose() && !smokeDone) {                               \
+    /* rmp::utils::exit() is checked here rather than acted on where it is     \
+       called: the frame that asked to quit finishes normally, and then        \
+       _exit() and CloseWindow() run exactly as they do when the window is     \
+       closed with the X. std::exit() in a button handler skips all of that. */\
+    while (!WindowShouldClose() && !smokeDone && !rmp::utils::exit_requested()) { \
       _process(GetFrameTime());                                                \
       smokeDone = SmokeTest_Tick();                                            \
     }                                                                          \

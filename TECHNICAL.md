@@ -12,6 +12,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Resources: `RESOURCES_PATH`, `rmp::assets` and rres](#resources-resources_path-rmpassets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
 - [`rmp::ui` — the interface layer](#rmpui--the-interface-layer)
+- [`rmp::utils` — closing the app](#rmputils--closing-the-app)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
 - [Android (raymob)](#android-raymob)
@@ -40,6 +41,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
 │       ├── assets.cpp        #   rmp::assets — the public surface, with the loose-file fallback
+│       ├── utils.cpp        #   rmp::utils — closing the app
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
@@ -55,6 +57,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │       ├── assets.h          #   the rmp::assets declarations
 │       ├── ads.h             #   rmp::ads — inline wrappers over <admob.h>
 │       ├── ui.h              #   rmp::ui — the public API and the theme
+│       ├── utils.h           #   rmp::utils — exit()
 │       ├── lifecycle.h       #   RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY + IOS_FUNCS
 │       └── generated/        #   GENERATED app_config.h, git-ignored
 ├── examples/main.c           # the opt-out: plain C, <raylib.h> only, your own main()
@@ -709,6 +712,52 @@ rmp::ui::row([]{
     rmp::ui::button("No");
 });
 ```
+
+---
+
+## `rmp::utils` — closing the app
+
+The namespace for things that have no other home. Today it holds one function,
+and it exists because quitting is one of those problems that looks trivial until
+it is on fourteen platforms.
+
+```cpp
+void rmp::utils::exit();          // ask the app to close
+bool rmp::utils::exit_requested(); // has it been asked?
+```
+
+Call it from anywhere. A menu callback, a game-over screen, ten frames deep in your own code — it
+does not need to know where `main()` is, and there is no value to thread back up your call stack.
+
+```cpp
+if (rmp::ui::button("Quit")) rmp::utils::exit();
+```
+
+### What it actually does
+
+It **returns**. All it does is raise a flag, which the entry point checks at the top of the next
+iteration. The frame you are in finishes normally, the loop ends, and then `_exit()` runs,
+`CloseWindow()` runs and the asset pack is released — the same shutdown you get by closing the
+window with the X.
+
+That is exactly why not to call `std::exit()` from a button handler. `std::exit` ends the process
+where it stands: `_exit()` never runs, `CloseWindow()` never runs, and on Android the Activity is
+left behind while its process vanishes underneath it.
+
+### Why not an exception
+
+Throwing out of a button handler is the obvious alternative and it is worse on three counts:
+exceptions are switched off in plenty of game builds, unwinding through raylib's C frames is
+undefined behaviour, and an exception raised mid-frame leaves `BeginDrawing()` unbalanced and a UI
+frame open. A flag costs one branch per frame and cannot leave anything half done.
+
+### Per platform
+
+| Platform | What happens |
+|---|---|
+| Desktop, BSD, Web | The frame loop ends and `main()` returns |
+| Android | The same, **plus `ANativeActivity_finish()`** — without it the process stops but the Activity is left in the recents list pointing at nothing |
+| iOS | UIKit owns the run loop and never gives it back, so the app tears down and exits. Apple discourages quitting programmatically; prefer not offering the button at all there |
 
 ---
 

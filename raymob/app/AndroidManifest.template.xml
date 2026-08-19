@@ -60,6 +60,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:appCategory="${APP_CATEGORY}"
         tools:targetApi="31">
 
         <!-- #if admob -->
@@ -76,9 +77,16 @@
             android:resizeableActivity="false"
             android:clearTaskOnLaunch="true"
             android:exported="true">
+            <!-- MAIN + LAUNCHER, and neither is configurable, because this pair
+                 is what puts an icon in the app drawer. It used to read
+                 android.intent.category.${APP_CATEGORY}, so setting
+                 [android] category = "GAME" produced an APK that installed
+                 perfectly and then appeared nowhere on the device: an intent
+                 category is not an app category. The app category is
+                 android:appCategory on <application>, above. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.${APP_CATEGORY}" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
             <meta-data

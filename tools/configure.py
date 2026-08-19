@@ -199,7 +199,7 @@ DEFAULTS: dict = {
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
         "application_id": "com.example.raytest",
-        "min_sdk": 24, "gl_version": "ES30", "category": "LAUNCHER",
+        "min_sdk": 24, "gl_version": "ES30", "category": "game",
         "display": {"keep_on": True, "immersive": True, "into_cutout": True},
         # Permissions and features are different things and used to be one
         # table, which hid a bug: android:required is an attribute of
@@ -296,6 +296,26 @@ def validate(cfg: dict, strict_release: bool) -> None:
         v = cfg["window"][k]
         if not isinstance(v, int) or not (16 <= v <= 16384):
             raise ConfigError(f"[window] {k} = {v!r} must be an integer between 16 and 16384.")
+
+    # android:appCategory, which is how Play files your app. These are the only
+    # values Android accepts; anything else makes the manifest merger fail deep
+    # inside the Gradle build with a message nobody can act on.
+    #
+    # This key used to be written into the launcher <intent-filter> instead,
+    # where the only value that works is LAUNCHER. Setting it to anything else
+    # produced an APK that installed and then had no icon anywhere on the
+    # device — see the comment in raymob/app/AndroidManifest.template.xml.
+    APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",
+                      "maps", "productivity", "accessibility"}
+    category = str(cfg["android"]["category"]).lower()
+    if category not in APP_CATEGORIES:
+        raise ConfigError(
+            f"[android] category = {cfg['android']['category']!r} is not an Android app "
+            f"category.\nUse one of: {', '.join(sorted(APP_CATEGORIES))}.\n"
+            "It becomes android:appCategory, which is how the Play Store files your app. "
+            "It is NOT the launcher intent category — that one is fixed, because an app "
+            "without it has no icon.")
+    cfg["android"]["category"] = category
 
     # Every Android switch is a boolean, and TOML will happily hand us the
     # string "false", which is truthy. Java .properties would then receive

@@ -82,7 +82,10 @@ static void confirm_quit() {
     rmp::ui::text("Progress since the last save will be lost.",
                   { .color = rmp::ui::color_role::muted });
 
-    rmp::ui::button("Quit", { .style = rmp::ui::variant::danger });
+    // rmp::utils::exit(), never std::exit(): this lets the frame finish and
+    // then runs _exit() and CloseWindow() on the way out. On Android it also
+    // finishes the Activity, so the app does not leave a dead task behind.
+    if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger })) rmp::utils::exit();
 
     // This screen and the main menu both have a "Back"-ish button. Identical
     // labels inside ONE frame are told apart automatically; an explicit id is

@@ -31,8 +31,22 @@
 #ifndef CLAY_HEADER
 #define CLAY_HEADER
 
+// PATCHED FOR THIS TEMPLATE: 202002L -> 201709L on the C++ branch.
+//
+// GCC 10 is NetBSD 10.1's system compiler, and it reports __cplusplus as
+// 201709L even under -std=c++20, because C++20 was not final when it shipped.
+// Upstream this guard therefore refuses to compile there at all.
+//
+// Nothing Clay needs from C++20 is actually newer than C++11: CLAY__INIT
+// becomes plain aggregate initialisation, and CLAY_PACKED_ENUM becomes
+// `enum : uint8_t`. The only genuinely C++20 constructs are the designated
+// initialisers inside the CLAY_* convenience macros, and this template does
+// not use them — rmp::ui builds Clay's structs field by field precisely so
+// that no Clay macro ever reaches a compiler.
+//
+// Revisit when NetBSD's base GCC moves past 11.
 #if !( \
-    (defined(__cplusplus) && __cplusplus >= 202002L) || \
+    (defined(__cplusplus) && __cplusplus >= 201709L) || \
     (defined(__STDC__) && __STDC__ == 1 && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || \
     defined(_MSC_VER) || \
     defined(__OBJC__) \

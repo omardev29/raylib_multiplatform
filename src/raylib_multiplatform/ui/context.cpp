@@ -54,6 +54,10 @@ Font  g_font       = {0};
 bool  g_fontLoaded = false;    // true only when we loaded a file and must unload it
 float g_fontScale  = 1.0f;
 int   g_bakedSize  = 0;
+// A configured font that cannot be loaded is a one-time problem, not a
+// per-draw one. Without this we would go back to the filesystem and log the
+// same warning for every piece of text, every frame.
+bool  g_fontFailed = false;
 
 // Text arena. Clay keeps pointers into whatever we hand it and reads them at
 // Clay_EndLayout, so the memory has to survive the frame. 8 KB is a lot of
@@ -176,7 +180,7 @@ void set_scale_override(float s) {
 
 Font ui_font() {
     const bool builtin = (APP_UI_FONT[0] == '\0');
-    if (builtin) return GetFontDefault();
+    if (builtin || g_fontFailed) return GetFontDefault();
 
     int wanted = static_cast<int>(std::floor(current_theme().font_size * g_fontScale + 0.5f));
     if (wanted < 1) wanted = 1;
@@ -192,6 +196,7 @@ Font ui_font() {
                  APP_UI_FONT);
         g_fontLoaded = false;
         g_bakedSize  = 0;
+        g_fontFailed = true;       // say it once, then stop asking
         return GetFontDefault();   // a missing font must not switch the UI off
     }
     g_fontLoaded = true;

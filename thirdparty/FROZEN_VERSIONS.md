@@ -48,7 +48,7 @@ netbsd                    10.1
 | raylib | 6.0.0 | Vendored snapshot committed under `thirdparty/raylib/` (see `src/raylib.h` `RAYLIB_VERSION_*`). The exact committed files ARE the pin. |
 | raylib-iOS | tag `6.0.3-iOS` (commit `29ce933d`) | Git submodule `thirdparty/raylib-ios`, pinned to that commit, pointing at **our fork** `omardev29/raylib-iOS`. |
 | rres | master @ vendor time | Vendored headers committed under `thirdparty/rres/` (`rres.h`, `rres-raylib.h`, `external/`). |
-| Clay | 0.14 | Vendored snapshot committed under `thirdparty/clay/clay.h`. The committed file IS the pin — Clay is pre-1.0 and its API has moved between minor versions, so updating is a decision, never an accident. |
+| Clay | 0.14 (one-line patch) | Vendored snapshot committed under `thirdparty/clay/clay.h`. The committed file IS the pin — Clay is pre-1.0 and its API has moved between minor versions, so updating is a decision, never an accident. **Patched:** the C++ version guard accepts `201709L`, because NetBSD's system GCC 10 reports that under `-std=c++20` and would otherwise refuse to build. The patch is commented at the site; re-apply it when bumping. |
 | Build image | digest above | `ghcr.io/omardev29/raylib-build@sha256:…`, built from the [raylib-build-image](https://github.com/omardev29/raylib-build-image) repo. Digest, never `:latest`. |
 | Ubuntu / apt (in image) | snapshot `20260801T000000Z` | Every apt source points at `snapshot.ubuntu.com`, so package resolution is frozen in time. |
 | CMake / Ninja / Emscripten (in image) | 3.30.3 / 1.12.1 / 3.1.61 | Downloaded with hard-coded sha256; emsdk fetched by commit, not tag. |

@@ -191,6 +191,7 @@ not decide for you.
 | **`rmp::ui`** | Menus, buttons and text. Responsive by default: a menu written once is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. |
 | **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
+| **`rmp::utils`** | The small things with no other home. Today that is `exit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. |
 
 A main menu, complete:
 

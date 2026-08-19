@@ -49,8 +49,11 @@ min_sdk = 24
 # ES20 | ES30 | ES31 | ES32. Devices without the requested version are not
 # offered your app on the Play Store.
 gl_version = "ES30"
-# LAUNCHER | GAME | HOME | ...
-category = "GAME"
+# How the Play Store files your app (android:appCategory):
+#   game | audio | video | image | social | news | maps | productivity | accessibility
+# This is NOT what puts the icon in the app drawer — that part is fixed and not
+# yours to set, because an app without it installs and then appears nowhere.
+category = "game"
 
 [android.display]
 keep_on     = true    # never sleep while playing

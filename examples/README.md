@@ -28,10 +28,11 @@ covers the template's own features.
   `<raylib_multiplatform.h>`. There is nothing else to include — it is an
   umbrella over `include/raylib_multiplatform/`, which you never include from
   directly.
-- It gives you three namespaces: **`rmp::ui`** (menus, buttons, text),
-  **`rmp::assets`** (loading from `resources/`) and **`rmp::ads`**. Everything
-  under `rmp::` is the template's; everything else is raylib's, unchanged.
-  The full API is in [TECHNICAL.md](../TECHNICAL.md).
+- It gives you four namespaces: **`rmp::ui`** (menus, buttons, text),
+  **`rmp::assets`** (loading from `resources/`), **`rmp::ads`** and
+  **`rmp::utils`** (closing the app, and whatever else earns its place).
+  Everything under `rmp::` is the template's; everything else is raylib's,
+  unchanged. The full API is in [TECHNICAL.md](../TECHNICAL.md).
 - `rmp::ads` is safe everywhere (no-op off Android, no `#ifdef` needed).
   `<raymob.h>` only declares its functions on Android, so guard those calls
   with `#ifdef __ANDROID__`.
