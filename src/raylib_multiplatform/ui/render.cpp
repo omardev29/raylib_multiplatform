@@ -91,8 +91,25 @@ void draw(Clay_RenderCommandArray commands) {
             }
 
             case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
-                // Phase 2. Clay carries the texture through as userData; until
-                // rmp::ui::image() exists there is nothing to draw.
+                // imageData is a pointer the element declaration passed through
+                // untouched, so the contract is simply: point it at a Texture2D
+                // you own and keep alive for the frame.
+                //
+                // rmp::ui::image() does not exist yet, but this is implemented
+                // anyway because someone dropping to Clay directly can already
+                // produce IMAGE commands, and silently drawing nothing would be
+                // a worse answer than either supporting it or refusing it.
+                const auto &img = cmd.renderData.image;
+                if (img.imageData == nullptr) break;
+                const Texture2D *tex = static_cast<const Texture2D *>(img.imageData);
+                Rectangle src{ 0, 0, static_cast<float>(tex->width), static_cast<float>(tex->height) };
+                // backgroundColor is Clay's tint, and its default is 0,0,0,0 —
+                // which as a tint would erase the image. Read a fully
+                // transparent tint as "untinted", exactly as Clay's own docs
+                // suggest.
+                Color tint = WHITE;
+                if (img.backgroundColor.a > 0.0f) tint = from_clay(img.backgroundColor);
+                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f, tint);
                 break;
             }
 

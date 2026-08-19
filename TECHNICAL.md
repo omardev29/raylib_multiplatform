@@ -663,12 +663,67 @@ The engine documents a fix — run the layout twice per frame — and it is **de
 It would mean running your code twice, so a `score++` inside the UI block would count double. One
 frame of lag is far cheaper than that class of surprise.
 
-### What is underneath, and why you cannot see it
+### What is underneath, and how to use it directly
 
 The layout engine is [Clay](https://github.com/nicbarker/clay), vendored at `thirdparty/clay/`
 under the zlib licence. It is held to one rule: **no Clay type, macro or enum appears anywhere
-under `include/`.** The public API takes `std::string_view` and raylib's own types, so the engine
-can be replaced without any of your code changing.
+under `include/`.** The public API takes `std::string_view` and raylib's own types, so code written
+against `rmp::ui` does not depend on Clay and the engine can be replaced without that code
+changing.
+
+**That rule is about what you are handed by default, not about what you are allowed to do.** Clay
+is on the include path, and using it directly is supported:
+
+```cpp
+#include <clay.h>
+
+rmp::ui::begin();
+rmp::ui::text("Inventory");
+
+CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(0) },
+                           .childGap = 10,
+                           .layoutDirection = CLAY_LEFT_TO_RIGHT },
+               .backgroundColor = { 30, 30, 38, 255 },
+               .cornerRadius = CLAY_CORNER_RADIUS(10) }) {
+    CLAY(CLAY_IDI("slot", 0), { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64) } } }) {}
+}
+
+if (rmp::ui::button("Close")) rmp::utils::exit();
+rmp::ui::end();
+```
+
+Your elements join the same tree, are laid out in the same pass and drawn by the same renderer. It
+is the same bargain as everywhere else in this template: `rmp::assets` does not stop you calling
+`LoadTexture`, and `rmp::ui` does not stop you calling Clay — or rlgl, or raw OpenGL.
+
+The full worked version, including images and hover, is
+[`examples/ui_clay_direct.cpp`](examples/ui_clay_direct.cpp). CI compiles every example with GCC
+**and MSVC** on every run, so that claim cannot quietly stop being true.
+
+Three things to know before you do it:
+
+- **`begin()` has already opened two elements** — a root that fills the screen and a column that
+  centres its contents. Yours become children of that column. Clay's floating elements are the way
+  out of it.
+- **Clay does not copy strings.** `CLAY_STRING()` on a literal is fine forever; anything built at
+  runtime has to stay alive until `end()` returns. This is the one footgun `rmp::ui::text()`
+  removes by copying.
+- **It pins you to Clay 0.14.** Clay is pre-1.0 and its API has moved between minor versions. That
+  is a fair trade for a feature you need today and a bad one for a button, which is most of why
+  `rmp::ui` exists at all.
+
+Our renderer handles `RECTANGLE`, `BORDER`, `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you
+own; `backgroundColor` is the tint) and the `SCISSOR` pair, so clipping and scroll containers work.
+`CUSTOM` is not handled — `src/raylib_multiplatform/ui/render.cpp` is ~150 readable lines and
+adding a case is the intended way to extend it.
+
+**Why `rmp::ui` does not use the macros internally**, since it is a fair question: `CLAY(...)` is a
+`for`-loop block, and this API is a `begin()`/`end()` pair. An element opened inside a block macro
+cannot stay open across a function boundary. So `widgets.cpp` calls `Clay__OpenElement`,
+`Clay__ConfigureOpenElement` and `Clay__CloseElement` — all public — and fills the structs field by
+field, which is also what you want when the values are computed from the theme and the scale rather
+than written as literals. Nothing about the macros is being avoided; they simply do not fit the
+shape of this particular API.
 
 The implementation is five files under `src/raylib_multiplatform/ui/`: `clay_impl.cpp` (compiles
 the engine once, same idea as `rres_impl.cpp`), `context.cpp` (start-up, scale, font, the text

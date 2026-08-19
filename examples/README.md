@@ -13,6 +13,7 @@ covers the template's own features.
 |---|---|
 | [lifecycle_ready_process_exit.cpp](lifecycle_ready_process_exit.cpp) | The core `_ready()` / `_process()` / `_exit()` (Godot-style) pattern every game in this template uses. |
 | [ui_menu.cpp](ui_menu.cpp) | **`rmp::ui`.** A main menu in three lines, then options, a confirm dialog and a HUD — variants, disabled controls, explicit ids, placement, and the theme. |
+| [ui_clay_direct.cpp](ui_clay_direct.cpp) | **The escape hatch.** Using Clay's own macros from your game code, in the same frame as `rmp::ui` — for anything the small API does not expose yet. |
 | [admob_interstitial_rewarded.cpp](admob_interstitial_rewarded.cpp) | **`rmp::ads`.** Interstitial + rewarded ads — cross-platform, no-op outside Android. |
 | [raymob_mobile_features.cpp](raymob_mobile_features.cpp) | The raymob mobile API via `<raymob.h>` — vibration, soft keyboard, sensors, orientation, app storage (Android-only). |
 | [assets_rres_loading.cpp](assets_rres_loading.cpp) | **`rmp::assets`.** Loading by name — the same code whether it is loose files or a packed, AES-encrypted `resources.rres`. |

@@ -37,12 +37,17 @@
 // 201709L even under -std=c++20, because C++20 was not final when it shipped.
 // Upstream this guard therefore refuses to compile there at all.
 //
-// Nothing Clay needs from C++20 is actually newer than C++11: CLAY__INIT
-// becomes plain aggregate initialisation, and CLAY_PACKED_ENUM becomes
-// `enum : uint8_t`. The only genuinely C++20 constructs are the designated
-// initialisers inside the CLAY_* convenience macros, and this template does
-// not use them — rmp::ui builds Clay's structs field by field precisely so
-// that no Clay macro ever reaches a compiler.
+// Relaxing it is safe because the C++20 features Clay actually relies on are
+// all available in GCC 10: CLAY__INIT is plain aggregate initialisation,
+// CLAY_PACKED_ENUM is `enum : uint8_t`, and the designated initialisers in the
+// CLAY_* macros have been a GCC extension since long before they were
+// standardised — verified compiling them under -std=gnu++17 and -std=gnu++2a.
+//
+// So this does NOT amount to "the macros are off limits". They work from
+// userland on every compiler this template targets, and TECHNICAL.md documents
+// how to use them. rmp::ui simply does not need them internally: its API is a
+// begin()/end() pair, and CLAY() is a for-loop block that cannot be split
+// across two functions.
 //
 // Revisit when NetBSD's base GCC moves past 11.
 #if !( \

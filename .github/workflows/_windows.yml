@@ -79,6 +79,41 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
+      # The lint job compiles every example with GCC. This one covers the
+      # compiler most likely to disagree, and it exists for one claim in
+      # particular: that a user can drop to Clay's own macros from their game
+      # code. Those macros are designated initialisers inside a for-loop block,
+      # which is the shape MSVC has historically been fussiest about, so the
+      # claim gets checked here instead of assumed.
+      #
+      # /Zs is syntax-only: no objects, no linking, seconds. The MSVC
+      # environment is imported into this step only, so nothing after it sees a
+      # changed PATH.
+      - name: Examples still compile (MSVC)
+        run: |
+          # The runner's pwsh wrapper turns a non-zero exit from a native command
+          # into a terminating error. Here that would abort on the first bad
+          # example instead of reporting all of them, so $LASTEXITCODE is checked
+          # by hand below.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vcvars = & $vswhere -latest -products * -find "VC\Auxiliary\Build\vcvarsall.bat" | Select-Object -First 1
+          if (-not $vcvars) { throw "vcvarsall.bat not found" }
+          cmd /c "`"$vcvars`" x64 >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { Set-Item -Path "env:$($matches[1])" -Value $matches[2] }
+          }
+          $inc = @("include", "thirdparty\raylib\src", "thirdparty\rres",
+                   "thirdparty\raymob", "thirdparty\clay", "tests") |
+                 ForEach-Object { "/I"; $_ }
+          $failed = 0
+          foreach ($f in Get-ChildItem examples\*.cpp) {
+            & cl /nologo /Zs /std:c++20 /EHsc @inc '/DRESOURCES_PATH="./resources/"' /DPRODUCTION_BUILD=0 $f.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $($f.Name)"; $failed = 1 }
+            else { Write-Host "  ok    $($f.Name)" }
+          }
+          if ($failed -ne 0) { Write-Host "FALLA: an example no longer compiles with MSVC"; exit 1 }
+          Write-Host "PASS: every example compiles with MSVC"
+
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
 
