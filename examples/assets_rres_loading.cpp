@@ -22,7 +22,7 @@ static Font ui;
 static Sound jump;
 
 // Called once at startup: the pack (if any) is already open by now.
-inlining void _ready() {
+static inline void _ready() {
     InitWindow(800, 450, "assets example");
     InitAudioDevice();                  // LoadSound needs this first
 
@@ -48,7 +48,7 @@ inlining void _ready() {
     // music as a loose file next to the executable.
 }
 
-inlining void _process(float delta) {
+static inline void _process(float delta) {
     if (IsKeyPressed(KEY_SPACE)) PlaySound(jump);
 
     BeginDrawing();
@@ -61,7 +61,7 @@ inlining void _process(float delta) {
     EndDrawing();
 }
 
-inlining void _exit() {
+static inline void _exit() {
     UnloadSound(jump);
     UnloadFont(ui);
     UnloadTexture(player);

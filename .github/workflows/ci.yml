@@ -135,6 +135,40 @@ jobs:
       - name: Pinned versions agree
         run: bash tools/versions_check.sh
 
+      # examples/ is documentation with code in it, and documentation rots
+      # quietly. It already had: the header unification removed the `inlining`
+      # macro and one example kept using it for weeks, so the file a newcomer
+      # would copy from did not compile.
+      #
+      # Syntax only — no linking, no window, no assets — so this costs seconds
+      # and still catches every rename, removal and signature change.
+      - name: Examples still compile
+        run: |
+          set -euo pipefail
+          FAILED=0
+          for f in examples/*.cpp; do
+            if g++ -fsyntax-only -std=c++20 \
+                 -Iinclude -Ithirdparty/raylib/src -Ithirdparty/rres \
+                 -Ithirdparty/raymob -Ithirdparty/clay -Itests \
+                 -DRESOURCES_PATH='"./resources/"' -DPRODUCTION_BUILD=0 "$f"; then
+              echo "  ok    $f"
+            else
+              echo "  FAIL  $f"
+              FAILED=1
+            fi
+          done
+          # The opt-out is C, and it has to keep being valid C: the whole point
+          # of that file is that it needs none of our headers.
+          if gcc -fsyntax-only -std=c99 -Ithirdparty/raylib/src \
+               -DRESOURCES_PATH='"./resources/"' examples/main.c; then
+            echo "  ok    examples/main.c"
+          else
+            echo "  FAIL  examples/main.c"
+            FAILED=1
+          fi
+          [ "$FAILED" -eq 0 ] || { echo "FALLA: an example no longer compiles"; exit 1; }
+          echo "PASS: every example compiles"
+
       # A Google Play application id can never be changed once published, so
       # shipping com.example.* is a mistake you cannot walk back. Refuse it at
       # the only moment where being strict costs nobody anything: a release.

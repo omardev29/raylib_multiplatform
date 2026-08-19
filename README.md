@@ -167,9 +167,9 @@ where the OS owns the run loop:
 ```cpp
 #include <raylib_multiplatform.h>          // the only template header there is
 
-inlining void _ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
-inlining void _process(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
-inlining void _exit()    { /* unload */ CloseWindow(); }
+static inline void _ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
+static inline void _process(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
+static inline void _exit()    { /* unload */ CloseWindow(); }
 
 RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
 ```
