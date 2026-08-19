@@ -10,6 +10,7 @@ directory (linked where present).
 | raymob | `raymob/`, `thirdparty/raymob/` | MIT — see `raymob/LICENSE`, `thirdparty/raymob/LICENSE` |
 | raylib-iOS (fork of raylib) | `thirdparty/raylib-ios/` (submodule) | zlib/libpng (raylib's) — see `thirdparty/raylib-ios/LICENSE` |
 | ANGLE (prebuilt, bundled by the raylib-iOS fork) | `thirdparty/raylib-ios/deps/ANGLE/` | BSD-3-Clause (Google) — see note below |
+| Clay (UI layout engine behind `rmp::ui`) | `thirdparty/clay/` | zlib/libpng — see `thirdparty/clay/LICENSE.md` |
 | rres | `thirdparty/rres/` | MIT — see `thirdparty/rres/LICENSE` |
 | tiny-AES-c | `thirdparty/rres/external/aes.{h,c}` | Public domain / Unlicense |
 | Monocypher | `thirdparty/rres/external/monocypher.{h,c}` | BSD-2-Clause OR CC0 (dual-licensed) |

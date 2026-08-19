@@ -916,6 +916,7 @@ targets:
           - $(SRCROOT)/../thirdparty/raylib-ios/projects/Xcode26/raylib/bridge
           - $(SRCROOT)/../thirdparty/rres
           - $(SRCROOT)/../thirdparty/raymob
+          - $(SRCROOT)/../thirdparty/clay
 {extra}""")
 
 

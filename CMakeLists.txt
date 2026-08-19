@@ -160,6 +160,7 @@ target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
@@ -244,6 +245,7 @@ set(ASM_INCLUDE_FLAGS
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
