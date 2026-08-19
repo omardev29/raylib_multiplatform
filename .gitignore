@@ -20,6 +20,7 @@ compile_commands.json
 /cmake/generated/
 /include/raylib_multiplatform/generated/
 /raymob/generated.properties
+/raymob/app/generated/
 /ios/project.yml
 /ios/Assets.xcassets/
 /raymob/app/src/main/res/mipmap-hdpi/

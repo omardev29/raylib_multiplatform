@@ -61,6 +61,11 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │   ├── generated/            # GENERATED, git-ignored
 │   └── toolchain-riscv64-linux.cmake
 ├── raymob/                   # Android app shell (Gradle). See "Android (raymob)".
+│   ├── generated.properties  # GENERATED, git-ignored
+│   └── app/
+│       ├── AndroidManifest.template.xml  # the manifest, with #if blocks
+│       ├── generated/        # GENERATED manifest, git-ignored — what Gradle reads
+│       └── src/{admob,noadmob}/java/     # AdmobBridge: the real one, and the no-op
 ├── ios/                      # iOS scaffold. project.yml is GENERATED.
 ├── .github/
 │   ├── workflows/ci.yml      # orchestrator: triggers, pins, job graph
@@ -79,8 +84,8 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 
 **Generated, and never committed** — `cmake/generated/`,
 `include/raylib_multiplatform/generated/app_config.h`,
-`raymob/generated.properties`, `ios/project.yml`, `ios/Assets.xcassets/` and the Android
-`mipmap-*` icons. They are rebuilt from `raylib_multiplatform.toml` on every configure, which is
+`raymob/generated.properties`, `raymob/app/generated/AndroidManifest.xml`, `ios/project.yml`,
+`ios/Assets.xcassets/` and the Android `mipmap-*` icons. They are rebuilt from `raylib_multiplatform.toml` on every configure, which is
 why they cannot drift out of sync with it. `cmake --preset debug` produces all of them; Gradle and
 XcodeGen never invoke CMake, so those two jobs run `python3 tools/configure.py` explicitly.
 
@@ -467,15 +472,53 @@ Configuration is in `raylib_multiplatform.toml`:
 
 ```toml
 [android.admob]
+enabled         = true                   # false removes AdMob from the build entirely
 app_id          = "ca-app-pub-...~..."   # AdMob application id (goes into the manifest)
 interstitial_id = "ca-app-pub-.../..."   # interstitial ad unit
 rewarded_id     = "ca-app-pub-.../..."   # rewarded ad unit
 ```
 
-These default to **Google's official test ids**; replace them before publishing. The app id is
-injected into the manifest, the ad units are exposed to Java via `BuildConfig`. The Google Mobile
-Ads SDK (`play-services-ads`, pinned) is added automatically. Ads are **Android-only**; iOS ads
-are not implemented.
+The ids default to **Google's official test ids**; replace them before publishing. The app id is
+injected into the manifest, the ad units are exposed to Java via `BuildConfig`. Ads are
+**Android-only**; iOS ads are not implemented.
+
+### Where it actually lives
+
+Four steps, and each one exists because the one above it cannot do its job:
+
+| Layer | File | What it does |
+|---|---|---|
+| API | `thirdparty/raymob/admob.h` | the eight functions. Real on Android, inline no-ops elsewhere |
+| JNI | `thirdparty/raymob/admob.c` | calls the methods **by name** on the Activity instance |
+| Java | `raymob/.../NativeLoader.java` | the eight public methods, kept by `proguard-rules.pro` |
+| SDK | `raymob/app/src/{admob,noadmob}/java/.../AdmobBridge.java` | Google Mobile Ads, or nothing |
+
+`NativeLoader` only forwards. The work is in `AdmobBridge`, which exists **twice** — the real one
+under `src/admob/java`, a no-op twin under `src/noadmob/java` — and Gradle puts exactly one of them
+on the source path. That split is what makes the switch real rather than cosmetic.
+
+### Switching it off
+
+`enabled = false` removes AdMob from the build: no `play-services-ads` dependency, no `AD_ID`
+permission, no `APPLICATION_ID` meta-data, no `MobileAds.initialize()` at startup. Your game code
+does not change — `<admob.h>` keeps compiling and the calls do nothing, exactly as they already do
+on desktop.
+
+It also **turns itself off when `android` is not in `[targets]`**, however you removed it: by name,
+or by dropping a group like `mobile`. Ads in a build that does not exist would still have cost you
+the SDK, the permission and a Play declaration.
+
+That permission is the reason this is worth a switch. `com.google.android.gms.permission.AD_ID`
+obliges you to declare advertising-id collection in Play's **Data safety** form, and a game that
+shows no ads should not have to answer for it.
+
+> **Not done yet: consent (UMP).** Serving ads to users in the EEA or the UK requires a
+> Google-certified CMP — in practice the [User Messaging Platform
+> SDK](https://developers.google.com/admob/android/privacy) — since January 2024. This template
+> does **not** ship one. With ads on, expect EEA/UK traffic to be served badly or not at all until
+> you add it: `com.google.android.gms:play-services-ads` already contains UMP, so it is a
+> `ConsentInformation.requestConsentInfoUpdate()` call in `AdmobBridge.initialize()` plus a form,
+> not a new dependency.
 
 ---
 

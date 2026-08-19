@@ -57,20 +57,39 @@ keep_on     = true    # never sleep while playing
 immersive   = true    # hide the system bars
 into_cutout = true    # draw behind the notch
 
+[android.permissions]
+# What the app asks the system for. Every one of these is visible on your Play
+# listing, so ask for nothing you do not use.
+internet  = false   # android.permission.INTERNET — forced on when AdMob is enabled
+vibration = false   # android.permission.VIBRATE  — needed by raymob's Vibrate()
+
 [android.features]
-# true = the Play Store will not offer your app to devices lacking the feature.
-internet      = false
-vibration     = false
+# Hardware. true = the Play Store hides your app from devices that lack it.
+# false still declares the sensor as optional, which is what you want unless
+# the game is unplayable without it.
 gyroscope     = false
 accelerometer = false
 
 [android.admob]
-# Google's official TEST ids. Replace with your own before publishing, or
-# remove the AdMob dependency entirely. Clicking real ads from your own build
-# is the fastest way to get an AdMob account suspended.
+# false removes AdMob completely: no Google Mobile Ads dependency, no AD_ID
+# permission, no SDK init at startup, and nothing to declare in Play's Data
+# safety form. Your code does not change — the <admob.h> calls stay compilable
+# and do nothing, exactly as they already do off Android.
+#
+# It also turns itself off when "android" is not in [targets], however you
+# removed it: by name, or by leaving out a group like "mobile".
+enabled = true
+
+# Google's official TEST ids. Replace with your own before publishing. Clicking
+# real ads from your own build is the fastest way to get an AdMob account
+# suspended.
 app_id          = "ca-app-pub-3940256099942544~3347511713"
 interstitial_id = "ca-app-pub-3940256099942544/1033173712"
 rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
+
+# NOT DONE YET: consent. Serving ads to users in the EEA or the UK requires a
+# Google-certified CMP (the UMP SDK) since January 2024, and this template does
+# not ship one. See "AdMob" in TECHNICAL.md before you publish with ads on.
 
 [ios]
 # Same warning as Android: this is your App Store identity.

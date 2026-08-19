@@ -12,14 +12,37 @@
 
 #include "raymob.h"   /* GetNativeLoaderInstance / AttachCurrentThread / DetachCurrentThread */
 
+/* Look up a method on the NativeLoader instance, leaving the JNIEnv clean.
+ *
+ * GetMethodID does not merely return NULL when the method is missing: it also
+ * leaves a NoSuchMethodError pending on the thread. Ignoring that used to be
+ * the difference between "the ad call did nothing" and the VM aborting on the
+ * next JNI call it made, which is a crash with no visible cause. And a missing
+ * method is a real case now, not a hypothetical one: with AdMob switched off
+ * the eight methods still exist, but anyone swapping in their own Activity
+ * lands exactly here.
+ *
+ * The class reference is deleted rather than left to the detach that follows,
+ * so this stays correct if these ever run on an already-attached thread.
+ */
+static jmethodID AdmobMethod(JNIEnv *env, jobject inst, const char *name, const char *sig) {
+    jclass cls = (*env)->GetObjectClass(env, inst);
+    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
+    (*env)->DeleteLocalRef(env, cls);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        return NULL;
+    }
+    return method;
+}
+
 /* Call a no-arg void method on the NativeLoader instance */
 static void AdmobCallVoid(const char *name, const char *sig) {
     jobject inst = GetNativeLoaderInstance();
     if (inst == NULL) return;
 
     JNIEnv *env = AttachCurrentThread();
-    jclass cls = (*env)->GetObjectClass(env, inst);
-    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
+    jmethodID method = AdmobMethod(env, inst, name, sig);
     if (method != NULL) {
         (*env)->CallVoidMethod(env, inst, method);
     }
@@ -32,8 +55,7 @@ static bool AdmobCallBool(const char *name, const char *sig) {
     if (inst == NULL) return false;
 
     JNIEnv *env = AttachCurrentThread();
-    jclass cls = (*env)->GetObjectClass(env, inst);
-    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
+    jmethodID method = AdmobMethod(env, inst, name, sig);
     bool result = false;
     if (method != NULL) {
         result = (bool)(*env)->CallBooleanMethod(env, inst, method);
@@ -48,8 +70,7 @@ static int AdmobCallInt(const char *name, const char *sig) {
     if (inst == NULL) return 0;
 
     JNIEnv *env = AttachCurrentThread();
-    jclass cls = (*env)->GetObjectClass(env, inst);
-    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
+    jmethodID method = AdmobMethod(env, inst, name, sig);
     int result = 0;
     if (method != NULL) {
         result = (int)(*env)->CallIntMethod(env, inst, method);

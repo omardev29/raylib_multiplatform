@@ -31,4 +31,5 @@ covers the template's own features.
   `<raymob.h>` only declares its functions on Android, so guard those calls
   with `#ifdef __ANDROID__`.
 - Replace the AdMob **test** ids in `[android.admob]` in
-  `raylib_multiplatform.toml` with your own before publishing.
+  `raylib_multiplatform.toml` with your own before publishing — or set
+  `enabled = false` there and the whole SDK leaves the build.

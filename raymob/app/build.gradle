@@ -34,6 +34,16 @@ static def getGLVersionCode(String version) {
     return versionCodes[version]
 }
 
+// AdMob can be removed from the build entirely — see [android.admob] enabled in
+// raylib_multiplatform.toml. configure.py also forces this to false when
+// "android" is not in [targets], since ads in a build that does not exist cost
+// only the dependency, the AD_ID permission and a Data safety declaration.
+def admobEnabled = Boolean.parseBoolean(project.properties['admob.enabled'] ?: 'true')
+
+// Whichever AdmobBridge.java is actually compiled. preBuild rewrites its
+// package like it does the other Java sources, so it has to be named once.
+def admobBridgePath = (admobEnabled ? 'src/admob' : 'src/noadmob') + '/java/com/raylib/raymob/AdmobBridge.java'
+
 android {
     namespace project.properties['app.application_id']
 
@@ -47,6 +57,16 @@ android {
     // gives 16 KB ELF page alignment by default, which Play requires alongside
     // the API 36 target.
     ndkVersion '28.2.13676358'
+
+    sourceSets {
+        main {
+            // Generated from AndroidManifest.template.xml by tools/configure.py.
+            // A permission is an element, not an attribute, so it cannot be
+            // switched with a manifestPlaceholder — see the template.
+            manifest.srcFile 'generated/AndroidManifest.xml'
+            java.srcDir(admobEnabled ? 'src/admob/java' : 'src/noadmob/java')
+        }
+    }
 
     defaultConfig {
         // From raylib_multiplatform.toml via generated.properties. Parsed
@@ -76,8 +96,6 @@ android {
             'APP_LIB_NAME': project.properties['app.native_library_name'] ?: "raymob",
             'APP_ORIENTATION': project.properties['app.orientation'] ?: "landscape",
             'APP_CATEGORY': project.properties['app.category'] ?: "DEFAULT",
-            'REQUIRE_INTERNET': project.properties['requirements.internet'] ?: "false",
-            'REQUIRE_VIBRATION': project.properties['requirements.vibration'] ?: "false",
             'REQUIRE_GYROSCOPE': project.properties['requirements.gyroscope'] ?: "false",
             'REQUIRE_ACCELEROMETER': project.properties['requirements.accelerometer'] ?: "false",
             'ADMOB_APP_ID': project.properties['admob.app_id'] ?: "ca-app-pub-3940256099942544~3347511713"
@@ -153,6 +171,7 @@ android {
         // Modify the package name and library name in other java classes
         updateFile("src/main/java/com/raylib/raymob/DisplayManager.java", "package com.raylib.raymob;", "package " + project.properties['app.application_id'] + ";")
         updateFile("src/main/java/com/raylib/raymob/SoftKeyboard.java", "package com.raylib.raymob;", "package " + project.properties['app.application_id'] + ";")
+        updateFile(admobBridgePath, "package com.raylib.raymob;", "package " + project.properties['app.application_id'] + ";")
 
         // Modify the package name in proguard-rules.pro
         updateFile("proguard-rules.pro", "com.raylib.raymob", project.properties['app.application_id'])
@@ -175,6 +194,7 @@ android {
         // Restore the package name and library name in other java classes
         updateFile("src/main/java/com/raylib/raymob/DisplayManager.java", "package " + project.properties['app.application_id'] + ";", "package com.raylib.raymob;")
         updateFile("src/main/java/com/raylib/raymob/SoftKeyboard.java", "package " + project.properties['app.application_id'] + ";", "package com.raylib.raymob;")
+        updateFile(admobBridgePath, "package " + project.properties['app.application_id'] + ";", "package com.raylib.raymob;")
 
         // Restore the package name in proguard-rules.pro
         updateFile("proguard-rules.pro", project.properties['app.application_id'], "com.raylib.raymob")
@@ -250,9 +270,14 @@ buildFeatures {
 // To add a new dependency, use the 'implementation' or 'api' keyword followed by the library's coordinate or name.
 
 dependencies {
-    // Google Mobile Ads SDK (AdMob). An AAR compiled against a lower SDK is
-    // always fine under a higher compileSdk, so this deliberately did NOT move
-    // with the API 36 bump: keeping them in separate commits means a broken
-    // build can be bisected to one or the other. 25.x exists when you want it.
-    implementation 'com.google.android.gms:play-services-ads:24.9.0'
+    // Google Mobile Ads SDK (AdMob). Only linked when AdMob is on: with it off
+    // there is no ads code in the APK to link it to (see src/noadmob/java).
+    //
+    // An AAR compiled against a lower SDK is always fine under a higher
+    // compileSdk, so this deliberately did NOT move with the API 36 bump:
+    // keeping them in separate commits means a broken build can be bisected to
+    // one or the other. 25.x exists when you want it.
+    if (admobEnabled) {
+        implementation 'com.google.android.gms:play-services-ads:24.9.0'
+    }
 }

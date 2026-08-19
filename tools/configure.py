@@ -176,6 +176,18 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
     return result
 
 
+def admob_on(cfg: dict, targets: list[str]) -> bool:
+    """Is AdMob part of this build?
+
+    Two ways to say no, and the second one is the one nobody remembers to say.
+    Turning Android off in [targets] — by name or through a group like
+    "mobile" — means there is no Android build to put ads in, so carrying the
+    Google Mobile Ads SDK, the AD_ID permission and the Play "advertising ID"
+    declaration that comes with it would be paying for nothing.
+    """
+    return bool(cfg["android"]["admob"]["enabled"]) and "android" in targets
+
+
 # ---------------------------------------------------------------------------
 # Defaults + load
 # ---------------------------------------------------------------------------
@@ -189,9 +201,14 @@ DEFAULTS: dict = {
         "application_id": "com.example.raytest",
         "min_sdk": 24, "gl_version": "ES30", "category": "LAUNCHER",
         "display": {"keep_on": True, "immersive": True, "into_cutout": True},
-        "features": {"internet": False, "vibration": False,
-                     "gyroscope": False, "accelerometer": False},
-        "admob": {"app_id": "ca-app-pub-3940256099942544~3347511713",
+        # Permissions and features are different things and used to be one
+        # table, which hid a bug: android:required is an attribute of
+        # <uses-feature> only. On a <uses-permission> it is ignored, so
+        # internet = false shipped an APK that asked for INTERNET anyway.
+        "permissions": {"internet": False, "vibration": False},
+        "features": {"gyroscope": False, "accelerometer": False},
+        "admob": {"enabled": True,
+                  "app_id": "ca-app-pub-3940256099942544~3347511713",
                   "interstitial_id": "ca-app-pub-3940256099942544/1033173712",
                   "rewarded_id": "ca-app-pub-3940256099942544/5224354917"},
     },
@@ -278,6 +295,18 @@ def validate(cfg: dict, strict_release: bool) -> None:
         v = cfg["window"][k]
         if not isinstance(v, int) or not (16 <= v <= 16384):
             raise ConfigError(f"[window] {k} = {v!r} must be an integer between 16 and 16384.")
+
+    # Every Android switch is a boolean, and TOML will happily hand us the
+    # string "false", which is truthy. Java .properties would then receive
+    # "false" for a value nobody checked, which is how a switch silently stops
+    # switching.
+    for table in ("display", "permissions", "features"):
+        for k, v in cfg["android"][table].items():
+            if not isinstance(v, bool):
+                raise ConfigError(f"[android.{table}] {k} = {v!r} must be true or false.")
+    if not isinstance(cfg["android"]["admob"]["enabled"], bool):
+        raise ConfigError("[android.admob] enabled = "
+                          f"{cfg['android']['admob']['enabled']!r} must be true or false.")
 
     appid = cfg["android"]["application_id"]
     if not APPID_RE.match(appid):
@@ -651,7 +680,7 @@ def gen_app_config(cfg: dict) -> None:
 """)
 
 
-def gen_gradle_properties(cfg: dict) -> None:
+def gen_gradle_properties(cfg: dict, targets: list[str]) -> None:
     """The Android knobs, as a properties file settings.gradle injects.
 
     It cannot be gradle.properties itself: Gradle reads that during
@@ -662,6 +691,7 @@ def gen_gradle_properties(cfg: dict) -> None:
     a = cfg["android"]
     name = cfg["project"]["name"]
     version_name, version_code = resolve_version()
+    admob = admob_on(cfg, targets)
     props = {
         "projectName": name,
         "app.name": cfg["window"]["title"],
@@ -673,14 +703,17 @@ def gen_gradle_properties(cfg: dict) -> None:
         "app.version_name": version_name,
         "app.version_code": version_code,
         "gl.version": a["gl_version"],
+        "admob.enabled": str(admob).lower(),
         "admob.app_id": a["admob"]["app_id"],
         "admob.interstitial_id": a["admob"]["interstitial_id"],
         "admob.rewarded_id": a["admob"]["rewarded_id"],
         "display.keep_on": str(a["display"]["keep_on"]).lower(),
         "display.immersive": str(a["display"]["immersive"]).lower(),
         "display.into_cutout": str(a["display"]["into_cutout"]).lower(),
-        "requirements.internet": str(a["features"]["internet"]).lower(),
-        "requirements.vibration": str(a["features"]["vibration"]).lower(),
+        # Ads need the network. Leaving this to the user would mean an APK that
+        # loads no ads and gives no reason why.
+        "permissions.internet": str(a["permissions"]["internet"] or admob).lower(),
+        "permissions.vibration": str(a["permissions"]["vibration"]).lower(),
         "requirements.gyroscope": str(a["features"]["gyroscope"]).lower(),
         "requirements.accelerometer": str(a["features"]["accelerometer"]).lower(),
     }
@@ -691,6 +724,93 @@ def gen_gradle_properties(cfg: dict) -> None:
 
     body = "\n".join(f"{k}={esc(v)}" for k, v in props.items())
     write(REPO / "raymob" / "generated.properties", f"# {GEN_HEADER}\n{body}\n")
+
+
+MANIFEST_TEMPLATE = REPO / "raymob" / "app" / "AndroidManifest.template.xml"
+MANIFEST_OUT = REPO / "raymob" / "app" / "generated" / "AndroidManifest.xml"
+
+IF_RE = re.compile(r"^\s*<!--\s*#if\s+([a-z_]+)\s*-->\s*$")
+ENDIF_RE = re.compile(r"^\s*<!--\s*#endif\s*-->\s*$")
+DOC_RE = re.compile(r"^\s*<!--\s*#doc\s*-->\s*$")
+ENDDOC_RE = re.compile(r"^\s*<!--\s*#enddoc\s*-->\s*$")
+
+
+def gen_android_manifest(cfg: dict, targets: list[str]) -> None:
+    """The Android manifest, with whole elements kept or dropped.
+
+    AGP's manifestPlaceholders substitute *values* inside attributes; they
+    cannot remove an element. And an element is exactly what a permission is:
+    you either ask for it or you do not, there being no android:required on
+    <uses-permission> (that attribute belongs to <uses-feature>, and writing it
+    there is silently ignored — which is how internet = false used to ship an
+    APK that asked for INTERNET regardless).
+
+    So the conditional blocks are resolved here, before Gradle ever sees the
+    file. The syntax is one flag per block, no nesting and no else, because
+    anything richer would be a language and this is a manifest.
+    """
+    a = cfg["android"]
+    admob = admob_on(cfg, targets)
+    flags = {
+        "internet": bool(a["permissions"]["internet"]) or admob,
+        "vibration": bool(a["permissions"]["vibration"]),
+        "admob": admob,
+    }
+
+    out: list[str] = []
+    keeping = True
+    active: str | None = None
+    in_doc = False
+    for n, line in enumerate(MANIFEST_TEMPLATE.read_text().splitlines(), 1):
+        # #doc ... #enddoc is the template explaining itself. It is for whoever
+        # opens the template, not for the manifest Gradle reads.
+        if DOC_RE.match(line):
+            in_doc = True
+            continue
+        if ENDDOC_RE.match(line):
+            in_doc = False
+            continue
+        if in_doc:
+            continue
+        m = IF_RE.match(line)
+        if m:
+            if active is not None:
+                raise ConfigError(f"{MANIFEST_TEMPLATE.name}:{n}: nested #if "
+                                  f"({active!r} is still open).")
+            active = m.group(1)
+            if active not in flags:
+                raise ConfigError(f"{MANIFEST_TEMPLATE.name}:{n}: unknown flag "
+                                  f"{active!r}. Known: {', '.join(sorted(flags))}.")
+            keeping = flags[active]
+            continue
+        if ENDIF_RE.match(line):
+            if active is None:
+                raise ConfigError(f"{MANIFEST_TEMPLATE.name}:{n}: #endif without #if.")
+            active = None
+            keeping = True
+            continue
+        if keeping:
+            out.append(line)
+    if active is not None:
+        raise ConfigError(f"{MANIFEST_TEMPLATE.name}: #if {active} was never closed.")
+    if in_doc:
+        raise ConfigError(f"{MANIFEST_TEMPLATE.name}: #doc was never closed.")
+
+    # Dropping a block leaves the blank lines that surrounded it behind.
+    tidy: list[str] = []
+    for line in out:
+        if not line.strip() and (not tidy or not tidy[-1].strip()):
+            continue
+        tidy.append(line)
+
+    # The XML declaration has to stay the very first thing in the file, so the
+    # generated-by notice goes after it rather than on top.
+    if tidy and tidy[0].startswith("<?xml"):
+        tidy.insert(1, f"<!-- {GEN_HEADER} -->")
+    else:
+        tidy.insert(0, f"<!-- {GEN_HEADER} -->")
+
+    write(MANIFEST_OUT, "\n".join(tidy).rstrip() + "\n")
 
 
 def yaml_scalar(v) -> str:
@@ -1068,7 +1188,8 @@ def main(argv: list[str]) -> int:
 
     gen_cmake(cfg)
     gen_app_config(cfg)
-    gen_gradle_properties(cfg)
+    gen_gradle_properties(cfg, targets)
+    gen_android_manifest(cfg, targets)
     generate_icons(cfg, required=args.require_icons)
     gen_ios_project(cfg)   # after icons: it references the asset catalog if present
     STAMP.parent.mkdir(parents=True, exist_ok=True)

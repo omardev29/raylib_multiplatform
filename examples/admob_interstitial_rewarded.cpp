@@ -18,6 +18,11 @@
 // raylib_multiplatform.toml before shipping (the template defaults to Google's
 // official TEST ids). Banner ads are not supported by design.
 //
+// [android.admob] enabled = false removes AdMob from the Android build
+// entirely, and this file still compiles and still runs: the calls become the
+// same no-ops they already are on desktop. Ads are opt-in for a reason — see
+// the consent (UMP) warning in README.md before shipping with them on.
+//
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 

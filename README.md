@@ -94,6 +94,13 @@ application_id = "com.yourname.yourgame"
 min_sdk = 24
 gl_version = "ES30"
 
+[android.permissions]
+internet  = false                      # each one shows up on your Play listing
+vibration = false
+
+[android.admob]
+enabled = false                        # true = ads; also off when android is not a target
+
 [ios]
 bundle_id = "com.yourname.yourgame"
 deployment_target = "15.6"
@@ -242,6 +249,20 @@ verified on every run too, but with a throwaway key, and the artifact is named
 Tag a release and the signed AAB is attached to it. CI verifies the signature with `jarsigner` and
 asserts the signer is not the throwaway key, so a CI-signed bundle can never masquerade as a
 publishable one.
+
+**Ads are opt-in.** `[android.admob] enabled = false` removes AdMob from the build completely: no
+Google Mobile Ads dependency, no `AD_ID` permission, no SDK init at startup. Your code does not
+change — the `<admob.h>` calls stay compilable and do nothing, as they already do everywhere except
+Android. It switches itself off too when `android` is not in `[targets]`. Leave it off unless you
+actually ship ads: the `AD_ID` permission alone obliges you to declare advertising-id collection in
+Play's **Data safety** form.
+
+> [!WARNING]
+> **TODO — consent (UMP) is not implemented.** Showing ads to users in the EEA or the UK requires a
+> Google-certified consent platform, and this template does not ship one. With ads on, that traffic
+> will be served badly or not at all until you add it. See
+> [AdMob](TECHNICAL.md#admob-android) in TECHNICAL.md for what it takes; it is a call and a form,
+> not a new dependency.
 
 ### iOS
 
