@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <raylib_multiplatform.h>
 
 class GameAssets {
@@ -43,9 +44,12 @@ static inline void _process(float delta) {
   // coordinate, a font or a hitbox.
   rmp::ui::begin();
   rmp::ui::text("Raylib is Multiplatform!");
-  if (rmp::ui::button("Play"))    TraceLog(LOG_INFO, "MENU: play");
-  if (rmp::ui::button("Options")) TraceLog(LOG_INFO, "MENU: options");
-  if (rmp::ui::button("Quit"))    TraceLog(LOG_INFO, "MENU: quit");
+  if (rmp::ui::button("Play"))
+    TraceLog(LOG_INFO, "MENU: play");
+  if (rmp::ui::button("Options"))
+    TraceLog(LOG_INFO, "MENU: options");
+  if (rmp::ui::button("Quit"))
+    std::exit(0);
   rmp::ui::end();
 
   // CI smoke-test hook: read the frame back and check something was actually
