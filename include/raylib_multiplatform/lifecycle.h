@@ -11,12 +11,20 @@
 // open the asset pack, run you, report to CI whether any asset failed to load,
 // and close the pack afterwards. None of it is yours to remember, and there is
 // nothing you have to keep in _ready() to keep CI happy.
+//
+// One ordering detail that is not obvious: rmp::ui::shutdown() runs BEFORE
+// _exit(), not after. _exit() is where you call CloseWindow(), and releasing a
+// font after that is touching a GL context that no longer exists. The UI is
+// not used again after the loop ends, so closing it first costs nothing. The
+// asset layer is the opposite case — it owns no GPU objects, so it closes
+// after you, in case _exit() still wants to unload something.
 // ---------------------------------------------------------------------------
 
 #include <stdlib.h> // exit() on the iOS CI path
 
 #include <raylib.h>
 #include <raylib_multiplatform/assets.h>
+#include <raylib_multiplatform/ui.h>
 #include <smoke_test.h>
 
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
@@ -44,14 +52,16 @@
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     _process(GetFrameTime());                                                  \
     if (SmokeTest_Tick()) {                                                    \
+      rmp::ui::shutdown();                                                     \
       _exit();                                                                 \
-      rmp::assets::shutdown();                                                      \
+      rmp::assets::shutdown();                                                 \
       exit(0);                                                                 \
     }                                                                          \
   }                                                                            \
   extern "C" void ios_destroy() {                                              \
+    rmp::ui::shutdown();                                                       \
     _exit();                                                                   \
-    rmp::assets::shutdown();                                                        \
+    rmp::assets::shutdown();                                                   \
   }
 
 // Main loop body macro
@@ -69,8 +79,9 @@
       _process(GetFrameTime());                                                \
       smokeDone = SmokeTest_Tick();                                            \
     }                                                                          \
+    rmp::ui::shutdown();                                                       \
     _exit();                                                                   \
-    rmp::assets::shutdown();                                                        \
+    rmp::assets::shutdown();                                                   \
     return 0;                                                                  \
   }
 #endif

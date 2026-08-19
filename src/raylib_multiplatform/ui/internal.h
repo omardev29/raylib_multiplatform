@@ -1,0 +1,112 @@
+#pragma once
+// ---------------------------------------------------------------------------
+// Private to src/raylib_multiplatform/ui/. Not in include/, on purpose: this
+// is where Clay is allowed to exist, and a header the user can reach is a
+// header the user will end up depending on.
+//
+// The public surface is include/raylib_multiplatform/ui.h.
+// ---------------------------------------------------------------------------
+
+#include <raylib.h>
+#include <raylib_multiplatform/ui.h>
+
+#include "clay.h"
+
+#include <cstdint>
+#include <string_view>
+
+namespace rmp::ui::detail {
+
+// --- context.cpp -----------------------------------------------------------
+
+// Start Clay if this is the first frame. Called by begin(), never by the user:
+// it has to happen after InitWindow(), and the first begin() is the earliest
+// moment we can be sure of that.
+bool ensure_started();
+
+// True between begin() and end(). Used to catch mismatched pairs in debug.
+bool frame_open();
+void set_frame_open(bool open);
+
+// Free Clay's arena and any loaded font. Behind rmp::ui::shutdown().
+void shutdown_context();
+
+// Recomputed at every begin() from the viewport and the design resolution.
+void  update_scale();
+float ui_scale();
+void  set_scale_override(float s);   // 0 = automatic
+
+// The pointer, through whichever provider is installed.
+void read_pointer(Clay_Vector2 *position, bool *down);
+
+// True on the platforms whose only pointer is a finger. There, hover has to be
+// suppressed when nothing is touching the screen, or the last place tapped
+// stays lit up forever.
+bool touch_only();
+
+// Pixels to keep clear at the edge of the screen. [android.display]
+// into_cutout draws the game behind the notch, which is right for a background
+// and wrong for a menu.
+float safe_area_inset();
+
+// The font the UI draws with, and the size it was baked at. For the built-in
+// bitmap font the scale is rounded to a whole number, because a pixel font at
+// 1.73x is a smeared mess.
+Font  ui_font();
+float font_scale();
+
+// Text lives in a bump arena that is reset every begin(). Clay does NOT copy
+// strings — it keeps the pointer and reads it during Clay_EndLayout — so a
+// caller passing std::to_string(score) would otherwise hand it a dangling
+// pointer. Copying on the way in removes the whole class of bug.
+Clay_String intern(std::string_view s);
+void        reset_frame_arena();
+
+// Element identity. Hashing the label alone would make two "Back" buttons in
+// two different screens the same element, so they would highlight together.
+// The occurrence counter disambiguates the common case; an explicit id is the
+// escape hatch when the UI is conditional.
+Clay_ElementId element_id(std::string_view label, const char *explicit_id);
+void           reset_id_counters();
+
+// --- render.cpp ------------------------------------------------------------
+
+void draw(Clay_RenderCommandArray commands);
+
+// Clay hands out string slices that are NOT null terminated. raylib's
+// DrawTextEx and MeasureTextEx both need one, so every slice has to be copied
+// into a scratch buffer with a terminator first.
+const char *cstr(Clay_StringSlice slice);
+
+// --- seams for tests -------------------------------------------------------
+//
+// With these two replaced, the layout runs with no window and no GPU:
+// Clay_EndLayout is pure computation. That is what makes headless layout tests
+// possible (tests/ui_layout_test.cpp).
+
+using measure_fn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
+using pointer_fn = void (*)(Clay_Vector2 *position, bool *down);
+
+void set_measure_provider(measure_fn fn);
+void set_pointer_provider(pointer_fn fn);
+
+// The defaults, exposed so a test can put them back.
+Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config, void *user);
+void            pointer_from_raylib(Clay_Vector2 *position, bool *down);
+
+// --- shared conversions ----------------------------------------------------
+
+inline Clay_Color to_clay(Color c) {
+    return Clay_Color{ static_cast<float>(c.r), static_cast<float>(c.g),
+                       static_cast<float>(c.b), static_cast<float>(c.a) };
+}
+
+inline Color from_clay(Clay_Color c) {
+    return Color{ static_cast<unsigned char>(c.r), static_cast<unsigned char>(c.g),
+                  static_cast<unsigned char>(c.b), static_cast<unsigned char>(c.a) };
+}
+
+// Design units -> pixels.
+inline float px(float design_units) { return design_units * ui_scale(); }
+
+} // namespace rmp::ui::detail

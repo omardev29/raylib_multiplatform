@@ -33,4 +33,5 @@
 #include <raylib_multiplatform/colors.h>     // extra colors
 #include <raylib_multiplatform/assets.h>     // rmp::assets — resources/
 #include <raylib_multiplatform/ads.h>        // rmp::ads    — interstitial/rewarded
+#include <raylib_multiplatform/ui.h>         // rmp::ui     — menus, buttons, text
 #include <raylib_multiplatform/lifecycle.h>  // _ready/_process/_exit -> main()

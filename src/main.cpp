@@ -38,7 +38,15 @@ static inline void _process(float delta) {
   DrawTexture(game.rabbit, screen_x / 2 - game.rabbit.width / 2,
               screen_y / 2 - game.rabbit.height / 2, WHITE);
 
-  DrawText("Raylib is Multiplatform!", 190, 200, 20, LIGHTGRAY);
+  // A menu, in three calls. It stays centred and keeps its proportions at any
+  // window size — resize the window and watch. Nothing here mentions a
+  // coordinate, a font or a hitbox.
+  rmp::ui::begin();
+  rmp::ui::text("Raylib is Multiplatform!");
+  if (rmp::ui::button("Play"))    TraceLog(LOG_INFO, "MENU: play");
+  if (rmp::ui::button("Options")) TraceLog(LOG_INFO, "MENU: options");
+  if (rmp::ui::button("Quit"))    TraceLog(LOG_INFO, "MENU: quit");
+  rmp::ui::end();
 
   // CI smoke-test hook: read the frame back and check something was actually
   // drawn. Must sit here, between the last draw call and EndDrawing() — see
