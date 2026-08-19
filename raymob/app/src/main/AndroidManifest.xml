@@ -30,7 +30,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         tools:targetApi="31">
 
-        <!-- AdMob application id (set via admob.app_id in gradle.properties) -->
+        <!-- AdMob application id (set via [android.admob] app_id in raylib_multiplatform.toml) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="${ADMOB_APP_ID}" />

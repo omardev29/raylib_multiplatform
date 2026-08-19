@@ -14,9 +14,9 @@
 //   Show*Ad()         -> display it (then immediately request the next one)
 //   TakeRewardEarned()/GetRewardAmount() -> rewarded only: poll the reward
 //
-// Configure your real ad-unit ids in raymob/gradle.properties before shipping
-// (the template defaults to Google's official TEST ids). Banner ads are not
-// supported by design.
+// Configure your real ad-unit ids in [android.admob] in
+// raylib_multiplatform.toml before shipping (the template defaults to Google's
+// official TEST ids). Banner ads are not supported by design.
 //
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
