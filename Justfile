@@ -110,6 +110,73 @@ test what="all":
     esac
     echo "PASS"
 
+# --- releasing --------------------------------------------------------------
+
+# Cut a release: tag it and push the tag. CI builds all 14 targets and publishes.
+deploy version:
+    #!/usr/bin/env bash
+    # The version comes from the tag and nowhere else — there is no number to
+    # bump in a file first. `just deploy 1.4.0` and `just deploy v1.4.0` are the
+    # same thing.
+    #
+    # Run `just test` before this. What follows only checks the things that
+    # would waste a twenty-minute pipeline, not whether your game works.
+    set -euo pipefail
+    v="{{ version }}"
+    case "$v" in v*) ;; *) v="v$v" ;; esac
+
+    # A tag on a dirty tree is a lie about what shipped: the artifacts would be
+    # built from the commit, not from what you were looking at.
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "FALLA: uncommitted changes. Commit or stash them first."
+        git status --short
+        exit 1
+    fi
+
+    if git rev-parse -q --verify "refs/tags/$v" >/dev/null; then
+        echo "FALLA: the tag $v already exists here."
+        echo "  git tag -d $v                 # if it was never pushed"
+        exit 1
+    fi
+    if git ls-remote --exit-code --tags origin "$v" >/dev/null 2>&1; then
+        echo "FALLA: $v is already on the remote. Releases are not re-cut; bump the version."
+        exit 1
+    fi
+
+    # CI checks out the tag from the remote, so a tag on a commit that only
+    # exists here builds nothing — or worse, builds the wrong thing.
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    if ! git rev-parse -q --verify "origin/$branch" >/dev/null; then
+        echo "FALLA: origin/$branch does not exist. Push the branch first:"
+        echo "  git push -u origin $branch"
+        exit 1
+    fi
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$branch")" ]; then
+        echo "FALLA: HEAD is not what origin/$branch points at (as of your last fetch)."
+        echo "  git push        # then try again"
+        exit 1
+    fi
+
+    # The exact gate CI runs on a tag, with the tag you are about to create.
+    # Catches, in this order: an invalid .toml, identifiers still left at
+    # com.example.*, and a tag that is not vMAJOR.MINOR.PATCH. All three would
+    # otherwise fail in CI, twenty minutes and one dead tag later — and a Play
+    # application id is permanent, so the second one is worth catching twice.
+    echo "== checking $v the way CI will =="
+    GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$v" \
+        python3 tools/configure.py --print-config --strict-release >/dev/null
+    echo "  ok    $v is release-ready"
+
+    git tag -a "$v" -m "Release $v"
+    git push origin "$v"
+
+    echo
+    echo "pushed $v. CI is building all 14 targets and will attach them to the release."
+    echo "  gh run watch"
+    echo
+    echo "to undo, if you were quick enough:"
+    echo "  git push --delete origin $v && git tag -d $v"
+
 # --- the other platforms ----------------------------------------------------
 
 # Build for the web. Needs the emsdk on PATH (EMSDK set).
