@@ -285,9 +285,28 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     if (over) detail::set_pointer_over_ui();
     const bool hasFocus = o.enabled && detail::focusable(id, label);
 
+    // Item ids are derived from THIS dropdown's id, not from the item text.
+    // Hashing the text would give every dropdown with a "Low" in it the same
+    // element: hover one, the other lights up, and a click could land in the
+    // wrong list entirely.
+    bool overAnyItem = false;
+    if (st->flag && detail::pointer_present()) {
+        for (int i = 0; i < count; i++) {
+            if (Clay_PointerOver(detail::sub_id(id, static_cast<uint32_t>(i) + 1))) {
+                overAnyItem = true;
+                break;
+            }
+        }
+    }
+
     bool changed = false;
     if ((over && detail::pointer_released()) || (hasFocus && detail::take_activate())) {
         st->flag = !st->flag;
+    } else if (st->flag && detail::pointer_released() && !overAnyItem) {
+        // Released somewhere else entirely. An open list that will not go away
+        // when you click past it is the single most irritating thing a dropdown
+        // can do.
+        st->flag = false;
     }
 
     Clay_ElementDeclaration row = control_row(hasFocus);
@@ -335,9 +354,12 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                 Clay__OpenElement();
                 Clay__ConfigureOpenElement(menu);
                 for (int i = 0; i < count; i++) {
-                    Clay_ElementId itemId = detail::element_id(label, items[i]);
+                    Clay_ElementId itemId = detail::sub_id(id, static_cast<uint32_t>(i) + 1);
                     const bool itemOver = detail::pointer_present() && Clay_PointerOver(itemId);
                     if (itemOver) detail::set_pointer_over_ui();
+                    // An open list is in front of the game, so it takes the
+                    // pointer whether or not this particular item is under it.
+                    detail::set_pointer_over_ui();
                     if (itemOver && detail::pointer_released()) {
                         if (*selected != i) changed = true;
                         *selected = i;

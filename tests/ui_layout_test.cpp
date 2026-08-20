@@ -300,6 +300,69 @@ void run_interaction() {
 }
 
 // ---------------------------------------------------------------------------
+// Dropdown
+//
+// Two lists that happen to share an item name is not an edge case — "Low",
+// "None" and "Off" turn up in half the settings screens ever written. If the
+// ids came from the item text they would be the same element.
+// ---------------------------------------------------------------------------
+
+void run_dropdown() {
+    std::printf("\n--- dropdown ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    static const char *A[] = { "Off", "Low", "High" };
+    static const char *B[] = { "Off", "Low", "High" };
+    int quality = 0, shadows = 0;
+
+    auto frame = [&]{
+        rmp::ui::begin();
+        rmp::ui::panel([&]{
+            rmp::ui::dropdown("Quality", &quality, A, 3);
+            rmp::ui::dropdown("Shadows", &shadows, B, 3);
+        });
+        rmp::ui::end();
+    };
+
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+
+    // Open the first one.
+    Box q = box_of("Quality");
+    g_pointer = Clay_Vector2{ q.x + q.w * 0.8f, q.y + q.h / 2 };
+    g_down = true;  frame();
+    g_down = false; frame();
+    frame();
+
+    // Its items exist and the other dropdown's do not overlap them, which is
+    // what the derived ids buy.
+    Clay_String ql{ false, 7, "Quality" };
+    Clay_String sl{ false, 7, "Shadows" };
+    Clay_ElementId qid = Clay_GetElementIdWithIndex(ql, 0);
+    Clay_ElementId sid = Clay_GetElementIdWithIndex(sl, 0);
+    check(qid.id != sid.id, "the two dropdowns are different elements");
+    check(rmp::ui::detail::sub_id(qid, 1).id != rmp::ui::detail::sub_id(sid, 1).id,
+          "and so are their identically named items");
+
+    Clay_BoundingBox item{};
+    bool haveItem = rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(qid, 2), &item);
+    check(haveItem, "the open list laid its items out");
+
+    if (haveItem) {
+        // Pick "Low" from the first list; the second must not move.
+        g_pointer = Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
+        g_down = true;  frame();
+        g_down = false; frame();
+        check(quality == 1, "clicking an item selects it");
+        check(shadows == 0, "and leaves the other dropdown alone");
+    }
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// ---------------------------------------------------------------------------
 // Grid
 // ---------------------------------------------------------------------------
 
@@ -350,6 +413,7 @@ int main() {
     run_containers(800, 600);
     run_grid();
     run_interaction();
+    run_dropdown();
 
     std::printf("\n--- scale limits ---\n");
 

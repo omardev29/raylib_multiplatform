@@ -47,8 +47,8 @@ static inline void _process(float delta) {
       rmp::ui::image(game.rabbit, {.width = 64, .height = 64});
       rmp::ui::column({.items = rmp::ui::align::center_left}, [&] {
         rmp::ui::text(APP_WINDOW_TITLE);
-        rmp::ui::text("raylib + rmp::ui", {.color = rmp::ui::color_role::muted,
-                                           .size = 14});
+        rmp::ui::text("raylib + rmp::ui",
+                      {.color = rmp::ui::color_role::muted, .size = 14});
       });
     });
 
