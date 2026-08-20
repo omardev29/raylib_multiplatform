@@ -30,9 +30,11 @@ dev:
     cmake --preset debug
     cmake --build build
 
-# Run the game. Builds it first if it is missing or out of date.
-run: dev
-    ./build/{{ project_name }}
+
+
+# we ain't compiling if we already compile
+run:
+     { [ -f build/{{ project_name }} ] && ./build/{{ project_name }}; } || { just dev && ./build/{{ project_name }}; }
 
 # Compile the release build: optimised, LTO, assets read from ./resources/.
 rel:
