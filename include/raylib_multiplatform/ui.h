@@ -100,6 +100,11 @@ struct theme {
     Color disabled       = CLITERAL(Color){  60,  60,  70, 255 };
     Color disabled_text  = CLITERAL(Color){ 110, 110, 124, 255 };
 
+    // The outline on whatever the keyboard or gamepad is pointing at. Without
+    // it a controller build is unusable, so it is a theme colour rather than
+    // something each widget decides.
+    Color focus          = CLITERAL(Color){ 130, 170, 255, 255 };
+
     float font_size       = APP_UI_FONT_SIZE;         // [ui] font_size
     float font_size_small = APP_UI_FONT_SIZE * 0.8f;
     float padding_x       = 20;   // inside a button
@@ -108,6 +113,9 @@ struct theme {
     float panel_padding   = 20;
     float corner_radius   = 8;
     float border_width    = 0;    // 0 = the default theme draws no borders
+    float control_size    = 22;   // a checkbox box, a slider handle
+    float track_thickness = 6;    // a slider's rail
+    float focus_ring      = 2;    // the outline on the focused control
     // No control is ever shorter than this. 44 design units is Apple's touch
     // target guidance and close to Material's 48dp — it is the difference
     // between a menu you can use with a thumb and one you cannot.
@@ -218,9 +226,15 @@ struct box_options {
     float gap     = -1;      // between children
     float padding = -1;      // inside this container
     align items   = align::center;   // where children sit in the leftover space
+    // Sizing is interleaved by axis — x then y — rather than grouped by kind,
+    // and that is not cosmetic. Designated initialisers have to be written in
+    // declaration order, so grouping them as grow_x, grow_y, width, height
+    // would make { .width = 240, .grow_y = true } illegal: a fixed-width
+    // sidebar that fills the height, which is about the most ordinary thing
+    // anyone writes. This way round, every combination is legal.
     bool  grow_x  = false;   // fill the parent's width instead of fitting content
-    bool  grow_y  = false;
     float width   = 0;       // > 0 = a fixed width, overriding fit/grow
+    bool  grow_y  = false;
     float height  = 0;
     // Naming a container lets you ask about it later — whether the pointer is
     // over it, or where it ended up. Unnamed containers are anonymous, which is
@@ -350,6 +364,181 @@ void image(const Texture2D &texture, const image_options &o);
 // A bar. `fraction` is 0..1 and is clamped.
 void progress(float fraction);
 void progress(float fraction, const progress_options &o);
+
+// ---------------------------------------------------------------------------
+// Grid and scroll
+// ---------------------------------------------------------------------------
+
+struct grid_options {
+    int   columns = 0;       // 0 = as many as fit, recomputed as the window changes
+    float min_cell = 96;     // only used when columns = 0
+    float gap     = -1;
+    float padding = -1;
+    bool  grow_x  = true;    // a grid almost always wants the width it is offered
+    bool  grow_y  = false;
+    const char *id = nullptr;
+};
+
+
+struct scroll_options {
+    bool  horizontal = false;   // vertical by default, which is what lists want
+    bool  vertical   = true;
+    float gap     = -1;
+    float padding = -1;
+    bool  grow_x  = true;
+    float width   = 0;
+    bool  grow_y  = true;       // a scroll area with no height clips nothing
+    float height  = 0;
+    const char *id = nullptr;
+};
+
+namespace detail {
+void open_grid(const grid_options &o);
+void close_grid();
+void open_cell();
+void close_cell();
+void open_scroll(const scroll_options &o);
+
+struct grid_closer { ~grid_closer() { close_grid(); } };
+struct cell_closer { ~cell_closer() { close_cell(); } };
+} // namespace detail
+
+// Equal columns, as many rows as it takes. Each item goes in a cell(), which is
+// what lets the grid count them and start a new row at the right moment — the
+// layout engine underneath wraps text, not elements, so the rows are real rows.
+//
+//     rmp::ui::grid(4, [&]{
+//         for (auto &item : inventory)
+//             rmp::ui::cell([&]{ rmp::ui::image(item.icon); });
+//     });
+//
+// With columns = 0 it works out how many fit in the width it has and works it
+// out again when the window changes, which is what an inventory should do
+// rather than staying at the number someone typed on a desktop.
+template <class Body> void grid(const grid_options &o, Body &&body) {
+    detail::open_grid(o);
+    detail::grid_closer close;
+    body();
+}
+
+// One item in a grid. Every child of a grid has to be one.
+template <class Body> void cell(Body &&body) {
+    detail::open_cell();
+    detail::cell_closer close;
+    body();
+}
+template <class Body> void grid(int columns, Body &&body) {
+    grid(grid_options{ .columns = columns }, static_cast<Body &&>(body));
+}
+template <class Body> void grid(Body &&body) { grid(grid_options{}, static_cast<Body &&>(body)); }
+
+// Clips its contents and scrolls them. The wheel works, and so does dragging
+// with a finger — the same gesture on a phone.
+template <class Body> void scroll(const scroll_options &o, Body &&body) {
+    detail::open_scroll(o);
+    detail::closer close;
+    body();
+}
+template <class Body> void scroll(Body &&body) { scroll(scroll_options{}, static_cast<Body &&>(body)); }
+
+// ---------------------------------------------------------------------------
+// Controls that own a value
+//
+// Each one takes a pointer to YOUR variable and writes to it. That is the whole
+// state model: there is nothing of ours to keep in sync, and the value on
+// screen is the value in your struct because it was read this frame.
+//
+// They return true on the frame the value changed, so this reads the way it
+// looks:
+//
+//     if (rmp::ui::checkbox("Fullscreen", &settings.fullscreen)) apply();
+// ---------------------------------------------------------------------------
+
+struct checkbox_options {
+    bool enabled = true;
+    const char *id = nullptr;
+};
+
+struct slider_options {
+    float width   = 0;       // 0 = fill the space available
+    float step    = 0;       // 0 = continuous; otherwise snap to multiples
+    bool  enabled = true;
+    bool  show_value = true; // draw the number next to the label
+    const char *id = nullptr;
+};
+
+struct dropdown_options {
+    float width   = 0;
+    bool  enabled = true;
+    const char *id = nullptr;
+};
+
+struct text_input_options {
+    float width   = 0;
+    bool  enabled = true;
+    std::string_view placeholder{};
+    const char *id = nullptr;
+};
+
+bool checkbox(std::string_view label, bool *value);
+bool checkbox(std::string_view label, bool *value, const checkbox_options &o);
+
+bool slider(std::string_view label, float *value, float min, float max);
+bool slider(std::string_view label, float *value, float min, float max,
+            const slider_options &o);
+
+// `items` is an array of `count` C strings; *selected is the index into it.
+bool dropdown(std::string_view label, int *selected,
+              const char *const *items, int count);
+bool dropdown(std::string_view label, int *selected,
+              const char *const *items, int count, const dropdown_options &o);
+
+// Writes into your buffer, NUL-terminated, never past capacity - 1.
+bool text_input(std::string_view label, char *buffer, int capacity);
+bool text_input(std::string_view label, char *buffer, int capacity,
+                const text_input_options &o);
+
+// ---------------------------------------------------------------------------
+// Input, and who gets it
+//
+// The UI reads the pointer and the keyboard itself. These two are how your game
+// finds out that it should keep its hands off — without them, the click that
+// presses Pause also fires your weapon, and typing a save name walks the player
+// across the level.
+//
+//     if (!rmp::ui::wants_pointer() && IsMouseButtonPressed(0)) shoot();
+//     if (!rmp::ui::wants_keyboard() && IsKeyDown(KEY_W))       walk();
+// ---------------------------------------------------------------------------
+
+// The pointer is over the interface, or the interface is using it (dragging a
+// slider). Like everything in immediate mode this answers for the layout of the
+// previous frame, which is one frame of tolerance nobody will notice.
+bool wants_pointer();
+
+// A text field has focus, so the keyboard belongs to it.
+bool wants_keyboard();
+
+// ---------------------------------------------------------------------------
+// Focus, keyboard and gamepad
+//
+// Every control that can be interacted with is focusable, in the order it was
+// declared. Tab and the arrows (or a d-pad) move between them, Enter or the
+// gamepad's bottom button activates. It costs you nothing: the widgets you
+// already wrote are already navigable.
+//
+// This is what makes a build playable on a TV with a controller, and it is why
+// the focus ring is not optional in the theme.
+// ---------------------------------------------------------------------------
+
+// Give a named control the focus, e.g. when a menu opens. Pass "" to clear it.
+void focus(std::string_view id);
+
+// What has the focus right now, or "" if nothing does.
+std::string_view focused();
+
+// Turn keyboard and gamepad navigation off if your game drives focus itself.
+void set_navigation_enabled(bool on);
+bool navigation_enabled();
 
 // ---------------------------------------------------------------------------
 // Lifecycle

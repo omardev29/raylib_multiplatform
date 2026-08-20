@@ -17,6 +17,8 @@ what is ours.
 | [01_menu.cpp](ui/01_menu.cpp) | A main menu in three lines, then an options screen, a confirm dialog and a HUD. Variants, disabled controls, explicit ids, placement, the theme. **Start here.** |
 | [02_layout.cpp](ui/02_layout.cpp) | `row`, `column`, `panel`, `center`, `stack`/`layer`, `spacer`, plus `image` and `progress`. The sizing model — fit, grow, fixed — and why design units are not pixels. |
 | [03_clay_direct.cpp](ui/03_clay_direct.cpp) | **The escape hatch.** Clay's own macros in the same frame as `rmp::ui`, for anything the small API does not expose yet. |
+| [04_settings.cpp](ui/04_settings.cpp) | Checkbox, slider, dropdown, text input — and the focus/keyboard/gamepad navigation you get without writing any. The state model, which is "a pointer to your variable" and nothing else. |
+| [05_inventory.cpp](ui/05_inventory.cpp) | `grid` with a column count worked out from the space available, `scroll` with clipping, and `wants_pointer()` keeping the game's hands off the UI's clicks. |
 
 ## [`ads/`](ads) — `rmp::ads`
 
@@ -48,6 +50,9 @@ what is ours.
 
 - The game is C++20 and so are these, except `plain_c/main.c`, which is C99 on
   purpose and is checked as such.
+- These are compiled by CI in a job of their own, on its own runner — not on
+  your machine every time you build. `just test examples` runs the same check
+  locally when you have changed the API and want to know what you broke.
 - Everything the template offers arrives through one header,
   `#include <raylib_multiplatform.h>`. There is nothing else to include — it is
   an umbrella over `include/raylib_multiplatform/`, which you never include from

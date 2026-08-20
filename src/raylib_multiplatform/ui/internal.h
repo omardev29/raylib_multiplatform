@@ -39,6 +39,24 @@ void  set_scale_override(float s);   // 0 = automatic
 // The pointer, through whichever provider is installed.
 void read_pointer(Clay_Vector2 *position, bool *down);
 
+// Pointer state for this frame, sampled once in begin() so every widget sees
+// the same thing. `present` is false on a touch screen with nothing touching
+// it — see touch_only().
+void         update_pointer();
+Clay_Vector2 pointer_position();
+bool         pointer_down();
+bool         pointer_present();
+bool         pointer_just_pressed();
+bool         pointer_released();
+
+// The box an element ended up with last frame, by id.
+bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out);
+
+// A stable id derived from another one, for the parts a widget is made of —
+// a slider's track, say. Hashing a fixed suffix instead would give every
+// slider in the frame the same track.
+Clay_ElementId sub_id(Clay_ElementId base, uint32_t which);
+
 // True on the platforms whose only pointer is a finger. There, hover has to be
 // suppressed when nothing is touching the screen, or the last place tapped
 // stays lit up forever.
@@ -83,6 +101,49 @@ int16_t next_layer_z();
 // escape hatch when the UI is conditional.
 Clay_ElementId element_id(std::string_view label, const char *explicit_id);
 void           reset_id_counters();
+
+// --- focus.cpp -------------------------------------------------------------
+//
+// Focus is what makes the same code playable with a controller. Widgets do not
+// implement it individually: they register, and the navigation happens here.
+
+// Register an interactive element in declaration order. Returns true if it is
+// the one with the focus right now.
+bool focusable(Clay_ElementId id, std::string_view name);
+
+void begin_focus_frame();   // resolve navigation, using last frame's list
+void end_focus_frame();     // swap the lists
+
+// True once per press, for whoever has the focus. Enter, Space, or the
+// gamepad's bottom face button.
+bool take_activate();
+
+// -1, 0 or +1 from the arrows, the d-pad or the left stick, for the controls
+// where sideways means something (a slider). Repeats while held.
+int  nav_axis_x();
+
+// Someone is dragging, or the pointer is over something interactive. This is
+// what wants_pointer() answers with.
+void set_pointer_over_ui();
+void set_pointer_captured(bool captured);
+
+// A text field has the keyboard.
+void set_keyboard_captured(bool captured);
+
+// Small persistent scratch per widget, keyed by element id — a dropdown's open
+// flag, a text field's caret. It is UI state, not application state, which is
+// why it lives here rather than being something the caller has to hold.
+struct widget_state {
+    uint32_t id    = 0;
+    int      i     = 0;
+    float    f     = 0;
+    bool     flag  = false;
+};
+widget_state *state_for(uint32_t id);
+
+bool pointer_over_ui();
+bool keyboard_captured();
+void focus_by_id(uint32_t id, std::string_view name);
 
 // --- render.cpp ------------------------------------------------------------
 

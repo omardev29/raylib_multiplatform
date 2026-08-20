@@ -60,15 +60,11 @@ Clay_ChildAlignment alignment_of(align a) {
     return Clay_ChildAlignment{ x, y };
 }
 
-// The pointer state this frame, and the previous frame's, so a click can be
-// "released over the element it was pressed on" rather than "the button
-// happens to be down".
-bool     g_pointerDown     = false;
-bool     g_pointerWasDown  = false;
-uint32_t g_pressedId       = 0;
-// On a touch screen there is no pointer when there is no finger: the position
-// stays wherever the last tap ended, and a button would sit lit up forever.
-bool     g_pointerPresent  = false;
+// Which element the press started on, so a click is "released over the element
+// it was pressed on" rather than "the button happens to be down". The pointer
+// state itself is sampled once per frame in context.cpp, so every widget in the
+// frame sees the same thing.
+uint32_t g_pressedId = 0;
 
 Clay_Padding uniform_padding(float p) {
     auto v = static_cast<uint16_t>(p);
@@ -95,22 +91,23 @@ void begin(const frame_options &o) {
     detail::reset_frame_arena();
     detail::reset_id_counters();
     detail::update_scale();
+    detail::begin_focus_frame();
 
     const theme &t = current_theme();
 
     Clay_SetLayoutDimensions(detail::viewport());
 
-    Clay_Vector2 pointer{};
-    bool down = false;
-    detail::read_pointer(&pointer, &down);
+    detail::update_pointer();
+    Clay_SetPointerState(detail::pointer_position(), detail::pointer_down());
 
-    g_pointerWasDown = g_pointerDown;
-    g_pointerDown    = down;
-    // Desktop always has a pointer. Touch only has one while a finger is down —
-    // and raylib reports (0,0) before the first ever touch.
-    g_pointerPresent = down || !detail::touch_only();
+    // Scroll containers, before BeginLayout — Clay is explicit that after it
+    // the offset arrives a frame late. Drag scrolling is on because on a phone
+    // that is the only way to scroll anything; the wheel is the desktop half of
+    // the same gesture.
+    Vector2 wheel = GetMouseWheelMoveV();
+    Clay_UpdateScrollContainers(true, Clay_Vector2{ wheel.x * 30.0f, wheel.y * 30.0f },
+                                GetFrameTime());
 
-    Clay_SetPointerState(pointer, down);
     Clay_BeginLayout();
 
     // The root. A centred column, because the case that has to be three
@@ -154,12 +151,14 @@ void end() {
     Clay__CloseElement();   // the content column
     Clay__CloseElement();   // the root
 
+    detail::end_focus_frame();
+
     Clay_RenderCommandArray commands = Clay_EndLayout(GetFrameTime());
     // In test mode there is no GL context to draw into; the layout is the
     // whole point and it has already happened.
     if (!detail::test_mode()) detail::draw(commands);
 
-    if (!g_pointerDown) g_pressedId = 0;
+    if (!detail::pointer_down()) g_pressedId = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,14 +176,20 @@ bool button(std::string_view label, const button_options &o) {
     // Hit-testing uses the geometry this element had LAST frame — Clay has not
     // laid out this one yet. It is inherent to immediate mode: the first frame
     // a button exists it cannot be clicked, which is 16 ms at 60 fps.
-    const bool over    = o.enabled && g_pointerPresent && Clay_PointerOver(id);
-    const bool pressed = over && g_pointerDown;
+    const bool over    = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    const bool pressed = over && detail::pointer_down();
 
-    if (over && g_pointerDown && !g_pointerWasDown) g_pressedId = id.id;
+    if (over) detail::set_pointer_over_ui();
+    if (over && detail::pointer_just_pressed()) g_pressedId = id.id;
 
     // Released over the same element it was pressed on. Drag off and let go and
     // nothing happens, which is what every interface worth using does.
-    const bool clicked = over && !g_pointerDown && g_pointerWasDown && g_pressedId == id.id;
+    bool clicked = over && detail::pointer_released() && g_pressedId == id.id;
+
+    // Keyboard and gamepad get here without the widget knowing how: it declares
+    // itself focusable and asks whether it is the one.
+    const bool hasFocus = o.enabled && detail::focusable(id, label);
+    if (hasFocus && detail::take_activate()) clicked = true;
 
     Color background = t.surface;
     Color foreground = t.text;
@@ -216,6 +221,14 @@ bool button(std::string_view label, const button_options &o) {
     decl.backgroundColor = to_clay(background);
     float r = px(t.corner_radius);
     decl.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+    if (hasFocus) {
+        // The focus ring is drawn by the framework, not by each widget, because
+        // a controller build where one widget forgot it is a controller build
+        // that gets stuck.
+        auto w = static_cast<uint16_t>(px(t.focus_ring));
+        decl.border.color = to_clay(t.focus);
+        decl.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
+    }
 
     // Clay 0.14 has no id field in the declaration: the id goes in when the
     // element is opened.

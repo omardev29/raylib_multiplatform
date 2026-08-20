@@ -49,14 +49,17 @@ clean:
 
 # --- checks -----------------------------------------------------------------
 
-# Check everything, or one thing: examples | layout | smoke | config.
+# Check what matters locally: config, layout, smoke. Or name one, or "examples".
 test what="all":
     #!/usr/bin/env bash
-    # examples  every example still compiles — they are documentation, and
-    #           documentation rots silently
+    # config    the .toml is valid and the pinned versions still agree
     # layout    the UI layout at four resolutions, with no window and no GPU
     # smoke     boot the game headless and prove it drew actual pixels
-    # config    the .toml is valid and the pinned versions still agree
+    # examples  every example still compiles. NOT part of "all", on purpose:
+    #           there is no reason not to keep writing examples, and nobody
+    #           wants their machine compiling a growing folder of them every
+    #           time they check their own change. CI has a job of its own for
+    #           it, on its own runner. Run it by name before touching the API.
     set -euo pipefail
     run_examples() {
         echo "== examples =="
@@ -103,7 +106,7 @@ test what="all":
         bash tools/versions_check.sh
     }
     case "{{ what }}" in
-        all)      run_config; run_examples; run_layout; run_smoke ;;
+        all)      run_config; run_layout; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;

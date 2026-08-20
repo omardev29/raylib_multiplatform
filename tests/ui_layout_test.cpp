@@ -194,6 +194,143 @@ void run_containers(float w, float h) {
     check(inside(panel, bar), "progress: the bar is inside the panel");
 }
 
+// ---------------------------------------------------------------------------
+// Interaction
+//
+// A screenshot proves the pixels are in the right place and nothing else. This
+// is the part that proves a click does something — driven entirely through the
+// injected pointer, so it still needs no window.
+// ---------------------------------------------------------------------------
+
+Clay_Vector2 g_pointer{ -1, -1 };
+bool         g_down = false;
+
+void pointer_scripted(Clay_Vector2 *position, bool *down) {
+    *position = g_pointer;
+    *down     = g_down;
+}
+
+void run_interaction() {
+    std::printf("\n--- interaction ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    bool  checked = false;
+    float volume  = 0.5f;
+    int   clicks  = 0;
+
+    auto frame = [&]{
+        rmp::ui::begin();
+        rmp::ui::panel([&]{
+            if (rmp::ui::button("Apply")) clicks++;
+            rmp::ui::checkbox("Fullscreen", &checked);
+            rmp::ui::slider("Volume", &volume, 0.0f, 1.0f);
+        });
+        rmp::ui::end();
+    };
+
+    // Frame one only establishes geometry: hit testing answers for the layout
+    // of the frame before, so nothing can be clicked until something has been
+    // laid out at least once. That is the rule, and this is it being true.
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+
+    Box btn = box_of("Apply");
+    check(btn.w > 0, "the button has a box to aim at");
+
+    // Press and release over the button.
+    g_pointer = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
+    g_down = true;  frame();
+    check(clicks == 0, "a press alone does not click");
+    g_down = false; frame();
+    check(clicks == 1, "press then release over the button clicks it");
+
+    // Press on it, drag off, release: nothing. This is the behaviour people
+    // rely on without ever noticing it, and the one that quietly disappears if
+    // a click is implemented as "button is down over the element".
+    g_down = true;  frame();
+    g_pointer = Clay_Vector2{ 5, 5 };
+    g_down = false; frame();
+    check(clicks == 1, "dragging off before releasing does not click");
+
+    // The checkbox writes to the caller's variable.
+    Box cb = box_of("Fullscreen");
+    g_pointer = Clay_Vector2{ cb.x + cb.w / 2, cb.y + cb.h / 2 };
+    g_down = true;  frame();
+    g_down = false; frame();
+    check(checked, "the checkbox toggled the caller's bool");
+    g_down = true;  frame();
+    g_down = false; frame();
+    check(!checked, "and toggled it back");
+
+    // Dragging the slider writes a value proportional to where the pointer is.
+    //
+    // Aim at the RAIL, not at the row: the row is [label][rail][45%], so its
+    // right-hand end is the percentage text and pressing there does nothing —
+    // which is correct, and which this test got wrong first time round.
+    //
+    // The id is built the way the widget builds it — first occurrence of the
+    // label — rather than by calling element_id() again, which would hand back
+    // occurrence 1 because the counters only reset at begin().
+    Clay_String volLabel{ false, 6, "Volume" };
+    Clay_ElementId volId = Clay_GetElementIdWithIndex(volLabel, 0);
+    Clay_BoundingBox rail{};
+    bool haveRail = rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(volId, 0), &rail);
+    check(haveRail && rail.width > 0, "the slider's rail has a box to aim at");
+
+    g_pointer = Clay_Vector2{ rail.x + rail.width * 0.95f, rail.y + rail.height / 2 };
+    g_down = true;  frame(); frame();
+    check(volume > 0.7f, "dragging the slider to the right raises the value");
+    g_pointer = Clay_Vector2{ rail.x, rail.y + rail.height / 2 };
+    frame();
+    check(volume < 0.3f, "and dragging it back lowers it");
+    g_down = false; frame();
+
+    // wants_pointer() is what stops the click that pressed a button from also
+    // firing the player's weapon.
+    g_pointer = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
+    frame();
+    check(rmp::ui::wants_pointer(), "wants_pointer() is true over a control");
+    g_pointer = Clay_Vector2{ 4, 4 };
+    frame();
+    check(!rmp::ui::wants_pointer(), "and false out in the open");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// ---------------------------------------------------------------------------
+// Grid
+// ---------------------------------------------------------------------------
+
+void run_grid() {
+    std::printf("\n--- grid ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    auto frame = [&]{
+        rmp::ui::begin();
+        rmp::ui::grid(3, [&]{
+            for (int i = 0; i < 7; i++) {
+                rmp::ui::cell([&]{ rmp::ui::button(TextFormat("item%d", i)); });
+            }
+        });
+        rmp::ui::end();
+    };
+    frame();
+    frame();
+
+    Box a = box_of("item0"), b = box_of("item1"), c = box_of("item2"), d = box_of("item3");
+
+    check_near(a.y, b.y, 1.0f, "three columns: the first three share a row");
+    check_near(b.y, c.y, 1.0f, "…all three of them");
+    check(a.x < b.x && b.x < c.x, "and they run left to right");
+    // Seven items in three columns is three rows, the last one short. The one
+    // that used to corrupt everything after it.
+    check(d.y > a.y, "the fourth item starts a new row");
+    check_near(d.x, a.x, 1.0f, "and lines up under the first");
+    check_near(a.w, b.w, 2.0f, "cells are equal width");
+}
+
 } // namespace
 
 int main() {
@@ -211,6 +348,8 @@ int main() {
 
     run_containers(1280, 720);
     run_containers(800, 600);
+    run_grid();
+    run_interaction();
 
     std::printf("\n--- scale limits ---\n");
 

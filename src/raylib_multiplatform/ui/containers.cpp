@@ -70,11 +70,35 @@ bool transparent(Color c) { return c.a == 0 && c.r == 0 && c.g == 0 && c.b == 0;
 
 namespace {
 
+// Grids nest rarely but they must not corrupt each other when they do, so this
+// is a small stack rather than one variable.
+struct GridFrame {
+    int columns  = 4;
+    int index    = 0;      // cells emitted so far
+    bool rowOpen = false;
+    float gap    = 0;
+};
+constexpr int kMaxGridDepth = 4;
+GridFrame g_grids[kMaxGridDepth];
+int       g_gridDepth = 0;
+
 // Named containers get a stable id so they can be asked about later; unnamed
 // ones stay anonymous, which is what most of them should be.
 void open_with_id(const char *id, const Clay_ElementDeclaration &d) {
     if (id != nullptr) Clay__OpenElementWithId(detail::element_id(std::string_view{id}, id));
     else               Clay__OpenElement();
+    Clay__ConfigureOpenElement(d);
+}
+
+// A row inside a grid: full width, one line of cells.
+void open_grid_row(float gap) {
+    Clay_ElementDeclaration d{};
+    d.layout.sizing.width  = axis(true, 0);
+    d.layout.sizing.height = axis(false, 0);
+    d.layout.childGap      = static_cast<uint16_t>(px(gap));
+    d.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
+    d.layout.childAlignment  = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
+    Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
 }
 
@@ -164,6 +188,125 @@ void open_layer() {
     d.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
+}
+
+void open_grid(const grid_options &o) {
+    if (!frame_open()) return;
+    const theme &t = current_theme();
+
+    Clay_ElementDeclaration d{};
+    d.layout.sizing.width   = axis(o.grow_x, 0);
+    d.layout.sizing.height  = axis(o.grow_y, 0);
+    d.layout.padding        = pad(o.padding < 0 ? 0 : o.padding);
+    d.layout.childGap       = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+    d.layout.childAlignment  = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
+
+    // Clay has no grid, and it does not need one: a left-to-right container
+    // that wraps IS a grid once the children are told to be equal width. The
+    // number of columns is the only thing we have to decide.
+    //
+    // With columns = 0 we work it out from the space available and the minimum
+    // cell size, which is what makes an inventory reflow on a phone in portrait
+    // instead of staying stubbornly at the number of columns someone typed on a
+    // desktop. It uses last frame's width for the same reason everything else
+    // does — it is the only width that exists yet.
+    // Named or not, a grid gets an id, because working out the columns means
+    // knowing how wide it was last frame.
+    Clay_ElementId gridId = o.id != nullptr ? element_id(std::string_view{o.id}, o.id)
+                                            : element_id(std::string_view{"grid"}, nullptr);
+
+    int columns = o.columns;
+    if (columns <= 0) {
+        Clay_BoundingBox box{};
+        if (bounds_of_id(gridId, &box) && box.width > 0) {
+            float cell = px(o.min_cell) + px(o.gap < 0 ? t.gap : o.gap);
+            columns = static_cast<int>(box.width / (cell > 1 ? cell : 1));
+        }
+    }
+    if (columns <= 0) columns = 4;
+
+    if (g_gridDepth < kMaxGridDepth) {
+        g_grids[g_gridDepth] = GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
+        g_gridDepth++;
+    }
+    Clay__OpenElementWithId(gridId);
+    Clay__ConfigureOpenElement(d);
+}
+
+void close_grid() {
+    if (!frame_open()) return;
+    if (g_gridDepth > 0) {
+        // A grid whose last row is not full still has that row open. Closing it
+        // here is why a grid of five items with four columns does not corrupt
+        // everything after it.
+        if (g_grids[g_gridDepth - 1].rowOpen) Clay__CloseElement();
+        g_gridDepth--;
+    }
+    Clay__CloseElement();
+}
+
+void open_cell() {
+    if (!frame_open()) return;
+    if (g_gridDepth == 0) {
+        // A cell outside a grid is a plain box rather than an error: it keeps
+        // the tree balanced, and the mistake is visible on screen instead of
+        // corrupting the frame.
+        Clay_ElementDeclaration d{};
+        d.layout.sizing.width  = axis(false, 0);
+        d.layout.sizing.height = axis(false, 0);
+        Clay__OpenElement();
+        Clay__ConfigureOpenElement(d);
+        return;
+    }
+
+    GridFrame &g = g_grids[g_gridDepth - 1];
+    if (g.index % g.columns == 0) {
+        if (g.rowOpen) Clay__CloseElement();
+        open_grid_row(g.gap);
+        g.rowOpen = true;
+    }
+
+    Clay_ElementDeclaration d{};
+    // A percentage of the row, so every cell is the same width whatever the
+    // window is doing. Clay takes the percentage of the parent minus its
+    // padding and gaps, which is exactly the space the cells actually share.
+    Clay_SizingAxis w{};
+    w.type = CLAY__SIZING_TYPE_PERCENT;
+    w.size.percent = 1.0f / static_cast<float>(g.columns);
+    d.layout.sizing.width  = w;
+    d.layout.sizing.height = axis(false, 0);
+    d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    Clay__OpenElement();
+    Clay__ConfigureOpenElement(d);
+    g.index++;
+}
+
+void close_cell() {
+    if (!frame_open()) return;
+    Clay__CloseElement();
+}
+
+void open_scroll(const scroll_options &o) {
+    if (!frame_open()) return;
+    const theme &t = current_theme();
+
+    Clay_ElementDeclaration d{};
+    d.layout.sizing.width   = axis(o.grow_x, o.width);
+    d.layout.sizing.height  = axis(o.grow_y, o.height);
+    d.layout.padding        = pad(o.padding < 0 ? 0 : o.padding);
+    d.layout.childGap       = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+
+    // clip + childOffset is the whole of scrolling: Clay moves the children by
+    // the offset it is tracking, and the clip keeps the ones outside from being
+    // drawn. Clay_UpdateScrollContainers, called in begin(), is what advances
+    // that offset from the wheel and from dragging.
+    d.clip.horizontal = o.horizontal;
+    d.clip.vertical   = o.vertical;
+    d.clip.childOffset = Clay_GetScrollOffset();
+
+    open_with_id(o.id, d);
 }
 
 void close_element() {

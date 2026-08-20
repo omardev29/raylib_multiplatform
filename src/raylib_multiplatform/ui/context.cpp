@@ -333,6 +333,44 @@ bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *ou
 
 void read_pointer(Clay_Vector2 *position, bool *down) { g_pointer(position, down); }
 
+namespace {
+Clay_Vector2 g_pointerPos{};
+bool g_pointerDown    = false;
+bool g_pointerWasDown = false;
+bool g_pointerPresent = false;
+} // namespace
+
+void update_pointer() {
+    g_pointerWasDown = g_pointerDown;
+    read_pointer(&g_pointerPos, &g_pointerDown);
+    // A touch screen has no pointer when no finger is on it: the coordinates
+    // stay wherever the last tap ended, and a button under them would sit lit
+    // up forever.
+    g_pointerPresent = g_pointerDown || !touch_only();
+}
+
+Clay_Vector2 pointer_position()  { return g_pointerPos; }
+bool pointer_down()              { return g_pointerDown; }
+bool pointer_present()           { return g_pointerPresent; }
+bool pointer_just_pressed()      { return g_pointerDown && !g_pointerWasDown; }
+bool pointer_released()          { return !g_pointerDown && g_pointerWasDown; }
+
+bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out) {
+    Clay_ElementData d = Clay_GetElementData(id);
+    if (!d.found) return false;
+    if (out != nullptr) *out = d.boundingBox;
+    return true;
+}
+
+Clay_ElementId sub_id(Clay_ElementId base, uint32_t which) {
+    Clay_ElementId out = base;
+    // Knuth's multiplicative constant: cheap, and it scatters the derived ids
+    // far enough from the originals that a collision would be bad luck rather
+    // than a pattern.
+    out.id = base.id ^ ((which + 1) * 2654435761u);
+    return out;
+}
+
 bool touch_only() {
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
     return true;

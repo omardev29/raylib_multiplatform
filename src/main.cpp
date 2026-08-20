@@ -1,3 +1,10 @@
+// Your game starts here, and this file is meant to stay about this size.
+//
+// It is a start menu and nothing else on purpose: it is the first thing anyone
+// reads, so every mechanic added to it is a mechanic between a newcomer and the
+// point. Whatever the template grows next gets an example under examples/, not
+// a paragraph here.
+
 #include <raylib_multiplatform.h>
 
 class GameAssets {

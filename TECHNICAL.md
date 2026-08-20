@@ -633,6 +633,98 @@ time.
 > appearance, then identity — but when the compiler complains about "designator order", that is
 > what it means.
 
+### Controls that own a value
+
+```cpp
+bool checkbox(std::string_view label, bool *value);
+bool slider(std::string_view label, float *value, float min, float max);
+bool dropdown(std::string_view label, int *selected, const char *const *items, int count);
+bool text_input(std::string_view label, char *buffer, int capacity);
+```
+
+Each takes a pointer to **your** variable and writes to it. That is the whole state model: nothing
+of ours holds a copy, nothing needs synchronising, and what is on screen is what is in your struct
+because it was read this frame. They return `true` on the frame the value changed:
+
+```cpp
+if (rmp::ui::checkbox("Fullscreen", &cfg.fullscreen)) apply(cfg);
+```
+
+`slider` takes `.step` to snap to multiples, `.show_value` to hide the percentage. `dropdown` keeps
+its own open/closed flag — that is UI state, not yours. `text_input` writes into your buffer,
+NUL-terminated, never past `capacity - 1`.
+
+Options structs carry `.enabled` and `.id`. A control that is unavailable right now should be
+disabled rather than missing: a menu whose items appear and disappear is a menu nobody can learn.
+
+### Grid and scroll
+
+```cpp
+rmp::ui::grid(4, [&]{
+    for (auto &item : inventory)
+        rmp::ui::cell([&]{ rmp::ui::image(item.icon); });
+});
+
+rmp::ui::scroll([&]{ /* a long list */ });
+```
+
+`grid(0, …)` works out its own column count from the width it has and works it out again when that
+changes — an inventory that reflows on a phone instead of staying at the number someone typed on a
+desktop. Give it an `.id` so it can measure itself; without one it falls back to four.
+
+**Every child of a grid has to be a `cell()`**, the same bargain as `stack()`/`layer()`. The layout
+engine wraps text, not elements, so the rows are built as real rows — and counting the items is
+what tells the grid when to start one.
+
+`scroll()` clips its contents and moves them with the wheel or with a dragging finger, which is the
+same gesture on a phone and needs no branch. It **grows by default**, because a scroll area with no
+height clips nothing: if the parent also fits its contents, give one of them a size.
+
+### Focus, keyboard and gamepad
+
+Every interactive control is focusable, in declaration order, and nothing in your code asks for it:
+
+| | |
+|---|---|
+| Tab / Down / d-pad down / left stick | next control |
+| Shift+Tab / Up / d-pad up | previous |
+| Enter / Space / gamepad bottom face button | activate |
+| Left / Right / d-pad / stick | move a slider |
+
+```cpp
+void rmp::ui::focus(std::string_view id);   // when a menu opens
+std::string_view rmp::ui::focused();
+void rmp::ui::set_navigation_enabled(bool); // if your game drives focus itself
+```
+
+Put the focus somewhere when a screen opens. A controller arriving at a screen with nothing
+selected presses a button and nothing happens, which reads as "the menu is broken".
+
+**No widget implements navigation.** A widget registers itself as focusable and asks whether it is
+the focused one; moving between them, key repeat, and what "activate" means on three input devices
+all happen once, in `focus.cpp`. That is why it could be added after the widgets were written
+without touching their logic, and why the focus ring is a theme colour rather than something each
+widget decides — a controller build where one widget forgot to draw it is a controller build that
+gets stuck.
+
+Navigation resolves against the **previous** frame's list of focusables, for the same reason hit
+testing does: this frame's order does not exist until `end()`.
+
+### Who gets the input
+
+```cpp
+if (!rmp::ui::wants_pointer()  && IsMouseButtonPressed(0)) shoot();
+if (!rmp::ui::wants_keyboard() && IsKeyDown(KEY_W))        walk();
+```
+
+The UI reads the pointer and the keyboard itself, so these two are how the game finds out to keep
+its hands off. Without the first, the click that presses Pause also fires your weapon. Without the
+second, typing a save name walks the player across the level — `wants_keyboard()` is true only
+while a text field has the focus.
+
+`wants_pointer()` is true when the pointer is over a control or while a slider is being dragged. It
+answers for the previous frame's layout, like everything else here.
+
 ### Strings are copied
 
 `std::string_view` accepts a literal, a `std::string`, or a temporary — and the text is copied into
@@ -835,13 +927,13 @@ clamps at both ends. Those are the things a person verifies once by hand and the
 
 ### What is not here yet
 
-`grid`, `scroll` with clipping, `checkbox`, `slider`, text input, `dropdown`, focus, and keyboard
-and gamepad navigation — plus `rmp::ui::wants_pointer()`, which is what will stop the click that
-presses Pause from also firing your weapon.
+Tabs, tooltips, modals, context menus, tree views, drag and drop, animation and transitions, a
+second built-in theme, and text input beyond the basics — no selection, no clipboard, no IME, and
+on mobile no soft keyboard (raymob has one; wiring it to `text_input` is a job of its own).
 
-Until then, [dropping to Clay](#what-is-underneath-and-how-to-use-it-directly) covers most of it:
-clip and scroll containers, floating elements and aspect ratios all exist in the engine already and
-our renderer handles the commands they produce.
+[Dropping to Clay](#what-is-underneath-and-how-to-use-it-directly) covers a good deal of the
+layout half of that list already: floating elements, aspect ratios and per-corner radii all exist
+in the engine and our renderer draws what they produce.
 
 ---
 
