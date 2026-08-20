@@ -13,7 +13,12 @@
 
 # The binary's name comes from [project] name in raylib_multiplatform.toml, so
 # renaming your game does not break `just run`.
-project_name := shell('python3 tools/configure.py --print-name')
+#
+# The fallback is not paranoia: this runs before EVERY recipe, so without it a
+# broken .toml takes out the whole file — including `just clean`, which is the
+# one you would reach for to get out of the mess. The real error still shows up
+# where it belongs, from the configure step of the recipe that needs it.
+project_name := shell('python3 tools/configure.py --print-name 2>/dev/null || echo game')
 
 _default:
     @just --list --unsorted
@@ -53,6 +58,11 @@ test what="all":
     set -euo pipefail
     run_examples() {
         echo "== examples =="
+        # The examples include <raylib_multiplatform.h>, which pulls in the
+        # generated app_config.h. After `just clean` that file does not exist
+        # yet, and every example would fail for a reason that has nothing to do
+        # with the examples. CI gets this for free by generating first.
+        python3 tools/configure.py >/dev/null
         local failed=0
         for f in $(find examples -name '*.cpp' | sort); do
             if g++ -fsyntax-only -std=c++20 -Iinclude -Ithirdparty/raylib/src \
@@ -117,13 +127,11 @@ android:
 
 # --- assets -----------------------------------------------------------------
 
-# Bundle resources/ into one AES-encrypted resources.rres, as a release ships.
+# Bundle resources/ into resources.rres (AES) — the path a release ships.
 pack:
-    # Run this to test the packed path; `just unpack` goes back to loose files,
-    # which is what you want while adding art.
     cmake --preset debug
     cmake --build build --target pack_resources
 
-# Delete the pack, so the game reads loose files again.
+# Delete the pack, so the game reads loose files again while you add art.
 unpack:
     cmake --build build --target unpack_resources
