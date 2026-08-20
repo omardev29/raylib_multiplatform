@@ -35,7 +35,7 @@ Three paths in there are the template's, not yours, and they all carry the same 
 tell at a glance: `include/raylib_multiplatform.h` (the only header you include),
 `include/raylib_multiplatform/` (its parts, and the generated config) and
 `src/raylib_multiplatform/` (the implementation). Everything else under `src/` and `include/` is
-yours. You can delete all three — see [`examples/main.c`](examples/main.c), which is a plain C
+yours. You can delete all three — see [`examples/plain_c/main.c`](examples/plain_c/main.c), which is a plain C
 entry point that keeps the fourteen build targets and none of the runtime layer.
 
 `branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
@@ -67,6 +67,16 @@ You need **Python 3.11+** on PATH. It is what turns the config into build files;
 for you, so there is no separate step to remember.
 
 Then open `raylib_multiplatform.toml`, set your name and app ids, and build again.
+
+If you have [`just`](https://just.systems), there is a `Justfile` with the handful of commands you
+end up typing several times a day — and nothing else, so `just --list` stays readable:
+
+```bash
+just run       # build if needed, then play
+just test      # examples compile, layout is right, the game boots and draws
+just rel       # release build
+just web       # or android
+```
 
 ---
 
@@ -203,9 +213,23 @@ if (rmp::ui::button("Quit"))    quit();
 rmp::ui::end();
 ```
 
-No coordinates, no sizes, no fonts, no hitboxes, and it does not change when the window does.
-Everything past that — layout containers, themes, sizing, scaling — is optional and costs you
-nothing until you ask for it.
+No coordinates, no sizes, no fonts, no hitboxes, and it does not change when the window does. When
+you need structure, containers take their contents as a lambda, so there is no closing call to
+forget:
+
+```cpp
+rmp::ui::panel([&]{
+    rmp::ui::text("Really quit?");
+    rmp::ui::row({ .grow_x = true }, [&]{
+        if (rmp::ui::button("Yes")) quit();
+        rmp::ui::spacer();
+        rmp::ui::button("No");
+    });
+});
+```
+
+Everything past that — themes, sizing, scaling, dropping to the layout engine directly — is
+optional and costs you nothing until you ask for it.
 
 **The full API of all three is in [TECHNICAL.md](TECHNICAL.md)**; there are working examples of
 each in [`examples/`](examples/). Everything under `rmp::` is ours, everything else is raylib's, so
@@ -244,7 +268,7 @@ AdMob, and adding third-party libraries.
 
 ### If you would rather write plain C
 
-[`examples/main.c`](examples/main.c) is a complete entry point that includes only `<raylib.h>` — no
+[`examples/plain_c/main.c`](examples/plain_c/main.c) is a complete entry point that includes only `<raylib.h>` — no
 template header, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
 `src/raylib_multiplatform/`, and you keep the fourteen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
@@ -466,6 +490,8 @@ src/raylib_multiplatform/   the template's own code — rmp::ui, rmp::assets, rm
                             Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
+examples/                   ui/ ads/ assets/ platform/ plain_c/ — read, copy, ignore
+Justfile                    the handful of commands you type: just run, just test
 tools/configure.py          turns the config into build files
 cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
 thirdparty/                 raylib 6.0, raymob, rres, Clay, the raylib-iOS fork

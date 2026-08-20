@@ -72,6 +72,7 @@ constexpr int kMaxLabels = 128;
 struct LabelCount { uint32_t hash; uint16_t count; };
 LabelCount g_labels[kMaxLabels];
 int        g_labelCount = 0;
+int16_t    g_layerZ = 0;
 
 measure_fn g_measure = measure_with_raylib;
 pointer_fn g_pointer = pointer_from_raylib;
@@ -213,6 +214,16 @@ void reset_frame_arena() {
     g_arenaWarned = false;
 }
 
+void *frame_alloc(size_t bytes) {
+    // Everything stored here is at most pointer-aligned, so rounding the
+    // cursor up to 8 is enough and costs a few bytes a frame.
+    int aligned = (g_arenaUsed + 7) & ~7;
+    if (aligned + static_cast<int>(bytes) > kArenaSize) return nullptr;
+    void *p = g_textArena + aligned;
+    g_arenaUsed = aligned + static_cast<int>(bytes);
+    return p;
+}
+
 Clay_String intern(std::string_view s) {
     int len = static_cast<int>(s.size());
     if (len > kArenaSize - g_arenaUsed) {
@@ -237,11 +248,22 @@ Clay_String intern(std::string_view s) {
 // Identity
 // ---------------------------------------------------------------------------
 
-void reset_id_counters() { g_labelCount = 0; }
+void reset_id_counters() {
+    g_labelCount = 0;
+    g_layerZ = 0;
+}
+
+int16_t next_layer_z() { return ++g_layerZ; }
 
 Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
     if (explicit_id != nullptr) {
-        return Clay_GetElementId(intern(std::string_view{explicit_id}));
+        // WithIndex(…, 0) rather than Clay_GetElementId, so there is exactly one
+        // id scheme in the whole layer. Clay's two hashes disagree even at
+        // offset 0 — the offset is mixed in before the final avalanche — so
+        // using both would mean an element created one way could never be found
+        // the other way. That is precisely how the headless test failed to see
+        // a panel that was on screen.
+        return Clay_GetElementIdWithIndex(intern(std::string_view{explicit_id}), 0);
     }
 
     uint32_t h = fnv1a(label);

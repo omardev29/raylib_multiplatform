@@ -1,7 +1,10 @@
 // ---------------------------------------------------------------------------
-// examples/admob_interstitial_rewarded.cpp
+// examples/ads/01_interstitial.cpp
 //
-// How to add AdMob ads (interstitial + rewarded) with the template.
+// Interstitial ads: the full-screen ones you show between levels.
+//
+// The rewarded flow, which is the one with a contract attached, is in
+// 02_rewarded.cpp.
 //
 // The API is rmp::ads, from <raylib_multiplatform.h>. It is CROSS-PLATFORM: on
 // Android it calls the real Google Mobile Ads SDK via JNI; on every other

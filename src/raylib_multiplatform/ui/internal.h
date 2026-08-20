@@ -66,6 +66,17 @@ float font_scale();
 Clay_String intern(std::string_view s);
 void        reset_frame_arena();
 
+// Room in the same frame arena for something that is not a string — an image
+// tint, say. Same lifetime rule: valid until the next begin(). Returns nullptr
+// when the arena is full.
+void *frame_alloc(size_t bytes);
+
+// Layers inside a stack() are floating elements, and Clay draws floating
+// elements by z-index rather than declaration order. This hands out an
+// increasing z per frame so that the last layer() written is the one on top,
+// which is the order anyone reading the code expects.
+int16_t next_layer_z();
+
 // Element identity. Hashing the label alone would make two "Back" buttons in
 // two different screens the same element, so they would highlight together.
 // The occurrence counter disambiguates the common case; an explicit id is the

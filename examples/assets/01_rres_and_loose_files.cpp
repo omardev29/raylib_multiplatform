@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// examples/assets_rres_loading.cpp
+// examples/assets/01_rres_and_loose_files.cpp
 //
 // How resources/ reaches your game, in both shapes it can arrive in:
 //   - a packed, optionally AES-encrypted "resources.rres", or

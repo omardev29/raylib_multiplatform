@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// examples/raymob_mobile_features.cpp
+// examples/platform/02_mobile_raymob.cpp
 //
 // How to use the raymob mobile API (thirdparty/raymob/raymob.h): vibration,
 // soft keyboard, sensors, screen orientation, keep-screen-on and app storage.

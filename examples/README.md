@@ -1,42 +1,63 @@
 # Examples
 
-Small, focused examples of the things **this template** gives you on top of
-plain raylib. They are **reference code** — read them and copy the relevant
-bits into `src/main.cpp`. They are **not** compiled by the build, so they can
-lag slightly; treat them as documentation with code.
+Small, focused examples of what **this template** adds on top of plain raylib,
+grouped by the namespace they belong to. They are **reference code**: read them
+and copy the parts you need into `src/`. They are not compiled into your game —
+but CI does syntax-check every one of them, with GCC and with MSVC, on every
+push, so they cannot quietly stop working.
 
-For general raylib usage (drawing, cameras, models, shaders…) see the official
-[raylib examples](https://www.raylib.com/examples.html) — this folder only
-covers the template's own features.
+For raylib itself — drawing, cameras, models, shaders — see the official
+[raylib examples](https://www.raylib.com/examples.html). This folder only covers
+what is ours.
 
-| Example | Shows |
+## [`ui/`](ui) — `rmp::ui`
+
+| | |
 |---|---|
-| [lifecycle_ready_process_exit.cpp](lifecycle_ready_process_exit.cpp) | The core `_ready()` / `_process()` / `_exit()` (Godot-style) pattern every game in this template uses. |
-| [ui_menu.cpp](ui_menu.cpp) | **`rmp::ui`.** A main menu in three lines, then options, a confirm dialog and a HUD — variants, disabled controls, explicit ids, placement, and the theme. |
-| [ui_clay_direct.cpp](ui_clay_direct.cpp) | **The escape hatch.** Using Clay's own macros from your game code, in the same frame as `rmp::ui` — for anything the small API does not expose yet. |
-| [admob_interstitial_rewarded.cpp](admob_interstitial_rewarded.cpp) | **`rmp::ads`.** Interstitial + rewarded ads — cross-platform, no-op outside Android. |
-| [raymob_mobile_features.cpp](raymob_mobile_features.cpp) | The raymob mobile API via `<raymob.h>` — vibration, soft keyboard, sensors, orientation, app storage (Android-only). |
-| [assets_rres_loading.cpp](assets_rres_loading.cpp) | **`rmp::assets`.** Loading by name — the same code whether it is loose files or a packed, AES-encrypted `resources.rres`. |
-| [main.c](main.c) | **The opt-out.** A plain C entry point that includes only `<raylib.h>`: no template header, none of `rmp::`, your own `main()`. You keep the fourteen build targets and lose the runtime layer. |
+| [01_menu.cpp](ui/01_menu.cpp) | A main menu in three lines, then an options screen, a confirm dialog and a HUD. Variants, disabled controls, explicit ids, placement, the theme. **Start here.** |
+| [02_layout.cpp](ui/02_layout.cpp) | `row`, `column`, `panel`, `center`, `stack`/`layer`, `spacer`, plus `image` and `progress`. The sizing model — fit, grow, fixed — and why design units are not pixels. |
+| [03_clay_direct.cpp](ui/03_clay_direct.cpp) | **The escape hatch.** Clay's own macros in the same frame as `rmp::ui`, for anything the small API does not expose yet. |
+
+## [`ads/`](ads) — `rmp::ads`
+
+| | |
+|---|---|
+| [01_interstitial.cpp](ads/01_interstitial.cpp) | Full-screen ads between levels: request, check, show, request the next one. |
+| [02_rewarded.cpp](ads/02_rewarded.cpp) | Watch an ad, get a reward — and only if the player actually finished it. The flow where a mistake costs money or trust. |
+
+## [`assets/`](assets) — `rmp::assets`
+
+| | |
+|---|---|
+| [01_rres_and_loose_files.cpp](assets/01_rres_and_loose_files.cpp) | Loading by name — the same code whether it comes from loose files or a packed, AES-encrypted `resources.rres`. |
+
+## [`platform/`](platform)
+
+| | |
+|---|---|
+| [01_lifecycle.cpp](platform/01_lifecycle.cpp) | `_ready()` / `_process()` / `_exit()`, the shape every game in this template has, on all fourteen targets including iOS. |
+| [02_mobile_raymob.cpp](platform/02_mobile_raymob.cpp) | The raymob mobile API: vibration, soft keyboard, sensors, orientation, app storage. Android only. |
+
+## [`plain_c/`](plain_c)
+
+| | |
+|---|---|
+| [main.c](plain_c/main.c) | **The opt-out.** A C entry point that includes only `<raylib.h>`: no template header, none of `rmp::`, your own `main()`. You keep the fourteen build targets and lose the runtime layer. |
 
 ## Notes
 
-- The game is C++20; these examples are `.cpp` and follow the same
-  `_ready/_process/_exit` structure as `src/main.cpp`. `main.c` is the
-  deliberate exception — it is what you copy over `src/` if you want none of
-  the above.
-- Everything the template offers comes from one header,
-  `<raylib_multiplatform.h>`. There is nothing else to include — it is an
-  umbrella over `include/raylib_multiplatform/`, which you never include from
-  directly.
-- It gives you four namespaces: **`rmp::ui`** (menus, buttons, text),
-  **`rmp::assets`** (loading from `resources/`), **`rmp::ads`** and
-  **`rmp::utils`** (closing the app, and whatever else earns its place).
-  Everything under `rmp::` is the template's; everything else is raylib's,
+- The game is C++20 and so are these, except `plain_c/main.c`, which is C99 on
+  purpose and is checked as such.
+- Everything the template offers arrives through one header,
+  `#include <raylib_multiplatform.h>`. There is nothing else to include — it is
+  an umbrella over `include/raylib_multiplatform/`, which you never include from
+  directly. The one deliberate exception is `<clay.h>` in `ui/03_clay_direct.cpp`.
+- Four namespaces: **`rmp::ui`** (menus, buttons, layout), **`rmp::assets`**
+  (loading from `resources/`), **`rmp::ads`** and **`rmp::utils`** (closing the
+  app). Everything under `rmp::` is the template's; everything else is raylib's,
   unchanged. The full API is in [TECHNICAL.md](../TECHNICAL.md).
-- `rmp::ads` is safe everywhere (no-op off Android, no `#ifdef` needed).
-  `<raymob.h>` only declares its functions on Android, so guard those calls
-  with `#ifdef __ANDROID__`.
-- Replace the AdMob **test** ids in `[android.admob]` in
-  `raylib_multiplatform.toml` with your own before publishing — or set
+- `rmp::ads` is safe to call everywhere — no-op off Android, no `#ifdef` needed.
+  `<raymob.h>` only declares its functions on Android, so guard **those** with
+  `#ifdef __ANDROID__`.
+- Replace the AdMob **test** ids in `[android.admob]` before publishing, or set
   `enabled = false` there and the whole SDK leaves the build.

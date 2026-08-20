@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// examples/ui_clay_direct.cpp
+// examples/ui/03_clay_direct.cpp
 //
 // THE ESCAPE HATCH: using Clay's own API directly, alongside rmp::ui.
 //

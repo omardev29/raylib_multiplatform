@@ -60,7 +60,8 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │       ├── utils.h           #   rmp::utils — exit()
 │       ├── lifecycle.h       #   RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY + IOS_FUNCS
 │       └── generated/        #   GENERATED app_config.h, git-ignored
-├── examples/main.c           # the opt-out: plain C, <raylib.h> only, your own main()
+├── examples/                 # reference code, by namespace: ui/ ads/ assets/ platform/
+│   └── plain_c/main.c        # the opt-out: plain C, <raylib.h> only, your own main()
 ├── tests/
 │   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
 │   └── ui_layout_test.cpp    # layout checks with no window (-DBUILD_UI_TESTS=ON)
@@ -105,9 +106,14 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 why they cannot drift out of sync with it. `cmake --preset debug` produces all of them; Gradle and
 XcodeGen never invoke CMake, so those two jobs run `python3 tools/configure.py` explicitly.
 
-`examples/` holds small reference examples of the template's own features
-(lifecycle, AdMob, raymob mobile API, asset loading). They are **not** compiled
-by the build — read them and copy what you need into `src/`.
+`examples/` holds reference code for the template's own features, grouped by namespace —
+`ui/`, `ads/`, `assets/`, `platform/`, and `plain_c/` for the opt-out. They are **not** compiled
+into your game; read them and copy what you need into `src/`. CI does syntax-check every one of
+them with GCC and MSVC on each push, so they cannot quietly stop working.
+
+`Justfile` holds the handful of commands worth having a shortcut for — `just run`, `just test`,
+`just rel`, `just web`, `just android` — and deliberately nothing else, so `just --list` stays
+something you can read rather than a menu to search.
 
 ---
 
@@ -555,6 +561,78 @@ rmp::ui::button("Delete save", { .style = rmp::ui::variant::danger });
 rmp::ui::text("Paused", { .color = rmp::ui::color_role::muted, .size = 32 });
 ```
 
+### Containers
+
+Everything above arranges itself in a centred column. These are how you get structure, and they
+compose:
+
+```cpp
+rmp::ui::panel([&]{
+    rmp::ui::text("Really quit?");
+    rmp::ui::row({ .grow_x = true }, [&]{
+        if (rmp::ui::button("Yes")) quit();
+        rmp::ui::spacer();
+        rmp::ui::button("No");
+    });
+});
+```
+
+| | |
+|---|---|
+| `row(body)` | Left to right |
+| `column(body)` | Top to bottom |
+| `panel(body)` | A column with a background and padding — a dialog, a card, a tooltip |
+| `center(body)` | Fills what it was given, puts the contents in the middle |
+| `stack(body)` + `layer(body)` | Layers in the same box, later ones on top |
+| `spacer()` / `spacer(n)` | Eats the leftover space, or a fixed gap |
+
+The contents are a **lambda**, and that is the whole reason there is no matching `end()` to forget:
+the compiler closes the container. Capture with `[&]` when the body needs your variables.
+
+Every container takes `box_options`:
+
+```cpp
+struct box_options {
+    float gap     = -1;              // between children; -1 = the theme's
+    float padding = -1;              // inside this container
+    align items   = align::center;   // where children sit in the leftover space
+    bool  grow_x  = false;           // fill the parent instead of fitting content
+    bool  grow_y  = false;
+    float width   = 0;               // > 0 = fixed, overriding fit/grow
+    float height  = 0;
+    const char *id = nullptr;        // only if you want to ask about it later
+};
+```
+
+`panel_options` wraps that in `{ .box = {...}, .background, .radius, .border, .border_width }`.
+
+**Sizing is three cases and no more.** Default is *fit*: as big as the contents need. `grow_x` /
+`grow_y` is *grow*: fill what the parent offers. `width` / `height` is *fixed*, in design units. A
+container that fits its contents, holding children that grow into it, is what makes the buttons in
+a menu come out the same width without anyone measuring anything.
+
+**`stack` needs an explicit `layer` per child**, and that is deliberate rather than clumsy: the
+layout has to be told which things are meant to overlap, and there is no way to guess that from the
+inside of a lambda.
+
+### image and progress
+
+```cpp
+void image(const Texture2D &texture);            // its own size, scaled with the UI
+void image(const Texture2D &texture, const image_options &o);
+void progress(float fraction);                   // 0..1, clamped
+void progress(float fraction, const progress_options &o);
+```
+
+The texture has to stay alive until `end()` returns — Clay keeps the pointer and reads it at draw
+time.
+
+> **A field-order rule that will bite you once.** C++20 requires designated initialisers in
+> **declaration order**: `{ .width = 8, .tint = RED }` compiles, `{ .tint = RED, .width = 8 }` does
+> not. The structs here are ordered the way they are most likely to be written — sizing, then
+> appearance, then identity — but when the compiler complains about "designator order", that is
+> what it means.
+
 ### Strings are copied
 
 `std::string_view` accepts a literal, a `std::string`, or a temporary — and the text is copied into
@@ -697,7 +775,7 @@ is the same bargain as everywhere else in this template: `rmp::assets` does not 
 `LoadTexture`, and `rmp::ui` does not stop you calling Clay — or rlgl, or raw OpenGL.
 
 The full worked version, including images and hover, is
-[`examples/ui_clay_direct.cpp`](examples/ui_clay_direct.cpp). CI compiles every example with GCC
+[`examples/ui/03_clay_direct.cpp`](examples/ui/03_clay_direct.cpp). CI compiles every example with GCC
 **and MSVC** on every run, so that claim cannot quietly stop being true.
 
 Three things to know before you do it:
@@ -757,16 +835,13 @@ clamps at both ends. Those are the things a person verifies once by hand and the
 
 ### What is not here yet
 
-`row`, `column`, `panel`, `center`, `stack`, `spacer`, `image`, `progress`, `grid`, `scroll`,
-`checkbox`, `slider`, text input, focus, keyboard and gamepad navigation. Containers will take a
-lambda for their contents, so the compiler enforces the nesting:
+`grid`, `scroll` with clipping, `checkbox`, `slider`, text input, `dropdown`, focus, and keyboard
+and gamepad navigation — plus `rmp::ui::wants_pointer()`, which is what will stop the click that
+presses Pause from also firing your weapon.
 
-```cpp
-rmp::ui::row([]{
-    rmp::ui::button("Yes");
-    rmp::ui::button("No");
-});
-```
+Until then, [dropping to Clay](#what-is-underneath-and-how-to-use-it-directly) covers most of it:
+clip and scroll containers, floating elements and aspect ratios all exist in the engine already and
+our renderer handles the commands they produce.
 
 ---
 
@@ -812,7 +887,28 @@ frame open. A flag costs one branch per frame and cannot leave anything half don
 |---|---|
 | Desktop, BSD, Web | The frame loop ends and `main()` returns |
 | Android | The same, **plus `ANativeActivity_finish()`** — without it the process stops but the Activity is left in the recents list pointing at nothing |
-| iOS | UIKit owns the run loop and never gives it back, so the app tears down and exits. Apple discourages quitting programmatically; prefer not offering the button at all there |
+| iOS | **Nothing.** It logs a warning and returns — see below |
+
+### iOS does not get to quit
+
+Apple's [QA1561](https://developer.apple.com/library/archive/qa/qa1561/_index.html) is unambiguous:
+there is no API for gracefully terminating an iOS app, an app that calls `exit()` "will appear to
+the user to have crashed", and App Review rejects anything that crashes or appears to. Worse,
+`applicationWillTerminate:` never runs, so unsaved data is lost. A Quit control also fails the
+Human Interface Guidelines on its own account.
+
+So `rmp::utils::exit()` is inert on iOS by design. The same source ships to all fourteen targets
+with its Quit button intact; on iPhone the button does nothing, which is exactly the behaviour
+Apple asks for. If a dead control bothers you, hide it:
+
+```cpp
+#if !defined(PLATFORM_IOS)
+if (rmp::ui::button("Quit")) rmp::utils::exit();
+#endif
+```
+
+The CI smoke test still terminates the simulator, because a bounded test run has to end — but that
+path is behind `RAY_TEST_MAX_FRAMES`, an environment variable no shipped app ever sets.
 
 ---
 

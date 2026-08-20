@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// examples/lifecycle_ready_process_exit.cpp
+// examples/platform/01_lifecycle.cpp
 //
 // The template's core pattern: a Godot SceneTree-style lifecycle.
 //

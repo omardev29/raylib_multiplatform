@@ -128,6 +128,72 @@ void run_at(float w, float h, const char *what) {
     check(play.x >= 0 && play.y >= 0 && play.x + play.w <= w && quit.y + quit.h <= h, msg);
 }
 
+// ---------------------------------------------------------------------------
+// Containers
+// ---------------------------------------------------------------------------
+
+// One frame of a dialog: a panel holding a row of two buttons pushed apart by
+// a spacer, with a progress bar above them.
+void draw_dialog() {
+    rmp::ui::begin();
+    rmp::ui::panel({ .box = { .id = "dialog" } }, []{
+        rmp::ui::text("Really quit?");
+        rmp::ui::progress(0.5f, { .width = 200, .id = "bar" });
+        rmp::ui::row({ .gap = 8, .grow_x = true, .id = "buttons" }, []{
+            rmp::ui::button("Yes");
+            rmp::ui::spacer();
+            rmp::ui::button("No");
+        });
+    });
+    rmp::ui::end();
+}
+
+bool inside(Box outer, Box inner) {
+    return inner.x >= outer.x - 0.5f && inner.y >= outer.y - 0.5f &&
+           inner.x + inner.w <= outer.x + outer.w + 0.5f &&
+           inner.y + inner.h <= outer.y + outer.h + 0.5f;
+}
+
+void run_containers(float w, float h) {
+    std::printf("\n--- containers (%.0fx%.0f) ---\n", w, h);
+    rmp::ui::detail::set_test_viewport(w, h);
+    draw_dialog();
+    draw_dialog();
+
+    Box yes = box_of("Yes");
+    Box no  = box_of("No");
+
+    // A row lays out left to right. This is the check that catches a container
+    // silently falling back to the default vertical direction, which looks
+    // almost right until two buttons are on top of each other.
+    check(yes.x + yes.w <= no.x, "row: Yes is left of No, not above it");
+    check_near(yes.y, no.y, 1.0f, "row: both buttons share a baseline");
+
+    // grow_x on the row plus a spacer between them: they end up at opposite
+    // ends. Without the spacer they would sit next to each other in the middle.
+    float leftGap  = yes.x;
+    float rightGap = w - (no.x + no.w);
+    check(std::fabs(leftGap - rightGap) < 40.0f, "row: the spacer pushed them to opposite ends");
+
+    // The panel has to contain its children, padding and all. A panel that
+    // sizes itself wrongly shows up here as a child hanging out of it.
+    Box panel = box_of("dialog");
+    check(inside(panel, yes) && inside(panel, no), "panel: it contains its children");
+    check(panel.w > 0 && panel.h > 0, "panel: it has a size at all");
+
+    // Padding is real: the row inside is strictly narrower than the panel.
+    Box row = box_of("buttons");
+    check(row.w < panel.w, "panel: padding leaves the row narrower than the panel");
+
+    // Design units, not pixels: a 200-unit bar is 200 * scale on screen. This
+    // is the assertion that catches someone "fixing" a size by writing a pixel
+    // count, which looks right on one monitor and wrong on every other.
+    float scale = rmp::ui::scale();
+    Box bar = box_of("bar");
+    check_near(bar.w, 200.0f * scale, 1.0f, "progress: the track is 200 design units wide");
+    check(inside(panel, bar), "progress: the bar is inside the panel");
+}
+
 } // namespace
 
 int main() {
@@ -142,6 +208,9 @@ int main() {
     run_at(1280, 720, "720p");
     run_at(1920, 1080, "1080p");
     run_at(2560, 1440, "1440p");
+
+    run_containers(1280, 720);
+    run_containers(800, 600);
 
     std::printf("\n--- scale limits ---\n");
 

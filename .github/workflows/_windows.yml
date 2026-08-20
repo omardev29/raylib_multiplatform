@@ -106,7 +106,7 @@ jobs:
                    "thirdparty\raymob", "thirdparty\clay", "tests") |
                  ForEach-Object { "/I"; $_ }
           $failed = 0
-          foreach ($f in Get-ChildItem examples\*.cpp) {
+          foreach ($f in Get-ChildItem examples -Recurse -Filter *.cpp) {
             & cl /nologo /Zs /std:c++20 /EHsc @inc '/DRESOURCES_PATH="./resources/"' /DPRODUCTION_BUILD=0 $f.FullName
             if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $($f.Name)"; $failed = 1 }
             else { Write-Host "  ok    $($f.Name)" }

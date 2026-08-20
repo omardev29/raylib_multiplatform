@@ -35,9 +35,16 @@ namespace rmp::utils {
 //   desktop, BSD, Web  the frame loop ends and main() returns
 //   Android            plus ANativeActivity_finish(), so the Activity actually
 //                      goes away instead of leaving a task behind
-//   iOS                UIKit owns the run loop and never gives it back, so the
-//                      app tears down and exits. Apple discourages quitting
-//                      programmatically — offer a menu, not a Quit button.
+//   iOS                NOTHING. It logs a warning and returns.
+//
+//                      Apple's QA1561 is explicit: an iOS app that terminates
+//                      itself "will appear to the user to have crashed", and
+//                      App Review rejects apps that crash or appear to. A Quit
+//                      control also fails the Human Interface Guidelines by
+//                      itself. So the same source ships everywhere and the
+//                      button is simply inert on iPhone — hide it with
+//                      #if !defined(PLATFORM_IOS) if a dead control bothers
+//                      you.
 void exit();
 
 // Has exit() been called? The entry point uses this; you are unlikely to need

@@ -6,9 +6,6 @@ public:
   Texture2D rabbit;
 } game;
 
-int screen_x{};
-int screen_y{};
-
 // Called once at startup: set config flags, create the window, load assets.
 //
 // The resource pack is already open by the time you get here: the entry point
@@ -29,30 +26,40 @@ static inline void _ready() {
 // Called each frame
 static inline void _process(float delta) {
 
-  screen_x = GetScreenWidth();
-  screen_y = GetScreenHeight();
-
   BeginDrawing();
-  ClearBackground(ALICEBLUE);
+  ClearBackground(rmp::ui::current_theme().background);
 
-  DrawTexture(game.rabbit, screen_x / 2 - game.rabbit.width / 2,
-              screen_y / 2 - game.rabbit.height / 2, WHITE);
-
-  // A menu, in three calls. It stays centred and keeps its proportions at any
-  // window size — resize the window and watch. Nothing here mentions a
-  // coordinate, a font or a hitbox.
+  // A menu. Nothing here mentions a coordinate, a size, a font or a hitbox,
+  // and it stays centred and correctly proportioned at any window size —
+  // resize the window and watch. The containers take their contents as a
+  // lambda, so there is no closing call to forget.
   rmp::ui::begin();
-  rmp::ui::text("Raylib is Multiplatform!");
-  if (rmp::ui::button("Play"))
-    TraceLog(LOG_INFO, "MENU: play");
-  if (rmp::ui::button("Options"))
-    TraceLog(LOG_INFO, "MENU: options");
-  // Not std::exit(0): that would end the process on the spot, so _exit() and
-  // CloseWindow() below would never run. This asks the entry point to leave
-  // the loop, and the shutdown happens the same way it does when you close the
-  // window with the X.
-  if (rmp::ui::button("Quit"))
-    rmp::utils::exit();
+
+  rmp::ui::panel([&] {
+    rmp::ui::row({.gap = 16}, [&] {
+      rmp::ui::image(game.rabbit, {.width = 64, .height = 64});
+      rmp::ui::column({.items = rmp::ui::align::center_left}, [&] {
+        rmp::ui::text(APP_WINDOW_TITLE);
+        rmp::ui::text("raylib + rmp::ui", {.color = rmp::ui::color_role::muted,
+                                           .size = 14});
+      });
+    });
+
+    if (rmp::ui::button("Play"))
+      TraceLog(LOG_INFO, "MENU: play");
+    if (rmp::ui::button("Options"))
+      TraceLog(LOG_INFO, "MENU: options");
+
+    // rmp::utils::exit() rather than std::exit(): it lets this frame finish,
+    // then runs _exit() and closes the window properly. It does nothing on
+    // iOS, where Apple rejects apps that terminate themselves — so the button
+    // is hidden there rather than left dead.
+#if !defined(PLATFORM_IOS)
+    if (rmp::ui::button("Quit"))
+      rmp::utils::exit();
+#endif
+  });
+
   rmp::ui::end();
 
   // CI smoke-test hook: read the frame back and check something was actually

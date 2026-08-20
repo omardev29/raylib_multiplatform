@@ -1,5 +1,5 @@
 // ===========================================================================
-// examples/main.c — the template with none of the template.
+// examples/plain_c/main.c — the template with none of the template.
 //
 // Plain C, one include, your own main(). No <raylib_multiplatform.h>, no
 // assets::, no lifecycle macros. What you keep is everything the template does
@@ -10,7 +10,7 @@
 // To use it:
 //
 //     rm -r src/main.cpp src/raylib_multiplatform/   # yes, both
-//     cp examples/main.c src/
+//     cp examples/plain_c/main.c src/
 //     cmake --preset debug && cmake --build build
 //
 // src/ is globbed by all four build systems (CMake, the Android CMakeLists,

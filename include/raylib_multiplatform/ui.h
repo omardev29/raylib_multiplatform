@@ -191,6 +191,167 @@ void text(std::string_view s);
 void text(std::string_view s, const text_options &o);
 
 // ---------------------------------------------------------------------------
+// Containers
+//
+// Everything above arranges itself in a centred column, which is the right
+// answer for a menu and the wrong one for anything with structure. These are
+// how you get structure, and they compose:
+//
+//     rmp::ui::begin();
+//     rmp::ui::panel([]{
+//         rmp::ui::text("Really quit?");
+//         rmp::ui::row([]{
+//             if (rmp::ui::button("Yes")) quit();
+//             rmp::ui::button("No");
+//         });
+//     });
+//     rmp::ui::end();
+//
+// The contents are a lambda, and that is the whole reason there is no
+// matching end() to forget: the compiler closes the container for you. Capture
+// what you need with [&].
+// ---------------------------------------------------------------------------
+
+// Shared by every container. All measurements are in design units and are
+// scaled; -1 means "whatever the theme says".
+struct box_options {
+    float gap     = -1;      // between children
+    float padding = -1;      // inside this container
+    align items   = align::center;   // where children sit in the leftover space
+    bool  grow_x  = false;   // fill the parent's width instead of fitting content
+    bool  grow_y  = false;
+    float width   = 0;       // > 0 = a fixed width, overriding fit/grow
+    float height  = 0;
+    // Naming a container lets you ask about it later — whether the pointer is
+    // over it, or where it ended up. Unnamed containers are anonymous, which is
+    // what you want for the other 95%.
+    const char *id = nullptr;
+};
+
+// A panel is a box with a background, which is what makes it visible.
+struct panel_options {
+    box_options box{};
+    Color background = CLITERAL(Color){0, 0, 0, 0};  // {0,0,0,0} = the theme's panel
+    float radius     = -1;                            // -1 = the theme's
+    Color border     = CLITERAL(Color){0, 0, 0, 0};  // {0,0,0,0} = no border
+    float border_width = -1;
+};
+
+// NOTE ON FIELD ORDER, here and in every options struct below. C++20 requires
+// designated initialisers in declaration order: { .width = 8, .grow = true } is
+// fine, { .grow = true, .width = 8 } does not compile. So these are ordered the
+// way they are most likely to be written — sizing, then appearance, then
+// identity — rather than alphabetically or by importance.
+struct image_options {
+    bool  grow   = false;   // fill the space available
+    float width  = 0;       // otherwise: 0,0 = the texture's own size, scaled
+    float height = 0;
+    Color tint   = WHITE;
+};
+
+struct progress_options {
+    float width  = 0;      // 0 = fill the space available
+    float height = -1;     // -1 = derived from the theme's font size
+    float radius = -1;
+    Color fill   = CLITERAL(Color){0, 0, 0, 0};   // {0,0,0,0} = the theme's primary
+    Color track  = CLITERAL(Color){0, 0, 0, 0};   // {0,0,0,0} = the theme's surface
+    const char *id = nullptr;
+};
+
+namespace detail {
+// Not for you: the non-template halves of the containers below, so that no
+// Clay type has to appear in this header. See src/raylib_multiplatform/ui/.
+void open_row(const box_options &o);
+void open_column(const box_options &o);
+void open_panel(const panel_options &o);
+void open_center();
+void open_stack();
+void open_layer();
+void close_element();
+
+// Closes the element even if the body throws. Exceptions are usually off in a
+// game, but a container left open would corrupt the whole frame, and that is
+// too cheap to insure against not to.
+struct closer {
+    ~closer() { close_element(); }
+};
+} // namespace detail
+
+// Left to right.
+template <class Body> void row(const box_options &o, Body &&body) {
+    detail::open_row(o);
+    detail::closer close;
+    body();
+}
+template <class Body> void row(Body &&body) { row(box_options{}, static_cast<Body &&>(body)); }
+
+// Top to bottom.
+template <class Body> void column(const box_options &o, Body &&body) {
+    detail::open_column(o);
+    detail::closer close;
+    body();
+}
+template <class Body> void column(Body &&body) { column(box_options{}, static_cast<Body &&>(body)); }
+
+// A column with a background and padding: the thing you put a dialog in.
+template <class Body> void panel(const panel_options &o, Body &&body) {
+    detail::open_panel(o);
+    detail::closer close;
+    body();
+}
+template <class Body> void panel(Body &&body) { panel(panel_options{}, static_cast<Body &&>(body)); }
+
+// Takes all the space it is given and puts its contents in the middle of it.
+template <class Body> void center(Body &&body) {
+    detail::open_center();
+    detail::closer close;
+    body();
+}
+
+// Layers, drawn back to front. Each child has to be a layer():
+//
+//     rmp::ui::stack([&]{
+//         rmp::ui::layer([&]{ rmp::ui::image(background); });
+//         rmp::ui::layer([&]{ rmp::ui::text("PAUSED");   });
+//     });
+//
+// The explicit layer() is not ceremony — it is what tells the layout which
+// things are supposed to overlap and which are ordinary children.
+template <class Body> void stack(Body &&body) {
+    detail::open_stack();
+    detail::closer close;
+    body();
+}
+template <class Body> void layer(Body &&body) {
+    detail::open_layer();
+    detail::closer close;
+    body();
+}
+
+// Eats the space left over, which is how you push things apart:
+//
+//     rmp::ui::row({ .grow_x = true }, []{
+//         rmp::ui::text("Health");
+//         rmp::ui::spacer();          // <- shoves the score to the right
+//         rmp::ui::text("999");
+//     });
+void spacer();
+void spacer(float fixed);   // or just a gap of a given size
+
+// ---------------------------------------------------------------------------
+// More widgets
+// ---------------------------------------------------------------------------
+
+// The texture has to stay alive until end() returns. By default it is drawn at
+// its own size, scaled with the rest of the UI.
+void image(const Texture2D &texture);
+void image(const Texture2D &texture, const image_options &o);
+
+// A bar. `fraction` is 0..1 and is clamped.
+void progress(float fraction);
+void progress(float fraction, const progress_options &o);
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 

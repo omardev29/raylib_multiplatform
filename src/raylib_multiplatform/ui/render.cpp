@@ -103,12 +103,12 @@ void draw(Clay_RenderCommandArray commands) {
                 if (img.imageData == nullptr) break;
                 const Texture2D *tex = static_cast<const Texture2D *>(img.imageData);
                 Rectangle src{ 0, 0, static_cast<float>(tex->width), static_cast<float>(tex->height) };
-                // backgroundColor is Clay's tint, and its default is 0,0,0,0 —
-                // which as a tint would erase the image. Read a fully
-                // transparent tint as "untinted", exactly as Clay's own docs
-                // suggest.
+                // The tint comes through userData as an optional Color*, not
+                // through backgroundColor: a background on an image element
+                // makes Clay emit a RECTANGLE as well, after the IMAGE, which
+                // paints a flat square over the picture. Null means untinted.
                 Color tint = WHITE;
-                if (img.backgroundColor.a > 0.0f) tint = from_clay(img.backgroundColor);
+                if (cmd.userData != nullptr) tint = *static_cast<const Color *>(cmd.userData);
                 DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f, tint);
                 break;
             }

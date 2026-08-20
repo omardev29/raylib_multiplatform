@@ -146,7 +146,9 @@ jobs:
         run: |
           set -euo pipefail
           FAILED=0
-          for f in examples/*.cpp; do
+          # Recursive: the examples live in per-namespace folders now, and a
+          # glob that only saw the top level would pass by finding nothing.
+          for f in $(find examples -name '*.cpp' | sort); do
             if g++ -fsyntax-only -std=c++20 \
                  -Iinclude -Ithirdparty/raylib/src -Ithirdparty/rres \
                  -Ithirdparty/raymob -Ithirdparty/clay -Itests \
@@ -160,12 +162,16 @@ jobs:
           # The opt-out is C, and it has to keep being valid C: the whole point
           # of that file is that it needs none of our headers.
           if gcc -fsyntax-only -std=c99 -Ithirdparty/raylib/src \
-               -DRESOURCES_PATH='"./resources/"' examples/main.c; then
-            echo "  ok    examples/main.c"
+               -DRESOURCES_PATH='"./resources/"' examples/plain_c/main.c; then
+            echo "  ok    examples/plain_c/main.c"
           else
-            echo "  FAIL  examples/main.c"
+            echo "  FAIL  examples/plain_c/main.c"
             FAILED=1
           fi
+          # A folder that has stopped being scanned looks exactly like a folder
+          # where everything passes, so count what was actually checked.
+          COUNT=$(find examples -name '*.cpp' | wc -l)
+          [ "$COUNT" -ge 5 ] || { echo "FALLA: only $COUNT examples found — is the glob still right?"; exit 1; }
           [ "$FAILED" -eq 0 ] || { echo "FALLA: an example no longer compiles"; exit 1; }
           echo "PASS: every example compiles"
 

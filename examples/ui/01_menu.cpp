@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// examples/ui_menu.cpp
+// examples/ui/01_menu.cpp
 //
 // rmp::ui, from the three-line version to the parts you reach for later.
 //
@@ -85,7 +85,13 @@ static void confirm_quit() {
     // rmp::utils::exit(), never std::exit(): this lets the frame finish and
     // then runs _exit() and CloseWindow() on the way out. On Android it also
     // finishes the Activity, so the app does not leave a dead task behind.
+    //
+    // On iOS it does nothing at all, on purpose — Apple rejects apps that
+    // terminate themselves. Guarding it out is optional; the call is safe
+    // everywhere. Here it is guarded so the button is not dead on iPhone.
+#if !defined(PLATFORM_IOS)
     if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger })) rmp::utils::exit();
+#endif
 
     // This screen and the main menu both have a "Back"-ish button. Identical
     // labels inside ONE frame are told apart automatically; an explicit id is
