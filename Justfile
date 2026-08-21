@@ -31,10 +31,15 @@ dev:
     cmake --build build
 
 
+# The test below is on the FILE, not on the run. Written the other way round —
+# `run && game || build` — a game that exits non-zero, a crash or your own error
+# path, would trigger a rebuild and a second launch, which is a confusing thing
+# to watch happen.
 
-# we ain't compiling if we already compile
+# Run the game. Only builds it if the binary is not there yet.
 run:
-     { [ -f build/{{ project_name }} ] && ./build/{{ project_name }}; } || { just dev && ./build/{{ project_name }}; }
+    @[ -f build/{{ project_name }} ] || just dev
+    ./build/{{ project_name }}
 
 # Compile the release build: optimised, LTO, assets read from ./resources/.
 rel:
