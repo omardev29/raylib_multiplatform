@@ -5,12 +5,9 @@ codebase — Windows, Linux, macOS, Web, Android, iOS and the three BSDs — wit
 builds them, **boots them, and checks they actually put pixels on screen**.
 
 > [!WARNING]
-> **This is experimental and not fully battle-tested.** The pipeline is green and the render gates
-> are real, but no game has shipped on it yet. Some corners are known-rough and labelled as such
-> below (the iOS simulator test is switched off; BSD builds against rolling package mirrors). Read
+> **This is experimental only, and it is not for production.** The pipeline is green and the render gates
+> are real, but the features are very experimental
 > the "What CI does and does not cover" section before you rely on it for a release.
-
-Based on [meemknight/raylibCmakeSetup](https://github.com/meemknight/raylibCmakeSetup).
 
 ---
 
@@ -20,7 +17,7 @@ This is the whole list. Everything else is generated, pinned or automated, and y
 need to open it.
 
 | You edit | For |
-|---|---|
+| --- | --- |
 | `src/main.cpp` | Your game. Every `.cpp`/`.c` under `src/` is compiled automatically, subfolders included. |
 | `include/` | Your headers. |
 | `resources/` | Your assets — images, sounds, fonts, levels, models. |
@@ -197,7 +194,7 @@ header. They exist because they are the things every game needs and raylib delib
 decide for you.
 
 | Namespace | What it is for |
-|---|---|
+| --- | --- |
 | **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default: written once, a menu is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. Playable with a mouse, a finger and a controller, for free. |
 | **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
@@ -301,14 +298,16 @@ verified on every run too, but with a throwaway key, and the artifact is named
 `*-NOT-FOR-PLAY.aab` and deliberately left out of the release. To sign for real:
 
 1. Create an upload keystore once, and keep it somewhere you will not lose it:
+
    ```bash
    keytool -genkey -v -keystore upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
    ```
+
    Enable **Play App Signing** in the Play Console so Google can reset it if you do lose it.
 2. Add four repository secrets:
 
    | Secret | Value |
-   |---|---|
+   | --- | --- |
    | `ANDROID_KEYSTORE_BASE64` | `base64 -w0 upload.jks` |
    | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
    | `ANDROID_KEY_ALIAS` | `upload` |
@@ -390,7 +389,7 @@ and it is what `git describe` and most tooling expect from a release.
 The tag must be `vMAJOR.MINOR.PATCH`:
 
 | Tag | versionName | Android versionCode | Release |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `v1.2.3` | `1.2.3` | `1002003` | normal |
 | `v1.2.3-rc1` | `1.2.3-rc1` | `1002003` | marked pre-release |
 | `v1.2` | rejected — CI fails at config | | |
@@ -455,7 +454,7 @@ broken shader or a lost texture binding still boots and still exits 0. So the ga
 frame is read back, and the fraction of pixels differing from the background has to be in range:
 
 | Target | How |
-|---|---|
+| --- | --- |
 | Linux x64 / ARM64 | headless under `xvfb` |
 | Windows x64 | on the real runner, with Mesa's software rasteriser next to the `.exe` |
 | Web | headless Chromium; the composited canvas is screenshotted and measured |
