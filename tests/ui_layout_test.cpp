@@ -394,6 +394,117 @@ void run_grid() {
     check_near(a.w, b.w, 2.0f, "cells are equal width");
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4: style.
+//
+// Three questions, and they are the ones a person would check by eye once and
+// then never check again: does a size step actually change the size, does the
+// light theme actually differ from the dark one, and does a breakpoint change
+// where the aspect ratio says it should.
+// ---------------------------------------------------------------------------
+
+void run_sizes() {
+    std::printf("\n--- sizes and variants ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    rmp::ui::begin();
+    rmp::ui::button("S", { .size = rmp::ui::size::small  });
+    rmp::ui::button("M", { .size = rmp::ui::size::medium });
+    rmp::ui::button("L", { .size = rmp::ui::size::large  });
+    // A variant is colour only: it must not move anything. Same label length as
+    // "M" on purpose, so any difference in width is the variant's doing.
+    rmp::ui::button("G", { .style = rmp::ui::variant::ghost });
+    rmp::ui::end();
+
+    Box small = box_of("S"), medium = box_of("M"), large = box_of("L"), ghost = box_of("G");
+
+    check(small.h < medium.h, "size::small is shorter than size::medium");
+    check(medium.h < large.h, "size::large is taller than size::medium");
+    check(large.h / medium.h > 1.2f, "and large is a step, not a rounding difference");
+    check_near(ghost.h, medium.h, 0.5f, "a variant changes colour and nothing else");
+
+    // Width has to be measured one button per frame. In a menu they all come
+    // out the same width on purpose — the column fits the widest and the rest
+    // grow to match — so three in one frame could never show a difference.
+    rmp::ui::begin();
+    rmp::ui::button("X", { .size = rmp::ui::size::small });
+    rmp::ui::end();
+    const float narrow = box_of("X").w;
+    rmp::ui::begin();
+    rmp::ui::button("X", { .size = rmp::ui::size::large });
+    rmp::ui::end();
+    check(box_of("X").w > narrow, "the padding follows the type, so a large button is wider too");
+
+    // An explicit number has to work in the same field as a step: that is the
+    // whole reason the field is not a plain float. Text elements have no id of
+    // their own, so each one is measured through the box around it.
+    rmp::ui::begin();
+    rmp::ui::panel({ .box = { .id = "exact" } }, [] { rmp::ui::text("Ay", { .size = 40 }); });
+    rmp::ui::panel({ .box = { .id = "byTheme" } }, [] { rmp::ui::text("Ay"); });
+    rmp::ui::end();
+    check(box_of("exact").h > box_of("byTheme").h,
+          "a raw number works in the same field as a step");
+}
+
+void run_themes() {
+    std::printf("\n--- themes ---\n");
+
+    const rmp::ui::theme dark  = rmp::ui::theme_dark();
+    const rmp::ui::theme light = rmp::ui::theme_light();
+
+    // Not "they differ" — that a light theme is actually light, which is the
+    // thing that would be wrong if someone copied the dark values by mistake.
+    check(light.background.r > dark.background.r + 100,
+          "the light theme's background is actually light");
+    check(light.text.r < dark.text.r - 100, "and its text is actually dark");
+    check(light.border_width > 0 && dark.border_width == 0,
+          "only the light theme draws borders: it has no shadows to separate its surfaces");
+
+    rmp::ui::set_theme(light);
+    check(rmp::ui::current_theme().background.r == light.background.r, "set_theme() takes");
+
+    // Copy-modify-set, which is the only way a theme is ever customised.
+    rmp::ui::theme t = rmp::ui::current_theme();
+    t.corner_radius = 0;
+    rmp::ui::set_theme(t);
+    check(rmp::ui::current_theme().corner_radius == 0 &&
+          rmp::ui::current_theme().background.r == light.background.r,
+          "copy-modify-set changes one field and keeps the rest");
+
+    rmp::ui::set_theme(dark);
+    check(rmp::ui::current_theme().background.r == dark.background.r, "and back to dark");
+}
+
+void run_breakpoints() {
+    std::printf("\n--- breakpoints ---\n");
+
+    struct Case { float w, h; rmp::ui::breakpoint want; const char *what; };
+    const Case cases[] = {
+        { 1080, 2400, rmp::ui::breakpoint::compact,  "a phone held upright is compact" },
+        {  600,  800, rmp::ui::breakpoint::compact,  "so is a narrow window" },
+        { 1024,  768, rmp::ui::breakpoint::medium,   "4:3 is medium" },
+        { 2048, 1536, rmp::ui::breakpoint::medium,   "a tablet on its side is medium" },
+        { 2400, 1080, rmp::ui::breakpoint::expanded, "a phone on its side has room for a row" },
+        { 1920, 1080, rmp::ui::breakpoint::expanded, "16:9 is expanded" },
+        { 3440, 1440, rmp::ui::breakpoint::expanded, "and so is an ultrawide" },
+    };
+
+    for (const Case &c : cases) {
+        rmp::ui::detail::set_test_viewport(c.w, c.h);
+        check(rmp::ui::current_breakpoint() == c.want, c.what);
+    }
+
+    rmp::ui::detail::set_test_viewport(1080, 2400);
+    check(rmp::ui::compact(), "compact() agrees with current_breakpoint()");
+    rmp::ui::detail::set_test_viewport(1920, 1080);
+    check(!rmp::ui::compact(), "and disagrees when it should");
+
+    // The point of the whole feature: 4K and a phone are both "big numbers",
+    // and only one of them should be told to stack its layout.
+    rmp::ui::detail::set_test_viewport(3840, 2160);
+    check(!rmp::ui::compact(), "4K is not compact, even though a phone has more pixels tall");
+}
+
 } // namespace
 
 int main() {
@@ -414,6 +525,9 @@ int main() {
     run_grid();
     run_interaction();
     run_dropdown();
+    run_sizes();
+    run_themes();
+    run_breakpoints();
 
     std::printf("\n--- scale limits ---\n");
 

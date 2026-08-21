@@ -102,6 +102,34 @@ int16_t next_layer_z();
 Clay_ElementId element_id(std::string_view label, const char *explicit_id);
 void           reset_id_counters();
 
+// --- style.cpp -------------------------------------------------------------
+//
+// Sizes and colours, in one place so that no widget has to invent either.
+
+// Advance the transition clock. Called once from begin(); 0 in test mode, so a
+// headless run gives the same numbers every time.
+void anim_begin_frame();
+
+// 0..1 for one boolean channel of one element, eased toward `on`. `channel` is
+// what lets one element animate more than one thing.
+float anim_value(Clay_ElementId id, uint32_t channel, bool on);
+
+// The colour a control is right now, moving between the three the theme gives
+// it. Every widget with a hover state goes through this, which is why they all
+// feel the same.
+Color state_color(Clay_ElementId id, Color base, Color hover, Color press,
+                  bool over, bool pressed);
+
+// Blend two colours, alpha included. `t` is 0..1 and is clamped.
+Color mix_color(Color a, Color b, float t);
+
+// A size step or a raw number, resolved to design units.
+float resolve_size(const sizing &s, const theme &t);
+
+// The same thing as a multiplier on the theme's base type size, for the
+// metrics that have to move with it: padding, and the minimum touch height.
+float size_ratio(const sizing &s, const theme &t);
+
 // --- focus.cpp -------------------------------------------------------------
 //
 // Focus is what makes the same code playable with a controller. Widgets do not
@@ -182,6 +210,12 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
 void            pointer_from_raylib(Clay_Vector2 *position, bool *down);
 
 // --- shared conversions ----------------------------------------------------
+
+// The same colour with nothing in it. Fading a transparent element in from the
+// colour it is about to become, rather than from black, is the difference
+// between a ghost control lighting up and one flashing dark first.
+inline Color clear_alpha(Color c) { return Color{ c.r, c.g, c.b, 0 }; }
+
 
 inline Clay_Color to_clay(Color c) {
     return Clay_Color{ static_cast<float>(c.r), static_cast<float>(c.g),

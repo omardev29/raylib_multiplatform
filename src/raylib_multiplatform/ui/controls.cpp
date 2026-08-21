@@ -103,7 +103,11 @@ bool checkbox(std::string_view label, bool *value, const checkbox_options &o) {
     if (toggled) *value = !*value;
 
     Clay_ElementDeclaration row = control_row(hasFocus);
-    if (over) row.backgroundColor = to_clay(t.surface_hover);
+    // The row is transparent at rest, so it fades in from surface_hover with
+    // nothing in it — from black would flash dark before it lit up.
+    row.backgroundColor = to_clay(detail::state_color(
+        id, detail::clear_alpha(t.surface_hover), t.surface_hover, t.surface_press,
+        over, over && detail::pointer_down()));
 
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
@@ -114,8 +118,13 @@ bool checkbox(std::string_view label, bool *value, const checkbox_options &o) {
         box.layout.sizing.width  = fixed(t.control_size);
         box.layout.sizing.height = fixed(t.control_size);
         box.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
-        box.backgroundColor = to_clay(!o.enabled ? t.disabled
-                                                 : (*value ? t.primary : t.surface));
+        // The fill follows the value rather than the pointer, so ticking a box
+        // reads as the box filling in instead of swapping colour between two
+        // frames. Its own sub-id, so it does not share a slot with the row.
+        const float on = detail::anim_value(detail::sub_id(id, 7), 0, *value);
+        box.backgroundColor = to_clay(!o.enabled
+                                          ? t.disabled
+                                          : detail::mix_color(t.surface, t.primary, on));
         float r = px(t.corner_radius * 0.5f);
         box.cornerRadius = Clay_CornerRadius{ r, r, r, r };
         auto bw = static_cast<uint16_t>(px(1.5f));
@@ -323,7 +332,9 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                                              static_cast<uint16_t>(px(t.padding_y * 0.5f)),
                                              static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
         field.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
-        field.backgroundColor = to_clay(over ? t.surface_hover : t.surface);
+        field.backgroundColor = to_clay(detail::state_color(
+            detail::sub_id(id, 8), t.surface, t.surface_hover, t.surface_press,
+            over, over && detail::pointer_down()));
         float r = px(t.corner_radius);
         field.cornerRadius = Clay_CornerRadius{ r, r, r, r };
 
@@ -373,8 +384,10 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                         static_cast<uint16_t>(px(t.padding_x * 0.5f)),
                         static_cast<uint16_t>(px(t.padding_y * 0.5f)),
                         static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
-                    item.backgroundColor = to_clay(itemOver ? t.surface_hover
-                                                            : (i == *selected ? t.surface : t.panel));
+                    item.backgroundColor = to_clay(detail::state_color(
+                        itemId, (i == *selected) ? t.surface : t.panel,
+                        t.surface_hover, t.surface_press, itemOver,
+                        itemOver && detail::pointer_down()));
                     item.cornerRadius = Clay_CornerRadius{ r * 0.5f, r * 0.5f, r * 0.5f, r * 0.5f };
                     Clay__OpenElementWithId(itemId);
                     Clay__ConfigureOpenElement(item);

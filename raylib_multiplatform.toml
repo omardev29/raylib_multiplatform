@@ -137,6 +137,8 @@ linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
 # rmp::ui — the interface layer. Nothing here is required: with all four at
 # their defaults a menu is still three lines of code.
 #
+# theme      "dark" or "light". Only which one the app starts with — an
+#            in-game appearance setting is rmp::ui::set_theme(theme_light()).
 # font       "" uses the font built into raylib: no asset, no licence, works on
 #            all fourteen targets. It is a pixel font, so its scale is rounded
 #            to a whole number and it stays sharp instead of going blurry.
@@ -148,6 +150,7 @@ linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
 # max_elements  Ceiling on the UI tree; it is what sizes the layout arena.
 #            512 is plenty for menus and HUDs — Clay's own default of 8192
 #            would reserve megabytes for three buttons.
+theme        = "dark"
 font         = ""
 font_size    = 20
 scale        = 0

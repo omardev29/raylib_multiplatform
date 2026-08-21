@@ -406,4 +406,24 @@ void set_scale(float s) {
     detail::set_scale_override(s);
 }
 
+// ---------------------------------------------------------------------------
+// Breakpoints
+//
+// By aspect ratio, and that is the whole trick. A pixel threshold would call a
+// 1080-pixel-wide phone a desktop, and scale() has already dealt with how big
+// everything is — so the only question left, and the only one that decides
+// whether a row still fits, is how wide the viewport is next to how tall.
+// ---------------------------------------------------------------------------
+
+breakpoint current_breakpoint() {
+    Clay_Dimensions v = detail::viewport();
+    if (v.height <= 0.0f) return breakpoint::medium;
+    const float aspect = v.width / v.height;
+    if (aspect < 1.0f) return breakpoint::compact;    // taller than wide
+    if (aspect < 1.6f) return breakpoint::medium;     // up to about 16:10
+    return breakpoint::expanded;
+}
+
+bool compact() { return current_breakpoint() == breakpoint::compact; }
+
 } // namespace rmp::ui

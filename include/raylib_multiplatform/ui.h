@@ -56,10 +56,42 @@ enum class align {
 
 // What a control *means*, not what colour it is. The theme decides the colour,
 // so restyling the game never means revisiting every call site.
-enum class variant { normal, primary, danger };
+//
+//   normal    a filled surface: the default, and most buttons
+//   primary   the one thing you want pressed on this screen
+//   danger    destructive, and it should look like it
+//   outline   an outline and a label, no fill: a secondary action
+//   ghost     just the label until you point at it: toolbars, "back" links
+enum class variant { normal, primary, danger, outline, ghost };
 
 // Which colour of the theme a piece of text uses.
 enum class color_role { text, muted, primary, danger };
+
+// The three type steps. Anywhere a size is asked for you can write one of
+// these or a plain number of design units — it is the same field either way:
+//
+//     rmp::ui::text("Chapter One", { .size = rmp::ui::size::large });
+//     rmp::ui::text("Chapter One", { .size = 34 });
+//
+// The steps are what you want almost always: they come from the theme, so they
+// move together when someone changes the type scale, and they stay in
+// proportion at every screen size. A number is the escape hatch.
+enum class size { small, medium, large };
+
+namespace detail {
+// What an options struct stores for a size. You never write this type's name —
+// you write `rmp::ui::size::large` or `34`, and both land here. It is one field
+// that takes two spellings, rather than two fields that can disagree.
+struct sizing {
+    float    units = -1;                  // > 0 = design units; -1 = the theme's
+    ui::size step  = ui::size::medium;
+    bool     named = false;
+
+    constexpr sizing() = default;
+    constexpr sizing(float u) : units(u) {}
+    constexpr sizing(ui::size s) : step(s), named(true) {}
+};
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // The theme
@@ -106,7 +138,8 @@ struct theme {
     Color focus          = CLITERAL(Color){ 130, 170, 255, 255 };
 
     float font_size       = APP_UI_FONT_SIZE;         // [ui] font_size
-    float font_size_small = APP_UI_FONT_SIZE * 0.8f;
+    float font_size_small = APP_UI_FONT_SIZE * 0.8f;  // size::small
+    float font_size_large = APP_UI_FONT_SIZE * 1.4f;  // size::large
     float padding_x       = 20;   // inside a button
     float padding_y       = 12;
     float gap             = 12;   // between siblings
@@ -116,6 +149,11 @@ struct theme {
     float control_size    = 22;   // a checkbox box, a slider handle
     float track_thickness = 6;    // a slider's rail
     float focus_ring      = 2;    // the outline on the focused control
+    // How long a control takes to reach its new colour, in seconds. Nothing
+    // about the layout moves — only colour — so this can never make a button
+    // arrive somewhere else than where you clicked. 0 turns it off, which is
+    // both the "reduce motion" setting and what a test wants.
+    float transition      = 0.12f;
     // No control is ever shorter than this. 44 design units is Apple's touch
     // target guidance and close to Material's 48dp — it is the difference
     // between a menu you can use with a thumb and one you cannot.
@@ -124,6 +162,17 @@ struct theme {
 
 const theme &current_theme();
 void set_theme(const theme &t);
+
+// The two that come with the framework. Which one starts is [ui] theme in
+// raylib_multiplatform.toml; these let you switch at runtime, which is what an
+// in-game "appearance" setting does:
+//
+//     if (rmp::ui::checkbox("Light theme", &light))
+//         rmp::ui::set_theme(light ? rmp::ui::theme_light() : rmp::ui::theme_dark());
+//
+// They return a copy, so the usual copy-modify-set still applies on top.
+theme theme_dark();
+theme theme_light();
 
 // ---------------------------------------------------------------------------
 // Scale
@@ -146,6 +195,38 @@ float scale();
 // Pin it. 0 goes back to automatic. This is how you would implement an
 // "interface size" accessibility option.
 void set_scale(float s);
+
+// ---------------------------------------------------------------------------
+// Breakpoints
+//
+// Scale already handles "make everything bigger". This is for the one thing
+// scale cannot do: change the SHAPE of a layout. No amount of grow, fit or
+// fixed sizing turns a row into a column, and on a phone held upright a
+// sidebar-and-content row has to become a column or it is unusable.
+//
+//     if (rmp::ui::compact()) rmp::ui::column([&]{ side(); main_area(); });
+//     else                    rmp::ui::row   ([&]{ side(); main_area(); });
+//
+// The classification is by ASPECT RATIO, not by pixels, and that is deliberate.
+// Pixel thresholds are a lie on a phone — a 1080-pixel-wide screen four inches
+// across is not a desktop — and scale() has already normalised how big things
+// are. What is left over, and the only thing that decides whether a row fits,
+// is how wide the viewport is relative to how tall it is.
+//
+//   compact    taller than it is wide      phone upright, a narrow window
+//   medium     up to 1.6:1                 tablet, a small desktop window
+//   expanded   wider than 1.6:1            a normal desktop, a TV
+//
+// Reach for it only when the layout genuinely has to change shape. Reaching for
+// it to pick sizes means undoing the work scale() already did for you.
+// ---------------------------------------------------------------------------
+
+enum class breakpoint { compact, medium, expanded };
+
+breakpoint current_breakpoint();
+
+// Shorthand for the case that comes up: current_breakpoint() == compact.
+bool compact();
 
 // ---------------------------------------------------------------------------
 // The frame
@@ -171,17 +252,21 @@ void end();
 // ---------------------------------------------------------------------------
 
 struct button_options {
-    variant     style   = variant::normal;
-    bool        enabled = true;
+    variant       style   = variant::normal;
+    // One of the three steps, or a number of design units. The padding and the
+    // minimum touch height follow the type size, so a large button is a large
+    // button all over rather than a normal one with bigger letters.
+    detail::sizing size{};
+    bool          enabled = true;
     // Only needed when two buttons share a label AND the UI is conditional.
     // Identical labels in one frame are already told apart automatically.
-    const char *id      = nullptr;
+    const char   *id      = nullptr;
 };
 
 struct text_options {
-    color_role color = color_role::text;
-    float      size  = -1;      // -1 = the theme's font_size
-    bool       wrap  = true;
+    color_role     color = color_role::text;
+    detail::sizing size{};      // a step, a number, or nothing for the theme's
+    bool           wrap  = true;
 };
 
 // True on the frame the pointer is released over it. Reads exactly as it looks:

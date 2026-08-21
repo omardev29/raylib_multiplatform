@@ -138,6 +138,14 @@ void open_panel(const panel_options &o) {
         auto w = static_cast<uint16_t>(px(o.border_width < 0 ? 1.0f : o.border_width));
         d.border.color = to_clay(o.border);
         d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
+    } else if (t.border_width > 0.0f) {
+        // No border asked for, but the theme draws them. A light theme has no
+        // shadows to separate a white panel from a white page, so it says so
+        // once — here — instead of every call site having to remember.
+        auto w = static_cast<uint16_t>(px(t.border_width));
+        if (w < 1) w = 1;
+        d.border.color = to_clay(t.border);
+        d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     }
 
     open_with_id(o.box.id, d);

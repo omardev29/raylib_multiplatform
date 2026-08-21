@@ -215,7 +215,8 @@ DEFAULTS: dict = {
     "ios": {"bundle_id": "com.example.raytest", "deployment_target": "15.6", "settings": {}},
     "icon": {"source": "branding/icon.png", "adaptive_background": "#3DDC84"},
     "raylib": {"disabled_modules": []},
-    "ui": {"font": "", "font_size": 20, "scale": 0, "max_elements": 512},
+    "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
+           "max_elements": 512},
     "dev": {"compiler": "clang", "linker": "auto"},
     "resources": {"rres_password": "raylib-template"},
     "deploy": {"itch": {"user": "", "game": ""},
@@ -225,6 +226,10 @@ DEFAULTS: dict = {
 }
 
 EXAMPLE_IDS = {"com.example.raytest", "com.raylib.raymob"}
+
+# The themes rmp::ui ships. A [ui] theme outside this set is a typo that would
+# otherwise silently fall back to dark at runtime.
+UI_THEMES = {"dark", "light"}
 
 
 def deep_merge(base: dict, over: dict, path: str = "") -> dict:
@@ -396,6 +401,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
             raise ConfigError(f"{key} = {value!r} must be {shape}, or \"\".")
 
     ui = cfg["ui"]
+    if ui["theme"] not in UI_THEMES:
+        raise ConfigError(f"[ui] theme = {ui['theme']!r} must be one of "
+                          f"{', '.join(sorted(UI_THEMES))}. It only picks which one the app "
+                          "starts with — rmp::ui::set_theme() changes it at runtime.")
     if not isinstance(ui["font"], str):
         raise ConfigError("[ui] font must be a string; \"\" means raylib's built-in font.")
     if not isinstance(ui["font_size"], int) or not (6 <= ui["font_size"] <= 200):
@@ -712,9 +721,12 @@ def gen_app_config(cfg: dict) -> None:
    so a value defined only in CMakeLists.txt would silently differ there. */
 #define APP_RRES_PASSWORD "{cfg['resources']['rres_password'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
 
-/* [ui]. APP_UI_FONT is "" for raylib's built-in font. APP_UI_FONT_SIZE is in
-   design units, i.e. at the APP_WINDOW_* resolution above: rmp::ui scales it
-   from there. APP_UI_SCALE of 0 means derive the scale automatically. */
+/* [ui]. APP_UI_THEME is only which theme the app STARTS with; rmp::ui::set_theme
+   changes it at any time. APP_UI_FONT is "" for raylib's built-in font.
+   APP_UI_FONT_SIZE is in design units, i.e. at the APP_WINDOW_* resolution
+   above: rmp::ui scales it from there. APP_UI_SCALE of 0 means derive the
+   scale automatically. */
+#define APP_UI_THEME        "{ui['theme']}"
 #define APP_UI_FONT         "{ui['font'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
 #define APP_UI_FONT_SIZE    {ui['font_size']}
 #define APP_UI_SCALE        {float(ui['scale'])}f
