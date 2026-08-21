@@ -1,6 +1,6 @@
 # Technical reference
 
-How this template works, in depth. For the quick-start see [README.md](README.md).
+How this framework works, in depth. For the quick-start see [README.md](README.md).
 
 ## Table of contents
 
@@ -11,6 +11,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 - [Platform detection macros](#platform-detection-macros)
 - [Resources: `RESOURCES_PATH`, `rmp::assets` and rres](#resources-resources_path-rmpassets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
+  - [Why web does not get a `while` loop](#why-web-does-not-get-a-while-loop)
 - [`rmp::ui` — the interface layer](#rmpui--the-interface-layer)
 - [`rmp::utils` — closing the app](#rmputils--closing-the-app)
 - [AdMob (Android)](#admob-android)
@@ -35,7 +36,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 ├── CMakePresets.json         # debug / release / web profiles
 ├── src/                      # YOUR code. Every .cpp/.c here is auto-compiled (GLOB_RECURSE).
 │   ├── main.cpp              # your game
-│   └── raylib_multiplatform/ # THE template's implementation — not yours
+│   └── raylib_multiplatform/ # THE framework's implementation — not yours
 │       ├── internal.h        #   private surface, deliberately not in include/
 │       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
@@ -50,7 +51,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │           ├── render.cpp    #     draw commands -> raylib calls
 │           └── theme.cpp     #     the default dark theme
 ├── include/                  # YOUR headers (already on the include path)
-│   ├── raylib_multiplatform.h    # THE template's header — the umbrella you include
+│   ├── raylib_multiplatform.h    # THE framework's header — the umbrella you include
 │   └── raylib_multiplatform/ # its parts, split by concern — not yours
 │       ├── platform.h        #   raymob / admob / smoke_test wiring
 │       ├── colors.h          #   a couple of colors raylib does not ship
@@ -91,7 +92,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 │   ├── known-breakage.md     # canary failures we have seen and chosen not to chase
 │   └── scripts/              # web boot test, canary triage, upstream report
 └── thirdparty/
-    ├── raylib/               # raylib 6.0 (frozen, slightly patched for this template)
+    ├── raylib/               # raylib 6.0 (frozen, slightly patched for this build)
     ├── raylib-ios/           # raylib-iOS fork (submodule) — iOS only
     ├── raymob/               # raymob C sources (Android native bridge + admob)
     ├── clay/                 # Clay — the layout engine behind rmp::ui (zlib)
@@ -106,7 +107,7 @@ How this template works, in depth. For the quick-start see [README.md](README.md
 why they cannot drift out of sync with it. `cmake --preset debug` produces all of them; Gradle and
 XcodeGen never invoke CMake, so those two jobs run `python3 tools/configure.py` explicitly.
 
-`examples/` holds reference code for the template's own features, grouped by namespace —
+`examples/` holds reference code for the framework's own features, grouped by namespace —
 `ui/`, `ads/`, `assets/`, `platform/`, and `plain_c/` for the opt-out. They are **not** compiled
 into your game; read them and copy what you need into `src/`. CI does syntax-check every one of
 them with GCC and MSVC on each push, so they cannot quietly stop working.
@@ -238,7 +239,7 @@ Example — this is exactly how the entry-point macro picks the runner, and how
   `PLATFORM_DESKTOP`.
 - **"Am I on Windows / Linux / a BSD?"** → compiler macros (`_WIN32`, `__linux__`, `__FreeBSD__`, …).
 - **"Is this ARM64 vs x86-64?"** → architecture macros.
-- For anything the template's own headers gate (raymob/admob), match them with `__ANDROID__`.
+- For anything our own headers gate (raymob/admob), match them with `__ANDROID__`.
 
 ---
 
@@ -268,7 +269,7 @@ works in dev and silently fails in a release.
 ### 2. rres — one file instead of a folder
 
 [rres](https://github.com/raysan5/rres) is raysan's resource-container format: a header, N data
-chunks, and a central directory mapping names to chunk ids. This template ships its own packer,
+chunks, and a central directory mapping names to chunk ids. This framework ships its own packer,
 `tools/rres_pack.c`, built as a CMake target:
 
 ```bash
@@ -295,7 +296,7 @@ Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `rmp
 a name to an id without knowing the password up front.
 
 The packer emits standard rres containers, so the official rrespacker can open them — but nothing
-in this template requires it.
+in this framework requires it.
 
 ### Why `rmp::assets::init()` exists
 
@@ -441,12 +442,45 @@ Your game lives in three functions in `src/main.cpp`:
 | `_process()` | every frame |
 | `_exit()` | once at shutdown — unload |
 
-A small platform runner drives them:
-- **Desktop / BSD / Android / Web** (`-s ASYNCIFY`): a classic `while (!WindowShouldClose())` loop.
-- **iOS**: callbacks `ios_ready` / `ios_update` / `ios_destroy` (iOS has no blocking main loop;
-  the OS drives the frame via `CADisplayLink`).
+A small platform runner drives them, and there are three of them. The difference between them is
+**who owns the frame loop**:
 
-This is what lets the **same game code** run on every platform, including iOS.
+| Platform | Runner | Who owns the loop |
+|---|---|---|
+| Desktop / BSD / Android | `main()` with `while (!WindowShouldClose())` | We do |
+| **Web** | `emscripten_set_main_loop(frame, 0, 1)` | The browser does |
+| iOS | `ios_ready` / `ios_update` / `ios_destroy` | UIKit does, via `CADisplayLink` |
+
+This is what lets the **same game code** run on every platform, including iOS and the browser.
+
+#### Why web does not get a `while` loop
+
+Because a `while` loop in a browser is not free, and the price is invisible. JavaScript is
+single-threaded and cooperative: a function that never returns never gives the event loop back, so
+nothing renders. The only way to run a synchronous loop there is `-s ASYNCIFY`, which rewrites the
+program so its stack can be unwound at a suspension point and restored afterwards. That
+instrumentation is **not billed to the loop** — it is billed to every function that might be on the
+stack when a suspension happens, which is most of them, in code size and in speed, whether or not
+anything ever suspends.
+
+raylib says so itself, in the comment above `WindowShouldClose()` in `rcore_web.c`:
+
+> `WindowShouldClose()` is not called on a web-ready raylib application if using
+> `emscripten_set_main_loop()` […] allowing the browser to manage execution asynchronously
+
+That call is the **only** `emscripten_sleep()` in raylib. Not calling it is what lets ASYNCIFY go
+away entirely, which is why `CMakeLists.txt` does not pass it. One frame per callback is also what
+`requestAnimationFrame` wants: the browser schedules us with the display instead of us blocking it
+and asking for control back every 12 ms.
+
+Two rules follow, and they are in the header next to the code:
+
+- **Do not call `SetTargetFPS()` on web.** `fps = 0` means `requestAnimationFrame`, which is
+  already the right cadence. A target FPS would make raylib sleep against the browser's scheduler.
+- **If you put a `while` loop back, you have to put `-s ASYNCIFY` back with it.**
+
+`rmp::utils::exit()` works the same as everywhere else: the frame that asked to quit finishes, then
+`emscripten_cancel_main_loop()` runs and the shutdown order is identical to desktop.
 
 `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY` in `include/raylib_multiplatform/lifecycle.h` is that
 runner. It also
@@ -464,7 +498,7 @@ to be: only your code knows where the last draw call is.
 **The boot marker reports asset failures, not successes** — `RAY_TEST_BOOT_OK assets_failed=0
 assets_requested=1`, and CI fails unless `assets_failed=0`. It used to carry the dimensions of a
 texture your `_ready()` passed in, with CI insisting they were non-zero, which quietly made "ship
-at least one image" a rule of the template: a game drawing nothing but shapes could not pass, and
+at least one image" a rule of the framework: a game drawing nothing but shapes could not pass, and
 deleting the call failed the build. Counting failures keeps the check that mattered — iOS once
 shipped a bundle with no `resources/` in it and every texture came back 0x0 — while a game that
 requests nothing fails nothing and passes.
@@ -771,6 +805,37 @@ number. It steps 1×, 2×, 3× instead of sliding, and stays sharp instead of go
 set in `[ui] font` rasterises at any size, so it keeps the continuous scale and is re-baked when
 the size it is asked for changes.
 
+### Breakpoints — the one thing scale cannot do
+
+Scale makes everything bigger or smaller together. It cannot change the **shape** of a layout, and
+no combination of `grow`, `fit` and a fixed size turns a row into a column. On a phone held upright
+a sidebar-and-content row has to become a column, or it is unusable.
+
+```cpp
+if (rmp::ui::compact()) rmp::ui::column([&]{ sidebar(); content(); });
+else                    rmp::ui::row   ([&]{ sidebar(); content(); });
+
+switch (rmp::ui::current_breakpoint()) { /* compact, medium, expanded */ }
+```
+
+The classification is by **aspect ratio**, not by pixels, and that is deliberate. A pixel threshold
+is a lie on a phone — a 1080-pixel-wide screen four inches across is not a desktop — and `scale()`
+has already normalised how big everything is. What is left, and the only thing that decides whether
+a row still fits, is how wide the viewport is next to how tall it is.
+
+| Breakpoint | Aspect | What it is in practice |
+|---|---|---|
+| `compact` | < 1:1 | A phone held upright, a narrow window |
+| `medium` | < 1.6:1 | A tablet on its side, a small desktop window, 4:3 |
+| `expanded` | ≥ 1.6:1 | An ordinary desktop, a TV, a phone on its side |
+
+**Reach for it only when the layout has to become a different layout.** Using a breakpoint to pick
+a *size* is undoing the work `scale()` already did, and it is how a UI ends up looking right on
+exactly one machine.
+
+There is no `wrap` flag on `row()` and there is not going to be one: a row that wraps is
+`grid({ .columns = 0 })`, which already exists and already recomputes itself as the window changes.
+
 ### Theme
 
 Plain data, no logic, no inheritance, no cascade:
@@ -786,12 +851,87 @@ Colours use raylib's `Color`, because you already have `RED` and `CLITERAL` and 
 type would only add conversions. Every metric — `font_size`, `padding_x`, `padding_y`, `gap`,
 `panel_padding`, `corner_radius`, `border_width`, `min_touch_size` — is in design units.
 
+**Two themes come with the framework**, and `[ui] theme` in the `.toml` picks which one the app
+starts with. After that it is a runtime call, so an in-game appearance setting is one line:
+
+```cpp
+rmp::ui::theme rmp::ui::theme_dark();    // the default
+rmp::ui::theme rmp::ui::theme_light();
+
+if (rmp::ui::checkbox("Light theme", &light))
+    rmp::ui::set_theme(light ? rmp::ui::theme_light() : rmp::ui::theme_dark());
+```
+
+The light theme is not the dark one with the numbers flipped. It sets `border_width = 1`, and that
+single field is why it works: a dark interface separates its surfaces with its own shadows, and a
+light one has none, so a pale button on a pale page needs an outline to still be a button. Its
+accents are darker than the dark theme's for the same reason — the blue that reads as bright on
+near-black is washed out on near-white, and white label text on it stops being legible.
+
 `min_touch_size` (44 by default) is the floor on a control's height. It is Apple's touch-target
 guidance, close to Material's 48 dp, and it is the difference between a menu you can use with a
 thumb and one you cannot. Four of the fourteen targets are touch screens.
 
-States are handled for you: `normal`, `hovered`, `pressed`, `disabled`. You never ask where the
-mouse is.
+States are handled for you: `normal`, `hovered`, `pressed`, `focused`, `disabled`. You never ask
+where the mouse is.
+
+### Variants and sizes
+
+The two axes you actually style along. Neither of them names a colour, which is the point: the call
+site says what the control *means* and how important it is, and the theme decides what that looks
+like. Change the theme and no call site is revisited.
+
+```cpp
+rmp::ui::button("Start game", { .style = rmp::ui::variant::primary });
+rmp::ui::button("Load");                                              // variant::normal
+rmp::ui::button("Settings",   { .style = rmp::ui::variant::outline });
+rmp::ui::button("Back",       { .style = rmp::ui::variant::ghost   });
+rmp::ui::button("Delete",     { .style = rmp::ui::variant::danger  });
+rmp::ui::button("Continue",   { .style = rmp::ui::variant::primary, .enabled = false });
+```
+
+| Variant | What it is for |
+|---|---|
+| `normal` | Most buttons: a filled surface |
+| `primary` | The one thing you want pressed on this screen |
+| `danger` | Destructive, and it should look like it |
+| `outline` | An outline and a label, no fill until you point at it: a secondary action |
+| `ghost` | Just the label. Toolbars, "back" links |
+
+`enabled` is a flag and not a sixth variant, because being disabled can happen to any of them.
+
+Sizes are three steps in the theme's type scale, and the same field takes an exact number of design
+units when you genuinely need one — a title, not a button:
+
+```cpp
+rmp::ui::button("Play",        { .size = rmp::ui::size::large });
+rmp::ui::text  ("v1.2.3",      { .color = rmp::ui::color_role::muted, .size = rmp::ui::size::small });
+rmp::ui::text  ("CHAPTER ONE", { .size = 44 });
+```
+
+One field takes both spellings rather than two fields that could contradict each other. A step
+moves the type size, the padding and the minimum touch height **together**, so a large button is
+large all over instead of a normal one with bigger letters in it — with one exception: on a touch
+screen a small button never drops below `min_touch_size`, because a small button there is still a
+button you hit with a thumb.
+
+### Transitions
+
+Controls fade between their states rather than snapping. It is automatic, there is nothing to opt
+into, and there is exactly one knob:
+
+```cpp
+rmp::ui::theme t = rmp::ui::current_theme();
+t.transition = 0.0f;          // "reduce motion". 0.12 s is the default
+rmp::ui::set_theme(t);
+```
+
+**Colour only. Nothing about the layout moves.** That is a deliberate limit, not an unfinished
+feature: a control that slid into place could be somewhere other than where you aimed, and an
+interface that makes you miss what you clicked on is worse than one that does not animate. It also
+means transitions cost nothing in the layout pass and are free to skip entirely — with
+`transition = 0` there is no state to keep and no table to look in, which is how the headless test
+runs deterministically.
 
 ### Touch
 
@@ -808,11 +948,15 @@ adjustments happen underneath:
 
 ```toml
 [ui]
-font         = ""    # "" = raylib's built-in font, or a .ttf in resources/
-font_size    = 20    # design units, i.e. at the [window] resolution
-scale        = 0     # 0 = automatic
-max_elements = 512   # ceiling on the UI tree; it sizes the layout arena
+theme        = "dark"  # or "light" — only which one the app STARTS with
+font         = ""      # "" = raylib's built-in font, or a .ttf in resources/
+font_size    = 20      # design units, i.e. at the [window] resolution
+scale        = 0       # 0 = automatic
+max_elements = 512     # ceiling on the UI tree; it sizes the layout arena
 ```
+
+`theme` is validated against the themes that exist, so a typo is a configure error and not a
+silent fall back to dark at runtime.
 
 The font goes through `rmp::assets::load_font`, so one packed into the `.rres` works exactly like
 a loose one. If it is missing, the UI says so once and falls back to the built-in font — a missing
@@ -863,7 +1007,7 @@ rmp::ui::end();
 ```
 
 Your elements join the same tree, are laid out in the same pass and drawn by the same renderer. It
-is the same bargain as everywhere else in this template: `rmp::assets` does not stop you calling
+is the same bargain as everywhere else in this framework: `rmp::assets` does not stop you calling
 `LoadTexture`, and `rmp::ui` does not stop you calling Clay — or rlgl, or raw OpenGL.
 
 The full worked version, including images and hover, is
@@ -927,9 +1071,12 @@ clamps at both ends. Those are the things a person verifies once by hand and the
 
 ### What is not here yet
 
-Tabs, tooltips, modals, context menus, tree views, drag and drop, animation and transitions, a
-second built-in theme, and text input beyond the basics — no selection, no clipboard, no IME, and
-on mobile no soft keyboard (raymob has one; wiring it to `text_input` is a job of its own).
+Tabs, tooltips, modals, context menus, tree views, drag and drop, and text input beyond the
+basics — no selection, no clipboard, no IME, and on mobile no soft keyboard (raymob has one; wiring
+it to `text_input` is a job of its own).
+
+Motion beyond colour is deliberately absent rather than pending: see
+[Transitions](#transitions) for why a control that moves is a control you can miss.
 
 [Dropping to Clay](#what-is-underneath-and-how-to-use-it-directly) covers a good deal of the
 layout half of that list already: floating elements, aspect ratios and per-corner radii all exist
@@ -1065,7 +1212,7 @@ shows no ads should not have to answer for it.
 
 > **Not done yet: consent (UMP).** Serving ads to users in the EEA or the UK requires a
 > Google-certified CMP — in practice the [User Messaging Platform
-> SDK](https://developers.google.com/admob/android/privacy) — since January 2024. This template
+> SDK](https://developers.google.com/admob/android/privacy) — since January 2024. This framework
 > does **not** ship one. With ads on, expect EEA/UK traffic to be served badly or not at all until
 > you add it: `com.google.android.gms:play-services-ads` already contains UMP, so it is a
 > `ConsentInformation.requestConsentInfoUpdate()` call in `AdmobBridge.initialize()` plus a form,
@@ -1126,7 +1273,7 @@ early enough. Everything about your game moved out.
 ### Publishing to Google Play (signed AAB)
 
 Google Play requires a **signed Android App Bundle (AAB)** — not an APK, and not the debug
-build. The template produces it via `./gradlew bundleRelease` plus an env-driven signing
+build. The framework produces it via `./gradlew bundleRelease` plus an env-driven signing
 config, so **no secret ever lives in the repo**.
 
 1. **Create an upload keystore** (once; keep it safe. Enable *Play App Signing* in the Play
@@ -1169,7 +1316,7 @@ config, so **no secret ever lives in the repo**.
 
    Verification is `jarsigner -verify -strict` plus an assertion on the signer's CN, checked
    both ways: a run configured with a real key fails if the bundle turns out to carry the
-   throwaway signature, and vice versa. (`unzip -l | grep META-INF/.*\.SF`, which the template
+   throwaway signature, and vice versa. (`unzip -l | grep META-INF/.*\.SF`, which the build
    used to do, only proves that *a* signature exists — not whose, and not that it verifies.)
 
 > **Never commit the keystore or its passwords.** And before publishing, replace the AdMob
@@ -1292,12 +1439,12 @@ against Xcode 26.6 while everyone else is on 28.
 > requests`. The *Did the agent produce anything?* step now names this specifically when it sees a
 > branch with no PR behind it.
 
-> This is **template infrastructure, not something a user of the template runs.** Every job in
+> This is **upstream infrastructure, not something a game built on this runs.** Every job in
 > `canary.yml` and `autofix.yml` is guarded by
 > `if: github.repository == 'omardev29/raylib_multiplatform'`. A repository created from this
 > template is a real copy, not a fork, so its cron *would* fire — the guard makes every job skip
 > immediately. Nobody's private game repo ends up with a weekly build it did not ask for, or an
-> agent opening PRs against it. If you fork the template to maintain your own, change that string
+> agent opening PRs against it. If you fork this to maintain your own, change that string
 > in both files; otherwise leave it alone.
 
 **`canary.yml`** runs `0 4 * * 1` (Mondays) and on dispatch. It calls **the same reusable
@@ -1445,7 +1592,7 @@ variables `ITCH_USER` / `ITCH_GAME` still work and **take precedence** over the 
 there for setups that predate the config file — if a value looks ignored, check whether a variable
 is shadowing it.
 
-Without them the job logs a warning and skips; cloning this template must not give you a red
+Without them the job logs a warning and skips; cloning this repository must not give you a red
 pipeline for a service you have not signed up to.
 
 Two details that are easy to get wrong and are handled for you:
@@ -1518,7 +1665,7 @@ Desktop/BSD/Web have no such gate.
 Specifics to expect when the stores move:
 
 - **Android:** Google Play requires new apps and updates to target an API level within about a
-  year of the latest — **API 36 from 2026-08-31**, which is what the template targets today. To
+  year of the latest — **API 36 from 2026-08-31**, which is what we target today. To
   keep publishing you bump, *together*, `compileSdk`/`targetSdk`/`buildToolsVersion`/`ndkVersion`
   in `raymob/app/build.gradle`, AGP in `raymob/build.gradle`, Gradle in `gradle-wrapper.properties`
   (with its `distributionSha256Sum`), the matching packages in the build image, and the

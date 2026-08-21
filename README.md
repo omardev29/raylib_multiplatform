@@ -1,6 +1,6 @@
 # raylib_multiplatform
 
-A **C++20** template for shipping [raylib](https://www.raylib.com/) games to 14 targets from one
+A **C++20** framework for shipping [raylib](https://www.raylib.com/) games to 14 targets from one
 codebase — Windows, Linux, macOS, Web, Android, iOS and the three BSDs — with a CI pipeline that
 builds them, **boots them, and checks they actually put pixels on screen**.
 
@@ -31,7 +31,7 @@ That is the list. You do **not** edit CMakeLists.txt to rename your game, or `gr
 for Android, or `project.yml` for iOS, or any workflow file to choose platforms. Those are
 generated from the config on every build, which is why they cannot drift out of sync with it.
 
-Three paths in there are the template's, not yours, and they all carry the same name so you can
+Three paths in there are the framework's, not yours, and they all carry the same name so you can
 tell at a glance: `include/raylib_multiplatform.h` (the only header you include),
 `include/raylib_multiplatform/` (its parts, and the generated config) and
 `src/raylib_multiplatform/` (the implementation). Everything else under `src/` and `include/` is
@@ -175,7 +175,7 @@ The lifecycle is Godot-shaped, and the same three functions run on every platfor
 where the OS owns the run loop:
 
 ```cpp
-#include <raylib_multiplatform.h>          // the only template header there is
+#include <raylib_multiplatform.h>          // the only header of ours you include
 
 static inline void _ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
 static inline void _process(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
@@ -192,13 +192,13 @@ remember.
 ### What we add on top of raylib
 
 All of raylib is there, unchanged: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. On top
-of it this template adds three small namespaces, all under `rmp::`, all included by that single
-header. They exist because they are the three things every game needs and raylib deliberately does
-not decide for you.
+of it this framework adds four small namespaces, all under `rmp::`, all included by that single
+header. They exist because they are the things every game needs and raylib deliberately does not
+decide for you.
 
 | Namespace | What it is for |
 |---|---|
-| **`rmp::ui`** | Menus, buttons and text. Responsive by default: a menu written once is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. |
+| **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default: written once, a menu is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. Playable with a mouse, a finger and a controller, for free. |
 | **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
 | **`rmp::utils`** | The small things with no other home. Today that is `exit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. |
@@ -228,8 +228,15 @@ rmp::ui::panel([&]{
 });
 ```
 
-Everything past that — themes, sizing, scaling, dropping to the layout engine directly — is
-optional and costs you nothing until you ask for it.
+You say what a control *means*, never what colour it is — `variant::primary`, `variant::danger`,
+`size::large` — so restyling the whole game is one call and not a tour of every call site:
+
+```cpp
+rmp::ui::set_theme(rmp::ui::theme_light());     // or theme_dark(), or your own
+```
+
+Everything past that — your own theme, sizing, scaling, breakpoints, dropping to the layout engine
+directly — is optional and costs you nothing until you ask for it.
 
 **The full API of all three is in [TECHNICAL.md](TECHNICAL.md)**; there are working examples of
 each in [`examples/`](examples/). Everything under `rmp::` is ours, everything else is raylib's, so
@@ -269,7 +276,7 @@ AdMob, and adding third-party libraries.
 ### If you would rather write plain C
 
 [`examples/plain_c/main.c`](examples/plain_c/main.c) is a complete entry point that includes only `<raylib.h>` — no
-template header, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
+none of our headers, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
 `src/raylib_multiplatform/`, and you keep the fourteen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
 raylib cannot read, and iOS, whose entry point the macro exists to provide.
@@ -320,14 +327,14 @@ Play's **Data safety** form.
 
 > [!WARNING]
 > **TODO — consent (UMP) is not implemented.** Showing ads to users in the EEA or the UK requires a
-> Google-certified consent platform, and this template does not ship one. With ads on, that traffic
+> Google-certified consent platform, and this framework does not ship one. With ads on, that traffic
 > will be served badly or not at all until you add it. See
 > [AdMob](TECHNICAL.md#admob-android) in TECHNICAL.md for what it takes; it is a call and a form,
 > not a new dependency.
 
 ### iOS
 
-This is the roughest corner of the template, and it is worth being precise about what you get.
+This is the roughest corner of the project, and it is worth being precise about what you get.
 
 CI produces two things: `raylib.xcframework` (the engine, built from the pinned fork) and a
 **simulator `.app`**. Neither is installable on a physical iPhone, and no amount of CI will change
@@ -486,7 +493,7 @@ resources/                  your assets — flat, the pack does not recurse
 branding/icon.png           the source for every app icon on every platform
 include/raylib_multiplatform.h
 include/raylib_multiplatform/
-src/raylib_multiplatform/   the template's own code — rmp::ui, rmp::assets, rmp::ads.
+src/raylib_multiplatform/   the framework's own code — rmp::ui, rmp::assets, rmp::ads.
                             Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
