@@ -18,13 +18,13 @@ using detail::to_clay;
 Clay_SizingAxis axis(bool grow, float fixed) {
     Clay_SizingAxis a{};
     if (fixed > 0.0f) {
-        a.type = CLAY__SIZING_TYPE_FIXED;
+        a.type        = CLAY__SIZING_TYPE_FIXED;
         a.size.minMax = Clay_SizingMinMax{ px(fixed), px(fixed) };
     } else if (grow) {
-        a.type = CLAY__SIZING_TYPE_GROW;
+        a.type        = CLAY__SIZING_TYPE_GROW;
         a.size.minMax = Clay_SizingMinMax{ 0, 0 };
     } else {
-        a.type = CLAY__SIZING_TYPE_FIT;
+        a.type        = CLAY__SIZING_TYPE_FIT;
         a.size.minMax = Clay_SizingMinMax{ 0, 0 };
     }
     return a;
@@ -34,15 +34,42 @@ Clay_ChildAlignment alignment_of(align a) {
     Clay_LayoutAlignmentX x = CLAY_ALIGN_X_CENTER;
     Clay_LayoutAlignmentY y = CLAY_ALIGN_Y_CENTER;
     switch (a) {
-        case align::top_left:      x = CLAY_ALIGN_X_LEFT;   y = CLAY_ALIGN_Y_TOP;    break;
-        case align::top_center:    x = CLAY_ALIGN_X_CENTER; y = CLAY_ALIGN_Y_TOP;    break;
-        case align::top_right:     x = CLAY_ALIGN_X_RIGHT;  y = CLAY_ALIGN_Y_TOP;    break;
-        case align::center_left:   x = CLAY_ALIGN_X_LEFT;   y = CLAY_ALIGN_Y_CENTER; break;
-        case align::center:        x = CLAY_ALIGN_X_CENTER; y = CLAY_ALIGN_Y_CENTER; break;
-        case align::center_right:  x = CLAY_ALIGN_X_RIGHT;  y = CLAY_ALIGN_Y_CENTER; break;
-        case align::bottom_left:   x = CLAY_ALIGN_X_LEFT;   y = CLAY_ALIGN_Y_BOTTOM; break;
-        case align::bottom_center: x = CLAY_ALIGN_X_CENTER; y = CLAY_ALIGN_Y_BOTTOM; break;
-        case align::bottom_right:  x = CLAY_ALIGN_X_RIGHT;  y = CLAY_ALIGN_Y_BOTTOM; break;
+        case align::top_left:
+            x = CLAY_ALIGN_X_LEFT;
+            y = CLAY_ALIGN_Y_TOP;
+            break;
+        case align::top_center:
+            x = CLAY_ALIGN_X_CENTER;
+            y = CLAY_ALIGN_Y_TOP;
+            break;
+        case align::top_right:
+            x = CLAY_ALIGN_X_RIGHT;
+            y = CLAY_ALIGN_Y_TOP;
+            break;
+        case align::center_left:
+            x = CLAY_ALIGN_X_LEFT;
+            y = CLAY_ALIGN_Y_CENTER;
+            break;
+        case align::center:
+            x = CLAY_ALIGN_X_CENTER;
+            y = CLAY_ALIGN_Y_CENTER;
+            break;
+        case align::center_right:
+            x = CLAY_ALIGN_X_RIGHT;
+            y = CLAY_ALIGN_Y_CENTER;
+            break;
+        case align::bottom_left:
+            x = CLAY_ALIGN_X_LEFT;
+            y = CLAY_ALIGN_Y_BOTTOM;
+            break;
+        case align::bottom_center:
+            x = CLAY_ALIGN_X_CENTER;
+            y = CLAY_ALIGN_Y_BOTTOM;
+            break;
+        case align::bottom_right:
+            x = CLAY_ALIGN_X_RIGHT;
+            y = CLAY_ALIGN_Y_BOTTOM;
+            break;
     }
     return Clay_ChildAlignment{ x, y };
 }
@@ -52,14 +79,15 @@ Clay_Padding pad(float p) {
     return Clay_Padding{ v, v, v, v };
 }
 
-Clay_LayoutConfig layout_of(const box_options &o, Clay_LayoutDirection dir, float default_padding) {
-    const theme &t = current_theme();
+Clay_LayoutConfig layout_of(const box_options &o, Clay_LayoutDirection dir,
+                            float default_padding) {
+    const theme      &t = current_theme();
     Clay_LayoutConfig l{};
-    l.sizing.width   = axis(o.grow_x, o.width);
-    l.sizing.height  = axis(o.grow_y, o.height);
-    l.padding        = pad(o.padding < 0 ? default_padding : o.padding);
-    l.childGap       = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
-    l.childAlignment = alignment_of(o.items);
+    l.sizing.width    = axis(o.grow_x, o.width);
+    l.sizing.height   = axis(o.grow_y, o.height);
+    l.padding         = pad(o.padding < 0 ? default_padding : o.padding);
+    l.childGap        = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    l.childAlignment  = alignment_of(o.items);
     l.layoutDirection = dir;
     return l;
 }
@@ -72,30 +100,32 @@ namespace {
 
 // Grids nest rarely but they must not corrupt each other when they do, so this
 // is a small stack rather than one variable.
-struct GridFrame {
-    int columns  = 4;
-    int index    = 0;      // cells emitted so far
-    bool rowOpen = false;
-    float gap    = 0;
+struct grid_frame {
+    int   columns = 4;
+    int   index   = 0; // cells emitted so far
+    bool  rowOpen = false;
+    float gap     = 0;
 };
 constexpr int kMaxGridDepth = 4;
-GridFrame g_grids[kMaxGridDepth];
-int       g_gridDepth = 0;
+grid_frame    g_grids[kMaxGridDepth];
+int           g_gridDepth = 0;
 
 // Named containers get a stable id so they can be asked about later; unnamed
 // ones stay anonymous, which is what most of them should be.
 void open_with_id(const char *id, const Clay_ElementDeclaration &d) {
-    if (id != nullptr) Clay__OpenElementWithId(detail::element_id(std::string_view{id}, id));
-    else               Clay__OpenElement();
+    if (id != nullptr)
+        Clay__OpenElementWithId(detail::element_id(std::string_view{ id }, id));
+    else
+        Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
 }
 
 // A row inside a grid: full width, one line of cells.
 void open_grid_row(float gap) {
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width  = axis(true, 0);
-    d.layout.sizing.height = axis(false, 0);
-    d.layout.childGap      = static_cast<uint16_t>(px(gap));
+    d.layout.sizing.width    = axis(true, 0);
+    d.layout.sizing.height   = axis(false, 0);
+    d.layout.childGap        = static_cast<uint16_t>(px(gap));
     d.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
     d.layout.childAlignment  = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
     Clay__OpenElement();
@@ -127,12 +157,12 @@ void open_panel(const panel_options &o) {
     Clay_ElementDeclaration d{};
     // A panel pads itself by default; a bare row or column does not. That is
     // the difference between the two, along with having a background.
-    d.layout = layout_of(o.box, CLAY_TOP_TO_BOTTOM,
-                         o.box.padding < 0 ? t.panel_padding : o.box.padding);
+    d.layout          = layout_of(o.box, CLAY_TOP_TO_BOTTOM,
+                                  o.box.padding < 0 ? t.panel_padding : o.box.padding);
     d.backgroundColor = to_clay(transparent(o.background) ? t.panel : o.background);
 
-    float r = px(o.radius < 0 ? t.corner_radius : o.radius);
-    d.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+    float r           = px(o.radius < 0 ? t.corner_radius : o.radius);
+    d.cornerRadius    = Clay_CornerRadius{ r, r, r, r };
 
     if (!transparent(o.border)) {
         auto w = static_cast<uint16_t>(px(o.border_width < 0 ? 1.0f : o.border_width));
@@ -156,9 +186,10 @@ void open_center() {
     Clay_ElementDeclaration d{};
     // Grows to fill whatever it was given, then centres its contents inside it.
     // That is all "centre this" needs to mean.
-    d.layout.sizing.width   = axis(true, 0);
-    d.layout.sizing.height  = axis(true, 0);
-    d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    d.layout.sizing.width  = axis(true, 0);
+    d.layout.sizing.height = axis(true, 0);
+    d.layout.childAlignment =
+        Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
@@ -171,8 +202,8 @@ void open_stack() {
     // detaching an element from the flow, and there is no way to guess which
     // of a lambda's contents were meant to overlap.
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width   = axis(true, 0);
-    d.layout.sizing.height  = axis(true, 0);
+    d.layout.sizing.width    = axis(true, 0);
+    d.layout.sizing.height   = axis(true, 0);
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
@@ -181,18 +212,19 @@ void open_stack() {
 void open_layer() {
     if (!frame_open()) return;
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width   = axis(true, 0);
-    d.layout.sizing.height  = axis(true, 0);
-    d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    d.layout.sizing.width  = axis(true, 0);
+    d.layout.sizing.height = axis(true, 0);
+    d.layout.childAlignment =
+        Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     // Floating attached to the parent: it fills the stack and takes no space in
     // it, so every layer lands in the same box. zIndex follows declaration
     // order, so the last layer() written is the one on top — which is the
     // order a person reading the code expects.
-    d.floating.attachTo = CLAY_ATTACH_TO_PARENT;
-    d.floating.zIndex   = next_layer_z();
-    d.floating.attachPoints = Clay_FloatingAttachPoints{ CLAY_ATTACH_POINT_LEFT_TOP,
-                                                         CLAY_ATTACH_POINT_LEFT_TOP };
+    d.floating.attachTo      = CLAY_ATTACH_TO_PARENT;
+    d.floating.zIndex        = next_layer_z();
+    d.floating.attachPoints  = Clay_FloatingAttachPoints{ CLAY_ATTACH_POINT_LEFT_TOP,
+                                                          CLAY_ATTACH_POINT_LEFT_TOP };
     d.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
@@ -203,10 +235,10 @@ void open_grid(const grid_options &o) {
     const theme &t = current_theme();
 
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width   = axis(o.grow_x, 0);
-    d.layout.sizing.height  = axis(o.grow_y, 0);
-    d.layout.padding        = pad(o.padding < 0 ? 0 : o.padding);
-    d.layout.childGap       = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    d.layout.sizing.width    = axis(o.grow_x, 0);
+    d.layout.sizing.height   = axis(o.grow_y, 0);
+    d.layout.padding         = pad(o.padding < 0 ? 0 : o.padding);
+    d.layout.childGap        = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     d.layout.childAlignment  = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
 
@@ -221,21 +253,22 @@ void open_grid(const grid_options &o) {
     // does — it is the only width that exists yet.
     // Named or not, a grid gets an id, because working out the columns means
     // knowing how wide it was last frame.
-    Clay_ElementId gridId = o.id != nullptr ? element_id(std::string_view{o.id}, o.id)
-                                            : element_id(std::string_view{"grid"}, nullptr);
+    Clay_ElementId gridId    = o.id != nullptr
+                                   ? element_id(std::string_view{ o.id }, o.id)
+                                   : element_id(std::string_view{ "grid" }, nullptr);
 
-    int columns = o.columns;
+    int columns              = o.columns;
     if (columns <= 0) {
         Clay_BoundingBox box{};
         if (bounds_of_id(gridId, &box) && box.width > 0) {
             float cell = px(o.min_cell) + px(o.gap < 0 ? t.gap : o.gap);
-            columns = static_cast<int>(box.width / (cell > 1 ? cell : 1));
+            columns    = static_cast<int>(box.width / (cell > 1 ? cell : 1));
         }
     }
     if (columns <= 0) columns = 4;
 
     if (g_gridDepth < kMaxGridDepth) {
-        g_grids[g_gridDepth] = GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
+        g_grids[g_gridDepth] = grid_frame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
         g_gridDepth++;
     }
     Clay__OpenElementWithId(gridId);
@@ -268,7 +301,7 @@ void open_cell() {
         return;
     }
 
-    GridFrame &g = g_grids[g_gridDepth - 1];
+    grid_frame &g = g_grids[g_gridDepth - 1];
     if (g.index % g.columns == 0) {
         if (g.rowOpen) Clay__CloseElement();
         open_grid_row(g.gap);
@@ -280,11 +313,12 @@ void open_cell() {
     // window is doing. Clay takes the percentage of the parent minus its
     // padding and gaps, which is exactly the space the cells actually share.
     Clay_SizingAxis w{};
-    w.type = CLAY__SIZING_TYPE_PERCENT;
-    w.size.percent = 1.0f / static_cast<float>(g.columns);
+    w.type                 = CLAY__SIZING_TYPE_PERCENT;
+    w.size.percent         = 1.0f / static_cast<float>(g.columns);
     d.layout.sizing.width  = w;
     d.layout.sizing.height = axis(false, 0);
-    d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    d.layout.childAlignment =
+        Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
     g.index++;
@@ -300,19 +334,19 @@ void open_scroll(const scroll_options &o) {
     const theme &t = current_theme();
 
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width   = axis(o.grow_x, o.width);
-    d.layout.sizing.height  = axis(o.grow_y, o.height);
-    d.layout.padding        = pad(o.padding < 0 ? 0 : o.padding);
-    d.layout.childGap       = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    d.layout.sizing.width    = axis(o.grow_x, o.width);
+    d.layout.sizing.height   = axis(o.grow_y, o.height);
+    d.layout.padding         = pad(o.padding < 0 ? 0 : o.padding);
+    d.layout.childGap        = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
 
     // clip + childOffset is the whole of scrolling: Clay moves the children by
     // the offset it is tracking, and the clip keeps the ones outside from being
     // drawn. Clay_UpdateScrollContainers, called in begin(), is what advances
     // that offset from the wheel and from dragging.
-    d.clip.horizontal = o.horizontal;
-    d.clip.vertical   = o.vertical;
-    d.clip.childOffset = Clay_GetScrollOffset();
+    d.clip.horizontal        = o.horizontal;
+    d.clip.vertical          = o.vertical;
+    d.clip.childOffset       = Clay_GetScrollOffset();
 
     open_with_id(o.id, d);
 }
@@ -360,7 +394,7 @@ void image(const Texture2D &texture, const image_options &o) {
     } else {
         // Its own pixel size by default, scaled like everything else, so an
         // icon does not shrink into nothing on a big screen.
-        float w = o.width  > 0 ? o.width  : static_cast<float>(texture.width);
+        float w = o.width > 0 ? o.width : static_cast<float>(texture.width);
         float h = o.height > 0 ? o.height : static_cast<float>(texture.height);
         d.layout.sizing.width  = axis(false, w);
         d.layout.sizing.height = axis(false, h);
@@ -380,7 +414,7 @@ void image(const Texture2D &texture, const image_options &o) {
     if (o.tint.r != 255 || o.tint.g != 255 || o.tint.b != 255 || o.tint.a != 255) {
         if (void *mem = detail::frame_alloc(sizeof(Color))) {
             *static_cast<Color *>(mem) = o.tint;
-            d.userData = mem;
+            d.userData                 = mem;
         }
     }
 
@@ -404,21 +438,21 @@ void progress(float fraction, const progress_options &o) {
     Clay_ElementDeclaration track{};
     track.layout.sizing.width  = axis(o.width <= 0, o.width);
     track.layout.sizing.height = axis(false, h);
-    track.backgroundColor = to_clay(transparent(o.track) ? t.surface : o.track);
-    track.cornerRadius = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
+    track.backgroundColor      = to_clay(transparent(o.track) ? t.surface : o.track);
+    track.cornerRadius         = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
 
     open_with_id(o.id, track);
     {
         // A percentage child rather than a fixed width, so the bar is right
         // whatever the track ends up measuring — including inside a grow.
         Clay_ElementDeclaration bar{};
-        Clay_SizingAxis w{};
-        w.type = CLAY__SIZING_TYPE_PERCENT;
-        w.size.percent = fraction;
+        Clay_SizingAxis         w{};
+        w.type                   = CLAY__SIZING_TYPE_PERCENT;
+        w.size.percent           = fraction;
         bar.layout.sizing.width  = w;
         bar.layout.sizing.height = axis(true, 0);
-        bar.backgroundColor = to_clay(transparent(o.fill) ? t.primary : o.fill);
-        bar.cornerRadius = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
+        bar.backgroundColor      = to_clay(transparent(o.fill) ? t.primary : o.fill);
+        bar.cornerRadius         = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
         Clay__OpenElement();
         Clay__ConfigureOpenElement(bar);
         Clay__CloseElement();

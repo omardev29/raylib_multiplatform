@@ -3,6 +3,8 @@
 #   just            list these
 #   just run        play the game (builds first if it has to)
 #   just test       everything that can be checked without a phone or a runner
+#   just fmt        format every file we own
+#   just lint       clang-tidy over our own sources
 #
 # Deliberately short. Everything here is something you do several times a day;
 # anything you do twice a year is a command you should look up rather than
@@ -54,9 +56,53 @@ clean:
 
 # --- checks -----------------------------------------------------------------
 
+# The set of files that are OURS. thirdparty/ is frozen and generated/ is
+# rewritten on every configure, so neither is formatted or linted — see
+# .clang-format-ignore and the filters in .clang-tidy.
+_our_sources := "find include src tests examples -name '*.h' -o -name '*.cpp' -o -name '*.c' | grep -v generated | sort"
+
+# Format every file we own. `just fmt check` only reports, which is what CI runs.
+fmt what="write":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=$({{ _our_sources }})
+    case "{{ what }}" in
+      write) clang-format -i $files; echo "formatted $(echo "$files" | wc -l) files" ;;
+      check)
+        bad=0
+        for f in $files; do
+            clang-format "$f" | diff -q "$f" - >/dev/null || { echo "  unformatted  $f"; bad=1; }
+        done
+        [ "$bad" -eq 0 ] && echo "  ok    every file is formatted" || {
+            echo; echo "FALLA: run \`just fmt\` and commit the result."; exit 1; }
+        ;;
+      *) echo "unknown: {{ what }} (write | check)"; exit 1 ;;
+    esac
+
+# Only the .cpp files are passed to clang-tidy: it reaches the headers through
+# them, and HeaderFilterRegex in .clang-tidy decides which of those it reports
+# on. The two *_impl.cpp are excluded because they exist to compile a vendored
+# header once, and its warnings are not ours to fix.
+#
+# (The blank line below is load-bearing: `just --list` shows the LAST comment
+# line above a recipe as its summary.)
+
+# Run clang-tidy over our own sources. `just lint fix` applies what it is sure of.
+lint what="check":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cmake --preset debug >/dev/null   # clang-tidy needs build/compile_commands.json
+    files=$(find src tests -name '*.cpp' | grep -v _impl | sort)
+    case "{{ what }}" in
+      check) clang-tidy -p build --quiet --warnings-as-errors='*' $files && echo "  ok    no warnings" ;;
+      fix)   clang-tidy -p build --quiet --fix --fix-errors $files; just fmt ;;
+      *) echo "unknown: {{ what }} (check | fix)"; exit 1 ;;
+    esac
+
 # Check what matters locally: config, layout, smoke. Or name one, or "examples".
 test what="all":
     #!/usr/bin/env bash
+    # fmt       every file we own is clang-format clean
     # config    the .toml is valid and the pinned versions still agree
     # layout    the UI layout at four resolutions, with no window and no GPU
     # smoke     boot the game headless and prove it drew actual pixels
@@ -111,7 +157,7 @@ test what="all":
         bash tools/versions_check.sh
     }
     case "{{ what }}" in
-        all)      run_config; run_layout; run_smoke ;;
+        all)      just fmt check; run_config; run_layout; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;

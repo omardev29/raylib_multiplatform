@@ -57,26 +57,23 @@
 // found. Nothing here tracks that, so this file simply asserts it; if you load
 // files and want the claim checked, include <smoke_test.h> (it is
 // C-compatible) and use the template's asset layer.
-#define RAY_TEST_REPORT_BOOT() \
-    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 testFrames=0")
+#define RAY_TEST_REPORT_BOOT()                                                \
+    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 " \
+                       "testFrames=0")
 
-int main(void)
-{
+int main(void) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(800, 450, "raylib, plain C");
 
     Texture2D rabbit = LoadTexture(RESOURCES_PATH "rabbit.png");
     RAY_TEST_REPORT_BOOT();
 
-    while (!WindowShouldClose())
-    {
+    while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        DrawTexture(rabbit,
-                    GetScreenWidth()/2 - rabbit.width/2,
-                    GetScreenHeight()/2 - rabbit.height/2,
-                    WHITE);
+        DrawTexture(rabbit, GetScreenWidth() / 2 - rabbit.width / 2,
+                    GetScreenHeight() / 2 - rabbit.height / 2, WHITE);
         DrawText("Raylib is Multiplatform!", 190, 200, 20, LIGHTGRAY);
 
         EndDrawing();

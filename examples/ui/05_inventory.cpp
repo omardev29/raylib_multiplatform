@@ -26,17 +26,17 @@ struct Item {
 };
 
 static Texture2D icon;
-static Item items[] = {
-    {"Sword", 1, true},  {"Shield", 1, false}, {"Potion", 12, false},
-    {"Rope", 3, false},  {"Torch", 8, false},  {"Map", 1, false},
-    {"Key", 2, false},   {"Bread", 5, false},  {"Coin", 240, false},
-    {"Gem", 4, false},   {"Bow", 1, false},    {"Arrow", 60, false},
+static Item      items[] = {
+    { "Sword", 1, true }, { "Shield", 1, false }, { "Potion", 12, false },
+    { "Rope", 3, false }, { "Torch", 8, false },  { "Map", 1, false },
+    { "Key", 2, false },  { "Bread", 5, false },  { "Coin", 240, false },
+    { "Gem", 4, false },  { "Bow", 1, false },    { "Arrow", 60, false },
 };
 static constexpr int kItemCount = sizeof(items) / sizeof(items[0]);
-static int selected = 0;
+static int           selected   = 0;
 
 static void _ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);   // the whole point: resize it
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
     icon = rmp::assets::load_texture("rabbit.png");
 }
@@ -46,27 +46,29 @@ static void _ready() {
 // them and start a new row at the right moment.
 // -----------------------------------------------------------------------
 static void inventory_grid() {
-    rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [&]{
+    rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [&] {
         rmp::ui::text("Inventory");
 
         // columns = 0: fit as many 88-unit cells as the width allows. Give the
         // grid an id and it can measure itself; without one it falls back to
         // four, which is a reasonable guess and never the right answer.
-        rmp::ui::grid({ .columns = 0, .min_cell = 88, .id = "inv" }, [&]{
+        rmp::ui::grid({ .columns = 0, .min_cell = 88, .id = "inv" }, [&] {
             for (int i = 0; i < kItemCount; i++) {
-                rmp::ui::cell([&]{
-                    rmp::ui::panel({ .box = { .padding = 6 },
-                                     .background = (i == selected)
-                                         ? rmp::ui::current_theme().surface_hover
-                                         : rmp::ui::current_theme().surface }, [&]{
-                        rmp::ui::image(icon, { .width = 40, .height = 40 });
-                        rmp::ui::text(items[i].name, { .size = 13 });
-                        if (items[i].count > 1) {
-                            rmp::ui::text("x" + std::to_string(items[i].count),
-                                          { .color = rmp::ui::color_role::muted,
-                                            .size  = 12 });
-                        }
-                    });
+                rmp::ui::cell([&] {
+                    rmp::ui::panel(
+                        { .box        = { .padding = 6 },
+                          .background = (i == selected)
+                                            ? rmp::ui::current_theme().surface_hover
+                                            : rmp::ui::current_theme().surface },
+                        [&] {
+                            rmp::ui::image(icon, { .width = 40, .height = 40 });
+                            rmp::ui::text(items[i].name, { .size = 13 });
+                            if (items[i].count > 1) {
+                                rmp::ui::text(
+                                    "x" + std::to_string(items[i].count),
+                                    { .color = rmp::ui::color_role::muted, .size = 12 });
+                            }
+                        });
                 });
             }
         });
@@ -78,10 +80,10 @@ static void inventory_grid() {
 // move it, and neither needs a line of code here.
 // -----------------------------------------------------------------------
 static void item_list() {
-    rmp::ui::panel({ .box = { .width = 240, .grow_y = true } }, [&]{
+    rmp::ui::panel({ .box = { .width = 240, .grow_y = true } }, [&] {
         rmp::ui::text("All items");
 
-        rmp::ui::scroll({ .gap = 4, .id = "list" }, [&]{
+        rmp::ui::scroll({ .gap = 4, .id = "list" }, [&] {
             for (int i = 0; i < kItemCount; i++) {
                 // Two buttons could share a label across a long list, so the
                 // ids are made explicit. Identical labels in one frame are told
@@ -109,7 +111,7 @@ static void _process(float delta) {
     ClearBackground(rmp::ui::current_theme().background);
 
     rmp::ui::begin({ .placement = rmp::ui::align::center });
-    rmp::ui::row({ .gap = 12, .grow_x = true, .grow_y = true }, [&]{
+    rmp::ui::row({ .gap = 12, .grow_x = true, .grow_y = true }, [&] {
         inventory_grid();
         item_list();
     });

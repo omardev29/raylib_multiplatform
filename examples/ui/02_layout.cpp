@@ -23,11 +23,11 @@
 #include <string>
 
 static Texture2D portrait;
-static float health = 0.72f;
-static float mana   = 0.35f;
+static float     health = 0.72f;
+static float     mana   = 0.35f;
 
 static void _ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);   // resize it and watch everything follow
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch everything follow
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
     portrait = rmp::assets::load_texture("rabbit.png");
 }
@@ -38,24 +38,20 @@ static void _ready() {
 static void character_card() {
     // panel = a column with a background and padding. It is what you put a
     // dialog, a card or a tooltip inside.
-    rmp::ui::panel([&]{
-
+    rmp::ui::panel([&] {
         // row lays out left to right.
-        rmp::ui::row({ .gap = 16 }, [&]{
-
+        rmp::ui::row({ .gap = 16 }, [&] {
             rmp::ui::image(portrait, { .width = 72, .height = 72 });
 
             // column lays out top to bottom. items decides where children sit
             // across the other axis — here, hard against the left instead of
             // centred, which is what makes a card look like a card.
-            rmp::ui::column({ .gap = 6, .items = rmp::ui::align::center_left }, [&]{
+            rmp::ui::column({ .gap = 6, .items = rmp::ui::align::center_left }, [&] {
                 rmp::ui::text("Rabbit", { .color = rmp::ui::color_role::primary });
                 rmp::ui::progress(health, { .width = 180 });
-                rmp::ui::progress(mana,   { .width  = 180,
-                                            .height = 8,
-                                            .fill   = SKYBLUE });
-                rmp::ui::text("Level 7", { .color = rmp::ui::color_role::muted,
-                                           .size  = 14 });
+                rmp::ui::progress(mana, { .width = 180, .height = 8, .fill = SKYBLUE });
+                rmp::ui::text("Level 7",
+                              { .color = rmp::ui::color_role::muted, .size = 14 });
             });
         });
     });
@@ -68,9 +64,9 @@ static void toolbar() {
     // grow_x makes the row take the full width it is offered; without it the
     // row would shrink to fit its contents and the spacer would have nothing
     // to eat.
-    rmp::ui::row({ .grow_x = true }, [&]{
+    rmp::ui::row({ .grow_x = true }, [&] {
         rmp::ui::text("Inventory");
-        rmp::ui::spacer();                 // <- takes everything left over
+        rmp::ui::spacer(); // <- takes everything left over
         rmp::ui::text("24 / 40", { .color = rmp::ui::color_role::muted });
     });
 
@@ -83,16 +79,17 @@ static void toolbar() {
 // stack and layer: things on top of each other
 // -----------------------------------------------------------------------
 static void banner() {
-    rmp::ui::panel({ .box = { .width = 260, .height = 90 } }, [&]{
+    rmp::ui::panel({ .box = { .width = 260, .height = 90 } }, [&] {
         // Every child of a stack has to be a layer(). That is not ceremony:
         // it is what says "these are meant to overlap" instead of "these are
         // ordinary children in a column". Later layers draw on top.
-        rmp::ui::stack([&]{
-            rmp::ui::layer([&]{
-                rmp::ui::image(portrait, { .grow = true,
-                                           .tint = CLITERAL(Color){255, 255, 255, 60} });
+        rmp::ui::stack([&] {
+            rmp::ui::layer([&] {
+                rmp::ui::image(
+                    portrait,
+                    { .grow = true, .tint = CLITERAL(Color){ 255, 255, 255, 60 } });
             });
-            rmp::ui::layer([&]{
+            rmp::ui::layer([&] {
                 rmp::ui::text("PAUSED", { .color = rmp::ui::color_role::danger });
             });
         });
@@ -103,19 +100,23 @@ static void banner() {
 // center: fill what you were given, put the contents in the middle
 // -----------------------------------------------------------------------
 static void empty_slot() {
-    rmp::ui::panel({ .box = { .width = 260, .height = 70 },
-                     .border = rmp::ui::current_theme().border }, [&]{
-        rmp::ui::center([&]{
-            rmp::ui::text("nothing here", { .color = rmp::ui::color_role::muted });
-        });
-    });
+    rmp::ui::panel({ .box    = { .width = 260, .height = 70 },
+                     .border = rmp::ui::current_theme().border },
+                   [&] {
+                       rmp::ui::center([&] {
+                           rmp::ui::text("nothing here",
+                                         { .color = rmp::ui::color_role::muted });
+                       });
+                   });
 }
 
 static void _process(float delta) {
     // Bars that move, so the layout is doing something rather than sitting
     // still — and so it is obvious the numbers are read fresh every frame.
-    health -= delta * 0.05f; if (health < 0) health = 1.0f;
-    mana   += delta * 0.08f; if (mana   > 1) mana   = 0.0f;
+    health -= delta * 0.05f;
+    if (health < 0) health = 1.0f;
+    mana += delta * 0.08f;
+    if (mana > 1) mana = 0.0f;
 
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);

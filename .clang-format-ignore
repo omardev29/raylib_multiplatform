@@ -1,0 +1,7 @@
+# Frozen third-party snapshots. The committed file IS the pin, and every one of
+# them carries a documented patch of ours — reformatting would bury the patch in
+# thousands of lines of noise and make the next update impossible to review.
+thirdparty/*
+# Generated from raylib_multiplatform.toml on every configure. Formatting it
+# would be undone by the next `cmake --preset debug`.
+include/raylib_multiplatform/generated/*

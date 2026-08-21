@@ -37,6 +37,11 @@
 #include <raylib_multiplatform/utils.h>
 #include <smoke_test.h>
 
+// Hand-laid, and exempt from clang-format on purpose: these are 40-line macros
+// whose bodies are block comments, and no formatter aligns that well. The
+// continuation backslashes are a table, so they are kept as one.
+// clang-format off
+
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
 // extern "C" so the symbols match the C declarations in rcore_ios.c.
 //
@@ -153,3 +158,5 @@
     return 0;                                                                  \
   }
 #endif
+
+// clang-format on

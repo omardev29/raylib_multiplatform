@@ -25,22 +25,25 @@
 
 #include <string>
 
-static int  selected = 0;
-static bool showGrid = true;
+static int  selected            = 0;
+static bool showGrid            = true;
 
-static const char *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
-static constexpr int kSections = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
+static const char   *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
+static constexpr int kSections  = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
 
 static void _ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);   // the whole point: resize it
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
 }
 
 static const char *breakpoint_name() {
     switch (rmp::ui::current_breakpoint()) {
-        case rmp::ui::breakpoint::compact:  return "compact";
-        case rmp::ui::breakpoint::medium:   return "medium";
-        case rmp::ui::breakpoint::expanded: return "expanded";
+        case rmp::ui::breakpoint::compact:
+            return "compact";
+        case rmp::ui::breakpoint::medium:
+            return "medium";
+        case rmp::ui::breakpoint::expanded:
+            return "expanded";
     }
     return "?";
 }
@@ -56,13 +59,12 @@ static void sidebar() {
     // instead of down. Same buttons, same state, same handlers.
     const bool narrow = rmp::ui::compact();
 
-    auto items = [] {
+    auto items        = [] {
         for (int i = 0; i < kSections; i++) {
             const bool active = (i == selected);
-            if (rmp::ui::button(SECTIONS[i],
-                                { .style = active ? rmp::ui::variant::primary
-                                                  : rmp::ui::variant::ghost,
-                                  .size  = rmp::ui::size::small })) {
+            if (rmp::ui::button(SECTIONS[i], { .style = active ? rmp::ui::variant::primary
+                                                               : rmp::ui::variant::ghost,
+                                               .size  = rmp::ui::size::small })) {
                 selected = i;
             }
         }
@@ -121,22 +123,29 @@ static void _process(float) {
     // A status line, so the breakpoint is visible while you drag the window.
     // Nothing in a real game would draw this.
     rmp::ui::row({ .grow_x = true }, [] {
-        rmp::ui::text(std::string("breakpoint: ") + breakpoint_name(),
-                      { .color = rmp::ui::color_role::primary,
-                        .size  = rmp::ui::size::small });
+        rmp::ui::text(
+            std::string("breakpoint: ") + breakpoint_name(),
+            { .color = rmp::ui::color_role::primary, .size = rmp::ui::size::small });
         rmp::ui::spacer();
-        rmp::ui::text(std::to_string(GetScreenWidth()) + "x" + std::to_string(GetScreenHeight()) +
-                          "   scale " + std::to_string(rmp::ui::scale()).substr(0, 4),
-                      { .color = rmp::ui::color_role::muted, .size = rmp::ui::size::small });
+        rmp::ui::text(
+            std::to_string(GetScreenWidth()) + "x" + std::to_string(GetScreenHeight()) +
+                "   scale " + std::to_string(rmp::ui::scale()).substr(0, 4),
+            { .color = rmp::ui::color_role::muted, .size = rmp::ui::size::small });
     });
 
     // THE WHOLE EXAMPLE IS THESE SEVEN LINES. Two arrangements of the same two
     // functions, and the only thing that picks between them is the shape of the
     // window — not its size, which scale() has already handled.
     if (rmp::ui::compact()) {
-        rmp::ui::column({ .grow_x = true, .grow_y = true }, [] { sidebar(); content(); });
+        rmp::ui::column({ .grow_x = true, .grow_y = true }, [] {
+            sidebar();
+            content();
+        });
     } else {
-        rmp::ui::row({ .grow_x = true, .grow_y = true }, [] { sidebar(); content(); });
+        rmp::ui::row({ .grow_x = true, .grow_y = true }, [] {
+            sidebar();
+            content();
+        });
     }
 
     rmp::ui::end();

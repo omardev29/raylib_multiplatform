@@ -40,46 +40,49 @@ namespace detail {
 
 namespace {
 
-bool  g_started    = false;
-bool  g_frameOpen  = false;
-void *g_arena      = nullptr;
+bool  g_started          = false;
+bool  g_frameOpen        = false;
+void *g_arena            = nullptr;
 
-float g_scale      = 1.0f;
-float g_scaleOverride = APP_UI_SCALE;   // 0 = automatic
+float g_scale            = 1.0f;
+float g_scaleOverride    = APP_UI_SCALE; // 0 = automatic
 
 // The font. When [ui] font is empty we use raylib's built-in one, which needs
 // no asset, no licence and no loading — and is a bitmap font, which is why its
 // scale is rounded to a whole number below.
-Font  g_font       = {0};
-bool  g_fontLoaded = false;    // true only when we loaded a file and must unload it
-float g_fontScale  = 1.0f;
-int   g_bakedSize  = 0;
+Font  g_font             = { 0 };
+bool  g_fontLoaded       = false; // true only when we loaded a file and must unload it
+float g_fontScale        = 1.0f;
+int   g_bakedSize        = 0;
 // A configured font that cannot be loaded is a one-time problem, not a
 // per-draw one. Without this we would go back to the filesystem and log the
 // same warning for every piece of text, every frame.
-bool  g_fontFailed = false;
+bool g_fontFailed        = false;
 
 // Text arena. Clay keeps pointers into whatever we hand it and reads them at
 // Clay_EndLayout, so the memory has to survive the frame. 8 KB is a lot of
 // menu; if a UI ever needs more, the truncation below says so out loud.
 constexpr int kArenaSize = 8 * 1024;
-char g_textArena[kArenaSize];
-int  g_arenaUsed = 0;
-bool g_arenaWarned = false;
+char          g_textArena[kArenaSize];
+int           g_arenaUsed   = 0;
+bool          g_arenaWarned = false;
 
 // Occurrence counters, so two buttons with the same label are two elements.
-constexpr int kMaxLabels = 128;
-struct LabelCount { uint32_t hash; uint16_t count; };
-LabelCount g_labels[kMaxLabels];
-int        g_labelCount = 0;
-int16_t    g_layerZ = 0;
+constexpr int kMaxLabels    = 128;
+struct label_count {
+    uint32_t hash;
+    uint16_t count;
+};
+label_count g_labels[kMaxLabels];
+int         g_labelCount = 0;
+int16_t     g_layerZ     = 0;
 
-measure_fn g_measure = measure_with_raylib;
-pointer_fn g_pointer = pointer_from_raylib;
+measure_fn g_measure     = measure_with_raylib;
+pointer_fn g_pointer     = pointer_from_raylib;
 
 // Test viewport. 0 means "ask raylib", which is every real run.
-float g_testWidth  = 0.0f;
-float g_testHeight = 0.0f;
+float g_testWidth        = 0.0f;
+float g_testHeight       = 0.0f;
 
 void on_clay_error(Clay_ErrorData e) {
     TraceLog(LOG_WARNING, "UI: clay: %.*s", e.errorText.length, e.errorText.chars);
@@ -110,7 +113,7 @@ bool ensure_started() {
     Clay_SetMaxElementCount(APP_UI_MAX_ELEMENTS);
 
     uint32_t size = Clay_MinMemorySize();
-    g_arena = std::malloc(size);
+    g_arena       = std::malloc(size);
     if (g_arena == nullptr) {
         TraceLog(LOG_ERROR, "UI: could not allocate %u bytes for the layout arena", size);
         return false;
@@ -121,7 +124,8 @@ bool ensure_started() {
     Clay_SetMeasureTextFunction(g_measure, nullptr);
 
     g_started = true;
-    TraceLog(LOG_INFO, "UI: ready (%u bytes, up to %d elements)", size, APP_UI_MAX_ELEMENTS);
+    TraceLog(LOG_INFO, "UI: ready (%u bytes, up to %d elements)", size,
+             APP_UI_MAX_ELEMENTS);
     return true;
 }
 
@@ -132,7 +136,7 @@ void shutdown_context() {
         g_fontLoaded = false;
     }
     std::free(g_arena);
-    g_arena = nullptr;
+    g_arena   = nullptr;
     g_started = false;
 }
 
@@ -150,10 +154,10 @@ void update_scale() {
         // Against the design resolution declared in [window]. min(), not max():
         // a UI that does not fit is worse than one with room to spare, so the
         // tighter axis wins and everything stays on screen.
-        Clay_Dimensions v = viewport();
-        float sx = v.width  / static_cast<float>(APP_WINDOW_WIDTH);
-        float sy = v.height / static_cast<float>(APP_WINDOW_HEIGHT);
-        float s  = sx < sy ? sx : sy;
+        Clay_Dimensions v  = viewport();
+        float           sx = v.width / static_cast<float>(APP_WINDOW_WIDTH);
+        float           sy = v.height / static_cast<float>(APP_WINDOW_HEIGHT);
+        float           s  = sx < sy ? sx : sy;
         if (s < 0.5f) s = 0.5f;
         if (s > 4.0f) s = 4.0f;
         g_scale = s;
@@ -165,13 +169,13 @@ void update_scale() {
     const bool builtin = (APP_UI_FONT[0] == '\0');
     if (builtin) {
         float rounded = std::floor(g_scale + 0.5f);
-        g_fontScale = rounded < 1.0f ? 1.0f : rounded;
+        g_fontScale   = rounded < 1.0f ? 1.0f : rounded;
     } else {
         g_fontScale = g_scale;
     }
 }
 
-float ui_scale()   { return g_scale; }
+float ui_scale() { return g_scale; }
 float font_scale() { return g_fontScale; }
 
 void set_scale_override(float s) {
@@ -183,7 +187,8 @@ Font ui_font() {
     const bool builtin = (APP_UI_FONT[0] == '\0');
     if (builtin || g_fontFailed) return GetFontDefault();
 
-    int wanted = static_cast<int>(std::floor(current_theme().font_size * g_fontScale + 0.5f));
+    int wanted =
+        static_cast<int>(std::floor(current_theme().font_size * g_fontScale + 0.5f));
     if (wanted < 1) wanted = 1;
 
     // Baking at 20 and drawing at 48 is how UI text ends up blurry. Re-bake
@@ -193,12 +198,13 @@ Font ui_font() {
 
     g_font = rmp::assets::load_font(APP_UI_FONT, wanted);
     if (g_font.glyphCount <= 0) {
-        TraceLog(LOG_WARNING, "UI: [ui] font '%s' could not be loaded; using the built-in font",
+        TraceLog(LOG_WARNING,
+                 "UI: [ui] font '%s' could not be loaded; using the built-in font",
                  APP_UI_FONT);
         g_fontLoaded = false;
         g_bakedSize  = 0;
-        g_fontFailed = true;       // say it once, then stop asking
-        return GetFontDefault();   // a missing font must not switch the UI off
+        g_fontFailed = true;     // say it once, then stop asking
+        return GetFontDefault(); // a missing font must not switch the UI off
     }
     g_fontLoaded = true;
     g_bakedSize  = wanted;
@@ -210,7 +216,7 @@ Font ui_font() {
 // ---------------------------------------------------------------------------
 
 void reset_frame_arena() {
-    g_arenaUsed = 0;
+    g_arenaUsed   = 0;
     g_arenaWarned = false;
 }
 
@@ -219,7 +225,7 @@ void *frame_alloc(size_t bytes) {
     // cursor up to 8 is enough and costs a few bytes a frame.
     int aligned = (g_arenaUsed + 7) & ~7;
     if (aligned + static_cast<int>(bytes) > kArenaSize) return nullptr;
-    void *p = g_textArena + aligned;
+    void *p     = g_textArena + aligned;
     g_arenaUsed = aligned + static_cast<int>(bytes);
     return p;
 }
@@ -229,7 +235,8 @@ Clay_String intern(std::string_view s) {
     if (len > kArenaSize - g_arenaUsed) {
         len = kArenaSize - g_arenaUsed;
         if (!g_arenaWarned) {
-            TraceLog(LOG_WARNING, "UI: text arena full (%d bytes); labels are being truncated",
+            TraceLog(LOG_WARNING,
+                     "UI: text arena full (%d bytes); labels are being truncated",
                      kArenaSize);
             g_arenaWarned = true;
         }
@@ -250,7 +257,7 @@ Clay_String intern(std::string_view s) {
 
 void reset_id_counters() {
     g_labelCount = 0;
-    g_layerZ = 0;
+    g_layerZ     = 0;
 }
 
 int16_t next_layer_z() { return ++g_layerZ; }
@@ -263,19 +270,22 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
         // using both would mean an element created one way could never be found
         // the other way. That is precisely how the headless test failed to see
         // a panel that was on screen.
-        return Clay_GetElementIdWithIndex(intern(std::string_view{explicit_id}), 0);
+        return Clay_GetElementIdWithIndex(intern(std::string_view{ explicit_id }), 0);
     }
 
-    uint32_t h = fnv1a(label);
+    uint32_t h          = fnv1a(label);
     uint16_t occurrence = 0;
-    int slot = -1;
+    int      slot       = -1;
     for (int i = 0; i < g_labelCount; i++) {
-        if (g_labels[i].hash == h) { slot = i; break; }
+        if (g_labels[i].hash == h) {
+            slot = i;
+            break;
+        }
     }
     if (slot >= 0) {
         occurrence = ++g_labels[slot].count;
     } else if (g_labelCount < kMaxLabels) {
-        g_labels[g_labelCount++] = LabelCount{ h, 0 };
+        g_labels[g_labelCount++] = label_count{ h, 0 };
     }
     // Same label twice in one frame => different index => different element,
     // so hovering one does not light up the other.
@@ -286,10 +296,11 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
 // Providers (swapped out by the headless layout tests)
 // ---------------------------------------------------------------------------
 
-Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config, void *) {
-    Font f = ui_font();
-    float size = static_cast<float>(config->fontSize);
-    Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
+Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
+                                    void * /*unused*/) {
+    Font    f    = ui_font();
+    auto    size = static_cast<float>(config->fontSize);
+    Vector2 m    = MeasureTextEx(f, cstr(text), size, size / 10.0f);
     return Clay_Dimensions{ m.x, m.y };
 }
 
@@ -324,8 +335,9 @@ Clay_Dimensions viewport() {
 bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *out) {
     // Hashing only: no interning, so this does not disturb the frame arena or
     // the occurrence counters.
-    Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
-    Clay_ElementData data = Clay_GetElementData(Clay_GetElementIdWithIndex(s, occurrence));
+    Clay_String      s{ false, static_cast<int32_t>(label.size()), label.data() };
+    Clay_ElementData data =
+        Clay_GetElementData(Clay_GetElementIdWithIndex(s, occurrence));
     if (!data.found) return false;
     if (out != nullptr) *out = data.boundingBox;
     return true;
@@ -335,9 +347,9 @@ void read_pointer(Clay_Vector2 *position, bool *down) { g_pointer(position, down
 
 namespace {
 Clay_Vector2 g_pointerPos{};
-bool g_pointerDown    = false;
-bool g_pointerWasDown = false;
-bool g_pointerPresent = false;
+bool         g_pointerDown    = false;
+bool         g_pointerWasDown = false;
+bool         g_pointerPresent = false;
 } // namespace
 
 void update_pointer() {
@@ -349,11 +361,11 @@ void update_pointer() {
     g_pointerPresent = g_pointerDown || !touch_only();
 }
 
-Clay_Vector2 pointer_position()  { return g_pointerPos; }
-bool pointer_down()              { return g_pointerDown; }
-bool pointer_present()           { return g_pointerPresent; }
-bool pointer_just_pressed()      { return g_pointerDown && !g_pointerWasDown; }
-bool pointer_released()          { return !g_pointerDown && g_pointerWasDown; }
+Clay_Vector2 pointer_position() { return g_pointerPos; }
+bool         pointer_down() { return g_pointerDown; }
+bool         pointer_present() { return g_pointerPresent; }
+bool         pointer_just_pressed() { return g_pointerDown && !g_pointerWasDown; }
+bool         pointer_released() { return !g_pointerDown && g_pointerWasDown; }
 
 bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out) {
     Clay_ElementData d = Clay_GetElementData(id);
@@ -367,7 +379,7 @@ Clay_ElementId sub_id(Clay_ElementId base, uint32_t which) {
     // Knuth's multiplicative constant: cheap, and it scatters the derived ids
     // far enough from the originals that a collision would be bad luck rather
     // than a pattern.
-    out.id = base.id ^ ((which + 1) * 2654435761u);
+    out.id             = base.id ^ ((which + 1) * 2654435761u);
     return out;
 }
 
@@ -402,9 +414,7 @@ float safe_area_inset() {
 
 float scale() { return detail::ui_scale(); }
 
-void set_scale(float s) {
-    detail::set_scale_override(s);
-}
+void set_scale(float s) { detail::set_scale_override(s); }
 
 // ---------------------------------------------------------------------------
 // Breakpoints
@@ -419,8 +429,8 @@ breakpoint current_breakpoint() {
     Clay_Dimensions v = detail::viewport();
     if (v.height <= 0.0f) return breakpoint::medium;
     const float aspect = v.width / v.height;
-    if (aspect < 1.0f) return breakpoint::compact;    // taller than wide
-    if (aspect < 1.6f) return breakpoint::medium;     // up to about 16:10
+    if (aspect < 1.0f) return breakpoint::compact; // taller than wide
+    if (aspect < 1.6f) return breakpoint::medium;  // up to about 16:10
     return breakpoint::expanded;
 }
 

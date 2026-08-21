@@ -19,7 +19,7 @@
 
 // Called once at startup: set config flags, create the window, load assets.
 static void _ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);      // optional, before InitWindow
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // optional, before InitWindow
     InitWindow(800, 450, "my game");
 
     // Load your assets here (see assets_rres_loading.cpp).

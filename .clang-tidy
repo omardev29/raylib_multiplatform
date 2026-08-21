@@ -1,0 +1,155 @@
+# .clang-tidy — the checks that have caught something, and none of the ones that
+# only produce work.
+#
+#   just lint            check src/ and include/
+#   just lint fix        and apply the fixes it is sure about
+#
+# The selection rule is the same one the framework uses for features: a check
+# earns its place by catching a real bug, not by being enabled by default
+# somewhere. Every family below is here whole; every exclusion under it is a
+# check that fights a decision this repository has already made, and each one
+# says which.
+#
+# It needs build/compile_commands.json, so configure once first:
+#   cmake --preset debug
+
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  portability-*,
+  misc-*,
+  modernize-*,
+  readability-*,
+
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+
+  -misc-const-correctness,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
+  -misc-use-internal-linkage,
+
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -modernize-macro-to-enum,
+  -modernize-use-designated-initializers,
+
+  -portability-avoid-pragma-once,
+  -performance-enum-size,
+  -readability-redundant-member-init,
+  -readability-use-std-min-max,
+  -readability-use-concise-preprocessor-directives,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-function-cognitive-complexity,
+  -readability-uppercase-literal-suffix,
+  -readability-avoid-nested-conditional-operator,
+  -readability-math-missing-parentheses,
+
+# Why each exclusion above:
+#
+#   bugprone-easily-swappable-parameters   every (float x, float y) in a 2D
+#                                          framework, which is all of them.
+#   misc-const-correctness                 wants const on 80 locals. It has
+#                                          never found a bug here and the diff
+#                                          would be larger than most features.
+#   bugprone-narrowing-conversions         float/int mixing is what raylib's own
+#                                          API does; the analyzer catches the
+#                                          cases that actually lose data.
+#   misc-non-private-member-variables      the options structs and rmp::object
+#                                          are public data BY DESIGN. Making
+#                                          them private is the opposite of the
+#                                          rule that outranks the others.
+#   misc-no-recursion                      the layout walk is a tree walk.
+#   misc-include-cleaner                   wants an #include for every raylib
+#                                          symbol; raylib is one header.
+#   misc-use-anonymous-namespace           `static` at file scope is the
+#   misc-use-internal-linkage              deliberate spelling: main.cpp is the
+#                                          file a newcomer reads first and it
+#                                          has a plain-C twin in examples/, so
+#                                          the two stay the same shape.
+#   modernize-use-trailing-return-type     `auto f() -> int` is not the style.
+#   modernize-avoid-c-arrays               raylib takes C arrays.
+#   modernize-use-nodiscard                would decorate the whole API for the
+#                                          two call sites where it matters.
+#   modernize-macro-to-enum                the generated APP_* values are macros
+#                                          on purpose: the C entry point uses
+#                                          them too.
+#   modernize-use-designated-initializers  suggests them inside our own
+#                                          implementation, where the field order
+#                                          is Clay's, not ours.
+#   portability-avoid-pragma-once          #pragma once is the repository's
+#                                          decision; every one of the fourteen
+#                                          compilers supports it.
+#   performance-enum-size                  pinning an underlying type on a
+#                                          public enum is ABI churn for bytes
+#                                          nobody is short of.
+#   readability-redundant-member-init      `detail::sizing size{};` is redundant
+#                                          and stays: in an options struct every
+#                                          field shows its default, and one
+#                                          field that does not is worse.
+#   readability-use-std-min-max            the explicit `if (dt > 0.1f)` clamps
+#                                          are written that way with a comment
+#                                          saying why the bound is what it is.
+#   readability-use-concise-preprocessor-directives
+#                                          `#if defined(A) || defined(B)` and
+#                                          `#if defined(A)` are written the same
+#                                          way on purpose.
+#   readability-identifier-length          `dt`, `t`, `o` are the vocabulary.
+#   readability-magic-numbers              it is a game; 44 is a touch target.
+#   readability-braces-around-statements   single-line guards are the style, and
+#                                          .clang-format is set up to keep them.
+#   readability-implicit-bool-conversion   raylib returns int for booleans.
+#   readability-function-cognitive-complexity  a render switch is one function
+#                                          on purpose.
+#   readability-uppercase-literal-suffix   `1.0f`, not `1.0F`.
+#
+# Only our own code. thirdparty/ is frozen: a warning there is not actionable,
+# and the vendored headers are the pin. generated/ is rewritten on every
+# configure.
+HeaderFilterRegex: '.*/(include/raylib_multiplatform|src/raylib_multiplatform|tests)/.*'
+#
+# smoke_test.h is excluded on top of that, and not because it is exempt from
+# review: it is compiled as C99 by examples/plain_c/main.c, so `(void)`
+# parameter lists, C-style casts and NULL are REQUIRED there, and every
+# modernize-* check has the opposite opinion.
+ExcludeHeaderFilterRegex: '.*/(thirdparty|generated|build)/.*|.*/smoke_test\.h'
+
+# Warnings are not errors locally — `just lint` prints them and you decide. CI
+# passes --warnings-as-errors so a push cannot add one silently.
+WarningsAsErrors: ''
+FormatStyle: file
+
+CheckOptions:
+  # The naming rule from the house style, checked instead of remembered. Only
+  # the categories where the repository is unambiguous: types, enums and
+  # namespaces are snake_case; internal constants are kFoo; macros SHOUT.
+  #
+  # Functions and variables are deliberately NOT listed. The public surface is
+  # snake_case, but the implementation uses camelBack locals and g_ globals, and
+  # a checker cannot tell the two apart from a name alone.
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassCase
+    value: lower_case
+  - key: readability-identifier-naming.StructCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.TypeAliasCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefCase
+    value: lower_case
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MacroDefinitionIgnoredRegexp
+    value: '^(SmokeTest_.*|CLITERAL|RMAPI)$'

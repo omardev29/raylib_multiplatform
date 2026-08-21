@@ -5,7 +5,7 @@
 #include <raylib.h>
 
 #ifndef ALICEBLUE
-#define ALICEBLUE CLITERAL(Color){0, 240, 248, 255}
+#define ALICEBLUE CLITERAL(Color){ 0, 240, 248, 255 }
 #endif
 
-#define GIORNOGOLD CLITERAL(Color){238, 207, 34, 255} // The Golden Experience
+#define GIORNOGOLD CLITERAL(Color){ 238, 207, 34, 255 } // The Golden Experience

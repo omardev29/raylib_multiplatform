@@ -24,30 +24,30 @@ namespace {
 // for the same reason. This frame's order is not known until end().
 constexpr int kMaxFocusables = 128;
 
-struct Entry {
-    uint32_t id = 0;
-    char     name[48] = {0};
+struct entry {
+    uint32_t id       = 0;
+    char     name[48] = { 0 };
 };
 
-Entry g_current[kMaxFocusables];
+entry g_current[kMaxFocusables];
 int   g_currentCount = 0;
-Entry g_previous[kMaxFocusables];
-int   g_previousCount = 0;
+entry g_previous[kMaxFocusables];
+int   g_previousCount           = 0;
 
-uint32_t g_focusedId = 0;
-char     g_focusedName[48] = {0};
+uint32_t g_focusedId            = 0;
+char     g_focusedName[48]      = { 0 };
 
-bool g_navigationEnabled = true;
-bool g_activatePending   = false;
-int  g_navX              = 0;
-bool g_pointerOverUI     = false;
-bool g_pointerCaptured   = false;
-bool g_keyboardCaptured  = false;
+bool g_navigationEnabled        = true;
+bool g_activatePending          = false;
+int  g_navX                     = 0;
+bool g_pointerOverUI            = false;
+bool g_pointerCaptured          = false;
+bool g_keyboardCaptured         = false;
 
 // Held-key repeat, so holding down on a d-pad walks a menu instead of moving
 // one item and stopping.
-float g_repeatTimer = 0.0f;
-int   g_lastNavY    = 0;
+float           g_repeatTimer   = 0.0f;
+int             g_lastNavY      = 0;
 constexpr float kRepeatDelay    = 0.45f;
 constexpr float kRepeatInterval = 0.09f;
 
@@ -79,7 +79,8 @@ int read_nav_y() {
     }
     // Shift+Tab is "backwards", which is the one convention people expect
     // without being told.
-    if (y > 0 && IsKeyDown(KEY_TAB) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
+    if (y > 0 && IsKeyDown(KEY_TAB) &&
+        (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
         y = -1;
     }
     return y > 0 ? 1 : (y < 0 ? -1 : 0);
@@ -100,21 +101,33 @@ int read_nav_x() {
 }
 
 bool read_activate() {
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE)) return true;
-    if (IsGamepadAvailable(0) && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) return true;
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE))
+        return true;
+    if (IsGamepadAvailable(0) &&
+        IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))
+        return true;
     return false;
 }
 
 void move_focus(int delta) {
-    if (g_previousCount == 0) return;
-    int at = index_of(g_focusedId);
-    int next;
-    if (at < 0) {
+    // A local, clamped count. g_previousCount cannot exceed the array today,
+    // but reading it into a bounded local is what makes every index below
+    // provably inside g_previous[] from this function alone, rather than from
+    // an invariant kept somewhere else in the file.
+    const int count = g_previousCount < kMaxFocusables ? g_previousCount : kMaxFocusables;
+    if (count <= 0) return;
+
+    const int at = index_of(g_focusedId);
+    int       next;
+    if (at < 0 || at >= count) {
         // Nothing focused, or what was focused has gone. Entering from the top
         // going down, from the bottom going up, is what a person expects.
-        next = delta > 0 ? 0 : g_previousCount - 1;
+        next = delta > 0 ? 0 : count - 1;
     } else {
-        next = (at + delta + g_previousCount) % g_previousCount;
+        // The positive-modulo idiom, rather than adding the count once: that
+        // only wraps for a delta of -1, and nothing here says delta is +/-1.
+        next = (at + delta) % count;
+        if (next < 0) next += count;
     }
     g_focusedId = g_previous[next].id;
     copy_name(g_focusedName, g_previous[next].name);
@@ -125,9 +138,9 @@ void move_focus(int delta) {
 namespace detail {
 
 void begin_focus_frame() {
-    g_currentCount = 0;
-    g_pointerOverUI = false;
-    g_navX = 0;
+    g_currentCount    = 0;
+    g_pointerOverUI   = false;
+    g_navX            = 0;
     g_activatePending = false;
 
     if (!g_navigationEnabled) return;
@@ -147,7 +160,7 @@ void begin_focus_frame() {
             }
         }
         g_lastNavY = y;
-        g_navX = read_nav_x();
+        g_navX     = read_nav_x();
     }
 
     g_activatePending = read_activate();
@@ -155,8 +168,14 @@ void begin_focus_frame() {
 
 void end_focus_frame() {
     // This frame's declaration order becomes what the next frame navigates.
-    for (int i = 0; i < g_currentCount; i++) g_previous[i] = g_current[i];
-    g_previousCount = g_currentCount;
+    // The count is clamped here rather than trusted. register_focusable() below
+    // already refuses to write past the array, so this can only ever be a no-op
+    // — but it is the one line that makes the bound a property of the copy
+    // instead of something three call sites each have to remember.
+    int n = g_currentCount;
+    if (n > kMaxFocusables) n = kMaxFocusables;
+    for (int i = 0; i < n; i++) g_previous[i] = g_current[i];
+    g_previousCount = n;
 
     // If whatever had the focus is no longer on screen, hand it to the first
     // thing that is, rather than leaving a controller with nowhere to go.
@@ -178,11 +197,11 @@ bool focusable(Clay_ElementId id, std::string_view name) {
 
 bool take_activate() {
     if (!g_activatePending) return false;
-    g_activatePending = false;   // exactly one widget gets it
+    g_activatePending = false; // exactly one widget gets it
     return true;
 }
 
-int  nav_axis_x() { return g_navX; }
+int nav_axis_x() { return g_navX; }
 
 void set_pointer_over_ui() { g_pointerOverUI = true; }
 void set_pointer_captured(bool c) { g_pointerCaptured = c; }
@@ -199,21 +218,25 @@ void focus_by_id(uint32_t id, std::string_view name) {
 // --- widget scratch --------------------------------------------------------
 
 widget_state *state_for(uint32_t id) {
-    constexpr int kSlots = 64;
+    constexpr int       kSlots = 64;
     static widget_state slots[kSlots];
-    static int next = 0;
-    for (int i = 0; i < kSlots; i++) {
-        if (slots[i].id == id) return &slots[i];
+    static int          next = 0;
+    for (auto &slot : slots) {
+        if (slot.id == id) return &slot;
     }
-    for (int i = 0; i < kSlots; i++) {
-        if (slots[i].id == 0) { slots[i] = widget_state{}; slots[i].id = id; return &slots[i]; }
+    for (auto &slot : slots) {
+        if (slot.id == 0) {
+            slot    = widget_state{};
+            slot.id = id;
+            return &slot;
+        }
     }
     // Full. Evicting round-robin loses one dropdown's open flag rather than
     // refusing to draw it, which is the right way round for a UI.
     widget_state *s = &slots[next];
-    next = (next + 1) % kSlots;
-    *s = widget_state{};
-    s->id = id;
+    next            = (next + 1) % kSlots;
+    *s              = widget_state{};
+    s->id           = id;
     return s;
 }
 
@@ -232,7 +255,7 @@ void focus(std::string_view id) {
     detail::focus_by_id(detail::element_id(id, nullptr).id, id);
 }
 
-std::string_view focused() { return std::string_view{g_focusedName}; }
+std::string_view focused() { return std::string_view{ g_focusedName }; }
 
 void set_navigation_enabled(bool on) { g_navigationEnabled = on; }
 bool navigation_enabled() { return g_navigationEnabled; }

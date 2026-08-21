@@ -89,6 +89,23 @@ WRAP=raymob/gradle/wrapper/gradle-wrapper.properties
 check "gradle"        gradle        "$(sed -nE 's#.*/gradle-([0-9.]+)-bin\.zip.*#\1#p' $WRAP | head -1)"
 check "gradle sha256" gradle_sha256 "$(sed -nE 's/^distributionSha256Sum=(.*)$/\1/p' $WRAP | head -1)"
 
+# The formatter and the linter, checked against the binary that is actually on
+# PATH rather than against another file. This is the one check here that
+# compares a pin to reality, and it is the one that matters most day to day: a
+# clang-format one minor version out reformats files that were already correct
+# and every diff becomes noise. Skipped where the tools are not installed —
+# most jobs have no reason to.
+echo "== clang tooling (if installed) =="
+for tool in clang-format clang-tidy; do
+    key="${tool//-/_}"
+    if command -v "$tool" >/dev/null 2>&1; then
+        check "$tool" "$key" \
+            "$("$tool" --version | sed -nE 's/.*version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)"
+    else
+        printf '  skip  %-26s not installed here\n' "$tool"
+    fi
+done
+
 echo "== Build image pin (workflows) =="
 # canary.yml is excluded from both checks below, deliberately and by name. Its
 # entire purpose is to run the pipeline against the FLOATING `:latest` image to

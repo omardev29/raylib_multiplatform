@@ -35,15 +35,16 @@ void check(bool ok, const char *what) {
 
 void check_near(float got, float want, float tolerance, const char *what) {
     bool ok = std::fabs(got - want) <= tolerance;
-    std::printf("%s  %s (got %.2f, want %.2f +/- %.2f)\n", ok ? "ok  " : "FAIL",
-                what, got, want, tolerance);
+    std::printf("%s  %s (got %.2f, want %.2f +/- %.2f)\n", ok ? "ok  " : "FAIL", what,
+                got, want, tolerance);
     if (!ok) g_failures++;
 }
 
 // A stub that needs no font: every glyph is half the font size wide, and a line
 // is one font size tall. Nothing here depends on real glyph metrics — the
 // questions being asked are about arrangement, not typography.
-Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *config, void *) {
+Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *config,
+                             void * /*unused*/) {
     return Clay_Dimensions{ static_cast<float>(text.length) * config->fontSize * 0.5f,
                             static_cast<float>(config->fontSize) };
 }
@@ -63,26 +64,28 @@ void draw_menu() {
     rmp::ui::end();
 }
 
-struct Box { float x, y, w, h; };
+struct box {
+    float x, y, w, h;
+};
 
-Box box_of(const char *label) {
+box box_of(const char *label) {
     Clay_BoundingBox b{};
     if (!rmp::ui::detail::bounds_of(label, 0, &b)) {
         std::printf("FAIL  '%s' produced no element at all\n", label);
         g_failures++;
-        return Box{0, 0, 0, 0};
+        return box{ 0, 0, 0, 0 };
     }
-    return Box{ b.x, b.y, b.width, b.height };
+    return box{ b.x, b.y, b.width, b.height };
 }
 
 // The menu is centred when the space left over on each side matches.
 void expect_centred(float viewW, float viewH, const char *what) {
-    Box play = box_of("Play");
-    Box quit = box_of("Quit");
+    box play        = box_of("Play");
+    box quit        = box_of("Quit");
 
-    float leftGap  = play.x;
-    float rightGap = viewW - (play.x + play.w);
-    float topGap   = play.y;
+    float leftGap   = play.x;
+    float rightGap  = viewW - (play.x + play.w);
+    float topGap    = play.y;
     float bottomGap = viewH - (quit.y + quit.h);
 
     char msg[160];
@@ -103,9 +106,9 @@ void run_at(float w, float h, const char *what) {
 
     expect_centred(w, h, what);
 
-    Box play = box_of("Play");
-    Box options = box_of("Options");
-    Box quit = box_of("Quit");
+    box play    = box_of("Play");
+    box options = box_of("Options");
+    box quit    = box_of("Quit");
 
     char msg[160];
     std::snprintf(msg, sizeof(msg), "%s: Play is above Options with a gap", what);
@@ -116,7 +119,8 @@ void run_at(float w, float h, const char *what) {
     // The content column is FIT and the buttons GROW into it, which is what
     // stops a menu coming out as a ragged staircase.
     std::snprintf(msg, sizeof(msg), "%s: all three buttons share a width", what);
-    check(std::fabs(play.w - options.w) < 0.5f && std::fabs(options.w - quit.w) < 0.5f, msg);
+    check(std::fabs(play.w - options.w) < 0.5f && std::fabs(options.w - quit.w) < 0.5f,
+          msg);
 
     // min_touch_size, scaled. Below this a button is not reliably hittable with
     // a thumb, which is four of the fourteen targets.
@@ -125,7 +129,8 @@ void run_at(float w, float h, const char *what) {
     check(play.h >= minimum - 0.5f, msg);
 
     std::snprintf(msg, sizeof(msg), "%s: the menu fits on screen", what);
-    check(play.x >= 0 && play.y >= 0 && play.x + play.w <= w && quit.y + quit.h <= h, msg);
+    check(play.x >= 0 && play.y >= 0 && play.x + play.w <= w && quit.y + quit.h <= h,
+          msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -136,10 +141,10 @@ void run_at(float w, float h, const char *what) {
 // a spacer, with a progress bar above them.
 void draw_dialog() {
     rmp::ui::begin();
-    rmp::ui::panel({ .box = { .id = "dialog" } }, []{
+    rmp::ui::panel({ .box = { .id = "dialog" } }, [] {
         rmp::ui::text("Really quit?");
         rmp::ui::progress(0.5f, { .width = 200, .id = "bar" });
-        rmp::ui::row({ .gap = 8, .grow_x = true, .id = "buttons" }, []{
+        rmp::ui::row({ .gap = 8, .grow_x = true, .id = "buttons" }, [] {
             rmp::ui::button("Yes");
             rmp::ui::spacer();
             rmp::ui::button("No");
@@ -148,7 +153,7 @@ void draw_dialog() {
     rmp::ui::end();
 }
 
-bool inside(Box outer, Box inner) {
+bool inside(box outer, box inner) {
     return inner.x >= outer.x - 0.5f && inner.y >= outer.y - 0.5f &&
            inner.x + inner.w <= outer.x + outer.w + 0.5f &&
            inner.y + inner.h <= outer.y + outer.h + 0.5f;
@@ -160,8 +165,8 @@ void run_containers(float w, float h) {
     draw_dialog();
     draw_dialog();
 
-    Box yes = box_of("Yes");
-    Box no  = box_of("No");
+    box yes = box_of("Yes");
+    box no  = box_of("No");
 
     // A row lays out left to right. This is the check that catches a container
     // silently falling back to the default vertical direction, which looks
@@ -173,24 +178,26 @@ void run_containers(float w, float h) {
     // ends. Without the spacer they would sit next to each other in the middle.
     float leftGap  = yes.x;
     float rightGap = w - (no.x + no.w);
-    check(std::fabs(leftGap - rightGap) < 40.0f, "row: the spacer pushed them to opposite ends");
+    check(std::fabs(leftGap - rightGap) < 40.0f,
+          "row: the spacer pushed them to opposite ends");
 
     // The panel has to contain its children, padding and all. A panel that
     // sizes itself wrongly shows up here as a child hanging out of it.
-    Box panel = box_of("dialog");
+    box panel = box_of("dialog");
     check(inside(panel, yes) && inside(panel, no), "panel: it contains its children");
     check(panel.w > 0 && panel.h > 0, "panel: it has a size at all");
 
     // Padding is real: the row inside is strictly narrower than the panel.
-    Box row = box_of("buttons");
+    box row = box_of("buttons");
     check(row.w < panel.w, "panel: padding leaves the row narrower than the panel");
 
     // Design units, not pixels: a 200-unit bar is 200 * scale on screen. This
     // is the assertion that catches someone "fixing" a size by writing a pixel
     // count, which looks right on one monitor and wrong on every other.
     float scale = rmp::ui::scale();
-    Box bar = box_of("bar");
-    check_near(bar.w, 200.0f * scale, 1.0f, "progress: the track is 200 design units wide");
+    box   bar   = box_of("bar");
+    check_near(bar.w, 200.0f * scale, 1.0f,
+               "progress: the track is 200 design units wide");
     check(inside(panel, bar), "progress: the bar is inside the panel");
 }
 
@@ -219,9 +226,9 @@ void run_interaction() {
     float volume  = 0.5f;
     int   clicks  = 0;
 
-    auto frame = [&]{
+    auto frame    = [&] {
         rmp::ui::begin();
-        rmp::ui::panel([&]{
+        rmp::ui::panel([&] {
             if (rmp::ui::button("Apply")) clicks++;
             rmp::ui::checkbox("Fullscreen", &checked);
             rmp::ui::slider("Volume", &volume, 0.0f, 1.0f);
@@ -233,35 +240,43 @@ void run_interaction() {
     // of the frame before, so nothing can be clicked until something has been
     // laid out at least once. That is the rule, and this is it being true.
     g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    g_down    = false;
     frame();
 
-    Box btn = box_of("Apply");
+    box btn = box_of("Apply");
     check(btn.w > 0, "the button has a box to aim at");
 
     // Press and release over the button.
     g_pointer = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
-    g_down = true;  frame();
+    g_down    = true;
+    frame();
     check(clicks == 0, "a press alone does not click");
-    g_down = false; frame();
+    g_down = false;
+    frame();
     check(clicks == 1, "press then release over the button clicks it");
 
     // Press on it, drag off, release: nothing. This is the behaviour people
     // rely on without ever noticing it, and the one that quietly disappears if
     // a click is implemented as "button is down over the element".
-    g_down = true;  frame();
+    g_down = true;
+    frame();
     g_pointer = Clay_Vector2{ 5, 5 };
-    g_down = false; frame();
+    g_down    = false;
+    frame();
     check(clicks == 1, "dragging off before releasing does not click");
 
     // The checkbox writes to the caller's variable.
-    Box cb = box_of("Fullscreen");
+    box cb    = box_of("Fullscreen");
     g_pointer = Clay_Vector2{ cb.x + cb.w / 2, cb.y + cb.h / 2 };
-    g_down = true;  frame();
-    g_down = false; frame();
+    g_down    = true;
+    frame();
+    g_down = false;
+    frame();
     check(checked, "the checkbox toggled the caller's bool");
-    g_down = true;  frame();
-    g_down = false; frame();
+    g_down = true;
+    frame();
+    g_down = false;
+    frame();
     check(!checked, "and toggled it back");
 
     // Dragging the slider writes a value proportional to where the pointer is.
@@ -273,19 +288,23 @@ void run_interaction() {
     // The id is built the way the widget builds it — first occurrence of the
     // label — rather than by calling element_id() again, which would hand back
     // occurrence 1 because the counters only reset at begin().
-    Clay_String volLabel{ false, 6, "Volume" };
-    Clay_ElementId volId = Clay_GetElementIdWithIndex(volLabel, 0);
+    Clay_String      volLabel{ false, 6, "Volume" };
+    Clay_ElementId   volId = Clay_GetElementIdWithIndex(volLabel, 0);
     Clay_BoundingBox rail{};
-    bool haveRail = rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(volId, 0), &rail);
+    bool             haveRail =
+        rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(volId, 0), &rail);
     check(haveRail && rail.width > 0, "the slider's rail has a box to aim at");
 
     g_pointer = Clay_Vector2{ rail.x + rail.width * 0.95f, rail.y + rail.height / 2 };
-    g_down = true;  frame(); frame();
+    g_down    = true;
+    frame();
+    frame();
     check(volume > 0.7f, "dragging the slider to the right raises the value");
     g_pointer = Clay_Vector2{ rail.x, rail.y + rail.height / 2 };
     frame();
     check(volume < 0.3f, "and dragging it back lowers it");
-    g_down = false; frame();
+    g_down = false;
+    frame();
 
     // wants_pointer() is what stops the click that pressed a button from also
     // firing the player's weapon.
@@ -312,13 +331,14 @@ void run_dropdown() {
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
-    static const char *A[] = { "Off", "Low", "High" };
-    static const char *B[] = { "Off", "Low", "High" };
-    int quality = 0, shadows = 0;
+    static const char *A[]     = { "Off", "Low", "High" };
+    static const char *B[]     = { "Off", "Low", "High" };
+    int                quality = 0;
+    int                shadows = 0;
 
-    auto frame = [&]{
+    auto frame                 = [&] {
         rmp::ui::begin();
-        rmp::ui::panel([&]{
+        rmp::ui::panel([&] {
             rmp::ui::dropdown("Quality", &quality, A, 3);
             rmp::ui::dropdown("Shadows", &shadows, B, 3);
         });
@@ -326,20 +346,22 @@ void run_dropdown() {
     };
 
     g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    g_down    = false;
     frame();
 
     // Open the first one.
-    Box q = box_of("Quality");
+    box q     = box_of("Quality");
     g_pointer = Clay_Vector2{ q.x + q.w * 0.8f, q.y + q.h / 2 };
-    g_down = true;  frame();
-    g_down = false; frame();
+    g_down    = true;
+    frame();
+    g_down = false;
+    frame();
     frame();
 
     // Its items exist and the other dropdown's do not overlap them, which is
     // what the derived ids buy.
-    Clay_String ql{ false, 7, "Quality" };
-    Clay_String sl{ false, 7, "Shadows" };
+    Clay_String    ql{ false, 7, "Quality" };
+    Clay_String    sl{ false, 7, "Shadows" };
     Clay_ElementId qid = Clay_GetElementIdWithIndex(ql, 0);
     Clay_ElementId sid = Clay_GetElementIdWithIndex(sl, 0);
     check(qid.id != sid.id, "the two dropdowns are different elements");
@@ -353,8 +375,10 @@ void run_dropdown() {
     if (haveItem) {
         // Pick "Low" from the first list; the second must not move.
         g_pointer = Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
-        g_down = true;  frame();
-        g_down = false; frame();
+        g_down    = true;
+        frame();
+        g_down = false;
+        frame();
         check(quality == 1, "clicking an item selects it");
         check(shadows == 0, "and leaves the other dropdown alone");
     }
@@ -370,11 +394,11 @@ void run_grid() {
     std::printf("\n--- grid ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
-    auto frame = [&]{
+    auto frame = [&] {
         rmp::ui::begin();
-        rmp::ui::grid(3, [&]{
+        rmp::ui::grid(3, [&] {
             for (int i = 0; i < 7; i++) {
-                rmp::ui::cell([&]{ rmp::ui::button(TextFormat("item%d", i)); });
+                rmp::ui::cell([&] { rmp::ui::button(TextFormat("item%d", i)); });
             }
         });
         rmp::ui::end();
@@ -382,7 +406,10 @@ void run_grid() {
     frame();
     frame();
 
-    Box a = box_of("item0"), b = box_of("item1"), c = box_of("item2"), d = box_of("item3");
+    box a = box_of("item0");
+    box b = box_of("item1");
+    box c = box_of("item2");
+    box d = box_of("item3");
 
     check_near(a.y, b.y, 1.0f, "three columns: the first three share a row");
     check_near(b.y, c.y, 1.0f, "…all three of them");
@@ -408,15 +435,18 @@ void run_sizes() {
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     rmp::ui::begin();
-    rmp::ui::button("S", { .size = rmp::ui::size::small  });
+    rmp::ui::button("S", { .size = rmp::ui::size::small });
     rmp::ui::button("M", { .size = rmp::ui::size::medium });
-    rmp::ui::button("L", { .size = rmp::ui::size::large  });
+    rmp::ui::button("L", { .size = rmp::ui::size::large });
     // A variant is colour only: it must not move anything. Same label length as
     // "M" on purpose, so any difference in width is the variant's doing.
     rmp::ui::button("G", { .style = rmp::ui::variant::ghost });
     rmp::ui::end();
 
-    Box small = box_of("S"), medium = box_of("M"), large = box_of("L"), ghost = box_of("G");
+    box small  = box_of("S");
+    box medium = box_of("M");
+    box large  = box_of("L");
+    box ghost  = box_of("G");
 
     check(small.h < medium.h, "size::small is shorter than size::medium");
     check(medium.h < large.h, "size::large is taller than size::medium");
@@ -433,13 +463,15 @@ void run_sizes() {
     rmp::ui::begin();
     rmp::ui::button("X", { .size = rmp::ui::size::large });
     rmp::ui::end();
-    check(box_of("X").w > narrow, "the padding follows the type, so a large button is wider too");
+    check(box_of("X").w > narrow,
+          "the padding follows the type, so a large button is wider too");
 
     // An explicit number has to work in the same field as a step: that is the
     // whole reason the field is not a plain float. Text elements have no id of
     // their own, so each one is measured through the box around it.
     rmp::ui::begin();
-    rmp::ui::panel({ .box = { .id = "exact" } }, [] { rmp::ui::text("Ay", { .size = 40 }); });
+    rmp::ui::panel({ .box = { .id = "exact" } },
+                   [] { rmp::ui::text("Ay", { .size = 40 }); });
     rmp::ui::panel({ .box = { .id = "byTheme" } }, [] { rmp::ui::text("Ay"); });
     rmp::ui::end();
     check(box_of("exact").h > box_of("byTheme").h,
@@ -457,18 +489,20 @@ void run_themes() {
     check(light.background.r > dark.background.r + 100,
           "the light theme's background is actually light");
     check(light.text.r < dark.text.r - 100, "and its text is actually dark");
-    check(light.border_width > 0 && dark.border_width == 0,
-          "only the light theme draws borders: it has no shadows to separate its surfaces");
+    check(
+        light.border_width > 0 && dark.border_width == 0,
+        "only the light theme draws borders: it has no shadows to separate its surfaces");
 
     rmp::ui::set_theme(light);
-    check(rmp::ui::current_theme().background.r == light.background.r, "set_theme() takes");
+    check(rmp::ui::current_theme().background.r == light.background.r,
+          "set_theme() takes");
 
     // Copy-modify-set, which is the only way a theme is ever customised.
     rmp::ui::theme t = rmp::ui::current_theme();
-    t.corner_radius = 0;
+    t.corner_radius  = 0;
     rmp::ui::set_theme(t);
     check(rmp::ui::current_theme().corner_radius == 0 &&
-          rmp::ui::current_theme().background.r == light.background.r,
+              rmp::ui::current_theme().background.r == light.background.r,
           "copy-modify-set changes one field and keeps the rest");
 
     rmp::ui::set_theme(dark);
@@ -478,18 +512,23 @@ void run_themes() {
 void run_breakpoints() {
     std::printf("\n--- breakpoints ---\n");
 
-    struct Case { float w, h; rmp::ui::breakpoint want; const char *what; };
-    const Case cases[] = {
-        { 1080, 2400, rmp::ui::breakpoint::compact,  "a phone held upright is compact" },
-        {  600,  800, rmp::ui::breakpoint::compact,  "so is a narrow window" },
-        { 1024,  768, rmp::ui::breakpoint::medium,   "4:3 is medium" },
-        { 2048, 1536, rmp::ui::breakpoint::medium,   "a tablet on its side is medium" },
-        { 2400, 1080, rmp::ui::breakpoint::expanded, "a phone on its side has room for a row" },
+    struct case_row {
+        float               w, h;
+        rmp::ui::breakpoint want;
+        const char         *what;
+    };
+    const case_row cases[] = {
+        { 1080, 2400, rmp::ui::breakpoint::compact, "a phone held upright is compact" },
+        { 600, 800, rmp::ui::breakpoint::compact, "so is a narrow window" },
+        { 1024, 768, rmp::ui::breakpoint::medium, "4:3 is medium" },
+        { 2048, 1536, rmp::ui::breakpoint::medium, "a tablet on its side is medium" },
+        { 2400, 1080, rmp::ui::breakpoint::expanded,
+          "a phone on its side has room for a row" },
         { 1920, 1080, rmp::ui::breakpoint::expanded, "16:9 is expanded" },
         { 3440, 1440, rmp::ui::breakpoint::expanded, "and so is an ultrawide" },
     };
 
-    for (const Case &c : cases) {
+    for (const case_row &c : cases) {
         rmp::ui::detail::set_test_viewport(c.w, c.h);
         check(rmp::ui::current_breakpoint() == c.want, c.what);
     }
@@ -502,7 +541,8 @@ void run_breakpoints() {
     // The point of the whole feature: 4K and a phone are both "big numbers",
     // and only one of them should be told to stack its layout.
     rmp::ui::detail::set_test_viewport(3840, 2160);
-    check(!rmp::ui::compact(), "4K is not compact, even though a phone has more pixels tall");
+    check(!rmp::ui::compact(),
+          "4K is not compact, even though a phone has more pixels tall");
 }
 
 } // namespace
@@ -547,7 +587,8 @@ int main() {
     draw_menu();
     float byHeight = 480.0f / static_cast<float>(APP_WINDOW_HEIGHT);
     if (byHeight < 0.5f) byHeight = 0.5f;
-    check_near(rmp::ui::scale(), byHeight, 0.001f, "on a very wide window the height decides");
+    check_near(rmp::ui::scale(), byHeight, 0.001f,
+               "on a very wide window the height decides");
 
     // A pinned scale ignores the viewport entirely — this is how an "interface
     // size" accessibility option would work.
@@ -557,7 +598,8 @@ int main() {
     check_near(rmp::ui::scale(), 2.0f, 0.001f, "set_scale() pins it");
     rmp::ui::set_scale(0.0f);
     draw_menu();
-    check(std::fabs(rmp::ui::scale() - 2.0f) > 0.001f, "set_scale(0) goes back to automatic");
+    check(std::fabs(rmp::ui::scale() - 2.0f) > 0.001f,
+          "set_scale(0) goes back to automatic");
 
     rmp::ui::shutdown();
 

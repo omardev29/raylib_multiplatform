@@ -38,6 +38,13 @@ xcodegen_sha256           4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368b
 windows_runner            windows-2025
 mesa                      26.1.6
 mesa_sha256               86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb
+# The formatter and the linter. Pinned because a different minor version of
+# clang-format reformats files that were already formatted, which turns every
+# diff into noise and makes `just fmt check` fail for a reason that has nothing
+# to do with the change. The lint job reads these two values out of this block
+# rather than repeating them, so there is one number and nothing to drift.
+clang_format              22.1.8
+clang_tidy                22.1.8
 freebsd                   15.1
 openbsd                   7.9
 netbsd                    10.1
@@ -56,6 +63,7 @@ netbsd                    10.1
 | XcodeGen | 2.46.0 | GitHub release asset + sha256. Replaces `brew install xcodegen`. |
 | Xcode | 26.6 on `macos-26` | Selected explicitly with `xcode-select`, with a guard that fails if the pin is gone. |
 | Mesa (Windows render test) | mesa-dist-win 26.1.6 | GitHub release asset + sha256. Test-only; asserted absent from the release zip. |
+| clang-format / clang-tidy | 22.1.8 | Installed from PyPI at the exact version in the block above, which the `lint` job reads out of this file. `tools/versions_check.sh` then compares the pin against the binary that is actually on PATH, so a local formatter that disagrees with CI is reported before it produces a diff. |
 | butler (itch.io) | 15.24.0 | Downloaded from `broth.itch.zone` at that exact version. |
 | Playwright | see `package-lock.json` | `npm ci`; the Chromium build is keyed to the Playwright version. |
 | GitHub Actions | full commit SHAs | Every `uses:` in `.github/workflows/`, with the tag in a trailing comment. |

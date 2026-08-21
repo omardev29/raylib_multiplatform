@@ -22,21 +22,21 @@ using detail::to_clay;
 // these are the same thing written as C++ so the macros never come near us.
 Clay_SizingAxis size_fit() {
     Clay_SizingAxis a{};
-    a.type = CLAY__SIZING_TYPE_FIT;
+    a.type        = CLAY__SIZING_TYPE_FIT;
     a.size.minMax = Clay_SizingMinMax{ 0, 0 };
     return a;
 }
 
 Clay_SizingAxis size_grow() {
     Clay_SizingAxis a{};
-    a.type = CLAY__SIZING_TYPE_GROW;
+    a.type        = CLAY__SIZING_TYPE_GROW;
     a.size.minMax = Clay_SizingMinMax{ 0, 0 };
     return a;
 }
 
 Clay_SizingAxis size_fit_min(float min) {
     Clay_SizingAxis a{};
-    a.type = CLAY__SIZING_TYPE_FIT;
+    a.type        = CLAY__SIZING_TYPE_FIT;
     a.size.minMax = Clay_SizingMinMax{ min, 0 };
     return a;
 }
@@ -47,15 +47,42 @@ Clay_ChildAlignment alignment_of(align a) {
     Clay_LayoutAlignmentX x = CLAY_ALIGN_X_CENTER;
     Clay_LayoutAlignmentY y = CLAY_ALIGN_Y_CENTER;
     switch (a) {
-        case align::top_left:      x = CLAY_ALIGN_X_LEFT;   y = CLAY_ALIGN_Y_TOP;    break;
-        case align::top_center:    x = CLAY_ALIGN_X_CENTER; y = CLAY_ALIGN_Y_TOP;    break;
-        case align::top_right:     x = CLAY_ALIGN_X_RIGHT;  y = CLAY_ALIGN_Y_TOP;    break;
-        case align::center_left:   x = CLAY_ALIGN_X_LEFT;   y = CLAY_ALIGN_Y_CENTER; break;
-        case align::center:        x = CLAY_ALIGN_X_CENTER; y = CLAY_ALIGN_Y_CENTER; break;
-        case align::center_right:  x = CLAY_ALIGN_X_RIGHT;  y = CLAY_ALIGN_Y_CENTER; break;
-        case align::bottom_left:   x = CLAY_ALIGN_X_LEFT;   y = CLAY_ALIGN_Y_BOTTOM; break;
-        case align::bottom_center: x = CLAY_ALIGN_X_CENTER; y = CLAY_ALIGN_Y_BOTTOM; break;
-        case align::bottom_right:  x = CLAY_ALIGN_X_RIGHT;  y = CLAY_ALIGN_Y_BOTTOM; break;
+        case align::top_left:
+            x = CLAY_ALIGN_X_LEFT;
+            y = CLAY_ALIGN_Y_TOP;
+            break;
+        case align::top_center:
+            x = CLAY_ALIGN_X_CENTER;
+            y = CLAY_ALIGN_Y_TOP;
+            break;
+        case align::top_right:
+            x = CLAY_ALIGN_X_RIGHT;
+            y = CLAY_ALIGN_Y_TOP;
+            break;
+        case align::center_left:
+            x = CLAY_ALIGN_X_LEFT;
+            y = CLAY_ALIGN_Y_CENTER;
+            break;
+        case align::center:
+            x = CLAY_ALIGN_X_CENTER;
+            y = CLAY_ALIGN_Y_CENTER;
+            break;
+        case align::center_right:
+            x = CLAY_ALIGN_X_RIGHT;
+            y = CLAY_ALIGN_Y_CENTER;
+            break;
+        case align::bottom_left:
+            x = CLAY_ALIGN_X_LEFT;
+            y = CLAY_ALIGN_Y_BOTTOM;
+            break;
+        case align::bottom_center:
+            x = CLAY_ALIGN_X_CENTER;
+            y = CLAY_ALIGN_Y_BOTTOM;
+            break;
+        case align::bottom_right:
+            x = CLAY_ALIGN_X_RIGHT;
+            y = CLAY_ALIGN_Y_BOTTOM;
+            break;
     }
     return Clay_ChildAlignment{ x, y };
 }
@@ -83,7 +110,8 @@ void begin(const frame_options &o) {
     if (!detail::ensure_started()) return;
 
     if (detail::frame_open()) {
-        TraceLog(LOG_WARNING, "UI: begin() called twice without end(); ignoring the second one");
+        TraceLog(LOG_WARNING,
+                 "UI: begin() called twice without end(); ignoring the second one");
         return;
     }
     detail::set_frame_open(true);
@@ -114,12 +142,12 @@ void begin(const frame_options &o) {
     // The root. A centred column, because the case that has to be three
     // functions long is a main menu, and a plain top-left column would put it
     // in the corner.
-    float gap     = (o.gap < 0)     ? t.gap : o.gap;
+    float gap     = (o.gap < 0) ? t.gap : o.gap;
     float padding = (o.padding < 0) ? t.panel_padding : o.padding;
 
     Clay_ElementDeclaration root{};
-    root.layout.sizing.width  = size_grow();
-    root.layout.sizing.height = size_grow();
+    root.layout.sizing.width    = size_grow();
+    root.layout.sizing.height   = size_grow();
     root.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     root.layout.childAlignment  = alignment_of(o.placement);
     // Safe area. [android.display] into_cutout draws the game behind the notch,
@@ -135,11 +163,12 @@ void begin(const frame_options &o) {
     // every button is only as wide as its own label, and a menu reading
     // Play / Options / Quit comes out as a ragged staircase.
     Clay_ElementDeclaration content{};
-    content.layout.sizing.width  = size_fit();
-    content.layout.sizing.height = size_fit();
+    content.layout.sizing.width    = size_fit();
+    content.layout.sizing.height   = size_fit();
     content.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-    content.layout.childGap = static_cast<uint16_t>(px(gap));
-    content.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    content.layout.childGap        = static_cast<uint16_t>(px(gap));
+    content.layout.childAlignment =
+        Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
 
     Clay__OpenElement();
     Clay__ConfigureOpenElement(content);
@@ -149,8 +178,8 @@ void end() {
     if (!detail::frame_open()) return;
     detail::set_frame_open(false);
 
-    Clay__CloseElement();   // the content column
-    Clay__CloseElement();   // the root
+    Clay__CloseElement(); // the content column
+    Clay__CloseElement(); // the root
 
     detail::end_focus_frame();
 
@@ -171,8 +200,8 @@ bool button(std::string_view label) { return button(label, button_options{}); }
 bool button(std::string_view label, const button_options &o) {
     if (!detail::frame_open()) return false;
 
-    const theme &t = current_theme();
-    Clay_ElementId id = detail::element_id(label, o.id);
+    const theme   &t   = current_theme();
+    Clay_ElementId id  = detail::element_id(label, o.id);
 
     // Hit-testing uses the geometry this element had LAST frame — Clay has not
     // laid out this one yet. It is inherent to immediate mode: the first frame
@@ -185,7 +214,7 @@ bool button(std::string_view label, const button_options &o) {
 
     // Released over the same element it was pressed on. Drag off and let go and
     // nothing happens, which is what every interface worth using does.
-    bool clicked = over && detail::pointer_released() && g_pressedId == id.id;
+    bool clicked        = over && detail::pointer_released() && g_pressedId == id.id;
 
     // Keyboard and gamepad get here without the widget knowing how: it declares
     // itself focusable and asks whether it is the one.
@@ -195,13 +224,13 @@ bool button(std::string_view label, const button_options &o) {
     // Colour. Every variant travels between the same three states and every one
     // of them goes through state_color(), which is why they all feel the same
     // and why the transition is impossible for a new widget to forget.
-    Color background  = t.surface;
-    Color foreground  = t.text;
-    Color outline     = t.border;
+    Color background = t.surface;
+    Color foreground = t.text;
+    Color outline    = t.border;
     // 0 in the dark theme, 1 in the light one. A light interface has no shadows
     // to separate a pale button from a pale page, so it needs the outline that
     // a dark one does not.
-    float outline_w   = t.border_width;
+    float outline_w  = t.border_width;
 
     if (!o.enabled) {
         background = t.disabled;
@@ -223,17 +252,19 @@ bool button(std::string_view label, const button_options &o) {
             case variant::outline:
                 // Nothing at rest but the outline and the label; it fills in
                 // under the pointer, which is what says it was a button.
-                background = detail::state_color(id, detail::clear_alpha(t.surface), t.surface_hover,
-                                                 t.surface_press, over, pressed);
-                outline_w  = (t.border_width > 0) ? t.border_width : 1.0f;
+                background =
+                    detail::state_color(id, detail::clear_alpha(t.surface),
+                                        t.surface_hover, t.surface_press, over, pressed);
+                outline_w = (t.border_width > 0) ? t.border_width : 1.0f;
                 break;
             case variant::ghost:
                 // Like outline, without the outline — in either theme, because
                 // a ghost that grew a border in the light theme would just be
                 // an outline button with a different name.
-                background = detail::state_color(id, detail::clear_alpha(t.surface), t.surface_hover,
-                                                 t.surface_press, over, pressed);
-                outline_w  = 0;
+                background =
+                    detail::state_color(id, detail::clear_alpha(t.surface),
+                                        t.surface_hover, t.surface_press, over, pressed);
+                outline_w = 0;
                 break;
             case variant::normal:
                 background = detail::state_color(id, t.surface, t.surface_hover,
@@ -246,11 +277,12 @@ bool button(std::string_view label, const button_options &o) {
     // all over rather than a normal one with bigger letters in it.
     const float fontUnits = detail::resolve_size(o.size, t);
     const float ratio     = detail::size_ratio(o.size, t);
-    float minHeight = t.min_touch_size * ratio;
+    float       minHeight = t.min_touch_size * ratio;
     // ...except on a touch screen, where a small button is still a thumb-sized
     // button. Shrinking below the touch target there is the one case where
     // honouring what was asked for makes the control unusable.
-    if (detail::touch_only() && minHeight < t.min_touch_size) minHeight = t.min_touch_size;
+    if (detail::touch_only() && minHeight < t.min_touch_size)
+        minHeight = t.min_touch_size;
 
     Clay_ElementDeclaration decl{};
     // GROW inside the FIT column from begin(): the column takes the width of
@@ -263,21 +295,22 @@ bool button(std::string_view label, const button_options &o) {
                                         static_cast<uint16_t>(px(t.padding_x * ratio)),
                                         static_cast<uint16_t>(px(t.padding_y * ratio)),
                                         static_cast<uint16_t>(px(t.padding_y * ratio)) };
-    decl.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    decl.layout.childAlignment =
+        Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     decl.backgroundColor = to_clay(background);
-    float r = px(t.corner_radius);
-    decl.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+    float r              = px(t.corner_radius);
+    decl.cornerRadius    = Clay_CornerRadius{ r, r, r, r };
     if (hasFocus) {
         // The focus ring is drawn by the framework, not by each widget, because
         // a controller build where one widget forgot it is a controller build
         // that gets stuck. It replaces the ordinary outline rather than sitting
         // next to it: two rings on one control reads as a rendering bug.
-        auto w = static_cast<uint16_t>(px(t.focus_ring));
+        auto w            = static_cast<uint16_t>(px(t.focus_ring));
         decl.border.color = to_clay(t.focus);
         decl.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     } else if (outline_w > 0.0f) {
         auto w = static_cast<uint16_t>(px(outline_w));
-        if (w < 1) w = 1;   // a sub-pixel border is an invisible border
+        if (w < 1) w = 1; // a sub-pixel border is an invisible border
         decl.border.color = to_clay(outline);
         decl.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     }
@@ -304,12 +337,20 @@ void text(std::string_view s, const text_options &o) {
     if (!detail::frame_open()) return;
 
     const theme &t = current_theme();
-    Color c = t.text;
+    Color        c = t.text;
     switch (o.color) {
-        case color_role::text:    c = t.text;       break;
-        case color_role::muted:   c = t.text_muted; break;
-        case color_role::primary: c = t.primary;    break;
-        case color_role::danger:  c = t.danger;     break;
+        case color_role::text:
+            c = t.text;
+            break;
+        case color_role::muted:
+            c = t.text_muted;
+            break;
+        case color_role::primary:
+            c = t.primary;
+            break;
+        case color_role::danger:
+            c = t.danger;
+            break;
     }
 
     Clay_TextElementConfig tc{};
@@ -327,7 +368,8 @@ void text(std::string_view s, const text_options &o) {
 
 void shutdown() {
     if (detail::frame_open()) {
-        TraceLog(LOG_WARNING, "UI: shutdown() while a frame was open; end() was never called");
+        TraceLog(LOG_WARNING,
+                 "UI: shutdown() while a frame was open; end() was never called");
         detail::set_frame_open(false);
     }
     detail::shutdown_context();

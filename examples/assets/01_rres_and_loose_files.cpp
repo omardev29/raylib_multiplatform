@@ -18,22 +18,22 @@
 #include <raylib_multiplatform.h>
 
 static Texture2D player;
-static Font ui;
-static Sound jump;
+static Font      ui;
+static Sound     jump;
 
 // Called once at startup: the pack (if any) is already open by now.
 static inline void _ready() {
     InitWindow(800, 450, "assets example");
-    InitAudioDevice();                  // LoadSound needs this first
+    InitAudioDevice(); // LoadSound needs this first
 
     // Load by resource name — no path, no extension guessing, and no #ifdef
     // for "did this build get a pack or not".
-    player = rmp::assets::load_texture("rabbit.png");
-    ui     = rmp::assets::load_font("ui.ttf", 20);
-    jump   = rmp::assets::load_sound("jump.wav");
+    player               = rmp::assets::load_texture("rabbit.png");
+    ui                   = rmp::assets::load_font("ui.ttf", 20);
+    jump                 = rmp::assets::load_sound("jump.wav");
 
     // Anything else, as bytes. Free it with UnloadFileData().
-    int size = 0;
+    int            size  = 0;
     unsigned char *level = rmp::assets::load_data("level1.json", &size);
     if (level != nullptr) UnloadFileData(level);
 
@@ -55,9 +55,10 @@ static inline void _process(float delta) {
     ClearBackground(RAYWHITE);
     DrawTexture(player, GetScreenWidth() / 2 - player.width / 2,
                 GetScreenHeight() / 2 - player.height / 2, WHITE);
-    DrawTextEx(ui, rmp::assets::using_pack() ? "serving from resources.rres"
-                                       : "serving loose files",
-               Vector2{10, 40}, 20, 1, GRAY);
+    DrawTextEx(ui,
+               rmp::assets::using_pack() ? "serving from resources.rres"
+                                         : "serving loose files",
+               Vector2{ 10, 40 }, 20, 1, GRAY);
     EndDrawing();
 }
 

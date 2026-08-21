@@ -7,16 +7,16 @@
 #include <raylib.h>
 
 #if defined(PLATFORM_ANDROID)
-#include <raymob.h>                             // GetAndroidApp()
-#include <android_native_app_glue.h>            // struct android_app::activity
-#include <android/native_activity.h>            // ANativeActivity_finish()
+#include <raymob.h>                  // GetAndroidApp()
+#include <android_native_app_glue.h> // struct android_app::activity
+#include <android/native_activity.h> // ANativeActivity_finish()
 #endif
 
 namespace rmp::utils {
 
 namespace {
 bool g_exitRequested = false;
-}
+} // namespace
 
 void exit() {
 #if defined(PLATFORM_IOS)

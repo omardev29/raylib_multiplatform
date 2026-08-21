@@ -132,8 +132,52 @@ jobs:
       - name: Generate configuration
         run: python3 tools/configure.py
 
+      # Both versions come out of the ```versions block in FROZEN_VERSIONS.md,
+      # so the pin lives in one place. A different minor version of
+      # clang-format reformats files that were already formatted, which would
+      # fail this job for a reason that has nothing to do with the change.
+      - name: Install the pinned clang tooling
+        run: |
+          set -euo pipefail
+          fmt=$(awk '/^clang_format/{print $2}' thirdparty/FROZEN_VERSIONS.md)
+          tidy=$(awk '/^clang_tidy/{print $2}' thirdparty/FROZEN_VERSIONS.md)
+          [ -n "$fmt" ] && [ -n "$tidy" ] || { echo "FALLA: clang pins missing from FROZEN_VERSIONS.md"; exit 1; }
+          python3 -m pip install --quiet --break-system-packages \
+            "clang-format==$fmt" "clang-tidy==$tidy"
+          clang-format --version
+          clang-tidy --version | head -2
+
       - name: Pinned versions agree
         run: bash tools/versions_check.sh
+
+      # Formatting first: it is instant, and an unformatted file makes every
+      # other diff in the pull request unreadable.
+      - name: Everything we own is formatted
+        run: |
+          set -euo pipefail
+          FAILED=0
+          for f in $(find include src tests examples \( -name '*.h' -o -name '*.cpp' -o -name '*.c' \) \
+                       | grep -v generated | sort); do
+            clang-format "$f" | diff -q "$f" - >/dev/null || { echo "  unformatted  $f"; FAILED=1; }
+          done
+          [ "$FAILED" -eq 0 ] || { echo "FALLA: run \`just fmt\` and commit the result."; exit 1; }
+          echo "PASS: clang-format clean"
+
+      # clang-tidy needs build/compile_commands.json, so the project is
+      # CONFIGURED here but never built — the compile database is a by-product
+      # of configuring and costs a couple of seconds.
+      - name: clang-tidy
+        run: |
+          set -euo pipefail
+          command -v ninja >/dev/null || sudo apt-get install -y -qq ninja-build
+          cmake --preset debug > /dev/null
+          # Only .cpp files: clang-tidy reaches the headers through them, and
+          # HeaderFilterRegex in .clang-tidy decides which it reports on. The
+          # *_impl.cpp pair exists to compile a vendored header once, and its
+          # warnings are not ours to fix.
+          mapfile -t FILES < <(find src tests -name '*.cpp' | grep -v _impl | sort)
+          clang-tidy -p build --quiet --warnings-as-errors='*' "${FILES[@]}"
+          echo "PASS: clang-tidy clean"
 
   # examples/ is documentation with code in it, and documentation rots quietly.
   # It already has: the header unification removed the `inlining` macro and one

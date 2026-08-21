@@ -14,6 +14,7 @@
 #include "internal.h"
 
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 
 namespace rmp::ui {
@@ -25,7 +26,7 @@ using detail::to_clay;
 
 Clay_SizingAxis fixed(float v) {
     Clay_SizingAxis a{};
-    a.type = CLAY__SIZING_TYPE_FIXED;
+    a.type        = CLAY__SIZING_TYPE_FIXED;
     a.size.minMax = Clay_SizingMinMax{ px(v), px(v) };
     return a;
 }
@@ -45,7 +46,7 @@ Clay_SizingAxis grow() {
 void focus_border(Clay_ElementDeclaration &d, bool on) {
     if (!on) return;
     const theme &t = current_theme();
-    auto w = static_cast<uint16_t>(px(t.focus_ring));
+    auto         w = static_cast<uint16_t>(px(t.focus_ring));
     d.border.color = to_clay(t.focus);
     d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
 }
@@ -61,19 +62,20 @@ void label_text(std::string_view s, Color c, float size) {
 // The row every one of these controls sits in: label on the left, the control
 // itself on the right, the whole thing focusable as one unit.
 Clay_ElementDeclaration control_row(bool hasFocus) {
-    const theme &t = current_theme();
+    const theme            &t = current_theme();
     Clay_ElementDeclaration d{};
     d.layout.sizing.width  = grow();
     d.layout.sizing.height = fit();
     d.layout.childGap      = static_cast<uint16_t>(px(t.gap));
-    d.layout.padding       = Clay_Padding{ static_cast<uint16_t>(px(t.padding_y)),
-                                           static_cast<uint16_t>(px(t.padding_y)),
-                                           static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                                           static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
-    d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+    d.layout.padding = Clay_Padding{ static_cast<uint16_t>(px(t.padding_y)),
+                                     static_cast<uint16_t>(px(t.padding_y)),
+                                     static_cast<uint16_t>(px(t.padding_y * 0.5f)),
+                                     static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+    d.layout.childAlignment =
+        Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
     d.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
-    float r = px(t.corner_radius);
-    d.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+    float r                  = px(t.corner_radius);
+    d.cornerRadius           = Clay_CornerRadius{ r, r, r, r };
     focus_border(d, hasFocus);
     return d;
 }
@@ -90,14 +92,14 @@ bool checkbox(std::string_view label, bool *value) {
 
 bool checkbox(std::string_view label, bool *value, const checkbox_options &o) {
     if (!detail::frame_open() || value == nullptr) return false;
-    const theme &t = current_theme();
+    const theme &t      = current_theme();
 
-    Clay_ElementId id = detail::element_id(label, o.id);
-    const bool over   = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    Clay_ElementId id   = detail::element_id(label, o.id);
+    const bool     over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
     if (over) detail::set_pointer_over_ui();
 
     const bool hasFocus = o.enabled && detail::focusable(id, label);
-    bool toggled = false;
+    bool       toggled  = false;
     if (over && detail::pointer_released()) toggled = true;
     if (hasFocus && detail::take_activate()) toggled = true;
     if (toggled) *value = !*value;
@@ -105,9 +107,9 @@ bool checkbox(std::string_view label, bool *value, const checkbox_options &o) {
     Clay_ElementDeclaration row = control_row(hasFocus);
     // The row is transparent at rest, so it fades in from surface_hover with
     // nothing in it — from black would flash dark before it lit up.
-    row.backgroundColor = to_clay(detail::state_color(
-        id, detail::clear_alpha(t.surface_hover), t.surface_hover, t.surface_press,
-        over, over && detail::pointer_down()));
+    row.backgroundColor         = to_clay(
+        detail::state_color(id, detail::clear_alpha(t.surface_hover), t.surface_hover,
+                            t.surface_press, over, over && detail::pointer_down()));
 
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
@@ -117,17 +119,17 @@ bool checkbox(std::string_view label, bool *value, const checkbox_options &o) {
         Clay_ElementDeclaration box{};
         box.layout.sizing.width  = fixed(t.control_size);
         box.layout.sizing.height = fixed(t.control_size);
-        box.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+        box.layout.childAlignment =
+            Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
         // The fill follows the value rather than the pointer, so ticking a box
         // reads as the box filling in instead of swapping colour between two
         // frames. Its own sub-id, so it does not share a slot with the row.
-        const float on = detail::anim_value(detail::sub_id(id, 7), 0, *value);
-        box.backgroundColor = to_clay(!o.enabled
-                                          ? t.disabled
-                                          : detail::mix_color(t.surface, t.primary, on));
-        float r = px(t.corner_radius * 0.5f);
+        const float on      = detail::anim_value(detail::sub_id(id, 7), 0, *value);
+        box.backgroundColor = to_clay(
+            !o.enabled ? t.disabled : detail::mix_color(t.surface, t.primary, on));
+        float r          = px(t.corner_radius * 0.5f);
         box.cornerRadius = Clay_CornerRadius{ r, r, r, r };
-        auto bw = static_cast<uint16_t>(px(1.5f));
+        auto bw          = static_cast<uint16_t>(px(1.5f));
         box.border.color = to_clay(*value ? t.primary : t.border);
         box.border.width = Clay_BorderWidth{ bw, bw, bw, bw, 0 };
 
@@ -137,9 +139,9 @@ bool checkbox(std::string_view label, bool *value, const checkbox_options &o) {
             Clay_ElementDeclaration dot{};
             dot.layout.sizing.width  = fixed(t.control_size * 0.4f);
             dot.layout.sizing.height = fixed(t.control_size * 0.4f);
-            dot.backgroundColor = to_clay(t.text_on_accent);
-            float dr = px(t.control_size * 0.2f);
-            dot.cornerRadius = Clay_CornerRadius{ dr, dr, dr, dr };
+            dot.backgroundColor      = to_clay(t.text_on_accent);
+            float dr                 = px(t.control_size * 0.2f);
+            dot.cornerRadius         = Clay_CornerRadius{ dr, dr, dr, dr };
             Clay__OpenElement();
             Clay__ConfigureOpenElement(dot);
             Clay__CloseElement();
@@ -164,26 +166,26 @@ bool slider(std::string_view label, float *value, float min, float max) {
 bool slider(std::string_view label, float *value, float min, float max,
             const slider_options &o) {
     if (!detail::frame_open() || value == nullptr || max <= min) return false;
-    const theme &t = current_theme();
+    const theme &t           = current_theme();
 
-    Clay_ElementId id      = detail::element_id(label, o.id);
-    Clay_ElementId trackId = detail::sub_id(id, 0);   // the slider's rail
+    Clay_ElementId id        = detail::element_id(label, o.id);
+    Clay_ElementId trackId   = detail::sub_id(id, 0); // the slider's rail
 
-    const bool hasFocus = o.enabled && detail::focusable(id, label);
-    const float span = max - min;
-    const float before = *value;
+    const bool  hasFocus     = o.enabled && detail::focusable(id, label);
+    const float span         = max - min;
+    const float before       = *value;
 
     // Dragging. The track's box comes from last frame, which is the same
     // tolerance every other interaction here has, and at 60 fps it is invisible
     // even while dragging fast.
     detail::widget_state *st = detail::state_for(id.id);
-    Clay_BoundingBox box{};
-    const bool haveBox = detail::bounds_of_id(trackId, &box);
+    Clay_BoundingBox      box{};
+    const bool            haveBox = detail::bounds_of_id(trackId, &box);
 
     if (o.enabled && haveBox && detail::pointer_present()) {
-        Clay_Vector2 p = detail::pointer_position();
-        const bool inside = p.x >= box.x && p.x <= box.x + box.width &&
-                            p.y >= box.y - px(8) && p.y <= box.y + box.height + px(8);
+        Clay_Vector2 p      = detail::pointer_position();
+        const bool   inside = p.x >= box.x && p.x <= box.x + box.width &&
+                              p.y >= box.y - px(8) && p.y <= box.y + box.height + px(8);
         if (inside) detail::set_pointer_over_ui();
         if (inside && detail::pointer_just_pressed()) st->flag = true;
         if (!detail::pointer_down()) st->flag = false;
@@ -211,13 +213,16 @@ bool slider(std::string_view label, float *value, float min, float max,
     }
 
     if (o.step > 0) {
+        // std::lround, not (int)(x + 0.5f): the second rounds the wrong way for
+        // negative values, and a slider whose range crosses zero has them. The
+        // clamps below still put the result back inside [min, max].
         float steps = (*value - min) / o.step;
-        *value = min + (steps < 0 ? 0 : static_cast<int>(steps + 0.5f)) * o.step;
+        *value      = min + static_cast<float>(std::lround(steps)) * o.step;
     }
     if (*value < min) *value = min;
     if (*value > max) *value = max;
 
-    const float fraction = (*value - min) / span;
+    const float fraction        = (*value - min) / span;
 
     Clay_ElementDeclaration row = control_row(hasFocus);
     Clay__OpenElementWithId(id);
@@ -228,7 +233,8 @@ bool slider(std::string_view label, float *value, float min, float max,
         Clay_ElementDeclaration track{};
         track.layout.sizing.width  = o.width > 0 ? fixed(o.width) : grow();
         track.layout.sizing.height = fixed(t.control_size);
-        track.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+        track.layout.childAlignment =
+            Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
         Clay__OpenElementWithId(trackId);
         Clay__ConfigureOpenElement(track);
         {
@@ -237,20 +243,20 @@ bool slider(std::string_view label, float *value, float min, float max,
             Clay_ElementDeclaration rail{};
             rail.layout.sizing.width  = grow();
             rail.layout.sizing.height = fixed(t.track_thickness);
-            rail.backgroundColor = to_clay(t.surface);
-            float rr = px(t.track_thickness * 0.5f);
-            rail.cornerRadius = Clay_CornerRadius{ rr, rr, rr, rr };
+            rail.backgroundColor      = to_clay(t.surface);
+            float rr                  = px(t.track_thickness * 0.5f);
+            rail.cornerRadius         = Clay_CornerRadius{ rr, rr, rr, rr };
             Clay__OpenElement();
             Clay__ConfigureOpenElement(rail);
             {
                 Clay_ElementDeclaration fill{};
-                Clay_SizingAxis w{};
-                w.type = CLAY__SIZING_TYPE_PERCENT;
-                w.size.percent = fraction;
+                Clay_SizingAxis         w{};
+                w.type                    = CLAY__SIZING_TYPE_PERCENT;
+                w.size.percent            = fraction;
                 fill.layout.sizing.width  = w;
                 fill.layout.sizing.height = grow();
-                fill.backgroundColor = to_clay(o.enabled ? t.primary : t.disabled);
-                fill.cornerRadius = Clay_CornerRadius{ rr, rr, rr, rr };
+                fill.backgroundColor      = to_clay(o.enabled ? t.primary : t.disabled);
+                fill.cornerRadius         = Clay_CornerRadius{ rr, rr, rr, rr };
                 Clay__OpenElement();
                 Clay__ConfigureOpenElement(fill);
                 Clay__CloseElement();
@@ -262,7 +268,7 @@ bool slider(std::string_view label, float *value, float min, float max,
         if (o.show_value) {
             char buf[32];
             std::snprintf(buf, sizeof(buf), "%.0f%%", fraction * 100.0f);
-            label_text(std::string_view{buf}, t.text_muted, t.font_size_small);
+            label_text(std::string_view{ buf }, t.text_muted, t.font_size_small);
         }
     }
     Clay__CloseElement();
@@ -274,7 +280,8 @@ bool slider(std::string_view label, float *value, float min, float max,
 // dropdown
 // ---------------------------------------------------------------------------
 
-bool dropdown(std::string_view label, int *selected, const char *const *items, int count) {
+bool dropdown(std::string_view label, int *selected, const char *const *items,
+              int count) {
     return dropdown(label, selected, items, count, dropdown_options{});
 }
 
@@ -287,7 +294,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     if (*selected < 0) *selected = 0;
     if (*selected >= count) *selected = count - 1;
 
-    Clay_ElementId id = detail::element_id(label, o.id);
+    Clay_ElementId        id = detail::element_id(label, o.id);
     detail::widget_state *st = detail::state_for(id.id);
 
     const bool over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
@@ -298,7 +305,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     // Hashing the text would give every dropdown with a "Low" in it the same
     // element: hover one, the other lights up, and a click could land in the
     // wrong list entirely.
-    bool overAnyItem = false;
+    bool overAnyItem    = false;
     if (st->flag && detail::pointer_present()) {
         for (int i = 0; i < count; i++) {
             if (Clay_PointerOver(detail::sub_id(id, static_cast<uint32_t>(i) + 1))) {
@@ -327,21 +334,23 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
         Clay_ElementDeclaration field{};
         field.layout.sizing.width  = o.width > 0 ? fixed(o.width) : grow();
         field.layout.sizing.height = fit();
-        field.layout.padding = Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                                             static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                                             static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                                             static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
-        field.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
-        field.backgroundColor = to_clay(detail::state_color(
-            detail::sub_id(id, 8), t.surface, t.surface_hover, t.surface_press,
-            over, over && detail::pointer_down()));
-        float r = px(t.corner_radius);
+        field.layout.padding =
+            Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
+                          static_cast<uint16_t>(px(t.padding_x * 0.5f)),
+                          static_cast<uint16_t>(px(t.padding_y * 0.5f)),
+                          static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+        field.layout.childAlignment =
+            Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+        field.backgroundColor = to_clay(
+            detail::state_color(detail::sub_id(id, 8), t.surface, t.surface_hover,
+                                t.surface_press, over, over && detail::pointer_down()));
+        float r            = px(t.corner_radius);
         field.cornerRadius = Clay_CornerRadius{ r, r, r, r };
 
         Clay__OpenElement();
         Clay__ConfigureOpenElement(field);
         {
-            label_text(std::string_view{items[*selected]},
+            label_text(std::string_view{ items[*selected] },
                        o.enabled ? t.text : t.disabled_text, t.font_size);
 
             // The open list floats: it has to overlap whatever is underneath
@@ -349,24 +358,27 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
             // dropdown must not do.
             if (st->flag) {
                 Clay_ElementDeclaration menu{};
-                menu.layout.sizing.width  = grow();
+                menu.layout.sizing.width    = grow();
                 menu.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-                menu.layout.padding = Clay_Padding{ 2, 2, 2, 2 };
-                menu.backgroundColor = to_clay(t.panel);
-                menu.cornerRadius = Clay_CornerRadius{ r, r, r, r };
-                menu.floating.attachTo = CLAY_ATTACH_TO_PARENT;
-                menu.floating.zIndex = 1000;
-                menu.floating.attachPoints = Clay_FloatingAttachPoints{
-                    CLAY_ATTACH_POINT_LEFT_TOP, CLAY_ATTACH_POINT_LEFT_BOTTOM };
-                auto bw = static_cast<uint16_t>(px(1));
+                menu.layout.padding         = Clay_Padding{ 2, 2, 2, 2 };
+                menu.backgroundColor        = to_clay(t.panel);
+                menu.cornerRadius           = Clay_CornerRadius{ r, r, r, r };
+                menu.floating.attachTo      = CLAY_ATTACH_TO_PARENT;
+                menu.floating.zIndex        = 1000;
+                menu.floating.attachPoints =
+                    Clay_FloatingAttachPoints{ CLAY_ATTACH_POINT_LEFT_TOP,
+                                               CLAY_ATTACH_POINT_LEFT_BOTTOM };
+                auto bw           = static_cast<uint16_t>(px(1));
                 menu.border.color = to_clay(t.border);
                 menu.border.width = Clay_BorderWidth{ bw, bw, bw, bw, 0 };
 
                 Clay__OpenElement();
                 Clay__ConfigureOpenElement(menu);
                 for (int i = 0; i < count; i++) {
-                    Clay_ElementId itemId = detail::sub_id(id, static_cast<uint32_t>(i) + 1);
-                    const bool itemOver = detail::pointer_present() && Clay_PointerOver(itemId);
+                    Clay_ElementId itemId =
+                        detail::sub_id(id, static_cast<uint32_t>(i) + 1);
+                    const bool itemOver =
+                        detail::pointer_present() && Clay_PointerOver(itemId);
                     if (itemOver) detail::set_pointer_over_ui();
                     // An open list is in front of the game, so it takes the
                     // pointer whether or not this particular item is under it.
@@ -374,24 +386,24 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                     if (itemOver && detail::pointer_released()) {
                         if (*selected != i) changed = true;
                         *selected = i;
-                        st->flag = false;
+                        st->flag  = false;
                     }
 
                     Clay_ElementDeclaration item{};
                     item.layout.sizing.width = grow();
-                    item.layout.padding = Clay_Padding{
-                        static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                        static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                        static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                        static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+                    item.layout.padding =
+                        Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
+                                      static_cast<uint16_t>(px(t.padding_x * 0.5f)),
+                                      static_cast<uint16_t>(px(t.padding_y * 0.5f)),
+                                      static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
                     item.backgroundColor = to_clay(detail::state_color(
-                        itemId, (i == *selected) ? t.surface : t.panel,
-                        t.surface_hover, t.surface_press, itemOver,
-                        itemOver && detail::pointer_down()));
-                    item.cornerRadius = Clay_CornerRadius{ r * 0.5f, r * 0.5f, r * 0.5f, r * 0.5f };
+                        itemId, (i == *selected) ? t.surface : t.panel, t.surface_hover,
+                        t.surface_press, itemOver, itemOver && detail::pointer_down()));
+                    item.cornerRadius =
+                        Clay_CornerRadius{ r * 0.5f, r * 0.5f, r * 0.5f, r * 0.5f };
                     Clay__OpenElementWithId(itemId);
                     Clay__ConfigureOpenElement(item);
-                    label_text(std::string_view{items[i]}, t.text, t.font_size);
+                    label_text(std::string_view{ items[i] }, t.text, t.font_size);
                     Clay__CloseElement();
                 }
                 Clay__CloseElement();
@@ -415,17 +427,17 @@ bool text_input(std::string_view label, char *buffer, int capacity) {
 bool text_input(std::string_view label, char *buffer, int capacity,
                 const text_input_options &o) {
     if (!detail::frame_open() || buffer == nullptr || capacity < 2) return false;
-    const theme &t = current_theme();
+    const theme &t      = current_theme();
 
-    Clay_ElementId id = detail::element_id(label, o.id);
-    const bool over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    Clay_ElementId id   = detail::element_id(label, o.id);
+    const bool     over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
     if (over) detail::set_pointer_over_ui();
 
     const bool hasFocus = o.enabled && detail::focusable(id, label);
     if (over && detail::pointer_released()) detail::focus_by_id(id.id, label);
 
     bool changed = false;
-    int len = static_cast<int>(std::strlen(buffer));
+    int  len     = static_cast<int>(std::strlen(buffer));
 
     if (hasFocus && o.enabled) {
         // While a field has focus the keyboard is its own: Tab and the arrows
@@ -437,14 +449,14 @@ bool text_input(std::string_view label, char *buffer, int capacity,
         while ((c = GetCharPressed()) != 0) {
             if (c >= 32 && c < 127 && len < capacity - 1) {
                 buffer[len++] = static_cast<char>(c);
-                buffer[len] = '\0';
-                changed = true;
+                buffer[len]   = '\0';
+                changed       = true;
             }
         }
         if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
             if (len > 0) {
                 buffer[--len] = '\0';
-                changed = true;
+                changed       = true;
             }
         }
     }
@@ -460,14 +472,16 @@ bool text_input(std::string_view label, char *buffer, int capacity,
         Clay_ElementDeclaration field{};
         field.layout.sizing.width  = o.width > 0 ? fixed(o.width) : grow();
         field.layout.sizing.height = fit();
-        field.layout.padding = Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                                             static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                                             static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                                             static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
-        field.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+        field.layout.padding =
+            Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
+                          static_cast<uint16_t>(px(t.padding_x * 0.5f)),
+                          static_cast<uint16_t>(px(t.padding_y * 0.5f)),
+                          static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+        field.layout.childAlignment =
+            Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
         field.backgroundColor = to_clay(o.enabled ? t.surface : t.disabled);
-        float r = px(t.corner_radius);
-        field.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+        float r               = px(t.corner_radius);
+        field.cornerRadius    = Clay_CornerRadius{ r, r, r, r };
 
         Clay__OpenElement();
         Clay__ConfigureOpenElement(field);
@@ -479,12 +493,17 @@ bool text_input(std::string_view label, char *buffer, int capacity,
                 // costs no render command, and it blinks by not being appended
                 // half the time.
                 char shown[512];
-                int n = len < 500 ? len : 500;
+                // Clamped in both directions rather than just the top. len is
+                // never negative today, but nothing here enforces that, and a
+                // negative n turns the memcpy below into a very large one.
+                int n = len;
+                if (n < 0) n = 0;
+                if (n > 500) n = 500;
                 std::memcpy(shown, buffer, static_cast<size_t>(n));
                 bool caretOn = hasFocus && (static_cast<int>(GetTime() * 2.0) % 2) == 0;
                 if (caretOn) shown[n++] = '_';
                 shown[n] = '\0';
-                label_text(std::string_view{shown, static_cast<size_t>(n)},
+                label_text(std::string_view{ shown, static_cast<size_t>(n) },
                            o.enabled ? t.text : t.disabled_text, t.font_size);
             }
         }

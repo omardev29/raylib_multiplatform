@@ -14,6 +14,7 @@
 #include <raylib_multiplatform/generated/app_config.h> // APP_RRES_PASSWORD
 
 #include <cstdio>
+#include <utility>
 
 #ifndef RRES_PACK_FILE
 #define RRES_PACK_FILE "resources.rres"
@@ -30,14 +31,13 @@
 #define RRES_PASSWORD APP_RRES_PASSWORD
 #endif
 
-namespace rmp::assets {
-namespace detail {
+namespace rmp::assets::detail {
 
 namespace {
 
-bool g_usingPack = false;
-rresCentralDir g_cdir = {0, nullptr};
-char g_packPath[2048] = {0};
+bool           g_usingPack      = false;
+rresCentralDir g_cdir           = { 0, nullptr };
+char           g_packPath[2048] = { 0 };
 
 } // namespace
 
@@ -47,28 +47,31 @@ bool open_pack() {
     std::snprintf(g_packPath, sizeof(g_packPath), "%s%s", RESOURCES_PATH, RRES_PACK_FILE);
 
     if (!FileExists(g_packPath)) {
-        TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s", RESOURCES_PATH);
+        TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s",
+                 RESOURCES_PATH);
         return false;
     }
 
     rresSetCipherPassword(RRES_PASSWORD);
     g_cdir = rresLoadCentralDirectory(g_packPath);
     if (g_cdir.count <= 0) {
-        TraceLog(LOG_WARNING, "ASSETS: %s has no central directory, using loose files", g_packPath);
+        TraceLog(LOG_WARNING, "ASSETS: %s has no central directory, using loose files",
+                 g_packPath);
         return false;
     }
 
     g_usingPack = true;
-    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", g_packPath, g_cdir.count);
+    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", g_packPath,
+             g_cdir.count);
     return true;
 }
 
 void close_pack() {
     if (!g_usingPack) return;
     rresUnloadCentralDirectory(g_cdir);
-    g_cdir.count = 0;
+    g_cdir.count   = 0;
     g_cdir.entries = nullptr;
-    g_usingPack = false;
+    g_usingPack    = false;
 }
 
 bool pack_is_open() { return g_usingPack; }
@@ -90,7 +93,7 @@ unsigned char *pack_read(const char *name, int *size) {
     // LoadDataFromResource, not ...FromResourceChunk: the latter is static
     // inside rres-raylib.h. The public one also transparently follows a LINK
     // chunk to an external file.
-    void *data = LoadDataFromResource(chunk, &dataSize);
+    void *data            = LoadDataFromResource(chunk, &dataSize);
     rresUnloadResourceChunk(chunk);
     if (data == nullptr) return nullptr;
 
@@ -107,23 +110,26 @@ unsigned char *pack_read(const char *name, int *size) {
 // Returns a zeroed Image if the name is not packed or does not decode; the
 // caller falls back to the loose file.
 Image pack_read_image(const char *name) {
-    Image img = {0};
+    Image img = { nullptr };
     if (!g_usingPack || name == nullptr) return img;
 
     unsigned int id = rresGetResourceId(g_cdir, name);
     if (id == 0) {
-        TraceLog(LOG_WARNING, "ASSETS: '%s' not found in pack, falling back to loose file", name);
+        TraceLog(LOG_WARNING,
+                 "ASSETS: '%s' not found in pack, falling back to loose file", name);
         return img;
     }
 
     rresResourceMulti multi = rresLoadResourceMulti(g_packPath, id);
     if (multi.count > 0) {
         bool ok = true;
-        for (int i = 0; i < multi.count; i++) {
+        for (int i = 0; std::cmp_less(i, multi.count); i++) {
             int r = UnpackResourceChunk(&multi.chunks[i]);
             if (r != 0) {
                 ok = false;
-                TraceLog(LOG_WARNING, "ASSETS: Failed to unpack '%s' (code %d, wrong password?)", name, r);
+                TraceLog(LOG_WARNING,
+                         "ASSETS: Failed to unpack '%s' (code %d, wrong password?)", name,
+                         r);
             }
         }
         if (ok) img = LoadImageFromResource(multi.chunks[0]);
@@ -131,10 +137,10 @@ Image pack_read_image(const char *name) {
     rresUnloadResourceMulti(multi);
 
     if (img.data == nullptr) {
-        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+        TraceLog(LOG_WARNING,
+                 "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
     return img;
 }
 
-} // namespace detail
-} // namespace rmp::assets
+} // namespace rmp::assets::detail

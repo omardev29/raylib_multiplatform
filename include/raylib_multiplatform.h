@@ -29,10 +29,10 @@
 // APP_NAME, APP_WINDOW_TITLE, APP_WINDOW_WIDTH/HEIGHT, APP_RRES_PASSWORD.
 #include <raylib_multiplatform/generated/app_config.h>
 
-#include <raylib_multiplatform/platform.h>   // Android bindings, ads, CI hook
-#include <raylib_multiplatform/colors.h>     // extra colors
-#include <raylib_multiplatform/assets.h>     // rmp::assets — resources/
-#include <raylib_multiplatform/ads.h>        // rmp::ads    — interstitial/rewarded
-#include <raylib_multiplatform/ui.h>         // rmp::ui     — menus, buttons, text
-#include <raylib_multiplatform/utils.h>      // rmp::utils  — closing the app, and more later
-#include <raylib_multiplatform/lifecycle.h>  // _ready/_process/_exit -> main()
+#include <raylib_multiplatform/platform.h> // Android bindings, ads, CI hook
+#include <raylib_multiplatform/colors.h>   // extra colors
+#include <raylib_multiplatform/assets.h>   // rmp::assets — resources/
+#include <raylib_multiplatform/ads.h>      // rmp::ads    — interstitial/rewarded
+#include <raylib_multiplatform/ui.h>       // rmp::ui     — menus, buttons, text
+#include <raylib_multiplatform/utils.h> // rmp::utils  — closing the app, and more later
+#include <raylib_multiplatform/lifecycle.h> // _ready/_process/_exit -> main()

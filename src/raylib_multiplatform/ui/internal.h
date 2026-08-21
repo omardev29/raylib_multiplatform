@@ -34,7 +34,7 @@ void shutdown_context();
 // Recomputed at every begin() from the viewport and the design resolution.
 void  update_scale();
 float ui_scale();
-void  set_scale_override(float s);   // 0 = automatic
+void  set_scale_override(float s); // 0 = automatic
 
 // The pointer, through whichever provider is installed.
 void read_pointer(Clay_Vector2 *position, bool *down);
@@ -117,8 +117,8 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on);
 // The colour a control is right now, moving between the three the theme gives
 // it. Every widget with a hover state goes through this, which is why they all
 // feel the same.
-Color state_color(Clay_ElementId id, Color base, Color hover, Color press,
-                  bool over, bool pressed);
+Color state_color(Clay_ElementId id, Color base, Color hover, Color press, bool over,
+                  bool pressed);
 
 // Blend two colours, alpha included. `t` is 0..1 and is clamped.
 Color mix_color(Color a, Color b, float t);
@@ -139,8 +139,8 @@ float size_ratio(const sizing &s, const theme &t);
 // the one with the focus right now.
 bool focusable(Clay_ElementId id, std::string_view name);
 
-void begin_focus_frame();   // resolve navigation, using last frame's list
-void end_focus_frame();     // swap the lists
+void begin_focus_frame(); // resolve navigation, using last frame's list
+void end_focus_frame();   // swap the lists
 
 // True once per press, for whoever has the focus. Enter, Space, or the
 // gamepad's bottom face button.
@@ -148,7 +148,7 @@ bool take_activate();
 
 // -1, 0 or +1 from the arrows, the d-pad or the left stick, for the controls
 // where sideways means something (a slider). Repeats while held.
-int  nav_axis_x();
+int nav_axis_x();
 
 // Someone is dragging, or the pointer is over something interactive. This is
 // what wants_pointer() answers with.
@@ -162,10 +162,10 @@ void set_keyboard_captured(bool captured);
 // flag, a text field's caret. It is UI state, not application state, which is
 // why it lives here rather than being something the caller has to hold.
 struct widget_state {
-    uint32_t id    = 0;
-    int      i     = 0;
-    float    f     = 0;
-    bool     flag  = false;
+    uint32_t id   = 0;
+    int      i    = 0;
+    float    f    = 0;
+    bool     flag = false;
 };
 widget_state *state_for(uint32_t id);
 
@@ -188,7 +188,8 @@ const char *cstr(Clay_StringSlice slice);
 // Clay_EndLayout is pure computation. That is what makes headless layout tests
 // possible (tests/ui_layout_test.cpp).
 
-using measure_fn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
+using measure_fn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *,
+                                       void *);
 using pointer_fn = void (*)(Clay_Vector2 *position, bool *down);
 
 void set_measure_provider(measure_fn fn);
@@ -206,7 +207,8 @@ void set_test_viewport(float width, float height);
 bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *out);
 
 // The defaults, exposed so a test can put them back.
-Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config, void *user);
+Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
+                                    void *user);
 void            pointer_from_raylib(Clay_Vector2 *position, bool *down);
 
 // --- shared conversions ----------------------------------------------------
@@ -215,7 +217,6 @@ void            pointer_from_raylib(Clay_Vector2 *position, bool *down);
 // colour it is about to become, rather than from black, is the difference
 // between a ghost control lighting up and one flashing dark first.
 inline Color clear_alpha(Color c) { return Color{ c.r, c.g, c.b, 0 }; }
-
 
 inline Clay_Color to_clay(Color c) {
     return Clay_Color{ static_cast<float>(c.r), static_cast<float>(c.g),

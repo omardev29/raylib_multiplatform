@@ -1,0 +1,96 @@
+# .clang-format — the house style, written down so an editor stops arguing.
+#
+# Until this file existed, an editor set to LLVM defaults reformatted whatever
+# it touched to 2 spaces and produced a diff that was 90 % whitespace. That is
+# the only reason it exists: not to impose a style, but to stop two of them
+# fighting over the same file.
+#
+# The style is the one the repository already had. Every setting below that is
+# not an LLVM default is here because the code was written that way first and
+# the formatter had to be taught, not the other way round.
+#
+#   just fmt          format everything
+#   just fmt check    fail if anything is unformatted (this is what CI runs)
+#
+# thirdparty/ is excluded by .clang-format-ignore: those files are frozen
+# snapshots and reformatting one would bury its real patch in noise.
+
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+
+# 4 spaces, no tabs. LLVM says 2, and the repository says 4.
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+
+# 90, not LLVM's 80. Wide enough for `void open_panel(const panel_options &o);`
+# plus a trailing comment, which is a shape that occurs on nearly every line of
+# the public headers.
+ColumnLimit: 90
+
+# Aligning a column of related fields is part of how the theme struct and the
+# options structs are readable at a glance. LLVM leaves them ragged.
+# AcrossEmptyLines/AcrossComments, because the theme struct and the option
+# structs align as ONE column each, and both are broken up by blank lines and
+# by the comments that explain individual fields.
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+# Declarations align only within an uninterrupted run. Across comments they
+# would line up the return types of a whole documented header, and
+# `void           init();` is not an improvement on anything.
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 1
+
+# `if (!frame_open()) return;` stays on one line. It reads as a guard, and a
+# guard that occupies three lines stops looking like one.
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+
+# NEVER reflow a comment. The file headers carry directory trees, tables and
+# hand-wrapped paragraphs, and a formatter that re-wraps them destroys the one
+# part of this repository that took the longest to write.
+ReflowComments: Never
+
+# `const char *id`, not `const char* id`. Matches raylib and matches the repo.
+DerivePointerAlignment: false
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+
+# `CLITERAL(Color){ 18, 18, 22, 255 }` keeps its inner spaces. With LLVM's
+# Cpp11BracedListStyle they all close up, and every colour literal in the theme
+# would change.
+Cpp11BracedListStyle: false
+
+# The switches in render.cpp indent their cases.
+IndentCaseLabels: true
+
+# Includes are hand-ordered and carry a trailing comment saying what each one is
+# for. Sorting them would scramble that for no gain in a repository with one
+# author, and include order is load-bearing in a C project.
+SortIncludes: Never
+IncludeBlocks: Preserve
+
+# Macro continuations line up just past the longest line of the macro rather
+# than at the column limit, so adding one long line does not re-align the other
+# forty.
+AlignEscapedNewlines: Left
+
+NamespaceIndentation: None
+FixNamespaceComments: true
+ShortNamespaceLines: 0
+InsertNewlineAtEOF: true
+KeepEmptyLinesAtTheStartOfBlocks: false

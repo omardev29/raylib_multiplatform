@@ -29,7 +29,7 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>   // brings in rmp::ads
+#include <raylib_multiplatform.h> // brings in rmp::ads
 
 static int lastReward = 0;
 
@@ -54,16 +54,20 @@ static void _process() {
         rmp::ads::show_rewarded();
         rmp::ads::request_rewarded();
     }
-    if (rmp::ads::take_reward_earned()) {           // true exactly once per earned reward
+    if (rmp::ads::take_reward_earned()) {       // true exactly once per earned reward
         lastReward = rmp::ads::reward_amount(); // grant it to the player here
     }
 
     BeginDrawing();
     ClearBackground(RAYWHITE);
     DrawText("SPACE: interstitial   R: rewarded", 10, 40, 20, DARKGRAY);
-    DrawText(rmp::ads::is_interstitial_loaded() ? "interstitial ready" : "interstitial loading...", 10, 80, 20, GRAY);
-    DrawText(rmp::ads::is_rewarded_loaded() ? "rewarded ready" : "rewarded loading...", 10, 110, 20, GRAY);
-    if (lastReward > 0) DrawText(TextFormat("Last reward: %d", lastReward), 10, 150, 20, DARKGREEN);
+    DrawText(rmp::ads::is_interstitial_loaded() ? "interstitial ready"
+                                                : "interstitial loading...",
+             10, 80, 20, GRAY);
+    DrawText(rmp::ads::is_rewarded_loaded() ? "rewarded ready" : "rewarded loading...",
+             10, 110, 20, GRAY);
+    if (lastReward > 0)
+        DrawText(TextFormat("Last reward: %d", lastReward), 10, 150, 20, DARKGREEN);
     EndDrawing();
 }
 

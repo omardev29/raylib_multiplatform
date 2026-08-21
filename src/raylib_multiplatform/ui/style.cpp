@@ -30,13 +30,13 @@ namespace {
 // map to avoid a missing 120 ms fade would be the wrong trade.
 constexpr int kSlots = 512;
 
-struct Slot {
-    uint32_t key = 0;
-    float    t   = 0.0f;
+struct slot {
+    uint32_t key  = 0;
+    float    t    = 0.0f;
     bool     used = false;
 };
 
-Slot  g_slots[kSlots];
+slot  g_slots[kSlots];
 float g_dt = 0.0f;
 
 // Smoothstep. Linear in, eased out: the value still arrives exactly on time,
@@ -47,7 +47,7 @@ unsigned char mix8(unsigned char a, unsigned char b, float t) {
     float v = static_cast<float>(a) + (static_cast<float>(b) - static_cast<float>(a)) * t;
     if (v < 0.0f) v = 0.0f;
     if (v > 255.0f) v = 255.0f;
-    return static_cast<unsigned char>(v + 0.5f);
+    return static_cast<unsigned char>(std::lround(v));
 }
 
 } // namespace
@@ -55,8 +55,8 @@ unsigned char mix8(unsigned char a, unsigned char b, float t) {
 Color mix_color(Color a, Color b, float t) {
     if (t <= 0.0f) return a;
     if (t >= 1.0f) return b;
-    return Color{ mix8(a.r, b.r, t), mix8(a.g, b.g, t),
-                  mix8(a.b, b.b, t), mix8(a.a, b.a, t) };
+    return Color{ mix8(a.r, b.r, t), mix8(a.g, b.g, t), mix8(a.b, b.b, t),
+                  mix8(a.a, b.a, t) };
 }
 
 void anim_begin_frame() {
@@ -81,7 +81,7 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
     if (duration <= 0.0f) return target;
 
     const uint32_t key = id.id ^ ((channel + 1u) * 2246822519u);
-    Slot &s = g_slots[key & (kSlots - 1)];
+    slot          &s   = g_slots[key & (kSlots - 1)];
     if (!s.used || s.key != key) {
         // First sight of this control, or the slot belonged to another one.
         // Start where it is going, so nothing fades in from nowhere the frame
@@ -103,8 +103,8 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
     return ease(s.t);
 }
 
-Color state_color(Clay_ElementId id, Color base, Color hover, Color press,
-                  bool over, bool pressed) {
+Color state_color(Clay_ElementId id, Color base, Color hover, Color press, bool over,
+                  bool pressed) {
     // Two channels, not three states, because they overlap: pressing something
     // means the pointer is also over it, and the press has to be able to fade
     // out to hover rather than all the way back to rest.
@@ -118,9 +118,12 @@ Color state_color(Clay_ElementId id, Color base, Color hover, Color press,
 float resolve_size(const sizing &s, const theme &t) {
     if (s.named) {
         switch (s.step) {
-            case ui::size::small:  return t.font_size_small;
-            case ui::size::large:  return t.font_size_large;
-            case ui::size::medium: break;
+            case ui::size::small:
+                return t.font_size_small;
+            case ui::size::large:
+                return t.font_size_large;
+            case ui::size::medium:
+                break;
         }
         return t.font_size;
     }

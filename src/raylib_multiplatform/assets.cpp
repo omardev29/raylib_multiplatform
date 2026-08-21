@@ -21,7 +21,7 @@ namespace rmp::assets {
 // found nothing in the pack and nothing on disk either.
 namespace detail {
 int requested_count = 0;
-int failed_count = 0;
+int failed_count    = 0;
 } // namespace detail
 
 namespace {
@@ -69,7 +69,7 @@ Image load_image(const char *name) {
 }
 
 Texture2D load_texture(const char *name) {
-    Image img = load_image(name);   // counts the request for us
+    Image     img = load_image(name); // counts the request for us
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
@@ -84,7 +84,7 @@ Sound load_sound(const char *name) {
         // where our packer got it from in the first place.
         const char *ext = GetFileExtension(name);
         if (ext != nullptr) {
-            int size = 0;
+            int            size = 0;
             unsigned char *data = detail::pack_read(name, &size);
             if (data != nullptr) {
                 Wave wave = LoadWaveFromMemory(ext, data, size);
@@ -96,7 +96,8 @@ Sound load_sound(const char *name) {
                 }
             }
         }
-        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+        TraceLog(LOG_WARNING,
+                 "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
     char path[2048];
@@ -112,7 +113,7 @@ Font load_font(const char *name, int fontSize) {
         // would reach TextToLower(NULL) inside raylib, so it never gets there.
         const char *ext = GetFileExtension(name);
         if (ext != nullptr) {
-            int size = 0;
+            int            size = 0;
             unsigned char *data = detail::pack_read(name, &size);
             if (data != nullptr) {
                 Font font = LoadFontFromMemory(ext, data, size, fontSize, nullptr, 0);
@@ -120,7 +121,8 @@ Font load_font(const char *name, int fontSize) {
                 if (font.glyphCount > 0) return font;
             }
         }
-        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+        TraceLog(LOG_WARNING,
+                 "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
     char path[2048];
@@ -133,7 +135,8 @@ unsigned char *load_data(const char *name, int *size) {
     if (detail::pack_is_open()) {
         unsigned char *data = detail::pack_read(name, size);
         if (data != nullptr) return data;
-        TraceLog(LOG_WARNING, "ASSETS: '%s' not usable from pack, falling back to loose file", name);
+        TraceLog(LOG_WARNING,
+                 "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
     char path[2048];

@@ -9,8 +9,7 @@
 
 #include <raylib.h>
 
-namespace rmp::assets {
-namespace detail {
+namespace rmp::assets::detail {
 
 // --- pack.cpp --------------------------------------------------------------
 // The .rres container: opening it, closing it, and pulling one entry out.
@@ -54,5 +53,4 @@ bool in_resources_dir(const char *path);
 extern int requested_count;
 extern int failed_count;
 
-} // namespace detail
-} // namespace rmp::assets
+} // namespace rmp::assets::detail

@@ -59,25 +59,25 @@ theme theme_light() {
     t.surface_press  = Color{ 203, 203, 216, 255 };
     t.border         = Color{ 199, 199, 212, 255 };
 
-    t.text           = Color{  26,  26,  33, 255 };
-    t.text_muted     = Color{  94,  94, 110, 255 };
+    t.text           = Color{ 26, 26, 33, 255 };
+    t.text_muted     = Color{ 94, 94, 110, 255 };
     t.text_on_accent = Color{ 255, 255, 255, 255 };
 
     // Darker than the dark theme's accents on purpose: the same blue that
     // reads as bright on near-black reads as washed out on near-white, and
     // white label text on it stops being legible.
-    t.primary        = Color{  46,  86, 214, 255 };
-    t.primary_hover  = Color{  62, 104, 236, 255 };
-    t.primary_press  = Color{  34,  68, 178, 255 };
+    t.primary        = Color{ 46, 86, 214, 255 };
+    t.primary_hover  = Color{ 62, 104, 236, 255 };
+    t.primary_press  = Color{ 34, 68, 178, 255 };
 
-    t.danger         = Color{ 196,  42,  54, 255 };
-    t.danger_hover   = Color{ 218,  60,  72, 255 };
-    t.danger_press   = Color{ 162,  30,  40, 255 };
+    t.danger         = Color{ 196, 42, 54, 255 };
+    t.danger_hover   = Color{ 218, 60, 72, 255 };
+    t.danger_press   = Color{ 162, 30, 40, 255 };
 
     t.disabled       = Color{ 228, 228, 235, 255 };
     t.disabled_text  = Color{ 154, 154, 168, 255 };
 
-    t.focus          = Color{  38,  84, 210, 255 };
+    t.focus          = Color{ 38, 84, 210, 255 };
 
     // The one metric that differs, and the reason the light theme works at all.
     t.border_width   = 1;
@@ -86,6 +86,6 @@ theme theme_light() {
 }
 
 const theme &current_theme() { return active(); }
-void set_theme(const theme &t) { active() = t; }
+void         set_theme(const theme &t) { active() = t; }
 
 } // namespace rmp::ui

@@ -50,7 +50,7 @@ static void _process(float delta) {
     ClearBackground(rmp::ui::current_theme().background);
     rmp::ui::begin();
 
-    rmp::ui::panel([&]{
+    rmp::ui::panel([&] {
         rmp::ui::text("Coins: " + std::to_string(coins));
 
         if (rmp::ads::is_rewarded_loaded()) {

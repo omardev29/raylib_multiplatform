@@ -44,11 +44,11 @@ static void _process() {
     // Soft keyboard: toggle it and read the last typed character.
     if (IsKeyPressed(KEY_K)) ShowSoftKeyboard();
     if (IsKeyPressed(KEY_H)) HideSoftKeyboard();
-    char lastKey = GetLastSoftKeyChar();   // 0 if nothing new was typed
+    char lastKey = GetLastSoftKeyChar(); // 0 if nothing new was typed
     ClearLastSoftKey();
 
     // Sensors: read the accelerometer axis.
-    Vector3 accel = GetAccelerotmerAxis();
+    Vector3 accel      = GetAccelerotmerAxis();
 
     Orientation orient = GetScreenOrientation();
 #endif
@@ -56,8 +56,11 @@ static void _process() {
     BeginDrawing();
     ClearBackground(RAYWHITE);
 #ifdef __ANDROID__
-    DrawText(TextFormat("accel: %.2f %.2f %.2f", accel.x, accel.y, accel.z), 10, 40, 20, DARKGRAY);
-    DrawText(TextFormat("last key: %c   orientation: %d", lastKey ? lastKey : '-', (int)orient), 10, 80, 20, DARKGRAY);
+    DrawText(TextFormat("accel: %.2f %.2f %.2f", accel.x, accel.y, accel.z), 10, 40, 20,
+             DARKGRAY);
+    DrawText(TextFormat("last key: %c   orientation: %d", lastKey ? lastKey : '-',
+                        (int)orient),
+             10, 80, 20, DARKGRAY);
 #else
     DrawText("raymob mobile features only run on Android", 10, 40, 20, GRAY);
 #endif

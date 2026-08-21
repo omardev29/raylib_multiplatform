@@ -20,13 +20,13 @@
 // in sync. What you draw each frame is decided by your own data.
 enum class Screen { Menu, Options, Confirm, Playing };
 
-static Screen screen  = Screen::Menu;
-static int    score   = 0;
-static bool   music   = true;
+static Screen screen = Screen::Menu;
+static int    score  = 0;
+static bool   music  = true;
 
 static void _ready() {
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);   // resize it and watch the UI follow
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch the UI follow
 }
 
 // -----------------------------------------------------------------------
@@ -39,9 +39,9 @@ static void main_menu() {
 
     rmp::ui::text("MY GAME");
 
-    if (rmp::ui::button("Play"))    screen = Screen::Playing;
+    if (rmp::ui::button("Play")) screen = Screen::Playing;
     if (rmp::ui::button("Options")) screen = Screen::Options;
-    if (rmp::ui::button("Quit"))    screen = Screen::Confirm;
+    if (rmp::ui::button("Quit")) screen = Screen::Confirm;
 
     rmp::ui::end();
 }
@@ -90,7 +90,8 @@ static void confirm_quit() {
     // terminate themselves. Guarding it out is optional; the call is safe
     // everywhere. Here it is guarded so the button is not dead on iPhone.
 #if !defined(PLATFORM_IOS)
-    if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger })) rmp::utils::exit();
+    if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger }))
+        rmp::utils::exit();
 #endif
 
     // This screen and the main menu both have a "Back"-ish button. Identical
@@ -113,8 +114,8 @@ static void hud() {
     // Built fresh every frame, which is exactly how immediate mode is meant to
     // be used: no label object to update, no "setText" to remember.
     rmp::ui::text("Score: " + std::to_string(score));
-    rmp::ui::text("Press ESC for the menu", { .color = rmp::ui::color_role::muted,
-                                              .size  = 14 });
+    rmp::ui::text("Press ESC for the menu",
+                  { .color = rmp::ui::color_role::muted, .size = 14 });
 
     rmp::ui::end();
 }
@@ -131,18 +132,24 @@ static void _process(float delta) {
     // The UI draws in end(), so the whole pair belongs between BeginDrawing()
     // and EndDrawing() — and after whatever you want it to sit on top of.
     switch (screen) {
-        case Screen::Menu:    main_menu();    break;
-        case Screen::Options: options_menu(); break;
-        case Screen::Confirm: confirm_quit(); break;
-        case Screen::Playing: hud();          break;
+        case Screen::Menu:
+            main_menu();
+            break;
+        case Screen::Options:
+            options_menu();
+            break;
+        case Screen::Confirm:
+            confirm_quit();
+            break;
+        case Screen::Playing:
+            hud();
+            break;
     }
 
     EndDrawing();
 }
 
-static void _exit() {
-    CloseWindow();
-}
+static void _exit() { CloseWindow(); }
 
 RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
 

@@ -34,13 +34,13 @@
 #ifndef SMOKE_TEST_H
 #define SMOKE_TEST_H
 
-#include <raylib.h>   // TraceLog, LOG_INFO, LoadImageFromScreen
-#include <rlgl.h>     // rlDrawRenderBatchActive (declaration only)
-#include <stdlib.h>   // getenv, atoi
+#include <raylib.h> // TraceLog, LOG_INFO, LoadImageFromScreen
+#include <rlgl.h>   // rlDrawRenderBatchActive (declaration only)
+#include <stdlib.h> // getenv, atoi
 
 #if defined(__cplusplus)
 inline int SmokeTest_frame     = 0;
-inline int SmokeTest_maxFrames = 0;   // 0 = run until the window is closed
+inline int SmokeTest_maxFrames = 0; // 0 = run until the window is closed
 #else
 static int SmokeTest_frame     = 0;
 static int SmokeTest_maxFrames = 0;
@@ -48,7 +48,7 @@ static int SmokeTest_maxFrames = 0;
 
 // Call once at startup, before entering the game loop. Reads RAY_TEST_MAX_FRAMES.
 static inline void SmokeTest_Begin(void) {
-    const char* env = getenv("RAY_TEST_MAX_FRAMES");
+    const char *env = getenv("RAY_TEST_MAX_FRAMES");
     if (env && env[0]) SmokeTest_maxFrames = atoi(env);
 }
 
@@ -64,7 +64,8 @@ static inline void SmokeTest_Begin(void) {
 // with no resources/ in it, and every texture came back 0x0) without inventing
 // one nobody asked for: request nothing, fail nothing, pass.
 static inline void SmokeTest_ReportBoot(int assetsFailed, int assetsRequested) {
-    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK assets_failed=%d assets_requested=%d testFrames=%d",
+    TraceLog(LOG_INFO,
+             "RAY_TEST_BOOT_OK assets_failed=%d assets_requested=%d testFrames=%d",
              assetsFailed, assetsRequested, SmokeTest_maxFrames);
 }
 
@@ -93,7 +94,7 @@ static inline int SmokeTest_CaptureAt(void) {
 //     without flushing and all you see is ClearBackground().
 // ---------------------------------------------------------------------------
 static inline void SmokeTest_CaptureFrame(void) {
-    if (SmokeTest_maxFrames <= 0) return;              // no-op outside CI
+    if (SmokeTest_maxFrames <= 0) return; // no-op outside CI
     if (SmokeTest_frame != SmokeTest_CaptureAt()) return;
 
     const int w = GetRenderWidth();
@@ -103,15 +104,15 @@ static inline void SmokeTest_CaptureFrame(void) {
         return;
     }
 
-    rlDrawRenderBatchActive();                          // submit queued draws
-    Image img = LoadImageFromScreen();                  // RGBA8, top-left origin
+    rlDrawRenderBatchActive();         // submit queued draws
+    Image img = LoadImageFromScreen(); // RGBA8, top-left origin
     if (img.data == NULL) {
         TraceLog(LOG_WARNING, "RAY_TEST_RENDER_FAIL reason=readback-returned-null");
         return;
     }
 
-    const unsigned char* px = (const unsigned char*)img.data;
-    const long total = (long)img.width * (long)img.height;
+    const unsigned char *px    = (const unsigned char *)img.data;
+    const long           total = (long)img.width * (long)img.height;
 
     // "Background" is the most common colour in the frame, found with a
     // histogram — not the corner pixel. The corner is the obvious choice and it
@@ -127,12 +128,15 @@ static inline void SmokeTest_CaptureFrame(void) {
     // SwiftShader and mobile GPUs disagree on text antialiasing and texture
     // filtering, so a hash gate would be red on half the matrix for no reason.
     // The hash is logged as a diagnostic only.
-    unsigned int* hist = (unsigned int*)calloc(65536, sizeof(unsigned int));
-    if (hist == NULL) { UnloadImage(img); return; }
+    unsigned int *hist         = (unsigned int *)calloc(65536, sizeof(unsigned int));
+    if (hist == NULL) {
+        UnloadImage(img);
+        return;
+    }
 
-    unsigned int hash = 2166136261u;                    // FNV-1a
+    unsigned int hash = 2166136261u; // FNV-1a
     for (long i = 0; i < total; ++i) {
-        const unsigned char* p = px + i * 4;
+        const unsigned char *p = px + i * 4;
         hist[((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3)]++;
         hash = (hash ^ p[0]) * 16777619u;
         hash = (hash ^ p[1]) * 16777619u;
@@ -140,7 +144,8 @@ static inline void SmokeTest_CaptureFrame(void) {
     }
 
     int bg = 0;
-    for (int k = 1; k < 65536; ++k) if (hist[k] > hist[bg]) bg = k;
+    for (int k = 1; k < 65536; ++k)
+        if (hist[k] > hist[bg]) bg = k;
     const long differing = total - (long)hist[bg];
     free(hist);
     UnloadImage(img);
@@ -155,11 +160,12 @@ static inline void SmokeTest_CaptureFrame(void) {
                  "RAY_TEST_RENDER_OK frame=%d size=%dx%d pixels=%ld ratio=%.5f hash=%08x",
                  SmokeTest_frame, img.width, img.height, differing, ratio, hash);
     } else {
-        TraceLog(LOG_WARNING,
-                 "RAY_TEST_RENDER_FAIL frame=%d size=%dx%d pixels=%ld ratio=%.5f hash=%08x "
-                 "reason=%s",
-                 SmokeTest_frame, img.width, img.height, differing, ratio, hash,
-                 (ratio <= 0.0005) ? "blank-frame" : "no-background-visible");
+        TraceLog(
+            LOG_WARNING,
+            "RAY_TEST_RENDER_FAIL frame=%d size=%dx%d pixels=%ld ratio=%.5f hash=%08x "
+            "reason=%s",
+            SmokeTest_frame, img.width, img.height, differing, ratio, hash,
+            (ratio <= 0.0005) ? "blank-frame" : "no-background-visible");
     }
 }
 

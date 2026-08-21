@@ -25,20 +25,20 @@
 
 // Plain data. This is the whole model.
 struct Settings {
-    bool  fullscreen = false;
-    bool  vsync      = true;
-    bool  subtitles  = false;
-    float master     = 0.8f;
-    float music      = 0.5f;
+    bool  fullscreen  = false;
+    bool  vsync       = true;
+    bool  subtitles   = false;
+    float master      = 0.8f;
+    float music       = 0.5f;
     float sensitivity = 0.35f;
-    int   quality    = 1;
-    int   language   = 0;
-    char  player[24] = "Player";
+    int   quality     = 1;
+    int   language    = 0;
+    char  player[24]  = "Player";
 };
 
 static Settings cfg;
-static Settings saved;          // what was on disk, to know if anything changed
-static bool dirty = false;
+static Settings saved; // what was on disk, to know if anything changed
+static bool     dirty         = false;
 
 static const char *QUALITY[]  = { "Low", "Medium", "High", "Ultra" };
 static const char *LANGUAGE[] = { "English", "Espanol", "Francais" };
@@ -46,9 +46,12 @@ static const char *LANGUAGE[] = { "English", "Espanol", "Francais" };
 static void apply(const Settings &s) {
     // Where you would actually act on it. Called only when something changed,
     // which is why the controls return a bool at all.
-    if (s.vsync) SetTargetFPS(60); else SetTargetFPS(0);
-    TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)",
-             (double)s.master, QUALITY[s.quality]);
+    if (s.vsync)
+        SetTargetFPS(60);
+    else
+        SetTargetFPS(0);
+    TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)", (double)s.master,
+             QUALITY[s.quality]);
 }
 
 static void _ready() {
@@ -67,13 +70,12 @@ static void _process(float delta) {
     ClearBackground(rmp::ui::current_theme().background);
 
     rmp::ui::begin();
-    rmp::ui::panel({ .box = { .width = 420 } }, [&]{
-
+    rmp::ui::panel({ .box = { .width = 420 } }, [&] {
         rmp::ui::text("Settings");
 
         // --- toggles ------------------------------------------------------
         if (rmp::ui::checkbox("Fullscreen", &cfg.fullscreen)) dirty = true;
-        if (rmp::ui::checkbox("VSync",      &cfg.vsync))      dirty = true;
+        if (rmp::ui::checkbox("VSync", &cfg.vsync)) dirty = true;
 
         // A control that is not available right now is disabled, not missing.
         // A menu whose items appear and disappear is a menu nobody can learn.
@@ -82,17 +84,18 @@ static void _process(float delta) {
         // --- sliders ------------------------------------------------------
         // Continuous: drag it anywhere, or hold left/right on a controller.
         if (rmp::ui::slider("Master volume", &cfg.master, 0.0f, 1.0f)) dirty = true;
-        if (rmp::ui::slider("Music",         &cfg.music,  0.0f, 1.0f)) dirty = true;
+        if (rmp::ui::slider("Music", &cfg.music, 0.0f, 1.0f)) dirty = true;
 
         // step snaps to multiples, which is what you want for a value the
         // player will want to describe to someone else ("I play on 40").
         if (rmp::ui::slider("Sensitivity", &cfg.sensitivity, 0.0f, 1.0f,
-                            { .step = 0.05f })) dirty = true;
+                            { .step = 0.05f }))
+            dirty = true;
 
         // --- pick one of a list -------------------------------------------
         // The dropdown owns nothing but the open/closed flag, and that is ours,
         // not yours: *selected is an index into the array you passed.
-        if (rmp::ui::dropdown("Quality",  &cfg.quality,  QUALITY,  4)) dirty = true;
+        if (rmp::ui::dropdown("Quality", &cfg.quality, QUALITY, 4)) dirty = true;
         if (rmp::ui::dropdown("Language", &cfg.language, LANGUAGE, 3)) dirty = true;
 
         // --- typing -------------------------------------------------------
@@ -103,14 +106,14 @@ static void _process(float delta) {
         }
 
         // --- actions ------------------------------------------------------
-        rmp::ui::row({ .grow_x = true }, [&]{
+        rmp::ui::row({ .grow_x = true }, [&] {
             if (rmp::ui::button("Revert", { .enabled = dirty })) {
-                cfg = saved;
+                cfg   = saved;
                 dirty = false;
             }
             rmp::ui::spacer();
-            if (rmp::ui::button("Apply", { .style = rmp::ui::variant::primary,
-                                           .enabled = dirty })) {
+            if (rmp::ui::button(
+                    "Apply", { .style = rmp::ui::variant::primary, .enabled = dirty })) {
                 apply(cfg);
                 saved = cfg;
                 dirty = false;

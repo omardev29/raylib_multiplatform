@@ -48,11 +48,15 @@ namespace rmp::ui {
 // ---------------------------------------------------------------------------
 
 // Where content sits inside the space it was given.
+// clang-format off
+// Laid out as the grid it is. One name per line is a list; this is a picture of
+// where the nine positions are, and that is the whole reason to read it.
 enum class align {
     top_left,    top_center,    top_right,
     center_left, center,        center_right,
     bottom_left, bottom_center, bottom_right,
 };
+// clang-format on
 
 // What a control *means*, not what colour it is. The theme decides the colour,
 // so restyling the game never means revisiting every call site.
@@ -83,9 +87,9 @@ namespace detail {
 // you write `rmp::ui::size::large` or `34`, and both land here. It is one field
 // that takes two spellings, rather than two fields that can disagree.
 struct sizing {
-    float    units = -1;                  // > 0 = design units; -1 = the theme's
-    ui::size step  = ui::size::medium;
-    bool     named = false;
+    float    units     = -1; // > 0 = design units; -1 = the theme's
+    ui::size step      = ui::size::medium;
+    bool     named     = false;
 
     constexpr sizing() = default;
     constexpr sizing(float u) : units(u) {}
@@ -110,6 +114,9 @@ struct sizing {
 // ---------------------------------------------------------------------------
 
 struct theme {
+    // clang-format off
+    // The digits are padded into columns on purpose: this table is read down,
+    // not across, and it is the block anyone restyling the framework copies.
     Color background     = CLITERAL(Color){  18,  18,  22, 255 };
     Color panel          = CLITERAL(Color){  30,  30,  38, 255 };
     Color surface        = CLITERAL(Color){  44,  44,  56, 255 };
@@ -136,19 +143,20 @@ struct theme {
     // it a controller build is unusable, so it is a theme colour rather than
     // something each widget decides.
     Color focus          = CLITERAL(Color){ 130, 170, 255, 255 };
+    // clang-format on
 
-    float font_size       = APP_UI_FONT_SIZE;         // [ui] font_size
-    float font_size_small = APP_UI_FONT_SIZE * 0.8f;  // size::small
-    float font_size_large = APP_UI_FONT_SIZE * 1.4f;  // size::large
-    float padding_x       = 20;   // inside a button
+    float font_size       = APP_UI_FONT_SIZE;        // [ui] font_size
+    float font_size_small = APP_UI_FONT_SIZE * 0.8f; // size::small
+    float font_size_large = APP_UI_FONT_SIZE * 1.4f; // size::large
+    float padding_x       = 20;                      // inside a button
     float padding_y       = 12;
-    float gap             = 12;   // between siblings
+    float gap             = 12;                      // between siblings
     float panel_padding   = 20;
     float corner_radius   = 8;
-    float border_width    = 0;    // 0 = the default theme draws no borders
-    float control_size    = 22;   // a checkbox box, a slider handle
-    float track_thickness = 6;    // a slider's rail
-    float focus_ring      = 2;    // the outline on the focused control
+    float border_width    = 0;  // 0 = the default theme draws no borders
+    float control_size    = 22; // a checkbox box, a slider handle
+    float track_thickness = 6;  // a slider's rail
+    float focus_ring      = 2;  // the outline on the focused control
     // How long a control takes to reach its new colour, in seconds. Nothing
     // about the layout moves — only colour — so this can never make a button
     // arrive somewhere else than where you clicked. 0 turns it off, which is
@@ -161,7 +169,7 @@ struct theme {
 };
 
 const theme &current_theme();
-void set_theme(const theme &t);
+void         set_theme(const theme &t);
 
 // The two that come with the framework. Which one starts is [ui] theme in
 // raylib_multiplatform.toml; these let you switch at runtime, which is what an
@@ -233,9 +241,9 @@ bool compact();
 // ---------------------------------------------------------------------------
 
 struct frame_options {
-    align placement = align::center;  // where the root's content sits
-    float gap       = -1;             // between children; -1 = the theme's
-    float padding    = -1;            // inside the root; -1 = the theme's
+    align placement = align::center; // where the root's content sits
+    float gap       = -1;            // between children; -1 = the theme's
+    float padding   = -1;            // inside the root; -1 = the theme's
 };
 
 // Open the UI for this frame. The default is a centred column, which is what
@@ -252,21 +260,21 @@ void end();
 // ---------------------------------------------------------------------------
 
 struct button_options {
-    variant       style   = variant::normal;
+    variant style = variant::normal;
     // One of the three steps, or a number of design units. The padding and the
     // minimum touch height follow the type size, so a large button is a large
     // button all over rather than a normal one with bigger letters.
     detail::sizing size{};
-    bool          enabled = true;
+    bool           enabled = true;
     // Only needed when two buttons share a label AND the UI is conditional.
     // Identical labels in one frame are already told apart automatically.
-    const char   *id      = nullptr;
+    const char *id         = nullptr;
 };
 
 struct text_options {
     color_role     color = color_role::text;
-    detail::sizing size{};      // a step, a number, or nothing for the theme's
-    bool           wrap  = true;
+    detail::sizing size{}; // a step, a number, or nothing for the theme's
+    bool           wrap = true;
 };
 
 // True on the frame the pointer is released over it. Reads exactly as it looks:
@@ -308,19 +316,19 @@ void text(std::string_view s, const text_options &o);
 // Shared by every container. All measurements are in design units and are
 // scaled; -1 means "whatever the theme says".
 struct box_options {
-    float gap     = -1;      // between children
-    float padding = -1;      // inside this container
-    align items   = align::center;   // where children sit in the leftover space
+    float gap      = -1;            // between children
+    float padding  = -1;            // inside this container
+    align items    = align::center; // where children sit in the leftover space
     // Sizing is interleaved by axis — x then y — rather than grouped by kind,
     // and that is not cosmetic. Designated initialisers have to be written in
     // declaration order, so grouping them as grow_x, grow_y, width, height
     // would make { .width = 240, .grow_y = true } illegal: a fixed-width
     // sidebar that fills the height, which is about the most ordinary thing
     // anyone writes. This way round, every combination is legal.
-    bool  grow_x  = false;   // fill the parent's width instead of fitting content
-    float width   = 0;       // > 0 = a fixed width, overriding fit/grow
-    bool  grow_y  = false;
-    float height  = 0;
+    bool  grow_x   = false; // fill the parent's width instead of fitting content
+    float width    = 0;     // > 0 = a fixed width, overriding fit/grow
+    bool  grow_y   = false;
+    float height   = 0;
     // Naming a container lets you ask about it later — whether the pointer is
     // over it, or where it ended up. Unnamed containers are anonymous, which is
     // what you want for the other 95%.
@@ -330,9 +338,9 @@ struct box_options {
 // A panel is a box with a background, which is what makes it visible.
 struct panel_options {
     box_options box{};
-    Color background = CLITERAL(Color){0, 0, 0, 0};  // {0,0,0,0} = the theme's panel
-    float radius     = -1;                            // -1 = the theme's
-    Color border     = CLITERAL(Color){0, 0, 0, 0};  // {0,0,0,0} = no border
+    Color background   = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's panel
+    float radius       = -1;                            // -1 = the theme's
+    Color border       = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = no border
     float border_width = -1;
 };
 
@@ -342,19 +350,19 @@ struct panel_options {
 // way they are most likely to be written — sizing, then appearance, then
 // identity — rather than alphabetically or by importance.
 struct image_options {
-    bool  grow   = false;   // fill the space available
-    float width  = 0;       // otherwise: 0,0 = the texture's own size, scaled
+    bool  grow   = false; // fill the space available
+    float width  = 0;     // otherwise: 0,0 = the texture's own size, scaled
     float height = 0;
     Color tint   = WHITE;
 };
 
 struct progress_options {
-    float width  = 0;      // 0 = fill the space available
-    float height = -1;     // -1 = derived from the theme's font size
-    float radius = -1;
-    Color fill   = CLITERAL(Color){0, 0, 0, 0};   // {0,0,0,0} = the theme's primary
-    Color track  = CLITERAL(Color){0, 0, 0, 0};   // {0,0,0,0} = the theme's surface
-    const char *id = nullptr;
+    float       width  = 0;  // 0 = fill the space available
+    float       height = -1; // -1 = derived from the theme's font size
+    float       radius = -1;
+    Color       fill   = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's primary
+    Color       track  = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's surface
+    const char *id     = nullptr;
 };
 
 namespace detail {
@@ -382,7 +390,9 @@ template <class Body> void row(const box_options &o, Body &&body) {
     detail::closer close;
     body();
 }
-template <class Body> void row(Body &&body) { row(box_options{}, static_cast<Body &&>(body)); }
+template <class Body> void row(Body &&body) {
+    row(box_options{}, static_cast<Body &&>(body));
+}
 
 // Top to bottom.
 template <class Body> void column(const box_options &o, Body &&body) {
@@ -390,7 +400,9 @@ template <class Body> void column(const box_options &o, Body &&body) {
     detail::closer close;
     body();
 }
-template <class Body> void column(Body &&body) { column(box_options{}, static_cast<Body &&>(body)); }
+template <class Body> void column(Body &&body) {
+    column(box_options{}, static_cast<Body &&>(body));
+}
 
 // A column with a background and padding: the thing you put a dialog in.
 template <class Body> void panel(const panel_options &o, Body &&body) {
@@ -398,7 +410,9 @@ template <class Body> void panel(const panel_options &o, Body &&body) {
     detail::closer close;
     body();
 }
-template <class Body> void panel(Body &&body) { panel(panel_options{}, static_cast<Body &&>(body)); }
+template <class Body> void panel(Body &&body) {
+    panel(panel_options{}, static_cast<Body &&>(body));
+}
 
 // Takes all the space it is given and puts its contents in the middle of it.
 template <class Body> void center(Body &&body) {
@@ -435,7 +449,7 @@ template <class Body> void layer(Body &&body) {
 //         rmp::ui::text("999");
 //     });
 void spacer();
-void spacer(float fixed);   // or just a gap of a given size
+void spacer(float fixed); // or just a gap of a given size
 
 // ---------------------------------------------------------------------------
 // More widgets
@@ -455,26 +469,25 @@ void progress(float fraction, const progress_options &o);
 // ---------------------------------------------------------------------------
 
 struct grid_options {
-    int   columns = 0;       // 0 = as many as fit, recomputed as the window changes
-    float min_cell = 96;     // only used when columns = 0
-    float gap     = -1;
-    float padding = -1;
-    bool  grow_x  = true;    // a grid almost always wants the width it is offered
-    bool  grow_y  = false;
-    const char *id = nullptr;
+    int         columns  = 0;  // 0 = as many as fit, recomputed as the window changes
+    float       min_cell = 96; // only used when columns = 0
+    float       gap      = -1;
+    float       padding  = -1;
+    bool        grow_x   = true; // a grid almost always wants the width it is offered
+    bool        grow_y   = false;
+    const char *id       = nullptr;
 };
 
-
 struct scroll_options {
-    bool  horizontal = false;   // vertical by default, which is what lists want
-    bool  vertical   = true;
-    float gap     = -1;
-    float padding = -1;
-    bool  grow_x  = true;
-    float width   = 0;
-    bool  grow_y  = true;       // a scroll area with no height clips nothing
-    float height  = 0;
-    const char *id = nullptr;
+    bool        horizontal = false; // vertical by default, which is what lists want
+    bool        vertical   = true;
+    float       gap        = -1;
+    float       padding    = -1;
+    bool        grow_x     = true;
+    float       width      = 0;
+    bool        grow_y     = true; // a scroll area with no height clips nothing
+    float       height     = 0;
+    const char *id         = nullptr;
 };
 
 namespace detail {
@@ -484,8 +497,12 @@ void open_cell();
 void close_cell();
 void open_scroll(const scroll_options &o);
 
-struct grid_closer { ~grid_closer() { close_grid(); } };
-struct cell_closer { ~cell_closer() { close_cell(); } };
+struct grid_closer {
+    ~grid_closer() { close_grid(); }
+};
+struct cell_closer {
+    ~cell_closer() { close_cell(); }
+};
 } // namespace detail
 
 // Equal columns, as many rows as it takes. Each item goes in a cell(), which is
@@ -515,7 +532,9 @@ template <class Body> void cell(Body &&body) {
 template <class Body> void grid(int columns, Body &&body) {
     grid(grid_options{ .columns = columns }, static_cast<Body &&>(body));
 }
-template <class Body> void grid(Body &&body) { grid(grid_options{}, static_cast<Body &&>(body)); }
+template <class Body> void grid(Body &&body) {
+    grid(grid_options{}, static_cast<Body &&>(body));
+}
 
 // Clips its contents and scrolls them. The wheel works, and so does dragging
 // with a finger — the same gesture on a phone.
@@ -524,7 +543,9 @@ template <class Body> void scroll(const scroll_options &o, Body &&body) {
     detail::closer close;
     body();
 }
-template <class Body> void scroll(Body &&body) { scroll(scroll_options{}, static_cast<Body &&>(body)); }
+template <class Body> void scroll(Body &&body) {
+    scroll(scroll_options{}, static_cast<Body &&>(body));
+}
 
 // ---------------------------------------------------------------------------
 // Controls that own a value
@@ -540,29 +561,29 @@ template <class Body> void scroll(Body &&body) { scroll(scroll_options{}, static
 // ---------------------------------------------------------------------------
 
 struct checkbox_options {
-    bool enabled = true;
-    const char *id = nullptr;
+    bool        enabled = true;
+    const char *id      = nullptr;
 };
 
 struct slider_options {
-    float width   = 0;       // 0 = fill the space available
-    float step    = 0;       // 0 = continuous; otherwise snap to multiples
-    bool  enabled = true;
-    bool  show_value = true; // draw the number next to the label
-    const char *id = nullptr;
+    float       width      = 0;    // 0 = fill the space available
+    float       step       = 0;    // 0 = continuous; otherwise snap to multiples
+    bool        enabled    = true;
+    bool        show_value = true; // draw the number next to the label
+    const char *id         = nullptr;
 };
 
 struct dropdown_options {
-    float width   = 0;
-    bool  enabled = true;
-    const char *id = nullptr;
+    float       width   = 0;
+    bool        enabled = true;
+    const char *id      = nullptr;
 };
 
 struct text_input_options {
-    float width   = 0;
-    bool  enabled = true;
+    float            width   = 0;
+    bool             enabled = true;
     std::string_view placeholder{};
-    const char *id = nullptr;
+    const char      *id = nullptr;
 };
 
 bool checkbox(std::string_view label, bool *value);
@@ -573,10 +594,9 @@ bool slider(std::string_view label, float *value, float min, float max,
             const slider_options &o);
 
 // `items` is an array of `count` C strings; *selected is the index into it.
-bool dropdown(std::string_view label, int *selected,
-              const char *const *items, int count);
-bool dropdown(std::string_view label, int *selected,
-              const char *const *items, int count, const dropdown_options &o);
+bool dropdown(std::string_view label, int *selected, const char *const *items, int count);
+bool dropdown(std::string_view label, int *selected, const char *const *items, int count,
+              const dropdown_options &o);
 
 // Writes into your buffer, NUL-terminated, never past capacity - 1.
 bool text_input(std::string_view label, char *buffer, int capacity);

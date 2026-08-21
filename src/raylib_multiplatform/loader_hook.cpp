@@ -28,8 +28,7 @@
 #include <cstdlib> // RL_MALLOC/RL_FREE expand to malloc/free; raylib.h does not include this
 #include <cstring>
 
-namespace rmp::assets {
-namespace detail {
+namespace rmp::assets::detail {
 
 namespace {
 
@@ -56,7 +55,7 @@ unsigned char *hooked_load_file_data(const char *fileName, int *dataSize) {
 
 char *hooked_load_file_text(const char *fileName) {
     if (fileName != nullptr && in_resources_dir(fileName)) {
-        int size = 0;
+        int            size = 0;
         unsigned char *data = pack_read(GetFileName(fileName), &size);
         if (data != nullptr) {
             // LoadFileText's contract is a NUL-terminated string. The pack
@@ -92,7 +91,7 @@ char *hooked_load_file_text(const char *fileName) {
 // which is exactly what a packaged release does not ship.
 bool in_resources_dir(const char *path) {
     const char *root = skip_dot_slash(RESOURCES_PATH);
-    const char *p = skip_dot_slash(path);
+    const char *p    = skip_dot_slash(path);
     // Android sets RESOURCES_PATH to "" — every asset is at the root of the
     // APK's assets/. No pack is ever open there, so this branch is moot, but
     // an empty prefix matching everything is the right reading of it anyway.
@@ -121,5 +120,4 @@ void remove_loader_hook() {
     g_hooked = false;
 }
 
-} // namespace detail
-} // namespace rmp::assets
+} // namespace rmp::assets::detail
