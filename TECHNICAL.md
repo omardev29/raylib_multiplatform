@@ -469,7 +469,17 @@ raylib says so itself, in the comment above `WindowShouldClose()` in `rcore_web.
 > `emscripten_set_main_loop()` […] allowing the browser to manage execution asynchronously
 
 That call is the **only** `emscripten_sleep()` in raylib. Not calling it is what lets ASYNCIFY go
-away entirely, which is why `CMakeLists.txt` does not pass it. One frame per callback is also what
+away entirely, which is why `CMakeLists.txt` does not pass it. Measured on this project, same
+commit otherwise, from the CI artefact check:
+
+| | With ASYNCIFY | Without | |
+|---|---|---|---|
+| `.wasm` | 349,720 B | 257,505 B | **−26 %** |
+| `.js` | 194,721 B | 189,379 B | −3 % |
+| Total download | 544,441 B | 446,884 B | **−18 %** |
+
+That is 95 KB off a build that draws a menu and a rabbit. It does not shrink as the game grows —
+it is a percentage of the whole binary, because the instrumentation is per function. One frame per callback is also what
 `requestAnimationFrame` wants: the browser schedules us with the display instead of us blocking it
 and asking for control back every 12 ms.
 
