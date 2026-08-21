@@ -18,7 +18,7 @@ compile_commands.json
 # drift out of sync with the config. `cmake --preset debug` produces all of it;
 # Gradle and XcodeGen get an explicit `python3 tools/configure.py` step in CI.
 /cmake/generated/
-/include/raylib_multiplatform/generated/
+/include/rmp/generated/
 /raymob/generated.properties
 /raymob/app/generated/
 /ios/project.yml

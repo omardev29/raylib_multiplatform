@@ -9,7 +9,7 @@
 
 #include "internal.h"
 
-#include <raylib_multiplatform/generated/app_config.h>
+#include <rmp/config.h>
 
 namespace rmp::ui {
 

@@ -1,7 +1,7 @@
 // ===========================================================================
 // examples/plain_c/main.c — the template with none of the template.
 //
-// Plain C, one include, your own main(). No <raylib_multiplatform.h>, no
+// Plain C, one include, your own main(). No <rmp/...>, no
 // assets::, no lifecycle macros. What you keep is everything the template does
 // *around* your code, which is the part that is hard to reproduce: fourteen
 // build targets, the pinned toolchains, the icons and identifiers generated
@@ -9,16 +9,16 @@
 //
 // To use it:
 //
-//     rm -r src/main.cpp src/raylib_multiplatform/   # yes, both
+//     rm -r src/main.cpp src/rmp/   # yes, both
 //     cp examples/plain_c/main.c src/
 //     cmake --preset debug && cmake --build build
 //
 // src/ is globbed by all four build systems (CMake, the Android CMakeLists,
 // XcodeGen, Emscripten), so nothing else needs editing. Delete
-// src/raylib_multiplatform/ too or you will link two main()s — it does not
+// src/rmp/ too or you will link two main()s — it does not
 // define one itself, but it is the other half of a header you are no longer
-// using, and it drags rres in for nothing. include/raylib_multiplatform.h and
-// include/raylib_multiplatform/ can go with it; nothing includes them once
+// using, and it drags rres in for nothing. include/rmp/ and
+// include/rmp/ can go with it; nothing includes them once
 // src/main.cpp is gone.
 //
 // What you give up, and what replaces it:
@@ -28,8 +28,8 @@
 //                              pack_resources target; a release built with a
 //                              pack ships resources.rres and nothing else, and
 //                              raw raylib cannot read it. (That is what
-//                              src/raylib_multiplatform/ was teaching it.)
-//   APP_WINDOW_TITLE, ...  ->  #include <raylib_multiplatform/generated/app_config.h>
+//                              src/rmp/ was teaching it.)
+//   APP_WINDOW_TITLE, ...  ->  #include <rmp/config.h>
 //                              if you want them; they are plain #defines and
 //                              work in C. Keeping that one generated header
 //                              costs you nothing else.
@@ -38,7 +38,7 @@
 //
 // PLATFORM NOTE: iOS does not call main(). Its run loop belongs to UIKit and
 // raylib's iOS backend calls ios_ready/ios_update/ios_destroy instead, which is
-// what RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY exists to paper over. If you need
+// what RMP_ENTRY_POINT exists to paper over. If you need
 // iOS, either keep the template's entry point or write those three yourself.
 // Everything else — Linux, Windows, macOS, the BSDs, Web, Android — runs this
 // file as it stands.

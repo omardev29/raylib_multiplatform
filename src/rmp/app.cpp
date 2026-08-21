@@ -1,8 +1,8 @@
 // ===========================================================================
-// rmp::utils — see include/raylib_multiplatform/utils.h.
+// rmp::app — see include/rmp/app.h.
 // ===========================================================================
 
-#include <raylib_multiplatform/utils.h>
+#include <rmp/app.h>
 
 #include <raylib.h>
 
@@ -12,13 +12,13 @@
 #include <android/native_activity.h> // ANativeActivity_finish()
 #endif
 
-namespace rmp::utils {
+namespace rmp::app {
 
 namespace {
-bool g_exitRequested = false;
+bool g_quitRequested = false;
 } // namespace
 
-void exit() {
+void quit() {
 #if defined(PLATFORM_IOS)
     // Deliberately nothing. Apple's QA1561 is explicit: an iOS app that
     // terminates itself "will appear to the user to have crashed", App Review
@@ -32,20 +32,20 @@ void exit() {
     // it not be a dead control:
     //
     //     #if !defined(PLATFORM_IOS)
-    //     if (rmp::ui::button("Quit")) rmp::utils::exit();
+    //     if (rmp::ui::button("Quit")) rmp::app::quit();
     //     #endif
     //
     // The CI smoke test still exits the simulator, because a bounded test run
     // has to end — but that path is behind RAY_TEST_MAX_FRAMES, which no
     // shipped app ever sets.
     TraceLog(LOG_WARNING,
-             "APP: exit() does nothing on iOS — Apple rejects apps that terminate "
+             "APP: quit() does nothing on iOS — Apple rejects apps that terminate "
              "themselves (QA1561). Ignoring.");
     return;
 #else
-    if (g_exitRequested) return;
-    g_exitRequested = true;
-    TraceLog(LOG_INFO, "APP: exit requested");
+    if (g_quitRequested) return;
+    g_quitRequested = true;
+    TraceLog(LOG_INFO, "APP: quit requested");
 
 #if defined(PLATFORM_ANDROID)
     // Ending the loop is not enough here. Android owns the Activity, and a
@@ -61,6 +61,6 @@ void exit() {
 #endif // PLATFORM_IOS
 }
 
-bool exit_requested() { return g_exitRequested; }
+bool quit_requested() { return g_quitRequested; }
 
-} // namespace rmp::utils
+} // namespace rmp::app

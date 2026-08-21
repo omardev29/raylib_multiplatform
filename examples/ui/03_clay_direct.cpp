@@ -31,18 +31,20 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/assets.h>
+#include <rmp/ui.h>
 
 #include <clay.h> // the escape hatch: not included for you on purpose
 
 static Texture2D logo;
 
-static void _ready() {
+static void on_ready() {
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
     logo = rmp::assets::load_texture("rabbit.png");
 }
 
-static void _process(float delta) {
+static void on_frame(float delta) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
@@ -93,18 +95,18 @@ static void _process(float delta) {
     }
 
     // Back to the normal API, still the same frame.
-    if (rmp::ui::button("Close")) rmp::utils::exit();
+    if (rmp::ui::button("Close")) rmp::app::quit();
 
     rmp::ui::end();
     EndDrawing();
 }
 
-static void _exit() {
+static void on_exit() {
     UnloadTexture(logo);
     CloseWindow();
 }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 
 // ---------------------------------------------------------------------------
 // What our renderer understands
@@ -117,7 +119,7 @@ RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
 //   SCISSOR_START  clipping, so Clay's clip/scroll containers work
 //   SCISSOR_END
 //
-// CUSTOM commands are not handled. If you need them, src/raylib_multiplatform/
+// CUSTOM commands are not handled. If you need them, src/rmp/
 // ui/render.cpp is ~150 readable lines and adding a case is the intended way to
 // extend it.
 //

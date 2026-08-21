@@ -6,13 +6,13 @@
 // The rewarded flow, which is the one with a contract attached, is in
 // 02_rewarded.cpp.
 //
-// The API is rmp::ads, from <raylib_multiplatform.h>. It is CROSS-PLATFORM: on
+// The API is rmp::ads, from <rmp/ads.h>. It is CROSS-PLATFORM: on
 // Android it calls the real Google Mobile Ads SDK via JNI; on every other
 // platform the functions are no-op stubs. So you write ONE code path with no
 // #ifdefs, and ads simply only appear on Android.
 //
 // Lifecycle of an ad:
-//   request_*()          -> start preloading (do it early, e.g. in _ready)
+//   request_*()          -> start preloading (do it early, e.g. in on_ready)
 //   is_*_loaded()        -> has it finished loading?
 //   show_*()             -> display it, then request the next one
 //   take_reward_earned() -> rewarded only: true once, then reward_amount()
@@ -29,11 +29,12 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h> // brings in rmp::ads
+#include <raylib.h>  // this example writes its own main(), so it needs raylib
+#include <rmp/ads.h> // rmp::ads, and nothing else from the framework
 
 static int lastReward = 0;
 
-static void _ready() {
+static void on_ready() {
     InitWindow(800, 450, "admob example");
 
     // Preload both ad types as early as possible so they are ready when you
@@ -42,7 +43,7 @@ static void _ready() {
     rmp::ads::request_rewarded();
 }
 
-static void _process() {
+static void on_frame() {
     // Show an interstitial when it is loaded (here: on SPACE).
     if (IsKeyPressed(KEY_SPACE) && rmp::ads::is_interstitial_loaded()) {
         rmp::ads::show_interstitial();
@@ -71,11 +72,11 @@ static void _process() {
     EndDrawing();
 }
 
-static void _exit() { CloseWindow(); }
+static void on_exit() { CloseWindow(); }
 
 int main() {
-    _ready();
-    while (!WindowShouldClose()) _process();
-    _exit();
+    on_ready();
+    while (!WindowShouldClose()) on_frame();
+    on_exit();
     return 0;
 }

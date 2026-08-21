@@ -19,7 +19,8 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/ui.h>
 
 #include <cstring>
 
@@ -54,7 +55,7 @@ static void apply(const Settings &s) {
              QUALITY[s.quality]);
 }
 
-static void _ready() {
+static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
     saved = cfg;
@@ -65,7 +66,7 @@ static void _ready() {
     rmp::ui::focus("Fullscreen");
 }
 
-static void _process(float delta) {
+static void on_frame(float delta) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
@@ -130,9 +131,9 @@ static void _process(float delta) {
     EndDrawing();
 }
 
-static void _exit() { CloseWindow(); }
+static void on_exit() { CloseWindow(); }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 
 // ---------------------------------------------------------------------------
 // Focus, keyboard and gamepad — which you did not have to write

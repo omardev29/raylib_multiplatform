@@ -33,7 +33,7 @@
 
 // APP_UI_FONT_SIZE, so the theme's default type size is the one you set in
 // [ui] rather than a number baked into this header.
-#include <raylib_multiplatform/generated/app_config.h>
+#include <rmp/config.h>
 
 #include <string_view>
 
@@ -367,7 +367,7 @@ struct progress_options {
 
 namespace detail {
 // Not for you: the non-template halves of the containers below, so that no
-// Clay type has to appear in this header. See src/raylib_multiplatform/ui/.
+// Clay type has to appear in this header. See src/rmp/ui/.
 void open_row(const box_options &o);
 void open_column(const box_options &o);
 void open_panel(const panel_options &o);
@@ -649,7 +649,7 @@ bool navigation_enabled();
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// Called for you by the entry point macro, before _exit() — while the window
+// Called for you by the entry point macro, before on_exit() — while the window
 // is still open, because releasing a font after CloseWindow() would be
 // touching a GL context that no longer exists.
 //

@@ -11,7 +11,8 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/ui.h>
 
 #include <string>
 
@@ -24,7 +25,7 @@ static Screen screen = Screen::Menu;
 static int    score  = 0;
 static bool   music  = true;
 
-static void _ready() {
+static void on_ready() {
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch the UI follow
 }
@@ -82,16 +83,15 @@ static void confirm_quit() {
     rmp::ui::text("Progress since the last save will be lost.",
                   { .color = rmp::ui::color_role::muted });
 
-    // rmp::utils::exit(), never std::exit(): this lets the frame finish and
-    // then runs _exit() and CloseWindow() on the way out. On Android it also
+    // rmp::app::quit(), never std::exit(): this lets the frame finish and
+    // then runs on_exit() and CloseWindow() on the way out. On Android it also
     // finishes the Activity, so the app does not leave a dead task behind.
     //
     // On iOS it does nothing at all, on purpose — Apple rejects apps that
     // terminate themselves. Guarding it out is optional; the call is safe
     // everywhere. Here it is guarded so the button is not dead on iPhone.
 #if !defined(PLATFORM_IOS)
-    if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger }))
-        rmp::utils::exit();
+    if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger })) rmp::app::quit();
 #endif
 
     // This screen and the main menu both have a "Back"-ish button. Identical
@@ -120,7 +120,7 @@ static void hud() {
     rmp::ui::end();
 }
 
-static void _process(float delta) {
+static void on_frame(float delta) {
     if (screen == Screen::Playing) {
         score += 1;
         if (IsKeyPressed(KEY_ESCAPE)) screen = Screen::Menu;
@@ -149,15 +149,15 @@ static void _process(float delta) {
     EndDrawing();
 }
 
-static void _exit() { CloseWindow(); }
+static void on_exit() { CloseWindow(); }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 
 // ---------------------------------------------------------------------------
 // Things worth knowing, none of which you need on day one
 // ---------------------------------------------------------------------------
 //
-// THEME. Plain data. Copy, change, set back — usually once, in _ready():
+// THEME. Plain data. Copy, change, set back — usually once, in on_ready():
 //
 //     auto t = rmp::ui::current_theme();
 //     t.primary       = GOLD;

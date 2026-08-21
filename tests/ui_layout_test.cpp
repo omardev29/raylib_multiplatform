@@ -16,9 +16,9 @@
 // at the extremes.
 // ===========================================================================
 
-#include "../src/raylib_multiplatform/ui/internal.h"
+#include "../src/rmp/ui/internal.h"
 
-#include <raylib_multiplatform/ui.h>
+#include <rmp/ui.h>
 
 #include <cmath>
 #include <cstdio>

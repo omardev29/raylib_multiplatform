@@ -51,7 +51,7 @@ rel:
 # Delete every build artefact and everything generated from the .toml.
 clean:
     rm -rf build raymob/app/generated raymob/generated.properties \
-           cmake/generated include/raylib_multiplatform/generated ios/project.yml
+           cmake/generated include/rmp/generated ios/project.yml
     @echo "clean. the next configure regenerates all of it."
 
 # --- checks -----------------------------------------------------------------
@@ -114,8 +114,8 @@ test what="all":
     set -euo pipefail
     run_examples() {
         echo "== examples =="
-        # The examples include <raylib_multiplatform.h>, which pulls in the
-        # generated app_config.h. After `just clean` that file does not exist
+        # The examples include <rmp/app.h>, which pulls in the generated
+        # rmp/config.h. After `just clean` that file does not exist
         # yet, and every example would fail for a reason that has nothing to do
         # with the examples. CI gets this for free by generating first.
         python3 tools/configure.py >/dev/null

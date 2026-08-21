@@ -5,7 +5,9 @@
 // point. Whatever the template grows next gets an example under examples/, not
 // a paragraph here.
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/assets.h>
+#include <rmp/ui.h>
 
 class game_assets {
 public:
@@ -16,9 +18,9 @@ public:
 // Called once at startup: set config flags, create the window, load assets.
 //
 // The resource pack is already open by the time you get here: the entry point
-// in raylib_multiplatform.h calls rmp::assets::init() before this, and
-// rmp::assets::shutdown() after _exit(). Neither is yours to remember.
-static inline void _ready() {
+// in <rmp/app.h> calls rmp::assets::init() before this, and
+// rmp::assets::shutdown() after on_exit(). Neither is yours to remember.
+static inline void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     // Title and size come from raylib_multiplatform.toml — see [window].
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
@@ -30,7 +32,7 @@ static inline void _ready() {
 }
 
 // Called each frame
-static inline void _process(float /*delta*/) {
+static inline void on_frame(float /*delta*/) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
@@ -53,12 +55,12 @@ static inline void _process(float /*delta*/) {
         if (rmp::ui::button("Play")) TraceLog(LOG_INFO, "MENU: play");
         if (rmp::ui::button("Options")) TraceLog(LOG_INFO, "MENU: options");
 
-        // rmp::utils::exit() rather than std::exit(): it lets this frame finish,
-        // then runs _exit() and closes the window properly. It does nothing on
+        // rmp::app::quit() rather than std::exit(): it lets this frame finish,
+        // then runs on_exit() and closes the window properly. It does nothing on
         // iOS, where Apple rejects apps that terminate themselves — so the button
         // is hidden there rather than left dead.
 #if !defined(PLATFORM_IOS)
-        if (rmp::ui::button("Quit")) rmp::utils::exit();
+        if (rmp::ui::button("Quit")) rmp::app::quit();
 #endif
     });
 
@@ -74,11 +76,11 @@ static inline void _process(float /*delta*/) {
 }
 
 // Called once at shutdown: unload assets, close the window.
-static inline void _exit() {
+static inline void on_exit() {
     UnloadTexture(game.rabbit);
     UnloadImage(game.img);
     CloseWindow();
 }
 
 // Main function or ios functions + smoke tests
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);

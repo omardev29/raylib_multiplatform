@@ -13,7 +13,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
   - [Why web does not get a `while` loop](#why-web-does-not-get-a-while-loop)
 - [`rmp::ui` — the interface layer](#rmpui--the-interface-layer)
-- [`rmp::utils` — closing the app](#rmputils--closing-the-app)
+- [`rmp::app` — the entry point and closing the app](#rmpapp--the-entry-point-and-closing-the-app)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
 - [Android (raymob)](#android-raymob)
@@ -36,31 +36,33 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 ├── CMakePresets.json         # debug / release / web profiles
 ├── src/                      # YOUR code. Every .cpp/.c here is auto-compiled (GLOB_RECURSE).
 │   ├── main.cpp              # your game
-│   └── raylib_multiplatform/ # THE framework's implementation — not yours
+│   └── rmp/                  # THE framework's implementation — not yours
 │       ├── internal.h        #   private surface, deliberately not in include/
 │       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
 │       ├── assets.cpp        #   rmp::assets — the public surface, with the loose-file fallback
-│       ├── utils.cpp        #   rmp::utils — closing the app
+│       ├── app.cpp           #   rmp::app — closing the app
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
 │           ├── context.cpp   #     lazy start, scale, font, text arena, element ids
 │           ├── widgets.cpp   #     begin / end / button / text
+│           ├── containers.cpp#     row / column / panel / stack / grid / scroll
+│           ├── controls.cpp  #     checkbox / slider / dropdown / text_input
+│           ├── focus.cpp     #     keyboard and gamepad navigation
+│           ├── style.cpp     #     variants, sizes, transitions
 │           ├── render.cpp    #     draw commands -> raylib calls
-│           └── theme.cpp     #     the default dark theme
+│           └── theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)
-│   ├── raylib_multiplatform.h    # THE framework's header — the umbrella you include
-│   └── raylib_multiplatform/ # its parts, split by concern — not yours
-│       ├── platform.h        #   raymob / admob / smoke_test wiring
-│       ├── colors.h          #   a couple of colors raylib does not ship
+│   └── rmp/                  # THE framework's headers — include what you use
+│       ├── app.h             #   RMP_ENTRY_POINT + rmp::app::quit()
+│       ├── ui.h              #   rmp::ui — the public API and the theme
 │       ├── assets.h          #   the rmp::assets declarations
 │       ├── ads.h             #   rmp::ads — inline wrappers over <admob.h>
-│       ├── ui.h              #   rmp::ui — the public API and the theme
-│       ├── utils.h           #   rmp::utils — exit()
-│       ├── lifecycle.h       #   RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY + IOS_FUNCS
-│       └── generated/        #   GENERATED app_config.h, git-ignored
+│       ├── math.h            #   vectors, rectangles, colours (raymath)
+│       ├── config.h          #   the APP_* values from the .toml
+│       └── generated/        #   GENERATED config.h, git-ignored
 ├── examples/                 # reference code, by namespace: ui/ ads/ assets/ platform/
 │   └── plain_c/main.c        # the opt-out: plain C, <raylib.h> only, your own main()
 ├── tests/
@@ -101,7 +103,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 ```
 
 **Generated, and never committed** — `cmake/generated/`,
-`include/raylib_multiplatform/generated/app_config.h`,
+`include/rmp/generated/config.h`,
 `raymob/generated.properties`, `raymob/app/generated/AndroidManifest.xml`, `ios/project.yml`,
 `ios/Assets.xcassets/` and the Android `mipmap-*` icons. They are rebuilt from `raylib_multiplatform.toml` on every configure, which is
 why they cannot drift out of sync with it. `cmake --preset debug` produces all of them; Gradle and
@@ -196,7 +198,7 @@ Two families of macros are available, and they answer different questions:
 | `PLATFORM_IOS` | iOS | `ios/project.yml` (`GCC_PREPROCESSOR_DEFINITIONS`) |
 
 Example — this is exactly how the entry-point macro picks the runner, and how
-`include/raylib_multiplatform/platform.h` pulls in `<raymob.h>`:
+`include/rmp/app.h` pulls in `<raymob.h>`:
 
 ```cpp
 #if defined(PLATFORM_IOS)
@@ -300,7 +302,7 @@ in this framework requires it.
 
 ### Why `rmp::assets::init()` exists
 
-`rmp::assets::init()` (called for you by `RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY`, before `_ready()`) does
+`rmp::assets::init()` (called for you by `RMP_ENTRY_POINT`, before `on_ready()`) does
 four things that have to happen exactly once:
 
 1. **Decides which mode you are in.** It looks for `resources/resources.rres`. Found → pack mode.
@@ -422,7 +424,7 @@ subfolder in `resources/`. If you need one anyway, extend the `package/` step in
 
 Password: `[resources] rres_password` in `raylib_multiplatform.toml`, which reaches both sides from
 one place — `RRES_PACK_PASSWORD` for the packer and `APP_RRES_PASSWORD` in
-`include/raylib_multiplatform/generated/app_config.h` for the game. (They used to be two hardcoded literals in
+`include/rmp/generated/config.h` for the game. (They used to be two hardcoded literals in
 `CMakeLists.txt` and the asset layer; desynchronising them broke loading at runtime only.)
 
 > **This is obfuscation, not security.** The password is a string inside a binary you hand to the
@@ -438,9 +440,9 @@ Your game lives in three functions in `src/main.cpp`:
 
 | Hook | When |
 |---|---|
-| `_ready()` | once at startup — window, assets, preload |
-| `_process()` | every frame |
-| `_exit()` | once at shutdown — unload |
+| `on_ready()` | once at startup — window, assets, preload |
+| `on_frame()` | every frame |
+| `on_exit()` | once at shutdown — unload |
 
 A small platform runner drives them, and there are three of them. The difference between them is
 **who owns the frame loop**:
@@ -489,13 +491,13 @@ Two rules follow, and they are in the header next to the code:
   already the right cadence. A target FPS would make raylib sleep against the browser's scheduler.
 - **If you put a `while` loop back, you have to put `-s ASYNCIFY` back with it.**
 
-`rmp::utils::exit()` works the same as everywhere else: the frame that asked to quit finishes, then
+`rmp::app::quit()` works the same as everywhere else: the frame that asked to quit finishes, then
 `emscripten_cancel_main_loop()` runs and the shutdown order is identical to desktop.
 
-`RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY` in `include/raylib_multiplatform/lifecycle.h` is that
+`RMP_ENTRY_POINT` in `include/rmp/app.h` is that
 runner. It also
-brackets your three hooks with `rmp::assets::init()` before `_ready()` and `rmp::assets::shutdown()` after
-`_exit()`, so opening the resource pack is not something `src/main.cpp` has to remember — and so
+brackets your three hooks with `rmp::assets::init()` before `on_ready()` and `rmp::assets::shutdown()` after
+`on_exit()`, so opening the resource pack is not something `src/main.cpp` has to remember — and so
 that rewriting `main.cpp` from scratch cannot accidentally drop it.
 
 A CI smoke-test hook is built in: set the env var `RAY_TEST_MAX_FRAMES=N` and the game renders
@@ -507,7 +509,7 @@ to be: only your code knows where the last draw call is.
 
 **The boot marker reports asset failures, not successes** — `RAY_TEST_BOOT_OK assets_failed=0
 assets_requested=1`, and CI fails unless `assets_failed=0`. It used to carry the dimensions of a
-texture your `_ready()` passed in, with CI insisting they were non-zero, which quietly made "ship
+texture your `on_ready()` passed in, with CI insisting they were non-zero, which quietly made "ship
 at least one image" a rule of the framework: a game drawing nothing but shapes could not pass, and
 deleting the call failed the build. Counting failures keeps the check that mattered — iOS once
 shipped a bundle with no `resources/` in it and every texture came back 0x0 — while a game that
@@ -1021,7 +1023,7 @@ CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(0) },
     CLAY(CLAY_IDI("slot", 0), { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64) } } }) {}
 }
 
-if (rmp::ui::button("Close")) rmp::utils::exit();
+if (rmp::ui::button("Close")) rmp::app::quit();
 rmp::ui::end();
 ```
 
@@ -1047,7 +1049,7 @@ Three things to know before you do it:
 
 Our renderer handles `RECTANGLE`, `BORDER`, `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you
 own; `backgroundColor` is the tint) and the `SCISSOR` pair, so clipping and scroll containers work.
-`CUSTOM` is not handled — `src/raylib_multiplatform/ui/render.cpp` is ~150 readable lines and
+`CUSTOM` is not handled — `src/rmp/ui/render.cpp` is ~150 readable lines and
 adding a case is the intended way to extend it.
 
 **Why `rmp::ui` does not use the macros internally**, since it is a fair question: `CLAY(...)` is a
@@ -1058,7 +1060,7 @@ field, which is also what you want when the values are computed from the theme a
 than written as literals. Nothing about the macros is being avoided; they simply do not fit the
 shape of this particular API.
 
-The implementation is five files under `src/raylib_multiplatform/ui/`: `clay_impl.cpp` (compiles
+The implementation is five files under `src/rmp/ui/`: `clay_impl.cpp` (compiles
 the engine once, same idea as `rres_impl.cpp`), `context.cpp` (start-up, scale, font, the text
 arena, element identity), `widgets.cpp`, `render.cpp` (draw commands into raylib calls) and
 `theme.cpp`.
@@ -1071,7 +1073,7 @@ Two details from that boundary that are worth knowing:
   conditional and elements come and go, pass an explicit `.id`.
 - **Start-up and shutdown.** The UI starts itself on the first `begin()`, because
   `rmp::assets::init()` runs before `InitWindow()` and a font is a GPU texture. It shuts down
-  *before* `_exit()`, because `_exit()` is where you call `CloseWindow()` and releasing a font
+  *before* `on_exit()`, because `on_exit()` is where you call `CloseWindow()` and releasing a font
   after that is touching a context that no longer exists. Neither is yours to call.
 
 ### Testing layout without a window
@@ -1103,33 +1105,34 @@ in the engine and our renderer draws what they produce.
 
 ---
 
-## `rmp::utils` — closing the app
+## `rmp::app` — the entry point and closing the app
 
-The namespace for things that have no other home. Today it holds one function,
-and it exists because quitting is one of those problems that looks trivial until
+`RMP_ENTRY_POINT` and `quit()`. They are in the same namespace because they are
+the same subject: who owns the frame loop, and how it ends. Quitting gets most
+of the space below because it is one of those problems that looks trivial until
 it is on fourteen platforms.
 
 ```cpp
-void rmp::utils::exit();          // ask the app to close
-bool rmp::utils::exit_requested(); // has it been asked?
+void rmp::app::quit();          // ask the app to close
+bool rmp::app::quit_requested(); // has it been asked?
 ```
 
 Call it from anywhere. A menu callback, a game-over screen, ten frames deep in your own code — it
 does not need to know where `main()` is, and there is no value to thread back up your call stack.
 
 ```cpp
-if (rmp::ui::button("Quit")) rmp::utils::exit();
+if (rmp::ui::button("Quit")) rmp::app::quit();
 ```
 
 ### What it actually does
 
 It **returns**. All it does is raise a flag, which the entry point checks at the top of the next
-iteration. The frame you are in finishes normally, the loop ends, and then `_exit()` runs,
+iteration. The frame you are in finishes normally, the loop ends, and then `on_exit()` runs,
 `CloseWindow()` runs and the asset pack is released — the same shutdown you get by closing the
 window with the X.
 
 That is exactly why not to call `std::exit()` from a button handler. `std::exit` ends the process
-where it stands: `_exit()` never runs, `CloseWindow()` never runs, and on Android the Activity is
+where it stands: `on_exit()` never runs, `CloseWindow()` never runs, and on Android the Activity is
 left behind while its process vanishes underneath it.
 
 ### Why not an exception
@@ -1155,13 +1158,13 @@ the user to have crashed", and App Review rejects anything that crashes or appea
 `applicationWillTerminate:` never runs, so unsaved data is lost. A Quit control also fails the
 Human Interface Guidelines on its own account.
 
-So `rmp::utils::exit()` is inert on iOS by design. The same source ships to all fourteen targets
+So `rmp::app::quit()` is inert on iOS by design. The same source ships to all fourteen targets
 with its Quit button intact; on iPhone the button does nothing, which is exactly the behaviour
 Apple asks for. If a dead control bothers you, hide it:
 
 ```cpp
 #if !defined(PLATFORM_IOS)
-if (rmp::ui::button("Quit")) rmp::utils::exit();
+if (rmp::ui::button("Quit")) rmp::app::quit();
 #endif
 ```
 
@@ -1173,7 +1176,7 @@ path is behind `RAY_TEST_MAX_FRAMES`, an environment variable no shipped app eve
 ## AdMob (Android)
 
 Interstitial + rewarded ads. The API is `rmp::ads`, and it arrives with
-`<raylib_multiplatform.h>` — **real on Android**, a **no-op on every other platform**, so no
+`<rmp/ads.h>` — **real on Android**, a **no-op on every other platform**, so no
 `#ifdef`s in your game code.
 
 | Function | Purpose |
@@ -1353,7 +1356,7 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 - The fork builds `raylib.xcframework` (device + simulator) via
   `thirdparty/raylib-ios/projects/scripts/build-ios-xcframework.sh`.
 - Graphics go through **ANGLE** (OpenGL ES → Metal), bundled in the fork.
-- The game uses the same `_ready/_process/_exit` lifecycle; the runner maps it to
+- The game uses the same `on_ready/on_frame/on_exit` lifecycle; the runner maps it to
   `ios_ready/ios_update/ios_destroy`.
 - Building requires **macOS + Xcode** (see the `build-ios` CI job). iOS ads are not implemented.
 

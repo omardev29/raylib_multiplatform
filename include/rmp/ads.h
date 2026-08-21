@@ -16,7 +16,7 @@
 //
 // Typical use:
 //
-//     rmp::ads::request_rewarded();               // preload, e.g. in _ready()
+//     rmp::ads::request_rewarded();               // preload, e.g. in on_ready()
 //     ...
 //     if (rmp::ads::is_rewarded_loaded()) rmp::ads::show_rewarded();
 //     if (rmp::ads::take_reward_earned()) grant(rmp::ads::reward_amount());

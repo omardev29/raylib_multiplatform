@@ -4,4 +4,4 @@
 thirdparty/*
 # Generated from raylib_multiplatform.toml on every configure. Formatting it
 # would be undone by the next `cmake --preset debug`.
-include/raylib_multiplatform/generated/*
+include/rmp/generated/*

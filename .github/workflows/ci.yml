@@ -194,8 +194,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # The examples include <raylib_multiplatform.h>, which pulls in the
-      # generated app_config.h.
+      # The examples include <rmp/app.h>, which pulls in the generated
+      # rmp/config.h.
       - name: Generate configuration
         run: python3 tools/configure.py
 

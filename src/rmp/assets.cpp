@@ -1,6 +1,6 @@
 // ===========================================================================
 // rmp::assets:: — the public surface, declared in
-// include/raylib_multiplatform/assets.h.
+// include/rmp/assets.h.
 //
 // Every loader here has the same shape: ask the pack, and fall back to the
 // loose file if the pack does not have it. The fallback is what keeps a
@@ -9,7 +9,7 @@
 // ===========================================================================
 
 #include <raylib.h>
-#include <raylib_multiplatform/assets.h>
+#include <rmp/assets.h>
 
 #include "internal.h"
 

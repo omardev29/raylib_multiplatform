@@ -39,7 +39,7 @@ what is ours.
 
 | | |
 |---|---|
-| [01_lifecycle.cpp](platform/01_lifecycle.cpp) | `_ready()` / `_process()` / `_exit()`, the shape every game built on this has, on all fourteen targets including iOS. |
+| [01_lifecycle.cpp](platform/01_lifecycle.cpp) | `on_ready()` / `on_frame()` / `on_exit()`, the shape every game built on this has, on all fourteen targets including iOS. |
 | [02_mobile_raymob.cpp](platform/02_mobile_raymob.cpp) | The raymob mobile API: vibration, soft keyboard, sensors, orientation, app storage. Android only. |
 
 ## [`plain_c/`](plain_c)
@@ -55,12 +55,15 @@ what is ours.
 - These are compiled by CI in a job of their own, on its own runner — not on
   your machine every time you build. `just test examples` runs the same check
   locally when you have changed the API and want to know what you broke.
-- Everything the framework offers arrives through one header,
-  `#include <raylib_multiplatform.h>`. There is nothing else to include — it is
-  an umbrella over `include/raylib_multiplatform/`, which you never include from
-  directly. The one deliberate exception is `<clay.h>` in `ui/03_clay_direct.cpp`.
+- **There is no umbrella header.** Each example includes the headers it uses and
+  only those: `rmp/app.h` for the entry point, then `rmp/ui.h`, `rmp/assets.h`,
+  `rmp/ads.h`, `rmp/math.h`, `rmp/config.h` as needed. `platform/03_minimal_includes.cpp`
+  exists to prove `rmp/ui.h` stands on its own, and CI compiles it, so it stays
+  true. What you never include is anything under `src/`. The one deliberate
+  exception to all of this is `<clay.h>` in `ui/03_clay_direct.cpp`, which is the
+  point of that example.
 - Four namespaces: **`rmp::ui`** (menus, buttons, layout), **`rmp::assets`**
-  (loading from `resources/`), **`rmp::ads`** and **`rmp::utils`** (closing the
+  (loading from `resources/`), **`rmp::ads`** and **`rmp::app`** (closing the
   app). Everything under `rmp::` is ours; everything else is raylib's,
   unchanged. The full API is in [TECHNICAL.md](../TECHNICAL.md).
 - `rmp::ads` is safe to call everywhere — no-op off Android, no `#ifdef` needed.

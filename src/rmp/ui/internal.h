@@ -1,14 +1,14 @@
 #pragma once
 // ---------------------------------------------------------------------------
-// Private to src/raylib_multiplatform/ui/. Not in include/, on purpose: this
+// Private to src/rmp/ui/. Not in include/, on purpose: this
 // is where Clay is allowed to exist, and a header the user can reach is a
 // header the user will end up depending on.
 //
-// The public surface is include/raylib_multiplatform/ui.h.
+// The public surface is include/rmp/ui.h.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
-#include <raylib_multiplatform/ui.h>
+#include <rmp/ui.h>
 
 #include "clay.h"
 

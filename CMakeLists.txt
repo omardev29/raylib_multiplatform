@@ -225,7 +225,7 @@ endif()
 #   cmake --build build --target ui_layout_test && ./build/ui_layout_test
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
 if(BUILD_UI_TESTS)
-  file(GLOB UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/raylib_multiplatform/ui/*.cpp")
+  file(GLOB UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp" ${UI_SOURCES})
   set_property(TARGET ui_layout_test PROPERTY CXX_STANDARD 20)
   target_include_directories(ui_layout_test PRIVATE
@@ -313,7 +313,7 @@ if(PLATFORM STREQUAL "Web")
   set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
         SUFFIX ".html"
         # No ASYNCIFY, on purpose. It is only needed to run a synchronous while
-        # loop in an asynchronous browser, and include/raylib_multiplatform/
+        # loop in an asynchronous browser, and include/rmp/
         # lifecycle.h hands the frame loop to emscripten_set_main_loop instead.
         # ASYNCIFY is not free: it instruments every function that could be on
         # the stack at a suspension point, which is most of them, and charges

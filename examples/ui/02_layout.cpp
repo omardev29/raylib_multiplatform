@@ -18,7 +18,9 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/assets.h>
+#include <rmp/ui.h>
 
 #include <string>
 
@@ -26,7 +28,7 @@ static Texture2D portrait;
 static float     health = 0.72f;
 static float     mana   = 0.35f;
 
-static void _ready() {
+static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch everything follow
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
     portrait = rmp::assets::load_texture("rabbit.png");
@@ -110,7 +112,7 @@ static void empty_slot() {
                    });
 }
 
-static void _process(float delta) {
+static void on_frame(float delta) {
     // Bars that move, so the layout is doing something rather than sitting
     // still — and so it is obvious the numbers are read fresh every frame.
     health -= delta * 0.05f;
@@ -130,18 +132,18 @@ static void _process(float delta) {
     banner();
     empty_slot();
 
-    if (rmp::ui::button("Done")) rmp::utils::exit();
+    if (rmp::ui::button("Done")) rmp::app::quit();
 
     rmp::ui::end();
     EndDrawing();
 }
 
-static void _exit() {
+static void on_exit() {
     UnloadTexture(portrait);
     CloseWindow();
 }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 
 // ---------------------------------------------------------------------------
 // The sizing model, in three lines

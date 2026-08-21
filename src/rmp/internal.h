@@ -1,10 +1,10 @@
 #pragma once
 // ---------------------------------------------------------------------------
-// Private to src/raylib_multiplatform/. Deliberately NOT in include/: nothing
+// Private to src/rmp/. Deliberately NOT in include/: nothing
 // here is part of the template's surface, and a header the user can reach is a
 // header the user will end up depending on.
 //
-// The public surface is include/raylib_multiplatform/assets.h.
+// The public surface is include/rmp/assets.h.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>

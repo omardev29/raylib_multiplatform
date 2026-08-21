@@ -8,9 +8,9 @@
 // OS-driven frame callbacks). You normally copy this skeleton into
 // src/main.cpp and fill in the three hooks.
 //
-//   _ready()   -> once at startup: window, assets, preload
-//   _process() -> every frame: update + draw (use GetFrameTime() for delta)
-//   _exit()    -> once at shutdown: unload, close
+//   on_ready()   -> once at startup: window, assets, preload
+//   on_frame() -> every frame: update + draw (use GetFrameTime() for delta)
+//   on_exit()    -> once at shutdown: unload, close
 //
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@
 #include <raylib.h>
 
 // Called once at startup: set config flags, create the window, load assets.
-static void _ready() {
+static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // optional, before InitWindow
     InitWindow(800, 450, "my game");
 
@@ -26,18 +26,18 @@ static void _ready() {
 }
 
 // Called once per frame: update + draw. Use GetFrameTime() for delta time.
-static void _process() {
+static void on_frame() {
     float dt = GetFrameTime();
     (void)dt; // use dt to move things frame-rate independently
 
     BeginDrawing();
     ClearBackground(RAYWHITE);
-    DrawText("Hello from _process()!", 190, 200, 20, LIGHTGRAY);
+    DrawText("Hello from on_frame()!", 190, 200, 20, LIGHTGRAY);
     EndDrawing();
 }
 
 // Called once at shutdown: unload assets, close the window.
-static void _exit() {
+static void on_exit() {
     // UnloadTexture(...), UnloadImage(...), ...
     CloseWindow();
 }
@@ -48,10 +48,10 @@ static void _exit() {
 // NOT write per-platform code, the runner is already provided by the template.
 // ---------------------------------------------------------------------------
 int main() {
-    _ready();
+    on_ready();
     while (!WindowShouldClose()) {
-        _process();
+        on_frame();
     }
-    _exit();
+    on_exit();
     return 0;
 }

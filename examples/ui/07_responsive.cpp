@@ -21,7 +21,8 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/ui.h>
 
 #include <string>
 
@@ -31,7 +32,7 @@ static bool showGrid            = true;
 static const char   *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
 static constexpr int kSections  = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
 
-static void _ready() {
+static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
 }
@@ -114,7 +115,7 @@ static void content() {
     });
 }
 
-static void _process(float) {
+static void on_frame(float) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
@@ -152,6 +153,6 @@ static void _process(float) {
     EndDrawing();
 }
 
-static void _exit() { CloseWindow(); }
+static void on_exit() { CloseWindow(); }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);

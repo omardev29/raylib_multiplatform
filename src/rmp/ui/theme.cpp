@@ -17,9 +17,9 @@
 // after that is a runtime call, so an in-game appearance setting is one line.
 // ===========================================================================
 
-#include <raylib_multiplatform/ui.h>
+#include <rmp/ui.h>
 
-#include <raylib_multiplatform/generated/app_config.h>
+#include <rmp/config.h>
 
 // So this still compiles against a generated header from before [ui] theme
 // existed. tools/configure.py always provides it now.

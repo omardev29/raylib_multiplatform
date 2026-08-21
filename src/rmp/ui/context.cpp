@@ -9,8 +9,8 @@
 
 #include "internal.h"
 
-#include <raylib_multiplatform/assets.h>
-#include <raylib_multiplatform/generated/app_config.h>
+#include <rmp/assets.h>
+#include <rmp/config.h>
 
 #include <cmath>
 #include <cstdio>

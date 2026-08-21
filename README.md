@@ -28,11 +28,9 @@ That is the list. You do **not** edit CMakeLists.txt to rename your game, or `gr
 for Android, or `project.yml` for iOS, or any workflow file to choose platforms. Those are
 generated from the config on every build, which is why they cannot drift out of sync with it.
 
-Three paths in there are the framework's, not yours, and they all carry the same name so you can
-tell at a glance: `include/raylib_multiplatform.h` (the only header you include),
-`include/raylib_multiplatform/` (its parts, and the generated config) and
-`src/raylib_multiplatform/` (the implementation). Everything else under `src/` and `include/` is
-yours. You can delete all three — see [`examples/plain_c/main.c`](examples/plain_c/main.c), which is a plain C
+Two paths in there are the framework's, not yours, and they carry the same name so you can tell
+at a glance: `include/rmp/` (the headers you include) and `src/rmp/` (the implementation).
+Everything else under `src/` and `include/` is yours. You can delete both — see [`examples/plain_c/main.c`](examples/plain_c/main.c), which is a plain C
 entry point that keeps the fourteen build targets and none of the runtime layer.
 
 `branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
@@ -172,14 +170,19 @@ The lifecycle is Godot-shaped, and the same three functions run on every platfor
 where the OS owns the run loop:
 
 ```cpp
-#include <raylib_multiplatform.h>          // the only header of ours you include
+#include <rmp/app.h>                       // the entry point
+#include <rmp/ui.h>                        // and whatever else you use
 
-static inline void _ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
-static inline void _process(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
-static inline void _exit()    { /* unload */ CloseWindow(); }
+static inline void on_ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
+static inline void on_frame(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
+static inline void on_exit()    { /* unload */ CloseWindow(); }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 ```
+
+There is no umbrella header: you include what you use, and each one is a concept you can name —
+`rmp/app.h`, `rmp/ui.h`, `rmp/assets.h`, `rmp/ads.h`, `rmp/math.h`, `rmp/config.h`. See
+[`examples/platform/03_minimal_includes.cpp`](examples/platform/03_minimal_includes.cpp).
 
 The macro on the last line writes the entry point for whichever platform you are building —
 `main()` with a frame loop on desktop and Web, the three callbacks UIKit demands on iOS — and
@@ -189,16 +192,15 @@ remember.
 ### What we add on top of raylib
 
 All of raylib is there, unchanged: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. On top
-of it this framework adds four small namespaces, all under `rmp::`, all included by that single
-header. They exist because they are the things every game needs and raylib deliberately does not
-decide for you.
+of it this framework adds four small namespaces, all under `rmp::`. They exist because they are
+the things every game needs and raylib deliberately does not decide for you.
 
 | Namespace | What it is for |
 | --- | --- |
 | **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default: written once, a menu is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. Playable with a mouse, a finger and a controller, for free. |
 | **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
-| **`rmp::utils`** | The small things with no other home. Today that is `exit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. |
+| **`rmp::app`** | The entry point, and `quit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. |
 
 A main menu, complete:
 
@@ -274,7 +276,7 @@ AdMob, and adding third-party libraries.
 
 [`examples/plain_c/main.c`](examples/plain_c/main.c) is a complete entry point that includes only `<raylib.h>` — no
 none of our headers, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
-`src/raylib_multiplatform/`, and you keep the fourteen build targets, the pinned toolchains, the
+`src/rmp/`, and you keep the fourteen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
 raylib cannot read, and iOS, whose entry point the macro exists to provide.
 
@@ -490,10 +492,8 @@ raylib_multiplatform.toml   your configuration — the only non-code file you ed
 src/main.cpp                your game
 resources/                  your assets — flat, the pack does not recurse
 branding/icon.png           the source for every app icon on every platform
-include/raylib_multiplatform.h
-include/raylib_multiplatform/
-src/raylib_multiplatform/   the framework's own code — rmp::ui, rmp::assets, rmp::ads.
-                            Not yours; deletable.
+include/rmp/               the framework's headers — app, ui, assets, ads, math, config.
+src/rmp/                    its implementation. Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
 examples/                   ui/ ads/ assets/ platform/ plain_c/ — read, copy, ignore

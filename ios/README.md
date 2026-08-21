@@ -8,7 +8,7 @@ Upstream raylib has no iOS backend, so this fork provides `rcore_ios.c`
 ## How it differs from desktop
 
 - **No blocking main loop.** iOS is callback-driven. The game already follows a
-  Godot-style lifecycle (`_ready`/`_process`/`_exit` in `src/main.cpp`), which the
+  Godot-style lifecycle (`on_ready`/`on_frame`/`on_exit` in `src/main.cpp`), which the
   runner maps to `ios_ready`/`ios_update`/`ios_destroy` on iOS. No game-code
   changes are needed per platform.
 - **Graphics** are OpenGL ES 3 through **ANGLE** (GLES→Metal). The fork bundles
@@ -53,7 +53,7 @@ For a **device** build, set a development team / signing identity and use
 
 - **Resources:** `RESOURCES_PATH` is `./resources/` here, and the process does
   not start inside the bundle — iOS launches it in the app container. `IOS_FUNCS`
-  in `include/raylib_multiplatform/lifecycle.h` handles that with a
+  in `include/rmp/app.h` handles that with a
   `ChangeDirectory(GetApplicationDirectory())` before anything loads, so the
   relative path resolves against the `.app`. Write to
   `GetIOSDocumentsPath()` instead if you need somewhere writable; the bundle is

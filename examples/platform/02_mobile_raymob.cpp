@@ -26,7 +26,7 @@
 #include <raymob.h>
 #endif
 
-static void _ready() {
+static void on_ready() {
     InitWindow(800, 450, "raymob mobile example");
 
 #ifdef __ANDROID__
@@ -36,7 +36,7 @@ static void _ready() {
 #endif
 }
 
-static void _process() {
+static void on_frame() {
 #ifdef __ANDROID__
     // Haptics: vibrate for 50 ms whenever the screen is tapped.
     if (IsKeyPressed(KEY_BACK) || IsGestureDetected(GESTURE_TAP)) VibrateMS(50);
@@ -67,7 +67,7 @@ static void _process() {
     EndDrawing();
 }
 
-static void _exit() {
+static void on_exit() {
 #ifdef __ANDROID__
     DisableSensor(SENSOR_ACCELEROMETER);
 #endif
@@ -75,8 +75,8 @@ static void _exit() {
 }
 
 int main() {
-    _ready();
-    while (!WindowShouldClose()) _process();
-    _exit();
+    on_ready();
+    while (!WindowShouldClose()) on_frame();
+    on_exit();
     return 0;
 }

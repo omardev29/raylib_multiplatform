@@ -10,8 +10,8 @@
 //   - the loose files in resources/ (what you get while developing).
 //
 // rmp::assets::init() picks whichever exists. You never call it: the lifecycle
-// macro in <raylib_multiplatform/lifecycle.h> does, before _ready(), and
-// Shutdown() after _exit().
+// macro in <rmp/app.h> does, before on_ready(), and
+// Shutdown() after on_exit().
 //
 // Since Init() also teaches raylib itself to read the pack, plain raylib calls
 // work too — LoadTexture(RESOURCES_PATH "player.png"), LoadModel, LoadShader.
@@ -19,7 +19,7 @@
 // See TECHNICAL.md, "Resources", for the two things that stay outside this:
 // LoadMusicStream, and files loaded from outside resources/.
 //
-// Implementation: src/raylib_multiplatform/.
+// Implementation: src/rmp/.
 //
 // Everything this template adds lives under rmp::. What comes from raylib keeps
 // its own name, so you can always tell at a glance which is which.
@@ -34,7 +34,7 @@ namespace rmp::assets {
 // twice is harmless.
 void init();
 
-// Release the pack and unhook raylib's loaders. Called for you after _exit().
+// Release the pack and unhook raylib's loaders. Called for you after on_exit().
 void shutdown();
 
 // True when assets are being served from a .rres pack.

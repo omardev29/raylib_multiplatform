@@ -11,7 +11,7 @@
 #include "rres-raylib.h" // declarations only; the implementation is rres_impl.cpp
 
 #include "internal.h"
-#include <raylib_multiplatform/generated/app_config.h> // APP_RRES_PASSWORD
+#include <rmp/config.h> // APP_RRES_PASSWORD
 
 #include <cstdio>
 #include <utility>

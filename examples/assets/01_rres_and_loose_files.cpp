@@ -9,20 +9,21 @@
 //   cmake --build build --target unpack_resources   # back to loose files
 //
 // Note what is missing: there is no rmp::assets::init() call anywhere below. The
-// entry point macro opens the pack before _ready() and closes it after
-// _exit(), so there is nothing to remember and nothing to get wrong.
+// entry point macro opens the pack before on_ready() and closes it after
+// on_exit(), so there is nothing to remember and nothing to get wrong.
 //
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib_multiplatform.h>
+#include <rmp/app.h>
+#include <rmp/assets.h>
 
 static Texture2D player;
 static Font      ui;
 static Sound     jump;
 
 // Called once at startup: the pack (if any) is already open by now.
-static inline void _ready() {
+static inline void on_ready() {
     InitWindow(800, 450, "assets example");
     InitAudioDevice(); // LoadSound needs this first
 
@@ -48,7 +49,7 @@ static inline void _ready() {
     // music as a loose file next to the executable.
 }
 
-static inline void _process(float delta) {
+static inline void on_frame(float delta) {
     if (IsKeyPressed(KEY_SPACE)) PlaySound(jump);
 
     BeginDrawing();
@@ -62,7 +63,7 @@ static inline void _process(float delta) {
     EndDrawing();
 }
 
-static inline void _exit() {
+static inline void on_exit() {
     UnloadSound(jump);
     UnloadFont(ui);
     UnloadTexture(player);
@@ -70,4 +71,4 @@ static inline void _exit() {
     CloseWindow();
 }
 
-RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY;
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
