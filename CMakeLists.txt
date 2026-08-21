@@ -312,7 +312,14 @@ endif()
 if(PLATFORM STREQUAL "Web")
   set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
         SUFFIX ".html"
-        LINK_FLAGS "-s USE_GLFW=3 -s ASYNCIFY -s TOTAL_MEMORY=67108864 --preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
+        # No ASYNCIFY, on purpose. It is only needed to run a synchronous while
+        # loop in an asynchronous browser, and include/raylib_multiplatform/
+        # lifecycle.h hands the frame loop to emscripten_set_main_loop instead.
+        # ASYNCIFY is not free: it instruments every function that could be on
+        # the stack at a suspension point, which is most of them, and charges
+        # for it in code size and speed whether or not anything ever suspends.
+        # If you put a while loop back, you have to put this back with it.
+        LINK_FLAGS "-s USE_GLFW=3 -s TOTAL_MEMORY=67108864 --preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
     )
 endif()
 

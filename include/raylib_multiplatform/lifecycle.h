@@ -3,9 +3,14 @@
 // The entry point.
 //
 // You write _ready(), _process(float) and _exit(); the macro below writes the
-// runner for your platform. Desktop and Web get a main() with the frame loop;
-// iOS gets the three callbacks UIKit expects, because there the run loop
-// belongs to the OS and there is nothing to return to.
+// runner for your platform. There are three, and the difference between them is
+// who owns the frame loop:
+//
+//   desktop   we do: a main() with a while loop, the ordinary raylib shape.
+//   web       the browser does. See the PLATFORM_WEB block below — this is not
+//             a style choice, a while loop there costs you ASYNCIFY.
+//   iOS       UIKit does, so there is no loop to write and nothing to return
+//             to: three callbacks it calls instead.
 //
 // Both spellings do the same things around your code: start the smoke test,
 // open the asset pack, run you, report to CI whether any asset failed to load,
@@ -21,6 +26,10 @@
 // ---------------------------------------------------------------------------
 
 #include <stdlib.h> // exit() on the iOS CI path
+
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
 
 #include <raylib.h>
 #include <raylib_multiplatform/assets.h>
@@ -69,9 +78,59 @@
     rmp::assets::shutdown();                                                   \
   }
 
+// Web. The browser owns the frame loop, and giving it to the browser is worth
+// a paragraph because the alternative is expensive in a way that is invisible.
+//
+// A while loop in a browser only works if you build with -s ASYNCIFY, which
+// rewrites the whole program so its stack can be unwound and restored at any
+// suspension point. That instrumentation is not billed to the loop: it is
+// billed to every function in the binary that might be on the stack when it
+// happens, in code size and in speed, whether or not the frame ever yields.
+// raylib says so itself, in the comment above WindowShouldClose() on web:
+// "WindowShouldClose() is not called on a web-ready raylib application if
+// using emscripten_set_main_loop()". That call is the only emscripten_sleep()
+// in raylib, so not calling it is what lets ASYNCIFY go away entirely.
+//
+// One frame per callback is also what requestAnimationFrame wants: the browser
+// schedules us with the display instead of us blocking its event loop and
+// asking it politely for control back every 12 ms.
+//
+// fps = 0 means requestAnimationFrame, which is the right answer on web — do
+// NOT call SetTargetFPS() here. The 1 is "simulate an infinite loop", so
+// main() never returns and nothing after the call runs, which is exactly the
+// contract the desktop while loop has.
+#define WEB_FUNCS                                                              \
+  static void rmp_web_close() {                                                \
+    /* The same order as everywhere else: the UI first, while the window is    \
+       still open and its font still has a GL context to live in. */           \
+    rmp::ui::shutdown();                                                       \
+    _exit();                                                                   \
+    rmp::assets::shutdown();                                                   \
+  }                                                                            \
+  static void rmp_web_frame() {                                                \
+    _process(GetFrameTime());                                                  \
+    /* Same two ways out as the desktop loop, minus the window's X, which a    \
+       browser tab does not have. WindowShouldClose() is deliberately never    \
+       called: on web it does nothing but emscripten_sleep(12). */             \
+    if (SmokeTest_Tick() || rmp::utils::exit_requested()) {                    \
+      emscripten_cancel_main_loop();                                           \
+      rmp_web_close();                                                         \
+    }                                                                          \
+  }                                                                            \
+  int main() {                                                                 \
+    SmokeTest_Begin();                                                         \
+    rmp::assets::init();                                                       \
+    _ready();                                                                  \
+    SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads()); \
+    emscripten_set_main_loop(rmp_web_frame, 0, 1);                             \
+    return 0;                                                                  \
+  }
+
 // Main loop body macro
 #if defined(PLATFORM_IOS)
 #define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY IOS_FUNCS
+#elif defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+#define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY WEB_FUNCS
 #else
 #define RAYLIB_MULTIPLATFORM_MAIN_LOOP_BODY                                    \
   int main() {                                                                 \
