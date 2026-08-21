@@ -572,17 +572,22 @@ void text(std::string_view s, const text_options &o);
 
 ```cpp
 struct button_options {
-    variant     style   = variant::normal;   // normal | primary | danger
-    bool        enabled = true;
-    const char *id      = nullptr;
+    variant       style = variant::normal;  // normal|primary|danger|outline|ghost
+    detail::sizing size{};                  // size::small|medium|large, or a number
+    bool          enabled = true;
+    const char   *id      = nullptr;
 };
 
 struct text_options {
-    color_role color = color_role::text;     // text | muted | primary | danger
-    float      size  = -1;                   // -1 = the theme's font_size
-    bool       wrap  = true;
+    color_role     color = color_role::text; // text | muted | primary | danger
+    detail::sizing size{};                   // a step, a number, or the theme's
+    bool           wrap  = true;
 };
 ```
+
+You never name `detail::sizing`. It is one field that accepts two spellings —
+`{ .size = rmp::ui::size::large }` and `{ .size = 34 }` both land in it — rather than two fields
+that could contradict each other. See [Variants and sizes](#variants-and-sizes).
 
 `button` returns `true` on the frame the pointer is **released over it**, having been pressed on
 it. Drag off and let go and nothing happens, which is what every interface worth using does.
@@ -594,6 +599,10 @@ what red means. Restyling a game then never involves revisiting call sites.
 rmp::ui::button("Delete save", { .style = rmp::ui::variant::danger });
 rmp::ui::text("Paused", { .color = rmp::ui::color_role::muted, .size = 32 });
 ```
+
+Field order in these structs is not cosmetic: **C++20 requires designated initialisers in
+declaration order**, so they are ordered the way they are most likely to be written — sizing, then
+appearance, then identity. `{ .style = ..., .size = ... }` compiles; the other way round does not.
 
 ### Containers
 
