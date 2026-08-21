@@ -1,5 +1,4 @@
 thirdparty/** linguist-vendored=true
-examples/** linguist-vendored=true
 * text=auto eol=native
 *.bat text eol=crlf
 *.cmd text eol=crlf
