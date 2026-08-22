@@ -141,7 +141,10 @@ jobs:
           set -euo pipefail
           fmt=$(awk '/^clang_format/{print $2}' thirdparty/FROZEN_VERSIONS.md)
           tidy=$(awk '/^clang_tidy/{print $2}' thirdparty/FROZEN_VERSIONS.md)
-          [ -n "$fmt" ] && [ -n "$tidy" ] || { echo "FALLA: clang pins missing from FROZEN_VERSIONS.md"; exit 1; }
+          if [ -z "$fmt" ] || [ -z "$tidy" ]; then
+            echo "FALLA: clang pins missing from FROZEN_VERSIONS.md"
+            exit 1
+          fi
           python3 -m pip install --quiet --break-system-packages \
             "clang-format==$fmt" "clang-tidy==$tidy"
           clang-format --version

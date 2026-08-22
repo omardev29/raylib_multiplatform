@@ -73,8 +73,10 @@ fmt what="write":
         for f in $files; do
             clang-format "$f" | diff -q "$f" - >/dev/null || { echo "  unformatted  $f"; bad=1; }
         done
-        [ "$bad" -eq 0 ] && echo "  ok    every file is formatted" || {
-            echo; echo "FALLA: run \`just fmt\` and commit the result."; exit 1; }
+        if [ "$bad" -ne 0 ]; then
+            echo; echo "FALLA: run \`just fmt\` and commit the result."; exit 1
+        fi
+        echo "  ok    every file is formatted"
         ;;
       *) echo "unknown: {{ what }} (write | check)"; exit 1 ;;
     esac
