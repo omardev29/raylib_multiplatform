@@ -172,7 +172,16 @@ jobs:
       - name: clang-tidy
         run: |
           set -euo pipefail
-          command -v ninja >/dev/null || sudo apt-get install -y -qq ninja-build
+          # This runner is a bare ubuntu-24.04, not the pinned build image, so
+          # it has none of raylib's Linux dependencies — and `cmake --preset
+          # debug` configures raylib, which fails on GLFW's find_package(X11)
+          # long before it gets to writing a compile database. The list is the
+          # same one the build image installs (see the raylib-build-image repo);
+          # nothing here is BUILT, so it costs one apt call and no compile time.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build \
+            libgl1-mesa-dev libwayland-dev libx11-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev
           cmake --preset debug > /dev/null
           # Only .cpp files: clang-tidy reaches the headers through them, and
           # HeaderFilterRegex in .clang-tidy decides which it reports on. The
