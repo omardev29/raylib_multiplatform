@@ -29,7 +29,7 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib.h>  // this example writes its own main(), so it needs raylib
+#include <raylib.h> // this example writes its own main(), so it needs raylib
 #include <rmp/ads.h> // rmp::ads, and nothing else from the framework
 
 static int lastReward = 0;
@@ -55,7 +55,7 @@ static void on_frame() {
         rmp::ads::show_rewarded();
         rmp::ads::request_rewarded();
     }
-    if (rmp::ads::take_reward_earned()) {       // true exactly once per earned reward
+    if (rmp::ads::take_reward_earned()) { // true exactly once per earned reward
         lastReward = rmp::ads::reward_amount(); // grant it to the player here
     }
 

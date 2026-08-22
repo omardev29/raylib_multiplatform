@@ -30,8 +30,8 @@ static void on_ready() {
     InitWindow(800, 450, "raymob mobile example");
 
 #ifdef __ANDROID__
-    KeepScreenOn(true);                 // don't let the screen sleep
-    InitSensorManager();                // needed before enabling any sensor
+    KeepScreenOn(true); // don't let the screen sleep
+    InitSensorManager(); // needed before enabling any sensor
     EnableSensor(SENSOR_ACCELEROMETER); // turn the accelerometer on
 #endif
 }
@@ -48,7 +48,7 @@ static void on_frame() {
     ClearLastSoftKey();
 
     // Sensors: read the accelerometer axis.
-    Vector3 accel      = GetAccelerotmerAxis();
+    Vector3 accel = GetAccelerotmerAxis();
 
     Orientation orient = GetScreenOrientation();
 #endif

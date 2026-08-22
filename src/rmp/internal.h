@@ -26,7 +26,7 @@ bool pack_is_open();
 
 // One entry, by its name in the central directory. Returns bytes owned by the
 // caller (malloc'd, so UnloadFileData/RL_FREE frees them), or nullptr if the
-// name is not packed, does not decrypt, or no pack is open. `size` receives
+// name is not packed, does not decrypt, or no pack is open. `Size` receives
 // the byte count and is zeroed on failure.
 unsigned char *pack_read(const char *name, int *size);
 
@@ -50,7 +50,7 @@ bool in_resources_dir(const char *path);
 // --- assets.cpp ------------------------------------------------------------
 // Counters behind rmp::assets::requested_loads() / failed_loads(), which the CI boot
 // gate reads. Defined in assets.cpp.
-extern int requested_count;
-extern int failed_count;
+extern int g_requested_count;
+extern int g_failed_count;
 
 } // namespace rmp::assets::detail

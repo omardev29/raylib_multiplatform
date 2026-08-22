@@ -30,13 +30,13 @@ namespace {
 // map to avoid a missing 120 ms fade would be the wrong trade.
 constexpr int kSlots = 512;
 
-struct slot {
-    uint32_t key  = 0;
-    float    t    = 0.0f;
-    bool     used = false;
+struct Slot {
+    uint32_t key = 0;
+    float t = 0.0f;
+    bool used = false;
 };
 
-slot  g_slots[kSlots];
+Slot g_slots[kSlots];
 float g_dt = 0.0f;
 
 // Smoothstep. Linear in, eased out: the value still arrives exactly on time,
@@ -63,7 +63,7 @@ void anim_begin_frame() {
     // In test mode there is no window, so there is no frame time either, and a
     // headless run must produce the same numbers every time it is run.
     g_dt = test_mode() ? 0.0f : GetFrameTime();
-    // A breakpoint, a dropped frame or a window drag can hand us a second and a
+    // A Breakpoint, a dropped frame or a window drag can hand us a second and a
     // half. Letting that through makes every transition finish instantly, which
     // is not wrong, but capping it keeps the first frame after a stall looking
     // like the frames around it.
@@ -72,7 +72,7 @@ void anim_begin_frame() {
 }
 
 float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
-    const float target   = on ? 1.0f : 0.0f;
+    const float target = on ? 1.0f : 0.0f;
     const float duration = current_theme().transition;
 
     // transition = 0 is the reduce-motion setting, and it is also what the
@@ -81,14 +81,14 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
     if (duration <= 0.0f) return target;
 
     const uint32_t key = id.id ^ ((channel + 1u) * 2246822519u);
-    slot          &s   = g_slots[key & (kSlots - 1)];
+    Slot &s = g_slots[key & (kSlots - 1)];
     if (!s.used || s.key != key) {
         // First sight of this control, or the slot belonged to another one.
         // Start where it is going, so nothing fades in from nowhere the frame
         // it appears.
         s.used = true;
-        s.key  = key;
-        s.t    = target;
+        s.key = key;
+        s.t = target;
         return target;
     }
 
@@ -115,14 +115,14 @@ Color state_color(Clay_ElementId id, Color base, Color hover, Color press, bool 
 
 // --- sizes -----------------------------------------------------------------
 
-float resolve_size(const sizing &s, const theme &t) {
+float resolve_size(const Sizing &s, const Theme &t) {
     if (s.named) {
         switch (s.step) {
-            case ui::size::small:
+            case ui::Size::SMALL:
                 return t.font_size_small;
-            case ui::size::large:
+            case ui::Size::LARGE:
                 return t.font_size_large;
-            case ui::size::medium:
+            case ui::Size::MEDIUM:
                 break;
         }
         return t.font_size;
@@ -130,7 +130,7 @@ float resolve_size(const sizing &s, const theme &t) {
     return (s.units > 0.0f) ? s.units : t.font_size;
 }
 
-float size_ratio(const sizing &s, const theme &t) {
+float size_ratio(const Sizing &s, const Theme &t) {
     // Padding and the minimum touch height follow the type, so a large button
     // is a large button all over and not a normal one with bigger letters.
     // Guarded because a theme with font_size = 0 is somebody's typo, not a

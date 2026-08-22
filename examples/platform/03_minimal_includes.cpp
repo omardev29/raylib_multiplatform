@@ -21,7 +21,7 @@
 // The headers, and what each one is for:
 //
 //     rmp/app.h       the entry point, and rmp::app::quit()
-//     rmp/ui.h        rmp::ui — menus, buttons, layout, theme
+//     rmp/ui.h        rmp::ui — menus, buttons, layout, Theme
 //     rmp/assets.h    rmp::assets — loading from resources/
 //     rmp/ads.h       rmp::ads — interstitial and rewarded
 //     rmp/math.h      vectors, rectangles, colours, and the arithmetic
@@ -39,7 +39,7 @@
 void draw_hud(int score, float health) {
     // A HUD pinned to the top of the screen, and every measurement in it comes
     // from the theme, so it scales with everything else.
-    rmp::ui::begin({ .placement = rmp::ui::align::top_center });
+    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_CENTER });
 
     rmp::ui::panel([&] {
         rmp::ui::row({ .gap = 24, .grow_x = true }, [&] {

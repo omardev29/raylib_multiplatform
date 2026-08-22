@@ -92,9 +92,10 @@ bool quit_requested();
 } // namespace rmp::app
 
 // clang-format off
-// Hand-laid, and exempt from clang-format on purpose: these are 40-line macros
-// whose bodies are block comments, and no formatter aligns that well. The
-// continuation backslashes are a table, so they are kept as one.
+// The one exemption left in the repository, and it is NOT about alignment:
+// these are 40-line macros whose bodies contain block comments, and every
+// formatter mangles the continuation of a /* */ inside a macro. The trailing
+// backslashes are a language requirement, not a ruler.
 
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
 // extern "C" so the symbols match the C declarations in rcore_ios.c.
@@ -145,7 +146,7 @@ bool quit_requested();
 // rewrites the whole program so its stack can be unwound and restored at any
 // suspension point. That instrumentation is not billed to the loop: it is
 // billed to every function in the binary that might be on the stack when it
-// happens, in code size and in speed, whether or not the frame ever yields.
+// happens, in code Size and in speed, whether or not the frame ever yields.
 // raylib says so itself, in the comment above WindowShouldClose() on web:
 // "WindowShouldClose() is not called on a web-ready raylib application if
 // using emscripten_set_main_loop()". That call is the only emscripten_sleep()

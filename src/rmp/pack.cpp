@@ -35,69 +35,70 @@ namespace rmp::assets::detail {
 
 namespace {
 
-bool           g_usingPack      = false;
-rresCentralDir g_cdir           = { 0, nullptr };
-char           g_packPath[2048] = { 0 };
+bool g_using_pack = false;
+rresCentralDir g_cdir = { 0, nullptr };
+char g_pack_path[2048] = { 0 };
 
 } // namespace
 
 bool open_pack() {
-    if (g_usingPack) return true; // idempotent: the lifecycle macro already called it
+    if (g_using_pack) return true; // idempotent: the lifecycle macro already called it
 
-    std::snprintf(g_packPath, sizeof(g_packPath), "%s%s", RESOURCES_PATH, RRES_PACK_FILE);
+    std::snprintf(g_pack_path, sizeof(g_pack_path), "%s%s", RESOURCES_PATH,
+                  RRES_PACK_FILE);
 
-    if (!FileExists(g_packPath)) {
+    if (!FileExists(g_pack_path)) {
         TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s",
                  RESOURCES_PATH);
         return false;
     }
 
     rresSetCipherPassword(RRES_PASSWORD);
-    g_cdir = rresLoadCentralDirectory(g_packPath);
+    g_cdir = rresLoadCentralDirectory(g_pack_path);
     if (g_cdir.count <= 0) {
         TraceLog(LOG_WARNING, "ASSETS: %s has no central directory, using loose files",
-                 g_packPath);
+                 g_pack_path);
         return false;
     }
 
-    g_usingPack = true;
-    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", g_packPath,
+    g_using_pack = true;
+    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", g_pack_path,
              g_cdir.count);
     return true;
 }
 
 void close_pack() {
-    if (!g_usingPack) return;
+    if (!g_using_pack) return;
     rresUnloadCentralDirectory(g_cdir);
-    g_cdir.count   = 0;
+    g_cdir.count = 0;
     g_cdir.entries = nullptr;
-    g_usingPack    = false;
+    g_using_pack = false;
 }
 
-bool pack_is_open() { return g_usingPack; }
+bool pack_is_open() { return g_using_pack; }
 
 unsigned char *pack_read(const char *name, int *size) {
     if (size != nullptr) *size = 0;
-    if (!g_usingPack || name == nullptr) return nullptr;
+    if (!g_using_pack || name == nullptr) return nullptr;
 
     unsigned int id = rresGetResourceId(g_cdir, name);
     if (id == 0) return nullptr;
 
-    rresResourceChunk chunk = rresLoadResourceChunk(g_packPath, id);
+    rresResourceChunk chunk = rresLoadResourceChunk(g_pack_path, id);
     if (UnpackResourceChunk(&chunk) != 0) {
         rresUnloadResourceChunk(chunk);
         return nullptr;
     }
 
-    unsigned int dataSize = 0;
+    unsigned int data_size = 0;
     // LoadDataFromResource, not ...FromResourceChunk: the latter is static
     // inside rres-raylib.h. The public one also transparently follows a LINK
     // chunk to an external file.
-    void *data            = LoadDataFromResource(chunk, &dataSize);
+    void *data = LoadDataFromResource(chunk, &data_size);
     rresUnloadResourceChunk(chunk);
     if (data == nullptr) return nullptr;
 
-    if (size != nullptr) *size = static_cast<int>(dataSize);
+    if (size != nullptr) *size = static_cast<int>(data_size);
     return static_cast<unsigned char *>(data);
 }
 
@@ -111,7 +112,7 @@ unsigned char *pack_read(const char *name, int *size) {
 // caller falls back to the loose file.
 Image pack_read_image(const char *name) {
     Image img = { nullptr };
-    if (!g_usingPack || name == nullptr) return img;
+    if (!g_using_pack || name == nullptr) return img;
 
     unsigned int id = rresGetResourceId(g_cdir, name);
     if (id == 0) {
@@ -120,7 +121,7 @@ Image pack_read_image(const char *name) {
         return img;
     }
 
-    rresResourceMulti multi = rresLoadResourceMulti(g_packPath, id);
+    rresResourceMulti multi = rresLoadResourceMulti(g_pack_path, id);
     if (multi.count > 0) {
         bool ok = true;
         for (int i = 0; std::cmp_less(i, multi.count); i++) {

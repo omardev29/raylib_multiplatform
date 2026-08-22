@@ -26,22 +26,22 @@
 
 // Plain data. This is the whole model.
 struct Settings {
-    bool  fullscreen  = false;
-    bool  vsync       = true;
-    bool  subtitles   = false;
-    float master      = 0.8f;
-    float music       = 0.5f;
+    bool fullscreen = false;
+    bool vsync = true;
+    bool subtitles = false;
+    float master = 0.8f;
+    float music = 0.5f;
     float sensitivity = 0.35f;
-    int   quality     = 1;
-    int   language    = 0;
-    char  player[24]  = "Player";
+    int quality = 1;
+    int language = 0;
+    char player[24] = "Player";
 };
 
 static Settings cfg;
 static Settings saved; // what was on disk, to know if anything changed
-static bool     dirty         = false;
+static bool dirty = false;
 
-static const char *QUALITY[]  = { "Low", "Medium", "High", "Ultra" };
+static const char *QUALITY[] = { "Low", "Medium", "High", "Ultra" };
 static const char *LANGUAGE[] = { "English", "Espanol", "Francais" };
 
 static void apply(const Settings &s) {
@@ -109,12 +109,12 @@ static void on_frame(float delta) {
         // --- actions ------------------------------------------------------
         rmp::ui::row({ .grow_x = true }, [&] {
             if (rmp::ui::button("Revert", { .enabled = dirty })) {
-                cfg   = saved;
+                cfg = saved;
                 dirty = false;
             }
             rmp::ui::spacer();
             if (rmp::ui::button(
-                    "Apply", { .style = rmp::ui::variant::primary, .enabled = dirty })) {
+                    "Apply", { .style = rmp::ui::Variant::PRIMARY, .enabled = dirty })) {
                 apply(cfg);
                 saved = cfg;
                 dirty = false;
@@ -123,7 +123,7 @@ static void on_frame(float delta) {
 
         if (dirty) {
             rmp::ui::text("unsaved changes",
-                          { .color = rmp::ui::color_role::danger, .size = 14 });
+                          { .color = rmp::ui::ColorRole::DANGER, .size = 14 });
         }
     });
     rmp::ui::end();
@@ -147,7 +147,7 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //   Left / Right / d-pad / stick            move a slider
 //
 // The focused control draws the theme's focus ring. That colour is in the
-// theme rather than in each widget for a reason: a controller build where one
+// Theme rather than in each widget for a reason: a controller build where one
 // widget forgot to draw it is a controller build that gets stuck.
 //
 //   rmp::ui::focus("Fullscreen")   put the focus somewhere (when a menu opens)

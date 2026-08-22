@@ -9,11 +9,11 @@
 #include <rmp/assets.h>
 #include <rmp/ui.h>
 
-class game_assets {
+class GameAssets {
 public:
-    Image     img;
+    Image img;
     Texture2D rabbit;
-} game;
+} g_game;
 
 // Called once at startup: set config flags, create the window, load assets.
 //
@@ -27,8 +27,8 @@ static inline void on_ready() {
 
     // Served from resources.rres when a release packed one, from the loose file
     // in resources/ otherwise. Same call either way.
-    game.img    = rmp::assets::load_image("rabbit.png");
-    game.rabbit = LoadTextureFromImage(game.img);
+    g_game.img = rmp::assets::load_image("rabbit.png");
+    g_game.rabbit = LoadTextureFromImage(g_game.img);
 }
 
 // Called each frame
@@ -37,18 +37,18 @@ static inline void on_frame(float /*delta*/) {
     ClearBackground(rmp::ui::current_theme().background);
 
     // A menu. Nothing here mentions a coordinate, a size, a font or a hitbox,
-    // and it stays centred and correctly proportioned at any window size —
+    // and it stays centred and correctly proportioned at any window Size —
     // resize the window and watch. The containers take their contents as a
     // lambda, so there is no closing call to forget.
     rmp::ui::begin();
 
     rmp::ui::panel([&] {
         rmp::ui::row({ .gap = 16 }, [&] {
-            rmp::ui::image(game.rabbit, { .width = 64, .height = 64 });
-            rmp::ui::column({ .items = rmp::ui::align::center_left }, [&] {
+            rmp::ui::image(g_game.rabbit, { .width = 64, .height = 64 });
+            rmp::ui::column({ .items = rmp::ui::Align::CENTER_LEFT }, [&] {
                 rmp::ui::text(APP_WINDOW_TITLE);
                 rmp::ui::text("raylib + rmp::ui",
-                              { .color = rmp::ui::color_role::muted, .size = 14 });
+                              { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
             });
         });
 
@@ -77,8 +77,8 @@ static inline void on_frame(float /*delta*/) {
 
 // Called once at shutdown: unload assets, close the window.
 static inline void on_exit() {
-    UnloadTexture(game.rabbit);
-    UnloadImage(game.img);
+    UnloadTexture(g_game.rabbit);
+    UnloadImage(g_game.img);
     CloseWindow();
 }
 

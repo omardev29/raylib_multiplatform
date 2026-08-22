@@ -10,7 +10,7 @@
 //                       is for the one thing scale cannot do: no combination of
 //                       grow, fit and fixed turns a row into a column.
 //
-// The rule of thumb: if you are reaching for a breakpoint to pick a SIZE, stop
+// The rule of thumb: if you are reaching for a breakpoint to pick a size, stop
 // — scale already did that for you, and hard-coding around it is how a layout
 // ends up looking right on exactly one machine. Reach for it when the layout
 // has to become a different layout.
@@ -26,11 +26,11 @@
 
 #include <string>
 
-static int  selected            = 0;
-static bool showGrid            = true;
+static int selected = 0;
+static bool showGrid = true;
 
-static const char   *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
-static constexpr int kSections  = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
+static const char *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
+static constexpr int kSections = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
@@ -39,11 +39,11 @@ static void on_ready() {
 
 static const char *breakpoint_name() {
     switch (rmp::ui::current_breakpoint()) {
-        case rmp::ui::breakpoint::compact:
+        case rmp::ui::Breakpoint::COMPACT:
             return "compact";
-        case rmp::ui::breakpoint::medium:
+        case rmp::ui::Breakpoint::MEDIUM:
             return "medium";
-        case rmp::ui::breakpoint::expanded:
+        case rmp::ui::Breakpoint::EXPANDED:
             return "expanded";
     }
     return "?";
@@ -60,12 +60,13 @@ static void sidebar() {
     // instead of down. Same buttons, same state, same handlers.
     const bool narrow = rmp::ui::compact();
 
-    auto items        = [] {
+    auto items = [] {
         for (int i = 0; i < kSections; i++) {
             const bool active = (i == selected);
-            if (rmp::ui::button(SECTIONS[i], { .style = active ? rmp::ui::variant::primary
-                                                               : rmp::ui::variant::ghost,
-                                               .size  = rmp::ui::size::small })) {
+            if (rmp::ui::button(SECTIONS[i],
+                                { .style = active ? rmp::ui::Variant::PRIMARY
+                                                  : rmp::ui::Variant::GHOST,
+                                  .size = rmp::ui::Size::SMALL })) {
                 selected = i;
             }
         }
@@ -81,8 +82,9 @@ static void sidebar() {
         });
     } else {
         rmp::ui::panel({ .box = { .width = 200, .grow_y = true } }, [&] {
-            rmp::ui::text("Sections", { .color = rmp::ui::color_role::muted,
-                                        .size  = rmp::ui::size::small });
+            rmp::ui::text(
+                "Sections",
+                { .color = rmp::ui::ColorRole::MUTED, .size = rmp::ui::Size::SMALL });
             items();
         });
     }
@@ -90,7 +92,7 @@ static void sidebar() {
 
 static void content() {
     rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [] {
-        rmp::ui::text(SECTIONS[selected], { .size = rmp::ui::size::large });
+        rmp::ui::text(SECTIONS[selected], { .size = rmp::ui::Size::LARGE });
         rmp::ui::checkbox("Show the grid", &showGrid);
 
         if (showGrid) {
@@ -104,7 +106,7 @@ static void content() {
                         rmp::ui::cell([&] {
                             rmp::ui::panel({ .box = { .padding = 10 } }, [&] {
                                 rmp::ui::text("Item " + std::to_string(i + 1),
-                                              { .size = rmp::ui::size::small });
+                                              { .size = rmp::ui::Size::SMALL });
                                 rmp::ui::progress(static_cast<float>(i % 10) / 9.0f);
                             });
                         });
@@ -119,19 +121,19 @@ static void on_frame(float) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
-    rmp::ui::begin({ .placement = rmp::ui::align::top_center, .padding = 12 });
+    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_CENTER, .padding = 12 });
 
     // A status line, so the breakpoint is visible while you drag the window.
     // Nothing in a real game would draw this.
     rmp::ui::row({ .grow_x = true }, [] {
         rmp::ui::text(
-            std::string("breakpoint: ") + breakpoint_name(),
-            { .color = rmp::ui::color_role::primary, .size = rmp::ui::size::small });
+            std::string("Breakpoint: ") + breakpoint_name(),
+            { .color = rmp::ui::ColorRole::PRIMARY, .size = rmp::ui::Size::SMALL });
         rmp::ui::spacer();
         rmp::ui::text(
             std::to_string(GetScreenWidth()) + "x" + std::to_string(GetScreenHeight()) +
                 "   scale " + std::to_string(rmp::ui::scale()).substr(0, 4),
-            { .color = rmp::ui::color_role::muted, .size = rmp::ui::size::small });
+            { .color = rmp::ui::ColorRole::MUTED, .size = rmp::ui::Size::SMALL });
     });
 
     // THE WHOLE EXAMPLE IS THESE SEVEN LINES. Two arrangements of the same two

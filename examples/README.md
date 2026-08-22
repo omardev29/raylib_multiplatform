@@ -14,12 +14,12 @@ what is ours.
 
 | | |
 |---|---|
-| [01_menu.cpp](ui/01_menu.cpp) | A main menu in three lines, then an options screen, a confirm dialog and a HUD. Variants, disabled controls, explicit ids, placement, the theme. **Start here.** |
-| [02_layout.cpp](ui/02_layout.cpp) | `row`, `column`, `panel`, `center`, `stack`/`layer`, `spacer`, plus `image` and `progress`. The sizing model — fit, grow, fixed — and why design units are not pixels. |
+| [01_menu.cpp](ui/01_menu.cpp) | A main menu in three lines, then an options screen, a confirm dialog and a HUD. Variants, disabled controls, explicit ids, placement, the Theme. **Start here.** |
+| [02_layout.cpp](ui/02_layout.cpp) | `row`, `column`, `panel`, `center`, `stack`/`layer`, `spacer`, plus `image` and `progress`. The Sizing model — fit, grow, fixed — and why design units are not pixels. |
 | [03_clay_direct.cpp](ui/03_clay_direct.cpp) | **The escape hatch.** Clay's own macros in the same frame as `rmp::ui`, for anything the small API does not expose yet. |
 | [04_settings.cpp](ui/04_settings.cpp) | Checkbox, slider, dropdown, text input — and the focus/keyboard/gamepad navigation you get without writing any. The state model, which is "a pointer to your variable" and nothing else. |
 | [05_inventory.cpp](ui/05_inventory.cpp) | `grid` with a column count worked out from the space available, `scroll` with clipping, and `wants_pointer()` keeping the game's hands off the UI's clicks. |
-| [06_style.cpp](ui/06_style.cpp) | The two themes, the five variants, the three sizes and the transition. Nothing in it names a colour — that is the point. Plus copy-modify-set for a theme of your own. |
+| [06_style.cpp](ui/06_style.cpp) | The two themes, the five variants, the three sizes and the transition. Nothing in it names a colour — that is the point. Plus copy-modify-set for a Theme of your own. |
 | [07_responsive.cpp](ui/07_responsive.cpp) | `scale()` versus `current_breakpoint()`, and which to reach for. A sidebar that becomes a top strip when the window is taller than it is wide. Resize it. |
 
 ## [`ads/`](ads) — `rmp::ads`

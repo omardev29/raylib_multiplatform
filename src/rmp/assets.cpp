@@ -20,8 +20,8 @@ namespace rmp::assets {
 // For the CI boot gate. failed_count is the number of rmp::assets:: requests that
 // found nothing in the pack and nothing on disk either.
 namespace detail {
-int requested_count = 0;
-int failed_count    = 0;
+int g_requested_count = 0;
+int g_failed_count = 0;
 } // namespace detail
 
 namespace {
@@ -37,7 +37,7 @@ namespace {
 // there — and counting those would turn a working build red.
 void fallback_path(const char *name, char *out, size_t n) {
     std::snprintf(out, n, "%s%s", RESOURCES_PATH, name);
-    if (!FileExists(out)) detail::failed_count++;
+    if (!FileExists(out)) detail::g_failed_count++;
 }
 
 } // namespace
@@ -53,11 +53,11 @@ void shutdown() {
 
 bool using_pack() { return detail::pack_is_open(); }
 
-int requested_loads() { return detail::requested_count; }
-int failed_loads() { return detail::failed_count; }
+int requested_loads() { return detail::g_requested_count; }
+int failed_loads() { return detail::g_failed_count; }
 
 Image load_image(const char *name) {
-    detail::requested_count++;
+    detail::g_requested_count++;
     if (detail::pack_is_open()) {
         Image img = detail::pack_read_image(name);
         if (img.data != nullptr) return img;
@@ -69,14 +69,14 @@ Image load_image(const char *name) {
 }
 
 Texture2D load_texture(const char *name) {
-    Image     img = load_image(name); // counts the request for us
+    Image img = load_image(name); // counts the request for us
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
 }
 
 Sound load_sound(const char *name) {
-    detail::requested_count++;
+    detail::g_requested_count++;
     if (detail::pack_is_open()) {
         // The extension names the decoder, exactly as rres itself does for a
         // raw chunk (rres-raylib.h reads it back out of props and calls
@@ -84,7 +84,7 @@ Sound load_sound(const char *name) {
         // where our packer got it from in the first place.
         const char *ext = GetFileExtension(name);
         if (ext != nullptr) {
-            int            size = 0;
+            int size = 0;
             unsigned char *data = detail::pack_read(name, &size);
             if (data != nullptr) {
                 Wave wave = LoadWaveFromMemory(ext, data, size);
@@ -105,18 +105,18 @@ Sound load_sound(const char *name) {
     return ::LoadSound(path);
 }
 
-Font load_font(const char *name, int fontSize) {
-    detail::requested_count++;
+Font load_font(const char *name, int font_size) {
+    detail::g_requested_count++;
     if (detail::pack_is_open()) {
         // The extension has to come from the name: rres stores the file verbatim
         // and LoadFontFromMemory needs to know what it is. An extensionless name
         // would reach TextToLower(NULL) inside raylib, so it never gets there.
         const char *ext = GetFileExtension(name);
         if (ext != nullptr) {
-            int            size = 0;
+            int size = 0;
             unsigned char *data = detail::pack_read(name, &size);
             if (data != nullptr) {
-                Font font = LoadFontFromMemory(ext, data, size, fontSize, nullptr, 0);
+                Font font = LoadFontFromMemory(ext, data, size, font_size, nullptr, 0);
                 UnloadFileData(data);
                 if (font.glyphCount > 0) return font;
             }
@@ -127,11 +127,11 @@ Font load_font(const char *name, int fontSize) {
 
     char path[2048];
     fallback_path(name, path, sizeof(path));
-    return ::LoadFontEx(path, fontSize, nullptr, 0);
+    return ::LoadFontEx(path, font_size, nullptr, 0);
 }
 
 unsigned char *load_data(const char *name, int *size) {
-    detail::requested_count++;
+    detail::g_requested_count++;
     if (detail::pack_is_open()) {
         unsigned char *data = detail::pack_read(name, size);
         if (data != nullptr) return data;

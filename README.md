@@ -6,8 +6,7 @@ builds them, **boots them, and checks they actually put pixels on screen**.
 
 > [!WARNING]
 > **This is experimental only, and it is not for production.** The pipeline is green and the render gates
-> are real, but the features are very experimental
-> the "What CI does and does not cover" section before you rely on it for a release.
+> are real, but the features are very experimental and not intended to production
 
 ---
 
@@ -227,14 +226,14 @@ rmp::ui::panel([&]{
 });
 ```
 
-You say what a control *means*, never what colour it is — `variant::primary`, `variant::danger`,
-`size::large` — so restyling the whole game is one call and not a tour of every call site:
+You say what a control *means*, never what colour it is — `Variant::PRIMARY`, `Variant::DANGER`,
+`Size::LARGE` — so restyling the whole game is one call and not a tour of every call site:
 
 ```cpp
 rmp::ui::set_theme(rmp::ui::theme_light());     // or theme_dark(), or your own
 ```
 
-Everything past that — your own theme, sizing, scaling, breakpoints, dropping to the layout engine
+Everything past that — your own Theme, Sizing, scaling, breakpoints, dropping to the layout engine
 directly — is optional and costs you nothing until you ask for it.
 
 **The full API of all three is in [TECHNICAL.md](TECHNICAL.md)**; there are working examples of

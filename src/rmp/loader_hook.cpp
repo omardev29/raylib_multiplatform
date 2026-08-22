@@ -41,22 +41,22 @@ const char *skip_dot_slash(const char *p) {
     return p;
 }
 
-unsigned char *hooked_load_file_data(const char *fileName, int *dataSize) {
-    if (fileName != nullptr && in_resources_dir(fileName)) {
-        unsigned char *data = pack_read(GetFileName(fileName), dataSize);
+unsigned char *hooked_load_file_data(const char *file_name, int *data_size) {
+    if (file_name != nullptr && in_resources_dir(file_name)) {
+        unsigned char *data = pack_read(GetFileName(file_name), data_size);
         if (data != nullptr) return data;
     }
 
     SetLoadFileDataCallback(nullptr);
-    unsigned char *data = ::LoadFileData(fileName, dataSize);
+    unsigned char *data = ::LoadFileData(file_name, data_size);
     SetLoadFileDataCallback(hooked_load_file_data);
     return data;
 }
 
-char *hooked_load_file_text(const char *fileName) {
-    if (fileName != nullptr && in_resources_dir(fileName)) {
-        int            size = 0;
-        unsigned char *data = pack_read(GetFileName(fileName), &size);
+char *hooked_load_file_text(const char *file_name) {
+    if (file_name != nullptr && in_resources_dir(file_name)) {
+        int size = 0;
+        unsigned char *data = pack_read(GetFileName(file_name), &size);
         if (data != nullptr) {
             // LoadFileText's contract is a NUL-terminated string. The pack
             // stores the file byte for byte, without one.
@@ -71,7 +71,7 @@ char *hooked_load_file_text(const char *fileName) {
     }
 
     SetLoadFileTextCallback(nullptr);
-    char *text = ::LoadFileText(fileName);
+    char *text = ::LoadFileText(file_name);
     SetLoadFileTextCallback(hooked_load_file_text);
     return text;
 }
@@ -91,7 +91,7 @@ char *hooked_load_file_text(const char *fileName) {
 // which is exactly what a packaged release does not ship.
 bool in_resources_dir(const char *path) {
     const char *root = skip_dot_slash(RESOURCES_PATH);
-    const char *p    = skip_dot_slash(path);
+    const char *p = skip_dot_slash(path);
     // Android sets RESOURCES_PATH to "" — every asset is at the root of the
     // APK's assets/. No pack is ever open there, so this branch is moot, but
     // an empty prefix matching everything is the right reading of it anyway.

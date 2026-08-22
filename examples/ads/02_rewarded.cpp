@@ -22,7 +22,7 @@
 
 #include <string>
 
-static int  coins        = 0;
+static int coins = 0;
 static bool waitingForAd = false;
 
 static void on_ready() {
@@ -57,7 +57,7 @@ static void on_frame(float delta) {
 
         if (rmp::ads::is_rewarded_loaded()) {
             if (rmp::ui::button("Watch an ad for 50 coins",
-                                { .style = rmp::ui::variant::primary })) {
+                                { .style = rmp::ui::Variant::PRIMARY })) {
                 waitingForAd = true;
                 rmp::ads::show_rewarded();
             }
@@ -70,12 +70,12 @@ static void on_frame(float delta) {
 
         if (waitingForAd) {
             rmp::ui::text("waiting for the reward…",
-                          { .color = rmp::ui::color_role::muted, .size = 14 });
+                          { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
         }
 
         rmp::ui::text("Ads only exist on Android. Everywhere else the calls do "
                       "nothing and the button above stays disabled.",
-                      { .color = rmp::ui::color_role::muted, .size = 14 });
+                      { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
     });
 
     rmp::ui::end();

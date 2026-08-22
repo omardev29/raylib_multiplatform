@@ -19,8 +19,8 @@
 #include <rmp/assets.h>
 
 static Texture2D player;
-static Font      ui;
-static Sound     jump;
+static Font ui;
+static Sound jump;
 
 // Called once at startup: the pack (if any) is already open by now.
 static inline void on_ready() {
@@ -29,13 +29,13 @@ static inline void on_ready() {
 
     // Load by resource name — no path, no extension guessing, and no #ifdef
     // for "did this build get a pack or not".
-    player               = rmp::assets::load_texture("rabbit.png");
-    ui                   = rmp::assets::load_font("ui.ttf", 20);
-    jump                 = rmp::assets::load_sound("jump.wav");
+    player = rmp::assets::load_texture("rabbit.png");
+    ui = rmp::assets::load_font("ui.ttf", 20);
+    jump = rmp::assets::load_sound("jump.wav");
 
     // Anything else, as bytes. Free it with UnloadFileData().
-    int            size  = 0;
-    unsigned char *level = rmp::assets::load_data("level1.json", &size);
+    int Size = 0;
+    unsigned char *level = rmp::assets::load_data("level1.json", &Size);
     if (level != nullptr) UnloadFileData(level);
 
     // Plain raylib works too, and reads the pack just the same: opening the

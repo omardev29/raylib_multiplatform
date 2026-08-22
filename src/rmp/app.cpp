@@ -7,7 +7,7 @@
 #include <raylib.h>
 
 #if defined(PLATFORM_ANDROID)
-#include <raymob.h>                  // GetAndroidApp()
+#include <raymob.h> // GetAndroidApp()
 #include <android_native_app_glue.h> // struct android_app::activity
 #include <android/native_activity.h> // ANativeActivity_finish()
 #endif
@@ -15,7 +15,7 @@
 namespace rmp::app {
 
 namespace {
-bool g_quitRequested = false;
+bool g_quit_requested = false;
 } // namespace
 
 void quit() {
@@ -43,8 +43,8 @@ void quit() {
              "themselves (QA1561). Ignoring.");
     return;
 #else
-    if (g_quitRequested) return;
-    g_quitRequested = true;
+    if (g_quit_requested) return;
+    g_quit_requested = true;
     TraceLog(LOG_INFO, "APP: quit requested");
 
 #if defined(PLATFORM_ANDROID)
@@ -61,6 +61,6 @@ void quit() {
 #endif // PLATFORM_IOS
 }
 
-bool quit_requested() { return g_quitRequested; }
+bool quit_requested() { return g_quit_requested; }
 
 } // namespace rmp::app

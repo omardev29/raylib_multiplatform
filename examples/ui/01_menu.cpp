@@ -22,8 +22,8 @@
 enum class Screen { Menu, Options, Confirm, Playing };
 
 static Screen screen = Screen::Menu;
-static int    score  = 0;
-static bool   music  = true;
+static int score = 0;
+static bool music = true;
 
 static void on_ready() {
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
@@ -63,7 +63,7 @@ static void options_menu() {
 
     // Semantic variants: you say what the button MEANS, the theme decides what
     // that looks like. Restyling the game never means revisiting this line.
-    rmp::ui::button("Reset progress", { .style = rmp::ui::variant::danger });
+    rmp::ui::button("Reset progress", { .style = rmp::ui::Variant::DANGER });
 
     // Disabled controls still lay out, and still look deliberate.
     rmp::ui::button("Cloud saves", { .enabled = false });
@@ -81,7 +81,7 @@ static void confirm_quit() {
 
     rmp::ui::text("Really quit?");
     rmp::ui::text("Progress since the last save will be lost.",
-                  { .color = rmp::ui::color_role::muted });
+                  { .color = rmp::ui::ColorRole::MUTED });
 
     // rmp::app::quit(), never std::exit(): this lets the frame finish and
     // then runs on_exit() and CloseWindow() on the way out. On Android it also
@@ -91,7 +91,7 @@ static void confirm_quit() {
     // terminate themselves. Guarding it out is optional; the call is safe
     // everywhere. Here it is guarded so the button is not dead on iPhone.
 #if !defined(PLATFORM_IOS)
-    if (rmp::ui::button("Quit", { .style = rmp::ui::variant::danger })) rmp::app::quit();
+    if (rmp::ui::button("Quit", { .style = rmp::ui::Variant::DANGER })) rmp::app::quit();
 #endif
 
     // This screen and the main menu both have a "Back"-ish button. Identical
@@ -107,15 +107,15 @@ static void confirm_quit() {
 // 4. A HUD: not everything is a centred menu
 // -----------------------------------------------------------------------
 static void hud() {
-    // placement moves the whole thing. The nine align values are the ones you
+    // placement moves the whole thing. The nine Align values are the ones you
     // would guess: top_left, top_center, ..., bottom_right.
-    rmp::ui::begin({ .placement = rmp::ui::align::top_left, .gap = 4 });
+    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .gap = 4 });
 
     // Built fresh every frame, which is exactly how immediate mode is meant to
     // be used: no label object to update, no "setText" to remember.
     rmp::ui::text("Score: " + std::to_string(score));
     rmp::ui::text("Press ESC for the menu",
-                  { .color = rmp::ui::color_role::muted, .size = 14 });
+                  { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
 
     rmp::ui::end();
 }
@@ -164,10 +164,10 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //     t.corner_radius = 0;          // angular instead of rounded
 //     rmp::ui::set_theme(t);
 //
-// SCALE. Every theme metric is in design units, at the [window] resolution
+// SCALE. Every Theme metric is in design units, at the [window] resolution
 // from raylib_multiplatform.toml, and multiplied by rmp::ui::scale() before it
 // is drawn. That is why this menu looks right on a phone and on a 4K monitor
-// without a single conditional. To pin it — an "interface size" setting, say:
+// without a single conditional. To pin it — an "interface Size" setting, say:
 //
 //     rmp::ui::set_scale(1.5f);     // and 0 puts it back to automatic
 //

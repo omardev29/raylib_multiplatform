@@ -53,11 +53,11 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │           ├── focus.cpp     #     keyboard and gamepad navigation
 │           ├── style.cpp     #     variants, sizes, transitions
 │           ├── render.cpp    #     draw commands -> raylib calls
-│           └── theme.cpp     #     the dark and light themes
+│           └── Theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)
 │   └── rmp/                  # THE framework's headers — include what you use
 │       ├── app.h             #   RMP_ENTRY_POINT + rmp::app::quit()
-│       ├── ui.h              #   rmp::ui — the public API and the theme
+│       ├── ui.h              #   rmp::ui — the public API and the Theme
 │       ├── assets.h          #   the rmp::assets declarations
 │       ├── ads.h             #   rmp::ads — inline wrappers over <admob.h>
 │       ├── math.h            #   vectors, rectangles, colours (raymath)
@@ -555,14 +555,14 @@ reach for when the default is not what you want.
 ### The frame
 
 ```cpp
-struct frame_options {
-    align placement = align::center;   // where the root's content sits
-    float gap       = -1;              // between children; -1 = the theme's
-    float padding   = -1;              // inside the root;  -1 = the theme's
+struct FrameOptions {
+    align placement = Align::CENTER;   // where the root's content sits
+    float gap       = -1;              // between children; -1 = the Theme's
+    float padding   = -1;              // inside the root;  -1 = the Theme's
 };
 
 void begin();
-void begin(const frame_options &o);
+void begin(const FrameOptions &o);
 void end();
 ```
 
@@ -576,44 +576,44 @@ the top-left corner, and then "a menu is three functions" would be a lie.
 
 ```cpp
 bool button(std::string_view label);
-bool button(std::string_view label, const button_options &o);
+bool button(std::string_view label, const ButtonOptions &o);
 
 void text(std::string_view s);
-void text(std::string_view s, const text_options &o);
+void text(std::string_view s, const TextOptions &o);
 ```
 
 ```cpp
-struct button_options {
-    variant       style = variant::normal;  // normal|primary|danger|outline|ghost
-    detail::sizing size{};                  // size::small|medium|large, or a number
+struct ButtonOptions {
+    Variant       style = Variant::NORMAL;  // normal|primary|danger|outline|ghost
+    detail::Sizing size{};                  // Size::SMALL|medium|large, or a number
     bool          enabled = true;
     const char   *id      = nullptr;
 };
 
-struct text_options {
-    color_role     color = color_role::text; // text | muted | primary | danger
-    detail::sizing size{};                   // a step, a number, or the theme's
+struct TextOptions {
+    ColorRole     color = ColorRole::TEXT; // text | muted | primary | danger
+    detail::Sizing size{};                   // a step, a number, or the Theme's
     bool           wrap  = true;
 };
 ```
 
-You never name `detail::sizing`. It is one field that accepts two spellings —
-`{ .size = rmp::ui::size::large }` and `{ .size = 34 }` both land in it — rather than two fields
+You never name `detail::Sizing`. It is one field that accepts two spellings —
+`{ .size = rmp::ui::Size::LARGE }` and `{ .size = 34 }` both land in it — rather than two fields
 that could contradict each other. See [Variants and sizes](#variants-and-sizes).
 
 `button` returns `true` on the frame the pointer is **released over it**, having been pressed on
 it. Drag off and let go and nothing happens, which is what every interface worth using does.
 
-`variant` is semantic on purpose. `variant::danger` says what the button *is*; the theme decides
+`Variant` is semantic on purpose. `Variant::DANGER` says what the button *is*; the Theme decides
 what red means. Restyling a game then never involves revisiting call sites.
 
 ```cpp
-rmp::ui::button("Delete save", { .style = rmp::ui::variant::danger });
-rmp::ui::text("Paused", { .color = rmp::ui::color_role::muted, .size = 32 });
+rmp::ui::button("Delete save", { .style = rmp::ui::Variant::DANGER });
+rmp::ui::text("Paused", { .color = rmp::ui::ColorRole::MUTED, .size = 32 });
 ```
 
 Field order in these structs is not cosmetic: **C++20 requires designated initialisers in
-declaration order**, so they are ordered the way they are most likely to be written — sizing, then
+declaration order**, so they are ordered the way they are most likely to be written — Sizing, then
 appearance, then identity. `{ .style = ..., .size = ... }` compiles; the other way round does not.
 
 ### Containers
@@ -644,13 +644,13 @@ rmp::ui::panel([&]{
 The contents are a **lambda**, and that is the whole reason there is no matching `end()` to forget:
 the compiler closes the container. Capture with `[&]` when the body needs your variables.
 
-Every container takes `box_options`:
+Every container takes `BoxOptions`:
 
 ```cpp
-struct box_options {
-    float gap     = -1;              // between children; -1 = the theme's
+struct BoxOptions {
+    float gap     = -1;              // between children; -1 = the Theme's
     float padding = -1;              // inside this container
-    align items   = align::center;   // where children sit in the leftover space
+    align items   = Align::CENTER;   // where children sit in the leftover space
     bool  grow_x  = false;           // fill the parent instead of fitting content
     bool  grow_y  = false;
     float width   = 0;               // > 0 = fixed, overriding fit/grow
@@ -659,7 +659,7 @@ struct box_options {
 };
 ```
 
-`panel_options` wraps that in `{ .box = {...}, .background, .radius, .border, .border_width }`.
+`PanelOptions` wraps that in `{ .box = {...}, .background, .radius, .border, .border_width }`.
 
 **Sizing is three cases and no more.** Default is *fit*: as big as the contents need. `grow_x` /
 `grow_y` is *grow*: fill what the parent offers. `width` / `height` is *fixed*, in design units. A
@@ -674,9 +674,9 @@ inside of a lambda.
 
 ```cpp
 void image(const Texture2D &texture);            // its own size, scaled with the UI
-void image(const Texture2D &texture, const image_options &o);
+void image(const Texture2D &texture, const ImageOptions &o);
 void progress(float fraction);                   // 0..1, clamped
-void progress(float fraction, const progress_options &o);
+void progress(float fraction, const ProgressOptions &o);
 ```
 
 The texture has to stay alive until `end()` returns — Clay keeps the pointer and reads it at draw
@@ -684,7 +684,7 @@ time.
 
 > **A field-order rule that will bite you once.** C++20 requires designated initialisers in
 > **declaration order**: `{ .width = 8, .tint = RED }` compiles, `{ .tint = RED, .width = 8 }` does
-> not. The structs here are ordered the way they are most likely to be written — sizing, then
+> not. The structs here are ordered the way they are most likely to be written — Sizing, then
 > appearance, then identity — but when the compiler complains about "designator order", that is
 > what it means.
 
@@ -758,7 +758,7 @@ selected presses a button and nothing happens, which reads as "the menu is broke
 **No widget implements navigation.** A widget registers itself as focusable and asks whether it is
 the focused one; moving between them, key repeat, and what "activate" means on three input devices
 all happen once, in `focus.cpp`. That is why it could be added after the widgets were written
-without touching their logic, and why the focus ring is a theme colour rather than something each
+without touching their logic, and why the focus ring is a Theme colour rather than something each
 widget decides — a controller build where one widget forgot to draw it is a controller build that
 gets stuck.
 
@@ -797,7 +797,7 @@ the absence of a rule is worth knowing about.
 ### Scale — how "responsive" is actually implemented
 
 Layout happens in pixels, and pixels are not a unit you can design in: a 40 px button is 6.7 % of a
-600 px screen and 1.9 % of a 2160 px one. So every metric in the theme is in **design units**, and
+600 px screen and 1.9 % of a 2160 px one. So every metric in the Theme is in **design units**, and
 everything is multiplied by one number before it is drawn:
 
 ```
@@ -850,7 +850,7 @@ a row still fits, is how wide the viewport is next to how tall it is.
 | `medium` | < 1.6:1 | A tablet on its side, a small desktop window, 4:3 |
 | `expanded` | ≥ 1.6:1 | An ordinary desktop, a TV, a phone on its side |
 
-**Reach for it only when the layout has to become a different layout.** Using a breakpoint to pick
+**Reach for it only when the layout has to become a different layout.** Using a Breakpoint to pick
 a *size* is undoing the work `scale()` already did, and it is how a UI ends up looking right on
 exactly one machine.
 
@@ -862,7 +862,7 @@ There is no `wrap` flag on `row()` and there is not going to be one: a row that 
 Plain data, no logic, no inheritance, no cascade:
 
 ```cpp
-rmp::ui::theme t = rmp::ui::current_theme();
+rmp::ui::Theme t = rmp::ui::current_theme();
 t.primary       = GOLD;
 t.corner_radius = 0;
 rmp::ui::set_theme(t);
@@ -872,21 +872,21 @@ Colours use raylib's `Color`, because you already have `RED` and `CLITERAL` and 
 type would only add conversions. Every metric — `font_size`, `padding_x`, `padding_y`, `gap`,
 `panel_padding`, `corner_radius`, `border_width`, `min_touch_size` — is in design units.
 
-**Two themes come with the framework**, and `[ui] theme` in the `.toml` picks which one the app
+**Two themes come with the framework**, and `[ui] Theme` in the `.toml` picks which one the app
 starts with. After that it is a runtime call, so an in-game appearance setting is one line:
 
 ```cpp
-rmp::ui::theme rmp::ui::theme_dark();    // the default
-rmp::ui::theme rmp::ui::theme_light();
+rmp::ui::Theme rmp::ui::theme_dark();    // the default
+rmp::ui::Theme rmp::ui::theme_light();
 
-if (rmp::ui::checkbox("Light theme", &light))
+if (rmp::ui::checkbox("Light Theme", &light))
     rmp::ui::set_theme(light ? rmp::ui::theme_light() : rmp::ui::theme_dark());
 ```
 
-The light theme is not the dark one with the numbers flipped. It sets `border_width = 1`, and that
+The light Theme is not the dark one with the numbers flipped. It sets `border_width = 1`, and that
 single field is why it works: a dark interface separates its surfaces with its own shadows, and a
 light one has none, so a pale button on a pale page needs an outline to still be a button. Its
-accents are darker than the dark theme's for the same reason — the blue that reads as bright on
+accents are darker than the dark Theme's for the same reason — the blue that reads as bright on
 near-black is washed out on near-white, and white label text on it stops being legible.
 
 `min_touch_size` (44 by default) is the floor on a control's height. It is Apple's touch-target
@@ -899,16 +899,16 @@ where the mouse is.
 ### Variants and sizes
 
 The two axes you actually style along. Neither of them names a colour, which is the point: the call
-site says what the control *means* and how important it is, and the theme decides what that looks
-like. Change the theme and no call site is revisited.
+site says what the control *means* and how important it is, and the Theme decides what that looks
+like. Change the Theme and no call site is revisited.
 
 ```cpp
-rmp::ui::button("Start game", { .style = rmp::ui::variant::primary });
-rmp::ui::button("Load");                                              // variant::normal
-rmp::ui::button("Settings",   { .style = rmp::ui::variant::outline });
-rmp::ui::button("Back",       { .style = rmp::ui::variant::ghost   });
-rmp::ui::button("Delete",     { .style = rmp::ui::variant::danger  });
-rmp::ui::button("Continue",   { .style = rmp::ui::variant::primary, .enabled = false });
+rmp::ui::button("Start game", { .style = rmp::ui::Variant::PRIMARY });
+rmp::ui::button("Load");                                              // Variant::NORMAL
+rmp::ui::button("Settings",   { .style = rmp::ui::Variant::OUTLINE });
+rmp::ui::button("Back",       { .style = rmp::ui::Variant::GHOST   });
+rmp::ui::button("Delete",     { .style = rmp::ui::Variant::DANGER  });
+rmp::ui::button("Continue",   { .style = rmp::ui::Variant::PRIMARY, .enabled = false });
 ```
 
 | Variant | What it is for |
@@ -919,14 +919,14 @@ rmp::ui::button("Continue",   { .style = rmp::ui::variant::primary, .enabled = f
 | `outline` | An outline and a label, no fill until you point at it: a secondary action |
 | `ghost` | Just the label. Toolbars, "back" links |
 
-`enabled` is a flag and not a sixth variant, because being disabled can happen to any of them.
+`enabled` is a flag and not a sixth Variant, because being disabled can happen to any of them.
 
-Sizes are three steps in the theme's type scale, and the same field takes an exact number of design
+Sizes are three steps in the Theme's type scale, and the same field takes an exact number of design
 units when you genuinely need one — a title, not a button:
 
 ```cpp
-rmp::ui::button("Play",        { .size = rmp::ui::size::large });
-rmp::ui::text  ("v1.2.3",      { .color = rmp::ui::color_role::muted, .size = rmp::ui::size::small });
+rmp::ui::button("Play",        { .size = rmp::ui::Size::LARGE });
+rmp::ui::text  ("v1.2.3",      { .color = rmp::ui::ColorRole::MUTED, .size = rmp::ui::Size::SMALL });
 rmp::ui::text  ("CHAPTER ONE", { .size = 44 });
 ```
 
@@ -942,7 +942,7 @@ Controls fade between their states rather than snapping. It is automatic, there 
 into, and there is exactly one knob:
 
 ```cpp
-rmp::ui::theme t = rmp::ui::current_theme();
+rmp::ui::Theme t = rmp::ui::current_theme();
 t.transition = 0.0f;          // "reduce motion". 0.12 s is the default
 rmp::ui::set_theme(t);
 ```
@@ -969,14 +969,14 @@ adjustments happen underneath:
 
 ```toml
 [ui]
-theme        = "dark"  # or "light" — only which one the app STARTS with
+Theme        = "dark"  # or "light" — only which one the app STARTS with
 font         = ""      # "" = raylib's built-in font, or a .ttf in resources/
 font_size    = 20      # design units, i.e. at the [window] resolution
 scale        = 0       # 0 = automatic
 max_elements = 512     # ceiling on the UI tree; it sizes the layout arena
 ```
 
-`theme` is validated against the themes that exist, so a typo is a configure error and not a
+`Theme` is validated against the themes that exist, so a typo is a configure error and not a
 silent fall back to dark at runtime.
 
 The font goes through `rmp::assets::load_font`, so one packed into the `.rres` works exactly like
@@ -1015,12 +1015,12 @@ is on the include path, and using it directly is supported:
 rmp::ui::begin();
 rmp::ui::text("Inventory");
 
-CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(0) },
+CLAY_AUTO_ID({ .layout = { .Sizing = { .width = CLAY_SIZING_FIT(0) },
                            .childGap = 10,
                            .layoutDirection = CLAY_LEFT_TO_RIGHT },
                .backgroundColor = { 30, 30, 38, 255 },
                .cornerRadius = CLAY_CORNER_RADIUS(10) }) {
-    CLAY(CLAY_IDI("slot", 0), { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64) } } }) {}
+    CLAY(CLAY_IDI("slot", 0), { .layout = { .Sizing = { .width = CLAY_SIZING_FIXED(64) } } }) {}
 }
 
 if (rmp::ui::button("Close")) rmp::app::quit();
@@ -1056,14 +1056,14 @@ adding a case is the intended way to extend it.
 `for`-loop block, and this API is a `begin()`/`end()` pair. An element opened inside a block macro
 cannot stay open across a function boundary. So `widgets.cpp` calls `Clay__OpenElement`,
 `Clay__ConfigureOpenElement` and `Clay__CloseElement` — all public — and fills the structs field by
-field, which is also what you want when the values are computed from the theme and the scale rather
+field, which is also what you want when the values are computed from the Theme and the scale rather
 than written as literals. Nothing about the macros is being avoided; they simply do not fit the
 shape of this particular API.
 
 The implementation is five files under `src/rmp/ui/`: `clay_impl.cpp` (compiles
 the engine once, same idea as `rres_impl.cpp`), `context.cpp` (start-up, scale, font, the text
 arena, element identity), `widgets.cpp`, `render.cpp` (draw commands into raylib calls) and
-`theme.cpp`.
+`Theme.cpp`.
 
 Two details from that boundary that are worth knowing:
 

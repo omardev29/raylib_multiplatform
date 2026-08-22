@@ -23,7 +23,7 @@ namespace {
 // when wrapping text instead of cloning strings. raylib's text functions all
 // want a terminator, so every slice passes through here first.
 constexpr int kScratch = 1024;
-char          g_scratch[kScratch];
+char g_scratch[kScratch];
 
 Rectangle to_rect(Clay_BoundingBox b) { return Rectangle{ b.x, b.y, b.width, b.height }; }
 
@@ -33,7 +33,7 @@ float roundness(Clay_CornerRadius r, Clay_BoundingBox b) {
     float shortest = (b.width < b.height ? b.width : b.height) * 0.5f;
     if (shortest <= 0.0f) return 0.0f;
     float radius = r.topLeft; // the UI never sets per-corner radii
-    float value  = radius / shortest;
+    float value = radius / shortest;
     if (value < 0.0f) value = 0.0f;
     if (value > 1.0f) value = 1.0f;
     return value;
@@ -52,13 +52,13 @@ const char *cstr(Clay_StringSlice slice) {
 void draw(Clay_RenderCommandArray commands) {
     // Already sorted by z order, so drawing them in sequence is correct.
     for (int32_t i = 0; i < commands.length; i++) {
-        const Clay_RenderCommand &cmd  = commands.internalArray[i];
-        Rectangle                 rect = to_rect(cmd.boundingBox);
+        const Clay_RenderCommand &cmd = commands.internalArray[i];
+        Rectangle rect = to_rect(cmd.boundingBox);
 
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
-                const auto &r  = cmd.renderData.rectangle;
-                float       rn = roundness(r.cornerRadius, cmd.boundingBox);
+                const auto &r = cmd.renderData.rectangle;
+                float rn = roundness(r.cornerRadius, cmd.boundingBox);
                 if (rn > 0.0f) {
                     DrawRectangleRounded(rect, rn, 8, from_clay(r.backgroundColor));
                 } else {
@@ -68,9 +68,9 @@ void draw(Clay_RenderCommandArray commands) {
             }
 
             case CLAY_RENDER_COMMAND_TYPE_BORDER: {
-                const auto &b  = cmd.renderData.border;
-                float       rn = roundness(b.cornerRadius, cmd.boundingBox);
-                auto        w  = static_cast<float>(b.width.left);
+                const auto &b = cmd.renderData.border;
+                float rn = roundness(b.cornerRadius, cmd.boundingBox);
+                auto w = static_cast<float>(b.width.left);
                 if (rn > 0.0f) {
                     DrawRectangleRoundedLinesEx(rect, rn, 8, w, from_clay(b.color));
                 } else {
@@ -80,9 +80,9 @@ void draw(Clay_RenderCommandArray commands) {
             }
 
             case CLAY_RENDER_COMMAND_TYPE_TEXT: {
-                const auto &t    = cmd.renderData.text;
-                Font        f    = ui_font();
-                auto        size = static_cast<float>(t.fontSize);
+                const auto &t = cmd.renderData.text;
+                Font f = ui_font();
+                auto size = static_cast<float>(t.fontSize);
                 DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
                            size / 10.0f, from_clay(t.textColor));
                 break;
@@ -100,8 +100,8 @@ void draw(Clay_RenderCommandArray commands) {
                 const auto &img = cmd.renderData.image;
                 if (img.imageData == nullptr) break;
                 const auto *tex = static_cast<const Texture2D *>(img.imageData);
-                Rectangle   src{ 0, 0, static_cast<float>(tex->width),
-                                 static_cast<float>(tex->height) };
+                Rectangle src{ 0, 0, static_cast<float>(tex->width),
+                               static_cast<float>(tex->height) };
                 // The tint comes through userData as an optional Color*, not
                 // through backgroundColor: a background on an image element
                 // makes Clay emit a RECTANGLE as well, after the IMAGE, which

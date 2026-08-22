@@ -35,14 +35,14 @@
 #define SMOKE_TEST_H
 
 #include <raylib.h> // TraceLog, LOG_INFO, LoadImageFromScreen
-#include <rlgl.h>   // rlDrawRenderBatchActive (declaration only)
+#include <rlgl.h> // rlDrawRenderBatchActive (declaration only)
 #include <stdlib.h> // getenv, atoi
 
 #if defined(__cplusplus)
-inline int SmokeTest_frame     = 0;
+inline int SmokeTest_frame = 0;
 inline int SmokeTest_maxFrames = 0; // 0 = run until the window is closed
 #else
-static int SmokeTest_frame     = 0;
+static int SmokeTest_frame = 0;
 static int SmokeTest_maxFrames = 0;
 #endif
 
@@ -104,15 +104,15 @@ static inline void SmokeTest_CaptureFrame(void) {
         return;
     }
 
-    rlDrawRenderBatchActive();         // submit queued draws
+    rlDrawRenderBatchActive(); // submit queued draws
     Image img = LoadImageFromScreen(); // RGBA8, top-left origin
     if (img.data == NULL) {
         TraceLog(LOG_WARNING, "RAY_TEST_RENDER_FAIL reason=readback-returned-null");
         return;
     }
 
-    const unsigned char *px    = (const unsigned char *)img.data;
-    const long           total = (long)img.width * (long)img.height;
+    const unsigned char *px = (const unsigned char *)img.data;
+    const long total = (long)img.width * (long)img.height;
 
     // "Background" is the most common colour in the frame, found with a
     // histogram — not the corner pixel. The corner is the obvious choice and it
@@ -128,7 +128,7 @@ static inline void SmokeTest_CaptureFrame(void) {
     // SwiftShader and mobile GPUs disagree on text antialiasing and texture
     // filtering, so a hash gate would be red on half the matrix for no reason.
     // The hash is logged as a diagnostic only.
-    unsigned int *hist         = (unsigned int *)calloc(65536, sizeof(unsigned int));
+    unsigned int *hist = (unsigned int *)calloc(65536, sizeof(unsigned int));
     if (hist == NULL) {
         UnloadImage(img);
         return;
@@ -157,12 +157,12 @@ static inline void SmokeTest_CaptureFrame(void) {
     // ~100% differing and is just as broken as a blank one).
     if (ratio > 0.0005 && ratio < 0.98) {
         TraceLog(LOG_INFO,
-                 "RAY_TEST_RENDER_OK frame=%d size=%dx%d pixels=%ld ratio=%.5f hash=%08x",
+                 "RAY_TEST_RENDER_OK frame=%d Size=%dx%d pixels=%ld ratio=%.5f hash=%08x",
                  SmokeTest_frame, img.width, img.height, differing, ratio, hash);
     } else {
         TraceLog(
             LOG_WARNING,
-            "RAY_TEST_RENDER_FAIL frame=%d size=%dx%d pixels=%ld ratio=%.5f hash=%08x "
+            "RAY_TEST_RENDER_FAIL frame=%d Size=%dx%d pixels=%ld ratio=%.5f hash=%08x "
             "reason=%s",
             SmokeTest_frame, img.width, img.height, differing, ratio, hash,
             (ratio <= 0.0005) ? "blank-frame" : "no-background-visible");

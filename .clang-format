@@ -32,27 +32,25 @@ ColumnLimit: 90
 
 # Aligning a column of related fields is part of how the theme struct and the
 # options structs are readable at a glance. LLVM leaves them ragged.
-# AcrossEmptyLines/AcrossComments, because the theme struct and the option
-# structs align as ONE column each, and both are broken up by blank lines and
-# by the comments that explain individual fields.
-AlignConsecutiveAssignments:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
-# Declarations align only within an uninterrupted run. Across comments they
-# would line up the return types of a whole documented header, and
-# `void           init();` is not an improvement on anything.
-AlignConsecutiveDeclarations:
-  Enabled: true
-  AcrossEmptyLines: false
-  AcrossComments: false
-AlignConsecutiveMacros:
-  Enabled: true
-  AcrossEmptyLines: false
-  AcrossComments: true
+# NO alignment. Not one kind of it.
+#
+# A column of `=` signs lined up with a ruler looks tidy in the file it was
+# written in and costs something every time after: renaming one field reflows
+# twenty lines, the diff of a one-line change is a paragraph, and `git blame`
+# stops pointing at whoever wrote the code. Code gets its shape from its
+# structure, not from padding.
+#
+# This is a deliberate reversal — the repository used to align, and the
+# reformat that removed it is one commit you can see. See GUIDELINES.md in
+# next_architecture/.
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignConsecutiveBitFields: None
+AlignConsecutiveMacros: None
+AlignArrayOfStructures: None
+AlignOperands: DontAlign
 AlignTrailingComments:
-  Kind: Always
-  OverEmptyLines: 1
+  Kind: Never
 
 # `if (!frame_open()) return;` stays on one line. It reads as a guard, and a
 # guard that occupies three lines stops looking like one.

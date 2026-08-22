@@ -52,11 +52,11 @@ Texture2D load_texture(const char *name);
 // been called first. The caller owns it and must UnloadSound() it.
 Sound load_sound(const char *name);
 
-// Load a font (.ttf/.otf). fontSize is the baked glyph size.
+// Load a font (.ttf/.otf). fontSize is the baked glyph Size.
 // The caller owns it and must UnloadFont() it.
-Font load_font(const char *name, int fontSize);
+Font load_font(const char *name, int font_size);
 
-// Raw bytes for anything else — a level file, a shader, JSON. `size` receives
+// Raw bytes for anything else — a level file, a shader, JSON. `Size` receives
 // the byte count. Free with UnloadFileData().
 unsigned char *load_data(const char *name, int *size);
 

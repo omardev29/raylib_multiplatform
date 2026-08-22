@@ -12,7 +12,7 @@
 //
 // Every measurement below is in DESIGN UNITS, at the [window] resolution from
 // raylib_multiplatform.toml. rmp::ui multiplies them by the current scale, so
-// `width = 200` is 200 at your design size, 400 at twice it, and never a
+// `width = 200` is 200 at your design Size, 400 at twice it, and never a
 // hard-coded pixel count that looks right on exactly one monitor.
 //
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
@@ -25,8 +25,8 @@
 #include <string>
 
 static Texture2D portrait;
-static float     health = 0.72f;
-static float     mana   = 0.35f;
+static float health = 0.72f;
+static float mana = 0.35f;
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch everything follow
@@ -48,12 +48,12 @@ static void character_card() {
             // column lays out top to bottom. items decides where children sit
             // across the other axis — here, hard against the left instead of
             // centred, which is what makes a card look like a card.
-            rmp::ui::column({ .gap = 6, .items = rmp::ui::align::center_left }, [&] {
-                rmp::ui::text("Rabbit", { .color = rmp::ui::color_role::primary });
+            rmp::ui::column({ .gap = 6, .items = rmp::ui::Align::CENTER_LEFT }, [&] {
+                rmp::ui::text("Rabbit", { .color = rmp::ui::ColorRole::PRIMARY });
                 rmp::ui::progress(health, { .width = 180 });
                 rmp::ui::progress(mana, { .width = 180, .height = 8, .fill = SKYBLUE });
                 rmp::ui::text("Level 7",
-                              { .color = rmp::ui::color_role::muted, .size = 14 });
+                              { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
             });
         });
     });
@@ -69,7 +69,7 @@ static void toolbar() {
     rmp::ui::row({ .grow_x = true }, [&] {
         rmp::ui::text("Inventory");
         rmp::ui::spacer(); // <- takes everything left over
-        rmp::ui::text("24 / 40", { .color = rmp::ui::color_role::muted });
+        rmp::ui::text("24 / 40", { .color = rmp::ui::ColorRole::MUTED });
     });
 
     // spacer(n) is the other one: a fixed gap, when you want breathing room in
@@ -92,7 +92,7 @@ static void banner() {
                     { .grow = true, .tint = CLITERAL(Color){ 255, 255, 255, 60 } });
             });
             rmp::ui::layer([&] {
-                rmp::ui::text("PAUSED", { .color = rmp::ui::color_role::danger });
+                rmp::ui::text("PAUSED", { .color = rmp::ui::ColorRole::DANGER });
             });
         });
     });
@@ -102,12 +102,12 @@ static void banner() {
 // center: fill what you were given, put the contents in the middle
 // -----------------------------------------------------------------------
 static void empty_slot() {
-    rmp::ui::panel({ .box    = { .width = 260, .height = 70 },
+    rmp::ui::panel({ .box = { .width = 260, .height = 70 },
                      .border = rmp::ui::current_theme().border },
                    [&] {
                        rmp::ui::center([&] {
                            rmp::ui::text("nothing here",
-                                         { .color = rmp::ui::color_role::muted });
+                                         { .color = rmp::ui::ColorRole::MUTED });
                        });
                    });
 }
@@ -125,7 +125,7 @@ static void on_frame(float delta) {
 
     // begin() is a centred column. placement moves the whole thing: this one
     // hugs the top-left corner, like a HUD would.
-    rmp::ui::begin({ .placement = rmp::ui::align::top_left, .gap = 14 });
+    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .gap = 14 });
 
     toolbar();
     character_card();
@@ -146,7 +146,7 @@ static void on_exit() {
 RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 
 // ---------------------------------------------------------------------------
-// The sizing model, in three lines
+// The Sizing model, in three lines
 // ---------------------------------------------------------------------------
 //
 //   default        fit — as big as the contents need

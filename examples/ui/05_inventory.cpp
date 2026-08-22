@@ -2,7 +2,7 @@
 // examples/ui/05_inventory.cpp
 //
 // grid and scroll: an inventory beside a scrolling list, both of them behaving
-// when the window changes size — which is the only reason either exists.
+// when the window changes Size — which is the only reason either exists.
 //
 // The two ideas worth taking away:
 //
@@ -23,19 +23,19 @@
 
 struct Item {
     const char *name;
-    int         count;
-    bool        equipped;
+    int count;
+    bool equipped;
 };
 
 static Texture2D icon;
-static Item      items[] = {
+static Item items[] = {
     { "Sword", 1, true }, { "Shield", 1, false }, { "Potion", 12, false },
     { "Rope", 3, false }, { "Torch", 8, false },  { "Map", 1, false },
     { "Key", 2, false },  { "Bread", 5, false },  { "Coin", 240, false },
     { "Gem", 4, false },  { "Bow", 1, false },    { "Arrow", 60, false },
 };
 static constexpr int kItemCount = sizeof(items) / sizeof(items[0]);
-static int           selected   = 0;
+static int selected = 0;
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
@@ -58,17 +58,17 @@ static void inventory_grid() {
             for (int i = 0; i < kItemCount; i++) {
                 rmp::ui::cell([&] {
                     rmp::ui::panel(
-                        { .box        = { .padding = 6 },
+                        { .box = { .padding = 6 },
                           .background = (i == selected)
-                                            ? rmp::ui::current_theme().surface_hover
-                                            : rmp::ui::current_theme().surface },
+                              ? rmp::ui::current_theme().surface_hover
+                              : rmp::ui::current_theme().surface },
                         [&] {
                             rmp::ui::image(icon, { .width = 40, .height = 40 });
                             rmp::ui::text(items[i].name, { .size = 13 });
                             if (items[i].count > 1) {
                                 rmp::ui::text(
                                     "x" + std::to_string(items[i].count),
-                                    { .color = rmp::ui::color_role::muted, .size = 12 });
+                                    { .color = rmp::ui::ColorRole::MUTED, .size = 12 });
                             }
                         });
                 });
@@ -98,7 +98,7 @@ static void item_list() {
             }
         });
 
-        rmp::ui::text("scroll me", { .color = rmp::ui::color_role::muted, .size = 12 });
+        rmp::ui::text("scroll me", { .color = rmp::ui::ColorRole::MUTED, .size = 12 });
     });
 }
 
@@ -112,7 +112,7 @@ static void on_frame(float delta) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
-    rmp::ui::begin({ .placement = rmp::ui::align::center });
+    rmp::ui::begin({ .placement = rmp::ui::Align::CENTER });
     rmp::ui::row({ .gap = 12, .grow_x = true, .grow_y = true }, [&] {
         inventory_grid();
         item_list();

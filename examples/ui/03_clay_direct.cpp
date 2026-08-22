@@ -59,29 +59,29 @@ static void on_frame(float delta) {
     // CLAY_AUTO_ID is the version without an explicit id; CLAY(CLAY_ID("x"),
     // ...) is the one to use when you want to ask Clay about the element later
     // with Clay_PointerOver or Clay_GetElementData.
-    CLAY_AUTO_ID({ .layout          = { .sizing          = { .width  = CLAY_SIZING_FIT(0),
-                                                             .height = CLAY_SIZING_FIT(0) },
-                                        .padding         = CLAY_PADDING_ALL(10),
-                                        .childGap        = 10,
-                                        .layoutDirection = CLAY_LEFT_TO_RIGHT },
+    CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(0),
+                                           .height = CLAY_SIZING_FIT(0) },
+                               .padding = CLAY_PADDING_ALL(10),
+                               .childGap = 10,
+                               .layoutDirection = CLAY_LEFT_TO_RIGHT },
                    .backgroundColor = { 30, 30, 38, 255 },
-                   .cornerRadius    = CLAY_CORNER_RADIUS(10) }) {
+                   .cornerRadius = CLAY_CORNER_RADIUS(10) }) {
         for (int i = 0; i < 4; i++) {
             // CLAY_IDI gives each slot in a loop its own identity without
             // building a string per element.
             CLAY(CLAY_IDI("slot", i),
-                 { .layout          = { .sizing = { .width  = CLAY_SIZING_FIXED(64),
-                                                    .height = CLAY_SIZING_FIXED(64) } },
+                 { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64),
+                                           .height = CLAY_SIZING_FIXED(64) } },
                    .backgroundColor = { 44, 44, 56, 255 },
-                   .cornerRadius    = CLAY_CORNER_RADIUS(6) }) {
+                   .cornerRadius = CLAY_CORNER_RADIUS(6) }) {
                 // Images: point imageData at a Texture2D you own and keep
                 // alive for the frame. Our renderer draws it stretched to the
                 // element's box, untinted unless you set backgroundColor.
                 if (i == 0) {
                     CLAY_AUTO_ID(
-                        { .layout = { .sizing = { .width  = CLAY_SIZING_GROW(0),
+                        { .layout = { .sizing = { .width = CLAY_SIZING_GROW(0),
                                                   .height = CLAY_SIZING_GROW(0) } },
-                          .image  = { .imageData = &logo } }) {}
+                          .image = { .imageData = &logo } }) {}
                 }
             }
         }
@@ -91,7 +91,7 @@ static void on_frame(float delta) {
     // exactly like rmp::ui::button() does — the layout for this frame does not
     // exist until end().
     if (Clay_PointerOver(CLAY_IDI("slot", 0))) {
-        rmp::ui::text("slot 1", { .color = rmp::ui::color_role::primary });
+        rmp::ui::text("slot 1", { .color = rmp::ui::ColorRole::PRIMARY });
     }
 
     // Back to the normal API, still the same frame.

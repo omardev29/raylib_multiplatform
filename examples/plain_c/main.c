@@ -57,9 +57,10 @@
 // found. Nothing here tracks that, so this file simply asserts it; if you load
 // files and want the claim checked, include <smoke_test.h> (it is
 // C-compatible) and use the template's asset layer.
-#define RAY_TEST_REPORT_BOOT()                                                \
-    TraceLog(LOG_INFO, "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 " \
-                       "testFrames=0")
+#define RAY_TEST_REPORT_BOOT()                                      \
+    TraceLog(LOG_INFO,                                              \
+             "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 " \
+             "testFrames=0")
 
 int main(void) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);

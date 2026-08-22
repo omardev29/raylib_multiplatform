@@ -128,27 +128,88 @@ WarningsAsErrors: ''
 FormatStyle: file
 
 CheckOptions:
-  # The naming rule from the house style, checked instead of remembered. Only
-  # the categories where the repository is unambiguous: types, enums and
-  # namespaces are snake_case; internal constants are kFoo; macros SHOUT.
+  # The naming rule, checked instead of remembered. It is NOT "everything is
+  # snake_case" — that was the old rule and it made a type and a value look the
+  # same at the point of use.
   #
-  # Functions and variables are deliberately NOT listed. The public surface is
-  # snake_case, but the implementation uses camelBack locals and g_ globals, and
-  # a checker cannot tell the two apart from a name alone.
+  #   Types (class, struct, enum, alias)   PascalCase   rmp::ui::ButtonOptions
+  #   Enum members                         SCREAM_CASE  rmp::ui::Align::TOP_LEFT
+  #   Functions and methods                snake_case   rmp::ui::current_theme()
+  #   Variables, parameters, fields        snake_case   min_height, delta
+  #   Namespaces                           snake_case   rmp::ui::detail
+  #   Macros                               SCREAM_CASE  RMP_ENTRY_POINT
+  #   Compile-time constants               kPascalCase  kMaxLabels
+  #
+  # What it buys: at any point of use you can tell a type from a value without
+  # going to look. `Align::TOP_LEFT` is unmistakably a constant of a type;
+  # `align::top_left` could have been a member of a variable called `align`.
+  # raylib's own types are PascalCase too, so ours sit next to Texture2D and
+  # Vector2 without looking foreign — the namespace is what says whose is whose.
   - key: readability-identifier-naming.NamespaceCase
     value: lower_case
+
   - key: readability-identifier-naming.ClassCase
-    value: lower_case
+    value: CamelCase
   - key: readability-identifier-naming.StructCase
-    value: lower_case
+    value: CamelCase
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
   - key: readability-identifier-naming.EnumCase
-    value: lower_case
-  - key: readability-identifier-naming.EnumConstantCase
-    value: lower_case
+    value: CamelCase
   - key: readability-identifier-naming.TypeAliasCase
-    value: lower_case
+    value: CamelCase
   - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeTemplateParameterCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.FunctionCase
     value: lower_case
+  - key: readability-identifier-naming.MethodCase
+    value: lower_case
+  # The access rule: a method you override is _ready, _update, _draw, _end,
+  # _collision. Legal as a member (reserved only at global scope) and checked
+  # here so nobody spells one of them differently.
+  - key: readability-identifier-naming.MethodIgnoredRegexp
+    value: '^_[a-z][a-z_]*$'
+
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: lower_case
+  # File-scope mutable state carries g_, so that a global is visible as one at
+  # every use. There should be very little of it, and there is.
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalVariablePrefix
+    value: 'g_'
+
+  # Compile-time constants keep kPascalCase. It reads as "a constant" without
+  # colliding with SCREAM_CASE, which now means "enum member" and only that.
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.StaticConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.StaticConstantPrefix
+    value: 'k'
+
   - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
   - key: readability-identifier-naming.MacroDefinitionIgnoredRegexp
