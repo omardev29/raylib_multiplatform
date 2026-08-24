@@ -183,6 +183,23 @@ elseif ("${PLATFORM}" STREQUAL "WebRGFW")
     set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")
     set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
 
+elseif ("${PLATFORM}" STREQUAL "Win32")
+    # PATCHED (raylib_multiplatform): raylib 6.0 ships a native Win32 backend in
+    # platforms/rcore_desktop_win32.c and rcore.c selects it with
+    # PLATFORM_DESKTOP_WIN32 — but upstream never added a branch here, so there
+    # is no way to ASK for it from CMake. This is that branch.
+    #
+    # GLFW drops out on its own: GlfwImport.cmake only builds it when PLATFORM
+    # matches "Desktop", and "Win32" does not.
+    #
+    # See [windows] backend in raylib_multiplatform.toml, and the note in
+    # thirdparty/FROZEN_VERSIONS.md. Re-apply when bumping raylib.
+    set(PLATFORM_CPP "PLATFORM_DESKTOP_WIN32")
+
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+    find_package(OpenGL QUIET)
+    set(LIBS_PRIVATE ${OPENGL_LIBRARIES} winmm gdi32)
+
 elseif ("${PLATFORM}" STREQUAL "Memory")
     set(PLATFORM_CPP "PLATFORM_MEMORY")
     set(GRAPHICS "GRAPHICS_API_OPENGL_SOFTWARE")

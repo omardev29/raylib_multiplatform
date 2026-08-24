@@ -94,10 +94,15 @@ TARGETS: dict[str, tuple[str, str]] = {
     "openbsd-x64":   ("bsd",     "OpenBSD x86-64"),
     "openbsd-arm64": ("bsd",     "OpenBSD ARM64"),
     "netbsd-x64":    ("bsd",     "NetBSD x86-64"),
+    # DRM/KMS: straight to the screen, no X11 and no Wayland. Deliberately NOT
+    # in the "all" group — see [targets] in the .toml for why.
+    "linux-drm":     ("drm",     "Linux DRM/KMS (no X11)"),
 }
 
 GROUPS: dict[str, list[str]] = {
-    "all":     list(TARGETS),
+    # "all" is the fourteen that a machine can build AND run unattended.
+    # linux-drm is out of it on purpose: it needs /dev/dri to run.
+    "all":     [t for t in TARGETS if t != "linux-drm"],
     "linux":   ["linux-x64", "linux-arm64", "linux-riscv64"],
     "windows": ["windows-x64", "windows-arm64"],
     "apple":   ["macos", "ios"],
@@ -107,6 +112,7 @@ GROUPS: dict[str, list[str]] = {
     "bsd":     ["freebsd-x64", "freebsd-arm64",
                 "openbsd-x64", "openbsd-arm64", "netbsd-x64"],
     "web":     ["web"],
+    "drm":     ["linux-drm"],
     "android": ["android"],
 }
 
@@ -216,11 +222,13 @@ DEFAULTS: dict = {
     "icon": {"source": "branding/icon.png", "adaptive_background": "#3DDC84"},
     "raylib": {"disabled_modules": []},
     "web": {"memory": 64, "grow": False},
+    "windows": {"backend": "glfw"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
     "dev": {"compiler": "clang", "linker": "auto"},
     "resources": {"rres_password": "raylib-template"},
-    "deploy": {"itch": {"user": "", "game": ""},
+    "deploy": {"licenses": True,
+               "itch": {"user": "", "game": ""},
                "firebase": {"project_id": "",
                             "device": "model=MediumPhone.arm,version=33,"
                                       "locale=en,orientation=portrait"}},
@@ -282,7 +290,15 @@ PROTECTED_MODULES = {
 OPTIONAL_MODULES = {"rshapes", "rmodels", "raudio"}
 
 
+WINDOWS_BACKENDS = {"glfw", "win32"}
+
+
 def validate(cfg: dict, strict_release: bool) -> None:
+    if cfg["windows"]["backend"] not in WINDOWS_BACKENDS:
+        raise ConfigError(
+            f"[windows] backend has to be one of {sorted(WINDOWS_BACKENDS)}, "
+            f"got {cfg['windows']['backend']!r}")
+
     web_memory = cfg["web"]["memory"]
     if not isinstance(web_memory, int) or web_memory < 16 or web_memory > 4096:
         raise ConfigError(
@@ -661,6 +677,7 @@ set(TEMPLATE_PROJECT_NAME "{cmake_escape(name)}")
 set(TEMPLATE_RRES_PASSWORD "{cmake_escape(cfg['resources']['rres_password'])}")
 set(TEMPLATE_WEB_TOTAL_MEMORY {total_memory})
 set(TEMPLATE_WEB_ALLOW_MEMORY_GROWTH {grow})
+set(TEMPLATE_WINDOWS_BACKEND "{cfg["windows"]["backend"]}")
 """)
 
     defs, stubs = raylib_defs(cfg)
@@ -1036,6 +1053,91 @@ def generate_ios_icon(cfg: dict, src: Path) -> None:
         json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
 
 
+def gen_licenses(cfg: dict) -> bool:
+    """The LICENSES.txt that ships next to the binary.
+
+    Generated, never written by hand, from the licence files that are actually
+    in thirdparty/. That way adding a dependency updates it, and forgetting to
+    is a build error rather than a licence violation discovered by someone else.
+    """
+    out = REPO / "cmake" / "generated" / "LICENSES.txt"
+    if not cfg["deploy"]["licenses"]:
+        if out.exists():
+            out.unlink()
+        return True
+
+    name = cfg["project"]["name"]
+    parts = [
+        f"Third-party licences for {name}",
+        "=" * (30 + len(name)),
+        "",
+        "This game is built on the software below. Each notice is reproduced in",
+        "full, as its licence requires.",
+        "",
+    ]
+
+    missing = []
+    for vendor in sorted(p for p in (REPO / "thirdparty").iterdir() if p.is_dir()):
+        # An empty directory is a submodule nobody checked out — thirdparty/
+        # raylib-ios on any machine that is not building for iOS. Skipping it is
+        # right: there is nothing there to license, and failing would make every
+        # Linux build depend on a submodule it never compiles.
+        if not any(vendor.iterdir()):
+            continue
+        found = None
+        for candidate in ("LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING", "LICENCE"):
+            if (vendor / candidate).is_file():
+                found = vendor / candidate
+                break
+        if found is None:
+            missing.append(vendor.name)
+            continue
+        parts += ["-" * 70, f"  {vendor.name}", "-" * 70, "",
+                  found.read_text(encoding="utf-8", errors="replace").rstrip(), ""]
+
+    if missing:
+        # Not a warning. A dependency with no licence file is a licence problem,
+        # and the only moment anyone will act on it is now.
+        raise ConfigError(
+            "these directories under thirdparty/ have no licence file, so they cannot go "
+            f"into LICENSES.txt: {', '.join(missing)}\n"
+            "Add the upstream LICENSE to each, or take the dependency out.")
+
+    return write(out, "\n".join(parts) + "\n")
+
+
+def generate_windows_icon(src: Path) -> bool:
+    """A multi-resolution .ico plus the one-line .rc that puts it in the .exe.
+
+    Windows does not read a PNG for this. The icon lives inside the executable
+    as a resource, which means an .ico and a resource script compiled by rc
+    (MSVC) or windres (MinGW). Both come out of the same branding/icon.png as
+    every other platform's, so there is one image to maintain.
+
+    Returns False without complaining when Pillow is missing: the icon is
+    cosmetic, and no build should fail over it. The Windows job installs Pillow.
+    """
+    gen = REPO / "cmake" / "generated"
+    ico = gen / "app_icon.ico"
+    rc = gen / "app_icon.rc"
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+
+    gen.mkdir(parents=True, exist_ok=True)
+    with Image.open(src) as img:
+        # All four sizes in one file. Windows picks per context — 16 in the
+        # title bar, 32 in the taskbar, 256 in a large Explorer view — and an
+        # .ico with only the big one gets downscaled badly by the shell.
+        img.convert("RGBA").save(ico, format="ICO",
+                                 sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+    # IDI_ICON1 is the conventional first icon id: the shell shows the
+    # lowest-numbered icon resource as the file's icon.
+    write(rc, 'IDI_ICON1 ICON "app_icon.ico"\n')
+    return True
+
+
 def generate_icons(cfg: dict, required: bool) -> None:
     src = REPO / cfg["icon"]["source"]
     res = REPO / "raymob" / "app" / "src" / "main" / "res"
@@ -1045,6 +1147,7 @@ def generate_icons(cfg: dict, required: bool) -> None:
         return
 
     generate_ios_icon(cfg, src)
+    generate_windows_icon(src)
 
     # Skip the work when the inputs have not moved. Also the graceful path for a
     # dev machine without Pillow: as long as the icon is unchanged, nobody needs it.
@@ -1263,6 +1366,7 @@ def main(argv: list[str]) -> int:
 
     gen_cmake(cfg)
     gen_app_config(cfg)
+    gen_licenses(cfg)
     gen_gradle_properties(cfg, targets)
     gen_android_manifest(cfg, targets)
     generate_icons(cfg, required=args.require_icons)

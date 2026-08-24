@@ -33,6 +33,13 @@ orientation = "landscape"
 #   exact  : linux-x64 linux-arm64 linux-riscv64 windows-x64 windows-arm64
 #            macos ios web android
 #            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
+#            linux-drm
+#
+# linux-drm is DRM/KMS: the game draws straight to the screen with no X11 and
+# no Wayland, from a bare TTY. A Raspberry Pi, an arcade cabinet, a kiosk, or
+# just developing from a console. It is NOT part of "all" on purpose — it needs
+# libdrm on the build machine and /dev/dri on the machine that runs it, and
+# nobody should get a target they cannot run by writing "all". Name it.
 enabled  = ["all"]
 # Subtracted from whatever `enabled` expanded to. Use it to keep a group and
 # drop one member: enabled = ["all"], disabled = ["ios"].
@@ -93,6 +100,20 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # NOT DONE YET: consent. Serving ads to users in the EEA or the UK requires a
 # Google-certified CMP (the UMP SDK) since January 2024, and this template does
 # not ship one. See "AdMob" in TECHNICAL.md before you publish with ads on.
+
+[windows]
+# Which windowing backend Windows uses.
+#
+#   "glfw"   the default, and what raylib uses everywhere else. Mature, and it
+#            is what the fourteen-target matrix is tested against.
+#   "win32"  raylib 6.0's native Win32 backend: no GLFW at all, one dependency
+#            fewer and a smaller .exe.
+#
+# "win32" is a real option and a young one. It does not cover everything GLFW
+# does — gamepads, multi-monitor, the clipboard and some keyboard cases are
+# thinner — so it is right for a simple game and wrong as a default. Try it,
+# measure the .exe, and keep it only if nothing you use is missing.
+backend = "glfw"
 
 [ios]
 # Same warning as Android: this is your App Store identity.
@@ -174,6 +195,17 @@ max_elements = 512
 # Obfuscation, not security: the password ends up inside the binary. It exists
 # so casual unpacking of your assets is inconvenient, nothing more.
 rres_password = "raylib-template"
+
+[deploy]
+# Ship a LICENSES.txt next to the binary, with the full notice of everything
+# vendored — raylib, Clay, rres and whatever comes later. Generated from the
+# licence files in thirdparty/, so adding a dependency updates it and forgetting
+# to add one is a build error.
+#
+# Turn it off ONLY if your game already gives the credits inside it: a credits
+# scene satisfies the same licences, and a loose .txt next to the executable is
+# then just noise. On by default, because most games do not have that scene.
+licenses = true
 
 [deploy.itch]
 # Leave empty to skip publishing. The API key is a GitHub secret

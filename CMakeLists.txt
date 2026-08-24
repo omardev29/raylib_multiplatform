@@ -45,9 +45,38 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json"
 project(${TEMPLATE_PROJECT_NAME})
 add_executable("${CMAKE_PROJECT_NAME}")
 
+# --- the Windows icon -------------------------------------------------------
+# Windows keeps the icon INSIDE the .exe as a resource, so a PNG is not enough:
+# tools/configure.py turns [icon] source into a multi-resolution .ico and the
+# one-line .rc below, and the resource compiler embeds it. Missing is fine — the
+# generator skips it when Pillow is not installed, and an icon is cosmetic.
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
+  enable_language(RC)
+  target_sources("${CMAKE_PROJECT_NAME}" PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
+endif()
+
 
 
 #Add raylib, and here you would add other libraries if needed!
+# Which backend raylib is built against. Everything except these two cases is
+# raylib's own default (Desktop on the desktops, Web under Emscripten, Android
+# under the NDK), and none of that is worth restating here.
+#
+#   [windows] backend = "win32"  -> PLATFORM=Win32, raylib's native Win32
+#                                   backend and no GLFW at all. That branch of
+#                                   raylib's CMake is OURS: see the patch note
+#                                   in thirdparty/FROZEN_VERSIONS.md.
+#   linux-drm                    -> PLATFORM=DRM, straight to the screen with
+#                                   no X11 and no Wayland.
+if(WIN32 AND TEMPLATE_WINDOWS_BACKEND STREQUAL "win32")
+  set(PLATFORM "Win32" CACHE STRING "" FORCE)
+  message(STATUS "=== WINDOWS BACKEND: native Win32, no GLFW ===")
+elseif(RMP_TARGET_DRM)
+  set(PLATFORM "DRM" CACHE STRING "" FORCE)
+  message(STATUS "=== PLATFORM: DRM/KMS, no X11 ===")
+endif()
+
 add_subdirectory(thirdparty/raylib)
 
 # [raylib] disabled_modules. raylib's own SUPPORT_* CMake options are not used:
