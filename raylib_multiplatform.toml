@@ -133,6 +133,20 @@ disabled_modules = []
 compiler = "clang"   # clang | gcc | default
 linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
 
+[web]
+# How much memory the WebAssembly module is allowed.
+#
+# memory  Megabytes reserved at startup (Emscripten's TOTAL_MEMORY). 64 is
+#         enough for a menu and a handful of textures. A game that loads a
+#         tile atlas and a few tracks wants more, and the failure mode is
+#         specific: the tab dies with "Cannot enlarge memory arrays".
+# grow    Let it grow past `memory` instead of aborting. It costs a little
+#         speed on every heap access — every pointer goes through a bounds
+#         check that cannot be hoisted — so a game that knows its ceiling is
+#         better off raising `memory` and leaving this off.
+memory = 64
+grow   = false
+
 [ui]
 # rmp::ui — the interface layer. Nothing here is required: with all four at
 # their defaults a menu is still three lines of code.

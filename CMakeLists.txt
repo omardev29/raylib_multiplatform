@@ -319,7 +319,12 @@ if(PLATFORM STREQUAL "Web")
         # the stack at a suspension point, which is most of them, and charges
         # for it in code size and speed whether or not anything ever suspends.
         # If you put a while loop back, you have to put this back with it.
-        LINK_FLAGS "-s USE_GLFW=3 -s TOTAL_MEMORY=67108864 --preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
+        # TOTAL_MEMORY and ALLOW_MEMORY_GROWTH come from [web] in the .toml.
+        # The failure mode when it is too small is specific and worth knowing:
+        # the tab dies with "Cannot enlarge memory arrays", not a raylib error.
+        LINK_FLAGS "-s USE_GLFW=3 -s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
+-s ALLOW_MEMORY_GROWTH=${TEMPLATE_WEB_ALLOW_MEMORY_GROWTH} \
+--preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
     )
 endif()
 

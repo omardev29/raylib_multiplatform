@@ -1,10 +1,20 @@
 // ===========================================================================
 // rmp::app — see include/rmp/app.h.
+//
+// This file is where the entry point's includes live. rmp/app.h names nothing
+// from rmp::ui or rmp::assets on purpose, so that a translation unit with an
+// entry point does not drag the whole interface layer in; the six detail
+// functions below are what the macro calls instead.
 // ===========================================================================
 
 #include <rmp/app.h>
 
 #include <raylib.h>
+#include <rmp/assets.h>
+#include <rmp/ui.h>
+#include <smoke_test.h>
+
+#include <cstdlib> // std::exit() on the iOS CI path
 
 #if defined(PLATFORM_ANDROID)
 #include <raymob.h> // GetAndroidApp()
@@ -62,5 +72,51 @@ void quit() {
 }
 
 bool quit_requested() { return g_quit_requested; }
+
+namespace detail {
+
+// Everything the entry point does before your ready hook. On iOS that includes
+// a chdir: the process starts in the app container, not inside the bundle, and
+// raylib's iOS backend does not chdir for you — so the relative RESOURCES_PATH
+// would resolve to nothing and every asset would silently load as 0x0.
+// GetApplicationDirectory() is the .app root there, which is where bundle
+// resources live, and it has to happen before assets::init() looks for the pack.
+void begin_run() {
+    SmokeTest_Begin();
+#if defined(PLATFORM_IOS)
+    ChangeDirectory(GetApplicationDirectory());
+#endif
+    rmp::assets::init();
+}
+
+void after_ready() {
+    SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
+}
+
+// Three ways a run ends, and they are checked in one place so that the three
+// platform macros cannot drift apart: the window's X (which does not exist on
+// web or iOS and is skipped there), the CI frame budget, and quit().
+bool keep_running() {
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__) || defined(PLATFORM_IOS)
+    // WindowShouldClose() on web is nothing but emscripten_sleep(12), and that
+    // sleep is the only thing in raylib that needs ASYNCIFY. Not calling it is
+    // what lets ASYNCIFY stay out of the build.
+    const bool closed = false;
+#else
+    const bool closed = WindowShouldClose();
+#endif
+    return !closed && !SmokeTest_Done() && !quit_requested();
+}
+
+void end_frame() { SmokeTest_Tick(); }
+
+void begin_stop() { rmp::ui::shutdown(); }
+void end_stop() { rmp::assets::shutdown(); }
+
+#if defined(PLATFORM_IOS)
+void exit_process() { std::exit(0); }
+#endif
+
+} // namespace detail
 
 } // namespace rmp::app

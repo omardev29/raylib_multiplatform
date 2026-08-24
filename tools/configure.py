@@ -215,6 +215,7 @@ DEFAULTS: dict = {
     "ios": {"bundle_id": "com.example.raytest", "deployment_target": "15.6", "settings": {}},
     "icon": {"source": "branding/icon.png", "adaptive_background": "#3DDC84"},
     "raylib": {"disabled_modules": []},
+    "web": {"memory": 64, "grow": False},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
     "dev": {"compiler": "clang", "linker": "auto"},
@@ -282,6 +283,15 @@ OPTIONAL_MODULES = {"rshapes", "rmodels", "raudio"}
 
 
 def validate(cfg: dict, strict_release: bool) -> None:
+    web_memory = cfg["web"]["memory"]
+    if not isinstance(web_memory, int) or web_memory < 16 or web_memory > 4096:
+        raise ConfigError(
+            f"[web] memory = {web_memory!r} has to be a whole number of megabytes between "
+            "16 and 4096. Below 16 nothing loads; above 4096 is past what a 32-bit wasm "
+            "module can address at all.")
+    if not isinstance(cfg["web"]["grow"], bool):
+        raise ConfigError("[web] grow has to be true or false")
+
     name = cfg["project"]["name"]
     if not NAME_RE.match(name):
         raise ConfigError(
@@ -640,9 +650,17 @@ def cmake_escape(value: str) -> str:
 
 def gen_cmake(cfg: dict) -> None:
     name = cfg["project"]["name"]
+    web = cfg["web"]
+    # TOTAL_MEMORY has to be a multiple of 64 KiB and Emscripten rejects it
+    # otherwise, so megabytes are what the config asks for and the arithmetic
+    # happens here rather than in anyone's head.
+    total_memory = int(web["memory"]) * 1024 * 1024
+    grow = "1" if web["grow"] else "0"
     write(REPO / "cmake" / "generated" / "project.cmake", f"""# {GEN_HEADER}
 set(TEMPLATE_PROJECT_NAME "{cmake_escape(name)}")
 set(TEMPLATE_RRES_PASSWORD "{cmake_escape(cfg['resources']['rres_password'])}")
+set(TEMPLATE_WEB_TOTAL_MEMORY {total_memory})
+set(TEMPLATE_WEB_ALLOW_MEMORY_GROWTH {grow})
 """)
 
     defs, stubs = raylib_defs(cfg)

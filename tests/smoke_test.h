@@ -180,4 +180,12 @@ static inline int SmokeTest_Tick(void) {
     return 0;
 }
 
+// Has the budget already been spent? Asks without advancing, which is what a
+// loop condition needs — the entry point ticks once per frame and then asks
+// separately, so a frame is never counted twice or skipped.
+static inline int SmokeTest_Done(void) {
+    if (SmokeTest_maxFrames <= 0) return 0;
+    return SmokeTest_frame >= SmokeTest_maxFrames;
+}
+
 #endif // SMOKE_TEST_H

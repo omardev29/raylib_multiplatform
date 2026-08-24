@@ -2,9 +2,9 @@
 // ---------------------------------------------------------------------------
 // rmp/app.h — the entry point, and closing the app.
 //
-// You write on_ready(), on_frame(float) and on_exit(); RMP_ENTRY_POINT writes the
-// runner for your platform. There are three, and the difference between them is
-// who owns the frame loop:
+// You write on_ready(), on_frame(float) and on_exit(); RMP_ENTRY_POINT writes
+// the runner for your platform. There are three, and the difference between
+// them is who owns the frame loop:
 //
 //   desktop   we do: a main() with a while loop, the ordinary raylib shape.
 //   web       the browser does. See the PLATFORM_WEB block below — this is not
@@ -14,37 +14,33 @@
 //
 // All three do the same things around your code: start the smoke test, open the
 // asset pack, run you, report to CI whether any asset failed to load, and close
-// the pack afterwards. None of it is yours to remember, and there is nothing you
-// have to keep in on_ready() to keep CI happy.
+// the pack afterwards. None of it is yours to remember.
 //
-// One ordering detail that is not obvious: rmp::ui::shutdown() runs BEFORE the
-// stop hook, not after. That hook is where you call CloseWindow(), and releasing
-// a font after that is touching a GL context that no longer exists. The UI is
-// not used again once the loop ends, so closing it first costs nothing. The
-// asset layer is the opposite case — it owns no GPU objects, so it closes after
-// you, in case your stop hook still wants to unload something.
+// WHAT THIS HEADER DOES NOT INCLUDE, and why it matters.
 //
-// The three hooks are macro ARGUMENTS rather than fixed names because the scene
-// layer is about to supply its own. See next_architecture/03-app-and-scenes.md.
+// Not one header of ours. Not rmp/ui.h, not rmp/assets.h, not rmp/config.h.
+// It used to include all three, because the macros below called
+// rmp::ui::shutdown() and rmp::assets::init() by name — and that meant every
+// translation unit with an entry point paid for the whole interface layer,
+// which is exactly the coupling that splitting the umbrella was meant to end.
+//
+// The fix is that the macros no longer DO anything: they call six functions in
+// rmp::app::detail, compiled once in src/rmp/app.cpp, which is where the
+// includes live now. The macro is left as the only thing it has to be — the
+// platform's entry-point shape.
+//
+// The rule that comes out of it, and it governs every header we add:
+//   1. Include none of our headers. Forward-declare instead.
+//   2. If a namespace or a by-value type makes that impossible, include it and
+//      write down here why.
+//   3. If two headers end up needing each other, one of them should not exist.
 // ---------------------------------------------------------------------------
 
-#include <stdlib.h> // exit() on the iOS CI path
+#include <raylib.h> // GetFrameTime(), for the frame hook. raylib's, not ours.
 
 #if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
 #endif
-
-#ifdef __ANDROID__
-// The Android side of raylib — vibration, the soft keyboard, the activity's JNI
-// handles. Android only: it needs the NDK's <jni.h>, which no other target has.
-#include <raymob.h>
-#endif
-
-#include <raylib.h>
-#include <rmp/assets.h>
-#include <rmp/config.h>
-#include <rmp/ui.h>
-#include <smoke_test.h> // the CI gate; every function is a no-op outside CI
 
 namespace rmp::app {
 
@@ -89,54 +85,62 @@ void quit();
 // unless you want to skip work on the way out.
 bool quit_requested();
 
+namespace detail {
+// The six halves of a run. Not for you — RMP_ENTRY_POINT calls them, and they
+// exist so that this header names nothing from rmp::ui or rmp::assets. Their
+// bodies, and the includes they need, are in src/rmp/app.cpp.
+void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
+void after_ready(); // report to CI whether any asset failed to load
+bool keep_running(); // the window is open, the frame budget is not spent, no quit
+void end_frame(); // advance the CI frame budget
+void begin_stop(); // the UI closes here, BEFORE your stop hook: see below
+void end_stop(); // the asset pack closes here, AFTER it
+#if defined(PLATFORM_IOS)
+[[noreturn]] void exit_process(); // only iOS needs it, and only under CI
+#endif
+} // namespace detail
+
 } // namespace rmp::app
+
+// An ordering detail that is not obvious, and is the reason begin_stop and
+// end_stop are two functions rather than one: rmp::ui::shutdown() runs BEFORE
+// your stop hook and rmp::assets::shutdown() runs AFTER it. Your hook is where
+// CloseWindow() lives, and releasing a font after that is touching a GL context
+// that no longer exists. The asset layer is the opposite case — it owns no GPU
+// objects, so it closes last, in case your hook still wants to unload something.
 
 // clang-format off
 // The one exemption left in the repository, and it is NOT about alignment:
-// these are 40-line macros whose bodies contain block comments, and every
-// formatter mangles the continuation of a /* */ inside a macro. The trailing
-// backslashes are a language requirement, not a ruler.
+// these are macros whose bodies contain block comments, and every formatter
+// mangles the continuation of a /* */ inside a macro. The trailing backslashes
+// are a language requirement, not a ruler.
 
 // iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
 // extern "C" so the symbols match the C declarations in rcore_ios.c.
 //
-// The SmokeTest_Tick() branch is what makes the app terminable under CI. On
-// desktop the frame budget just ends the while loop in main(); UIKit owns the
-// run loop here and offers no way to return from it, so the CI path tears down
-// and exits explicitly. Outside CI (RAY_TEST_MAX_FRAMES unset) Tick() always
-// returns 0 and this is dead code.
+// UIKit owns the run loop and offers no way to return from it, so the CI path
+// tears down and exits explicitly. Outside CI that branch never runs.
 #define RMP_IOS_FUNCS(READY, FRAME, STOP)                                      \
   extern "C" void ios_ready() {                                                \
-    /* iOS starts the process in the app container, not inside the bundle, and \
-       raylib's iOS backend does not chdir for you — so the relative           \
-       RESOURCES_PATH would resolve to nothing and every asset would silently  \
-       load as 0x0. GetApplicationDirectory() is the .app root on iOS, which   \
-       is exactly where bundle resources live. This has to happen before       \
-       rmp::assets::init(), which looks for the pack along that same path. */  \
-    SmokeTest_Begin();                                                         \
-    ChangeDirectory(GetApplicationDirectory());                                \
-    rmp::assets::init();                                                       \
+    rmp::app::detail::begin_run();                                             \
     READY();                                                                   \
-    SmokeTest_ReportBoot(rmp::assets::failed_loads(),                          \
-                         rmp::assets::requested_loads());                      \
+    rmp::app::detail::after_ready();                                           \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
     FRAME(GetFrameTime());                                                     \
     /* Two ways out, and both land here because UIKit never gives the run loop \
-       back: the CI frame budget, and rmp::app::quit(). Apple discourages      \
-       quitting programmatically, but a framework that silently ignored a Quit \
-       button on one platform out of fourteen would be worse. */               \
-    if (SmokeTest_Tick() || rmp::app::quit_requested()) {                      \
-      rmp::ui::shutdown();                                                     \
+       back: the CI frame budget, and rmp::app::quit(). */                     \
+    if (!rmp::app::detail::keep_running()) {                                   \
+      rmp::app::detail::begin_stop();                                          \
       STOP();                                                                  \
-      rmp::assets::shutdown();                                                 \
-      exit(0);                                                                 \
+      rmp::app::detail::end_stop();                                            \
+      rmp::app::detail::exit_process();                                        \
     }                                                                          \
   }                                                                            \
   extern "C" void ios_destroy() {                                              \
-    rmp::ui::shutdown();                                                       \
+    rmp::app::detail::begin_stop();                                            \
     STOP();                                                                    \
-    rmp::assets::shutdown();                                                   \
+    rmp::app::detail::end_stop();                                              \
   }
 
 // Web. The browser owns the frame loop, and giving it to the browser is worth
@@ -146,67 +150,52 @@ bool quit_requested();
 // rewrites the whole program so its stack can be unwound and restored at any
 // suspension point. That instrumentation is not billed to the loop: it is
 // billed to every function in the binary that might be on the stack when it
-// happens, in code Size and in speed, whether or not the frame ever yields.
+// happens, in code size and in speed, whether or not the frame ever yields.
 // raylib says so itself, in the comment above WindowShouldClose() on web:
 // "WindowShouldClose() is not called on a web-ready raylib application if
 // using emscripten_set_main_loop()". That call is the only emscripten_sleep()
 // in raylib, so not calling it is what lets ASYNCIFY go away entirely.
-//
-// One frame per callback is also what requestAnimationFrame wants: the browser
-// schedules us with the display instead of us blocking its event loop and
-// asking it politely for control back every 12 ms.
 //
 // fps = 0 means requestAnimationFrame, which is the right answer on web — do
 // NOT call SetTargetFPS() here. The 1 is "simulate an infinite loop", so
 // main() never returns and nothing after the call runs, which is exactly the
 // contract the desktop while loop has.
 #define RMP_WEB_FUNCS(READY, FRAME, STOP)                                      \
-  static void rmp_web_close() {                                               \
-    /* The same order as everywhere else: the UI first, while the window is    \
-       still open and its font still has a GL context to live in. */           \
-    rmp::ui::shutdown();                                                       \
-    STOP();                                                                    \
-    rmp::assets::shutdown();                                                   \
-  }                                                                            \
-  static void rmp_web_frame() {                                               \
+  static void rmp_web_frame() {                                                \
     FRAME(GetFrameTime());                                                     \
-    /* Same two ways out as the desktop loop, minus the window's X, which a    \
-       browser tab does not have. WindowShouldClose() is deliberately never    \
-       called: on web it does nothing but emscripten_sleep(12). */             \
-    if (SmokeTest_Tick() || rmp::app::quit_requested()) {                      \
+    /* WindowShouldClose() is deliberately never called: on web it does        \
+       nothing but emscripten_sleep(12), which is what ASYNCIFY pays for. */   \
+    if (!rmp::app::detail::keep_running()) {                                   \
       emscripten_cancel_main_loop();                                           \
-      rmp_web_close();                                                         \
+      rmp::app::detail::begin_stop();                                          \
+      STOP();                                                                  \
+      rmp::app::detail::end_stop();                                            \
     }                                                                          \
   }                                                                            \
   int main() {                                                                 \
-    SmokeTest_Begin();                                                         \
-    rmp::assets::init();                                                       \
+    rmp::app::detail::begin_run();                                             \
     READY();                                                                   \
-    SmokeTest_ReportBoot(rmp::assets::failed_loads(),                          \
-                         rmp::assets::requested_loads());                      \
+    rmp::app::detail::after_ready();                                           \
     emscripten_set_main_loop(rmp_web_frame, 0, 1);                             \
     return 0;                                                                  \
   }
 
 #define RMP_DESKTOP_FUNCS(READY, FRAME, STOP)                                  \
   int main() {                                                                 \
-    SmokeTest_Begin();                                                         \
-    rmp::assets::init();                                                       \
+    rmp::app::detail::begin_run();                                             \
     READY();                                                                   \
-    SmokeTest_ReportBoot(rmp::assets::failed_loads(),                          \
-                         rmp::assets::requested_loads());                      \
-    int smokeDone = 0;                                                         \
-    /* rmp::app::quit() is checked here rather than acted on where it is       \
-       called: the frame that asked to quit finishes normally, and then the    \
-       stop hook and CloseWindow() run exactly as they do when the window is   \
-       closed with the X. std::exit() in a button handler skips all of that. */\
-    while (!WindowShouldClose() && !smokeDone && !rmp::app::quit_requested()) { \
+    rmp::app::detail::after_ready();                                           \
+    /* rmp::app::quit() is checked inside keep_running() rather than acted on  \
+       where it is called: the frame that asked to quit finishes normally, and \
+       then the stop hook and CloseWindow() run exactly as they do when the    \
+       window is closed with the X. */                                         \
+    while (rmp::app::detail::keep_running()) {                                 \
       FRAME(GetFrameTime());                                                   \
-      smokeDone = SmokeTest_Tick();                                            \
+      rmp::app::detail::end_frame();                                           \
     }                                                                          \
-    rmp::ui::shutdown();                                                       \
+    rmp::app::detail::begin_stop();                                            \
     STOP();                                                                    \
-    rmp::assets::shutdown();                                                   \
+    rmp::app::detail::end_stop();                                              \
     return 0;                                                                  \
   }
 // clang-format on

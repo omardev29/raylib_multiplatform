@@ -6,6 +6,11 @@
 // a paragraph here.
 
 #include <rmp/app.h>
+
+// The CI render gate. rmp/app.h no longer drags this in — it names nothing of
+// ours and nothing of the test harness — so a file that calls it includes it.
+// This goes away in phase 4, when RMP_GAME owns the frame and captures for you.
+#include <smoke_test.h>
 #include <rmp/assets.h>
 #include <rmp/ui.h>
 
