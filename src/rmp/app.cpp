@@ -110,7 +110,24 @@ bool keep_running() {
 
 void end_frame() { SmokeTest_Tick(); }
 
-void begin_stop() { rmp::ui::shutdown(); }
+// Everything that owns something on the GPU is released HERE, before the stop
+// hook runs — because the stop hook is where CloseWindow() lives, and an
+// UnloadTexture() after that is a write through a GL context that no longer
+// exists.
+//
+// The resource table joined this list in phase 3 and the comment in rmp/app.h
+// had to change with it: it used to say the asset layer could close last
+// "because it owns no GPU objects", which stopped being true the moment
+// rmp::Texture existed. It cost a segfault on the way out, and only under
+// xvfb — a real driver tolerated it and said nothing.
+void begin_stop() {
+    rmp::ui::shutdown();
+    rmp::detail::release_all();
+}
+
+// And here, after your hook, only what owns nothing on the GPU: the rres pack
+// and raylib's loader hook. Those are file handles, and a file handle does not
+// care that the window is gone.
 void end_stop() { rmp::assets::shutdown(); }
 
 #if defined(PLATFORM_IOS)

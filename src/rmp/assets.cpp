@@ -47,8 +47,10 @@ void init() {
 }
 
 void shutdown() {
-    // Before the pack and before CloseWindow(): releasing a texture after the
-    // GL context is gone is a write to memory that no longer exists.
+    // The resources were already released in rmp::app::detail::begin_stop(),
+    // which runs BEFORE the window closes. Calling it again here is harmless —
+    // the table is empty — but it must not be the only call, because by now
+    // CloseWindow() has taken the GL context with it.
     rmp::detail::release_all();
     detail::remove_loader_hook();
     detail::close_pack();

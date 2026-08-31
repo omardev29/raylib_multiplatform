@@ -15,6 +15,9 @@
 # are listed, and the list may only get shorter. Any OTHER file that starts
 # doing it fails the build.
 #
+# It also checks a SECOND rule, added after it cost a link error: inside rmp::,
+# a raylib type whose name we have taken must be written with a leading `::`.
+#
 # Usage: tools/seam_check.sh          (from the repo root)
 
 set -uo pipefail
@@ -81,3 +84,34 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 echo "  ok    the seam holds (${#ALLOWED[@]} known exceptions, all still needed)"
+
+# --- rule two: shadowed raylib types ---------------------------------------
+#
+# rmp::Image, rmp::Font, rmp::Sound, rmp::Music and rmp::Shader are counted
+# handles that TAKE THE NAME of a raylib struct. Inside namespace rmp, the
+# unqualified name therefore means ours — and which one a header means depends
+# on whether that translation unit happened to include rmp/assets.h.
+#
+# That is not a style question. `Image pack_read_image(const char *)` in a
+# shared internal header meant rmp::Image in one .cpp and ::Image in another:
+# two different functions, one missing symbol, and it linked on thirteen of the
+# fourteen targets. Windows ARM64 was the one that noticed.
+SHADOWED='Image|Font|Sound|Music|Shader'
+shadow_fails=0
+while IFS= read -r hit; do
+  [ -z "$hit" ] && continue
+  echo "  FAIL  a shadowed raylib type is written without ::"
+  echo "          $hit"
+  shadow_fails=$((shadow_fails + 1))
+done < <(grep -rnE "(^|[^:_[:alnum:]])($SHADOWED) +\*?[a-zA-Z_][a-zA-Z_0-9]*" \
+           src/rmp --include='*.cpp' --include='*.h' \
+         | grep -vE "::($SHADOWED)|rmp::|^[^:]*:[0-9]+: *(//|\*)" || true)
+
+if [ "$shadow_fails" -ne 0 ]; then
+  echo
+  echo "FALLA: inside rmp::, write ::Image, ::Font, ::Sound, ::Music or ::Shader when you"
+  echo "       mean raylib's. The unqualified name is ours, and which one a header means"
+  echo "       depends on what the .cpp including it happened to include first."
+  exit 1
+fi
+echo "  ok    no shadowed raylib type is written without ::"

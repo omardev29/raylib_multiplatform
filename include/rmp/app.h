@@ -103,11 +103,20 @@ void end_stop(); // the asset pack closes here, AFTER it
 } // namespace rmp::app
 
 // An ordering detail that is not obvious, and is the reason begin_stop and
-// end_stop are two functions rather than one: rmp::ui::shutdown() runs BEFORE
-// your stop hook and rmp::assets::shutdown() runs AFTER it. Your hook is where
-// CloseWindow() lives, and releasing a font after that is touching a GL context
-// that no longer exists. The asset layer is the opposite case — it owns no GPU
-// objects, so it closes last, in case your hook still wants to unload something.
+// end_stop are two functions rather than one. Your stop hook is where
+// CloseWindow() lives, so the rule is:
+//
+//   begin_stop, BEFORE your hook   everything that owns something on the GPU —
+//                                  the UI's font, and every live rmp::Texture,
+//                                  rmp::Font and rmp::RenderTexture.
+//   end_stop, AFTER your hook      everything that does not — the rres pack and
+//                                  raylib's loader hook, which are file
+//                                  handles and do not care about the window.
+//
+// This comment used to say the asset layer could close last "because it owns no
+// GPU objects". That was true until rmp::Texture existed, and the day it did,
+// the release moved to the wrong side of CloseWindow() and the game segfaulted
+// on the way out — under xvfb only, because a real driver tolerated it.
 
 // clang-format off
 // The one exemption left in the repository, and it is NOT about alignment:

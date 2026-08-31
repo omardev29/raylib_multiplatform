@@ -34,7 +34,15 @@ unsigned char *pack_read(const char *name, int *size);
 // (an IMGE chunk) rather than as the original file, so this cannot go through
 // pack_read(). Returns a zeroed Image when the name is not packed or does not
 // decode; the caller then falls back to the loose file.
-Image pack_read_image(const char *name);
+// `::Image` and not `Image`, and this one cost a link error on exactly ONE of
+// the fourteen targets. Since rmp::Image exists, the unqualified name inside
+// rmp:: means the counted handle — so this declaration meant rmp::Image in
+// assets.cpp (which includes rmp/assets.h) and ::Image in pack.cpp (which does
+// not). Two translation units, two different functions, one missing symbol at
+// link time on Windows ARM64.
+//
+// Inside rmp::, a raylib type we shadow is always written with ::.
+::Image pack_read_image(const char *name);
 
 // --- loader_hook.cpp -------------------------------------------------------
 // Routing raylib's own LoadFileData/LoadFileText through the pack.

@@ -110,8 +110,8 @@ unsigned char *pack_read(const char *name, int *size) {
 //
 // Returns a zeroed Image if the name is not packed or does not decode; the
 // caller falls back to the loose file.
-Image pack_read_image(const char *name) {
-    Image img = { nullptr };
+::Image pack_read_image(const char *name) {
+    ::Image img = { nullptr };
     if (!g_using_pack || name == nullptr) return img;
 
     unsigned int id = rresGetResourceId(g_cdir, name);
