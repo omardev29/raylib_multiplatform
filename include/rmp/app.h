@@ -122,8 +122,13 @@ void frame(float delta);
 void stop();
 
 // Registers a destructor for one rmp::global<T>(). Called once per type, the
-// first time that type is asked for.
+// first time that type is asked for. Both live in src/rmp/global.cpp, on their
+// own, so that a test binary can reach them without an entry point.
 void register_global(void (*destroy)());
+
+// Destroy every global, reverse of first use. Called from begin_stop(), while
+// the window is still open — a global can hold an rmp::Texture.
+void shutdown_globals();
 #if defined(PLATFORM_IOS)
 [[noreturn]] void exit_process(); // only iOS needs it, and only under CI
 #endif

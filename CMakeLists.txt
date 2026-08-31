@@ -352,6 +352,7 @@ if(BUILD_TESTS)
   # test_mode() in src/rmp/ui/internal.h.
   file(GLOB UNIT_TEST_UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   set(UNIT_TEST_LIB_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/global.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/scene.cpp"

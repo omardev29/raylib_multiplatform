@@ -19,10 +19,7 @@
 #include <smoke_test.h>
 
 #include <cstdlib> // std::exit() on the iOS CI path
-#include <memory>
-#include <ranges>
 #include <utility>
-#include <vector>
 
 // The other half of the entry-point guard in rmp/app.h. Referencing the symbol
 // here is what turns a program with no RMP_GAME and no RMP_ENTRY_POINT into a
@@ -43,11 +40,6 @@ namespace rmp::app {
 
 namespace {
 bool g_quit_requested = false;
-
-// One entry per rmp::global<T>() that has been asked for, in the order they
-// were first used. Torn down in reverse, which is the order a reader expects
-// from anything that behaves like a static.
-std::vector<void (*)()> g_globals;
 } // namespace
 
 void quit() {
@@ -157,12 +149,7 @@ void begin_stop() {
     // CloseWindow() lives and every one of these owns something on the GPU.
     rmp::scenes::detail::shutdown();
 
-    // Reverse of first use, which is the order anything that behaves like a
-    // static is destroyed in. std::ranges::reverse_view rather than rbegin/rend
-    // so that the loop stays a range-based one, which is what the linter asks
-    // of every other loop in the codebase.
-    for (void (*destroy)() : std::ranges::reverse_view(g_globals)) destroy();
-    g_globals.clear();
+    shutdown_globals();
 
     rmp::ui::shutdown();
     rmp::detail::release_all();
@@ -172,8 +159,6 @@ void begin_stop() {
 // and raylib's loader hook. Those are file handles, and a file handle does not
 // care that the window is gone.
 void end_stop() { rmp::assets::shutdown(); }
-
-void register_global(void (*destroy)()) { g_globals.push_back(destroy); }
 
 // ---------------------------------------------------------------------------
 // What RMP_GAME wires the three platform hooks to.
