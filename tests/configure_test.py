@@ -300,6 +300,33 @@ class ConfigureValidateTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assert_rejects(base_config(web={"memory": value, "grow": False}))
 
+    def test_linux_backend_and_wayland(self):
+        self.assert_rejects(base_config(linux={"backend": "sdl", "wayland": False}))
+        cfg = base_config()
+        cfg["linux"]["wayland"] = "yes"
+        self.assert_rejects(cfg, "true or false")
+
+    def test_rgfw_and_wayland_cannot_both_hold(self):
+        """Individually valid, together a contradiction — and the build would
+        silently pick X11 while the config said Wayland. Found by trying it:
+        RGFW reports itself as "DESKTOP (RGFW - X11)"."""
+        self.assert_rejects(base_config(linux={"backend": "rgfw", "wayland": True}),
+                            "cannot both hold")
+
+    def test_rgfw_without_wayland_is_fine(self):
+        with quiet():
+            cfgmod.validate(base_config(linux={"backend": "rgfw", "wayland": False}), False)
+
+    def test_glfw_with_wayland_is_fine(self):
+        with quiet():
+            cfgmod.validate(base_config(linux={"backend": "glfw", "wayland": True}), False)
+
+    def test_compiler_choices(self):
+        for good in ("clang", "gcc", "mingw", "msvc", "default"):
+            with self.subTest(compiler=good), quiet():
+                cfgmod.validate(base_config(dev={"compiler": good, "linker": "auto"}), False)
+        self.assert_rejects(base_config(dev={"compiler": "icc", "linker": "auto"}))
+
     def test_windows_backend(self):
         self.assert_rejects(base_config(windows={"backend": "sdl"}))
 

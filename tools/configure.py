@@ -301,6 +301,19 @@ def validate(cfg: dict, strict_release: bool) -> None:
         raise ConfigError(
             f"[windows] backend has to be one of {sorted(WINDOWS_BACKENDS)}, "
             f"got {cfg['windows']['backend']!r}")
+    # Combinations. Each of these is a pair of keys that are individually valid
+    # and cannot both be honoured, so the build would silently do one of the two
+    # things you asked for. Caught here rather than in CMake, because a
+    # configuration error should not cost a compile — and on CI it should not
+    # cost a runner.
+    if cfg["linux"]["backend"] == "rgfw" and cfg["linux"]["wayland"]:
+        raise ConfigError(
+            "[linux] backend = \"rgfw\" and wayland = true cannot both hold.\n"
+            "RGFW's Linux backend is X11-only — it reports itself as "
+            "\"DESKTOP (RGFW - X11)\" — and the wayland switch only reaches GLFW.\n"
+            "Leaving it would build an X11 binary while the config said Wayland.\n"
+            "Pick one: backend = \"glfw\" to get native Wayland, or wayland = false.")
+
     if cfg["linux"]["backend"] not in LINUX_BACKENDS:
         raise ConfigError(
             f"[linux] backend has to be one of {sorted(LINUX_BACKENDS)}, "
@@ -416,8 +429,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
                 f"[raylib] disabled_modules: unknown module {mod!r}. "
                 f"Optional modules are: {', '.join(sorted(OPTIONAL_MODULES))}.")
 
-    if cfg["dev"]["compiler"] not in ("clang", "gcc", "default"):
-        raise ConfigError("[dev] compiler must be 'clang', 'gcc' or 'default'.")
+    # [dev] compiler is checked at the top of this function, against COMPILERS.
+    # There used to be a second check here allowing only clang/gcc/default, and
+    # the two disagreed the moment mingw and msvc were added — which is exactly
+    # what tests/configure_test.py caught.
     if cfg["dev"]["linker"] not in ("auto", "mold", "lld", "default"):
         raise ConfigError("[dev] linker must be 'auto', 'mold', 'lld' or 'default'.")
 
@@ -738,6 +753,16 @@ set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
             "msvc":  (["cl"], ["cl"]),
         }[compiler]
         cc, cxx = " ".join(names[0]), " ".join(names[1])
+        # mingw and msvc are Windows toolchains, and asking for them anywhere
+        # else is a mistake worth catching rather than obeying. A Linux box with
+        # the mingw cross-compiler installed would otherwise find
+        # x86_64-w64-mingw32-gcc and quietly start producing .exe files from a
+        # native build.
+        if compiler in ("mingw", "msvc"):
+            dev += [f'if(NOT WIN32)',
+                    f'  message(FATAL_ERROR "[dev] compiler = {compiler} only makes sense on '
+                    f'Windows. On this platform use clang, gcc or default.")',
+                    "endif()"]
         dev += [
             f"find_program(_TPL_CC  NAMES {cc})",
             f"find_program(_TPL_CXX NAMES {cxx})",

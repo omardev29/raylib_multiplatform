@@ -175,7 +175,17 @@ elseif ("${PLATFORM}" STREQUAL "RGFW")
         find_package(X11 REQUIRED)
         find_package(OpenGL REQUIRED)
 
-        set(LIBS_PRIVATE ${X11_LIBRARIES} ${OPENGL_LIBRARIES})
+        # PATCHED (raylib_multiplatform): upstream links only X11 and GL here,
+        # but RGFW's X11 backend calls into Xrandr (XRRGetScreenResourcesCurrent,
+        # XRRGetCrtcInfo, ...) for monitor enumeration, and Xcursor/Xi for the
+        # pointer and raw input. Without them PLATFORM=RGFW does not link AT ALL
+        # on Linux — it is not a corner case, it is every build.
+        #
+        # X11_Xrandr_LIB and friends come from FindX11, which has already run.
+        # See thirdparty/FROZEN_VERSIONS.md. Re-apply when bumping raylib.
+        set(LIBS_PRIVATE ${X11_LIBRARIES} ${OPENGL_LIBRARIES}
+                         ${X11_Xrandr_LIB} ${X11_Xcursor_LIB} ${X11_Xi_LIB}
+                         ${X11_Xinerama_LIB})
     endif ()
 
 elseif ("${PLATFORM}" STREQUAL "WebRGFW")

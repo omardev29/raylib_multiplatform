@@ -105,7 +105,12 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # Which windowing backend Linux uses, and whether it talks to Wayland natively.
 #
 # backend  "glfw" (default) or "rgfw". GLFW is what the fourteen-target matrix
-#          is tested against; RGFW is smaller and younger.
+#          is tested against; RGFW is smaller and younger — and on Linux it is
+#          X11-ONLY, so it cannot be combined with wayland = true. The
+#          generator refuses that pair rather than letting the build pick one.
+#
+#          Neither key reaches the linux-drm target: DRM talks to the kernel
+#          directly and has no windowing backend and no compositor at all.
 # wayland  false (default) builds GLFW against X11, so on a Wayland desktop the
 #          game runs through XWayland — an extra hop, and the reason fractional
 #          scaling and per-monitor DPI misbehave there. true builds GLFW's
@@ -138,7 +143,7 @@ wayland = false
 # does — gamepads, multi-monitor, the clipboard and some keyboard cases are
 # thinner — so it is right for a simple game and wrong as a default. Try it,
 # measure the .exe, and keep it only if nothing you use is missing.
-backend = "glfw"
+backend = "rgfw"
 
 [ios]
 # Same warning as Android: this is your App Store identity.
