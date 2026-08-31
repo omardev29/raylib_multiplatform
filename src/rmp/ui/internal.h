@@ -71,10 +71,12 @@ bool test_mode();
 // and wrong for a menu.
 float safe_area_inset();
 
-// The font the UI draws with, and the size it was baked at. For the built-in
+// The font the UI draws with, and the size it was baked at. `::Font` and not
+// `Font`: inside rmp:: the unqualified name is now rmp::Font, the counted
+// handle from rmp/assets.h. This one is raylib's plain struct, owned by the UI. For the built-in
 // bitmap font the scale is rounded to a whole number, because a pixel font at
 // 1.73x is a smeared mess.
-Font ui_font();
+::Font ui_font();
 float font_scale();
 
 // Text lives in a bump arena that is reset every begin(). Clay does NOT copy

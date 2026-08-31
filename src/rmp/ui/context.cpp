@@ -50,7 +50,7 @@ float g_scale_override = APP_UI_SCALE; // 0 = automatic
 // The font. When [ui] font is empty we use raylib's built-in one, which needs
 // no asset, no licence and no loading — and is a bitmap font, which is why its
 // scale is rounded to a whole number below.
-Font g_font = { 0 };
+::Font g_font = { 0 };
 bool g_font_loaded = false; // true only when we loaded a file and must unload it
 float g_font_scale = 1.0f;
 int g_baked_size = 0;
@@ -183,7 +183,7 @@ void set_scale_override(float s) {
     if (g_started) update_scale();
 }
 
-Font ui_font() {
+::Font ui_font() {
     const bool builtin = (APP_UI_FONT[0] == '\0');
     if (builtin || g_font_failed) return GetFontDefault();
 
@@ -298,7 +298,7 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
 
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void * /*unused*/) {
-    Font f = ui_font();
+    ::Font f = ui_font();
     auto size = static_cast<float>(config->fontSize);
     Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
     return Clay_Dimensions{ m.x, m.y };

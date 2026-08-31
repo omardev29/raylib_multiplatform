@@ -26,6 +26,29 @@
 #include <raylib.h>
 #include <raymath.h>
 
+// raylib-cpp's math types, and ONLY those. They are classes that DERIVE from
+// raylib's structs, so raylib::Vector2 converts to Vector2 on its own — which
+// is why no rmp:: function signature ever mentions one. Our API keeps taking
+// raylib's types; what you get is methods on top of them, if you want them:
+//
+//     position = position + velocity * delta;   // raymath's operators, plain Vector2
+//     raylib::Vector2 v = aim; v.Normalize();   // raylib-cpp's methods
+//
+// The rest of raylib-cpp is deliberately not vendored. Its resource wrappers
+// throw RaylibException on a failed load, and this framework does not throw —
+// see rmp/assets.h. The math headers have no failure path at all, so taking
+// only them removes the objection entirely rather than working around it.
+//
+// Quaternion.hpp is also left out, and not by preference: it redeclares
+// raylib::Vector4, so including it alongside Vector4.hpp is a redefinition
+// error. 2D does not need quaternions.
+#include <raylib-cpp/Color.hpp>
+#include <raylib-cpp/Matrix.hpp>
+#include <raylib-cpp/Rectangle.hpp>
+#include <raylib-cpp/Vector2.hpp>
+#include <raylib-cpp/Vector3.hpp>
+#include <raylib-cpp/Vector4.hpp>
+
 // A couple of colours raylib does not ship. Add your own the same way — there
 // is nothing in the framework that depends on these.
 #ifndef ALICEBLUE

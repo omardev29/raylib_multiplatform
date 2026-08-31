@@ -226,6 +226,7 @@ target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
@@ -301,7 +302,9 @@ if(BUILD_TESTS)
 
   # The framework sources the tests exercise. Not the whole of src/: main.cpp
   # has an entry point of its own and would fight doctest's for main().
-  set(UNIT_TEST_LIB_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp")
+  set(UNIT_TEST_LIB_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp")
 
   add_executable(unit_test ${UNIT_TEST_SOURCES} ${UNIT_TEST_LIB_SOURCES})
   target_include_directories(unit_test PRIVATE
@@ -315,8 +318,11 @@ if(BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
   )
   set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
-  # rmp::random needs Vector2 from raylib.h and nothing else — no window, no GL,
-  # no link against raylib at all. That is the point of the seam.
+  # resource.cpp calls raylib's Unload* functions, so this one DOES link raylib
+  # — but it never opens a window. The tests use zeroed payloads, and raylib's
+  # unloaders are defined on those: UnloadImage is free(nullptr), UnloadTexture
+  # guards on id > 0. That is what makes reference counting a unit test.
+  target_link_libraries(unit_test PRIVATE raylib)
 endif()
 
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)

@@ -14,11 +14,12 @@
 #include <rmp/assets.h>
 #include <rmp/ui.h>
 
-class GameAssets {
-public:
-    Image img;
-    Texture2D rabbit;
-} g_game;
+// Nothing to unload. rmp::Texture releases itself when it goes out of scope,
+// and rmp::assets::shutdown() — which the entry point runs before the window
+// closes — releases whatever is still held. That is the whole of the change:
+// this file used to carry an Image, a Texture2D, and two Unload calls in
+// on_exit() that had to stay paired with them.
+static rmp::Texture g_rabbit;
 
 // Called once at startup: set config flags, create the window, load assets.
 //
@@ -32,8 +33,9 @@ static inline void on_ready() {
 
     // Served from resources.rres when a release packed one, from the loose file
     // in resources/ otherwise. Same call either way.
-    g_game.img = rmp::assets::load_image("rabbit.png");
-    g_game.rabbit = LoadTextureFromImage(g_game.img);
+    // Asking twice for this name would give the same texture back, not a
+    // second copy: the name is the cache key.
+    g_rabbit = rmp::assets::load_texture("rabbit.png");
 }
 
 // Called each frame
@@ -49,7 +51,7 @@ static inline void on_frame(float /*delta*/) {
 
     rmp::ui::panel([&] {
         rmp::ui::row({ .gap = 16 }, [&] {
-            rmp::ui::image(g_game.rabbit, { .width = 64, .height = 64 });
+            rmp::ui::image(g_rabbit, { .width = 64, .height = 64 });
             rmp::ui::column({ .items = rmp::ui::Align::CENTER_LEFT }, [&] {
                 rmp::ui::text(APP_WINDOW_TITLE);
                 rmp::ui::text("raylib + rmp::ui",
@@ -80,12 +82,9 @@ static inline void on_frame(float /*delta*/) {
     EndDrawing();
 }
 
-// Called once at shutdown: unload assets, close the window.
-static inline void on_exit() {
-    UnloadTexture(g_game.rabbit);
-    UnloadImage(g_game.img);
-    CloseWindow();
-}
+// Called once at shutdown: close the window, and that is all. There is nothing
+// to unload — see the note at the top of this file.
+static inline void on_exit() { CloseWindow(); }
 
 // Main function or ios functions + smoke tests
 RMP_ENTRY_POINT(on_ready, on_frame, on_exit);

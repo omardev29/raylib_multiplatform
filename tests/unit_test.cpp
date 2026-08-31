@@ -17,6 +17,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include <rmp/assets.h>
 #include <rmp/random.h>
 
 #include <cmath>
@@ -156,6 +157,143 @@ TEST_SUITE("random") {
     TEST_CASE("current_seed reports what was set") {
         rmp::random::seed(0xC0FFEE);
         CHECK(rmp::random::current_seed() == 0xC0FFEE);
+    }
+
+} // TEST_SUITE
+
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("resources") {
+    // The counting is tested with IMAGE payloads that are all zeros, and that is
+    // safe on purpose: raylib's UnloadImage is RL_FREE(image.data), and freeing a
+    // null pointer is defined. UnloadTexture guards on id > 0. So the table can be
+    // exercised with no window, no GL context and no real asset — which is the only
+    // way this could be a unit test at all.
+    using rmp::detail::ResourceKind;
+
+    rmp::Image make(const char *name) {
+        ::Image zeroed{};
+        auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, &zeroed,
+                                              sizeof(zeroed));
+        return rmp::Image{ slot };
+    }
+
+    TEST_CASE("an empty resource is falsy, and drawing it is not a crash") {
+        rmp::Image empty;
+        CHECK_FALSE(empty.valid());
+        CHECK_FALSE(static_cast<bool>(empty));
+        // The point: raw() on an empty resource gives a zeroed struct, not a
+        // dereferenced null. raylib draws nothing for one of those.
+        const ::Image &raw = empty.raw();
+        CHECK(raw.data == nullptr);
+        CHECK(raw.width == 0);
+    }
+
+    TEST_CASE("the same name is the same resource, counted") {
+        rmp::detail::release_all();
+        {
+            rmp::Image a = make("shared.png");
+            CHECK(a.valid());
+            CHECK(rmp::detail::ref_count("shared.png") == 1);
+            CHECK(rmp::detail::live_count() == 1);
+
+            auto *hit = rmp::detail::acquire_named(ResourceKind::IMAGE, "shared.png", 0);
+            REQUIRE(hit != nullptr);
+            rmp::Image b{ hit };
+            CHECK(rmp::detail::ref_count("shared.png") == 2);
+            // Still ONE resource, not two. That is the whole point of the cache.
+            CHECK(rmp::detail::live_count() == 1);
+        }
+        CHECK(rmp::detail::live_count() == 0);
+    }
+
+    TEST_CASE("copying shares and the last one out releases") {
+        rmp::detail::release_all();
+        {
+            rmp::Image a = make("copy.png");
+            CHECK(rmp::detail::ref_count("copy.png") == 1);
+            {
+                rmp::Image b = a; // copy
+                rmp::Image c(a); // copy again
+                CHECK(rmp::detail::ref_count("copy.png") == 3);
+            }
+            CHECK(rmp::detail::ref_count("copy.png") == 1);
+            CHECK(rmp::detail::live_count() == 1);
+        }
+        CHECK(rmp::detail::live_count() == 0);
+    }
+
+    TEST_CASE("moving steals and does NOT release") {
+        rmp::detail::release_all();
+        rmp::Image a = make("move.png");
+        CHECK(rmp::detail::ref_count("move.png") == 1);
+
+        rmp::Image b = std::move(a);
+        CHECK(b.valid());
+        CHECK_FALSE(a.valid()); // NOLINT: checking the moved-from state IS the test
+        // One reference, not two and not zero: the count must not change on a move.
+        CHECK(rmp::detail::ref_count("move.png") == 1);
+    }
+
+    TEST_CASE("self-assignment does not release what it is holding") {
+        // The classic way to write this wrong: release, then retain a dangling
+        // slot. Copy-and-swap makes it impossible, and this is the test that says
+        // the idiom is still there.
+        rmp::detail::release_all();
+        rmp::Image a = make("self.png");
+        rmp::Image &alias = a;
+        a = alias;
+        CHECK(a.valid());
+        CHECK(rmp::detail::ref_count("self.png") == 1);
+        CHECK(rmp::detail::live_count() == 1);
+        rmp::detail::release_all();
+    }
+
+    TEST_CASE("assignment releases the old resource") {
+        rmp::detail::release_all();
+        rmp::Image a = make("first.png");
+        rmp::Image b = make("second.png");
+        CHECK(rmp::detail::live_count() == 2);
+
+        a = b;
+        CHECK(rmp::detail::ref_count("first.png") == 0);
+        CHECK(rmp::detail::ref_count("second.png") == 2);
+        CHECK(rmp::detail::live_count() == 1);
+        rmp::detail::release_all();
+    }
+
+    TEST_CASE("different names are different resources") {
+        rmp::detail::release_all();
+        rmp::Image a = make("a.png");
+        rmp::Image b = make("b.png");
+        CHECK(rmp::detail::live_count() == 2);
+        CHECK(rmp::detail::acquire_named(ResourceKind::IMAGE, "c.png", 0) == nullptr);
+        rmp::detail::release_all();
+    }
+
+    TEST_CASE("a font's size is part of its key") {
+        // The same face at 16 and at 32 is two baked atlases, so it has to be two
+        // resources. Keying on the name alone would hand back the wrong one.
+        rmp::detail::release_all();
+        ::Font zeroed{};
+        auto *at16 = rmp::detail::adopt_named(ResourceKind::FONT, "ui.ttf", 16, &zeroed,
+                                              sizeof(zeroed));
+        rmp::Font a{ at16 };
+        CHECK(rmp::detail::acquire_named(ResourceKind::FONT, "ui.ttf", 32) == nullptr);
+        CHECK(rmp::detail::acquire_named(ResourceKind::FONT, "ui.ttf", 16) != nullptr);
+        rmp::detail::release_all();
+    }
+
+    TEST_CASE("release_all leaves the table empty") {
+        rmp::detail::release_all();
+        rmp::Image a = make("x.png");
+        rmp::Image b = make("y.png");
+        CHECK(rmp::detail::live_count() == 2);
+        rmp::detail::release_all();
+        CHECK(rmp::detail::live_count() == 0);
+        // And releasing twice is not a double free.
+        rmp::detail::release_all();
+        CHECK(rmp::detail::live_count() == 0);
     }
 
 } // TEST_SUITE

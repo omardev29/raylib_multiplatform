@@ -81,7 +81,7 @@ void draw(Clay_RenderCommandArray commands) {
 
             case CLAY_RENDER_COMMAND_TYPE_TEXT: {
                 const auto &t = cmd.renderData.text;
-                Font f = ui_font();
+                ::Font f = ui_font();
                 auto size = static_cast<float>(t.fontSize);
                 DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
                            size / 10.0f, from_clay(t.textColor));

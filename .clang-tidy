@@ -186,6 +186,10 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.PrivateMemberCase
     value: lower_case
+  # A private member carries a trailing underscore, so that a constructor can
+  # take `slot` and assign it to `slot_` without either shadowing the other.
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_' 
   - key: readability-identifier-naming.ProtectedMemberCase
     value: lower_case
   # File-scope mutable state carries g_, so that a global is visible as one at

@@ -33,6 +33,15 @@ directory (linked where present).
 - The **template's own code** (`src/`, `include/`, `tools/`, `cmake/`, `ios/`,
   build files) is under the root `LICENSE` (MIT).
 
+## raylib-cpp
+
+`thirdparty/raylib-cpp/` — <https://github.com/RobLoach/raylib-cpp>
+
+zlib/libpng licence. Copyright (c) 2026 Rob Loach (@RobLoach). The full text is
+in `thirdparty/raylib-cpp/LICENSE`.
+
+Only the math headers are vendored, and they are header-only.
+
 ## doctest
 
 `thirdparty/doctest/` — <https://github.com/doctest/doctest>
