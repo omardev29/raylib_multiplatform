@@ -35,6 +35,27 @@ option(RMP_TARGET_DRM "Build for DRM/KMS: no X11, no Wayland, straight to the sc
 # Must precede project(), which is where CMake locks in the compiler.
 if(NOT PRODUCTION_BUILD)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_toolchain.cmake" OPTIONAL)
+elseif(DEFINED RMP_DEV_COMPILER)
+  # The debug and release presets share ${sourceDir}/build, so `cmake --preset
+  # release` can land on a cache that `cmake --preset debug` already filled in.
+  # The build type and PRODUCTION_BUILD are overwritten by the new preset. The
+  # COMPILER IS NOT: dev_toolchain.cmake wrote it with FORCE, and skipping the
+  # include here does not take it back out of the cache.
+  #
+  # So the release build would quietly use your [dev] compiler instead of the
+  # one CI ships with — and when the two disagree about LTO, as clang's
+  # -flto=thin and GCC's -flto=auto do, you get "file format not recognized"
+  # from the linker with nothing on screen to connect it to a preset you ran
+  # ten minutes ago. That cost an afternoon once.
+  #
+  # Refusing is the honest answer: a release build you cannot trust to be the
+  # release build is worth less than no release build at all.
+  message(FATAL_ERROR
+    "This build directory was configured by the DEBUG preset, which pinned "
+    "the compiler to ${RMP_DEV_COMPILER} from [dev] in "
+    "raylib_multiplatform.toml. A release build must not inherit it — CI "
+    "builds with the platform default, and this one would not match.\n"
+    "  Run `just clean` (or delete build/) and configure again.")
 endif()
 
 if(MSVC)
@@ -126,7 +147,7 @@ target_compile_definitions(raylib PRIVATE ${RAYLIB_CONFIG_DEFS})
 if (NOT PRODUCTION_BUILD)
   add_subdirectory(thirdparty/raymob)
 endif()
-# remove compile warnings to raylib
+# Dead-code stripping. See below for raylib's own warnings.
 if (MSVC)
   # Ensure the linker deletes death code
   target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE /OPT:REF /OPT:ICF)
@@ -139,12 +160,31 @@ elseif(APPLE)
   # Apple ld64 uses -dead_strip instead of --gc-sections
   target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE -Wl,-dead_strip)
   target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -ffunction-sections -fdata-sections)
-  target_compile_options(raylib PRIVATE -ffunction-sections -fdata-sections -Wno-stringop-overflow)
+  target_compile_options(raylib PRIVATE -ffunction-sections -fdata-sections)
 else()
   # GNU ld (Linux, MinGW)
   target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE -Wl,--gc-sections)
   target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -ffunction-sections -fdata-sections)
-  target_compile_options(raylib PRIVATE -ffunction-sections -fdata-sections -Wno-stringop-overflow)
+  target_compile_options(raylib PRIVATE -ffunction-sections -fdata-sections)
+endif()
+
+# Vendored code is not ours to fix, and its warnings drown out the ones that
+# are. raylib builds clean on the compiler its authors use and noisily on the
+# next one along: clang does not know GCC's -Wno-stringop-overflow and says so
+# once per translation unit, and stb_vorbis.c has a pointer comparison that is
+# tautological on every 64-bit target. Neither is a bug we can act on.
+#
+# So the whole raylib target is compiled quietly, for the same reason
+# thirdparty/ is excluded from clang-format and clang-tidy: one rule, applied
+# in three places, and the build log left holding only our own output.
+#
+# -Werror=... survives this. -w inhibits warnings, not errors, so raylib's own
+# -Werror=pointer-arith and -Werror=implicit-function-declaration still stop
+# the build if they ever fire. Silence is not the same as permission.
+if(MSVC)
+  target_compile_options(raylib PRIVATE /w)
+else()
+  target_compile_options(raylib PRIVATE -w)
 endif()
 
 # MY_SOURCES is defined to be a list of all the source files for my game
@@ -183,6 +223,7 @@ if(PRODUCTION_BUILD)
     target_compile_options(raylib PRIVATE /O2 /GL)
     set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     set_property(TARGET raylib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    set(RMP_IPO ON)
     message("===INITIALIZING PRODUCTION BUILD WITH MSVC===")
   elseif(EMSCRIPTEN)
     # Emscripten/WebAssembly - skip LTO, use -Oz for size optimization
@@ -203,6 +244,7 @@ if(PRODUCTION_BUILD)
     else()
       set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
       set_property(TARGET raylib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+      set(RMP_IPO ON)
       message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG===")
     endif()
   endif()
@@ -323,6 +365,15 @@ if(BUILD_TESTS)
   # unloaders are defined on those: UnloadImage is free(nullptr), UnloadTexture
   # guards on id > 0. That is what makes reference counting a unit test.
   target_link_libraries(unit_test PRIVATE raylib)
+
+# A test binary in a release tree has to be built the same way raylib was.
+# CMake's IPO is per target, so with clang -flto=thin raylib's archive holds
+# LLVM bitcode, and a target that links it WITHOUT -flto hands that archive to
+# plain ld, which reports "file format not recognized" and stops. Matching the
+# property is the whole fix; see the Justfile for why you rarely get here.
+  if(RMP_IPO)
+    set_property(TARGET unit_test PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  endif()
 endif()
 
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
@@ -341,6 +392,9 @@ if(BUILD_UI_TESTS)
   # drawing calls are all behind the injected seams.
   target_compile_definitions(ui_layout_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
   target_link_libraries(ui_layout_test PRIVATE raylib_static)
+  if(RMP_IPO)
+    set_property(TARGET ui_layout_test PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  endif()
 endif()
 
 # Remove the generated pack (e.g. to fall back to loose files in dev).

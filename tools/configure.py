@@ -28,6 +28,7 @@ Usage:
     tools/configure.py --print-name        the project name
     tools/configure.py --print-targets     JSON array of enabled targets
     tools/configure.py --print-upx         JSON array of targets that get UPX'd
+    tools/configure.py --print-upx-max-bytes  [upx] max_size_mb, in bytes
     tools/configure.py --print-families    JSON array of CI families in play
     tools/configure.py --print-matrix bsd  JSON matrix for one CI family
     tools/configure.py --print-config      the resolved config, as JSON
@@ -221,6 +222,13 @@ UPX_GROUPS: dict[str, list[str]] = {
 }
 
 
+# UPX refuses outright above this. The number is not ours: it is the ceiling
+# UPX documents for the file it will accept, and past it the tool exits non-zero
+# rather than declining politely. [upx] max_size_mb defaults well below it so a
+# binary that grows into the awkward range is skipped, not fatal.
+UPX_HARD_LIMIT_MB = 768
+
+
 def expand_upx(cfg: dict, targets: list[str]) -> list[str]:
     """Which of the targets being built get compressed.
 
@@ -291,7 +299,8 @@ DEFAULTS: dict = {
     "raylib": {"disabled_modules": []},
     "web": {"memory": 64, "grow": False},
     "windows": {"backend": "glfw"},
-    "upx": {"enabled": ["linux-x64", "linux-arm64"], "disabled": []},
+    "upx": {"enabled": ["linux-x64", "linux-arm64"], "disabled": [],
+            "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
@@ -370,6 +379,22 @@ def validate(cfg: dict, strict_release: bool) -> None:
         value = cfg["upx"][key]
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ConfigError(f"[upx] {key} has to be a list of strings, got {value!r}")
+
+    # bool first: in Python `True` is an int, and `max_size_mb = true` in the
+    # TOML would otherwise sail through as 1 MB and skip every binary you have.
+    cap = cfg["upx"]["max_size_mb"]
+    if isinstance(cap, bool) or not isinstance(cap, int):
+        raise ConfigError(f"[upx] max_size_mb has to be a whole number of "
+                          f"megabytes, got {cap!r}")
+    if cap < 1:
+        raise ConfigError(
+            f"[upx] max_size_mb = {cap} would skip every binary. To turn "
+            "compression off, empty `enabled` instead — that says what you mean.")
+    if cap > UPX_HARD_LIMIT_MB:
+        raise ConfigError(
+            f"[upx] max_size_mb = {cap} is above the {UPX_HARD_LIMIT_MB} MB that "
+            "UPX itself refuses to go past, so the packer would fail the build "
+            "instead of skipping the file. Lower it.")
 
     if cfg["windows"]["backend"] not in WINDOWS_BACKENDS:
         raise ConfigError(
@@ -843,6 +868,11 @@ set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
             "if(_TPL_CC AND _TPL_CXX)",
             '  set(CMAKE_C_COMPILER   "${_TPL_CC}"  CACHE FILEPATH "" FORCE)',
             '  set(CMAKE_CXX_COMPILER "${_TPL_CXX}" CACHE FILEPATH "" FORCE)',
+            "  # The breadcrumb the release configure looks for. Those two are",
+            "  # FORCEd into the cache and stay there; a later release preset on",
+            "  # the same build directory would inherit them silently, so it",
+            "  # refuses instead. See the RMP_DEV_COMPILER check in CMakeLists.txt.",
+            '  set(RMP_DEV_COMPILER "${_TPL_CC}" CACHE INTERNAL "")',
             "else()",
             f'  message(STATUS "[dev] compiler = {compiler} requested but not found; '
             'using the system default")',
@@ -1432,6 +1462,8 @@ def main(argv: list[str]) -> int:
                     help="also reject placeholder identifiers (used on tag builds)")
     ap.add_argument("--print-name", action="store_true")
     ap.add_argument("--print-targets", action="store_true")
+    ap.add_argument("--print-upx-max-bytes", action="store_true",
+                    help="[upx] max_size_mb, in bytes, for tools/upx_pack.sh")
     ap.add_argument("--print-upx", action="store_true",
                     help="JSON array of targets whose binary gets UPX-compressed")
     ap.add_argument("--print-families", action="store_true",
@@ -1458,6 +1490,9 @@ def main(argv: list[str]) -> int:
 
     if args.print_name:
         print(cfg["project"]["name"])
+        return 0
+    if args.print_upx_max_bytes:
+        print(cfg["upx"]["max_size_mb"] * 1024 * 1024)
         return 0
     if args.print_upx:
         print(json.dumps(expand_upx(cfg, targets), separators=(",", ":")))

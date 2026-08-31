@@ -128,8 +128,31 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # BSD is untested territory for this and is off by default for that reason
 # alone: upx publishes no FreeBSD/OpenBSD/NetBSD build, so the VMs would have to
 # install it from ports.
+#
+# THE DEFAULT IS EXACTLY THE TARGETS CI BOOTS. linux-x64 and linux-arm64 run on
+# real runners of their own architecture, and every push starts the packed
+# binary and checks it puts pixels on the screen — so if UPX ever produced a
+# stub that does not launch, a push finds out. linux-riscv64 and linux-drm are
+# cross-compiled and only checked statically: nothing ever executes them, so
+# turning UPX on there would ship a binary whose launch nobody has observed.
+# UPX supports riscv64 perfectly well; what is missing is the evidence, not the
+# support. When riscv64 gets a native runner that boots the game, it belongs in
+# this list.
 enabled  = ["linux-x64", "linux-arm64"]
 disabled = []
+
+# Skip compression when the binary is bigger than this, in megabytes.
+#
+# UPX cannot pack a file past roughly 768 MB, and it does not decline politely
+# when it happens: it exits non-zero, which fails the release of a game whose
+# only problem is that it is large. The default leaves 168 MB of headroom, so
+# what you get instead is a line in the log and an uncompressed binary that
+# ships. Raise it if you have measured your own ceiling, lower it if you would
+# rather not spend the packing minute on anything sizeable.
+#
+# To turn compression off entirely, empty `enabled` above. Setting this to 0 is
+# rejected, because it says the wrong thing.
+max_size_mb = 600
 
 [linux]
 # Which windowing backend Linux uses, and whether it talks to Wayland natively.

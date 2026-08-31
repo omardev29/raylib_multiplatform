@@ -27,10 +27,34 @@ _default:
 
 # --- day to day -------------------------------------------------------------
 
+# Switching presets in a directory the other one configured is the one way to
+# break this build, and it breaks it a long way from the cause: the new preset
+# overwrites CMAKE_BUILD_TYPE and PRODUCTION_BUILD but NOT the compiler, which
+# [dev] wrote into the cache with FORCE. `git clean -fdx` does cure it, and it
+# also deletes the generated Android icons, the XcodeGen spec and every
+# untracked file in the tree — including the sprite you added this morning and
+# have not committed. That is too much collateral for a recipe you run fifty
+# times a day, and it costs a full raylib rebuild each time.
+#
+# Deleting build/ is enough, because build/ is the only place the stale answer
+# lives. Switching build type rebuilds everything anyway, so this is free.
+_reconfigure want:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cache=build/CMakeCache.txt
+    if [ -f "$cache" ]; then
+        have=$(awk -F= '/^CMAKE_BUILD_TYPE:/{print $2}' "$cache")
+        if [ "$have" != "{{ want }}" ]; then
+            echo "  build/ was configured as ${have:-unknown}, and this is {{ want }}."
+            echo "  removing build/ — the compiler is cached and would carry over."
+            rm -rf build
+        fi
+    fi
+
 # Compile the debug build.
-dev:
+dev: (_reconfigure "Debug")
     cmake --preset debug
-    cmake --build build
+    cmake --build build --target {{ project_name }}
 
 
 # The test below is on the FILE, not on the run. Written the other way round —
@@ -43,10 +67,15 @@ run:
     @[ -f build/{{ project_name }} ] || just dev
     ./build/{{ project_name }}
 
+# --target is not a detail. Without it this builds whatever else the directory
+# happens to have configured, and a test binary in a release tree links raylib's
+# LTO archive with a linker that cannot read it. Building the game builds the
+# game.
+
 # Compile the release build: optimised, LTO, assets read from ./resources/.
-rel:
+rel: (_reconfigure "Release")
     cmake --preset release
-    cmake --build build
+    cmake --build build --target {{ project_name }}
 
 # Delete every build artefact and everything generated from the .toml.
 clean:
@@ -90,7 +119,7 @@ fmt what="write":
 # line above a recipe as its summary.)
 
 # Run clang-tidy over our own sources. `just lint fix` applies what it is sure of.
-lint what="check":
+lint what="check": (_reconfigure "Debug")
     #!/usr/bin/env bash
     set -euo pipefail
     # BOTH test flags, and it is not belt-and-braces. Without them
@@ -112,7 +141,7 @@ lint what="check":
     esac
 
 # Check what matters locally: config, layout, smoke. Or name one, or "examples".
-test what="all":
+test what="all": (_reconfigure "Debug")
     #!/usr/bin/env bash
     # fmt       every file we own is clang-format clean
     # config    the .toml is valid and the pinned versions still agree

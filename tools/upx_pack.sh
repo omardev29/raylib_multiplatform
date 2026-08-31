@@ -29,6 +29,23 @@ fi
 
 [ -f "$BINARY" ] || { echo "FALLA: $BINARY does not exist"; exit 1; }
 
+# UPX has a size ceiling and does not decline politely at it — it exits
+# non-zero, which would fail the release of a game whose only crime is being
+# big. [upx] max_size_mb sits below that ceiling on purpose, so a binary that
+# grows past it is left uncompressed and SAID SO, and the release still ships.
+#
+# Skipping is the right outcome and not a failure. Compression is an
+# optimisation; the binary is correct either way, and a game that will not
+# release because it got too large to shrink is a worse trade than a game that
+# downloads a few megabytes slower.
+CAP=$(python3 tools/configure.py --print-upx-max-bytes)
+SIZE=$(wc -c < "$BINARY")
+if [ "$SIZE" -gt "$CAP" ]; then
+  echo "  upx: $TARGET is $((SIZE / 1048576)) MB, over the $((CAP / 1048576)) MB"\
+       "[upx] max_size_mb — leaving the binary alone"
+  exit 0
+fi
+
 VERSION=$(awk '/^upx /{print $2}' thirdparty/FROZEN_VERSIONS.md)
 [ -n "$VERSION" ] || { echo "FALLA: no upx pin in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
 

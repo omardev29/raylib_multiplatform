@@ -180,6 +180,10 @@ jobs:
       # Time, input and randomness enter through a seam so that headless tests
       # can replace them. One stray GetFrameTime() in the wrong file is enough
       # to make a test flaky, and a flaky test teaches everyone to ignore red.
+      # Two grep rules over src/rmp/: nothing reads the clock, input or
+      # randomness on its own, and no shadowed raylib type is written without
+      # `::`. The second one exists because it cost a link error on exactly one
+      # of the fourteen targets.
       - name: The seam holds
         run: bash tools/seam_check.sh
 

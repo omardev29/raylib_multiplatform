@@ -237,7 +237,11 @@ class ConfigureUpxTest(unittest.TestCase):
         return cfgmod.expand_targets(["all"], [])
 
     def upx(self, enabled, disabled=None, targets=None):
-        cfg = base_config(upx={"enabled": enabled, "disabled": disabled or []})
+        # The whole section, not just the two lists: base_config() replaces the
+        # dict wholesale, so anything left out here is missing rather than
+        # defaulted, and validate() would fail on the hole instead of the test.
+        cfg = base_config(upx={"enabled": enabled, "disabled": disabled or [],
+                               "max_size_mb": cfgmod.DEFAULTS["upx"]["max_size_mb"]})
         return cfgmod.expand_upx(cfg, targets if targets is not None else self.all_targets())
 
     def test_the_default_is_linux_only(self):
@@ -284,9 +288,72 @@ class ConfigureUpxTest(unittest.TestCase):
         self.assertEqual(self.upx([]), [])
 
     def test_the_lists_have_to_be_lists(self):
-        cfg = base_config(upx={"enabled": "linux-x64", "disabled": []})
+        cfg = base_config(upx__enabled="linux-x64")
         with self.assertRaises(cfgmod.ConfigError), quiet():
             cfgmod.validate(cfg, False)
+
+
+class ConfigureUpxSizeCapTest(unittest.TestCase):
+    """[upx] max_size_mb: the ceiling above which the binary is left alone.
+
+    UPX cannot pack a file past roughly 768 MB and exits non-zero when asked,
+    which would fail a release rather than decline it. The cap exists so the
+    packer skips instead, and every rejection below is a value that would have
+    turned that skip back into a build failure.
+    """
+
+    def cap(self, value):
+        cfg = base_config(upx__max_size_mb=value)
+        with quiet():
+            cfgmod.validate(cfg, False)
+
+    def test_the_default_leaves_room_under_the_hard_limit(self):
+        default = cfgmod.DEFAULTS["upx"]["max_size_mb"]
+        self.assertEqual(default, 600)
+        self.assertLess(default, cfgmod.UPX_HARD_LIMIT_MB)
+
+    def test_a_plain_number_is_accepted(self):
+        self.cap(1)
+        self.cap(600)
+
+    def test_the_hard_limit_itself_is_the_last_accepted_value(self):
+        self.cap(cfgmod.UPX_HARD_LIMIT_MB)
+        with self.assertRaises(cfgmod.ConfigError):
+            self.cap(cfgmod.UPX_HARD_LIMIT_MB + 1)
+
+    def test_above_the_hard_limit_is_rejected_and_says_why(self):
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            self.cap(2000)
+        self.assertIn(str(cfgmod.UPX_HARD_LIMIT_MB), str(caught.exception))
+
+    def test_zero_and_negative_are_rejected_towards_the_right_setting(self):
+        for value in (0, -1):
+            with self.subTest(value=value):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.cap(value)
+                self.assertIn("enabled", str(caught.exception))
+
+    def test_a_bool_is_not_a_number(self):
+        """`max_size_mb = true` in the TOML. Python says isinstance(True, int),
+        so without an explicit check this would be accepted as 1 MB and quietly
+        skip every binary in the project."""
+        for value in (True, False):
+            with self.subTest(value=value):
+                with self.assertRaises(cfgmod.ConfigError):
+                    self.cap(value)
+
+    def test_strings_and_floats_are_rejected(self):
+        for value in ("600", "600mb", 600.5, None, [600]):
+            with self.subTest(value=value):
+                with self.assertRaises(cfgmod.ConfigError):
+                    self.cap(value)
+
+    def test_a_toml_that_omits_it_gets_the_default(self):
+        """The whole point of DEFAULTS: an existing config written before this
+        setting existed keeps working, with the margin already applied."""
+        merged = cfgmod.deep_merge(cfgmod.DEFAULTS, {"upx": {"enabled": ["linux-x64"]}})
+        self.assertEqual(merged["upx"]["max_size_mb"],
+                         cfgmod.DEFAULTS["upx"]["max_size_mb"])
 
 
 class ConfigureValidateTest(unittest.TestCase):
