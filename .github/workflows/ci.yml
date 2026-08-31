@@ -175,7 +175,10 @@ jobs:
       # refuses an upload whose code is not higher than the last one, forever.
       # Everything else in tests/ checks the code that runs after this script.
       - name: tools/configure.py
-        run: python3 tests/configure_test.py
+        # discover, not the file directly: running the file executes
+        # unittest.main() at whatever line it happens to be on, so anything
+        # defined after it is silently not collected.
+        run: python3 -m unittest discover -s tests -p 'configure_test.py' -v
 
       # Time, input and randomness enter through a seam so that headless tests
       # can replace them. One stray GetFrameTime() in the wrong file is enough

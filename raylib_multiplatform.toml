@@ -257,6 +257,38 @@ linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
 memory = 64
 grow   = false
 
+# backend  What raylib talks to in the browser. THE COMPILER IS EMSCRIPTEN IN
+#          ALL THREE CASES — that is not what this chooses. It chooses whether
+#          there is a layer between raylib and the browser, and it is the same
+#          question [windows] backend and [linux] backend answer for their
+#          platforms.
+#
+#   glfw        raylib calls GLFW, and Emscripten emulates GLFW in JavaScript
+#               (that is what -sUSE_GLFW=3 links). The path raylib has shipped
+#               for years and the one every web example on the internet is
+#               built with. THE DEFAULT.
+#   emscripten  raylib calls the browser through Emscripten's own API, with
+#               nothing in between. New in raylib 6.0
+#               (platforms/rcore_web_emscripten.c). One layer less and no
+#               JavaScript shim to download.
+#   rgfw        RGFW instead of GLFW. Consistent with the other platforms;
+#               least travelled of the three on web.
+#
+#          WHY NOT `emscripten` BY DEFAULT YET, having read both backends: they
+#          implement the same functions and stub out the same ones — monitor
+#          enumeration and SetGamepadMappings, neither of which means anything
+#          in a browser. Where they differ is in unfinished detail, and it is
+#          in the one raylib calls new: rcore_web_emscripten.c carries
+#          `TODO: keyCodes should be mapped to raylib/GLFW3 Key values` and
+#          `TODO: Add char codes`, so key constants are not guaranteed to be
+#          the ones raylib documents, and drop-files is `TODO: Implement GLFW3
+#          alternative for drop callback`. The GLFW path has none of those.
+#
+#          Upstream is going the same way — rcore_web.c itself carries
+#          `TODO: Replace GLFW-web by Emscripten?` — so this is an option now
+#          and a default later, once the keyboard mapping is finished.
+backend = "glfw"
+
 [ui]
 # rmp::ui — the interface layer. Nothing here is required: with all four at
 # their defaults a menu is still three lines of code.

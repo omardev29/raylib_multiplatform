@@ -74,6 +74,25 @@ elseif (${PLATFORM} STREQUAL "Web")
     endif()
     set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
 
+elseif (${PLATFORM} STREQUAL "WebEmscripten")
+    # PATCHED (raylib_multiplatform): raylib 6.0 ships a GLFW-free web backend in
+    # platforms/rcore_web_emscripten.c and rcore.c selects it with
+    # PLATFORM_WEB_EMSCRIPTEN — but upstream never added a branch here, so there
+    # is no way to ASK for it from CMake. This is that branch. Same situation,
+    # and same fix, as the Win32 one below.
+    #
+    # GLFW drops out on its own: GlfwImport.cmake only builds it when PLATFORM
+    # matches "Desktop", and this does not. The other half is that the game must
+    # not be linked with -sUSE_GLFW=3, which is in the root CMakeLists.txt.
+    #
+    # See [web] backend in raylib_multiplatform.toml, and the note in
+    # thirdparty/FROZEN_VERSIONS.md. Re-apply when bumping raylib.
+    set(PLATFORM_CPP "PLATFORM_WEB_EMSCRIPTEN")
+    if(NOT GRAPHICS)
+        set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")
+    endif()
+    set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
+
 elseif (${PLATFORM} STREQUAL "Android")
     set(PLATFORM_CPP "PLATFORM_ANDROID")
     set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")

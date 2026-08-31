@@ -250,7 +250,12 @@ test what="all": (_reconfigure "Debug")
     }
     run_configure_tests() {
         echo "== configure =="
-        python3 tests/configure_test.py 2>&1 | tail -3
+        # `discover`, not `python3 tests/configure_test.py`. Running the file
+        # executes unittest.main() where it sits, so a class appended after it
+        # is simply never collected — which happened, and the count went from
+        # 105 to 72 without a word. Discovery imports the module first and
+        # cannot care about order.
+        python3 -m unittest discover -s tests -p 'configure_test.py' 2>&1 | tail -3
     }
     case "{{ what }}" in
         all)      just fmt check; run_config; run_seam; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;

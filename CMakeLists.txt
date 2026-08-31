@@ -110,6 +110,25 @@ elseif(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND TEMPLATE_LINUX_BACKEND STREQUAL
   message(STATUS "=== LINUX BACKEND: RGFW ===")
 endif()
 
+# [web] backend. The web preset asks for PLATFORM=Web, which means "build for the
+# browser"; this turns that into WHICH of raylib's three web backends does it.
+#
+# Emscripten compiles the code in all three cases — what changes is who raylib
+# talks to. "glfw" calls GLFW, and Emscripten emulates GLFW in JavaScript
+# (-sUSE_GLFW=3, below, is that shim). "emscripten" calls the browser through
+# Emscripten's own API with nothing in between. "rgfw" brings RGFW instead.
+if(EMSCRIPTEN AND PLATFORM STREQUAL "Web")
+  if(TEMPLATE_WEB_BACKEND STREQUAL "emscripten")
+    set(PLATFORM "WebEmscripten" CACHE STRING "" FORCE)
+    message(STATUS "=== WEB BACKEND: Emscripten directly, no GLFW shim ===")
+  elseif(TEMPLATE_WEB_BACKEND STREQUAL "rgfw")
+    set(PLATFORM "WebRGFW" CACHE STRING "" FORCE)
+    message(STATUS "=== WEB BACKEND: RGFW ===")
+  else()
+    message(STATUS "=== WEB BACKEND: GLFW, through Emscripten's shim ===")
+  endif()
+endif()
+
 # [linux] wayland. raylib 6.0 builds GLFW against X11 by default, so on a
 # Wayland desktop the game runs through XWayland — an extra hop, and it is why
 # fractional scaling and per-monitor DPI behave oddly there.
@@ -477,7 +496,14 @@ else()
   )
 endif()
 
-if(PLATFORM STREQUAL "Web")
+if(EMSCRIPTEN)
+  # -sUSE_GLFW=3 links Emscripten's GLFW-in-JavaScript shim, and it belongs to
+  # exactly one of the three backends. Passing it to the other two would ship a
+  # shim nothing calls — which is most of what choosing them was for.
+  set(RMP_WEB_GLFW_FLAG "")
+  if(PLATFORM STREQUAL "Web")
+    set(RMP_WEB_GLFW_FLAG "-s USE_GLFW=3 ")
+  endif()
   set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
         SUFFIX ".html"
         # No ASYNCIFY, on purpose. It is only needed to run a synchronous while
@@ -490,7 +516,7 @@ if(PLATFORM STREQUAL "Web")
         # TOTAL_MEMORY and ALLOW_MEMORY_GROWTH come from [web] in the .toml.
         # The failure mode when it is too small is specific and worth knowing:
         # the tab dies with "Cannot enlarge memory arrays", not a raylib error.
-        LINK_FLAGS "-s USE_GLFW=3 -s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
+        LINK_FLAGS "${RMP_WEB_GLFW_FLAG}-s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
 -s ALLOW_MEMORY_GROWTH=${TEMPLATE_WEB_ALLOW_MEMORY_GROWTH} \
 --preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
     )

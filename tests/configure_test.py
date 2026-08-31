@@ -454,10 +454,20 @@ class ConfigureValidateTest(unittest.TestCase):
             cfgmod.validate(base_config(linux={"backend": "glfw", "wayland": True}), False)
 
     def test_compiler_choices(self):
-        for good in ("clang", "gcc", "mingw", "msvc", "default"):
-            with self.subTest(compiler=good), quiet():
-                cfgmod.validate(base_config(dev={"compiler": good, "linker": "auto"}), False)
-        self.assert_rejects(base_config(dev={"compiler": "icc", "linker": "auto"}))
+        # Pinned to Windows, because mingw and msvc are only meaningful there —
+        # see ConfigureHostToolchainTest for the rule that makes that true.
+        # This test used to pass on any host, which stopped being correct the
+        # moment the host check existed, and it is the test that said so.
+        original = cfgmod.platform.system
+        cfgmod.platform.system = lambda: "Windows"
+        try:
+            for good in ("clang", "gcc", "mingw", "msvc", "default"):
+                with self.subTest(compiler=good), quiet():
+                    cfgmod.validate(base_config(dev={"compiler": good, "linker": "auto"}),
+                                    False)
+            self.assert_rejects(base_config(dev={"compiler": "icc", "linker": "auto"}))
+        finally:
+            cfgmod.platform.system = original
 
     def test_windows_backend(self):
         self.assert_rejects(base_config(windows={"backend": "sdl"}))
@@ -626,6 +636,362 @@ class ConfigureFrozenVersionsTest(unittest.TestCase):
         for key in ("build_image_digest", "android_ndk", "gradle", "clang_format", "clang_tidy"):
             self.assertIn(key, pins)
         self.assertTrue(pins["build_image_digest"].startswith("sha256:"))
+
+
+class ConfigureLocateTest(unittest.TestCase):
+    """locate(): turning a config key into a line number in the .toml.
+
+    This is what makes an error actionable rather than a scavenger hunt, and it
+    is a hand-rolled scan — tomllib throws positions away — so the ways it can
+    be wrong are the ordinary ways a scanner is wrong: the same key name in two
+    sections, a key inside a comment, a key that is only in DEFAULTS.
+    """
+
+    def test_it_finds_a_key_and_returns_its_line(self):
+        spot = cfgmod.locate("project", "name")
+        self.assertIsNotNone(spot)
+        number, text = spot
+        self.assertGreater(number, 0)
+        self.assertIn("name", text)
+
+    def test_the_same_key_in_two_sections_resolves_to_two_lines(self):
+        """[linux] backend and [windows] backend. Getting this wrong points the
+        user at somebody else's line, which is worse than no line at all."""
+        linux = cfgmod.locate("linux", "backend")
+        windows = cfgmod.locate("windows", "backend")
+        self.assertIsNotNone(linux)
+        self.assertIsNotNone(windows)
+        self.assertNotEqual(linux[0], windows[0])
+
+    def test_a_key_the_user_never_wrote_falls_back_to_the_section_header(self):
+        """It came from DEFAULTS, so there is no line for it — and pointing at
+        the section is the honest answer, not pointing at nothing."""
+        spot = cfgmod.locate("project", "a_key_nobody_has_ever_written")
+        self.assertIsNotNone(spot)
+        self.assertIn("[project]", spot[1])
+
+    def test_an_unknown_section_has_no_line(self):
+        self.assertIsNone(cfgmod.locate("nosuchsection", "name"))
+
+    def test_a_commented_out_key_is_not_a_match(self):
+        """`# backend = "rgfw"` in the explanation above the real setting is a
+        comment, and a scanner that matches it sends you to the wrong line."""
+        spot = cfgmod.locate("linux", "backend")
+        self.assertIsNotNone(spot)
+        self.assertFalse(spot[1].strip().startswith("#"))
+
+
+class ConfigureErrorLocationTest(unittest.TestCase):
+    """locate_from(): every rejection carries its own location, for free.
+
+    Almost every message in configure.py opens with `[section] key`, so the
+    location is read back out of the message instead of being threaded through
+    sixty raise sites. These are the tests that keep that convention honest.
+    """
+
+    def test_it_reads_the_section_and_key_out_of_the_message(self):
+        exc = cfgmod.ConfigError("[linux] backend has to be one of glfw, rgfw")
+        spot = cfgmod.locate_from(exc)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot, cfgmod.locate("linux", "backend"))
+
+    def test_a_nested_section_works_too(self):
+        exc = cfgmod.ConfigError("[deploy.itch] user must be a username")
+        self.assertEqual(cfgmod.locate_from(exc), cfgmod.locate("deploy.itch", "user"))
+
+    def test_a_section_with_no_key_points_at_the_header(self):
+        exc = cfgmod.ConfigError("[targets]: nothing left to build.")
+        spot = cfgmod.locate_from(exc)
+        self.assertIsNotNone(spot)
+        self.assertIn("[targets]", spot[1])
+
+    def test_an_explicit_where_wins_over_the_message(self):
+        exc = cfgmod.ConfigError("something about [linux] backend", ("windows", "backend"))
+        self.assertEqual(cfgmod.locate_from(exc), cfgmod.locate("windows", "backend"))
+
+    def test_a_message_that_follows_no_convention_simply_has_no_location(self):
+        """Better than guessing. A wrong line is worse than none."""
+        exc = cfgmod.ConfigError("raylib_multiplatform.toml is not valid TOML")
+        self.assertIsNone(cfgmod.locate_from(exc))
+
+    def test_every_validate_rejection_can_be_located(self):
+        """The property that matters, checked against the real thing: take every
+        way validate() can say no, and assert the reporter can point at a line.
+
+        A rejection nobody can find is the failure this whole mechanism exists to
+        prevent, and it is one careless message away at all times.
+        """
+        broken = [
+            ("upx__enabled", "not-a-list"),
+            ("upx__max_size_mb", 0),
+            ("linux", {"backend": "cocoa", "wayland": False}),
+            ("windows", {"backend": "cocoa"}),
+            ("web", {"memory": 1, "grow": False}),
+            ("window", {"title": "t", "width": 2, "height": 450,
+                        "orientation": "landscape"}),
+            ("raylib", {"disabled_modules": ["rshapes"]}),
+            ("ui", dict(cfgmod.DEFAULTS["ui"], theme="chartreuse")),
+            ("dev", {"compiler": "clang", "linker": "gold"}),
+            ("icon", {"source": "x.png", "adaptive_background": "green"}),
+        ]
+        for key, value in broken:
+            with self.subTest(key=key):
+                cfg = base_config(**{key: value})
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIsNotNone(
+                    cfgmod.locate_from(caught.exception),
+                    f"this rejection cannot be pointed at:\n  {caught.exception}")
+
+
+class ConfigureCombinationTest(unittest.TestCase):
+    """Pairs of settings that are each valid and cannot both be honoured.
+
+    These are the expensive ones. A wrong value fails loudly at the next step; a
+    wrong COMBINATION builds, ships, and does the other thing you asked for — the
+    rgfw/wayland pair produced an X11 binary from a config that said Wayland.
+    """
+
+    def reject(self, **overrides):
+        cfg = base_config(**overrides)
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        return str(caught.exception)
+
+    def test_rgfw_and_wayland_cannot_both_hold(self):
+        message = self.reject(linux={"backend": "rgfw", "wayland": True})
+        self.assertIn("X11", message)
+        # And it says which one to change, because "these conflict" leaves the
+        # user to guess which of the two they meant.
+        self.assertIn("Pick one", message)
+
+    def test_glfw_with_wayland_is_fine(self):
+        cfg = base_config(linux={"backend": "glfw", "wayland": True})
+        with quiet():
+            cfgmod.validate(cfg, False)
+
+    def test_rshapes_cannot_be_disabled_because_the_ui_draws_with_it(self):
+        message = self.reject(raylib={"disabled_modules": ["rshapes"]})
+        self.assertIn("rmp::ui", message)
+
+    def test_the_modules_that_can_still_be_disabled(self):
+        for mod in ("rmodels", "raudio"):
+            with self.subTest(module=mod):
+                cfg = base_config(raylib={"disabled_modules": [mod]})
+                with quiet():
+                    cfgmod.validate(cfg, False)
+
+    def test_half_a_deploy_target_is_rejected_in_both_directions(self):
+        for user, game in (("omardev", ""), ("", "my-game")):
+            with self.subTest(user=user, game=game):
+                message = self.reject(deploy=dict(
+                    copy.deepcopy(cfgmod.DEFAULTS["deploy"]),
+                    itch={"user": user, "game": game}))
+                self.assertIn("go together", message)
+
+    def test_both_empty_means_off_and_is_allowed(self):
+        cfg = base_config(deploy=dict(copy.deepcopy(cfgmod.DEFAULTS["deploy"]),
+                                      itch={"user": "", "game": ""}))
+        with quiet():
+            cfgmod.validate(cfg, False)
+
+
+class ConfigureHostToolchainTest(unittest.TestCase):
+    """[dev] compiler naming a toolchain this machine cannot mean.
+
+    CMake refuses these too, and that refusal stays. This exists because the
+    rule is that a config mistake never costs a configure step — and by the time
+    CMake speaks, raylib is already being detected.
+    """
+
+    def check(self, compiler, system):
+        cfg = base_config(dev={"compiler": compiler, "linker": "auto"})
+        original = cfgmod.platform.system
+        cfgmod.platform.system = lambda: system
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+            return None
+        except cfgmod.ConfigError as exc:
+            return str(exc)
+        finally:
+            cfgmod.platform.system = original
+
+    def test_windows_toolchains_are_rejected_off_windows(self):
+        for compiler in ("mingw", "msvc"):
+            for system in ("Linux", "Darwin", "FreeBSD"):
+                with self.subTest(compiler=compiler, system=system):
+                    message = self.check(compiler, system)
+                    self.assertIsNotNone(message, f"{compiler} accepted on {system}")
+                    self.assertIn(system, message)
+
+    def test_they_are_fine_on_windows(self):
+        for compiler in ("mingw", "msvc"):
+            with self.subTest(compiler=compiler):
+                self.assertIsNone(self.check(compiler, "Windows"))
+
+    def test_the_portable_ones_are_fine_everywhere(self):
+        for compiler in ("clang", "gcc", "default"):
+            for system in ("Linux", "Windows", "Darwin"):
+                with self.subTest(compiler=compiler, system=system):
+                    self.assertIsNone(self.check(compiler, system))
+
+
+class ConfigureWebBackendTest(unittest.TestCase):
+    """[web] backend — which of raylib 6.0's three web paths gets built.
+
+    The reason this is worth testing rather than trusting: all three produce a
+    .html, a .js and a .wasm of roughly the same size and all three boot, so a
+    silent fallback to GLFW is invisible in the artefacts. The workflow
+    .github/workflows/web-backends.yml checks the other half — that the choice
+    reaches raylib's compile line — and these check that the choice is
+    understood here first.
+    """
+
+    def web(self, **overrides):
+        return base_config(web=dict(copy.deepcopy(cfgmod.DEFAULTS["web"]), **overrides))
+
+    def test_the_three_backends_are_accepted(self):
+        for backend in ("glfw", "emscripten", "rgfw"):
+            with self.subTest(backend=backend), quiet():
+                cfgmod.validate(self.web(backend=backend), False)
+
+    def test_the_default_is_glfw(self):
+        """Not emscripten, and deliberately: rcore_web_emscripten.c still has
+        its key mapping and drop-files unfinished. See the .toml comment."""
+        self.assertEqual(cfgmod.DEFAULTS["web"]["backend"], "glfw")
+
+    def test_an_unknown_backend_is_rejected_and_says_the_options(self):
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(self.web(backend="webgpu"), False)
+        message = str(caught.exception)
+        for backend in ("glfw", "emscripten", "rgfw"):
+            self.assertIn(backend, message)
+
+    def test_the_error_says_what_the_choice_is_not(self):
+        """The one confusion this option has: Emscripten compiles the code in
+        all three cases, so 'emscripten' cannot mean 'use Emscripten'."""
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(self.web(backend="wasm"), False)
+        self.assertIn("compiles it either way", str(caught.exception))
+
+    def test_a_desktop_backend_name_is_not_quietly_accepted(self):
+        """win32 is a real backend name on another platform, which is exactly
+        the kind of value that gets pasted into the wrong section."""
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(self.web(backend="win32"), False)
+
+    def test_it_reaches_the_generated_cmake(self):
+        """The whole path, not just the check: a backend nobody writes out is a
+        backend the build never hears about."""
+        for backend in ("glfw", "emscripten", "rgfw"):
+            with self.subTest(backend=backend):
+                cfg = self.web(backend=backend)
+                self.assertEqual(cfg["web"]["backend"], backend)
+
+    def test_the_backend_is_not_a_number_or_a_bool(self):
+        for bad in (True, 3, None, ["glfw"]):
+            with self.subTest(value=bad):
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(self.web(backend=bad), False)
+
+
+class ConfigureMembershipTest(unittest.TestCase):
+    """Every "must be one of" option, against values TOML can really produce.
+
+    This class exists because of one line in another test. Trying `["glfw"]` for
+    a backend — not because anything suggested it, but because an array is a
+    thing a TOML file can contain — turned up a Python traceback instead of a
+    config error, and the same hole was in all five membership checks: `x not in
+    some_set` raises TypeError on an unhashable value.
+
+    So the shape here is deliberate: one table of every such option, and the
+    same hostile values against all of them. A check that only ever sees
+    plausible input is a check that has not been tested.
+    """
+
+    # (section, key, a valid value) for every option validated by membership.
+    OPTIONS = [
+        ("windows", "backend", "glfw"),
+        ("linux", "backend", "glfw"),
+        ("web", "backend", "glfw"),
+        ("dev", "compiler", "clang"),
+        ("ui", "theme", "dark"),
+    ]
+
+    # Everything TOML can hand over that is not a string. The unhashable ones
+    # are the reason this class exists; the rest are here because "not a string"
+    # should mean the same thing for all of them.
+    HOSTILE = [["glfw"], {"name": "glfw"}, 3, 3.5, True, False]
+
+    def with_value(self, section, key, value):
+        base = copy.deepcopy(cfgmod.DEFAULTS[section])
+        base[key] = value
+        return base_config(**{section: base})
+
+    def test_no_membership_check_can_be_crashed(self):
+        for section, key, _ in self.OPTIONS:
+            for value in self.HOSTILE:
+                with self.subTest(option=f"[{section}] {key}", value=value):
+                    cfg = self.with_value(section, key, value)
+                    # A ConfigError is the pass. A TypeError is the bug this
+                    # class was written for, and assertRaises(ConfigError) is
+                    # what tells the two apart.
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(cfg, False)
+
+    def test_an_empty_string_is_rejected_rather_than_defaulted(self):
+        """`backend = ""` looks like "unset" and is not. Falling back to a
+        default here would mean the .toml says one thing and the build does
+        another, quietly."""
+        for section, key, _ in self.OPTIONS:
+            with self.subTest(option=f"[{section}] {key}"):
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(self.with_value(section, key, ""), False)
+
+    def test_case_matters(self):
+        """"GLFW" is not glfw. Accepting it would mean the set of valid values
+        is bigger than the documented one, and the docs would be wrong."""
+        for section, key, good in self.OPTIONS:
+            with self.subTest(option=f"[{section}] {key}"):
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(self.with_value(section, key, good.upper()), False)
+
+    def test_whitespace_is_not_trimmed_into_validity(self):
+        for section, key, good in self.OPTIONS:
+            with self.subTest(option=f"[{section}] {key}"):
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(self.with_value(section, key, f" {good} "), False)
+
+    def test_every_rejection_lists_the_valid_options(self):
+        """The error has to carry the answer. "backend must be one of" with no
+        list is a message that sends somebody to the documentation."""
+        for section, key, _ in self.OPTIONS:
+            with self.subTest(option=f"[{section}] {key}"):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.with_value(section, key, "nonsense"), False)
+                self.assertIn("one of", str(caught.exception))
+                # And it points at a line, so "where" is answered too.
+                self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_the_good_values_are_all_still_good(self):
+        """The other half: a check that rejects everything also passes the tests
+        above. These are the values the .toml documents."""
+        cases = [
+            ("windows", "backend", cfgmod.WINDOWS_BACKENDS),
+            ("linux", "backend", cfgmod.LINUX_BACKENDS),
+            ("web", "backend", cfgmod.WEB_BACKENDS),
+            ("ui", "theme", cfgmod.UI_THEMES),
+        ]
+        for section, key, allowed in cases:
+            for value in allowed:
+                with self.subTest(option=f"[{section}] {key}", value=value):
+                    cfg = self.with_value(section, key, value)
+                    # linux rgfw needs wayland off — that pair has its own test.
+                    if section == "linux" and value == "rgfw":
+                        cfg["linux"]["wayland"] = False
+                    with quiet():
+                        cfgmod.validate(cfg, False)
 
 
 if __name__ == "__main__":
