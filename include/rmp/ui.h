@@ -657,4 +657,38 @@ bool navigation_enabled();
 // there is a window. A game that never draws UI allocates nothing.
 void shutdown();
 
+namespace detail {
+// ---------------------------------------------------------------------------
+// The frame boundary. Not for you: rmp::app calls these once per frame, around
+// however many begin()/end() pairs the scenes on the stack describe.
+//
+// WHY IT HAS TO BE OUTSIDE begin(). Every one of these is once-per-FRAME work
+// that used to live in begin() because, with one scene, a frame and a pass were
+// the same thing. With a pause menu over a game they stop being:
+//
+//   the pointer      sampled once, so the two scenes cannot disagree about
+//                    where the mouse is halfway through a frame
+//   scroll           Clay_UpdateScrollContainers advances the offset, so N
+//                    passes would scroll N notches per wheel click
+//   the anim clock   same: transitions would run N times as fast
+//   the text arena   Clay keeps the pointer and reads it at Clay_EndLayout, so
+//                    the strings of every pass have to outlive all of them
+//   focus            navigation has to see the focusable widgets of ALL layers
+//                    before it can decide where the arrow key goes
+//
+// WITHOUT AN APP none of this changes for you: the first begin() of a frame
+// marks the boundary itself and end() closes it, which is exactly what happened
+// before any of this existed. rmp::ui on its own, in a plain raylib loop, is
+// still begin() and end() and nothing else.
+void begin_frame();
+void end_frame();
+
+// Whether the pass that is about to be described can be interacted with. False
+// lays the UI out and draws it exactly as usual, but no widget in it can be
+// hovered, focused or clicked — which is what a HUD under an open pause menu
+// should do. rmp::app sets it from Scene::input_below; it resets to true at
+// every frame boundary, so a stray call cannot leak into the next frame.
+void set_pass_input(bool reachable);
+} // namespace detail
+
 } // namespace rmp::ui

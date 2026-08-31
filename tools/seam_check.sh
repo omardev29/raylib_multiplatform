@@ -35,13 +35,18 @@ PATTERN='GetFrameTime|GetTime\(\)|GetMousePosition|GetMouseWheelMove|GetTouchPos
 #   cannot be tested for behaviour, only for layout. Phase 5 (rmp::input) is
 #   where these move, and this list is how we notice if they do not.
 ALLOWED=(
-  "src/rmp/ui/context.cpp"    # the seam: read_pointer(), behind a provider
+  "src/rmp/ui/context.cpp"    # the seam: read_pointer() and frame_time(), and
+                             # the frame boundary that samples both once
   "src/rmp/ui/style.cpp"      # the seam: anim_begin_frame(), 0 in test mode
   "src/rmp/random.cpp"        # names GetRandomValue in a comment, explaining why not
   "src/rmp/ui/focus.cpp"      # DEBT: keyboard and gamepad navigation -> phase 5
   "src/rmp/ui/controls.cpp"   # DEBT: slider repeat and the caret blink -> phase 5
-  "src/rmp/ui/widgets.cpp"    # DEBT: scroll wheel and Clay's frame time -> phase 5
 )
+
+# widgets.cpp was on this list until phase 4. Moving the scroll wheel and the
+# frame time out of begin() and into the frame boundary took its last two
+# direct reads with them, and the ratchet is what noticed — it failed the build
+# asking for this entry to be deleted. That is the list working: it shrank.
 
 fails=0
 found_any=0

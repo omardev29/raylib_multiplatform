@@ -77,6 +77,38 @@ LabelCount g_labels[kMaxLabels];
 int g_label_count = 0;
 int16_t g_layer_z = 0;
 
+// The frame, and the passes inside it. A frame is one turn of the game loop; a
+// pass is one begin()/end(), and there is one per scene that draws UI.
+bool g_frame_marked = false;
+bool g_frame_self_marked = false;
+int g_pass = -1;
+bool g_pass_input = true;
+
+// Each pass gets its own block of element indices, so that a scene's ids depend
+// only on that scene. 4096 is far more widgets than a pass will ever have and
+// leaves room for 2^20 passes, which is not a number anyone will reach.
+constexpr uint32_t kIndicesPerPass = 4096;
+
+// Last frame's geometry, per pass. Two buffers: one being filled by the frame
+// being described, one being read by it. Clay cannot answer this itself —
+// Clay_BeginLayout resets its element map, so after two passes only the second
+// one's boxes exist, and the first scene's grid would size itself from the
+// second scene's layout.
+constexpr int kMaxBounds = 512;
+struct BoundsEntry {
+    uint32_t id;
+    Clay_BoundingBox box;
+};
+BoundsEntry g_bounds[2][kMaxBounds];
+int g_bounds_count[2] = { 0, 0 };
+int g_bounds_front = 0; // the one this frame writes; the other is last frame's
+bool g_bounds_full_warned = false;
+
+// The ids handed out during the pass being described, so that capture_pass_
+// bounds() knows what to ask Clay about when the pass closes. Cleared per pass.
+uint32_t g_pass_ids[kMaxBounds];
+int g_pass_id_count = 0;
+
 MeasureFn g_measure = measure_with_raylib;
 PointerFn g_pointer = pointer_from_raylib;
 
@@ -102,6 +134,8 @@ uint32_t fnv1a(std::string_view s) {
 // ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
+
+bool started() { return g_started; }
 
 bool ensure_started() {
     if (g_started) return true;
@@ -255,10 +289,125 @@ Clay_String intern(std::string_view s) {
 // Identity
 // ---------------------------------------------------------------------------
 
+namespace {
+// Every id handed out this pass, so that capture_pass_bounds() can ask Clay for
+// its box when the pass closes. Silently dropping the overflow is right: the
+// only consequence is that one element forgets how big it was last frame, and
+// capture_pass_bounds() is where that gets said out loud, once.
+void remember_id(uint32_t id) {
+    if (g_pass_id_count < kMaxBounds) g_pass_ids[g_pass_id_count++] = id;
+}
+} // namespace
+
 void reset_id_counters() {
     g_label_count = 0;
     g_layer_z = 0;
+    g_pass_id_count = 0;
 }
+
+bool frame_marked() { return g_frame_marked; }
+bool frame_self_marked() { return g_frame_self_marked; }
+void set_frame_self_marked(bool self) { g_frame_self_marked = self; }
+
+void begin_pass() {
+    g_pass++;
+    reset_id_counters();
+}
+
+int current_pass() { return g_pass < 0 ? 0 : g_pass; }
+bool pass_input() { return g_pass_input; }
+
+// Ask Clay for the box of every id this pass used, now that the layout is
+// finished, and write them where the next frame's matching pass will look.
+void capture_pass_bounds() {
+    int &count = g_bounds_count[g_bounds_front];
+    for (int i = 0; i < g_pass_id_count; i++) {
+        if (count >= kMaxBounds) {
+            if (!g_bounds_full_warned) {
+                TraceLog(LOG_WARNING,
+                         "UI: more than %d elements in one frame; the extra ones lose "
+                         "their remembered geometry, so a grid or slider among them may "
+                         "size itself oddly",
+                         kMaxBounds);
+                g_bounds_full_warned = true;
+            }
+            return;
+        }
+        Clay_ElementId key{};
+        key.id = g_pass_ids[i];
+        Clay_ElementData d = Clay_GetElementData(key);
+        if (!d.found) continue;
+        g_bounds[g_bounds_front][count++] = BoundsEntry{ g_pass_ids[i], d.boundingBox };
+    }
+}
+
+} // namespace detail
+
+// ---------------------------------------------------------------------------
+// The frame boundary — the public half, in rmp::ui::detail because rmp::app is
+// the only caller. See the long comment in include/rmp/ui.h for what belongs
+// here rather than in begin(), and why the answer changed the day two scenes
+// could draw in one frame.
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+void begin_frame() {
+    // started(), not ensure_started(). The app calls this every frame whether or
+    // not anything draws UI, and forcing the UI up here would quietly cost every
+    // game an arena and a font it never asked for. Until the first begin(),
+    // there is no frame to mark — and begin() marks its own, which is the same
+    // path rmp::ui takes in a plain raylib loop.
+    if (!started()) return;
+
+    g_frame_marked = true;
+    g_pass = -1;
+    g_pass_input = true;
+
+    // Swap the geometry buffers: what this frame writes, the next one reads.
+    g_bounds_front = 1 - g_bounds_front;
+    g_bounds_count[g_bounds_front] = 0;
+
+    reset_frame_arena();
+    update_scale();
+    anim_begin_frame();
+
+    Clay_SetLayoutDimensions(viewport());
+
+    // Sampled once. Every pass in this frame is handed the same answer, which
+    // is the whole reason this is not in begin(): with two scenes, the mouse
+    // must not appear to move between them.
+    update_pointer();
+
+    // Before Clay_BeginLayout — Clay is explicit that after it the offset
+    // arrives a frame late. Once per frame and not once per pass, or one wheel
+    // click would scroll as many notches as there are scenes on the stack.
+    // Drag scrolling is on because on a phone it is the only way to scroll
+    // anything; the wheel is the desktop half of the same gesture.
+    Vector2 wheel = GetMouseWheelMoveV();
+    Clay_UpdateScrollContainers(true, Clay_Vector2{ wheel.x * 30.0f, wheel.y * 30.0f },
+                                frame_time());
+
+    // Focus spans the whole frame on purpose: arrow-key navigation has to see
+    // the focusable widgets of every layer before it can decide where to go.
+    begin_focus_frame();
+}
+
+void end_frame() {
+    if (!g_frame_marked) return;
+    end_focus_frame();
+    g_frame_marked = false;
+    g_frame_self_marked = false;
+    g_pass_input = true;
+}
+
+void set_pass_input(bool reachable) { g_pass_input = reachable; }
+
+float frame_time() { return test_mode() ? 0.0f : GetFrameTime(); }
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
 
 int16_t next_layer_z() { return ++g_layer_z; }
 
@@ -270,7 +419,11 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
         // using both would mean an element created one way could never be found
         // the other way. That is precisely how the headless test failed to see
         // a panel that was on screen.
-        return Clay_GetElementIdWithIndex(intern(std::string_view{ explicit_id }), 0);
+        Clay_ElementId id = Clay_GetElementIdWithIndex(
+            intern(std::string_view{ explicit_id }),
+            static_cast<uint32_t>(current_pass()) * kIndicesPerPass);
+        remember_id(id.id);
+        return id;
     }
 
     uint32_t h = fnv1a(label);
@@ -287,9 +440,16 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
     } else if (g_label_count < kMaxLabels) {
         g_labels[g_label_count++] = LabelCount{ h, 0 };
     }
-    // Same label twice in one frame => different index => different element,
-    // so hovering one does not light up the other.
-    return Clay_GetElementIdWithIndex(intern(label), occurrence);
+    // Same label twice in one pass => different index => different element, so
+    // hovering one does not light up the other. The pass offset is what keeps
+    // that true ACROSS scenes: a menu's "Back" and a pause overlay's "Back" are
+    // in different blocks, so one of them appearing or not cannot renumber the
+    // other.
+    const uint32_t index =
+        static_cast<uint32_t>(current_pass()) * kIndicesPerPass + occurrence;
+    Clay_ElementId id = Clay_GetElementIdWithIndex(intern(label), index);
+    remember_id(id.id);
+    return id;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,17 +521,29 @@ void update_pointer() {
     g_pointer_present = g_pointer_down || !touch_only();
 }
 
+// All five are gated on pass_input(). A pass that input cannot reach sees the
+// same thing a pass sees when the window is not focused: nothing is down,
+// nothing is present, nothing was just pressed. Doing it here rather than in
+// each widget is what makes it impossible to miss one — the alternative is
+// twelve widgets that each have to remember.
 Clay_Vector2 pointer_position() { return g_pointer_pos; }
-bool pointer_down() { return g_pointer_down; }
-bool pointer_present() { return g_pointer_present; }
-bool pointer_just_pressed() { return g_pointer_down && !g_pointer_was_down; }
-bool pointer_released() { return !g_pointer_down && g_pointer_was_down; }
+bool pointer_down() { return g_pass_input && g_pointer_down; }
+bool pointer_present() { return g_pass_input && g_pointer_present; }
+bool pointer_just_pressed() {
+    return g_pass_input && g_pointer_down && !g_pointer_was_down;
+}
+bool pointer_released() { return g_pass_input && !g_pointer_down && g_pointer_was_down; }
 
 bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out) {
-    Clay_ElementData d = Clay_GetElementData(id);
-    if (!d.found) return false;
-    if (out != nullptr) *out = d.boundingBox;
-    return true;
+    // The BACK buffer: what the last frame measured. The front one is being
+    // filled by the frame we are inside, and half of it does not exist yet.
+    const int back = 1 - g_bounds_front;
+    for (int i = 0; i < g_bounds_count[back]; i++) {
+        if (g_bounds[back][i].id != id.id) continue;
+        if (out != nullptr) *out = g_bounds[back][i].box;
+        return true;
+    }
+    return false;
 }
 
 Clay_ElementId sub_id(Clay_ElementId base, uint32_t which) {
@@ -380,6 +552,11 @@ Clay_ElementId sub_id(Clay_ElementId base, uint32_t which) {
     // far enough from the originals that a collision would be bad luck rather
     // than a pattern.
     out.id = base.id ^ ((which + 1) * 2654435761u);
+    // Remembered like any other id. A slider's rail is derived here rather than
+    // through element_id(), and forgetting to record it is what made the rail
+    // have no box to aim at the first time this snapshot existed — the layout
+    // test caught it, which is exactly what it is for.
+    remember_id(out.id);
     return out;
 }
 

@@ -56,7 +56,8 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │           └── Theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)
 │   └── rmp/                  # THE framework's headers — include what you use
-│       ├── app.h             #   RMP_ENTRY_POINT + rmp::app::quit()
+│       ├── app.h             #   RMP_GAME, RMP_ENTRY_POINT, quit(), global<T>()
+│       ├── scene.h           #   rmp::Scene — the stack and the navigation
 │       ├── ui.h              #   rmp::ui — the public API and the Theme
 │       ├── assets.h          #   the rmp::assets declarations
 │       ├── ads.h             #   rmp::ads — inline wrappers over <admob.h>
@@ -436,13 +437,50 @@ one place — `RRES_PACK_PASSWORD` for the packer and `APP_RRES_PASSWORD` in
 
 ## Game lifecycle (Godot style)
 
-Your game lives in three functions in `src/main.cpp`:
+`src/main.cpp` is `RMP_GAME(MainMenuScene);` and nothing else. Your game lives in **scenes**,
+under `src/scenes/`, and each one overrides as much or as little of this as it needs:
 
 | Hook | When |
 |---|---|
-| `on_ready()` | once at startup — window, assets, preload |
-| `on_frame()` | every frame |
-| `on_exit()` | once at shutdown — unload |
+| `_ready()` | once, when the scene enters the stack — assets, spawning |
+| `_update(float delta)` | every frame, bottom of the stack upwards |
+| `_draw()` | every frame, in screen space. `rmp::ui` goes here |
+| `_suspend()` / `_resume()` | something was pushed on top, and later came off |
+| `_end()` | once, when the scene leaves for good |
+
+The leading underscore is the access rule: `_name` is a method of **yours** that we call. (`on_name`
+is the other half — a function you hand us — and it turns up with `on_click` and `on_collision`.)
+
+Three fields decide what a scene lets through to whatever is beneath it, and their defaults are a
+pause menu: `updates_below` (false — the world freezes), `draws_below` (true — it stays on screen)
+and `input_below` (false — the input is mine). A pause scene therefore writes **no policy at all**;
+a full-screen loading scene is `draws_below = false` and nothing else.
+
+`change<T>()`, `push<T>()`, `replace<T>()` and `pop()` are all **deferred**: they record what to do
+and return, and it happens at the end of the frame. That is not an optimisation. Half of those
+calls come from inside the very scene that is about to be destroyed — `if (button("Play"))
+change<GameScene>()` sits in the `_draw()` of the menu that disappears — and destroying it there
+pulls the floor out from under the call stack. It is a bug that sometimes goes unnoticed on desktop
+and never does on Android.
+
+Constructor arguments are forwarded, so data crosses a transition the way data normally crosses
+into an object: `rmp::Scene::change<GameScene>(3, Difficulty::HARD)`.
+
+State that has to outlive a scene change has exactly one home:
+
+```cpp
+rmp::global<SaveData>().coins += 10;
+```
+
+One instance per type, built on first use and destroyed by the framework before the window closes.
+The blunt name is deliberate — a softer one would get used for things that should have been
+passed as arguments.
+
+### The lower-level path
+
+`RMP_ENTRY_POINT(on_ready, on_frame, on_exit)` is still there, still supported, and is what
+`examples/` uses: the same three platform runners without the scene stack. `RMP_GAME` is built on
+top of it, and the rest of this section describes what both of them sit on.
 
 A small platform runner drives them, and there are three of them. The difference between them is
 **who owns the frame loop**:
@@ -494,11 +532,14 @@ Two rules follow, and they are in the header next to the code:
 `rmp::app::quit()` works the same as everywhere else: the frame that asked to quit finishes, then
 `emscripten_cancel_main_loop()` runs and the shutdown order is identical to desktop.
 
-`RMP_ENTRY_POINT` in `include/rmp/app.h` is that
-runner. It also
-brackets your three hooks with `rmp::assets::init()` before `on_ready()` and `rmp::assets::shutdown()` after
-`on_exit()`, so opening the resource pack is not something `src/main.cpp` has to remember — and so
-that rewriting `main.cpp` from scratch cannot accidentally drop it.
+`RMP_ENTRY_POINT` in `include/rmp/app.h` is that runner. It also brackets the three hooks with
+`rmp::assets::init()` before the ready one and `rmp::assets::shutdown()` after the stop one, so
+opening the resource pack is not something anyone has to remember — and so that rewriting
+`main.cpp` from scratch cannot accidentally drop it.
+
+It emits one more symbol, `rmp_entry_point_is_declared_exactly_once`, which exists purely so that
+two mistakes read like sentences: declaring two entry points collides on it by name, and declaring
+none makes the linker ask for it instead of saying `undefined reference to 'main'`.
 
 A CI smoke-test hook is built in: set the env var `RAY_TEST_MAX_FRAMES=N` and the game renders
 N frames then exits with code 0, printing `RAY_TEST_BOOT_OK` and `RAY_TEST_DONE_FRAMES`. The hook

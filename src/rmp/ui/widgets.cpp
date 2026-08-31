@@ -114,28 +114,28 @@ void begin(const FrameOptions &o) {
                  "UI: begin() called twice without end(); ignoring the second one");
         return;
     }
-    detail::set_frame_open(true);
+    // Marking the frame is the app's job — it happens once, around however many
+    // scenes describe UI. With no app there is no one to do it, so the first
+    // begin() of the frame does it and end() closes it: rmp::ui in a plain
+    // raylib loop behaves exactly as it did before any of this existed.
+    if (!detail::frame_marked()) {
+        detail::begin_frame();
+        detail::set_frame_self_marked(true);
+    }
 
-    detail::reset_frame_arena();
-    detail::reset_id_counters();
-    detail::update_scale();
-    detail::anim_begin_frame();
-    detail::begin_focus_frame();
+    detail::set_frame_open(true);
+    detail::begin_pass();
 
     const Theme &t = current_theme();
 
-    Clay_SetLayoutDimensions(detail::viewport());
-
-    detail::update_pointer();
-    Clay_SetPointerState(detail::pointer_position(), detail::pointer_down());
-
-    // Scroll containers, before BeginLayout — Clay is explicit that after it
-    // the offset arrives a frame late. Drag scrolling is on because on a phone
-    // that is the only way to scroll anything; the wheel is the desktop half of
-    // the same gesture.
-    Vector2 wheel = GetMouseWheelMoveV();
-    Clay_UpdateScrollContainers(true, Clay_Vector2{ wheel.x * 30.0f, wheel.y * 30.0f },
-                                GetFrameTime());
+    // The pointer was sampled once at the frame boundary; this hands the same
+    // answer to Clay for each pass. A pass that input cannot reach is given a
+    // position no element can contain, which is what stops a HUD under a pause
+    // menu from lighting up under the cursor.
+    const bool reachable = detail::pass_input();
+    const Clay_Vector2 pointer =
+        reachable ? detail::pointer_position() : Clay_Vector2{ -1.0e6f, -1.0e6f };
+    Clay_SetPointerState(pointer, reachable && detail::pointer_down());
 
     Clay_BeginLayout();
 
@@ -181,14 +181,21 @@ void end() {
     Clay__CloseElement(); // the content column
     Clay__CloseElement(); // the root
 
-    detail::end_focus_frame();
+    Clay_RenderCommandArray commands = Clay_EndLayout(detail::frame_time());
 
-    Clay_RenderCommandArray commands = Clay_EndLayout(GetFrameTime());
+    // Now that the layout exists, remember where everything landed. The next
+    // frame's matching pass reads it — see bounds_of_id().
+    detail::capture_pass_bounds();
+
     // In test mode there is no GL context to draw into; the layout is the
     // whole point and it has already happened.
     if (!detail::test_mode()) detail::draw(commands);
 
     if (!detail::pointer_down()) g_pressed_id = 0;
+
+    // Only when there was no app to mark it. With one, the boundary closes
+    // after the last scene has drawn, not after the first.
+    if (detail::frame_self_marked()) detail::end_frame();
 }
 
 // ---------------------------------------------------------------------------

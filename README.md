@@ -165,28 +165,56 @@ already strip what you do not call. The real gains are on Web and Android, and i
 
 ## Writing your game
 
-The lifecycle is Godot-shaped, and the same three functions run on every platform including iOS,
-where the OS owns the run loop:
+**`src/main.cpp` is four lines, and only one of them is yours:**
 
 ```cpp
-#include <rmp/app.h>                       // the entry point
-#include <rmp/ui.h>                        // and whatever else you use
+#include <rmp/app.h>
 
-static inline void on_ready()   { InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE); }
-static inline void on_frame(float delta) { BeginDrawing(); /* ... */ EndDrawing(); }
-static inline void on_exit()    { /* unload */ CloseWindow(); }
+#include "scenes/main_menu.h"
 
-RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
+RMP_GAME(MainMenuScene);
+```
+
+Your work is in scenes. A scene is a self-contained context of state, update and presentation
+that can be entered, left, suspended and resumed — a main menu is one, a level is one, a pause
+overlay is one:
+
+```cpp
+// src/scenes/main_menu.h
+class MainMenuScene : public rmp::Scene {
+    void _draw() override {
+        rmp::ui::begin();
+        if (rmp::ui::button("Play")) rmp::Scene::change<GameScene>();
+        if (rmp::ui::button("Quit")) rmp::app::quit();
+        rmp::ui::end();
+    }
+};
+```
+
+`_ready`, `_update(float delta)`, `_draw`, `_suspend`, `_resume` and `_end` are all optional and
+all empty by default. The leading underscore is the access rule: **`_name` is a method of yours
+that we call.**
+
+`RMP_GAME` opens the window from `[window]` in `raylib_multiplatform.toml`, enters the scene you
+name, and writes the entry point for whichever platform you are building — `main()` with a frame
+loop on desktop and Web, the three callbacks UIKit demands on iOS. There is no `InitWindow`, no
+`BeginDrawing` and no unloading, because none of those were ever yours: they were the same eight
+lines in every game.
+
+Push a scene on top and the one underneath freezes but stays on screen. That is a pause menu, and
+it is the default — **a pause scene writes no policy at all**:
+
+```cpp
+if (rmp::input::just_pressed("pause")) rmp::Scene::push<PauseScene>();
 ```
 
 There is no umbrella header: you include what you use, and each one is a concept you can name —
-`rmp/app.h`, `rmp/ui.h`, `rmp/assets.h`, `rmp/ads.h`, `rmp/math.h`, `rmp/config.h`. See
-[`examples/platform/03_minimal_includes.cpp`](examples/platform/03_minimal_includes.cpp).
+`rmp/app.h`, `rmp/scene.h`, `rmp/ui.h`, `rmp/assets.h`, `rmp/ads.h`, `rmp/math.h`, `rmp/config.h`.
+See [`examples/platform/03_minimal_includes.cpp`](examples/platform/03_minimal_includes.cpp).
 
-The macro on the last line writes the entry point for whichever platform you are building —
-`main()` with a frame loop on desktop and Web, the three callbacks UIKit demands on iOS — and
-opens and closes the asset pack around your three functions. Nothing about it is yours to
-remember.
+`RMP_ENTRY_POINT(on_ready, on_frame, on_exit)` is still there and still supported: it is the same
+three platform runners without the scene stack, and it is what the examples use. `RMP_GAME` is
+built on top of it.
 
 ### What we add on top of raylib
 

@@ -38,9 +38,24 @@
 
 #include <raylib.h> // GetFrameTime(), for the frame hook. raylib's, not ours.
 
+// NO STANDARD LIBRARY HEADER, and it is measured, not assumed. <memory> alone
+// costs 643 ms to parse on this machine against raylib.h's 38, so pulling it in
+// for a std::unique_ptr parameter would have made this header seventeen times
+// more expensive than the thing it wraps — and paid by every translation unit
+// with an entry point, which is the exact cost splitting the umbrella removed.
+// That is why the two ownership handoffs below are raw pointers. See RMP_GAME.
+
 #if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
 #endif
+
+namespace rmp {
+// Forward declaration only. rmp/scene.h is the header that defines it, and the
+// rule at the top of this file is why it is not included: main.cpp gets Scene
+// through its own scene's header, and a translation unit that has an entry
+// point but no scenes should not pay for one.
+class Scene;
+} // namespace rmp
 
 namespace rmp::app {
 
@@ -95,12 +110,76 @@ bool keep_running(); // the window is open, the frame budget is not spent, no qu
 void end_frame(); // advance the CI frame budget
 void begin_stop(); // the UI closes here, BEFORE your stop hook: see below
 void end_stop(); // the asset pack closes here, AFTER it
+
+// The three that RMP_GAME wires to the hooks above. start() opens the window
+// and enters your first scene, frame() runs one turn of the scene stack, and
+// stop() closes the window.
+// TAKES OWNERSHIP of `first`, and deletes it when the app closes. Raw because
+// this header cannot afford <memory>; the pointer is created and handed over on
+// the same line, so it is never a pointer anyone holds.
+void start(rmp::Scene *first);
+void frame(float delta);
+void stop();
+
+// Registers a destructor for one rmp::global<T>(). Called once per type, the
+// first time that type is asked for.
+void register_global(void (*destroy)());
 #if defined(PLATFORM_IOS)
 [[noreturn]] void exit_process(); // only iOS needs it, and only under CI
 #endif
 } // namespace detail
 
 } // namespace rmp::app
+
+namespace rmp {
+
+// ---------------------------------------------------------------------------
+// rmp::global<T>() — the state that outlives a scene change.
+//
+//     rmp::global<SaveData>().coins += 10;
+//
+// One instance per type, built the first time it is asked for and destroyed by
+// the framework on the way out, before the window closes. There is no
+// registration, no name, no lookup: the TYPE is the key.
+//
+// WHY IT IS CALLED `global` AND NOT SOMETHING SOFTER. Because that is what it
+// is, and a name that hides it would get used for things that should have been
+// passed as arguments. A scene owns its state and loses it when it leaves the
+// stack — which is exactly right for the enemies and exactly wrong for the
+// player's progress. This is for the second kind, and the blunt name is there
+// so that reaching for it is a decision rather than a habit.
+//
+// It is not a singleton in the pattern sense: T knows nothing about this, needs
+// no instance() method, no private constructor and no macro. Any default-
+// constructible type works, including a plain struct you wrote a minute ago.
+//
+// THE ORDER IT IS DESTROYED IN is reverse of first use, and it happens while
+// the window is still open — so a global holding an rmp::Texture releases it
+// against a GL context that still exists. That is not free of charge to get
+// right; see begin_stop() in src/rmp/app.cpp.
+// ---------------------------------------------------------------------------
+template <class T> T &global() {
+    static T *instance = nullptr;
+    if (instance == nullptr) {
+        instance = new T();
+        // A lambda with no captures, so it converts to a plain function
+        // pointer. It can still touch `instance` because a static local has
+        // static storage duration and needs no capture to be used.
+        //
+        // new/delete rather than a unique_ptr for the reason at the top of this
+        // file: <memory> costs more to include than everything else here put
+        // together. The pair is three lines apart and the deleter is registered
+        // in the same breath as the allocation, which is the only shape where
+        // that trade is worth making.
+        rmp::app::detail::register_global([] {
+            delete instance;
+            instance = nullptr;
+        });
+    }
+    return *instance;
+}
+
+} // namespace rmp
 
 // An ordering detail that is not obvious, and is the reason begin_stop and
 // end_stop are two functions rather than one. Your stop hook is where
@@ -118,6 +197,24 @@ void end_stop(); // the asset pack closes here, AFTER it
 // the release moved to the wrong side of CloseWindow() and the game segfaulted
 // on the way out — under xvfb only, because a real driver tolerated it.
 
+// A symbol that exists only so that two errors read like sentences.
+//
+//   TWO entry points in one program  -> it is defined twice, and the linker
+//                                       names it. (`main` collides too, but
+//                                       "duplicate symbol _main" does not say
+//                                       which of your files to look at.)
+//   NO entry point at all            -> src/rmp/app.cpp references it, so the
+//                                       linker asks for it by this name
+//                                       instead of saying "undefined reference
+//                                       to `main`", which tells a newcomer
+//                                       nothing about what to write.
+//
+// It is emitted by RMP_ENTRY_POINT rather than by RMP_GAME because the
+// examples use the entry point directly, without scenes, and they are entry
+// points too. (The design doc put it on RMP_GAME; this is the correction.)
+#define RMP_DECLARE_ENTRY_POINT_ONCE \
+    extern "C" void rmp_entry_point_is_declared_exactly_once() {}
+
 // clang-format off
 // The one exemption left in the repository, and it is NOT about alignment:
 // these are macros whose bodies contain block comments, and every formatter
@@ -129,7 +226,8 @@ void end_stop(); // the asset pack closes here, AFTER it
 //
 // UIKit owns the run loop and offers no way to return from it, so the CI path
 // tears down and exits explicitly. Outside CI that branch never runs.
-#define RMP_IOS_FUNCS(READY, FRAME, STOP)                                      \
+#define RMP_IOS_FUNCS(READY, FRAME, STOP)                                        \
+  RMP_DECLARE_ENTRY_POINT_ONCE                                      \
   extern "C" void ios_ready() {                                                \
     rmp::app::detail::begin_run();                                             \
     READY();                                                                   \
@@ -169,7 +267,8 @@ void end_stop(); // the asset pack closes here, AFTER it
 // NOT call SetTargetFPS() here. The 1 is "simulate an infinite loop", so
 // main() never returns and nothing after the call runs, which is exactly the
 // contract the desktop while loop has.
-#define RMP_WEB_FUNCS(READY, FRAME, STOP)                                      \
+#define RMP_WEB_FUNCS(READY, FRAME, STOP)                                        \
+  RMP_DECLARE_ENTRY_POINT_ONCE                                      \
   static void rmp_web_frame() {                                                \
     FRAME(GetFrameTime());                                                     \
     /* WindowShouldClose() is deliberately never called: on web it does        \
@@ -189,7 +288,8 @@ void end_stop(); // the asset pack closes here, AFTER it
     return 0;                                                                  \
   }
 
-#define RMP_DESKTOP_FUNCS(READY, FRAME, STOP)                                  \
+#define RMP_DESKTOP_FUNCS(READY, FRAME, STOP)                                        \
+  RMP_DECLARE_ENTRY_POINT_ONCE                                  \
   int main() {                                                                 \
     rmp::app::detail::begin_run();                                             \
     READY();                                                                   \
@@ -220,3 +320,42 @@ void end_stop(); // the asset pack closes here, AFTER it
 #else
 #define RMP_ENTRY_POINT(READY, FRAME, STOP) RMP_DESKTOP_FUNCS(READY, FRAME, STOP)
 #endif
+
+// ---------------------------------------------------------------------------
+// RMP_GAME — the whole of src/main.cpp.
+//
+//     #include <rmp/app.h>
+//     #include "scenes/main_menu.h"
+//
+//     RMP_GAME(MainMenuScene);
+//
+// It opens the window from [window] in raylib_multiplatform.toml, enters the
+// scene you named, runs the stack every frame, and closes everything on the way
+// out. There is no on_ready, no on_frame, no on_exit and no InitWindow, because
+// none of those were ever yours: they were the same eight lines in every game.
+// Your work is in the scenes.
+//
+// WHY IT IS HERE AND NOT IN THE .toml. Naming a scene in configuration would
+// mean looking it up by string, and a name-to-type lookup in C++ is built from
+// static self-registration — a global object whose constructor adds itself to a
+// list. In a static library or an iOS xcframework the linker DISCARDS any
+// object file no symbol refers to, and a self-registering object is exactly
+// that. It does not fail to compile: it ships, runs on your desktop, and finds
+// no scenes on the phone. That is the worst failure a fourteen-target framework
+// can have, so the door is shut rather than guarded.
+//
+// Between putting it here and putting it in the scene's own .cpp, both give the
+// same link errors, and main.cpp wins because a C++ program's entry point has a
+// place and that is it. "Where does this start?" should be answerable with ls.
+// ---------------------------------------------------------------------------
+
+// clang-format off
+#define RMP_GAME(SceneType)                                                    \
+  static void rmp_game_ready() {                                               \
+    /* start() takes ownership. See its declaration for why it is raw. */      \
+    rmp::app::detail::start(new SceneType());                                  \
+  }                                                                            \
+  static void rmp_game_frame(float delta) { rmp::app::detail::frame(delta); }  \
+  static void rmp_game_stop() { rmp::app::detail::stop(); }                    \
+  RMP_ENTRY_POINT(rmp_game_ready, rmp_game_frame, rmp_game_stop)
+// clang-format on

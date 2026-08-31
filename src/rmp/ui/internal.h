@@ -24,6 +24,12 @@ namespace rmp::ui::detail {
 // moment we can be sure of that.
 bool ensure_started();
 
+// Has it started already? Unlike ensure_started(), asking does not make it
+// happen — which is the whole point at the frame boundary: an app whose scenes
+// draw no UI must not be made to allocate Clay's arena and load a font just
+// because something calls begin_frame() sixty times a second.
+bool started();
+
 // True between begin() and end(). Used to catch mismatched pairs in debug.
 bool frame_open();
 void set_frame_open(bool open);
@@ -39,9 +45,11 @@ void set_scale_override(float s); // 0 = automatic
 // The pointer, through whichever provider is installed.
 void read_pointer(Clay_Vector2 *position, bool *down);
 
-// Pointer state for this frame, sampled once in begin() so every widget sees
-// the same thing. `present` is false on a touch screen with nothing touching
-// it — see touch_only().
+// Pointer state for this frame, sampled once at the FRAME boundary so that two
+// scenes drawing in the same frame cannot disagree about where the mouse is.
+// `present` is false on a touch screen with nothing touching it — see
+// touch_only() — and also for a pass that input cannot reach, which is how a
+// HUD under an open pause menu goes quiet without either scene saying so.
 void update_pointer();
 Clay_Vector2 pointer_position();
 bool pointer_down();
@@ -49,7 +57,15 @@ bool pointer_present();
 bool pointer_just_pressed();
 bool pointer_released();
 
-// The box an element ended up with last frame, by id.
+// The box an element ended up with LAST FRAME, by id. Immediate mode has no
+// other answer: the geometry of the frame being described does not exist until
+// it is finished.
+//
+// It reads a snapshot of ours rather than asking Clay, and that is not
+// duplication. Clay_BeginLayout resets Clay's element map, so with two passes
+// only the last one survives and the lower scene's grid would size itself from
+// the pause menu's geometry. The snapshot is per pass and lasts the whole
+// frame.
 bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out);
 
 // A stable id derived from another one, for the parts a widget is made of —
@@ -65,6 +81,11 @@ bool touch_only();
 // The Size to lay out for: the window, or the test viewport when one is set.
 Clay_Dimensions viewport();
 bool test_mode();
+
+// Seconds since the last frame, or 0 in test mode — a headless run has no frame
+// time and has to produce the same numbers every time. The one place the UI
+// reads raylib's clock; everything else takes it from here.
+float frame_time();
 
 // Pixels to keep clear at the edge of the screen. [android.display]
 // into_cutout draws the game behind the notch, which is right for a background
@@ -102,7 +123,39 @@ int16_t next_layer_z();
 // The occurrence counter disambiguates the common case; an explicit id is the
 // escape hatch when the UI is conditional.
 Clay_ElementId element_id(std::string_view label, const char *explicit_id);
-void reset_id_counters();
+
+// --- the frame, and the passes inside it -----------------------------------
+//
+// A FRAME is one turn of the game loop. A PASS is one begin()/end() pair, and
+// there is one per scene that draws UI — so with a pause menu over a game there
+// are two passes in one frame. rmp::ui::detail::begin_frame()/end_frame() mark
+// the frame; the functions here mark the passes inside it.
+
+// Has the frame boundary been marked? False means nobody called begin_frame(),
+// which is the plain-raylib case: begin() marks it itself.
+bool frame_marked();
+bool frame_self_marked(); // ...and it was begin() that did the marking
+void set_frame_self_marked(bool self);
+
+// Start a pass: bump the pass index, and clear the per-pass label counters and
+// the z-order. Called from begin().
+void begin_pass();
+
+// Which pass this is, counting from 0 within the frame. It is a multiplier on
+// the element index, which is what gives each scene its own id space: without
+// it, a lower scene showing a button conditionally shifts the indices of every
+// scene above it and the hover jumps to a different widget with nothing in that
+// scene having changed. It is one multiplication and it removes a whole class
+// of bugs that reproduce about one run in twenty.
+int current_pass();
+
+// Whether this pass can be interacted with. Behind rmp::ui::detail::
+// set_pass_input(), which rmp::app drives from Scene::input_below.
+bool pass_input();
+
+// Record the boxes this pass ended up with, so that the next frame's pass can
+// read them. See bounds_of_id().
+void capture_pass_bounds();
 
 // --- style.cpp -------------------------------------------------------------
 //

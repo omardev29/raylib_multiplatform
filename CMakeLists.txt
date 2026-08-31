@@ -343,10 +343,19 @@ if(BUILD_TESTS)
   list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
 
   # The framework sources the tests exercise. Not the whole of src/: main.cpp
-  # has an entry point of its own and would fight doctest's for main().
+  # has an entry point of its own and would fight doctest's for main(), and
+  # src/rmp/app.cpp is the entry point's other half.
+  #
+  # The UI sources are here because the scene stack reaches into them for two
+  # things — the theme's background colour, and the per-pass input switch that
+  # makes Scene::input_below real. Neither opens a window; see the note on
+  # test_mode() in src/rmp/ui/internal.h.
+  file(GLOB UNIT_TEST_UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   set(UNIT_TEST_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/scene.cpp"
+    ${UNIT_TEST_UI_SOURCES})
 
   add_executable(unit_test ${UNIT_TEST_SOURCES} ${UNIT_TEST_LIB_SOURCES})
   target_include_directories(unit_test PRIVATE
@@ -358,7 +367,9 @@ if(BUILD_TESTS)
   target_include_directories(unit_test SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   )
+  target_compile_definitions(unit_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
   set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
   # resource.cpp calls raylib's Unload* functions, so this one DOES link raylib
   # — but it never opens a window. The tests use zeroed payloads, and raylib's
