@@ -10,6 +10,12 @@ For raylib itself — drawing, cameras, models, shaders — see the official
 [raylib examples](https://www.raylib.com/examples.html). This folder only covers
 what is ours.
 
+## [`scenes/`](scenes) — `rmp::Scene`
+
+| | |
+|---|---|
+| [01_stack.cpp](scenes/01_stack.cpp) | The whole model in one file: a menu that changes to a game, and a game that pushes a pause overlay onto itself. The pause scene contains **no policy** — freezing the world is what the defaults already do — and nothing in the game knows it exists. Plus `rmp::global<T>()` for the score that survives the transition. **Start here.** |
+
 ## [`ui/`](ui) — `rmp::ui`
 
 | | |
