@@ -234,7 +234,10 @@ jobs:
       - name: clang-tidy
         run: |
           set -euo pipefail
-          cmake --preset debug > /dev/null
+          # BOTH test flags: without them tests/ui_layout_test.cpp has no entry
+          # in compile_commands.json and clang-tidy guesses its flags from a
+          # neighbour — which guessed differently here than on a laptop.
+          cmake --preset debug -DBUILD_TESTS=ON -DBUILD_UI_TESTS=ON > /dev/null
           # Only .cpp files: clang-tidy reaches the headers through them, and
           # HeaderFilterRegex in .clang-tidy decides which it reports on. The
           # *_impl.cpp pair exists to compile a vendored header once, and its

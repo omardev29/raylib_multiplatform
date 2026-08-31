@@ -93,7 +93,12 @@ fmt what="write":
 lint what="check":
     #!/usr/bin/env bash
     set -euo pipefail
-    cmake --preset debug >/dev/null   # clang-tidy needs build/compile_commands.json
+    # BOTH test flags, and it is not belt-and-braces. Without them
+    # tests/ui_layout_test.cpp has no entry in compile_commands.json, and
+    # clang-tidy falls back to GUESSING flags from a neighbouring entry — which
+    # guessed differently here and on the runner: green locally, `clay.h file
+    # not found` in CI. A file that gets linted needs a real entry.
+    cmake --preset debug -DBUILD_TESTS=ON -DBUILD_UI_TESTS=ON >/dev/null
     # unit_test.cpp is excluded for the same reason as the two *_impl.cpp: it
     # exists to host a vendored header, and doctest's 9 000 lines of macros
     # produce analyzer diagnostics that are not ours to fix. Its own logic is
