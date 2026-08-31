@@ -18,13 +18,13 @@
 //
 // WHAT THIS HEADER DOES NOT INCLUDE, and why it matters.
 //
-// Not one header of ours. Not rmp/ui.h, not rmp/assets.h, not rmp/config.h.
-// It used to include all three, because the macros below called
-// rmp::ui::shutdown() and rmp::assets::init() by name — and that meant every
-// translation unit with an entry point paid for the whole interface layer,
-// which is exactly the coupling that splitting the umbrella was meant to end.
+// Not rmp/ui.h and not rmp/assets.h. It used to include both, because the
+// macros below called rmp::ui::shutdown() and rmp::assets::init() by name —
+// and that meant every translation unit with an entry point paid for the whole
+// interface layer, which is exactly the coupling that splitting the umbrella
+// was meant to end.
 //
-// The fix is that the macros no longer DO anything: they call six functions in
+// The fix is that the macros no longer DO anything: they call the functions in
 // rmp::app::detail, compiled once in src/rmp/app.cpp, which is where the
 // includes live now. The macro is left as the only thing it has to be — the
 // platform's entry-point shape.
@@ -34,9 +34,18 @@
 //   2. If a namespace or a by-value type makes that impossible, include it and
 //      write down here why.
 //   3. If two headers end up needing each other, one of them should not exist.
+//
+// rmp/config.h IS THE ONE EXCEPTION, and it is in every public header of ours
+// rather than just this one. It costs nothing — twelve #defines, no includes of
+// its own, 27 ms against an empty file's 28, which is below measurement noise —
+// and rule 1 exists for compile time and coupling, so a leaf header that costs
+// neither is not what the rule is aimed at. What it buys is that APP_WINDOW_*
+// and the rest are simply THERE, in scenes and objects and everywhere else,
+// with nothing to remember. See rmp/config.h.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h> // GetFrameTime(), for the frame hook. raylib's, not ours.
+#include <rmp/config.h> // the one of ours that is always here — see below
 
 // NO STANDARD LIBRARY HEADER, and it is measured, not assumed. <memory> alone
 // costs 643 ms to parse on this machine against raylib.h's 38, so pulling it in

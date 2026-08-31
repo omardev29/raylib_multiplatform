@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 #include <raylib.h> // Color, and BLANK for the default background
+#include <rmp/config.h>
 
 // <utility> for std::forward and nothing else. Measured on this machine:
 // <utility> adds 50 ms to a translation unit, <memory> adds 605. A header every

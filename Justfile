@@ -147,6 +147,7 @@ test what="all": (_reconfigure "Debug")
     # config    the .toml is valid and the pinned versions still agree
     # unit      doctest: rmp::random and whatever each phase adds. No window
     # seam      nothing under src/rmp/ reads the clock, input or rand() on its own
+    # headers   every public header compiles alone and carries the .toml values
     # render    draw a frame with raylib's SOFTWARE renderer — no GPU, no window —
     #           and check it is pixel-identical to the recorded hash
     # configure tools/configure.py itself — the version arithmetic, the target
@@ -170,7 +171,7 @@ test what="all": (_reconfigure "Debug")
         local failed=0
         for f in $(find examples -name '*.cpp' | sort); do
             if g++ -fsyntax-only -std=c++20 -Iinclude -Ithirdparty/raylib/src \
-                 -Ithirdparty/rres -Ithirdparty/raymob -Ithirdparty/clay -Itests \
+                 -Ithirdparty/rres -Ithirdparty/raymob -Ithirdparty/clay -Ithirdparty -Itests \
                  -DRESOURCES_PATH='"./resources/"' -DPRODUCTION_BUILD=0 "$f"; then
                 echo "  ok    $f"
             else
@@ -243,12 +244,16 @@ test what="all": (_reconfigure "Debug")
         echo "== seam =="
         bash tools/seam_check.sh
     }
+    run_headers() {
+        echo "== headers =="
+        bash tools/header_check.sh
+    }
     run_configure_tests() {
         echo "== configure =="
         python3 tests/configure_test.py 2>&1 | tail -3
     }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_seam; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
+        all)      just fmt check; run_config; run_seam; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
@@ -256,9 +261,10 @@ test what="all": (_reconfigure "Debug")
         configure) run_configure_tests ;;
         unit)     run_unit ;;
         seam)     run_seam ;;
+        headers)  run_headers ;;
         render)   run_render ;;
         render-update) run_render update ;;
-        *) echo "unknown: {{ what }} (all | examples | unit | seam | render | layout | smoke | config | configure)"; exit 1 ;;
+        *) echo "unknown: {{ what }} (all | examples | unit | seam | headers | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 

@@ -1,7 +1,6 @@
 #include "main_menu.h"
 
 #include <rmp/app.h>
-#include <rmp/config.h>
 #include <rmp/ui.h>
 
 // Once, when the scene enters the stack. The window is already open by then —

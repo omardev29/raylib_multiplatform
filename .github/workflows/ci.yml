@@ -187,6 +187,14 @@ jobs:
       - name: The seam holds
         run: bash tools/seam_check.sh
 
+      # Two promises in one compile, per public header: it works when included
+      # ALONE, and it reaches the .toml values. The second is what lets the user
+      # never type #include <rmp/config.h> — and it is the kind of promise that
+      # breaks silently, because a new header that forgets it just hands
+      # somebody an undefined macro in a file that looks like every other file.
+      - name: Every public header stands alone
+        run: bash tools/header_check.sh
+
       # doctest. No window, no GPU, milliseconds.
       - name: Unit tests
         run: |
@@ -277,7 +285,7 @@ jobs:
           for f in $(find examples -name '*.cpp' | sort); do
             if g++ -fsyntax-only -std=c++20 \
                  -Iinclude -Ithirdparty/raylib/src -Ithirdparty/rres \
-                 -Ithirdparty/raymob -Ithirdparty/clay -Itests \
+                 -Ithirdparty/raymob -Ithirdparty/clay -Ithirdparty -Itests \
                  -DRESOURCES_PATH='"./resources/"' -DPRODUCTION_BUILD=0 "$f"; then
               echo "  ok    $f"
             else

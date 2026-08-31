@@ -23,6 +23,7 @@
 // ---------------------------------------------------------------------------
 
 #include <raylib.h> // Vector2
+#include <rmp/config.h>
 #include <cstdint>
 
 namespace rmp::random {

@@ -25,6 +25,7 @@
 
 #include <raylib.h>
 #include <raymath.h>
+#include <rmp/config.h>
 
 // raylib-cpp's math types, and ONLY those. They are classes that DERIVE from
 // raylib's structs, so raylib::Vector2 converts to Vector2 on its own — which
