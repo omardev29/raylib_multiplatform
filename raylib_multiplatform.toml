@@ -241,7 +241,24 @@ disabled_modules = []
 # it work from MSYS2. Plain "gcc" on Windows is how you pick up a stray compiler
 # from a Git-for-Windows shell and end up with a build that asks for X11.
 compiler = "clang"
-linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
+linker   = "auto"    # auto | mold | lld | default
+#
+# WHAT EACH ONE CAN ACTUALLY DO, because "faster linker" is not the whole story:
+#
+#   auto     try the fast ones, keep the first that LINKS, fall back to the
+#            system one. It never fails a build — it is a speed setting, and a
+#            speed setting that can stop a build is worse than a slow build.
+#   mold     Linux and the BSDs only. mold emits ELF and nothing else; run
+#            `mold --help` and the list is elf32-i386, elf64-x86-64 and so on,
+#            with no PE/COFF and no Mach-O. Asking for it on Windows or macOS
+#            is refused here rather than at the linker, which used to fail with
+#            a message about `ld` that never said the word mold.
+#   lld      everywhere, IF the toolchain can reach it. GCC's -fuse-ld=lld wants
+#            an `ld.lld` on PATH and not just `lld`, and MSYS2 ships one without
+#            the other — so the build checks by linking a test program instead
+#            of trusting that the binary exists.
+#   default  whatever the platform uses. On macOS that is Apple's ld, which is
+#            already fast, so this is what `auto` settles on there.
 
 [web]
 # How much memory the WebAssembly module is allowed.

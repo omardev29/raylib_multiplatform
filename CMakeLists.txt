@@ -70,6 +70,14 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Raylib as static libraries" FORCE)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json" FORCE)
 
 project(${TEMPLATE_PROJECT_NAME})
+
+# [dev] linker, and it has to be HERE rather than with the compiler above:
+# choosing a linker means checking that it links, and checking that means
+# compiling something, which needs project() to have run. See gen_dev_linker()
+# in tools/configure.py for what the check is and why guessing was not enough.
+if(NOT PRODUCTION_BUILD)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_linker.cmake" OPTIONAL)
+endif()
 add_executable("${CMAKE_PROJECT_NAME}")
 
 # --- the Windows icon -------------------------------------------------------

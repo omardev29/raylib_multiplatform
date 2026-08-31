@@ -996,3 +996,86 @@ class ConfigureMembershipTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ConfigurePlatformTest(unittest.TestCase):
+    """Which machine is this, and what can actually run on it.
+
+    Both of these were bugs found on a real Windows box, in MSYS2, and both had
+    the same shape: a check that knew one spelling of an answer and treated
+    everything else as the opposite.
+    """
+
+    @contextlib.contextmanager
+    def system(self, name):
+        original = cfgmod.platform.system
+        cfgmod.platform.system = lambda: name
+        try:
+            yield
+        finally:
+            cfgmod.platform.system = original
+
+    # The strings platform.system() really returns. The MSYS2 ones are why this
+    # class exists: they are Windows, and only the first entry looks like it.
+    WINDOWS_SPELLINGS = ["Windows", "MSYS_NT-10.0-26100", "MINGW64_NT-10.0-22631",
+                         "MINGW32_NT-6.2", "CYGWIN_NT-10.0"]
+    OTHERS = ["Linux", "Darwin", "FreeBSD", "OpenBSD", "NetBSD"]
+
+    def test_every_windows_spelling_counts_as_windows(self):
+        for name in self.WINDOWS_SPELLINGS:
+            with self.subTest(system=name), self.system(name):
+                self.assertTrue(cfgmod.on_windows(), f"{name} should be Windows")
+
+    def test_and_nothing_else_does(self):
+        for name in self.OTHERS:
+            with self.subTest(system=name), self.system(name):
+                self.assertFalse(cfgmod.on_windows())
+
+    def test_mingw_is_accepted_in_every_windows_shell(self):
+        """The actual bug: [dev] compiler = "mingw" refused ON WINDOWS, in the
+        shell that ships x86_64-w64-mingw32-gcc, with the message that mingw
+        only makes sense on Windows."""
+        for name in self.WINDOWS_SPELLINGS:
+            for compiler in ("mingw", "msvc"):
+                with self.subTest(system=name, compiler=compiler), self.system(name), quiet():
+                    cfgmod.validate(base_config(dev={"compiler": compiler, "linker": "auto"}),
+                                    False)
+
+    def test_and_still_refused_everywhere_else(self):
+        for name in self.OTHERS:
+            for compiler in ("mingw", "msvc"):
+                with self.subTest(system=name, compiler=compiler), self.system(name):
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(base_config(dev={"compiler": compiler,
+                                                         "linker": "auto"}), False)
+
+    def test_mold_is_refused_where_it_cannot_emit_a_binary(self):
+        """mold links ELF and nothing else — `mold --help` prints its own list
+        and there is no PE/COFF or Mach-O in it. Asking for it on Windows used
+        to get as far as the linker, which failed with a message about `ld` that
+        did not contain the word mold."""
+        for name in self.WINDOWS_SPELLINGS + ["Darwin"]:
+            with self.subTest(system=name), self.system(name):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(base_config(dev={"compiler": "default",
+                                                     "linker": "mold"}), False)
+                self.assertIn("ELF", str(caught.exception))
+                # And it says what to use instead, because "cannot work" without
+                # an alternative is half an error message.
+                self.assertIn("lld", str(caught.exception))
+
+    def test_mold_is_fine_where_ELF_is(self):
+        for name in ["Linux", "FreeBSD", "OpenBSD", "NetBSD"]:
+            with self.subTest(system=name), self.system(name), quiet():
+                cfgmod.validate(base_config(dev={"compiler": "default", "linker": "mold"}),
+                                False)
+
+    def test_auto_and_lld_are_accepted_everywhere(self):
+        """auto especially: it is a speed setting, and a speed setting that can
+        refuse a config is worse than a slow build. Which one it ends up using
+        is decided by the build, after checking that it links."""
+        for name in self.WINDOWS_SPELLINGS + self.OTHERS:
+            for linker in ("auto", "lld", "default"):
+                with self.subTest(system=name, linker=linker), self.system(name), quiet():
+                    cfgmod.validate(base_config(dev={"compiler": "default",
+                                                     "linker": linker}), False)

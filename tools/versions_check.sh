@@ -115,9 +115,15 @@ echo "== Build image pin (workflows) =="
 WORKFLOWS=$(find .github/workflows -name '*.yml' ! -name 'canary.yml')
 
 # Every container job must pin the same digest, and it must be the declared one.
+# A while-read loop and not mapfile: mapfile is bash 4, and macOS ships bash 3.2
+# and always will — bash went GPLv3 and Apple stopped updating it. `just test`
+# has to run on a Mac without anybody installing a newer shell first.
+DIGESTS=()
 # shellcheck disable=SC2086
-mapfile -t DIGESTS < <(grep -hoE 'raylib-build@sha256:[0-9a-f]{64}' $WORKFLOWS \
-                        | sed 's/.*@//' | sort -u)
+while IFS= read -r _digest; do
+    DIGESTS+=("$_digest")
+done < <(grep -hoE 'raylib-build@sha256:[0-9a-f]{64}' $WORKFLOWS \
+          | sed 's/.*@//' | sort -u)
 if [ ${#DIGESTS[@]} -eq 0 ]; then
     echo "  DRIFT build image             no digest-pinned image found in .github/workflows/"
     fails=$((fails + 1)); checks=$((checks + 1))

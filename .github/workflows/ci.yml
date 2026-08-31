@@ -198,6 +198,14 @@ jobs:
       - name: Every public header stands alone
         run: bash tools/header_check.sh
 
+      # The Linux jobs have GNU everything, so they are exactly the wrong place
+      # to notice that a script only works with GNU everything. `mapfile` was in
+      # the tree and would have died on every Mac — bash 4 against macOS's 3.2 —
+      # and nothing here would have said so, because the macOS job runs the
+      # workflow's steps, not the Justfile.
+      - name: The scripts run off GNU too
+        run: bash tools/portable_check.sh
+
       # doctest. No window, no GPU, milliseconds.
       - name: Unit tests
         run: |
