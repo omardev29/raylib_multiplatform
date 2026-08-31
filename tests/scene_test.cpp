@@ -150,6 +150,7 @@ TEST_SUITE("scenes") {
         CHECK(g_log == "A.ready");
         CHECK(rmp::Scene::depth() == 1);
         CHECK(rmp::scenes::detail::running());
+        CHECK(&rmp::Scene::current() == &rmp::Scene::current());
     }
 
     TEST_CASE("a frame is update then draw, and nothing else") {
@@ -171,6 +172,9 @@ TEST_SUITE("scenes") {
         rmp::scenes::detail::apply_pending();
         CHECK(g_log == "A.suspend B.ready");
         CHECK(rmp::Scene::depth() == 2);
+        // current() is the TOP of the stack, not the one that has been there
+        // longest. B is what the player is looking at.
+        CHECK(dynamic_cast<B *>(&rmp::Scene::current()) != nullptr);
 
         g_log.clear();
         rmp::Scene::pop();

@@ -11,7 +11,7 @@
 
 #include <rmp/app.h>
 
-#include <ranges>
+#include <cstddef>
 #include <vector>
 
 namespace rmp::app::detail {
@@ -28,7 +28,12 @@ void shutdown_globals() {
     // Reverse of first use, which is the order anything that behaves like a
     // static is destroyed in — so a global that was built because another one
     // needed it still exists while that one is being taken apart.
-    for (void (*destroy)() : std::ranges::reverse_view(g_globals)) destroy();
+    //
+    // An index walk and not std::ranges::reverse_view, deliberately: NetBSD
+    // 10.1 ships GCC 10.5, whose <ranges> is incomplete, and that toolchain has
+    // already cost this project one patch to Clay. A backwards for loop
+    // compiles the same everywhere and reads no worse.
+    for (std::size_t i = g_globals.size(); i > 0; i--) g_globals[i - 1]();
     g_globals.clear();
 }
 
