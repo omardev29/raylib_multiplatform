@@ -107,6 +107,9 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
+          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
+          # which is the normal case: the default compresses linux only.
+          bash tools/upx_pack.sh linux-x64 "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp resources/resources.rres package/resources/
           cd package && zip -r ../linux-x64-build.zip .
@@ -185,6 +188,9 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
+          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
+          # which is the normal case: the default compresses linux only.
+          bash tools/upx_pack.sh linux-arm64 "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp resources/resources.rres package/resources/
           cd package && zip -r ../linux-arm64-build.zip .
@@ -250,6 +256,9 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
+          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
+          # which is the normal case: the default compresses linux only.
+          bash tools/upx_pack.sh linux-riscv64 "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp -r resources package/
           cd package && zip -r ../linux-riscv64-build.zip .
@@ -333,6 +342,9 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
+          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
+          # which is the normal case: the default compresses linux only.
+          bash tools/upx_pack.sh linux-drm "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp -r resources package/
           cd package && zip -r ../linux-drm-build.zip .

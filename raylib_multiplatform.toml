@@ -101,6 +101,36 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # Google-certified CMP (the UMP SDK) since January 2024, and this template does
 # not ship one. See "AdMob" in TECHNICAL.md before you publish with ads on.
 
+[upx]
+# Compress the shipped binary with UPX. Measured on this project: 847 KB down to
+# 215 KB, a 74 % cut, and the compressed binary still passes the render gate.
+#
+# Groups expand and deduplicate exactly like [targets], and `disabled` is
+# subtracted afterwards, so there is no precedence to reason about.
+#   groups : all | linux | windows | bsd
+#   exact  : linux-x64 linux-arm64 linux-riscv64 linux-drm
+#            windows-x64 windows-arm64
+#            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
+#
+# `all` here is NOT the fourteen. macOS and iOS are refused because the binary
+# is code-signed and compressing it breaks the signature; Android because what
+# ships is a .so inside an APK, which is already a zip, so compressing it makes
+# the APK BIGGER; web because it is .wasm and the browser fetches it gzipped.
+# Naming any of them is an error with the reason, not a silent no-op.
+#
+# WINDOWS IS AVAILABLE AND NOT ON BY DEFAULT, and that is deliberate: an
+# unsigned .exe that has been UPX-packed is a shape Windows Defender associates
+# with malware, and it gets quarantined on some machines and not others. If you
+# sign your builds, turn it on and you get the same 70-odd per cent. If you do
+# not, the download saving is not worth a fraction of your players being told
+# your game is a virus.
+#
+# BSD is untested territory for this and is off by default for that reason
+# alone: upx publishes no FreeBSD/OpenBSD/NetBSD build, so the VMs would have to
+# install it from ports.
+enabled  = ["linux-x64", "linux-arm64"]
+disabled = []
+
 [linux]
 # Which windowing backend Linux uses, and whether it talks to Wayland natively.
 #

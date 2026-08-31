@@ -27,6 +27,7 @@ Usage:
     tools/configure.py --check             validate only, write nothing
     tools/configure.py --print-name        the project name
     tools/configure.py --print-targets     JSON array of enabled targets
+    tools/configure.py --print-upx         JSON array of targets that get UPX'd
     tools/configure.py --print-families    JSON array of CI families in play
     tools/configure.py --print-matrix bsd  JSON matrix for one CI family
     tools/configure.py --print-config      the resolved config, as JSON
@@ -182,6 +183,73 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
     return result
 
 
+# --- UPX --------------------------------------------------------------------
+#
+# Which targets get their binary compressed. Not every target CAN be, and the
+# reasons are different in each case, so the ones that cannot are refused by
+# name with the reason rather than silently ignored:
+#
+#   macos, ios   the binary is code-signed. Compressing it rewrites the file
+#                and the signature no longer matches, so Gatekeeper refuses to
+#                launch it and the App Store refuses to accept it.
+#   android      what ships is a .so inside an APK, and the APK is already a
+#                zip. Compressing the .so makes the APK BIGGER, because a
+#                compressed stream does not compress again.
+#   web          it is .wasm, and the browser fetches it gzipped anyway.
+UPX_TARGETS: list[str] = [
+    "linux-x64", "linux-arm64", "linux-riscv64", "linux-drm",
+    "windows-x64", "windows-arm64",
+    "freebsd-x64", "freebsd-arm64", "openbsd-x64", "openbsd-arm64", "netbsd-x64",
+]
+
+UPX_REFUSED = {
+    "macos": "the binary is code-signed; compressing it breaks the signature",
+    "ios":   "the binary is code-signed; compressing it breaks the signature",
+    "android": "what ships is a .so inside an APK, which is already a zip — "
+               "compressing it makes the APK bigger",
+    "web":   "it is .wasm, and the browser fetches it gzipped anyway",
+}
+
+UPX_GROUPS: dict[str, list[str]] = {
+    # `all` here is NOT the fourteen: it is every target that can be compressed
+    # at all. Windows is in it, but not in the default — see the .toml.
+    "all":     list(UPX_TARGETS),
+    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64", "linux-drm"],
+    "windows": ["windows-x64", "windows-arm64"],
+    "bsd":     ["freebsd-x64", "freebsd-arm64",
+                "openbsd-x64", "openbsd-arm64", "netbsd-x64"],
+}
+
+
+def expand_upx(cfg: dict, targets: list[str]) -> list[str]:
+    """Which of the targets being built get compressed.
+
+    Same shape as expand_targets: groups expand, everything deduplicates, and
+    `disabled` is subtracted afterwards, so there is no precedence to reason
+    about. Intersected with what is actually being built at the end — asking to
+    compress a target you are not building is not an error, it is a no-op.
+    """
+    def resolve(names: list[str], where: str) -> set[str]:
+        out: set[str] = set()
+        for n in names:
+            if n in UPX_GROUPS:
+                out.update(UPX_GROUPS[n])
+            elif n in UPX_TARGETS:
+                out.add(n)
+            elif n in UPX_REFUSED:
+                raise ConfigError(
+                    f"[upx] {where}: {n!r} cannot be compressed — {UPX_REFUSED[n]}.\n"
+                    "Remove it; there is no setting that makes it work.")
+            else:
+                known = ", ".join(sorted(set(UPX_GROUPS) | set(UPX_TARGETS)))
+                raise ConfigError(
+                    f"[upx] {where}: unknown target or group {n!r}.\nKnown: {known}")
+        return out
+
+    wanted = resolve(cfg["upx"]["enabled"], "enabled") - resolve(cfg["upx"]["disabled"], "disabled")
+    return sorted(wanted & set(targets), key=UPX_TARGETS.index)
+
+
 def admob_on(cfg: dict, targets: list[str]) -> bool:
     """Is AdMob part of this build?
 
@@ -223,6 +291,7 @@ DEFAULTS: dict = {
     "raylib": {"disabled_modules": []},
     "web": {"memory": 64, "grow": False},
     "windows": {"backend": "glfw"},
+    "upx": {"enabled": ["linux-x64", "linux-arm64"], "disabled": []},
     "linux": {"backend": "glfw", "wayland": False},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
@@ -297,6 +366,11 @@ COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 
 
 def validate(cfg: dict, strict_release: bool) -> None:
+    for key in ("enabled", "disabled"):
+        value = cfg["upx"][key]
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ConfigError(f"[upx] {key} has to be a list of strings, got {value!r}")
+
     if cfg["windows"]["backend"] not in WINDOWS_BACKENDS:
         raise ConfigError(
             f"[windows] backend has to be one of {sorted(WINDOWS_BACKENDS)}, "
@@ -1358,6 +1432,8 @@ def main(argv: list[str]) -> int:
                     help="also reject placeholder identifiers (used on tag builds)")
     ap.add_argument("--print-name", action="store_true")
     ap.add_argument("--print-targets", action="store_true")
+    ap.add_argument("--print-upx", action="store_true",
+                    help="JSON array of targets whose binary gets UPX-compressed")
     ap.add_argument("--print-families", action="store_true",
                     help="CI families with at least one enabled target")
     ap.add_argument("--print-matrix", metavar="FAMILY")
@@ -1382,6 +1458,9 @@ def main(argv: list[str]) -> int:
 
     if args.print_name:
         print(cfg["project"]["name"])
+        return 0
+    if args.print_upx:
+        print(json.dumps(expand_upx(cfg, targets), separators=(",", ":")))
         return 0
     if args.print_targets:
         print(json.dumps(targets, separators=(",", ":")))

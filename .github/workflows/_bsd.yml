@@ -142,6 +142,10 @@ jobs:
           fi
           cp build/${{ inputs.project_name }} package/
           cp -r resources package/
+          # UPX, if [upx] asked for this target. Off by default on BSD: upx
+          # publishes no FreeBSD/OpenBSD/NetBSD build, so the script's download
+          # finds nothing and says so rather than failing.
+          bash tools/upx_pack.sh "${{ matrix.target }}" "build/${{ inputs.project_name }}" || true
           cd package && zip -r "../bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip" .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

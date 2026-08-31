@@ -43,6 +43,13 @@ mesa_sha256               86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f74
 # diff into noise and makes `just fmt check` fail for a reason that has nothing
 # to do with the change. The lint job reads these two values out of this block
 # rather than repeating them, so there is one number and nothing to drift.
+# UPX, for [upx] in the .toml. Downloaded at this exact version with the
+# checksum below rather than installed from a distro package, because the
+# version an image happens to carry is a version nobody chose.
+upx                       5.2.0
+upx_sha256_amd64          3db5d3294707439db97866feab8d75d800f028f48481a40547411824da4288a1
+upx_sha256_arm64          55d48a61e8ffd17152db871c855376cba7f08e830b37799d0947a16dff8ec36c
+upx_sha256_win64          b471ebf1b7f20f4a89150264ed9a008a2a5bfd247f3c6d1184a75bb59ca08f5d
 clang_format              22.1.8
 clang_tidy                22.1.8
 freebsd                   15.1

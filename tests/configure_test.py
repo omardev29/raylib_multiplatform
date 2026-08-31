@@ -224,6 +224,71 @@ class ConfigureTargetsTest(unittest.TestCase):
             cfgmod.expand_targets([], [])
 
 
+class ConfigureUpxTest(unittest.TestCase):
+    """expand_upx(): the same group algebra as targets, and a shorter world.
+
+    The refusals matter more than the expansions. Compressing a signed macOS
+    binary breaks its signature and Gatekeeper refuses to launch it — that is
+    not a preference, and a silent no-op would leave someone wondering why the
+    setting did nothing.
+    """
+
+    def all_targets(self):
+        return cfgmod.expand_targets(["all"], [])
+
+    def upx(self, enabled, disabled=None, targets=None):
+        cfg = base_config(upx={"enabled": enabled, "disabled": disabled or []})
+        return cfgmod.expand_upx(cfg, targets if targets is not None else self.all_targets())
+
+    def test_the_default_is_linux_only(self):
+        self.assertEqual(self.upx(["linux-x64", "linux-arm64"]), ["linux-x64", "linux-arm64"])
+
+    def test_all_is_every_compressible_target_and_no_more(self):
+        result = self.upx(["all"])
+        for absent in ("macos", "ios", "android", "web"):
+            self.assertNotIn(absent, result)
+        self.assertIn("windows-x64", result)
+        self.assertIn("netbsd-x64", result)
+
+    def test_groups_overlap_without_doubling_up(self):
+        result = self.upx(["linux", "all", "linux-x64"])
+        self.assertEqual(len(result), len(set(result)))
+        self.assertEqual(result, self.upx(["all"]))
+
+    def test_disabled_subtracts_and_can_be_a_group(self):
+        self.assertNotIn("freebsd-x64", self.upx(["all"], ["bsd"]))
+        self.assertNotIn("windows-x64", self.upx(["all"], ["windows-x64"]))
+
+    def test_order_is_stable_whatever_the_input_order(self):
+        self.assertEqual(self.upx(["windows", "linux"]), self.upx(["linux", "windows"]))
+
+    def test_the_signed_and_zipped_platforms_are_refused_with_a_reason(self):
+        for refused, needle in (("macos", "signature"), ("ios", "signature"),
+                                ("android", "APK"), ("web", "wasm")):
+            with self.subTest(target=refused):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.upx([refused])
+                self.assertIn(needle, str(caught.exception))
+
+    def test_unknown_names_are_rejected(self):
+        with self.assertRaises(cfgmod.ConfigError):
+            self.upx(["playstation"])
+
+    def test_asking_for_a_target_you_are_not_building_is_a_no_op(self):
+        """Not an error: `enabled = ["all"]` with a narrow [targets] should
+        just compress the ones that exist, the same way disabling a target you
+        never enabled is harmless."""
+        self.assertEqual(self.upx(["all"], targets=["web", "linux-x64"]), ["linux-x64"])
+
+    def test_empty_is_allowed_and_means_compress_nothing(self):
+        self.assertEqual(self.upx([]), [])
+
+    def test_the_lists_have_to_be_lists(self):
+        cfg = base_config(upx={"enabled": "linux-x64", "disabled": []})
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(cfg, False)
+
+
 class ConfigureValidateTest(unittest.TestCase):
     """validate(): every rejection, because each one is a build it saved."""
 
