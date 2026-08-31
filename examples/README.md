@@ -16,6 +16,12 @@ what is ours.
 |---|---|
 | [01_stack.cpp](scenes/01_stack.cpp) | The whole model in one file: a menu that changes to a game, and a game that pushes a pause overlay onto itself. The pause scene contains **no policy** — freezing the world is what the defaults already do — and nothing in the game knows it exists. Plus `rmp::global<T>()` for the score that survives the transition. **Start here.** |
 
+## [`input/`](input) — `rmp::input`
+
+| | |
+|---|---|
+| [01_actions.cpp](input/01_actions.cpp) | Named actions with as many bindings as you like, eight-direction movement in one call, and the routing that stops a finger on a UI button from also firing the gun — which costs no code at all. |
+
 ## [`ui/`](ui) — `rmp::ui`
 
 | | |

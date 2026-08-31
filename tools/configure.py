@@ -383,6 +383,7 @@ DEFAULTS: dict = {
     "icon": {"source": "branding/icon.png", "adaptive_background": "#3DDC84"},
     "raylib": {"disabled_modules": []},
 "web": {"memory": 64, "grow": False, "backend": "glfw"},
+    "input": {"deadzone": 0.2},
     "windows": {"backend": "glfw"},
     "upx": {"enabled": ["linux-x64", "linux-arm64"], "disabled": [],
             "max_size_mb": 600},
@@ -700,6 +701,16 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "of them missing it skips and the release is never pushed.\n"
             f"Set {missing}, or clear both to turn itch.io deployment off.",
             ("deploy.itch", missing))
+
+    dead = cfg["input"]["deadzone"]
+    if isinstance(dead, bool) or not isinstance(dead, (int, float)):
+        raise ConfigError(f"[input] deadzone = {dead!r} has to be a number between 0 and 0.95.")
+    if not (0.0 <= dead <= 0.95):
+        raise ConfigError(
+            f"[input] deadzone = {dead} has to be between 0 and 0.95.\n"
+            "It is the fraction of a stick's travel that reads as zero. 0 turns it off, "
+            "which on a worn controller means the character walks on its own; past 0.95 "
+            "there is almost no travel left to read.")
 
     ui = cfg["ui"]
     one_of(ui["theme"], UI_THEMES, "[ui] theme",
@@ -1073,6 +1084,10 @@ def gen_app_config(cfg: dict) -> None:
 #define APP_UI_FONT_SIZE    {ui['font_size']}
 #define APP_UI_SCALE        {float(ui['scale'])}f
 #define APP_UI_MAX_ELEMENTS {ui['max_elements']}
+
+/* [input]. The fraction of an analogue stick's travel that reads as zero.
+   rmp::input::set_deadzone() changes it at runtime — a settings screen. */
+#define APP_INPUT_DEADZONE  {cfg['input']['deadzone']}f
 
 #endif /* APP_CONFIG_H */
 """)

@@ -14,6 +14,7 @@
 #include <raylib.h>
 #include <rmp/assets.h>
 #include <rmp/config.h>
+#include <rmp/input.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 #include <smoke_test.h>
@@ -148,6 +149,7 @@ void begin_stop() {
     // All of it before the stop hook, because the stop hook is where
     // CloseWindow() lives and every one of these owns something on the GPU.
     rmp::scenes::detail::shutdown();
+    rmp::input::detail::reset();
 
     shutdown_globals();
 
@@ -178,9 +180,14 @@ void start(rmp::Scene *first) {
 // next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
 // because every interesting property of a scene stack is an ordering property.
 void frame(float delta) {
-    // 1. The frame boundary. Once, whatever the stack looks like: the pointer
-    //    is sampled, the scroll advances and the animation clock ticks exactly
+    // 1. The frame boundary. Once, whatever the stack looks like: the devices
+    //    are sampled, the scroll advances and the animation clock ticks exactly
     //    one frame's worth even when three scenes describe UI.
+    //
+    //    Input first. Sampling once is what stops two scenes in the same frame
+    //    from disagreeing about what is held down, and it has to happen before
+    //    anything reads it — which the UI does, through its own pointer.
+    rmp::input::detail::begin_frame();
     rmp::ui::detail::begin_frame();
 
     // 2. Update, bottom upwards, skipping what the scene above freezes.

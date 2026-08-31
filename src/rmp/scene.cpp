@@ -13,6 +13,7 @@
 
 #include "scene_internal.h"
 
+#include <rmp/input.h>
 #include <rmp/ui.h>
 
 #include <memory>
@@ -92,6 +93,17 @@ template <class Policy> int lowest_participant(Policy lets_through) {
     return i;
 }
 
+// Can input reach the scene at `index`? Only if every scene above it lets it
+// through. Walking upwards rather than remembering a flag means a stack three
+// deep answers correctly without anything having to be kept in step.
+bool reachable_by_input(int index) {
+    const int top = static_cast<int>(g_stack.size()) - 1;
+    for (int above = index + 1; above <= top; above++) {
+        if (!g_stack[static_cast<size_t>(above)]->input_below) return false;
+    }
+    return true;
+}
+
 void end_top() {
     g_stack.back()->_end();
     g_stack.pop_back();
@@ -122,8 +134,14 @@ void update(float delta) {
     // Bottom upwards: the world moves before whatever is layered on top of it
     // reacts to where the world ended up.
     for (int i = lowest; i <= top; i++) {
+        // The other half of Scene::input_below, and the half that matters for
+        // gameplay: a scene that is still running under a HUD that took the
+        // input reads every action as false, so `if (just_pressed("fire"))`
+        // simply does not fire. Nothing in that scene says so.
+        rmp::input::detail::set_layer_input(reachable_by_input(i));
         g_stack[static_cast<size_t>(i)]->_update(delta);
     }
+    rmp::input::detail::set_layer_input(true);
 }
 
 Color clear_color() {
@@ -149,14 +167,7 @@ void draw() {
         // widget in it can be hovered or clicked. A HUD under an open pause
         // menu is drawn, is not interactive, and neither scene wrote a line
         // about it.
-        bool reachable = true;
-        for (int above = i + 1; above <= top; above++) {
-            if (!g_stack[static_cast<size_t>(above)]->input_below) {
-                reachable = false;
-                break;
-            }
-        }
-        rmp::ui::detail::set_pass_input(reachable);
+        rmp::ui::detail::set_pass_input(reachable_by_input(i));
         g_stack[static_cast<size_t>(i)]->_draw();
     }
     rmp::ui::detail::set_pass_input(true);

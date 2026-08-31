@@ -289,6 +289,24 @@ grow   = false
 #          and a default later, once the keyboard mapping is finished.
 backend = "glfw"
 
+
+# --- [input] ----------------------------------------------------------------
+#
+# deadzone  How much of an analogue stick's travel reads as zero, 0..0.95.
+#           Sticks drift as they wear, so 0 means a character that walks on its
+#           own on a controller that has seen some use; too much and the stick
+#           feels dead before it moves. 0.2 is the value most engines settle on.
+#
+#           It rescales rather than clipping: just past the dead zone the stick
+#           reads a little above zero, not a sudden 0.2. Without that, every
+#           character starts moving at a fifth of full speed.
+#
+#           Keyboard and d-pad are unaffected — they are on or off and have no
+#           travel to ignore. rmp::input::set_deadzone() changes it at runtime,
+#           which is what a settings slider does.
+[input]
+deadzone = 0.2
+
 [ui]
 # rmp::ui — the interface layer. Nothing here is required: with all four at
 # their defaults a menu is still three lines of code.

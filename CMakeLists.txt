@@ -358,7 +358,12 @@ endif()
 #   ./build/unit_test -ts=random
 option(BUILD_TESTS "Build the doctest unit tests" OFF)
 if(BUILD_TESTS)
-  file(GLOB UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
+  # CONFIGURE_DEPENDS, and it is not a nicety: without it a NEW test file is
+  # simply not compiled until somebody happens to reconfigure, and a test that
+  # does not run looks exactly like a test that passes. tests/input_test.cpp
+  # was written, built and reported green while never having been in the binary.
+  file(GLOB UNIT_TEST_SOURCES CONFIGURE_DEPENDS
+       "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
   list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
 
   # The framework sources the tests exercise. Not the whole of src/: main.cpp
@@ -369,9 +374,10 @@ if(BUILD_TESTS)
   # things — the theme's background colour, and the per-pass input switch that
   # makes Scene::input_below real. Neither opens a window; see the note on
   # test_mode() in src/rmp/ui/internal.h.
-  file(GLOB UNIT_TEST_UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
+  file(GLOB UNIT_TEST_UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   set(UNIT_TEST_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/global.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/input.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/scene.cpp"
@@ -409,7 +415,7 @@ endif()
 
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
 if(BUILD_UI_TESTS)
-  file(GLOB UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
+  file(GLOB UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp" ${UI_SOURCES})
   set_property(TARGET ui_layout_test PROPERTY CXX_STANDARD 20)
   target_include_directories(ui_layout_test PRIVATE
