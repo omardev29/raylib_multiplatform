@@ -81,6 +81,11 @@ int16_t g_layer_z = 0;
 // pass is one begin()/end(), and there is one per scene that draws UI.
 bool g_frame_marked = false;
 bool g_frame_self_marked = false;
+// Marking a frame and preparing it are two things, because the app marks every
+// frame from the very first one and the UI does not exist until something asks
+// for it. Without the second flag, frame one would be marked-but-unprepared,
+// and the first begin() would open a second boundary on top of the app's.
+bool g_frame_prepared = false;
 int g_pass = -1;
 bool g_pass_input = true;
 
@@ -352,17 +357,24 @@ void capture_pass_bounds() {
 
 namespace detail {
 
+// Marking is unconditional: from here to end_frame() there is one frame, and
+// nobody else gets to open another. Preparing is not, because the UI may not
+// exist yet — see prepare_frame().
 void begin_frame() {
-    // started(), not ensure_started(). The app calls this every frame whether or
-    // not anything draws UI, and forcing the UI up here would quietly cost every
-    // game an arena and a font it never asked for. Until the first begin(),
-    // there is no frame to mark — and begin() marks its own, which is the same
-    // path rmp::ui takes in a plain raylib loop.
-    if (!started()) return;
-
     g_frame_marked = true;
     g_pass = -1;
     g_pass_input = true;
+    prepare_frame();
+}
+
+// The half that needs Clay to be up. started(), not ensure_started(): the app
+// calls begin_frame() every frame whether or not anything draws UI, and forcing
+// the UI up here would quietly cost every game an arena and a font it never
+// asked for. Called again from the first begin() of the frame, which is where
+// the UI does come up — and does nothing the second time.
+void prepare_frame() {
+    if (g_frame_prepared || !started()) return;
+    g_frame_prepared = true;
 
     // Swap the geometry buffers: what this frame writes, the next one reads.
     g_bounds_front = 1 - g_bounds_front;
@@ -395,9 +407,10 @@ void begin_frame() {
 
 void end_frame() {
     if (!g_frame_marked) return;
-    end_focus_frame();
+    if (g_frame_prepared) end_focus_frame();
     g_frame_marked = false;
     g_frame_self_marked = false;
+    g_frame_prepared = false;
     g_pass_input = true;
 }
 

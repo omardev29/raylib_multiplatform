@@ -121,6 +121,12 @@ void begin(const FrameOptions &o) {
     if (!detail::frame_marked()) {
         detail::begin_frame();
         detail::set_frame_self_marked(true);
+    } else {
+        // The app marked this frame, possibly before the UI existed — which is
+        // exactly what frame one looks like. ensure_started() has just brought
+        // it up, so the half that needs Clay can run now. A no-op every other
+        // time.
+        detail::prepare_frame();
     }
 
     detail::set_frame_open(true);

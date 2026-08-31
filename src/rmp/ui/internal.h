@@ -137,6 +137,11 @@ bool frame_marked();
 bool frame_self_marked(); // ...and it was begin() that did the marking
 void set_frame_self_marked(bool self);
 
+// The half of begin_frame() that needs Clay to be up. Called again by the first
+// begin() of the frame, because that is where the UI actually starts; it does
+// nothing the second time.
+void prepare_frame();
+
 // Start a pass: bump the pass index, and clear the per-pass label counters and
 // the z-order. Called from begin().
 void begin_pass();
