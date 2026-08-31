@@ -106,6 +106,9 @@ test what="all":
     #!/usr/bin/env bash
     # fmt       every file we own is clang-format clean
     # config    the .toml is valid and the pinned versions still agree
+    # configure tools/configure.py itself — the version arithmetic, the target
+    #           expansion, every rejection in validate(), and the generated
+    #           manifest and Xcode spec parsed by a real parser
     # layout    the UI layout at four resolutions, with no window and no GPU
     # smoke     boot the game headless and prove it drew actual pixels
     # examples  every example still compiles. NOT part of "all", on purpose:
@@ -158,13 +161,18 @@ test what="all":
         python3 tools/configure.py --check
         bash tools/versions_check.sh
     }
+    run_configure_tests() {
+        echo "== configure =="
+        python3 tests/configure_test.py 2>&1 | tail -3
+    }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_layout; run_smoke ;;
+        all)      just fmt check; run_config; run_configure_tests; run_layout; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
         config)   run_config ;;
-        *) echo "unknown: {{ what }} (all | examples | layout | smoke | config)"; exit 1 ;;
+        configure) run_configure_tests ;;
+        *) echo "unknown: {{ what }} (all | examples | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 

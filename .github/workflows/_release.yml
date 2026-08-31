@@ -78,6 +78,7 @@ jobs:
             linux-x64-build/linux-x64-build.zip
             linux-arm64-build/linux-arm64-build.zip
             linux-riscv64-build/linux-riscv64-build.zip
+            linux-drm-build/linux-drm-build.zip
             web-build/web-build.zip
             android-debug-apk/*.apk
             android-release-aab/*.aab

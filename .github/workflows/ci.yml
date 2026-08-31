@@ -153,6 +153,13 @@ jobs:
       - name: Pinned versions agree
         run: bash tools/versions_check.sh
 
+      # configure.py decides what gets built at all, and its versionCode
+      # arithmetic has a consequence that cannot be taken back: Google Play
+      # refuses an upload whose code is not higher than the last one, forever.
+      # Everything else in tests/ checks the code that runs after this script.
+      - name: tools/configure.py
+        run: python3 tests/configure_test.py
+
       # Formatting first: it is instant, and an unformatted file makes every
       # other diff in the pull request unreadable.
       - name: Everything we own is formatted

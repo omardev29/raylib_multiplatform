@@ -101,6 +101,29 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # Google-certified CMP (the UMP SDK) since January 2024, and this template does
 # not ship one. See "AdMob" in TECHNICAL.md before you publish with ads on.
 
+[linux]
+# Which windowing backend Linux uses, and whether it talks to Wayland natively.
+#
+# backend  "glfw" (default) or "rgfw". GLFW is what the fourteen-target matrix
+#          is tested against; RGFW is smaller and younger.
+# wayland  false (default) builds GLFW against X11, so on a Wayland desktop the
+#          game runs through XWayland — an extra hop, and the reason fractional
+#          scaling and per-monitor DPI misbehave there. true builds GLFW's
+#          native Wayland backend instead, and needs libwayland-dev,
+#          wayland-protocols and libxkbcommon-dev on the build machine.
+#
+#          Off here because raylib 6.0's Wayland path is the less travelled
+#          one. raylib 6.2 turns it on upstream — flip this default when we
+#          bump, and delete this paragraph.
+#
+#          One difference you WILL see, and it is Wayland's design and not a
+#          bug: there is no window position. GetWindowPosition() and
+#          SetWindowPosition() do not work, and GLFW logs a warning the first
+#          time something asks. A game that remembers where its window was
+#          cannot do that on Wayland, natively or otherwise.
+backend = "glfw"
+wayland = false
+
 [windows]
 # Which windowing backend Windows uses.
 #
@@ -108,6 +131,8 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 #            is what the fourteen-target matrix is tested against.
 #   "win32"  raylib 6.0's native Win32 backend: no GLFW at all, one dependency
 #            fewer and a smaller .exe.
+#   "rgfw"   RGFW, a single-header windowing library. Also no GLFW, also
+#            smaller, and the same caveat as win32 applies.
 #
 # "win32" is a real option and a young one. It does not cover everything GLFW
 # does — gamepads, multi-monitor, the clipboard and some keyboard cases are
@@ -127,9 +152,10 @@ deployment_target = "15.6"
 #   CODE_SIGN_STYLE  = "Automatic"
 
 [icon]
-# One square PNG, 1024x1024 recommended. Every Android density, the round
-# variant, the adaptive foreground, the Play Store asset and the iOS AppIcon
-# are generated from it.
+# One square PNG, 1024x1024 recommended. EVERY platform's icon comes out of this
+# one file: every Android density, the round variant, the adaptive foreground,
+# the Play Store asset, the iOS AppIcon, and the multi-resolution .ico that gets
+# embedded into the Windows .exe.
 #
 # Deliberately NOT in resources/: everything in there is packed into
 # resources.rres and shipped with the game, and your launcher icon is a build
@@ -151,7 +177,12 @@ disabled_modules = []
 [dev]
 # Local development only — the `debug` preset. CI builds `release`/`web` and is
 # unaffected by anything in this section.
-compiler = "clang"   # clang | gcc | default
+# clang | gcc | mingw | msvc | default
+#
+# mingw looks for x86_64-w64-mingw32-gcc before plain `gcc`, which is what makes
+# it work from MSYS2. Plain "gcc" on Windows is how you pick up a stray compiler
+# from a Git-for-Windows shell and end up with a build that asks for X11.
+compiler = "clang"
 linker   = "auto"    # auto (mold > lld > system) | mold | lld | default
 
 [web]

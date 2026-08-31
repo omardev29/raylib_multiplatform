@@ -24,6 +24,12 @@ endif()
 
 option(PRODUCTION_BUILD "Make this a production build" OFF)
 
+# DRM/KMS. Passed by the linux-drm CI job and by anyone building for a TTY:
+#   cmake --preset release -DRMP_TARGET_DRM=ON
+# It picks raylib's PLATFORM=DRM below, which needs libdrm on the build machine
+# and /dev/dri on the machine that runs it.
+option(RMP_TARGET_DRM "Build for DRM/KMS: no X11, no Wayland, straight to the screen" OFF)
+
 # [dev] compiler/linker from the config. Deliberately only for development
 # builds: CI builds `release`/`web`, so nothing here can change what ships.
 # Must precede project(), which is where CMake locks in the compiler.
@@ -69,12 +75,42 @@ endif()
 #                                   in thirdparty/FROZEN_VERSIONS.md.
 #   linux-drm                    -> PLATFORM=DRM, straight to the screen with
 #                                   no X11 and no Wayland.
-if(WIN32 AND TEMPLATE_WINDOWS_BACKEND STREQUAL "win32")
+if(RMP_TARGET_DRM)
+  set(PLATFORM "DRM" CACHE STRING "" FORCE)
+  message(STATUS "=== PLATFORM: DRM/KMS, no X11 and no Wayland ===")
+elseif(WIN32 AND TEMPLATE_WINDOWS_BACKEND STREQUAL "win32")
   set(PLATFORM "Win32" CACHE STRING "" FORCE)
   message(STATUS "=== WINDOWS BACKEND: native Win32, no GLFW ===")
-elseif(RMP_TARGET_DRM)
-  set(PLATFORM "DRM" CACHE STRING "" FORCE)
-  message(STATUS "=== PLATFORM: DRM/KMS, no X11 ===")
+elseif(WIN32 AND TEMPLATE_WINDOWS_BACKEND STREQUAL "rgfw")
+  set(PLATFORM "RGFW" CACHE STRING "" FORCE)
+  message(STATUS "=== WINDOWS BACKEND: RGFW ===")
+elseif(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND TEMPLATE_LINUX_BACKEND STREQUAL "rgfw")
+  set(PLATFORM "RGFW" CACHE STRING "" FORCE)
+  message(STATUS "=== LINUX BACKEND: RGFW ===")
+endif()
+
+# [linux] wayland. raylib 6.0 builds GLFW against X11 by default, so on a
+# Wayland desktop the game runs through XWayland — an extra hop, and it is why
+# fractional scaling and per-monitor DPI behave oddly there.
+#
+# Turning it on builds GLFW's native Wayland backend instead. It needs the
+# Wayland development packages (libwayland-dev, wayland-protocols,
+# libxkbcommon-dev) and it is OFF by default because raylib 6.0's Wayland path
+# is still the less travelled one. raylib 6.2 turns it on upstream; when we bump
+# to it, this default should flip and this comment should go.
+#
+# NOT applied to DRM or RGFW: DRM talks to the kernel directly and has no
+# compositor at all, and RGFW brings its own windowing.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID
+   AND NOT RMP_TARGET_DRM AND NOT PLATFORM STREQUAL "RGFW")
+  if(TEMPLATE_LINUX_WAYLAND)
+    set(GLFW_BUILD_WAYLAND ON  CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_X11     OFF CACHE BOOL "" FORCE)
+    message(STATUS "=== LINUX: native Wayland (no X11, no XWayland) ===")
+  else()
+    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_X11     ON  CACHE BOOL "" FORCE)
+  endif()
 endif()
 
 add_subdirectory(thirdparty/raylib)

@@ -223,6 +223,7 @@ DEFAULTS: dict = {
     "raylib": {"disabled_modules": []},
     "web": {"memory": 64, "grow": False},
     "windows": {"backend": "glfw"},
+    "linux": {"backend": "glfw", "wayland": False},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
     "dev": {"compiler": "clang", "linker": "auto"},
@@ -290,7 +291,9 @@ PROTECTED_MODULES = {
 OPTIONAL_MODULES = {"rshapes", "rmodels", "raudio"}
 
 
-WINDOWS_BACKENDS = {"glfw", "win32"}
+WINDOWS_BACKENDS = {"glfw", "win32", "rgfw"}
+LINUX_BACKENDS = {"glfw", "rgfw"}
+COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 
 
 def validate(cfg: dict, strict_release: bool) -> None:
@@ -298,6 +301,16 @@ def validate(cfg: dict, strict_release: bool) -> None:
         raise ConfigError(
             f"[windows] backend has to be one of {sorted(WINDOWS_BACKENDS)}, "
             f"got {cfg['windows']['backend']!r}")
+    if cfg["linux"]["backend"] not in LINUX_BACKENDS:
+        raise ConfigError(
+            f"[linux] backend has to be one of {sorted(LINUX_BACKENDS)}, "
+            f"got {cfg['linux']['backend']!r}")
+    if not isinstance(cfg["linux"]["wayland"], bool):
+        raise ConfigError("[linux] wayland has to be true or false")
+    if cfg["dev"]["compiler"] not in COMPILERS:
+        raise ConfigError(
+            f"[dev] compiler has to be one of {sorted(COMPILERS)}, "
+            f"got {cfg['dev']['compiler']!r}")
 
     web_memory = cfg["web"]["memory"]
     if not isinstance(web_memory, int) or web_memory < 16 or web_memory > 4096:
@@ -491,7 +504,10 @@ def resolve_version() -> tuple[str, int]:
         # while versionCode silently became 1002003, so v1.2.3.4 and v1.2.3.5
         # would collide and Play would reject the second upload for no visible
         # reason.
-        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.\-+]*)?", ref_name)
+        # `+` and not `*` on the suffix: semver has no empty pre-release, and
+        # `v1.2.3-` would otherwise pass and publish a release literally named
+        # "1.2.3-". Found by tests/configure_test.py.
+        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.\-+]+)?", ref_name)
         if m:
             major, minor, patch = (int(g) for g in m.groups())
             if minor > 999 or patch > 999:
@@ -678,6 +694,8 @@ set(TEMPLATE_RRES_PASSWORD "{cmake_escape(cfg['resources']['rres_password'])}")
 set(TEMPLATE_WEB_TOTAL_MEMORY {total_memory})
 set(TEMPLATE_WEB_ALLOW_MEMORY_GROWTH {grow})
 set(TEMPLATE_WINDOWS_BACKEND "{cfg["windows"]["backend"]}")
+set(TEMPLATE_LINUX_BACKEND "{cfg["linux"]["backend"]}")
+set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
 """)
 
     defs, stubs = raylib_defs(cfg)
@@ -707,10 +725,22 @@ set(TEMPLATE_WINDOWS_BACKEND "{cfg["windows"]["backend"]}")
            ""]
     compiler = cfg["dev"]["compiler"]
     if compiler != "default":
-        cc, cxx = ("clang", "clang++") if compiler == "clang" else ("gcc", "g++")
+        # Several names per compiler, because the one that works depends on how
+        # it was installed. MinGW in particular is almost never plain `gcc` on
+        # Windows: MSYS2 ships x86_64-w64-mingw32-gcc, and picking up a stray
+        # `gcc` from a Git-for-Windows shell is how you end up with a build that
+        # asks for X11 on Windows.
+        names = {
+            "clang": (["clang"], ["clang++"]),
+            "gcc":   (["gcc"], ["g++"]),
+            "mingw": (["x86_64-w64-mingw32-gcc", "gcc"],
+                      ["x86_64-w64-mingw32-g++", "g++"]),
+            "msvc":  (["cl"], ["cl"]),
+        }[compiler]
+        cc, cxx = " ".join(names[0]), " ".join(names[1])
         dev += [
-            f"find_program(_TPL_CC  {cc})",
-            f"find_program(_TPL_CXX {cxx})",
+            f"find_program(_TPL_CC  NAMES {cc})",
+            f"find_program(_TPL_CXX NAMES {cxx})",
             "if(_TPL_CC AND _TPL_CXX)",
             '  set(CMAKE_C_COMPILER   "${_TPL_CC}"  CACHE FILEPATH "" FORCE)',
             '  set(CMAKE_CXX_COMPILER "${_TPL_CXX}" CACHE FILEPATH "" FORCE)',
