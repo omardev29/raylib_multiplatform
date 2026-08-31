@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import re
 import importlib.util
 import io
 import os
@@ -1079,3 +1080,73 @@ class ConfigurePlatformTest(unittest.TestCase):
                 with self.subTest(system=name, linker=linker), self.system(name), quiet():
                     cfgmod.validate(base_config(dev={"compiler": "default",
                                                      "linker": linker}), False)
+
+
+class ConfigurePlatformValuesTest(unittest.TestCase):
+    """Every PLATFORM our build can ask for is one raylib will accept.
+
+    raylib validates PLATFORM against a fixed list in CMakeOptions.txt and
+    FATAL_ERRORs on anything else. We patch that list, because raylib 6.0 ships
+    two backends it never added to it — and the failure mode is nasty: the
+    .toml option exists, configure.py accepts it, and CMake refuses with
+    "Unknown value" from inside the vendored tree.
+
+    That happened to [web] backend = "emscripten" the first time the workflow
+    ran. It was ALSO true of [windows] backend = "win32" and nobody had noticed,
+    because the .toml has been set to rgfw — so this reads the values out of our
+    own CMakeLists instead of a list somebody has to remember to update.
+    """
+
+    def platform_values_we_can_set(self):
+        text = (REPO / "CMakeLists.txt").read_text(encoding="utf-8")
+        return sorted(set(re.findall(r'set\(PLATFORM\s+"([^"]+)"', text)))
+
+    def platform_values_raylib_accepts(self):
+        options = REPO / "thirdparty" / "raylib" / "CMakeOptions.txt"
+        text = options.read_text(encoding="utf-8")
+        match = re.search(r'enum_option\(PLATFORM\s+"([^"]+)"', text)
+        self.assertIsNotNone(match, "no enum_option(PLATFORM ...) in CMakeOptions.txt")
+        return [value.strip() for value in match.group(1).split(";")]
+
+    def test_our_cmake_only_asks_for_platforms_raylib_knows(self):
+        accepted = self.platform_values_raylib_accepts()
+        ours = self.platform_values_we_can_set()
+        self.assertTrue(ours, "found no set(PLATFORM ...) at all — did CMakeLists change shape?")
+        for value in ours:
+            with self.subTest(platform=value):
+                self.assertIn(
+                    value, accepted,
+                    f"CMakeLists.txt can set PLATFORM={value}, and raylib's "
+                    f"CMakeOptions.txt does not list it. That is a FATAL_ERROR from "
+                    f"inside the vendored tree, and the .toml option that leads to it "
+                    f"looks perfectly valid until somebody picks it.")
+
+    def test_the_backends_the_toml_offers_all_reach_a_known_platform(self):
+        """The other direction: every backend the config accepts has to end up
+        as one of the values above. A backend with no PLATFORM behind it would
+        build the default and say nothing."""
+        accepted = self.platform_values_raylib_accepts()
+        # glfw is the default on all three platforms and sets no PLATFORM at
+        # all, which is why it is not in this table.
+        expected = {
+            ("windows", "win32"): "Win32",
+            ("windows", "rgfw"): "RGFW",
+            ("linux", "rgfw"): "RGFW",
+            ("web", "emscripten"): "WebEmscripten",
+            ("web", "rgfw"): "WebRGFW",
+        }
+        for (section, backend), platform in expected.items():
+            with self.subTest(option=f"[{section}] backend = {backend}"):
+                self.assertIn(platform, accepted)
+        # And nothing in the sets is missing from the table except glfw.
+        for section, allowed in (("windows", cfgmod.WINDOWS_BACKENDS),
+                                 ("linux", cfgmod.LINUX_BACKENDS),
+                                 ("web", cfgmod.WEB_BACKENDS)):
+            for backend in allowed:
+                if backend == "glfw":
+                    continue
+                with self.subTest(option=f"[{section}] backend = {backend}"):
+                    self.assertIn((section, backend), expected,
+                                  f"[{section}] backend = {backend} is accepted by "
+                                  f"configure.py but this test does not know which "
+                                  f"PLATFORM it produces — which means nobody does.")

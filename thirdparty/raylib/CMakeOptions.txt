@@ -6,7 +6,17 @@ if(EMSCRIPTEN)
     # When configuring web builds with "emcmake cmake -B build -S .", set PLATFORM to Web by default
     SET(PLATFORM Web CACHE STRING "Platform to build for.")
 endif()
-enum_option(PLATFORM "Desktop;Web;WebRGFW;Android;Raspberry Pi;DRM;SDL;RGFW;Memory" "Platform to build for.")
+# PATCHED (raylib_multiplatform): Win32 and WebEmscripten added. raylib 6.0
+# ships both backends — platforms/rcore_desktop_win32.c and
+# platforms/rcore_web_emscripten.c, selected by rcore.c — but upstream left them
+# out of this list as well as out of LibraryConfigurations.cmake, so there was no
+# way to ASK for either. enum_option() FATAL_ERRORs on anything not listed here,
+# which is what [web] backend = "emscripten" hit.
+#
+# Win32 was in the same state and nobody had noticed, because the .toml has been
+# set to rgfw: [windows] backend = "win32" would have failed the same way.
+# Re-apply when bumping raylib; see thirdparty/FROZEN_VERSIONS.md.
+enum_option(PLATFORM "Desktop;Web;WebEmscripten;WebRGFW;Win32;Android;Raspberry Pi;DRM;SDL;RGFW;Memory" "Platform to build for.")
 
 enum_option(OPENGL_VERSION "OFF;4.3;3.3;2.1;1.1;ES 2.0;ES 3.0;Software" "Force a specific OpenGL Version?")
 
