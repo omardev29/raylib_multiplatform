@@ -19,8 +19,10 @@
 #include <doctest.h>
 
 #include "../src/rmp/scene_internal.h"
+#include "../src/rmp/ui/internal.h"
 
 #include <rmp/scene.h>
+#include <rmp/ui.h>
 
 #include <string>
 
@@ -58,8 +60,13 @@ using C = Probe<'C'>;
 // order is the one in src/rmp/app.cpp, and keeping the two in step is what
 // makes this file a test of the real thing rather than of itself.
 void run_frame() {
+    // The UI frame boundary is part of the order, so it is part of the replica.
+    // With scenes that draw no UI it is all no-ops — the UI does not start until
+    // something asks for it — which is itself worth having under test.
+    rmp::ui::detail::begin_frame();
     rmp::scenes::detail::update(1.0f / 60.0f);
     rmp::scenes::detail::draw();
+    rmp::ui::detail::end_frame();
     rmp::scenes::detail::apply_pending();
 }
 
@@ -81,6 +88,55 @@ struct Fixture {
 template <class T> void start_clean() {
     rmp::scenes::detail::start(new T());
     g_log.clear();
+}
+
+// --- the headless UI seams, for the two-scene tests at the bottom -----------
+Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *config,
+                             void * /*user*/) {
+    // Every glyph half an em wide. The numbers do not matter; being the same on
+    // every machine does.
+    const float size = config != nullptr ? static_cast<float>(config->fontSize) : 16.0f;
+    return Clay_Dimensions{ static_cast<float>(text.length) * size * 0.5f, size };
+}
+
+void pointer_stub(Clay_Vector2 *position, bool *down) {
+    *position = Clay_Vector2{ -1.0f, -1.0f };
+    *down = false;
+}
+
+// Headless UI for the duration of a test, and raylib's own providers back
+// afterwards — a later test that touched the UI without a window would crash.
+struct HeadlessUi {
+    HeadlessUi() {
+        rmp::ui::detail::set_measure_provider(measure_stub);
+        rmp::ui::detail::set_pointer_provider(pointer_stub);
+        rmp::ui::detail::set_test_viewport(1280, 720);
+    }
+    ~HeadlessUi() {
+        rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
+        rmp::ui::detail::set_pointer_provider(rmp::ui::detail::pointer_from_raylib);
+        rmp::ui::detail::set_test_viewport(0, 0);
+    }
+};
+
+// Two of these on the stack is the case the whole frame boundary exists for:
+// a pause menu over a HUD, both describing UI in the same frame.
+template <char Name> class UiScene : public rmp::Scene {
+public:
+    void _draw() override {
+        note(Probe<Name>::kName, "draw");
+        rmp::ui::begin();
+        rmp::ui::button("Back");
+        rmp::ui::end();
+    }
+};
+
+// The id a label gets in a given pass, worked out the same way element_id()
+// does it: the pass owns a block of 4096 indices, and the occurrence counts
+// within it. Hashing only — no interning, so this disturbs nothing.
+Clay_ElementId id_in_pass(const char *label, unsigned pass, unsigned occurrence) {
+    Clay_String s{ false, static_cast<int32_t>(std::string_view{ label }.size()), label };
+    return Clay_GetElementIdWithIndex(s, pass * 4096 + occurrence);
 }
 
 } // namespace
@@ -355,6 +411,62 @@ TEST_SUITE("scene shutdown") {
         g_log.clear();
         run_frame();
         CHECK(g_log.empty());
+    }
+
+} // TEST_SUITE
+
+TEST_SUITE("scene ui passes") {
+    TEST_CASE("two scenes drawing UI in one frame get an id space each") {
+        Fixture fix;
+        HeadlessUi headless;
+
+        start_clean<UiScene<'A'>>();
+        rmp::Scene::push<UiScene<'B'>>();
+        rmp::scenes::detail::apply_pending();
+        g_log.clear();
+
+        run_frame(); // records the geometry
+        run_frame(); // and reads it back
+
+        CHECK(g_log == "A.draw B.draw A.draw B.draw");
+
+        // The point of the pass offset. Both scenes drew a button labelled
+        // "Back", and each has to be its own element — otherwise hovering one
+        // lights up the other, and worse, a lower scene showing a widget
+        // conditionally renumbers every scene above it and the hover jumps with
+        // nothing in that scene having changed.
+        //
+        // Both also have to survive in OUR snapshot, because Clay cannot answer
+        // this: Clay_BeginLayout resets its element map, so after two passes
+        // only the second one's boxes exist.
+        //
+        // id_in_pass() spells the scheme out independently of the code, so a
+        // change to the scheme fails here. Checked by breaking it on purpose:
+        // with the pass offset removed, the second scene's box is not found.
+        Clay_BoundingBox box{};
+        CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 0, 0), &box));
+        CHECK(box.width > 0);
+        CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 1, 0), &box));
+        CHECK(box.width > 0);
+    }
+
+    TEST_CASE("a pass the input cannot reach lays out and draws, but does not react") {
+        Fixture fix;
+        HeadlessUi headless;
+
+        // B takes the default input_below = false, so A is drawn and inert.
+        start_clean<UiScene<'A'>>();
+        rmp::Scene::push<UiScene<'B'>>();
+        rmp::scenes::detail::apply_pending();
+
+        run_frame();
+        run_frame();
+
+        // A was drawn — it has geometry — which is what separates "not
+        // interactive" from "not there".
+        Clay_BoundingBox box{};
+        CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 0, 0), &box));
+        CHECK(box.width > 0);
     }
 
 } // TEST_SUITE
