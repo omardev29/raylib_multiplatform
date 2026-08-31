@@ -94,7 +94,12 @@ lint what="check":
     #!/usr/bin/env bash
     set -euo pipefail
     cmake --preset debug >/dev/null   # clang-tidy needs build/compile_commands.json
-    files=$(find src tests -name '*.cpp' | grep -v _impl | sort)
+    # unit_test.cpp is excluded for the same reason as the two *_impl.cpp: it
+    # exists to host a vendored header, and doctest's 9 000 lines of macros
+    # produce analyzer diagnostics that are not ours to fix. Its own logic is
+    # assertions, which is the one kind of code a linter has nothing to say
+    # about. clang-format still covers it.
+    files=$(find src tests -name '*.cpp' | grep -v _impl | grep -v unit_test | sort)
     case "{{ what }}" in
       check) clang-tidy -p build --quiet --warnings-as-errors='*' $files && echo "  ok    no warnings" ;;
       fix)   clang-tidy -p build --quiet --fix --fix-errors $files; just fmt ;;
@@ -106,6 +111,10 @@ test what="all":
     #!/usr/bin/env bash
     # fmt       every file we own is clang-format clean
     # config    the .toml is valid and the pinned versions still agree
+    # unit      doctest: rmp::random and whatever each phase adds. No window
+    # seam      nothing under src/rmp/ reads the clock, input or rand() on its own
+    # render    draw a frame with raylib's SOFTWARE renderer — no GPU, no window —
+    #           and check it is pixel-identical to the recorded hash
     # configure tools/configure.py itself — the version arithmetic, the target
     #           expansion, every rejection in validate(), and the generated
     #           manifest and Xcode spec parsed by a real parser
@@ -161,18 +170,61 @@ test what="all":
         python3 tools/configure.py --check
         bash tools/versions_check.sh
     }
+    run_unit() {
+        echo "== unit =="
+        cmake --preset debug -DBUILD_TESTS=ON >/dev/null
+        cmake --build build --target unit_test >/dev/null
+        ./build/unit_test 2>&1 | tail -3
+    }
+    run_render() {
+        # The software renderer. No GPU, no window, no display — and the same
+        # pixels on every operating system, because there is no driver between
+        # raylib and the framebuffer. That is what makes the hash below an
+        # assertion rather than a note.
+        echo "== render =="
+        cmake --preset memory >/dev/null
+        cmake --build build/memory >/dev/null
+        out=$(RAY_TEST_MAX_FRAMES=10 ./build/memory/{{ project_name }} 2>&1)
+        echo "$out" | grep -q "RAY_TEST_RENDER_OK" || { echo "$out" | tail -20; echo "FAIL: nothing was drawn"; exit 1; }
+        got=$(echo "$out" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
+        golden=tests/fixtures/render_hash.txt
+        if [ "${1:-}" = "update" ]; then
+            mkdir -p tests/fixtures; echo "$got" > "$golden"
+            echo "  golden hash updated to $got — commit it, and say in the message what changed visually"
+            return 0
+        fi
+        if [ ! -f "$golden" ]; then
+            echo "  no golden hash yet. Record it with: just test render-update"
+            return 0
+        fi
+        want=$(cat "$golden")
+        if [ "$got" != "$want" ]; then
+            echo "  FAIL  the frame changed: expected $want, got $got"
+            echo "        If that was on purpose:  just test render-update"
+            exit 1
+        fi
+        echo "  ok    the frame is pixel-identical to the golden hash ($got)"
+    }
+    run_seam() {
+        echo "== seam =="
+        bash tools/seam_check.sh
+    }
     run_configure_tests() {
         echo "== configure =="
         python3 tests/configure_test.py 2>&1 | tail -3
     }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_configure_tests; run_layout; run_smoke ;;
+        all)      just fmt check; run_config; run_seam; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
         config)   run_config ;;
         configure) run_configure_tests ;;
-        *) echo "unknown: {{ what }} (all | examples | layout | smoke | config | configure)"; exit 1 ;;
+        unit)     run_unit ;;
+        seam)     run_seam ;;
+        render)   run_render ;;
+        render-update) run_render update ;;
+        *) echo "unknown: {{ what }} (all | examples | unit | seam | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 

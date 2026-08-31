@@ -288,6 +288,37 @@ endif()
 #
 #   cmake --preset debug -DBUILD_UI_TESTS=ON
 #   cmake --build build --target ui_layout_test && ./build/ui_layout_test
+# --- unit tests (doctest) ---------------------------------------------------
+# No window, no GPU, milliseconds. Every tests/*_test.cpp except the two that
+# have their own main() is globbed in, so a new test file needs no CMake edit.
+#
+#   cmake --preset debug -DBUILD_TESTS=ON && cmake --build build --target unit_test
+#   ./build/unit_test -ts=random
+option(BUILD_TESTS "Build the doctest unit tests" OFF)
+if(BUILD_TESTS)
+  file(GLOB UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
+  list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
+
+  # The framework sources the tests exercise. Not the whole of src/: main.cpp
+  # has an entry point of its own and would fight doctest's for main().
+  set(UNIT_TEST_LIB_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp")
+
+  add_executable(unit_test ${UNIT_TEST_SOURCES} ${UNIT_TEST_LIB_SOURCES})
+  target_include_directories(unit_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  )
+  # SYSTEM for the vendored headers, so their warnings are not ours to fix.
+  # doctest is 9 000 lines and the analyzer has opinions about all of them.
+  target_include_directories(unit_test SYSTEM PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
+  )
+  set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
+  # rmp::random needs Vector2 from raylib.h and nothing else — no window, no GL,
+  # no link against raylib at all. That is the point of the seam.
+endif()
+
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
 if(BUILD_UI_TESTS)
   file(GLOB UI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")

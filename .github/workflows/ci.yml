@@ -160,6 +160,44 @@ jobs:
       - name: tools/configure.py
         run: python3 tests/configure_test.py
 
+      # Time, input and randomness enter through a seam so that headless tests
+      # can replace them. One stray GetFrameTime() in the wrong file is enough
+      # to make a test flaky, and a flaky test teaches everyone to ignore red.
+      - name: The seam holds
+        run: bash tools/seam_check.sh
+
+      # doctest. No window, no GPU, milliseconds.
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          cmake --preset debug -DBUILD_TESTS=ON > /dev/null
+          cmake --build build --target unit_test > /dev/null
+          ./build/unit_test
+
+      # raylib's SOFTWARE renderer: no GPU, no window, no display server, and
+      # therefore the same pixels on every operating system — there is no
+      # driver in between to differ. That is what turns the frame hash from a
+      # note into an assertion: the other render gates only prove that
+      # SOMETHING was drawn, this one proves the same thing was drawn.
+      #
+      # It needs none of the X11 packages installed above, which is the point.
+      - name: Render (software, no GPU)
+        run: |
+          set -euo pipefail
+          cmake --preset memory > /dev/null
+          cmake --build build/memory > /dev/null
+          NAME=$(python3 tools/configure.py --print-name)
+          OUT=$(RAY_TEST_MAX_FRAMES=10 "./build/memory/$NAME" 2>&1) || true
+          echo "$OUT" | grep -q "RAY_TEST_RENDER_OK" || { echo "$OUT" | tail -20; echo "FALLA: nothing was drawn"; exit 1; }
+          GOT=$(echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
+          WANT=$(cat tests/fixtures/render_hash.txt)
+          if [ "$GOT" != "$WANT" ]; then
+            echo "FALLA: the frame changed — expected $WANT, got $GOT"
+            echo "If that was on purpose: just test render-update, and commit the new hash"
+            exit 1
+          fi
+          echo "PASS: pixel-identical to the golden hash ($GOT)"
+
       # Formatting first: it is instant, and an unformatted file makes every
       # other diff in the pull request unreadable.
       - name: Everything we own is formatted
@@ -194,7 +232,7 @@ jobs:
           # HeaderFilterRegex in .clang-tidy decides which it reports on. The
           # *_impl.cpp pair exists to compile a vendored header once, and its
           # warnings are not ours to fix.
-          mapfile -t FILES < <(find src tests -name '*.cpp' | grep -v _impl | sort)
+          mapfile -t FILES < <(find src tests -name '*.cpp' | grep -v _impl | grep -v unit_test | sort)
           clang-tidy -p build --quiet --warnings-as-errors='*' "${FILES[@]}"
           echo "PASS: clang-tidy clean"
 

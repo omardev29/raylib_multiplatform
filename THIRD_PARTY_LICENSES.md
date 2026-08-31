@@ -32,3 +32,13 @@ directory (linked where present).
   attribution (upstream: https://github.com/google/angle/blob/main/LICENSE).
 - The **template's own code** (`src/`, `include/`, `tools/`, `cmake/`, `ios/`,
   build files) is under the root `LICENSE` (MIT).
+
+## doctest
+
+`thirdparty/doctest/` — <https://github.com/doctest/doctest>
+
+MIT licence. Copyright (c) 2016-2023 Viktor Kirilov. The full text is in
+`thirdparty/doctest/LICENSE`.
+
+Test-only: it is compiled into `unit_test`, which is never shipped, and it is
+absent from every release artefact.

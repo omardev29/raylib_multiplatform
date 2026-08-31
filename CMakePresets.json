@@ -40,6 +40,17 @@
                 "PRODUCTION_BUILD": "ON",
                 "PLATFORM": "Web"
             }
+        },
+        {
+            "name": "memory",
+            "displayName": "Software render (no GPU, no window)",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build/memory",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "PRODUCTION_BUILD": "OFF",
+                "PLATFORM": "Memory"
+            }
         }
     ],
     "buildPresets": [
@@ -54,6 +65,10 @@
         {
             "name": "web",
             "configurePreset": "web"
+        },
+        {
+            "name": "memory",
+            "configurePreset": "memory"
         }
     ]
 }
