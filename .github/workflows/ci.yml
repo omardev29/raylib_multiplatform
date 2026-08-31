@@ -213,6 +213,14 @@ jobs:
       # SOMETHING was drawn, this one proves the same thing was drawn.
       #
       # It needs none of the X11 packages installed above, which is the point.
+      #
+      # WHY IT LIVES IN THE LINT JOB, which is a fair thing to ask: this job is
+      # in the FAST LANE, so the golden hash is checked on every push instead of
+      # only on the twenty-minute matrix. A pixel-identity gate that runs twice
+      # a week is not a gate. The oddity was that it was the ONLY place software
+      # rendering was used at all — the five BSDs and macOS now run it too, in
+      # their own jobs, which is where it earns the most: those targets used to
+      # prove only that they compile.
       - name: Render (software, no GPU)
         run: |
           set -euo pipefail

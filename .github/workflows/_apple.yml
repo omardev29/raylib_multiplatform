@@ -134,6 +134,43 @@ jobs:
           lipo -info "$BIN" | grep -q "x86_64" || { echo "FAIL: no x86_64 slice"; exit 1; }
           echo "PASS: universal Mach-O (arm64 + x86_64)"
 
+      # macOS shipped for years proving only that it COMPILES, which is the
+      # weaker half of what CI is for: the segfault-at-shutdown from phase 3
+      # compiled cleanly on all fourteen targets and was caught by a runtime
+      # test that only Linux had.
+      #
+      # PLATFORM=Memory is what makes running possible here without a display:
+      # raylib 6.0's software renderer rasterises into a plain buffer, so there
+      # is no GPU, no window and no window server to be logged into. It is a
+      # second build of raylib and it is the cheapest runtime coverage this job
+      # can have.
+      #
+      # Single-slice on purpose: this one is never shipped, it is run, and
+      # building both architectures to execute one of them is a minute for
+      # nothing.
+      - name: Test (runtime) — boot and render with no GPU
+        run: |
+          set -euo pipefail
+          cmake -B build/memory -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+                -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory
+          cmake --build build/memory
+          BIN="build/memory/${{ inputs.project_name }}"
+          test -x "$BIN" || { echo "FALLA: $BIN not built"; exit 1; }
+
+          OUT=$(RAY_TEST_MAX_FRAMES=10 "$BIN" 2>&1) || true
+          echo "$OUT" | tail -20
+          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK"    || { echo "FALLA: did not boot"; exit 1; }
+          echo "$OUT" | grep -q "RAY_TEST_RENDER_OK"  || { echo "FALLA: drew nothing"; exit 1; }
+          echo "$OUT" | grep -q "RAY_TEST_DONE_FRAMES" || {
+            echo "FALLA: did not survive to the end of the frame budget"; exit 1; }
+
+          # Printed, not compared — yet. See the same note in _bsd.yml: software
+          # rendering is identical across operating systems, and whether it is
+          # identical across instruction sets is what these runs are here to
+          # answer before the hash becomes an assertion.
+          echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 | sed 's/^/  software-render /'
+          echo "PASS: booted, rendered and exited under software rendering"
+
       - name: Package
         run: |
           mkdir -p package/resources

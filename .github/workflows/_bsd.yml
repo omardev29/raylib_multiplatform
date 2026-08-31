@@ -125,6 +125,49 @@ jobs:
           [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
           echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
 
+          # --- and now RUN it -------------------------------------------------
+          #
+          # These five targets used to prove only that they COMPILE, which is a
+          # much weaker claim than it sounds. The segfault at shutdown in phase
+          # 3 — releasing GPU handles after CloseWindow() — compiled perfectly
+          # on all fourteen and was caught by a runtime test on Linux. Nothing
+          # here would have noticed.
+          #
+          # raylib 6.0's software renderer is what makes running possible at
+          # all: PLATFORM=Memory rasterises into a plain buffer, so there is no
+          # GPU, no window, no display server and nothing to install in a VM
+          # that has none of those. It is a second build of raylib, and that is
+          # what it costs — worth it for the difference between "it linked" and
+          # "it started, drew a frame, and shut down cleanly".
+          echo "== software render (PLATFORM=Memory) =="
+          rm -rf build-memory
+          cmake -B build-memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
+                -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory $EXTRA_CMAKE
+          cmake --build build-memory
+          MEM_BIN=build-memory/${{ inputs.project_name }}
+          test -x "$MEM_BIN" || { echo "FAIL: $MEM_BIN not built"; exit 1; }
+
+          OUT=$(RAY_TEST_MAX_FRAMES=10 "./$MEM_BIN" 2>&1) || true
+          echo "$OUT" | tail -20
+          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK" || {
+            echo "FALLA: it did not boot"; exit 1; }
+          echo "$OUT" | grep -q "RAY_TEST_RENDER_OK" || {
+            echo "FALLA: it booted but drew nothing"; exit 1; }
+          echo "$OUT" | grep -q "RAY_TEST_DONE_FRAMES" || {
+            echo "FALLA: it did not reach the end of its frame budget — check for a"
+            echo "       crash on the way out, which is exactly what this catches"; exit 1; }
+
+          # The hash is PRINTED and not yet compared. Software rendering gives
+          # the same pixels on every OS because there is no driver in between —
+          # but "every OS" and "every instruction set" are different claims, and
+          # floating-point contraction can differ between x86-64 and arm64. So
+          # this run is what tells us whether one golden hash covers all of
+          # them or whether it needs to be per-architecture. Pinned once the
+          # answer is in; until then, three assertions above are the gate.
+          echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 \
+            | sed 's/^/  software-render /'
+          echo "PASS: booted, rendered and exited under software rendering"
+
       # The cpa.sh shell syncs the VM filesystem back to the runner after each
       # step, so build/ is available here. This step runs on the RUNNER (shell:
       # bash overrides the job's cpa.sh default) to package + upload the artifact.
