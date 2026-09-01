@@ -157,15 +157,19 @@ jobs:
             echo "FALLA: it did not reach the end of its frame budget -- check for a"
             echo "       crash on the way out, which is exactly what this catches"; exit 1; }
 
-          # The hash is PRINTED and not yet compared. Software rendering gives
-          # the same pixels on every OS because there is no driver in between --
-          # but "every OS" and "every instruction set" are different claims, and
-          # floating-point contraction can differ between x86-64 and arm64. So
-          # this run is what tells us whether one golden hash covers all of
-          # them or whether it needs to be per-architecture. Pinned once the
-          # answer is in; until then, three assertions above are the gate.
-          HASH=$(echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1)
-          echo "  software-render $HASH"
+          # AND IT IS THE SAME PIXELS. This was printed and not compared until a
+          # run answered the open question: Linux x86-64 and macos-26, which is
+          # Apple Silicon, produce byte-identical frames. So one golden hash
+          # covers every operating system AND both instruction sets, and there
+          # is no driver in between to make it otherwise.
+          GOT=$(echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
+          WANT=$(cat tests/fixtures/render_hash.txt)
+          echo "  software-render hash=$GOT (want $WANT)"
+          if [ "$GOT" != "$WANT" ]; then
+            echo "FALLA: the frame differs from the golden hash."
+            echo "       If the change was intended: just test render-update"
+            exit 1
+          fi
           echo "PASS: booted, rendered and exited under software rendering"
 
       # The cpa.sh shell syncs the VM filesystem back to the runner after each
