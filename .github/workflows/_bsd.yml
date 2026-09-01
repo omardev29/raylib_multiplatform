@@ -140,49 +140,40 @@ jobs:
           # what it costs -- worth it for the difference between "it linked" and
           # "it started, drew a frame, and shut down cleanly".
           echo "== software render (PLATFORM=Memory) =="
+          # Written in the plainest sh there is, on purpose. The BSD /bin/sh is
+          # ash and the script arrives through cpa.sh, and a multi-line
+          # `|| { ...; }` compound in here died with "Unterminated quoted
+          # string" AFTER the game had already run to completion. The block
+          # above it, which has worked for months, uses nothing but single-line
+          # commands -- so this one does too. Output goes to a file rather than
+          # a variable for the same reason: fewer things to re-parse.
           rm -rf build-memory
           cmake -B build-memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
                 -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory $EXTRA_CMAKE
           cmake --build build-memory
           MEM_BIN=build-memory/${{ inputs.project_name }}
-          test -x "$MEM_BIN" || { echo "FAIL: $MEM_BIN not built"; exit 1; }
+          test -x "$MEM_BIN" || { echo "FALLA: $MEM_BIN not built"; exit 1; }
 
-          OUT=$(RAY_TEST_MAX_FRAMES=10 "./$MEM_BIN" 2>&1) || true
-          echo "$OUT" | tail -20
-          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK" || {
-            echo "FALLA: it did not boot"; exit 1; }
-          echo "$OUT" | grep -q "RAY_TEST_RENDER_OK" || {
-            echo "FALLA: it booted but drew nothing"; exit 1; }
-          echo "$OUT" | grep -q "RAY_TEST_DONE_FRAMES" || {
-            echo "FALLA: it did not reach the end of its frame budget -- check for a"
-            echo "       crash on the way out, which is exactly what this catches"; exit 1; }
+          RAY_TEST_MAX_FRAMES=10 "./$MEM_BIN" > memtest.log 2>&1 || true
+          tail -25 memtest.log
 
-          # AND IT IS THE SAME PIXELS. This was printed and not compared until a
-          # run answered the open question: Linux x86-64 and macos-26, which is
-          # Apple Silicon, produce byte-identical frames. So one golden hash
-          # covers every operating system AND both instruction sets, and there
-          # is no driver in between to make it otherwise.
-          GOT=$(echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
+          # Three assertions, not one. The third is the one that would have
+          # caught the segfault-at-shutdown from phase 3: a process that dies on
+          # the way out never prints RAY_TEST_DONE_FRAMES.
+          grep -q "RAY_TEST_BOOT_OK" memtest.log || { echo "FALLA: it did not boot"; exit 1; }
+          grep -q "RAY_TEST_RENDER_OK" memtest.log || { echo "FALLA: it drew nothing"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" memtest.log || { echo "FALLA: it died before the end of its frame budget"; exit 1; }
+
+          # And the same pixels. Linux x86-64 and macos-26 (Apple Silicon) both
+          # produce this frame byte for byte, so one golden hash covers every OS
+          # and both instruction sets -- there is no driver in between to differ.
+          GOT=$(grep -o "hash=[0-9a-f]*" memtest.log | head -1 | cut -d= -f2)
           WANT=$(cat tests/fixtures/render_hash.txt)
-          echo "  software-render hash=$GOT (want $WANT)"
-          if [ "$GOT" != "$WANT" ]; then
-            echo "FALLA: the frame differs from the golden hash."
-            echo "       If the change was intended: just test render-update"
-            exit 1
-          fi
+          echo "  software-render hash=$GOT want=$WANT"
+          test "$GOT" = "$WANT" || { echo "FALLA: the frame changed. If on purpose: just test render-update"; exit 1; }
           echo "PASS: booted, rendered and exited under software rendering"
 
-          # The last thing the VM script does, and the next step checks for it.
-          #
-          # WHY: openbsd-x64 reported SUCCESS while running none of this. The
-          # script died on a syntax error a few lines up -- and where FreeBSD
-          # and NetBSD exited non-zero, the sh on OpenBSD exited 0, so the job
-          # went green having printed one echo and stopped. A step that can end
-          # early and still pass is worse than one that fails: the failure is
-          # loud and this was silent.
-          #
-          # Nothing inside the script can catch its own early exit, so the proof
-          # has to be something that only exists if the end was reached.
+          # Last line, checked by the next step. See the note there.
           echo "reached-the-end" > build-memory/.rmp-bsd-complete
 
       # The VM script has to have run all the way to its last line. See the note

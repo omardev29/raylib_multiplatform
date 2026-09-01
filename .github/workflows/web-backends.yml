@@ -61,9 +61,6 @@ jobs:
           - backend: emscripten
             expect_define: PLATFORM_WEB_EMSCRIPTEN
             expect_glfw: 'no'
-          - backend: rgfw
-            expect_define: PLATFORM_WEB_RGFW
-            expect_glfw: 'no'
     steps:
       - name: Build image manifest
         run: cat /etc/raylib-build-image.json
@@ -197,7 +194,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [glfw, emscripten, rgfw]
+        backend: [glfw, emscripten]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

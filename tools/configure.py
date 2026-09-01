@@ -492,7 +492,20 @@ WINDOWS_BACKENDS = {"glfw", "win32", "rgfw"}
 # and here glfw / emscripten / rgfw. Emscripten is the compiler either way — the
 # question this answers is whether raylib calls GLFW (which Emscripten emulates
 # in JavaScript) or calls the browser through Emscripten's own API.
-WEB_BACKENDS = {"glfw", "emscripten", "rgfw"}
+WEB_BACKENDS = {"glfw", "emscripten"}
+
+# Recognised so the error can explain, rather than saying "unknown backend" to
+# somebody who read raylib's source and found a third one.
+WEB_REFUSED = {
+    "rgfw": "RGFW's web backend calls emscripten_sleep, which needs -sASYNCIFY. "
+            "This framework deliberately has no ASYNCIFY: it hands the frame loop to "
+            "emscripten_set_main_loop instead, and the measurement behind that decision "
+            "is +26 % .wasm and +18 % download. Turning it on for one backend would put "
+            "that cost on the build.\n"
+            "It BUILDS without it and then dies in the browser with \"Please compile your "
+            "program with async support\" — which is how this was found: the boot test in "
+            ".github/workflows/web-backends.yml opened it in Chromium.",
+}
 LINUX_BACKENDS = {"glfw", "rgfw"}
 def on_windows() -> bool:
     """Is this a Windows machine, whatever shell you are standing in?
@@ -564,6 +577,16 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "module can address at all.")
     if not isinstance(cfg["web"]["grow"], bool):
         raise ConfigError("[web] grow has to be true or false")
+    # isinstance first, and the reason is one line up in this file's history:
+    # `x in some_dict` raises TypeError on an unhashable value exactly the way
+    # `x in some_set` does, and backend = ["glfw"] is a typo a TOML can hold.
+    # ConfigureMembershipTest caught this within a minute of it being written,
+    # which is the entire point of that class.
+    if isinstance(cfg["web"]["backend"], str) and cfg["web"]["backend"] in WEB_REFUSED:
+        raise ConfigError(
+            f"[web] backend = {cfg['web']['backend']!r} cannot work here.\n"
+            f"{WEB_REFUSED[cfg['web']['backend']]}\n"
+            f"Use one of {', '.join(sorted(WEB_BACKENDS))}.")
     one_of(cfg["web"]["backend"], WEB_BACKENDS, "[web] backend",
            "It names what raylib talks to, not what compiles the code — Emscripten "
            "compiles it either way.")

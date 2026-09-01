@@ -852,8 +852,8 @@ class ConfigureWebBackendTest(unittest.TestCase):
     def web(self, **overrides):
         return base_config(web=dict(copy.deepcopy(cfgmod.DEFAULTS["web"]), **overrides))
 
-    def test_the_three_backends_are_accepted(self):
-        for backend in ("glfw", "emscripten", "rgfw"):
+    def test_the_backends_that_work_are_accepted(self):
+        for backend in ("glfw", "emscripten"):
             with self.subTest(backend=backend), quiet():
                 cfgmod.validate(self.web(backend=backend), False)
 
@@ -866,7 +866,7 @@ class ConfigureWebBackendTest(unittest.TestCase):
         with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
             cfgmod.validate(self.web(backend="webgpu"), False)
         message = str(caught.exception)
-        for backend in ("glfw", "emscripten", "rgfw"):
+        for backend in ("glfw", "emscripten"):
             self.assertIn(backend, message)
 
     def test_the_error_says_what_the_choice_is_not(self):
@@ -882,10 +882,20 @@ class ConfigureWebBackendTest(unittest.TestCase):
         with self.assertRaises(cfgmod.ConfigError), quiet():
             cfgmod.validate(self.web(backend="win32"), False)
 
+    def test_rgfw_is_refused_with_the_reason_and_not_as_unknown(self):
+        """It is a real raylib backend and it compiles, so "unknown backend"
+        would send somebody to check their spelling. It dies in the browser
+        because it needs ASYNCIFY, which this framework does not have."""
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(self.web(backend="rgfw"), False)
+        message = str(caught.exception)
+        self.assertIn("ASYNCIFY", message)
+        self.assertIn("emscripten_sleep", message)
+
     def test_it_reaches_the_generated_cmake(self):
         """The whole path, not just the check: a backend nobody writes out is a
         backend the build never hears about."""
-        for backend in ("glfw", "emscripten", "rgfw"):
+        for backend in ("glfw", "emscripten"):
             with self.subTest(backend=backend):
                 cfg = self.web(backend=backend)
                 self.assertEqual(cfg["web"]["backend"], backend)
@@ -1133,7 +1143,6 @@ class ConfigurePlatformValuesTest(unittest.TestCase):
             ("windows", "rgfw"): "RGFW",
             ("linux", "rgfw"): "RGFW",
             ("web", "emscripten"): "WebEmscripten",
-            ("web", "rgfw"): "WebRGFW",
         }
         for (section, backend), platform in expected.items():
             with self.subTest(option=f"[{section}] backend = {backend}"):
