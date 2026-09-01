@@ -24,7 +24,13 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # step declares the OS it runs on, so GNU flags in a Linux job are correct.
 # This file is excluded: its rules necessarily CONTAIN the patterns they look
 # for, and a checker that fails on its own definitions is a checker nobody keeps.
-FILES=$(find tools Justfile -type f 2>/dev/null | grep -v 'portable_check.sh' | sort)
+# tools/ and the Justfile are what a developer runs. _bsd.yml and _apple.yml are
+# in here for the same reason from the other end: their steps execute ON a BSD
+# and ON a Mac, so a GNU-only flag there fails on the runner rather than on
+# somebody's laptop. Every other workflow declares a Linux runner and is
+# entitled to GNU everything.
+FILES=$(find tools Justfile .github/workflows/_bsd.yml .github/workflows/_apple.yml \
+             -type f 2>/dev/null | grep -v 'portable_check.sh' | sort)
 
 # Each rule is: a pattern, and what to do instead. The second half is the point
 # — "do not use mapfile" without "use a while-read loop" is a rule people work
