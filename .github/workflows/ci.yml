@@ -319,6 +319,14 @@ jobs:
       - name: Generate configuration
         run: python3 tools/configure.py
 
+      # Before compiling them, because -fsyntax-only cannot see the mistake
+      # this catches: three examples kept a hand-written main() with a
+      # `while (!WindowShouldClose())` loop long after the entry point macros
+      # replaced it. That loop compiles. It just does not work on Web, where
+      # the browser owns the frame loop, or on iOS, which never calls main().
+      - name: Every example uses the framework's entry point
+        run: bash tools/examples_check.sh
+
       - name: Compile every example
         run: |
           set -euo pipefail

@@ -22,6 +22,7 @@
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
+#include <rmp/app.h> // RMP_ENTRY_POINT
 #ifdef __ANDROID__
 #include <raymob.h>
 #endif
@@ -36,7 +37,8 @@ static void on_ready() {
 #endif
 }
 
-static void on_frame() {
+static void on_frame(float delta) {
+    (void)delta;
 #ifdef __ANDROID__
     // Haptics: vibrate for 50 ms whenever the screen is tapped.
     if (IsKeyPressed(KEY_BACK) || IsGestureDetected(GESTURE_TAP)) VibrateMS(50);
@@ -74,9 +76,4 @@ static void on_exit() {
     CloseWindow();
 }
 
-int main() {
-    on_ready();
-    while (!WindowShouldClose()) on_frame();
-    on_exit();
-    return 0;
-}
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);

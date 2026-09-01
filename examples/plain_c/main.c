@@ -1,25 +1,22 @@
 // ===========================================================================
 // examples/plain_c/main.c — the template with none of the template.
 //
-// Plain C, one include, your own main(). No <rmp/...>, no
-// assets::, no lifecycle macros. What you keep is everything the template does
-// *around* your code, which is the part that is hard to reproduce: fourteen
+// Plain C, one include, your own main(). No <rmp/...>, no rmp::assets, no
+// scenes, no entry-point macro. What you keep is everything the framework does
+// *around* your code, which is the part that is hard to reproduce: sixteen
 // build targets, the pinned toolchains, the icons and identifiers generated
 // from raylib_multiplatform.toml, the release pipeline.
 //
 // To use it:
 //
-//     rm -r src/main.cpp src/rmp/   # yes, both
+//     rm src/main.cpp && rm -r src/rmp/ src/scenes/   # yes, all of them
 //     cp examples/plain_c/main.c src/
 //     cmake --preset debug && cmake --build build
 //
 // src/ is globbed by all four build systems (CMake, the Android CMakeLists,
-// XcodeGen, Emscripten), so nothing else needs editing. Delete
-// src/rmp/ too or you will link two main()s — it does not
-// define one itself, but it is the other half of a header you are no longer
-// using, and it drags rres in for nothing. include/rmp/ and
-// include/rmp/ can go with it; nothing includes them once
-// src/main.cpp is gone.
+// XcodeGen, Emscripten), so nothing else needs editing. src/rmp/ has to go or
+// you link two main()s -- src/main.cpp is where RMP_GAME puts one -- and
+// include/rmp/ can go with it once nothing includes it.
 //
 // What you give up, and what replaces it:
 //
@@ -27,8 +24,8 @@
 //   the resource pack      ->  gone. Loose files only. Do not run the
 //                              pack_resources target; a release built with a
 //                              pack ships resources.rres and nothing else, and
-//                              raw raylib cannot read it. (That is what
-//                              src/rmp/ was teaching it.)
+//                              raw raylib cannot read it. (Reading it is what
+//                              src/rmp/loader_hook.cpp was doing for you.)
 //   APP_WINDOW_TITLE, ...  ->  #include <rmp/config.h>
 //                              if you want them; they are plain #defines and
 //                              work in C. Keeping that one generated header
@@ -36,12 +33,22 @@
 //   the smoke-test hooks   ->  see below. CI checks for those two log lines and
 //                              fails the build without them.
 //
-// PLATFORM NOTE: iOS does not call main(). Its run loop belongs to UIKit and
-// raylib's iOS backend calls ios_ready/ios_update/ios_destroy instead, which is
-// what RMP_ENTRY_POINT exists to paper over. If you need
-// iOS, either keep the template's entry point or write those three yourself.
-// Everything else — Linux, Windows, macOS, the BSDs, Web, Android — runs this
-// file as it stands.
+// TWO PLATFORMS DO NOT RUN THIS FILE AS IT STANDS, and both for the same
+// reason: the `while` loop below assumes your code owns the frame loop, and on
+// those two it does not.
+//
+//   iOS   does not call main() at all. The run loop belongs to UIKit, and
+//         raylib's iOS backend calls ios_ready/ios_update/ios_destroy.
+//   Web   has no loop either: the browser calls you back, through
+//         emscripten_set_main_loop(). A `while` loop there freezes the tab
+//         unless the whole binary is built with -s ASYNCIFY, which is a real
+//         cost in size and speed and which this project does not pay.
+//
+// Papering over exactly that is what RMP_ENTRY_POINT is for -- it writes the
+// right loop for each of the sixteen targets and calls the same three hooks. So
+// if you want iOS or Web, either keep the framework's entry point (which is one
+// include and one line, and costs you nothing else) or write those two runners
+// yourself. Linux, Windows, macOS, the BSDs and Android run this as it is.
 // ===========================================================================
 
 #include <raylib.h>

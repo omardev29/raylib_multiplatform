@@ -51,14 +51,13 @@ what is ours.
 
 | | |
 |---|---|
-| [01_lifecycle.cpp](platform/01_lifecycle.cpp) | `on_ready()` / `on_frame()` / `on_exit()`, the shape every game built on this has, on all fourteen targets including iOS. |
 | [02_mobile_raymob.cpp](platform/02_mobile_raymob.cpp) | The raymob mobile API: vibration, soft keyboard, sensors, orientation, app storage. Android only. |
 
 ## [`plain_c/`](plain_c)
 
 | | |
 |---|---|
-| [main.c](plain_c/main.c) | **The opt-out.** A C entry point that includes only `<raylib.h>`: none of our headers, none of `rmp::`, your own `main()`. You keep the fourteen build targets and lose the runtime layer. |
+| [main.c](plain_c/main.c) | **The opt-out.** A C entry point that includes only `<raylib.h>`: none of our headers, none of `rmp::`, your own `main()`. You keep fourteen of the sixteen build targets and lose the runtime layer — iOS and Web are the two you give up, because on those the loop is not yours to write, and the file says so. |
 
 ## Notes
 

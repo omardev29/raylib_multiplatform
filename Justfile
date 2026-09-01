@@ -165,6 +165,10 @@ test what="all": (_reconfigure "Debug")
     set -euo pipefail
     run_examples() {
         echo "== examples =="
+        # Shape before syntax: the compiler is happy with an example that
+        # teaches a pattern which does not work on Web or iOS, and three of
+        # them did for months. See tools/examples_check.sh.
+        bash tools/examples_check.sh
         # The examples include <rmp/app.h>, which pulls in the generated
         # rmp/config.h. After `just clean` that file does not exist
         # yet, and every example would fail for a reason that has nothing to do

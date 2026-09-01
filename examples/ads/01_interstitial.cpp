@@ -29,8 +29,9 @@
 // This file is REFERENCE ONLY (not compiled by the build). See README.md.
 // ---------------------------------------------------------------------------
 
-#include <raylib.h> // this example writes its own main(), so it needs raylib
-#include <rmp/ads.h> // rmp::ads, and nothing else from the framework
+#include <raylib.h>
+#include <rmp/ads.h> // rmp::ads
+#include <rmp/app.h> // RMP_ENTRY_POINT
 
 static int lastReward = 0;
 
@@ -43,7 +44,8 @@ static void on_ready() {
     rmp::ads::request_rewarded();
 }
 
-static void on_frame() {
+static void on_frame(float delta) {
+    (void)delta;
     // Show an interstitial when it is loaded (here: on SPACE).
     if (IsKeyPressed(KEY_SPACE) && rmp::ads::is_interstitial_loaded()) {
         rmp::ads::show_interstitial();
@@ -74,9 +76,4 @@ static void on_frame() {
 
 static void on_exit() { CloseWindow(); }
 
-int main() {
-    on_ready();
-    while (!WindowShouldClose()) on_frame();
-    on_exit();
-    return 0;
-}
+RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
