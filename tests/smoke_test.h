@@ -21,6 +21,7 @@
 //
 // Markers emitted (the CI greps for these):
 //   RAY_TEST_BOOT_OK      — the game booted and loaded its assets
+//   RAY_TEST_BOOT_FAIL    — InitWindow() never got a window; nothing else ran
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content
 //   RAY_TEST_RENDER_FAIL  — the frame was blank; something stopped drawing
 //   RAY_TEST_DONE_FRAMES  — the frame budget was rendered, exiting cleanly
@@ -34,7 +35,7 @@
 #ifndef SMOKE_TEST_H
 #define SMOKE_TEST_H
 
-#include <raylib.h> // TraceLog, LOG_INFO, LoadImageFromScreen
+#include <raylib.h> // TraceLog, IsWindowReady, LoadImageFromScreen
 #include <rlgl.h> // rlDrawRenderBatchActive (declaration only)
 #include <stdlib.h> // getenv, atoi
 
@@ -64,6 +65,20 @@ static inline void SmokeTest_Begin(void) {
 // with no resources/ in it, and every texture came back 0x0) without inventing
 // one nobody asked for: request nothing, fail nothing, pass.
 static inline void SmokeTest_ReportBoot(int assetsFailed, int assetsRequested) {
+    // IsWindowReady() first, and this was found the hard way: on the DRM job,
+    // raylib printed "Failed to initialize EGL device" and then "Failed to
+    // initialize platform", and this function printed RAY_TEST_BOOT_OK anyway
+    // -- because it only ever logged. There was no window at all, and the
+    // marker that CI greps for said the game had booted.
+    //
+    // A marker that cannot say no is not a gate. This one can.
+    if (!IsWindowReady()) {
+        TraceLog(LOG_ERROR,
+                 "RAY_TEST_BOOT_FAIL no window: InitWindow() did not "
+                 "initialise the platform. Look further up for the reason "
+                 "-- it is raylib's last WARNING before this line.");
+        return;
+    }
     TraceLog(LOG_INFO,
              "RAY_TEST_BOOT_OK assets_failed=%d assets_requested=%d testFrames=%d",
              assetsFailed, assetsRequested, SmokeTest_maxFrames);

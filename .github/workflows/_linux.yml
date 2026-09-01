@@ -565,10 +565,15 @@ jobs:
           # mountpoint inside a read-only rootfs and podman can, so the nested
           # form passes on a laptop and dies here.
           cp -r resources drm-bin/resources
+          # What the container actually sees. vkms has a card node and no
+          # render node, which is the first thing to suspect when EGL says no.
+          docker run --rm --device /dev/dri --entrypoint ls \
+            "${{ inputs.build_image }}" -la /dev/dri || true
           OUT=$(docker run --rm --device /dev/dri \
             -v "$PWD/drm-bin:/app:ro" \
             -w /app -e RAY_TEST_MAX_FRAMES=10 \
-            -e MESA_LOADER_DRIVER_OVERRIDE=kms_swrast \
+            -e LIBGL_ALWAYS_SOFTWARE=1 \
+            -e EGL_LOG_LEVEL=debug \
             "${{ inputs.build_image }}" \
             "./${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -30
