@@ -148,40 +148,15 @@ jobs:
       # Single-slice on purpose: this one is never shipped, it is run, and
       # building both architectures to execute one of them is a minute for
       # nothing.
+      # macOS shipped for years proving only that it COMPILES, which is the
+      # weaker half of what CI is for: the segfault-at-shutdown from phase 3
+      # compiled cleanly on all fourteen targets and was caught by a runtime
+      # test that only Linux had.
+      #
+      # The same tools/render_check.sh the five BSD jobs use, and the same one
+      # that runs on a laptop. One script, three places, one behaviour.
       - name: Test (runtime) -- boot and render with no GPU
-        run: |
-          set -euo pipefail
-          cmake -B build/memory -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-                -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory
-          cmake --build build/memory
-          BIN="build/memory/${{ inputs.project_name }}"
-          test -x "$BIN" || { echo "FALLA: $BIN not built"; exit 1; }
-
-          OUT=$(RAY_TEST_MAX_FRAMES=10 "$BIN" 2>&1) || true
-          echo "$OUT" | tail -20
-          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK"    || { echo "FALLA: did not boot"; exit 1; }
-          echo "$OUT" | grep -q "RAY_TEST_RENDER_OK"  || { echo "FALLA: drew nothing"; exit 1; }
-          echo "$OUT" | grep -q "RAY_TEST_DONE_FRAMES" || {
-            echo "FALLA: did not survive to the end of the frame budget"; exit 1; }
-
-          # AND IT IS THE SAME PIXELS. This was printed and not compared until a
-          # run answered the open question: Linux x86-64 and this machine --
-          # macos-26, which is Apple Silicon -- produce byte-identical frames.
-          # So the hash holds across the operating system AND across the
-          # instruction set, and it is an assertion rather than a note.
-          #
-          # There is no driver in between to differ, which is the whole reason
-          # software rendering earns this. A mismatch here means the drawing
-          # changed, not that the machine did.
-          GOT=$(echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
-          WANT=$(cat tests/fixtures/render_hash.txt)
-          echo "  software-render hash=$GOT (want $WANT)"
-          if [ "$GOT" != "$WANT" ]; then
-            echo "FALLA: the frame differs from the golden hash."
-            echo "       If the change was intended: just test render-update"
-            exit 1
-          fi
-          echo "PASS: booted, rendered and exited under software rendering"
+        run: sh tools/render_check.sh Ninja "" "${{ inputs.project_name }}"
 
       - name: Package
         run: |

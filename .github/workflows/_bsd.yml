@@ -139,46 +139,11 @@ jobs:
           # that has none of those. It is a second build of raylib, and that is
           # what it costs -- worth it for the difference between "it linked" and
           # "it started, drew a frame, and shut down cleanly".
-          echo "== software render (PLATFORM=Memory) =="
-          # Written in the plainest sh there is, on purpose, and the reason is
-          # honest rather than diagnosed: an earlier version of this block died
-          # with "Unterminated quoted string" AFTER the game had already run to
-          # completion -- and checking that script with a POSIX shell says it is
-          # perfectly valid. So the mangling happens on the way into the VM,
-          # somewhere in cpa.sh, and the two things this version differs in are
-          # the two candidates: no multi-line compounds, and the output goes to
-          # a file instead of a shell variable. The block above, which has
-          # worked for months, has neither.
-          #
-          # If it breaks again, the next thing to try is fewer quotes -- not a
-          # better theory about ash.
-          rm -rf build-memory
-          cmake -B build-memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
-                -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory $EXTRA_CMAKE
-          cmake --build build-memory
-          MEM_BIN=build-memory/${{ inputs.project_name }}
-          test -x "$MEM_BIN" || { echo "FALLA: $MEM_BIN not built"; exit 1; }
+          # Boot it under raylib's software renderer. In a file because THIS
+          # script has a size limit on its way into the VM -- see the note at
+          # the top of tools/render_check.sh, which cost two CI rounds.
+          sh tools/render_check.sh "$GENERATOR" "$EXTRA_CMAKE" "${{ inputs.project_name }}"
 
-          RAY_TEST_MAX_FRAMES=10 "./$MEM_BIN" > memtest.log 2>&1 || true
-          tail -25 memtest.log
-
-          # Three assertions, not one. The third is the one that would have
-          # caught the segfault-at-shutdown from phase 3: a process that dies on
-          # the way out never prints RAY_TEST_DONE_FRAMES.
-          grep -q "RAY_TEST_BOOT_OK" memtest.log || { echo "FALLA: it did not boot"; exit 1; }
-          grep -q "RAY_TEST_RENDER_OK" memtest.log || { echo "FALLA: it drew nothing"; exit 1; }
-          grep -q "RAY_TEST_DONE_FRAMES" memtest.log || { echo "FALLA: it died before the end of its frame budget"; exit 1; }
-
-          # And the same pixels. Linux x86-64 and macos-26 (Apple Silicon) both
-          # produce this frame byte for byte, so one golden hash covers every OS
-          # and both instruction sets -- there is no driver in between to differ.
-          GOT=$(grep -o "hash=[0-9a-f]*" memtest.log | head -1 | cut -d= -f2)
-          WANT=$(cat tests/fixtures/render_hash.txt)
-          echo "  software-render hash=$GOT want=$WANT"
-          test "$GOT" = "$WANT" || { echo "FALLA: the frame changed. If on purpose: just test render-update"; exit 1; }
-          echo "PASS: booted, rendered and exited under software rendering"
-
-          # Last line, checked by the next step. See the note there.
           echo "reached-the-end" > build-memory/.rmp-bsd-complete
 
       # The VM script has to have run all the way to its last line. See the note

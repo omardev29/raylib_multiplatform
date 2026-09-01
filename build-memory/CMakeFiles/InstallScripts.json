@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/omarch/Projects/project_raylib/raylib_multiplatform/build-memory/cmake_install.cmake",
+		"/home/omarch/Projects/project_raylib/raylib_multiplatform/build-memory/thirdparty/raylib/cmake_install.cmake",
+		"/home/omarch/Projects/project_raylib/raylib_multiplatform/build-memory/thirdparty/raylib/raylib/cmake_install.cmake",
+		"/home/omarch/Projects/project_raylib/raylib_multiplatform/build-memory/thirdparty/raymob/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
