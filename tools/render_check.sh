@@ -49,24 +49,27 @@ cmake -B build/memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build/memory
 
 BIN="build/memory/$NAME"
+# Inside the build tree, which is already ignored: written at the repository
+# root it got committed once, and a log is not a source file.
+LOG="build/memory/render.log"
 test -x "$BIN" || { echo "FALLA: $BIN was not built"; exit 1; }
 
-RAY_TEST_MAX_FRAMES=10 "./$BIN" > memtest.log 2>&1 || true
-tail -25 memtest.log
+RAY_TEST_MAX_FRAMES=10 "./$BIN" > "$LOG" 2>&1 || true
+tail -25 "$LOG"
 
 # Three assertions, not one. The third is the one that would have caught the
 # segfault-at-shutdown from phase 3: a process that dies on the way out never
 # prints RAY_TEST_DONE_FRAMES, and until this existed nothing on these targets
 # would have noticed.
-grep -q "RAY_TEST_BOOT_OK" memtest.log || { echo "FALLA: it did not boot"; exit 1; }
-grep -q "RAY_TEST_RENDER_OK" memtest.log || { echo "FALLA: it drew nothing"; exit 1; }
-grep -q "RAY_TEST_DONE_FRAMES" memtest.log || {
+grep -q "RAY_TEST_BOOT_OK" "$LOG" || { echo "FALLA: it did not boot"; exit 1; }
+grep -q "RAY_TEST_RENDER_OK" "$LOG" || { echo "FALLA: it drew nothing"; exit 1; }
+grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
     echo "FALLA: it died before the end of its frame budget"; exit 1; }
 
 # And the same pixels. Linux x86-64 and macos-26 (Apple Silicon) both produce
 # this frame byte for byte, so one golden hash covers every operating system and
 # both instruction sets -- there is no driver in between to differ.
-GOT=$(grep -o "hash=[0-9a-f]*" memtest.log | head -1 | cut -d= -f2)
+GOT=$(grep -o "hash=[0-9a-f]*" "$LOG" | head -1 | cut -d= -f2)
 
 if [ "$MODE" = "update" ]; then
     mkdir -p "$(dirname "$GOLDEN")"

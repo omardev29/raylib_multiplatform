@@ -42,3 +42,10 @@ __pycache__/
 # The pinned zig toolchain, downloaded by tools/linux_build.sh when
 # [linux] glibc asks for an older glibc than this machine has.
 .zig-*/
+
+# Working files of tools/render_check.sh. `build-memory/` was an older name for
+# its build directory and 78 of its files were committed by a `git add -A`
+# before anyone noticed; the log lands inside the build tree now, and
+# tools/repo_check.sh fails if generated files are ever tracked again.
+build-memory/
+*.log

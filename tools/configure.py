@@ -189,16 +189,30 @@ TARGETS: dict[str, tuple[str, str]] = {
     "openbsd-x64":   ("bsd",     "OpenBSD x86-64"),
     "openbsd-arm64": ("bsd",     "OpenBSD ARM64"),
     "netbsd-x64":    ("bsd",     "NetBSD x86-64"),
-    # DRM/KMS: straight to the screen, no X11 and no Wayland. Deliberately NOT
-    # in the "all" group — see [targets] in the .toml for why.
+    # DRM/KMS: straight to the screen, no X11 and no Wayland. A console, a
+    # handheld, a kiosk, a Pi with no desktop installed.
+    #
+    # Both of the segments before `drm` can differ and are there for that
+    # reason. **Arch**: DRM/KMS is a kernel interface and exists on every
+    # architecture Linux runs on, so `linux-arm64-glibc-drm` is the one that
+    # would matter next -- a Pi or a handheld is far likelier to be running
+    # without a desktop than an x86 box is. **libc**: the DRM binary links
+    # libdrm, gbm and EGL directly instead of dlopening them the way GLFW does
+    # X11, so a glibc build does not start on Alpine and `linux-x64-musl-drm`
+    # would be a real, separate binary. Only the x64/glibc one is built today,
+    # because that is where the evidence of demand is; the name already leaves
+    # both doors open, which is the whole point of naming the segments.
     "linux-x64-glibc-drm":     ("drm",     "Linux DRM/KMS (no X11)"),
 }
 
 GROUPS: dict[str, list[str]] = {
-    # "all" is the fourteen that a machine can build AND run unattended.
-    # linux-x64-glibc-drm is out of it on purpose: it needs /dev/dri to run.
-    "all":     [t for t in TARGETS if t != "linux-x64-glibc-drm"],
-    "linux":   ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-musl"],
+    # Everything. DRM used to be held out because it needs /dev/dri and CI has
+    # no screen, but that was a reason not to *run* it, not a reason not to
+    # build and ship it -- and the runners can run it now, on a vkms virtual
+    # display with Mesa's software rasteriser.
+    "all":     list(TARGETS),
+    "linux":   ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc",
+                "linux-x64-musl", "linux-x64-glibc-drm"],
     "windows": ["windows-x64", "windows-arm64"],
     "apple":   ["macos", "ios"],
     "desktop": ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc",
@@ -1746,8 +1760,11 @@ def compute_stamp() -> str:
 # CLI
 # ---------------------------------------------------------------------------
 
-def _print_matrix(cfg: dict, family: str) -> None:
-    targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
+def _print_matrix(cfg: dict, family: str, targets: list[str]) -> None:
+    # `targets` is passed in rather than recomputed, because --only narrows it
+    # and a matrix that re-derived its own list ignored the narrowing: a
+    # drm-only run still started all five BSD legs. The families and the matrix
+    # have to be looking at the same list or they disagree, quietly.
     if family != "bsd":
         raise ConfigError(f"--print-matrix: only 'bsd' has a matrix (got {family!r})")
     pins = frozen_versions()
@@ -1773,6 +1790,10 @@ def main(argv: list[str]) -> int:
                     help="also reject placeholder identifiers (used on tag builds)")
     ap.add_argument("--print-name", action="store_true")
     ap.add_argument("--print-targets", action="store_true")
+    ap.add_argument("--only", metavar="GROUP_OR_TARGET",
+                    help="narrow the printed targets to a group or a single target, "
+                         "so one family can be run on its own (e.g. --only drm). "
+                         "Only valid together with a --print-* flag.")
     ap.add_argument("--print-glibc", action="store_true",
                     help="[linux] glibc, the oldest glibc the binary may need")
     ap.add_argument("--print-upx-max-bytes", action="store_true",
@@ -1810,6 +1831,40 @@ def main(argv: list[str]) -> int:
     if args.print_upx_max_bytes:
         print(cfg["upx"]["max_size_mb"] * 1024 * 1024)
         return 0
+    if args.only is not None:
+        # Narrows what CI runs without touching the .toml, so one family can be
+        # tried on its own -- `-f targets=drm` instead of twenty minutes of
+        # matrix to see three minutes of DRM.
+        #
+        # It filters what [targets] already enables and never adds to it: a
+        # workflow input must not be able to build something the project has
+        # switched off. Everything it can go wrong with is a named error,
+        # because this arrives from a text box on a web page.
+        if not any((args.print_targets, args.print_families, args.print_matrix,
+                    args.print_upx)):
+            raise ConfigError(
+                "--only narrows what gets printed, so it needs one of "
+                "--print-targets, --print-families, --print-matrix or --print-upx.")
+        name = args.only.strip()
+        if not name:
+            raise ConfigError(
+                "--only was given an empty value. Leave it out to build every "
+                "enabled target.")
+        if name in GROUPS:
+            wanted = set(GROUPS[name])
+        elif name in TARGETS:
+            wanted = {name}
+        else:
+            known = ", ".join(sorted(set(GROUPS) | set(TARGETS)))
+            raise ConfigError(f"--only {name!r} is not a target or a group.\nKnown: {known}")
+        narrowed = [t for t in targets if t in wanted]
+        if not narrowed:
+            enabled = ", ".join(targets)
+            raise ConfigError(
+                f"--only {name!r} leaves nothing to build: none of its targets "
+                f"are enabled in [targets].\nEnabled: {enabled}")
+        targets = narrowed
+
     if args.print_upx:
         print(json.dumps(expand_upx(cfg, targets), separators=(",", ":")))
         return 0
@@ -1820,7 +1875,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(sorted({TARGETS[t][0] for t in targets}), separators=(",", ":")))
         return 0
     if args.print_matrix:
-        _print_matrix(cfg, args.print_matrix)
+        _print_matrix(cfg, args.print_matrix, targets)
         return 0
     if args.print_pins:
         for k, v in frozen_versions().items():

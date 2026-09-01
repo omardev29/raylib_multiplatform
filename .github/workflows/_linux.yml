@@ -423,8 +423,8 @@ jobs:
   # There is nothing to boot into. What this job proves is that the DRM backend
   # still compiles and links, which is the failure that actually happens —
   # libdrm moving, or EGL/GBM headers going missing.
-  drm:
-    if: contains(fromJSON(inputs.targets), 'linux-x64-glibc-drm')
+  drm-x64:
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-glibc-drm')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -441,9 +441,6 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # The build image carries what the fourteen need, and DRM is not one of
-      # them. Installed here rather than baked in: a target nobody enables
-      # should not make every other job's image bigger.
       # No dependency step: libdrm, gbm, EGL and GLES are in the image. They used
       # to be an apt-get here, which is one network failure away from taking the
       # job down for a reason that has nothing to do with DRM.
@@ -476,6 +473,15 @@ jobs:
           fi
           echo "PASS: no X11 and no Wayland"
 
+      # Uncompressed and unpackaged, for drm-x64-run, and taken before the
+      # Package step runs UPX on it: a packed binary that will not start is a
+      # second suspect, and this job is about DRM.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-x64-glibc-drm-headless
+          path: build/${{ inputs.project_name }}
+          retention-days: 1
+
       - name: Package
         run: |
           mkdir -p package/resources
@@ -494,3 +500,65 @@ jobs:
           name: linux-x64-glibc-drm-build
           path: linux-x64-glibc-drm-build.zip
           retention-days: 7
+
+  # DRM has no windowing system, so there is nothing for xvfb to fake: the
+  # backend talks to a card through /dev/dri, and a runner has no screen. So the
+  # kernel provides one. vkms is mainline Virtual Kernel Mode Setting -- a DRM
+  # device with a CRTC, an encoder and a connector and no hardware behind any of
+  # them -- and Mesa's kms_swrast rasterises into it on the CPU. Between the two
+  # the binary meets a real DRM/KMS stack and a real GBM surface.
+  #
+  # A bare runner rather than a container job, because modprobe needs the host's
+  # kernel and a container job has no way to reach it. The binary then runs
+  # inside the build image through `docker run --device /dev/dri`, so the
+  # libraries it meets are the ones it was linked against and nothing is
+  # installed at job time.
+  drm-x64-run:
+    needs: drm-x64
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-glibc-drm')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: linux-x64-glibc-drm-headless
+          path: drm-bin
+
+      - name: A virtual display, from the kernel
+        run: |
+          set -euo pipefail
+          echo "kernel: $(uname -r)"
+          # Printed, not assumed: if the module is not there, the failure has to
+          # say which half was at fault rather than leaving a bare exit code.
+          modinfo vkms 2>&1 | head -3 || echo "  (this kernel has no vkms module)"
+          sudo modprobe vkms || { echo "FALLA: the runner kernel cannot load vkms"; exit 1; }
+          # udev takes a moment to create the nodes.
+          for _ in 1 2 3 4 5; do [ -e /dev/dri/card0 ] && break; sleep 1; done
+          ls -la /dev/dri || { echo "FALLA: vkms loaded and /dev/dri is still empty"; exit 1; }
+
+      - name: Boot and render through DRM/KMS
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          chmod +x "drm-bin/${{ inputs.project_name }}"
+          # PRODUCTION_BUILD looks for ./resources/ beside the binary. One
+          # read-only mount and not two nested ones: docker cannot create a
+          # mountpoint inside a read-only rootfs and podman can, so the nested
+          # form passes on a laptop and dies here.
+          cp -r resources drm-bin/resources
+          OUT=$(docker run --rm --device /dev/dri \
+            -v "$PWD/drm-bin:/app:ro" \
+            -w /app -e RAY_TEST_MAX_FRAMES=10 \
+            -e MESA_LOADER_DRIVER_OVERRIDE=kms_swrast \
+            "${{ inputs.build_image }}" \
+            "./${{ inputs.project_name }}" 2>&1) || true
+          echo "$OUT" | tail -30
+          echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: it did not boot on DRM"; exit 1; }
+          echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: it drew nothing"; exit 1; }
+          echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: it died before the end"; exit 1; }
+          echo "PASS: booted and rendered through DRM/KMS"

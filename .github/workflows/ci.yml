@@ -35,9 +35,13 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: 'Build all 14 targets (default: fast lane only)'
+        description: 'Build all 16 targets (default: fast lane only)'
         type: boolean
         default: false
+      targets:
+        description: 'Only this group or target, e.g. drm or macos (blank = every enabled target)'
+        type: string
+        default: ''
       image_digest:
         description: 'Override the build image, e.g. ghcr.io/…@sha256:… (blank = the pinned one)'
         type: string
@@ -82,11 +86,17 @@ jobs:
           # change what every Linux job compiles with.
           PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:698fefd0742ce0daef850536e84c465bbb59cc689b2d6643670a877af624ca60'
           OVERRIDE: ${{ inputs.image_digest }}
+          # Through the environment and never interpolated into the script: this
+          # one is a free-text box on a web page, and `${{ }}` inside a `run:`
+          # is string substitution before bash ever sees it.
+          ONLY: ${{ inputs.targets }}
         run: |
           set -euo pipefail
           echo "build_image=${OVERRIDE:-$PINNED_IMAGE}" >> "$GITHUB_OUTPUT"
-          # Tags always build everything; branches and PRs only if asked.
-          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ inputs.full }}" = "true" ]; then
+          # Asking for one family means you want that family built, so it
+          # implies the full lane -- otherwise `-f targets=drm` would resolve to
+          # drm and then be filtered out again by every `inputs.full` gate.
+          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ inputs.full }}" = "true" ] || [ -n "${ONLY:-}" ]; then
             echo "full=true" >> "$GITHUB_OUTPUT"
           else
             echo "full=false" >> "$GITHUB_OUTPUT"
@@ -95,14 +105,20 @@ jobs:
 
           # Read once here, so every leaf gets the same answer and no workflow
           # has to learn to parse TOML.
+          # --only narrows; it can never add. configure.py rejects a name that
+          # is not a target or a group, and rejects one whose targets are all
+          # switched off in the .toml, so a workflow input cannot build
+          # something the project has turned off.
+          NARROW=""
+          if [ -n "${ONLY:-}" ]; then NARROW="--only=${ONLY}"; fi
           {
             echo "project_name=$(python3 tools/configure.py --print-name)"
-            echo "targets=$(python3 tools/configure.py --print-targets)"
-            echo "families=$(python3 tools/configure.py --print-families)"
-            echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
+            echo "targets=$(python3 tools/configure.py --print-targets $NARROW)"
+            echo "families=$(python3 tools/configure.py --print-families $NARROW)"
+            echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd $NARROW)"
             python3 tools/configure.py --print-deploy
           } >> "$GITHUB_OUTPUT"
-          python3 tools/configure.py --print-targets | sed 's/^/targets: /'
+          python3 tools/configure.py --print-targets $NARROW | sed 's/^/targets: /'
 
   # Cheap, fast, and catches the class of mistake that otherwise only shows up
   # on a tag: a typo'd input name in a reusable workflow, or pins that have
@@ -204,6 +220,13 @@ jobs:
       # workflow's steps, not the Justfile.
       - name: The scripts run off GNU too
         run: bash tools/portable_check.sh
+
+      # A `git add -A` once committed 78 files of a CMake build directory, and
+      # they went unnoticed for sessions because .gitignore listed `build/` and
+      # the directory was called `build-memory/`. Ignore rules do not apply to
+      # what git already tracks, so the index is what has to be checked.
+      - name: The repository tracks sources, not build output
+        run: bash tools/repo_check.sh
 
       # doctest. No window, no GPU, milliseconds.
       - name: Unit tests

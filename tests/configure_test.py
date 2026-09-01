@@ -29,6 +29,7 @@ import copy
 import re
 import importlib.util
 import io
+import json
 import os
 import sys
 import unittest
@@ -177,14 +178,13 @@ class ConfigureVersionTest(unittest.TestCase):
 class ConfigureTargetsTest(unittest.TestCase):
     """expand_targets(): groups overlap on purpose, and must not double up."""
 
-    def test_all_is_every_runnable_target(self):
+    def test_all_is_every_target(self):
         """Derived from TARGETS rather than a number written here. A count in a
         test goes stale the day a target is added, and it goes stale as
-        "15 != 14", which says nothing about what is actually being asserted:
-        that `all` is everything EXCEPT linux-x64-glibc-drm."""
+        "16 != 15", which says nothing about what is being asserted: that `all`
+        holds everything, with nothing quietly left out."""
         result = cfgmod.expand_targets(["all"], [])
-        self.assertEqual(len(result), len(cfgmod.TARGETS) - 1)
-        self.assertNotIn("linux-x64-glibc-drm", result, "linux-x64-glibc-drm must not come in through 'all'")
+        self.assertEqual(sorted(result), sorted(cfgmod.TARGETS))
 
     def test_overlapping_groups_deduplicate(self):
         """desktop, linux and windows overlap heavily. The point is that nothing
@@ -214,20 +214,26 @@ class ConfigureTargetsTest(unittest.TestCase):
         result = cfgmod.expand_targets(["all"], ["ios"])
         self.assertNotIn("ios", result)
         self.assertIn("macos", result)
-        self.assertEqual(len(result), len(cfgmod.TARGETS) - 2)  # linux-x64-glibc-drm and ios
+        self.assertEqual(len(result), len(cfgmod.TARGETS) - 1)  # ios
 
     def test_disabled_can_be_a_group_too(self):
         result = cfgmod.expand_targets(["all"], ["bsd"])
-        expected = len(cfgmod.TARGETS) - 1 - len(cfgmod.GROUPS["bsd"])
+        expected = len(cfgmod.TARGETS) - len(cfgmod.GROUPS["bsd"])
         self.assertEqual(len(result), expected)
         self.assertFalse([t for t in result if "bsd" in t])
 
     def test_disabling_something_not_enabled_is_harmless(self):
         self.assertEqual(cfgmod.expand_targets(["web"], ["android"]), ["web"])
 
-    def test_drm_has_to_be_asked_for_by_name(self):
-        self.assertIn("linux-x64-glibc-drm", cfgmod.expand_targets(["all", "linux-x64-glibc-drm"], []))
+    def test_drm_comes_with_all_now_and_can_still_be_switched_off(self):
+        """It used to be held out of `all` because CI could not run it. It can
+        now, so the only reason left was inertia. Turning it off is still one
+        line, which is the part that has to keep working."""
+        self.assertIn("linux-x64-glibc-drm", cfgmod.expand_targets(["all"], []))
         self.assertIn("linux-x64-glibc-drm", cfgmod.expand_targets(["drm"], []))
+        self.assertNotIn("linux-x64-glibc-drm",
+                         cfgmod.expand_targets(["all"], ["linux-x64-glibc-drm"]))
+        self.assertNotIn("linux-x64-glibc-drm", cfgmod.expand_targets(["all"], ["drm"]))
 
     def test_unknown_names_are_rejected_in_both_lists(self):
         with self.assertRaises(cfgmod.ConfigError):
@@ -1231,3 +1237,251 @@ class ConfigureGlibcFloorTest(unittest.TestCase):
         for tool in ("linux_build.sh", "glibc_check.sh"):
             with self.subTest(tool=tool):
                 self.assertIn("--print-glibc", (REPO / "tools" / tool).read_text())
+
+
+def run_cli(*argv):
+    """`configure.py` as CI actually calls it: argv in, stdout out.
+
+    Returns (stdout, exception-or-None) rather than raising, because half of
+    these tests are about the message a wrong value produces and the other half
+    about the value a right one prints.
+    """
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            cfgmod.main(list(argv))
+    except cfgmod.ConfigError as exc:
+        return out.getvalue(), exc
+    return out.getvalue(), None
+
+
+class ConfigureOnlyFilterTest(unittest.TestCase):
+    """`--only`, which narrows what CI builds from a workflow input.
+
+    It exists so one family can be tried on its own -- `-f targets=drm` instead
+    of twenty minutes of matrix to watch three minutes of DRM. It is also the
+    first thing in this file whose value arrives from a text box on a web page,
+    so every way it can be wrong is a named error and every one of them is here.
+    """
+
+    def enabled(self):
+        out, exc = run_cli("--print-targets")
+        self.assertIsNone(exc)
+        return json.loads(out)
+
+    def test_a_group_narrows_to_exactly_that_group(self):
+        out, exc = run_cli("--print-targets", "--only", "drm")
+        self.assertIsNone(exc)
+        self.assertEqual(json.loads(out), ["linux-x64-glibc-drm"])
+
+    def test_every_group_narrows_to_a_subset_of_what_is_enabled(self):
+        """The property that matters: --only filters, it never adds. A workflow
+        input must not be able to build something [targets] switched off."""
+        enabled = set(self.enabled())
+        for group in sorted(cfgmod.GROUPS):
+            with self.subTest(group=group):
+                out, exc = run_cli("--print-targets", "--only", group)
+                if exc is not None:          # a group with nothing enabled
+                    self.assertIn("leaves nothing to build", str(exc))
+                    continue
+                self.assertTrue(set(json.loads(out)) <= enabled)
+
+    def test_every_single_target_can_be_asked_for_by_name(self):
+        for target in self.enabled():
+            with self.subTest(target=target):
+                out, exc = run_cli("--print-targets", "--only", target)
+                self.assertIsNone(exc)
+                self.assertEqual(json.loads(out), [target])
+
+    def test_the_order_is_the_canonical_one_not_the_order_asked_for(self):
+        out, _ = run_cli("--print-targets", "--only", "linux")
+        got = json.loads(out)
+        self.assertEqual(got, sorted(got, key=list(cfgmod.TARGETS).index))
+
+    def test_an_unknown_name_names_every_name_that_would_have_worked(self):
+        for bad in ("nope", "linux-x64", "DRM", "Drm", "drm ", " drm", "x64", "all "):
+            with self.subTest(only=bad):
+                _, exc = run_cli("--print-targets", "--only", bad)
+                if bad.strip() in cfgmod.GROUPS or bad.strip() in cfgmod.TARGETS:
+                    self.assertIsNone(exc, "surrounding spaces should be tolerated")
+                    continue
+                self.assertIsNotNone(exc, f"{bad!r} was accepted")
+                self.assertIn("is not a target or a group", str(exc))
+                self.assertIn("drm", str(exc))          # the list is in the message
+
+    def test_an_empty_value_is_rejected_and_not_read_as_everything(self):
+        """A dispatch input left blank arrives as "". Silently meaning `all`
+        would be the wrong default: the caller asked for something."""
+        for blank in ("", "   ", "\t"):
+            with self.subTest(only=repr(blank)):
+                _, exc = run_cli("--print-targets", "--only", blank)
+                self.assertIsNotNone(exc)
+                self.assertIn("empty", str(exc))
+
+    def test_it_refuses_to_run_without_something_to_print(self):
+        """--only on its own would silently narrow generation instead, which is
+        not what anybody typing it means."""
+        _, exc = run_cli("--only", "drm")
+        self.assertIsNotNone(exc)
+        self.assertIn("--print-targets", str(exc))
+
+    def test_it_narrows_the_families_too_or_the_matrix_disagrees_with_itself(self):
+        """ci.yml gates its jobs on families. If --only narrowed the targets and
+        not the families, a drm-only run would still start the bsd leg."""
+        out, exc = run_cli("--print-families", "--only", "drm")
+        self.assertIsNone(exc)
+        self.assertEqual(json.loads(out), ["drm"])
+
+    def test_it_narrows_the_bsd_matrix(self):
+        out, exc = run_cli("--print-matrix", "bsd", "--only", "drm")
+        self.assertIsNone(exc)
+        self.assertEqual(json.loads(out).get("include"), [])
+
+    def test_it_narrows_the_upx_list(self):
+        out, exc = run_cli("--print-upx", "--only", "drm")
+        self.assertIsNone(exc)
+        self.assertTrue(set(json.loads(out)) <= {"linux-x64-glibc-drm"})
+
+    def test_leaving_it_out_changes_nothing(self):
+        plain, _ = run_cli("--print-targets")
+        allof, _ = run_cli("--print-targets", "--only", "all")
+        self.assertEqual(json.loads(plain), json.loads(allof))
+
+
+class ConfigureDrmTargetTest(unittest.TestCase):
+    """DRM/KMS is a shipped target now, not a thing you could opt into.
+
+    It used to be held out of `all` because it needs /dev/dri and CI has no
+    screen. That was a reason not to run it, not a reason not to build it, and
+    the runners can run it now on a vkms virtual display.
+    """
+
+    def test_it_is_in_all(self):
+        self.assertIn("linux-x64-glibc-drm", cfgmod.GROUPS["all"])
+
+    def test_all_means_all(self):
+        """`all` minus something is a thing to be argued for at the time, in a
+        comment. Right now there is nothing held back."""
+        self.assertEqual(sorted(cfgmod.GROUPS["all"]), sorted(cfgmod.TARGETS))
+
+    def test_it_is_in_the_linux_group(self):
+        self.assertIn("linux-x64-glibc-drm", cfgmod.GROUPS["linux"])
+
+    def test_it_has_its_own_family_so_it_gets_its_own_job(self):
+        self.assertEqual(cfgmod.TARGETS["linux-x64-glibc-drm"][0], "drm")
+
+    def test_every_linux_target_follows_os_arch_libc_env(self):
+        """The naming rule, enforced instead of remembered. `env` is the
+        windowing system and is only there when it can differ -- absent means
+        the binary carries every backend and picks at startup.
+        """
+        arches = {"x64", "arm64", "riscv64"}
+        libcs = {"glibc", "musl"}
+        envs = {"drm", "wayland", "x11"}
+        for target in cfgmod.TARGETS:
+            if not target.startswith("linux-"):
+                continue
+            with self.subTest(target=target):
+                parts = target.split("-")
+                self.assertIn(len(parts), (3, 4), "linux-<arch>-<libc>[-<env>]")
+                self.assertEqual(parts[0], "linux")
+                self.assertIn(parts[1], arches, "second segment is the architecture")
+                self.assertIn(parts[2], libcs, "third segment is the C library")
+                if len(parts) == 4:
+                    self.assertIn(parts[3], envs, "fourth segment is the windowing system")
+
+    def test_the_job_names_follow_the_targets(self):
+        """A job called `musl` when the target is linux-x64-musl is a name that
+        has to be translated every time somebody reads a red run."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        for job in ("x64:", "arm64:", "musl-x64:", "riscv64:", "drm-x64:"):
+            with self.subTest(job=job):
+                self.assertIn(f"\n  {job}", workflow)
+
+    def test_the_drm_job_is_not_skipped_when_the_target_is_enabled(self):
+        """It was `if: contains(...)` with no `full`, so it never ran on the
+        fast lane and, once drm entered `all`, would have run on every push."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        block = re.split(r"\n  \S", workflow.split("\n  drm-x64:", 1)[1], maxsplit=1)[0]
+        self.assertIn("inputs.full", block)
+        self.assertIn("linux-x64-glibc-drm", block)
+
+    def test_the_drm_binary_is_actually_run_and_not_just_linked(self):
+        """A job that only checks `ldd` proves the build, not the backend. DRM
+        has no windowing system for xvfb to fake, so the kernel supplies a
+        virtual one: vkms plus Mesa's kms_swrast."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        self.assertIn("\n  drm-x64-run:", workflow)
+        block = re.split(r"\n  \S", workflow.split("\n  drm-x64-run:", 1)[1], maxsplit=1)[0]
+        self.assertIn("modprobe vkms", block)
+        self.assertIn("--device /dev/dri", block)
+        for marker in ("RAY_TEST_BOOT_OK", "RAY_TEST_RENDER_OK", "RAY_TEST_DONE_FRAMES"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, block)
+
+    def test_the_drm_run_job_does_not_nest_a_mount_under_a_read_only_one(self):
+        """docker cannot create a mountpoint inside a read-only rootfs and
+        podman can, so the nested form passes every local run and dies on the
+        first runner. It cost a round once already."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        for job in ("drm-x64-run", "musl-x64-run"):
+            with self.subTest(job=job):
+                block = re.split(r"\n  \S", workflow.split(f"\n  {job}:", 1)[1], maxsplit=1)[0]
+                mounts = re.findall(r"-v \"\$PWD/([^:]+):([^\"]+)\"", block)
+                targets = [m[1].split(":")[0] for m in mounts]
+                for a in targets:
+                    for b in targets:
+                        if a is not b and b.startswith(a.rstrip("/") + "/"):
+                            self.fail(f"{b} is mounted underneath {a}")
+
+
+class DocumentedTargetCountTest(unittest.TestCase):
+    """No document may claim a target count that is not the one in TARGETS.
+
+    "14 targets" survived two targets being added, in five places across three
+    files, because prose has nothing checking it. A count is a fact about the
+    code and it goes stale exactly the way a count in a test does -- so it gets
+    the same treatment.
+    """
+
+    WORDS = {
+        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+        "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+        "nineteen": 19, "twenty": 20,
+    }
+
+    # PROGRESS.md is deliberately absent: it is a log, and an entry that said
+    # "14 targets" in August was right in August. Rewriting history to keep a
+    # gate quiet is how a log stops being worth reading. These four describe
+    # the present, and the present is what can be wrong.
+    DOCS = ("README.md", "TECHNICAL.md", "raylib_multiplatform.toml", "../CLAUDE.md")
+
+    def test_no_document_states_a_stale_target_count(self):
+        expected = len(cfgmod.TARGETS)
+        pattern = re.compile(
+            r"\*{0,2}(\d{1,2}|" + "|".join(self.WORDS) + r")\*{0,2}\s+(?:build\s+)?(?:targets|platforms)\b",
+            re.IGNORECASE)
+        for name in self.DOCS:
+            path = REPO / name
+            if not path.exists():
+                continue
+            text = path.read_text()
+            for line_no, line in enumerate(text.splitlines(), 1):
+                # Historical sections describe what was true then, on purpose.
+                if line.lstrip().startswith(("<summary>", "Validado con el tag")):
+                    continue
+                for match in pattern.finditer(line):
+                    token = match.group(1).lower()
+                    value = self.WORDS.get(token, None)
+                    if value is None:
+                        try:
+                            value = int(token)
+                        except ValueError:
+                            continue
+                    if value < 10:      # "3 targets" in an example is not a claim
+                        continue
+                    with self.subTest(doc=name, line=line_no, said=match.group(0)):
+                        self.assertEqual(
+                            value, expected,
+                            f"{name}:{line_no} says {match.group(0)!r}, "
+                            f"but TARGETS holds {expected}")

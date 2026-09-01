@@ -932,7 +932,7 @@ near-black is washed out on near-white, and white label text on it stops being l
 
 `min_touch_size` (44 by default) is the floor on a control's height. It is Apple's touch-target
 guidance, close to Material's 48 dp, and it is the difference between a menu you can use with a
-thumb and one you cannot. Four of the fourteen targets are touch screens.
+thumb and one you cannot. Four of the sixteen targets are touch screens.
 
 States are handled for you: `normal`, `hovered`, `pressed`, `focused`, `disabled`. You never ask
 where the mouse is.
@@ -1151,7 +1151,7 @@ in the engine and our renderer draws what they produce.
 `RMP_ENTRY_POINT` and `quit()`. They are in the same namespace because they are
 the same subject: who owns the frame loop, and how it ends. Quitting gets most
 of the space below because it is one of those problems that looks trivial until
-it is on fourteen platforms.
+it is on sixteen platforms.
 
 ```cpp
 void rmp::app::quit();          // ask the app to close
@@ -1199,7 +1199,7 @@ the user to have crashed", and App Review rejects anything that crashes or appea
 `applicationWillTerminate:` never runs, so unsaved data is lost. A Quit control also fails the
 Human Interface Guidelines on its own account.
 
-So `rmp::app::quit()` is inert on iOS by design. The same source ships to all fourteen targets
+So `rmp::app::quit()` is inert on iOS by design. The same source ships to all sixteen targets
 with its Quit button intact; on iPhone the button does nothing, which is exactly the behaviour
 Apple asks for. If a dead control bothers you, hide it:
 
@@ -1450,7 +1450,7 @@ and `concurrency` must live only in the orchestrator or parent and children canc
 | Trigger | What builds |
 |---|---|
 | push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64 (~10 min) |
-| tag `v*` | All 14 targets, then Release, then itch.io |
+| tag `v*` | All 16 targets, then Release, then itch.io |
 | `workflow_dispatch` | Fast lane, or everything with the `full` input |
 
 The full matrix costs about an hour of BSD QEMU and macOS runner time. Paying that per commit

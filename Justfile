@@ -236,6 +236,10 @@ test what="all": (_reconfigure "Debug")
         echo "== headers =="
         bash tools/header_check.sh
     }
+    run_repo() {
+        echo "== repo =="
+        bash tools/repo_check.sh
+    }
     run_configure_tests() {
         echo "== configure =="
         # `discover`, not `python3 tests/configure_test.py`. Running the file
@@ -246,7 +250,7 @@ test what="all": (_reconfigure "Debug")
         python3 -m unittest discover -s tests -p 'configure_test.py' 2>&1 | tail -3
     }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_seam; run_workflows; run_portable; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
+        all)      just fmt check; run_config; run_repo; run_seam; run_workflows; run_portable; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
@@ -256,6 +260,7 @@ test what="all": (_reconfigure "Debug")
         seam)     run_seam ;;
         headers)  run_headers ;;
         portable) run_portable ;;
+        repo)     run_repo ;;
         workflows) run_workflows ;;
         render)   run_render ;;
         render-update) run_render update ;;
