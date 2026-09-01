@@ -167,9 +167,9 @@ def warn(msg: str) -> None:
 # id -> (CI family, human label). The family decides which reusable workflow
 # builds it; ci.yml skips a whole family when none of its targets are enabled.
 TARGETS: dict[str, tuple[str, str]] = {
-    "linux-x64":     ("linux",   "Linux x86-64"),
-    "linux-arm64":   ("linux",   "Linux ARM64"),
-    "linux-riscv64": ("linux",   "Linux RISC-V"),
+    "linux-x64-glibc":     ("linux",   "Linux x86-64"),
+    "linux-arm64-glibc":   ("linux",   "Linux ARM64"),
+    "linux-riscv64-glibc": ("linux",   "Linux RISC-V"),
     # musl, for Alpine and every other musl distribution -- Void musl, KISS,
     # Chimera. The naming is linux-<arch>-<libc>, with the libc last; the ones
     # above have no suffix because glibc is what almost everything uses.
@@ -191,23 +191,23 @@ TARGETS: dict[str, tuple[str, str]] = {
     "netbsd-x64":    ("bsd",     "NetBSD x86-64"),
     # DRM/KMS: straight to the screen, no X11 and no Wayland. Deliberately NOT
     # in the "all" group — see [targets] in the .toml for why.
-    "linux-drm":     ("drm",     "Linux DRM/KMS (no X11)"),
+    "linux-x64-glibc-drm":     ("drm",     "Linux DRM/KMS (no X11)"),
 }
 
 GROUPS: dict[str, list[str]] = {
     # "all" is the fourteen that a machine can build AND run unattended.
-    # linux-drm is out of it on purpose: it needs /dev/dri to run.
-    "all":     [t for t in TARGETS if t != "linux-drm"],
-    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64", "linux-x64-musl"],
+    # linux-x64-glibc-drm is out of it on purpose: it needs /dev/dri to run.
+    "all":     [t for t in TARGETS if t != "linux-x64-glibc-drm"],
+    "linux":   ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-musl"],
     "windows": ["windows-x64", "windows-arm64"],
     "apple":   ["macos", "ios"],
-    "desktop": ["linux-x64", "linux-arm64", "linux-riscv64",
+    "desktop": ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc",
                 "windows-x64", "windows-arm64", "macos"],
     "mobile":  ["android", "ios"],
     "bsd":     ["freebsd-x64", "freebsd-arm64",
                 "openbsd-x64", "openbsd-arm64", "netbsd-x64"],
     "web":     ["web"],
-    "drm":     ["linux-drm"],
+    "drm":     ["linux-x64-glibc-drm"],
     "android": ["android"],
 }
 
@@ -291,7 +291,7 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
 #                compressed stream does not compress again.
 #   web          it is .wasm, and the browser fetches it gzipped anyway.
 UPX_TARGETS: list[str] = [
-    "linux-x64", "linux-arm64", "linux-riscv64", "linux-drm", "linux-x64-musl",
+    "linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm", "linux-x64-musl",
     "windows-x64", "windows-arm64",
     "freebsd-x64", "freebsd-arm64", "openbsd-x64", "openbsd-arm64", "netbsd-x64",
 ]
@@ -308,7 +308,7 @@ UPX_GROUPS: dict[str, list[str]] = {
     # `all` here is NOT the fourteen: it is every target that can be compressed
     # at all. Windows is in it, but not in the default — see the .toml.
     "all":     list(UPX_TARGETS),
-    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64", "linux-drm",
+    "linux":   ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm",
                 "linux-x64-musl"],
     "windows": ["windows-x64", "windows-arm64"],
     "bsd":     ["freebsd-x64", "freebsd-arm64",
@@ -394,7 +394,7 @@ DEFAULTS: dict = {
 "web": {"memory": 64, "grow": False, "backend": "glfw"},
     "input": {"deadzone": 0.2},
     "windows": {"backend": "glfw"},
-    "upx": {"enabled": ["linux-x64", "linux-arm64"], "disabled": [],
+    "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,

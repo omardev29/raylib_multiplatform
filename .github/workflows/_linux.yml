@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   x64:
-    if: contains(fromJSON(inputs.targets), 'linux-x64')
+    if: contains(fromJSON(inputs.targets), 'linux-x64-glibc')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -116,19 +116,19 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-x64 "build/${{ inputs.project_name }}"
+          bash tools/upx_pack.sh linux-x64-glibc "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp resources/resources.rres package/resources/
-          cd package && zip -r ../linux-x64-build.zip .
+          cd package && zip -r ../linux-x64-glibc-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: linux-x64-build
-          path: linux-x64-build.zip
+          name: linux-x64-glibc-build
+          path: linux-x64-glibc-build.zip
           retention-days: 7
 
   arm64:
-    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-arm64')
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-arm64-glibc')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     permissions:
@@ -197,15 +197,15 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-arm64 "build/${{ inputs.project_name }}"
+          bash tools/upx_pack.sh linux-arm64-glibc "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp resources/resources.rres package/resources/
-          cd package && zip -r ../linux-arm64-build.zip .
+          cd package && zip -r ../linux-arm64-glibc-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: linux-arm64-build
-          path: linux-arm64-build.zip
+          name: linux-arm64-glibc-build
+          path: linux-arm64-glibc-build.zip
           retention-days: 7
 
   musl:
@@ -280,35 +280,43 @@ jobs:
           retention-days: 7
 
   musl-run:
-    # AND IT ACTUALLY RUNS ON ALPINE. Everything above proves the binary is
-    # musl-shaped; only this proves musl was the right shape. It is the same
-    # separation as web / build and web / boot-test.
+    # AND IT ACTUALLY RUNS ON ALPINE. Everything in `musl` proves the binary is
+    # musl-shaped; only this proves musl was the right shape.
+    #
+    # ALPINE IS NOT THE JOB'S CONTAINER, and that is not a style choice: the
+    # runner injects its own Node into a container job so that actions/checkout
+    # and friends can run, and that Node is linked against glibc. In a musl-only
+    # image it does not start, and the job dies before reaching anything of
+    # ours. So the job runs on the ordinary runner, where the actions work, and
+    # Alpine is entered with `docker run` for the one command that matters.
     needs: musl
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-musl')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    container:
-      # Alpine itself, pinned by digest. Nothing is installed into it: if the
-      # binary needed something Alpine does not ship, that is the bug this job
-      # exists to find.
-      image: alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: linux-x64-musl-headless
-          path: .
+          path: musl-bin
 
-      - name: Boot and render, on Alpine, with nothing installed
+      - name: Boot and render, inside Alpine, with nothing installed
         run: |
-          set -eu
-          chmod +x ./${{ inputs.project_name }}
-          echo "Alpine $(cat /etc/alpine-release)"
-          OUT=$(RAY_TEST_MAX_FRAMES=10 ./${{ inputs.project_name }} 2>&1) || true
+          set -euo pipefail
+          chmod +x "musl-bin/${{ inputs.project_name }}"
+          # Alpine pinned by digest. NOTHING is installed into it: if the binary
+          # needed a package Alpine does not ship, that is the bug this job is
+          # here to find, and installing things would hide it.
+          OUT=$(docker run --rm \
+            -v "$PWD/musl-bin:/app:ro" \
+            -v "$PWD/resources:/app/resources:ro" \
+            -w /app -e RAY_TEST_MAX_FRAMES=10 \
+            alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \
+            "./${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -20
-          echo "$OUT" | grep -q RAY_TEST_BOOT_OK    || { echo "FALLA: did not boot"; exit 1; }
-          echo "$OUT" | grep -q RAY_TEST_RENDER_OK  || { echo "FALLA: drew nothing"; exit 1; }
+          echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: did not boot on Alpine"; exit 1; }
+          echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: died before the end"; exit 1; }
           GOT=$(echo "$OUT" | grep -o "hash=[0-9a-f]*" | head -1 | cut -d= -f2)
           WANT=$(cat tests/fixtures/render_hash.txt)
@@ -320,7 +328,7 @@ jobs:
     # Cross-compiled inside the amd64 container: the image ships the riscv64
     # X11/GL multiarch libraries. Static checks only — there is no riscv64
     # runner to boot it on.
-    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-riscv64')
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -373,22 +381,22 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-riscv64 "build/${{ inputs.project_name }}"
+          bash tools/upx_pack.sh linux-riscv64-glibc "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp -r resources package/
-          cd package && zip -r ../linux-riscv64-build.zip .
+          cd package && zip -r ../linux-riscv64-glibc-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: linux-riscv64-build
-          path: linux-riscv64-build.zip
+          name: linux-riscv64-glibc-build
+          path: linux-riscv64-glibc-build.zip
           retention-days: 7
 
   # DRM/KMS: the game draws straight to the screen through the kernel, with no
   # X11 and no Wayland. A Raspberry Pi, an arcade cabinet, a kiosk, or a bare
   # TTY.
   #
-  # It only runs when linux-drm is in [targets], and it is deliberately NOT in
+  # It only runs when linux-x64-glibc-drm is in [targets], and it is deliberately NOT in
   # the "all" group — so this job costs nothing until somebody asks for it.
   #
   # BUILD ONLY, and that is not laziness: DRM takes exclusive control of a
@@ -397,7 +405,7 @@ jobs:
   # still compiles and links, which is the failure that actually happens —
   # libdrm moving, or EGL/GBM headers going missing.
   drm:
-    if: contains(fromJSON(inputs.targets), 'linux-drm')
+    if: contains(fromJSON(inputs.targets), 'linux-x64-glibc-drm')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -457,13 +465,13 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-drm "build/${{ inputs.project_name }}"
+          bash tools/upx_pack.sh linux-x64-glibc-drm "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
           cp -r resources package/
-          cd package && zip -r ../linux-drm-build.zip .
+          cd package && zip -r ../linux-x64-glibc-drm-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: linux-drm-build
-          path: linux-drm-build.zip
+          name: linux-x64-glibc-drm-build
+          path: linux-x64-glibc-drm-build.zip
           retention-days: 7

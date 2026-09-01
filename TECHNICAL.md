@@ -1664,8 +1664,8 @@ Two details that are easy to get wrong and are handled for you:
   a downloadable file that nobody can play in the browser. The job unpacks the web build and
   copies `ray_test.html` to `index.html`.
 - **itch infers the platform from the channel name**, and only recognises a fixed set. The
-  `linux-x64`, `linux-arm64`, `windows-x64`, `windows-arm64`, `osx`, `android` and `html5`
-  channels get tagged correctly; `linux-riscv64` is uploaded as a plain download because itch
+  `linux-x64-glibc`, `linux-arm64-glibc`, `windows-x64`, `windows-arm64`, `osx`, `android` and `html5`
+  channels get tagged correctly; `linux-riscv64-glibc` is uploaded as a plain download because itch
   has no concept of it. The BSD builds are deliberately **not** pushed to itch at all — they
   would be untagged downloads on a storefront with no BSD audience. They are still attached to
   the GitHub Release.

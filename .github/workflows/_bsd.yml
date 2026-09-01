@@ -37,7 +37,7 @@ jobs:
       #
       # Deliberately absent, and why:
       #   FreeBSD riscv64 — FreeBSD publishes no riscv64 binary packages, so
-      #     cmake/X11 cannot be installed. RISC-V is covered by linux-riscv64.
+      #     cmake/X11 cannot be installed. RISC-V is covered by linux-riscv64-glibc.
       #   NetBSD arm64    — the pkgsrc binaries for 10.1/arm64 are built against
       #     newer libs than the base image ships and pkg_add cannot reconcile
       #     the cascade; building from source under QEMU is impractical.

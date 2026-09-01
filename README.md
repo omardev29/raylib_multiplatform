@@ -91,7 +91,7 @@ orientation = "landscape"              # applied to Android and iOS at once
 
 [targets]
 enabled  = ["all"]                     # groups: all desktop mobile linux windows apple bsd web android
-disabled = []                          # or exact ids: linux-x64, netbsd-x64, ios, ...
+disabled = []                          # or exact ids: linux-x64-glibc, netbsd-x64, ios, ...
 
 [android]
 application_id = "com.yourname.yourgame"

@@ -181,10 +181,10 @@ class ConfigureTargetsTest(unittest.TestCase):
         """Derived from TARGETS rather than a number written here. A count in a
         test goes stale the day a target is added, and it goes stale as
         "15 != 14", which says nothing about what is actually being asserted:
-        that `all` is everything EXCEPT linux-drm."""
+        that `all` is everything EXCEPT linux-x64-glibc-drm."""
         result = cfgmod.expand_targets(["all"], [])
         self.assertEqual(len(result), len(cfgmod.TARGETS) - 1)
-        self.assertNotIn("linux-drm", result, "linux-drm must not come in through 'all'")
+        self.assertNotIn("linux-x64-glibc-drm", result, "linux-x64-glibc-drm must not come in through 'all'")
 
     def test_overlapping_groups_deduplicate(self):
         """desktop, linux and windows overlap heavily. The point is that nothing
@@ -200,21 +200,21 @@ class ConfigureTargetsTest(unittest.TestCase):
         self.assertEqual(cfgmod.expand_targets(["web", "web", "web"], []), ["web"])
 
     def test_group_plus_one_of_its_own_members(self):
-        self.assertEqual(cfgmod.expand_targets(["linux", "linux-x64"], []),
+        self.assertEqual(cfgmod.expand_targets(["linux", "linux-x64-glibc"], []),
                          cfgmod.expand_targets(["linux"], []))
 
     def test_order_follows_the_declaration_order_not_the_input(self):
         """Stable output, whatever order the .toml lists things in."""
-        self.assertEqual(cfgmod.expand_targets(["web", "linux-x64", "android"], []),
-                         cfgmod.expand_targets(["android", "web", "linux-x64"], []))
-        self.assertEqual(cfgmod.expand_targets(["web", "linux-x64"], []),
-                         ["linux-x64", "web"])
+        self.assertEqual(cfgmod.expand_targets(["web", "linux-x64-glibc", "android"], []),
+                         cfgmod.expand_targets(["android", "web", "linux-x64-glibc"], []))
+        self.assertEqual(cfgmod.expand_targets(["web", "linux-x64-glibc"], []),
+                         ["linux-x64-glibc", "web"])
 
     def test_disabled_subtracts_from_a_group(self):
         result = cfgmod.expand_targets(["all"], ["ios"])
         self.assertNotIn("ios", result)
         self.assertIn("macos", result)
-        self.assertEqual(len(result), len(cfgmod.TARGETS) - 2)  # linux-drm and ios
+        self.assertEqual(len(result), len(cfgmod.TARGETS) - 2)  # linux-x64-glibc-drm and ios
 
     def test_disabled_can_be_a_group_too(self):
         result = cfgmod.expand_targets(["all"], ["bsd"])
@@ -226,8 +226,8 @@ class ConfigureTargetsTest(unittest.TestCase):
         self.assertEqual(cfgmod.expand_targets(["web"], ["android"]), ["web"])
 
     def test_drm_has_to_be_asked_for_by_name(self):
-        self.assertIn("linux-drm", cfgmod.expand_targets(["all", "linux-drm"], []))
-        self.assertIn("linux-drm", cfgmod.expand_targets(["drm"], []))
+        self.assertIn("linux-x64-glibc-drm", cfgmod.expand_targets(["all", "linux-x64-glibc-drm"], []))
+        self.assertIn("linux-x64-glibc-drm", cfgmod.expand_targets(["drm"], []))
 
     def test_unknown_names_are_rejected_in_both_lists(self):
         with self.assertRaises(cfgmod.ConfigError):
@@ -263,7 +263,7 @@ class ConfigureUpxTest(unittest.TestCase):
         return cfgmod.expand_upx(cfg, targets if targets is not None else self.all_targets())
 
     def test_the_default_is_linux_only(self):
-        self.assertEqual(self.upx(["linux-x64", "linux-arm64"]), ["linux-x64", "linux-arm64"])
+        self.assertEqual(self.upx(["linux-x64-glibc", "linux-arm64-glibc"]), ["linux-x64-glibc", "linux-arm64-glibc"])
 
     def test_all_is_every_compressible_target_and_no_more(self):
         result = self.upx(["all"])
@@ -273,7 +273,7 @@ class ConfigureUpxTest(unittest.TestCase):
         self.assertIn("netbsd-x64", result)
 
     def test_groups_overlap_without_doubling_up(self):
-        result = self.upx(["linux", "all", "linux-x64"])
+        result = self.upx(["linux", "all", "linux-x64-glibc"])
         self.assertEqual(len(result), len(set(result)))
         self.assertEqual(result, self.upx(["all"]))
 
@@ -300,13 +300,13 @@ class ConfigureUpxTest(unittest.TestCase):
         """Not an error: `enabled = ["all"]` with a narrow [targets] should
         just compress the ones that exist, the same way disabling a target you
         never enabled is harmless."""
-        self.assertEqual(self.upx(["all"], targets=["web", "linux-x64"]), ["linux-x64"])
+        self.assertEqual(self.upx(["all"], targets=["web", "linux-x64-glibc"]), ["linux-x64-glibc"])
 
     def test_empty_is_allowed_and_means_compress_nothing(self):
         self.assertEqual(self.upx([]), [])
 
     def test_the_lists_have_to_be_lists(self):
-        cfg = base_config(upx__enabled="linux-x64")
+        cfg = base_config(upx__enabled="linux-x64-glibc")
         with self.assertRaises(cfgmod.ConfigError), quiet():
             cfgmod.validate(cfg, False)
 
@@ -369,7 +369,7 @@ class ConfigureUpxSizeCapTest(unittest.TestCase):
     def test_a_toml_that_omits_it_gets_the_default(self):
         """The whole point of DEFAULTS: an existing config written before this
         setting existed keeps working, with the margin already applied."""
-        merged = cfgmod.deep_merge(cfgmod.DEFAULTS, {"upx": {"enabled": ["linux-x64"]}})
+        merged = cfgmod.deep_merge(cfgmod.DEFAULTS, {"upx": {"enabled": ["linux-x64-glibc"]}})
         self.assertEqual(merged["upx"]["max_size_mb"],
                          cfgmod.DEFAULTS["upx"]["max_size_mb"])
 

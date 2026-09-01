@@ -5,7 +5,7 @@
 #   tools/upx_pack.sh <target> <path-to-binary>
 #
 # Doing nothing is the normal outcome and is not a failure: the default only
-# compresses linux-x64 and linux-arm64, so every other job calls this and exits.
+# compresses linux-x64-glibc and linux-arm64-glibc, so every other job calls this and exits.
 #
 # Measured on this project: 847 KB -> 215 KB, a 74 % cut, and the compressed
 # binary still passes the render gate. What it costs is a few milliseconds of

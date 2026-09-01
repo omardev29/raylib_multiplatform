@@ -152,9 +152,18 @@ endif()
 if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID
    AND NOT RMP_TARGET_DRM AND NOT PLATFORM STREQUAL "RGFW")
   if(TEMPLATE_LINUX_WAYLAND)
-    set(GLFW_BUILD_WAYLAND ON  CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_X11     OFF CACHE BOOL "" FORCE)
-    message(STATUS "=== LINUX: native Wayland (no X11, no XWayland) ===")
+    # BOTH, and this used to be Wayland ONLY -- which shipped a binary that did
+    # not start at all on an X11 session. GLFW 3.4 can carry both backends and
+    # picks between them at startup (GLFW_ANY_PLATFORM, which honours
+    # XDG_SESSION_TYPE), so there is no reason to choose at build time and every
+    # reason not to: the machine that runs the game is not the one that built it.
+    #
+    # What `wayland = true` buys is that a Wayland session gets Wayland NATIVELY
+    # instead of going through XWayland. An X11 session still gets X11 natively.
+    # Neither is a fallback for the other.
+    set(GLFW_BUILD_WAYLAND ON CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_X11     ON CACHE BOOL "" FORCE)
+    message(STATUS "=== LINUX: Wayland AND X11, chosen at startup ===")
   else()
     set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_X11     ON  CACHE BOOL "" FORCE)

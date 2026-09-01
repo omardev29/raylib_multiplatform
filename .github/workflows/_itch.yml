@@ -74,9 +74,9 @@ jobs:
           # style suffixes on the first two). The riscv64 and BSD channels below
           # are therefore published as plain downloads with no platform tag —
           # that is expected, not a bug.
-          - { artifact: linux-x64-build,     channel: linux-x64,     kind: zip }
-          - { artifact: linux-arm64-build,   channel: linux-arm64,   kind: zip }
-          - { artifact: linux-riscv64-build, channel: linux-riscv64, kind: zip }
+          - { artifact: linux-x64-glibc-build,     channel: linux-x64-glibc,     kind: zip }
+          - { artifact: linux-arm64-glibc-build,   channel: linux-arm64-glibc,   kind: zip }
+          - { artifact: linux-riscv64-glibc-build, channel: linux-riscv64-glibc, kind: zip }
           - { artifact: windows-x64-build,   channel: windows-x64,   kind: zip }
           - { artifact: windows-arm64-build, channel: windows-arm64, kind: zip }
           - { artifact: macos-build,         channel: osx,           kind: zip }

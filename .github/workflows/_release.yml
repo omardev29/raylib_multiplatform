@@ -75,10 +75,10 @@ jobs:
           # throwaway-signed bundle, which must never become a release asset.
           fail_on_unmatched_files: false
           files: |
-            linux-x64-build/linux-x64-build.zip
-            linux-arm64-build/linux-arm64-build.zip
-            linux-riscv64-build/linux-riscv64-build.zip
-            linux-drm-build/linux-drm-build.zip
+            linux-x64-glibc-build/linux-x64-glibc-build.zip
+            linux-arm64-glibc-build/linux-arm64-glibc-build.zip
+            linux-riscv64-glibc-build/linux-riscv64-glibc-build.zip
+            linux-x64-glibc-drm-build/linux-x64-glibc-drm-build.zip
             web-build/web-build.zip
             android-debug-apk/*.apk
             android-release-aab/*.aab
