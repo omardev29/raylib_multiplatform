@@ -172,6 +172,34 @@ jobs:
           fi
           echo "PASS: booted, rendered and exited under software rendering"
 
+          # The last thing the VM script does, and the next step checks for it.
+          #
+          # WHY: openbsd-x64 reported SUCCESS while running none of this. The
+          # script died on a syntax error a few lines up -- and where FreeBSD
+          # and NetBSD exited non-zero, the sh on OpenBSD exited 0, so the job
+          # went green having printed one echo and stopped. A step that can end
+          # early and still pass is worse than one that fails: the failure is
+          # loud and this was silent.
+          #
+          # Nothing inside the script can catch its own early exit, so the proof
+          # has to be something that only exists if the end was reached.
+          echo "reached-the-end" > build-memory/.rmp-bsd-complete
+
+      # The VM script has to have run all the way to its last line. See the note
+      # where the marker is written: a shell that stops early and exits 0 turns
+      # this whole job into a green that proves nothing, and it has happened.
+      - name: The VM script reached its end
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f build-memory/.rmp-bsd-complete ]; then
+            echo "FALLA: the build step reported success but did not reach its last line."
+            echo "       Something stopped it early and the shell exited 0 anyway."
+            echo "       Look at the end of the previous step's output for where it stops."
+            exit 1
+          fi
+          echo "  ok    the VM script ran to completion"
+
       # The cpa.sh shell syncs the VM filesystem back to the runner after each
       # step, so build/ is available here. This step runs on the RUNNER (shell:
       # bash overrides the job's cpa.sh default) to package + upload the artifact.
