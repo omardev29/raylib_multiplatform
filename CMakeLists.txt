@@ -284,6 +284,47 @@ if(PRODUCTION_BUILD)
       message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG===")
     endif()
   endif()
+
+  # Ship the binary without its debug symbols.
+  #
+  # Nothing in the release path was taking them out, and under zig cc that is
+  # not a rounding error. The Linux x64 binary was 4,613,528 bytes, of which
+  # 3.7 MB was DWARF -- most of it for zig's own bundled libc and compiler-rt,
+  # code the game never steps through. Stripped it is 913,128, and after
+  # `upx --best` 301,848, against 303,620 for the same game built by the host's
+  # gcc. Targeting glibc 2.28 costs 41 KB uncompressed and less than nothing
+  # compressed; the megabyte was symbols no one was ever going to read.
+  #
+  # -Wl,-s rather than a POST_BUILD ${CMAKE_STRIP}, because most of these
+  # builds are cross-compiles and GNU strip is target-specific: the image's
+  # x86-64 /usr/bin/strip cannot touch the arm64 or riscv64 output, whereas the
+  # linker that produced the file is by definition the right tool for it.
+  #
+  # Not MSVC: its debug info is already in a separate .pdb. Not Emscripten: at
+  # -Oz the wasm carries no DWARF and wasm-ld reads -s as something else. Not
+  # Android: gradle strips the .so itself, and wants the unstripped one first so
+  # it can upload the symbols to Play for the crash reports.
+  #
+  # Checked rather than assumed, for the reason cmake/generated/dev_linker.cmake
+  # exists: this has to hold on 15 toolchains, four of which are BSD linkers
+  # twenty minutes away, and ld64 dropped plain -s years ago (-S and -x are the
+  # spellings Apple kept). A linker that will not take it simply does not strip.
+  if(NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID)
+    include(CheckLinkerFlag)
+    if(APPLE)
+      set(RMP_STRIP_FLAGS "-Wl,-S" "-Wl,-x")
+    else()
+      set(RMP_STRIP_FLAGS "-Wl,-s")
+    endif()
+    check_linker_flag(CXX "${RMP_STRIP_FLAGS}" RMP_LINKER_CAN_STRIP)
+    if(RMP_LINKER_CAN_STRIP)
+      target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE ${RMP_STRIP_FLAGS})
+      message(STATUS "=== RELEASE: stripping symbols at link (${RMP_STRIP_FLAGS}) ===")
+    else()
+      message(STATUS "=== RELEASE: linker will not strip, shipping symbols ===")
+    endif()
+  endif()
+
   # There´s no console to quit on Linux/MacOS
 else()
   target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC PRODUCTION_BUILD=0)

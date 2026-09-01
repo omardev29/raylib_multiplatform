@@ -83,7 +83,19 @@ jobs:
           [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
           MACHINE=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
           [ "$MACHINE" = "3e00" ] || { echo "FAIL: not x86-64 (e_machine=$MACHINE)"; exit 1; }
-          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
+          # A shipped binary must not carry DWARF. It went unnoticed once and
+          # cost 3.7 MB of the 4.6: zig cc emits debug info for its own bundled
+          # libc and compiler-rt, and nothing in the release path took it back
+          # out. -Wl,-s in CMakeLists.txt does now; this is what notices if it
+          # ever stops, on the one job that builds natively for its own arch.
+          if objdump -h "$BIN" | grep -q '\.debug_'; then
+            echo "FAIL: release binary carries debug sections."
+            echo "      Is the -Wl,-s block still in CMakeLists.txt, and did"
+            echo "      check_linker_flag accept it? Sections found:"
+            objdump -h "$BIN" | grep '\.debug_'
+            exit 1
+          fi
+          echo "PASS: static binary checks ($(wc -c < "$BIN") bytes, stripped)"
 
       - name: Test (runtime) — boot headless, render frames, verify pixels
         run: |
@@ -208,7 +220,7 @@ jobs:
           path: linux-arm64-glibc-build.zip
           retention-days: 7
 
-  musl:
+  musl-x64:
     # Alpine, and every other musl distribution -- Void musl, KISS, Chimera.
     #
     # A SECOND BINARY and not a flag on the first: musl and glibc are different
@@ -279,7 +291,7 @@ jobs:
           path: linux-x64-musl-build.zip
           retention-days: 7
 
-  musl-run:
+  musl-x64-run:
     # AND IT ACTUALLY RUNS ON ALPINE. Everything in `musl` proves the binary is
     # musl-shaped; only this proves musl was the right shape.
     #
@@ -289,7 +301,7 @@ jobs:
     # image it does not start, and the job dies before reaching anything of
     # ours. So the job runs on the ordinary runner, where the actions work, and
     # Alpine is entered with `docker run` for the one command that matters.
-    needs: musl
+    needs: musl-x64
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-musl')
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -111,7 +111,20 @@ mkdir -p "$WRAP"
 # (extern_template_lists.h, stdexcept.cpp and friends), which happens inside
 # zig with zig's own flags. Nothing on our command line reaches them. They are
 # noise, they are not about this project, and they cost a log page per run.
-ZIG_QUIET="-Wno-nullability-completeness"
+#
+# -idirafter /usr/include is the other half, and it is load-bearing. CMake's
+# find_package(X11) reports /usr/include, and since that is not an implicit
+# directory for zig cc, CMake puts it on the command line as -I -- BEFORE zig's
+# own libc headers. The musl build then compiled <math.h> from glibc and died on
+# a header glibc keeps in a multiarch directory:
+#
+#   /usr/include/math.h:27: fatal error: 'bits/libc-header-start.h' file not found
+#
+# The glibc build had the same shadowing and merely got away with it, which is
+# worse: it was compiling against the host's 2.39 headers while linking zig's
+# 2.28 stubs. -idirafter puts /usr/include LAST, so X11/Xlib.h is still found
+# and math.h comes from the libc actually being targeted.
+ZIG_QUIET="-Wno-nullability-completeness -idirafter /usr/include"
 # The suppression goes LAST, after the caller's own flags: CMake appends its
 # warning options to the command line, and a -Wno- that comes before them is
 # turned back on by whatever follows.
@@ -159,6 +172,8 @@ cmake -B "$BUILD_DIR" -G Ninja \
       -DCMAKE_C_COMPILER_RANLIB="$WRAP/ranlib" \
       -DCMAKE_CXX_COMPILER_RANLIB="$WRAP/ranlib" \
       -DCMAKE_LINK_DEPENDS_USE_LINKER=OFF \
+      -DCMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES=/usr/include \
+      -DCMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES=/usr/include \
       "${MULTIARCH_ARGS[@]}" \
       "$@"
 cmake --build "$BUILD_DIR"
