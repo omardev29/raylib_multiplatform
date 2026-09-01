@@ -86,3 +86,13 @@ test "$GOT" = "$WANT" || {
     exit 1; }
 
 echo "PASS: booted, rendered and exited under software rendering"
+
+# The proof that this ran to the end, for the caller to check. It is written
+# HERE and not by the caller for a reason paid for twice: the workflow's inline
+# script is truncated on its way into the VM, and OpenBSD's limit is tighter
+# than FreeBSD's -- the two lines that used to follow the call to this script
+# were inside the cut on OpenBSD and outside it on FreeBSD, so one BSD passed
+# and the other did not, with identical code. With the marker written from in
+# here there is nothing after the call to lose.
+mkdir -p build
+echo "reached-the-end" > build/.rmp-render-complete
