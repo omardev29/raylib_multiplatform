@@ -320,9 +320,16 @@ jobs:
           # Alpine pinned by digest. NOTHING is installed into it: if the binary
           # needed a package Alpine does not ship, that is the bug this job is
           # here to find, and installing things would hide it.
+          # The binary is a PRODUCTION_BUILD, so it looks for ./resources/ next
+          # to itself. That layout gets assembled on the host and mounted as ONE
+          # directory, because a second -v nested underneath a :ro mount asks
+          # docker to create the mountpoint inside a read-only rootfs:
+          #   make mountpoint "/app/resources": read-only file system
+          # podman allows exactly that and docker does not, which is why the
+          # nesting survived being tested on a laptop and died on the runner.
+          cp -r resources musl-bin/resources
           OUT=$(docker run --rm \
             -v "$PWD/musl-bin:/app:ro" \
-            -v "$PWD/resources:/app/resources:ro" \
             -w /app -e RAY_TEST_MAX_FRAMES=10 \
             alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \
             "./${{ inputs.project_name }}" 2>&1) || true
