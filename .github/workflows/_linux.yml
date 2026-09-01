@@ -535,6 +535,20 @@ jobs:
           echo "kernel: $(uname -r)"
           # Printed, not assumed: if the module is not there, the failure has to
           # say which half was at fault rather than leaving a bare exit code.
+          if ! modinfo vkms > /dev/null 2>&1; then
+            # The Azure kernel the runners boot ships a trimmed module set and
+            # vkms is not in it -- `modprobe: FATAL: Module vkms not found in
+            # directory /lib/modules/6.17.0-1022-azure`. It lives in
+            # linux-modules-extra, which is a download, and a download is the
+            # one thing the Linux jobs avoid. This job is the exception and it
+            # is a narrow one: the alternative is not testing a shipped target
+            # at all, and there is no build depending on it -- drm-x64 has
+            # already built and uploaded the binary before this job starts.
+            echo "vkms is not in the booted kernel; fetching the extra modules"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" \
+              || { echo "FALLA: no linux-modules-extra for $(uname -r) in the archive"; exit 1; }
+          fi
           modinfo vkms 2>&1 | head -3 || echo "  (this kernel has no vkms module)"
           sudo modprobe vkms || { echo "FALLA: the runner kernel cannot load vkms"; exit 1; }
           # udev takes a moment to create the nodes.
