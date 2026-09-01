@@ -178,15 +178,23 @@ class ConfigureTargetsTest(unittest.TestCase):
     """expand_targets(): groups overlap on purpose, and must not double up."""
 
     def test_all_is_every_runnable_target(self):
+        """Derived from TARGETS rather than a number written here. A count in a
+        test goes stale the day a target is added, and it goes stale as
+        "15 != 14", which says nothing about what is actually being asserted:
+        that `all` is everything EXCEPT linux-drm."""
         result = cfgmod.expand_targets(["all"], [])
-        self.assertEqual(len(result), 14)
+        self.assertEqual(len(result), len(cfgmod.TARGETS) - 1)
         self.assertNotIn("linux-drm", result, "linux-drm must not come in through 'all'")
 
     def test_overlapping_groups_deduplicate(self):
-        # desktop and linux share three targets; windows shares two with desktop.
+        """desktop, linux and windows overlap heavily. The point is that nothing
+        appears twice — not that the union equals any one of them, which stopped
+        being true when linux gained a member desktop does not have."""
         result = cfgmod.expand_targets(["desktop", "linux", "windows"], [])
         self.assertEqual(len(result), len(set(result)))
-        self.assertEqual(result, cfgmod.expand_targets(["desktop"], []))
+        self.assertEqual(set(result),
+                         set(cfgmod.GROUPS["desktop"]) | set(cfgmod.GROUPS["linux"])
+                         | set(cfgmod.GROUPS["windows"]))
 
     def test_a_target_named_twice_appears_once(self):
         self.assertEqual(cfgmod.expand_targets(["web", "web", "web"], []), ["web"])
@@ -206,11 +214,12 @@ class ConfigureTargetsTest(unittest.TestCase):
         result = cfgmod.expand_targets(["all"], ["ios"])
         self.assertNotIn("ios", result)
         self.assertIn("macos", result)
-        self.assertEqual(len(result), 13)
+        self.assertEqual(len(result), len(cfgmod.TARGETS) - 2)  # linux-drm and ios
 
     def test_disabled_can_be_a_group_too(self):
         result = cfgmod.expand_targets(["all"], ["bsd"])
-        self.assertEqual(len(result), 9)
+        expected = len(cfgmod.TARGETS) - 1 - len(cfgmod.GROUPS["bsd"])
+        self.assertEqual(len(result), expected)
         self.assertFalse([t for t in result if "bsd" in t])
 
     def test_disabling_something_not_enabled_is_harmless(self):

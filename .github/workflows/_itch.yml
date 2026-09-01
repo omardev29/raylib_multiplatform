@@ -25,6 +25,10 @@ on:
         description: 'Base name of the built artifacts'
         required: true
         type: string
+      build_image:
+        description: 'Pinned build image — butler lives in it'
+        required: true
+        type: string
       itch_user:
         description: 'itch.io username, from [deploy.itch] in the config'
         required: false
@@ -48,6 +52,16 @@ jobs:
   itch:
     name: itch.io — ${{ matrix.channel }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    # In the image, for butler. It was downloaded here with no checksum from a
+    # host that is not GitHub, in the step that publishes a release.
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     # One channel failing must not stop the other eight from publishing.
     continue-on-error: true
@@ -97,16 +111,12 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist
 
-      - name: Install butler (pinned)
+      # butler comes from the image, pinned and sha256-checked when the image was
+      # built. It used to be downloaded here with no checksum at all, from a host
+      # that is not GitHub — the single most fragile step in the release path.
+      - name: The butler the image carries
         if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
-        run: |
-          set -euo pipefail
-          curl -fsSL --retry 5 --retry-delay 3 \
-            -o butler.zip \
-            "https://broth.itch.zone/butler/linux-amd64/${BUTLER_VERSION}/archive/default"
-          unzip -q butler.zip -d butler-bin
-          chmod +x butler-bin/butler
-          ./butler-bin/butler -V
+        run: butler -V
 
       - name: Prepare payload
         id: payload
@@ -158,7 +168,7 @@ jobs:
           set -euo pipefail
           # --userversion puts the number on the itch page and makes the push
           # idempotent: re-running the same tag does not create a duplicate build.
-          ./butler-bin/butler push \
+          butler push \
             payload \
             "${ITCH_USER}/${ITCH_GAME}:${CHANNEL}" \
             --userversion "$VERSION"

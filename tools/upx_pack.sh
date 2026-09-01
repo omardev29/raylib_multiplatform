@@ -57,14 +57,23 @@ esac
 SHA=$(awk -v k="upx_sha256_${ARCH}" '$1==k{print $2}' thirdparty/FROZEN_VERSIONS.md)
 [ -n "$SHA" ] || { echo "FALLA: no upx_sha256_${ARCH} in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
 
+# The image's copy first — see CLAUDE.md, a Linux job downloads nothing. The
+# download below is what makes this work on a laptop.
+if command -v upx > /dev/null 2>&1 && upx --version 2>/dev/null | head -1 | grep -q "$VERSION"; then
+  UPX=$(command -v upx)
+  echo "  using the upx already here: $UPX ($VERSION)"
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 NAME="upx-${VERSION}-${ARCH}_linux"
+if [ -z "${UPX:-}" ]; then
 curl -fsSL -o "$TMP/upx.tar.xz" \
   "https://github.com/upx/upx/releases/download/v${VERSION}/${NAME}.tar.xz"
 echo "${SHA}  ${TMP}/upx.tar.xz" | sha256sum -c -
 tar -xJf "$TMP/upx.tar.xz" -C "$TMP"
 UPX="$TMP/$NAME/upx"
+fi
 
 BEFORE=$(wc -c < "$BINARY")
 # --best --lzma is the slowest setting and the smallest result. This runs once

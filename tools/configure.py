@@ -170,6 +170,14 @@ TARGETS: dict[str, tuple[str, str]] = {
     "linux-x64":     ("linux",   "Linux x86-64"),
     "linux-arm64":   ("linux",   "Linux ARM64"),
     "linux-riscv64": ("linux",   "Linux RISC-V"),
+    # musl, for Alpine and every other musl distribution -- Void musl, KISS,
+    # Chimera. The naming is linux-<arch>-<libc>, with the libc last; the ones
+    # above have no suffix because glibc is what almost everything uses.
+    #
+    # It is a SECOND BINARY and not a flag on the first, because musl and glibc
+    # are different C libraries rather than versions of one: a glibc binary does
+    # not start on Alpine and a musl binary does not start on Debian.
+    "linux-x64-musl": ("linux",   "Linux x86-64 (musl / Alpine)"),
     "windows-x64":   ("windows", "Windows x86-64"),
     "windows-arm64": ("windows", "Windows ARM64"),
     "macos":         ("apple",   "macOS (universal)"),
@@ -190,7 +198,7 @@ GROUPS: dict[str, list[str]] = {
     # "all" is the fourteen that a machine can build AND run unattended.
     # linux-drm is out of it on purpose: it needs /dev/dri to run.
     "all":     [t for t in TARGETS if t != "linux-drm"],
-    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64"],
+    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64", "linux-x64-musl"],
     "windows": ["windows-x64", "windows-arm64"],
     "apple":   ["macos", "ios"],
     "desktop": ["linux-x64", "linux-arm64", "linux-riscv64",
@@ -283,7 +291,7 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
 #                compressed stream does not compress again.
 #   web          it is .wasm, and the browser fetches it gzipped anyway.
 UPX_TARGETS: list[str] = [
-    "linux-x64", "linux-arm64", "linux-riscv64", "linux-drm",
+    "linux-x64", "linux-arm64", "linux-riscv64", "linux-drm", "linux-x64-musl",
     "windows-x64", "windows-arm64",
     "freebsd-x64", "freebsd-arm64", "openbsd-x64", "openbsd-arm64", "netbsd-x64",
 ]
@@ -300,7 +308,8 @@ UPX_GROUPS: dict[str, list[str]] = {
     # `all` here is NOT the fourteen: it is every target that can be compressed
     # at all. Windows is in it, but not in the default — see the .toml.
     "all":     list(UPX_TARGETS),
-    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64", "linux-drm"],
+    "linux":   ["linux-x64", "linux-arm64", "linux-riscv64", "linux-drm",
+                "linux-x64-musl"],
     "windows": ["windows-x64", "windows-arm64"],
     "bsd":     ["freebsd-x64", "freebsd-arm64",
                 "openbsd-x64", "openbsd-arm64", "netbsd-x64"],

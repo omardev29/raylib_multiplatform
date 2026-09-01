@@ -208,6 +208,114 @@ jobs:
           path: linux-arm64-build.zip
           retention-days: 7
 
+  musl:
+    # Alpine, and every other musl distribution -- Void musl, KISS, Chimera.
+    #
+    # A SECOND BINARY and not a flag on the first: musl and glibc are different
+    # C libraries, not versions of one, so a glibc binary does not start on
+    # Alpine and this one does not start on Debian. The philosophy behind
+    # shipping it is Omar's -- leave as few people as possible without a native
+    # binary -- and the cost is one job.
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-musl')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The shipping binary, and a headless one for the runtime test below. The
+      # headless build is what proves musl WORKS: the desktop one needs a
+      # display, and the software renderer needs nothing at all.
+      - name: Build (musl)
+        run: |
+          set -euo pipefail
+          RMP_LIBC=musl bash tools/linux_build.sh build
+          RMP_LIBC=musl bash tools/linux_build.sh build/memory -DPLATFORM=Memory
+
+      - name: Test (static) — it is a musl binary and not a glibc one
+        run: |
+          set -euo pipefail
+          BIN=build/${{ inputs.project_name }}
+          test -x "$BIN" || { echo "FALLA: $BIN not built"; exit 1; }
+          # The distinguishing fact, and the one worth asserting: a musl binary
+          # asks for musl's libc.so and names no versioned GLIBC_ symbol at all.
+          if objdump -T "$BIN" | grep -q "GLIBC_"; then
+            echo "FALLA: this is linked against glibc, not musl"
+            objdump -p "$BIN" | grep NEEDED
+            exit 1
+          fi
+          echo "  needs:"; objdump -p "$BIN" | grep NEEDED | sed 's/^/    /'
+          echo "PASS: musl binary, no glibc symbols"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-x64-musl-headless
+          path: build/memory/${{ inputs.project_name }}
+          retention-days: 3
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p package/resources
+          if [ -f cmake/generated/LICENSES.txt ]; then cp cmake/generated/LICENSES.txt package/; fi
+          cp build/${{ inputs.project_name }} package/
+          cp -r resources package/
+          bash tools/upx_pack.sh linux-x64-musl "package/${{ inputs.project_name }}" || true
+          cd package && zip -r ../linux-x64-musl-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-x64-musl-build
+          path: linux-x64-musl-build.zip
+          retention-days: 7
+
+  musl-run:
+    # AND IT ACTUALLY RUNS ON ALPINE. Everything above proves the binary is
+    # musl-shaped; only this proves musl was the right shape. It is the same
+    # separation as web / build and web / boot-test.
+    needs: musl
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-musl')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      # Alpine itself, pinned by digest. Nothing is installed into it: if the
+      # binary needed something Alpine does not ship, that is the bug this job
+      # exists to find.
+      image: alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: linux-x64-musl-headless
+          path: .
+
+      - name: Boot and render, on Alpine, with nothing installed
+        run: |
+          set -eu
+          chmod +x ./${{ inputs.project_name }}
+          echo "Alpine $(cat /etc/alpine-release)"
+          OUT=$(RAY_TEST_MAX_FRAMES=10 ./${{ inputs.project_name }} 2>&1) || true
+          echo "$OUT" | tail -20
+          echo "$OUT" | grep -q RAY_TEST_BOOT_OK    || { echo "FALLA: did not boot"; exit 1; }
+          echo "$OUT" | grep -q RAY_TEST_RENDER_OK  || { echo "FALLA: drew nothing"; exit 1; }
+          echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: died before the end"; exit 1; }
+          GOT=$(echo "$OUT" | grep -o "hash=[0-9a-f]*" | head -1 | cut -d= -f2)
+          WANT=$(cat tests/fixtures/render_hash.txt)
+          echo "  software-render hash=$GOT want=$WANT"
+          test "$GOT" = "$WANT" || { echo "FALLA: musl renders a different frame"; exit 1; }
+          echo "PASS: booted and rendered on Alpine"
+
   riscv64:
     # Cross-compiled inside the amd64 container: the image ships the riscv64
     # X11/GL multiarch libraries. Static checks only — there is no riscv64
@@ -309,11 +417,9 @@ jobs:
       # The build image carries what the fourteen need, and DRM is not one of
       # them. Installed here rather than baked in: a target nobody enables
       # should not make every other job's image bigger.
-      - name: DRM dependencies
-        run: |
-          set -euo pipefail
-          apt-get update -qq
-          apt-get install -y -qq libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev
+      # No dependency step: libdrm, gbm, EGL and GLES are in the image. They used
+      # to be an apt-get here, which is one network failure away from taking the
+      # job down for a reason that has nothing to do with DRM.
 
       - name: Configure
         run: cmake --preset release -DRMP_TARGET_DRM=ON

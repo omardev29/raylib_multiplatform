@@ -108,62 +108,54 @@ jobs:
   # on a tag: a typo'd input name in a reusable workflow, or pins that have
   # drifted apart across files.
   lint:
+    needs: config
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    # In the image, like every other Linux job. It used to be a bare runner that
+    # apt-got raylib's dependencies, pip-installed clang and downloaded
+    # actionlint — three chances for a bad network day to fail a job that only
+    # reads files. See CLAUDE.md: a Linux job downloads nothing.
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        # Container jobs default to `sh -e {0}`, which has no `pipefail`.
+        shell: bash
     steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: actionlint
         run: |
           set -euo pipefail
-          VERSION=1.7.12
-          SHA=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-          curl -fsSL -o /tmp/actionlint.tgz \
-            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
-          echo "${SHA}  /tmp/actionlint.tgz" | sha256sum -c -
-          tar -xzf /tmp/actionlint.tgz -C /tmp actionlint
           # No file arguments: actionlint finds .github/workflows itself. An
           # explicit glob breaks the moment an extension stops being used —
           # `*.yaml` matched nothing once build.yaml was split up, and the shell
           # passed the literal pattern straight through as a filename.
-          /tmp/actionlint -color
+          actionlint -color
           echo "PASS: actionlint clean"
 
-      # This runner is a bare ubuntu-24.04, not the pinned build image, so it has
-      # none of raylib's Linux dependencies — and any `cmake --preset debug`
-      # configures raylib, which dies on GLFW's find_package(X11). Three steps
-      # below configure CMake, so this has to come before all of them; it used
-      # to sit inside the clang-tidy step, which is the last of the three, and
-      # the unit tests failed on it.
-      #
-      # The list is the one the build image installs (see the raylib-build-image
-      # repo). Nothing here is BUILT: it costs one apt call, no compile time.
-      - name: Linux dependencies for configuring raylib
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build \
-            libgl1-mesa-dev libwayland-dev libx11-dev libxcursor-dev \
-            libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev
+      # No dependency step: the image has raylib's X11/GL/Wayland headers, ninja,
+      # and the pinned clang tooling. That step existed because this job used to
+      # run on a bare runner and `cmake --preset debug` died on GLFW's
+      # find_package(X11).
 
       - name: Generate configuration
         run: python3 tools/configure.py
 
-      # Both versions come out of the ```versions block in FROZEN_VERSIONS.md,
-      # so the pin lives in one place. A different minor version of
-      # clang-format reformats files that were already formatted, which would
-      # fail this job for a reason that has nothing to do with the change.
-      - name: Install the pinned clang tooling
+      # clang-format and clang-tidy come from the image, at the version
+      # FROZEN_VERSIONS.md declares — versions_check.sh below is what makes the
+      # two agree, and it fails if the image drifts from the pin. A different
+      # patch version of clang-format reformats files that were already correct,
+      # which would fail this job for a reason unrelated to the change.
+      - name: The clang tooling the image carries
         run: |
           set -euo pipefail
-          fmt=$(awk '/^clang_format/{print $2}' thirdparty/FROZEN_VERSIONS.md)
-          tidy=$(awk '/^clang_tidy/{print $2}' thirdparty/FROZEN_VERSIONS.md)
-          if [ -z "$fmt" ] || [ -z "$tidy" ]; then
-            echo "FALLA: clang pins missing from FROZEN_VERSIONS.md"
-            exit 1
-          fi
-          python3 -m pip install --quiet --break-system-packages \
-            "clang-format==$fmt" "clang-tidy==$tidy"
           clang-format --version
           clang-tidy --version | head -2
 
@@ -441,6 +433,7 @@ jobs:
     with:
       version: ${{ needs.config.outputs.version }}
       project_name: ${{ needs.config.outputs.project_name }}
+      build_image: ${{ needs.config.outputs.build_image }}
       itch_user: ${{ needs.config.outputs.itch_user }}
       itch_game: ${{ needs.config.outputs.itch_game }}
     secrets: inherit

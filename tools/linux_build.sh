@@ -28,9 +28,19 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${1:?usage: linux_build.sh <build-dir> [cmake args...]}"
 shift || true
 
+# RMP_LIBC=musl builds the Alpine target. The default is glibc, which is what
+# every other Linux distribution uses.
+#
+# WHY MUSL IS ITS OWN BINARY AND NOT A FLAG: musl and glibc are different C
+# libraries, not versions of one. A glibc binary cannot run on Alpine and a musl
+# binary cannot run on Debian, so this is a second artifact -- linux-x64-musl --
+# and not a setting on the first.
+LIBC="${RMP_LIBC:-glibc}"
 GLIBC=$(python3 tools/configure.py --print-glibc)
 
-if [ -z "$GLIBC" ]; then
+if [ "$LIBC" = "musl" ]; then
+  GLIBC=""            # musl has no version to target; it is one ABI
+elif [ -z "$GLIBC" ]; then
   echo "  [linux] glibc is empty — building against this machine's glibc"
   cmake -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON "$@"
   cmake --build "$BUILD_DIR"
@@ -49,10 +59,20 @@ SHA=$(awk -v k="zig_sha256_${ZIG_ARCH}" '$1==k{print $2}' thirdparty/FROZEN_VERS
 [ -n "$VERSION" ] && [ -n "$SHA" ] || {
   echo "FALLA: no zig pin for $ZIG_ARCH in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
 
-# Cached across steps of the same job, and re-downloaded if the pin moves.
+# THE IMAGE'S COPY FIRST. CI runs inside a container that already has zig at
+# the pinned version, with its libc++ cache warm -- see CLAUDE.md: a Linux job
+# downloads nothing, because a download that fails on a bad day takes twenty
+# minutes of matrix with it. The download below is the laptop fallback.
+ZIG_BIN=""
+if command -v zig > /dev/null 2>&1 && [ "$(zig version)" = "$VERSION" ]; then
+  ZIG_BIN=$(command -v zig)
+  ZIG_HOME=$(dirname "$ZIG_BIN")
+  echo "  using the zig already here: $ZIG_BIN ($VERSION)"
+fi
+
 ZIG_HOME="${ZIG_HOME:-$PWD/.zig-$VERSION-$ZIG_ARCH}"
 NAME="zig-${ZIG_ARCH}-linux-${VERSION}"
-if [ ! -x "$ZIG_HOME/zig" ]; then
+if [ -z "$ZIG_BIN" ] && [ ! -x "$ZIG_HOME/zig" ]; then
   TMP=$(mktemp -d)
   trap 'rm -rf "$TMP"' EXIT
   echo "  downloading zig ${VERSION} (${ZIG_ARCH})"
@@ -64,13 +84,23 @@ if [ ! -x "$ZIG_HOME/zig" ]; then
   mv "$TMP/$NAME" "$ZIG_HOME"
 fi
 
-TARGET="${TRIPLE_ARCH}-linux-gnu.${GLIBC}"
+if [ "$LIBC" = "musl" ]; then
+  # No version suffix: musl is one ABI, not a series of them. The binary comes
+  # out DYNAMIC because it links against the system's X11 and GL, which is what
+  # we want -- a static musl binary cannot dlopen, and dlopen is exactly how
+  # GLFW reaches the window system.
+  TARGET="${TRIPLE_ARCH}-linux-musl"
+else
+  TARGET="${TRIPLE_ARCH}-linux-gnu.${GLIBC}"
+fi
 echo "  building for ${TARGET}"
 
 # CMake wants one executable, not "zig cc", so the target is baked into two
 # wrapper scripts rather than passed through the environment — a build that
 # forgets to export a variable would silently produce a host binary again.
-WRAP="$ZIG_HOME/wrappers"
+ZIG_BIN="${ZIG_BIN:-$ZIG_HOME/zig}"
+# The wrappers go somewhere writable: $ZIG_HOME is /opt inside the image.
+WRAP="${PWD}/.zig-wrappers"
 mkdir -p "$WRAP"
 # -Wno-nullability-completeness for OUR translation units: zig's libc++ headers
 # are not annotated for nullability and clang says so once per declaration.
@@ -85,15 +115,15 @@ ZIG_QUIET="-Wno-nullability-completeness"
 # The suppression goes LAST, after the caller's own flags: CMake appends its
 # warning options to the command line, and a -Wno- that comes before them is
 # turned back on by whatever follows.
-printf '#!/bin/sh\nexec "%s/zig" cc -target %s "$@" %s\n'  "$ZIG_HOME" "$TARGET" "$ZIG_QUIET" > "$WRAP/cc"
-printf '#!/bin/sh\nexec "%s/zig" c++ -target %s "$@" %s\n' "$ZIG_HOME" "$TARGET" "$ZIG_QUIET" > "$WRAP/c++"
+printf '#!/bin/sh\nexec "%s" cc -target %s "$@" %s\n'  "$ZIG_BIN" "$TARGET" "$ZIG_QUIET" > "$WRAP/cc"
+printf '#!/bin/sh\nexec "%s" c++ -target %s "$@" %s\n' "$ZIG_BIN" "$TARGET" "$ZIG_QUIET" > "$WRAP/c++"
 # And the archiver. CMake derives CMAKE_<LANG>_COMPILER_AR from the compiler --
 # gcc-ar for gcc, llvm-ar for clang -- and for zig cc it derives nothing, so the
 # static libraries were archived by a program called
 # "CMAKE_C_COMPILER_AR-NOTFOUND". It only showed up inside the build image; on a
 # desktop with llvm-ar installed CMake had found one by luck.
-printf '#!/bin/sh\nexec "%s/zig" ar "$@"\n'     "$ZIG_HOME" > "$WRAP/ar"
-printf '#!/bin/sh\nexec "%s/zig" ranlib "$@"\n' "$ZIG_HOME" > "$WRAP/ranlib"
+printf '#!/bin/sh\nexec "%s" ar "$@"\n'     "$ZIG_BIN" > "$WRAP/ar"
+printf '#!/bin/sh\nexec "%s" ranlib "$@"\n' "$ZIG_BIN" > "$WRAP/ranlib"
 chmod +x "$WRAP/cc" "$WRAP/c++" "$WRAP/ar" "$WRAP/ranlib"
 
 # WHERE THE SYSTEM LIBRARIES LIVE. CMake normally learns the multiarch directory
