@@ -148,7 +148,7 @@ jobs:
       # Single-slice on purpose: this one is never shipped, it is run, and
       # building both architectures to execute one of them is a minute for
       # nothing.
-      - name: Test (runtime) — boot and render with no GPU
+      - name: Test (runtime) -- boot and render with no GPU
         run: |
           set -euo pipefail
           cmake -B build/memory -G Ninja -DCMAKE_BUILD_TYPE=Debug \
@@ -164,7 +164,7 @@ jobs:
           echo "$OUT" | grep -q "RAY_TEST_DONE_FRAMES" || {
             echo "FALLA: did not survive to the end of the frame budget"; exit 1; }
 
-          # Printed, not compared — yet. See the same note in _bsd.yml: software
+          # Printed, not compared -- yet. See the same note in _bsd.yml: software
           # rendering is identical across operating systems, and whether it is
           # identical across instruction sets is what these runs are here to
           # answer before the hash becomes an assertion.

@@ -74,6 +74,29 @@ check 'sed -i [^.]' \
       "sed -i needs an argument on BSD: sed -i '' " \
       "a temp file and mv, or python3" || fails=$((fails + 1))
 
+# The BSD jobs run their script through cross-platform-actions' cpa.sh shell,
+# which carries it into the VM and re-parses it there. A NON-ASCII BYTE does not
+# survive that: an em dash inside a double-quoted echo came back as
+#
+#   sh: 83: Syntax error: Unterminated quoted string
+#
+# with a line number belonging to the generated script, in a step whose actual
+# job was to build and run the game. The block that had worked for months
+# contained exactly zero non-ASCII characters, which is the kind of thing nobody
+# notices until they add one.
+# LC_ALL=C is load-bearing: in a UTF-8 locale a bracket range is collation
+# order, not byte order, and [^ -~] then matches almost every line. With the C
+# locale it is bytes, which is the question being asked.
+non_ascii=$(awk '/shell: cpa.sh/,/^      - name: Package/' .github/workflows/_bsd.yml 2>/dev/null \
+            | LC_ALL=C grep -n '[^ -~]' || true)
+if [ -n "$non_ascii" ]; then
+    echo "  FAIL  a non-ASCII character in the cpa.sh block of .github/workflows/_bsd.yml"
+    printf '%s\n' "$non_ascii" | sed 's/^/          /'
+    echo "        instead: plain ASCII. Two hyphens for a dash. It does not survive"
+    echo "                 the trip into the VM, and the error names the wrong line."
+    fails=$((fails + 1))
+fi
+
 if [ "$fails" -ne 0 ]; then
     echo
     echo "FALLA: $fails rule(s). These scripts are what a new contributor runs first,"
