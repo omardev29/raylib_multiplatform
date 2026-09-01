@@ -72,9 +72,47 @@ echo "  building for ${TARGET}"
 # forgets to export a variable would silently produce a host binary again.
 WRAP="$ZIG_HOME/wrappers"
 mkdir -p "$WRAP"
-printf '#!/bin/sh\nexec "%s/zig" cc -target %s "$@"\n'  "$ZIG_HOME" "$TARGET" > "$WRAP/cc"
-printf '#!/bin/sh\nexec "%s/zig" c++ -target %s "$@"\n' "$ZIG_HOME" "$TARGET" > "$WRAP/c++"
-chmod +x "$WRAP/cc" "$WRAP/c++"
+# -Wno-nullability-completeness for OUR translation units: zig's libc++ headers
+# are not annotated for nullability and clang says so once per declaration.
+#
+# It does NOT silence the thousands of the same warning you will see the first
+# time this runs, and that is worth knowing rather than being surprised by:
+# those come from zig compiling its own bundled libc++ for this target
+# (extern_template_lists.h, stdexcept.cpp and friends), which happens inside
+# zig with zig's own flags. Nothing on our command line reaches them. They are
+# noise, they are not about this project, and they cost a log page per run.
+ZIG_QUIET="-Wno-nullability-completeness"
+# The suppression goes LAST, after the caller's own flags: CMake appends its
+# warning options to the command line, and a -Wno- that comes before them is
+# turned back on by whatever follows.
+printf '#!/bin/sh\nexec "%s/zig" cc -target %s "$@" %s\n'  "$ZIG_HOME" "$TARGET" "$ZIG_QUIET" > "$WRAP/cc"
+printf '#!/bin/sh\nexec "%s/zig" c++ -target %s "$@" %s\n' "$ZIG_HOME" "$TARGET" "$ZIG_QUIET" > "$WRAP/c++"
+# And the archiver. CMake derives CMAKE_<LANG>_COMPILER_AR from the compiler --
+# gcc-ar for gcc, llvm-ar for clang -- and for zig cc it derives nothing, so the
+# static libraries were archived by a program called
+# "CMAKE_C_COMPILER_AR-NOTFOUND". It only showed up inside the build image; on a
+# desktop with llvm-ar installed CMake had found one by luck.
+printf '#!/bin/sh\nexec "%s/zig" ar "$@"\n'     "$ZIG_HOME" > "$WRAP/ar"
+printf '#!/bin/sh\nexec "%s/zig" ranlib "$@"\n' "$ZIG_HOME" > "$WRAP/ranlib"
+chmod +x "$WRAP/cc" "$WRAP/c++" "$WRAP/ar" "$WRAP/ranlib"
+
+# WHERE THE SYSTEM LIBRARIES LIVE. CMake normally learns the multiarch directory
+# -- /usr/lib/x86_64-linux-gnu on Debian and Ubuntu -- by asking the compiler for
+# its implicit link paths. zig cc does not answer that question the way gcc
+# does, so find_package(X11) came back with "Could NOT find X11 (missing:
+# X11_X11_LIB)" on a machine where libX11 was plainly installed.
+#
+# Only set when the directory is really there, so this stays correct on
+# distributions that put everything in /usr/lib (Arch, Fedora) rather than
+# adding a search path that does not exist.
+#
+# X11 is needed at CONFIGURE time and not at run time: GLFW opens libX11 with
+# dlopen, which is why the finished binary has no NEEDED entry for it.
+MULTIARCH_ARGS=()
+if [ -d "/usr/lib/${TRIPLE_ARCH}-linux-gnu" ]; then
+  MULTIARCH_ARGS=(-DCMAKE_LIBRARY_ARCHITECTURE="${TRIPLE_ARCH}-linux-gnu")
+  echo "  system libraries: /usr/lib/${TRIPLE_ARCH}-linux-gnu"
+fi
 
 # CMAKE_LINK_DEPENDS_USE_LINKER=OFF is load-bearing. With Ninja, CMake passes
 # `-Xlinker --dependency-file=...` to track link inputs, and zig cc SEGFAULTS on
@@ -84,6 +122,13 @@ cmake -B "$BUILD_DIR" -G Ninja \
       -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON \
       -DCMAKE_C_COMPILER="$WRAP/cc" \
       -DCMAKE_CXX_COMPILER="$WRAP/c++" \
+      -DCMAKE_AR="$WRAP/ar" \
+      -DCMAKE_RANLIB="$WRAP/ranlib" \
+      -DCMAKE_C_COMPILER_AR="$WRAP/ar" \
+      -DCMAKE_CXX_COMPILER_AR="$WRAP/ar" \
+      -DCMAKE_C_COMPILER_RANLIB="$WRAP/ranlib" \
+      -DCMAKE_CXX_COMPILER_RANLIB="$WRAP/ranlib" \
       -DCMAKE_LINK_DEPENDS_USE_LINKER=OFF \
+      "${MULTIARCH_ARGS[@]}" \
       "$@"
 cmake --build "$BUILD_DIR"
