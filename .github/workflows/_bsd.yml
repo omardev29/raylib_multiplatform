@@ -140,13 +140,18 @@ jobs:
           # what it costs -- worth it for the difference between "it linked" and
           # "it started, drew a frame, and shut down cleanly".
           echo "== software render (PLATFORM=Memory) =="
-          # Written in the plainest sh there is, on purpose. The BSD /bin/sh is
-          # ash and the script arrives through cpa.sh, and a multi-line
-          # `|| { ...; }` compound in here died with "Unterminated quoted
-          # string" AFTER the game had already run to completion. The block
-          # above it, which has worked for months, uses nothing but single-line
-          # commands -- so this one does too. Output goes to a file rather than
-          # a variable for the same reason: fewer things to re-parse.
+          # Written in the plainest sh there is, on purpose, and the reason is
+          # honest rather than diagnosed: an earlier version of this block died
+          # with "Unterminated quoted string" AFTER the game had already run to
+          # completion -- and checking that script with a POSIX shell says it is
+          # perfectly valid. So the mangling happens on the way into the VM,
+          # somewhere in cpa.sh, and the two things this version differs in are
+          # the two candidates: no multi-line compounds, and the output goes to
+          # a file instead of a shell variable. The block above, which has
+          # worked for months, has neither.
+          #
+          # If it breaks again, the next thing to try is fewer quotes -- not a
+          # better theory about ash.
           rm -rf build-memory
           cmake -B build-memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
                 -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory $EXTRA_CMAKE
