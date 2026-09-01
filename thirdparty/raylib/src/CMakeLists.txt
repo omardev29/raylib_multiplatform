@@ -68,7 +68,16 @@ else()
 endif()
 
 if (${PLATFORM} MATCHES "Web")
-    target_link_options(raylib PUBLIC "-sUSE_GLFW=3" -sEXPORTED_RUNTIME_METHODS=ccall)
+    target_link_options(raylib PUBLIC -sEXPORTED_RUNTIME_METHODS=ccall)
+    # PATCHED (raylib_multiplatform): -sUSE_GLFW=3 belongs to the GLFW web
+    # backend and to no other. It was applied to everything MATCHING "Web",
+    # which now includes WebEmscripten and WebRGFW — and since it is PUBLIC it
+    # propagated to the game, so choosing a GLFW-free backend still linked
+    # Emscripten's GLFW-in-JavaScript shim. That is most of what choosing them
+    # was for. Re-apply when bumping raylib.
+    if (${PLATFORM} STREQUAL "Web")
+        target_link_options(raylib PUBLIC "-sUSE_GLFW=3")
+    endif()
     if(${GRAPHICS} MATCHES "GRAPHICS_API_OPENGL_ES3")
         target_link_options(raylib PUBLIC "-sMIN_WEBGL_VERSION=2")
         target_link_options(raylib PUBLIC "-sMAX_WEBGL_VERSION=2")

@@ -542,6 +542,14 @@ const char *TextFormat(const char *text, ...); // Formatting of text with variab
     #include "platforms/rcore_desktop_rgfw.c"
 #elif defined(PLATFORM_DESKTOP_WIN32)
     #include "platforms/rcore_desktop_win32.c"
+#elif defined(PLATFORM_WEB_EMSCRIPTEN)
+    // PATCHED (raylib_multiplatform): raylib 6.0 ships platforms/
+    // rcore_web_emscripten.c and the header of this very file lists
+    // "PLATFORM_WEB_EMSCRIPTEN (Emscripten)" as a supported platform — but no
+    // branch here ever selects it, so the build fell through to the #else and
+    // failed at link with undefined InitPlatform, ClosePlatform,
+    // SwapScreenBuffer and PollInputEvents. Re-apply when bumping raylib.
+    #include "platforms/rcore_web_emscripten.c"
 #elif defined(PLATFORM_WEB)
     #include "platforms/rcore_web.c"
 #elif defined(PLATFORM_DRM)
@@ -618,6 +626,13 @@ void InitWindow(int width, int height, const char *title)
     TRACELOG(LOG_INFO, "Platform backend: DESKTOP (WIN32)");
 #elif defined(PLATFORM_WEB_RGFW)
     TRACELOG(LOG_INFO, "Platform backend: WEB (RGFW) (HTML5)");
+#elif defined(PLATFORM_WEB_EMSCRIPTEN)
+    // PATCHED (raylib_multiplatform): so the boot log names the backend that is
+    // actually running. Without it this fell through and the line was wrong,
+    // which matters here more than usual — the three web backends are
+    // indistinguishable in the artefacts, and this line is the cheapest proof
+    // of which one you built.
+    TRACELOG(LOG_INFO, "Platform backend: WEB (EMSCRIPTEN) (HTML5)");
 #elif defined(PLATFORM_WEB)
     TRACELOG(LOG_INFO, "Platform backend: WEB (HTML5)");
 #elif defined(PLATFORM_DRM)

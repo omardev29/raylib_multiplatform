@@ -279,6 +279,32 @@ test what="all": (_reconfigure "Debug")
     esac
     echo "PASS"
 
+# Push, unless CI is still running — because pushing would kill it.
+#
+# ci.yml's concurrency group is CI-refs/heads/main with cancel-in-progress, so a
+# push while the full matrix is in flight cancels twenty minutes of work and
+# starts a fast lane instead. The old note in CLAUDE.md said "this has happened
+# twice"; it then happened a third time, to somebody who had just read it. Three
+# is enough to stop writing it down and start checking it.
+#
+# `just push force` pushes anyway, for when killing the run is what you meant.
+push what="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ what }}" != "force" ] && command -v gh >/dev/null 2>&1; then
+        running=$(gh run list --workflow ci.yml --status in_progress \
+                    --json databaseId,event --jq '.[] | "\(.databaseId) \(.event)"' 2>/dev/null || true)
+        if [ -n "$running" ]; then
+            echo "FALLA: a CI run is in flight, and pushing cancels it."
+            echo "$running" | sed 's/^/  /'
+            echo
+            echo "  gh run watch \$(gh run list --workflow ci.yml --status in_progress --json databaseId --jq '.[0].databaseId')"
+            echo "  just push force     # if killing it is what you meant"
+            exit 1
+        fi
+    fi
+    git push
+
 # --- releasing --------------------------------------------------------------
 
 # Cut a release: tag it and push the tag. CI builds all 14 targets and publishes.

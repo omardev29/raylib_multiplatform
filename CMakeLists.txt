@@ -511,13 +511,10 @@ else()
 endif()
 
 if(EMSCRIPTEN)
-  # -sUSE_GLFW=3 links Emscripten's GLFW-in-JavaScript shim, and it belongs to
-  # exactly one of the three backends. Passing it to the other two would ship a
-  # shim nothing calls — which is most of what choosing them was for.
-  set(RMP_WEB_GLFW_FLAG "")
-  if(PLATFORM STREQUAL "Web")
-    set(RMP_WEB_GLFW_FLAG "-s USE_GLFW=3 ")
-  endif()
+  # -sUSE_GLFW=3 is NOT set here. raylib adds it itself, PUBLIC, and now only
+  # for PLATFORM=Web — see the patch in thirdparty/raylib/src/CMakeLists.txt.
+  # Setting it in both places would be two sources of truth for one flag, and
+  # the one that drifts is always the copy.
   set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
         SUFFIX ".html"
         # No ASYNCIFY, on purpose. It is only needed to run a synchronous while
@@ -530,7 +527,7 @@ if(EMSCRIPTEN)
         # TOTAL_MEMORY and ALLOW_MEMORY_GROWTH come from [web] in the .toml.
         # The failure mode when it is too small is specific and worth knowing:
         # the tab dies with "Cannot enlarge memory arrays", not a raylib error.
-        LINK_FLAGS "${RMP_WEB_GLFW_FLAG}-s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
+        LINK_FLAGS "-s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
 -s ALLOW_MEMORY_GROWTH=${TEMPLATE_WEB_ALLOW_MEMORY_GROWTH} \
 --preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
     )
