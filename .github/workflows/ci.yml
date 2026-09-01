@@ -80,7 +80,7 @@ jobs:
           # the raylib-build-image repo. Pinned by DIGEST, never by tag: a tag
           # can be moved, so `:latest` would let an unrelated rebuild silently
           # change what every Linux job compiles with.
-          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:a3b5bc2190612d99000e2048ef36e315b9a97f8dc9cca25e3e66dc96e604b670'
+          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:698fefd0742ce0daef850536e84c465bbb59cc689b2d6643670a877af624ca60'
           OVERRIDE: ${{ inputs.image_digest }}
         run: |
           set -euo pipefail
