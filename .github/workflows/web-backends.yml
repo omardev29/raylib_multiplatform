@@ -172,4 +172,55 @@ jobs:
           cd build/web
           printf '%-12s %10s %10s %10s\n' backend wasm js html
           printf '%-12s %10s %10s %10s\n' "${{ matrix.backend }}" \
-            "$(stat -c%s "$NAME.wasm")" "$(stat -c%s "$NAME.js")" "$(stat -c%s "$NAME.html")"
+            "$(wc -c < "$NAME.wasm")" "$(wc -c < "$NAME.js")" "$(wc -c < "$NAME.html")"
+
+      - name: Keep the build for the boot test
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: web-${{ matrix.backend }}
+          path: build/web
+          retention-days: 3
+
+  # AND DOES IT ACTUALLY RUN. Everything above proves the right backend was
+  # compiled and linked, which for this one is further than anybody had got —
+  # raylib 6.0 ships rcore_web_emscripten.c and never wired it into the build at
+  # all, so "it links" was itself new. It is still not the question a player
+  # asks.
+  #
+  # This is the same headless-Chromium check ci.yml runs on the default build:
+  # it does not look for a canvas element, it screenshots the canvas and checks
+  # there are pixels on it.
+  boot:
+    needs: backends
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [glfw, emscripten, rgfw]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: web-${{ matrix.backend }}
+          path: web
+
+      # Pinned by the committed package-lock.json, which keys the Chromium
+      # build to the Playwright version.
+      - name: Install Playwright + Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+
+      - name: Boot it
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+        run: |
+          set -euo pipefail
+          NAME=$(python3 tools/configure.py --print-name)
+          python3 -m http.server 8000 --directory web &
+          sleep 3
+          node .github/scripts/web_boot_test.js "http://localhost:8000/${NAME}.html"
