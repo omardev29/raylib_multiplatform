@@ -38,3 +38,7 @@ compile_commands.json
 # Python bytecode from tools/ and .github/scripts/
 __pycache__/
 *.py[cod]
+
+# The pinned zig toolchain, downloaded by tools/linux_build.sh when
+# [linux] glibc asks for an older glibc than this machine has.
+.zig-*/

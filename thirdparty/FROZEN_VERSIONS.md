@@ -50,6 +50,15 @@ upx                       5.2.0
 upx_sha256_amd64          3db5d3294707439db97866feab8d75d800f028f48481a40547411824da4288a1
 upx_sha256_arm64          55d48a61e8ffd17152db871c855376cba7f08e830b37799d0947a16dff8ec36c
 upx_sha256_win64          b471ebf1b7f20f4a89150264ed9a008a2a5bfd247f3c6d1184a75bb59ca08f5d
+
+# Zig, used ONLY as a C/C++ cross-compiler for the Linux targets, so that the
+# shipped binary can ask for an older glibc than the machine that built it.
+# Downloaded at this exact version with a checked sha256, the same way upx,
+# ninja and butler are — the version an image happens to carry is a version
+# nobody chose. See tools/linux_build.sh and [linux] glibc in the .toml.
+zig                       0.16.0
+zig_sha256_x86_64         70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+zig_sha256_aarch64        ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
 clang_format              22.1.8
 clang_tidy                22.1.8
 freebsd                   15.1

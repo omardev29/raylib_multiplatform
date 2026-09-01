@@ -182,6 +182,41 @@ max_size_mb = 600
 backend = "glfw"
 wayland = false
 
+# glibc  The OLDEST glibc the shipped binary is allowed to need, or "" to build
+#        against whatever the build machine has.
+#
+#        A Linux binary records, per imported symbol, the glibc version that
+#        symbol came from, and the loader refuses to start anything it cannot
+#        satisfy. CI builds on Ubuntu 24.04, which is glibc 2.39 — and 2.39 does
+#        not exist on Debian 12, Ubuntu 22.04, RHEL 8, or inside Steam's sniper
+#        runtime. Nothing about the build hints at this: it compiles, links, and
+#        runs perfectly on the machine that made it, and dies elsewhere with
+#        "version GLIBC_2.39 not found".
+#
+#        THE FIX COSTS NOTHING, and that is measured rather than hoped. Every
+#        symbol in this project asking for a modern glibc is either libm (powf,
+#        hypot, fmod, acosf) or one of the pthread/dl functions glibc 2.34
+#        folded into libc. There is not one new API in the whole thing, so the
+#        floor is a build setting. With this set, tools/linux_build.sh compiles
+#        with zig cc, which ships glibc stubs back to 2.17 — and at the same
+#        optimisation level it renders a byte-identical frame to gcc, so this is
+#        a compatibility change and not a behaviour change.
+#
+#        There is nothing to install on the player's side either: GLFW opens
+#        libX11 and libGL with dlopen at runtime, so the binary's only hard
+#        dependencies are libc, libm, libpthread and libdl.
+#
+#          2.17  RHEL/CentOS 7. The floor zig can reach; everything else is EOL.
+#          2.28  RHEL 8 (supported to 2029), Debian 10, Ubuntu 18.10.
+#          2.31  Ubuntu 20.04, Debian 11 — and Steam Runtime 3 "sniper", which
+#                is what a game on Steam runs inside today.
+#          ""    build against this machine. Fine locally, wrong for a release.
+#
+#        2.28 is the default because it clears the oldest distribution still
+#        getting security updates, and clears sniper with room to spare.
+#        tools/glibc_check.sh fails the build if the binary asks for more.
+glibc   = "2.28"
+
 [windows]
 # Which windowing backend Windows uses.
 #

@@ -387,7 +387,7 @@ DEFAULTS: dict = {
     "windows": {"backend": "glfw"},
     "upx": {"enabled": ["linux-x64", "linux-arm64"], "disabled": [],
             "max_size_mb": 600},
-    "linux": {"backend": "glfw", "wayland": False},
+    "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
     "dev": {"compiler": "clang", "linker": "auto"},
@@ -567,6 +567,25 @@ def validate(cfg: dict, strict_release: bool) -> None:
            "For native Wayland keep backend = \"glfw\" and set wayland = true.")
     if not isinstance(cfg["linux"]["wayland"], bool):
         raise ConfigError("[linux] wayland has to be true or false")
+
+    # [linux] glibc — the oldest glibc the shipped binary is allowed to need.
+    #
+    # It is a FLOOR, not a wish: tools/glibc_check.sh reads the symbol versions
+    # out of the built binary and fails if any of them is newer. Building on
+    # ubuntu-24.04 gives you glibc 2.39 by default, and a binary that needs 2.39
+    # does not start on Debian 12, Ubuntu 22.04, RHEL 8 or inside Steam's
+    # runtime — none of which is visible until somebody tries.
+    glibc = cfg["linux"]["glibc"]
+    if not isinstance(glibc, str):
+        raise ConfigError(f"[linux] glibc = {glibc!r} has to be a string like \"2.28\", "
+                          "or \"\" to build with whatever the host has.")
+    if glibc and not re.match(r"^2\.(1[7-9]|[2-9][0-9])$", glibc):
+        raise ConfigError(
+            f"[linux] glibc = {glibc!r} is not a version this can target.\n"
+            "Use 2.17 to 2.99, or \"\" to build against the host's glibc and target "
+            "nothing in particular.\n"
+            "2.17 is RHEL 7, 2.28 is RHEL 8 and Debian 10, 2.31 is Ubuntu 20.04, "
+            "Debian 11 and Steam's sniper runtime.")
     one_of(cfg["dev"]["compiler"], COMPILERS, "[dev] compiler")
 
     web_memory = cfg["web"]["memory"]
@@ -1745,6 +1764,8 @@ def main(argv: list[str]) -> int:
                     help="also reject placeholder identifiers (used on tag builds)")
     ap.add_argument("--print-name", action="store_true")
     ap.add_argument("--print-targets", action="store_true")
+    ap.add_argument("--print-glibc", action="store_true",
+                    help="[linux] glibc, the oldest glibc the binary may need")
     ap.add_argument("--print-upx-max-bytes", action="store_true",
                     help="[upx] max_size_mb, in bytes, for tools/upx_pack.sh")
     ap.add_argument("--print-upx", action="store_true",
@@ -1773,6 +1794,9 @@ def main(argv: list[str]) -> int:
 
     if args.print_name:
         print(cfg["project"]["name"])
+        return 0
+    if args.print_glibc:
+        print(cfg["linux"]["glibc"])
         return 0
     if args.print_upx_max_bytes:
         print(cfg["upx"]["max_size_mb"] * 1024 * 1024)

@@ -54,11 +54,18 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Configure
-        run: cmake --preset release
+      # One step instead of configure + build, because [linux] glibc decides
+      # which compiler this uses. Empty and it is the ordinary release preset;
+      # set and it is zig cc targeting that glibc, so the binary runs on
+      # distributions older than this runner. See tools/linux_build.sh.
+      - name: Configure + build (game + rres packer)
+        run: bash tools/linux_build.sh build
 
-      - name: Build (game + rres packer)
-        run: cmake --build build
+      # The floor is a claim about every machine that is NOT this one, so it has
+      # to be checked here rather than discovered by a player. The failure it
+      # prevents is "version GLIBC_2.39 not found" and nothing else.
+      - name: It runs on older distributions than this one
+        run: bash tools/glibc_check.sh build/${{ inputs.project_name }}
 
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
@@ -140,11 +147,11 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Configure
-        run: cmake --preset release
+      - name: Configure + build
+        run: bash tools/linux_build.sh build
 
-      - name: Build
-        run: cmake --build build
+      - name: It runs on older distributions than this one
+        run: bash tools/glibc_check.sh build/${{ inputs.project_name }}
 
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources

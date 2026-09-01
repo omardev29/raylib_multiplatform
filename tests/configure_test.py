@@ -68,6 +68,14 @@ def base_config(**overrides) -> dict:
         section, _, field = key.partition("__")
         if field:
             cfg[section][field] = value
+        elif isinstance(value, dict) and isinstance(cfg.get(section), dict):
+            # MERGED, not replaced. A test that writes out a whole section by
+            # hand goes stale the moment a key is added to it, and it goes stale
+            # as a KeyError inside validate() rather than as a message about the
+            # test — which happened twice, for [upx] max_size_mb and again for
+            # [linux] glibc. Merging means a test says what it is testing and
+            # inherits the rest.
+            cfg[section] = {**cfg[section], **value}
         else:
             cfg[section] = value
     return cfg
@@ -1159,3 +1167,58 @@ class ConfigurePlatformValuesTest(unittest.TestCase):
                                   f"[{section}] backend = {backend} is accepted by "
                                   f"configure.py but this test does not know which "
                                   f"PLATFORM it produces — which means nobody does.")
+
+
+class ConfigureGlibcFloorTest(unittest.TestCase):
+    """[linux] glibc — the oldest glibc the shipped binary may need.
+
+    The bug this prevents is invisible from the machine that builds: a binary
+    compiled on Ubuntu 24.04 asks for glibc 2.39, which Debian 12, Ubuntu 22.04,
+    RHEL 8 and Steam's sniper runtime do not have. It compiles, it links, it runs
+    on the build machine, and elsewhere it dies with "version GLIBC_2.39 not
+    found" and no other output.
+    """
+
+    def linux(self, **overrides):
+        return base_config(linux=dict(copy.deepcopy(cfgmod.DEFAULTS["linux"]), **overrides))
+
+    def test_the_default_clears_the_oldest_supported_distribution(self):
+        """2.28 is RHEL 8, supported to 2029, and comfortably under Steam
+        sniper's 2.31. Lower buys only distributions nobody is patching."""
+        self.assertEqual(cfgmod.DEFAULTS["linux"]["glibc"], "2.28")
+
+    def test_the_versions_that_matter_are_accepted(self):
+        for version in ("2.17", "2.28", "2.31", "2.35", "2.39"):
+            with self.subTest(glibc=version), quiet():
+                cfgmod.validate(self.linux(glibc=version), False)
+
+    def test_empty_means_build_against_this_machine(self):
+        """Not an error: it is what you want locally, and tools/glibc_check.sh
+        skips rather than inventing a floor nobody asked for."""
+        with quiet():
+            cfgmod.validate(self.linux(glibc=""), False)
+
+    def test_nonsense_is_rejected_and_names_the_useful_versions(self):
+        for bad in ("2.5", "3.1", "abc", "2", "2.28.1", "latest"):
+            with self.subTest(glibc=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.linux(glibc=bad), False)
+                message = str(caught.exception)
+                self.assertIn("2.17", message)
+                self.assertIn("sniper", message)
+
+    def test_it_has_to_be_a_string(self):
+        """`glibc = 2.28` in the TOML is a float, and a float that rounds to a
+        version number is exactly the typo that would sail through."""
+        for bad in (2.28, 228, True, None, ["2.28"]):
+            with self.subTest(glibc=bad):
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(self.linux(glibc=bad), False)
+
+    def test_the_floor_reaches_the_tools_that_use_it(self):
+        """--print-glibc is what tools/linux_build.sh and glibc_check.sh read.
+        A floor nothing can see is a floor that does nothing."""
+        self.assertIn("--print-glibc", (REPO / "tools" / "configure.py").read_text())
+        for tool in ("linux_build.sh", "glibc_check.sh"):
+            with self.subTest(tool=tool):
+                self.assertIn("--print-glibc", (REPO / "tools" / tool).read_text())
