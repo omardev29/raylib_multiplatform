@@ -140,6 +140,13 @@ jobs:
           actionlint -color
           echo "PASS: actionlint clean"
 
+      # What actionlint cannot see: it reads one file at a time, so a reusable
+      # workflow asking for a permission its caller does not grant sails past
+      # it — and GitHub answers that with a startup_failure, a run with zero
+      # jobs and no logs to read.
+      - name: The workflows agree with each other
+        run: bash tools/workflow_check.sh
+
       # No dependency step: the image has raylib's X11/GL/Wayland headers, ninja,
       # and the pinned clang tooling. That step existed because this job used to
       # run on a bare runner and `cmake --preset debug` died on GLFW's
@@ -436,4 +443,12 @@ jobs:
       build_image: ${{ needs.config.outputs.build_image }}
       itch_user: ${{ needs.config.outputs.itch_user }}
       itch_game: ${{ needs.config.outputs.itch_game }}
+    # packages: read because _itch.yml now runs in the build image, for butler.
+    # A called workflow cannot hold a permission the CALLER does not grant, and
+    # the failure for that is a startup_failure with no jobs and the message
+    # "Error calling workflow" — actionlint does not check across files, so
+    # nothing local catches it.
+    permissions:
+      contents: read
+      packages: read
     secrets: inherit

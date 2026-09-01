@@ -148,6 +148,7 @@ test what="all": (_reconfigure "Debug")
     # unit      doctest: rmp::random and whatever each phase adds. No window
     # seam      nothing under src/rmp/ reads the clock, input or rand() on its own
     # portable  our own scripts run on macOS and the BSDs, not just on GNU
+    # workflows a reusable workflow is granted what it asks for, and given its inputs
     # headers   every public header compiles alone and carries the .toml values
     # render    draw a frame with raylib's SOFTWARE renderer — no GPU, no window —
     #           and check it is pixel-identical to the recorded hash
@@ -223,6 +224,10 @@ test what="all": (_reconfigure "Debug")
         echo "== seam =="
         bash tools/seam_check.sh
     }
+    run_workflows() {
+        echo "== workflows =="
+        bash tools/workflow_check.sh
+    }
     run_portable() {
         echo "== portable =="
         bash tools/portable_check.sh
@@ -241,7 +246,7 @@ test what="all": (_reconfigure "Debug")
         python3 -m unittest discover -s tests -p 'configure_test.py' 2>&1 | tail -3
     }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_seam; run_portable; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
+        all)      just fmt check; run_config; run_seam; run_workflows; run_portable; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
@@ -251,9 +256,10 @@ test what="all": (_reconfigure "Debug")
         seam)     run_seam ;;
         headers)  run_headers ;;
         portable) run_portable ;;
+        workflows) run_workflows ;;
         render)   run_render ;;
         render-update) run_render update ;;
-        *) echo "unknown: {{ what }} (all | examples | unit | seam | portable | headers | render | layout | smoke | config | configure)"; exit 1 ;;
+        *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | headers | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 
