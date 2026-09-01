@@ -192,16 +192,21 @@ TARGETS: dict[str, tuple[str, str]] = {
     # DRM/KMS: straight to the screen, no X11 and no Wayland. A console, a
     # handheld, a kiosk, a Pi with no desktop installed.
     #
-    # Both of the segments before `drm` can differ and are there for that
-    # reason. **Arch**: DRM/KMS is a kernel interface and exists on every
-    # architecture Linux runs on, so `linux-arm64-glibc-drm` is the one that
-    # would matter next -- a Pi or a handheld is far likelier to be running
-    # without a desktop than an x86 box is. **libc**: the DRM binary links
-    # libdrm, gbm and EGL directly instead of dlopening them the way GLFW does
-    # X11, so a glibc build does not start on Alpine and `linux-x64-musl-drm`
-    # would be a real, separate binary. Only the x64/glibc one is built today,
-    # because that is where the evidence of demand is; the name already leaves
-    # both doors open, which is the whole point of naming the segments.
+    # Both of the segments before `drm` can differ, and the arch one now does:
+    # DRM/KMS is a kernel interface and exists on every architecture Linux runs
+    # on, and a Pi or a handheld is far likelier to be running without a desktop
+    # than an x86 box is. **libc** is the segment still holding one value: the
+    # DRM binary links libdrm, gbm and EGL directly instead of dlopening them
+    # the way GLFW does X11, so a glibc build does not start on Alpine and
+    # `linux-x64-musl-drm` would be a real, separate binary. Nobody has asked
+    # for it; the name leaves the door open, which is the point of naming the
+    # segments at all.
+    #
+    # Neither DRM target honours [linux] glibc, and it is not an oversight --
+    # those three .so files come from the distribution and are built against
+    # ITS glibc, so linking them against an older stub set fails on the .so.
+    # tools/glibc_check.sh has the error and the reasoning; the jobs report the
+    # real floor on every run instead of implying one they do not have.
     # The family is `linux` and not `drm`, because a family says WHICH REUSABLE
     # WORKFLOW builds the target and _linux.yml is the one that builds this. The
     # user-facing name for "just the DRM one" is the `drm` GROUP below, and the
@@ -209,6 +214,7 @@ TARGETS: dict[str, tuple[str, str]] = {
     # resolve to a family nothing in ci.yml calls, so the run skipped every job
     # it had and went green having built nothing.
     "linux-x64-glibc-drm":     ("linux",   "Linux DRM/KMS (no X11)"),
+    "linux-arm64-glibc-drm":   ("linux",   "Linux ARM64 DRM/KMS (no X11)"),
 }
 
 GROUPS: dict[str, list[str]] = {
@@ -218,7 +224,7 @@ GROUPS: dict[str, list[str]] = {
     # display with Mesa's software rasteriser.
     "all":     list(TARGETS),
     "linux":   ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc",
-                "linux-x64-musl", "linux-x64-glibc-drm"],
+                "linux-x64-musl", "linux-x64-glibc-drm", "linux-arm64-glibc-drm"],
     "windows": ["windows-x64", "windows-arm64"],
     "apple":   ["macos", "ios"],
     "desktop": ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc",
@@ -227,7 +233,7 @@ GROUPS: dict[str, list[str]] = {
     "bsd":     ["freebsd-x64", "freebsd-arm64",
                 "openbsd-x64", "openbsd-arm64", "netbsd-x64"],
     "web":     ["web"],
-    "drm":     ["linux-x64-glibc-drm"],
+    "drm":     ["linux-x64-glibc-drm", "linux-arm64-glibc-drm"],
     "android": ["android"],
 }
 
@@ -311,7 +317,8 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
 #                compressed stream does not compress again.
 #   web          it is .wasm, and the browser fetches it gzipped anyway.
 UPX_TARGETS: list[str] = [
-    "linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm", "linux-x64-musl",
+    "linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm",
+    "linux-arm64-glibc-drm", "linux-x64-musl",
     "windows-x64", "windows-arm64",
     "freebsd-x64", "freebsd-arm64", "openbsd-x64", "openbsd-arm64", "netbsd-x64",
 ]

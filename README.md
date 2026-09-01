@@ -1,6 +1,6 @@
 # raylib_multiplatform
 
-A **C++20** framework for shipping [raylib](https://www.raylib.com/) games to 16 targets from one
+A **C++20** framework for shipping [raylib](https://www.raylib.com/) games to 17 targets from one
 codebase — Windows, Linux, macOS, Web, Android, iOS and the three BSDs — with a CI pipeline that
 builds them, **boots them, and checks they actually put pixels on screen**.
 
@@ -30,7 +30,7 @@ generated from the config on every build, which is why they cannot drift out of 
 Two paths in there are the framework's, not yours, and they carry the same name so you can tell
 at a glance: `include/rmp/` (the headers you include) and `src/rmp/` (the implementation).
 Everything else under `src/` and `include/` is yours. You can delete both — see [`examples/plain_c/main.c`](examples/plain_c/main.c), which is a plain C
-entry point that keeps the sixteen build targets and none of the runtime layer.
+entry point that keeps the seventeen build targets and none of the runtime layer.
 
 `branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
 has to agree with it, so `art/logo.png` is just as valid. If the file is missing the build warns
@@ -303,7 +303,7 @@ AdMob, and adding third-party libraries.
 
 [`examples/plain_c/main.c`](examples/plain_c/main.c) is a complete entry point that includes only `<raylib.h>` — no
 none of our headers, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
-`src/rmp/`, and you keep the sixteen build targets, the pinned toolchains, the
+`src/rmp/`, and you keep the seventeen build targets, the pinned toolchains, the
 generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
 raylib cannot read, and iOS, whose entry point the macro exists to provide.
 
@@ -432,7 +432,7 @@ A pre-release tag shares its base version's `versionCode` (`v1.2.3-rc1` and
 `v1.2.3` are both `1002003`). Fine here — nothing uploads to Play
 automatically — but do not hand Play both.
 
-Tagging runs all 16 targets, then publishes. It also runs one extra check the
+Tagging runs all 17 targets, then publishes. It also runs one extra check the
 fast lane skips: **the build is refused while your application id is still
 `com.example.*`**, so you cannot accidentally cut your first release under a
 placeholder identity you can never change.
@@ -476,7 +476,7 @@ the debug build uses Google's official test ad units.
 ## What CI does and does not cover
 
 Push and pull requests get a **fast lane** — Linux x64, Web, Android and Windows x64, about ten
-minutes. Tags build all 16 targets and then release.
+minutes. Tags build all 17 targets and then release.
 
 **It really renders.** Booting proves the window opened and the assets loaded, and nothing more; a
 broken shader or a lost texture binding still boots and still exits 0. So the game is started, a

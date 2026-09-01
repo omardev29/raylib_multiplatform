@@ -57,7 +57,7 @@ what is ours.
 
 | | |
 |---|---|
-| [main.c](plain_c/main.c) | **The opt-out.** A C entry point that includes only `<raylib.h>`: none of our headers, none of `rmp::`, your own `main()`. You keep fourteen of the sixteen build targets and lose the runtime layer — iOS and Web are the two you give up, because on those the loop is not yours to write, and the file says so. |
+| [main.c](plain_c/main.c) | **The opt-out.** A C entry point that includes only `<raylib.h>`: none of our headers, none of `rmp::`, your own `main()`. You keep fifteen of the seventeen build targets and lose the runtime layer — iOS and Web are the two you give up, because on those the loop is not yours to write, and the file says so. |
 
 ## Notes
 

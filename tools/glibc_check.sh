@@ -16,21 +16,42 @@
 # folded into libc, not a single new API -- so the floor is a build setting, not
 # a rewrite. See tools/zig_toolchain.sh.
 #
-# Usage: tools/glibc_check.sh <binary> [max-version]
+# THE ONE TARGET THIS CANNOT GATE is DRM. Every other Linux binary we ship
+# either dlopens its windowing system (GLFW resolves X11 at runtime, so nothing
+# X11 is on the link line) or has none, which is what lets zig link it against
+# an old glibc stub set. The DRM binary links libdrm, libgbm, libEGL and
+# libGLESv2 DIRECTLY, and those come from the distribution -- they are built
+# against ITS glibc. Point zig at glibc 2.28 and the link fails on the .so
+# rather than on us:
+#
+#   ld.lld: error: undefined reference: __isoc23_strtol@GLIBC_2.38
+#   >>> referenced by /usr/lib/libdrm.so
+#
+# So DRM is built with the native compiler and its floor is the build machine's.
+# That is a real difference between the targets and it is reported rather than
+# hidden: `report` prints the floor the binary actually has and exits 0, so the
+# number is in the log of every run instead of being something you find out from
+# a player. The audience makes it a fair trade -- a DRM binary goes on a console,
+# a kiosk or a Pi, which is a machine somebody chose the OS for.
+#
+# Usage: tools/glibc_check.sh <binary> [max-version|report]
 #        max-version defaults to [linux] glibc from the .toml.
+#        `report` prints what the binary needs and never fails.
 
 set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 BINARY="${1:?usage: glibc_check.sh <binary> [max-version]}"
 WANT="${2:-}"
-if [ -z "$WANT" ]; then
+REPORT=0
+if [ "$WANT" = "report" ]; then REPORT=1; WANT=""; fi
+if [ "$REPORT" -eq 0 ] && [ -z "$WANT" ]; then
   WANT=$(python3 tools/configure.py --print-glibc 2>/dev/null || true)
 fi
 
 [ -f "$BINARY" ] || { echo "FALLA: $BINARY does not exist"; exit 1; }
 
-if [ -z "$WANT" ]; then
+if [ "$REPORT" -eq 0 ] && [ -z "$WANT" ]; then
   echo "  skip  [linux] glibc is empty — built against the host, nothing to check"
   exit 0
 fi
@@ -48,6 +69,14 @@ if [ -z "$VERSIONS" ]; then
 fi
 
 HIGHEST=$(printf '%s\n' "$VERSIONS" | tail -1 | sed 's/GLIBC_//')
+
+if [ "$REPORT" -eq 1 ]; then
+  echo "  info  this binary needs glibc $HIGHEST or newer"
+  echo "        Not a gate: see the DRM note at the top of this file. It links"
+  echo "        the distribution's libdrm/libgbm/libEGL directly, so its floor"
+  echo "        is the build machine's and cannot be lowered from here."
+  exit 0
+fi
 
 # sort -V puts 2.9 before 2.10, which plain string or float comparison does not.
 NEWER=$(printf '%s\n%s\n' "$WANT" "$HIGHEST" | sort -V | tail -1)

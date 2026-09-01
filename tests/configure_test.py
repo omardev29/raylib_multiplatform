@@ -1272,7 +1272,7 @@ class ConfigureOnlyFilterTest(unittest.TestCase):
     def test_a_group_narrows_to_exactly_that_group(self):
         out, exc = run_cli("--print-targets", "--only", "drm")
         self.assertIsNone(exc)
-        self.assertEqual(json.loads(out), ["linux-x64-glibc-drm"])
+        self.assertEqual(json.loads(out), cfgmod.GROUPS["drm"])
 
     def test_every_group_narrows_to_a_subset_of_what_is_enabled(self):
         """The property that matters: --only filters, it never adds. A workflow
@@ -1410,9 +1410,51 @@ class ConfigureDrmTargetTest(unittest.TestCase):
         """A job called `musl` when the target is linux-x64-musl is a name that
         has to be translated every time somebody reads a red run."""
         workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
-        for job in ("x64:", "arm64:", "musl-x64:", "riscv64:", "drm-x64:"):
+        for job in ("x64:", "arm64:", "musl-x64:", "riscv64:", "drm-x64:", "drm-arm64:"):
             with self.subTest(job=job):
                 self.assertIn(f"\n  {job}", workflow)
+
+    def test_every_linux_target_has_a_job_that_names_it(self):
+        """The failure this catches builds nothing and says nothing: a target in
+        the .toml that no job is gated on simply never gets built, and the run
+        goes green because every job it had was skipped. That happened once,
+        through the family, and this is the same shape one level down."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        for target in cfgmod.TARGETS:
+            if not target.startswith("linux-"):
+                continue
+            with self.subTest(target=target):
+                self.assertIn("'" + target + "'", workflow,
+                              "no job in _linux.yml is gated on " + target)
+
+    def test_the_arm64_drm_job_runs_on_an_arm64_machine(self):
+        """A native build, not a cross-compile: zig cannot link this target at
+        all (see the next test), so the only way to get an aarch64 DRM binary is
+        an aarch64 runner. On ubuntu-24.04 it would quietly make an x86-64 one,
+        which is why the ELF machine byte is checked in the job."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        block = re.split(r"\n  \S", workflow.split("\n  drm-arm64:", 1)[1], maxsplit=1)[0]
+        self.assertIn("runs-on: ubuntu-24.04-arm", block)
+        self.assertIn("b700", block)          # e_machine for aarch64
+
+    def test_drm_cannot_honour_the_glibc_floor_and_says_so_instead(self):
+        """Both DRM jobs report their real floor rather than gating on one they
+        cannot meet. libdrm, libgbm and libEGL come from the distribution and
+        are built against ITS glibc, so linking them against an older stub set
+        fails on the .so and not on anything we wrote."""
+        workflow = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        for job in ("drm-x64", "drm-arm64"):
+            with self.subTest(job=job):
+                block = re.split(r"\n  \S", workflow.split("\n  " + job + ":", 1)[1],
+                                 maxsplit=1)[0]
+                # The invocation, not the word. Written as assertIn("report",
+                # block) this passed with the step deleted, because the comment
+                # above it says "`report`, not a gate" -- a test that green-lit
+                # its own absence, caught by running it against the deletion.
+                self.assertRegex(block, r"glibc_check\.sh[^\n]* report\b")
+        check = (REPO / "tools" / "glibc_check.sh").read_text()
+        self.assertIn('[ "$WANT" = "report" ]', check)
+        self.assertIn("libdrm", check)
 
     def test_the_drm_job_is_not_skipped_when_the_target_is_enabled(self):
         """It was `if: contains(...)` with no `full`, so it never ran on the

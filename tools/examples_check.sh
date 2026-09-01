@@ -5,7 +5,7 @@
 # long after RMP_ENTRY_POINT and RMP_GAME replaced it. They compiled -- that
 # loop is perfectly good C++ -- so the CI job that compiles every example said
 # `ok` on all three for months. What it could not say is that the pattern they
-# taught DOES NOT WORK on two of the sixteen targets: the browser owns the frame
+# taught DOES NOT WORK on two of the seventeen targets: the browser owns the frame
 # loop and calls you back through emscripten_set_main_loop, and iOS never calls
 # main() at all. A newcomer copying the file a folder called examples/ handed
 # them would have found that out on the first web build.

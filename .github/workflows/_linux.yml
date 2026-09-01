@@ -446,10 +446,21 @@ jobs:
       # job down for a reason that has nothing to do with DRM.
 
       - name: Configure
+        # The native compiler and not tools/linux_build.sh, which every other
+        # Linux target uses. zig cannot link this one: libdrm/libgbm/libEGL come
+        # from the distribution and are built against ITS glibc, so an older
+        # stub set fails on the .so ("undefined reference:
+        # __isoc23_strtol@GLIBC_2.38, referenced by /usr/lib/libdrm.so").
         run: cmake --preset release -DRMP_TARGET_DRM=ON
 
       - name: Build
         run: cmake --build build
+
+      - name: The floor this one actually has
+        # `report`, not a gate: see the DRM note in tools/glibc_check.sh. The
+        # number belongs in the log of every run rather than in a player's
+        # error message.
+        run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
 
       - name: Test (static) — the DRM backend is really what got linked
         run: |
@@ -581,3 +592,107 @@ jobs:
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: it drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: it died before the end"; exit 1; }
           echo "PASS: booted and rendered through DRM/KMS"
+
+
+  drm-arm64:
+    # Built and checked, not run. drm-x64-run gets a virtual display out of the
+    # kernel with vkms, and GitHub's arm64 runners could too -- but the thing
+    # this target exists for is a Raspberry Pi, where the display pipeline is
+    # the Pi's own vc4/v3d KMS driver and Mesa's v3d, neither of which vkms and
+    # llvmpipe resemble. A green run here would say the binary starts on a
+    # virtual display, which is not the question. The hardware answers it.
+    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-arm64-glibc-drm')
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Build image manifest
+        run: cat /etc/raylib-build-image.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # No dependency step: libdrm, gbm, EGL and GLES are in the image. They used
+      # to be an apt-get here, which is one network failure away from taking the
+      # job down for a reason that has nothing to do with DRM.
+
+      - name: Configure
+        # The native compiler and not tools/linux_build.sh, which every other
+        # Linux target uses. zig cannot link this one: libdrm/libgbm/libEGL come
+        # from the distribution and are built against ITS glibc, so an older
+        # stub set fails on the .so ("undefined reference:
+        # __isoc23_strtol@GLIBC_2.38, referenced by /usr/lib/libdrm.so").
+        run: cmake --preset release -DRMP_TARGET_DRM=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: The floor this one actually has
+        # `report`, not a gate: see the DRM note in tools/glibc_check.sh. The
+        # number belongs in the log of every run rather than in a player's
+        # error message.
+        run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
+
+      - name: Test (static) — an aarch64 DRM binary is really what got linked
+        run: |
+          set -euo pipefail
+          BIN="build/${{ inputs.project_name }}"
+          # e_machine at offset 0x12: aarch64 is 0x00B7 -> "b700" little-endian.
+          # Cheap, and it is the one thing a cross-build can get wrong silently.
+          MACHINE=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
+          [ "$MACHINE" = "b700" ] || { echo "FAIL: not aarch64 (e_machine=$MACHINE)"; exit 1; }
+          [ -x "$BIN" ] || { echo "FAIL: no binary"; exit 1; }
+          # The point of the job. Without this the build could quietly fall back
+          # to the desktop backend and the job would pass while proving nothing.
+          if ldd "$BIN" | grep -q "libdrm"; then
+            echo "PASS: linked against libdrm"
+          else
+            echo "FAIL: not linked against libdrm — did PLATFORM=DRM take effect?"
+            ldd "$BIN"
+            exit 1
+          fi
+          # And GLFW must be gone: on DRM there is no windowing system to talk to.
+          if ldd "$BIN" | grep -qE "libX11|libwayland"; then
+            echo "FAIL: still linked against a windowing system"
+            ldd "$BIN"
+            exit 1
+          fi
+          echo "PASS: no X11 and no Wayland"
+
+      - name: Package
+        run: |
+          mkdir -p package/resources
+          if [ -f cmake/generated/LICENSES.txt ]; then
+            cp cmake/generated/LICENSES.txt package/
+          fi
+          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
+          # which is the normal case: the default compresses linux only.
+          bash tools/upx_pack.sh linux-arm64-glibc-drm "build/${{ inputs.project_name }}"
+          cp build/${{ inputs.project_name }} package/
+          cp -r resources package/
+          cd package && zip -r ../linux-arm64-glibc-drm-build.zip .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-arm64-glibc-drm-build
+          path: linux-arm64-glibc-drm-build.zip
+          retention-days: 7
+
+  # DRM has no windowing system, so there is nothing for xvfb to fake: the
+  # backend talks to a card through /dev/dri, and a runner has no screen. So the
+  # kernel provides one. vkms is mainline Virtual Kernel Mode Setting -- a DRM
+  # device with a CRTC, an encoder and a connector and no hardware behind any of
+  # them -- and Mesa's kms_swrast rasterises into it on the CPU. Between the two
+  # the binary meets a real DRM/KMS stack and a real GBM surface.
+  #
+  # A bare runner rather than a container job, because modprobe needs the host's
+  # kernel and a container job has no way to reach it. The binary then runs
+  # inside the build image through `docker run --device /dev/dri`, so the
+  # libraries it meets are the ones it was linked against and nothing is
+  # installed at job time.

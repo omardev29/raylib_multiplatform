@@ -31,7 +31,7 @@ orientation = "landscape"
 # precedence to reason about because there are no conflicts.
 #   groups : all | desktop | mobile | linux | windows | apple | bsd | web | android | drm
 #   exact  : linux-x64-glibc linux-arm64-glibc linux-riscv64-glibc linux-x64-musl
-#            linux-x64-glibc-drm windows-x64 windows-arm64
+#            linux-x64-glibc-drm linux-arm64-glibc-drm windows-x64 windows-arm64
 #            macos ios web android
 #            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
 #
@@ -48,8 +48,16 @@ orientation = "landscape"
 # directly instead of dlopening them, so a musl build would be a separate one.
 # Only x64/glibc is built today; the name leaves both doors open.
 #
-# It builds and runs in CI on a vkms virtual display, so it is part of "all".
-# To leave it out: disabled = ["drm"].
+# There are two of them, x64 and arm64, because DRM is a kernel interface and a
+# machine with no desktop is far likelier to be a Pi than an x86 box. The x64 one
+# builds and RUNS in CI on a vkms virtual display; the arm64 one is built and
+# checked, because what it exists for is a Pi's own vc4/v3d pipeline and a
+# virtual display would not be answering that question.
+#
+# Neither honours [linux] glibc: they link the distribution's libdrm, gbm and
+# EGL directly, so their floor is the build machine's. The jobs print it.
+#
+# To leave them out: disabled = ["drm"].
 enabled  = ["all"]
 # Subtracted from whatever `enabled` expanded to. Use it to keep a group and
 # drop one member: enabled = ["all"], disabled = ["ios"].
@@ -395,7 +403,7 @@ deadzone = 0.2
 # theme      "dark" or "light". Only which one the app starts with — an
 #            in-game appearance setting is rmp::ui::set_theme(theme_light()).
 # font       "" uses the font built into raylib: no asset, no licence, works on
-#            all sixteen targets. It is a pixel font, so its scale is rounded
+#            all seventeen targets. It is a pixel font, so its scale is rounded
 #            to a whole number and it stays sharp instead of going blurry.
 #            Point it at a .ttf in resources/ for something less retro.
 # font_size  In DESIGN units, i.e. at the [window] resolution above. The UI

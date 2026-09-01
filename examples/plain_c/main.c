@@ -3,7 +3,7 @@
 //
 // Plain C, one include, your own main(). No <rmp/...>, no rmp::assets, no
 // scenes, no entry-point macro. What you keep is everything the framework does
-// *around* your code, which is the part that is hard to reproduce: sixteen
+// *around* your code, which is the part that is hard to reproduce: seventeen
 // build targets, the pinned toolchains, the icons and identifiers generated
 // from raylib_multiplatform.toml, the release pipeline.
 //
@@ -45,7 +45,7 @@
 //         cost in size and speed and which this project does not pay.
 //
 // Papering over exactly that is what RMP_ENTRY_POINT is for -- it writes the
-// right loop for each of the sixteen targets and calls the same three hooks. So
+// right loop for each of the seventeen targets and calls the same three hooks. So
 // if you want iOS or Web, either keep the framework's entry point (which is one
 // include and one line, and costs you nothing else) or write those two runners
 // yourself. Linux, Windows, macOS, the BSDs and Android run this as it is.
