@@ -11,6 +11,7 @@
 
 #include <rmp/scene.h>
 
+#include "object_internal.h"
 #include "scene_internal.h"
 
 #include <rmp/input.h>
@@ -106,6 +107,12 @@ bool reachable_by_input(int index) {
 
 void end_top() {
     g_stack.back()->_end();
+    // The scene's objects go with it, each getting its _end(), and they go
+    // AFTER the scene's own _end() so that a scene tidying up can still walk
+    // what it spawned. This is the same ordering argument as rmp/app.h's
+    // teardown list, and for the same reason: an object may hold an
+    // rmp::Texture, and its destructor has to find its slot still there.
+    rmp::objects::detail::release_scene(*g_stack.back());
     g_stack.pop_back();
 }
 
@@ -139,7 +146,14 @@ void update(float delta) {
         // input reads every action as false, so `if (just_pressed("fire"))`
         // simply does not fire. Nothing in that scene says so.
         rmp::input::detail::set_layer_input(reachable_by_input(i));
-        g_stack[static_cast<size_t>(i)]->_update(delta);
+        Scene &scene = *g_stack[static_cast<size_t>(i)];
+        scene._update(delta);
+        // The scene first, then its objects: the scene sets up the frame and
+        // the objects move inside it. Documented in
+        // next_architecture/03-app-and-scenes.md and asserted in
+        // tests/scene_test.cpp, because every interesting property of this is
+        // an ordering property.
+        rmp::objects::detail::update(scene, delta);
     }
     rmp::input::detail::set_layer_input(true);
 }
@@ -168,12 +182,23 @@ void draw() {
         // menu is drawn, is not interactive, and neither scene wrote a line
         // about it.
         rmp::ui::detail::set_pass_input(reachable_by_input(i));
-        g_stack[static_cast<size_t>(i)]->_draw();
+        Scene &scene = *g_stack[static_cast<size_t>(i)];
+        // Objects first, in world space, and the scene's own _draw() after, in
+        // screen space: that is what puts the HUD over the game rather than
+        // under it, without either one saying so.
+        rmp::objects::detail::draw(scene);
+        scene._draw();
     }
     rmp::ui::detail::set_pass_input(true);
 }
 
 void apply_pending() {
+    // Objects first, and unconditionally: a frame with no scene transition
+    // still has bullets to bury, and an early return on g_pending would have
+    // leaked every one of them. It is the sort of bug that only shows up as a
+    // number going up.
+    rmp::objects::detail::collect();
+
     if (g_pending.empty()) return;
 
     // Take the queue rather than iterating it: _ready() and _end() are the

@@ -436,6 +436,7 @@ if(BUILD_TESTS)
   set(UNIT_TEST_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/global.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/input.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/object.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/scene.cpp"

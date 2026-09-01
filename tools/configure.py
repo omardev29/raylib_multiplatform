@@ -202,7 +202,13 @@ TARGETS: dict[str, tuple[str, str]] = {
     # would be a real, separate binary. Only the x64/glibc one is built today,
     # because that is where the evidence of demand is; the name already leaves
     # both doors open, which is the whole point of naming the segments.
-    "linux-x64-glibc-drm":     ("drm",     "Linux DRM/KMS (no X11)"),
+    # The family is `linux` and not `drm`, because a family says WHICH REUSABLE
+    # WORKFLOW builds the target and _linux.yml is the one that builds this. The
+    # user-facing name for "just the DRM one" is the `drm` GROUP below, and the
+    # two are different questions -- getting them confused made `--only drm`
+    # resolve to a family nothing in ci.yml calls, so the run skipped every job
+    # it had and went green having built nothing.
+    "linux-x64-glibc-drm":     ("linux",   "Linux DRM/KMS (no X11)"),
 }
 
 GROUPS: dict[str, list[str]] = {

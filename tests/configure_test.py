@@ -1330,7 +1330,10 @@ class ConfigureOnlyFilterTest(unittest.TestCase):
         not the families, a drm-only run would still start the bsd leg."""
         out, exc = run_cli("--print-families", "--only", "drm")
         self.assertIsNone(exc)
-        self.assertEqual(json.loads(out), ["drm"])
+        # `linux`, because that is the workflow that builds DRM -- and only
+        # `linux`, which is the assertion that matters: the bsd, apple, windows,
+        # web and android callers all have to sit this run out.
+        self.assertEqual(json.loads(out), ["linux"])
 
     def test_it_narrows_the_bsd_matrix(self):
         out, exc = run_cli("--print-matrix", "bsd", "--only", "drm")
@@ -1367,8 +1370,21 @@ class ConfigureDrmTargetTest(unittest.TestCase):
     def test_it_is_in_the_linux_group(self):
         self.assertIn("linux-x64-glibc-drm", cfgmod.GROUPS["linux"])
 
-    def test_it_has_its_own_family_so_it_gets_its_own_job(self):
-        self.assertEqual(cfgmod.TARGETS["linux-x64-glibc-drm"][0], "drm")
+    def test_its_family_is_the_workflow_that_builds_it(self):
+        """A family names the reusable workflow, and _linux.yml is what builds
+        DRM. It was "drm" for one commit, which made `--only drm` resolve to a
+        family no caller in ci.yml gates on: the run skipped every single job
+        and finished green having built nothing."""
+        self.assertEqual(cfgmod.TARGETS["linux-x64-glibc-drm"][0], "linux")
+
+    def test_every_family_is_one_a_caller_in_ci_actually_gates_on(self):
+        """The failure this catches is silent by construction: a family nobody
+        calls does not error, it just quietly builds nothing."""
+        ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+        for family in sorted({f for f, _ in cfgmod.TARGETS.values()}):
+            with self.subTest(family=family):
+                self.assertIn(f"outputs.families), '{family}'", ci,
+                              f"no job in ci.yml is gated on the {family!r} family")
 
     def test_every_linux_target_follows_os_arch_libc_env(self):
         """The naming rule, enforced instead of remembered. `env` is the
