@@ -213,33 +213,11 @@ test what="all": (_reconfigure "Debug")
         ./build/unit_test 2>&1 | tail -3
     }
     run_render() {
-        # The software renderer. No GPU, no window, no display — and the same
-        # pixels on every operating system, because there is no driver between
-        # raylib and the framebuffer. That is what makes the hash below an
-        # assertion rather than a note.
+        # The software renderer, through the SAME script the five BSD jobs and
+        # the macOS job run. It used to be a second copy of this logic here,
+        # which is two places for one assertion and one of them always drifts.
         echo "== render =="
-        cmake --preset memory >/dev/null
-        cmake --build build/memory >/dev/null
-        out=$(RAY_TEST_MAX_FRAMES=10 ./build/memory/{{ project_name }} 2>&1)
-        echo "$out" | grep -q "RAY_TEST_RENDER_OK" || { echo "$out" | tail -20; echo "FAIL: nothing was drawn"; exit 1; }
-        got=$(echo "$out" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
-        golden=tests/fixtures/render_hash.txt
-        if [ "${1:-}" = "update" ]; then
-            mkdir -p tests/fixtures; echo "$got" > "$golden"
-            echo "  golden hash updated to $got — commit it, and say in the message what changed visually"
-            return 0
-        fi
-        if [ ! -f "$golden" ]; then
-            echo "  no golden hash yet. Record it with: just test render-update"
-            return 0
-        fi
-        want=$(cat "$golden")
-        if [ "$got" != "$want" ]; then
-            echo "  FAIL  the frame changed: expected $want, got $got"
-            echo "        If that was on purpose:  just test render-update"
-            exit 1
-        fi
-        echo "  ok    the frame is pixel-identical to the golden hash ($got)"
+        sh tools/render_check.sh Ninja "" {{ project_name }} "${1:-check}"
     }
     run_seam() {
         echo "== seam =="

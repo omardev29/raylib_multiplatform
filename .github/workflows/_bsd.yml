@@ -144,7 +144,10 @@ jobs:
           # the top of tools/render_check.sh, which cost two CI rounds.
           sh tools/render_check.sh "$GENERATOR" "$EXTRA_CMAKE" "${{ inputs.project_name }}"
 
-          echo "reached-the-end" > build-memory/.rmp-bsd-complete
+          # build/ and not build/memory: the sentinel must not depend on where
+          # the render script happens to put its tree, or moving that tree
+          # turns this guard into a permanent false red.
+          echo "reached-the-end" > build/.rmp-bsd-complete
 
       # The VM script has to have run all the way to its last line. See the note
       # where the marker is written: a shell that stops early and exits 0 turns
@@ -153,7 +156,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f build-memory/.rmp-bsd-complete ]; then
+          if [ ! -f build/.rmp-bsd-complete ]; then
             echo "FALLA: the build step reported success but did not reach its last line."
             echo "       Something stopped it early and the shell exited 0 anyway."
             echo "       Look at the end of the previous step's output for where it stops."

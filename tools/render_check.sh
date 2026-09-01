@@ -22,13 +22,18 @@
 # exercised inside a FreeBSD VM in CI is a check you debug twenty minutes at a
 # time.
 #
-# Usage: render_check.sh <generator> <extra-cmake-args> <project-name>
+# Usage: render_check.sh <generator> <extra-cmake-args> <project-name> [update]
+#
+# `update` records whatever the frame hashes to instead of comparing, which is
+# what you run after changing the drawing on purpose. `just test render-update`.
 
 set -e
 
-GENERATOR="${1:?usage: render_check.sh <generator> <extra-cmake> <name>}"
+GENERATOR="${1:?usage: render_check.sh <generator> <extra-cmake> <name> [update]}"
 EXTRA="$2"
-NAME="${3:?usage: render_check.sh <generator> <extra-cmake> <name>}"
+NAME="${3:?usage: render_check.sh <generator> <extra-cmake> <name> [update]}"
+MODE="${4:-check}"
+GOLDEN=tests/fixtures/render_hash.txt
 
 echo "== software render (PLATFORM=Memory) =="
 
@@ -37,13 +42,13 @@ echo "== software render (PLATFORM=Memory) =="
 # server and nothing to install. It is a second build of raylib, and that is
 # what it costs -- worth it for the difference between "it linked" and "it
 # started, drew a frame and shut down cleanly".
-rm -rf build-memory
+rm -rf build/memory
 # shellcheck disable=SC2086
-cmake -B build-memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
+cmake -B build/memory -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Debug \
       -DPRODUCTION_BUILD=OFF -DPLATFORM=Memory $EXTRA
-cmake --build build-memory
+cmake --build build/memory
 
-BIN="build-memory/$NAME"
+BIN="build/memory/$NAME"
 test -x "$BIN" || { echo "FALLA: $BIN was not built"; exit 1; }
 
 RAY_TEST_MAX_FRAMES=10 "./$BIN" > memtest.log 2>&1 || true
@@ -62,7 +67,19 @@ grep -q "RAY_TEST_DONE_FRAMES" memtest.log || {
 # this frame byte for byte, so one golden hash covers every operating system and
 # both instruction sets -- there is no driver in between to differ.
 GOT=$(grep -o "hash=[0-9a-f]*" memtest.log | head -1 | cut -d= -f2)
-WANT=$(cat tests/fixtures/render_hash.txt)
+
+if [ "$MODE" = "update" ]; then
+    mkdir -p "$(dirname "$GOLDEN")"
+    echo "$GOT" > "$GOLDEN"
+    echo "  golden hash recorded: $GOT -- commit it, and say what changed visually"
+    exit 0
+fi
+
+if [ ! -f "$GOLDEN" ]; then
+    echo "  no golden hash yet. Record one with: just test render-update"
+    exit 0
+fi
+WANT=$(cat "$GOLDEN")
 echo "  software-render hash=$GOT want=$WANT"
 test "$GOT" = "$WANT" || {
     echo "FALLA: the frame changed. If that was on purpose: just test render-update"
