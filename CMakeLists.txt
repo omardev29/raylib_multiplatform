@@ -343,6 +343,7 @@ message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
@@ -443,6 +444,8 @@ if(BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/pack.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/loader_hook.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/rres_impl.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/animation.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/aseprite_impl.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/behavior.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/behaviors.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/collision.cpp"
@@ -462,11 +465,18 @@ if(BUILD_TESTS)
   # doctest is 9 000 lines and the analyzer has opinions about all of them.
   target_include_directories(unit_test SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   )
   target_compile_definitions(unit_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
+  # An absolute path, so a fixture is found whatever directory the test binary
+  # is run from. `just test` runs it from the repo root and CI does too, but
+  # "works from the directory we happen to use" is how a test starts failing for
+  # somebody with a different habit.
+  target_compile_definitions(unit_test PRIVATE
+    RMP_TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/")
   set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
   # resource.cpp calls raylib's Unload* functions, so this one DOES link raylib
   # — but it never opens a window. The tests use zeroed payloads, and raylib's

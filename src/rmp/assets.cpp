@@ -11,6 +11,7 @@
 #include <raylib.h>
 #include <rmp/assets.h>
 
+#include "animation_internal.h"
 #include "internal.h"
 
 #include <cstdio>
@@ -210,6 +211,40 @@ rmp::Font load_font(const char *name, int font_size) {
         return rmp::Font{};
     }
     return rmp::Font{ slot };
+}
+
+rmp::SpriteSheet load_sheet(const char *name) {
+    using rmp::detail::ResourceKind;
+    if (auto *hit = rmp::detail::acquire_named(ResourceKind::SHEET, name, 0))
+        return rmp::SpriteSheet{ hit };
+
+    // Through load_data, so a sheet comes out of the rres pack exactly like
+    // every other asset -- the animation layer never learns where files live.
+    int size = 0;
+    unsigned char *bytes = load_data(name, &size);
+    if (bytes == nullptr) return rmp::SpriteSheet{};
+
+    SheetData sheet{};
+    const bool parsed = rmp::animation::detail::parse_sheet(bytes, size, &sheet);
+    if (!parsed) {
+        TraceLog(LOG_WARNING, "SHEET: [%s] is not an .aseprite file this can read", name);
+        UnloadFileData(bytes);
+        detail::g_failed_count++;
+        return rmp::SpriteSheet{};
+    }
+
+    // Every frame into ONE image, side by side, then one texture. A hundred
+    // enemies from the same sheet is then one bind rather than a hundred.
+    sheet.texture = rmp::animation::detail::upload_sheet(bytes, size, sheet);
+    UnloadFileData(bytes);
+
+    auto *slot =
+        rmp::detail::adopt_named(ResourceKind::SHEET, name, 0, &sheet, sizeof(sheet));
+    if (slot == nullptr) {
+        rmp::animation::detail::free_sheet(&sheet);
+        return rmp::SpriteSheet{};
+    }
+    return rmp::SpriteSheet{ slot };
 }
 
 unsigned char *load_data(const char *name, int *size) {

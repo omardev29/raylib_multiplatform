@@ -14,6 +14,8 @@
 #include <rmp/assets.h>
 #include <rmp/random.h>
 
+#include "animation_internal.h"
+
 #include <cmath>
 #include <numbers>
 
@@ -116,10 +118,43 @@ void TopDown::_update(Object &self, float delta) {
     self.velocity.x = approach(self.velocity.x, target.x, acceleration, delta);
     self.velocity.y = approach(self.velocity.y, target.y, acceleration, delta);
 
-    // Until phase 9 there is no sheet to pick a tag from, and this is the half
-    // that works without one: a single-direction sheet mirrored for the left.
+    // The flip first, because it is the half that works with no sheet at all:
+    // a one-direction sheet mirrored for the left.
     if (ours.facing.x < -kEpsilon) self.flip_x = true;
     if (ours.facing.x > kEpsilon) self.flip_x = false;
+
+    // And then the tag. The rule is: try "<walk>_<suffix>", and if the sheet
+    // has no such tag, fall back to "<walk>" and let flip_x cover the left.
+    // With nothing configured, a two-, four- or eight-direction sheet all work
+    // -- and WE INVENT NO NAMES: the ones tried are the ones you put in your
+    // .aseprite, with suffixes you can change.
+    if (!self.sprite.sheet.valid()) return;
+    const bool moving = wanted.x != 0 || wanted.y != 0;
+    const char *base = moving ? walk : idle;
+    if (base == nullptr || base[0] == '\0') return;
+
+    if (moving) {
+        char tag[kMaxTagName * 2];
+        const char *suffix = suffixes[sector()];
+        int at = 0;
+        for (int i = 0; base[i] != '\0' && at + 1 < static_cast<int>(sizeof(tag)); i++) {
+            tag[at++] = base[i];
+        }
+        if (suffix != nullptr && suffix[0] != '\0' &&
+            at + 1 < static_cast<int>(sizeof(tag))) {
+            tag[at++] = '_';
+            for (int i = 0; suffix[i] != '\0' && at + 1 < static_cast<int>(sizeof(tag));
+                 i++) {
+                tag[at++] = suffix[i];
+            }
+        }
+        tag[at] = '\0';
+        if (rmp::animation::detail::tag_index(self.sprite.sheet.raw(), tag) >= 0) {
+            self.sprite.play(tag);
+            return;
+        }
+    }
+    self.sprite.play(base);
 }
 
 // ---------------------------------------------------------------------------

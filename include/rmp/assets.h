@@ -58,7 +58,16 @@ namespace rmp {
 
 namespace detail {
 
-enum class ResourceKind { TEXTURE, IMAGE, FONT, SOUND, MUSIC, SHADER, RENDER_TEXTURE };
+enum class ResourceKind {
+    TEXTURE,
+    IMAGE,
+    FONT,
+    SOUND,
+    MUSIC,
+    SHADER,
+    RENDER_TEXTURE,
+    SHEET
+};
 
 // One slot per loaded resource. The count is on the slot, not on the handle,
 // which is what lets two handles to the same name share one GPU object.
@@ -117,6 +126,70 @@ private:
 
 } // namespace detail
 
+// ---------------------------------------------------------------------------
+// A sprite sheet, read straight out of an Aseprite file.
+//
+// THE ANIMATION NAMES ARE YOURS. We do not know what your animations are
+// called, so we do not invent `walk` or `idle` -- they are read from the TAGS
+// in your .aseprite, and `sprite.play("walk")` names one of yours.
+//
+// Reading the binary rather than an exported PNG + JSON is what removes a whole
+// step from the workflow: you save in Aseprite and the game has the new
+// animation. And the duration comes from the file per frame, so it plays at the
+// speed you drew it at.
+//
+// Fixed arrays and char buffers rather than vectors and strings, because this
+// type is in a public header and <vector> and <string> are 100 ms each in every
+// translation unit that includes it. A sheet is about 10 KB of metadata and it
+// lives once, behind the handle.
+// ---------------------------------------------------------------------------
+
+constexpr int kMaxSheetFrames = 256;
+constexpr int kMaxSheetTags = 64;
+constexpr int kMaxTagName = 32;
+
+struct SheetFrame {
+    Rectangle source{}; // where this frame is in the packed texture
+    float seconds = 0; // from the file, so it plays at the speed you drew it
+};
+
+struct SheetTag {
+    char name[kMaxTagName] = {};
+    int from = 0;
+    int to = 0; // inclusive, the way Aseprite counts
+    bool ping_pong = false;
+    bool reverse = false;
+};
+
+// Small on purpose: it lives in a resource slot, and a slot's payload is 64
+// bytes -- the size of the largest raylib struct, which is what keeps the
+// resource table a fixed, modest block rather than a megabyte of mostly-unused
+// arrays. So the tables live beside it and this points at them. They are owned
+// by the sheet and freed with it, which is the one place in the framework that
+// happens; everything else a resource owns is freed by a raylib Unload*.
+struct SheetData {
+    Texture2D texture{};
+    int width = 0; // one frame's width, not the packed texture's
+    int height = 0;
+    int frame_count = 0;
+    int tag_count = 0;
+    const SheetFrame *frames = nullptr;
+    const SheetTag *tags = nullptr;
+
+    [[nodiscard]] const SheetFrame &frame(int index) const {
+        static const SheetFrame kEmpty{};
+        if (frames == nullptr || index < 0 || index >= frame_count) return kEmpty;
+        return frames[index];
+    }
+    [[nodiscard]] const SheetTag &tag(int index) const {
+        static const SheetTag kEmpty{};
+        if (tags == nullptr || index < 0 || index >= tag_count) return kEmpty;
+        return tags[index];
+    }
+};
+
+using SpriteSheet = detail::Resource<SheetData, detail::ResourceKind::SHEET>;
+
 using Texture = detail::Resource<Texture2D, detail::ResourceKind::TEXTURE>;
 using Image = detail::Resource<::Image, detail::ResourceKind::IMAGE>;
 using Font = detail::Resource<::Font, detail::ResourceKind::FONT>;
@@ -157,6 +230,14 @@ rmp::Sound load_sound(const char *name);
 // font_size is the baked glyph size, and it is part of the cache key: the same
 // font at 16 and at 32 is two resources, because it is two textures.
 rmp::Font load_font(const char *name, int font_size);
+
+// An .aseprite or .ase from resources/. Every frame is packed into one texture
+// in a single row, so drawing a hundred enemies from the same sheet is one
+// texture bind. Tags, frame ranges and per-frame durations come with it.
+//
+// On a machine with no GPU the texture is left empty and the metadata is still
+// there, which is what lets tests/animation_test.cpp exist.
+rmp::SpriteSheet load_sheet(const char *name);
 
 // Raw bytes for anything else — a level file, a shader, JSON. `size` receives
 // the byte count. This one is NOT counted or cached: free it with

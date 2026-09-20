@@ -18,6 +18,8 @@
 
 #include <rmp/assets.h>
 
+#include "animation_internal.h"
+
 #include <raylib.h>
 
 #include <cstring>
@@ -65,6 +67,13 @@ void unload_payload(SlotData &slot) {
             break;
         case ResourceKind::RENDER_TEXTURE:
             UnloadRenderTexture(*reinterpret_cast<RenderTexture2D *>(slot.payload));
+            break;
+        case ResourceKind::SHEET:
+            // The only kind whose payload owns memory of ours rather than
+            // raylib's: the frame and tag tables are too big for a 64-byte slot,
+            // so they sit beside it and are freed here.
+            rmp::animation::detail::free_sheet(
+                reinterpret_cast<rmp::SheetData *>(slot.payload));
             break;
     }
 }

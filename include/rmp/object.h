@@ -85,11 +85,47 @@ Shape circle(float radius);
 // ---------------------------------------------------------------------------
 
 struct Sprite {
-    rmp::Texture texture; // empty = there is no sprite
-    Rectangle source{}; // {0,0,0,0} = the whole texture
+    rmp::Texture texture; // a loose picture, when there is no animation
+    rmp::SpriteSheet sheet; // an .aseprite; `sheet` wins over `texture`
+    Rectangle source{}; // {0,0,0,0} = the whole texture, or the sheet's frame
     Vector2 origin{ 0.5f, 0.5f }; // NORMALISED, and centred by default
     Vector2 size{}; // {0,0} = the source's own size
     Color tint = WHITE; //
+    float speed = 1.0f; // 2 = twice as fast, 0 = frozen, -1 = backwards
+
+    // ---- animation, when there is a sheet ---------------------------------
+    //
+    //     player.sprite = rmp::assets::load_sheet("player.aseprite");
+    //     player.sprite.play("walk");     // "walk" is a tag of YOURS
+    //
+    // `const char *` and not std::string_view, for the same reason
+    // rmp::assets::load_texture takes one: <string_view> is 77 ms in every
+    // translation unit that includes this header, tags are string literals in
+    // practice, and a std::string caller writes .c_str() once.
+    //
+    // A tag that is not in the sheet WARNS ONCE and does nothing -- it does not
+    // land on a blank frame, and it does not fill the console sixty times a
+    // second saying so.
+    void play(const char *tag, bool loop = true);
+    void stop();
+    [[nodiscard]] bool finished() const;
+    [[nodiscard]] const char *playing() const;
+
+    // The escape hatch: drive the frames yourself.
+    [[nodiscard]] int frame_index() const { return ours.frame; }
+    void set_frame(int index);
+
+    // What it is keeping track of. See the note on `ours` in rmp/behavior.h:
+    // public because a private member would stop this being an aggregate.
+    struct {
+        int tag = -1; // an index into the sheet's tags, -1 = none
+        int frame = 0; // an index into the sheet's frames
+        float elapsed = 0; // seconds spent on this frame
+        bool loop = true;
+        bool done = false;
+        bool back = false; // ping-pong, on the way back
+        bool warned = false; // the "tag not found" warning, once
+    } ours;
 };
 
 // ---------------------------------------------------------------------------

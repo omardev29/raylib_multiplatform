@@ -42,6 +42,14 @@ in `thirdparty/raylib-cpp/LICENSE`.
 
 Only the math headers are vendored, and they are header-only.
 
+## cute_aseprite
+
+`thirdparty/cute_aseprite/cute_aseprite.h` — Randy Gaul, dual licensed **zlib OR public
+domain (Unlicense)**, the chooser's option. The full text is at the bottom of the file and is
+not reproduced here; it is shipped verbatim inside the header, which is what both licences
+ask for. Reads `.aseprite` / `.ase` files directly, with its own inflate and no other
+dependency.
+
 ## doctest
 
 `thirdparty/doctest/` — <https://github.com/doctest/doctest>

@@ -29,6 +29,7 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include "animation_internal.h"
 #include "object_internal.h"
 
 #include <algorithm>
@@ -187,6 +188,18 @@ void Object::apply_impulse(Vector2 impulse) {
 }
 
 Rectangle Object::world_bounds() const {
+    // A sheet wins over a loose texture, the same way it does when drawing.
+    if (sprite.sheet.valid()) {
+        const SheetData &data = sprite.sheet.raw();
+        const float w =
+            (sprite.size.x > 0 ? sprite.size.x : static_cast<float>(data.width)) *
+            scale.x;
+        const float h =
+            (sprite.size.y > 0 ? sprite.size.y : static_cast<float>(data.height)) *
+            scale.y;
+        return Rectangle{ position.x - sprite.origin.x * w,
+                          position.y - sprite.origin.y * h, w, h };
+    }
     // The sprite wins, the same way it wins when drawing.
     if (sprite.texture.valid()) {
         float w = sprite.size.x;
@@ -472,6 +485,13 @@ void update(Scene &scene, float delta) {
 
         apply_edges(*object);
 
+        // The animation clock, once, after the movement. Here and not in the
+        // draw pass, because a scene that is updated but not drawn -- one
+        // underneath a pause menu with updates_below on -- still has time
+        // passing in it, and an animation that froze there would jump when the
+        // menu closed.
+        rmp::animation::detail::advance(object->sprite, delta);
+
         // After everything that moves it: this is where a behavior that
         // corrects the final position gets to run. See _late_update in
         // include/rmp/object.h for why it has to be here and not above.
@@ -528,7 +548,49 @@ void draw(Scene &scene) {
     }
 }
 
+// The rectangle the sprite is showing right now: the sheet's current frame when
+// there is a sheet, the explicit `source` when there is one, and the whole
+// texture otherwise. One place, because the draw pass and world_bounds have to
+// agree or the picture and the collider drift apart.
+Rectangle sprite_source(const Sprite &sprite) {
+    if (sprite.sheet.valid()) {
+        const SheetData &data = sprite.sheet.raw();
+        if (data.frame_count > 0) {
+            const int index = sprite.ours.frame < 0
+                ? 0
+                : (sprite.ours.frame >= data.frame_count ? data.frame_count - 1
+                                                         : sprite.ours.frame);
+            return data.frame(index).source;
+        }
+    }
+    if (sprite.source.width > 0 && sprite.source.height > 0) return sprite.source;
+    if (sprite.texture.valid()) {
+        const Texture2D &tex = sprite.texture;
+        return Rectangle{ 0, 0, static_cast<float>(tex.width),
+                          static_cast<float>(tex.height) };
+    }
+    return Rectangle{};
+}
+
 void draw_one(Object &object) {
+    if (object.sprite.sheet.valid()) {
+        const SheetData &data = object.sprite.sheet.raw();
+        Rectangle source = sprite_source(object.sprite);
+        if (object.flip_x) source.width = -source.width;
+        if (object.flip_y) source.height = -source.height;
+
+        float w = object.sprite.size.x > 0 ? object.sprite.size.x
+                                           : static_cast<float>(data.width);
+        float h = object.sprite.size.y > 0 ? object.sprite.size.y
+                                           : static_cast<float>(data.height);
+        w *= object.scale.x;
+        h *= object.scale.y;
+        const Rectangle dest{ object.position.x, object.position.y, w, h };
+        const Vector2 origin{ object.sprite.origin.x * w, object.sprite.origin.y * h };
+        DrawTexturePro(data.texture, source, dest, origin, object.rotation,
+                       object.sprite.tint);
+        return;
+    }
     if (object.sprite.texture.valid()) {
         const Texture2D &tex = object.sprite.texture;
         Rectangle source = object.sprite.source;
