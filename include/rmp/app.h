@@ -113,6 +113,17 @@ namespace detail {
 // The six halves of a run. Not for you — RMP_ENTRY_POINT calls them, and they
 // exist so that this header names nothing from rmp::ui or rmp::assets. Their
 // bodies, and the includes they need, are in src/rmp/app.cpp.
+// GetFrameTime(), with [app] max_delta applied. Every runner below calls this
+// instead of GetFrameTime() directly, so a game written with RMP_ENTRY_POINT
+// and its own three hooks gets the clamp too -- it is a property of the loop,
+// not of the scene system.
+//
+// Real elapsed time has no ceiling: drag the window, stop at a breakpoint, let
+// the disk stall, and GetFrameTime() comes back half a second. A bullet at
+// 900 u/s then moves 450 units in one step and is out of the world, having
+// overlapped the wall on no frame at all.
+float step_delta();
+
 void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
 void after_ready(); // report to CI whether any asset failed to load
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
@@ -248,7 +259,7 @@ template <class T> T &global() {
     rmp::app::detail::after_ready();                                           \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
-    FRAME(GetFrameTime());                                                     \
+    FRAME(rmp::app::detail::step_delta());                                                     \
     /* Two ways out, and both land here because UIKit never gives the run loop \
        back: the CI frame budget, and rmp::app::quit(). */                     \
     if (!rmp::app::detail::keep_running()) {                                   \
@@ -284,7 +295,7 @@ template <class T> T &global() {
 #define RMP_WEB_FUNCS(READY, FRAME, STOP)                                        \
   RMP_DECLARE_ENTRY_POINT_ONCE                                      \
   static void rmp_web_frame() {                                                \
-    FRAME(GetFrameTime());                                                     \
+    FRAME(rmp::app::detail::step_delta());                                                     \
     /* WindowShouldClose() is deliberately never called: on web it does        \
        nothing but emscripten_sleep(12), which is what ASYNCIFY pays for. */   \
     if (!rmp::app::detail::keep_running()) {                                   \
@@ -313,7 +324,7 @@ template <class T> T &global() {
        then the stop hook and CloseWindow() run exactly as they do when the    \
        window is closed with the X. */                                         \
     while (rmp::app::detail::keep_running()) {                                 \
-      FRAME(GetFrameTime());                                                   \
+      FRAME(rmp::app::detail::step_delta());                                                   \
       rmp::app::detail::end_frame();                                           \
     }                                                                          \
     rmp::app::detail::begin_stop();                                            \

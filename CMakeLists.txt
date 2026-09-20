@@ -435,6 +435,7 @@ if(BUILD_TESTS)
   file(GLOB UNIT_TEST_UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   set(UNIT_TEST_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/global.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/collision.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/input.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/object.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"

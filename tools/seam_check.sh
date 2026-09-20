@@ -35,6 +35,13 @@ PATTERN='GetFrameTime|GetTime\(\)|GetMousePosition|GetMouseWheelMove|GetTouchPos
 #   cannot be tested for behaviour, only for layout. Phase 5 (rmp::input) is
 #   where these move, and this list is how we notice if they do not.
 ALLOWED=(
+  "src/rmp/app.cpp"           # THE seam for time: step_delta() is the single
+                             # GetFrameTime() in the whole framework, and every
+                             # runner in rmp/app.h goes through it so that
+                             # [app] max_delta applies to all of them. Nothing
+                             # downstream reads the clock -- they are handed a
+                             # delta, which is what makes the object and scene
+                             # tests able to run a frame of exactly 1/30.
   "src/rmp/input.cpp"         # THE seam: sample_with_raylib() is the provider a
                              # test replaces, and the only place the devices are
                              # read at all. Everything else asks rmp::input.

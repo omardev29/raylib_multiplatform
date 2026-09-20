@@ -216,6 +216,14 @@ test what="all": (_reconfigure "Debug")
         cmake --preset debug -DBUILD_TESTS=ON >/dev/null
         cmake --build build --target unit_test >/dev/null
         ./build/unit_test 2>&1 | tail -3
+        # And again in a different order, with a FIXED seed so a failure is
+        # reproducible. A suite whose result depends on the order it runs in is
+        # hiding state that leaks between cases, and this found a real one: the
+        # raycast broke ties by object POINTER, so which of two objects at the
+        # same distance came back depended on where malloc had put them, which
+        # depended on what had run earlier. It passed alone and failed in the
+        # suite, which is the worst way to find anything.
+        ./build/unit_test --order-by=rand --rand-seed=1337 2>&1 | tail -1
     }
     run_render() {
         # The software renderer, through the SAME script the five BSD jobs and

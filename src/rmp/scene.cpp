@@ -147,6 +147,9 @@ void update(float delta) {
         // simply does not fire. Nothing in that scene says so.
         rmp::input::detail::set_layer_input(reachable_by_input(i));
         Scene &scene = *g_stack[static_cast<size_t>(i)];
+        // The pointer first, so a press is acted on in the frame it happened
+        // and an on_click can spawn or destroy before anything else looks.
+        rmp::objects::detail::pointer(scene);
         scene._update(delta);
         // The scene first, then its objects: the scene sets up the frame and
         // the objects move inside it. Documented in
@@ -154,6 +157,10 @@ void update(float delta) {
         // tests/scene_test.cpp, because every interesting property of this is
         // an ordering property.
         rmp::objects::detail::update(scene, delta);
+        // Last, because it has to see where everything ended up. Separating two
+        // objects before one of them has moved is separating them from where
+        // they were.
+        rmp::objects::detail::collide(scene);
     }
     rmp::input::detail::set_layer_input(true);
 }

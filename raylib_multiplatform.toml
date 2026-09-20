@@ -26,6 +26,24 @@ height = 450
 # On desktop it only decides the initial window shape.
 orientation = "landscape"
 
+[app]
+# The longest step the game logic is ever handed, in seconds.
+#
+# GetFrameTime() returns real elapsed time and real elapsed time has no ceiling:
+# drag the window, stop at a breakpoint, let the disk stall, and it comes back
+# half a second. A bullet at 900 units/s then moves 450 units in one step —
+# through the wall and out the other side, because at no point did it overlap.
+# Clamping turns that into an instant of slow motion, which is the trade every
+# game wants: nobody minds a hitch, everybody minds falling out of the world.
+#
+# It is half of the answer to tunnelling. The other half is the swept test in
+# the collision pass, which catches a fast object against a thin one even at a
+# perfectly normal frame rate.
+#
+# 0.05 is a twentieth of a second. Sensible values are between 1/60 (0.0167) and
+# 1/10 (0.1). 0 switches the clamp off and hands the real number through.
+max_delta = 0.05
+
 [targets]
 # Which platforms to build. Groups expand and deduplicate; there is no
 # precedence to reason about because there are no conflicts.

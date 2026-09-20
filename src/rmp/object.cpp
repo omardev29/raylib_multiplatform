@@ -142,18 +142,34 @@ Object *resolve(unsigned index, unsigned generation) {
 
 } // namespace detail
 
-// The one key into Object's private half, and the reason it is a struct and not
-// a friend declaration naming the integrator: the public header would otherwise
-// have to declare `namespace objects::detail { void update(Scene&, float); }`
-// to have a name to befriend, which puts an internal function in front of every
-// user who includes rmp/object.h.
-struct Storage {
-    static Vector2 take_force(Object &object) {
-        const Vector2 force = object.pending_force_;
-        object.pending_force_ = Vector2{ 0, 0 };
-        return force;
-    }
-};
+// Storage is declared in object_internal.h, so that src/rmp/collision.cpp can
+// reach the same private half without Object having to befriend every internal
+// function by name.
+Vector2 Storage::take_force(Object &object) {
+    const Vector2 force = object.pending_force_;
+    object.pending_force_ = Vector2{ 0, 0 };
+    return force;
+}
+
+Vector2 Storage::previous_position(const Object &object) {
+    return object.previous_position_;
+}
+
+void Storage::remember_position(Object &object) {
+    object.previous_position_ = object.position;
+}
+
+void Storage::notify_collision(Object &self, Object &other) {
+    self.collision_(self, other);
+}
+
+void Storage::notify_click(Object &self) { self.click_(self); }
+
+void Storage::notify_drag(Object &self, Vector2 moved) { self.drag_(self, moved); }
+
+bool Storage::has_pointer_callback(const Object &object) {
+    return static_cast<bool>(object.click_) || static_cast<bool>(object.drag_);
+}
 
 // ---------------------------------------------------------------------------
 // Object
@@ -241,6 +257,13 @@ void Scene::detail_spawn(Object *made, const ObjectOptions &options) {
     made->alive_ = true;
 
     made->position = options.position;
+    // Not {0,0}. The swept test reads the difference between this and the
+    // current position, so a brand new object at (900, 400) would look like it
+    // had crossed the whole world this frame -- and in a scene full of them,
+    // every swept box would span from the origin and they would all "collide"
+    // near it. Found by the differential test, which is the one place a wrong
+    // answer of that shape cannot hide.
+    made->previous_position_ = options.position;
     made->velocity = options.velocity;
     made->scale = options.scale;
     made->rotation = options.rotation;
@@ -415,6 +438,14 @@ void update(Scene &scene, float delta) {
         object->_update(delta);
         if (!object->alive()) continue; // it may have destroyed itself
 
+        // AFTER _update and before the integration, which is the only place it
+        // can go. The user's code is entitled to teleport an object by writing
+        // position, and a teleport is not a sweep -- a game that moves
+        // something across the map must not collide with everything on the line
+        // between. Marking before _update swept the teleport too, and the test
+        // named "a teleport is not a sweep" is what said so.
+        Storage::remember_position(*object);
+
         // Gravity and apply_force land in the same accumulator, so an object
         // with gravity_scale = 1 that you push upwards does what it would do in
         // the world. There is no separate path for gravity.
@@ -431,6 +462,22 @@ void update(Scene &scene, float delta) {
 
         apply_edges(*object);
     }
+}
+
+std::vector<Object *> live_objects(const Scene &scene) {
+    // By value and not through the shared scratch, because a raycast can be
+    // issued from inside a _collision that is itself walking one of these, and
+    // the inner call would otherwise pull the list out from under the outer.
+    std::vector<Object *> out;
+    const std::vector<unsigned> *indices = indices_for(&scene);
+    if (indices == nullptr) return out;
+    out.reserve(indices->size());
+    for (unsigned index : *indices) {
+        Cell *slot = slot_at(index);
+        if (slot == nullptr || !slot->occupied || slot->object == nullptr) continue;
+        if (slot->object->alive()) out.push_back(slot->object.get());
+    }
+    return out;
 }
 
 const std::vector<Object *> &draw_order(Scene &scene) {

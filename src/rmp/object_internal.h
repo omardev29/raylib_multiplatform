@@ -14,9 +14,28 @@
 
 #include <vector>
 
+#include <raylib.h> // Vector2
+
 namespace rmp {
+
 class Object;
 class Scene;
+
+// The one key into Object's private half, and the reason it is a struct rather
+// than friend declarations naming each function: the public header would
+// otherwise have to declare every internal entry point just to have a name to
+// befriend, which puts the whole of src/rmp/ in front of anyone who includes
+// rmp/object.h. One friend, declared here, defined in object.cpp.
+struct Storage {
+    static Vector2 take_force(Object &object);
+    static Vector2 previous_position(const Object &object);
+    static void remember_position(Object &object);
+    static void notify_collision(Object &self, Object &other);
+    static void notify_click(Object &self);
+    static void notify_drag(Object &self, Vector2 moved);
+    static bool has_pointer_callback(const Object &object);
+};
+
 } // namespace rmp
 
 namespace rmp::objects::detail {
@@ -41,6 +60,34 @@ const std::vector<Object *> &draw_order(Scene &scene);
 // What one object looks like. Split out of draw() so a scene that wants to
 // place a single object by hand can, and so the draw pass reads as a loop.
 void draw_one(Object &object);
+
+// Every live object of one scene, in creation order. By value, because the
+// caller may destroy objects while walking it and a raycast can be issued from
+// inside a _collision that is itself walking one.
+std::vector<Object *> live_objects(const Scene &scene);
+
+// The collision pass: build the grid, find the pairs, separate the solid ones,
+// then tell both sides. Runs after the integration, because it has to see where
+// the objects actually ended up.
+void collide(Scene &scene);
+
+// on_click and on_drag. Runs before the objects' _update, so a press is acted
+// on in the frame it happened.
+void pointer(Scene &scene);
+
+// The pointer capture is global and outlives a scene, so a test that presses
+// and never releases would leak into the next one.
+void reset_pointer_for_tests();
+
+// The touching pairs detect() found, with the grid or with the O(n^2) loop it
+// is an optimisation of. Writes 2*n object pointers into `out` and returns n.
+//
+// This exists for one test and it is the most valuable one in the file: with a
+// thousand random objects, the grid and the brute-force loop have to produce
+// EXACTLY the same set. A broad phase that quietly drops a pair is a bug that
+// shows up as "sometimes the bullet goes through" a month later, and no
+// hand-written case would ever find it.
+int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, int max);
 
 // Release everything destroy() marked during the frame. Runs after
 // EndDrawing(), with the scene transitions, so nothing is freed while it is on

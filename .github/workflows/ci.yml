@@ -229,12 +229,19 @@ jobs:
         run: bash tools/repo_check.sh
 
       # doctest. No window, no GPU, milliseconds.
+      #
+      # Twice: once in declaration order, once shuffled with a fixed seed. A
+      # suite whose answer depends on the order it runs in is hiding state that
+      # leaks between cases, and this caught one -- a raycast that broke
+      # distance ties by object pointer, so the winner depended on where malloc
+      # had put things, which depended on what had run before it.
       - name: Unit tests
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_TESTS=ON > /dev/null
           cmake --build build --target unit_test > /dev/null
           ./build/unit_test
+          ./build/unit_test --order-by=rand --rand-seed=1337
 
       # raylib's SOFTWARE renderer: no GPU, no window, no display server, and
       # therefore the same pixels on every operating system — there is no

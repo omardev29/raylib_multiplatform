@@ -399,6 +399,7 @@ DEFAULTS: dict = {
     "project": {"name": "ray_test"},
     "window": {"title": "Raylib is Multiplatform!", "width": 800, "height": 450,
                "orientation": "landscape"},
+    "app": {"max_delta": 0.05},
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
         "application_id": "com.example.raytest",
@@ -665,6 +666,37 @@ def validate(cfg: dict, strict_release: bool) -> None:
         v = cfg["window"][k]
         if not isinstance(v, int) or not (16 <= v <= 16384):
             raise ConfigError(f"[window] {k} = {v!r} must be an integer between 16 and 16384.")
+
+    # [app] max_delta -- the longest step the game logic is ever handed.
+    #
+    # GetFrameTime() returns real elapsed time, and real elapsed time is not
+    # bounded: drag the window, stop at a breakpoint, let the disk stall, and it
+    # comes back half a second. A bullet at 900 u/s then advances 450 units in
+    # one step, through the wall and out the other side. Clamping turns that
+    # into a moment of slow motion instead of a teleport, which is the right
+    # trade for a game: nobody minds a hitch, everybody minds falling out of the
+    # world.
+    #
+    # bool before the number, because in Python True is an int and
+    # `max_delta = true` would otherwise sail through as 1.
+    md = cfg["app"]["max_delta"]
+    if isinstance(md, bool) or not isinstance(md, (int, float)):
+        raise ConfigError(
+            f"[app] max_delta = {md!r} has to be a number of seconds, like 0.05.\n"
+            "  0.05 is one twentieth of a second: a frame longer than that is handed\n"
+            "  to the game as 0.05 so that nothing teleports. 0 turns the clamp off.")
+    if md < 0:
+        raise ConfigError(f"[app] max_delta = {md!r} cannot be negative: it is a duration.")
+    if md > 1:
+        raise ConfigError(
+            f"[app] max_delta = {md!r} is longer than a second, which clamps nothing\n"
+            "  in practice -- a frame that long is already a hang. Use something\n"
+            "  between 1/60 (0.0167) and 1/10 (0.1), or 0 to switch the clamp off.")
+    if 0 < md < 1.0 / 240:
+        raise ConfigError(
+            f"[app] max_delta = {md!r} is shorter than a frame at 240 Hz, so every\n"
+            "  frame would be clamped and the game would run in permanent slow\n"
+            "  motion. That is never what anyone means. Use 0 to switch it off.")
 
     # android:appCategory, which is how Play files your app. These are the only
     # values Android accepts; anything else makes the manifest merger fail deep
@@ -1263,6 +1295,12 @@ def gen_app_config(cfg: dict) -> None:
 /* [input]. The fraction of an analogue stick's travel that reads as zero.
    rmp::input::set_deadzone() changes it at runtime — a settings screen. */
 #define APP_INPUT_DEADZONE  {cfg['input']['deadzone']}f
+
+/* [app] max_delta. The longest step the game logic is ever handed, in seconds.
+   A frame that really took longer arrives clamped, so the game runs a moment of
+   slow motion instead of teleporting everything through the walls. 0 = no
+   clamp, and then a stalled frame is the game's problem. */
+#define APP_MAX_DELTA       {float(cfg['app']['max_delta'])}f
 
 #endif /* APP_CONFIG_H */
 """)

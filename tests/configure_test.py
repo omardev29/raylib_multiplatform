@@ -1543,3 +1543,80 @@ class DocumentedTargetCountTest(unittest.TestCase):
                             value, expected,
                             f"{name}:{line_no} says {match.group(0)!r}, "
                             f"but TARGETS holds {expected}")
+
+
+class ConfigureMaxDeltaTest(unittest.TestCase):
+    """[app] max_delta — the longest step the game logic is ever handed.
+
+    The bug it prevents is invisible until the machine is slow: GetFrameTime()
+    returns real elapsed time and real elapsed time has no ceiling. Drag the
+    window, stop at a breakpoint, let the disk stall, and it comes back half a
+    second. A bullet at 900 u/s then moves 450 units in one step, through the
+    wall and out the other side, having overlapped it on no frame at all.
+    """
+
+    def app(self, **overrides):
+        return base_config(app=dict(copy.deepcopy(cfgmod.DEFAULTS["app"]), **overrides))
+
+    def test_the_default_is_a_twentieth_of_a_second(self):
+        """Slow enough that no normal frame is clamped, fast enough that a
+        stalled one becomes a hitch instead of a teleport."""
+        self.assertEqual(cfgmod.DEFAULTS["app"]["max_delta"], 0.05)
+
+    def test_the_values_anybody_would_write_are_accepted(self):
+        for value in (0.0167, 0.02, 1 / 30, 0.05, 0.1, 0.5, 1):
+            with self.subTest(max_delta=value), quiet():
+                cfgmod.validate(self.app(max_delta=value), False)
+
+    def test_zero_switches_it_off_rather_than_clamping_everything_to_zero(self):
+        """0 has to mean "no clamp". Read as a limit it would freeze the game
+        solid, which is the opposite of what anybody typing it wants."""
+        with quiet():
+            cfgmod.validate(self.app(max_delta=0), False)
+
+    def test_an_integer_is_a_number_too(self):
+        with quiet():
+            cfgmod.validate(self.app(max_delta=1), False)
+
+    def test_negative_is_rejected_because_it_is_a_duration(self):
+        for bad in (-0.05, -1):
+            with self.subTest(max_delta=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.app(max_delta=bad), False)
+                self.assertIn("negative", str(caught.exception))
+
+    def test_longer_than_a_second_is_rejected_and_says_what_to_use(self):
+        for bad in (1.5, 10, 3600):
+            with self.subTest(max_delta=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.app(max_delta=bad), False)
+                message = str(caught.exception)
+                self.assertIn("0.0167", message)
+                self.assertIn("0", message)
+
+    def test_shorter_than_a_frame_at_240_hz_is_rejected(self):
+        """Every frame would be clamped and the game would run in permanent
+        slow motion. Nobody means that, so it is a typo, and a typo that
+        compiles is the expensive kind."""
+        for bad in (0.001, 0.0001, 1e-9):
+            with self.subTest(max_delta=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.app(max_delta=bad), False)
+                self.assertIn("slow", str(caught.exception))
+
+    def test_it_has_to_be_a_number(self):
+        """`max_delta = true` is the one that matters: in Python True is an int
+        and it would otherwise sail through as a one-second clamp."""
+        for bad in (True, False, "0.05", None, [0.05], {"s": 1}):
+            with self.subTest(max_delta=bad):
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(self.app(max_delta=bad), False)
+
+    def test_it_reaches_the_runners_and_not_just_the_header(self):
+        """A clamp nothing applies is a clamp that does nothing. Every entry
+        point has to go through step_delta() rather than GetFrameTime(), or a
+        game built with RMP_ENTRY_POINT gets the raw number."""
+        app_h = (REPO / "include" / "rmp" / "app.h").read_text()
+        self.assertNotIn("FRAME(GetFrameTime())", app_h)
+        self.assertEqual(app_h.count("FRAME(rmp::app::detail::step_delta())"), 3)
+        self.assertIn("APP_MAX_DELTA", (REPO / "src" / "rmp" / "app.cpp").read_text())

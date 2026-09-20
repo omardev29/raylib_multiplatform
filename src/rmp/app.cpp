@@ -123,6 +123,17 @@ bool keep_running() {
     return !closed && !SmokeTest_Done() && !quit_requested();
 }
 
+float step_delta() {
+    const float raw = GetFrameTime();
+    // 0 switches the clamp off, and so does a negative reading, which no
+    // platform should produce but a monotonic clock going backwards on a
+    // suspend/resume is not unheard of -- and a negative step would run the
+    // whole world in reverse for one frame.
+    if (raw < 0) return 0;
+    if (APP_MAX_DELTA <= 0) return raw;
+    return raw > APP_MAX_DELTA ? APP_MAX_DELTA : raw;
+}
+
 void end_frame() { SmokeTest_Tick(); }
 
 // Everything that owns something on the GPU is released HERE, before the stop

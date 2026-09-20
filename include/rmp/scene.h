@@ -149,6 +149,22 @@ public:
     [[nodiscard]] int object_count() const;
 
     // -----------------------------------------------------------------------
+    // Raycasting. See the block above RayHit in rmp/object.h for what it is for
+    // and why it walks the collision grid instead of the object list.
+    //
+    //     if (auto hit = raycast(muzzle, muzzle + aim * 400)) { ... }
+    //     auto hit = raycast({ .from = muzzle, .to = target,
+    //                          .mask = layer::kEnemy, .ignore = &self });
+    // -----------------------------------------------------------------------
+    [[nodiscard]] RayHit raycast(Vector2 from, Vector2 to) const;
+    [[nodiscard]] RayHit raycast(const RayQuery &query) const;
+
+    // Every hit along the ray, nearest first, up to `max`. Returns how many
+    // were written. Everything the ray passes through, for a piercing shot or a
+    // line of sight that has to know what is in the way.
+    int raycast_all(const RayQuery &query, RayHit *out, int max) const;
+
+    // -----------------------------------------------------------------------
     // Navigation. All of it is DEFERRED: these record what to do and return,
     // and the change happens at the end of the frame.
     //
