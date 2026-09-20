@@ -30,6 +30,7 @@
 #include <raylib.h> // Color, and BLANK for the default background
 #include <rmp/config.h>
 #include <rmp/object.h> // rmp::Object and rmp::ObjectOptions, for spawn()
+#include <rmp/tilemap.h> // rmp::Tilemap -- `map` is a field of every scene
 
 // <utility> for std::forward and nothing else. Measured on this machine:
 // <utility> adds 50 ms to a translation unit, <memory> adds 605. A header every
@@ -107,6 +108,19 @@ public:
     // says how much of it applies to it, through Object::gravity_scale, which
     // is 0 by default. Nothing falls until something asks to.
     Vector2 gravity{ 0, 980 };
+
+    // The level, designed in Tiled. A field and not something you draw:
+    //
+    //     map = rmp::assets::load_map("level1.json");
+    //
+    // and the scene draws it underneath everything, collides against its solid
+    // tiles, and `object.bounds` left empty comes to mean THE MAP'S bounds
+    // rather than the view's. An empty map costs nothing, and a menu scene
+    // simply never touches it.
+    //
+    // That is what turns Tiled from a parser into the place you design the
+    // level: you put the enemies in the editor and they turn up in the game.
+    Tilemap map;
 
     // -----------------------------------------------------------------------
     // Objects.

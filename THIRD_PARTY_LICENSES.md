@@ -42,6 +42,14 @@ in `thirdparty/raylib-cpp/LICENSE`.
 
 Only the math headers are vendored, and they are header-only.
 
+## cute_tiled
+
+`thirdparty/cute_tiled/cute_tiled.h` — Randy Gaul, dual licensed **zlib OR public domain
+(Unlicense)**, the chooser's option, shipped verbatim inside the header. Reads Tiled's JSON
+maps. **Modified** — the modification is described in `thirdparty/FROZEN_VERSIONS.md` and
+commented at the site, which is what the zlib licence asks for: altered source versions must
+be plainly marked as such.
+
 ## cute_aseprite
 
 `thirdparty/cute_aseprite/cute_aseprite.h` — Randy Gaul, dual licensed **zlib OR public

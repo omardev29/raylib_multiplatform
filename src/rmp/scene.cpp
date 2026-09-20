@@ -193,6 +193,9 @@ void draw() {
         // Objects first, in world space, and the scene's own _draw() after, in
         // screen space: that is what puts the HUD over the game rather than
         // under it, without either one saying so.
+        // The map first, underneath everything: it is the level, and the
+        // objects stand on it.
+        scene.map.draw();
         rmp::objects::detail::draw(scene);
         scene._draw();
     }

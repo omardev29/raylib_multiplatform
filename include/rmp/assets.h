@@ -29,6 +29,10 @@
 #include <rmp/config.h>
 
 namespace rmp {
+class Tilemap;
+} // namespace rmp
+
+namespace rmp {
 
 // ---------------------------------------------------------------------------
 // The resource types.
@@ -238,6 +242,16 @@ rmp::Font load_font(const char *name, int font_size);
 // On a machine with no GPU the texture is left empty and the metadata is still
 // there, which is what lets tests/animation_test.cpp exist.
 rmp::SpriteSheet load_sheet(const char *name);
+
+// A Tiled map, as JSON with the tile layers saved as CSV -- which is what a new
+// map in Tiled does by default. The tileset images are loaded by file name
+// through load_texture above, so they come out of resources.rres in a release
+// and out of resources/ while developing without the map knowing which.
+//
+// Returns an empty map and says why if it cannot be read, and for the one
+// failure people actually hit -- layers saved compressed or as base64 -- the
+// message names the setting in the editor rather than the byte it choked on.
+void load_map(const char *name, rmp::Tilemap *into);
 
 // Raw bytes for anything else — a level file, a shader, JSON. `size` receives
 // the byte count. This one is NOT counted or cached: free it with

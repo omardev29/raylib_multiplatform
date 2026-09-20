@@ -353,7 +353,15 @@ struct Axis {
 void apply_edges(Object &object) {
     if (object.edges == Edge::NONE) return;
 
-    const Rectangle area = empty_rect(object.bounds) ? view_rect() : object.bounds;
+    // Empty bounds mean the MAP when the scene has one and the view when it
+    // does not. That is the difference between a paddle in a one-screen game,
+    // which wants the window, and a player in a Tiled level, which wants the
+    // level -- and neither of them should have to say so.
+    Rectangle area = object.bounds;
+    if (empty_rect(area) && object.scene() != nullptr && object.scene()->map.valid()) {
+        area = object.scene()->map.bounds();
+    }
+    if (empty_rect(area)) area = view_rect();
     const Rectangle box = object.world_bounds();
 
     const float left = area.x;

@@ -10,8 +10,10 @@
 
 #include <raylib.h>
 #include <rmp/assets.h>
+#include <rmp/tilemap.h>
 
 #include "animation_internal.h"
+#include "tilemap_internal.h"
 #include "internal.h"
 
 #include <cstdio>
@@ -245,6 +247,23 @@ rmp::SpriteSheet load_sheet(const char *name) {
         return rmp::SpriteSheet{};
     }
     return rmp::SpriteSheet{ slot };
+}
+
+void load_map(const char *name, rmp::Tilemap *into) {
+    if (into == nullptr) return;
+    int size = 0;
+    unsigned char *bytes = load_data(name, &size);
+    if (bytes == nullptr) {
+        into->adopt(nullptr);
+        return;
+    }
+    void *parsed = rmp::tilemap::detail::parse_map(bytes, size, name);
+    UnloadFileData(bytes);
+    if (parsed == nullptr) detail::g_failed_count++;
+    // TAKES OWNERSHIP, and frees whatever was there. A map is not a cached
+    // resource the way a texture is: one scene owns one map, the factories on
+    // it are that scene's, and sharing it would share those too.
+    into->adopt(parsed);
 }
 
 unsigned char *load_data(const char *name, int *size) {
