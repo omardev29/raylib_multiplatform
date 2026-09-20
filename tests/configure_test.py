@@ -1620,3 +1620,59 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         self.assertNotIn("FRAME(GetFrameTime())", app_h)
         self.assertEqual(app_h.count("FRAME(rmp::app::detail::step_delta())"), 3)
         self.assertIn("APP_MAX_DELTA", (REPO / "src" / "rmp" / "app.cpp").read_text())
+
+
+class VendoredHeaderPathsTest(unittest.TestCase):
+    """A vendored dependency has to be on the include path of EVERY build.
+
+    There are five, and getting four of them is indistinguishable from getting
+    all five until a runner says otherwise twenty minutes later. That is exactly
+    what happened with cute_tiled: CMake had it, and the iOS job -- which builds
+    through a generated Xcode project with its own HEADER_SEARCH_PATHS -- came
+    back with `fatal error: 'cute_tiled.h' file not found`.
+
+    The five, and why each one is separate:
+      CMakeLists.txt                        desktop, BSD, Web
+      raymob/app/src/main/cpp/CMakeLists.txt Android, which has its own
+      tools/configure.py                    iOS, through XcodeGen
+      .github/workflows/ci.yml              the examples job's own -I list
+      Justfile                              the same list, locally
+    """
+
+    # Directories under thirdparty/ that are NOT include roots: the ones whose
+    # headers are reached through a path prefix, or that hold no header at all.
+    NOT_INCLUDE_ROOTS = {"raylib", "raylib-ios", "raylib-cpp", "raymob", "doctest"}
+
+    BUILDS = {
+        "CMakeLists.txt": "CMakeLists.txt",
+        "Android CMakeLists": "raymob/app/src/main/cpp/CMakeLists.txt",
+        "iOS (configure.py)": "tools/configure.py",
+        "the examples job": ".github/workflows/ci.yml",
+        "the Justfile": "Justfile",
+    }
+
+    def vendored(self):
+        root = REPO / "thirdparty"
+        out = []
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir() or entry.name in self.NOT_INCLUDE_ROOTS:
+                continue
+            if not any(entry.glob("*.h")) and not any(entry.glob("*.hpp")):
+                continue
+            out.append(entry.name)
+        return out
+
+    def test_there_is_more_than_one_vendored_include_root(self):
+        """If this ever finds none, the test below is passing vacuously."""
+        self.assertGreater(len(self.vendored()), 1, self.vendored())
+
+    def test_every_vendored_header_directory_is_on_every_include_path(self):
+        for name in self.vendored():
+            for build, path in self.BUILDS.items():
+                with self.subTest(dependency=name, build=build):
+                    text = (REPO / path).read_text()
+                    self.assertIn("thirdparty/" + name, text,
+                                  name + " is not on the include path in " + path +
+                                  " -- a build that cannot find its header fails at "
+                                  "the first file that includes it, and only on the "
+                                  "platform that uses that build")

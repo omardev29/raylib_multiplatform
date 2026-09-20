@@ -64,6 +64,8 @@ target_include_directories(${APP_LIB_NAME} PRIVATE
     "${RAYMOB_DIR}"
     "${USER_ROOT_DIR}/thirdparty/rres"
     "${USER_ROOT_DIR}/thirdparty/clay"
+    "${USER_ROOT_DIR}/thirdparty/cute_aseprite"
+    "${USER_ROOT_DIR}/thirdparty/cute_tiled"
     "${USER_ROOT_DIR}/tests"
 )
 

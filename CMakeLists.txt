@@ -550,6 +550,8 @@ set(ASM_INCLUDE_FLAGS
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_tiled"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 

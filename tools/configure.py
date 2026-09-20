@@ -1543,6 +1543,8 @@ targets:
           - $(SRCROOT)/../thirdparty/rres
           - $(SRCROOT)/../thirdparty/raymob
           - $(SRCROOT)/../thirdparty/clay
+          - $(SRCROOT)/../thirdparty/cute_aseprite
+          - $(SRCROOT)/../thirdparty/cute_tiled
 {extra}""")
 
 
