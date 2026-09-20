@@ -47,6 +47,23 @@ what is ours.
 |---|---|
 | [01_rres_and_loose_files.cpp](assets/01_rres_and_loose_files.cpp) | Loading by name — the same code whether it comes from loose files or a packed, AES-encrypted `resources.rres`. |
 
+## [`games/`](games) — six whole games
+
+Not decoration. They are the judges of the one rule that outranks the others —
+*the API has to be as simple as possible for the user* — and they are what turns
+"the API is simple" into something you can check by reading. Each one is a
+single file, and what is worth counting in it is not the lines but what the
+lines **say**: nearly every one of them is a rule of that game.
+
+| | |
+|---|---|
+| [01_pong.cpp](games/01_pong.cpp) | `rmp::behavior::Ball` and `Edge::CLAMP`. No bounce arithmetic, no bounds check, no frame loop. The serve is the game's, because no behavior chooses a direction for you. **Start here.** |
+| [02_breakout.cpp](games/02_breakout.cpp) | A wall of bricks, and "a brick breaks" as a one-line `on_collision` — which is exactly why `destroy_on_hit` is not in the catalogue. |
+| [03_space_invaders.cpp](games/03_space_invaders.cpp) | Collision layers earning their place, `Timer` + a callback instead of a `shooter` behavior, and the formation written out — because the formation **is** Space Invaders. |
+| [04_top_down.cpp](games/04_top_down.cpp) | `TopDown` with eight normalised directions, `Follow` for the enemies, and three things you can only say with layers: the player's shot misses the player, enemies pass through each other but not walls, and a trigger sees only the player. |
+| [05_endless_runner.cpp](games/05_endless_runner.cpp) | `Parallax`, `Runner` and a `Spawner` **by distance**. No background loop, no distance counter, no obstacle recycling. Read it for what is not there. |
+| [06_tetris.cpp](games/06_tetris.cpp) | The honest one: a Tetris is a 10×20 array and the rules of Tetris, and the framework does not pretend otherwise. What it does contribute is named at the top of the file, and so is what it does not. |
+
 ## [`platform/`](platform)
 
 | | |
