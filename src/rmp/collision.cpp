@@ -672,7 +672,9 @@ void collide(Scene &scene) {
         // something whose _end() has already run.
         if (!a.alive() || !b.alive()) continue;
         a._collision(b);
+        if (a.alive() && b.alive()) collide_behaviors(a, b);
         if (a.alive() && b.alive()) b._collision(a);
+        if (a.alive() && b.alive()) collide_behaviors(b, a);
         if (a.alive() && b.alive()) Storage::notify_collision(a, b);
         if (a.alive() && b.alive()) Storage::notify_collision(b, a);
     }

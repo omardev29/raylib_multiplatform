@@ -229,6 +229,10 @@ void Object::destroy() {
     if (!alive_) return; // twice is harmless, and happens
     alive_ = false;
     _end();
+    // After the object's own _end, for the same reason a scene's objects go
+    // after the scene's: the thing being torn down gets to speak first, while
+    // everything it owns is still there.
+    objects::detail::release_behaviors(*this);
     objects::detail::mark_for_release(index_);
 }
 
@@ -435,6 +439,12 @@ void update(Scene &scene, float delta) {
         Object *object = slot->object.get();
         if (!object->alive()) continue;
 
+        // Behaviors first, then the object's own _update: the framework's
+        // code runs and then yours, so yours has the last word on what the
+        // frame leaves behind.
+        update_behaviors(*object, delta);
+        if (!object->alive()) continue;
+
         object->_update(delta);
         if (!object->alive()) continue; // it may have destroyed itself
 
@@ -461,6 +471,11 @@ void update(Scene &scene, float delta) {
         object->position.y += object->velocity.y * delta;
 
         apply_edges(*object);
+
+        // After everything that moves it: this is where a behavior that
+        // corrects the final position gets to run. See _late_update in
+        // include/rmp/object.h for why it has to be here and not above.
+        late_update_behaviors(*object, delta);
     }
 }
 
@@ -508,6 +523,7 @@ void draw(Scene &scene) {
     for (Object *object : order) {
         if (!object->alive()) continue; // an earlier _draw() may have killed it
         draw_one(*object);
+        draw_behaviors(*object);
         object->_draw();
     }
 }

@@ -89,6 +89,31 @@ void reset_pointer_for_tests();
 // hand-written case would ever find it.
 int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, int max);
 
+// ---------------------------------------------------------------------------
+// Behaviors. The engine is src/rmp/behavior.cpp; these are the four points the
+// rest of the framework drives it from.
+// ---------------------------------------------------------------------------
+
+// In the order they were added, and BEFORE the object's own _update, so that
+// the user's code always has the last word over the framework's. That is the
+// order people expect and the one that does not need explaining.
+void update_behaviors(Object &object, float delta);
+
+// After the integration and the edge rules, for a behavior whose job is to
+// correct where the object ended up rather than to decide where it goes.
+void late_update_behaviors(Object &object, float delta);
+void draw_behaviors(Object &object);
+void collide_behaviors(Object &object, Object &other);
+
+// Each _end, then the memory. Called when the object is destroyed.
+void release_behaviors(Object &object);
+
+// For tests: how many are attached, and a reset for behaviors whose object was
+// a plain stack variable -- which is how a behavior is meant to be tested,
+// since it needs no scene and no window.
+int behavior_count(const Object &object);
+void reset_behaviors_for_tests();
+
 // Release everything destroy() marked during the frame. Runs after
 // EndDrawing(), with the scene transitions, so nothing is freed while it is on
 // the stack of the call that asked for it.

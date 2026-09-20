@@ -435,6 +435,16 @@ if(BUILD_TESTS)
   file(GLOB UNIT_TEST_UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
   set(UNIT_TEST_LIB_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/global.cpp"
+    # The asset layer joined the unit test in phase 8, because
+    # rmp::behavior::Parallax loads its texture by name. Nothing here CALLS it
+    # without a window -- linking it is enough, and a behavior that could not be
+    # linked into the headless test would be a behavior with no test.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/assets.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/pack.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/loader_hook.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/rres_impl.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/behavior.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/behaviors.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/collision.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/input.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/object.cpp"
@@ -451,6 +461,7 @@ if(BUILD_TESTS)
   # SYSTEM for the vendored headers, so their warnings are not ours to fix.
   # doctest is 9 000 lines and the analyzer has opinions about all of them.
   target_include_directories(unit_test SYSTEM PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"

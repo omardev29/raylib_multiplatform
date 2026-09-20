@@ -125,10 +125,29 @@ public:
     Callback() = default;
     ~Callback() { clear(); }
 
-    // An object is not copyable and neither is this. Moving would be fine and
-    // is not offered because nothing needs it.
+    // Copying would mean copying the captured state, which needs a third
+    // function pointer and is never asked for. Moving IS asked for: a behavior
+    // that carries one is constructed by value -- `add<Spawner>({ .on_spawn =
+    // [&]{...} })` -- and has to get here in one piece.
     Callback(const Callback &) = delete;
     Callback &operator=(const Callback &) = delete;
+
+    Callback(Callback &&other) noexcept { steal(other); }
+    Callback &operator=(Callback &&other) noexcept {
+        if (this != &other) {
+            clear();
+            steal(other);
+        }
+        return *this;
+    }
+
+    // So that a lambda can be written straight into a designated initialiser,
+    // which is the whole point of the behavior structs being aggregates.
+    template <class F>
+        requires(!std::is_same_v<std::decay_t<F>, Callback>)
+    Callback(F &&fn) { // NOLINT(google-explicit-constructor)
+        set(static_cast<F &&>(fn));
+    }
 
     template <class F> void set(F &&fn) {
         clear();
@@ -156,6 +175,15 @@ public:
     }
 
 private:
+    void steal(Callback &other) {
+        state_ = other.state_;
+        invoke_ = other.invoke_;
+        destroy_ = other.destroy_;
+        other.state_ = nullptr;
+        other.invoke_ = nullptr;
+        other.destroy_ = nullptr;
+    }
+
     void *state_ = nullptr;
     void (*invoke_)(void *, A...) = nullptr;
     void (*destroy_)(void *) = nullptr;
@@ -210,6 +238,80 @@ public:
     Handle(unsigned index, unsigned generation)
         : index_(index), generation_(generation) {}
 };
+
+// ---------------------------------------------------------------------------
+// The behavior engine's erased half. Everything here is called by the templates
+// at the bottom of this file and by nothing else.
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+// A type identifier without RTTI: the address of a static that exists once per
+// B. Works with -fno-rtti, costs nothing, and is stable across translation
+// units because the static lives in an inline function template.
+template <class B> const void *behavior_type() {
+    static const char kTag = 0;
+    return &kTag;
+}
+
+// The hooks a behavior may have, erased. A null entry means the struct did not
+// declare that one, and the engine skips it -- which is how an optional hook
+// costs nothing rather than costing a virtual call that does nothing.
+struct BehaviorOps {
+    void (*update)(void *, Object &, float) = nullptr;
+    void (*late_update)(void *, Object &, float) = nullptr;
+    void (*ready)(void *, Object &) = nullptr;
+    void (*draw)(void *, Object &) = nullptr;
+    void (*collision)(void *, Object &, Object &) = nullptr;
+    void (*end)(void *, Object &) = nullptr;
+    void (*destroy)(void *) = nullptr;
+};
+
+template <class B> const BehaviorOps &ops_for() {
+    static const BehaviorOps kOps = [] {
+        BehaviorOps o;
+        o.destroy = [](void *self) { delete static_cast<B *>(self); };
+        if constexpr (requires(B &b, Object &o2, float d) { b._update(o2, d); }) {
+            o.update = [](void *self, Object &object, float delta) {
+                static_cast<B *>(self)->_update(object, delta);
+            };
+        }
+        if constexpr (requires(B &b, Object &o2, float d) { b._late_update(o2, d); }) {
+            o.late_update = [](void *self, Object &object, float delta) {
+                static_cast<B *>(self)->_late_update(object, delta);
+            };
+        }
+        if constexpr (requires(B &b, Object &o2) { b._ready(o2); }) {
+            o.ready = [](void *self, Object &object) {
+                static_cast<B *>(self)->_ready(object);
+            };
+        }
+        if constexpr (requires(B &b, Object &o2) { b._draw(o2); }) {
+            o.draw = [](void *self, Object &object) {
+                static_cast<B *>(self)->_draw(object);
+            };
+        }
+        if constexpr (requires(B &b, Object &o2, Object &o3) { b._collision(o2, o3); }) {
+            o.collision = [](void *self, Object &object, Object &other) {
+                static_cast<B *>(self)->_collision(object, other);
+            };
+        }
+        if constexpr (requires(B &b, Object &o2) { b._end(o2); }) {
+            o.end = [](void *self, Object &object) {
+                static_cast<B *>(self)->_end(object);
+            };
+        }
+        return o;
+    }();
+    return kOps;
+}
+
+// TAKES OWNERSHIP of `data`, and returns it. Defined in src/rmp/behavior.cpp.
+void *attach(Object &self, const void *type, const BehaviorOps &ops, void *data);
+void *find_behavior(const Object &self, const void *type);
+void detach(Object &self, const void *type);
+
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Raycasting. In Godot it is one line and here it has to be one too: right now
@@ -377,6 +479,55 @@ public:
     void apply_force(Vector2 force); // sustained: velocity += f/mass*delta
     void apply_impulse(Vector2 impulse); // instant:   velocity += i/mass
 
+    // ---- behaviors ---------------------------------------------------------
+    //
+    // A behavior is ANY struct with `void _update(rmp::Object &, float)`. It
+    // inherits from nothing, has no virtuals and registers nowhere:
+    //
+    //     struct Spin {
+    //         float degrees_per_second = 90;
+    //         void _update(rmp::Object &self, float delta) {
+    //             self.rotation += degrees_per_second * delta;
+    //         }
+    //     };
+    //     coin.add<Spin>({ .degrees_per_second = 180 });
+    //
+    // That is the whole model, and the absence of a base class is not taste: a
+    // struct with a base and virtual functions stops being an aggregate in
+    // C++20, and `{ .speed = 320 }` no longer compiles against it. The usual
+    // workaround -- a nested options struct and a constructor taking it -- turns
+    // every later read into `get<TopDown>()->opts.speed`. Without inheritance
+    // the fields ARE the configuration, hot:
+    //
+    //     player.get<rmp::behavior::TopDown>()->speed = 400;   // a power-up
+    //
+    // And the part that was not aimed for and turns out to be the best of it:
+    // one of yours and one of ours are literally the same thing. There is no
+    // extension API to learn because there is no extension.
+    //
+    // The optional hooks are detected at compile time with `requires`, so what
+    // you do not declare costs nothing:
+    //
+    //     _update(Object &, float)            every frame, BEFORE the integrator
+    //     _late_update(Object &, float)       every frame, AFTER it
+    //
+    // One of those two is required and the rest are optional.
+    //     _ready(Object &)                    once, when it is added
+    //     _draw(Object &)                     after the object is drawn
+    //     _collision(Object &, Object &other) once per pair per frame
+    //     _end(Object &)                      when removed, or the object dies
+    //
+    // _late_update is not decoration. Behaviors run before the velocity is
+    // integrated, because that is what lets one WRITE velocity -- and a
+    // behavior whose job is to correct where the object ENDED UP therefore has
+    // nowhere to run. rmp::behavior::GridSnap is exactly that: it exists to
+    // leave a puzzle piece square with the grid, and rounding the position the
+    // object had before it moved would round the wrong number.
+    template <class B> B &add(B value = {});
+    template <class B> [[nodiscard]] B *get() const;
+    template <class B> [[nodiscard]] bool has() const { return get<B>() != nullptr; }
+    template <class B> void remove();
+
     // ---- callbacks, for when a subclass is more than you want --------------
     //
     // The other half of the underscore rule: `_name` is yours and we call it,
@@ -443,5 +594,40 @@ private:
     // frame, so the only evidence it was ever there is the segment it covered.
     Vector2 previous_position_{};
 };
+
+// ---------------------------------------------------------------------------
+// The behavior templates, down here because they need Object to be complete.
+// ---------------------------------------------------------------------------
+
+template <class B> B &Object::add(B value) {
+    static_assert(
+        requires(B &b, Object &o, float d) { b._update(o, d); } ||
+            requires(B &b, Object &o, float d) { b._late_update(o, d); },
+        "a behavior needs `void _update(rmp::Object &self, float delta)`, or "
+        "`_late_update` with the same signature when its whole job is to "
+        "correct where the object ended up (rmp::behavior::GridSnap is the "
+        "one in the catalogue). _ready, _draw, _collision and _end are "
+        "optional and detected the same way.");
+    static_assert(
+        !std::is_polymorphic_v<B>,
+        "a behavior must not have virtual functions: a struct with them "
+        "stops being an aggregate in C++20, and then `add<B>({ .speed = 320 })` "
+        "does not compile. Behaviors inherit from nothing on purpose.");
+    // Handed over on the same line it is created, the way spawn() and the scene
+    // navigation already do: the pointer is never something a caller holds.
+    B *data = new B(static_cast<B &&>(value));
+    void *stored = rmp::detail::attach(*this, rmp::detail::behavior_type<B>(),
+                                       rmp::detail::ops_for<B>(), data);
+    return *static_cast<B *>(stored);
+}
+
+template <class B> B *Object::get() const {
+    return static_cast<B *>(
+        rmp::detail::find_behavior(*this, rmp::detail::behavior_type<B>()));
+}
+
+template <class B> void Object::remove() {
+    rmp::detail::detach(*this, rmp::detail::behavior_type<B>());
+}
 
 } // namespace rmp
