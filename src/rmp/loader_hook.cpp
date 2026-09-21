@@ -90,11 +90,20 @@ char *hooked_load_file_text(const char *file_name) {
 // RESOURCES_PATH "art\\x.png" — and a miss here sends them to the loose file,
 // which is exactly what a packaged release does not ship.
 bool in_resources_dir(const char *path) {
-    const char *root = skip_dot_slash(RESOURCES_PATH);
+    const char *root = skip_dot_slash(rmp::assets::detail::resources_root());
     const char *p = skip_dot_slash(path);
-    // Android sets RESOURCES_PATH to "" — every asset is at the root of the
-    // APK's assets/. No pack is ever open there, so this branch is moot, but
-    // an empty prefix matching everything is the right reading of it anyway.
+    // Android sets RESOURCES_PATH to "" -- every asset is at the root of the
+    // APK's assets/. An empty prefix used to match EVERY path, including an
+    // absolute one into the app's internal storage, and the pack IS packaged
+    // into assets/ there: a save file named like a packed resource would have
+    // been answered with the shipped copy on every load. With no directory to
+    // compare, "inside resources/" means "a bare file name".
+    if (root[0] == '\0') {
+        for (const char *c = p; *c != '\0'; c++) {
+            if (*c == '/' || *c == '\\') return false;
+        }
+        return true;
+    }
     for (size_t i = 0; root[i] != '\0'; i++) {
         char a = p[i];
         char b = root[i];

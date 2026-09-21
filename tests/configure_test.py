@@ -1631,24 +1631,37 @@ class VendoredHeaderPathsTest(unittest.TestCase):
     through a generated Xcode project with its own HEADER_SEARCH_PATHS -- came
     back with `fatal error: 'cute_tiled.h' file not found`.
 
-    The five, and why each one is separate:
-      CMakeLists.txt                        desktop, BSD, Web
+    There were five. The examples job and the Justfile carried their own -I
+    lists until the examples became CMake targets, which left four -- and
+    added one the gate had never looked at:
+      CMakeLists.txt                        desktop, BSD, Web, and every example
       raymob/app/src/main/cpp/CMakeLists.txt Android, which has its own
       tools/configure.py                    iOS, through XcodeGen
-      .github/workflows/ci.yml              the examples job's own -I list
-      Justfile                              the same list, locally
+      .github/workflows/_windows.yml        the MSVC syntax pass over examples/
     """
 
     # Directories under thirdparty/ that are NOT include roots: the ones whose
     # headers are reached through a path prefix, or that hold no header at all.
+    # raylib-cpp is reached as <raylib-cpp/Vector2.hpp> through the BARE
+    # thirdparty root, which the second test below checks for by itself.
     NOT_INCLUDE_ROOTS = {"raylib", "raylib-ios", "raylib-cpp", "raymob", "doctest"}
 
     BUILDS = {
         "CMakeLists.txt": "CMakeLists.txt",
         "Android CMakeLists": "raymob/app/src/main/cpp/CMakeLists.txt",
         "iOS (configure.py)": "tools/configure.py",
-        "the examples job": ".github/workflows/ci.yml",
-        "the Justfile": "Justfile",
+        "the MSVC examples pass": ".github/workflows/_windows.yml",
+    }
+
+    # The bare thirdparty root, spelled the way each build spells an include
+    # directory. rmp/math.h includes <raylib-cpp/Color.hpp>, so a build without
+    # this root cannot compile that header -- and Android, iOS and the MSVC pass
+    # all lacked it for a phase before anything noticed.
+    BARE_ROOT = {
+        "CMakeLists.txt": r'/thirdparty"',
+        "Android CMakeLists": r'/thirdparty"',
+        "iOS (configure.py)": r'\.\./thirdparty\n',
+        "the MSVC examples pass": r'"thirdparty"',
     }
 
     def vendored(self):
@@ -1670,9 +1683,32 @@ class VendoredHeaderPathsTest(unittest.TestCase):
         for name in self.vendored():
             for build, path in self.BUILDS.items():
                 with self.subTest(dependency=name, build=build):
-                    text = (REPO / path).read_text()
+                    # PowerShell spells the MSVC list with backslashes.
+                    text = (REPO / path).read_text().replace("\\", "/")
                     self.assertIn("thirdparty/" + name, text,
                                   name + " is not on the include path in " + path +
                                   " -- a build that cannot find its header fails at "
                                   "the first file that includes it, and only on the "
                                   "platform that uses that build")
+
+    def test_the_bare_thirdparty_root_is_on_every_include_path(self):
+        for build, path in self.BUILDS.items():
+            with self.subTest(build=build):
+                text = (REPO / path).read_text()
+                self.assertRegex(text, self.BARE_ROOT[build],
+                                 "the bare thirdparty/ root is not on the include path in " +
+                                 path + " -- rmp/math.h includes <raylib-cpp/*.hpp> through it")
+
+    def test_no_build_carries_its_own_examples_include_list(self):
+        """The examples job and the Justfile used to repeat the -I list by hand.
+
+        They compile the examples through CMake now, so a -I list reappearing in
+        either is a sixth copy of something that already lives on the `rmp`
+        target -- and a copy is what drifts.
+        """
+        for path in (".github/workflows/ci.yml", "Justfile"):
+            with self.subTest(file=path):
+                text = (REPO / path).read_text()
+                self.assertNotIn("-Ithirdparty/cute_tiled", text,
+                                 path + " has grown its own include list again; "
+                                 "examples are CMake targets, build them that way")

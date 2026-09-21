@@ -9,6 +9,7 @@
 
 #include <rmp/app.h>
 
+#include "internal.h"
 #include "scene_internal.h"
 
 #include <raylib.h>
@@ -97,6 +98,11 @@ namespace detail {
 // GetApplicationDirectory() is the .app root there, which is where bundle
 // resources live, and it has to happen before assets::init() looks for the pack.
 void begin_run() {
+    // This translation unit is compiled into EACH executable with that
+    // executable's own RESOURCES_PATH; the library it links was compiled with
+    // the game's. Told before anything is loaded, so an example with its own
+    // resources/ reads its own. See resources_root() in internal.h.
+    rmp::assets::detail::set_resources_root(RESOURCES_PATH);
     SmokeTest_Begin();
 #if defined(PLATFORM_IOS)
     ChangeDirectory(GetApplicationDirectory());
@@ -134,7 +140,14 @@ float step_delta() {
     return raw > APP_MAX_DELTA ? APP_MAX_DELTA : raw;
 }
 
-void end_frame() { SmokeTest_Tick(); }
+void end_frame() {
+    // For a game that owns its own frame -- RMP_ENTRY_POINT -- nothing of ours
+    // runs between its last draw call and its EndDrawing(), so the render gate
+    // reads the frame back here instead, where the framebuffer is memory. See
+    // SmokeTest_CaptureFrameIfMissed().
+    SmokeTest_CaptureFrameIfMissed();
+    SmokeTest_Tick();
+}
 
 // Everything that owns something on the GPU is released HERE, before the stop
 // hook runs — because the stop hook is where CloseWindow() lives, and an

@@ -14,8 +14,6 @@ set(CMAKE_CXX_STANDARD 20)
 # i bet you don't want modules here, but if you want, turn this on
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-#basically this will change the RESOURCES_PATH to be the local path
-
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
   set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM})
@@ -29,6 +27,12 @@ option(PRODUCTION_BUILD "Make this a production build" OFF)
 # It picks raylib's PLATFORM=DRM below, which needs libdrm on the build machine
 # and /dev/dri on the machine that runs it.
 option(RMP_TARGET_DRM "Build for DRM/KMS: no X11, no Wayland, straight to the screen" OFF)
+
+# Every example under examples/ as its own executable, next to the game. Off by
+# default because a game build has no business compiling twenty examples; on
+# for `just example`, for `just test examples` and for the CI job that boots
+# every one of them. See rmp_add_game() below for what an example IS.
+option(RMP_BUILD_EXAMPLES "Build every example under examples/ as an executable" OFF)
 
 # [dev] compiler/linker from the config. Deliberately only for development
 # builds: CI builds `release`/`web`, so nothing here can change what ships.
@@ -78,22 +82,8 @@ project(${TEMPLATE_PROJECT_NAME})
 if(NOT PRODUCTION_BUILD)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_linker.cmake" OPTIONAL)
 endif()
-add_executable("${CMAKE_PROJECT_NAME}")
 
-# --- the Windows icon -------------------------------------------------------
-# Windows keeps the icon INSIDE the .exe as a resource, so a PNG is not enough:
-# tools/configure.py turns [icon] source into a multi-resolution .ico and the
-# one-line .rc below, and the resource compiler embeds it. Missing is fine — the
-# generator skips it when Pillow is not installed, and an icon is cosmetic.
-if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
-  enable_language(RC)
-  target_sources("${CMAKE_PROJECT_NAME}" PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
-endif()
-
-
-
-#Add raylib, and here you would add other libraries if needed!
+# --- raylib -----------------------------------------------------------------
 # Which backend raylib is built against. Everything except these two cases is
 # raylib's own default (Desktop on the desktops, Web under Emscripten, Android
 # under the NDK), and none of that is worth restating here.
@@ -183,26 +173,6 @@ target_compile_definitions(raylib PRIVATE ${RAYLIB_CONFIG_DEFS})
 if (NOT PRODUCTION_BUILD)
   add_subdirectory(thirdparty/raymob)
 endif()
-# Dead-code stripping. See below for raylib's own warnings.
-if (MSVC)
-  # Ensure the linker deletes death code
-  target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE /OPT:REF /OPT:ICF)
-  # msvc doesnt have this flag but the error doesnt occur with it
-  target_compile_options(raylib PRIVATE)
-elseif(EMSCRIPTEN)
-  # Emscripten handles dead code elimination differently, no extra flags needed
-  # wasm-ld has its own --gc-sections but it's enabled by default
-elseif(APPLE)
-  # Apple ld64 uses -dead_strip instead of --gc-sections
-  target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE -Wl,-dead_strip)
-  target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -ffunction-sections -fdata-sections)
-  target_compile_options(raylib PRIVATE -ffunction-sections -fdata-sections)
-else()
-  # GNU ld (Linux, MinGW)
-  target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE -Wl,--gc-sections)
-  target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -ffunction-sections -fdata-sections)
-  target_compile_options(raylib PRIVATE -ffunction-sections -fdata-sections)
-endif()
 
 # Vendored code is not ours to fix, and its warnings drown out the ones that
 # are. raylib builds clean on the compiler its authors use and noisily on the
@@ -223,124 +193,177 @@ else()
   target_compile_options(raylib PRIVATE -w)
 endif()
 
-# MY_SOURCES is defined to be a list of all the source files for my game
-# DON'T ADD THE SOURCES BY HAND, they are already added with this macro
-file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
-)
+# --- what every target of ours is compiled with ------------------------------
+# One function, applied to raylib, to the framework library and to every
+# executable, so the release flags cannot drift between them. CMake's IPO is
+# per target, and a target that links raylib's LTO archive without it hands
+# LLVM bitcode to plain ld ("file format not recognized"); applying the same
+# function everywhere is what keeps that from ever happening again.
+set(RMP_IPO OFF)
+function(rmp_apply_compile_flags target)
+  if(PRODUCTION_BUILD)
+    if(MSVC)
+      target_compile_options(${target} PRIVATE /O2 /GL)
+      set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    elseif(EMSCRIPTEN)
+      # Emscripten/WebAssembly - skip LTO, use -Oz for size optimization
+      target_compile_options(${target} PRIVATE -Oz)
+    else() # Linux, macOS, MinGW
+      target_compile_options(${target} PRIVATE -O3)
+      if(NOT CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+        # NetBSD's linker does not process the GCC LTO bytecode stored in static
+        # archives, leaving raylib symbols (TraceLog, LoadImage, ...) undefined
+        # at link time. Skip LTO there; keep it everywhere else.
+        set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+      endif()
+    endif()
+  else()
+    if(MSVC)
+      target_compile_options(${target} PRIVATE /Od /Zi)
+    else()
+      target_compile_options(${target} PRIVATE -O0)
+    endif()
+  endif()
+  # Dead-code stripping needs every function in its own section; the linker
+  # half is in rmp_apply_link_flags. Not on MSVC (/OPT:REF does not need it)
+  # and not on Emscripten (wasm-ld gc-sections is on by default).
+  if(NOT MSVC AND NOT EMSCRIPTEN)
+    target_compile_options(${target} PRIVATE -ffunction-sections -fdata-sections)
+  endif()
+endfunction()
 
-# RESOURCES_PATH macro used by the game code to locate its assets
 if(PRODUCTION_BUILD)
-  # Production: relative to the executable, ship resources/ next to it
-  set(RESOURCES_PATH "./resources/")
-else()
-  # Development: absolute path so the game loads its assets no matter
-  # which working directory it is launched from
-  set(RESOURCES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
-endif()
-target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RESOURCES_PATH="${RESOURCES_PATH}")
-
-
-set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY CXX_STANDARD 20)
-
-# RAYLIB_STUB_SOURCES is empty unless a module was disabled that rres still
-# references. It lives in cmake/generated/, never in src/, which is the user's.
-target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${MY_SOURCES} ${RAYLIB_STUB_SOURCES})
-
-if(PRODUCTION_BUILD)
-  # setup the ASSETS_PATH macro to be in the root folder of your exe
-  # remove the option to debug asserts.
-  target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC PRODUCTION_BUILD=1)
   if(MSVC)
-    set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
-            LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
-    target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE /O2 /GL)
-    target_compile_options(raylib PRIVATE /O2 /GL)
-    set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-    set_property(TARGET raylib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     set(RMP_IPO ON)
     message("===INITIALIZING PRODUCTION BUILD WITH MSVC===")
   elseif(EMSCRIPTEN)
-    # Emscripten/WebAssembly - skip LTO, use -Oz for size optimization
-    target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -Oz)
-    target_compile_options(raylib PRIVATE -Oz)
     message("===INITIALIZING PRODUCTION BUILD WITH EMSCRIPTEN===")
-  else() # Linux, macOS, MinGW
-    if (MINGW)
-      target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE -mwindows)
-    endif()
-    target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -O3)
-    target_compile_options(raylib PRIVATE -O3)
-    if(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
-      # NetBSD's linker does not process the GCC LTO bytecode stored in static
-      # archives, leaving raylib symbols (TraceLog, LoadImage, ...) undefined at
-      # link time. Skip LTO there; keep it everywhere else.
-      message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG (NetBSD: LTO disabled)===")
-    else()
-      set_property(TARGET "${CMAKE_PROJECT_NAME}" PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-      set_property(TARGET raylib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-      set(RMP_IPO ON)
-      message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG===")
-    endif()
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+    message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG (NetBSD: LTO disabled)===")
+  else()
+    set(RMP_IPO ON)
+    message("===INITIALIZING PRODUCTION BUILD WITH GCC OR CLANG===")
   endif()
-
-  # Ship the binary without its debug symbols.
-  #
-  # Nothing in the release path was taking them out, and under zig cc that is
-  # not a rounding error. The Linux x64 binary was 4,613,528 bytes, of which
-  # 3.7 MB was DWARF -- most of it for zig's own bundled libc and compiler-rt,
-  # code the game never steps through. Stripped it is 913,128, and after
-  # `upx --best` 301,848, against 303,620 for the same game built by the host's
-  # gcc. Targeting glibc 2.28 costs 41 KB uncompressed and less than nothing
-  # compressed; the megabyte was symbols no one was ever going to read.
-  #
-  # -Wl,-s rather than a POST_BUILD ${CMAKE_STRIP}, because most of these
-  # builds are cross-compiles and GNU strip is target-specific: the image's
-  # x86-64 /usr/bin/strip cannot touch the arm64 or riscv64 output, whereas the
-  # linker that produced the file is by definition the right tool for it.
-  #
-  # Not MSVC: its debug info is already in a separate .pdb. Not Emscripten: at
-  # -Oz the wasm carries no DWARF and wasm-ld reads -s as something else. Not
-  # Android: gradle strips the .so itself, and wants the unstripped one first so
-  # it can upload the symbols to Play for the crash reports.
-  #
-  # Checked rather than assumed, for the reason cmake/generated/dev_linker.cmake
-  # exists: this has to hold on 15 toolchains, four of which are BSD linkers
-  # twenty minutes away, and ld64 dropped plain -s years ago (-S and -x are the
-  # spellings Apple kept). A linker that will not take it simply does not strip.
-  if(NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID)
-    include(CheckLinkerFlag)
-    if(APPLE)
-      set(RMP_STRIP_FLAGS "-Wl,-S" "-Wl,-x")
-    else()
-      set(RMP_STRIP_FLAGS "-Wl,-s")
-    endif()
-    check_linker_flag(CXX "${RMP_STRIP_FLAGS}" RMP_LINKER_CAN_STRIP)
-    if(RMP_LINKER_CAN_STRIP)
-      target_link_options("${CMAKE_PROJECT_NAME}" PRIVATE ${RMP_STRIP_FLAGS})
-      message(STATUS "=== RELEASE: stripping symbols at link (${RMP_STRIP_FLAGS}) ===")
-    else()
-      message(STATUS "=== RELEASE: linker will not strip, shipping symbols ===")
-    endif()
-  endif()
-
-  # There´s no console to quit on Linux/MacOS
 else()
-  target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC PRODUCTION_BUILD=0)
-  if (MSVC)
-    target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE /Od /Zi)
+  if(MSVC)
     message("===INITIALIZING DEBUGGING WITH MSVC===")
   else()
-    target_compile_options("${CMAKE_PROJECT_NAME}" PRIVATE -O0)
-
     message("===INITIALIZING DEBUGGING WITH GCC OR CLANG===")
   endif()
 endif()
 
-message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
+# Ship the binary without its debug symbols.
+#
+# Nothing in the release path was taking them out, and under zig cc that is
+# not a rounding error. The Linux x64 binary was 4,613,528 bytes, of which
+# 3.7 MB was DWARF -- most of it for zig's own bundled libc and compiler-rt,
+# code the game never steps through. Stripped it is 913,128, and after
+# `upx --best` 301,848, against 303,620 for the same game built by the host's
+# gcc. Targeting glibc 2.28 costs 41 KB uncompressed and less than nothing
+# compressed; the megabyte was symbols no one was ever going to read.
+#
+# -Wl,-s rather than a POST_BUILD ${CMAKE_STRIP}, because most of these
+# builds are cross-compiles and GNU strip is target-specific: the image's
+# x86-64 /usr/bin/strip cannot touch the arm64 or riscv64 output, whereas the
+# linker that produced the file is by definition the right tool for it.
+#
+# Not MSVC: its debug info is already in a separate .pdb. Not Emscripten: at
+# -Oz the wasm carries no DWARF and wasm-ld reads -s as something else. Not
+# Android: gradle strips the .so itself, and wants the unstripped one first so
+# it can upload the symbols to Play for the crash reports.
+#
+# Checked rather than assumed, for the reason cmake/generated/dev_linker.cmake
+# exists: this has to hold on 17 targets, four of which are BSD linkers
+# twenty minutes away, and ld64 dropped plain -s years ago (-S and -x are the
+# spellings Apple kept). A linker that will not take it simply does not strip.
+set(RMP_STRIP_FLAGS "")
+if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID)
+  include(CheckLinkerFlag)
+  if(APPLE)
+    set(_rmp_strip "-Wl,-S" "-Wl,-x")
+  else()
+    set(_rmp_strip "-Wl,-s")
+  endif()
+  check_linker_flag(CXX "${_rmp_strip}" RMP_LINKER_CAN_STRIP)
+  if(RMP_LINKER_CAN_STRIP)
+    set(RMP_STRIP_FLAGS ${_rmp_strip})
+    message(STATUS "=== RELEASE: stripping symbols at link (${RMP_STRIP_FLAGS}) ===")
+  else()
+    message(STATUS "=== RELEASE: linker will not strip, shipping symbols ===")
+  endif()
+endif()
 
-target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
+function(rmp_apply_link_flags target)
+  # Dead-code stripping, the linker half.
+  if(MSVC)
+    target_link_options(${target} PRIVATE /OPT:REF /OPT:ICF)
+  elseif(EMSCRIPTEN)
+    # wasm-ld has its own --gc-sections and it is enabled by default
+  elseif(APPLE)
+    target_link_options(${target} PRIVATE -Wl,-dead_strip)
+  else()
+    target_link_options(${target} PRIVATE -Wl,--gc-sections)
+  endif()
+  if(PRODUCTION_BUILD)
+    if(MSVC)
+      # There is no console to quit on Windows either
+      set_target_properties(${target} PROPERTIES
+              LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
+    elseif(MINGW)
+      target_link_options(${target} PRIVATE -mwindows)
+    endif()
+    if(RMP_STRIP_FLAGS)
+      target_link_options(${target} PRIVATE ${RMP_STRIP_FLAGS})
+    endif()
+  endif()
+endfunction()
+
+rmp_apply_compile_flags(raylib)
+
+# --- RESOURCES_PATH ----------------------------------------------------------
+# Where the game reads its loose files from. Production: relative to the
+# executable, ship resources/ next to it. Development: an absolute path, so the
+# game loads its assets no matter which working directory it is launched from.
+if(PRODUCTION_BUILD)
+  set(RESOURCES_PATH "./resources/")
+else()
+  set(RESOURCES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
+endif()
+
+# Password shared by the packer and the runtime loader. Obfuscation only (the
+# password ends up in the binary). Override with -DRRES_PACK_PASSWORD="...".
+if(NOT DEFINED RRES_PACK_PASSWORD)
+  set(RRES_PACK_PASSWORD "${TEMPLATE_RRES_PASSWORD}")
+endif()
+
+# --- the framework: one library ---------------------------------------------
+# Everything under src/rmp/ except app.cpp, compiled ONCE and linked into the
+# game, into every example and into the test binaries. Before this there was
+# one executable that globbed all of src/ -- the user's game and the framework
+# indistinguishable to CMake -- and unit_test re-listed seventeen framework
+# sources by hand right under a comment explaining why globbing is safer.
+#
+# app.cpp stays OUT, and it is the entry point's other half: it references the
+# symbol RMP_ENTRY_POINT emits (so that "no entry point" is a link error with a
+# name), so it can only live in a translation unit that has one. rmp_add_game()
+# compiles it into each executable, with that executable's own RESOURCES_PATH.
+#
+# The include directories are PUBLIC here and nowhere else in this file: every
+# consumer inherits the same list, so a vendored header on this list is on the
+# path of every CMake-built target at once. (Android and iOS have their own
+# lists -- see the five-path note in CLAUDE.md -- and tests/configure_test.py
+# checks all of them agree.)
+file(GLOB_RECURSE RMP_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/*.c"
+)
+list(REMOVE_ITEM RMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+
+# RAYLIB_STUB_SOURCES is empty unless a module was disabled that rres still
+# references. It lives in cmake/generated/, never in src/, which is the user's.
+add_library(rmp STATIC ${RMP_SOURCES} ${RAYLIB_STUB_SOURCES})
+set_property(TARGET rmp PROPERTY CXX_STANDARD 20)
+target_include_directories(rmp PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
@@ -350,15 +373,193 @@ target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
+# The library's RESOURCES_PATH is the game's, and it is only a DEFAULT: the
+# entry point in each executable overrides it at run time, because an example
+# with its own resources/ must not read the game's. See resources_root() in
+# src/rmp/internal.h. PRIVATE, so it cannot collide with the executable's.
+target_compile_definitions(rmp PRIVATE
+  RESOURCES_PATH="${RESOURCES_PATH}"
+  RRES_PASSWORD="${RRES_PACK_PASSWORD}")
+if(PRODUCTION_BUILD)
+  target_compile_definitions(rmp PUBLIC PRODUCTION_BUILD=1)
+else()
+  target_compile_definitions(rmp PUBLIC PRODUCTION_BUILD=0)
+endif()
+target_link_libraries(rmp PUBLIC raylib_static)
+if(NOT PRODUCTION_BUILD)
+  target_link_libraries(rmp PUBLIC raymoblib)
+endif()
+rmp_apply_compile_flags(rmp)
+
+# --- a game is a directory --------------------------------------------------
+# rmp_add_game(<target> <dir>) builds <dir>/src/**.cpp (and .c) plus the entry
+# point into one executable that links the framework. <dir>/include/ is on
+# its include path if it exists, and <dir>/resources/ is its RESOURCES_PATH
+# if it exists (the game's resources/ otherwise). The game itself is
+# rmp_add_game(<project name> <this directory>), and every example is
+# rmp_add_game(example_<area>_<name> examples/<area>/<name>) -- the same
+# function, so an example is a game and a game is an example.
+#
+# A directory whose src/ holds no C++ at all -- examples/plain_c -- is plain
+# raylib: its own main(), no entry point, no framework. It gets raylib and
+# nothing else, which is the whole point of that example.
+function(rmp_add_game NAME DIR)
+  file(GLOB_RECURSE _game_sources CONFIGURE_DEPENDS
+    "${DIR}/src/*.cpp"
+    "${DIR}/src/*.c"
+  )
+  # The project's own src/ contains src/rmp/, which is the library above.
+  list(FILTER _game_sources EXCLUDE REGEX "/src/rmp/")
+
+  set(_plain_c TRUE)
+  foreach(_s ${_game_sources})
+    if(_s MATCHES "\\.cpp$")
+      set(_plain_c FALSE)
+    endif()
+  endforeach()
+
+  if(_plain_c)
+    add_executable(${NAME} ${_game_sources})
+    set_property(TARGET ${NAME} PROPERTY C_STANDARD 99)
+    target_link_libraries(${NAME} PRIVATE raylib_static)
+    # A C++ executable gets libm through libstdc++; a C one has to ask.
+    if(NOT MSVC)
+      target_link_libraries(${NAME} PRIVATE m)
+    endif()
+  else()
+    add_executable(${NAME} ${_game_sources} "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    set_property(TARGET ${NAME} PROPERTY CXX_STANDARD 20)
+    target_link_libraries(${NAME} PRIVATE rmp)
+  endif()
+
+  if(EXISTS "${DIR}/include")
+    target_include_directories(${NAME} PRIVATE "${DIR}/include")
+  endif()
+
+  if(PRODUCTION_BUILD)
+    set(_res "./resources/")
+    set(_res_dir "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+  elseif(EXISTS "${DIR}/resources")
+    set(_res "${DIR}/resources/")
+    set(_res_dir "${DIR}/resources")
+  else()
+    set(_res "${RESOURCES_PATH}")
+    set(_res_dir "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+  endif()
+  target_compile_definitions(${NAME} PRIVATE RESOURCES_PATH="${_res}")
+  if(_plain_c)
+    if(PRODUCTION_BUILD)
+      target_compile_definitions(${NAME} PRIVATE PRODUCTION_BUILD=1)
+    else()
+      target_compile_definitions(${NAME} PRIVATE PRODUCTION_BUILD=0)
+    endif()
+  endif()
+
+  rmp_apply_compile_flags(${NAME})
+  rmp_apply_link_flags(${NAME})
+
+  if(EMSCRIPTEN)
+    # -sUSE_GLFW=3 is NOT set here. raylib adds it itself, PUBLIC, and now only
+    # for PLATFORM=Web — see the patch in thirdparty/raylib/src/CMakeLists.txt.
+    # Setting it in both places would be two sources of truth for one flag, and
+    # the one that drifts is always the copy.
+    set_target_properties(${NAME} PROPERTIES
+          SUFFIX ".html"
+          # No ASYNCIFY, on purpose. It is only needed to run a synchronous while
+          # loop in an asynchronous browser, and rmp/app.h hands the frame loop
+          # to emscripten_set_main_loop instead. ASYNCIFY is not free: it
+          # instruments every function that could be on the stack at a
+          # suspension point, which is most of them, and charges for it in code
+          # size and speed whether or not anything ever suspends. If you put a
+          # while loop back, you have to put this back with it.
+          # TOTAL_MEMORY and ALLOW_MEMORY_GROWTH come from [web] in the .toml.
+          # The failure mode when it is too small is specific and worth knowing:
+          # the tab dies with "Cannot enlarge memory arrays", not a raylib error.
+          LINK_FLAGS "-s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
+-s ALLOW_MEMORY_GROWTH=${TEMPLATE_WEB_ALLOW_MEMORY_GROWTH} \
+--preload-file ${_res_dir}@/resources/"
+      )
+  endif()
+endfunction()
+
+# --- the game ---------------------------------------------------------------
+rmp_add_game("${CMAKE_PROJECT_NAME}" "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# The Windows icon. Windows keeps the icon INSIDE the .exe as a resource, so a
+# PNG is not enough: tools/configure.py turns [icon] source into a
+# multi-resolution .ico and the one-line .rc below, and the resource compiler
+# embeds it. Missing is fine — the generator skips it when Pillow is not
+# installed, and an icon is cosmetic. The game only: an example has no icon.
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
+  enable_language(RC)
+  target_sources("${CMAKE_PROJECT_NAME}" PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
+endif()
+
+message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
+
+# --- the examples -----------------------------------------------------------
+# Every examples/<area>/<name>/ (and examples/<name>/) with a src/main.cpp or a
+# src/main.c is a game: rmp_add_game(example_<area>_<name>). An example
+# directory with sources but NO main -- examples/platform/03_minimal_includes,
+# whose whole job is to prove rmp/ui.h stands alone -- is compiled as an object
+# library, which is the check without a link. RMP_EXAMPLE_TARGETS lists what
+# was made, and tools/examples_build.sh asserts the count against the tree so
+# a glob that stops matching cannot look like a folder where everything passes.
+if(RMP_BUILD_EXAMPLES)
+  set(RMP_EXAMPLE_TARGETS "")
+  file(GLOB _rmp_example_mains
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/*/*/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/*/*/src/main.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/*/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/*/src/main.c"
+  )
+  list(SORT _rmp_example_mains)
+  foreach(_main ${_rmp_example_mains})
+    get_filename_component(_src_dir "${_main}" DIRECTORY)
+    get_filename_component(_dir "${_src_dir}" DIRECTORY)
+    file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}/examples" "${_dir}")
+    string(REPLACE "/" "_" _name "${_rel}")
+    set(_target "example_${_name}")
+    rmp_add_game(${_target} "${_dir}")
+    list(APPEND RMP_EXAMPLE_TARGETS ${_target})
+  endforeach()
+
+  # The header-only examples: a src/ with .cpp files and no main.
+  file(GLOB _rmp_example_src_dirs
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/*/*/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/*/src"
+  )
+  foreach(_src_dir ${_rmp_example_src_dirs})
+    if(EXISTS "${_src_dir}/main.cpp" OR EXISTS "${_src_dir}/main.c")
+      continue()
+    endif()
+    file(GLOB_RECURSE _srcs CONFIGURE_DEPENDS "${_src_dir}/*.cpp")
+    if(NOT _srcs)
+      continue()
+    endif()
+    get_filename_component(_dir "${_src_dir}" DIRECTORY)
+    file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}/examples" "${_dir}")
+    string(REPLACE "/" "_" _name "${_rel}")
+    set(_target "example_${_name}")
+    add_library(${_target} OBJECT ${_srcs})
+    set_property(TARGET ${_target} PROPERTY CXX_STANDARD 20)
+    target_link_libraries(${_target} PRIVATE rmp)
+    if(EXISTS "${_dir}/include")
+      target_include_directories(${_target} PRIVATE "${_dir}/include")
+    endif()
+    list(APPEND RMP_EXAMPLE_TARGETS ${_target})
+  endforeach()
+
+  list(LENGTH RMP_EXAMPLE_TARGETS _n)
+  message(STATUS "=== EXAMPLES: ${_n} targets ===")
+  file(WRITE "${CMAKE_BINARY_DIR}/example_targets.txt" "")
+  foreach(_t ${RMP_EXAMPLE_TARGETS})
+    file(APPEND "${CMAKE_BINARY_DIR}/example_targets.txt" "${_t}\n")
+  endforeach()
+endif()
 
 # --- rres resource packing --------------------------------------------------
-# Password shared by the packer and the runtime loader. Obfuscation only (the
-# password ends up in the binary). Override with -DRRES_PACK_PASSWORD="...".
-if(NOT DEFINED RRES_PACK_PASSWORD)
-  set(RRES_PACK_PASSWORD "${TEMPLATE_RRES_PASSWORD}")
-endif()
-target_compile_definitions("${CMAKE_PROJECT_NAME}" PRIVATE RRES_PASSWORD="${RRES_PACK_PASSWORD}")
-
 # Open packing tool (alternative to the paid rrespacker). Standalone C, no raylib.
 add_executable(rres_pack tools/rres_pack.c tools/md5.c)
 target_include_directories(rres_pack PRIVATE tools "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
@@ -402,17 +603,11 @@ if(_PACK_SUBDIRS AND PRODUCTION_BUILD)
     "yourself. See TECHNICAL.md, \"Resources\".")
 endif()
 
-# --- Headless UI layout test ------------------------------------------------
-# Off by default: it is a developer tool, not part of a game build. The layout
-# runs with the text measurement, the pointer and the viewport all injected, so
-# it needs no window, no GL context and no display — which is what lets it run
-# in a container.
-#
-#   cmake --preset debug -DBUILD_UI_TESTS=ON
-#   cmake --build build --target ui_layout_test && ./build/ui_layout_test
 # --- unit tests (doctest) ---------------------------------------------------
-# No window, no GPU, milliseconds. Every tests/*_test.cpp except the two that
-# have their own main() is globbed in, so a new test file needs no CMake edit.
+# No window, no GPU, milliseconds. Every tests/*_test.cpp except the one that
+# has its own main() is globbed in, so a new test file needs no CMake edit; the
+# framework comes from the `rmp` library, so a new framework file needs none
+# either. (That list used to be seventeen paths written by hand.)
 #
 #   cmake --preset debug -DBUILD_TESTS=ON && cmake --build build --target unit_test
 #   ./build/unit_test -ts=random
@@ -426,53 +621,11 @@ if(BUILD_TESTS)
        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
   list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
 
-  # The framework sources the tests exercise. Not the whole of src/: main.cpp
-  # has an entry point of its own and would fight doctest's for main(), and
-  # src/rmp/app.cpp is the entry point's other half.
-  #
-  # The UI sources are here because the scene stack reaches into them for two
-  # things — the theme's background colour, and the per-pass input switch that
-  # makes Scene::input_below real. Neither opens a window; see the note on
-  # test_mode() in src/rmp/ui/internal.h.
-  file(GLOB UNIT_TEST_UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
-  set(UNIT_TEST_LIB_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/global.cpp"
-    # The asset layer joined the unit test in phase 8, because
-    # rmp::behavior::Parallax loads its texture by name. Nothing here CALLS it
-    # without a window -- linking it is enough, and a behavior that could not be
-    # linked into the headless test would be a behavior with no test.
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/assets.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/pack.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/loader_hook.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/rres_impl.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/animation.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/tilemap.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/tiled_impl.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/aseprite_impl.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/behavior.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/behaviors.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/collision.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/input.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/object.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/random.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/resource.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/scene.cpp"
-    ${UNIT_TEST_UI_SOURCES})
-
-  add_executable(unit_test ${UNIT_TEST_SOURCES} ${UNIT_TEST_LIB_SOURCES})
-  target_include_directories(unit_test PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-  )
-  # SYSTEM for the vendored headers, so their warnings are not ours to fix.
-  # doctest is 9 000 lines and the analyzer has opinions about all of them.
+  add_executable(unit_test ${UNIT_TEST_SOURCES})
+  set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
+  # SYSTEM for doctest, so its 9 000 lines of macros are not ours to fix.
   target_include_directories(unit_test SYSTEM PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_tiled"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   )
   target_compile_definitions(unit_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
   # An absolute path, so a fixture is found whatever directory the test binary
@@ -481,42 +634,31 @@ if(BUILD_TESTS)
   # somebody with a different habit.
   target_compile_definitions(unit_test PRIVATE
     RMP_TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/")
-  set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
-  # resource.cpp calls raylib's Unload* functions, so this one DOES link raylib
-  # — but it never opens a window. The tests use zeroed payloads, and raylib's
+  # The library calls raylib's Unload* functions, so this DOES link raylib —
+  # but it never opens a window. The tests use zeroed payloads, and raylib's
   # unloaders are defined on those: UnloadImage is free(nullptr), UnloadTexture
   # guards on id > 0. That is what makes reference counting a unit test.
-  target_link_libraries(unit_test PRIVATE raylib)
-
-# A test binary in a release tree has to be built the same way raylib was.
-# CMake's IPO is per target, so with clang -flto=thin raylib's archive holds
-# LLVM bitcode, and a target that links it WITHOUT -flto hands that archive to
-# plain ld, which reports "file format not recognized" and stops. Matching the
-# property is the whole fix; see the Justfile for why you rarely get here.
-  if(RMP_IPO)
-    set_property(TARGET unit_test PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-  endif()
+  target_link_libraries(unit_test PRIVATE rmp)
+  rmp_apply_compile_flags(unit_test)
 endif()
 
+# --- Headless UI layout test ------------------------------------------------
+# Off by default: it is a developer tool, not part of a game build. The layout
+# runs with the text measurement, the pointer and the viewport all injected, so
+# it needs no window, no GL context and no display — which is what lets it run
+# in a container.
+#
+#   cmake --preset debug -DBUILD_UI_TESTS=ON
+#   cmake --build build --target ui_layout_test && ./build/ui_layout_test
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
 if(BUILD_UI_TESTS)
-  file(GLOB UI_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/ui/*.cpp")
-  add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp" ${UI_SOURCES})
+  add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
   set_property(TARGET ui_layout_test PROPERTY CXX_STANDARD 20)
-  target_include_directories(ui_layout_test PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-  )
+  target_compile_definitions(ui_layout_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
   # raylib is linked but never asked to open anything: MeasureTextEx and the
   # drawing calls are all behind the injected seams.
-  target_compile_definitions(ui_layout_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
-  target_link_libraries(ui_layout_test PRIVATE raylib_static)
-  if(RMP_IPO)
-    set_property(TARGET ui_layout_test PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-  endif()
+  target_link_libraries(ui_layout_test PRIVATE rmp)
+  rmp_apply_compile_flags(ui_layout_test)
 endif()
 
 # Remove the generated pack (e.g. to fall back to loose files in dev).
@@ -552,6 +694,7 @@ set(ASM_INCLUDE_FLAGS
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_tiled"
+  "-I${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
   "-I${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
@@ -587,43 +730,4 @@ else()
     COMMENT "Generating assembler files"
     VERBATIM
   )
-endif()
-
-if(EMSCRIPTEN)
-  # -sUSE_GLFW=3 is NOT set here. raylib adds it itself, PUBLIC, and now only
-  # for PLATFORM=Web — see the patch in thirdparty/raylib/src/CMakeLists.txt.
-  # Setting it in both places would be two sources of truth for one flag, and
-  # the one that drifts is always the copy.
-  set_target_properties("${CMAKE_PROJECT_NAME}" PROPERTIES
-        SUFFIX ".html"
-        # No ASYNCIFY, on purpose. It is only needed to run a synchronous while
-        # loop in an asynchronous browser, and include/rmp/
-        # lifecycle.h hands the frame loop to emscripten_set_main_loop instead.
-        # ASYNCIFY is not free: it instruments every function that could be on
-        # the stack at a suspension point, which is most of them, and charges
-        # for it in code size and speed whether or not anything ever suspends.
-        # If you put a while loop back, you have to put this back with it.
-        # TOTAL_MEMORY and ALLOW_MEMORY_GROWTH come from [web] in the .toml.
-        # The failure mode when it is too small is specific and worth knowing:
-        # the tab dies with "Cannot enlarge memory arrays", not a raylib error.
-        LINK_FLAGS "-s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
--s ALLOW_MEMORY_GROWTH=${TEMPLATE_WEB_ALLOW_MEMORY_GROWTH} \
---preload-file ${CMAKE_SOURCE_DIR}/resources@/resources/"
-    )
-endif()
-
-
-# Link raylib library statically, Here you would add other libraries!
-if (PRODUCTION_BUILD)
-
-  target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE
- raylib_static
-
-)
-else()
-
-  target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE
- raylib_static
- raymoblib
-)
 endif()

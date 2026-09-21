@@ -1,0 +1,8 @@
+{
+  "name": "level1",
+  "spawn": [
+    120,
+    300
+  ],
+  "enemies": 3
+}

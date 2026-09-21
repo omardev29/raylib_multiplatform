@@ -259,7 +259,10 @@ template <class T> T &global() {
     rmp::app::detail::after_ready();                                           \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
-    FRAME(rmp::app::detail::step_delta());                                                     \
+    FRAME(rmp::app::detail::step_delta());                                     \
+    /* The CI frame budget advances here, the same as on desktop. It did not, \
+       so under RAY_TEST_MAX_FRAMES the simulator never reached its budget.  */ \
+    rmp::app::detail::end_frame();                                             \
     /* Two ways out, and both land here because UIKit never gives the run loop \
        back: the CI frame budget, and rmp::app::quit(). */                     \
     if (!rmp::app::detail::keep_running()) {                                   \
@@ -295,7 +298,8 @@ template <class T> T &global() {
 #define RMP_WEB_FUNCS(READY, FRAME, STOP)                                        \
   RMP_DECLARE_ENTRY_POINT_ONCE                                      \
   static void rmp_web_frame() {                                                \
-    FRAME(rmp::app::detail::step_delta());                                                     \
+    FRAME(rmp::app::detail::step_delta());                                     \
+    rmp::app::detail::end_frame();                                             \
     /* WindowShouldClose() is deliberately never called: on web it does        \
        nothing but emscripten_sleep(12), which is what ASYNCIFY pays for. */   \
     if (!rmp::app::detail::keep_running()) {                                   \

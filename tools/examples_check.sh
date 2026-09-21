@@ -23,7 +23,7 @@ cd "$(dirname "$0")/.."
 # The one file allowed to write its own main() and its own loop: it IS the
 # opt-out, and its header comment says in full which two targets it therefore
 # does not run on.
-OPT_OUT="examples/plain_c/main.c"
+OPT_OUT="examples/plain_c/src/main.c"
 
 FAILED=0
 
@@ -59,27 +59,32 @@ for phrase in "emscripten_set_main_loop" "ASYNCIFY" "ios_ready"; do
   fi
 done
 
-# Every example is reachable from the README, or nobody reads it.
-for f in $(find examples -name '*.cpp' -o -name '*.c' | sort); do
-  base=$(basename "$f")
-  if ! grep -q "$base" examples/README.md; then
-    fail "$base is not mentioned in examples/README.md." \
-         "An example nobody is pointed at is a file that rots unread."
+# Every example is a directory, and every directory is LINKED from the README
+# -- a link, not a mention: 03_minimal_includes was named in a footnote and
+# had no row, which satisfied a grep and pointed nobody at it. An example
+# nobody is pointed at is a file that rots unread.
+for d in $(find examples -type d -name src | sort); do
+  dir=${d%/src}
+  rel=${dir#examples/}
+  if ! grep -qE "\]\($rel(/[^)]*)?\)" examples/README.md; then
+    fail "examples/$rel has no link in examples/README.md." \
+         "Add a row that links to $rel/ (or to a file inside it)."
   fi
 done
 
-# And the other direction: the README must not point at a file that is gone.
+# And the other direction: the README must not point at a path that is gone.
 # 01_lifecycle.cpp was deleted and its row would have stayed, which is a broken
 # link in the first document a newcomer opens.
-# Markdown link targets only -- `]( ... )`. Matching bare filenames anywhere in
-# the prose finds "raylib.c" inside "raylib.com", which is a false alarm in a
-# gate, and a gate that cries wolf gets switched off.
-for name in $(grep -oE '\]\([^)]*\.(cpp|c)\)' examples/README.md | sed 's/^](//; s/)$//' | sort -u); do
-  if [ ! -f "examples/$name" ]; then
+# Markdown link targets only -- `]( ... )`. Matching bare names anywhere in the
+# prose finds "raylib.c" inside "raylib.com", which is a false alarm in a gate,
+# and a gate that cries wolf gets switched off.
+for name in $(grep -oE '\]\([a-z0-9_./-]+\)' examples/README.md | sed 's/^](//; s/)$//' | sort -u); do
+  case "$name" in http*|../*) continue ;; esac
+  if [ ! -e "examples/$name" ]; then
     fail "examples/README.md points at $name, which does not exist." \
          "Delete the row, or restore the file."
   fi
 done
 
 [ "$FAILED" -eq 0 ] || exit 1
-echo "  ok    $(find examples -name '*.cpp' | wc -l | tr -d ' ') examples, each using the framework's entry point"
+echo "  ok    $(find examples -type d -name src | wc -l | tr -d ' ') examples, each using the framework's entry point"

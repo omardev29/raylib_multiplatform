@@ -44,12 +44,12 @@ char g_pack_path[2048] = { 0 };
 bool open_pack() {
     if (g_using_pack) return true; // idempotent: the lifecycle macro already called it
 
-    std::snprintf(g_pack_path, sizeof(g_pack_path), "%s%s", RESOURCES_PATH,
-                  RRES_PACK_FILE);
+    std::snprintf(g_pack_path, sizeof(g_pack_path), "%s%s",
+                  rmp::assets::detail::resources_root(), RRES_PACK_FILE);
 
     if (!FileExists(g_pack_path)) {
         TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s",
-                 RESOURCES_PATH);
+                 rmp::assets::detail::resources_root());
         return false;
     }
 

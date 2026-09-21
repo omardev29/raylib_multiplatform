@@ -25,6 +25,19 @@ namespace rmp::assets {
 namespace detail {
 int g_requested_count = 0;
 int g_failed_count = 0;
+
+namespace {
+// The default is what this library was compiled with; see internal.h for why
+// it can be replaced at run time.
+char g_resources_root[2048] = RESOURCES_PATH;
+} // namespace
+
+const char *resources_root() { return g_resources_root; }
+
+void set_resources_root(const char *root) {
+    if (root == nullptr) root = "";
+    std::snprintf(g_resources_root, sizeof(g_resources_root), "%s", root);
+}
 } // namespace detail
 
 namespace {
@@ -39,7 +52,7 @@ namespace {
 // internal probing too — an .obj looking for a .mtl that legitimately is not
 // there — and counting those would turn a working build red.
 void fallback_path(const char *name, char *out, size_t n) {
-    std::snprintf(out, n, "%s%s", RESOURCES_PATH, name);
+    std::snprintf(out, n, "%s%s", detail::resources_root(), name);
     if (!FileExists(out)) detail::g_failed_count++;
 }
 

@@ -61,4 +61,15 @@ bool in_resources_dir(const char *path);
 extern int g_requested_count;
 extern int g_failed_count;
 
+// Where loose files live: the directory that RESOURCES_PATH used to name at
+// every call site. It is a runtime value now because the framework is compiled
+// ONCE, into the `rmp` library, and linked into the game and into every
+// example -- and an example that carries its own resources/ must not read the
+// game's. The library starts with the RESOURCES_PATH it was compiled with, and
+// the entry point (src/rmp/app.cpp, compiled into each executable with that
+// executable's own RESOURCES_PATH) overrides it before anything is loaded.
+// Always ends in a separator or is empty, exactly like the macro.
+const char *resources_root();
+void set_resources_root(const char *root);
+
 } // namespace rmp::assets::detail

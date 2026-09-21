@@ -307,17 +307,31 @@ jobs:
           echo "PASS: clang-tidy clean"
 
   # examples/ is documentation with code in it, and documentation rots quietly.
-  # It already has: the header unification removed the `inlining` macro and one
-  # example kept using it for weeks, so the file a newcomer would copy from did
-  # not compile.
+  # It already has, twice: the header unification removed the `inlining` macro
+  # and one example kept using it for weeks; and then this job ran
+  # `g++ -fsyntax-only` for months over six games of which four did not work —
+  # a ball that never moved, a formation that never marched. A file that parses
+  # is not a game that plays. So every example is BUILT and BOOTED here, under
+  # raylib's software renderer, with the same boot and render gate the game
+  # passes, and a screenshot of each one is uploaded to be looked at.
   #
   # Its own job, on its own runner, for two reasons: it is the check most likely
   # to grow (there is no reason not to write more examples), and nobody wants it
   # on the critical path of the build they are waiting for. It also keeps it off
-  # developers' machines — `just test` does not run it by default.
+  # developers' machines — `just test` does not run it by default. In the pinned
+  # image like every other Linux job, so the compiler is the one CI ships with.
   examples:
+    needs: config
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -326,45 +340,19 @@ jobs:
       - name: Generate configuration
         run: python3 tools/configure.py
 
-      # Before compiling them, because -fsyntax-only cannot see the mistake
-      # this catches: three examples kept a hand-written main() with a
-      # `while (!WindowShouldClose())` loop long after the entry point macros
-      # replaced it. That loop compiles. It just does not work on Web, where
-      # the browser owns the frame loop, or on iOS, which never calls main().
-      - name: Every example uses the framework's entry point
-        run: bash tools/examples_check.sh
+      # Shape, build, boot: the script asserts the count of examples it found
+      # against the count it built and the count it ran, so a glob that stops
+      # matching cannot look like a folder where everything passes.
+      - name: Build and boot every example (software renderer)
+        run: bash tools/examples_build.sh
 
-      - name: Compile every example
-        run: |
-          set -euo pipefail
-          FAILED=0
-          for f in $(find examples -name '*.cpp' | sort); do
-            if g++ -fsyntax-only -std=c++20 \
-                 -Iinclude -Ithirdparty/raylib/src -Ithirdparty/rres \
-                 -Ithirdparty/raymob -Ithirdparty/clay -Ithirdparty/cute_aseprite \
-                 -Ithirdparty/cute_tiled -Ithirdparty -Itests \
-                 -DRESOURCES_PATH='"./resources/"' -DPRODUCTION_BUILD=0 "$f"; then
-              echo "  ok    $f"
-            else
-              echo "  FAIL  $f"
-              FAILED=1
-            fi
-          done
-          # The opt-out is C, and it has to keep being valid C: the whole point
-          # of that file is that it needs none of our headers.
-          if gcc -fsyntax-only -std=c99 -Ithirdparty/raylib/src \
-               -DRESOURCES_PATH='"./resources/"' examples/plain_c/main.c; then
-            echo "  ok    examples/plain_c/main.c"
-          else
-            echo "  FAIL  examples/plain_c/main.c"
-            FAILED=1
-          fi
-          [ "$FAILED" -eq 0 ] || { echo "FALLA: an example no longer compiles"; exit 1; }
-          # A folder that has stopped being scanned looks exactly like a folder
-          # where everything passes, so count what was actually checked.
-          COUNT=$(find examples -name '*.cpp' | wc -l)
-          [ "$COUNT" -ge 8 ] || { echo "FALLA: only $COUNT examples found — is the glob still right?"; exit 1; }
-          echo "PASS: $COUNT examples compile"
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: example-screenshots
+          path: build/examples-check/screenshots/
+          if-no-files-found: warn
 
   linux:
     needs: config
@@ -455,11 +443,12 @@ jobs:
   # platform silently disables releases too.
   # ---------------------------------------------------------------------------
   release:
-    needs: [config, lint, linux, web, windows, android, apple, bsd]
+    needs: [config, lint, examples, linux, web, windows, android, apple, bsd]
     if: >
       always() &&
       github.ref_type == 'tag' &&
       needs.lint.result == 'success' &&
+      needs.examples.result == 'success' &&
       needs.linux.result != 'failure'   && needs.linux.result != 'cancelled' &&
       needs.web.result != 'failure'     && needs.web.result != 'cancelled' &&
       needs.windows.result != 'failure' && needs.windows.result != 'cancelled' &&

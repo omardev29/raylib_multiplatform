@@ -102,17 +102,31 @@ jobs:
           cmd /c "`"$vcvars`" x64 >nul && set" | ForEach-Object {
             if ($_ -match '^([^=]+)=(.*)$') { Set-Item -Path "env:$($matches[1])" -Value $matches[2] }
           }
-          $inc = @("include", "thirdparty\raylib\src", "thirdparty\rres",
-                   "thirdparty\raymob", "thirdparty\clay", "tests") |
-                 ForEach-Object { "/I"; $_ }
+          # The same list the `rmp` library carries in CMakeLists.txt, plus the
+          # bare thirdparty root that rmp/math.h needs for <raylib-cpp/*.hpp>.
+          # tests/configure_test.py checks this list against the others.
+          $dirs = @("include", "thirdparty\raylib\src", "thirdparty\rres",
+                    "thirdparty\raymob", "thirdparty\clay", "thirdparty\cute_aseprite",
+                    "thirdparty\cute_tiled", "thirdparty", "tests")
+          # Every example is a directory now, and its own include/ is private
+          # to it. Listing all of them is harmless: no two share a header name.
+          foreach ($d in Get-ChildItem examples -Recurse -Directory -Filter include) { $dirs += $d.FullName }
+          $inc = $dirs | ForEach-Object { "/I"; $_ }
+          $files = @(Get-ChildItem examples -Recurse -Filter *.cpp)
+          $expected = @(Get-ChildItem examples -Recurse -Filter main.cpp).Count
+          # A glob that stops matching looks exactly like a folder where
+          # everything passes, so the count is asserted, not assumed.
+          if ($files.Count -lt $expected -or $expected -lt 8) {
+            Write-Host "FALLA: found $($files.Count) example sources for $expected examples"; exit 1
+          }
           $failed = 0
-          foreach ($f in Get-ChildItem examples -Recurse -Filter *.cpp) {
+          foreach ($f in $files) {
             & cl /nologo /Zs /std:c++20 /EHsc @inc '/DRESOURCES_PATH="./resources/"' /DPRODUCTION_BUILD=0 $f.FullName
-            if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $($f.Name)"; $failed = 1 }
-            else { Write-Host "  ok    $($f.Name)" }
+            if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $($f.FullName)"; $failed = 1 }
+            else { Write-Host "  ok    $($f.FullName)" }
           }
           if ($failed -ne 0) { Write-Host "FALLA: an example no longer compiles with MSVC"; exit 1 }
-          Write-Host "PASS: every example compiles with MSVC"
+          Write-Host "PASS: $($files.Count) example sources compile with MSVC"
 
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources

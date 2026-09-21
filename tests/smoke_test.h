@@ -25,6 +25,13 @@
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content
 //   RAY_TEST_RENDER_FAIL  — the frame was blank; something stopped drawing
 //   RAY_TEST_DONE_FRAMES  — the frame budget was rendered, exiting cleanly
+//   RAY_TEST_SCREENSHOT   — the captured frame was written to the PNG named by
+//                           the RAY_TEST_SCREENSHOT environment variable
+//
+// RAY_TEST_SCREENSHOT=<file.png> writes the same frame the render gate reads
+// back. Under PLATFORM=Memory that is a picture of the game with no window and
+// no GPU, which is how the examples job keeps one PNG per example and how a
+// change to a game is looked at instead of reasoned about.
 //
 // Why RAY_TEST_RENDER_OK exists: booting proves the window and the assets are
 // fine, and nothing more. A regression that leaves the screen empty — a broken
@@ -42,9 +49,11 @@
 #if defined(__cplusplus)
 inline int SmokeTest_frame = 0;
 inline int SmokeTest_maxFrames = 0; // 0 = run until the window is closed
+inline int SmokeTest_captured = 0; // did SmokeTest_CaptureFrame() run this frame?
 #else
 static int SmokeTest_frame = 0;
 static int SmokeTest_maxFrames = 0;
+static int SmokeTest_captured = 0;
 #endif
 
 // Call once at startup, before entering the game loop. Reads RAY_TEST_MAX_FRAMES.
@@ -111,6 +120,7 @@ static inline int SmokeTest_CaptureAt(void) {
 static inline void SmokeTest_CaptureFrame(void) {
     if (SmokeTest_maxFrames <= 0) return; // no-op outside CI
     if (SmokeTest_frame != SmokeTest_CaptureAt()) return;
+    SmokeTest_captured = 1;
 
     const int w = GetRenderWidth();
     const int h = GetRenderHeight();
@@ -163,6 +173,33 @@ static inline void SmokeTest_CaptureFrame(void) {
         if (hist[k] > hist[bg]) bg = k;
     const long differing = total - (long)hist[bg];
     free(hist);
+
+    // The picture, when asked for. After the histogram and before the unload,
+    // because it is the very frame the numbers below describe.
+    const char *shot = getenv("RAY_TEST_SCREENSHOT");
+    if (shot && shot[0]) {
+        // rlReadScreenPixels() flips what glReadPixels() returns, because GL's
+        // origin is the bottom-left corner. The software renderer's read-back
+        // is neither flipped nor in RGBA order: under PLATFORM=Memory the
+        // picture arrives upside down with red and blue swapped. Seen in the
+        // first screenshots -- purple hills came out red, red text came out
+        // blue. The hash above does not care (it is a fingerprint, and the
+        // golden one was recorded on these bytes); a person looking at it does.
+        if (rlGetVersion() == RL_OPENGL_SOFTWARE) {
+            unsigned char *q = (unsigned char *)img.data;
+            for (long i = 0; i < total; ++i) {
+                const unsigned char r = q[i * 4];
+                q[i * 4] = q[i * 4 + 2];
+                q[i * 4 + 2] = r;
+            }
+            ImageFlipVertical(&img);
+        }
+        if (ExportImage(img, shot)) {
+            TraceLog(LOG_INFO, "RAY_TEST_SCREENSHOT %s", shot);
+        } else {
+            TraceLog(LOG_WARNING, "RAY_TEST_SCREENSHOT_FAIL %s", shot);
+        }
+    }
     UnloadImage(img);
 
     const double ratio = (total > 0) ? (double)differing / (double)total : 0.0;
@@ -184,10 +221,36 @@ static inline void SmokeTest_CaptureFrame(void) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The capture, for a frame nobody captured.
+//
+// A game written with RMP_GAME never sees SmokeTest_CaptureFrame(): the app
+// calls it between the last draw and EndDrawing(). A game written with
+// RMP_ENTRY_POINT owns its on_frame(), BeginDrawing() and EndDrawing(), and
+// nothing of ours runs inside them -- so those games booted, exited, and never
+// once had a frame read back. That was every UI example for a phase.
+//
+// After EndDrawing() the frame is gone on a GPU (the swap hands you an
+// undefined back buffer), so this is honest only where the framebuffer is
+// memory: under raylib's software renderer, whose SwapScreenBuffer() copies the
+// pixels out and leaves them there. That is the platform every headless gate
+// runs on, so the entry-point examples get the same gate as the scene ones.
+// Anywhere else this stays a no-op and RAY_TEST_RENDER_OK is simply absent,
+// which is what it always was for them.
+// ---------------------------------------------------------------------------
+static inline void SmokeTest_CaptureFrameIfMissed(void) {
+    if (SmokeTest_maxFrames <= 0) return;
+    if (SmokeTest_captured) return;
+    if (SmokeTest_frame != SmokeTest_CaptureAt()) return;
+    if (rlGetVersion() != RL_OPENGL_SOFTWARE) return;
+    SmokeTest_CaptureFrame();
+}
+
 // Call once per frame, AFTER drawing. Returns non-zero when the frame budget
 // is exhausted (and emits the done marker), signalling the app should exit.
 static inline int SmokeTest_Tick(void) {
     if (SmokeTest_maxFrames <= 0) return 0;
+    SmokeTest_captured = 0;
     if (++SmokeTest_frame >= SmokeTest_maxFrames) {
         TraceLog(LOG_INFO, "RAY_TEST_DONE_FRAMES rendered=%d", SmokeTest_frame);
         return 1;

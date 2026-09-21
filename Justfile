@@ -157,39 +157,21 @@ test what="all": (_reconfigure "Debug")
     #           manifest and Xcode spec parsed by a real parser
     # layout    the UI layout at four resolutions, with no window and no GPU
     # smoke     boot the game headless and prove it drew actual pixels
-    # examples  every example still compiles. NOT part of "all", on purpose:
-    #           there is no reason not to keep writing examples, and nobody
-    #           wants their machine compiling a growing folder of them every
-    #           time they check their own change. CI has a job of its own for
-    #           it, on its own runner. Run it by name before touching the API.
+    # examples  every example builds and BOOTS under the software renderer,
+    #           with a screenshot each. NOT part of "all", on purpose: there is
+    #           no reason not to keep writing examples, and nobody wants their
+    #           machine compiling a growing folder of them every time they
+    #           check their own change. CI has a job of its own for it, on its
+    #           own runner. Run it by name before touching the API.
     set -euo pipefail
     run_examples() {
-        echo "== examples =="
-        # Shape before syntax: the compiler is happy with an example that
-        # teaches a pattern which does not work on Web or iOS, and three of
-        # them did for months. See tools/examples_check.sh.
-        bash tools/examples_check.sh
+        # Built for real and BOOTED under the software renderer, one PNG each,
+        # through the same script the CI job runs. It used to be a syntax
+        # check with its own -I list, and four of the six games never worked.
         # The examples include <rmp/app.h>, which pulls in the generated
-        # rmp/config.h. After `just clean` that file does not exist
-        # yet, and every example would fail for a reason that has nothing to do
-        # with the examples. CI gets this for free by generating first.
+        # rmp/config.h; after `just clean` that file does not exist yet.
         python3 tools/configure.py >/dev/null
-        local failed=0
-        for f in $(find examples -name '*.cpp' | sort); do
-            if g++ -fsyntax-only -std=c++20 -Iinclude -Ithirdparty/raylib/src \
-                 -Ithirdparty/rres -Ithirdparty/raymob -Ithirdparty/clay \
-                 -Ithirdparty/cute_aseprite -Ithirdparty/cute_tiled \
-                 -Ithirdparty -Itests \
-                 -DRESOURCES_PATH='"./resources/"' -DPRODUCTION_BUILD=0 "$f"; then
-                echo "  ok    $f"
-            else
-                echo "  FAIL  $f"; failed=1
-            fi
-        done
-        gcc -fsyntax-only -std=c99 -Ithirdparty/raylib/src \
-            -DRESOURCES_PATH='"./resources/"' examples/plain_c/main.c \
-            && echo "  ok    examples/plain_c/main.c" || { echo "  FAIL  main.c"; failed=1; }
-        [ "$failed" -eq 0 ]
+        bash tools/examples_build.sh
     }
     run_layout() {
         echo "== layout =="
@@ -281,6 +263,49 @@ test what="all": (_reconfigure "Debug")
         *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | headers | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
+
+# Every example is a directory -- examples/<area>/<name>/src/main.cpp -- and
+# this builds one of them into a runnable binary without copying anything into
+# src/. The examples share ONE build tree (build/examples/), so raylib and the
+# framework compile once and the second example costs seconds.
+#
+#   just example 01_pong            a bare name, if it is unique
+#   just example games/01_pong      or the path under examples/
+#   just example list               what there is
+#
+# RAY_TEST_MAX_FRAMES=30 RAY_TEST_SCREENSHOT=shot.png just example 01_pong
+# boots it headless for thirty frames and writes the picture, which is what
+# the CI job does for all of them under the software renderer.
+
+# Build and run one example. `just example list` names them.
+example name="list":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    all=$(find examples -path '*/src/main.cpp' -o -path '*/src/main.c' | sed -E 's#^examples/##; s#/src/main\.c(pp)?$##' | sort)
+    if [ "{{ name }}" = "list" ]; then
+        printf '%s\n' "$all"
+        exit 0
+    fi
+    n="{{ name }}"; n="${n#examples/}"; n="${n%/}"
+    dir=""
+    if printf '%s\n' "$all" | grep -qx "$n"; then
+        dir="$n"
+    else
+        matches=$(printf '%s\n' "$all" | grep -E "(^|/)$n$" || true)
+        count=$(printf '%s\n' "$matches" | grep -c . || true)
+        if [ "$count" -ne 1 ]; then
+            echo "FALLA: no example called '{{ name }}'. These exist:"
+            printf '%s\n' "$all" | sed 's/^/  /'
+            exit 1
+        fi
+        dir="$matches"
+    fi
+    target="example_$(printf '%s' "$dir" | tr '/' '_')"
+    cmake -S . -B build/examples -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+          -DPRODUCTION_BUILD=OFF -DRMP_BUILD_EXAMPLES=ON > /dev/null
+    cmake --build build/examples --target "$target"
+    echo "  built  build/examples/$target"
+    "./build/examples/$target"
 
 # Push, unless CI is still running — because pushing would kill it.
 #

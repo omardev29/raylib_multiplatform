@@ -66,6 +66,10 @@ target_include_directories(${APP_LIB_NAME} PRIVATE
     "${USER_ROOT_DIR}/thirdparty/clay"
     "${USER_ROOT_DIR}/thirdparty/cute_aseprite"
     "${USER_ROOT_DIR}/thirdparty/cute_tiled"
+    # The bare root too: rmp/math.h includes <raylib-cpp/Vector2.hpp>, which is
+    # reached by prefix. It was missing here, so that header did not compile on
+    # Android at all -- the same lesson as cute_tiled, one directory up.
+    "${USER_ROOT_DIR}/thirdparty"
     "${USER_ROOT_DIR}/tests"
 )
 
