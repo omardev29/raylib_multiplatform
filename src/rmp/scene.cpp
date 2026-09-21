@@ -12,6 +12,7 @@
 #include <rmp/scene.h>
 
 #include "object_internal.h"
+#include "internal.h"
 #include "scene_internal.h"
 
 #include <rmp/input.h>
@@ -71,9 +72,8 @@ int Scene::depth() { return static_cast<int>(g_stack.size()); }
 Scene &Scene::current() {
     static Scene fallback;
     if (g_stack.empty()) {
-        TraceLog(LOG_WARNING,
-                 "SCENE: current() with an empty stack — is this before "
-                 "RMP_GAME started, or after the app closed?");
+        RMP_REPORT_ONCE("SCENE: current() with an empty stack — is this before "
+                        "RMP_GAME started, or after the app closed?");
         return fallback;
     }
     return *g_stack.back();
@@ -244,11 +244,10 @@ void apply_pending() {
                     // Refusing beats obeying. An empty stack is a black window on
                     // desktop and, on iOS, a screen with no way back — and quit()
                     // is right there and says what it means.
-                    TraceLog(LOG_WARNING,
-                             "SCENE: pop() with %d scene(s) on the stack would "
-                             "leave nothing to draw; ignoring. Did you mean "
-                             "rmp::app::quit()?",
-                             static_cast<int>(g_stack.size()));
+                    RMP_REPORT_ONCE("SCENE: pop() with %d scene(s) on the stack would "
+                                    "leave nothing to draw; ignoring. Did you mean "
+                                    "rmp::app::quit()?",
+                                    static_cast<int>(g_stack.size()));
                     break;
                 }
                 end_top();

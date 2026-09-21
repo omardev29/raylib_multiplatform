@@ -321,6 +321,14 @@ disabled_modules = []
 # from a Git-for-Windows shell and end up with a build that asks for X11.
 compiler = "clang"
 linker   = "auto"    # auto | mold | lld | default
+strict   = false     # true: a framework warning aborts a DEBUG build
+#
+# WHAT strict DOES: the framework warns once about the mistakes it can see --
+# an action nobody defined, a pop() with nothing underneath, an animation tag
+# that is not in the sheet -- and a warning in a log is a warning nobody reads.
+# With strict = true the first one aborts, in the debugger, at the line that
+# said it. Debug builds only: release presets define NDEBUG and the check is
+# compiled out, so nothing you ship can ever carry it.
 #
 # WHAT EACH ONE CAN ACTUALLY DO, because "faster linker" is not the whole story:
 #

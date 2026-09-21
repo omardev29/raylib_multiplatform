@@ -17,6 +17,7 @@
 #include <doctest.h>
 
 #include "../src/rmp/animation_internal.h"
+#include "../src/rmp/internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/object.h>
@@ -274,11 +275,14 @@ TEST_CASE_FIXTURE(Fixture, "a tag that is not there leaves the frame alone") {
         CHECK(sprite.frame_index() == 0);
     }
     SUBCASE("and asking again does not warn again") {
-        // The flag is what stops sixty identical warnings a second burying
-        // whatever else the log was going to say.
-        CHECK(sprite.ours.warned);
-        sprite.play("also_nonexistent");
-        CHECK(sprite.ours.warned);
+        // report_once is what stops sixty identical warnings a second burying
+        // whatever else the log was going to say: one line per tag name.
+        const int said = rmp::detail::report_count();
+        sprite.play("nonexistent");
+        sprite.play("nonexistent");
+        CHECK(rmp::detail::report_count() == said);
+        sprite.play("also_nonexistent"); // a different typo is a different line
+        CHECK(rmp::detail::report_count() == said + 1);
     }
 }
 

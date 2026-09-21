@@ -30,6 +30,7 @@
 #include <rmp/scene.h>
 
 #include "animation_internal.h"
+#include "internal.h"
 #include "object_internal.h"
 
 #include <algorithm>
@@ -309,9 +310,8 @@ void Scene::destroy(Object &object) {
     // symptom: the object does go away, and the count that did not move is on
     // the scene the caller was looking at.
     if (object.scene() != this) {
-        TraceLog(LOG_WARNING,
-                 "SCENE: destroy() was given an object that belongs to "
-                 "another scene. Destroying it anyway; call object.destroy().");
+        RMP_REPORT_ONCE("SCENE: destroy() was given an object that belongs to "
+                        "another scene. Destroying it anyway; call object.destroy().");
     }
     object.destroy();
 }

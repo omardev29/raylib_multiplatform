@@ -8,6 +8,7 @@
 // ===========================================================================
 
 #include "internal.h"
+#include "../internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/config.h>
@@ -65,7 +66,6 @@ bool g_font_failed = false;
 constexpr int kArenaSize = 8 * 1024;
 char g_text_arena[kArenaSize];
 int g_arena_used = 0;
-bool g_arena_warned = false;
 
 // Occurrence counters, so two buttons with the same label are two elements.
 constexpr int kMaxLabels = 128;
@@ -107,7 +107,6 @@ struct BoundsEntry {
 BoundsEntry g_bounds[2][kMaxBounds];
 int g_bounds_count[2] = { 0, 0 };
 int g_bounds_front = 0; // the one this frame writes; the other is last frame's
-bool g_bounds_full_warned = false;
 
 // The ids handed out during the pass being described, so that capture_pass_
 // bounds() knows what to ask Clay about when the pass closes. Cleared per pass.
@@ -237,9 +236,8 @@ void set_scale_override(float s) {
 
     g_font = rmp::assets::load_font(APP_UI_FONT, wanted);
     if (g_font.glyphCount <= 0) {
-        TraceLog(LOG_WARNING,
-                 "UI: [ui] font '%s' could not be loaded; using the built-in font",
-                 APP_UI_FONT);
+        RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
+                        APP_UI_FONT);
         g_font_loaded = false;
         g_baked_size = 0;
         g_font_failed = true; // say it once, then stop asking
@@ -254,10 +252,7 @@ void set_scale_override(float s) {
 // Frame arena
 // ---------------------------------------------------------------------------
 
-void reset_frame_arena() {
-    g_arena_used = 0;
-    g_arena_warned = false;
-}
+void reset_frame_arena() { g_arena_used = 0; }
 
 void *frame_alloc(size_t bytes) {
     // Everything stored here is at most pointer-aligned, so rounding the
@@ -273,12 +268,8 @@ Clay_String intern(std::string_view s) {
     int len = static_cast<int>(s.size());
     if (len > kArenaSize - g_arena_used) {
         len = kArenaSize - g_arena_used;
-        if (!g_arena_warned) {
-            TraceLog(LOG_WARNING,
-                     "UI: text arena full (%d bytes); labels are being truncated",
-                     kArenaSize);
-            g_arena_warned = true;
-        }
+        RMP_REPORT_ONCE("UI: text arena full (%d bytes); labels are being truncated",
+                        kArenaSize);
     }
     if (len <= 0) return Clay_String{ false, 0, g_text_arena };
 
@@ -328,14 +319,10 @@ void capture_pass_bounds() {
     int &count = g_bounds_count[g_bounds_front];
     for (int i = 0; i < g_pass_id_count; i++) {
         if (count >= kMaxBounds) {
-            if (!g_bounds_full_warned) {
-                TraceLog(LOG_WARNING,
-                         "UI: more than %d elements in one frame; the extra ones lose "
-                         "their remembered geometry, so a grid or slider among them may "
-                         "size itself oddly",
-                         kMaxBounds);
-                g_bounds_full_warned = true;
-            }
+            RMP_REPORT_ONCE("UI: more than %d elements in one frame; the extra ones lose "
+                            "their remembered geometry, so a grid or slider among them "
+                            "may size itself oddly",
+                            kMaxBounds);
             return;
         }
         Clay_ElementId key{};

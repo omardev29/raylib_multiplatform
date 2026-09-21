@@ -17,6 +17,8 @@
 
 #include <rmp/input.h>
 
+#include "internal.h"
+
 #include <rmp/ui.h>
 
 #include <cmath>
@@ -52,7 +54,6 @@ bool g_layer_input = true;
 
 // One warning per unknown name for the life of the run. The alternative is
 // sixty lines a second, which is the same as no warning at all.
-std::vector<std::string> g_warned;
 
 Action *find(std::string_view name) {
     for (Action &action : g_actions) {
@@ -121,22 +122,14 @@ enum class Edge { HELD, DOWN, UP };
 bool action_state(std::string_view name, Edge edge) {
     const Action *action = find(name);
     if (action == nullptr) {
-        bool already = false;
-        for (const std::string &seen : g_warned) {
-            if (seen == name) {
-                already = true;
-                break;
-            }
-        }
-        if (!already) {
-            g_warned.emplace_back(name);
-            TraceLog(
-                LOG_WARNING,
-                "INPUT: no action called \"%.*s\". Define it with "
-                "rmp::input::action(\"%.*s\", KEY_...); until then it reads as false.",
-                static_cast<int>(name.size()), name.data(), static_cast<int>(name.size()),
-                name.data());
-        }
+        // Once per name: "jump" and "fire" misspelt are two mistakes, and each
+        // gets its line; the same one sixty times a second gets one.
+        const std::string key(name);
+        RMP_REPORT_ONCE_KEYED(key.c_str(),
+                              "INPUT: no action called \"%s\". Define it with "
+                              "rmp::input::action(\"%s\", KEY_...); until then it reads "
+                              "as false.",
+                              key.c_str(), key.c_str());
         return false;
     }
 
@@ -297,7 +290,6 @@ bool layer_input() { return g_layer_input; }
 
 void reset() {
     g_actions.clear();
-    g_warned.clear();
     g_now = DeviceState{};
     g_before = DeviceState{};
     g_have_previous = false;

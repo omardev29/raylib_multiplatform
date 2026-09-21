@@ -64,9 +64,8 @@ void quit() {
     // The CI smoke test still exits the simulator, because a bounded test run
     // has to end — but that path is behind RAY_TEST_MAX_FRAMES, which no
     // shipped app ever sets.
-    TraceLog(LOG_WARNING,
-             "APP: quit() does nothing on iOS — Apple rejects apps that terminate "
-             "themselves (QA1561). Ignoring.");
+    RMP_REPORT_ONCE("APP: quit() does nothing on iOS — Apple rejects apps that terminate "
+                    "themselves (QA1561). Ignoring.");
     return;
 #else
     if (g_quit_requested) return;
@@ -103,6 +102,12 @@ void begin_run() {
     // the game's. Told before anything is loaded, so an example with its own
     // resources/ reads its own. See resources_root() in internal.h.
     rmp::assets::detail::set_resources_root(RESOURCES_PATH);
+    // [dev] strict: a framework warning aborts instead of scrolling past. Debug
+    // builds only -- NDEBUG is what every release configuration on every
+    // platform defines, so a shipped binary can never carry it.
+#if APP_DEV_STRICT && !defined(NDEBUG)
+    rmp::detail::set_strict(true);
+#endif
     SmokeTest_Begin();
 #if defined(PLATFORM_IOS)
     ChangeDirectory(GetApplicationDirectory());

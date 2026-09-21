@@ -427,7 +427,7 @@ DEFAULTS: dict = {
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
-    "dev": {"compiler": "clang", "linker": "auto"},
+    "dev": {"compiler": "clang", "linker": "auto", "strict": False},
     "resources": {"rres_password": "raylib-template"},
     "deploy": {"licenses": True,
                "itch": {"user": "", "game": ""},
@@ -624,6 +624,11 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "2.17 is RHEL 7, 2.28 is RHEL 8 and Debian 10, 2.31 is Ubuntu 20.04, "
             "Debian 11 and Steam's sniper runtime.")
     one_of(cfg["dev"]["compiler"], COMPILERS, "[dev] compiler")
+    if not isinstance(cfg["dev"]["strict"], bool):
+        raise ConfigError(
+            f"[dev] strict = {cfg['dev']['strict']!r} must be true or false.\n"
+            "true makes a framework warning fatal in a debug build; release builds and "
+            "CI never read it.")
 
     web_memory = cfg["web"]["memory"]
     if not isinstance(web_memory, int) or web_memory < 16 or web_memory > 4096:
@@ -1301,6 +1306,11 @@ def gen_app_config(cfg: dict) -> None:
    slow motion instead of teleporting everything through the walls. 0 = no
    clamp, and then a stalled frame is the game's problem. */
 #define APP_MAX_DELTA       {float(cfg['app']['max_delta'])}f
+
+/* [dev] strict. 1 makes the first framework diagnostic -- an action nobody
+   defined, a pop() with nothing under it -- abort a DEBUG build instead of
+   scrolling past. Release builds ignore it: rmp::app checks NDEBUG too. */
+#define APP_DEV_STRICT      {1 if cfg['dev']['strict'] else 0}
 
 #endif /* APP_CONFIG_H */
 """)

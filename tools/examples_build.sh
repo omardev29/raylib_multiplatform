@@ -59,6 +59,9 @@ for d in $(find examples -type d -name src | sort); do
 done
 echo "  $expected examples with an entry point, $headers header-only"
 
+# A fresh checkout has no build/ at all, and the configure log below lives next
+# to the build directory rather than inside it. CI found this on the first run.
+mkdir -p "$BUILD"
 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPRODUCTION_BUILD=OFF \
       -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON > "$BUILD.configure.log" 2>&1 \
   || { cat "$BUILD.configure.log"; echo "FALLA: the examples did not configure"; exit 1; }

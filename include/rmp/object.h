@@ -124,7 +124,6 @@ struct Sprite {
         bool loop = true;
         bool done = false;
         bool back = false; // ping-pong, on the way back
-        bool warned = false; // the "tag not found" warning, once
     } ours;
 };
 

@@ -73,3 +73,55 @@ const char *resources_root();
 void set_resources_root(const char *root);
 
 } // namespace rmp::assets::detail
+
+namespace rmp::detail {
+
+// --- report.cpp ------------------------------------------------------------
+// One diagnostic per call site, for the mistakes the framework notices every
+// frame: an action nobody defined, a pop() with nothing under it, a tag that
+// is not in the sheet. Sixty copies a second of the same warning is the same
+// as no warning at all, and every module used to keep its own "said it
+// already" flag. Now there is one table, one function, one rule.
+//
+// `site` identifies the diagnostic -- the RMP_REPORT_ONCE macro below passes
+// the address of a static local, so each expansion is its own site. `key`
+// makes it once per site AND value: "no action called \"jump\"" and "no action
+// called \"fire\"" are two different mistakes and each one deserves its line.
+//
+// Printf-style, because the callers pass raylib types and this feeds TraceLog.
+// Under [dev] strict = true (debug builds only, see set_strict()) the first
+// report aborts, so a warning cannot scroll past in a log nobody reads.
+// NOLINTNEXTLINE(modernize-avoid-variadic-functions)
+void report_once(const void *site, const char *fmt, ...);
+// NOLINTNEXTLINE(modernize-avoid-variadic-functions)
+void report_once_keyed(const void *site, const char *key, const char *fmt, ...);
+
+// [dev] strict. Off unless the entry point turns it on from APP_DEV_STRICT,
+// which the unit tests never do -- they exercise the warnings on purpose.
+void set_strict(bool on);
+bool strict();
+
+// What strict does on a report: abort(), unless a test has swapped it for a
+// counter. Returns the previous handler so a test can put it back.
+using StrictHandler = void (*)();
+StrictHandler set_strict_handler(StrictHandler handler);
+
+// Tests. How many distinct diagnostics have fired since the last reset, and
+// the way to forget them so the same test can watch one fire again.
+int report_count();
+void reset_reports_for_tests();
+
+} // namespace rmp::detail
+
+// The site is the address of a static local, so each expansion of the macro is
+// one line in the log and not one per frame. Both forms take a printf format.
+#define RMP_REPORT_ONCE(...)                                        \
+    do {                                                            \
+        static const char rmp_report_site_ = 0;                     \
+        ::rmp::detail::report_once(&rmp_report_site_, __VA_ARGS__); \
+    } while (0)
+#define RMP_REPORT_ONCE_KEYED(key, ...)                                          \
+    do {                                                                         \
+        static const char rmp_report_site_ = 0;                                  \
+        ::rmp::detail::report_once_keyed(&rmp_report_site_, (key), __VA_ARGS__); \
+    } while (0)

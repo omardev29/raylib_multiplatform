@@ -83,6 +83,23 @@ def base_config(**overrides) -> dict:
 
 
 @contextlib.contextmanager
+def generated_header(cfg):
+    """What gen_app_config() would write for `cfg`, without writing it.
+
+    configure.py's write() is the one door every generated file goes through,
+    so swapping it for a capture is enough to read the header back."""
+    captured = {}
+    original = cfgmod.write
+    cfgmod.write = lambda path, content: captured.__setitem__(str(path), content)
+    try:
+        cfgmod.gen_app_config(cfg)
+        (text,) = captured.values()
+        yield text
+    finally:
+        cfgmod.write = original
+
+
+@contextlib.contextmanager
 def quiet():
     """configure.py warns on stderr. A test run should not be noisy."""
     with contextlib.redirect_stderr(io.StringIO()):
@@ -492,6 +509,31 @@ class ConfigureValidateTest(unittest.TestCase):
             self.assert_rejects(base_config(dev={"compiler": "icc", "linker": "auto"}))
         finally:
             cfgmod.platform.system = original
+
+    def test_dev_strict_is_a_bool_and_reaches_the_header(self):
+        """[dev] strict: the two values it can take, every type it cannot, and
+        the generated macro that carries it -- because a setting that validates
+        and then never reaches the compiler is a setting that does nothing."""
+        for good in (True, False):
+            with self.subTest(strict=good), quiet():
+                cfg = base_config(dev={"compiler": "clang", "linker": "auto",
+                                       "strict": good})
+                cfgmod.validate(cfg, False)
+        for bad in ("true", "yes", 1, 0, 1.0, None, [True], {"on": True}):
+            with self.subTest(strict=bad):
+                self.assert_rejects(
+                    base_config(dev={"compiler": "clang", "linker": "auto",
+                                     "strict": bad}),
+                    "true or false")
+        with generated_header(base_config(dev={"compiler": "clang", "linker": "auto",
+                                               "strict": True})) as header:
+            self.assertIn("#define APP_DEV_STRICT      1", header)
+        with generated_header(base_config()) as header:
+            self.assertIn("#define APP_DEV_STRICT      0", header)
+        # And the entry point reads it; a macro nobody tests is a comment.
+        app_cpp = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        self.assertIn("APP_DEV_STRICT", app_cpp)
+        self.assertIn("!defined(NDEBUG)", app_cpp)
 
     def test_windows_backend(self):
         self.assert_rejects(base_config(windows={"backend": "sdl"}))

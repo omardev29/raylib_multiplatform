@@ -22,6 +22,7 @@
 #include <rmp/object.h>
 
 #include "animation_internal.h"
+#include "internal.h"
 
 #include <cute_aseprite.h>
 
@@ -261,26 +262,20 @@ void advance(Sprite &sprite, float delta) {
 
 void Sprite::play(const char *tag, bool loop) {
     if (!sheet.valid()) {
-        if (!ours.warned) {
-            ours.warned = true;
-            TraceLog(LOG_WARNING, "SPRITE: play(\"%s\") with no sheet loaded",
-                     tag != nullptr ? tag : "");
-        }
+        RMP_REPORT_ONCE_KEYED(tag, "SPRITE: play(\"%s\") with no sheet loaded",
+                              tag != nullptr ? tag : "");
         return;
     }
     const SheetData &data = sheet.raw();
     const int found = animation::detail::tag_index(data, tag);
     if (found < 0) {
-        // Once. Sixty warnings a second about the same typo buries whatever
-        // else the log was going to say, and the frame that was already showing
-        // is a better answer than a blank one.
-        if (!ours.warned) {
-            ours.warned = true;
-            TraceLog(LOG_WARNING,
-                     "SPRITE: no animation tag \"%s\" in this sheet. It has %d: "
-                     "the names are the tags in your .aseprite.",
-                     tag != nullptr ? tag : "", data.tag_count);
-        }
+        // Once per tag name. Sixty warnings a second about the same typo
+        // buries whatever else the log was going to say, and the frame that
+        // was already showing is a better answer than a blank one.
+        RMP_REPORT_ONCE_KEYED(tag,
+                              "SPRITE: no animation tag \"%s\" in this sheet. It has %d: "
+                              "the names are the tags in your .aseprite.",
+                              tag != nullptr ? tag : "", data.tag_count);
         return;
     }
     if (found == ours.tag && !ours.done) return; // already playing it
