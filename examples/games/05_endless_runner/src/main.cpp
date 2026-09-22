@@ -96,13 +96,6 @@ public:
     }
 
     void _update(float) override {
-        if (probe::g_frame % 20 == 0)
-            TraceLog(LOG_INFO,
-                     "RUN player=%.0f,%.0f cam=%.0f,%.0f dist=%.0f objects=%d ground=%d "
-                     "vy=%.0f accept=%d",
-                     player_->position.x, player_->position.y, camera.position.x,
-                     camera.position.y, player_->get<rmp::behavior::Runner>()->distance(),
-                     object_count());
         // The floor travels with the runner, so the strip under the art is
         // always there. One line instead of a mile of collider.
         ground_->position.x = player_->position.x;
