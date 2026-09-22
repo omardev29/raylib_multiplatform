@@ -18,7 +18,9 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <chrono>
 #include <cmath>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -981,4 +983,124 @@ TEST_CASE_FIXTURE(Fixture, "acceleration of zero is instant, and of N is a ramp"
     rmp::objects::detail::update_behaviors(object, 0.5f);
     CHECK(object.velocity.x == doctest::Approx(0));
 }
+// ---------------------------------------------------------------------------
+// Who owns a behavior, and for how long
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct Tagged {
+    int tag = 0;
+    void _update(rmp::Object &, float) {}
+};
+
+// Two of these are two DIFFERENT behaviors, which is what the list needs:
+// add<B>() twice replaces rather than stacks, so a test that wanted three
+// entries and used one type twice would quietly be testing two.
+template <int N> struct Runner {
+    const char *name = "?";
+    void _update(rmp::Object &, float) { note(name); }
+};
+
+struct Leaver {
+    const char *name = "?";
+    void _update(rmp::Object &self, float) {
+        note(name);
+        self.remove<Leaver>();
+    }
+};
+
+} // namespace
+
+TEST_CASE_FIXTURE(Fixture,
+                  "an object that goes away without destroy() takes its behaviors") {
+    // The owner table used to be keyed by the object's ADDRESS and nothing
+    // released it from ~Object. A stack object -- which is how a behavior is
+    // meant to be tested -- left a live entry keyed by freed memory, and the
+    // next object at that address inherited it: somebody else's state, updated
+    // as if it were its own, with its _end eventually run against the wrong
+    // self.
+    //
+    // Placement new into one buffer rather than two heap objects and a hope:
+    // the second object is AT the first one's address by construction, on every
+    // allocator on all seventeen targets.
+    alignas(Loose) unsigned char storage[sizeof(Loose)];
+
+    auto *first = new (static_cast<void *>(storage)) Loose();
+    first->add<Tagged>({ .tag = 42 });
+    REQUIRE(rmp::objects::detail::behavior_count(*first) == 1);
+    first->~Loose();
+
+    auto *second = new (static_cast<void *>(storage)) Loose();
+    REQUIRE(static_cast<const void *>(second) == static_cast<const void *>(first));
+    CHECK(rmp::objects::detail::behavior_count(*second) == 0);
+    CHECK(second->get<Tagged>() == nullptr);
+    second->~Loose();
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a behavior removed during the pass does not cost its neighbour") {
+    // [A, B, C] where A removes itself from its own _update. Erasing from the
+    // list being walked shifts B into A's index and the loop's i++ steps over
+    // it -- so B silently misses the frame, and two self-removing behaviors
+    // drop several.
+    Loose object;
+    object.add<Leaver>({ .name = "A" });
+    object.add<Runner<1>>({ .name = "B" });
+    object.add<Runner<2>>({ .name = "C" });
+
+    g_log.clear();
+    rmp::objects::detail::update_behaviors(object, 0.1f);
+    CHECK(g_log == "A B C");
+    CHECK_FALSE(object.has<Leaver>());
+    CHECK(rmp::objects::detail::behavior_count(object) == 2);
+
+    // And the compaction afterwards left the two survivors, in order.
+    g_log.clear();
+    rmp::objects::detail::update_behaviors(object, 0.1f);
+    CHECK(g_log == "B C");
+}
+
+// ---------------------------------------------------------------------------
+// The budget. The engine used to scan a list of owners on every lookup and it
+// does one per behavior per pass, so a frame grew with the SQUARE of the
+// object count. These two are the shape of the cost rather than a benchmark,
+// and the second is the one that cannot be argued with.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Microseconds for one update pass over `count` objects, each carrying one
+// behavior. The objects are built once and the pass is run `passes` times, so
+// what is timed is the engine and not the spawning.
+double pass_micros(int count, int passes) {
+    World world;
+    for (int i = 0; i < count; i++) world.spawn().add<Tagged>({ .tag = i });
+    const auto started = std::chrono::steady_clock::now();
+    for (int i = 0; i < passes; i++) rmp::objects::detail::update(world, 1.0f / 60);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started);
+    return static_cast<double>(elapsed.count()) / passes;
+}
+
+} // namespace
+
+TEST_CASE_FIXTURE(Fixture,
+                  "two thousand objects with a behavior each are a fraction "
+                  "of a frame") {
+    const double micros = pass_micros(2000, 5);
+    MESSAGE("2000 objects, one behavior each: " << micros / 1000.0 << " ms per pass");
+    CHECK(micros < 20000.0); // 20 ms, which is generous for a debug build
+}
+
+TEST_CASE_FIXTURE(Fixture, "and four times the objects cost about four times as much") {
+    // The assertion that matters, because it does not depend on the machine: a
+    // linear engine gives a ratio near 4 and the quadratic one gave 15.
+    const double small = pass_micros(500, 20);
+    const double large = pass_micros(2000, 5);
+    const double ratio = large / (small > 1.0 ? small : 1.0);
+    MESSAGE("500: " << small << " us, 2000: " << large << " us, ratio " << ratio);
+    CHECK(ratio < 8.0);
+}
+
 // NOLINTEND(readability-make-member-function-const,readability-named-parameter,readability-convert-member-functions-to-static)

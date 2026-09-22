@@ -69,6 +69,10 @@ std::vector<unsigned> g_pending_free;
 // Scratch, reused every draw pass so the sort does not allocate every frame.
 std::vector<Object *> g_draw_order;
 
+// Every point at which the framework knows the world may have changed shape or
+// moved. See world_version() in object_internal.h for what reads it.
+unsigned g_world_version = 1;
+
 std::vector<unsigned> *indices_for(const Scene *scene) {
     for (SceneObjects &entry : g_by_scene) {
         if (entry.scene == scene) return &entry.indices;
@@ -173,6 +177,12 @@ bool Storage::has_pointer_callback(const Object &object) {
     return static_cast<bool>(object.click_) || static_cast<bool>(object.drag_);
 }
 
+int Storage::behavior_slot(const Object &object) { return object.behavior_slot_; }
+
+void Storage::set_behavior_slot(Object &object, int slot) {
+    object.behavior_slot_ = slot;
+}
+
 // ---------------------------------------------------------------------------
 // Object
 // ---------------------------------------------------------------------------
@@ -226,10 +236,15 @@ Rectangle Object::world_bounds() const {
                               position.y + shape.offset.y - h / 2, w, h };
         }
         case ShapeKind::CIRCLE: {
-            const float w = shape.radius * 2 * scale.x;
-            const float h = shape.radius * 2 * scale.y;
-            return Rectangle{ position.x + shape.offset.x - w / 2,
-                              position.y + shape.offset.y - h / 2, w, h };
+            // ONE axis for both, because a circle scaled unevenly would be an
+            // ellipse and this layer has no ellipses. The box used to be the
+            // ellipse's -- width from x and height from y -- so a coin squashed
+            // for a squash-and-stretch effect drew one size, collided at a
+            // second and reported a third, and Edge::CLAMP (which reads this)
+            // stopped it short of the floor with nothing to explain why.
+            const float d = shape.radius * 2 * circle_scale(scale);
+            return Rectangle{ position.x + shape.offset.x - d / 2,
+                              position.y + shape.offset.y - d / 2, d, d };
         }
         case ShapeKind::NONE:
         default:
@@ -237,6 +252,14 @@ Rectangle Object::world_bounds() const {
             // perfectly good thing to clamp or wrap.
             return Rectangle{ position.x, position.y, 0, 0 };
     }
+}
+
+Object::~Object() {
+    // The object may never have been through destroy() -- a stack variable, a
+    // member of a scene, a test's object. Its behaviors are heap-allocated and
+    // the engine holds a record for it, and this is the last moment either can
+    // be given back. Idempotent: after destroy() there is nothing left to do.
+    objects::detail::release_behaviors(*this);
 }
 
 void Object::destroy() {
@@ -247,6 +270,12 @@ void Object::destroy() {
     // after the scene's: the thing being torn down gets to speak first, while
     // everything it owns is still there.
     objects::detail::release_behaviors(*this);
+    // Generation 0 is "points at nothing", so an object carrying it was never
+    // spawned and owns no slot. Releasing index_ anyway frees SLOT ZERO --
+    // whoever the scene happens to have put there -- and the game goes on
+    // holding a reference to memory that has been handed back. It is reachable
+    // from anything holding a plain rmp::Object: a member, a local, a test.
+    if (generation_ == 0) return;
     objects::detail::mark_for_release(index_);
 }
 
@@ -266,7 +295,13 @@ void Scene::detail_spawn(Object *made, const ObjectOptions &options) {
 
     Cell &slot = g_slots[index];
     slot.occupied = true;
-    slot.generation += 1; // never 0 again once a slot has been used
+    // Never 0 again once a slot has been used, and the `if` is what makes that
+    // true rather than nearly true: the counter is 32 bits and a slot reused a
+    // thousand times a second reaches the end in about seven weeks. Landing on
+    // 0 while the slot is OCCUPIED makes every handle to a live object resolve
+    // to nullptr, with nothing logged and nothing to see.
+    slot.generation += 1;
+    if (slot.generation == 0) slot.generation = 1;
     slot.object.reset(made);
 
     made->scene_ = this;
@@ -299,6 +334,7 @@ void Scene::detail_spawn(Object *made, const ObjectOptions &options) {
     }
 
     indices_for_or_add(this).push_back(index);
+    objects::detail::bump_world_version();
     made->_ready();
 }
 
@@ -336,7 +372,14 @@ int Scene::object_count() const {
 
 namespace objects::detail {
 
-void mark_for_release(unsigned index) { g_pending_free.push_back(index); }
+void mark_for_release(unsigned index) {
+    g_pending_free.push_back(index);
+    bump_world_version();
+}
+
+unsigned world_version() { return g_world_version; }
+
+void bump_world_version() { g_world_version++; }
 
 namespace {
 
@@ -350,8 +393,13 @@ struct Axis {
     float area_hi; // the world's high edge
 };
 
-void apply_edges(Object &object) {
-    if (object.edges == Edge::NONE) return;
+// Returns whether the object was TELEPORTED -- moved somewhere it did not
+// travel to. Only WRAP does that; CLAMP and BOUNCE shift it by the depth it had
+// gone past the wall, which is a correction and not a jump. The caller uses it
+// to re-mark the position, because the swept test reads the difference between
+// where the object was and where it is, and a wrap is the width of the world.
+bool apply_edges(Object &object) {
+    if (object.edges == Edge::NONE) return false;
 
     // Empty bounds mean the MAP when the scene has one and the view when it
     // does not. That is the difference between a paddle in a one-screen game,
@@ -402,6 +450,7 @@ void apply_edges(Object &object) {
             break;
         }
         case Edge::WRAP: {
+            bool wrapped = false;
             // Completely past a side, not merely touching it: an asteroid that
             // teleported the instant it grazed the edge would pop rather than
             // slide across.
@@ -411,15 +460,21 @@ void apply_edges(Object &object) {
             // it back INSIDE -- an object that left the left edge reappeared
             // some way in from the right, which reads as a jump. The test for
             // both axes is what said so.
-            if (box.x + box.width < left)
+            if (box.x + box.width < left) {
                 object.position.x += right - box.x;
-            else if (box.x > right)
+                wrapped = true;
+            } else if (box.x > right) {
                 object.position.x += left - (box.x + box.width);
-            if (box.y + box.height < top)
+                wrapped = true;
+            }
+            if (box.y + box.height < top) {
                 object.position.y += bottom - box.y;
-            else if (box.y > bottom)
+                wrapped = true;
+            } else if (box.y > bottom) {
                 object.position.y += top - (box.y + box.height);
-            break;
+                wrapped = true;
+            }
+            return wrapped;
         }
         case Edge::DESTROY: {
             // Completely outside, again for a concrete reason: a bullet fired
@@ -434,6 +489,7 @@ void apply_edges(Object &object) {
         default:
             break;
     }
+    return false;
 }
 
 } // namespace
@@ -441,6 +497,10 @@ void apply_edges(Object &object) {
 void update(Scene &scene, float delta) {
     const std::vector<unsigned> *start = indices_for(&scene);
     if (start == nullptr) return;
+
+    // Everything in this pass is about to move, so whatever the collision grid
+    // was built from is out of date before the first object runs.
+    bump_world_version();
 
     // A snapshot of the size, so an object spawned during this pass gets its
     // _ready() now and its first _update() next frame.
@@ -477,21 +537,38 @@ void update(Scene &scene, float delta) {
         // named "a teleport is not a sweep" is what said so.
         Storage::remember_position(*object);
 
-        // Gravity and apply_force land in the same accumulator, so an object
-        // with gravity_scale = 1 that you push upwards does what it would do in
-        // the world. There is no separate path for gravity.
-        const float m = object->mass > 0 ? object->mass : 1.0f;
-        const Vector2 force = Storage::take_force(*object);
-        Vector2 acceleration{ force.x / m, force.y / m };
-        acceleration.x += scene.gravity.x * object->gravity_scale;
-        acceleration.y += scene.gravity.y * object->gravity_scale;
+        // A frame with no time in it is not integrated AT ALL, and the reason
+        // is the accumulator rather than the arithmetic: multiplying by zero
+        // changes nothing, but TAKING the force empties it, so a push applied
+        // before the first frame is silently spent on a frame that could not
+        // use it. The frame time raylib reports is 0 on frame one, which is
+        // exactly where an apply_force from _ready lands -- and that is why
+        // Pong's and Breakout's ball each sat still. A negative delta is the same
+        // refusal for the same money: running the integrator backwards is never
+        // what a caller meant.
+        if (delta > 0) {
+            // Gravity and apply_force land in the same accumulator, so an
+            // object with gravity_scale = 1 that you push upwards does what it
+            // would do in the world. There is no separate path for gravity.
+            const float m = object->mass > 0 ? object->mass : 1.0f;
+            const Vector2 force = Storage::take_force(*object);
+            Vector2 acceleration{ force.x / m, force.y / m };
+            acceleration.x += scene.gravity.x * object->gravity_scale;
+            acceleration.y += scene.gravity.y * object->gravity_scale;
 
-        object->velocity.x += acceleration.x * delta;
-        object->velocity.y += acceleration.y * delta;
-        object->position.x += object->velocity.x * delta;
-        object->position.y += object->velocity.y * delta;
+            object->velocity.x += acceleration.x * delta;
+            object->velocity.y += acceleration.y * delta;
+            object->position.x += object->velocity.x * delta;
+            object->position.y += object->velocity.y * delta;
+        }
 
-        apply_edges(*object);
+        // A wrap moves the object by the width of the world, and the swept test
+        // reads the distance travelled: without re-marking, an asteroid coming
+        // back on the far side is tested against the SEGMENT across the whole
+        // level and collides with everything on it. Same argument as the
+        // teleport above, one step later in the frame.
+        if (apply_edges(*object)) Storage::remember_position(*object);
+        if (!object->alive()) continue; // Edge::DESTROY
 
         // The animation clock, once, after the movement. Here and not in the
         // draw pass, because a scene that is updated but not drawn -- one
@@ -646,7 +723,8 @@ void draw_one(Object &object) {
         case ShapeKind::CIRCLE: {
             const Vector2 centre{ object.position.x + object.shape.offset.x,
                                   object.position.y + object.shape.offset.y };
-            const float r = object.shape.radius * object.scale.x;
+            // The same one axis world_bounds() and the collider use.
+            const float r = object.shape.radius * circle_scale(object.scale);
             if (object.shape.filled) {
                 DrawCircleV(centre, r, object.shape.color);
             } else {
@@ -667,8 +745,13 @@ void collect() {
         if (slot == nullptr || !slot->occupied) continue;
         // The generation goes up HERE and not on reuse, so that a handle taken
         // out before the object died stops matching the moment the slot is
-        // free -- with or without anything ever taking the slot again.
+        // free -- with or without anything ever taking the slot again. Zero is
+        // skipped for the same reason it is on spawn, and here it is worse: 0
+        // plus the next spawn's 1 is the generation the slot's FIRST object
+        // had, so a handle nobody has touched since then comes back to life
+        // pointing at somebody else.
         slot->generation += 1;
+        if (slot->generation == 0) slot->generation = 1;
         slot->occupied = false;
         slot->object.reset();
         g_free.push_back(index);
@@ -685,6 +768,7 @@ void collect() {
         });
         entry.indices.erase(gone.begin(), gone.end());
     }
+    bump_world_version();
 }
 
 void release_scene(Scene &scene) {
@@ -704,6 +788,7 @@ void release_scene(Scene &scene) {
             return entry.scene == &scene;
         });
     g_by_scene.erase(gone.begin(), gone.end());
+    bump_world_version();
 }
 
 void reset_for_tests() {
@@ -712,6 +797,7 @@ void reset_for_tests() {
     g_draw_order.clear();
     g_free.clear();
     g_slots.clear();
+    bump_world_version();
 }
 
 int live_count() {
@@ -723,6 +809,12 @@ int live_count() {
 }
 
 int slot_count() { return static_cast<int>(g_slots.size()); }
+
+void set_generation_for_tests(unsigned index, unsigned generation) {
+    Cell *slot = slot_at(index);
+    if (slot == nullptr) return;
+    slot->generation = generation;
+}
 
 } // namespace objects::detail
 

@@ -16,10 +16,12 @@
 
 #include "../src/rmp/object_internal.h"
 
+#include <rmp/input.h>
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -560,8 +562,15 @@ TEST_CASE_FIXTURE(Fixture, "a bullet at 2000 u/s hits a wall 4 units thick at 1/
     // deleted. At 170 no sampled position touches it and only the sweep can.
     auto &wall =
         world.spawn<Probe>({ .position = { 170, 0 }, .shape = rmp::rect({ 4, 100 }) });
+    // BOTH solid, because the rewind is a resolution and `solid` is the field
+    // that says a contact resolves. A bullet that stops at a wall is the solid
+    // pair; the case where neither is has its own test below, and there the
+    // bullet is told and carries on.
+    wall.solid = true;
+    wall.immovable = true;
     auto &bullet = world.spawn<Probe>(
         { .position = { 0, 0 }, .shape = rmp::rect({ 2, 2 }), .velocity = { 2000, 0 } });
+    bullet.solid = true;
     for (int i = 0; i < 10 && bullet.hits == 0; i++) frame(world, 1.0f / 30);
 
     CHECK(bullet.hits == 1);
@@ -939,4 +948,188 @@ TEST_CASE_FIXTURE(
     // And the scene has to be crowded enough that most rays hit something, or
     // the test is a thousand agreements about nothing.
     CHECK(found > 500);
+}
+
+// ---------------------------------------------------------------------------
+// What the swept test is allowed to do to an object it caught
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "a non-solid pair is told about the sweep and keeps going") {
+    // `solid` decides whether a contact is RESOLVED; it has never decided
+    // whether you are told. The rewind is a resolution, so a bullet crossing a
+    // coin must be reported and must carry on -- rewinding it pins it at the
+    // coin, where the next sweep starts inside and pins it again, forever.
+    World world;
+    auto &coin =
+        world.spawn<Probe>({ .position = { 300, 0 }, .shape = rmp::rect({ 16, 16 }) });
+    auto &bullet = world.spawn<Probe>({ .position = { 250, 0 },
+                                        .shape = rmp::rect({ 4, 4 }),
+                                        .velocity = { 6000, 0 } });
+
+    frame(world, 1.0f / 60); // 100 units, clean over the coin
+    CHECK(bullet.hits == 1);
+    CHECK(coin.hits == 1);
+    CHECK(bullet.position.x == doctest::Approx(350));
+
+    frame(world, 1.0f / 60);
+    CHECK(bullet.position.x == doctest::Approx(450));
+    CHECK(bullet.hits == 1); // once, on the way past
+}
+
+TEST_CASE_FIXTURE(Fixture, "an object that starts inside a wall gets out of it") {
+    // A muzzle inside the shooter, a player placed in a platform by a Tiled
+    // object layer, an enemy spawned on a wall. The sweep from a point already
+    // inside reports contact at t=0, and a rewind to t=0 is a rewind to where
+    // it already was -- so it never leaves.
+    World world;
+    auto &wall = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 40, 400 }) });
+    wall.solid = true;
+    wall.immovable = true;
+    auto &escaping = world.spawn(
+        { .position = { 0, 0 }, .shape = rmp::rect({ 8, 8 }), .velocity = { 3000, 0 } });
+    escaping.solid = true;
+
+    frame(world, 1.0f / 60);
+    CHECK(escaping.position.x > 40);
+    for (int i = 0; i < 4; i++) frame(world, 1.0f / 60);
+    CHECK(escaping.position.x == doctest::Approx(250));
+}
+
+TEST_CASE_FIXTURE(Fixture, "a wrap is a teleport, and a teleport is not a sweep") {
+    // Edge::WRAP moves the object by the width of the world after the
+    // integration. Without telling the swept test, the segment it tests spans
+    // the whole world and the asteroid collides with everything between the two
+    // edges -- which is every solid thing in an Asteroids game.
+    World world;
+    const Rectangle area{ 0, 0, 800, 100 };
+    auto &wall =
+        world.spawn<Probe>({ .position = { 400, 50 }, .shape = rmp::rect({ 20, 200 }) });
+    auto &rock = world.spawn<Probe>({ .position = { 795, 50 },
+                                      .shape = rmp::rect({ 10, 10 }),
+                                      .velocity = { 600, 0 },
+                                      .edges = rmp::Edge::WRAP,
+                                      .bounds = area });
+
+    frame(world, 1.0f / 30);
+    CHECK(rock.position.x == doctest::Approx(-5));
+    CHECK(wall.hits == 0);
+    CHECK(rock.hits == 0);
+}
+
+// ---------------------------------------------------------------------------
+// solid_only
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "solid_only skips the trigger and finds the ground") {
+    // The ground check every platformer needs. A mask cannot say this: layers
+    // are about who collides with whom, and a pickup lying on the floor is on
+    // the same layer as the floor.
+    World world;
+    auto &coin = world.spawn({ .position = { 0, 20 }, .shape = rmp::rect({ 16, 16 }) });
+    auto &ground =
+        world.spawn({ .position = { 0, 60 }, .shape = rmp::rect({ 200, 20 }) });
+    ground.solid = true;
+    ground.immovable = true;
+
+    const rmp::RayHit any = world.raycast({ 0, 0 }, { 0, 100 });
+    CHECK(any.object == &coin);
+
+    const rmp::RayHit floor =
+        world.raycast({ .from = { 0, 0 }, .to = { 0, 100 }, .solid_only = true });
+    REQUIRE(static_cast<bool>(floor));
+    CHECK(floor.object == &ground);
+    CHECK(floor.point.y == doctest::Approx(50));
+}
+
+// ---------------------------------------------------------------------------
+// The pointer capture
+// ---------------------------------------------------------------------------
+
+namespace {
+
+rmp::input::detail::DeviceState g_devices;
+void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
+
+// The pointer pass reads rmp::input, so the test writes the devices and drives
+// one frame of each. Split in two because the case being tested is a frame
+// where the app sampled input and the pointer pass did NOT run -- a release
+// lost to a lost window, a dropped up event, or a frame the UI owned.
+struct Pointer {
+    Pointer() {
+        rmp::input::detail::reset();
+        g_devices = rmp::input::detail::DeviceState{};
+        rmp::input::detail::set_sample_provider(fake_sample);
+        rmp::input::detail::begin_frame(); // frame one has no edges
+    }
+    ~Pointer() {
+        rmp::input::detail::reset();
+        g_devices = rmp::input::detail::DeviceState{};
+    }
+
+    static void sample(Vector2 at, bool down) {
+        g_devices.pointer = at;
+        g_devices.mouse[MOUSE_BUTTON_LEFT] = down;
+        rmp::input::detail::begin_frame();
+    }
+    static void step(rmp::Scene &scene, Vector2 at, bool down) {
+        sample(at, down);
+        rmp::objects::detail::pointer(scene);
+    }
+};
+
+} // namespace
+
+TEST_CASE_FIXTURE(Fixture, "a press that hits nothing drops the capture") {
+    World world;
+    Pointer pointer;
+
+    int clicks = 0;
+    auto &button = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 40, 40 }) });
+    button.on_click([&clicks](rmp::Object &) { clicks++; });
+
+    SUBCASE("the ordinary press and release still clicks") {
+        Pointer::step(world, Vector2{ 0, 0 }, true);
+        Pointer::step(world, Vector2{ 0, 0 }, false);
+        CHECK(clicks == 1);
+    }
+
+    SUBCASE("a release the pointer pass never saw does not arrive later") {
+        Pointer::step(world, Vector2{ 0, 0 }, true); // pressed on it
+        Pointer::sample(Vector2{ 0, 0 }, false); // released, and nobody ran
+
+        // A press over empty space: it found nothing, so it holds nothing.
+        Pointer::step(world, Vector2{ 500, 500 }, true);
+        // And the release that follows it is over the button again.
+        Pointer::step(world, Vector2{ 0, 0 }, false);
+        CHECK(clicks == 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The budget. Not a benchmark: a gate against the broad phase going quadratic
+// or allocating per cell again, which is what it used to do -- one ray over a
+// 500-object scene cost as much as the whole collision pass.
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "a hundred raycasts over two thousand objects are cheap") {
+    World world;
+    Rng rng;
+    for (int i = 0; i < 2000; i++) {
+        world.spawn({ .position = { rng.range(-2000, 2000), rng.range(-2000, 2000) },
+                      .shape = rmp::rect({ 4, 4 }) });
+    }
+    REQUIRE(world.object_count() == 2000);
+
+    const auto started = std::chrono::steady_clock::now();
+    int hits = 0;
+    for (int i = 0; i < 100; i++) {
+        const Vector2 from{ rng.range(-2000, 2000), rng.range(-2000, 2000) };
+        const Vector2 to{ rng.range(-2000, 2000), rng.range(-2000, 2000) };
+        if (world.raycast(from, to)) hits++;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started);
+    const double ms = static_cast<double>(elapsed.count()) / 1000.0;
+    MESSAGE("100 raycasts over 2000 objects: " << ms << " ms");
+    CHECK(ms < 20.0);
 }

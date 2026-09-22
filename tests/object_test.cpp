@@ -966,7 +966,19 @@ TEST_CASE_FIXTURE(Fixture, "invisible and destroyed objects are not drawn") {
     const std::vector<rmp::Object *> &order = rmp::objects::detail::draw_order(world);
     REQUIRE(order.size() == 1);
     CHECK(order[0] == &shown);
-    CHECK_FALSE(hidden.visible);
+
+    // And `visible` is read every pass rather than at spawn: turning it back on
+    // puts the object in the order without anything else happening. Asserting
+    // that `hidden.visible` is still false would only be re-reading the option
+    // this test set two lines ago, which no implementation can fail.
+    hidden.visible = true;
+    const std::vector<rmp::Object *> &again = rmp::objects::detail::draw_order(world);
+    REQUIRE(again.size() == 2);
+    CHECK(again[0] == &shown);
+    CHECK(again[1] == &hidden);
+    // The destroyed one stays out, whatever its `visible` says.
+    dead.visible = true;
+    CHECK(rmp::objects::detail::draw_order(world).size() == 2);
 }
 
 TEST_CASE_FIXTURE(Fixture, "changing the layer changes the order next frame") {
@@ -1035,4 +1047,135 @@ TEST_CASE_FIXTURE(Fixture, "updating a scene that has no objects is not an error
     World world;
     rmp::objects::detail::update(world, 1.0f);
     CHECK(world.object_count() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// The two ways an object can be destroyed wrong
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "destroying an object that was never spawned frees nobody") {
+    // A default-constructed Object has index 0 and generation 0. Handing that
+    // index to the storage frees slot 0 -- whoever the scene happens to have
+    // put there -- and the game keeps a reference to memory that is gone.
+    World world;
+    auto &spawned = world.spawn<Probe>();
+    spawned.name = "spawned";
+    const rmp::Handle<rmp::Object> handle = spawned.handle();
+    REQUIRE(rmp::objects::detail::live_count() == 1);
+
+    {
+        rmp::Object loose; // never spawned: a member, a local, a test's object
+        loose.destroy();
+    }
+    rmp::objects::detail::collect();
+
+    CHECK(rmp::objects::detail::live_count() == 1);
+    CHECK(world.object_count() == 1);
+    CHECK(handle.get() == &spawned);
+}
+
+// ---------------------------------------------------------------------------
+// The generation counter, at the one value it must never take
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "a generation that wraps past the end skips zero") {
+    // 0 is the "points at nothing" generation. A slot that reaches it while it
+    // is OCCUPIED has a live object nobody can reach: every handle to it,
+    // including one taken the same frame, resolves to nullptr.
+    World world;
+    auto &first = world.spawn();
+    first.destroy();
+    rmp::objects::detail::collect();
+
+    rmp::objects::detail::set_generation_for_tests(0, 0xFFFFFFFFu);
+    auto &second = world.spawn();
+    REQUIRE(rmp::objects::detail::slot_count() == 1); // the same slot, reused
+
+    const rmp::Handle<rmp::Object> handle = second.handle();
+    CHECK(handle.get() == &second);
+    CHECK(static_cast<bool>(handle));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "and a wrap on release does not hand an old handle a new object") {
+    // The other half, and the worse one: free wraps to 0, the next spawn adds
+    // one and lands on 1 -- the generation the slot's FIRST object had. A
+    // handle nobody has touched since then comes back to life pointing at
+    // somebody else.
+    World world;
+    auto &first = world.spawn();
+    const rmp::Handle<rmp::Object> stale = first.handle();
+    REQUIRE(stale.get() == &first);
+
+    rmp::objects::detail::set_generation_for_tests(0, 0xFFFFFFFFu);
+    first.destroy();
+    rmp::objects::detail::collect();
+
+    auto &second = world.spawn();
+    REQUIRE(rmp::objects::detail::slot_count() == 1);
+    CHECK(stale.get() != &second);
+    CHECK(stale.get() == nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// The integrator on a frame with no time in it
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "a frame of zero delta does not eat a pending force") {
+    // GetFrameTime() is 0 on the very first frame, and a force applied from
+    // _ready lands in the accumulator before it. Multiplying it by zero and
+    // then CLEARING the accumulator loses the push entirely -- which is what
+    // left both Pong's and Breakout's ball sitting still forever.
+    World world;
+    auto &object = world.spawn({ .position = { 0, 0 } });
+    object.apply_force({ 100, 0 });
+
+    rmp::objects::detail::update(world, 0.0f);
+    CHECK(object.velocity.x == doctest::Approx(0));
+    CHECK(object.position.x == doctest::Approx(0));
+
+    // Still there on the first frame that has time in it.
+    rmp::objects::detail::update(world, 0.5f);
+    CHECK(object.velocity.x == doctest::Approx(50));
+}
+
+TEST_CASE_FIXTURE(Fixture, "and a negative delta is refused rather than run backwards") {
+    World world;
+    auto &object = world.spawn({ .position = { 0, 0 }, .velocity = { 100, 0 } });
+    rmp::objects::detail::update(world, -1.0f);
+    CHECK(object.position.x == doctest::Approx(0));
+}
+
+// ---------------------------------------------------------------------------
+// A circle with an uneven scale
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "a scaled circle is one size, not three") {
+    // There are no ellipses in this layer. The drawing takes one axis, the
+    // collider takes one axis, and world_bounds used to take BOTH -- so a coin
+    // squashed for a squash-and-stretch effect reported a box that neither the
+    // picture nor the collision pass agreed with, and Edge::CLAMP stopped it
+    // short of the floor for a reason nothing explained.
+    World world;
+    auto &coin = world.spawn({ .position = { 0, 0 }, .shape = rmp::circle(8) });
+
+    SUBCASE("y larger") {
+        coin.scale = { 1, 1.5f };
+        const Rectangle bounds = coin.world_bounds();
+        const Rectangle collider = coin.world_collider();
+        CHECK(bounds.width == doctest::Approx(24));
+        CHECK(bounds.height == doctest::Approx(24));
+        CHECK(collider.width == doctest::Approx(bounds.width));
+        CHECK(collider.height == doctest::Approx(bounds.height));
+    }
+    SUBCASE("x larger") {
+        coin.scale = { 2, 1 };
+        CHECK(coin.world_bounds().width == doctest::Approx(32));
+        CHECK(coin.world_collider().width == doctest::Approx(32));
+    }
+    SUBCASE("a mirrored scale is still a size") {
+        coin.scale = { -2, 1 };
+        CHECK(coin.world_bounds().width == doctest::Approx(32));
+        CHECK(coin.world_collider().width == doctest::Approx(32));
+    }
 }

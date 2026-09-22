@@ -34,7 +34,25 @@ struct Storage {
     static void notify_click(Object &self);
     static void notify_drag(Object &self, Vector2 moved);
     static bool has_pointer_callback(const Object &object);
+
+    // The behavior engine's index into its own records, kept in the object so
+    // that every lookup is one subscript instead of a scan. src/rmp/behavior.cpp
+    // is the only caller of either.
+    static int behavior_slot(const Object &object);
+    static void set_behavior_slot(Object &object, int slot);
 };
+
+// THE one scale a circle has, in the one place all three readers can see it.
+// A circle scaled unevenly would be an ellipse and this layer has no ellipses,
+// so the larger axis wins -- and it has to win in world_bounds(), in the
+// collider and in the drawing alike, or a coin with scale {1, 1.5} draws one
+// size, collides at a second and reports a third. It took the larger of the two
+// rather than x so that the picture never pokes out of the box that clamps it.
+inline float circle_scale(Vector2 scale) {
+    const float x = scale.x < 0 ? -scale.x : scale.x;
+    const float y = scale.y < 0 ? -scale.y : scale.y;
+    return x > y ? x : y;
+}
 
 } // namespace rmp
 
@@ -114,6 +132,17 @@ void release_behaviors(Object &object);
 int behavior_count(const Object &object);
 void reset_behaviors_for_tests();
 
+// A number that changes whenever the framework knows the world may have moved:
+// a spawn, a destroy, the collect, a scene released, and once at the top of
+// every update pass and every collision pass. src/rmp/collision.cpp caches the
+// broad-phase grid against it, which is what makes a raycast cheap -- the grid
+// the ray walks is THE grid, built once and shared, exactly as rmp/object.h
+// says it is. Anything that moves an object without going through one of those
+// points is invisible to it, which is why the bump list is the frame's spine
+// and not a set of clever hooks.
+unsigned world_version();
+void bump_world_version();
+
 // Release everything destroy() marked during the frame. Runs after
 // EndDrawing(), with the scene transitions, so nothing is freed while it is on
 // the stack of the call that asked for it.
@@ -140,5 +169,10 @@ void reset_for_tests();
 // one's place.
 int live_count();
 int slot_count();
+
+// Put a slot's generation counter where a test needs it. The only way to reach
+// the wrap-around at 2^32 without running for a month: a test pokes the counter
+// to the value before the wrap and spawns.
+void set_generation_for_tests(unsigned index, unsigned generation);
 
 } // namespace rmp::objects::detail
