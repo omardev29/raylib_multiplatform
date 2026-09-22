@@ -128,7 +128,7 @@ jobs:
       - name: Attempt a fix
         id: agent
         if: env.HAS_KEY == 'true'
-        uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126  # v1.0.191
+        uses: anthropics/claude-code-action@a874e9ecd7bb36efdad65429c6b35815f5a08f10  # v1.0.210
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
