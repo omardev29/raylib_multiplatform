@@ -112,9 +112,12 @@ jobs:
             openbsd)
               sudo pkg_add cmake ninja git pkgconf
               # CMake cannot auto-detect the archiver for OpenBSD's clang; set
-              # both CMAKE_AR and the compiler-specific CMAKE_C_COMPILER_AR.
+              # CMAKE_AR and both compiler-specific pairs. The CXX pair since the
+              # framework became a static library of LTO objects: the archive
+              # step asked for CMAKE_CXX_COMPILER_AR and got NOTFOUND.
               EXTRA_CMAKE="-DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib \
-                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
+                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib \
+                -DCMAKE_CXX_COMPILER_AR=/usr/bin/ar -DCMAKE_CXX_COMPILER_RANLIB=/usr/bin/ranlib" ;;
             netbsd)
               # NetBSD base has pkg_add (no pkgin by default); point it at the
               # pkgsrc binary packages for this release/arch. The pkgsrc binaries
@@ -139,7 +142,8 @@ jobs:
               # at the base ar/ranlib.
               EXTRA_CMAKE="-DCMAKE_MAKE_PROGRAM=/usr/pkg/bin/gmake \
                 -DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib \
-                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib" ;;
+                -DCMAKE_C_COMPILER_AR=/usr/bin/ar -DCMAKE_C_COMPILER_RANLIB=/usr/bin/ranlib \
+                -DCMAKE_CXX_COMPILER_AR=/usr/bin/ar -DCMAKE_CXX_COMPILER_RANLIB=/usr/bin/ranlib" ;;
           esac
           rm -rf build
           cmake -B build -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON $EXTRA_CMAKE
