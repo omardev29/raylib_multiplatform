@@ -64,6 +64,11 @@ clang_tidy                22.1.8
 freebsd                   15.1
 openbsd                   7.9
 netbsd                    10.1
+# Unmodified single-header components, pinned by content. tools/license_check.sh
+# recomputes these: a file that changes without its row in
+# THIRD_PARTY_LICENSES.md changing is a modification nobody marked.
+sha256_cute_aseprite      1c2c71f68151b854f7397af94bbde4ce3343809c8f3917e4d705194f8dff8155
+sha256_doctest            a58efc9446d70ddd5dd3b7724ebb8742882860f36f46da64d62993b02911fb6f
 ```
 
 | Dependency | Version | How it is pinned |

@@ -217,7 +217,11 @@ jobs:
         # No --require-icons: the iOS app icon is a copy of the 1024px source,
         # not a resize, so it needs no image library — and macOS runners have
         # none. Only the Android mipmaps need Pillow.
-        run: python3 tools/configure.py
+        # --require-notices: the iOS LICENSES.txt credits the raylib-iOS fork,
+        # whose LICENSE is in the submodule checked out above. On a laptop
+        # without it configure warns and writes no iOS notice; here that would
+        # be a bundle with no third-party notice, so it is a failure.
+        run: python3 tools/configure.py --require-notices
 
       # ios/project.yml hard-codes .../projects/Xcode26/raylib/bridge in its
       # header search path. That is upstream's folder name and the submodule is

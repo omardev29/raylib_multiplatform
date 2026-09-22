@@ -459,7 +459,11 @@ rres_password = "raylib-template"
 # Turn it off ONLY if your game already gives the credits inside it: a credits
 # scene satisfies the same licences, and a loose .txt next to the executable is
 # then just noise. On by default, because most games do not have that scene.
-licenses = true
+#
+# With licenses = false, credits_note has to say where the credits ARE -- it is
+# the record of the decision, and configure.py refuses false with it empty.
+licenses     = true
+credits_note = ""    # e.g. "the Credits scene, from the main menu"
 
 [deploy.itch]
 # Leave empty to skip publishing. The API key is a GitHub secret

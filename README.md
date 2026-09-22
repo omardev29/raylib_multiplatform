@@ -218,9 +218,12 @@ built on top of it.
 
 ### What we add on top of raylib
 
-All of raylib is there, unchanged: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. On top
-of it this framework adds four small namespaces, all under `rmp::`. They exist because they are
-the things every game needs and raylib deliberately does not decide for you.
+All of raylib's API is there: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. The copy in
+`thirdparty/raylib/` is raylib 6.0.0 with six local patches, all listed in
+[`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) and marked at each site, none of
+them changing a public function. On top of it this framework adds a few small namespaces, all
+under `rmp::`. They exist because they are the things every game needs and raylib deliberately
+does not decide for you.
 
 | Namespace | What it is for |
 | --- | --- |
@@ -537,5 +540,17 @@ thirdparty/                 raylib 6.0, raymob, rres, Clay, the raylib-iOS fork
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Third-party licences are in
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+This framework's own code — `src/`, `include/`, `tools/`, `cmake/`, `ios/` and the build files —
+is MIT; see [LICENSE](LICENSE).
+
+It is **built on raylib**, which is zlib/libpng licensed and is not ours. This project is not
+affiliated with or endorsed by raylib or Ramon Santamaria. The copy it vendors is **modified**:
+six patches, listed in [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md), as the
+zlib licence's second clause requires of altered source versions. Clay and cute_tiled are
+likewise modified and likewise listed.
+
+Every vendored component — down to the libraries raylib bundles — with its licence, the
+alternative we take when there is a choice, and whether we altered it, is in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). A release ships the full notices as
+`LICENSES.txt` next to the binary, inside the APK, and in the iOS bundle; `tools/license_check.sh`
+fails the build on a copyleft or unknown licence and on an alteration nobody marked.

@@ -1,4 +1,8 @@
 // Minimal MD5 (RFC 1321). Verified against standard test vectors.
+//
+// Provenance: written for this repository's rres_pack tool, as a straight
+// transcription of RFC 1321 -- the constants and the test vectors are the
+// RFC's. Not vendored from anywhere; this project's licence (MIT) applies.
 #include "md5.h"
 #include <string.h>
 

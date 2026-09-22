@@ -49,3 +49,6 @@ __pycache__/
 # tools/repo_check.sh fails if generated files are ever tracked again.
 build-memory/
 *.log
+
+# Agent worktrees (Claude Code): checkouts of this repository, never sources.
+/.claude/worktrees/

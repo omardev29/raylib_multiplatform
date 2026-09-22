@@ -1664,6 +1664,329 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         self.assertIn("APP_MAX_DELTA", (REPO / "src" / "rmp" / "app.cpp").read_text())
 
 
+def load_license_db():
+    """tools/license_db.py, by path, the same way configure.py is loaded."""
+    spec = importlib.util.spec_from_file_location("rmp_license_db", REPO / "tools" / "license_db.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["rmp_license_db"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ldb = load_license_db()
+
+FIXTURES = REPO / "tests" / "fixtures" / "licenses"
+
+
+def row(name, path, licences, elect="-", modified="no", linked="all", evidence="file"):
+    return ldb.Row(name=name, path=path, licences=licences, elect=elect,
+                   modified=modified, linked=linked, evidence=evidence)
+
+
+class LicenceGuardTest(unittest.TestCase):
+    """tools/license_check.sh, proven red on each thing it was written for.
+
+    The guard is a comparison of three things -- the tree, the record in
+    THIRD_PARTY_LICENSES.md, and the licence texts -- so every test here is a
+    small tree under tests/fixtures/licenses/ plus the rows that describe it,
+    checked with the walker pointed at the fixture instead of thirdparty/. The
+    real tree is the last test, and it is the definition of done.
+    """
+
+    def check(self, rows, root, pins=None):
+        # The fixture root stands in for thirdparty/; the packaging files are
+        # the real ones, which is fine: they are not what a fixture varies.
+        _, fails = ldb.check(rows, pins or {}, repo=REPO, root=root, families=set())
+        return fails
+
+    def fixture(self, name):
+        """A root holding exactly one component, `dep/`, under the named case."""
+        return FIXTURES / name
+
+    def rows_for_one(self, name, **kw):
+        # Paths in a row are repo-relative; the fixture dirs are under tests/.
+        rel = str((FIXTURES / name / "dep").relative_to(REPO))
+        return [row(name, rel, **kw)]
+
+    def test_gpl_is_refused_by_name(self):
+        fails = self.check(self.rows_for_one("gpl_dep", licences="GPL"), self.fixture("gpl_dep"))
+        self.assertTrue(any("GPL" in f and "copyleft" in f for f in fails), fails)
+
+    def test_lgpl_is_refused_separately_from_gpl(self):
+        # A fingerprint that matched "general public license" before checking
+        # for "lesser" would report this as GPL; the message has to say LGPL
+        # and say why it is refused here (no dynamic linking on iOS/musl).
+        fails = self.check(self.rows_for_one("lgpl_dep", licences="LGPL"), self.fixture("lgpl_dep"))
+        self.assertTrue(any("LGPL" in f and "dynamic linking" in f for f in fails), fails)
+        self.assertEqual(ldb.classify((FIXTURES / "lgpl_dep" / "dep" / "LICENSE").read_text()), ["LGPL"])
+
+    def test_no_licence_at_all_is_refused(self):
+        fails = self.check(self.rows_for_one("mystery_dep", licences="MIT"),
+                           self.fixture("mystery_dep"))
+        self.assertTrue(any("no licence text found" in f for f in fails), fails)
+        # And a row that admits it: UNKNOWN is refused outright.
+        fails = self.check(self.rows_for_one("mystery_dep", licences="UNKNOWN"),
+                           self.fixture("mystery_dep"))
+        self.assertTrue(any("UNKNOWN" in f and "no recognisable licence" in f for f in fails), fails)
+
+    def test_non_commercial_is_refused(self):
+        fails = self.check(self.rows_for_one("cc_by_nc", licences="CC-BY-NC"),
+                           self.fixture("cc_by_nc"))
+        self.assertTrue(any("non-commercial" in f for f in fails), fails)
+
+    def test_a_row_cannot_lie_about_the_text(self):
+        # The text says GPL; the row says MIT. The guard reads the text.
+        fails = self.check(self.rows_for_one("gpl_dep", licences="MIT"), self.fixture("gpl_dep"))
+        self.assertTrue(any("reads as GPL" in f for f in fails), fails)
+
+    def test_zlib_unmarked_and_unpinned_is_refused(self):
+        # A single-header zlib component at the top level is either pinned by
+        # sha256 (unmodified, and provably so) or marked modified with a
+        # PATCHES.md. Neither is the case that lets an alteration go unmarked.
+        fails = self.check(self.rows_for_one("zlib_unmarked", licences="zlib"),
+                           self.fixture("zlib_unmarked"))
+        self.assertTrue(any("no pin" in f and "sha256_zlib_unmarked" in f for f in fails), fails)
+        # Marked as modified without the file that is the mark: still refused.
+        fails = self.check(self.rows_for_one("zlib_unmarked", licences="zlib", modified="yes"),
+                           self.fixture("zlib_unmarked"))
+        self.assertTrue(any("PATCHES.md" in f and "missing" in f for f in fails), fails)
+
+    def test_zlib_marked_passes_and_so_does_a_true_pin(self):
+        fails = self.check(self.rows_for_one("zlib_marked", licences="zlib", modified="yes"),
+                           self.fixture("zlib_marked"))
+        self.assertEqual(fails, [])
+        header = FIXTURES / "zlib_unmarked" / "dep" / "thing.h"
+        pins = {"sha256_zlib_unmarked": ldb.sha256_of(header)}
+        fails = self.check(self.rows_for_one("zlib_unmarked", licences="zlib"),
+                           self.fixture("zlib_unmarked"), pins)
+        self.assertEqual(fails, [])
+        # A pin that no longer matches is a modification nobody marked.
+        pins = {"sha256_zlib_unmarked": "0" * 64}
+        fails = self.check(self.rows_for_one("zlib_unmarked", licences="zlib"),
+                           self.fixture("zlib_unmarked"), pins)
+        self.assertTrue(any("does not match the pin" in f for f in fails), fails)
+
+    def test_the_symmetry_both_ways(self):
+        root = FIXTURES / "symmetry"
+        rel = lambda n: str((root / n).relative_to(REPO))
+        rows = [row("present", rel("present"), "MIT"), row("ghost", rel("ghost"), "MIT")]
+        pins = {"sha256_present": ldb.sha256_of(root / "present" / "a.h")}
+        fails = self.check(rows, root, pins)
+        self.assertTrue(any("unlisted" in f and "not in the components block" in f for f in fails), fails)
+        self.assertTrue(any("ghost" in f and "not on disk" in f for f in fails), fails)
+        # Both directions, and nothing about `present`, which is in order.
+        self.assertFalse(any(f.startswith("present") for f in fails), fails)
+
+    def test_a_good_component_passes(self):
+        # A guard that has only been seen red on the bad cases has not been
+        # seen green on the good one.
+        pins = {"sha256_mit_dep": ldb.sha256_of(FIXTURES / "mit_dep" / "dep" / "thing.h")}
+        fails = self.check(self.rows_for_one("mit_dep", licences="MIT"), self.fixture("mit_dep"), pins)
+        self.assertEqual(fails, [])
+
+    def test_the_block_is_validated_as_it_is_parsed(self):
+        with self.assertRaises(ValueError) as caught:
+            ldb.parse_block("```components\nx thirdparty/x MIT - no all\n```")
+        self.assertIn("columns", str(caught.exception))
+        with self.assertRaises(ValueError) as caught:
+            ldb.parse_block("```components\nx thirdparty/x MIT|zlib - no all file\n```")
+        self.assertIn("elect", str(caught.exception))
+        with self.assertRaises(ValueError) as caught:
+            ldb.parse_block("```components\nx thirdparty/x MIT|zlib BSD-2 no all file\n```")
+        self.assertIn("not one of its licences", str(caught.exception))
+        with self.assertRaises(ValueError):
+            ldb.parse_block("```components\nx thirdparty/x MIT - maybe all file\n```")
+        with self.assertRaises(ValueError):
+            ldb.parse_block("```components\nx thirdparty/x MIT - no everywhere file\n```")
+        with self.assertRaises(ValueError):
+            ldb.parse_block("no block here")
+
+    def test_fingerprints_tell_the_families_apart(self):
+        cases = {
+            "This is free and unencumbered software released into the public domain.": ["Unlicense", "public-domain"],
+            "SPDX-License-Identifier: BSD-2-Clause OR CC0-1.0\nRedistributions in binary form must": ["CC0", "BSD-2"],
+            "Neither the name of X nor ... Redistributions in binary form": ["BSD-3"],
+            "Altered source versions must be plainly marked as such": ["zlib"],
+            "Permission is hereby granted, free of charge, to any person": ["MIT"],
+            "Licensed under the Apache License, Version 2.0": ["Apache-2.0"],
+            "Do What The Fuck You Want To Public License": ["WTFPL"],
+            "Permission to use, copy, modify, and distribute this software and its documentation": ["permissive"],
+            "GNU Affero General Public License": ["AGPL"],
+            "nothing at all": [],
+        }
+        for text, families in cases.items():
+            with self.subTest(text=text[:40]):
+                self.assertEqual(ldb.classify(text), families)
+        # "commercial or non-commercial" in a public-domain dedication is NOT
+        # CC BY-NC; the phrase needs Creative Commons next to it.
+        self.assertNotIn("CC-BY-NC", ldb.classify(
+            "for any purpose, commercial or non-commercial, and by any means."))
+
+    def test_the_packaging_table_covers_every_family(self):
+        families = {family for family, *_ in cfgmod.TARGETS.values()}
+        # ios is a target of the apple family and packages separately.
+        self.assertEqual(set(ldb.FAMILY_FILES), families | {"ios"})
+
+    def test_the_real_tree_passes(self):
+        """The definition of done: every component under thirdparty/ has a row,
+        a licence we ship under, its text where the row says, and a mark on
+        every alteration -- and it stays that way, because this runs in
+        `just test` and in the lint job."""
+        import subprocess
+        run = subprocess.run(["bash", str(REPO / "tools" / "license_check.sh")],
+                             capture_output=True, text=True, cwd=REPO)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("PASS:", run.stdout)
+        # And it saw the whole tree, not a subset: raylib's bundled deps included.
+        self.assertIn("stb_image", run.stdout)
+        self.assertIn("packaging", run.stdout)
+
+    def test_every_alteration_has_its_mark(self):
+        rows = ldb.load_rows(REPO)
+        marked = {r["name"] for r in rows if r["modified"] in ("yes", "subset")}
+        self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob"})
+        for r in rows:
+            if r["modified"] in ("yes", "subset"):
+                with self.subTest(component=r["name"]):
+                    note = (REPO / r["path"] / "PATCHES.md").read_text()
+                    self.assertIn("MODIFIED", note)
+                    self.assertIn("|", note)  # a table of file/line/change/why
+
+    def test_the_raylib_patch_sites_are_where_patches_md_says(self):
+        # The mark is only a mark if it is true: every site PATCHES.md names
+        # carries the PATCHED comment, and every PATCHED comment is listed.
+        note = (REPO / "thirdparty" / "raylib" / "PATCHES.md").read_text()
+        listed = set(re.findall(r"^\| `([^`]+)` \|", note, re.M))
+        marked = set()
+        for path in (REPO / "thirdparty" / "raylib").rglob("*"):
+            if path.is_file() and path.suffix in (".c", ".txt", ".cmake") and "external" not in path.parts:
+                if "PATCHED (raylib_multiplatform)" in path.read_text(errors="replace"):
+                    marked.add(str(path.relative_to(REPO / "thirdparty" / "raylib")))
+        self.assertEqual(marked, listed)
+
+
+class ConfigureLicencesTest(unittest.TestCase):
+    """[deploy] licenses, and the LICENSES.txt files gen_licenses() writes."""
+
+    def test_licenses_must_be_a_bool(self):
+        for bad in ("true", 1, 0, None, [True]):
+            with self.subTest(licenses=bad):
+                cfg = base_config()
+                cfg["deploy"]["licenses"] = bad
+                with self.assertRaises(cfgmod.ConfigError), quiet():
+                    cfgmod.validate(cfg, False)
+
+    def test_turning_the_notice_off_needs_a_reason_on_record(self):
+        cfg = base_config()
+        cfg["deploy"]["licenses"] = False
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("credits_note", str(caught.exception))
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+        cfg["deploy"]["credits_note"] = "   "
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(cfg, False)
+        cfg["deploy"]["credits_note"] = "the Credits scene, from the main menu"
+        with quiet():
+            cfgmod.validate(cfg, False)
+        cfg["deploy"]["credits_note"] = ["a list"]
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(cfg, False)
+
+    @contextlib.contextmanager
+    def captured_writes(self):
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(str(path.relative_to(REPO)), content)
+        try:
+            yield captured
+        finally:
+            cfgmod.write = original
+
+    def test_each_family_gets_what_it_links_and_nothing_else(self):
+        cfg = base_config()
+        with self.captured_writes() as out, quiet():
+            cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"])
+        desktop = out["cmake/generated/LICENSES.txt"]
+        android = out["cmake/generated/android/LICENSES.txt"]
+        self.assertNotIn("cmake/generated/ios/LICENSES.txt", out)  # ios not a target
+        # raymob is Android glue: in the APK notice, not next to a Linux binary.
+        self.assertNotIn("  raymob --", desktop)
+        self.assertIn("  raymob --", android)
+        # doctest is never shipped; lz4 is in the tree and not compiled.
+        for text in (desktop, android):
+            self.assertNotIn("doctest", text)
+            self.assertNotIn("  lz4 --", text)
+            # raylib's bundled dependencies, which the old generator never saw.
+            self.assertIn("  stb_image --", text)
+            self.assertIn("Sean Barrett", text)
+            self.assertIn("  miniaudio --", text)
+            self.assertIn("David Reid", text)
+            self.assertIn("  monocypher --", text)
+            self.assertIn("  qoi --", text)
+            self.assertIn("Dominic Szablewski", text)
+            self.assertIn("tiny-AES-c", text)
+            # The marks and the elections, in the shipped file.
+            self.assertIn("  raylib -- zlib\n  MODIFIED for this build. See thirdparty/raylib/PATCHES.md", text)
+            self.assertIn("  clay -- zlib\n  MODIFIED", text)
+            self.assertIn("  raylib-cpp -- zlib\n  PARTIAL copy", text)
+            self.assertIn("this build takes the Unlicense alternative", text)
+            self.assertIn("not\naffiliated with or endorsed by the raylib project", text)
+            self.assertIn("Ramon Santamaria", text)
+        # GLFW is desktop-only; the Android notice does not credit it.
+        self.assertIn("  glfw --", desktop)
+        self.assertNotIn("  glfw --", android)
+
+    def test_ios_without_the_submodule_warns_locally_and_fails_on_the_job(self):
+        cfg = base_config()
+        fork = REPO / "thirdparty" / "raylib-ios"
+        if fork.is_dir() and any(fork.iterdir()):
+            self.skipTest("the raylib-ios submodule is checked out here")
+        cfgmod._warnings.clear()
+        with self.captured_writes() as out, quiet():
+            cfgmod.gen_licenses(cfg, ["ios"])
+        self.assertNotIn("cmake/generated/ios/LICENSES.txt", out)
+        self.assertTrue(any("raylib-ios is empty" in w for w in cfgmod._warnings), cfgmod._warnings)
+        cfgmod._warnings.clear()
+        with self.assertRaises(cfgmod.ConfigError) as caught, self.captured_writes(), quiet():
+            cfgmod.gen_licenses(cfg, ["ios"], require_notices=True)
+        self.assertIn("git submodule update --init", str(caught.exception))
+        # And the iOS job is the one that asks for that.
+        apple = (REPO / ".github" / "workflows" / "_apple.yml").read_text()
+        self.assertIn("configure.py --require-notices", apple)
+
+    def test_off_means_no_files_at_all(self):
+        cfg = base_config()
+        cfg["deploy"]["licenses"] = False
+        cfg["deploy"]["credits_note"] = "the Credits scene"
+        with self.captured_writes() as out, quiet():
+            cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"])
+        self.assertEqual(out, {})
+
+    def test_the_ios_project_carries_the_notice_only_when_it_exists(self):
+        cfg = base_config()
+        with self.captured_writes() as out, quiet():
+            cfgmod.gen_ios_project(cfg)
+        project = out["ios/project.yml"]
+        if cfgmod.LICENSE_FILES["ios"].is_file():
+            self.assertIn("../cmake/generated/ios/LICENSES.txt", project)
+        else:
+            self.assertNotIn("LICENSES.txt", project)
+        # The generator knows how to reference it either way.
+        self.assertIn("cmake/generated/ios/LICENSES.txt", (REPO / "tools" / "configure.py").read_text())
+
+    def test_the_apk_gets_its_notice(self):
+        gradle = (REPO / "raymob" / "app" / "build.gradle").read_text()
+        self.assertIn("cmake/generated/android/LICENSES.txt", gradle)
+        self.assertIn('new File(destDir, "LICENSES.txt")', gradle)
+
+    def test_the_readme_no_longer_calls_raylib_unchanged(self):
+        readme = (REPO / "README.md").read_text()
+        self.assertNotIn("unchanged", readme.split("### What we add on top of raylib")[1].split("|")[0])
+        self.assertIn("thirdparty/raylib/PATCHES.md", readme)
+        self.assertIn("not\naffiliated", readme.replace("is not\naffiliated", "not\naffiliated"))
+
+
 class VendoredHeaderPathsTest(unittest.TestCase):
     """A vendored dependency has to be on the include path of EVERY build.
 

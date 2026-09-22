@@ -228,6 +228,13 @@ jobs:
       - name: The repository tracks sources, not build output
         run: bash tools/repo_check.sh
 
+      # Every vendored component, down to what raylib bundles, has a licence we
+      # can ship under, its notice is where THIRD_PARTY_LICENSES.md says it is,
+      # and every copy we altered is marked -- the zlib licence requires that
+      # and the README used to say the opposite. Copyleft and unknown fail.
+      - name: Every licence is known and every alteration marked
+        run: bash tools/license_check.sh
+
       # doctest. No window, no GPU, milliseconds.
       #
       # Twice: once in declaration order, once shuffled with a fixed seed. A
