@@ -154,6 +154,18 @@ Rectangle source_in(const Tileset &set, int gid) {
     };
 }
 
+// Where that tile's top-left corner goes in the world, which is NOT simply the
+// cell's own corner. Tiled anchors a tile layer by the BOTTOM-left, so a
+// tileset whose tiles are taller than the map's grid -- trees, walls, anything
+// drawn standing up -- keeps its foot in the cell and reaches upwards out of
+// it. Drawn from the cell's corner instead, the whole layer sits one tile too
+// low and the tops are cut off.
+Vector2 origin_in(const MapData &data, const Tileset *set, int column, int row) {
+    const int overhang = set == nullptr ? 0 : set->tile_height - data.tile_height;
+    return Vector2{ static_cast<float>(column * data.tile_width),
+                    static_cast<float>(row * data.tile_height - overhang) };
+}
+
 const cute_tiled_property_t *find_property(const void *raw_object, const char *key) {
     if (raw_object == nullptr || key == nullptr) return nullptr;
     const auto *object = static_cast<const cute_tiled_object_t *>(raw_object);
@@ -332,12 +344,6 @@ void *parse_map(const void *bytes, int size, const char *name) {
                 out.name = object->name.ptr != nullptr ? object->name.ptr : "";
                 out.type = object->type.ptr != nullptr ? object->type.ptr : "";
                 out.size = Vector2{ object->width, object->height };
-                // TILED GIVES THE CORNER and rmp::Object's position is the
-                // CENTRE. Converting here rather than at every call site is
-                // most of what this struct is for.
-                out.position = Vector2{ object->x + object->width / 2,
-                                        object->y + object->height / 2 };
-                out.rotation = object->rotation;
                 // The top three bits are Tiled's flip flags and not part of
                 // the id, exactly as in the tile-layer loop below. Press X in
                 // the editor and a gid of 1 comes back as 0x80000001, which
@@ -346,6 +352,19 @@ void *parse_map(const void *bytes, int size, const char *name) {
                 // not a tile object` still passes and nothing looks wrong.
                 out.gid =
                     static_cast<int>(static_cast<unsigned>(object->gid) & ~kFlipMask);
+                // TILED GIVES A CORNER and rmp::Object's position is the
+                // CENTRE. Converting here rather than at every call site is
+                // most of what this struct is for -- and WHICH corner depends
+                // on what the object is. A rectangle, an ellipse, a point or a
+                // polygon is placed by its TOP-left; a TILE OBJECT, the one
+                // you stamp with a tile, hangs from its BOTTOM-left, which is
+                // where the cursor was when you placed it. Reading y as the
+                // top for both put every stamped chest, torch and door exactly
+                // one tile into the floor.
+                const float top = out.gid != 0 ? object->y - object->height : object->y;
+                out.position =
+                    Vector2{ object->x + object->width / 2, top + object->height / 2 };
+                out.rotation = object->rotation;
                 out.raw = object;
                 data->objects.push_back(out);
             }
@@ -397,6 +416,12 @@ Rectangle tile_source(const void *p, int gid) {
     if (p == nullptr) return Rectangle{};
     const Tileset *set = tileset_for(*as_data(p), gid);
     return set == nullptr ? Rectangle{} : source_in(*set, gid);
+}
+
+Vector2 tile_origin(const void *p, int gid, int column, int row) {
+    if (p == nullptr) return Vector2{};
+    const MapData *data = as_data(p);
+    return origin_in(*data, tileset_for(*data, gid), column, row);
 }
 
 } // namespace tilemap::detail
@@ -570,9 +595,8 @@ void Tilemap::draw() const {
 
                 const Tileset *set = tileset_for(*data, gid);
                 if (set == nullptr || !set->texture.valid()) continue;
-                const Vector2 at_world{ static_cast<float>(column * data->tile_width),
-                                        static_cast<float>(row * data->tile_height) };
-                DrawTextureRec(set->texture, source_in(*set, gid), at_world, WHITE);
+                DrawTextureRec(set->texture, source_in(*set, gid),
+                               origin_in(*data, set, column, row), WHITE);
             }
         }
     }

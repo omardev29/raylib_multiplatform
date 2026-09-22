@@ -12,6 +12,13 @@
 // No pack is opened here except the deliberately empty one, and the resources
 // root is put back after every test: it is process-wide and shared with every
 // other test in this binary.
+//
+// THE EMPTY PACK IS GENERATED. tests/fixtures/pack_zero/resources.rres is
+// written by tools/make_zero_pack.py, which is the only source of those bytes
+// and explains every field of them; tests/configure_test.py runs the script
+// into a temporary directory and compares it against the committed file, so
+// the two cannot drift. Do not edit the fixture by hand -- change the script
+// and run it.
 // ===========================================================================
 
 #include <doctest.h>
