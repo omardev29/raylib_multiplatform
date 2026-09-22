@@ -246,6 +246,17 @@ Object *resolve(unsigned index, unsigned generation);
 
 template <class T = Object> class Handle {
 public:
+    // get() is an unchecked downcast -- RTTI is off on every target, so there
+    // is no dynamic_cast to make it a checked one. The generation stops a
+    // handle resolving to a DIFFERENT object; what it cannot stop is resolving
+    // to the same object through a type it never was. This catches the half a
+    // compiler can catch, at no runtime cost: a T that is not an Object at all
+    // is a mistake, not a risk somebody took on purpose.
+    static_assert(std::is_base_of_v<Object, T>,
+                  "Handle<T> holds an rmp::Object. T has to derive from it -- "
+                  "handle<Goblin>() on an object that is a Goblin, not a handle "
+                  "to something else entirely.");
+
     Handle() = default;
 
     // Null until it points at something, and false the moment that something
@@ -373,6 +384,14 @@ void detach(Object &self, const void *type);
 //   tested. With a thousand objects on screen a ray touches a handful -- and it
 //   is nearly free precisely BECAUSE the grid is already there for the
 //   collision pass. That is why the two live in the same phase.
+//
+//   The other side of sharing it: the grid is rebuilt when the framework moves
+//   the world -- a spawn, a destroy, the start of each update pass and of each
+//   collision pass -- and not between two lines of your own code. A ray fired
+//   straight after writing somebody else's `position` by hand answers from the
+//   start of the current pass, which is what a stepped physics world does. The
+//   ray's own origin is whatever you pass in, so a character asking about the
+//   ground under itself is never the stale half.
 // ---------------------------------------------------------------------------
 
 struct RayHit {
@@ -390,6 +409,16 @@ struct RayQuery {
     Vector2 to{};
     unsigned mask = 0xFFFFFFFFu; // the same layers as the collision pass
     Object *ignore = nullptr; // normally whoever is shooting
+
+    // Only objects that are `solid`. A ground check wants the floor and not the
+    // coin lying on it, and a mask cannot say that: layers are about who
+    // collides with whom, and solid is about whether the contact resolves.
+    // Without this the nearest hit under a character is whatever trigger
+    // happens to be there, and the character walks through the floor.
+    //
+    // Last in the struct because designated initialisers are positional in
+    // C++20: a field added anywhere else would stop existing code compiling.
+    bool solid_only = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -414,7 +443,12 @@ struct ObjectOptions {
 class Object {
 public:
     Object() = default;
-    virtual ~Object() = default;
+    // Out of line, in src/rmp/object.cpp, because it has work to do: an object
+    // that goes away WITHOUT destroy() -- a stack variable, a member, anything
+    // a test builds -- still owns its behaviors, and nothing else would ever
+    // free them. It used to leak them and, worse, leave the engine holding a
+    // record keyed by memory that had been handed back.
+    virtual ~Object();
 
     // Objects are owned by their scene and referred to by reference and handle.
     // A copy would be a second object that believes it is in the scene.
@@ -621,6 +655,12 @@ private:
     Scene *scene_ = nullptr;
     unsigned index_ = 0;
     unsigned generation_ = 0;
+    // Which record in the behavior engine is this object's, or -1 for "none".
+    // The engine used to find it by scanning a list for the object's ADDRESS,
+    // which made every lookup O(number of objects with behaviors) -- one per
+    // behavior per pass, so a frame grew with the square of the object count --
+    // and made a recycled address inherit a dead object's behaviors.
+    int behavior_slot_ = -1;
     bool alive_ = true;
     Vector2 pending_force_{}; // accumulated by apply_force, spent on integrate
 

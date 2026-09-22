@@ -124,11 +124,18 @@ void enter(std::unique_ptr<Scene> next) {
 } // namespace
 
 void start(Scene *first) {
-    g_running = true;
+    // The null check BEFORE g_running, because the other order leaves the app
+    // running over an empty stack: a frame loop that draws nothing, forever,
+    // and a current() that hands back the fallback scene to everything that
+    // asks. Refusing leaves whatever was already on the stack exactly as it
+    // was, which is the only other thing this could mean.
     if (first == nullptr) {
-        TraceLog(LOG_ERROR, "SCENE: RMP_GAME was given a null scene");
+        RMP_REPORT_ONCE("SCENE: start() was given a null scene; the app is not "
+                        "started. RMP_GAME(T) builds one for you -- this is a "
+                        "hand-written start() or a T that failed to construct.");
         return;
     }
+    g_running = true;
     enter(std::unique_ptr<Scene>(first));
 }
 

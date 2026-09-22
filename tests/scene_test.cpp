@@ -18,6 +18,7 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
@@ -99,20 +100,30 @@ Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *conf
     return Clay_Dimensions{ static_cast<float>(text.length) * size * 0.5f, size };
 }
 
+// Where the pointer is and whether it is held, for the tests that drive one.
+// Off-screen and up by default, which is what every other test in this file
+// wants: nothing is hovered and nothing is clicked.
+Clay_Vector2 g_pointer{ -1.0f, -1.0f };
+bool g_pointer_down = false;
+
 void pointer_stub(Clay_Vector2 *position, bool *down) {
-    *position = Clay_Vector2{ -1.0f, -1.0f };
-    *down = false;
+    *position = g_pointer;
+    *down = g_pointer_down;
 }
 
 // Headless UI for the duration of a test, and raylib's own providers back
 // afterwards — a later test that touched the UI without a window would crash.
 struct HeadlessUi {
     HeadlessUi() {
+        g_pointer = Clay_Vector2{ -1.0f, -1.0f };
+        g_pointer_down = false;
         rmp::ui::detail::set_measure_provider(measure_stub);
         rmp::ui::detail::set_pointer_provider(pointer_stub);
         rmp::ui::detail::set_test_viewport(1280, 720);
     }
     ~HeadlessUi() {
+        g_pointer = Clay_Vector2{ -1.0f, -1.0f };
+        g_pointer_down = false;
         rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
         rmp::ui::detail::set_pointer_provider(rmp::ui::detail::pointer_from_raylib);
         rmp::ui::detail::set_test_viewport(0, 0);
@@ -126,9 +137,21 @@ public:
     void _draw() override {
         note(Probe<Name>::kName, "draw");
         rmp::ui::begin();
-        rmp::ui::button("Back");
+        // The click goes in the transcript, so a pass that reacts when it must
+        // not says so in the same string every other event is read from.
+        if (rmp::ui::button("Back")) note(Probe<Name>::kName, "click");
         rmp::ui::end();
     }
+};
+
+// A scene that covers another one and draws no UI of its own: a loading
+// overlay, a fade, a cutscene. It is the shape that lets the scene UNDER it be
+// the only UI pass in the frame, and therefore the one whose widgets can still
+// be hit-tested — so what is left to decide whether they react is the routing.
+template <bool Below> class Lid : public rmp::Scene {
+public:
+    Lid() { input_below = Below; }
+    void _draw() override { note("L", "draw"); }
 };
 
 // The id a label gets in a given pass, worked out the same way element_id()
@@ -144,13 +167,41 @@ Clay_ElementId id_in_pass(const char *label, unsigned pass, unsigned occurrence)
 TEST_SUITE("scenes") {
     TEST_CASE("the first scene is ready before the first frame") {
         Fixture fix;
-        rmp::scenes::detail::start(new A());
+        auto *first = new A();
+        rmp::scenes::detail::start(first);
         // Not deferred, and it cannot be: the first frame draws, and drawing a
         // scene whose _ready has not run would be drawing uninitialised state.
         CHECK(g_log == "A.ready");
         CHECK(rmp::Scene::depth() == 1);
         CHECK(rmp::scenes::detail::running());
-        CHECK(&rmp::Scene::current() == &rmp::Scene::current());
+        // current() is the scene that was started, and not a fallback: this
+        // used to compare current() with itself, which passes for any
+        // implementation at all -- including one that hands back an empty
+        // scene because the stack is not what anybody thought it was.
+        CHECK(&rmp::Scene::current() == first);
+    }
+
+    TEST_CASE("start with no scene at all leaves the app stopped") {
+        Fixture fix;
+        rmp::detail::reset_reports_for_tests();
+
+        rmp::scenes::detail::start(nullptr);
+        // Running with an empty stack is a frame loop over nothing, forever,
+        // and every current() in it hands back the fallback scene.
+        CHECK_FALSE(rmp::scenes::detail::running());
+        CHECK(rmp::Scene::depth() == 0);
+        CHECK(rmp::detail::report_count() == 1);
+
+        SUBCASE("and it does not disturb a stack that is already there") {
+            auto *first = new A();
+            rmp::scenes::detail::start(first);
+            g_log.clear();
+            rmp::scenes::detail::start(nullptr);
+            CHECK(rmp::Scene::depth() == 1);
+            CHECK(&rmp::Scene::current() == first);
+            CHECK(rmp::scenes::detail::running());
+            CHECK(g_log.empty());
+        }
     }
 
     TEST_CASE("a frame is update then draw, and nothing else") {
@@ -471,6 +522,44 @@ TEST_SUITE("scene ui passes") {
         Clay_BoundingBox box{};
         CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 0, 0), &box));
         CHECK(box.width > 0);
+    }
+
+    TEST_CASE("and the press that proves it: the same button, both answers") {
+        // The half the test above claims in its title and never checked. The
+        // lid draws no UI of its own, so the scene underneath is the only pass
+        // there is and its button is hit-testable — which is what makes this a
+        // test of the ROUTING and of nothing else. Run it both ways: the same
+        // press on the same button, and input_below is the only difference.
+        Fixture fix;
+        HeadlessUi headless;
+
+        bool through = false;
+        SUBCASE("a lid that keeps the input") { through = false; }
+        SUBCASE("a lid that lets it through") { through = true; }
+
+        start_clean<UiScene<'A'>>();
+        if (through) {
+            rmp::Scene::push<Lid<true>>();
+        } else {
+            rmp::Scene::push<Lid<false>>();
+        }
+        rmp::scenes::detail::apply_pending();
+
+        run_frame(); // lays the button out
+        run_frame(); // and now it can be hit-tested
+
+        Clay_BoundingBox box{};
+        REQUIRE(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 0, 0), &box));
+        REQUIRE(box.width > 0);
+        g_pointer = Clay_Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
+
+        g_pointer_down = true;
+        run_frame(); // press
+        g_pointer_down = false;
+        g_log.clear();
+        run_frame(); // release, which is where a click happens
+
+        CHECK(g_log == (through ? "A.draw A.click L.draw" : "A.draw L.draw"));
     }
 
 } // TEST_SUITE

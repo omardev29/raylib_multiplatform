@@ -10,6 +10,8 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
+
 #include <rmp/app.h>
 
 #include <string>
@@ -44,6 +46,15 @@ struct Second : Named {
 };
 struct Third : Named {
     Third() : Named("3") {}
+};
+
+// Reaches for another global from inside its own destructor, which is what
+// anything running during the teardown does without meaning to.
+struct Rebuilder {
+    ~Rebuilder() {
+        g_log += "R";
+        rmp::global<Marker<6>>().value = 1;
+    }
 };
 
 struct Fixture {
@@ -132,6 +143,30 @@ TEST_SUITE("globals") {
 
     TEST_CASE("shutdown with nothing registered is a no-op") {
         Fixture fix;
+        rmp::app::detail::shutdown_globals();
+        CHECK(g_log.empty());
+    }
+
+    TEST_CASE("a global re-created during the shutdown is refused, and said so") {
+        // Anything reached after shutdown_globals() has started -- the UI
+        // closing, a destructor of something the resource table owns -- that
+        // touches a global<T>() would rebuild it and push a destroyer into a
+        // registry nobody drains again. The instance then outlives
+        // CloseWindow(), which is the exact teardown order rmp/app.h documents
+        // as having cost this project a segfault once.
+        Fixture fix;
+        rmp::detail::reset_reports_for_tests();
+        rmp::global<Rebuilder>();
+        g_log.clear();
+
+        rmp::app::detail::shutdown_globals();
+        // "R" is the destructor running, "+" the global it built on its way
+        // out. Both are allowed; what is not allowed is the registration.
+        CHECK(g_log == "R+");
+        CHECK(rmp::detail::report_count() == 1);
+
+        // Nothing was added to the registry, so there is nothing left to drain.
+        g_log.clear();
         rmp::app::detail::shutdown_globals();
         CHECK(g_log.empty());
     }

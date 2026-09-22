@@ -69,9 +69,10 @@ Placed placed_of(const Object &object) {
     if (shape.kind == ShapeKind::CIRCLE) {
         p.kind = ShapeKind::CIRCLE;
         // One axis, because a circle scaled unevenly is an ellipse and this
-        // layer does not have ellipses. x is the one that wins, and the header
-        // says the collider is a circle, so nothing is being hidden.
-        p.radius = shape.radius * object.scale.x;
+        // layer does not have ellipses. circle_scale() is that one axis, and it
+        // lives in object_internal.h because the drawing and world_bounds() ask
+        // the same question and all three have to give the same answer.
+        p.radius = shape.radius * circle_scale(object.scale);
         p.centre = Vector2{ object.position.x + shape.offset.x,
                             object.position.y + shape.offset.y };
         return p;
@@ -323,6 +324,23 @@ bool ray_shape(Vector2 from, Vector2 to, const Placed &shape, float *t, Vector2 
     return false;
 }
 
+// Is a point already inside a shape? The sweep asks it about the grown shape,
+// which is the Minkowski sum -- so "the mover's centre started inside" means
+// "the two were already overlapping when the step began".
+bool point_inside(const Placed &shape, Vector2 point) {
+    if (shape.kind == ShapeKind::CIRCLE) {
+        const float dx = point.x - shape.centre.x;
+        const float dy = point.y - shape.centre.y;
+        return (dx * dx) + (dy * dy) <= shape.radius * shape.radius;
+    }
+    if (shape.kind == ShapeKind::RECTANGLE) {
+        const float dx = point.x - shape.centre.x;
+        const float dy = point.y - shape.centre.y;
+        return (dx < 0 ? -dx : dx) <= shape.half.x && (dy < 0 ? -dy : dy) <= shape.half.y;
+    }
+    return false;
+}
+
 // The swept test, and the other half of the answer to tunnelling.
 //
 // [app] max_delta stops a stalled frame teleporting everything. It does not
@@ -360,6 +378,18 @@ bool sweep(const Placed &mover, Vector2 from, const Placed &other, float *t,
             grown.half.y += mover.half.y;
         }
     }
+
+    // A ray that starts inside reports a hit at t = 0, which is the right
+    // answer for a RAYCAST and the wrong one for a sweep: rewinding to t = 0 is
+    // rewinding to where the object already was -- inside. An object that
+    // starts overlapping and leaves during the step was then put straight back
+    // every frame and never got out, which is what a bullet spawned at a muzzle
+    // inside the shooter, or anything a level editor placed in a wall, does.
+    // There is nothing for the sweep to say about a pair that was already
+    // touching: the overlap test and the MTV are what separate those, and they
+    // do it on the frame the overlap is real.
+    if (point_inside(grown, from)) return false;
+
     return ray_shape(from, mover.centre, grown, t, normal);
 }
 
@@ -386,20 +416,92 @@ struct Pair {
     int b = 0;
 };
 
+// FLAT, and that is the whole of what changed here: it used to be a
+// vector-of-vectors, `assign`ed to as many empty vectors as there were cells
+// every time it was built -- up to a million of them -- with a heap allocation
+// behind the first push_back into each non-empty one. 2 000 small objects
+// spread over a level clamp the cell to its floor and ask for a quarter of a
+// million buckets: six megabytes of assign and two thousand mallocs before any
+// collision work happens, every frame, and again for every single raycast.
+//
+// Two integer arrays and a counting sort do the same job with no per-cell
+// allocation: `starts` holds where each cell's run of items begins (cells + 1
+// entries, so a cell's run is starts[c]..starts[c+1]) and `items` holds the
+// entry indices, sorted by cell. Both live in the scratch below and are
+// cleared rather than freed, so a steady scene allocates nothing at all.
 struct Grid {
     float cell = 64;
     int min_x = 0;
     int min_y = 0;
     int cols = 1;
     int rows = 1;
-    std::vector<std::vector<int>> buckets;
+    std::vector<int> starts;
+    std::vector<int> items;
 
     int index_of(int cx, int cy) const { return (cy - min_y) * cols + (cx - min_x); }
+    int cell_count() const { return cols * rows; }
+    bool empty() const { return starts.empty(); }
+    void clear() {
+        starts.clear();
+        items.clear();
+        cols = 0;
+        rows = 0;
+    }
 };
 
 int cell_floor(float v, float cell) { return static_cast<int>(std::floor(v / cell)); }
 
-void build_grid(const std::vector<Entry> &entries, Grid *grid) {
+// THE broad-phase index: every object of one scene that has a shape, placed,
+// with the grid over them. One per world version, shared by the collision pass
+// and by every raycast in it -- which is what rmp/object.h has always said a
+// raycast is ("it walks the GRID, not the list ... nearly free precisely
+// BECAUSE the grid is already there for the collision pass") and what this file
+// did not do: it built a whole new one, from a fresh copy of the object list,
+// for every single ray. One ray over a 500-object scene cost as much as the
+// entire collision pass, and a platformer issues one per character per frame.
+//
+// What makes sharing safe is world_version(): the framework bumps it on every
+// spawn, every destroy, the collect, a scene release, and at the top of every
+// update and collision pass. So the index is rebuilt the moment anything the
+// framework can see has changed, and a raycast inside a _collision -- which the
+// header promises works -- sees the positions that pass resolved.
+//
+// What it cannot see is a position written by hand with no pass in between.
+// Such a ray answers from the start of the current pass, which is what a
+// physics engine with a stepped world does and is the price of the grid being
+// shared at all. Any spawn, destroy or frame boundary makes it current again.
+struct Index {
+    const Scene *scene = nullptr;
+    unsigned version = 0;
+    bool built = false;
+    std::vector<Entry> entries;
+    Grid grid;
+    std::vector<int> cursor; // the counting sort's write head per cell
+};
+Index g_index;
+
+// Scratch for the two walks over that index. Separate, because a raycast may be
+// issued from inside a _collision callback and the collision pass must not have
+// its own working memory rewritten underneath it.
+std::vector<Pair> g_pairs;
+std::vector<int> g_candidates;
+
+// Which cells an entry's box covers.
+struct CellSpan {
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+};
+
+CellSpan span_of(const Rectangle &box, float cell) {
+    return CellSpan{ cell_floor(box.x, cell), cell_floor(box.y, cell),
+                     cell_floor(box.x + box.width, cell),
+                     cell_floor(box.y + box.height, cell) };
+}
+
+void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> *cursor) {
+    grid->clear();
     if (entries.empty()) return;
 
     // The cell is the size of the average object, which is the choice that
@@ -423,34 +525,59 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid) {
         if (e.swept.y + e.swept.height > y1) y1 = e.swept.y + e.swept.height;
     }
 
-    grid->min_x = cell_floor(x0, grid->cell);
-    grid->min_y = cell_floor(y0, grid->cell);
-    grid->cols = cell_floor(x1, grid->cell) - grid->min_x + 1;
-    grid->rows = cell_floor(y1, grid->cell) - grid->min_y + 1;
+    // The grid is sized to the OBJECTS and not to the world. A level four
+    // thousand units across with two thousand four-unit objects in it wants a
+    // cell of 8 by the rule above, which is 250 000 cells for 2 000 things --
+    // and the cost of a cell is paid whether or not anything is in it. Doubling
+    // the cell quarters the count, so a few steps bring any world within a
+    // budget proportional to what is actually in it, and the broad phase stays
+    // a broad phase instead of falling back to the O(n^2) loop on exactly the
+    // scenes that need it most.
+    const auto budget = static_cast<long long>(entries.size()) * 4 + 1024;
+    long long total_cells = 0;
+    for (int step = 0; step < 64; step++) {
+        grid->min_x = cell_floor(x0, grid->cell);
+        grid->min_y = cell_floor(y0, grid->cell);
+        grid->cols = cell_floor(x1, grid->cell) - grid->min_x + 1;
+        grid->rows = cell_floor(y1, grid->cell) - grid->min_y + 1;
+        total_cells =
+            static_cast<long long>(grid->cols) * static_cast<long long>(grid->rows);
+        if (total_cells <= budget) break;
+        grid->cell *= 2;
+    }
 
-    // A world spread over a huge area with few objects in it would ask for a
-    // grid of millions of empty buckets. Past that point the O(n^2) loop is
-    // cheaper than the allocation, so the grid says so by staying empty and the
-    // caller falls back.
-    const long long total_cells =
-        static_cast<long long>(grid->cols) * static_cast<long long>(grid->rows);
-    if (total_cells > 1'000'000LL) {
-        grid->cols = 0;
-        grid->rows = 0;
+    // A NaN or an infinity in a position would survive every doubling above.
+    // The grid says so by staying empty and the caller falls back to the loop
+    // it is an optimisation of, which is correct however strange the input is.
+    if (total_cells <= 0 || total_cells > budget) {
+        grid->clear();
         return;
     }
 
-    grid->buckets.assign(static_cast<std::size_t>(total_cells), {});
+    // Counting sort, two passes. First how many entries each cell holds...
+    const auto cells = static_cast<std::size_t>(total_cells);
+    grid->starts.assign(cells + 1, 0);
+    long long total_items = 0;
+    for (const Entry &e : entries) {
+        const CellSpan s = span_of(e.swept, grid->cell);
+        for (int cy = s.y0; cy <= s.y1; cy++) {
+            for (int cx = s.x0; cx <= s.x1; cx++) {
+                grid->starts[static_cast<std::size_t>(grid->index_of(cx, cy)) + 1]++;
+                total_items++;
+            }
+        }
+    }
+    // ...then where each cell's run begins, and then the entries themselves.
+    for (std::size_t c = 0; c < cells; c++) grid->starts[c + 1] += grid->starts[c];
+    grid->items.assign(static_cast<std::size_t>(total_items), 0);
+    *cursor = grid->starts;
     for (std::size_t i = 0; i < entries.size(); i++) {
-        const Rectangle &box = entries[i].swept;
-        const int cx0 = cell_floor(box.x, grid->cell);
-        const int cy0 = cell_floor(box.y, grid->cell);
-        const int cx1 = cell_floor(box.x + box.width, grid->cell);
-        const int cy1 = cell_floor(box.y + box.height, grid->cell);
-        for (int cy = cy0; cy <= cy1; cy++) {
-            for (int cx = cx0; cx <= cx1; cx++) {
-                grid->buckets[static_cast<std::size_t>(grid->index_of(cx, cy))].push_back(
-                    static_cast<int>(i));
+        const CellSpan s = span_of(entries[i].swept, grid->cell);
+        for (int cy = s.y0; cy <= s.y1; cy++) {
+            for (int cx = s.x0; cx <= s.x1; cx++) {
+                const auto c = static_cast<std::size_t>(grid->index_of(cx, cy));
+                grid->items[static_cast<std::size_t>((*cursor)[c])] = static_cast<int>(i);
+                (*cursor)[c]++;
             }
         }
     }
@@ -467,18 +594,26 @@ void candidate_pairs(const std::vector<Entry> &entries, const Grid &grid,
     out->clear();
     const int n = static_cast<int>(entries.size());
 
-    if (grid.buckets.empty()) {
-        // No grid: either nothing to do, or a world too sparse to bucket. Every
-        // pair, which is correct and is what the grid is an optimisation of.
+    if (grid.empty()) {
+        // No grid: either nothing to do, or a world the cells could not
+        // describe. Every pair, which is correct and is what the grid is an
+        // optimisation of.
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) out->push_back(Pair{ i, j });
         }
     } else {
-        for (const std::vector<int> &bucket : grid.buckets) {
-            for (std::size_t i = 0; i < bucket.size(); i++) {
-                for (std::size_t j = i + 1; j < bucket.size(); j++) {
-                    const int a = bucket[i] < bucket[j] ? bucket[i] : bucket[j];
-                    const int b = bucket[i] < bucket[j] ? bucket[j] : bucket[i];
+        const int cells = grid.cell_count();
+        for (int c = 0; c < cells; c++) {
+            const auto from =
+                static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c)]);
+            const auto to =
+                static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c) + 1]);
+            for (std::size_t i = from; i < to; i++) {
+                for (std::size_t j = i + 1; j < to; j++) {
+                    const int a =
+                        grid.items[i] < grid.items[j] ? grid.items[i] : grid.items[j];
+                    const int b =
+                        grid.items[i] < grid.items[j] ? grid.items[j] : grid.items[i];
                     out->push_back(Pair{ a, b });
                 }
             }
@@ -514,10 +649,20 @@ struct Touch {
     Vector2 rewind_to{};
 };
 
-std::vector<Touch> detect(const Scene &scene, bool use_grid) {
-    std::vector<Touch> touching;
+// Build the index for one scene, or hand back the one that is already current.
+// Everything that walks the world in this file goes through here.
+const Index &index_for(const Scene &scene) {
+    if (g_index.built && g_index.scene == &scene &&
+        g_index.version == objects::detail::world_version()) {
+        return g_index;
+    }
 
-    std::vector<Entry> entries;
+    g_index.scene = &scene;
+    g_index.version = objects::detail::world_version();
+    g_index.built = true;
+
+    std::vector<Entry> &entries = g_index.entries;
+    entries.clear();
     for (Object *object : objects::detail::live_objects(scene)) {
         Entry e;
         e.object = object;
@@ -548,13 +693,21 @@ std::vector<Touch> detect(const Scene &scene, bool use_grid) {
         }
         entries.push_back(e);
     }
+
+    build_grid(entries, &g_index.grid, &g_index.cursor);
+    return g_index;
+}
+
+std::vector<Touch> detect(const Scene &scene, bool use_grid) {
+    std::vector<Touch> touching;
+
+    const std::vector<Entry> &entries = index_for(scene).entries;
     if (entries.size() < 2) return touching;
 
-    std::vector<Pair> pairs;
+    std::vector<Pair> &pairs = g_pairs;
+    pairs.clear();
     if (use_grid) {
-        Grid grid;
-        build_grid(entries, &grid);
-        candidate_pairs(entries, grid, &pairs);
+        candidate_pairs(entries, g_index.grid, &pairs);
     } else {
         const int n = static_cast<int>(entries.size());
         for (int i = 0; i < n; i++) {
@@ -628,14 +781,30 @@ Rectangle Object::world_collider() const {
 namespace objects::detail {
 
 void collide(Scene &scene) {
+    // Every object of this scene has just been integrated, one at a time, so
+    // whatever the index was built from -- including a ground-check raycast
+    // issued halfway through that pass -- is a snapshot of the world partway
+    // through it. The collision pass is the one thing that must see where
+    // everything actually ended up, so it starts by saying the world moved.
+    bump_world_version();
+
     const std::vector<Touch> touching = detect(scene, true);
 
     // Rewinds first: an object caught by the swept test is put back where it
     // met the other one, and then separation works from a sane position.
+    //
+    // ONLY when both are solid, and that is the same rule the separation below
+    // follows because it is the same kind of act: a rewind RESOLVES a contact,
+    // and `solid` is the field that says whether a contact resolves. Applied to
+    // a pair that is not solid it pins the mover at the thing it was passing --
+    // a bullet stopped dead by a coin, a projectile parked inside a trigger
+    // dealing damage sixty times a second. The notification below still
+    // happens, which is the whole point of the swept test for a trigger: you
+    // are told it went through, and it goes through.
     for (const Touch &touch : touching) {
-        if (touch.rewind != nullptr && touch.rewind->alive()) {
-            touch.rewind->position = touch.rewind_to;
-        }
+        if (touch.rewind == nullptr || !touch.rewind->alive()) continue;
+        if (!touch.a->solid || !touch.b->solid) continue;
+        touch.rewind->position = touch.rewind_to;
     }
 
     // Then separation, for the pairs that are both solid.
@@ -714,6 +883,14 @@ void pointer(Scene &scene) {
     const Vector2 at = rmp::input::pointer_screen();
 
     if (rmp::input::pointer_pressed()) {
+        // A new press holds nothing until it finds something, and clearing it
+        // HERE rather than only on release is what makes that true. A release
+        // can go missing -- the window loses focus mid-drag, the platform drops
+        // the up event, the UI takes the pointer for exactly that frame -- and
+        // the old capture then survived a press over empty space and fired
+        // on_click on the next release, on an object nobody had pressed.
+        g_captured = Handle<Object>();
+
         // Topmost first: the last thing drawn is the first thing clicked, which
         // is the order a player sees. draw_order() is layer then creation, so
         // walking it backwards is exactly that.
@@ -779,24 +956,22 @@ namespace {
 int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
     if (max <= 0) return 0;
 
-    std::vector<Entry> entries;
-    for (Object *object : objects::detail::live_objects(scene)) {
-        if (object == query.ignore) continue;
-        if ((query.mask & object->collision_layer) == 0) continue;
-        Entry e;
-        e.object = object;
-        e.shape = placed_of(*object);
-        if (e.shape.kind == ShapeKind::NONE) continue;
-        e.swept = aabb_of(e.shape);
-        entries.push_back(e);
-    }
+    // The shared index, built at most once per world version -- not a private
+    // copy of the world rebuilt per ray, which is what this used to do and what
+    // made one ray as expensive as the entire collision pass.
+    //
+    // `ignore`, the mask and solid_only are applied to the CANDIDATES rather
+    // than to what goes in: the index has to serve every query, and a filter
+    // baked into it would be one index per caller. The grid's boxes are the
+    // swept ones, which only ever makes a candidate list longer.
+    const Index &index = index_for(scene);
+    const std::vector<Entry> &entries = index.entries;
     if (entries.empty()) return 0;
+    const Grid &grid = index.grid;
 
-    Grid grid;
-    build_grid(entries, &grid);
-
-    std::vector<int> candidates;
-    if (grid.buckets.empty()) {
+    std::vector<int> &candidates = g_candidates;
+    candidates.clear();
+    if (grid.empty()) {
         candidates.reserve(entries.size());
         for (std::size_t i = 0; i < entries.size(); i++) {
             candidates.push_back(static_cast<int>(i));
@@ -843,9 +1018,11 @@ int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
         for (int step = 0; step <= limit; step++) {
             if (cx >= grid.min_x && cy >= grid.min_y && cx < grid.min_x + grid.cols &&
                 cy < grid.min_y + grid.rows) {
-                const std::vector<int> &bucket =
-                    grid.buckets[static_cast<std::size_t>(grid.index_of(cx, cy))];
-                candidates.insert(candidates.end(), bucket.begin(), bucket.end());
+                const auto c = static_cast<std::size_t>(grid.index_of(cx, cy));
+                candidates.insert(
+                    candidates.end(),
+                    grid.items.begin() + static_cast<std::ptrdiff_t>(grid.starts[c]),
+                    grid.items.begin() + static_cast<std::ptrdiff_t>(grid.starts[c + 1]));
             }
             if (cx == cx_end && cy == cy_end) break;
             if (t_max_x < t_max_y) {
@@ -877,6 +1054,14 @@ int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
     std::vector<Ordered> hits;
     for (int i : candidates) {
         const Entry &e = entries[static_cast<std::size_t>(i)];
+        const Object *object = e.object;
+        if (object == query.ignore) continue;
+        if ((query.mask & object->collision_layer) == 0) continue;
+        // solid_only is dropped here rather than after the hit: the caller
+        // wants the nearest SOLID thing, so a trigger in front of the floor
+        // must not be the answer -- and must not hide the floor behind it
+        // either, which is what filtering a single-hit result would do.
+        if (query.solid_only && !object->solid) continue;
         float t = 0;
         Vector2 normal{};
         if (!ray_shape(query.from, query.to, e.shape, &t, &normal)) continue;
