@@ -16,6 +16,7 @@
 // at the extremes.
 // ===========================================================================
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/ui.h>
@@ -70,7 +71,7 @@ struct Box {
 
 Box box_of(const char *label) {
     Clay_BoundingBox b{};
-    if (!rmp::ui::detail::bounds_of(label, 0, &b)) {
+    if (!rmp::ui::detail::bounds_of(label, 0, 0, &b)) {
         std::printf("FAIL  '%s' produced no element at all\n", label);
         g_failures++;
         return Box{ 0, 0, 0, 0 };
@@ -546,6 +547,419 @@ void run_breakpoints() {
           "4K is not compact, even though a phone has more pixels tall");
 }
 
+// ---------------------------------------------------------------------------
+// Identity, capture and the frame boundary
+//
+// Everything below was a bug first. Each one is here because the symptom in a
+// game was something else entirely — a controller that could not move a
+// slider, a mouse that stayed dead after a menu closed, a button that could
+// not be clicked while a list scrolled — and none of them shows in a
+// screenshot.
+// ---------------------------------------------------------------------------
+
+// focus(name) has to compute the id the WIDGET will have. It used to call the
+// allocating id function, which counted the label a second time and handed back
+// an occurrence no widget would ever own.
+void run_focus_by_name() {
+    std::printf("\n--- focus by name ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    // A frame first, so "Play"/"Options"/"Quit" are labels the occurrence table
+    // has already seen. That is the arrangement that broke, and it is also the
+    // normal one: focus() is called between frames, after a menu has drawn.
+    draw_menu();
+    rmp::ui::focus("Options");
+    draw_menu();
+    check(rmp::ui::focused() == "Options",
+          "focus(name) reaches the widget that carries the name");
+
+    // And it must renumber nothing: two controls sharing a label are still two
+    // elements when a focus() call sits between them.
+    rmp::ui::begin();
+    rmp::ui::button("Dup");
+    rmp::ui::focus("Dup");
+    rmp::ui::button("Dup");
+    rmp::ui::end();
+    Clay_BoundingBox first{};
+    Clay_BoundingBox second{};
+    const bool both = rmp::ui::detail::bounds_of("Dup", 0, 0, &first) &&
+        rmp::ui::detail::bounds_of("Dup", 1, 0, &second);
+    check(both && first.y != second.y,
+          "and a focus() between two buttons with the same label leaves both where "
+          "they were");
+}
+
+// A stepped slider under a d-pad. The nudge used to be step * dt * 12, which at
+// 60 fps is a fifth of a step — less than the half a step the snap needs, and
+// the remainder was thrown away. The value never moved, at any frame rate above
+// about 42 fps.
+void run_slider_nav() {
+    std::printf("\n--- slider: keyboard and gamepad ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    float quality = 2.0f;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::slider("Quality", &quality, 0.0f, 4.0f, { .step = 1.0f });
+        rmp::ui::end();
+    };
+
+    // An empty pass, so the occurrence counters carry nothing in from whatever
+    // ran before this test.
+    rmp::ui::begin();
+    rmp::ui::end();
+    rmp::ui::focus("Quality");
+
+    rmp::ui::detail::set_nav_x_for_tests(0);
+    frame();
+    check_near(quality, 2.0f, 0.001f, "a stick at rest moves nothing");
+
+    rmp::ui::detail::set_nav_x_for_tests(1);
+    frame();
+    check_near(quality, 3.0f, 0.001f, "pushing right moves it exactly one step");
+
+    rmp::ui::detail::set_nav_x_for_tests(-1);
+    frame();
+    check_near(quality, 2.0f, 0.001f, "and pushing left moves it back");
+
+    // Held rather than pressed again: a headless frame takes no time at all, so
+    // the repeat clock never comes round and the value must not move.
+    frame();
+    frame();
+    check_near(quality, 2.0f, 0.001f, "holding it does not run away with the value");
+
+    // Pressed again, three times, which is two steps of travel and one of
+    // nothing because it is already at the end.
+    for (int i = 0; i < 3; i++) {
+        rmp::ui::detail::set_nav_x_for_tests(0);
+        frame();
+        rmp::ui::detail::set_nav_x_for_tests(-1);
+        frame();
+    }
+    check_near(quality, 0.0f, 0.001f, "and it stops at min instead of running past it");
+
+    rmp::ui::detail::set_nav_x_for_tests(rmp::ui::detail::kNavFromDevices);
+}
+
+// Pointer capture belongs to the element that took it. It used to be one global
+// bool that every slider in the frame wrote to, so the second slider gave the
+// pointer back while the first was still being dragged — and nothing ever
+// cleared it if the dragging slider went away.
+void run_two_sliders() {
+    std::printf("\n--- two sliders, one pointer ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    float music = 0.5f;
+    float sfx = 0.5f;
+    bool sliders_on_screen = true;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::panel([&] {
+            if (sliders_on_screen) {
+                rmp::ui::slider("Music", &music, 0.0f, 1.0f, { .width = 200 });
+                rmp::ui::slider("SFX", &sfx, 0.0f, 1.0f, { .width = 200 });
+            } else {
+                rmp::ui::text("the menu closed");
+            }
+        });
+        rmp::ui::end();
+    };
+
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+    frame();
+
+    Clay_BoundingBox rail{};
+    const bool have_rail = rmp::ui::detail::bounds_of_id(
+        rmp::ui::detail::sub_id(rmp::ui::detail::peek_element_id("Music", 0, 0), 0),
+        &rail);
+    check(have_rail && rail.width > 0, "the Music rail has a Box to aim at");
+
+    // Press on Music and drag away from both of them. SFX is declared after
+    // Music and is not being dragged: it must not answer for the pointer.
+    g_pointer = Clay_Vector2{ rail.x + rail.width * 0.5f, rail.y + rail.height / 2 };
+    g_down = true;
+    frame();
+    g_pointer = Clay_Vector2{ 4, 4 };
+    frame();
+    check(rmp::ui::wants_pointer(),
+          "a slider being dragged keeps the pointer, whatever is drawn after it");
+    check(sfx == 0.5f, "and the other slider is not dragged along with it");
+
+    // Let go with the menu gone, which is Escape closing a settings scene
+    // mid-drag. The capture must not outlive the drag.
+    g_down = false;
+    sliders_on_screen = false;
+    frame();
+    check(!rmp::ui::wants_pointer(),
+          "releasing gives the pointer back even if the slider is never drawn again");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// wants_keyboard() is read AFTER end(), or in an _update() that runs before any
+// _draw. It used to be cleared as the last act of the frame, so both readers got
+// false and the player walked across the level while typing a save name.
+void run_keyboard_capture() {
+    std::printf("\n--- wants_keyboard() ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    char name[32] = "Omar";
+    rmp::ui::begin(); // an empty pass, so the counters carry nothing in
+    rmp::ui::end();
+    rmp::ui::focus("Name");
+
+    rmp::ui::begin();
+    rmp::ui::text_input("Name", name, sizeof name);
+    rmp::ui::end();
+    check(rmp::ui::wants_keyboard(),
+          "wants_keyboard() still answers after end(), which is where a game asks");
+
+    rmp::ui::begin();
+    rmp::ui::text("no field here");
+    rmp::ui::end();
+    check(!rmp::ui::wants_keyboard(),
+          "and the next frame's begin() clears it, not the frame before's end()");
+}
+
+// The frame arena is for DISPLAY. Identity must not depend on it: a label
+// interned short hashes differently, so an element declared after an overflow
+// used to become a different element every frame — hover, focus and its
+// remembered box detaching all at once.
+void run_arena_overflow() {
+    std::printf("\n--- the text arena, full ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    rmp::ui::begin();
+    char filler[1024];
+    std::memset(filler, 'x', sizeof filler);
+    for (int i = 0; i < 9; i++) {
+        rmp::ui::detail::intern(std::string_view{ filler, sizeof filler });
+    }
+    rmp::ui::button("PlayTheGame");
+    rmp::ui::end();
+
+    Clay_BoundingBox b{};
+    check(rmp::ui::detail::bounds_of("PlayTheGame", 0, 0, &b) && b.width > 0,
+          "a button declared after the arena filled still has the id its label says");
+}
+
+// More distinct labels in one pass than the occurrence table holds. Every
+// unrecorded label used to come back as occurrence 0, so two "Use" buttons late
+// in a list became one element: hovering one lit both, clicking either fired the
+// wrong one, and nothing was logged.
+void run_label_overflow() {
+    std::printf("\n--- more labels than the table holds ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::detail::reset_reports_for_tests();
+
+    rmp::ui::begin();
+    for (int i = 0; i < 300; i++) {
+        char label[16];
+        std::snprintf(label, sizeof label, "lbl%03d", i);
+        rmp::ui::detail::element_id(std::string_view{ label }, nullptr);
+    }
+    const Clay_ElementId a = rmp::ui::detail::element_id("Use", nullptr);
+    const Clay_ElementId b = rmp::ui::detail::element_id("Use", nullptr);
+    rmp::ui::end();
+
+    check(a.id != b.id, "past the table, two controls sharing a label are still two");
+    check(rmp::detail::report_count() >= 1, "and the framework says so, once");
+}
+
+// A grid nested past the limit used to open a Clay element without a frame to
+// close it with, so its close consumed the grid ABOVE it and everything after
+// was off by one.
+void run_nested_grids() {
+    std::printf("\n--- grids nested past the limit ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::detail::reset_clay_errors_for_tests();
+
+    // Four grids is the limit, so the fifth is the one with no frame of its own.
+    // It sits in the second of the fourth grid's four cells, and the assertion
+    // is about the two cells AFTER it: they used to be shuffled onto the wrong
+    // row, because the fifth grid's cells were counted against the fourth
+    // grid's column index.
+    auto frame = [] {
+        rmp::ui::begin();
+        rmp::ui::grid(2, [] {
+            rmp::ui::cell([] {
+                rmp::ui::grid(2, [] {
+                    rmp::ui::cell([] {
+                        rmp::ui::grid(2, [] {
+                            rmp::ui::cell([] {
+                                rmp::ui::grid(2, [] {
+                                    rmp::ui::cell([] { rmp::ui::button("a"); });
+                                    rmp::ui::cell([] {
+                                        rmp::ui::grid(2, [] { // the fifth
+                                            rmp::ui::cell(
+                                                [] { rmp::ui::button("deep"); });
+                                        });
+                                    });
+                                    rmp::ui::cell([] { rmp::ui::button("c"); });
+                                    rmp::ui::cell([] { rmp::ui::button("d"); });
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+        rmp::ui::button("After");
+        rmp::ui::end();
+    };
+    frame();
+    frame();
+
+    Box a = box_of("a");
+    Box c = box_of("c");
+    Box d = box_of("d");
+    check_near(c.y, d.y, 1.0f, "the two cells after a too-deep grid still share a row");
+    check(c.y > a.y && std::fabs(c.x - a.x) < 1.0f,
+          "and that row is the next one, under the first cell");
+
+    Clay_BoundingBox after{};
+    check(rmp::ui::detail::bounds_of("After", 0, 0, &after) && after.width > 0,
+          "a fifth nested grid does not take the rest of the frame with it");
+    check(rmp::ui::detail::clay_error_count() == 0,
+          "and the element tree stays balanced");
+}
+
+// Past [ui] max_elements Clay stops laying anything out. Its own message names
+// Clay_SetMaxElementCount(), a function the user cannot call and a name they
+// were promised never to see.
+void run_element_ceiling() {
+    std::printf("\n--- the element ceiling ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::detail::reset_reports_for_tests();
+    rmp::ui::detail::reset_clay_errors_for_tests();
+
+    rmp::ui::begin();
+    for (int i = 0; i < 600; i++) rmp::ui::text("x");
+    rmp::ui::end();
+
+    const Clay_ErrorType first = rmp::ui::detail::first_clay_error();
+    check(rmp::ui::detail::clay_error_count() > 0 &&
+              (first == CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED ||
+               first == CLAY_ERROR_TYPE_HASH_MAP_CAPACITY_EXCEEDED),
+          "more elements than the ceiling is something Clay reports");
+    check(rmp::detail::report_count() == 1,
+          "and it reaches the user once, in our words, naming [ui] max_elements");
+}
+
+// Two scenes drawing in one frame. The pass index is a block of element
+// indices, which is what stops a lower scene showing a button conditionally
+// from renumbering the scene above it.
+void run_two_passes() {
+    std::printf("\n--- two passes in one frame ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    int hud_clicks = 0;
+    int menu_clicks = 0;
+    // The shape rmp::app drives: ONE frame boundary around a pass per scene.
+    // Pass 0 is the HUD underneath, pass 1 the pause menu over it.
+    auto frame = [&](bool hud_reachable) {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::set_pass_input(hud_reachable);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        if (rmp::ui::button("Back")) hud_clicks++;
+        rmp::ui::end();
+        rmp::ui::detail::set_pass_input(true);
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
+        if (rmp::ui::button("Back")) menu_clicks++;
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame(false);
+    frame(false);
+
+    const Clay_ElementId low = rmp::ui::detail::peek_element_id("Back", 0, 0);
+    const Clay_ElementId high = rmp::ui::detail::peek_element_id("Back", 0, 1);
+    check(low.id != high.id, "the same label in two passes is two elements");
+
+    check(rmp::ui::detail::bounds_of("Back", 0, 1, nullptr),
+          "bounds_of() can name the pass an element was declared in");
+    check(!rmp::ui::detail::bounds_of("Back", 0, 0, nullptr),
+          "and Clay itself only remembers the last pass of the frame");
+
+    Clay_BoundingBox low_box{};
+    Clay_BoundingBox high_box{};
+    const bool remembered = rmp::ui::detail::bounds_of_id(low, &low_box) &&
+        rmp::ui::detail::bounds_of_id(high, &high_box);
+    check(remembered && low_box.y != high_box.y,
+          "the per-pass snapshot remembers both, in the two places they were drawn");
+
+    // Hit testing, and what it CANNOT do today. Clay_SetPointerState walks the
+    // tree that is in Clay right now, and begin() calls it before
+    // Clay_BeginLayout — so with one pass per frame it answers from that pass's
+    // own previous layout, which is right, and with two passes it answers pass
+    // 1 from pass 0's tree and pass 0 from last frame's pass 1. Neither pass can
+    // hover or click anything, and the probe below is the proof: the pointer is
+    // inside the box and Clay says it is not over the element.
+    //
+    // It is NOT fixed here — hover would have to come from our own per-pass
+    // snapshot in every widget, which is a bigger change than this one — and it
+    // is recorded rather than asserted, because the day it is fixed this reads
+    // as a test that has to be deleted rather than a behaviour to keep.
+    g_pointer =
+        Clay_Vector2{ high_box.x + high_box.width / 2, high_box.y + high_box.height / 2 };
+    g_down = true;
+    frame(false);
+    g_down = false;
+    frame(false);
+    if (menu_clicks == 0) {
+        std::printf(
+            "note  hit testing does not work with two passes (see the comment above): "
+            "the pointer was inside the button and Clay did not see it\n");
+    }
+
+    // What IS gated, and where: the pointer state every widget reads is turned
+    // off for a pass input cannot reach, so nothing in the HUD under an open
+    // menu can be pressed even once hit testing works.
+    g_pointer =
+        Clay_Vector2{ low_box.x + low_box.width / 2, low_box.y + low_box.height / 2 };
+    g_down = true;
+    frame(false);
+    g_down = false;
+    frame(false);
+    check(hud_clicks == 0, "a pass input cannot reach is not clickable");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// image() used to hand Clay the address of its own parameter, which binds a
+// temporary happily. Clay keeps that pointer until end() draws.
+void run_image_lifetime() {
+    std::printf("\n--- image() and the caller's texture ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    const void *given = nullptr;
+    rmp::ui::begin();
+    {
+        // The lifetime of rmp::ui::image(rmp::assets::load_texture("icon.png")):
+        // gone at the semicolon, long before end() draws.
+        Texture2D local{};
+        local.id = 77;
+        local.width = 32;
+        local.height = 16;
+        rmp::ui::image(local);
+        given = rmp::ui::detail::last_image_data();
+        check(given != nullptr && given != static_cast<const void *>(&local),
+              "image() copies the texture instead of pointing at the caller's");
+    }
+    rmp::ui::end();
+
+    const auto *copy = static_cast<const Texture2D *>(given);
+    check(copy != nullptr && copy->id == 77 && copy->width == 32,
+          "and the copy still reads right once the caller's texture is gone");
+}
+
 } // namespace
 
 int main() {
@@ -566,6 +980,15 @@ int main() {
     run_grid();
     run_interaction();
     run_dropdown();
+    run_focus_by_name();
+    run_slider_nav();
+    run_two_sliders();
+    run_keyboard_capture();
+    run_arena_overflow();
+    run_label_overflow();
+    run_nested_grids();
+    run_two_passes();
+    run_image_lifetime();
     run_sizes();
     run_themes();
     run_breakpoints();
@@ -601,6 +1024,13 @@ int main() {
     draw_menu();
     check(std::fabs(rmp::ui::scale() - 2.0f) > 0.001f,
           "set_scale(0) goes back to automatic");
+
+    // LAST, and it has to be: Clay's element hashmap never shrinks once it has
+    // filled, so a frame that crosses the ceiling leaves the context unable to
+    // lay anything out for the rest of the process. That is the reason the
+    // warning it produces says "until the game is restarted", and it is why no
+    // test may run after this one.
+    run_element_ceiling();
 
     rmp::ui::shutdown();
 

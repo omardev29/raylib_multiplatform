@@ -124,6 +124,22 @@ int16_t next_layer_z();
 // escape hatch when the UI is conditional.
 Clay_ElementId element_id(std::string_view label, const char *explicit_id);
 
+// The same id, WITHOUT allocating any of it: no occurrence bump, no interning,
+// nothing remembered. It answers "what id does the `occurrence`-th widget
+// labelled this, in this pass, have?" for code that wants to find an element it
+// did not declare.
+//
+// focus() is why this exists. It used to call element_id(), which is the
+// ALLOCATING one: focus("Play") registered "Play" as seen, so the real
+// button("Play") in the same pass came out as occurrence 1 and the two ids
+// could never match — the focus went to an element nothing owned, and every
+// later widget sharing the label was renumbered on the way.
+Clay_ElementId peek_element_id(std::string_view label, unsigned occurrence, int pass);
+
+// The first widget with that label in the pass being described. What focus(name)
+// means.
+Clay_ElementId peek_element_id(std::string_view label);
+
 // --- the frame, and the passes inside it -----------------------------------
 //
 // A FRAME is one turn of the game loop. A PASS is one begin()/end() pair, and
@@ -213,10 +229,23 @@ int nav_axis_x();
 // Someone is dragging, or the pointer is over something interactive. This is
 // what wants_pointer() answers with.
 void set_pointer_over_ui();
-void set_pointer_captured(bool captured);
+
+// A drag belongs to ONE element. It used to be a plain bool, so a slider drawn
+// after the one being dragged cleared the capture for everybody and the click
+// that was dragging Music also fired the player's weapon. Passing the id means
+// only the element that took the pointer can give it back.
+void set_pointer_captured(uint32_t id, bool captured);
 
 // A text field has the keyboard.
 void set_keyboard_captured(bool captured);
+
+// Both capture flags start empty here, and here only: at the FIRST begin() of a
+// frame. Not at the frame boundary — rmp::app marks that before the scenes
+// update, so a game asking wants_keyboard() in _update would read a flag that
+// had been cleared before anything could set it again, which is the exact
+// question the function exists to answer. They therefore hold last frame's
+// answer until this frame's UI has had its say.
+void begin_capture_frame();
 
 // Small persistent scratch per widget, keyed by element id — a dropdown's open
 // flag, a text field's caret. It is UI state, not application state, which is
@@ -261,9 +290,34 @@ void set_pointer_provider(PointerFn fn);
 void set_test_viewport(float width, float height);
 
 // The box an element ended up with in the last completed frame. `occurrence` is
-// 0 for the first element with that label, 1 for the second, and so on — the
-// same numbering element_id() assigns.
-bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *out);
+// 0 for the first element with that label, 1 for the second, and so on, and
+// `pass` is which begin()/end() pair described it — the same numbering
+// element_id() assigns. This asks Clay, which only remembers the LAST pass of
+// the frame; bounds_of_id() reads our own per-pass snapshot and remembers all
+// of them.
+bool bounds_of(std::string_view label, unsigned occurrence, int pass,
+               Clay_BoundingBox *out);
+
+// How many errors Clay has reported since the last reset, and the first one's
+// type — first, because what follows a capacity failure is its consequences. Clay reports through a handler rather than a return value, so this is
+// the only way a test can see that a frame produced a duplicate id or ran out
+// of elements.
+int clay_error_count();
+Clay_ErrorType first_clay_error();
+void reset_clay_errors_for_tests();
+
+// Keyboard and gamepad state come straight from raylib (tools/seam_check.sh
+// lists focus.cpp as debt for exactly that), and a headless run has neither —
+// so this is the only way to say what the d-pad is doing. kNavFromDevices puts
+// the devices back, which is every real run.
+constexpr int kNavFromDevices = -2;
+void set_nav_x_for_tests(int x);
+
+// The pointer the last image() handed Clay. Clay keeps it until end() draws, so
+// the rule worth proving is that it points into the frame arena and not at the
+// caller's Texture2D — which may have been a temporary that died at the
+// semicolon.
+const void *last_image_data();
 
 // The defaults, exposed so a test can put them back.
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,

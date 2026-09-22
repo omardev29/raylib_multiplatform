@@ -68,13 +68,23 @@ char g_text_arena[kArenaSize];
 int g_arena_used = 0;
 
 // Occurrence counters, so two buttons with the same label are two elements.
-constexpr int kMaxLabels = 128;
+// 256 of them is 2 KB and it is sized against the ceiling, not against taste:
+// every labelled widget costs at least one Clay element, and the cheapest of
+// them costs two, so a pass that could fill this table cannot fit under [ui]
+// max_elements in the first place. It used to be 128, which an inventory with
+// unique item names reaches while the frame is still perfectly legal -- and the
+// 129th label onwards silently shared occurrence 0 with every other one.
+constexpr int kMaxLabels = 256;
 struct LabelCount {
     uint32_t hash;
     uint16_t count;
 };
 LabelCount g_labels[kMaxLabels];
 int g_label_count = 0;
+// Labels that did not fit. They take indices from the TOP of the pass block,
+// counting down, so two elements sharing an unrecorded label are still two
+// elements. See element_id().
+int g_label_overflow = 0;
 int16_t g_layer_z = 0;
 
 // The frame, and the passes inside it. A frame is one turn of the game loop; a
@@ -120,8 +130,73 @@ PointerFn g_pointer = pointer_from_raylib;
 float g_test_width = 0.0f;
 float g_test_height = 0.0f;
 
+// Clay reports through a handler rather than a return value, so a test that
+// wants to know whether a frame produced a duplicate id or ran out of elements
+// has to be told from here.
+int g_clay_errors = 0;
+// The FIRST since the last reset, not the last: the ones that follow a capacity
+// failure are its consequences, and the first one is the one worth asserting on.
+Clay_ErrorType g_first_clay_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
+// Set by a capacity failure and cleared at the frame boundary. What Clay
+// reports after one of those is its consequence -- an unbalanced tree, because
+// its own CloseElement stops doing anything once the ceiling latches -- and
+// printing that too only sends the reader looking for a bug in their layout.
+bool g_clay_over_capacity = false;
+
+// One name per error, so RMP_REPORT_ONCE_KEYED gives each KIND of failure its
+// own line instead of one line for the first one that happens.
+const char *clay_error_name(Clay_ErrorType t) {
+    switch (t) {
+        case CLAY_ERROR_TYPE_TEXT_MEASUREMENT_FUNCTION_NOT_PROVIDED:
+            return "measure";
+        case CLAY_ERROR_TYPE_ARENA_CAPACITY_EXCEEDED:
+            return "arena";
+        case CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED:
+            return "elements";
+        case CLAY_ERROR_TYPE_TEXT_MEASUREMENT_CAPACITY_EXCEEDED:
+            return "text-cache";
+        case CLAY_ERROR_TYPE_DUPLICATE_ID:
+            return "duplicate-id";
+        case CLAY_ERROR_TYPE_FLOATING_CONTAINER_PARENT_NOT_FOUND:
+            return "floating";
+        case CLAY_ERROR_TYPE_PERCENTAGE_OVER_1:
+            return "percentage";
+        case CLAY_ERROR_TYPE_UNBALANCED_OPEN_CLOSE:
+            return "unbalanced";
+        case CLAY_ERROR_TYPE_HASH_MAP_CAPACITY_EXCEEDED:
+            return "hashmap";
+        case CLAY_ERROR_TYPE_INTERNAL_ERROR:
+            break;
+    }
+    return "internal";
+}
+
 void on_clay_error(Clay_ErrorData e) {
-    TraceLog(LOG_WARNING, "UI: clay: %.*s", e.errorText.length, e.errorText.chars);
+    g_clay_errors++;
+    if (g_clay_errors == 1) g_first_clay_error = e.errorType;
+
+    // The ceiling, translated. Clay's own text says to call
+    // Clay_SetMaxElementCount() with a higher value — a function the user
+    // cannot reach, naming neither the number nor the file it lives in. And it
+    // is worse than one bad frame: Clay's element hashmap never shrinks again
+    // once it has filled, so from here the interface lays out nothing at all
+    // until the game is restarted. That is worth saying in full, once.
+    if (e.errorType == CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED ||
+        e.errorType == CLAY_ERROR_TYPE_HASH_MAP_CAPACITY_EXCEEDED) {
+        g_clay_over_capacity = true;
+        RMP_REPORT_ONCE(
+            "UI: more than max_elements (%d) elements in one frame. The interface "
+            "will not lay out again until the game is restarted. Raise max_elements "
+            "in the [ui] section of raylib_multiplatform.toml, or draw less at once.",
+            APP_UI_MAX_ELEMENTS);
+        return;
+    }
+
+    // Everything else in Clay's own words, but once per kind rather than sixty
+    // times a second.
+    if (g_clay_over_capacity) return;
+    RMP_REPORT_ONCE_KEYED(clay_error_name(e.errorType), "UI: clay: %.*s",
+                          e.errorText.length, e.errorText.chars);
 }
 
 uint32_t fnv1a(std::string_view s) {
@@ -297,6 +372,7 @@ void remember_id(uint32_t id) {
 
 void reset_id_counters() {
     g_label_count = 0;
+    g_label_overflow = 0;
     g_layer_z = 0;
     g_pass_id_count = 0;
 }
@@ -308,6 +384,9 @@ void set_frame_self_marked(bool self) { g_frame_self_marked = self; }
 void begin_pass() {
     g_pass++;
     reset_id_counters();
+    // The first pass of the frame is where wants_pointer() and wants_keyboard()
+    // start again from nothing. See begin_capture_frame().
+    if (g_pass == 0) begin_capture_frame();
 }
 
 int current_pass() { return g_pass < 0 ? 0 : g_pass; }
@@ -348,6 +427,13 @@ namespace detail {
 // nobody else gets to open another. Preparing is not, because the UI may not
 // exist yet — see prepare_frame().
 void begin_frame() {
+    // Nobody drew any UI last frame, so the UI wants neither the pointer nor
+    // the keyboard. It is said here because otherwise there is nothing to say
+    // it: the flags are cleared by the first begin() of a frame, and a pause
+    // menu popping while the pointer sits over one of its buttons means there
+    // is no next begin() at all — and the game's mouse would stay dead.
+    if (g_pass < 0) begin_capture_frame();
+
     g_frame_marked = true;
     g_pass = -1;
     g_pass_input = true;
@@ -362,6 +448,7 @@ void begin_frame() {
 void prepare_frame() {
     if (g_frame_prepared || !started()) return;
     g_frame_prepared = true;
+    g_clay_over_capacity = false;
 
     // Swap the geometry buffers: what this frame writes, the next one reads.
     g_bounds_front = 1 - g_bounds_front;
@@ -411,20 +498,43 @@ float frame_time() { return test_mode() ? 0.0f : GetFrameTime(); }
 
 int16_t next_layer_z() { return ++g_layer_z; }
 
+// The hash, and nothing else: no occurrence bump, no interning, nothing
+// remembered. Both element_id() and everything that wants to FIND an element
+// go through here, so there is one place that knows how an id is built.
+Clay_ElementId peek_element_id(std::string_view label, unsigned occurrence, int pass) {
+    // WithIndex(…, 0) rather than Clay_GetElementId, so there is exactly one id
+    // scheme in the whole layer. Clay's two hashes disagree even at offset 0 —
+    // the offset is mixed in before the final avalanche — so using both would
+    // mean an element created one way could never be found the other way. That
+    // is precisely how the headless test failed to see a panel that was on
+    // screen.
+    Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
+    return Clay_GetElementIdWithIndex(
+        s, static_cast<uint32_t>(pass) * kIndicesPerPass + occurrence);
+}
+
+Clay_ElementId peek_element_id(std::string_view label) {
+    return peek_element_id(label, 0, current_pass());
+}
+
+// The id is hashed from the label the CALLER gave; the arena copy is only what
+// Clay may read back later when it draws. Those were the same string until the
+// arena filled up, and then they were not: a label interned short hashed
+// differently, so the element silently became a different element and its
+// hover, its focus and its remembered box all detached at the same time. Near
+// full it changed every frame as a list scrolled; completely full every id
+// became the hash of the empty string and Clay reported duplicates.
+Clay_ElementId finish_id(std::string_view label, unsigned occurrence) {
+    Clay_ElementId id = peek_element_id(label, occurrence, current_pass());
+    id.stringId = intern(label);
+    remember_id(id.id);
+    return id;
+}
+
 Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
-    if (explicit_id != nullptr) {
-        // WithIndex(…, 0) rather than Clay_GetElementId, so there is exactly one
-        // id scheme in the whole layer. Clay's two hashes disagree even at
-        // offset 0 — the offset is mixed in before the final avalanche — so
-        // using both would mean an element created one way could never be found
-        // the other way. That is precisely how the headless test failed to see
-        // a panel that was on screen.
-        Clay_ElementId id = Clay_GetElementIdWithIndex(
-            intern(std::string_view{ explicit_id }),
-            static_cast<uint32_t>(current_pass()) * kIndicesPerPass);
-        remember_id(id.id);
-        return id;
-    }
+    // An explicit id is the escape hatch, and it says "this element, whatever
+    // else is on screen" — so it never counts as an occurrence of anything.
+    if (explicit_id != nullptr) return finish_id(std::string_view{ explicit_id }, 0);
 
     uint32_t h = fnv1a(label);
     uint16_t occurrence = 0;
@@ -439,17 +549,30 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
         occurrence = ++g_labels[slot].count;
     } else if (g_label_count < kMaxLabels) {
         g_labels[g_label_count++] = LabelCount{ h, 0 };
+    } else {
+        // The table is full. Leaving these at occurrence 0 is what made two
+        // "Use" buttons late in a long list ONE element — hover one, both
+        // light up; click either, the wrong one fires — which is exactly the
+        // collision the counter exists to prevent. They take indices from the
+        // top of the pass block instead, counting down: deterministic, so an
+        // id is still the same id next frame, and it can only meet the
+        // occurrences coming up from 0 in a pass of four thousand widgets,
+        // which cannot fit under [ui] max_elements.
+        RMP_REPORT_ONCE("UI: more than %d distinct labels in one pass; the ones past "
+                        "that keep working but are numbered from the other end. Give "
+                        "the repeated ones an explicit id if anything looks swapped.",
+                        kMaxLabels);
+        if (g_label_overflow < static_cast<int>(kIndicesPerPass) / 2) g_label_overflow++;
+        return finish_id(label,
+                         static_cast<unsigned>(kIndicesPerPass) -
+                             static_cast<unsigned>(g_label_overflow));
     }
     // Same label twice in one pass => different index => different element, so
     // hovering one does not light up the other. The pass offset is what keeps
     // that true ACROSS scenes: a menu's "Back" and a pause overlay's "Back" are
     // in different blocks, so one of them appearing or not cannot renumber the
     // other.
-    const uint32_t index =
-        static_cast<uint32_t>(current_pass()) * kIndicesPerPass + occurrence;
-    Clay_ElementId id = Clay_GetElementIdWithIndex(intern(label), index);
-    remember_id(id.id);
-    return id;
+    return finish_id(label, occurrence);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,15 +615,20 @@ Clay_Dimensions viewport() {
                             static_cast<float>(GetScreenHeight()) };
 }
 
-bool bounds_of(std::string_view label, unsigned occurrence, Clay_BoundingBox *out) {
-    // Hashing only: no interning, so this does not disturb the frame arena or
-    // the occurrence counters.
-    Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
-    Clay_ElementData data =
-        Clay_GetElementData(Clay_GetElementIdWithIndex(s, occurrence));
+bool bounds_of(std::string_view label, unsigned occurrence, int pass,
+               Clay_BoundingBox *out) {
+    Clay_ElementData data = Clay_GetElementData(peek_element_id(label, occurrence, pass));
     if (!data.found) return false;
     if (out != nullptr) *out = data.boundingBox;
     return true;
+}
+
+int clay_error_count() { return g_clay_errors; }
+Clay_ErrorType first_clay_error() { return g_first_clay_error; }
+
+void reset_clay_errors_for_tests() {
+    g_clay_errors = 0;
+    g_first_clay_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
 }
 
 void read_pointer(Clay_Vector2 *position, bool *down) { g_pointer(position, down); }
