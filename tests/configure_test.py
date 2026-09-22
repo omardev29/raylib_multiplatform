@@ -685,6 +685,35 @@ class ConfigureGeneratorsTest(unittest.TestCase):
         spec = yaml.safe_load((Path(self._tmp.name) / "ios" / "project.yml").read_text())
         self.assertIn(nasty, yaml.dump(spec))
 
+    def test_the_ios_app_declares_a_launch_screen(self):
+        """An iOS app without one runs in compatibility mode: a legacy
+        resolution, letterboxed, so every scale the game derives from the
+        viewport is derived from the wrong viewport -- and App Review has
+        rejected submissions without a launch screen since April 2020.
+
+        `UILaunchStoryboardName: ""` is not "no opinion", it is an app stating
+        it has none, which is the case that gets rejected. Xcode 14+ generates
+        a plain launch screen from UILaunchScreen_Generation, so there is no
+        storyboard file to ship and nothing for the generator to keep in sync.
+        """
+        with quiet():
+            cfgmod.gen_ios_project(base_config())
+        text = (Path(self._tmp.name) / "ios" / "project.yml").read_text()
+
+        self.assertIn("INFOPLIST_KEY_UILaunchScreen_Generation: YES", text)
+        self.assertNotRegex(text, r'INFOPLIST_KEY_UILaunchStoryboardName:\s*""',
+                            "an empty launch storyboard name is an app declaring it "
+                            "has no launch screen, which is the App Store rejection")
+
+        try:
+            import yaml
+        except ImportError:
+            return   # The raw assertions above are the gate; the parse is a bonus
+        spec = yaml.safe_load(text)
+        settings = spec["targets"][base_config()["project"]["name"]]["settings"]["base"]
+        self.assertTrue(settings["INFOPLIST_KEY_UILaunchScreen_Generation"])
+        self.assertNotIn("INFOPLIST_KEY_UILaunchStoryboardName", settings)
+
     def test_gradle_properties_are_key_equals_value(self):
         with quiet():
             cfgmod.gen_gradle_properties(base_config(), ["android"])
@@ -1754,3 +1783,229 @@ class VendoredHeaderPathsTest(unittest.TestCase):
                 self.assertNotIn("-Ithirdparty/cute_tiled", text,
                                  path + " has grown its own include list again; "
                                  "examples are CMake targets, build them that way")
+
+
+# ---------------------------------------------------------------------------
+# The Android JNI boundary
+# ---------------------------------------------------------------------------
+
+RAYMOB_C = sorted((REPO / "thirdparty" / "raymob").glob("*.c"))
+PROGUARD = REPO / "raymob" / "app" / "proguard-rules.pro"
+
+# A JNI lookup is a STRING, on both sides of the boundary, and nothing checks
+# it at build time. That is what makes the two gates below worth having.
+JNI_LOOKUP = re.compile(r"\bGet(?:Static)?(?:Method|Field)ID\s*\(")
+JNI_CALL = re.compile(r"\bCall(?:Static|Nonvirtual)?[A-Za-z]*Method\s*\(")
+
+
+def code_lines(text, count):
+    """The first `count` lines of `text` that are neither blank nor comment.
+
+    Counting raw lines would make the gate fail the day somebody writes a
+    longer comment above the check, which is the wrong thing to punish.
+    """
+    out = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*")):
+            continue
+        out.append(stripped)
+        if len(out) == count:
+            break
+    return out
+
+
+def proguard_keeps(text, cls):
+    """Does this ProGuard text keep `cls` AND all of its members?
+
+    `-keep class X { public <methods>; }` keeps methods and NOT fields, which
+    is the hole this exists to find, so only an all-members spec counts.
+    """
+    for pattern, members in re.findall(r"-keep\s+class\s+([\w.$*]+)\s*\{([^}]*)\}", text):
+        if members.strip() not in ("*;", "*"):
+            continue
+        rx = re.escape(pattern).replace(r"\*\*", ".*").replace(r"\*", "[^.]*")
+        if re.fullmatch(rx, cls):
+            return True
+    return False
+
+
+class AndroidProguardKeepTest(unittest.TestCase):
+    """R8 renames what it is not told to keep, and JNI looks up by name.
+
+    `minifyEnabled true` is on for release (raymob/app/build.gradle) and the
+    Play upload is `./gradlew bundleRelease`. A renamed field is not a build
+    error: it is GetFieldID returning NULL with a NoSuchFieldError pending, and
+    ART killing the process at the next JNI call. Debug is not minified, so the
+    emulator smoke test in CI cannot see any of it -- this test is the only
+    thing between a new JNI lookup and a crash that happens only on Play.
+    """
+
+    def jni_classes(self):
+        """Every com.raylib.raymob class the native side names, plus every one
+        that exists. Both halves matter: the C names `Features`, which has no
+        .java file, and the Java side has AdmobBridge, which the C reaches
+        through NativeLoader rather than by name."""
+        found = set()
+        for path in RAYMOB_C:
+            found.update(re.findall(r"com/raylib/raymob/(\w+)", path.read_text()))
+        for path in (REPO / "raymob" / "app" / "src").rglob("java/com/raylib/raymob/*.java"):
+            found.add(path.stem)
+        return sorted("com.raylib.raymob." + name for name in found)
+
+    def test_the_class_list_is_not_empty(self):
+        """If the scrape ever finds nothing, the test below passes vacuously."""
+        classes = self.jni_classes()
+        for expected in ("NativeLoader", "DisplayManager", "SoftKeyboard"):
+            self.assertIn("com.raylib.raymob." + expected, classes)
+        self.assertGreaterEqual(len(classes), 4, classes)
+
+    def test_every_class_the_jni_names_is_kept_with_all_its_members(self):
+        text = PROGUARD.read_text()
+        for cls in self.jni_classes():
+            with self.subTest(cls=cls):
+                self.assertTrue(proguard_keeps(text, cls),
+                                cls + " has no keep-all rule in proguard-rules.pro -- "
+                                "R8 will rename its fields and methods in the release "
+                                "AAB and the JNI lookups for them return NULL")
+
+    def test_the_rule_this_file_used_to_carry_would_not_pass(self):
+        """Proof that the gate is red for the thing it was written for.
+
+        This is the rule that shipped: NativeLoader's public METHODS, which
+        left the `initCallback`, `displayManager` and `softKeyboard` fields and
+        the other two classes to be renamed.
+        """
+        old = "-keep class com.raylib.raymob.NativeLoader {\n    public <methods>;\n}"
+        self.assertFalse(proguard_keeps(old, "com.raylib.raymob.NativeLoader"))
+        self.assertFalse(proguard_keeps(old, "com.raylib.raymob.DisplayManager"))
+        # And the rule that replaced it does cover them.
+        new = "-keep class com.raylib.raymob.** { *; }"
+        self.assertTrue(proguard_keeps(new, "com.raylib.raymob.NativeLoader"))
+        self.assertTrue(proguard_keeps(new, "com.raylib.raymob.DisplayManager"))
+
+    def test_the_package_is_spelled_the_way_gradle_rewrites_it(self):
+        """build.gradle does a literal substitution of `com.raylib.raymob` in
+        this file for the real application id before a build, and back after.
+        A rule spelled any other way silently stops applying."""
+        for line in PROGUARD.read_text().splitlines():
+            if line.strip().startswith("-keep") and "raymob" in line:
+                self.assertIn("com.raylib.raymob", line,
+                              "a keep rule naming the package must spell it "
+                              "com.raylib.raymob, which is what build.gradle rewrites")
+
+    def test_native_methods_are_kept_without_relying_on_the_default_file(self):
+        """The four onApp* callbacks are registered from C with RegisterNatives
+        and are private, so nothing in Java references them."""
+        self.assertRegex(PROGUARD.read_text(),
+                         r"-keepclasseswithmembernames\s+class\s+\*\s*\{\s*native\s+<methods>;")
+
+
+class RaymobJniDisciplineTest(unittest.TestCase):
+    """Two mistakes in JNI code are aborts, not failures, and both were here.
+
+    A jfieldID of NULL handed to GetObjectField is `JNI DETECTED ERROR IN
+    APPLICATION` and the process dies. A pending Java exception is worse: it
+    stays on the thread and kills the VM at the next JNI call made from ANY
+    file, so the crash is reported against code that did nothing wrong.
+
+    None of it is visible on this machine -- the whole directory is inside
+    `#ifdef __ANDROID__` -- so the gate is a read of the source. Each failure
+    is describable precisely, which by Omar's rule means something automated
+    should reject it rather than the next reader having to remember.
+    """
+
+    def test_there_are_jni_call_sites_to_check(self):
+        """A regex that stops matching would make every test below vacuous."""
+        lookups = sum(len(JNI_LOOKUP.findall(p.read_text())) for p in RAYMOB_C)
+        calls = sum(len(JNI_CALL.findall(p.read_text())) for p in RAYMOB_C)
+        self.assertGreater(lookups, 0, "no GetMethodID/GetFieldID found at all")
+        self.assertGreater(calls, 10, "no Call*Method found at all")
+
+    def test_every_lookup_is_null_checked(self):
+        for path in RAYMOB_C:
+            text = path.read_text()
+            for match in JNI_LOOKUP.finditer(text):
+                # The statement, not the line: an assignment can be wrapped.
+                head = text[:match.start()]
+                start = max(head.rfind(";"), head.rfind("{"), head.rfind("}"))
+                names = re.findall(r"(\w+)\s*=", head[start + 1:])
+                end = text.find(";", match.end())
+                line = text.count("\n", 0, match.start()) + 1
+                with self.subTest(site=path.name + ":" + str(line)):
+                    self.assertTrue(names, "the lookup result is not assigned to anything")
+                    var = names[-1]
+                    tail = " ".join(code_lines(text[end + 1:], 6))
+                    self.assertRegex(
+                        tail, r"\b" + re.escape(var) + r"\s*(?:==|!=)\s*NULL",
+                        var + " is not checked against NULL within six lines -- "
+                        "GetMethodID/GetFieldID returns NULL *and* leaves a pending "
+                        "exception when the member is missing, which R8 makes real "
+                        "in the release AAB")
+
+    def test_every_call_is_followed_by_an_exception_check(self):
+        for path in RAYMOB_C:
+            text = path.read_text()
+            for match in JNI_CALL.finditer(text):
+                end = text.find(";", match.end())
+                line = text.count("\n", 0, match.start()) + 1
+                with self.subTest(site=path.name + ":" + str(line)):
+                    tail = " ".join(code_lines(text[end + 1:], 6))
+                    self.assertIn(
+                        "ExceptionCheck", tail,
+                        "no ExceptionCheck within six lines of this Call*Method -- "
+                        "a Java-side throw stays pending and aborts the VM at the "
+                        "next JNI call from anywhere")
+
+    def test_the_detach_is_conditional_on_having_attached(self):
+        """raylib's game loop thread is attached for the life of the process,
+        and detaching it invalidates every local reference the caller holds.
+        Only a thread this code attached may be detached."""
+        helper = (REPO / "thirdparty" / "raymob" / "helper.c").read_text()
+
+        attach = helper.split("JNIEnv* AttachCurrentThread(void)")[1].split("\n}")[0]
+        self.assertIn("GetEnv", attach,
+                      "AttachCurrentThread must ask GetEnv whether the thread is "
+                      "already attached before it attaches anything")
+
+        # What matters is the code BEFORE the detach call: a mention of the
+        # flag anywhere in the body is satisfied by the assignment that follows
+        # the call, which is how this test first passed on an unguarded detach.
+        detach = helper.split("void DetachCurrentThread(void)")[1].split("\n}")[0]
+        before = detach.split("DetachCurrentThread(vm)")[0]
+        self.assertIn("attachedHere", before,
+                      "DetachCurrentThread detaches without first asking whether "
+                      "this code is what attached the thread")
+        self.assertIn("return", before,
+                      "nothing bails out before the detach, so the guard cannot "
+                      "be doing anything")
+
+    def test_the_cache_path_allocation_has_room_for_the_separator(self):
+        r"""dir + '/' + name + '\0'. Upstream allocated one byte less and wrote
+        the terminator past the end of the block -- an immediate abort under
+        scudo, which is Android's allocator since API 30."""
+        helper = (REPO / "thirdparty" / "raymob" / "helper.c").read_text()
+        body = helper.split("char* LoadCacheFile")[1].split("\n}")[0]
+        # Code only: the comment at the site quotes the line it replaced, and a
+        # gate that reads prose is a gate that fires on its own explanation.
+        code = " ".join(code_lines(body, 400))
+        self.assertIn("strlen(cacheDir) + 1 + strlen(fileName) + 1", code)
+        self.assertNotIn("filePath[len]", code,
+                         "writing at filePath[len] is one past the end of a len-byte block")
+
+    def test_the_orientation_bound_check_reads_the_value_it_guards(self):
+        """`if (result >= 0 && result < 4)` where result is still 0 is
+        vacuously true, so the check never saw the value it was written for."""
+        display = (REPO / "thirdparty" / "raymob" / "display.c").read_text()
+        body = " ".join(code_lines(display.split("Orientation GetScreenOrientation")[1], 400))
+        self.assertIn("screenOrientation >= 0 && screenOrientation < 4", body)
+        self.assertNotIn("result >= 0 && result < 4", body)
+
+    def test_on_key_up_delegates_to_on_key_up(self):
+        """The override for key-up returned super.onKeyDown, so releasing the
+        hardware BACK button sent a second down and never an up."""
+        java = (REPO / "raymob" / "app" / "src" / "main" / "java" / "com" / "raylib"
+                / "raymob" / "NativeLoader.java").read_text()
+        body = java.split("public boolean onKeyUp")[1].split("\n    }")[0]
+        self.assertIn("super.onKeyUp(", body)
+        self.assertNotIn("super.onKeyDown(", body)

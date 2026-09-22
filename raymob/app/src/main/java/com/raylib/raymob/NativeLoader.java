@@ -57,7 +57,12 @@ public class NativeLoader extends NativeActivity {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         softKeyboard.onKeyUpEvent(event);
-        return super.onKeyDown(keyCode, event);
+        // [rmp patch] upstream delegated the key-UP override to the
+        // superclass's key-DOWN handler, so releasing the hardware BACK button
+        // sent NativeActivity a second down and never an up: anything that
+        // pairs them (the back-to-exit gesture, key repeat) is left holding a
+        // key that was already released.
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override

@@ -53,10 +53,24 @@ void InitCallBacks(){
         jclass nativeLoaderClass = (*env)->GetObjectClass(env, nativeLoaderInst);
 
         (*env)->RegisterNatives(env, nativeLoaderClass, methods, sizeof(methods) / sizeof(methods[0]));
+        RaymobExceptionCheck(env, "RegisterNatives");
 
         jfieldID fieldId = (*env)->GetFieldID(env, nativeLoaderClass, "initCallback", "Z");
-        (*env)->SetBooleanField(env, nativeLoaderInst, fieldId, JNI_TRUE);
 
+        // [rmp patch] SetBooleanField with a NULL jfieldID is not a no-op: ART
+        // aborts the process with `JNI DETECTED ERROR IN APPLICATION`. The
+        // field is renamed by R8 in a release AAB unless proguard-rules.pro
+        // keeps it, which is a release-only crash nobody sees in debug
+        if (fieldId != NULL) {
+            (*env)->SetBooleanField(env, nativeLoaderInst, fieldId, JNI_TRUE);
+        }
+        else {
+            RaymobExceptionCheck(env, "initCallback");
+            TraceLog(LOG_WARNING, "RAYMOB: Field not found: Z initCallback, "
+                                  "the onApp* callbacks will never fire");
+        }
+
+        (*env)->DeleteLocalRef(env, nativeLoaderClass);
         DetachCurrentThread();
     }
 }

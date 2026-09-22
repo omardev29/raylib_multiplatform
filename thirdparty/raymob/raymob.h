@@ -92,6 +92,45 @@ void DetachCurrentThread(void);
 jobject GetNativeLoaderInstance(void);
 
 /**
+ * @brief [rmp patch] Reports and clears a pending Java exception, if any.
+ *
+ * A pending exception is not raised where it happened: it stays on the thread
+ * and aborts the VM at the next JNI call made from anywhere, which is a crash
+ * reported against innocent code. Describe() puts the stack trace in logcat,
+ * which is the only place the cause is ever visible.
+ *
+ * @param env   The JNI environment.
+ * @param where Name of the call that may have thrown, for the log line.
+ * @return true if an exception was pending (and has been cleared).
+ */
+bool RaymobExceptionCheck(JNIEnv *env, const char *where);
+
+/**
+ * @brief [rmp patch] Looks up an instance method by name, NULL-safe.
+ *
+ * GetMethodID does not merely return NULL when the method is missing: it also
+ * leaves a NoSuchMethodError pending. Both halves are handled here so that a
+ * method renamed by R8 (the release AAB is minified) degrades to "the call did
+ * nothing" instead of aborting the process.
+ *
+ * @return The method id, or NULL if it was not found.
+ */
+jmethodID RaymobGetMethod(JNIEnv *env, jobject object, const char *name,
+                          const char *sig);
+
+/**
+ * @brief [rmp patch] Reads an object field by name, NULL-safe.
+ *
+ * Same contract as RaymobGetMethod: a missing field is a warning and a NULL,
+ * never a jfieldID of NULL handed to GetObjectField, which ART turns into
+ * `JNI DETECTED ERROR IN APPLICATION: jfieldID was NULL`.
+ *
+ * @return The field value, or NULL if the field was not found.
+ */
+jobject RaymobGetObjectField(JNIEnv *env, jobject object, const char *name,
+                             const char *sig);
+
+/**
  * @brief Gets the cache directory path of the Android application.
  *
  * @warning This function returns a string allocated on the heap.

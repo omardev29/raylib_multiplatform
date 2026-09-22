@@ -22,29 +22,26 @@
  * the eight methods still exist, but anyone swapping in their own Activity
  * lands exactly here.
  *
- * The class reference is deleted rather than left to the detach that follows,
- * so this stays correct if these ever run on an already-attached thread.
+ * That is RaymobGetMethod's whole job now (thirdparty/raymob/helper.c): it
+ * deletes the class reference rather than leaving it to the detach that
+ * follows, so this stays correct on an already-attached thread, and it logs
+ * the name it could not find instead of failing silently.
+ *
+ * The RETURN of each call needs the same treatment, which it did not have: the
+ * Google Mobile Ads SDK throws (MobileAds never initialised, a malformed ad
+ * unit id) and a pending exception aborts the VM at the next JNI call from
+ * ANY raymob file -- reported as a crash in the display code.
  */
-static jmethodID AdmobMethod(JNIEnv *env, jobject inst, const char *name, const char *sig) {
-    jclass cls = (*env)->GetObjectClass(env, inst);
-    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
-    (*env)->DeleteLocalRef(env, cls);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->ExceptionClear(env);
-        return NULL;
-    }
-    return method;
-}
-
 /* Call a no-arg void method on the NativeLoader instance */
 static void AdmobCallVoid(const char *name, const char *sig) {
     jobject inst = GetNativeLoaderInstance();
     if (inst == NULL) return;
 
     JNIEnv *env = AttachCurrentThread();
-    jmethodID method = AdmobMethod(env, inst, name, sig);
+    jmethodID method = RaymobGetMethod(env, inst, name, sig);
     if (method != NULL) {
         (*env)->CallVoidMethod(env, inst, method);
+        RaymobExceptionCheck(env, name);
     }
     DetachCurrentThread();
 }
@@ -55,10 +52,11 @@ static bool AdmobCallBool(const char *name, const char *sig) {
     if (inst == NULL) return false;
 
     JNIEnv *env = AttachCurrentThread();
-    jmethodID method = AdmobMethod(env, inst, name, sig);
+    jmethodID method = RaymobGetMethod(env, inst, name, sig);
     bool result = false;
     if (method != NULL) {
         result = (bool)(*env)->CallBooleanMethod(env, inst, method);
+        if (RaymobExceptionCheck(env, name)) result = false;
     }
     DetachCurrentThread();
     return result;
@@ -70,10 +68,11 @@ static int AdmobCallInt(const char *name, const char *sig) {
     if (inst == NULL) return 0;
 
     JNIEnv *env = AttachCurrentThread();
-    jmethodID method = AdmobMethod(env, inst, name, sig);
+    jmethodID method = RaymobGetMethod(env, inst, name, sig);
     int result = 0;
     if (method != NULL) {
         result = (int)(*env)->CallIntMethod(env, inst, method);
+        if (RaymobExceptionCheck(env, name)) result = 0;
     }
     DetachCurrentThread();
     return result;

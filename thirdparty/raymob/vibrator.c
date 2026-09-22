@@ -30,29 +30,49 @@ void Vibrate(float seconds) { VibrateMS((uint64_t)(1000 * seconds)); }
 
 void VibrateMS(uint64_t ms) {
   jobject nativeLoaderInst = GetNativeLoaderInstance();
-  JNIEnv *env = AttachCurrentThread();
+  if (nativeLoaderInst == NULL) return;
 
-  jclass nativeLoaderClass = (*env)->GetObjectClass(env, nativeLoaderInst);
+  JNIEnv *env = AttachCurrentThread();
+  if (env == NULL) return;
+
   jmethodID getSystemServiceMethod =
-      (*env)->GetMethodID(env, nativeLoaderClass, "getSystemService",
-                          "(Ljava/lang/String;)Ljava/lang/Object;");
+      RaymobGetMethod(env, nativeLoaderInst, "getSystemService",
+                      "(Ljava/lang/String;)Ljava/lang/Object;");
+
+  if (getSystemServiceMethod == NULL) {
+    DetachCurrentThread();
+    return;
+  }
 
   jstring vibratorService = (*env)->NewStringUTF(env, "vibrator");
   jobject vibrator = (*env)->CallObjectMethod(
       env, nativeLoaderInst, getSystemServiceMethod, vibratorService);
   (*env)->DeleteLocalRef(env, vibratorService);
 
-  jclass vibratorClass = (*env)->GetObjectClass(env, vibrator);
-  jmethodID hasVibratorMethod =
-      (*env)->GetMethodID(env, vibratorClass, "hasVibrator", "()Z");
+  // NOTE: a device with no vibrator service hands back null
+  if (RaymobExceptionCheck(env, "getSystemService") || vibrator == NULL) {
+    DetachCurrentThread();
+    return;
+  }
+
+  jmethodID hasVibratorMethod = RaymobGetMethod(env, vibrator, "hasVibrator", "()Z");
+
+  if (hasVibratorMethod == NULL) {
+    DetachCurrentThread();
+    return;
+  }
+
   jboolean hasVibrator =
       (*env)->CallBooleanMethod(env, vibrator, hasVibratorMethod);
 
+  if (RaymobExceptionCheck(env, "hasVibrator")) hasVibrator = JNI_FALSE;
+
   if (hasVibrator) {
-    jmethodID vibrateMethod =
-        (*env)->GetMethodID(env, vibratorClass, "vibrate", "(J)V");
+    jmethodID vibrateMethod = RaymobGetMethod(env, vibrator, "vibrate", "(J)V");
+
     if (vibrateMethod != NULL) {
       (*env)->CallVoidMethod(env, vibrator, vibrateMethod, (jlong)ms);
+      RaymobExceptionCheck(env, "vibrate(J)V");
     }
   }
 
@@ -65,30 +85,63 @@ void VibrateEx(float seconds, float intensity) {
 
 void VibrateExMS(uint64_t ms, float intensity) {
   jobject nativeLoaderInst = GetNativeLoaderInstance();
-  JNIEnv *env = AttachCurrentThread();
+  if (nativeLoaderInst == NULL) return;
 
-  jclass nativeLoaderClass = (*env)->GetObjectClass(env, nativeLoaderInst);
+  JNIEnv *env = AttachCurrentThread();
+  if (env == NULL) return;
+
   jmethodID getSystemServiceMethod =
-      (*env)->GetMethodID(env, nativeLoaderClass, "getSystemService",
-                          "(Ljava/lang/String;)Ljava/lang/Object;");
+      RaymobGetMethod(env, nativeLoaderInst, "getSystemService",
+                      "(Ljava/lang/String;)Ljava/lang/Object;");
+
+  if (getSystemServiceMethod == NULL) {
+    DetachCurrentThread();
+    return;
+  }
 
   jstring vibratorService = (*env)->NewStringUTF(env, "vibrator");
   jobject vibrator = (*env)->CallObjectMethod(
       env, nativeLoaderInst, getSystemServiceMethod, vibratorService);
   (*env)->DeleteLocalRef(env, vibratorService);
 
-  jclass vibratorClass = (*env)->GetObjectClass(env, vibrator);
-  jmethodID hasVibratorMethod =
-      (*env)->GetMethodID(env, vibratorClass, "hasVibrator", "()Z");
+  // NOTE: a device with no vibrator service hands back null
+  if (RaymobExceptionCheck(env, "getSystemService") || vibrator == NULL) {
+    DetachCurrentThread();
+    return;
+  }
+
+  jmethodID hasVibratorMethod = RaymobGetMethod(env, vibrator, "hasVibrator", "()Z");
+
+  if (hasVibratorMethod == NULL) {
+    DetachCurrentThread();
+    return;
+  }
+
   jboolean hasVibrator =
       (*env)->CallBooleanMethod(env, vibrator, hasVibratorMethod);
+
+  if (RaymobExceptionCheck(env, "hasVibrator")) hasVibrator = JNI_FALSE;
 
   if (hasVibrator) {
     jclass vibrationEffectClass =
         (*env)->FindClass(env, "android/os/VibrationEffect");
+
+    if (vibrationEffectClass == NULL) {
+      RaymobExceptionCheck(env, "FindClass(VibrationEffect)");
+      DetachCurrentThread();
+      return;
+    }
+
     jmethodID createOneShotMethod =
         (*env)->GetStaticMethodID(env, vibrationEffectClass, "createOneShot",
                                   "(JI)Landroid/os/VibrationEffect;");
+
+    if (createOneShotMethod == NULL) {
+      RaymobExceptionCheck(env, "createOneShot");
+      (*env)->DeleteLocalRef(env, vibrationEffectClass);
+      DetachCurrentThread();
+      return;
+    }
 
     int intensityValue = (int)(intensity * 255);
     if (intensityValue > 255)
@@ -99,11 +152,17 @@ void VibrateExMS(uint64_t ms, float intensity) {
     jobject vibrationEffect = (*env)->CallStaticObjectMethod(
         env, vibrationEffectClass, createOneShotMethod, (jlong)ms,
         (jint)intensityValue);
+    RaymobExceptionCheck(env, "createOneShot");
+    (*env)->DeleteLocalRef(env, vibrationEffectClass);
 
     if (vibrationEffect != NULL) {
-      jmethodID vibrateMethod = (*env)->GetMethodID(
-          env, vibratorClass, "vibrate", "(Landroid/os/VibrationEffect;)V");
-      (*env)->CallVoidMethod(env, vibrator, vibrateMethod, vibrationEffect);
+      jmethodID vibrateMethod = RaymobGetMethod(
+          env, vibrator, "vibrate", "(Landroid/os/VibrationEffect;)V");
+
+      if (vibrateMethod != NULL) {
+        (*env)->CallVoidMethod(env, vibrator, vibrateMethod, vibrationEffect);
+        RaymobExceptionCheck(env, "vibrate(VibrationEffect)V");
+      }
     }
   }
 

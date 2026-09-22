@@ -33,19 +33,16 @@ void ShowSoftKeyboard(void) {
 
   if (context != NULL) {
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-      jmethodID method =
-          (*env)->GetMethodID(env, softKeyboardClass, "showKeyboard", "()V");
-      (*env)->CallVoidMethod(env, softKeyboard, method);
+      jmethodID method = RaymobGetMethod(env, softKeyboard, "showKeyboard", "()V");
+
+      if (method != NULL) {
+        (*env)->CallVoidMethod(env, softKeyboard, method);
+        RaymobExceptionCheck(env, "showKeyboard");
+      }
     }
 
     DetachCurrentThread();
@@ -57,19 +54,16 @@ void HideSoftKeyboard(void) {
 
   if (context != NULL) {
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-      jmethodID method =
-          (*env)->GetMethodID(env, softKeyboardClass, "hideKeyboard", "()V");
-      (*env)->CallVoidMethod(env, softKeyboard, method);
+      jmethodID method = RaymobGetMethod(env, softKeyboard, "hideKeyboard", "()V");
+
+      if (method != NULL) {
+        (*env)->CallVoidMethod(env, softKeyboard, method);
+        RaymobExceptionCheck(env, "hideKeyboard");
+      }
     }
 
     DetachCurrentThread();
@@ -81,19 +75,18 @@ int GetLastSoftKeyCode(void) {
 
   if (context != NULL) {
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-      jmethodID method =
-          (*env)->GetMethodID(env, softKeyboardClass, "getLastKeyCode", "()I");
-      int value = (*env)->CallIntMethod(env, softKeyboard, method);
+      jmethodID method = RaymobGetMethod(env, softKeyboard, "getLastKeyCode", "()I");
+      int value = 0;
+
+      if (method != NULL) {
+        value = (*env)->CallIntMethod(env, softKeyboard, method);
+        if (RaymobExceptionCheck(env, "getLastKeyCode")) value = 0;
+      }
+
       DetachCurrentThread();
       return value;
     }
@@ -109,22 +102,23 @@ unsigned short GetLastSoftKeyLabel(void) {
 
   if (context != NULL) {
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-      jmethodID method =
-          (*env)->GetMethodID(env, softKeyboardClass, "getLastKeyLabel", "()C");
-      unsigned short value = (*env)->CallCharMethod(env, softKeyboard, method);
+      jmethodID method = RaymobGetMethod(env, softKeyboard, "getLastKeyLabel", "()C");
+      unsigned short value = 0;
+
+      if (method != NULL) {
+        value = (*env)->CallCharMethod(env, softKeyboard, method);
+        if (RaymobExceptionCheck(env, "getLastKeyLabel")) value = 0;
+      }
+
       DetachCurrentThread();
       return value;
     }
+
+    DetachCurrentThread();  // [rmp patch] the early return skipped this
   }
 
   return 0;
@@ -135,22 +129,23 @@ int GetLastSoftKeyUnicode(void) {
 
   if (context != NULL) {
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-      jmethodID method = (*env)->GetMethodID(env, softKeyboardClass,
-                                             "getLastKeyUnicode", "()I");
-      int value = (*env)->CallIntMethod(env, softKeyboard, method);
+      jmethodID method = RaymobGetMethod(env, softKeyboard, "getLastKeyUnicode", "()I");
+      int value = 0;
+
+      if (method != NULL) {
+        value = (*env)->CallIntMethod(env, softKeyboard, method);
+        if (RaymobExceptionCheck(env, "getLastKeyUnicode")) value = 0;
+      }
+
       DetachCurrentThread();
       return value;
     }
+
+    DetachCurrentThread();  // [rmp patch] the early return skipped this
   }
 
   return 0;
@@ -166,20 +161,18 @@ char GetLastSoftKeyChar(void) {
     char value = '\0';
 
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-
       jmethodID methodKeyCode =
-          (*env)->GetMethodID(env, softKeyboardClass, "getLastKeyCode", "()I");
-      int keyCode = (*env)->CallIntMethod(env, softKeyboard, methodKeyCode);
+          RaymobGetMethod(env, softKeyboard, "getLastKeyCode", "()I");
+      int keyCode = 0;
+
+      if (methodKeyCode != NULL) {
+        keyCode = (*env)->CallIntMethod(env, softKeyboard, methodKeyCode);
+        if (RaymobExceptionCheck(env, "getLastKeyCode")) keyCode = 0;
+      }
 
       if (keyCode != 0) {
         switch (keyCode) {
@@ -190,9 +183,15 @@ char GetLastSoftKeyChar(void) {
           value = '\b';
         } break;
         default: {
-          jmethodID methodKeyUnicode = (*env)->GetMethodID(
-              env, softKeyboardClass, "getLastKeyUnicode", "()I");
-          int u = (*env)->CallIntMethod(env, softKeyboard, methodKeyUnicode);
+          jmethodID methodKeyUnicode =
+              RaymobGetMethod(env, softKeyboard, "getLastKeyUnicode", "()I");
+          int u = 0;
+
+          if (methodKeyUnicode != NULL) {
+            u = (*env)->CallIntMethod(env, softKeyboard, methodKeyUnicode);
+            if (RaymobExceptionCheck(env, "getLastKeyUnicode")) u = 0;
+          }
+
           if (u > 0xFF)
             value = '?';
           else
@@ -215,19 +214,16 @@ void ClearLastSoftKey(void) {
 
   if (context != NULL) {
     JNIEnv *env = AttachCurrentThread();
-    jclass nativeLoaderClass = (*env)->GetObjectClass(env, context);
-
-    jfieldID softKeyboardField =
-        (*env)->GetFieldID(env, nativeLoaderClass, "softKeyboard",
-                           "Lcom/raylib/raymob/SoftKeyboard;");
-    jobject softKeyboard =
-        (*env)->GetObjectField(env, context, softKeyboardField);
+    jobject softKeyboard = RaymobGetObjectField(
+        env, context, "softKeyboard", "Lcom/raylib/raymob/SoftKeyboard;");
 
     if (softKeyboard != NULL) {
-      jclass softKeyboardClass = (*env)->GetObjectClass(env, softKeyboard);
-      jmethodID method = (*env)->GetMethodID(env, softKeyboardClass,
-                                             "clearLastKeyEvent", "()V");
-      (*env)->CallVoidMethod(env, softKeyboard, method);
+      jmethodID method = RaymobGetMethod(env, softKeyboard, "clearLastKeyEvent", "()V");
+
+      if (method != NULL) {
+        (*env)->CallVoidMethod(env, softKeyboard, method);
+        RaymobExceptionCheck(env, "clearLastKeyEvent");
+      }
     }
 
     DetachCurrentThread();
