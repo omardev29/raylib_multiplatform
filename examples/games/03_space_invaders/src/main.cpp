@@ -6,8 +6,8 @@
 // speeding up as they thin out -- is *the game of Space Invaders*. A behavior
 // with fields for columns, step and descent would be this file with a different
 // name on it, so the formation is written here and the framework supplies the
-// parts that are not the game: shooting on a Timer, bullets that are discarded
-// when they leave the screen, hit points, and who is allowed to hurt whom.
+// parts that are not the game: shooting on a Timer, bullets that discard
+// themselves, hit points, and who is allowed to hurt whom.
 //
 // The formation is a HANDLE PER ALIEN and one number. Nothing walks a list of
 // objects looking for aliens, and nothing holds a pointer to one that a shot
@@ -50,10 +50,6 @@ template <class Game> class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : said_(said) {}
 
-    // Nothing has the focus until it is given, and without it Enter and the
-    // gamepad have nothing to press.
-    void _ready() override { rmp::ui::focus("Play again"); }
-
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
@@ -84,16 +80,11 @@ public:
             .hp = 3,
             .invulnerable_for = 1.2f,
             .destroy_on_death = false, // the ship stays on screen under the overlay
-            .on_death = [this](rmp::Object &) { finish("Game over"); },
+            .on_death =
+                [](rmp::Object &) {
+                    rmp::Scene::push<OverScene<InvadersScene>>("Game over");
+                },
             .hurt_by = layer::kAlienShot | layer::kAlien,
-        });
-        // WHAT IT HITS DISCARDS IT, here and in the alien below, which is why
-        // no projectile in this game carries `destroy_on_hit`: an object that
-        // destroys itself on contact is gone before the other side of the
-        // contact has been told, and then the ship is hit by a bullet that
-        // leaves no mark -- or the alien never learns it was shot.
-        player.on_collision([](rmp::Object &, rmp::Object &other) {
-            if ((other.collision_layer & layer::kAlienShot) != 0) other.destroy();
         });
         player_ = player.handle();
 
@@ -123,9 +114,9 @@ public:
         }
 
         if (alive_ == 0) {
-            finish("You win");
+            rmp::Scene::push<OverScene<InvadersScene>>("You win");
         } else if (lowest > kPlayerY - 30) {
-            finish("They landed");
+            rmp::Scene::push<OverScene<InvadersScene>>("They landed");
         }
     }
 
@@ -159,8 +150,7 @@ private:
         alien.shape.color = kRowColors[index / kColumns];
         alien.collision_layer = layer::kAlien;
         alien.collision_mask = layer::kPlayerShot;
-        alien.on_collision([this](rmp::Object &self, rmp::Object &other) {
-            other.destroy(); // the shot is spent
+        alien.on_collision([this](rmp::Object &self, rmp::Object &) {
             self.destroy();
             alive_--;
         });
@@ -183,7 +173,7 @@ private:
         shot.velocity = { 0, -560 };
         shot.collision_layer = layer::kPlayerShot;
         shot.collision_mask = layer::kAlien;
-        shot.add<rmp::behavior::Projectile>({ .destroy_on_hit = false });
+        shot.add<rmp::behavior::Projectile>();
     }
 
     // Only the lowest alien of a column fires. The ones above it would shoot
@@ -195,16 +185,7 @@ private:
         shot.velocity = { 0, 300 };
         shot.collision_layer = layer::kAlienShot;
         shot.collision_mask = layer::kPlayer;
-        shot.add<rmp::behavior::Projectile>({ .destroy_on_hit = false });
-    }
-
-    // One ending, once: the last alien can land on the player on the very
-    // frame the player's last hit point goes, and two pushes would stack two
-    // overlays.
-    void finish(const char *said) {
-        if (over_) return;
-        over_ = true;
-        rmp::Scene::push<OverScene<InvadersScene>>(said);
+        shot.add<rmp::behavior::Projectile>();
     }
 
     // Between frames, a handle. A raw pointer is good for the frame it was got
@@ -216,7 +197,6 @@ private:
     float march_ = 0;
     float step_ = 40;
     float drop_ = 0;
-    bool over_ = false;
 };
 
 } // namespace
