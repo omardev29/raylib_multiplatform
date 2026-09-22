@@ -16,10 +16,12 @@
 #include <rmp/assets.h>
 #include <rmp/config.h>
 #include <rmp/input.h>
+#include <rmp/random.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 #include <smoke_test.h>
 
+#include <chrono> // the value rmp::random is seeded from
 #include <cstdlib> // std::exit() on the iOS CI path
 #include <utility>
 
@@ -102,6 +104,15 @@ void begin_run() {
     // the game's. Told before anything is loaded, so an example with its own
     // resources/ reads its own. See resources_root() in internal.h.
     rmp::assets::detail::set_resources_root(RESOURCES_PATH);
+    // The one place rmp::random is seeded, and the reason it is HERE: a test
+    // never comes through the entry point, so a headless run keeps the fixed
+    // default seed and stays reproducible, while a shipped game gets a
+    // different sequence every launch. current_seed() names either one.
+    //
+    // The wall clock and not GetTime(), which is seconds since InitWindow() and
+    // is therefore about the same small number on every launch.
+    rmp::random::seed(static_cast<uint64_t>(
+        std::chrono::system_clock::now().time_since_epoch().count()));
     // [dev] strict: a framework warning aborts instead of scrolling past. Debug
     // builds only -- NDEBUG is what every release configuration on every
     // platform defines, so a shipped binary can never carry it.

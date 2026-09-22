@@ -158,7 +158,18 @@ bool action_state(std::string_view name, Edge edge) {
 // which is what someone pressing both expects.
 float action_amount(std::string_view name) {
     const Action *action = find(name);
-    if (action == nullptr) return 0.0f;
+    if (action == nullptr) {
+        // The same rule as action_state(), and for a sharper reason: this is
+        // the path axis() and vector() take, and a stick that never moves says
+        // nothing at all on its own. Once per name -- vector() asks for four.
+        const std::string key(name);
+        RMP_REPORT_ONCE_KEYED(key.c_str(),
+                              "INPUT: no action called \"%s\". Define it with "
+                              "rmp::input::action(\"%s\", KEY_...); until then it reads "
+                              "as 0.",
+                              key.c_str(), key.c_str());
+        return 0.0f;
+    }
     float best = 0.0f;
     for (int i = 0; i < action->count; i++) {
         const detail::Binding &binding = action->bindings[i];

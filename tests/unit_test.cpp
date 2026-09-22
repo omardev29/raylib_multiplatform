@@ -21,7 +21,30 @@
 #include <rmp/random.h>
 
 #include <cmath>
+#include <cstdint>
 #include <set>
+
+namespace {
+
+// What rmp::random looks like BEFORE any test has touched it. Captured at
+// static-initialisation time and not inside a case, because `just test` runs
+// the suite a second time with --order-by=rand and every other case here seeds
+// on purpose -- by the time one of them runs, "unseeded" is gone.
+struct StartState {
+    uint64_t seed = 0;
+    float values[8] = {};
+};
+
+StartState capture_start() {
+    StartState out;
+    out.seed = rmp::random::current_seed();
+    for (float &sample : out.values) sample = rmp::random::value();
+    return out;
+}
+
+const StartState kStart = capture_start();
+
+} // namespace
 
 TEST_SUITE("random") {
     TEST_CASE("the same seed gives the same sequence") {
@@ -157,6 +180,26 @@ TEST_SUITE("random") {
     TEST_CASE("current_seed reports what was set") {
         rmp::random::seed(0xC0FFEE);
         CHECK(rmp::random::current_seed() == 0xC0FFEE);
+
+        // Including the one value that used to take a different path inside
+        // seed(): 0 is a seed like any other and has to be reported back.
+        rmp::random::seed(0);
+        CHECK(rmp::random::current_seed() == 0);
+    }
+
+    TEST_CASE("an unseeded run is the run current_seed() names") {
+        // THE point of the number. A game that never mentions a seed still
+        // prints one on its pause screen and in its crash report, and handing
+        // that number back has to give the sequence the process was running.
+        //
+        // It did not. g_seed sat at 0 while the state sat at four compile-time
+        // constants that seed(0) does not produce, so the bug report sent the
+        // reader to a different run than the one that crashed.
+        CHECK(kStart.seed != 0);
+        rmp::random::seed(kStart.seed);
+        for (float expected : kStart.values) {
+            CHECK(rmp::random::value() == doctest::Approx(expected));
+        }
     }
 
 } // TEST_SUITE

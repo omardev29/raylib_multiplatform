@@ -15,6 +15,7 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/input.h>
@@ -163,6 +164,29 @@ TEST_SUITE("input actions") {
         // And again, to exercise the "warn once" path rather than only its first
         // branch — sixty warnings a second is the same as no warning at all.
         CHECK(!rmp::input::pressed("nonexistent"));
+    }
+
+    TEST_CASE("an action nobody defined says so once through axis() too") {
+        // The silent half of the same mistake. pressed("jmup") warned and
+        // axis("jmup", ...) did not, so a misspelt movement action gave a stick
+        // that simply never moved and a console that never said why -- and
+        // vector() asks for four names at a time.
+        Fixture fix;
+        frame();
+        rmp::detail::reset_reports_for_tests();
+
+        CHECK(rmp::input::axis("nobody_defined_me", "nor_me") == doctest::Approx(0));
+        const int said = rmp::detail::report_count();
+        CHECK(said == 2); // one per NAME, because each is its own mistake
+
+        // And then not again, however many frames go past. Sixty lines a second
+        // is the same as no warning at all.
+        for (int i = 0; i < 10; i++) {
+            frame();
+            CHECK(rmp::input::axis("nobody_defined_me", "nor_me") == doctest::Approx(0));
+        }
+        CHECK(rmp::detail::report_count() == said);
+        rmp::detail::reset_reports_for_tests();
     }
 
     TEST_CASE("more bindings than the table holds is truncated, not overflowed") {

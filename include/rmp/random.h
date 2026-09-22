@@ -35,6 +35,12 @@ void seed(uint64_t value);
 
 // What the current sequence started from. This is the number you print in a
 // bug report, or show on the pause screen of a roguelike.
+//
+// IT IS ALWAYS TRUE, including before anything calls seed(): an unseeded run
+// starts from a fixed default seed rather than from a state with no number on
+// it, so handing this back always gives the sequence the process was running.
+// A headless test never goes through the entry point, so it never gets the
+// clock and never has to seed to be reproducible.
 uint64_t current_seed();
 
 float value(); // 0..1
