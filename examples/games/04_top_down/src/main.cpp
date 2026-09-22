@@ -33,10 +33,6 @@ template <class Game> class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : said_(said) {}
 
-    // Nothing has the focus until it is given, and without it Enter and the
-    // gamepad have nothing to press.
-    void _ready() override { rmp::ui::focus("Play again"); }
-
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
@@ -85,10 +81,12 @@ public:
         // player used to walk through five enemies and not notice.
         player.add<rmp::behavior::Health>({
             .hp = kPlayerHp,
-            .max_hp = kPlayerHp,
             .invulnerable_for = 0.8f,
             .destroy_on_death = false, // it stays on screen under the overlay
-            .on_death = [this](rmp::Object &) { finish("You died"); },
+            .on_death =
+                [](rmp::Object &) {
+                    rmp::Scene::push<OverScene<TopDownScene>>("You died");
+                },
             .hurt_by = layer::kEnemy,
         });
         player_ = player.handle();
@@ -129,8 +127,9 @@ private:
         door.shape.color = GOLD;
         door.collision_layer = layer::kTrigger;
         door.collision_mask = layer::kPlayer;
-        door.on_collision(
-            [this](rmp::Object &, rmp::Object &) { finish("Level cleared"); });
+        door.on_collision([](rmp::Object &, rmp::Object &) {
+            rmp::Scene::push<OverScene<TopDownScene>>("Level cleared");
+        });
     }
 
     void add_enemy(float x) {
@@ -142,24 +141,14 @@ private:
         enemy.collision_mask = layer::kWorld | layer::kBullet | layer::kPlayer;
         enemy.shape.color = MAROON;
         enemy.add<rmp::behavior::Follow>({ .target = player_, .speed = 90 });
+        // Two hits, and what may land them. No `if` at the top of a
+        // _collision, and no counter of our own: `hurt_by` is the rule and
+        // on_death is what the room does about it.
         enemy.add<rmp::behavior::Health>({
             .hp = 2,
-            .max_hp = 2,
             .invulnerable_for = 0.1f,
             .on_death = [this](rmp::Object &) { enemies_--; },
-        });
-        // WHAT IT HITS DISCARDS IT, which is why the shot below does not carry
-        // `destroy_on_hit` and this Health no `hurt_by`: an object that
-        // destroys itself on contact -- or is destroyed by a Health as the
-        // contact is handled -- is gone before the other side of that contact
-        // has been told, and then a bullet goes through an enemy that never
-        // notices, or an enemy dies to a bullet that flies on to the next one.
-        // Saying it in one place means it does not depend on which of the two
-        // the collision pass reaches first.
-        enemy.on_collision([](rmp::Object &self, rmp::Object &other) {
-            if ((other.collision_layer & layer::kBullet) == 0) return;
-            other.destroy(); // the shot is spent
-            self.get<rmp::behavior::Health>()->damage(self);
+            .hurt_by = layer::kBullet,
         });
         enemies_++;
     }
@@ -172,23 +161,14 @@ private:
         shot.velocity = { aim.x * 520, aim.y * 520 };
         shot.collision_layer = layer::kBullet;
         shot.collision_mask = layer::kEnemy | layer::kWorld; // never the player
-        shot.add<rmp::behavior::Projectile>({ .destroy_on_hit = false });
+        shot.add<rmp::behavior::Projectile>();
         shot.add<rmp::behavior::Lifespan>({ .seconds = 1.5f });
-    }
-
-    // One ending, once: the last hit point and the doorway can land on the
-    // same frame, and two pushes would stack two overlays.
-    void finish(const char *said) {
-        if (over_) return;
-        over_ = true;
-        rmp::Scene::push<OverScene<TopDownScene>>(said);
     }
 
     // Between frames, a handle -- and Follow takes one for the same reason:
     // what is being chased is the thing most likely to die while it is chased.
     rmp::Handle<rmp::Object> player_;
     int enemies_ = 0;
-    bool over_ = false;
 };
 
 } // namespace

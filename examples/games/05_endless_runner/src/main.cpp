@@ -1,4 +1,3 @@
-#include "/tmp/claude-1000/-home-omarch-Projects-project-raylib/fc88c1a2-7192-4deb-afff-5766ac7d5ba0/scratchpad/probe.h"
 // ---------------------------------------------------------------------------
 // examples/games/05_endless_runner/src/main.cpp — an endless runner.
 //
@@ -32,7 +31,6 @@ constexpr unsigned kRock = 1u << 2;
 } // namespace layer
 
 constexpr float kGroundTop = 360; // where ground.png starts, and the floor with it
-constexpr float kRunLength = 100000; // as far as the camera is ever asked to go
 
 // The end of a run, PUSHED on top of it: the world below freezes, stays on
 // screen -- distance counter and all -- and stops hearing the keyboard, so this
@@ -41,16 +39,11 @@ template <class Game> class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : said_(said) {}
 
-    // Nothing has the focus until it is given, and without it Enter and the
-    // gamepad have nothing to press.
-    void _ready() override { rmp::ui::focus("Play again"); }
-
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
         rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
-        if (getenv("RMP_AUTORESTART") != nullptr) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
@@ -86,24 +79,17 @@ public:
         });
         player_ = player.handle();
 
-        // THE CAMERA IS THE GAME'S ONE LINE. `limits` is the second because it
-        // is the only way to say "follow the x and leave the y alone": a camera
-        // that followed the jump would take the ground and the sky up with it.
+        // THE CAMERA IS THE GAME'S ONE LINE, and `limits` with a zero width is
+        // the second: follow the x, leave the y alone. A camera that followed
+        // the jump would take the ground and the sky up with it.
         camera.follow = player_;
-        camera.limits = { 0, 0, kRunLength, APP_WINDOW_HEIGHT };
+        camera.limits = { 0, 0, 0, APP_WINDOW_HEIGHT };
 
         add_ground();
         add_rocks();
     }
 
     void _update(float) override {
-        if (probe::g_frame % 20 == 0)
-            TraceLog(LOG_INFO,
-                     "RUN player=%.0f,%.0f cam=%.0f,%.0f dist=%.0f objects=%d ground=%d "
-                     "vy=%.0f accept=%d",
-                     player_->position.x, player_->position.y, camera.position.x,
-                     camera.position.y, player_->get<rmp::behavior::Runner>()->distance(),
-                     object_count());
         // The floor travels with the runner, so the strip under the art is
         // always there. One line instead of a mile of collider.
         ground_->position.x = player_->position.x;
@@ -157,12 +143,7 @@ private:
                     rock.collider = rmp::rect({ 30, 52 });
                     rock.collision_layer = layer::kRock;
                     rock.collision_mask = layer::kPlayer;
-                    // NOT Edge::DESTROY: a rock does not move, so it never
-                    // leaves its own bounds -- and one placed ahead of the view
-                    // is outside it on the frame it is born, which is the rule
-                    // deciding it should be discarded at once. It is dropped a
-                    // long time after the runner is past it instead.
-                    rock.add<rmp::behavior::Lifespan>({ .seconds = 12 });
+                    rock.edges = rmp::Edge::DESTROY; // once the view is past it
                 },
         });
     }

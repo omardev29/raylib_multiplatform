@@ -37,10 +37,6 @@ template <class Game> class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : said_(said) {}
 
-    // Nothing has the focus until it is given, and without it Enter and the
-    // gamepad have nothing to press.
-    void _ready() override { rmp::ui::focus("Play again"); }
-
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();

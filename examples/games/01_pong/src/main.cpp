@@ -55,8 +55,6 @@ public:
 
     // So that Enter, Space or the gamepad restart without a mouse: nothing has
     // the focus until something is given it.
-    void _ready() override { rmp::ui::focus("Play again"); }
-
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
