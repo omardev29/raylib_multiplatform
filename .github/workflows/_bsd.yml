@@ -62,7 +62,7 @@ jobs:
         # v1.4.0. This used to pin an untagged master commit for the AMX fix
         # behind the NetBSD boot failures on Intel-AMX runners (issue #158);
         # that fix shipped in v1.3.0, so we are back on a real release.
-        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963  # v1.4.0
+        uses: cross-platform-actions/action@faa0c6197e94aacf1c5956460152c8380d3560a5  # v1.5.0
         with:
           operating_system: ${{ matrix.os }}
           version: ${{ matrix.version }}
