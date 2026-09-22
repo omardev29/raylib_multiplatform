@@ -191,7 +191,7 @@ bool slider(std::string_view label, float *value, float min, float max,
         if (!detail::pointer_down()) st->flag = false;
 
         if (st->flag) {
-            detail::set_pointer_captured(true);
+            detail::set_pointer_captured(id.id, true);
             float fraction = box.width > 0 ? (p.x - box.x) / box.width : 0.0f;
             if (fraction < 0) fraction = 0;
             if (fraction > 1) fraction = 1;
@@ -200,15 +200,38 @@ bool slider(std::string_view label, float *value, float min, float max,
     } else {
         st->flag = false;
     }
-    if (!st->flag) detail::set_pointer_captured(false);
+    if (!st->flag) detail::set_pointer_captured(id.id, false);
 
     // Left/right on the keyboard or the stick. A step of 5% keeps a controller
     // usable on a range of any size without needing a per-slider setting.
+    //
+    // ONE STEP PER PRESS, then a repeat while it is held. It used to be a
+    // continuous nudge of step * dt * 12, which for a slider with a step is a
+    // fifth of one at 60 fps — less than the half a step the snap below needs,
+    // and the remainder was thrown away with the rest of *value. A stepped
+    // slider could not be moved by keyboard or gamepad at all, at any frame
+    // rate above about 42, which reads as "the controller does not work on this
+    // one" and leaves a TV build with no way to change it.
     if (has_focus && o.enabled) {
-        int nav = detail::nav_axis_x();
-        if (nav != 0) {
-            float step = o.step > 0 ? o.step : span * 0.05f;
-            *value += static_cast<float>(nav) * step * GetFrameTime() * 12.0f;
+        const int nav = detail::nav_axis_x();
+        const float step = o.step > 0 ? o.step : span * 0.05f;
+        if (nav == 0) {
+            st->i = 0;
+            st->f = 0.0f;
+        } else if (nav != st->i) {
+            st->i = nav;
+            // Negative, so the second step does not follow the first
+            // immediately: a quarter of a second at the 12-a-second rate below.
+            st->f = -3.0f;
+            *value += static_cast<float>(nav) * step;
+        } else {
+            // Held. Whole steps only, and the fraction left over is kept rather
+            // than rounded away — that discarded remainder was the bug.
+            st->f += detail::frame_time() * 12.0f;
+            while (st->f >= 1.0f) {
+                st->f -= 1.0f;
+                *value += static_cast<float>(nav) * step;
+            }
         }
     }
 

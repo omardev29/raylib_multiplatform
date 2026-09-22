@@ -41,8 +41,13 @@ bool g_navigation_enabled = true;
 bool g_activate_pending = false;
 int g_nav_x = 0;
 bool g_pointer_over_ui = false;
-bool g_pointer_captured = false;
+// WHICH element is dragging, or 0. A plain bool meant every slider in the frame
+// wrote to the same flag, so the one drawn after the one being dragged handed
+// the pointer straight back to the game -- and nothing cleared it at all if the
+// dragging slider stopped being drawn.
+uint32_t g_pointer_capture_id = 0;
 bool g_keyboard_captured = false;
+int g_nav_x_for_tests = detail::kNavFromDevices;
 
 // Held-key repeat, so holding down on a d-pad walks a menu instead of moving
 // one item and stopping.
@@ -140,9 +145,13 @@ namespace detail {
 
 void begin_focus_frame() {
     g_current_count = 0;
-    g_pointer_over_ui = false;
     g_nav_x = 0;
     g_activate_pending = false;
+
+    // A drag ends when the pointer goes up, whatever is or is not being drawn.
+    // That is a property of the pointer and not of a pass, which is why it is
+    // released here and not with the other two capture flags.
+    if (!pointer_down()) g_pointer_capture_id = 0;
 
     if (!g_navigation_enabled) return;
 
@@ -184,7 +193,6 @@ void end_focus_frame() {
         g_focused_id = g_previous[0].id;
         copy_name(g_focused_name, g_previous[0].name);
     }
-    g_keyboard_captured = false;
 }
 
 bool focusable(Clay_ElementId id, std::string_view name) {
@@ -202,13 +210,31 @@ bool take_activate() {
     return true;
 }
 
-int nav_axis_x() { return g_nav_x; }
+int nav_axis_x() {
+    return g_nav_x_for_tests != kNavFromDevices ? g_nav_x_for_tests : g_nav_x;
+}
+
+void set_nav_x_for_tests(int x) { g_nav_x_for_tests = x; }
 
 void set_pointer_over_ui() { g_pointer_over_ui = true; }
-void set_pointer_captured(bool c) { g_pointer_captured = c; }
+
+void set_pointer_captured(uint32_t id, bool c) {
+    if (c) {
+        g_pointer_capture_id = id;
+    } else if (g_pointer_capture_id == id) {
+        // Only the element that took it can give it back.
+        g_pointer_capture_id = 0;
+    }
+}
+
 void set_keyboard_captured(bool c) { g_keyboard_captured = c; }
 
-bool pointer_over_ui() { return g_pointer_over_ui || g_pointer_captured; }
+void begin_capture_frame() {
+    g_pointer_over_ui = false;
+    g_keyboard_captured = false;
+}
+
+bool pointer_over_ui() { return g_pointer_over_ui || g_pointer_capture_id != 0; }
 bool keyboard_captured() { return g_keyboard_captured; }
 
 void focus_by_id(uint32_t id, std::string_view name) {
@@ -253,7 +279,10 @@ void focus(std::string_view id) {
         detail::focus_by_id(0, "");
         return;
     }
-    detail::focus_by_id(detail::element_id(id, nullptr).id, id);
+    // peek, not element_id: the allocating one would count this label as an
+    // occurrence of itself, so the widget it is trying to focus would come out
+    // as the NEXT one and the two ids could never match.
+    detail::focus_by_id(detail::peek_element_id(id).id, id);
 }
 
 std::string_view focused() { return std::string_view{ g_focused_name }; }

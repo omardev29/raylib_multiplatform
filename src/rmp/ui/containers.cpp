@@ -7,6 +7,7 @@
 // ===========================================================================
 
 #include "internal.h"
+#include "../internal.h"
 
 namespace rmp::ui {
 
@@ -94,6 +95,10 @@ Clay_LayoutConfig layout_of(const BoxOptions &o, Clay_LayoutDirection dir,
 
 bool transparent(Color c) { return c.a == 0 && c.r == 0 && c.g == 0 && c.b == 0; }
 
+// See detail::last_image_data(): what image() handed Clay, so a test can prove
+// it is not the caller's address.
+const void *g_last_image_data = nullptr;
+
 } // namespace
 
 namespace {
@@ -109,6 +114,11 @@ struct GridFrame {
 constexpr int kMaxGridDepth = 4;
 GridFrame g_grids[kMaxGridDepth];
 int g_grid_depth = 0;
+// Grids opened past the limit. They push no frame, so their close must not pop
+// one either: it used to, which meant the fifth grid's close consumed the
+// FOURTH grid's row and every close after it was off by one. Counting them is
+// what makes open and close pairs again, and it is exact because grids nest.
+int g_grid_overflow = 0;
 
 // Named containers get a stable id so they can be asked about later; unnamed
 // ones stay anonymous, which is what most of them should be.
@@ -135,6 +145,8 @@ void open_grid_row(float gap) {
 } // namespace
 
 namespace detail {
+
+const void *last_image_data() { return g_last_image_data; }
 
 void open_row(const BoxOptions &o) {
     if (!frame_open()) return;
@@ -270,6 +282,11 @@ void open_grid(const GridOptions &o) {
     if (g_grid_depth < kMaxGridDepth) {
         g_grids[g_grid_depth] = GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
         g_grid_depth++;
+    } else {
+        g_grid_overflow++;
+        RMP_REPORT_ONCE("UI: grids nested more than %d deep; the ones past that lay "
+                        "their cells out as plain boxes in a column",
+                        kMaxGridDepth);
     }
     Clay__OpenElementWithId(grid_id);
     Clay__ConfigureOpenElement(d);
@@ -277,7 +294,11 @@ void open_grid(const GridOptions &o) {
 
 void close_grid() {
     if (!frame_open()) return;
-    if (g_grid_depth > 0) {
+    if (g_grid_overflow > 0) {
+        // This one never pushed a frame, so it pops nothing. Grids nest, so the
+        // overflowing ones are always the innermost and this is exact LIFO.
+        g_grid_overflow--;
+    } else if (g_grid_depth > 0) {
         // A grid whose last row is not full still has that row open. Closing it
         // here is why a grid of five items with four columns does not corrupt
         // everything after it.
@@ -289,10 +310,12 @@ void close_grid() {
 
 void open_cell() {
     if (!frame_open()) return;
-    if (g_grid_depth == 0) {
+    if (g_grid_depth == 0 || g_grid_overflow > 0) {
         // A cell outside a grid is a plain box rather than an error: it keeps
         // the tree balanced, and the mistake is visible on screen instead of
-        // corrupting the frame.
+        // corrupting the frame. A cell inside a grid nested past the limit is
+        // the same case — it has no frame of its own, and using the innermost
+        // one that has would shuffle THAT grid's rows.
         Clay_ElementDeclaration d{};
         d.layout.sizing.width = axis(false, 0);
         d.layout.sizing.height = axis(false, 0);
@@ -399,9 +422,19 @@ void image(const Texture2D &texture, const ImageOptions &o) {
         d.layout.sizing.width = axis(false, w);
         d.layout.sizing.height = axis(false, h);
     }
-    // Clay passes this pointer through to the render command untouched, which
-    // is why the texture has to outlive the frame.
-    d.image.imageData = const_cast<Texture2D *>(&texture);
+    // A COPY, in the frame arena. Clay keeps this pointer until end() draws, and
+    // the signature binds a temporary happily: rmp::ui::image(
+    // rmp::assets::load_texture("icon.png")) compiles, and the address of a
+    // parameter whose object died at the semicolon is what the renderer would
+    // then dereference. The struct is 20 bytes and the arena's lifetime is
+    // exactly the frame Clay needs, which makes the rule true by construction
+    // instead of true in a comment. A full arena leaves it null, and Clay emits
+    // no IMAGE command for that — the element is still laid out at its size.
+    if (void *copy = detail::frame_alloc(sizeof(Texture2D))) {
+        *static_cast<Texture2D *>(copy) = texture;
+        d.image.imageData = copy;
+    }
+    g_last_image_data = d.image.imageData;
 
     // The tint deliberately does NOT go in backgroundColor. Clay emits a
     // RECTANGLE for any element with a background, *in addition to* the IMAGE

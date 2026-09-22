@@ -455,8 +455,11 @@ void spacer(float fixed); // or just a gap of a given size
 // More widgets
 // ---------------------------------------------------------------------------
 
-// The texture has to stay alive until end() returns. By default it is drawn at
-// its own Size, scaled with the rest of the UI.
+// The texture is copied on the way in, so a temporary is fine:
+// rmp::ui::image(rmp::assets::load_texture("icon.png")) draws. What the copy
+// holds is a GPU handle, so the texture itself still has to be loaded when the
+// frame is drawn — but that is your asset's lifetime, not this call's. By
+// default it is drawn at its own Size, scaled with the rest of the UI.
 void image(const Texture2D &texture);
 void image(const Texture2D &texture, const ImageOptions &o);
 
@@ -615,9 +618,13 @@ bool text_input(std::string_view label, char *buffer, int capacity,
 //     if (!rmp::ui::wants_keyboard() && IsKeyDown(KEY_W))       walk();
 // ---------------------------------------------------------------------------
 
+// Both answer for the last frame in which the UI drew, and keep answering until
+// the next begin() — so it does not matter whether you ask in _update(), which
+// runs before anything draws, or on the line after end(). Like everything in
+// immediate mode that is one frame of tolerance, which nobody will notice.
+
 // The pointer is over the interface, or the interface is using it (dragging a
-// slider). Like everything in immediate mode this answers for the layout of the
-// previous frame, which is one frame of tolerance nobody will notice.
+// slider).
 bool wants_pointer();
 
 // A text field has focus, so the keyboard belongs to it.
