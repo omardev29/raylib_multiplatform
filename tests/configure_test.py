@@ -2405,3 +2405,56 @@ class RaymobJniDisciplineTest(unittest.TestCase):
         body = java.split("public boolean onKeyUp")[1].split("\n    }")[0]
         self.assertIn("super.onKeyUp(", body)
         self.assertNotIn("super.onKeyDown(", body)
+
+
+class ZeroEntryPackFixtureTest(unittest.TestCase):
+    """tests/fixtures/pack_zero/resources.rres is generated, not hand-carved.
+
+    It is 96 bytes of binary and it exists for one assertion: open_pack() has
+    to refuse a pack whose central directory declares no entries, and give the
+    directory rres allocated back. A binary fixture with no generator beside it
+    is a blob nobody dares change, and a generator that has drifted from the
+    committed bytes is worse than none -- so the bytes are compared, not the
+    intention.
+    """
+
+    FIXTURE = REPO / "tests" / "fixtures" / "pack_zero" / "resources.rres"
+    SCRIPT = REPO / "tools" / "make_zero_pack.py"
+
+    def test_the_script_writes_exactly_the_committed_bytes(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "resources.rres"
+            run = subprocess.run([sys.executable, str(self.SCRIPT), str(out)],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(
+                out.read_bytes(), self.FIXTURE.read_bytes(),
+                "tools/make_zero_pack.py no longer writes the committed fixture; "
+                "run it to regenerate tests/fixtures/pack_zero/resources.rres")
+
+    def test_the_central_directory_is_present_and_declares_no_entries(self):
+        """The two things that make the fixture the case under test.
+
+        A cdOffset of 0 is rres's "no central directory at all", answered
+        without allocating -- the path that never leaked. And rres reads the
+        entry count out of props[0] without checking propCount, so a directory
+        with no properties is a null dereference inside rres rather than an
+        empty pack.
+        """
+        import struct
+        data = self.FIXTURE.read_bytes()
+        self.assertEqual(data[:4], b"rres")
+        self.assertEqual(struct.unpack_from("<H", data, 4)[0], 100, "file version")
+
+        cd_offset = struct.unpack_from("<I", data, 8)[0]
+        self.assertNotEqual(cd_offset, 0,
+                            "cdOffset 0 means 'no central directory' and rres "
+                            "allocates nothing on that path")
+        info_at = 16 + cd_offset  # rres seeks from the end of the header
+        self.assertEqual(data[info_at:info_at + 4], b"CDIR")
+
+        prop_count, entries = struct.unpack_from("<II", data, info_at + 32)
+        self.assertEqual(prop_count, 1, "rres reads props[0] without checking this")
+        self.assertEqual(entries, 0, "the whole point: a directory holding nothing")

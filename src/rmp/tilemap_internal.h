@@ -34,4 +34,11 @@ const MapObject *object_at(const void *p, int index);
 // right until somebody opens the game.
 Rectangle tile_source(const void *p, int gid);
 
+// Where that tile's top-left corner goes in world units, which is NOT simply
+// the cell's own corner: Tiled anchors a tile layer by the BOTTOM-left, so a
+// tileset whose tiles are taller than the map's grid reaches UPWARDS out of
+// the cell. The cell's corner when no tileset in the map holds that gid --
+// nothing to be taller than the grid.
+Vector2 tile_origin(const void *p, int gid, int column, int row);
+
 } // namespace rmp::tilemap::detail

@@ -1,0 +1,17 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":1, "height":16, "id":1, "name":"stamped",
+          "rotation":0, "visible":true, "width":16, "x":32, "y":48 },
+        { "class":"zone", "height":16, "id":2, "name":"drawn", "rotation":0,
+          "visible":true, "width":16, "x":32, "y":48 }],
+      "opacity":1, "type":"objectgroup", "visible":true, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":3, "orientation":"orthogonal",
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":1, "image":"tiles.png", "imageheight":64,
+      "imagewidth":64, "margin":0, "name":"tiles", "spacing":0,
+      "tilecount":16, "tileheight":16, "tilewidth":16 }],
+  "tilewidth":16, "type":"map", "version":"1.10", "width":4 }

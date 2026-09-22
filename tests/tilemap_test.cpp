@@ -486,7 +486,7 @@ TEST_CASE_FIXTURE(Fixture, "a point or a zero-size object is a marker, not a wal
         return nullptr;
     };
 
-    rmp::Object *chest = at({ 8, 24 }); // a 16x16 tile object
+    rmp::Object *chest = at({ 8, 8 }); // a 16x16 tile object, anchored bottom-left
     rmp::Object *wall = at({ 56, 8 }); // a 16x16 rectangle
     rmp::Object *point = at({ 32, 32 }); // a Tiled point: 0 by 0
     rmp::Object *line = at({ 8, 48 }); // a polyline, which is also 0 by 0
@@ -499,4 +499,74 @@ TEST_CASE_FIXTURE(Fixture, "a point or a zero-size object is a marker, not a wal
     CHECK(wall->solid);
     CHECK_FALSE(point->solid);
     CHECK_FALSE(line->solid);
+}
+
+// ---------------------------------------------------------------------------
+// Where Tiled anchors things, which is not always the corner you would guess
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a tile object hangs from its bottom edge, a rectangle from its top") {
+    // Both objects in this fixture are at x 32, y 48, sixteen by sixteen. The
+    // ONLY difference between them is that one has a gid -- and Tiled anchors
+    // the two kinds differently: a rectangle, an ellipse, a point or a polygon
+    // is placed by its TOP-left corner, while a tile object, the one you stamp
+    // with a tile, hangs from its BOTTOM-left, which is where the cursor was.
+    // Reading y as the top for both put every stamped chest, torch and door
+    // exactly one tile into the floor.
+    const std::vector<unsigned char> raw = bytes_of("map_object_anchor.json");
+    void *data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                                 "map_object_anchor.json");
+    REQUIRE(data != nullptr);
+    REQUIRE(rmp::tilemap::detail::object_count(data) == 2);
+
+    const rmp::MapObject *stamped = rmp::tilemap::detail::object_at(data, 0);
+    const rmp::MapObject *drawn = rmp::tilemap::detail::object_at(data, 1);
+    REQUIRE(stamped != nullptr);
+    REQUIRE(drawn != nullptr);
+    REQUIRE(stamped->gid == 1);
+    REQUIRE(drawn->gid == 0);
+
+    CHECK(stamped->position.x == doctest::Approx(40));
+    CHECK(stamped->position.y == doctest::Approx(40)); // y 48 is its BOTTOM
+    CHECK(drawn->position.x == doctest::Approx(40));
+    CHECK(drawn->position.y == doctest::Approx(56)); // y 48 is its TOP
+
+    SUBCASE("so the two are a whole tile apart, which is the size of the bug") {
+        CHECK(drawn->position.y - stamped->position.y == doctest::Approx(16));
+    }
+    rmp::tilemap::detail::free_map(data);
+}
+
+TEST_CASE("a tileset taller than the grid reaches up out of its cell") {
+    // The same anchoring, in the tile layers. A 16x32 tileset on a 16x16 map
+    // -- trees, walls, anything drawn standing up -- sits with its FOOT in the
+    // cell and its head a row above. Drawn from the cell's own corner instead,
+    // the whole layer is one tile too low and the tops are cut off.
+    const Parsed loaded("map_tall_tiles.json");
+    REQUIRE(loaded.map.valid());
+    CHECK(rmp::tilemap::detail::tile_source(loaded.data, 2).height ==
+          doctest::Approx(32));
+
+    const Vector2 top_row = rmp::tilemap::detail::tile_origin(loaded.data, 2, 1, 0);
+    CHECK(top_row.x == doctest::Approx(16));
+    CHECK(top_row.y == doctest::Approx(-16)); // a row above the map, on purpose
+
+    const Vector2 second_row = rmp::tilemap::detail::tile_origin(loaded.data, 3, 0, 1);
+    CHECK(second_row.x == doctest::Approx(0));
+    CHECK(second_row.y == doctest::Approx(0));
+
+    SUBCASE("and a tileset the size of the grid still starts at the cell") {
+        const Parsed ordinary("map_minimal.json");
+        REQUIRE(ordinary.map.valid());
+        const Vector2 cell = rmp::tilemap::detail::tile_origin(ordinary.data, 1, 2, 3);
+        CHECK(cell.x == doctest::Approx(32));
+        CHECK(cell.y == doctest::Approx(48));
+    }
+    SUBCASE("and a gid nothing holds is the cell's corner, not a guess") {
+        const Vector2 cell = rmp::tilemap::detail::tile_origin(loaded.data, 99, 1, 1);
+        CHECK(cell.x == doctest::Approx(16));
+        CHECK(cell.y == doctest::Approx(16));
+        CHECK(rmp::tilemap::detail::tile_origin(nullptr, 1, 1, 1).x ==
+              doctest::Approx(0));
+    }
 }
