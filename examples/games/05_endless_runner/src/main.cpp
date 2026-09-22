@@ -1,4 +1,3 @@
-#include "/tmp/claude-1000/-home-omarch-Projects-project-raylib/fc88c1a2-7192-4deb-afff-5766ac7d5ba0/scratchpad/probe.h"
 // ---------------------------------------------------------------------------
 // examples/games/05_endless_runner/src/main.cpp — an endless runner.
 //

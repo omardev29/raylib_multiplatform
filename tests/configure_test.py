@@ -2152,6 +2152,30 @@ class DocumentedTreeTest(unittest.TestCase):
                 self.assertIn(f"| **`{module}`** |", readme)
 
 
+class NoAbsoluteIncludeTest(unittest.TestCase):
+    """No source includes a file by absolute path.
+
+    An agent left `#include "/tmp/.../probe.h"` at the top of a game while
+    driving it headless; it compiled on the machine that had the file and
+    took the examples job and the MSVC pass red twenty minutes after the push.
+    A path that starts with / (or a drive letter) is never something the
+    repository can promise exists.
+    """
+
+    ROOTS = ("src", "include", "tests", "examples")
+
+    def test_every_include_is_relative(self):
+        offenders = []
+        for root in self.ROOTS:
+            for path in (REPO / root).rglob("*"):
+                if path.suffix not in (".c", ".cpp", ".h", ".hpp") or not path.is_file():
+                    continue
+                for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                    if re.match(r'\s*#\s*include\s+"(/|[A-Za-z]:[\\/])', line):
+                        offenders.append(f"{path.relative_to(REPO)}:{number}: {line.strip()}")
+        self.assertEqual(offenders, [], "absolute #include paths:\n" + "\n".join(offenders))
+
+
 class VendoredHeaderPathsTest(unittest.TestCase):
     """A vendored dependency has to be on the include path of EVERY build.
 
