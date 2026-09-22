@@ -44,7 +44,7 @@ Clay_SizingAxis grow() {
 }
 
 void focus_border(Clay_ElementDeclaration &d, bool on) {
-    if (!on) return;
+    if (!on || !detail::focus_visible()) return;
     const Theme &t = current_theme();
     auto w = static_cast<uint16_t>(px(t.focus_ring));
     d.border.color = to_clay(t.focus);

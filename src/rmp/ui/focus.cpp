@@ -36,6 +36,15 @@ int g_previous_count = 0;
 
 uint32_t g_focused_id = 0;
 char g_focused_name[48] = { 0 };
+// Where the pass being described starts in g_current. See end_pass_focus().
+int g_pass_first = 0;
+// Is the focus SHOWN? Having one and drawing a ring around it are two
+// questions, and they have two answers: everything is focusable now, so a menu
+// drawn for a player holding a mouse would wear a ring nobody asked for on its
+// first button, every time. It appears the moment the keyboard or the gamepad
+// is used -- which is the moment it starts meaning something -- and goes away
+// again on a click. The browsers' :focus-visible, for the same reason.
+bool g_focus_visible = false;
 
 bool g_navigation_enabled = true;
 bool g_activate_pending = false;
@@ -48,7 +57,6 @@ bool g_pointer_over_ui = false;
 uint32_t g_pointer_capture_id = 0;
 uint32_t g_press_id = 0;
 bool g_keyboard_captured = false;
-int g_nav_x_for_tests = detail::kNavFromDevices;
 
 // Held-key repeat, so holding down on a d-pad walks a menu instead of moving
 // one item and stopping.
@@ -68,51 +76,6 @@ int index_of(uint32_t id) {
         if (g_previous[i].id == id) return i;
     }
     return -1;
-}
-
-// Down/Up on the keyboard, the d-pad, or the left stick pushed far enough to
-// be deliberate.
-int read_nav_y() {
-    int y = 0;
-    if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_TAB)) y += 1;
-    if (IsKeyDown(KEY_UP)) y -= 1;
-    if (IsGamepadAvailable(0)) {
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) y += 1;
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) y -= 1;
-        float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
-        if (ly > 0.5f) y += 1;
-        if (ly < -0.5f) y -= 1;
-    }
-    // Shift+Tab is "backwards", which is the one convention people expect
-    // without being told.
-    if (y > 0 && IsKeyDown(KEY_TAB) &&
-        (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
-        y = -1;
-    }
-    return y > 0 ? 1 : (y < 0 ? -1 : 0);
-}
-
-int read_nav_x() {
-    int x = 0;
-    if (IsKeyDown(KEY_RIGHT)) x += 1;
-    if (IsKeyDown(KEY_LEFT)) x -= 1;
-    if (IsGamepadAvailable(0)) {
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) x += 1;
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) x -= 1;
-        float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
-        if (lx > 0.5f) x += 1;
-        if (lx < -0.5f) x -= 1;
-    }
-    return x > 0 ? 1 : (x < 0 ? -1 : 0);
-}
-
-bool read_activate() {
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE))
-        return true;
-    if (IsGamepadAvailable(0) &&
-        IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))
-        return true;
-    return false;
 }
 
 void move_focus(int delta) {
@@ -161,25 +124,37 @@ void begin_focus_frame() {
 
     if (!g_navigation_enabled) return;
 
+    // Once per frame, through the provider: see NavState. Everything below is
+    // logic on top of those three numbers, which is what makes a controller
+    // testable without a controller.
+    NavState nav{};
+    read_nav(&nav);
+
     // A text field owns the keyboard while it has focus; Tab and the arrows
     // there mean "move the caret", not "leave this field".
     if (!g_keyboard_captured) {
-        int y = read_nav_y();
-        if (y != 0 && y != g_last_nav_y) {
-            move_focus(y);
+        if (nav.y != 0 && nav.y != g_last_nav_y) {
+            move_focus(nav.y);
             g_repeat_timer = kRepeatDelay;
-        } else if (y != 0) {
-            g_repeat_timer -= GetFrameTime();
+        } else if (nav.y != 0) {
+            // frame_time(), not GetFrameTime(): 0 in test mode, so a headless
+            // run moves exactly one step per press and always the same way.
+            g_repeat_timer -= frame_time();
             if (g_repeat_timer <= 0.0f) {
-                move_focus(y);
+                move_focus(nav.y);
                 g_repeat_timer = kRepeatInterval;
             }
         }
-        g_last_nav_y = y;
-        g_nav_x = read_nav_x();
+        g_last_nav_y = nav.y;
+        g_nav_x = nav.x;
     }
 
-    g_activate_pending = read_activate();
+    g_activate_pending = nav.activate;
+
+    // Touching the keyboard or the stick is what makes the focus worth showing;
+    // going back to the mouse is what stops it.
+    if (nav.x != 0 || nav.y != 0 || nav.activate) g_focus_visible = true;
+    if (pointer_just_pressed()) g_focus_visible = false;
 }
 
 void end_focus_frame() {
@@ -202,6 +177,12 @@ void end_focus_frame() {
 }
 
 bool focusable(Clay_ElementId id, std::string_view name) {
+    // A pass input cannot reach is not focusable either, which is what
+    // rmp/ui.h has promised set_pass_input() means all along. Without this the
+    // arrows walked into the HUD under an open pause menu, and Enter activated
+    // something in a scene the player could not even see the cursor in.
+    if (!pass_input()) return false;
+
     if (g_current_count < kMaxFocusables) {
         g_current[g_current_count].id = id.id;
         copy_name(g_current[g_current_count].name, name);
@@ -210,17 +191,42 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     return g_navigation_enabled && g_focused_id == id.id;
 }
 
+// --- the default focus -----------------------------------------------------
+//
+// Something has to be focused for Enter or the A button to mean anything, and
+// until now nothing was until the player pressed Down or Tab first. A scene
+// pushed with one "Play again" button on it could not be pressed with a
+// controller at all, and every one of the six example games worked around it by
+// calling rmp::ui::focus() in _ready().
+//
+// So: a pass that declares focusable widgets and has no focus of its own takes
+// its FIRST one. "Of its own" is the whole subtlety -- the focus is per frame
+// but the passes are not, so what decides is whether the focused element has
+// been declared by ANY pass so far this frame. A pause menu over a HUD that
+// input cannot reach finds nothing (the HUD registers nothing) and takes its
+// own first button; with input_below on, the HUD registers first and keeps it,
+// so the menu cannot steal the focus back every frame and Tab still walks
+// between the two.
+
+void begin_pass_focus() { g_pass_first = g_current_count; }
+
+void end_pass_focus() {
+    if (!g_navigation_enabled) return;
+    if (g_current_count <= g_pass_first) return; // nothing focusable in it
+    for (int i = 0; i < g_current_count; i++) {
+        if (g_current[i].id == g_focused_id) return; // already somebody's
+    }
+    g_focused_id = g_current[g_pass_first].id;
+    copy_name(g_focused_name, g_current[g_pass_first].name);
+}
+
 bool take_activate() {
     if (!g_activate_pending) return false;
     g_activate_pending = false; // exactly one widget gets it
     return true;
 }
 
-int nav_axis_x() {
-    return g_nav_x_for_tests != kNavFromDevices ? g_nav_x_for_tests : g_nav_x;
-}
-
-void set_nav_x_for_tests(int x) { g_nav_x_for_tests = x; }
+int nav_axis_x() { return g_nav_x; }
 
 void set_pointer_over_ui() { g_pointer_over_ui = true; }
 
@@ -235,6 +241,8 @@ void set_pointer_captured(uint32_t id, bool c) {
 
 void set_keyboard_captured(bool c) { g_keyboard_captured = c; }
 
+void set_focus_visible(bool on) { g_focus_visible = on; }
+
 uint32_t press_id() { return g_press_id; }
 void set_press_id(uint32_t id) { g_press_id = id; }
 
@@ -245,6 +253,8 @@ void begin_capture_frame() {
 
 bool pointer_over_ui() { return g_pointer_over_ui || g_pointer_capture_id != 0; }
 bool keyboard_captured() { return g_keyboard_captured; }
+
+bool focus_visible() { return g_focus_visible; }
 
 void focus_by_id(uint32_t id, std::string_view name) {
     g_focused_id = id;
@@ -288,6 +298,9 @@ void focus(std::string_view id) {
         detail::focus_by_id(0, "");
         return;
     }
+    // Asked for by name, by the game: that is deliberate, so it is shown. The
+    // focus a pass gives itself is not, until the player reaches for a key.
+    detail::set_focus_visible(true);
     // peek, not element_id: the allocating one would count this label as an
     // occurrence of itself, so the widget it is trying to focus would come out
     // as the NEXT one and the two ids could never match.

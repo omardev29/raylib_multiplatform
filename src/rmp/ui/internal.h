@@ -45,6 +45,19 @@ void set_scale_override(float s); // 0 = automatic
 // The pointer, through whichever provider is installed.
 void read_pointer(Clay_Vector2 *position, bool *down);
 
+// What the UI's own keyboard and gamepad handling needs, and all of it: which
+// way the player is pushing, and whether they pressed the button that means
+// "do it". Sampled once per frame through a provider, exactly like the pointer
+// and for exactly the same reason -- a headless run has no devices, so a test
+// that wants to press Enter needs somewhere to say so. It is also what keeps
+// rmp::ui from having to ask rmp::input, which already asks us.
+struct NavState {
+    int x = 0; // -1, 0 or +1 while held: Left/Right, the d-pad, the stick
+    int y = 0; // the same up and down, and Tab counts as down
+    bool activate = false; // pressed THIS frame: Enter, Space, the A button
+};
+void read_nav(NavState *out);
+
 // Pointer state for this frame, sampled once at the FRAME boundary so that two
 // scenes drawing in the same frame cannot disagree about where the mouse is.
 // `present` is false on a touch screen with nothing touching it — see
@@ -238,8 +251,23 @@ float size_ratio(const Sizing &s, const Theme &t);
 // the one with the focus right now.
 bool focusable(Clay_ElementId id, std::string_view name);
 
+// Should the focus ring be DRAWN? Having the focus and showing it are two
+// questions since every pass gives itself a focus: a player holding a mouse
+// would otherwise find a ring on the first button of every menu that opens.
+// True from the moment the keyboard or the gamepad is used, or the game calls
+// rmp::ui::focus() itself; false again on a click.
+bool focus_visible();
+void set_focus_visible(bool on);
+
 void begin_focus_frame(); // resolve navigation, using last frame's list
 void end_focus_frame(); // swap the lists
+
+// The pass boundary, for focus. A pass that declares focusable widgets and has
+// no focus of its own takes its first one, so that Enter and the A button mean
+// something the moment a scene appears — without them a pushed game-over menu
+// could not be pressed until the player had tapped Down or Tab first.
+void begin_pass_focus();
+void end_pass_focus();
 
 // True once per press, for whoever has the focus. Enter, Space, or the
 // gamepad's bottom face button.
@@ -312,9 +340,11 @@ const char *cstr(Clay_StringSlice slice);
 
 using MeasureFn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
 using PointerFn = void (*)(Clay_Vector2 *position, bool *down);
+using NavFn = void (*)(NavState *out);
 
 void set_measure_provider(MeasureFn fn);
 void set_pointer_provider(PointerFn fn);
+void set_nav_provider(NavFn fn);
 
 // Test mode: use the viewport given here instead of asking raylib, and skip
 // drawing in end(). With this on there is no window and no GL context, and
@@ -339,13 +369,6 @@ int clay_error_count();
 Clay_ErrorType first_clay_error();
 void reset_clay_errors_for_tests();
 
-// Keyboard and gamepad state come straight from raylib (tools/seam_check.sh
-// lists focus.cpp as debt for exactly that), and a headless run has neither —
-// so this is the only way to say what the d-pad is doing. kNavFromDevices puts
-// the devices back, which is every real run.
-constexpr int kNavFromDevices = -2;
-void set_nav_x_for_tests(int x);
-
 // The pointer the last image() handed Clay. Clay keeps it until end() draws, so
 // the rule worth proving is that it points into the frame arena and not at the
 // caller's Texture2D — which may have been a temporary that died at the
@@ -356,6 +379,7 @@ const void *last_image_data();
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void *user);
 void pointer_from_raylib(Clay_Vector2 *position, bool *down);
+void nav_from_raylib(NavState *out);
 
 // --- shared conversions ----------------------------------------------------
 
