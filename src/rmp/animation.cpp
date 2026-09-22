@@ -217,7 +217,18 @@ void advance(Sprite &sprite, float delta) {
     const int last = tag.to >= sheet.frame_count ? sheet.frame_count - 1 : tag.to;
     if (last < first) return;
 
+    // The magnitude is the rate and the SIGN IS THE DIRECTION: rmp/object.h
+    // has documented `-1 = backwards` since the field existed, and the clock
+    // took the absolute value of both -- so -1 ran forwards at normal speed,
+    // the one setting of the three that did not do what it said.
     sprite.ours.elapsed += delta * (sprite.speed < 0 ? -sprite.speed : sprite.speed);
+
+    // Three things can reverse the run and they compose: the tag's own
+    // direction from Aseprite, the leg of a ping-pong we are on, and the sign
+    // of speed. An odd number of them means backwards.
+    const auto going_back = [&sprite, &tag]() {
+        return (tag.reverse != sprite.ours.back) != (sprite.speed < 0);
+    };
 
     // A while loop, because a frame can be shorter than the delta -- a 20 ms
     // frame at 30 fps owes two steps, and dropping them makes the animation run
@@ -230,13 +241,13 @@ void advance(Sprite &sprite, float delta) {
         if (hold <= 0 || sprite.ours.elapsed < hold) break;
         sprite.ours.elapsed -= hold;
 
-        const bool backwards = tag.reverse != sprite.ours.back;
+        const bool backwards = going_back();
         int next = sprite.ours.frame + (backwards ? -1 : 1);
 
         if (next > last || next < first) {
             if (tag.ping_pong && last > first) {
                 sprite.ours.back = !sprite.ours.back;
-                next = sprite.ours.frame + (sprite.ours.back != tag.reverse ? -1 : 1);
+                next = sprite.ours.frame + (going_back() ? -1 : 1);
                 if (next > last || next < first) next = sprite.ours.frame;
             } else if (sprite.ours.loop) {
                 next = backwards ? last : first;

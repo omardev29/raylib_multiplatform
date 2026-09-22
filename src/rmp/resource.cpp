@@ -23,6 +23,7 @@
 #include <raylib.h>
 
 #include <cstring>
+#include <string>
 
 namespace rmp::detail {
 
@@ -32,8 +33,15 @@ constexpr int kMaxSlots = 256;
 constexpr unsigned kMaxPayload = 64; // the largest of the seven raylib structs
 
 struct SlotData {
+    // The WHOLE name, and first because the analyzer counts the padding.
+    //
+    // It used to be a 96-byte buffer compared with strncmp, so two names
+    // sharing a 95-character prefix were one cache entry --
+    // characters/enemies/tier3/..._diffuse.png and ..._normal.png differ past
+    // there, and the second load handed back the FIRST texture, so the normal
+    // map drew as the diffuse and nothing was logged.
+    std::string name;
     ResourceKind kind{};
-    char name[96] = { 0 };
     int font_size = 0;
     int refs = 0;
     bool named = false; // false = adopted, never matched by name
@@ -82,7 +90,7 @@ SlotData *find_named(ResourceKind kind, const char *name, int font_size) {
     for (int i = 0; i < g_used; i++) {
         SlotData &s = g_slots[i];
         if (s.refs > 0 && s.named && s.kind == kind && s.font_size == font_size &&
-            std::strncmp(s.name, name, sizeof(s.name) - 1) == 0) {
+            s.name == name) {
             return &s;
         }
     }
@@ -132,7 +140,7 @@ Slot *adopt_named(ResourceKind kind, const char *name, int font_size,
     auto *data = reinterpret_cast<SlotData *>(slot);
     data->named = true;
     data->font_size = font_size;
-    std::strncpy(data->name, name, sizeof(data->name) - 1);
+    data->name = name;
     return slot;
 }
 
@@ -168,8 +176,7 @@ int ref_count(const char *name) {
     int n = 0;
     for (int i = 0; i < g_used; i++) {
         SlotData &s = g_slots[i];
-        if (s.refs > 0 && s.named &&
-            std::strncmp(s.name, name, sizeof(s.name) - 1) == 0) {
+        if (s.refs > 0 && s.named && s.name == name) {
             n += s.refs;
         }
     }

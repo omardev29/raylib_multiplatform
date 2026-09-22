@@ -28,6 +28,7 @@
 #include <rmp/assets.h>
 #include <rmp/scene.h>
 
+#include "internal.h" // RMP_REPORT_ONCE_KEYED, g_failed_count
 #include "tilemap_internal.h"
 
 #include <cute_tiled.h>
@@ -49,6 +50,8 @@ struct Tileset {
     int columns = 0;
     int tile_width = 0;
     int tile_height = 0;
+    int margin = 0; // border between the image edge and the first tile
+    int spacing = 0; // gutter between one tile and the next
     rmp::Texture texture;
     std::vector<bool> solid; // by local tile id
 };
@@ -90,6 +93,65 @@ const char *file_name_of(const char *path) {
         if (*p == '/' || *p == '\\') last = p + 1;
     }
     return last;
+}
+
+// An external tileset, fetched the way every other asset is: through
+// rmp::assets, so it arrives out of resources.rres in a release and out of
+// resources/ in development without the map knowing which.
+//
+// Wrapped in a one-key map and given to cute_tiled's MAP parser rather than to
+// its own cute_tiled_load_external_tileset_from_memory, which patches the
+// strings of the tileset it has just failed to parse -- a null dereference, so
+// an XML .tsx (which is what Tiled writes by default) would take the process
+// down. The map parser checks, and comes back nullptr.
+//
+// Returns the wrapper map, which OWNS the tileset; the caller frees it with
+// cute_tiled_free_map once it has copied what it needs.
+cute_tiled_map_t *load_external_tileset(const char *source) {
+    int size = 0;
+    unsigned char *bytes = rmp::assets::load_data(file_name_of(source), &size);
+    if (bytes == nullptr) return nullptr;
+    std::string document;
+    if (size > 0) {
+        document.reserve(static_cast<std::size_t>(size) + 16);
+        document = "{\"tilesets\":[";
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        document.append(reinterpret_cast<const char *>(bytes),
+                        static_cast<std::size_t>(size));
+        document += "]}";
+    }
+    UnloadFileData(bytes);
+    if (document.empty()) return nullptr;
+    return cute_tiled_load_map_from_memory(document.data(),
+                                           static_cast<int>(document.size()), nullptr);
+}
+
+// The tileset a gid belongs to, or nullptr. The ranges never overlap: Tiled
+// hands out firstgid in order and each set claims tilecount of them.
+const Tileset *tileset_for(const MapData &data, int gid) {
+    for (const Tileset &set : data.tilesets) {
+        if (gid >= set.first_gid && gid <= set.last_gid) return &set;
+    }
+    return nullptr;
+}
+
+// Where that tile is in the tileset image. MARGIN AND SPACING ARE PART OF IT:
+// they are the first two fields of Tiled's own import dialog and what every
+// atlas packer produces, and without them the grid drifts by one gutter per
+// column -- so the tile drawn is a slice of two neighbours, and by the far
+// corner of the sheet it is different art altogether.
+Rectangle source_in(const Tileset &set, int gid) {
+    const int local = gid - set.first_gid;
+    // The division is integer on purpose -- it is the row the tile sits on in
+    // the tileset -- and the cast comes after, which is what clang-tidy wants
+    // said out loud.
+    const int tile_column = local % set.columns;
+    const int tile_row = local / set.columns;
+    return Rectangle{
+        static_cast<float>(set.margin + tile_column * (set.tile_width + set.spacing)),
+        static_cast<float>(set.margin + tile_row * (set.tile_height + set.spacing)),
+        static_cast<float>(set.tile_width), static_cast<float>(set.tile_height)
+    };
 }
 
 const cute_tiled_property_t *find_property(const void *raw_object, const char *key) {
@@ -185,16 +247,47 @@ void *parse_map(const void *bytes, int size, const char *name) {
     data->tile_height = raw->tileheight;
 
     for (cute_tiled_tileset_t *set = raw->tilesets; set != nullptr; set = set->next) {
-        Tileset out;
-        out.first_gid = set->firstgid;
-        out.last_gid = set->firstgid + set->tilecount - 1;
-        out.columns = set->columns > 0 ? set->columns : 1;
-        out.tile_width = set->tilewidth;
-        out.tile_height = set->tileheight;
-        out.solid.assign(
-            static_cast<std::size_t>(set->tilecount > 0 ? set->tilecount : 0), false);
+        // AN EXTERNAL TILESET. Tiled's New Tileset dialog does not embed by
+        // default, so the map holds nothing but {"firstgid":1,"source":"x.tsj"}
+        // and cute_tiled leaves every other field of it zero. That used to be
+        // a map that loaded, reported the right bounds, drew nothing and was
+        // solid nowhere, without one line in the log mentioning tilesets --
+        // the most likely first experience a real Tiled user has.
+        const char *source = set->source.ptr != nullptr ? set->source.ptr : "";
+        cute_tiled_map_t *external = nullptr;
+        const cute_tiled_tileset_t *from = set;
+        if (source[0] != '\0' && set->tilecount <= 0) {
+            external = load_external_tileset(source);
+            if (external != nullptr && external->tilesets != nullptr &&
+                external->tilesets->tilecount > 0) {
+                from = external->tilesets;
+            } else {
+                RMP_REPORT_ONCE_KEYED(
+                    source,
+                    "MAP: [%s] keeps its tileset in \"%s\", and that file could not "
+                    "be read. Tiled saves .tsx as XML and this reads JSON: in Tiled, "
+                    "Tileset > Embed In Map and save the map again, or save the "
+                    "tileset itself as .tsj. Until then that tileset draws nothing "
+                    "and none of its tiles are solid.",
+                    name != nullptr ? name : "", source);
+                // Counted, so the CI boot gate sees it: a game shipped with a
+                // tileset it cannot read comes back red rather than empty.
+                rmp::assets::detail::g_failed_count++;
+            }
+        }
 
-        for (cute_tiled_tile_descriptor_t *tile = set->tiles; tile != nullptr;
+        Tileset out;
+        out.first_gid = set->firstgid; // the MAP's, never the tileset file's
+        out.last_gid = set->firstgid + from->tilecount - 1;
+        out.columns = from->columns > 0 ? from->columns : 1;
+        out.tile_width = from->tilewidth;
+        out.tile_height = from->tileheight;
+        out.margin = from->margin;
+        out.spacing = from->spacing;
+        out.solid.assign(
+            static_cast<std::size_t>(from->tilecount > 0 ? from->tilecount : 0), false);
+
+        for (cute_tiled_tile_descriptor_t *tile = from->tiles; tile != nullptr;
              tile = tile->next) {
             for (int i = 0; i < tile->property_count; i++) {
                 const cute_tiled_property_t &p = tile->properties[i];
@@ -206,7 +299,7 @@ void *parse_map(const void *bytes, int size, const char *name) {
             }
         }
 
-        const char *image = file_name_of(set->image.ptr);
+        const char *image = file_name_of(from->image.ptr);
         if (image[0] != '\0') {
             out.texture = rmp::assets::load_texture(image);
             if (!out.texture.valid()) {
@@ -217,6 +310,7 @@ void *parse_map(const void *bytes, int size, const char *name) {
             }
         }
         data->tilesets.push_back(std::move(out));
+        if (external != nullptr) cute_tiled_free_map(external);
     }
 
     for (cute_tiled_layer_t *layer = raw->layers; layer != nullptr; layer = layer->next) {
@@ -244,7 +338,14 @@ void *parse_map(const void *bytes, int size, const char *name) {
                 out.position = Vector2{ object->x + object->width / 2,
                                         object->y + object->height / 2 };
                 out.rotation = object->rotation;
-                out.gid = object->gid;
+                // The top three bits are Tiled's flip flags and not part of
+                // the id, exactly as in the tile-layer loop below. Press X in
+                // the editor and a gid of 1 comes back as 0x80000001, which
+                // read as an int is -2147483647 -- so a factory switching on
+                // the gid falls through to its default, while `gid == 0 means
+                // not a tile object` still passes and nothing looks wrong.
+                out.gid =
+                    static_cast<int>(static_cast<unsigned>(object->gid) & ~kFlipMask);
                 out.raw = object;
                 data->objects.push_back(out);
             }
@@ -290,6 +391,12 @@ const MapObject *object_at(const void *p, int index) {
         return nullptr;
     }
     return &data->objects[static_cast<std::size_t>(index)];
+}
+
+Rectangle tile_source(const void *p, int gid) {
+    if (p == nullptr) return Rectangle{};
+    const Tileset *set = tileset_for(*as_data(p), gid);
+    return set == nullptr ? Rectangle{} : source_in(*set, gid);
 }
 
 } // namespace tilemap::detail
@@ -430,12 +537,19 @@ void Tilemap::spawn_objects(Scene &into) {
         }
         if (made) continue;
 
-        // No factory: a plain object with the position, the size, a collider
-        // and `solid`. That is the right default for a wall or a platform drawn
-        // in the editor, which is most of what an unregistered class is.
+        // No factory: a plain object with the position, the size and a
+        // collider. `solid` too when TILED GAVE IT AN AREA, which is the right
+        // default for a wall or a platform drawn in the editor.
+        //
+        // But an object layer holds the other half of a level as well -- spawn
+        // points, camera targets, waypoints, audio emitters -- and a Tiled
+        // point has width and height 0, as does a polyline. A zero-sized
+        // object is a marker by construction, and making one solid puts an
+        // invisible collider exactly where the designer meant a label.
+        const bool has_area = object.size.x > 0 && object.size.y > 0;
         auto &plain = into.spawn({ .position = object.position, .size = object.size });
         plain.rotation = object.rotation;
-        plain.solid = true;
+        plain.solid = has_area;
         plain.immovable = true;
         plain.visible = false; // the tiles are the picture; this is the shape
     }
@@ -454,26 +568,11 @@ void Tilemap::draw() const {
                 const int gid = layer.gids[at];
                 if (gid == 0) continue;
 
-                for (const Tileset &set : data->tilesets) {
-                    if (gid < set.first_gid || gid > set.last_gid) continue;
-                    if (!set.texture.valid()) break;
-                    const int local = gid - set.first_gid;
-                    // The division is integer on purpose -- it is the row the
-                    // tile sits on in the tileset -- and the cast comes after,
-                    // which is what clang-tidy wants said out loud.
-                    const int tile_column = local % set.columns;
-                    const int tile_row = local / set.columns;
-                    const Rectangle source{
-                        static_cast<float>(tile_column * set.tile_width),
-                        static_cast<float>(tile_row * set.tile_height),
-                        static_cast<float>(set.tile_width),
-                        static_cast<float>(set.tile_height)
-                    };
-                    const Vector2 at_world{ static_cast<float>(column * data->tile_width),
-                                            static_cast<float>(row * data->tile_height) };
-                    DrawTextureRec(set.texture, source, at_world, WHITE);
-                    break;
-                }
+                const Tileset *set = tileset_for(*data, gid);
+                if (set == nullptr || !set->texture.valid()) continue;
+                const Vector2 at_world{ static_cast<float>(column * data->tile_width),
+                                        static_cast<float>(row * data->tile_height) };
+                DrawTextureRec(set->texture, source_in(*set, gid), at_world, WHITE);
             }
         }
     }

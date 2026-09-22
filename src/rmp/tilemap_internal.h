@@ -8,6 +8,8 @@
 // window. Only the tileset texture and draw() need one.
 // ---------------------------------------------------------------------------
 
+#include <raylib.h> // Rectangle
+
 namespace rmp {
 struct MapObject;
 } // namespace rmp
@@ -24,5 +26,12 @@ void free_map(void *p);
 // The object layers, flattened, for a test that wants to look before spawning.
 int object_count(const void *p);
 const MapObject *object_at(const void *p, int index);
+
+// Where one gid is in its tileset image, with the tileset's margin and spacing
+// already in it. {0,0,0,0} when no tileset in the map holds that gid. This is
+// the arithmetic draw() does, split out because it is the half a headless test
+// can check -- and margin and spacing are exactly the kind of thing that looks
+// right until somebody opens the game.
+Rectangle tile_source(const void *p, int gid);
 
 } // namespace rmp::tilemap::detail

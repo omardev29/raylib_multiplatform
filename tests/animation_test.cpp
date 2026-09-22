@@ -316,3 +316,126 @@ TEST_CASE("a sprite with no sheet at all does nothing rather than crashing") {
     CHECK(sprite.frame_index() == 0);
     CHECK(std::string(sprite.playing()).empty());
 }
+
+// ---------------------------------------------------------------------------
+// A negative speed, which rmp/object.h has always documented as `-1 = backwards`
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A sheet built in memory rather than parsed from the fixture. Every tag in
+// anim.aseprite is TWO frames long, and over two frames forwards and backwards
+// land on the same frame every single step -- so a test written against it
+// passes whichever direction the clock runs, which is not a test. Three is the
+// smallest number of frames that can tell them apart.
+struct ThreeFrames {
+    rmp::Sprite sprite;
+
+    explicit ThreeFrames(bool ping_pong = false) {
+        auto *frames = new rmp::SheetFrame[3];
+        for (int i = 0; i < 3; i++) {
+            frames[i].source = Rectangle{ static_cast<float>(i * 4), 0, 4, 4 }; // NOLINT
+            frames[i].seconds = 0.100f;
+        }
+        auto *tags = new rmp::SheetTag[1];
+        const std::string name = "run";
+        for (std::size_t i = 0; i < name.size(); i++) {
+            tags[0].name[i] = name[i];
+        }
+        tags[0].from = 0;
+        tags[0].to = 2;
+        tags[0].ping_pong = ping_pong;
+
+        rmp::SheetData data{};
+        data.width = 4;
+        data.height = 4;
+        data.frame_count = 3;
+        data.tag_count = 1;
+        data.frames = frames;
+        data.tags = tags;
+        // The slot owns the two tables from here, and frees them.
+        auto *slot =
+            rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, &data, sizeof(data));
+        REQUIRE(slot != nullptr);
+        sprite.sheet = rmp::SpriteSheet{ slot };
+    }
+    ~ThreeFrames() {
+        sprite.sheet = rmp::SpriteSheet{};
+        rmp::detail::release_all();
+    }
+    ThreeFrames(const ThreeFrames &) = delete;
+    ThreeFrames &operator=(const ThreeFrames &) = delete;
+};
+
+} // namespace
+
+TEST_CASE("a negative speed plays the tag backwards") {
+    // rmp/object.h has said `2 = twice as fast, 0 = frozen, -1 = backwards`
+    // since the field existed, and the clock took the absolute value -- so -1
+    // played FORWARDS at normal speed, the one setting of the three that did
+    // not do what it said.
+    ThreeFrames sheet;
+    rmp::Sprite &sprite = sheet.sprite;
+    sprite.play("run", true); // frames 0, 1, 2 at 100 ms each
+    sprite.speed = -1;
+    REQUIRE(sprite.frame_index() == 0);
+
+    // Off the front of the tag, so a LOOPING one comes round to its last frame.
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 2);
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 1);
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 0);
+    CHECK_FALSE(sprite.finished());
+
+    SUBCASE("and the magnitude still scales the clock") {
+        sprite.set_frame(2);
+        sprite.speed = -2;
+        step(sprite, 0.050f); // half of a 100 ms frame, doubled
+        CHECK(sprite.frame_index() == 1);
+    }
+}
+
+TEST_CASE("backwards and not looping finishes ON the first frame") {
+    // The mirror of the forward rule, and for the same reason: it holds the
+    // frame it ran out at rather than falling off the front onto a blank one.
+    ThreeFrames sheet;
+    rmp::Sprite &sprite = sheet.sprite;
+    sprite.play("run", false);
+    sprite.speed = -1;
+    sprite.set_frame(2);
+
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 1);
+    CHECK_FALSE(sprite.finished());
+
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 0);
+    CHECK_FALSE(sprite.finished());
+
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 0); // held, not advanced off the front
+    CHECK(sprite.finished());
+
+    SUBCASE("and it stays there however long you wait") {
+        for (int i = 0; i < 100; i++) step(sprite, 0.100f);
+        CHECK(sprite.frame_index() == 0);
+        CHECK(sprite.finished());
+    }
+}
+
+TEST_CASE("a negative speed turns a ping-pong round the other way first") {
+    ThreeFrames sheet(true);
+    rmp::Sprite &sprite = sheet.sprite;
+    sprite.play("run");
+    sprite.speed = -1;
+    sprite.set_frame(1); // in the middle, where the two directions differ
+
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 0);
+    step(sprite, 0.100f); // the front: turn round rather than wrap
+    CHECK(sprite.frame_index() == 1);
+    step(sprite, 0.100f);
+    CHECK(sprite.frame_index() == 2);
+}

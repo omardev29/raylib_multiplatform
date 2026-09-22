@@ -16,9 +16,11 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/object_internal.h"
 #include "../src/rmp/tilemap_internal.h"
 
+#include <rmp/assets.h>
 #include <rmp/object.h>
 #include <rmp/scene.h>
 #include <rmp/tilemap.h>
@@ -52,14 +54,34 @@ std::vector<unsigned char> bytes_of(const char *file) {
     return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
 }
 
+// An external tileset is fetched through rmp::assets, which looks in the
+// resources root -- so for the length of one test the root IS tests/fixtures/.
+// Put back afterwards, because it is process-wide and every other test in this
+// binary shares it.
+struct AtFixtures {
+    std::string previous;
+    AtFixtures() : previous(rmp::assets::detail::resources_root()) {
+        rmp::assets::detail::set_resources_root(RMP_TEST_FIXTURES);
+    }
+    ~AtFixtures() { rmp::assets::detail::set_resources_root(previous.c_str()); }
+    AtFixtures(const AtFixtures &) = delete;
+    AtFixtures &operator=(const AtFixtures &) = delete;
+};
+
 // A parsed map that frees itself. load_map goes through rmp::assets and would
 // want resources/; the parser underneath is what these tests are about.
+//
+// `data` is the same pointer the Tilemap owns, kept so that the detail entry
+// points -- which take the parsed map and not the class -- can be called on it.
+// It is an alias and not a second owner: the Tilemap frees it.
 struct Parsed {
     rmp::Tilemap map;
+    void *data = nullptr;
     explicit Parsed(const char *file) {
         const std::vector<unsigned char> raw = bytes_of(file);
-        map.adopt(rmp::tilemap::detail::parse_map(raw.data(),
-                                                  static_cast<int>(raw.size()), file));
+        data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                               file);
+        map.adopt(data);
     }
 };
 
@@ -320,4 +342,161 @@ TEST_CASE_FIXTURE(Fixture, "a map moves, and moving it does not free it twice") 
     }
     CHECK(world.map.valid());
     CHECK(world.map.layer_count() == 2);
+}
+
+// ---------------------------------------------------------------------------
+// The tileset image: margin, spacing, and where a gid actually is in it
+// ---------------------------------------------------------------------------
+
+TEST_CASE("margin and spacing are part of the source rectangle") {
+    // map_spaced.json's tileset is 4 columns of 16x16 with margin 1 and
+    // spacing 2 -- the first two fields of Tiled's own import dialog, and what
+    // every atlas packer produces. Without them the grid drifts by one gutter
+    // per column, so the tile drawn is a slice of two neighbours, and by the
+    // bottom-right of the sheet it is different art altogether.
+    const Parsed loaded("map_spaced.json");
+    REQUIRE(loaded.map.valid());
+
+    SUBCASE("the first tile starts at the margin, not at the origin") {
+        const Rectangle first = rmp::tilemap::detail::tile_source(loaded.data, 1);
+        CHECK(first.x == doctest::Approx(1));
+        CHECK(first.y == doctest::Approx(1));
+        CHECK(first.width == doctest::Approx(16));
+        CHECK(first.height == doctest::Approx(16));
+    }
+    SUBCASE("and the last of the first row is 1 + 3 * (16 + 2), not 3 * 16") {
+        const Rectangle fourth = rmp::tilemap::detail::tile_source(loaded.data, 4);
+        CHECK(fourth.x == doctest::Approx(55));
+        CHECK(fourth.y == doctest::Approx(1));
+    }
+    SUBCASE("the spacing counts down the rows too") {
+        const Rectangle sixth = rmp::tilemap::detail::tile_source(loaded.data, 6);
+        CHECK(sixth.x == doctest::Approx(19));
+        CHECK(sixth.y == doctest::Approx(19));
+    }
+    SUBCASE("the bottom-right tile, where the drift is more than a whole tile") {
+        const Rectangle last = rmp::tilemap::detail::tile_source(loaded.data, 16);
+        CHECK(last.x == doctest::Approx(55));
+        CHECK(last.y == doctest::Approx(55));
+    }
+    SUBCASE("and a gid no tileset holds is an empty rectangle, not a guess") {
+        CHECK(rmp::tilemap::detail::tile_source(loaded.data, 0).width ==
+              doctest::Approx(0));
+        CHECK(rmp::tilemap::detail::tile_source(loaded.data, 99).width ==
+              doctest::Approx(0));
+        CHECK(rmp::tilemap::detail::tile_source(nullptr, 1).width == doctest::Approx(0));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// External tilesets -- Tiled does NOT embed by default
+// ---------------------------------------------------------------------------
+
+TEST_CASE("an external tileset is fetched, and the map is whole") {
+    // Tiled's New Tileset dialog writes a separate file unless you tick
+    // "Embed in map", so this is the first experience a real Tiled user has.
+    // Before it was handled the map loaded, valid() was true and the bounds
+    // were right -- and nothing drew and nothing was solid.
+    const AtFixtures at_fixtures;
+    const Parsed loaded("map_external_tileset.json");
+    REQUIRE(loaded.map.valid());
+
+    // tileset_ext.tsj: 4 columns of 16x16, and tile 5 carries `solid`.
+    const Rectangle sixth = rmp::tilemap::detail::tile_source(loaded.data, 6);
+    CHECK(sixth.x == doctest::Approx(16));
+    CHECK(sixth.y == doctest::Approx(16));
+    CHECK(sixth.width == doctest::Approx(16));
+
+    SUBCASE("and its tile properties came with it, so the map is solid again") {
+        CHECK(loaded.map.solid_at({ 24, 24 })); // column 1, row 1: gid 6
+        CHECK_FALSE(loaded.map.solid_at({ 8, 8 })); // gid 1, not marked
+    }
+}
+
+TEST_CASE("an external tileset that cannot be read says so, and counts as failed") {
+    // tileset_external.tsx is what Tiled actually writes by default: XML. This
+    // reads JSON, so the answer has to be one line that names the file and the
+    // setting -- not a map that quietly draws nothing.
+    const AtFixtures at_fixtures;
+    rmp::detail::reset_reports_for_tests();
+    const int failed_before = rmp::assets::failed_loads();
+
+    const Parsed loaded("map_external_tsx.json");
+    CHECK(loaded.map.valid()); // the MAP is fine; one tileset of it is not
+    CHECK(rmp::detail::report_count() == 1);
+    // The CI boot gate reads this, so a shipped game whose tileset never
+    // arrived comes back red instead of green and empty.
+    CHECK(rmp::assets::failed_loads() == failed_before + 1);
+
+    SUBCASE("and nothing is claimed about tiles it does not have") {
+        CHECK(rmp::tilemap::detail::tile_source(loaded.data, 1).width ==
+              doctest::Approx(0));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Objects: the flip bits, and what is and is not a wall
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a flipped tile object's gid has Tiled's flip bits taken off") {
+    // Press X in the editor and Tiled sets bit 31. Read back as an int that is
+    // -2147483647, so a factory switching on the gid to pick a sprite falls
+    // through to its default -- and `gid == 0 means not a tile object` still
+    // passes, so nothing looks wrong. The tile-layer path has always masked
+    // these; the object path did not, and one loop twenty lines from the other
+    // is exactly the asymmetry a test finds and reading does not.
+    const std::vector<unsigned char> raw = bytes_of("map_objects_flipped.json");
+    void *data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                                 "map_objects_flipped.json");
+    REQUIRE(data != nullptr);
+    REQUIRE(rmp::tilemap::detail::object_count(data) == 4);
+
+    const rmp::MapObject *chest = rmp::tilemap::detail::object_at(data, 0);
+    REQUIRE(chest != nullptr);
+    CHECK(std::string(chest->name) == "mirrored");
+    CHECK(chest->gid == 1);
+
+    SUBCASE("and an object that is not a tile object is still 0") {
+        const rmp::MapObject *point = rmp::tilemap::detail::object_at(data, 1);
+        REQUIRE(point != nullptr);
+        CHECK(point->gid == 0);
+    }
+    rmp::tilemap::detail::free_map(data);
+}
+
+TEST_CASE_FIXTURE(Fixture, "a point or a zero-size object is a marker, not a wall") {
+    // The other half of what an object layer holds: spawn points, camera
+    // targets, waypoints, audio emitters. A Tiled point has width and height
+    // 0, and turning one into a solid collider gives the player an invisible
+    // wall at a spot the designer meant as a label.
+    World world;
+    Parsed loaded("map_objects_flipped.json");
+    REQUIRE(loaded.map.valid());
+    loaded.map.spawn_objects(world);
+    REQUIRE(world.object_count() == 4);
+
+    const std::vector<rmp::Object *> all = rmp::objects::detail::live_objects(world);
+    const auto at = [&all](Vector2 where) -> rmp::Object * {
+        for (rmp::Object *object : all) {
+            if (object->position.x == doctest::Approx(where.x) &&
+                object->position.y == doctest::Approx(where.y)) {
+                return object;
+            }
+        }
+        return nullptr;
+    };
+
+    rmp::Object *chest = at({ 8, 24 }); // a 16x16 tile object
+    rmp::Object *wall = at({ 56, 8 }); // a 16x16 rectangle
+    rmp::Object *point = at({ 32, 32 }); // a Tiled point: 0 by 0
+    rmp::Object *line = at({ 8, 48 }); // a polyline, which is also 0 by 0
+    REQUIRE(chest != nullptr);
+    REQUIRE(wall != nullptr);
+    REQUIRE(point != nullptr);
+    REQUIRE(line != nullptr);
+
+    CHECK(chest->solid);
+    CHECK(wall->solid);
+    CHECK_FALSE(point->solid);
+    CHECK_FALSE(line->solid);
 }
