@@ -275,7 +275,7 @@ glibc   = "2.28"
 # does — gamepads, multi-monitor, the clipboard and some keyboard cases are
 # thinner — so it is right for a simple game and wrong as a default. Try it,
 # measure the .exe, and keep it only if nothing you use is missing.
-backend = "rgfw"
+backend = "glfw"
 
 [ios]
 # Same warning as Android: this is your App Store identity.
