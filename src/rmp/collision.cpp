@@ -1068,7 +1068,7 @@ int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
         Vector2 normal{};
         if (!ray_shape(query.from, query.to, e.shape, &t, &normal)) continue;
         RayHit hit;
-        hit.object = e.object;
+        hit.object = e.object->handle();
         hit.point = Vector2{ query.from.x + (query.to.x - query.from.x) * t,
                              query.from.y + (query.to.y - query.from.y) * t };
         hit.normal = normal;

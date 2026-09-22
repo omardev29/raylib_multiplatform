@@ -36,7 +36,19 @@
 #include <rmp/config.h>
 #include <rmp/object.h> // rmp::Callback, rmp::Object
 
+#include <memory> // std::unique_ptr: the parsed map, behind a forward declaration
+
 namespace rmp {
+
+namespace tilemap::detail {
+// The parsed map. A forward declaration so that cute_tiled and its vectors
+// stay out of this header; src/rmp/tilemap.cpp defines it. The owning pointer
+// carries its deleter as a plain function, so a translation unit can hold and
+// drop one without ever seeing the complete type.
+struct MapData;
+void free_map(MapData *map);
+using MapPtr = std::unique_ptr<MapData, void (*)(MapData *)>;
+} // namespace tilemap::detail
 
 class Scene;
 
@@ -73,7 +85,10 @@ struct MapObject {
 
 class Tilemap {
 public:
-    Tilemap() = default;
+    // Declared here and defined in tilemap.cpp, all of them: MapData is
+    // incomplete in this header, and even a defaulted constructor written
+    // here would instantiate the unique_ptr's deleter against it.
+    Tilemap();
     ~Tilemap();
 
     // A map is owned by one scene. Copying it would give two scenes that both
@@ -114,11 +129,16 @@ public:
     // the map somewhere else in its own order can call it.
     void draw() const;
 
-    // Ours. Set by rmp::assets::load_map; TAKES OWNERSHIP.
-    void adopt(void *data);
+    // Ours. Set by rmp::assets::load_map, which hands over what it parsed;
+    // null empties the map. And the parsed map itself, for the detail entry
+    // points that take it rather than the class (tests, mostly).
+    void adopt(tilemap::detail::MapPtr data);
+    [[nodiscard]] const tilemap::detail::MapData *detail_data() const {
+        return data_.get();
+    }
 
 private:
-    void *data_ = nullptr;
+    tilemap::detail::MapPtr data_{ nullptr, &tilemap::detail::free_map };
 };
 
 } // namespace rmp

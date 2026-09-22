@@ -100,19 +100,12 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     out->width = ase->w;
     out->height = ase->h;
 
-    out->frame_count =
-        ase->frame_count < kMaxSheetFrames ? ase->frame_count : kMaxSheetFrames;
-    if (ase->frame_count > kMaxSheetFrames) {
-        TraceLog(LOG_WARNING,
-                 "SHEET: %d frames and the limit is %d; the extras are dropped",
-                 ase->frame_count, kMaxSheetFrames);
-    }
-    auto *frames = new SheetFrame[static_cast<std::size_t>(
-        out->frame_count > 0 ? out->frame_count : 1)];
-    out->frames = frames;
-    for (int i = 0; i < out->frame_count; i++) {
+    out->frames.resize(
+        static_cast<std::size_t>(ase->frame_count > 0 ? ase->frame_count : 0));
+    for (int i = 0; i < out->frame_count(); i++) {
+        SheetFrame &frame = out->frames[static_cast<std::size_t>(i)];
         // Laid out in one row, so the source rectangle is just an offset.
-        frames[i].source =
+        frame.source =
             Rectangle{ static_cast<float>(i * ase->w), 0, static_cast<float>(ase->w),
                        static_cast<float>(ase->h) };
         // Aseprite stores milliseconds per frame. A frame with a duration of 0
@@ -120,27 +113,18 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
         // advances; the file should not contain one, and if it does it is
         // treated as a single tick rather than as a stall.
         const int ms = ase->frames[i].duration_milliseconds;
-        frames[i].seconds = (ms > 0 ? static_cast<float>(ms) : 1.0f) / 1000.0f;
+        frame.seconds = (ms > 0 ? static_cast<float>(ms) : 1.0f) / 1000.0f;
     }
 
-    out->tag_count = ase->tag_count < kMaxSheetTags ? ase->tag_count : kMaxSheetTags;
-    if (ase->tag_count > kMaxSheetTags) {
-        TraceLog(LOG_WARNING,
-                 "SHEET: %d tags and the limit is %d; the extras are dropped",
-                 ase->tag_count, kMaxSheetTags);
-    }
-    auto *tags =
-        new SheetTag[static_cast<std::size_t>(out->tag_count > 0 ? out->tag_count : 1)];
-    out->tags = tags;
-    for (int i = 0; i < out->tag_count; i++) {
+    out->tags.resize(static_cast<std::size_t>(ase->tag_count > 0 ? ase->tag_count : 0));
+    for (int i = 0; i < out->tag_count(); i++) {
         const ase_tag_t &tag = ase->tags[i];
-        copy_name(tags[i].name, tag.name);
-        tags[i].from = tag.from_frame;
-        tags[i].to = tag.to_frame;
-        tags[i].ping_pong =
-            tag.loop_animation_direction == ASE_ANIMATION_DIRECTION_PINGPONG;
-        tags[i].reverse =
-            tag.loop_animation_direction == ASE_ANIMATION_DIRECTION_BACKWORDS;
+        SheetTag &ours = out->tags[static_cast<std::size_t>(i)];
+        copy_name(ours.name, tag.name);
+        ours.from = tag.from_frame;
+        ours.to = tag.to_frame;
+        ours.ping_pong = tag.loop_animation_direction == ASE_ANIMATION_DIRECTION_PINGPONG;
+        ours.reverse = tag.loop_animation_direction == ASE_ANIMATION_DIRECTION_BACKWORDS;
     }
 
     cute_aseprite_free(ase);
@@ -149,7 +133,7 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
 
 ::Texture2D upload_sheet(const void *bytes, int size, const SheetData &sheet) {
     ::Texture2D empty{};
-    if (sheet.frame_count <= 0 || sheet.width <= 0 || sheet.height <= 0) return empty;
+    if (sheet.frame_count() <= 0 || sheet.width <= 0 || sheet.height <= 0) return empty;
 
     // Parsed a second time rather than kept from the first: cute_aseprite owns
     // the pixel buffers and frees them with the ase_t, so holding them across
@@ -158,9 +142,9 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     ase_t *ase = cute_aseprite_load_from_memory(bytes, size, nullptr);
     if (ase == nullptr) return empty;
 
-    const int total_w = sheet.width * sheet.frame_count;
+    const int total_w = sheet.width * sheet.frame_count();
     ::Image atlas = GenImageColor(total_w, sheet.height, BLANK);
-    for (int i = 0; i < sheet.frame_count; i++) {
+    for (int i = 0; i < sheet.frame_count(); i++) {
         ::Image one{};
         one.data = ase->frames[i].pixels;
         one.width = ase->w;
@@ -182,20 +166,9 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     return texture;
 }
 
-void free_sheet(SheetData *sheet) {
-    if (sheet == nullptr) return;
-    if (sheet->texture.id != 0) UnloadTexture(sheet->texture);
-    delete[] sheet->frames;
-    delete[] sheet->tags;
-    sheet->frames = nullptr;
-    sheet->tags = nullptr;
-    sheet->frame_count = 0;
-    sheet->tag_count = 0;
-}
-
 int tag_index(const SheetData &sheet, const char *name) {
     if (name == nullptr || name[0] == '\0') return -1;
-    for (int i = 0; i < sheet.tag_count; i++) {
+    for (int i = 0; i < sheet.tag_count(); i++) {
         if (std::strcmp(sheet.tag(i).name, name) == 0) return i;
     }
     return -1;
@@ -207,14 +180,14 @@ int tag_index(const SheetData &sheet, const char *name) {
 void advance(Sprite &sprite, float delta) {
     if (!sprite.sheet.valid()) return;
     const SheetData &sheet = sprite.sheet.raw();
-    if (sheet.frame_count <= 0) return;
-    if (sprite.ours.tag < 0 || sprite.ours.tag >= sheet.tag_count) return;
+    if (sheet.frame_count() <= 0) return;
+    if (sprite.ours.tag < 0 || sprite.ours.tag >= sheet.tag_count()) return;
     if (sprite.ours.done) return;
     if (sprite.speed == 0 || delta == 0) return;
 
     const SheetTag &tag = sheet.tag(sprite.ours.tag);
     const int first = tag.from < 0 ? 0 : tag.from;
-    const int last = tag.to >= sheet.frame_count ? sheet.frame_count - 1 : tag.to;
+    const int last = tag.to >= sheet.frame_count() ? sheet.frame_count() - 1 : tag.to;
     if (last < first) return;
 
     // The magnitude is the rate and the SIGN IS THE DIRECTION: rmp/object.h
@@ -233,10 +206,10 @@ void advance(Sprite &sprite, float delta) {
     // A while loop, because a frame can be shorter than the delta -- a 20 ms
     // frame at 30 fps owes two steps, and dropping them makes the animation run
     // slow on a slow machine rather than skipping, which is worse.
-    for (int guard = 0; guard < kMaxSheetFrames * 4; guard++) {
+    for (int guard = 0; guard < sheet.frame_count() * 4 + 4; guard++) {
         const int index = sprite.ours.frame < 0
             ? first
-            : (sprite.ours.frame >= sheet.frame_count ? last : sprite.ours.frame);
+            : (sprite.ours.frame >= sheet.frame_count() ? last : sprite.ours.frame);
         const float hold = sheet.frame(index).seconds;
         if (hold <= 0 || sprite.ours.elapsed < hold) break;
         sprite.ours.elapsed -= hold;
@@ -286,7 +259,7 @@ void Sprite::play(const char *tag, bool loop) {
         RMP_REPORT_ONCE_KEYED(tag,
                               "SPRITE: no animation tag \"%s\" in this sheet. It has %d: "
                               "the names are the tags in your .aseprite.",
-                              tag != nullptr ? tag : "", data.tag_count);
+                              tag != nullptr ? tag : "", data.tag_count());
         return;
     }
     if (found == ours.tag && !ours.done) return; // already playing it
@@ -309,7 +282,7 @@ bool Sprite::finished() const { return ours.done; }
 const char *Sprite::playing() const {
     if (!sheet.valid() || ours.tag < 0) return "";
     const SheetData &data = sheet.raw();
-    if (ours.tag >= data.tag_count) return "";
+    if (ours.tag >= data.tag_count()) return "";
     return data.tag(ours.tag).name;
 }
 

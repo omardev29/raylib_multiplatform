@@ -37,9 +37,8 @@ std::vector<unsigned char> fixture_bytes() {
 }
 
 // A parsed sheet that frees its own tables. parse_sheet allocates them and the
-// resource slot is normally what frees them, so a test that parses without
-// adopting has to do it itself -- a leaking test is a test that will one day be
-// blamed on the thing it is testing.
+// tables are vectors and free themselves; there is no texture, because no
+// test here uploads one.
 struct ParsedSheet {
     rmp::SheetData data{};
     ParsedSheet() {
@@ -47,9 +46,6 @@ struct ParsedSheet {
         REQUIRE(rmp::animation::detail::parse_sheet(
             bytes.data(), static_cast<int>(bytes.size()), &data));
     }
-    ~ParsedSheet() { rmp::animation::detail::free_sheet(&data); }
-    ParsedSheet(const ParsedSheet &) = delete;
-    ParsedSheet &operator=(const ParsedSheet &) = delete;
 };
 
 // A Sprite holding the fixture, without a texture. adopt() is the same seam the
@@ -59,15 +55,11 @@ struct Fixture {
     rmp::Sprite sprite;
 
     Fixture() {
-        // adopt() COPIES the 64-byte payload into the slot, and from then on
-        // the slot is the single owner of the frame and tag tables -- freeing
-        // them when the last handle goes. So the SheetData is built here and
-        // handed over, not kept.
+        // adopt() takes the sheet by value and the slot owns it from then on,
+        // tables and all, freeing it when the last handle goes.
         ParsedSheet owned;
-        rmp::SheetData data = owned.data;
-        owned.data = rmp::SheetData{}; // the slot owns the tables from here
         auto *slot =
-            rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, &data, sizeof(data));
+            rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, std::move(owned.data));
         REQUIRE(slot != nullptr);
         sprite.sheet = rmp::SpriteSheet{ slot };
     }
@@ -93,7 +85,7 @@ TEST_CASE("the frames, their sizes and their durations come from the file") {
 
     CHECK(sheet.width == 4);
     CHECK(sheet.height == 4);
-    REQUIRE(sheet.frame_count == 4);
+    REQUIRE(sheet.frame_count() == 4);
 
     // The numbers the fixture was written with, in seconds.
     CHECK(sheet.frame(0).seconds == doctest::Approx(0.100));
@@ -102,7 +94,7 @@ TEST_CASE("the frames, their sizes and their durations come from the file") {
     CHECK(sheet.frame(3).seconds == doctest::Approx(0.050));
 
     SUBCASE("and they are packed side by side in one row") {
-        for (int i = 0; i < sheet.frame_count; i++) {
+        for (int i = 0; i < sheet.frame_count(); i++) {
             CAPTURE(i);
             CHECK(sheet.frame(i).source.x == doctest::Approx(i * 4));
             CHECK(sheet.frame(i).source.y == doctest::Approx(0));
@@ -114,7 +106,7 @@ TEST_CASE("the frames, their sizes and their durations come from the file") {
 TEST_CASE("the tags are read with their names, ranges and direction") {
     const ParsedSheet owned;
     const rmp::SheetData &sheet = owned.data;
-    REQUIRE(sheet.tag_count == 3);
+    REQUIRE(sheet.tag_count() == 3);
 
     CHECK(std::string(sheet.tag(0).name) == "walk");
     CHECK(sheet.tag(0).from == 0);
@@ -332,30 +324,26 @@ struct ThreeFrames {
     rmp::Sprite sprite;
 
     explicit ThreeFrames(bool ping_pong = false) {
-        auto *frames = new rmp::SheetFrame[3];
-        for (int i = 0; i < 3; i++) {
-            frames[i].source = Rectangle{ static_cast<float>(i * 4), 0, 4, 4 }; // NOLINT
-            frames[i].seconds = 0.100f;
-        }
-        auto *tags = new rmp::SheetTag[1];
-        const std::string name = "run";
-        for (std::size_t i = 0; i < name.size(); i++) {
-            tags[0].name[i] = name[i];
-        }
-        tags[0].from = 0;
-        tags[0].to = 2;
-        tags[0].ping_pong = ping_pong;
-
         rmp::SheetData data{};
         data.width = 4;
         data.height = 4;
-        data.frame_count = 3;
-        data.tag_count = 1;
-        data.frames = frames;
-        data.tags = tags;
-        // The slot owns the two tables from here, and frees them.
+        data.frames.resize(3);
+        for (int i = 0; i < 3; i++) {
+            data.frames[static_cast<std::size_t>(i)].source =
+                Rectangle{ static_cast<float>(i * 4), 0, 4, 4 };
+            data.frames[static_cast<std::size_t>(i)].seconds = 0.100f;
+        }
+        data.tags.resize(1);
+        const std::string name = "run";
+        for (std::size_t i = 0; i < name.size(); i++) {
+            data.tags[0].name[i] = name[i];
+        }
+        data.tags[0].from = 0;
+        data.tags[0].to = 2;
+        data.tags[0].ping_pong = ping_pong;
+        // The slot owns the sheet, tables and all, from here.
         auto *slot =
-            rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, &data, sizeof(data));
+            rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, std::move(data));
         REQUIRE(slot != nullptr);
         sprite.sheet = rmp::SpriteSheet{ slot };
     }

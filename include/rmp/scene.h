@@ -36,6 +36,7 @@
 // <utility> adds 50 ms to a translation unit, <memory> adds 605. A header every
 // scene file includes cannot carry the second one, which is why the three
 // navigation functions below hand over a raw pointer.
+#include <memory> // std::unique_ptr: what spawn() and the transitions hand over
 #include <utility>
 
 // <type_traits> for the two static_asserts that make spawn<T>() say something
@@ -203,12 +204,12 @@ public:
             std::is_default_constructible_v<T>,
             "spawn<T>() default-constructs T; give it a default constructor and "
             "put the rest in fields or in _ready()");
-        // Handed over on the same line it is created, exactly like the
-        // navigation functions below: the pointer is never something a caller
-        // holds, and src/rmp/object.cpp wraps it where <memory> costs nothing.
-        T *made = new T();
-        detail_spawn(made, options);
-        return *made;
+        // Owned from the first line: the scene's storage takes the unique_ptr,
+        // and what the caller gets back is a reference into it.
+        std::unique_ptr<T> made = std::make_unique<T>();
+        T &ref = *made;
+        detail_spawn(std::move(made), options);
+        return ref;
     }
 
     // Same as object.destroy(). Deferred: it stops updating and drawing at
@@ -259,19 +260,19 @@ public:
 
     // Clear the stack and go. Everything on it gets _end(), top down.
     template <class T, class... A> static void change(A &&...args) {
-        detail_change(new T(std::forward<A>(args)...));
+        detail_change(std::make_unique<T>(std::forward<A>(args)...));
     }
 
     // Put one on top. What was there is suspended, not ended.
     template <class T, class... A> static void push(A &&...args) {
-        detail_push(new T(std::forward<A>(args)...));
+        detail_push(std::make_unique<T>(std::forward<A>(args)...));
     }
 
     // Swap the top one only. What is underneath is untouched and stays
     // suspended — this is level 3 becoming level 4 without disturbing the
     // pause menu that put you there.
     template <class T, class... A> static void replace(A &&...args) {
-        detail_replace(new T(std::forward<A>(args)...));
+        detail_replace(std::make_unique<T>(std::forward<A>(args)...));
     }
 
     // Take the top one off and resume what was under it. Popping the last
@@ -294,12 +295,12 @@ private:
     // above and handed over on the same line, so it is never something a caller
     // holds — and src/rmp/scene.cpp wraps it in a unique_ptr on arrival, where
     // <memory> costs nothing.
-    static void detail_change(Scene *next);
-    static void detail_push(Scene *next);
-    static void detail_replace(Scene *next);
+    static void detail_change(std::unique_ptr<Scene> next);
+    static void detail_push(std::unique_ptr<Scene> next);
+    static void detail_replace(std::unique_ptr<Scene> next);
 
     // The non-template half of spawn(). TAKES OWNERSHIP of `made`.
-    void detail_spawn(Object *made, const ObjectOptions &options);
+    void detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &options);
 };
 
 } // namespace rmp

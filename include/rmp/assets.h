@@ -28,6 +28,9 @@
 #include <raylib.h>
 #include <rmp/config.h>
 
+#include <memory> // std::shared_ptr: what owns a resource slot's payload
+#include <vector> // the sheet tables
+
 namespace rmp {
 class Tilemap;
 } // namespace rmp
@@ -78,9 +81,22 @@ enum class ResourceKind {
 struct Slot;
 
 Slot *acquire_named(ResourceKind kind, const char *name, int font_size);
-Slot *adopt(ResourceKind kind, const void *payload, unsigned bytes);
-Slot *adopt_named(ResourceKind kind, const char *name, int font_size, const void *payload,
-                  unsigned bytes);
+
+// The slot OWNS the payload: a std::shared_ptr<void> because it carries T's
+// destructor with it, so a sheet's tables are freed by the language and the
+// table never learns what a T is. The raylib Unload* for the kind is called
+// first, by the table, which is the one place in the framework it happens.
+Slot *adopt_owned(ResourceKind kind, std::shared_ptr<void> payload);
+Slot *adopt_named_owned(ResourceKind kind, const char *name, int font_size,
+                        std::shared_ptr<void> payload);
+template <class T> Slot *adopt(ResourceKind kind, T payload) {
+    return adopt_owned(kind, std::make_shared<T>(std::move(payload)));
+}
+template <class T>
+Slot *adopt_named(ResourceKind kind, const char *name, int font_size, T payload) {
+    return adopt_named_owned(kind, name, font_size,
+                             std::make_shared<T>(std::move(payload)));
+}
 void release_all();
 void retain(Slot *slot);
 void release(Slot *slot);
@@ -122,7 +138,12 @@ public:
         const void *p = payload(slot_);
         return p ? *static_cast<const T *>(p) : kEmpty;
     }
-    operator const T &() const { return raw(); }
+    // Ref-qualified `&`: only an LVALUE converts. `DrawTexture(rabbit, ...)`
+    // compiles; `Texture2D t = load_texture("x.png");` does NOT, and that is
+    // the point -- it converted, the temporary handle died on the same line,
+    // and `t` was a texture that had already been unloaded. The README and
+    // four examples had it, and so did the UI's own font.
+    operator const T &() const & { return raw(); }
 
 private:
     Slot *slot_ = nullptr;
@@ -142,14 +163,11 @@ private:
 // animation. And the duration comes from the file per frame, so it plays at the
 // speed you drew it at.
 //
-// Fixed arrays and char buffers rather than vectors and strings, because this
-// type is in a public header and <vector> and <string> are 100 ms each in every
-// translation unit that includes it. A sheet is about 10 KB of metadata and it
-// lives once, behind the handle.
+// Vectors, and a char buffer for the tag name: <vector> is paid by this header
+// (measured, see tools/header_cost.py), and the name stays a fixed buffer
+// because it is compared per frame and never grows.
 // ---------------------------------------------------------------------------
 
-constexpr int kMaxSheetFrames = 256;
-constexpr int kMaxSheetTags = 64;
 constexpr int kMaxTagName = 32;
 
 struct SheetFrame {
@@ -165,30 +183,28 @@ struct SheetTag {
     bool reverse = false;
 };
 
-// Small on purpose: it lives in a resource slot, and a slot's payload is 64
-// bytes -- the size of the largest raylib struct, which is what keeps the
-// resource table a fixed, modest block rather than a megabyte of mostly-unused
-// arrays. So the tables live beside it and this points at them. They are owned
-// by the sheet and freed with it, which is the one place in the framework that
-// happens; everything else a resource owns is freed by a raylib Unload*.
+// The tables are vectors and the sheet owns them: a resource slot holds the
+// whole SheetData behind a shared_ptr, so the language frees them with it and
+// there is no size limit on frames or tags. The texture is the one thing here
+// raylib owns, and the table unloads it before the sheet goes.
 struct SheetData {
     Texture2D texture{};
     int width = 0; // one frame's width, not the packed texture's
     int height = 0;
-    int frame_count = 0;
-    int tag_count = 0;
-    const SheetFrame *frames = nullptr;
-    const SheetTag *tags = nullptr;
+    std::vector<SheetFrame> frames;
+    std::vector<SheetTag> tags;
 
+    [[nodiscard]] int frame_count() const { return static_cast<int>(frames.size()); }
+    [[nodiscard]] int tag_count() const { return static_cast<int>(tags.size()); }
     [[nodiscard]] const SheetFrame &frame(int index) const {
         static const SheetFrame kEmpty{};
-        if (frames == nullptr || index < 0 || index >= frame_count) return kEmpty;
-        return frames[index];
+        if (index < 0 || index >= frame_count()) return kEmpty;
+        return frames[static_cast<std::size_t>(index)];
     }
     [[nodiscard]] const SheetTag &tag(int index) const {
         static const SheetTag kEmpty{};
-        if (tags == nullptr || index < 0 || index >= tag_count) return kEmpty;
-        return tags[index];
+        if (index < 0 || index >= tag_count()) return kEmpty;
+        return tags[static_cast<std::size_t>(index)];
     }
 };
 

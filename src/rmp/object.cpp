@@ -283,7 +283,8 @@ void Object::destroy() {
 // Scene's half
 // ---------------------------------------------------------------------------
 
-void Scene::detail_spawn(Object *made, const ObjectOptions &options) {
+void Scene::detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &options) {
+    Object *made = owned.get(); // non-owning; the slot below takes `owned`
     unsigned index = 0;
     if (!g_free.empty()) {
         index = g_free.back();
@@ -302,7 +303,7 @@ void Scene::detail_spawn(Object *made, const ObjectOptions &options) {
     // to nullptr, with nothing logged and nothing to see.
     slot.generation += 1;
     if (slot.generation == 0) slot.generation = 1;
-    slot.object.reset(made);
+    slot.object = std::move(owned);
 
     made->scene_ = this;
     made->index_ = index;
@@ -648,11 +649,11 @@ void draw(Scene &scene) {
 Rectangle sprite_source(const Sprite &sprite) {
     if (sprite.sheet.valid()) {
         const SheetData &data = sprite.sheet.raw();
-        if (data.frame_count > 0) {
+        if (data.frame_count() > 0) {
             const int index = sprite.ours.frame < 0
                 ? 0
-                : (sprite.ours.frame >= data.frame_count ? data.frame_count - 1
-                                                         : sprite.ours.frame);
+                : (sprite.ours.frame >= data.frame_count() ? data.frame_count() - 1
+                                                           : sprite.ours.frame);
             return data.frame(index).source;
         }
     }

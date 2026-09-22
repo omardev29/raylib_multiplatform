@@ -172,8 +172,7 @@ rmp::Image load_image(const char *name) {
         return rmp::Image{ hit };
     ::Image raw = load_image_raw(name);
     if (raw.data == nullptr) return rmp::Image{};
-    auto *slot =
-        rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, &raw, sizeof(raw));
+    auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, raw);
     if (slot == nullptr) {
         UnloadImage(raw);
         return rmp::Image{};
@@ -187,8 +186,7 @@ rmp::Texture load_texture(const char *name) {
         return rmp::Texture{ hit };
     Texture2D raw = load_texture_raw(name);
     if (raw.id == 0) return rmp::Texture{};
-    auto *slot =
-        rmp::detail::adopt_named(ResourceKind::TEXTURE, name, 0, &raw, sizeof(raw));
+    auto *slot = rmp::detail::adopt_named(ResourceKind::TEXTURE, name, 0, raw);
     if (slot == nullptr) {
         UnloadTexture(raw);
         return rmp::Texture{};
@@ -202,8 +200,7 @@ rmp::Sound load_sound(const char *name) {
         return rmp::Sound{ hit };
     ::Sound raw = load_sound_raw(name);
     if (raw.stream.buffer == nullptr) return rmp::Sound{};
-    auto *slot =
-        rmp::detail::adopt_named(ResourceKind::SOUND, name, 0, &raw, sizeof(raw));
+    auto *slot = rmp::detail::adopt_named(ResourceKind::SOUND, name, 0, raw);
     if (slot == nullptr) {
         UnloadSound(raw);
         return rmp::Sound{};
@@ -219,8 +216,7 @@ rmp::Font load_font(const char *name, int font_size) {
         return rmp::Font{ hit };
     ::Font raw = load_font_raw(name, font_size);
     if (raw.texture.id == 0) return rmp::Font{};
-    auto *slot =
-        rmp::detail::adopt_named(ResourceKind::FONT, name, font_size, &raw, sizeof(raw));
+    auto *slot = rmp::detail::adopt_named(ResourceKind::FONT, name, font_size, raw);
     if (slot == nullptr) {
         UnloadFont(raw);
         return rmp::Font{};
@@ -253,10 +249,9 @@ rmp::SpriteSheet load_sheet(const char *name) {
     sheet.texture = rmp::animation::detail::upload_sheet(bytes, size, sheet);
     UnloadFileData(bytes);
 
-    auto *slot =
-        rmp::detail::adopt_named(ResourceKind::SHEET, name, 0, &sheet, sizeof(sheet));
+    auto *slot = rmp::detail::adopt_named(ResourceKind::SHEET, name, 0, sheet);
     if (slot == nullptr) {
-        rmp::animation::detail::free_sheet(&sheet);
+        if (sheet.texture.id != 0) UnloadTexture(sheet.texture);
         return rmp::SpriteSheet{};
     }
     return rmp::SpriteSheet{ slot };
@@ -267,16 +262,17 @@ void load_map(const char *name, rmp::Tilemap *into) {
     int size = 0;
     unsigned char *bytes = load_data(name, &size);
     if (bytes == nullptr) {
-        into->adopt(nullptr);
+        into->adopt(
+            rmp::tilemap::detail::MapPtr(nullptr, &rmp::tilemap::detail::free_map));
         return;
     }
-    void *parsed = rmp::tilemap::detail::parse_map(bytes, size, name);
+    auto parsed = rmp::tilemap::detail::parse_map(bytes, size, name);
     UnloadFileData(bytes);
     if (parsed == nullptr) detail::g_failed_count++;
-    // TAKES OWNERSHIP, and frees whatever was there. A map is not a cached
-    // resource the way a texture is: one scene owns one map, the factories on
-    // it are that scene's, and sharing it would share those too.
-    into->adopt(parsed);
+    // Owned by the map from here, and whatever was there goes. A map is not a
+    // cached resource the way a texture is: one scene owns one map, the
+    // factories on it are that scene's, and sharing it would share those too.
+    into->adopt(std::move(parsed));
 }
 
 unsigned char *load_data(const char *name, int *size) {

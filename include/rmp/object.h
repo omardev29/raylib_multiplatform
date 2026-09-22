@@ -41,6 +41,7 @@
 // src/rmp/object.cpp and hands over a raw pointer the way rmp/scene.h already
 // does; the callbacks below are forty lines of type erasure instead of
 // std::function.
+#include <memory> // std::shared_ptr: what owns a callback's state and a behavior
 #include <type_traits>
 
 namespace rmp {
@@ -192,36 +193,34 @@ public:
             "the callback does not take the arguments this one is called with "
             "-- on_click is void(Object &), on_drag is void(Object &, Vector2), "
             "on_collision is void(Object &, Object &)");
-        state_ = new Fn(static_cast<F &&>(fn));
+        // A shared_ptr<void> and not a unique_ptr: it carries Fn's deleter
+        // inside it, so the type is erased with no `delete` of ours and no
+        // <functional>. Ownership is still single -- the copy constructor above
+        // is deleted -- the control block is just where the deleter lives.
+        state_ = std::make_shared<Fn>(static_cast<F &&>(fn));
         invoke_ = [](void *state, A... args) { (*static_cast<Fn *>(state))(args...); };
-        destroy_ = [](void *state) { delete static_cast<Fn *>(state); };
     }
 
     void clear() {
-        if (destroy_ != nullptr) destroy_(state_);
-        state_ = nullptr;
+        state_.reset();
         invoke_ = nullptr;
-        destroy_ = nullptr;
     }
 
     explicit operator bool() const { return invoke_ != nullptr; }
     void operator()(A... args) const {
-        if (invoke_ != nullptr) invoke_(state_, args...);
+        if (invoke_ != nullptr) invoke_(state_.get(), args...);
     }
 
 private:
     void steal(Callback &other) {
-        state_ = other.state_;
+        state_ = std::move(other.state_);
         invoke_ = other.invoke_;
-        destroy_ = other.destroy_;
-        other.state_ = nullptr;
+        other.state_.reset();
         other.invoke_ = nullptr;
-        other.destroy_ = nullptr;
     }
 
-    void *state_ = nullptr;
+    std::shared_ptr<void> state_;
     void (*invoke_)(void *, A...) = nullptr;
-    void (*destroy_)(void *) = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -310,13 +309,11 @@ struct BehaviorOps {
     void (*draw)(void *, Object &) = nullptr;
     void (*collision)(void *, Object &, Object &) = nullptr;
     void (*end)(void *, Object &) = nullptr;
-    void (*destroy)(void *) = nullptr;
 };
 
 template <class B> const BehaviorOps &ops_for() {
     static const BehaviorOps kOps = [] {
         BehaviorOps o;
-        o.destroy = [](void *self) { delete static_cast<B *>(self); };
         if constexpr (requires(B &b, Object &o2, float d) { b._update(o2, d); }) {
             o.update = [](void *self, Object &object, float delta) {
                 static_cast<B *>(self)->_update(object, delta);
@@ -352,8 +349,11 @@ template <class B> const BehaviorOps &ops_for() {
     return kOps;
 }
 
-// TAKES OWNERSHIP of `data`, and returns it. Defined in src/rmp/behavior.cpp.
-void *attach(Object &self, const void *type, const BehaviorOps &ops, void *data);
+// Takes the behavior -- a shared_ptr<void> because that is what carries B's
+// deleter without a `delete` of ours -- and returns a non-owning pointer to
+// it. Defined in src/rmp/behavior.cpp.
+void *attach(Object &self, const void *type, const BehaviorOps &ops,
+             std::shared_ptr<void> data);
 void *find_behavior(const Object &self, const void *type);
 void detach(Object &self, const void *type);
 
@@ -393,16 +393,6 @@ void detach(Object &self, const void *type);
 //   ray's own origin is whatever you pass in, so a character asking about the
 //   ground under itself is never the stale half.
 // ---------------------------------------------------------------------------
-
-struct RayHit {
-    Object *object = nullptr; // what was hit
-    Vector2 point{}; // where, in world coordinates
-    Vector2 normal{}; // the surface normal there, pointing back at the ray
-    float distance = 0; // from the ray's origin
-
-    // `if (auto hit = raycast(a, b))` is the shape this is for.
-    explicit operator bool() const { return object != nullptr; }
-};
 
 struct RayQuery {
     Vector2 from{};
@@ -670,6 +660,18 @@ private:
     Vector2 previous_position_{};
 };
 
+// RayHit lives below Object, and not with RayQuery above, because its handle
+// needs Object complete.
+struct RayHit {
+    Handle<Object> object; // what was hit; a handle, so it is safe to keep across frames
+    Vector2 point{}; // where, in world coordinates
+    Vector2 normal{}; // the surface normal there, pointing back at the ray
+    float distance = 0; // from the ray's origin
+
+    // `if (auto hit = raycast(a, b))` is the shape this is for.
+    explicit operator bool() const { return static_cast<bool>(object); }
+};
+
 // ---------------------------------------------------------------------------
 // The behavior templates, down here because they need Object to be complete.
 // ---------------------------------------------------------------------------
@@ -688,11 +690,11 @@ template <class B> B &Object::add(B value) {
         "a behavior must not have virtual functions: a struct with them "
         "stops being an aggregate in C++20, and then `add<B>({ .speed = 320 })` "
         "does not compile. Behaviors inherit from nothing on purpose.");
-    // Handed over on the same line it is created, the way spawn() and the scene
-    // navigation already do: the pointer is never something a caller holds.
-    B *data = new B(static_cast<B &&>(value));
+    // Owned from the first line: the engine takes the shared_ptr, and what
+    // the caller gets back is a reference into it.
+    std::shared_ptr<B> made = std::make_shared<B>(static_cast<B &&>(value));
     void *stored = rmp::detail::attach(*this, rmp::detail::behavior_type<B>(),
-                                       rmp::detail::ops_for<B>(), data);
+                                       rmp::detail::ops_for<B>(), std::move(made));
     return *static_cast<B *>(stored);
 }
 

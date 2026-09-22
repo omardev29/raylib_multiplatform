@@ -40,6 +40,8 @@
 
 namespace rmp {
 
+using tilemap::detail::MapData;
+
 namespace {
 
 constexpr unsigned kFlipMask = 0xE0000000u; // Tiled's three flip bits
@@ -66,9 +68,13 @@ struct Layer {
 
 } // namespace
 
-// The parsed map. Behind a void* in the public header so that cute_tiled and
-// <vector> stay out of it.
-struct MapData {
+// The parsed map. Forward-declared in the public header so that cute_tiled and
+// <vector> stay out of it; owned by the Tilemap through a unique_ptr.
+struct tilemap::detail::MapData {
+    ~MapData();
+    MapData() = default;
+    MapData(const MapData &) = delete;
+    MapData &operator=(const MapData &) = delete;
     cute_tiled_map_t *raw = nullptr;
     int width = 0;
     int height = 0;
@@ -81,9 +87,6 @@ struct MapData {
 };
 
 namespace {
-
-MapData *as_data(void *p) { return static_cast<MapData *>(p); }
-const MapData *as_data(const void *p) { return static_cast<const MapData *>(p); }
 
 // Tiled writes a path relative to the map; the asset layer works in names.
 const char *file_name_of(const char *path) {
@@ -225,8 +228,8 @@ const char *MapObject::property_string(const char *key, const char *fallback) co
 
 namespace tilemap::detail {
 
-void *parse_map(const void *bytes, int size, const char *name) {
-    if (bytes == nullptr || size <= 0) return nullptr;
+MapPtr parse_map(const void *bytes, int size, const char *name) {
+    if (bytes == nullptr || size <= 0) return { nullptr, &free_map };
 
     cute_tiled_map_t *raw = cute_tiled_load_map_from_memory(bytes, size, nullptr);
     if (raw == nullptr) {
@@ -248,10 +251,10 @@ void *parse_map(const void *bytes, int size, const char *name) {
             TraceLog(LOG_WARNING, "MAP: [%s] could not be read: %s",
                      name != nullptr ? name : "", why);
         }
-        return nullptr;
+        return { nullptr, &free_map };
     }
 
-    auto *data = new MapData{};
+    auto data = std::make_unique<MapData>();
     data->raw = raw;
     data->width = raw->width;
     data->height = raw->height;
@@ -389,38 +392,37 @@ void *parse_map(const void *bytes, int size, const char *name) {
         data->layers.push_back(std::move(out));
     }
 
-    return data;
+    return { data.release(), &free_map };
 }
 
-void free_map(void *p) {
-    if (p == nullptr) return;
-    MapData *data = as_data(p);
-    if (data->raw != nullptr) cute_tiled_free_map(data->raw);
-    delete data;
+MapData::~MapData() {
+    if (raw != nullptr) cute_tiled_free_map(raw);
 }
 
-int object_count(const void *p) {
-    return p == nullptr ? 0 : static_cast<int>(as_data(p)->objects.size());
+// The deleter behind MapPtr: this is the one translation unit that knows what
+// a MapData is. A unique_ptr doing the freeing, so there is no `delete` here.
+void free_map(MapData *map) { const std::unique_ptr<MapData> owner(map); }
+
+int object_count(const MapData *data) {
+    return data == nullptr ? 0 : static_cast<int>(data->objects.size());
 }
 
-const MapObject *object_at(const void *p, int index) {
-    if (p == nullptr) return nullptr;
-    const MapData *data = as_data(p);
+const MapObject *object_at(const MapData *data, int index) {
+    if (data == nullptr) return nullptr;
     if (index < 0 || static_cast<std::size_t>(index) >= data->objects.size()) {
         return nullptr;
     }
     return &data->objects[static_cast<std::size_t>(index)];
 }
 
-Rectangle tile_source(const void *p, int gid) {
-    if (p == nullptr) return Rectangle{};
-    const Tileset *set = tileset_for(*as_data(p), gid);
+Rectangle tile_source(const MapData *data, int gid) {
+    if (data == nullptr) return Rectangle{};
+    const Tileset *set = tileset_for(*data, gid);
     return set == nullptr ? Rectangle{} : source_in(*set, gid);
 }
 
-Vector2 tile_origin(const void *p, int gid, int column, int row) {
-    if (p == nullptr) return Vector2{};
-    const MapData *data = as_data(p);
+Vector2 tile_origin(const MapData *data, int gid, int column, int row) {
+    if (data == nullptr) return Vector2{};
     return origin_in(*data, tileset_for(*data, gid), column, row);
 }
 
@@ -430,47 +432,38 @@ Vector2 tile_origin(const void *p, int gid, int column, int row) {
 // Tilemap
 // ---------------------------------------------------------------------------
 
-Tilemap::~Tilemap() { tilemap::detail::free_map(data_); }
+// Out of line, all four, because MapData is incomplete in the header and a
+// unique_ptr to an incomplete type cannot be destroyed there.
+Tilemap::Tilemap() = default;
+Tilemap::~Tilemap() = default;
+Tilemap::Tilemap(Tilemap &&other) noexcept = default;
+Tilemap &Tilemap::operator=(Tilemap &&other) noexcept = default;
 
-Tilemap::Tilemap(Tilemap &&other) noexcept : data_(other.data_) { other.data_ = nullptr; }
-
-Tilemap &Tilemap::operator=(Tilemap &&other) noexcept {
-    if (this != &other) {
-        tilemap::detail::free_map(data_);
-        data_ = other.data_;
-        other.data_ = nullptr;
-    }
-    return *this;
-}
-
-void Tilemap::adopt(void *data) {
-    tilemap::detail::free_map(data_);
-    data_ = data;
-}
+void Tilemap::adopt(tilemap::detail::MapPtr data) { data_ = std::move(data); }
 
 Rectangle Tilemap::bounds() const {
     if (!valid()) return Rectangle{};
-    const MapData *data = as_data(data_);
+    const MapData *data = data_.get();
     return Rectangle{ 0, 0, static_cast<float>(data->width * data->tile_width),
                       static_cast<float>(data->height * data->tile_height) };
 }
 
 Vector2 Tilemap::tile_size() const {
     if (!valid()) return Vector2{};
-    const MapData *data = as_data(data_);
+    const MapData *data = data_.get();
     return Vector2{ static_cast<float>(data->tile_width),
                     static_cast<float>(data->tile_height) };
 }
 
 int Tilemap::layer_count() const {
-    return valid() ? static_cast<int>(as_data(data_)->layers.size()) : 0;
+    return valid() ? static_cast<int>(data_.get()->layers.size()) : 0;
 }
 
-int Tilemap::object_count() const { return tilemap::detail::object_count(data_); }
+int Tilemap::object_count() const { return tilemap::detail::object_count(data_.get()); }
 
 int Tilemap::tile_at(int layer_index, int column, int row) const {
     if (!valid()) return 0;
-    const MapData *data = as_data(data_);
+    const MapData *data = data_.get();
     if (layer_index < 0 || static_cast<std::size_t>(layer_index) >= data->layers.size()) {
         return 0;
     }
@@ -484,7 +477,7 @@ int Tilemap::tile_at(int layer_index, int column, int row) const {
 
 bool Tilemap::solid_at(Vector2 world_position) const {
     if (!valid()) return false;
-    const MapData *data = as_data(data_);
+    const MapData *data = data_.get();
     if (data->tile_width <= 0 || data->tile_height <= 0) return false;
     if (world_position.x < 0 || world_position.y < 0) return false;
 
@@ -509,7 +502,7 @@ bool Tilemap::solid_at(Vector2 world_position) const {
 
 bool Tilemap::solid_in(Rectangle world_rect) const {
     if (!valid()) return false;
-    const MapData *data = as_data(data_);
+    const MapData *data = data_.get();
     if (data->tile_width <= 0 || data->tile_height <= 0) return false;
 
     // Every tile the rectangle touches, not just the four corners: a rectangle
@@ -536,7 +529,7 @@ bool Tilemap::solid_in(Rectangle world_rect) const {
 
 void Tilemap::on_object(const char *type, Callback<Scene &, const MapObject &> factory) {
     if (!valid() || type == nullptr) return;
-    MapData *data = as_data(data_);
+    MapData *data = data_.get();
     const std::string key(type);
     for (auto &entry : data->factories) {
         if (entry.first == key) {
@@ -551,7 +544,7 @@ void Tilemap::on_object(const char *type, Callback<Scene &, const MapObject &> f
 
 void Tilemap::spawn_objects(Scene &into) {
     if (!valid()) return;
-    MapData *data = as_data(data_);
+    MapData *data = data_.get();
     for (const MapObject &object : data->objects) {
         bool made = false;
         for (auto &entry : data->factories) {
@@ -582,7 +575,7 @@ void Tilemap::spawn_objects(Scene &into) {
 
 void Tilemap::draw() const {
     if (!valid()) return;
-    const MapData *data = as_data(data_);
+    const MapData *data = data_.get();
     for (const Layer &layer : data->layers) {
         for (int row = 0; row < layer.height; row++) {
             for (int column = 0; column < layer.width; column++) {

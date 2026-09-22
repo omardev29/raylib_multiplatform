@@ -43,11 +43,10 @@ std::vector<Pending> g_pending;
 
 bool g_running = false;
 
-// Ownership arrives raw from the template in rmp/scene.h — that header cannot
-// afford <memory>, and this file can — and is wrapped here, on the first line,
-// so that everything downstream of this point is owning.
-void record(Op op, Scene *next) {
-    g_pending.push_back(Pending{ op, std::unique_ptr<Scene>(next) });
+// Owning from the template in rmp/scene.h all the way down: nothing between
+// make_unique and the stack ever holds a raw pointer.
+void record(Op op, std::unique_ptr<Scene> next) {
+    g_pending.push_back(Pending{ op, std::move(next) });
 }
 
 } // namespace
@@ -57,9 +56,15 @@ void record(Op op, Scene *next) {
 // the comment in rmp/scene.h for why doing the work here would be a bug.
 // ---------------------------------------------------------------------------
 
-void Scene::detail_change(Scene *next) { record(Op::CHANGE, next); }
-void Scene::detail_push(Scene *next) { record(Op::PUSH, next); }
-void Scene::detail_replace(Scene *next) { record(Op::REPLACE, next); }
+void Scene::detail_change(std::unique_ptr<Scene> next) {
+    record(Op::CHANGE, std::move(next));
+}
+void Scene::detail_push(std::unique_ptr<Scene> next) {
+    record(Op::PUSH, std::move(next));
+}
+void Scene::detail_replace(std::unique_ptr<Scene> next) {
+    record(Op::REPLACE, std::move(next));
+}
 void Scene::pop() { record(Op::POP, nullptr); }
 
 int Scene::depth() { return static_cast<int>(g_stack.size()); }
@@ -123,7 +128,7 @@ void enter(std::unique_ptr<Scene> next) {
 
 } // namespace
 
-void start(Scene *first) {
+void start(std::unique_ptr<Scene> first) {
     // The null check BEFORE g_running, because the other order leaves the app
     // running over an empty stack: a frame loop that draws nothing, forever,
     // and a current() that hands back the fallback scene to everything that
@@ -136,7 +141,7 @@ void start(Scene *first) {
         return;
     }
     g_running = true;
-    enter(std::unique_ptr<Scene>(first));
+    enter(std::move(first));
 }
 
 bool running() { return g_running; }

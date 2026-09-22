@@ -76,12 +76,12 @@ struct AtFixtures {
 // It is an alias and not a second owner: the Tilemap frees it.
 struct Parsed {
     rmp::Tilemap map;
-    void *data = nullptr;
+    const rmp::tilemap::detail::MapData *data = nullptr;
     explicit Parsed(const char *file) {
         const std::vector<unsigned char> raw = bytes_of(file);
-        data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
-                                               file);
-        map.adopt(data);
+        map.adopt(rmp::tilemap::detail::parse_map(raw.data(),
+                                                  static_cast<int>(raw.size()), file));
+        data = map.detail_data();
     }
 };
 
@@ -173,12 +173,12 @@ TEST_CASE("solid_in checks every tile it crosses, not just the corners") {
 
 TEST_CASE("the object layer's contents, with the centre and the four property types") {
     const std::vector<unsigned char> raw = bytes_of("map_minimal.json");
-    void *data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
-                                                 "map_minimal.json");
+    auto data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                                "map_minimal.json");
     REQUIRE(data != nullptr);
-    REQUIRE(rmp::tilemap::detail::object_count(data) == 2);
+    REQUIRE(rmp::tilemap::detail::object_count(data.get()) == 2);
 
-    const rmp::MapObject *goblin = rmp::tilemap::detail::object_at(data, 0);
+    const rmp::MapObject *goblin = rmp::tilemap::detail::object_at(data.get(), 0);
     REQUIRE(goblin != nullptr);
     CHECK(std::string(goblin->name) == "goblin");
     CHECK(std::string(goblin->type) == "enemy");
@@ -199,12 +199,11 @@ TEST_CASE("the object layer's contents, with the centre and the four property ty
         CHECK(std::string(goblin->property_string("missing", "none")) == "none");
     }
     SUBCASE("an object with no properties at all is all defaults") {
-        const rmp::MapObject *start = rmp::tilemap::detail::object_at(data, 1);
+        const rmp::MapObject *start = rmp::tilemap::detail::object_at(data.get(), 1);
         REQUIRE(start != nullptr);
         CHECK(std::string(start->type) == "checkpoint");
         CHECK(start->property_int("hp", 99) == 99);
     }
-    rmp::tilemap::detail::free_map(data);
 }
 
 TEST_CASE_FIXTURE(Fixture, "a registered class produces the user's type") {
@@ -287,7 +286,7 @@ TEST_CASE("base64 fails, and the message names the setting to change") {
 
 TEST_CASE("rubbish is refused rather than half-read") {
     const unsigned char junk[] = "{ this is not a map at all";
-    void *data = rmp::tilemap::detail::parse_map(junk, sizeof(junk), "junk");
+    auto data = rmp::tilemap::detail::parse_map(junk, sizeof(junk), "junk");
     CHECK(data == nullptr);
     CHECK(rmp::tilemap::detail::parse_map(nullptr, 10, "null") == nullptr);
     CHECK(rmp::tilemap::detail::parse_map(junk, 0, "empty") == nullptr);
@@ -446,22 +445,21 @@ TEST_CASE("a flipped tile object's gid has Tiled's flip bits taken off") {
     // these; the object path did not, and one loop twenty lines from the other
     // is exactly the asymmetry a test finds and reading does not.
     const std::vector<unsigned char> raw = bytes_of("map_objects_flipped.json");
-    void *data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
-                                                 "map_objects_flipped.json");
+    auto data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                                "map_objects_flipped.json");
     REQUIRE(data != nullptr);
-    REQUIRE(rmp::tilemap::detail::object_count(data) == 4);
+    REQUIRE(rmp::tilemap::detail::object_count(data.get()) == 4);
 
-    const rmp::MapObject *chest = rmp::tilemap::detail::object_at(data, 0);
+    const rmp::MapObject *chest = rmp::tilemap::detail::object_at(data.get(), 0);
     REQUIRE(chest != nullptr);
     CHECK(std::string(chest->name) == "mirrored");
     CHECK(chest->gid == 1);
 
     SUBCASE("and an object that is not a tile object is still 0") {
-        const rmp::MapObject *point = rmp::tilemap::detail::object_at(data, 1);
+        const rmp::MapObject *point = rmp::tilemap::detail::object_at(data.get(), 1);
         REQUIRE(point != nullptr);
         CHECK(point->gid == 0);
     }
-    rmp::tilemap::detail::free_map(data);
 }
 
 TEST_CASE_FIXTURE(Fixture, "a point or a zero-size object is a marker, not a wall") {
@@ -514,13 +512,13 @@ TEST_CASE("a tile object hangs from its bottom edge, a rectangle from its top") 
     // Reading y as the top for both put every stamped chest, torch and door
     // exactly one tile into the floor.
     const std::vector<unsigned char> raw = bytes_of("map_object_anchor.json");
-    void *data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
-                                                 "map_object_anchor.json");
+    auto data = rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                                "map_object_anchor.json");
     REQUIRE(data != nullptr);
-    REQUIRE(rmp::tilemap::detail::object_count(data) == 2);
+    REQUIRE(rmp::tilemap::detail::object_count(data.get()) == 2);
 
-    const rmp::MapObject *stamped = rmp::tilemap::detail::object_at(data, 0);
-    const rmp::MapObject *drawn = rmp::tilemap::detail::object_at(data, 1);
+    const rmp::MapObject *stamped = rmp::tilemap::detail::object_at(data.get(), 0);
+    const rmp::MapObject *drawn = rmp::tilemap::detail::object_at(data.get(), 1);
     REQUIRE(stamped != nullptr);
     REQUIRE(drawn != nullptr);
     REQUIRE(stamped->gid == 1);
@@ -534,7 +532,6 @@ TEST_CASE("a tile object hangs from its bottom edge, a rectangle from its top") 
     SUBCASE("so the two are a whole tile apart, which is the size of the bug") {
         CHECK(drawn->position.y - stamped->position.y == doctest::Approx(16));
     }
-    rmp::tilemap::detail::free_map(data);
 }
 
 TEST_CASE("a tileset taller than the grid reaches up out of its cell") {

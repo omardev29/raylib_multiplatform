@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 
 // Defaults, so this still compiles against a generated header from before the
 // [ui] section existed. tools/configure.py normally provides all four.
@@ -43,7 +44,7 @@ namespace {
 
 bool g_started = false;
 bool g_frame_open = false;
-void *g_arena = nullptr;
+std::unique_ptr<unsigned char[]> g_arena; // Clay's memory, ours to own
 
 float g_scale = 1.0f;
 float g_scale_override = APP_UI_SCALE; // 0 = automatic
@@ -259,13 +260,11 @@ bool ensure_started() {
     Clay_SetMaxElementCount(APP_UI_MAX_ELEMENTS);
 
     uint32_t size = Clay_MinMemorySize();
-    g_arena = std::malloc(size);
-    if (g_arena == nullptr) {
-        TraceLog(LOG_ERROR, "UI: could not allocate %u bytes for the layout arena", size);
-        return false;
-    }
+    // new[] of char is aligned for anything Clay puts in it (the default new
+    // alignment is 16 on every toolchain here); Clay itself only needs 8.
+    g_arena = std::make_unique<unsigned char[]>(size);
 
-    Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, g_arena);
+    Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, g_arena.get());
     Clay_Initialize(arena, viewport(), Clay_ErrorHandler{ on_clay_error, nullptr });
     Clay_SetMeasureTextFunction(g_measure, nullptr);
 
@@ -281,8 +280,7 @@ void shutdown_context() {
         UnloadFont(g_font);
         g_font_loaded = false;
     }
-    std::free(g_arena);
-    g_arena = nullptr;
+    g_arena.reset();
     g_started = false;
 }
 

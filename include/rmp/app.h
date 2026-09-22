@@ -46,6 +46,7 @@
 
 #include <raylib.h> // GetFrameTime(), for the frame hook. raylib's, not ours.
 #include <rmp/config.h> // the one of ours that is always here — see below
+#include <memory> // std::unique_ptr / std::shared_ptr: what owns a scene and a global
 
 // NO STANDARD LIBRARY HEADER, and it is measured, not assumed. <memory> alone
 // costs 643 ms to parse on this machine against raylib.h's 38, so pulling it in
@@ -137,14 +138,18 @@ void end_stop(); // the asset pack closes here, AFTER it
 // TAKES OWNERSHIP of `first`, and deletes it when the app closes. Raw because
 // this header cannot afford <memory>; the pointer is created and handed over on
 // the same line, so it is never a pointer anyone holds.
-void start(rmp::Scene *first);
+void start(std::unique_ptr<rmp::Scene> first); // owns it from here on
 void frame(float delta);
 void stop();
 
-// Registers a destructor for one rmp::global<T>(). Called once per type, the
-// first time that type is asked for. Both live in src/rmp/global.cpp, on their
-// own, so that a test binary can reach them without an entry point.
-void register_global(void (*destroy)());
+// Hands one rmp::global<T>() instance to the registry, which owns it from here
+// on, together with the function that clears the header's cached pointer when
+// it is destroyed. Called once per type, the first time that type is asked
+// for. Both live in src/rmp/global.cpp, on their own, so that a test binary
+// can reach them without an entry point. A std::shared_ptr<void> because it
+// carries T's deleter with it: no `delete` anywhere in our code, and no
+// <functional> for the erasure.
+void register_global(std::shared_ptr<void> instance, void (*forget)());
 
 // Destroy every global, reverse of first use. Called from begin_stop(), while
 // the window is still open — a global can hold an rmp::Texture.
@@ -184,22 +189,17 @@ namespace rmp {
 // right; see begin_stop() in src/rmp/app.cpp.
 // ---------------------------------------------------------------------------
 template <class T> T &global() {
+    // NON-OWNING. The registry in src/rmp/global.cpp owns the instance and
+    // clears this through `forget` when it destroys it, so a global asked for
+    // after shutdown is built again rather than handed a dangling pointer.
     static T *instance = nullptr;
     if (instance == nullptr) {
-        instance = new T();
+        std::shared_ptr<T> made = std::make_shared<T>();
+        instance = made.get();
         // A lambda with no captures, so it converts to a plain function
         // pointer. It can still touch `instance` because a static local has
         // static storage duration and needs no capture to be used.
-        //
-        // new/delete rather than a unique_ptr for the reason at the top of this
-        // file: <memory> costs more to include than everything else here put
-        // together. The pair is three lines apart and the deleter is registered
-        // in the same breath as the allocation, which is the only shape where
-        // that trade is worth making.
-        rmp::app::detail::register_global([] {
-            delete instance;
-            instance = nullptr;
-        });
+        rmp::app::detail::register_global(std::move(made), [] { instance = nullptr; });
     }
     return *instance;
 }
@@ -381,8 +381,7 @@ template <class T> T &global() {
 // clang-format off
 #define RMP_GAME(SceneType)                                                    \
   static void rmp_game_ready() {                                               \
-    /* start() takes ownership. See its declaration for why it is raw. */      \
-    rmp::app::detail::start(new SceneType());                                  \
+    rmp::app::detail::start(std::make_unique<SceneType>());                    \
   }                                                                            \
   static void rmp_game_frame(float delta) { rmp::app::detail::frame(delta); }  \
   static void rmp_game_stop() { rmp::app::detail::stop(); }                    \

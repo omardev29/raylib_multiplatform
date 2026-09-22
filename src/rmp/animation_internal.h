@@ -33,7 +33,6 @@ int tag_index(const SheetData &sheet, const char *name);
 
 // Frees the tables a parsed sheet owns, and its texture. Called from the
 // resource table when the last handle to a sheet goes away.
-void free_sheet(SheetData *sheet);
 
 // One step of the animation clock. Advances by `delta` seconds scaled by
 // sprite.speed, crossing as many frames as it owes.

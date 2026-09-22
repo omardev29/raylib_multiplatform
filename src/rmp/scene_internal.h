@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 // ---------------------------------------------------------------------------
 // Private to src/rmp/. The scene stack as the app drives it.
 //
@@ -19,7 +20,7 @@ namespace rmp::scenes::detail {
 // Put the first scene on the stack and run its _ready(). Called by
 // rmp::app::detail::start(), which the RMP_GAME macro wires to the platform's
 // ready hook.
-void start(Scene *first); // TAKES OWNERSHIP
+void start(std::unique_ptr<Scene> first);
 
 // The update pass: bottom of the stack upwards, stopping at the lowest scene
 // that something above has frozen.

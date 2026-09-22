@@ -107,23 +107,17 @@ rmp::Object &stander(World &world) {
 // file. The resource slot owns the tables from the moment it adopts them and
 // frees them with delete[], which is what the new[] here is for.
 rmp::SpriteSheet sheet_with(const std::vector<const char *> &names) {
-    auto *frames = new rmp::SheetFrame[1];
-    frames[0].seconds = 0.1f;
-    auto *tags = new rmp::SheetTag[names.size()];
-    for (std::size_t i = 0; i < names.size(); i++) {
-        std::snprintf(tags[i].name, sizeof(tags[i].name), "%s", names[i]);
-    }
-
     rmp::SheetData data{};
     data.width = 16;
     data.height = 16;
-    data.frame_count = 1;
-    data.tag_count = static_cast<int>(names.size());
-    data.frames = frames;
-    data.tags = tags;
+    data.frames.resize(1);
+    data.frames[0].seconds = 0.1f;
+    data.tags.resize(names.size());
+    for (std::size_t i = 0; i < names.size(); i++) {
+        std::snprintf(data.tags[i].name, sizeof(data.tags[i].name), "%s", names[i]);
+    }
 
-    auto *slot =
-        rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, &data, sizeof(data));
+    auto *slot = rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, std::move(data));
     REQUIRE(slot != nullptr);
     return rmp::SpriteSheet{ slot };
 }

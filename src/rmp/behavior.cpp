@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <deque>
+#include <memory>
 #include <vector>
 
 namespace rmp {
@@ -42,7 +43,7 @@ namespace {
 
 struct Attached {
     const void *type = nullptr;
-    void *data = nullptr;
+    std::shared_ptr<void> data; // owns the behavior; its deleter is B's
     const detail::BehaviorOps *ops = nullptr;
     // Removed while the list was being walked. The entry stays where it is
     // until the walk is over -- see detach() for why erasing there cost the
@@ -130,23 +131,25 @@ void end_walk(const Object &object) {
 
 namespace detail {
 
-void *attach(Object &self, const void *type, const BehaviorOps &ops, void *data) {
+void *attach(Object &self, const void *type, const BehaviorOps &ops,
+             std::shared_ptr<void> data) {
     // Adding the same behavior twice replaces it rather than stacking two,
     // because two of the same is never what anybody means and the second
     // get<B>() could only return one of them anyway.
     detach(self, type);
 
+    void *raw = data.get();
     Owner &owner = owner_for(&self);
-    owner.list.push_back(Attached{ type, data, &ops, false });
-    if (ops.ready != nullptr) ops.ready(data, self);
-    return data;
+    owner.list.push_back(Attached{ type, std::move(data), &ops, false });
+    if (ops.ready != nullptr) ops.ready(raw, self);
+    return raw;
 }
 
 void *find_behavior(const Object &self, const void *type) {
     Owner *owner = owner_of(&self);
     if (owner == nullptr) return nullptr;
     for (const Attached &a : owner->list) {
-        if (a.type == type && !a.dead) return a.data;
+        if (a.type == type && !a.dead) return a.data.get();
     }
     return nullptr;
 }
@@ -156,7 +159,7 @@ void detach(Object &self, const void *type) {
     if (owner == nullptr) return;
     for (std::size_t i = 0; i < owner->list.size(); i++) {
         if (owner->list[i].type != type || owner->list[i].dead) continue;
-        const Attached a = owner->list[i];
+        Attached a = std::move(owner->list[i]); // this walk owns it until it goes
         // Out of the list BEFORE _end runs: the user's code is entitled to
         // remove the same behavior again from in there, and finding it gone is
         // better than freeing it twice.
@@ -169,13 +172,12 @@ void detach(Object &self, const void *type) {
         if (owner->walking > 0) {
             owner->list[i].dead = true;
             owner->list[i].type = nullptr;
-            owner->list[i].data = nullptr;
+            owner->list[i].data.reset();
         } else {
             owner->list.erase(owner->list.begin() + static_cast<std::ptrdiff_t>(i));
         }
-        if (a.ops->end != nullptr) a.ops->end(a.data, self);
-        a.ops->destroy(a.data);
-        return;
+        if (a.ops->end != nullptr) a.ops->end(a.data.get(), self);
+        return; // `a` goes out of scope here, and the behavior with it
     }
 }
 
@@ -201,7 +203,7 @@ void update_behaviors(Object &object, float delta) {
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
         if (a.dead) continue;
-        if (a.ops->update != nullptr) a.ops->update(a.data, object, delta);
+        if (a.ops->update != nullptr) a.ops->update(a.data.get(), object, delta);
         if (!object.alive()) break;
     }
     end_walk(object);
@@ -217,7 +219,8 @@ void late_update_behaviors(Object &object, float delta) {
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
         if (a.dead) continue;
-        if (a.ops->late_update != nullptr) a.ops->late_update(a.data, object, delta);
+        if (a.ops->late_update != nullptr)
+            a.ops->late_update(a.data.get(), object, delta);
         if (!object.alive()) break;
     }
     end_walk(object);
@@ -233,7 +236,7 @@ void draw_behaviors(Object &object) {
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
         if (a.dead) continue;
-        if (a.ops->draw != nullptr) a.ops->draw(a.data, object);
+        if (a.ops->draw != nullptr) a.ops->draw(a.data.get(), object);
     }
     end_walk(object);
 }
@@ -248,7 +251,7 @@ void collide_behaviors(Object &object, Object &other) {
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
         if (a.dead) continue;
-        if (a.ops->collision != nullptr) a.ops->collision(a.data, object, other);
+        if (a.ops->collision != nullptr) a.ops->collision(a.data.get(), object, other);
         if (!object.alive() || !other.alive()) break;
     }
     end_walk(object);
@@ -263,7 +266,7 @@ void release_behaviors(Object &object) {
     // -- including asking this object for a behavior, or destroying it again --
     // finds nothing attached rather than a list being emptied underneath.
     Storage::set_behavior_slot(object, -1);
-    const std::vector<Attached> taken = owner.list;
+    std::vector<Attached> taken = std::move(owner.list);
     owner.list.clear();
     owner.object = nullptr;
     owner.walking = 0;
@@ -271,9 +274,9 @@ void release_behaviors(Object &object) {
 
     for (const Attached &a : taken) {
         if (a.dead) continue; // detach() already ran its _end and freed it
-        if (a.ops->end != nullptr) a.ops->end(a.data, object);
-        a.ops->destroy(a.data);
+        if (a.ops->end != nullptr) a.ops->end(a.data.get(), object);
     }
+    // `taken` goes out of scope here, and every behavior with it.
 }
 
 int behavior_count(const Object &object) {
@@ -294,10 +297,7 @@ void reset_behaviors_for_tests() {
     // that has been recycled would reach somebody else's behaviors.
     for (Owner &owner : owners()) {
         if (owner.object != nullptr) Storage::set_behavior_slot(*owner.object, -1);
-        for (const Attached &a : owner.list) {
-            if (!a.dead) a.ops->destroy(a.data);
-        }
-        owner.list.clear();
+        owner.list.clear(); // and the behaviors with it
         owner.object = nullptr;
         owner.walking = 0;
     }

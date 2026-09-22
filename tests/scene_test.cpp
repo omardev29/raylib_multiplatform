@@ -25,6 +25,7 @@
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
+#include <memory>
 #include <string>
 
 namespace {
@@ -87,7 +88,7 @@ struct Fixture {
 // Start with `first` on the stack and the transcript cleared, so that a test
 // reads as "given a running stack, when X, then the transcript is Y".
 template <class T> void start_clean() {
-    rmp::scenes::detail::start(new T());
+    rmp::scenes::detail::start(std::make_unique<T>());
     g_log.clear();
 }
 
@@ -167,8 +168,9 @@ Clay_ElementId id_in_pass(const char *label, unsigned pass, unsigned occurrence)
 TEST_SUITE("scenes") {
     TEST_CASE("the first scene is ready before the first frame") {
         Fixture fix;
-        auto *first = new A();
-        rmp::scenes::detail::start(first);
+        auto owned = std::make_unique<A>();
+        const A *first = owned.get(); // non-owning; the stack owns it from start()
+        rmp::scenes::detail::start(std::move(owned));
         // Not deferred, and it cannot be: the first frame draws, and drawing a
         // scene whose _ready has not run would be drawing uninitialised state.
         CHECK(g_log == "A.ready");
@@ -193,8 +195,9 @@ TEST_SUITE("scenes") {
         CHECK(rmp::detail::report_count() == 1);
 
         SUBCASE("and it does not disturb a stack that is already there") {
-            auto *first = new A();
-            rmp::scenes::detail::start(first);
+            auto again = std::make_unique<A>();
+            const A *first = again.get(); // shadows the outer one on purpose
+            rmp::scenes::detail::start(std::move(again));
             g_log.clear();
             rmp::scenes::detail::start(nullptr);
             CHECK(rmp::Scene::depth() == 1);
@@ -250,7 +253,7 @@ TEST_SUITE("scenes") {
             void _end() override { note("L", "end"); }
         };
 
-        rmp::scenes::detail::start(new Leaver());
+        rmp::scenes::detail::start(std::make_unique<Leaver>());
         g_log.clear();
         run_frame();
 
@@ -328,7 +331,7 @@ TEST_SUITE("scenes") {
             void _end() override { note("E", "end"); }
         };
 
-        rmp::scenes::detail::start(new Eager());
+        rmp::scenes::detail::start(std::make_unique<Eager>());
         CHECK(g_log == "E.ready");
 
         // Applying inside apply_pending() would mean recursing into the vector it
@@ -417,7 +420,7 @@ TEST_SUITE("scene policies") {
             Blue() { background = Color{ 0, 0, 255, 255 }; }
         };
 
-        rmp::scenes::detail::start(new Blue());
+        rmp::scenes::detail::start(std::make_unique<Blue>());
         CHECK(rmp::scenes::detail::clear_color().b == 255);
 
         // A scene that covers the screen becomes the one that decides.

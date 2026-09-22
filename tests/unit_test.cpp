@@ -216,8 +216,7 @@ TEST_SUITE("resources") {
 
     rmp::Image make(const char *name) {
         ::Image zeroed{};
-        auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, &zeroed,
-                                              sizeof(zeroed));
+        auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, zeroed);
         return rmp::Image{ slot };
     }
 
@@ -319,8 +318,7 @@ TEST_SUITE("resources") {
         // resources. Keying on the name alone would hand back the wrong one.
         rmp::detail::release_all();
         ::Font zeroed{};
-        auto *at16 = rmp::detail::adopt_named(ResourceKind::FONT, "ui.ttf", 16, &zeroed,
-                                              sizeof(zeroed));
+        auto *at16 = rmp::detail::adopt_named(ResourceKind::FONT, "ui.ttf", 16, zeroed);
         rmp::Font a{ at16 };
         CHECK(rmp::detail::acquire_named(ResourceKind::FONT, "ui.ttf", 32) == nullptr);
         CHECK(rmp::detail::acquire_named(ResourceKind::FONT, "ui.ttf", 16) != nullptr);

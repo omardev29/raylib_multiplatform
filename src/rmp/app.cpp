@@ -22,7 +22,8 @@
 #include <smoke_test.h>
 
 #include <chrono> // the value rmp::random is seeded from
-#include <cstdlib> // std::exit() on the iOS CI path
+#include <cstdlib>
+#include <memory> // std::exit() on the iOS CI path
 #include <utility>
 
 // The other half of the entry-point guard in rmp/app.h. Referencing the symbol
@@ -210,10 +211,10 @@ void end_stop() { rmp::assets::shutdown(); }
 // lines of every on_ready(), identical in every project, and getting them from
 // [window] in the .toml is what lets the same source describe an 800x450 laptop
 // window and a phone held sideways.
-void start(rmp::Scene *first) {
+void start(std::unique_ptr<rmp::Scene> first) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
-    rmp::scenes::detail::start(first);
+    rmp::scenes::detail::start(std::move(first));
 }
 
 // One turn of the loop, and the order is the contract. It is documented in

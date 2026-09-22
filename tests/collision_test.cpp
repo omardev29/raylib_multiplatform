@@ -718,7 +718,7 @@ TEST_CASE_FIXTURE(Fixture, "a ray hits what is in front of it and reports where"
 
     const rmp::RayHit hit = world.raycast({ 0, 0 }, { 300, 0 });
     REQUIRE(static_cast<bool>(hit));
-    CHECK(hit.object == &wall);
+    CHECK(hit.object.get() == &wall);
     CHECK(hit.point.x == doctest::Approx(90)); // the near face
     CHECK(hit.distance == doctest::Approx(90));
     CHECK(hit.normal.x == doctest::Approx(-1)); // pointing back at the ray
@@ -730,7 +730,7 @@ TEST_CASE_FIXTURE(Fixture, "a ray that reaches nothing is false, and false is th
     world.spawn({ .position = { 1000, 0 }, .shape = rmp::rect({ 20, 20 }) });
     const rmp::RayHit hit = world.raycast({ 0, 0 }, { 100, 0 });
     CHECK_FALSE(static_cast<bool>(hit));
-    CHECK(hit.object == nullptr);
+    CHECK(!hit.object);
 }
 
 TEST_CASE_FIXTURE(Fixture, "the nearest hit is the one that comes back") {
@@ -741,7 +741,7 @@ TEST_CASE_FIXTURE(Fixture, "the nearest hit is the one that comes back") {
 
     const rmp::RayHit hit = world.raycast({ 0, 0 }, { 400, 0 });
     REQUIRE(static_cast<bool>(hit));
-    CHECK(hit.object == &near);
+    CHECK(hit.object.get() == &near);
 }
 
 TEST_CASE_FIXTURE(Fixture, "ignore is why this exists and not CheckCollisionLines") {
@@ -752,11 +752,11 @@ TEST_CASE_FIXTURE(Fixture, "ignore is why this exists and not CheckCollisionLine
         world.spawn({ .position = { 200, 0 }, .shape = rmp::rect({ 20, 20 }) });
 
     const rmp::RayHit without = world.raycast({ 0, 0 }, { 400, 0 });
-    CHECK(without.object == &shooter);
+    CHECK(without.object.get() == &shooter);
 
     const rmp::RayHit with =
         world.raycast({ .from = { 0, 0 }, .to = { 400, 0 }, .ignore = &shooter });
-    CHECK(with.object == &target);
+    CHECK(with.object.get() == &target);
 }
 
 TEST_CASE_FIXTURE(Fixture, "the mask filters the same way the collision pass does") {
@@ -770,10 +770,10 @@ TEST_CASE_FIXTURE(Fixture, "the mask filters the same way the collision pass doe
 
     const rmp::RayHit shot =
         world.raycast({ .from = { 0, 0 }, .to = { 400, 0 }, .mask = kEnemy });
-    CHECK(shot.object == &enemy);
+    CHECK(shot.object.get() == &enemy);
 
     const rmp::RayHit sight = world.raycast({ 0, 0 }, { 400, 0 });
-    CHECK(sight.object == &bush);
+    CHECK(sight.object.get() == &bush);
 }
 
 TEST_CASE_FIXTURE(Fixture, "a ray against a circle gets the circle's normal") {
@@ -800,7 +800,7 @@ TEST_CASE_FIXTURE(Fixture,
     auto &box = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 100, 100 }) });
     const rmp::RayHit hit = world.raycast({ 0, 0 }, { 300, 0 });
     REQUIRE(static_cast<bool>(hit));
-    CHECK(hit.object == &box);
+    CHECK(hit.object.get() == &box);
     CHECK(hit.distance == doctest::Approx(0));
 }
 
@@ -820,9 +820,9 @@ TEST_CASE_FIXTURE(Fixture, "raycast_all comes back nearest first") {
     rmp::RayHit hits[8];
     const int n = world.raycast_all({ .from = { 0, 0 }, .to = { 400, 0 } }, hits, 8);
     REQUIRE(n == 3);
-    CHECK(hits[0].object == &a);
-    CHECK(hits[1].object == &b);
-    CHECK(hits[2].object == &c);
+    CHECK(hits[0].object.get() == &a);
+    CHECK(hits[1].object.get() == &b);
+    CHECK(hits[2].object.get() == &c);
     CHECK(hits[0].distance < hits[1].distance);
     CHECK(hits[1].distance < hits[2].distance);
 
@@ -831,7 +831,7 @@ TEST_CASE_FIXTURE(Fixture, "raycast_all comes back nearest first") {
         const int capped =
             world.raycast_all({ .from = { 0, 0 }, .to = { 400, 0 } }, few, 2);
         CHECK(capped == 2);
-        CHECK(few[0].object == &a);
+        CHECK(few[0].object.get() == &a);
     }
     SUBCASE("max of zero writes nothing") {
         rmp::RayHit none[1];
@@ -928,12 +928,12 @@ TEST_CASE_FIXTURE(
 
         checked++;
         if (best != nullptr) found++;
-        if (grid.object != best) {
+        if (grid.object.get() != best) {
             MESSAGE("ray " << i << " from (" << from.x << "," << from.y << ") to ("
                            << to.x << "," << to.y << ")");
             MESSAGE("  grid says "
-                    << (grid.object == nullptr ? std::string("nothing")
-                                               : std::string("object at ") +
+                    << (!grid.object ? std::string("nothing")
+                                     : std::string("object at ") +
                                 std::to_string(grid.object->position.x) + "," +
                                 std::to_string(grid.object->position.y)));
             MESSAGE("  brute says " << (best == nullptr ? std::string("nothing")
@@ -942,8 +942,8 @@ TEST_CASE_FIXTURE(
                                                 std::to_string(best->position.y))
                                     << "  t=" << best_t);
         }
-        CHECK(grid.object == best);
-        if (grid.object != best) break; // one message, not a thousand
+        CHECK(grid.object.get() == best);
+        if (grid.object.get() != best) break; // one message, not a thousand
     }
     CHECK(checked == 1000);
     // And the scene has to be crowded enough that most rays hit something, or
@@ -1033,12 +1033,12 @@ TEST_CASE_FIXTURE(Fixture, "solid_only skips the trigger and finds the ground") 
     ground.immovable = true;
 
     const rmp::RayHit any = world.raycast({ 0, 0 }, { 0, 100 });
-    CHECK(any.object == &coin);
+    CHECK(any.object.get() == &coin);
 
     const rmp::RayHit floor =
         world.raycast({ .from = { 0, 0 }, .to = { 0, 100 }, .solid_only = true });
     REQUIRE(static_cast<bool>(floor));
-    CHECK(floor.object == &ground);
+    CHECK(floor.object.get() == &ground);
     CHECK(floor.point.y == doctest::Approx(50));
 }
 
