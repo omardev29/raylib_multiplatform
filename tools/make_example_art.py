@@ -84,9 +84,42 @@ def ground() -> Image.Image:
     return img
 
 
+def runner() -> Image.Image:
+    """The character, 36x54, in a pose that reads at a glance. Flat shapes and
+    one outline colour: at 36 pixels wide there is no room for anything else,
+    and a silhouette is what a runner is seen as anyway."""
+    img = Image.new("RGBA", (36, 54), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    shirt, skin, dark = (240, 196, 80, 255), (250, 236, 214, 255), (46, 32, 44, 255)
+    draw.line([(21, 25), (32, 31)], fill=shirt, width=5)  # arm, forward
+    draw.line([(15, 25), (5, 21)], fill=shirt, width=5)  # arm, trailing
+    draw.ellipse([13, 3, 25, 15], fill=skin)  # head
+    draw.polygon([(12, 5), (26, 3), (26, 7), (13, 9)], fill=dark)  # cap
+    draw.ellipse([20, 8, 23, 11], fill=dark)  # and an eye, looking ahead
+    draw.polygon([(14, 15), (24, 15), (26, 34), (12, 34)], fill=shirt)  # body
+    draw.line([(19, 33), (29, 45)], fill=dark, width=6)  # leg, forward
+    draw.line([(17, 33), (8, 43)], fill=dark, width=6)  # leg, pushing off
+    draw.line([(27, 45), (33, 49)], fill=dark, width=5)  # and the feet
+    draw.line([(5, 42), (10, 46)], fill=dark, width=5)
+    return img
+
+
+def rock() -> Image.Image:
+    """The obstacle, 40x60: a boulder with a lit face and a shadow side, so it
+    reads as an object and not as the grey rectangle it used to be."""
+    img = Image.new("RGBA", (40, 60), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.polygon([(4, 59), (2, 26), (14, 6), (28, 4), (38, 24), (36, 59)],
+                 fill=(92, 84, 96, 255))
+    draw.polygon([(14, 6), (28, 4), (34, 22), (18, 30)], fill=(126, 118, 132, 255))
+    draw.polygon([(4, 59), (2, 26), (12, 34), (12, 59)], fill=(62, 56, 70, 255))
+    return img
+
+
 def main() -> int:
     RUNNER.mkdir(parents=True, exist_ok=True)
-    for name, make in (("sky.png", sky), ("hills.png", hills), ("ground.png", ground)):
+    for name, make in (("sky.png", sky), ("hills.png", hills), ("ground.png", ground),
+                       ("runner.png", runner), ("rock.png", rock)):
         make().save(RUNNER / name, optimize=True)
         print(f"  wrote {RUNNER.relative_to(REPO) / name}")
     return 0
