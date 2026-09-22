@@ -27,9 +27,14 @@
 // and `paddle` are three games with a different name on them.
 // ---------------------------------------------------------------------------
 
+// <rmp/input.h> is NOT here, and that is deliberate: nothing this header
+// declares names a type or a function from rmp::input -- the catalogue reads
+// actions in src/rmp/behaviors.cpp, which includes it there. It used to be on
+// this list and cost 52 ms of every translation unit with a behavior in it,
+// which is every gameplay file and every example game, for a header none of
+// them needed. tools/header_check.sh compiles this one on its own.
 #include <raylib.h>
 #include <rmp/config.h>
-#include <rmp/input.h>
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
@@ -295,6 +300,14 @@ struct Parallax {
     } ours;
 };
 
+// How many of its own objects one Spawner keeps track of, which is the largest
+// `max_alive` it can enforce. A fixed array and not a std::vector because
+// <vector> costs 92 ms in every translation unit that includes a behavior --
+// more than the <rmp/input.h> this header was carrying for nothing -- and a
+// spawner that needs hundreds of things alive at once is a pool, not a spawner.
+// A `max_alive` above this warns once and is treated as this.
+inline constexpr int kMaxSpawned = 64;
+
 // Produces objects every N seconds, or every N units TRAVELLED.
 //
 // By distance is not the same as a Timer, and the difference is the whole
@@ -305,14 +318,16 @@ struct Spawner {
     float every_seconds = 0; // one of these two, not both
     float every_distance = 0;
     float jitter = 0; // +/- this much, uniformly
-    int max_alive = 0; // 0 = no limit
+    int max_alive = 0; // 0 = no limit, and it is a cap on the LIVE ones
 
     // Where "travelled" is measured from. Empty = this object's own position.
     Handle<Object> track;
 
     Callback<Scene &, Vector2> on_spawn;
 
-    [[nodiscard]] int alive() const { return ours.alive; }
+    // How many of the objects it made are still alive RIGHT NOW. It goes down
+    // when they die, which is the whole difference between a cap and a quota.
+    [[nodiscard]] int alive() const;
 
     void _update(Object &self, float delta);
 
@@ -327,7 +342,12 @@ struct Spawner {
         float travelled = 0;
         Vector2 last_at{};
         bool started = false;
-        int alive = 0;
+        // HANDLES AND NOT A COUNTER. A counter only ever goes up: nothing tells
+        // a spawner that what it made has died, so `max_alive` became a cap on
+        // how many it had ever produced and an endless runner stopped making
+        // obstacles thirty seconds in. A handle answers on its own.
+        Handle<Object> made[kMaxSpawned];
+        int made_count = 0;
     } ours;
 
     [[nodiscard]] float jitter_amount() const;
@@ -383,6 +403,21 @@ struct Health {
     Callback<Object &> on_death;
     Callback<Object &, int> on_damage; // the amount that actually landed
 
+    // WHICH LAYERS HURT. 0, the default, is "nothing does": contact costs
+    // nothing until a game says which contact costs something, and then it says
+    // it once here instead of writing the same `if` at the top of every
+    // _collision.
+    //
+    //     player.add<rmp::behavior::Health>({ .hp = 3, .hurt_by = layer::kEnemy });
+    //
+    // It is the OTHER object's `collision_layer` that is tested, the same
+    // numbers rmp::Object::collision_mask uses -- so a spike, an enemy and a
+    // bullet are one layer each and a player is hurt by whichever it names.
+    // The invulnerable window applies, which is what stops standing inside a
+    // fire costing sixty hearts a second.
+    unsigned hurt_by = 0;
+    int damage_on_hit = 1; // what one touch costs
+
     // Returns whether it landed. Damage during the invulnerable window does
     // not, which is what stops one spike costing three hearts in three frames.
     bool damage(Object &self, int amount = 1);
@@ -392,6 +427,7 @@ struct Health {
     [[nodiscard]] bool dead() const { return hp <= 0; }
 
     void _update(Object &self, float delta);
+    void _collision(Object &self, Object &other);
     void _end(Object &self);
 
     // What it is keeping track of. Readable, because sometimes you want it;

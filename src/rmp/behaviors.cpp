@@ -12,12 +12,18 @@
 #include <rmp/behavior.h>
 
 #include <rmp/assets.h>
+#include <rmp/input.h>
 #include <rmp/random.h>
 
 #include "animation_internal.h"
+#include "behavior_internal.h"
+#include "internal.h"
+#include "object_internal.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <vector>
 
 // Every function below is one half of an INTERFACE: the engine finds it with
 // `requires` and calls it through a pointer, so its signature is fixed by the
@@ -63,20 +69,40 @@ const char *or_default(const char *given, const char *fallback) {
 bool held(const char *action) { return rmp::input::pressed(action); }
 bool pressed(const char *action) { return rmp::input::just_pressed(action); }
 
-// Is there something solid directly below? A raycast rather than a flag on the
+// How many hits the ground probe looks through. The feet ray is two units long
+// and everything it can cross in that distance is a coin, a trigger or a piece
+// of decoration lying on the floor -- eight of them stacked on the same spot is
+// a pile, not a level. Goes away with the TODO below.
+constexpr int kGroundProbes = 8;
+
+// Is there something SOLID directly below? A raycast rather than a flag on the
 // object, because the collision pass does not keep a contact list -- and a ray
 // is what a game would write anyway, only correct the first time.
+//
+// EVERY hit and not the nearest one. raycast() answers with the nearest, and
+// asking afterwards whether THAT one was solid meant any non-solid collider
+// between the feet and the floor hid the floor completely: the player could not
+// jump and velocity.y kept accumulating while it stood still. Coins, pickups,
+// damage triggers and decoration on the floor are the ordinary contents of a
+// platformer level. Both Platformer and Runner come through here.
 bool standing_on_something(Object &self, float reach) {
     Scene *scene = self.scene();
     if (scene == nullptr) return false;
     const Rectangle box = self.world_collider();
     if (box.height <= 0) return false;
     const Vector2 feet{ box.x + box.width / 2, box.y + box.height };
-    const RayHit hit = scene->raycast({ .from = Vector2{ feet.x, feet.y - 1 },
-                                        .to = Vector2{ feet.x, feet.y + reach },
-                                        .mask = self.collision_mask,
-                                        .ignore = &self });
-    return static_cast<bool>(hit) && hit.object->solid;
+    // TODO(merge): set solid_only = true here once RayQuery has it, and go back
+    // to one scene->raycast() -- the filter is free inside cast(), and the
+    // kGroundProbes loop and its limit both disappear with it.
+    const RayQuery query{ .from = Vector2{ feet.x, feet.y - 1 },
+                          .to = Vector2{ feet.x, feet.y + reach },
+                          .mask = self.collision_mask,
+                          .ignore = &self };
+    RayHit hits[kGroundProbes];
+    const int count = scene->raycast_all(query, hits, kGroundProbes);
+    return std::any_of(hits, hits + count, [](const RayHit &hit) {
+        return hit.object != nullptr && hit.object->solid;
+    });
 }
 
 } // namespace
@@ -181,6 +207,17 @@ void Platformer::_update(Object &self, float delta) {
         if (!was_grounded) ours.jumps_used = 0;
     } else {
         ours.since_grounded += delta;
+        // LEAVING THE GROUND SPENDS THE GROUND JUMP, once the coyote window has
+        // closed. Without this line `jumps_used < air_jumps + 1` hands a free
+        // jump to anything that has not jumped yet -- a player long past the
+        // ledge, or one that has never touched the ground at all -- and that
+        // makes both of the features below meaningless: coyote_time cannot be
+        // felt, because there was always a jump available anyway, and the
+        // buffered jump is never observed, because the press fires the moment
+        // it happens instead of waiting for the landing.
+        if (ours.since_grounded > coyote_time && ours.jumps_used == 0) {
+            ours.jumps_used = 1;
+        }
     }
 
     if (pressed(or_default(jump_action, "ui_accept")))
@@ -481,31 +518,67 @@ void Parallax::_draw(Object &self) {
     const Texture2D &tex = ours.art;
     if (tex.width <= 0) return;
 
-    const auto width = static_cast<float>(tex.width);
-    // Modulo the texture's width, and drawn TWICE. This is the whole behavior:
-    // one copy leaves a gap the moment the offset passes the width, and getting
-    // the second copy's position wrong by a pixel is a seam that crawls across
-    // the screen. std::fmod can return a negative, which is why it is nudged
-    // back into range rather than trusted.
-    const float shift = self.position.x * factor + ours.scroll;
+    const auto screen =
+        static_cast<float>(GetScreenWidth() > 0 ? GetScreenWidth() : APP_WINDOW_WIDTH);
+    // The arithmetic is next door, in detail::parallax_tiling, and this call is
+    // the only thing between it and the GPU. That is not tidiness: everything
+    // below this line needs a render batch InitWindow() creates, and everything
+    // above it is the part that gets written wrong -- so the part that gets
+    // written wrong is the part a headless test can reach.
+    const detail::ParallaxTiling tiling = detail::parallax_tiling(
+        self.position.x * factor + ours.scroll, static_cast<float>(tex.width), screen);
+
+    for (int i = 0; i < tiling.copies; i++) {
+        const float at =
+            tiling.offset + static_cast<float>(i) * static_cast<float>(tex.width);
+        DrawTextureV(tex, Vector2{ at, y }, tint);
+    }
+}
+
+namespace detail {
+
+ParallaxTiling parallax_tiling(float shift, float width, float screen) {
+    if (width <= 0) return ParallaxTiling{};
+    // Modulo the texture's width, and drawn MORE THAN ONCE. This is the whole
+    // behavior: one copy leaves a gap the moment the offset passes the width,
+    // and getting the next copy's position wrong by a pixel is a seam that
+    // crawls across the screen. std::fmod returns a NEGATIVE for a negative
+    // argument and a positive for a positive one, and a positive offset is a
+    // gap down the left-hand side -- which is why it is nudged back into range
+    // rather than trusted.
     float offset = std::fmod(shift, width);
     if (offset > 0) offset -= width;
 
-    const auto screen =
-        static_cast<float>(GetScreenWidth() > 0 ? GetScreenWidth() : APP_WINDOW_WIDTH);
-    // An integer loop counter, with the position derived from it. Stepping a
+    // An integer count, with each copy's position derived from it. Stepping a
     // float by `width` accumulates error across the copies, and error between
     // two copies of a scrolling background IS the seam this behavior exists to
     // remove: a gap of a third of a pixel that crawls sideways.
     const int copies = static_cast<int>((screen - offset) / width) + 1;
-    for (int i = 0; i < copies; i++) {
-        DrawTextureV(tex, Vector2{ offset + static_cast<float>(i) * width, y }, tint);
-    }
+    return ParallaxTiling{ offset, copies };
 }
+
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Spawner
 // ---------------------------------------------------------------------------
+
+namespace {
+
+// The cap this spawner can actually hold to. A live cap needs a handle per live
+// object, and there are kMaxSpawned of them -- so a larger max_alive is a
+// number the behavior cannot honour, and saying so once is better than quietly
+// enforcing a different one.
+int spawner_cap(int max_alive) {
+    if (max_alive <= kMaxSpawned) return max_alive;
+    RMP_REPORT_ONCE("BEHAVIOR: Spawner::max_alive = %d, and a spawner tracks %d live "
+                    "objects. Capping at %d -- for more than that, pool the objects "
+                    "instead of making new ones, or use a second spawner.",
+                    max_alive, kMaxSpawned, kMaxSpawned);
+    return kMaxSpawned;
+}
+
+} // namespace
 
 void Spawner::_update(Object &self, float delta) {
     Scene *scene = self.scene();
@@ -555,14 +628,40 @@ void Spawner::_update(Object &self, float delta) {
     }
 
     if (!due) return;
-    if (max_alive > 0 && ours.alive >= max_alive) return;
 
-    const int before = scene->object_count();
+    // Forget the dead first, because the cap is on what is ALIVE and a handle
+    // whose object is gone is exactly what says so. A plain counter could only
+    // ever go up: nothing tells a spawner that what it made has died.
+    int kept = 0;
+    for (int i = 0; i < ours.made_count; i++) {
+        if (ours.made[i]) ours.made[kept++] = ours.made[i];
+    }
+    ours.made_count = kept;
+
+    if (max_alive > 0 && ours.made_count >= spawner_cap(max_alive)) return;
+
+    // Which objects the callback actually made. It is not always one -- a wave
+    // spawner makes five, and the cap has to count them all or it is not a cap
+    // -- and it is not always the last ones in the scene either, because the
+    // callback may destroy as well as spawn. The live set before and after is
+    // what says which they are.
+    std::vector<Object *> before = rmp::objects::detail::live_objects(*scene);
+    std::ranges::sort(before);
     on_spawn(*scene, ruler->position);
-    // However many it actually made, which is not always one: a wave spawner
-    // makes five, and the cap has to count them all or it is not a cap.
-    ours.alive += scene->object_count() - before;
-    if (ours.alive < 0) ours.alive = 0;
+
+    for (Object *made : rmp::objects::detail::live_objects(*scene)) {
+        if (std::ranges::binary_search(before, made)) continue;
+        if (ours.made_count >= kMaxSpawned) break;
+        ours.made[ours.made_count++] = made->handle();
+    }
+}
+
+int Spawner::alive() const {
+    int count = 0;
+    for (int i = 0; i < ours.made_count; i++) {
+        if (ours.made[i]) count++;
+    }
+    return count;
 }
 
 float Spawner::jitter_amount() const {
@@ -651,6 +750,18 @@ void Health::_update(Object &self, float delta) {
         self.visible = !hide;
         ours.hid = hide;
     }
+}
+
+void Health::_collision(Object &self, Object &other) {
+    // `hurt_by` is a mask over the OTHER object's layer, the same numbers
+    // Object::collision_mask uses. 0 is "nothing hurts", which is why a Health
+    // with nothing configured is a hit-point counter and not a hazard detector.
+    if (hurt_by == 0) return;
+    if ((other.collision_layer & hurt_by) == 0) return;
+    // Through damage() and not through hp, so the invulnerable window, the
+    // on_damage callback and the once-only death all apply -- which is what
+    // stops standing inside a fire costing sixty hearts a second.
+    damage(self, damage_on_hit);
 }
 
 void Health::_end(Object &self) {

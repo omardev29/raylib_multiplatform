@@ -25,20 +25,60 @@ namespace rmp::random {
 
 namespace {
 
-uint32_t g_state[4] = { 0x2545F491u, 0x9E3779B9u, 0x85EBCA6Bu, 0xC2B2AE35u };
-uint64_t g_seed = 0;
+// SplitMix64 to expand one number into four words. Seeding xoshiro's state
+// directly from a small value leaves it with almost no set bits, and the first
+// few outputs come out visibly poor -- the author says to do this.
+struct State {
+    uint32_t word[4];
+};
+
+constexpr State expanded(uint64_t value) {
+    uint64_t x = value != 0 ? value : 0x9E3779B97F4A7C15ull;
+    State out{};
+    for (uint32_t &word : out.word) {
+        x += 0x9E3779B97F4A7C15ull;
+        uint64_t z = x;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+        word = static_cast<uint32_t>((z ^ (z >> 31)) >> 32);
+    }
+    return out;
+}
+
+// What a run starts from when nobody has called seed(). It is a SEED and not a
+// hand-picked state, and that is the whole fix: current_seed() is the number a
+// pause screen shows and a bug report carries, and handing it back has to give
+// the sequence the process was running. It used to be 0 sitting next to four
+// constants that seed(0) does not produce, so the number named a different run.
+//
+// rmp::app::detail::begin_run() replaces it with the clock, so a shipped game
+// still behaves differently each time. Nothing in the tests calls begin_run(),
+// which is what keeps every headless run reproducible.
+constexpr uint64_t kDefaultSeed = 0x2545F4914F6CDD1Dull;
+
+// Expanded at COMPILE TIME, and then copied. Both halves matter: a run that
+// never calls seed() has to start from exactly the state seed(kDefaultSeed)
+// produces, or current_seed() names a sequence the process is not running --
+// and doing the expansion in a runtime initialiser before main() would be a
+// static initialisation order question in the one file whose whole promise is
+// that the first value is the same every time.
+constexpr State kDefaultState = expanded(kDefaultSeed);
+
+constinit State g_state = kDefaultState;
+constinit uint64_t g_seed = kDefaultSeed;
 
 constexpr uint32_t rotl(uint32_t x, int k) { return (x << k) | (x >> (32 - k)); }
 
 uint32_t next_u32() {
-    const uint32_t result = rotl(g_state[0] + g_state[3], 7) + g_state[0];
-    const uint32_t t = g_state[1] << 9;
-    g_state[2] ^= g_state[0];
-    g_state[3] ^= g_state[1];
-    g_state[1] ^= g_state[2];
-    g_state[0] ^= g_state[3];
-    g_state[2] ^= t;
-    g_state[3] = rotl(g_state[3], 11);
+    uint32_t *s = g_state.word;
+    const uint32_t result = rotl(s[0] + s[3], 7) + s[0];
+    const uint32_t t = s[1] << 9;
+    s[2] ^= s[0];
+    s[3] ^= s[1];
+    s[1] ^= s[2];
+    s[0] ^= s[3];
+    s[2] ^= t;
+    s[3] = rotl(s[3], 11);
     return result;
 }
 
@@ -46,17 +86,7 @@ uint32_t next_u32() {
 
 void seed(uint64_t value) {
     g_seed = value;
-    // SplitMix64 to expand one number into four words. Seeding xoshiro's state
-    // directly from a small value leaves it with almost no set bits, and the
-    // first few outputs come out visibly poor — the author says to do this.
-    uint64_t x = value ? value : 0x9E3779B97F4A7C15ull;
-    for (uint32_t &word : g_state) {
-        x += 0x9E3779B97F4A7C15ull;
-        uint64_t z = x;
-        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-        word = static_cast<uint32_t>((z ^ (z >> 31)) >> 32);
-    }
+    g_state = expanded(value);
 }
 
 uint64_t current_seed() { return g_seed; }
