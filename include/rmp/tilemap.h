@@ -94,8 +94,11 @@ public:
     // ---- object layers -> objects in the scene -----------------------------
     //
     // A class with no factory registered comes out as a plain rmp::Object with
-    // the position, the size, a collider and `solid` already set, which is the
-    // right default for a wall or a trigger drawn in the editor.
+    // the position, the size and a collider -- and `solid` already set WHEN
+    // TILED GAVE IT AN AREA, which is the right default for a wall or a
+    // platform drawn in the editor. A point, and anything else whose width or
+    // height is zero, is a marker rather than a shape and comes out non-solid:
+    // an invisible collider at a spawn point is not what anybody drew.
     //
     // Registering the same class twice REPLACES, because two factories for one
     // class is never what anybody means.

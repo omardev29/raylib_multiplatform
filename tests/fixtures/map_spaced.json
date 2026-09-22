@@ -1,0 +1,15 @@
+{ "compressionlevel":-1,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[1,4, 6,16],
+      "height":2, "id":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":2, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientation":"orthogonal",
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":1, "image":"tiles.png", "imageheight":72,
+      "imagewidth":72, "margin":1, "name":"spaced", "spacing":2,
+      "tilecount":16, "tileheight":16, "tilewidth":16,
+      "tiles":[ { "id":5, "properties":[ { "name":"solid","type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"1.10", "width":2 }

@@ -56,6 +56,14 @@ bool open_pack() {
     rresSetCipherPassword(RRES_PASSWORD);
     g_cdir = rresLoadCentralDirectory(g_pack_path);
     if (g_cdir.count <= 0) {
+        // Given back, not dropped: rres allocates the entry array before it
+        // knows the count is zero, and close_pack() returns early while no
+        // pack is open, so nothing else would ever free it. Zeroed as well,
+        // because a non-null g_cdir.entries sitting behind a false
+        // pack_is_open() is a trap for anyone who reads one without the other.
+        rresUnloadCentralDirectory(g_cdir);
+        g_cdir.count = 0;
+        g_cdir.entries = nullptr;
         TraceLog(LOG_WARNING, "ASSETS: %s has no central directory, using loose files",
                  g_pack_path);
         return false;
