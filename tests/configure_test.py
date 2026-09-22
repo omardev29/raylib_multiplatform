@@ -2224,6 +2224,18 @@ class AndroidProguardKeepTest(unittest.TestCase):
                          r"-keepclasseswithmembernames\s+class\s+\*\s*\{\s*native\s+<methods>;")
 
 
+    def test_nothing_in_the_file_is_mangled_by_the_regex_rewrite(self):
+        """build.gradle rewrites `com.raylib.raymob` in proguard-rules.pro with
+        String.replaceAll, which is a REGEX: the dots match any character. A
+        comment that spelt the package `com/raylib/raymob` was rewritten to
+        the app id and restored as `com.raylib.raymob`, and the Android job's
+        "working tree clean" step went red on a comment. Every regex match has
+        to be the literal, so the rewrite and its restore are inverses."""
+        text = (REPO / "raymob" / "app" / "proguard-rules.pro").read_text()
+        for found in re.findall(r"com.raylib.raymob", text):
+            self.assertEqual(found, "com.raylib.raymob",
+                             f"{found!r} matches the rewrite pattern and is not the literal")
+
 class RaymobJniDisciplineTest(unittest.TestCase):
     """Two mistakes in JNI code are aborts, not failures, and both were here.
 

@@ -15,6 +15,7 @@
 #include <doctest.h>
 
 #include "../src/rmp/object_internal.h"
+#include "../src/rmp/ui/internal.h"
 
 #include <rmp/input.h>
 #include <rmp/object.h>
@@ -1059,6 +1060,11 @@ struct Pointer {
         rmp::input::detail::reset();
         g_devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
+        // A UI case that ran before this one may have left the pointer "over
+        // the UI" -- the flag only clears at the next begin(), which this
+        // fixture never calls -- and then consumed_pointer() would swallow
+        // every press here. Start the frame the way the app does.
+        rmp::ui::detail::begin_capture_frame();
         rmp::input::detail::begin_frame(); // frame one has no edges
     }
     ~Pointer() {

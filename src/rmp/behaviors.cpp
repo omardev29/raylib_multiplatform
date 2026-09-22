@@ -69,40 +69,29 @@ const char *or_default(const char *given, const char *fallback) {
 bool held(const char *action) { return rmp::input::pressed(action); }
 bool pressed(const char *action) { return rmp::input::just_pressed(action); }
 
-// How many hits the ground probe looks through. The feet ray is two units long
-// and everything it can cross in that distance is a coin, a trigger or a piece
-// of decoration lying on the floor -- eight of them stacked on the same spot is
-// a pile, not a level. Goes away with the TODO below.
-constexpr int kGroundProbes = 8;
-
 // Is there something SOLID directly below? A raycast rather than a flag on the
 // object, because the collision pass does not keep a contact list -- and a ray
 // is what a game would write anyway, only correct the first time.
 //
-// EVERY hit and not the nearest one. raycast() answers with the nearest, and
-// asking afterwards whether THAT one was solid meant any non-solid collider
-// between the feet and the floor hid the floor completely: the player could not
-// jump and velocity.y kept accumulating while it stood still. Coins, pickups,
-// damage triggers and decoration on the floor are the ordinary contents of a
-// platformer level. Both Platformer and Runner come through here.
+// The nearest SOLID hit, not the nearest hit. Asking for the nearest and then
+// whether THAT one was solid meant any non-solid collider between the feet and
+// the floor hid the floor completely: the player could not jump and velocity.y
+// kept accumulating while it stood still. Coins, pickups, damage triggers and
+// decoration on the floor are the ordinary contents of a platformer level, so
+// the ray skips them inside cast() (RayQuery::solid_only). Both Platformer and
+// Runner come through here.
 bool standing_on_something(Object &self, float reach) {
     Scene *scene = self.scene();
     if (scene == nullptr) return false;
     const Rectangle box = self.world_collider();
     if (box.height <= 0) return false;
     const Vector2 feet{ box.x + box.width / 2, box.y + box.height };
-    // TODO(merge): set solid_only = true here once RayQuery has it, and go back
-    // to one scene->raycast() -- the filter is free inside cast(), and the
-    // kGroundProbes loop and its limit both disappear with it.
     const RayQuery query{ .from = Vector2{ feet.x, feet.y - 1 },
                           .to = Vector2{ feet.x, feet.y + reach },
                           .mask = self.collision_mask,
-                          .ignore = &self };
-    RayHit hits[kGroundProbes];
-    const int count = scene->raycast_all(query, hits, kGroundProbes);
-    return std::any_of(hits, hits + count, [](const RayHit &hit) {
-        return hit.object != nullptr && hit.object->solid;
-    });
+                          .ignore = &self,
+                          .solid_only = true };
+    return static_cast<bool>(scene->raycast(query));
 }
 
 } // namespace
@@ -259,10 +248,21 @@ void Runner::_update(Object &self, float delta) {
     if (speed > max_speed) speed = max_speed;
     ours.distance += speed * delta;
 
-    ours.ducking = duck_action[0] != '\0' && held(duck_action);
+    // Through or_default like every other action field: a nullptr here is
+    // "no duck action", not a segfault.
+    const char *duck = or_default(duck_action, "");
+    ours.ducking = duck[0] != '\0' && held(duck);
 
+    const bool was_grounded = ours.grounded;
     ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -kEpsilon;
-    if (ours.grounded) ours.jumps_used = 0;
+    if (ours.grounded) {
+        if (!was_grounded) ours.jumps_used = 0;
+    } else if (ours.jumps_used == 0) {
+        // Leaving the ground spends the ground jump, exactly as in Platformer:
+        // otherwise `jumps_used < air_jumps + 1` hands a free mid-air jump to a
+        // runner that has never stood on anything.
+        ours.jumps_used = 1;
+    }
 
     if (pressed(or_default(jump_action, "ui_accept")) &&
         (ours.grounded || ours.jumps_used < air_jumps + 1)) {

@@ -582,7 +582,7 @@ TEST_CASE_FIXTURE(Fixture, "by distance keeps the spacing even as the speed clim
               2);
 }
 
-TEST_CASE_FIXTURE(Fixture, "max_alive is a cap on how many it has made") {
+TEST_CASE_FIXTURE(Fixture, "max_alive stops while the ones it made are still alive") {
     World world;
     int made = 0;
     auto &source = world.spawn();

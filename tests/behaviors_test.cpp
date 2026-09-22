@@ -881,3 +881,52 @@ TEST_CASE_FIXTURE(
     CHECK(landed == 1);
     CHECK(deaths == 1); // once, however many frames the contact lasts
 }
+
+// ---------------------------------------------------------------------------
+// Runner: the two holes the first round of Platformer tests exposed, in the
+// behavior that shares its ground check.
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "Runner: an object that was never on the ground cannot jump") {
+    // The same budget rule as Platformer: leaving the ground spends the ground
+    // jump, so `jumps_used < air_jumps + 1` cannot hand a free one to a runner
+    // that has never stood on anything.
+    World world;
+    rmp::Object &player =
+        world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 20 }) });
+    player.add<rmp::behavior::Runner>({ .gravity = 0, .jump = 500 });
+
+    tick(player, 1.0f / 60);
+    hold(KEY_SPACE);
+    tick(player, 1.0f / 60);
+    CHECK(player.velocity.y == doctest::Approx(0));
+
+    SUBCASE("and one air jump is exactly one, after the ground jump is spent") {
+        hold(KEY_SPACE, false);
+        tick(player, 1.0f / 60);
+        rmp::Object &other =
+            world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 20 }) });
+        other.add<rmp::behavior::Runner>({ .gravity = 0, .jump = 500, .air_jumps = 1 });
+        tick(other, 1.0f / 60);
+        hold(KEY_SPACE);
+        tick(other, 1.0f / 60);
+        CHECK(other.velocity.y == doctest::Approx(-500));
+        hold(KEY_SPACE, false);
+        tick(other, 1.0f / 60);
+        hold(KEY_SPACE);
+        tick(other, 1.0f / 60);
+        CHECK(other.velocity.y == doctest::Approx(-500)); // no second one
+    }
+}
+
+TEST_CASE_FIXTURE(Fixture, "Runner: a null duck action is no duck action") {
+    // Every other action field goes through or_default(); this one read
+    // duck_action[0] straight, so a nullptr was a segfault.
+    World world;
+    rmp::Object &player =
+        world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 20 }) });
+    auto &runner =
+        player.add<rmp::behavior::Runner>({ .gravity = 0, .duck_action = nullptr });
+    tick(player, 1.0f / 60);
+    CHECK_FALSE(runner.ducking());
+}

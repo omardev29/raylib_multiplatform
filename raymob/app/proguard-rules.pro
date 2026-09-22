@@ -40,7 +40,7 @@
 # The whole package is four classes. Keeping all of their members costs a few
 # kilobytes and removes an entire class of release-only crash, so the rule is
 # the package rather than a list that has to be kept in step with the C by
-# hand. tests/configure_test.py checks that every com/raylib/raymob class the
+# hand. tests/configure_test.py checks that every raymob class the
 # JNI code names, and every class in the package, is covered by a keep-all
 # rule here -- a new JNI lookup without one fails the test instead of failing
 # on a user's device.
