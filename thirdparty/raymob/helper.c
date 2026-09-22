@@ -33,6 +33,22 @@
 
 static jobject featuresInstance = NULL;
 
+/* [rmp patch] Attach bookkeeping, per thread.
+ *
+ * raylib's game loop runs on the thread android_native_app_glue created, and
+ * that thread is attached to the VM for the life of the process. Attaching an
+ * attached thread is a no-op that hands back the existing JNIEnv, but
+ * DetachCurrentThread on it is NOT a no-op: it detaches for real, invalidating
+ * every local reference the frame above still holds and forcing the next call
+ * to re-attach with a different JNIEnv.
+ *
+ * So only a thread THIS code attached may be detached, and only when the
+ * outermost pair unwinds -- the helpers nest (GetScreenOrientation attaches,
+ * and so does anything it calls).
+ */
+static __thread int attachDepth = 0;
+static __thread bool attachedHere = false;
+
 /* Functions definition */
 
 JNIEnv* AttachCurrentThread(void)
@@ -40,14 +56,77 @@ JNIEnv* AttachCurrentThread(void)
     JavaVM *vm = GetAndroidApp()->activity->vm;
     JNIEnv *env = NULL;
 
-    (*vm)->AttachCurrentThread(vm, &env, NULL);
+    if ((*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6) == JNI_OK)
+    {
+        attachDepth++;  // Already attached: borrow it, and detach nothing
+        return env;
+    }
+
+    if ((*vm)->AttachCurrentThread(vm, &env, NULL) != JNI_OK) return NULL;
+
+    if (attachDepth == 0) attachedHere = true;
+    attachDepth++;
+
     return env;
 }
 
 void DetachCurrentThread(void)
 {
+    if (attachDepth > 0) attachDepth--;
+    if (attachDepth > 0 || !attachedHere) return;
+
     JavaVM *vm = GetAndroidApp()->activity->vm;
     (*vm)->DetachCurrentThread(vm);
+    attachedHere = false;
+}
+
+bool RaymobExceptionCheck(JNIEnv *env, const char *where)
+{
+    if (env == NULL) return false;
+    if (!(*env)->ExceptionCheck(env)) return false;
+
+    (*env)->ExceptionDescribe(env);  // The trace goes to logcat, and nowhere else
+    (*env)->ExceptionClear(env);
+    TraceLog(LOG_WARNING, "RAYMOB: Java exception in '%s' (cleared)", where);
+
+    return true;
+}
+
+jmethodID RaymobGetMethod(JNIEnv *env, jobject object, const char *name, const char *sig)
+{
+    if (env == NULL || object == NULL) return NULL;
+
+    jclass cls = (*env)->GetObjectClass(env, object);
+    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
+    (*env)->DeleteLocalRef(env, cls);
+
+    if (method == NULL)
+    {
+        // A pending NoSuchMethodError aborts the VM at the next JNI call from
+        // anywhere, so it is cleared here rather than left for someone else
+        RaymobExceptionCheck(env, name);
+        TraceLog(LOG_WARNING, "RAYMOB: Method not found: %s%s", name, sig);
+    }
+
+    return method;
+}
+
+jobject RaymobGetObjectField(JNIEnv *env, jobject object, const char *name, const char *sig)
+{
+    if (env == NULL || object == NULL) return NULL;
+
+    jclass cls = (*env)->GetObjectClass(env, object);
+    jfieldID field = (*env)->GetFieldID(env, cls, name, sig);
+    (*env)->DeleteLocalRef(env, cls);
+
+    if (field == NULL)
+    {
+        RaymobExceptionCheck(env, name);
+        TraceLog(LOG_WARNING, "RAYMOB: Field not found: %s %s", sig, name);
+        return NULL;
+    }
+
+    return (*env)->GetObjectField(env, object, field);
 }
 
 jobject GetNativeLoaderInstance(void)
@@ -62,13 +141,19 @@ jobject GetFeaturesInstance(void)
         JNIEnv *env = AttachCurrentThread();
         jobject nativeLoaderInstance = GetNativeLoaderInstance();
 
-        jclass nativeLoaderClass = (*env)->GetObjectClass(env, nativeLoaderInstance);
-        jmethodID getFeaturesMethod = (*env)->GetMethodID(env, nativeLoaderClass, "getFeatures", "()Lcom/raylib/raymob/Features;");
+        jmethodID getFeaturesMethod = RaymobGetMethod(env, nativeLoaderInstance, "getFeatures",
+                                                      "()Lcom/raylib/raymob/Features;");
 
-        if (getFeaturesMethod == NULL) return NULL; // Handle the case where the method is not found
+        // [rmp patch] the early return upstream took here skipped the detach
+        if (getFeaturesMethod != NULL)
+        {
+            jobject localFeaturesInstance = (*env)->CallObjectMethod(env, nativeLoaderInstance, getFeaturesMethod);
 
-        jobject localFeaturesInstance = (*env)->CallObjectMethod(env, nativeLoaderInstance, getFeaturesMethod);
-        featuresInstance = (*env)->NewGlobalRef(env, localFeaturesInstance);
+            if (!RaymobExceptionCheck(env, "getFeatures") && localFeaturesInstance != NULL)
+            {
+                featuresInstance = (*env)->NewGlobalRef(env, localFeaturesInstance);
+            }
+        }
 
         DetachCurrentThread();
     }
@@ -80,31 +165,62 @@ char* GetCacheDir(void)
 {
     struct android_app *app = GetAndroidApp();
 
-    JavaVM* vm = app->activity->vm;
-    JNIEnv* env = NULL;
-    (*vm)->AttachCurrentThread(vm, &env, NULL);
+    // [rmp patch] through the helpers, so a thread the VM attached is not
+    // detached here, and so a missing method is a warning and not an abort
+    JNIEnv* env = AttachCurrentThread();
+    if (env == NULL) return NULL;
 
-    // Get the activity object and its class
+    // Get the activity object
     jobject activity = app->activity->clazz;
-    jclass activityClass = (*env)->GetObjectClass(env, activity);
 
     // Get the method ID for the getCacheDir() method of the activity
-    jmethodID getCacheDirMethod = (*env)->GetMethodID(env, activityClass, "getCacheDir", "()Ljava/io/File;");
+    jmethodID getCacheDirMethod = RaymobGetMethod(env, activity, "getCacheDir", "()Ljava/io/File;");
+
+    if (getCacheDirMethod == NULL)
+    {
+        DetachCurrentThread();
+        return NULL;
+    }
 
     // Call the getCacheDir() method to get the cache directory
     jobject cacheDir = (*env)->CallObjectMethod(env, activity, getCacheDirMethod);
 
-    // Get the class object for java.io.File
-    jclass fileClass = (*env)->GetObjectClass(env, cacheDir);
+    if (RaymobExceptionCheck(env, "getCacheDir") || cacheDir == NULL)
+    {
+        DetachCurrentThread();
+        return NULL;
+    }
 
     // Get the method ID for the getPath() method of java.io.File
-    jmethodID getPathMethod = (*env)->GetMethodID(env, fileClass, "getPath", "()Ljava/lang/String;");
+    jmethodID getPathMethod = RaymobGetMethod(env, cacheDir, "getPath", "()Ljava/lang/String;");
+
+    if (getPathMethod == NULL)
+    {
+        (*env)->DeleteLocalRef(env, cacheDir);
+        DetachCurrentThread();
+        return NULL;
+    }
 
     // Call the getPath() method to get the path of the cache directory
     jstring pathString = (jstring)(*env)->CallObjectMethod(env, cacheDir, getPathMethod);
 
+    if (RaymobExceptionCheck(env, "getPath") || pathString == NULL)
+    {
+        (*env)->DeleteLocalRef(env, cacheDir);
+        DetachCurrentThread();
+        return NULL;
+    }
+
     // Get the UTF-8 encoded string from the Java string
     const char *pathChars = (*env)->GetStringUTFChars(env, pathString, NULL);
+
+    if (pathChars == NULL)
+    {
+        (*env)->DeleteLocalRef(env, pathString);
+        (*env)->DeleteLocalRef(env, cacheDir);
+        DetachCurrentThread();
+        return NULL;
+    }
 
     // Allocate memory for the cache path
     size_t len = strlen(pathChars) + 1; // NOTE: +1 for the null terminator
@@ -122,12 +238,10 @@ char* GetCacheDir(void)
 
     // Clean up local references
     (*env)->DeleteLocalRef(env, pathString);
-    (*env)->DeleteLocalRef(env, fileClass);
     (*env)->DeleteLocalRef(env, cacheDir);
-    (*env)->DeleteLocalRef(env, activityClass);
 
     // Detach the current thread from the JavaVM
-    (*vm)->DetachCurrentThread(vm);
+    DetachCurrentThread();
 
     // Return the cache path
     return cachePath;
@@ -137,14 +251,23 @@ char* LoadCacheFile(const char* fileName)
 {
     char *text = NULL;
     char *cacheDir = GetCacheDir();
-    size_t len1 = strlen(cacheDir);
-    size_t len2 = strlen(fileName);
-    size_t len = len1 + len2 + 1;
+
+    if (cacheDir == NULL) return NULL;
+
+    // [rmp patch] dir + '/' + name + '\0'. Upstream allocated one byte less
+    // than that and then wrote the terminator at filePath[len], one past the
+    // end of the block: an immediate abort under scudo, which is Android's
+    // allocator since API 30, and silent heap corruption under a quieter one
+    size_t len = strlen(cacheDir) + 1 + strlen(fileName) + 1;
     char *filePath = RL_MALLOC(len);
-    strncpy(filePath, cacheDir, len1);
-    filePath[len1] = '/';
-    strncpy(filePath + len1 + 1, fileName, len2);
-    filePath[len] = '\0';
+
+    if (filePath == NULL)
+    {
+        RL_FREE(cacheDir);
+        return NULL;
+    }
+
+    snprintf(filePath, len, "%s/%s", cacheDir, fileName);
 
     FILE * file = fopen(filePath, "rt");
     if (file != NULL)
@@ -195,28 +318,48 @@ char* GetL10NString(const char* value)
     {
         JNIEnv* env = AttachCurrentThread();
 
-        // Get the native context class (nativeInstance)
-        jclass nativeClass = (*env)->GetObjectClass(env, nativeInstance);
+        if (env == NULL) return NULL;
 
         // Get the native instance's getResources method
-        jmethodID getResourcesMethod = (*env)->GetMethodID(env, nativeClass, "getResources", "()Landroid/content/res/Resources;");
+        jmethodID getResourcesMethod = RaymobGetMethod(env, nativeInstance, "getResources",
+                                                       "()Landroid/content/res/Resources;");
+
+        if (getResourcesMethod == NULL) {
+            DetachCurrentThread();
+            return NULL;
+        }
+
         jobject resources = (*env)->CallObjectMethod(env, nativeInstance, getResourcesMethod);
 
+        if (RaymobExceptionCheck(env, "getResources") || resources == NULL) {
+            DetachCurrentThread();
+            return NULL;
+        }
+
         // Get the getIdentifier method of the Resources class
-        jclass resourcesClass = (*env)->GetObjectClass(env, resources);
-        jmethodID getIdentifierMethod = (*env)->GetMethodID(env, resourcesClass, "getIdentifier",
-                                                            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I");
+        jmethodID getIdentifierMethod = RaymobGetMethod(env, resources, "getIdentifier",
+                                                        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I");
+
+        // Get the package name of the native instance
+        jmethodID getPackageNameMethod = RaymobGetMethod(env, nativeInstance, "getPackageName",
+                                                         "()Ljava/lang/String;");
+
+        if (getIdentifierMethod == NULL || getPackageNameMethod == NULL) {
+            DetachCurrentThread();
+            return NULL;
+        }
 
         // Convert string name passed as parameter to jstring
         jstring resourceName = (*env)->NewStringUTF(env, value);
         jstring defType = (*env)->NewStringUTF(env, "string");
 
-        // Get the package name of the native instance
-        jmethodID getPackageNameMethod = (*env)->GetMethodID(env, nativeClass, "getPackageName", "()Ljava/lang/String;");
         jstring packageName = (jstring)(*env)->CallObjectMethod(env, nativeInstance, getPackageNameMethod);
+        RaymobExceptionCheck(env, "getPackageName");
 
         // Call getIdentifier to get the resource identifier
         jint resId = (*env)->CallIntMethod(env, resources, getIdentifierMethod, resourceName, defType, packageName);
+
+        if (RaymobExceptionCheck(env, "getIdentifier")) resId = 0;
 
         // Clean up used local references
         (*env)->DeleteLocalRef(env, resourceName);
@@ -229,16 +372,28 @@ char* GetL10NString(const char* value)
         }
 
         // Call getString with the obtained identifier
-        jmethodID getStringMethod = (*env)->GetMethodID(env, nativeClass, "getString", "(I)Ljava/lang/String;");
+        jmethodID getStringMethod = RaymobGetMethod(env, nativeInstance, "getString", "(I)Ljava/lang/String;");
+
+        if (getStringMethod == NULL) {
+            DetachCurrentThread();
+            return NULL;
+        }
+
         jstring rv = (jstring)(*env)->CallObjectMethod(env, nativeInstance, getStringMethod, resId);
 
-        if (rv == NULL) {
+        if (RaymobExceptionCheck(env, "getString") || rv == NULL) {
             DetachCurrentThread();
             return NULL;
         }
 
         // Convert jstring to char*
         const char* strReturn = (*env)->GetStringUTFChars(env, rv, NULL);
+
+        if (strReturn == NULL) {
+            (*env)->DeleteLocalRef(env, rv);
+            DetachCurrentThread();
+            return NULL;
+        }
 
         // Allocate memory for returned string
         size_t len = strlen(strReturn) + 1;
@@ -267,36 +422,58 @@ char* GetAppStoragePath(){
     if (nativeInstance != NULL)
     {
         JNIEnv* env = AttachCurrentThread();
-        
-        // Get the native context class (nativeInstance)
-        jclass nativeClass = (*env)->GetObjectClass(env, nativeInstance);
+
+        if (env == NULL) return NULL;
 
         // Get the getExternalFilesDir method ID
-        jmethodID getExternalFilesDirMethod = (*env)->GetMethodID(env, nativeClass, "getExternalFilesDir", "(Ljava/lang/String;)Ljava/io/File;");
+        jmethodID getExternalFilesDirMethod = RaymobGetMethod(env, nativeInstance, "getExternalFilesDir",
+                                                              "(Ljava/lang/String;)Ljava/io/File;");
+
+        if (getExternalFilesDirMethod == NULL)
+        {
+            DetachCurrentThread();
+            return NULL;
+        }
 
         // Call getExternalFilesDir(null) to get the root external files directory
         jobject fileObj = (*env)->CallObjectMethod(env, nativeInstance, getExternalFilesDirMethod, NULL);
 
-        // Get the java.io.File class
-        jclass fileClass = (*env)->GetObjectClass(env, fileObj);
+        // NOTE: it returns null when the external storage is not mounted
+        if (RaymobExceptionCheck(env, "getExternalFilesDir") || fileObj == NULL)
+        {
+            DetachCurrentThread();
+            return NULL;
+        }
 
         // Get the getAbsolutePath() method ID
-        jmethodID getAbsolutePathMethod = (*env)->GetMethodID(env, fileClass, "getAbsolutePath", "()Ljava/lang/String;");
+        jmethodID getAbsolutePathMethod = RaymobGetMethod(env, fileObj, "getAbsolutePath", "()Ljava/lang/String;");
+
+        if (getAbsolutePathMethod == NULL)
+        {
+            (*env)->DeleteLocalRef(env, fileObj);
+            DetachCurrentThread();
+            return NULL;
+        }
 
         // Call getAbsolutePath() to get the Java string
         jstring jFilePath = (jstring)(*env)->CallObjectMethod(env, fileObj, getAbsolutePathMethod);
 
+        if (RaymobExceptionCheck(env, "getAbsolutePath") || jFilePath == NULL)
+        {
+            (*env)->DeleteLocalRef(env, fileObj);
+            DetachCurrentThread();
+            return NULL;
+        }
+
         // Convert Java string to C string
         const char *cFilePath = (*env)->GetStringUTFChars(env, jFilePath, NULL);
 
-        char *filepath = strdup(cFilePath);
+        char *filepath = (cFilePath != NULL) ? strdup(cFilePath) : NULL;
 
-        (*env)->ReleaseStringUTFChars(env, jFilePath, cFilePath);
+        if (cFilePath != NULL) (*env)->ReleaseStringUTFChars(env, jFilePath, cFilePath);
         (*env)->DeleteLocalRef(env, jFilePath);
-        (*env)->DeleteLocalRef(env, fileClass);
         (*env)->DeleteLocalRef(env, fileObj);
-        (*env)->DeleteLocalRef(env, nativeClass);
-        
+
         DetachCurrentThread();
 
         return filepath;
@@ -308,6 +485,8 @@ char* GetAppStoragePath(){
 void* ReadFromAppStorage(const char *filepath, int *dataSize){
 
     char *appStoragePath = GetAppStoragePath();
+
+    if (appStoragePath == NULL) return NULL;
 
     size_t pathLen = strlen(appStoragePath) + strlen(filepath) + 2;
     char *path = RL_MALLOC(sizeof(char)*pathLen);
@@ -353,7 +532,7 @@ void* ReadFromAppStorage(const char *filepath, int *dataSize){
             {
                 *dataSize = (int)count;
 
-                if ((*dataSize) != size) TraceLog(LOG_WARNING, "FILEIO: [%s] File partially loaded (%i bytes out of %i)", path, dataSize, count);
+                if ((*dataSize) != size) TraceLog(LOG_WARNING, "FILEIO: [%s] File partially loaded (%i bytes out of %i)", path, *dataSize, size);
                 else TraceLog(LOG_INFO, "FILEIO: [%s] File loaded successfully", path);
             }
         }
@@ -372,6 +551,8 @@ void* ReadFromAppStorage(const char *filepath, int *dataSize){
 bool WriteToAppStorage(const char *filepath, void *data, unsigned int dataSize){
 
     char *appStoragePath = GetAppStoragePath();
+
+    if (appStoragePath == NULL) return false;
 
     size_t pathLen = strlen(appStoragePath) + strlen(filepath) + 2;
     char *path = RL_MALLOC(sizeof(char)*pathLen);
@@ -406,6 +587,8 @@ bool IsFileExistsInAppStorage(const char *filepath){
 
     char *appStoragePath = GetAppStoragePath();
 
+    if (appStoragePath == NULL) return false;
+
     size_t pathLen = strlen(appStoragePath) + strlen(filepath) + 2;
     char *path = RL_MALLOC(sizeof(char)*pathLen);
     snprintf(path, pathLen, "%s/%s", appStoragePath, filepath);
@@ -421,6 +604,8 @@ bool IsFileExistsInAppStorage(const char *filepath){
 void RemoveFileInAppStorage(const char *filepath){
 
     char *appStoragePath = GetAppStoragePath();
+
+    if (appStoragePath == NULL) return;
 
     size_t pathLen = strlen(appStoragePath) + strlen(filepath) + 2;
     char *path = RL_MALLOC(sizeof(char)*pathLen);

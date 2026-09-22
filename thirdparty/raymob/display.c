@@ -33,14 +33,19 @@ void KeepScreenOn(bool keepOn)
     if (nativeLoaderInst != NULL) {
         JNIEnv* env = AttachCurrentThread();
 
-        jclass nativeLoaderClass = (*env)->GetObjectClass(env, nativeLoaderInst);
-        jfieldID displayManagerField = (*env)->GetFieldID(env, nativeLoaderClass, "displayManager", "Lcom/raylib/raymob/DisplayManager;");
-        jobject displayManager = (*env)->GetObjectField(env, nativeLoaderInst, displayManagerField);
+        // [rmp patch] through the NULL-safe helpers: the field and the method
+        // are looked up by name, and R8 renames both in the release AAB unless
+        // proguard-rules.pro keeps them
+        jobject displayManager = RaymobGetObjectField(env, nativeLoaderInst, "displayManager",
+                                                      "Lcom/raylib/raymob/DisplayManager;");
 
         if (displayManager != NULL) {
-            jclass displayManagerClass = (*env)->GetObjectClass(env, displayManager);
-            jmethodID method = (*env)->GetMethodID(env, displayManagerClass, "keepScreenOn", "(Z)V");
-            (*env)->CallVoidMethod(env, displayManager, method, (jboolean)keepOn);
+            jmethodID method = RaymobGetMethod(env, displayManager, "keepScreenOn", "(Z)V");
+
+            if (method != NULL) {
+                (*env)->CallVoidMethod(env, displayManager, method, (jboolean)keepOn);
+                RaymobExceptionCheck(env, "keepScreenOn");
+            }
         }
 
         DetachCurrentThread();
@@ -55,17 +60,24 @@ Orientation GetScreenOrientation()
     if (nativeLoaderInst != NULL) {
         JNIEnv* env = AttachCurrentThread();
 
-        jclass nativeLoaderClass = (*env)->GetObjectClass(env, nativeLoaderInst);
-        jfieldID displayManagerField = (*env)->GetFieldID(env, nativeLoaderClass, "displayManager", "Lcom/raylib/raymob/DisplayManager;");
-        jobject displayManager = (*env)->GetObjectField(env, nativeLoaderInst, displayManagerField);
+        jobject displayManager = RaymobGetObjectField(env, nativeLoaderInst, "displayManager",
+                                                      "Lcom/raylib/raymob/DisplayManager;");
 
         if (displayManager != NULL) {
-            jclass displayManagerClass = (*env)->GetObjectClass(env, displayManager);
-            jmethodID screenOrientationMethod = (*env)->GetMethodID(env, displayManagerClass, "getOrientation", "()I");
-            jint screenOrientation = (*env)->CallIntMethod(env, displayManager, screenOrientationMethod);
+            jmethodID screenOrientationMethod = RaymobGetMethod(env, displayManager, "getOrientation", "()I");
 
-            if (result >= 0 && result < 4) {
-                result = screenOrientation;
+            if (screenOrientationMethod != NULL) {
+                jint screenOrientation = (*env)->CallIntMethod(env, displayManager, screenOrientationMethod);
+
+                // [rmp patch] upstream tested `result`, which is still 0 here,
+                // so `0 >= 0 && 0 < 4` was always true and the bound check
+                // never looked at the value it was written to guard.
+                // DisplayManager.getOrientation() returns -1 when there is no
+                // Display, and that is exactly what must not reach the game.
+                if (!RaymobExceptionCheck(env, "getOrientation") &&
+                    screenOrientation >= 0 && screenOrientation < 4) {
+                    result = (Orientation)screenOrientation;
+                }
             }
         }
 
