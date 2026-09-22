@@ -1026,11 +1026,13 @@ TEST_CASE_FIXTURE(Fixture,
     // allocator on all seventeen targets.
     alignas(Loose) unsigned char storage[sizeof(Loose)];
 
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new; nothing is allocated
     auto *first = new (static_cast<void *>(storage)) Loose();
     first->add<Tagged>({ .tag = 42 });
     REQUIRE(rmp::objects::detail::behavior_count(*first) == 1);
     first->~Loose();
 
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new; nothing is allocated
     auto *second = new (static_cast<void *>(storage)) Loose();
     REQUIRE(static_cast<const void *>(second) == static_cast<const void *>(first));
     CHECK(rmp::objects::detail::behavior_count(*second) == 0);

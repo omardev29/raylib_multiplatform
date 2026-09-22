@@ -139,12 +139,16 @@ public:
         const void *p = payload(slot_);
         return p ? *static_cast<const T *>(p) : kEmpty;
     }
-    // Ref-qualified `&`: only an LVALUE converts. `DrawTexture(rabbit, ...)`
-    // compiles; `Texture2D t = load_texture("x.png");` does NOT, and that is
-    // the point -- it converted, the temporary handle died on the same line,
-    // and `t` was a texture that had already been unloaded. The README and
-    // four examples had it, and so did the UI's own font.
+    // Only an LVALUE converts. `DrawTexture(rabbit, ...)` compiles;
+    // `Texture2D t = load_texture("x.png");` does NOT, and that is the point
+    // -- it converted, the temporary handle died on the same line, and `t`
+    // was a texture that had already been unloaded. The README and four
+    // examples had it, and so did the UI's own font. The deleted `&&`
+    // overload is what refuses the temporary: a `const &`-qualified function
+    // on its own would still accept one, because a const reference binds to
+    // an rvalue.
     operator const T &() const & { return raw(); }
+    operator const T &() const && = delete;
 
 private:
     Slot *slot_ = nullptr;

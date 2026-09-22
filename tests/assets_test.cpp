@@ -28,6 +28,8 @@
 #include <rmp/assets.h>
 
 #include <string>
+#include <type_traits>
+#include <vector>
 
 namespace {
 
@@ -140,5 +142,73 @@ TEST_CASE("two long names that differ only at the end are two resources") {
         CHECK(again == a);
         rmp::detail::release(again);
     }
+    rmp::detail::release_all();
+}
+
+// ---------------------------------------------------------------------------
+// The table after the migration: no cap, handles that outlive shutdown, and
+// the conversion that no longer compiles from a temporary.
+// ---------------------------------------------------------------------------
+
+// Compile-time, which is the only place this can be tested: an LVALUE handle
+// converts to the raylib type, a TEMPORARY does not. `Texture2D t =
+// rmp::assets::load_texture("x")` used to compile and hand back a texture the
+// dying temporary had already released.
+static_assert(
+    std::is_convertible_v<rmp::Texture &, const Texture2D &>,
+    "a named rmp::Texture must still convert where a raylib function wants one");
+static_assert(
+    !std::is_convertible_v<rmp::Texture, const Texture2D &>,
+    "a temporary rmp::Texture must NOT convert: it would release on the same line");
+static_assert(!std::is_convertible_v<rmp::Font, const ::Font &>);
+static_assert(!std::is_convertible_v<rmp::Sound, const ::Sound &>);
+
+TEST_CASE("the resource table has no cap: three hundred names are three hundred slots") {
+    // It used to be a fixed array of 256, and the 257th load was silently not
+    // cached -- a warning in the log and a second GPU copy every time.
+    using rmp::detail::ResourceKind;
+    rmp::detail::release_all();
+    const ::Image zeroed{};
+    std::vector<rmp::Image> held;
+    for (int i = 0; i < 300; i++) {
+        const std::string name = "many_" + std::to_string(i) + ".png";
+        auto *slot =
+            rmp::detail::adopt_named(ResourceKind::IMAGE, name.c_str(), 0, zeroed);
+        REQUIRE(slot != nullptr);
+        held.emplace_back(slot);
+    }
+    CHECK(rmp::detail::live_count() == 300);
+    CHECK(rmp::detail::ref_count("many_299.png") == 1);
+    held.clear();
+    CHECK(rmp::detail::live_count() == 0);
+    rmp::detail::release_all();
+}
+
+TEST_CASE("a handle that outlives release_all() is harmless, and reads as empty") {
+    // rmp::assets::shutdown() runs before the window closes; a global holding
+    // an rmp::Texture is destroyed after. Its slot must still exist -- emptied,
+    // never freed -- so that destructor is a no-op and not a use after free.
+    using rmp::detail::ResourceKind;
+    rmp::detail::release_all();
+    ::Image marked{};
+    marked.width = 42;
+    auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, "late.png", 0, marked);
+    REQUIRE(slot != nullptr);
+    rmp::Image survivor{ slot };
+    CHECK(survivor.raw().width == 42);
+
+    rmp::detail::release_all();
+    CHECK(rmp::detail::live_count() == 0);
+    CHECK(rmp::detail::ref_count("late.png") == 0);
+    // Still "valid" in the sense of pointing at a slot, but the slot is empty:
+    // drawing it draws nothing, the same as a missing asset.
+    CHECK(survivor.raw().width == 0);
+    survivor = rmp::Image{}; // the release that used to be the crash
+    CHECK(rmp::detail::live_count() == 0);
+
+    // And the slot is reused afterwards, refs starting from one.
+    auto *again = rmp::detail::adopt_named(ResourceKind::IMAGE, "after.png", 0, marked);
+    REQUIRE(again != nullptr);
+    CHECK(rmp::detail::ref_count("after.png") == 1);
     rmp::detail::release_all();
 }

@@ -60,12 +60,17 @@ char *hooked_load_file_text(const char *file_name) {
         if (data != nullptr) {
             // LoadFileText's contract is a NUL-terminated string. The pack
             // stores the file byte for byte, without one.
+            // raylib's contract, not ours: LoadFileText's caller frees this
+            // with UnloadFileText, i.e. RL_FREE, so it has to come from
+            // RL_MALLOC. The one place in the framework that owns by hand.
+            // NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
             char *text = static_cast<char *>(RL_MALLOC(static_cast<size_t>(size) + 1));
             if (text != nullptr) {
                 std::memcpy(text, data, static_cast<size_t>(size));
                 text[size] = '\0';
             }
-            RL_FREE(data);
+            RL_FREE( // NOLINT(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
+                data); // NOLINT(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
             if (text != nullptr) return text;
         }
     }
