@@ -2016,6 +2016,67 @@ class ConfigureLicencesTest(unittest.TestCase):
         self.assertIn("not\naffiliated", readme.replace("is not\naffiliated", "not\naffiliated"))
 
 
+class DocumentedTreeTest(unittest.TestCase):
+    """The documents describe the tree that exists.
+
+    TECHNICAL.md's directory tree was three phases behind and README.md's
+    header list two, and nothing said so, because prose does not fail a build.
+    These compare the two against the disk: every public header and every
+    framework source is named, and nothing named is gone.
+    """
+
+    def tree_block(self):
+        text = (REPO / "TECHNICAL.md").read_text()
+        start = text.index("raylib_multiplatform.toml # THE config.")
+        end = text.index("FROZEN_VERSIONS.md", start)
+        return text[start:end]
+
+    def test_every_public_header_is_in_the_tree_and_the_readme(self):
+        headers = sorted(p.name for p in (REPO / "include" / "rmp").glob("*.h"))
+        self.assertGreater(len(headers), 8)
+        tree = self.tree_block()
+        readme = (REPO / "README.md").read_text()
+        for name in headers:
+            with self.subTest(header=name):
+                self.assertRegex(tree, r"[│ ]*(├|└)── " + re.escape(name) + r"\s",
+                                 f"TECHNICAL.md's tree does not list include/rmp/{name}")
+                self.assertIn(f"`rmp/{name}`", readme,
+                              f"README.md's header list does not name rmp/{name}")
+
+    def test_every_framework_source_is_in_the_tree(self):
+        sources = sorted(str(p.relative_to(REPO / "src" / "rmp"))
+                         for p in (REPO / "src" / "rmp").rglob("*")
+                         if p.is_file() and p.suffix in (".cpp", ".h"))
+        self.assertGreater(len(sources), 20)
+        tree = self.tree_block()
+        for rel in sources:
+            with self.subTest(source=rel):
+                self.assertRegex(tree, r"(├|└)── " + re.escape(Path(rel).name) + r"\s",
+                                 f"TECHNICAL.md's tree does not list src/rmp/{rel}")
+
+    def test_nothing_in_the_tree_is_gone(self):
+        # Every leaf the tree names under include/rmp/ and src/rmp/ exists.
+        tree = self.tree_block()
+        named = re.findall(r"(?:├|└)── ([A-Za-z_]+\.(?:h|cpp))\s", tree)
+        self.assertGreater(len(named), 30)
+        on_disk = {p.name for p in (REPO / "include" / "rmp").glob("*.h")}
+        on_disk |= {p.name for p in (REPO / "src" / "rmp").rglob("*") if p.is_file()}
+        on_disk |= {p.name for p in (REPO / "tests").glob("*")}
+        on_disk |= {p.name for p in (REPO / "tools").glob("*")}
+        on_disk |= {p.name for p in (REPO / "cmake").glob("*")}
+        on_disk |= {p.name for p in (REPO / "src").glob("*")}
+        for name in named:
+            with self.subTest(name=name):
+                self.assertIn(name, on_disk, f"TECHNICAL.md's tree names {name}, which does not exist")
+
+    def test_the_readme_namespace_table_names_every_module(self):
+        readme = (REPO / "README.md").read_text()
+        for module in ("rmp::app", "rmp::Scene", "rmp::Object", "rmp::behavior", "rmp::input",
+                       "rmp::ui", "rmp::assets", "rmp::Tilemap", "rmp::random", "rmp::ads"):
+            with self.subTest(module=module):
+                self.assertIn(f"| **`{module}`** |", readme)
+
+
 class VendoredHeaderPathsTest(unittest.TestCase):
     """A vendored dependency has to be on the include path of EVERY build.
 

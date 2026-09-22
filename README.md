@@ -209,8 +209,11 @@ if (rmp::input::just_pressed("pause")) rmp::Scene::push<PauseScene>();
 ```
 
 There is no umbrella header: you include what you use, and each one is a concept you can name —
-`rmp/app.h`, `rmp/scene.h`, `rmp/ui.h`, `rmp/assets.h`, `rmp/ads.h`, `rmp/math.h`, `rmp/config.h`.
-See [`examples/platform/03_minimal_includes.cpp`](examples/platform/03_minimal_includes.cpp).
+`rmp/app.h`, `rmp/scene.h`, `rmp/object.h`, `rmp/behavior.h`, `rmp/input.h`, `rmp/ui.h`,
+`rmp/assets.h`, `rmp/tilemap.h`, `rmp/random.h`, `rmp/ads.h`, `rmp/math.h` — and `rmp/config.h`,
+which every one of them already carries for you. See
+[`examples/platform/03_minimal_includes/`](examples/platform/03_minimal_includes/src/hud.cpp),
+one translation unit that includes `rmp/ui.h` and nothing else of ours.
 
 `RMP_ENTRY_POINT(on_ready, on_frame, on_exit)` is still there and still supported: it is the same
 three platform runners without the scene stack, and it is what the examples use. `RMP_GAME` is
@@ -227,10 +230,16 @@ does not decide for you.
 
 | Namespace | What it is for |
 | --- | --- |
+| **`rmp::app`** | The entry point, and `quit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. `rmp::global<T>()` for what outlives a scene. |
+| **`rmp::Scene`** | A self-contained context of state, update and drawing on a stack: change, push, pop. A pause menu is a scene pushed on top and writes no policy. |
+| **`rmp::Object`** | What lives in a scene: position, velocity, a shape or a sprite, solid or not, collision layers, `on_click`. `spawn<T>()` creates it, `rmp::Handle<T>` is how you keep it across frames. Sweeps, separation and raycasts are the scene's, not yours. |
+| **`rmp::behavior`** | The catalogue: `TopDown`, `Platformer`, `Runner`, `Ball`, `Projectile`, `Follow`, `Tween`, `GridSnap`, `Parallax`, `Spawner`, `Timer`, `Lifespan`, `Health`. `object.add<B>({...})` and the object moves like that game. Six whole games in `examples/games/` are the proof. |
+| **`rmp::input`** | Named actions with as many bindings as you like, axes and eight-direction vectors, and routing: an action bound to the mouse is silent while the UI wants the pointer. |
 | **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default: written once, a menu is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. Playable with a mouse, a finger and a controller, for free. |
-| **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. |
+| **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. Counted handles (`rmp::Texture`, `rmp::Font`, `rmp::Sound`, `rmp::SpriteSheet`) release what they own. |
+| **`rmp::Tilemap`** | A level designed in Tiled: `map = rmp::assets::load_map("level1.json")` and the scene draws it, collides against its solid tiles and spawns its objects through the factories you register. |
+| **`rmp::random`** | Seeded and reproducible: the number on a bug report reproduces the run. |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
-| **`rmp::app`** | The entry point, and `quit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. |
 
 A main menu, complete:
 

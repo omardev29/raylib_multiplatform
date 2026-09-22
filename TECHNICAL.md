@@ -32,61 +32,96 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 ```
 .
 ├── raylib_multiplatform.toml # THE config. Name, ids, targets, icon, modules. Yours.
-├── CMakeLists.txt            # Root build: links raylib statically, presets, rres
-├── CMakePresets.json         # debug / release / web profiles
+├── CMakeLists.txt            # Root build: the `rmp` library, rmp_add_game(), presets, rres
+├── CMakePresets.json         # debug / release / web / memory profiles
+├── Justfile                  # just test / fmt / lint / example / push / deploy
 ├── src/                      # YOUR code. Every .cpp/.c here is auto-compiled (GLOB_RECURSE).
-│   ├── main.cpp              # your game
-│   └── rmp/                  # THE framework's implementation — not yours
-│       ├── internal.h        #   private surface, deliberately not in include/
-│       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
+│   ├── main.cpp              # RMP_GAME(MainMenuScene); and nothing else
+│   ├── scenes/               # your scenes, one per file
+│   └── rmp/                  # THE framework's implementation, compiled once into `rmp` -- not yours
+│       ├── internal.h        #   private seams: report_once, the resources root, the pack
+│       ├── report.cpp        #   RMP_REPORT_ONCE: one line per mistake, [dev] strict
+│       ├── app.cpp           #   rmp::app -- the frame, quit(), compiled into EACH executable
+│       ├── global.cpp        #   rmp::global<T>() registry and its destruction order
+│       ├── scene.cpp         #   the scene stack, transitions, the frame order
+│       ├── scene_internal.h
+│       ├── object.cpp        #   rmp::Object storage, handles, integration, edges, drawing
+│       ├── object_internal.h
+│       ├── collision.cpp     #   the broad-phase grid, sweeps, MTV, raycast, the pointer pass
+│       ├── behavior.cpp      #   the behavior ENGINE: slots, dispatch, the erased hooks
+│       ├── behaviors.cpp     #   the CATALOGUE: TopDown, Platformer, Runner, Ball, Spawner...
+│       ├── behavior_internal.h
+│       ├── input.cpp         #   rmp::input -- actions, the device seam, routing against the UI
+│       ├── random.cpp        #   rmp::random -- xoshiro128++, seeded once at start
+│       ├── assets.cpp        #   rmp::assets -- the public surface, with the loose-file fallback
+│       ├── resource.cpp      #   the counted resource slots behind rmp::Texture and friends
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
-│       ├── assets.cpp        #   rmp::assets — the public surface, with the loose-file fallback
-│       ├── app.cpp           #   rmp::app — closing the app
+│       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
+│       ├── animation.cpp     #   rmp::Sprite playback from an Aseprite sheet
+│       ├── animation_internal.h
+│       ├── aseprite_impl.cpp #   compiles cute_aseprite once
+│       ├── tilemap.cpp       #   rmp::Tilemap -- Tiled maps, solid tiles, object factories
+│       ├── tilemap_internal.h
+│       ├── tiled_impl.cpp    #   compiles cute_tiled once
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
-│           ├── context.cpp   #     lazy start, scale, font, text arena, element ids
+│           ├── context.cpp   #     lazy start, scale, font, text arena, element ids, passes
 │           ├── widgets.cpp   #     begin / end / button / text
-│           ├── containers.cpp#     row / column / panel / stack / grid / scroll
+│           ├── containers.cpp #    row / column / panel / stack / grid / scroll / image
 │           ├── controls.cpp  #     checkbox / slider / dropdown / text_input
-│           ├── focus.cpp     #     keyboard and gamepad navigation
+│           ├── focus.cpp     #     keyboard and gamepad navigation, the capture flags
 │           ├── style.cpp     #     variants, sizes, transitions
 │           ├── render.cpp    #     draw commands -> raylib calls
-│           └── Theme.cpp     #     the dark and light themes
+│           └── theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)
-│   └── rmp/                  # THE framework's headers — include what you use
+│   └── rmp/                  # THE framework's headers -- one per module, include what you use
 │       ├── app.h             #   RMP_GAME, RMP_ENTRY_POINT, quit(), global<T>()
-│       ├── scene.h           #   rmp::Scene — the stack and the navigation
-│       ├── ui.h              #   rmp::ui — the public API and the Theme
-│       ├── assets.h          #   the rmp::assets declarations
-│       ├── ads.h             #   rmp::ads — inline wrappers over <admob.h>
-│       ├── math.h            #   vectors, rectangles, colours (raymath)
+│       ├── scene.h           #   rmp::Scene -- the stack, spawn<T>(), raycast, the `map` field
+│       ├── object.h          #   rmp::Object, Handle<T>, Sprite, shapes, edges, Callback
+│       ├── behavior.h        #   rmp::behavior -- the catalogue, added with object.add<B>()
+│       ├── input.h           #   rmp::input -- named actions, axes, the pointer
+│       ├── ui.h              #   rmp::ui -- the public API and the Theme
+│       ├── assets.h          #   rmp::assets -- load_*() by name, the counted handles
+│       ├── tilemap.h         #   rmp::Tilemap -- a level designed in Tiled
+│       ├── random.h          #   rmp::random -- seeded, reproducible
+│       ├── ads.h             #   rmp::ads -- inline wrappers over <admob.h>
+│       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)
 │       ├── config.h          #   the APP_* values from the .toml
 │       └── generated/        #   GENERATED config.h, git-ignored
-├── examples/                 # reference code, by namespace: ui/ ads/ assets/ platform/
-│   └── plain_c/main.c        # the opt-out: plain C, <raylib.h> only, your own main()
+├── examples/                 # one mini-project each, by area: scenes/ input/ ui/ ads/ assets/ games/ platform/
+│   ├── games/                # six whole games, playable start to finish; CI boots them all
+│   └── plain_c/src/main.c    # the opt-out: plain C, <raylib.h> only, your own main()
 ├── tests/
-│   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES), header-only
-│   └── ui_layout_test.cpp    # layout checks with no window (-DBUILD_UI_TESTS=ON)
-├── resources/                # Your assets (flat — the pack does not recurse)
+│   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES, RAY_TEST_SCREENSHOT), header-only
+│   ├── *_test.cpp            # doctest, no window: objects, collision, behaviors, scenes, input, assets, tilemap...
+│   ├── ui_layout_test.cpp    # layout and hit-testing with no window (-DBUILD_UI_TESTS=ON)
+│   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
+│   └── fixtures/             # Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
+├── resources/                # Your assets (flat -- the pack does not recurse)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
 │   ├── configure.py          # the config -> every build system. Run by CMake.
-│   ├── versions_check.sh     # fails CI when the pins drift apart
+│   ├── license_db.py         # the licence guard (tools/license_check.sh drives it)
+│   ├── *_check.sh            # the gates: versions, seam, portable, headers, repo, workflows, licences
+│   ├── examples_build.sh     # builds and boots every example headless, with a screenshot each
+│   ├── make_example_art.py   # the generated art the runner example brings
 │   ├── dev_shell.sh          # run a command inside the pinned CI image
-│   └── rres_pack.c           # open rres packer (AES-256) — no paid tooling needed
+│   └── rres_pack.c           # open rres packer (AES-256) -- no paid tooling needed
 ├── cmake/
 │   ├── configure_hook.cmake  # runs the generator before project()
-│   ├── generated/            # GENERATED, git-ignored
+│   ├── generated/            # GENERATED, git-ignored (LICENSES.txt lives here, per family)
 │   └── toolchain-riscv64-linux.cmake
 ├── raymob/                   # Android app shell (Gradle). See "Android (raymob)".
 │   ├── generated.properties  # GENERATED, git-ignored
 │   └── app/
 │       ├── AndroidManifest.template.xml  # the manifest, with #if blocks
-│       ├── generated/        # GENERATED manifest, git-ignored — what Gradle reads
+│       ├── generated/        # GENERATED manifest, git-ignored -- what Gradle reads
+│       ├── proguard-rules.pro            # keeps every class the JNI code names
 │       └── src/{admob,noadmob}/java/     # AdmobBridge: the real one, and the no-op
 ├── ios/                      # iOS scaffold. project.yml is GENERATED.
+├── THIRD_PARTY_LICENSES.md   # every vendored component, its licence, our elections, what we altered
 ├── .github/
 │   ├── workflows/ci.yml      # orchestrator: triggers, pins, job graph
 │   ├── workflows/canary.yml  # weekly build against floating versions
@@ -95,11 +130,15 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │   ├── known-breakage.md     # canary failures we have seen and chosen not to chase
 │   └── scripts/              # web boot test, canary triage, upstream report
 └── thirdparty/
-    ├── raylib/               # raylib 6.0 (frozen, slightly patched for this build)
-    ├── raylib-ios/           # raylib-iOS fork (submodule) — iOS only
-    ├── raymob/               # raymob C sources (Android native bridge + admob)
-    ├── clay/                 # Clay — the layout engine behind rmp::ui (zlib)
-    ├── rres/                 # rres.h + rres-raylib.h + externals
+    ├── raylib/               # raylib 6.0 -- MODIFIED, six patches, see its PATCHES.md
+    ├── raylib-ios/           # raylib-iOS fork (submodule) -- iOS only
+    ├── raymob/               # raymob C sources (Android native bridge + admob) -- patched, see PATCHES.md
+    ├── clay/                 # Clay -- the layout engine behind rmp::ui (zlib) -- one line patched
+    ├── cute_aseprite/        # reads .aseprite directly (zlib OR public domain; we take the latter)
+    ├── cute_tiled/           # reads Tiled JSON (same licence) -- patched, see PATCHES.md
+    ├── raylib-cpp/           # the math subset only, behind rmp/math.h
+    ├── rres/                 # rres.h + rres-raylib.h + externals (AES, Monocypher, QOI, LZ4)
+    ├── doctest/              # the unit-test framework; never shipped
     └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
 
@@ -1623,9 +1662,13 @@ CI. Mesa gives the shipped binary a genuine WGL context on real Windows; the DLL
 before packaging and the package step asserts they are not in the zip, because shipping them
 would force software rendering on every player.
 
-The gate is a **ratio, never a pixel hash**: llvmpipe, ANGLE-on-Metal, SwiftShader and mobile
-GPUs disagree about text antialiasing and texture filtering, so a hash would be red on half the
-matrix for no reason. The hash is logged as a diagnostic only.
+The gate is the **ratio** on every target, because llvmpipe, ANGLE-on-Metal, SwiftShader and
+mobile GPUs disagree about text antialiasing and texture filtering. The hash is asserted **too**,
+but only where it is deterministic: the targets that render through raylib's own software
+rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `e2ffc15d`, and
+`tools/render_check.sh` fails on anything else. DRM renders through OpenGL ES on llvmpipe and
+gives a different hash with the same pixel count and ratio; that one is compared against its
+own golden and must not be "fixed" by copying one over the other.
 
 > **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
 > format-checked but never run — there is no runner or emulator for them here. Android is built
