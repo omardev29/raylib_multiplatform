@@ -836,16 +836,30 @@ void collide(Scene &scene) {
     for (const Touch &touch : touching) {
         Object &a = *touch.a;
         Object &b = *touch.b;
-        // An object destroyed by an earlier pair this frame is gone, and
-        // handing it to somebody else's _collision would be handing out
-        // something whose _end() has already run.
-        if (!a.alive() || !b.alive()) continue;
-        a._collision(b);
-        if (a.alive() && b.alive()) collide_behaviors(a, b);
-        if (a.alive() && b.alive()) b._collision(a);
-        if (a.alive() && b.alive()) collide_behaviors(b, a);
-        if (a.alive() && b.alive()) Storage::notify_collision(a, b);
-        if (a.alive() && b.alive()) Storage::notify_collision(b, a);
+        // Each side is told while IT is still alive; the other side may already
+        // be dying, and it is handed over anyway. It used to stop the moment
+        // either died, and that made Projectile's destroy_on_hit -- the
+        // default -- cancel the very hit it was reporting: the bullet died in
+        // its own _collision and the alien's on_collision and Health never ran.
+        // Which of the pair went first was the entry order, so it was a coin
+        // flip per pair. Memory is not the question: destruction is deferred
+        // to the end of the frame, so `other` is a valid object whose alive()
+        // says false. A hook that cares can ask.
+        //
+        // And each side's hooks run if it was alive when THIS pair started: a
+        // Health that kills its object in the behavior step must not swallow
+        // the on_collision that reports the killing blow (the shot that killed
+        // it is the one a game counts). An object killed by an EARLIER pair
+        // this frame gets nothing more.
+        const bool a_was = a.alive();
+        const bool b_was = b.alive();
+        if (!a_was && !b_was) continue;
+        if (a_was) a._collision(b);
+        if (a_was) collide_behaviors(a, b);
+        if (b_was) b._collision(a);
+        if (b_was) collide_behaviors(b, a);
+        if (a_was) Storage::notify_collision(a, b);
+        if (b_was) Storage::notify_collision(b, a);
     }
 }
 

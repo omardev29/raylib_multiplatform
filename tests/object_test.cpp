@@ -856,6 +856,27 @@ TEST_CASE_FIXTURE(Fixture, "Edge::WRAP only fires once the object is COMPLETELY 
     }
 }
 
+TEST_CASE_FIXTURE(Fixture, "Edge::DESTROY needs the object to have been inside first") {
+    // An endless runner spawns its rocks ahead of the camera, outside the
+    // view. DESTROY means "it left", and nothing can leave a place it has not
+    // been: every rock used to die on its first frame.
+    World world;
+    const Rectangle area{ 0, 0, 100, 100 };
+    auto &rock = world.spawn({ .position = { 300, 50 },
+                               .shape = rmp::rect({ 10, 10 }),
+                               .velocity = { -100, 0 },
+                               .edges = rmp::Edge::DESTROY,
+                               .bounds = area });
+    rmp::objects::detail::update(world, 1.0f); // 200: still outside, still alive
+    CHECK(rock.alive());
+    rmp::objects::detail::update(world, 1.0f); // 100: touching the edge
+    rmp::objects::detail::update(world, 1.0f); // 0: inside
+    CHECK(rock.alive());
+    rmp::objects::detail::update(world, 1.0f); // -100: out the other side, having been in
+    rmp::objects::detail::update(world, 1.0f);
+    CHECK_FALSE(rock.alive());
+}
+
 TEST_CASE_FIXTURE(Fixture, "Edge::DESTROY waits until the object is completely outside") {
     World world;
     const Rectangle area{ 0, 0, 100, 100 };
@@ -881,16 +902,22 @@ TEST_CASE_FIXTURE(Fixture, "Edge::DESTROY waits until the object is completely o
         CHECK(world.object_count() == 0);
     }
     SUBCASE("on every side") {
-        auto &left = world.spawn({ .position = { -50, 50 },
+        // Born inside, leaving by each of the other three sides in one step:
+        // having been inside is what arms DESTROY, and the position before
+        // this frame's integration is what proves it.
+        auto &left = world.spawn({ .position = { 10, 50 },
                                    .shape = rmp::rect({ 10, 10 }),
+                                   .velocity = { -100, 0 },
                                    .edges = rmp::Edge::DESTROY,
                                    .bounds = area });
-        auto &up = world.spawn({ .position = { 50, -50 },
+        auto &up = world.spawn({ .position = { 50, 10 },
                                  .shape = rmp::rect({ 10, 10 }),
+                                 .velocity = { 0, -100 },
                                  .edges = rmp::Edge::DESTROY,
                                  .bounds = area });
-        auto &down = world.spawn({ .position = { 50, 150 },
+        auto &down = world.spawn({ .position = { 50, 90 },
                                    .shape = rmp::rect({ 10, 10 }),
+                                   .velocity = { 0, 100 },
                                    .edges = rmp::Edge::DESTROY,
                                    .bounds = area });
         rmp::objects::detail::update(world, 1.0f);

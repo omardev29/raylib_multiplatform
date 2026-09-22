@@ -399,7 +399,7 @@ struct Lifespan {
 // Hit points, a window of invulnerability with a blink, and death.
 struct Health {
     int hp = 3;
-    int max_hp = 3;
+    int max_hp = 0; // 0 = whatever hp starts at, so `{ .hp = 5 }` needs no second number
     float invulnerable_for = 0.6f; // 0 = no window
     float blink_hz = 12;
     bool destroy_on_death = true;
@@ -430,6 +430,7 @@ struct Health {
     [[nodiscard]] bool invulnerable() const { return ours.invulnerable_left > 0; }
     [[nodiscard]] bool dead() const { return hp <= 0; }
 
+    void _ready(Object &self);
     void _update(Object &self, float delta);
     void _collision(Object &self, Object &other);
     void _end(Object &self);

@@ -126,6 +126,24 @@ TEST_SUITE("camera") {
             near(world.camera.position, Vector2{ 800, 450 })); // inside: follows exactly
     }
 
+    TEST_CASE_FIXTURE(Fixture, "a zero width or height leaves that axis unbounded") {
+        // The runner: follow x wherever it goes, pin y. It used to need a
+        // limits rectangle as wide as an invented level length.
+        World world;
+        world.camera.limits = Rectangle{ 0, 0, 0, kH };
+        rmp::Object &player = world.spawn({ .position = { 50000, 50 } });
+        world.camera.follow = player.handle();
+        frame(world);
+        CHECK(world.camera.position.x == doctest::Approx(50000));
+        CHECK(world.camera.position.y == doctest::Approx(kH / 2)); // pinned by the height
+
+        world.camera.limits = Rectangle{ 0, 0, 1600, 0 };
+        player.position = Vector2{ 5, -900 };
+        frame(world);
+        CHECK(world.camera.position.x == doctest::Approx(kW / 2)); // clamped by the width
+        CHECK(world.camera.position.y == doctest::Approx(-900)); // free
+    }
+
     TEST_CASE_FIXTURE(Fixture,
                       "a limit narrower than the view is centred, not overshot") {
         World world;

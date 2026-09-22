@@ -28,7 +28,7 @@
 //   RAY_TEST_SCREENSHOT   — the captured frame was written to the PNG named by
 //                           the RAY_TEST_SCREENSHOT environment variable
 //
-// RAY_TEST_SCREENSHOT=<file.png> writes the same frame the render gate reads
+// RAY_TEST_SCREENSHOT=<file.png> writes the LAST frame of the run (the gate reads frame 5)
 // back. Under PLATFORM=Memory that is a picture of the game with no window and
 // no GPU, which is how the examples job keeps one PNG per example and how a
 // change to a game is looked at instead of reasoned about.
@@ -124,10 +124,26 @@ static inline int SmokeTest_CaptureAt(void) {
 //     render batch and only submits them inside EndDrawing(). Read before that
 //     without flushing and all you see is ClearBackground().
 // ---------------------------------------------------------------------------
+// The screenshot is the LAST frame, not the hashed one. The hash reads frame 5
+// so that the golden stays a fixed picture; a screenshot exists to be looked
+// at, and at frame 5 nothing has moved yet -- the ball is on the paddle, the
+// formation has not marched. RAY_TEST_MAX_FRAMES=30 photographs half a second
+// of play.
+static inline int SmokeTest_ScreenshotAt(void) {
+    return SmokeTest_maxFrames > 0 ? SmokeTest_maxFrames - 1 : 0;
+}
+
+static inline int SmokeTest_WantsFrame(void) {
+    return SmokeTest_frame == SmokeTest_CaptureAt() ||
+        SmokeTest_frame == SmokeTest_ScreenshotAt();
+}
+
 static inline void SmokeTest_CaptureFrame(void) {
     if (SmokeTest_maxFrames <= 0) return; // no-op outside CI
-    if (SmokeTest_frame != SmokeTest_CaptureAt()) return;
+    if (!SmokeTest_WantsFrame()) return;
     SmokeTest_captured = 1;
+    const int hashing = SmokeTest_frame == SmokeTest_CaptureAt();
+    const int shooting = SmokeTest_frame == SmokeTest_ScreenshotAt();
 
     const int w = GetRenderWidth();
     const int h = GetRenderHeight();
@@ -181,10 +197,9 @@ static inline void SmokeTest_CaptureFrame(void) {
     const long differing = total - (long)hist[bg];
     free(hist);
 
-    // The picture, when asked for. After the histogram and before the unload,
-    // because it is the very frame the numbers below describe.
+    // The picture, when asked for, on the last frame.
     const char *shot = getenv("RAY_TEST_SCREENSHOT");
-    if (shot && shot[0]) {
+    if (shooting && shot && shot[0]) {
         // rlReadScreenPixels() flips what glReadPixels() returns, because GL's
         // origin is the bottom-left corner. The software renderer's read-back
         // is neither flipped nor in RGBA order: under PLATFORM=Memory the
@@ -208,6 +223,7 @@ static inline void SmokeTest_CaptureFrame(void) {
         }
     }
     UnloadImage(img);
+    if (!hashing) return; // the screenshot frame: the numbers are frame 5's
 
     const double ratio = (total > 0) ? (double)differing / (double)total : 0.0;
 
@@ -248,7 +264,7 @@ static inline void SmokeTest_CaptureFrame(void) {
 static inline void SmokeTest_CaptureFrameIfMissed(void) {
     if (SmokeTest_maxFrames <= 0) return;
     if (SmokeTest_captured) return;
-    if (SmokeTest_frame != SmokeTest_CaptureAt()) return;
+    if (!SmokeTest_WantsFrame()) return;
     if (rlGetVersion() != RL_OPENGL_SOFTWARE) return;
     SmokeTest_CaptureFrame();
 }

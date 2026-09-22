@@ -40,6 +40,12 @@ struct Storage {
     // is the only caller of either.
     static int behavior_slot(const Object &object);
     static void set_behavior_slot(Object &object, int slot);
+
+    // Has the object been inside its bounds at least once? Edge::DESTROY only
+    // fires afterwards, so something spawned ahead of the camera -- an
+    // obstacle in a runner -- lives to enter the view instead of dying at birth.
+    static bool entered_bounds(const Object &object);
+    static void set_entered_bounds(Object &object, bool entered);
 };
 
 // THE one scale a circle has, in the one place all three readers can see it.

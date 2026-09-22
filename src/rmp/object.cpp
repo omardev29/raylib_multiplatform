@@ -177,6 +177,11 @@ bool Storage::has_pointer_callback(const Object &object) {
     return static_cast<bool>(object.click_) || static_cast<bool>(object.drag_);
 }
 
+bool Storage::entered_bounds(const Object &object) { return object.entered_bounds_; }
+void Storage::set_entered_bounds(Object &object, bool entered) {
+    object.entered_bounds_ = entered;
+}
+
 int Storage::behavior_slot(const Object &object) { return object.behavior_slot_; }
 
 void Storage::set_behavior_slot(Object &object, int slot) {
@@ -488,10 +493,23 @@ bool apply_edges(Object &object) {
         case Edge::DESTROY: {
             // Completely outside, again for a concrete reason: a bullet fired
             // from a muzzle on the edge of the screen would die at birth if
-            // touching the boundary were enough.
+            // touching the boundary were enough. And only after it has been
+            // INSIDE once: a runner spawns its obstacles ahead of the camera,
+            // outside the view, and every one of them used to die on its first
+            // frame -- DESTROY means "it left", and nothing can leave a place
+            // it has not been.
             const bool out = box.x + box.width < left || box.x > right ||
                 box.y + box.height < top || box.y > bottom;
-            if (out) object.destroy();
+            // Where it was before this frame's integration counts as well: a
+            // bullet spawned inside and fast enough to be outside by the time
+            // the edges are checked has still been inside.
+            const Vector2 before = Storage::previous_position(object);
+            const float dx = before.x - object.position.x;
+            const float dy = before.y - object.position.y;
+            const bool was_out = box.x + dx + box.width < left || box.x + dx > right ||
+                box.y + dy + box.height < top || box.y + dy > bottom;
+            if (!out || !was_out) Storage::set_entered_bounds(object, true);
+            if (out && Storage::entered_bounds(object)) object.destroy();
             break;
         }
         case Edge::NONE:

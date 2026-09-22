@@ -912,3 +912,58 @@ TEST_CASE_FIXTURE(Fixture, "Runner: an object that was never on the ground canno
         CHECK(other.velocity.y == doctest::Approx(-500)); // no second one
     }
 }
+
+// ---------------------------------------------------------------------------
+// What the six games found: a hit is a hit even when the bullet dies of it,
+// and `{ .hp = 5 }` is a whole configuration.
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture, "a projectile that dies on contact still counts as a hit") {
+    // Contact notification used to stop the moment EITHER side died. A
+    // Projectile with destroy_on_hit -- the default -- destroyed itself in its
+    // own _collision, and the alien's on_collision and Health never ran: every
+    // player in the six games was immortal and every enemy unkillable, on a
+    // coin flip of which object the pair listed first.
+    World world;
+    constexpr unsigned kBullets = 1u << 3;
+    int hits = 0;
+    rmp::Object &alien =
+        world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 40, 40 }) });
+    alien.add<rmp::behavior::Health>(
+        { .hp = 2, .invulnerable_for = 0, .hurt_by = kBullets });
+    alien.on_collision([&hits](rmp::Object &, rmp::Object &) { hits++; });
+
+    for (int order = 0; order < 2; order++) {
+        // Both orders of the pair, because that was the coin.
+        rmp::Object &bullet =
+            world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 4, 4 }) });
+        bullet.collision_layer = kBullets;
+        bullet.add<rmp::behavior::Projectile>({ .speed = 0 });
+        frame(world, 1.0f / 60);
+        CHECK_FALSE(bullet.alive());
+        CHECK(hits == order + 1); // the killing blow is reported too
+        if (order == 0) {
+            CHECK(alien.get<rmp::behavior::Health>()->hp == 1);
+        } else {
+            CHECK_FALSE(alien.alive()); // and it did kill
+        }
+    }
+}
+
+TEST_CASE_FIXTURE(Fixture, "Health: max_hp follows hp unless it is given") {
+    World world;
+    rmp::Object &a =
+        world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    auto &five = a.add<rmp::behavior::Health>({ .hp = 5 });
+    CHECK(five.max_hp == 5);
+    five.damage(a, 2);
+    five.heal(10);
+    CHECK(five.hp == 5); // clamped to the five, not to a three nobody set
+
+    rmp::Object &b =
+        world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    auto &given = b.add<rmp::behavior::Health>({ .hp = 2, .max_hp = 9 });
+    CHECK(given.max_hp == 9);
+    given.heal(100);
+    CHECK(given.hp == 9);
+}

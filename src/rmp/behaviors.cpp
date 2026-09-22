@@ -705,6 +705,13 @@ void Lifespan::_update(Object &self, float delta) {
 // Health
 // ---------------------------------------------------------------------------
 
+void Health::_ready(Object &self) {
+    (void)self;
+    // `{ .hp = 5 }` alone used to leave max_hp at 3, so a progress bar drawn
+    // from hp / max_hp went past 1 and heal() clamped to a number nobody set.
+    if (max_hp <= 0) max_hp = hp;
+}
+
 bool Health::damage(Object &self, int amount) {
     if (amount <= 0 || ours.died) return false;
     if (ours.invulnerable_left > 0) return false; // the window, and the point of it

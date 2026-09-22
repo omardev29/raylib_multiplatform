@@ -315,21 +315,29 @@ TEST_CASE_FIXTURE(Fixture, "setting a callback twice replaces it") {
     CHECK(second == 1);
 }
 
-TEST_CASE_FIXTURE(Fixture, "an object that dies on contact does not reach anybody else") {
+TEST_CASE_FIXTURE(Fixture,
+                  "an object that dies on contact is still reported to the other side") {
+    // It used to be the other way round -- b was NOT told, on the grounds that
+    // a's _end() had already run -- and that is how every bullet with
+    // destroy_on_hit cancelled the very hit it was reporting: the alien's
+    // on_collision and Health never saw it. Destruction is deferred to the end
+    // of the frame, so `other` is a valid object whose alive() says false; a
+    // hook that cares can ask. What a dead object does NOT get is any LATER
+    // pair this frame.
     World world;
     auto &a =
         world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
     auto &b =
         world.spawn<Probe>({ .position = { 5, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    auto &c =
+        world.spawn<Probe>({ .position = { -5, 0 }, .shape = rmp::rect({ 10, 10 }) });
     a.die_on_hit = true;
 
     frame(world);
     CHECK_FALSE(a.alive());
-    // a was told, and destroyed itself while being told. b must NOT then be
-    // handed a reference to something whose _end() has already run.
-    CHECK(a.hits == 1);
-    CHECK(b.hits == 0);
-    CHECK(world.object_count() == 1);
+    CHECK(a.hits == 1); // told once, by the first pair; nothing from the second
+    CHECK(b.hits + c.hits == 2); // both of the others were told about a
+    CHECK(world.object_count() == 2);
 }
 
 // ---------------------------------------------------------------------------

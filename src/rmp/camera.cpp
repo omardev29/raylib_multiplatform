@@ -53,25 +53,30 @@ Vector2 Camera::to_world(Vector2 screen) const {
 void Camera::detail_settle() {
     if (const Object *target = follow.get()) position = target->position;
 
-    if (limits.width <= 0 || limits.height <= 0) return;
     const Rectangle v = view();
-    // Limits win over follow. A limit narrower than the view has no position
-    // that shows nothing outside it, so the view is centred on it instead --
-    // the alternative, showing the void on one side, is the black strip this
-    // exists to prevent.
-    if (limits.width <= v.width) {
-        position.x = limits.x + limits.width / 2;
-    } else {
-        const float lo = limits.x + v.width / 2;
-        const float hi = limits.x + limits.width - v.width / 2;
-        position.x = position.x < lo ? lo : (position.x > hi ? hi : position.x);
+    // Limits win over follow, one axis at a time: a zero width or height
+    // means "unbounded on this axis", which is what an endless runner wants
+    // (follow x, pin y) and used to need a made-up level length to say. A
+    // limit narrower than the view has no position that shows nothing outside
+    // it, so the view is centred on it instead -- the alternative, showing the
+    // void on one side, is the black strip this exists to prevent.
+    if (limits.width > 0) {
+        if (limits.width <= v.width) {
+            position.x = limits.x + limits.width / 2;
+        } else {
+            const float lo = limits.x + v.width / 2;
+            const float hi = limits.x + limits.width - v.width / 2;
+            position.x = position.x < lo ? lo : (position.x > hi ? hi : position.x);
+        }
     }
-    if (limits.height <= v.height) {
-        position.y = limits.y + limits.height / 2;
-    } else {
-        const float lo = limits.y + v.height / 2;
-        const float hi = limits.y + limits.height - v.height / 2;
-        position.y = position.y < lo ? lo : (position.y > hi ? hi : position.y);
+    if (limits.height > 0) {
+        if (limits.height <= v.height) {
+            position.y = limits.y + limits.height / 2;
+        } else {
+            const float lo = limits.y + v.height / 2;
+            const float hi = limits.y + limits.height - v.height / 2;
+            position.y = position.y < lo ? lo : (position.y > hi ? hi : position.y);
+        }
     }
 }
 

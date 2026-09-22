@@ -82,8 +82,10 @@ public:
     // that dies simply stops being followed.
     Handle<Object> follow;
 
-    // Never show outside this rectangle, in world units. Empty = no limits. A
-    // limit narrower than the view centres the view on it.
+    // Never show outside this rectangle, in world units. One axis at a time:
+    // a zero width or a zero height means "unbounded on that axis", so a
+    // runner pins y with `{ 0, 0, 0, APP_WINDOW_HEIGHT }` and follows x freely.
+    // Empty = no limits. A limit narrower than the view centres the view on it.
     Rectangle limits{};
 
     // What is visible, in world units, ignoring rotation.
@@ -260,19 +262,19 @@ public:
 
     // Clear the stack and go. Everything on it gets _end(), top down.
     template <class T, class... A> static void change(A &&...args) {
-        detail_change(std::make_unique<T>(std::forward<A>(args)...));
+        detail_change(std::make_unique<T>(std::forward<A>(args)...), scene_type<T>());
     }
 
     // Put one on top. What was there is suspended, not ended.
     template <class T, class... A> static void push(A &&...args) {
-        detail_push(std::make_unique<T>(std::forward<A>(args)...));
+        detail_push(std::make_unique<T>(std::forward<A>(args)...), scene_type<T>());
     }
 
     // Swap the top one only. What is underneath is untouched and stays
     // suspended — this is level 3 becoming level 4 without disturbing the
     // pause menu that put you there.
     template <class T, class... A> static void replace(A &&...args) {
-        detail_replace(std::make_unique<T>(std::forward<A>(args)...));
+        detail_replace(std::make_unique<T>(std::forward<A>(args)...), scene_type<T>());
     }
 
     // Take the top one off and resume what was under it. Popping the last
@@ -295,9 +297,16 @@ private:
     // above and handed over on the same line, so it is never something a caller
     // holds — and src/rmp/scene.cpp wraps it in a unique_ptr on arrival, where
     // <memory> costs nothing.
-    static void detail_change(std::unique_ptr<Scene> next);
-    static void detail_push(std::unique_ptr<Scene> next);
-    static void detail_replace(std::unique_ptr<Scene> next);
+    // The type tag is what lets the same scene asked for twice in one frame --
+    // two end conditions firing together, which Invaders did -- be pushed
+    // once. An address of a static per T, no RTTI, like behavior_type().
+    template <class T> static const void *scene_type() {
+        static const char kTag = 0;
+        return &kTag;
+    }
+    static void detail_change(std::unique_ptr<Scene> next, const void *type);
+    static void detail_push(std::unique_ptr<Scene> next, const void *type);
+    static void detail_replace(std::unique_ptr<Scene> next, const void *type);
 
     // The non-template half of spawn(). TAKES OWNERSHIP of `made`.
     void detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &options);

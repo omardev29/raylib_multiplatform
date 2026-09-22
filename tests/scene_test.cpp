@@ -183,6 +183,26 @@ TEST_SUITE("scenes") {
         CHECK(&rmp::Scene::current() == first);
     }
 
+    TEST_CASE("the same scene asked for twice in one frame is pushed once") {
+        // Two end conditions on the same frame -- the last alien dies as the
+        // last hit point goes -- both push<GameOver>(); the stack used to end
+        // up two overlays deep.
+        Fixture fix;
+        rmp::detail::reset_reports_for_tests();
+        rmp::scenes::detail::start(std::make_unique<A>());
+        rmp::Scene::push<B>();
+        rmp::Scene::push<B>();
+        rmp::scenes::detail::apply_pending();
+        CHECK(rmp::Scene::depth() == 2);
+        CHECK(rmp::detail::report_count() == 1);
+
+        // Two DIFFERENT scenes in one frame are still two, in order.
+        rmp::Scene::push<A>();
+        rmp::Scene::push<B>();
+        rmp::scenes::detail::apply_pending();
+        CHECK(rmp::Scene::depth() == 4);
+    }
+
     TEST_CASE("start with no scene at all leaves the app stopped") {
         Fixture fix;
         rmp::detail::reset_reports_for_tests();

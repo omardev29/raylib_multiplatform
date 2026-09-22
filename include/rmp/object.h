@@ -138,7 +138,7 @@ enum class Edge {
     CLAMP, // stops at the edge          a paddle, a player, a cursor
     BOUNCE, // flips the velocity         a Pong or Breakout ball
     WRAP, // comes back the other side  Asteroids
-    DESTROY, // is discarded               bullets, particles
+    DESTROY, // is discarded once it has left bullets, particles (it has to have been inside)
 };
 
 // ---------------------------------------------------------------------------
@@ -652,6 +652,7 @@ private:
     // and made a recycled address inherit a dead object's behaviors.
     int behavior_slot_ = -1;
     bool alive_ = true;
+    bool entered_bounds_ = false; // Edge::DESTROY fires only after this
     Vector2 pending_force_{}; // accumulated by apply_force, spent on integrate
 
     // Where the centre was before this frame's integration. The swept test
