@@ -218,6 +218,14 @@ void pointer_scripted(Clay_Vector2 *position, bool *down) {
     *down = g_down;
 }
 
+// The keyboard and the gamepad, through the same kind of seam: what the player
+// is pushing, and whether they just pressed the button that means "do it".
+// Without this a headless test can lay a menu out and click it with a fake
+// mouse, but cannot press its buttons the way a controller does.
+rmp::ui::detail::NavState g_nav{};
+
+void nav_scripted(rmp::ui::detail::NavState *out) { *out = g_nav; }
+
 void run_interaction() {
     std::printf("\n--- interaction ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
@@ -610,15 +618,15 @@ void run_slider_nav() {
     rmp::ui::end();
     rmp::ui::focus("Quality");
 
-    rmp::ui::detail::set_nav_x_for_tests(0);
+    g_nav.x = 0;
     frame();
     check_near(quality, 2.0f, 0.001f, "a stick at rest moves nothing");
 
-    rmp::ui::detail::set_nav_x_for_tests(1);
+    g_nav.x = 1;
     frame();
     check_near(quality, 3.0f, 0.001f, "pushing right moves it exactly one step");
 
-    rmp::ui::detail::set_nav_x_for_tests(-1);
+    g_nav.x = -1;
     frame();
     check_near(quality, 2.0f, 0.001f, "and pushing left moves it back");
 
@@ -631,14 +639,14 @@ void run_slider_nav() {
     // Pressed again, three times, which is two steps of travel and one of
     // nothing because it is already at the end.
     for (int i = 0; i < 3; i++) {
-        rmp::ui::detail::set_nav_x_for_tests(0);
+        g_nav.x = 0;
         frame();
-        rmp::ui::detail::set_nav_x_for_tests(-1);
+        g_nav.x = -1;
         frame();
     }
     check_near(quality, 0.0f, 0.001f, "and it stops at min instead of running past it");
 
-    rmp::ui::detail::set_nav_x_for_tests(rmp::ui::detail::kNavFromDevices);
+    g_nav = rmp::ui::detail::NavState{};
 }
 
 // Pointer capture belongs to the element that took it. It used to be one global
@@ -1216,11 +1224,171 @@ void run_scroll_clip() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// ---------------------------------------------------------------------------
+// Focus without being asked for it, and the button that presses it
+//
+// A scene pushed with one "Play again" button on it has to be pressable with a
+// controller the moment it appears. It was not: nothing held the focus until
+// the player tapped Down or Tab first, so every one of the six example games
+// called rmp::ui::focus() in its _ready() to work around it.
+// ---------------------------------------------------------------------------
+
+void run_default_focus() {
+    std::printf("\n--- the focus nobody asked for ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    rmp::ui::focus(""); // nothing focused, which is how a fresh scene starts
+    rmp::ui::detail::set_focus_visible(false);
+
+    rmp::ui::begin();
+    rmp::ui::button("Play again");
+    rmp::ui::button("Quit");
+    rmp::ui::end();
+    check(rmp::ui::focused() == "Play again",
+          "the first widget of a pass takes the focus on its own");
+
+    // ...and does NOT wear a ring for it. Every pass gives itself a focus now,
+    // so a player holding a mouse would find one on the first button of every
+    // menu that opens -- and the recorded render hash is what would say so.
+    check(!rmp::ui::detail::focus_visible(), "a focus nobody asked for is not drawn");
+    g_nav.y = 1;
+    rmp::ui::begin();
+    rmp::ui::button("Play again");
+    rmp::ui::button("Quit");
+    rmp::ui::end();
+    g_nav.y = 0;
+    check(rmp::ui::detail::focus_visible(), "touching the keyboard draws it");
+
+    // And going back to the mouse puts it away again.
+    g_pointer = Clay_Vector2{ 4, 4 };
+    g_down = true;
+    rmp::ui::begin();
+    rmp::ui::button("Play again");
+    rmp::ui::end();
+    g_down = false;
+    check(!rmp::ui::detail::focus_visible(), "and clicking puts it away");
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+
+    rmp::ui::focus("");
+    rmp::ui::detail::set_focus_visible(false);
+    rmp::ui::begin();
+    rmp::ui::button("Play again");
+    rmp::ui::button("Quit");
+    rmp::ui::end();
+
+    // An explicit focus() still wins, and keeps winning: the default only
+    // applies when the focus belongs to nothing on screen.
+    rmp::ui::focus("Quit");
+    check(rmp::ui::detail::focus_visible(),
+          "a focus the game asked for by name is drawn, because it meant it");
+    rmp::ui::begin();
+    rmp::ui::button("Play again");
+    rmp::ui::button("Quit");
+    rmp::ui::end();
+    check(rmp::ui::focused() == "Quit", "and an explicit focus() outranks it");
+    rmp::ui::begin();
+    rmp::ui::button("Play again");
+    rmp::ui::button("Quit");
+    rmp::ui::end();
+    check(rmp::ui::focused() == "Quit", "for as long as that widget is on screen");
+}
+
+void run_default_focus_two_passes() {
+    std::printf("\n--- the focus when two scenes draw ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    bool hud_reachable = false;
+    auto frame = [&] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::set_pass_input(hud_reachable);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::button("Hud");
+        rmp::ui::end();
+        rmp::ui::detail::set_pass_input(true);
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
+        rmp::ui::button("Resume");
+        rmp::ui::button("Give up");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+
+    // A pause menu over a HUD it suppresses: the menu's first button, not the
+    // HUD's, even though the HUD is declared first.
+    rmp::ui::focus("");
+    frame();
+    check(rmp::ui::focused() == "Resume",
+          "the pass on top takes the focus, not the one underneath it");
+
+    // With input_below the HUD is reachable again, so it is focusable and it is
+    // first — and the menu must not steal the focus back every frame, or the
+    // player could never walk down into the HUD at all.
+    hud_reachable = true;
+    rmp::ui::focus("");
+    frame();
+    check(rmp::ui::focused() == "Hud",
+          "with input_below the scene underneath can hold the focus");
+    frame();
+    check(rmp::ui::focused() == "Hud", "and the pass above does not take it back");
+}
+
+void run_activate() {
+    std::printf("\n--- pressing a button with the keyboard ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::focus("");
+
+    int played = 0;
+    int quit = 0;
+    auto frame = [&] {
+        rmp::ui::begin();
+        if (rmp::ui::button("Play again")) played++;
+        if (rmp::ui::button("Quit")) quit++;
+        rmp::ui::end();
+    };
+
+    frame(); // the first one is what takes the focus
+    check(rmp::ui::focused() == "Play again", "the first button has the focus");
+
+    g_nav.activate = true;
+    frame();
+    g_nav.activate = false;
+    check(played == 1, "Enter presses the focused button");
+    check(quit == 0, "and only that one");
+
+    // Down, then Enter: the other one.
+    g_nav.y = 1;
+    frame();
+    g_nav.y = 0;
+    check(rmp::ui::focused() == "Quit", "Down moves the focus");
+    g_nav.activate = true;
+    frame();
+    g_nav.activate = false;
+    check(quit == 1, "and Enter presses what it landed on");
+    check(played == 1, "without pressing the one it left");
+
+    // A pass input cannot reach cannot be activated either, however loudly the
+    // player presses.
+    rmp::ui::detail::begin_frame();
+    rmp::ui::detail::set_pass_input(false);
+    g_nav.activate = true;
+    rmp::ui::begin();
+    if (rmp::ui::button("Play again")) played++;
+    rmp::ui::end();
+    rmp::ui::detail::end_frame();
+    g_nav.activate = false;
+    check(played == 1, "a pass input cannot reach does not answer the keyboard");
+
+    g_nav = rmp::ui::detail::NavState{};
+}
+
 } // namespace
 
 int main() {
     rmp::ui::detail::set_measure_provider(measure_stub);
     rmp::ui::detail::set_pointer_provider(pointer_stub);
+    // Nothing held down and nothing pressed, until a test says otherwise.
+    rmp::ui::detail::set_nav_provider(nav_scripted);
 
     // The design resolution these are all measured against is APP_WINDOW_*,
     // straight from [window] in raylib_multiplatform.toml.
@@ -1245,6 +1413,9 @@ int main() {
     run_nested_grids();
     run_two_passes();
     run_two_pass_clicks();
+    run_default_focus();
+    run_default_focus_two_passes();
+    run_activate();
     run_idle_frame();
     run_zero_area();
     run_dropdown_occlusion();

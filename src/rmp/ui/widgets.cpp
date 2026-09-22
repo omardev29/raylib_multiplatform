@@ -194,6 +194,10 @@ void end() {
     // frame's matching pass reads it — see bounds_of_id().
     detail::capture_pass_bounds();
 
+    // And if this pass declared something focusable and nothing in the frame
+    // has the focus yet, its first widget takes it.
+    detail::end_pass_focus();
+
     // In test mode there is no GL context to draw into; the layout is the
     // whole point and it has already happened.
     if (!detail::test_mode()) detail::draw(commands);
@@ -312,7 +316,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
     decl.backgroundColor = to_clay(background);
     float r = px(t.corner_radius);
     decl.cornerRadius = Clay_CornerRadius{ r, r, r, r };
-    if (has_focus) {
+    if (has_focus && detail::focus_visible()) {
         // The focus ring is drawn by the framework, not by each widget, because
         // a controller build where one widget forgot it is a controller build
         // that gets stuck. It replaces the ordinary outline rather than sitting

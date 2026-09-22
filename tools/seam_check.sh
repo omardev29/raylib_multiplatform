@@ -73,8 +73,11 @@ ALLOWED=(
   "src/rmp/input.cpp"         # THE seam: sample_with_raylib() is the provider a
                              # test replaces, and the only place the devices are
                              # read at all. Everything else asks rmp::input.
-  "src/rmp/ui/context.cpp"    # the seam: read_pointer() and frame_time(), and
-                             # the frame boundary that samples both once
+  "src/rmp/ui/context.cpp"    # the seam: read_pointer(), read_nav() and
+                             # frame_time() -- the mouse, the keyboard and the
+                             # gamepad the UI navigates itself with, and the
+                             # clock, each sampled once at the frame boundary
+                             # through a provider a test replaces
   "src/rmp/ui/style.cpp"      # the seam: anim_begin_frame(), 0 in test mode
   "src/rmp/object.cpp"        # THE seam for the viewport: view_rect() falls back
                              # to the screen for an object with empty bounds, and
@@ -87,22 +90,27 @@ ALLOWED=(
                              # its transitions headless. This is the call the
                              # RAY_TEST_BOOT_OK gate was missing, not one to
                              # route away.
-  "src/rmp/ui/focus.cpp"      # DEBT: keyboard and gamepad navigation -> phase 14
-  "src/rmp/ui/controls.cpp"   # DEBT: slider repeat, the text caret and the
-                             # character queue -> phase 14
+  "src/rmp/ui/controls.cpp"   # DEBT: the text caret and the character queue ->
+                             # phase 14
 )
 
 # src/rmp/random.cpp was on this list for naming GetRandomValue in a COMMENT.
 # Comments are stripped now, so it stopped matching and the ratchet's other
 # half asked for the entry back. That is the list working in both directions.
 
-# The two DEBT entries said "-> phase 5" until phase 5 arrived and did not take
+# The DEBT entries said "-> phase 5" until phase 5 arrived and did not take
 # them. That was the honest outcome rather than a slip: rmp::input samples
-# devices for the GAME, and the UI's focus navigation and caret blink are the
-# UI reading input for itself, one layer below where actions live. Moving them
-# means giving rmp::ui a dependency on rmp::input, which is the wrong direction
-# — input asks the UI whether it wants the pointer, not the other way round.
-# They move in phase 14, with the rest of the UI's own input handling.
+# devices for the GAME, and the UI reading input for itself lives one layer
+# below where actions live. Moving it to rmp::input would mean giving rmp::ui a
+# dependency on it, which is the wrong direction — input asks the UI whether it
+# wants the pointer, not the other way round.
+#
+# focus.cpp came off this list when the keyboard and the gamepad got the same
+# treatment the mouse already had: one sampler in context.cpp, read once at the
+# frame boundary, replaceable by a test. That is what let the layout test press
+# Enter on a focused button without a window. What is left in controls.cpp is
+# the text field's own business -- the character queue, backspace and the caret
+# blink -- and it moves in phase 14 with the rest of it.
 
 # widgets.cpp was on this list until phase 4. Moving the scroll wheel and the
 # frame time out of begin() and into the frame boundary took its last two

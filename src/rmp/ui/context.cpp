@@ -159,6 +159,7 @@ int g_clip_overflow = 0; // pushed past the limit, so the pops still pair up
 
 MeasureFn g_measure = measure_with_raylib;
 PointerFn g_pointer = pointer_from_raylib;
+NavFn g_nav = nav_from_raylib;
 
 // Test viewport. 0 means "ask raylib", which is every real run.
 float g_test_width = 0.0f;
@@ -418,6 +419,7 @@ void set_frame_self_marked(bool self) { g_frame_self_marked = self; }
 void begin_pass() {
     g_pass++;
     reset_id_counters();
+    begin_pass_focus();
     // The first pass of the frame is where wants_pointer() and wants_keyboard()
     // start again from nothing. See begin_capture_frame().
     if (g_pass == 0) begin_capture_frame();
@@ -656,6 +658,51 @@ void pointer_from_raylib(Clay_Vector2 *position, bool *down) {
     *position = Clay_Vector2{ p.x, p.y };
     *down = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 }
+
+// Down/Up on the keyboard, the d-pad, or the left stick pushed far enough to
+// be deliberate; Left/Right the same way; and the one press that means "do it".
+// This function is the whole of what the UI reads from the keyboard and the
+// gamepad -- everything else works from the NavState it fills in.
+void nav_from_raylib(NavState *out) {
+    int y = 0;
+    if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_TAB)) y += 1;
+    if (IsKeyDown(KEY_UP)) y -= 1;
+    int x = 0;
+    if (IsKeyDown(KEY_RIGHT)) x += 1;
+    if (IsKeyDown(KEY_LEFT)) x -= 1;
+
+    bool activate =
+        IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE);
+
+    if (IsGamepadAvailable(0)) {
+        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) y += 1;
+        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) y -= 1;
+        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) x += 1;
+        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) x -= 1;
+        float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+        if (ly > 0.5f) y += 1;
+        if (ly < -0.5f) y -= 1;
+        float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+        if (lx > 0.5f) x += 1;
+        if (lx < -0.5f) x -= 1;
+        activate = activate || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+    }
+
+    // Shift+Tab is "backwards", which is the one convention people expect
+    // without being told.
+    if (y > 0 && IsKeyDown(KEY_TAB) &&
+        (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
+        y = -1;
+    }
+
+    out->x = x > 0 ? 1 : (x < 0 ? -1 : 0);
+    out->y = y > 0 ? 1 : (y < 0 ? -1 : 0);
+    out->activate = activate;
+}
+
+void read_nav(NavState *out) { g_nav(out); }
+
+void set_nav_provider(NavFn fn) { g_nav = (fn != nullptr) ? fn : nav_from_raylib; }
 
 void set_measure_provider(MeasureFn fn) {
     g_measure = (fn != nullptr) ? fn : measure_with_raylib;

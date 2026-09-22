@@ -647,9 +647,24 @@ bool wants_keyboard();
 //
 // This is what makes a build playable on a TV with a controller, and it is why
 // the focus ring is not optional in the theme.
+//
+// YOU DO NOT HAVE TO START IT. A screen that declares anything focusable and
+// has nothing focused focuses its first control, so a game-over scene with one
+// "Play again" button on it answers Enter and the A button the moment it
+// appears. With two scenes drawing, the one on top gets it — unless the one
+// underneath is still reachable (Scene::input_below), which is the case where
+// it can hold the focus and the arrows can walk between the two.
+//
+// The RING, though, only appears once the player touches the keyboard or the
+// gamepad, and goes away again on a click. Someone playing with a mouse should
+// not find an outline on the first button of every menu that opens; someone
+// playing with a controller needs to see where they are before they press
+// anything. It is the same rule browsers use, for the same reason.
 // ---------------------------------------------------------------------------
 
-// Give a named control the focus, e.g. when a menu opens. Pass "" to clear it.
+// Give a named control the focus — when a menu opens, or to point a controller
+// at something other than the first control. Pass "" to clear it. A focus asked
+// for by name is drawn straight away: you meant it.
 void focus(std::string_view id);
 
 // What has the focus right now, or "" if nothing does.
