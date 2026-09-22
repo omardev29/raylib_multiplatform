@@ -372,6 +372,10 @@ int Scene::object_count() const {
 
 namespace objects::detail {
 
+// The anonymous-namespace one, reachable from the camera. Qualified, so it
+// finds the file-scope function and not this wrapper.
+Rectangle view_rect() { return rmp::view_rect(); }
+
 void mark_for_release(unsigned index) {
     g_pending_free.push_back(index);
     bump_world_version();
@@ -401,15 +405,19 @@ struct Axis {
 bool apply_edges(Object &object) {
     if (object.edges == Edge::NONE) return false;
 
-    // Empty bounds mean the MAP when the scene has one and the view when it
-    // does not. That is the difference between a paddle in a one-screen game,
-    // which wants the window, and a player in a Tiled level, which wants the
-    // level -- and neither of them should have to say so.
+    // Empty bounds mean the MAP when the scene has one and the camera's VIEW
+    // when it does not. That is the difference between a paddle in a
+    // one-screen game, which wants the window, and a player in a Tiled level,
+    // which wants the level -- and neither of them should have to say so. The
+    // view and not the window, because a camera that has moved to x = 5000
+    // makes "the window" a rectangle nothing on screen is inside.
     Rectangle area = object.bounds;
     if (empty_rect(area) && object.scene() != nullptr && object.scene()->map.valid()) {
         area = object.scene()->map.bounds();
     }
-    if (empty_rect(area)) area = view_rect();
+    if (empty_rect(area)) {
+        area = object.scene() != nullptr ? object.scene()->camera.view() : view_rect();
+    }
     const Rectangle box = object.world_bounds();
 
     const float left = area.x;

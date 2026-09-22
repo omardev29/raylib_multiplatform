@@ -168,6 +168,11 @@ void update(float delta) {
         // objects before one of them has moved is separating them from where
         // they were.
         rmp::objects::detail::collide(scene);
+        // The camera last of all: it follows where things ENDED UP, after the
+        // collision pass has had its say, and its limits are applied after
+        // its follow. Anything reading camera.view() next frame -- the
+        // default bounds, the pointer, Parallax -- sees the settled frame.
+        scene.camera.detail_settle();
     }
     rmp::input::detail::set_layer_input(true);
 }
@@ -202,8 +207,19 @@ void draw() {
         // under it, without either one saying so.
         // The map first, underneath everything: it is the level, and the
         // objects stand on it.
+        // The world under the camera; the scene's own _draw() outside it, in
+        // screen space, so a HUD or a pause menu stays put while the view
+        // moves. A camera nobody touched is the identity at the design
+        // resolution, which is why a one-screen game never notices this.
+        // Guarded on the window because tests/scene_test.cpp drives this with
+        // none: BeginMode2D pushes a matrix into rlgl's batch, and without
+        // InitWindow() there is no batch to push it into -- a segfault, not a
+        // no-op. In a running game the window is always there.
+        const bool window = IsWindowReady();
+        if (window) BeginMode2D(scene.camera.raylib());
         scene.map.draw();
         rmp::objects::detail::draw(scene);
+        if (window) EndMode2D();
         scene._draw();
     }
     rmp::ui::detail::set_pass_input(true);

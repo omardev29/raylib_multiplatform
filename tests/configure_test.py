@@ -1099,8 +1099,6 @@ class ConfigureMembershipTest(unittest.TestCase):
                         cfgmod.validate(cfg, False)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
 
 
 class ConfigurePlatformTest(unittest.TestCase):
@@ -2458,3 +2456,25 @@ class ZeroEntryPackFixtureTest(unittest.TestCase):
         prop_count, entries = struct.unpack_from("<II", data, info_at + 32)
         self.assertEqual(prop_count, 1, "rres reads props[0] without checking this")
         self.assertEqual(entries, 0, "the whole point: a directory holding nothing")
+
+
+class ThisFileRunsWholeTest(unittest.TestCase):
+    """`python3 tests/configure_test.py` used to run 108 of these tests.
+
+    The `if __name__ == "__main__"` block sat in the middle of the file, and
+    every class defined after it was never collected when the file was run
+    directly -- the same shape as the 105-test suite that quietly ran 72. The
+    Justfile uses `unittest discover`, which does not care; a human typing the
+    file name does. The block is the last statement now, and this keeps it
+    there.
+    """
+
+    def test_main_is_the_last_statement(self):
+        text = Path(__file__).read_text().rstrip()
+        self.assertTrue(text.endswith('if __name__ == "__main__":\n    unittest.main(verbosity=2)'),
+                        "something was added after the __main__ block; move the block back "
+                        "to the end of the file")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

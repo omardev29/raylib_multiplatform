@@ -174,7 +174,11 @@ Vector2 vector();
 // ---------------------------------------------------------------------------
 
 Vector2 pointer_screen(); // in pixels, top-left origin
-Vector2 pointer_delta(); // how far it moved since the last frame
+// In WORLD units, through the current scene's camera -- what you compare an
+// object's position with. Same as pointer_screen() while the camera is where
+// it starts.
+Vector2 pointer();
+Vector2 pointer_delta(); // how far it moved since the last frame, in pixels
 bool pointer_down();
 bool pointer_pressed();
 bool pointer_released();

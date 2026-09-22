@@ -19,6 +19,7 @@
 
 #include "internal.h"
 
+#include <rmp/scene.h> // Scene::current().camera, for pointer() in world units
 #include <rmp/ui.h>
 
 #include <cmath>
@@ -383,6 +384,8 @@ float axis() { return axis("move_left", "move_right"); }
 Vector2 vector() { return vector("move_left", "move_right", "move_up", "move_down"); }
 
 Vector2 pointer_screen() { return g_now.pointer; }
+
+Vector2 pointer() { return rmp::Scene::current().camera.to_world(g_now.pointer); }
 
 Vector2 pointer_delta() {
     // No special case for the first frame: begin_frame() makes g_before equal

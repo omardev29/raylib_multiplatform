@@ -45,6 +45,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── global.cpp        #   rmp::global<T>() registry and its destruction order
 │       ├── scene.cpp         #   the scene stack, transitions, the frame order
 │       ├── scene_internal.h
+│       ├── camera.cpp        #   rmp::Camera -- follow, limits, world<->screen
 │       ├── object.cpp        #   rmp::Object storage, handles, integration, edges, drawing
 │       ├── object_internal.h
 │       ├── collision.cpp     #   the broad-phase grid, sweeps, MTV, raycast, the pointer pass

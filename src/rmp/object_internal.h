@@ -61,6 +61,10 @@ namespace rmp::objects::detail {
 // One scene's objects: each _update(delta), then the integration of velocity
 // (gravity and any accumulated force), then the edge rules. In that order,
 // because the edges have to see where the object actually ended up.
+// The window, or the design size before there is one. What an empty
+// `bounds` used to mean on its own; the camera's view is built from it.
+Rectangle view_rect();
+
 void update(Scene &scene, float delta);
 
 // One scene's objects, by layer and then by creation order. Calls the sprite or

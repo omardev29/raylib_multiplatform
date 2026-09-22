@@ -506,10 +506,9 @@ void Parallax::_ready(Object &self) {
 
 void Parallax::_update(Object &self, float delta) {
     (void)self;
-    // Only its own drift. Where the object IS gets read at draw time and
-    // multiplied by the factor there, so moving the object moves the layer with
-    // no bookkeeping in between -- which is what lets a game scroll the world
-    // by moving one object and have every layer follow at its own rate.
+    // Only its own drift. Where the CAMERA is gets read at draw time and
+    // multiplied by the factor there, so a camera that follows the player
+    // scrolls every layer at its own rate with no bookkeeping in between.
     ours.scroll += speed * delta;
 }
 
@@ -518,20 +517,27 @@ void Parallax::_draw(Object &self) {
     const Texture2D &tex = ours.art;
     if (tex.width <= 0) return;
 
-    const auto screen =
-        static_cast<float>(GetScreenWidth() > 0 ? GetScreenWidth() : APP_WINDOW_WIDTH);
+    // The layer is drawn INSIDE the camera like everything else, so it is
+    // placed relative to the view: a layer with factor 0 is pinned to the
+    // screen because it moves exactly as much as the view does, and factor 1
+    // stands still in the world. The object's own x shifts it on top of that.
+    const Rectangle view = self.scene() != nullptr
+        ? self.scene()->camera.view()
+        : Rectangle{ 0, 0, static_cast<float>(APP_WINDOW_WIDTH),
+                     static_cast<float>(APP_WINDOW_HEIGHT) };
     // The arithmetic is next door, in detail::parallax_tiling, and this call is
     // the only thing between it and the GPU. That is not tidiness: everything
     // below this line needs a render batch InitWindow() creates, and everything
     // above it is the part that gets written wrong -- so the part that gets
     // written wrong is the part a headless test can reach.
-    const detail::ParallaxTiling tiling = detail::parallax_tiling(
-        self.position.x * factor + ours.scroll, static_cast<float>(tex.width), screen);
+    const float shift = (self.position.x - view.x) * factor + ours.scroll;
+    const detail::ParallaxTiling tiling =
+        detail::parallax_tiling(shift, static_cast<float>(tex.width), view.width);
 
     for (int i = 0; i < tiling.copies; i++) {
-        const float at =
-            tiling.offset + static_cast<float>(i) * static_cast<float>(tex.width);
-        DrawTextureV(tex, Vector2{ at, y }, tint);
+        const float at = view.x + tiling.offset +
+            static_cast<float>(i) * static_cast<float>(tex.width);
+        DrawTextureV(tex, Vector2{ at, view.y + y }, tint);
     }
 }
 

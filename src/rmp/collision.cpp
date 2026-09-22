@@ -880,7 +880,9 @@ void pointer(Scene &scene) {
         return;
     }
 
-    const Vector2 at = rmp::input::pointer_screen();
+    // In WORLD units: the objects live there, and the pointer arrives in
+    // pixels. Per scene, because each scene has its own camera.
+    const Vector2 at = scene.camera.to_world(rmp::input::pointer_screen());
 
     if (rmp::input::pointer_pressed()) {
         // A new press holds nothing until it finds something, and clearing it

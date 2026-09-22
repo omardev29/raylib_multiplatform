@@ -45,6 +45,59 @@
 
 namespace rmp {
 
+// ---------------------------------------------------------------------------
+// The camera. Owned by the scene, because the framing is a property of the
+// context and not of any one object. Four things in this framework depend on
+// it -- the default `bounds`, rmp::input::pointer() in world units, the hit
+// test behind on_click, and rmp::behavior::Parallax -- and they all read it
+// from here.
+//
+//     camera.follow = player.handle();
+//     camera.limits = map.bounds();     // never shows the void outside the map
+//
+// It starts centred on the design resolution ([window] width x height), so a
+// scene that never mentions it draws exactly where it always did: at that size
+// the camera is the identity. `position` is the CENTRE of what is visible.
+//
+// The app opens it around the map and the objects and closes it before
+// Scene::_draw(), which is why rmp::ui inside _draw() does not drift with the
+// view. To draw in world units yourself: BeginMode2D(camera.raylib()).
+//
+// Two details that are written wrong by hand more often than not:
+//   - `limits` win over `follow`: when the player nears the edge of the map
+//     the camera stops and the player keeps going, instead of a black strip.
+//   - Smoothing and shake are not here yet (phase 11): the camera is pinned to
+//     what it follows. When they arrive, shake is a separate offset that decays
+//     on its own and never touches `position`.
+// ---------------------------------------------------------------------------
+class Camera {
+public:
+    Vector2 position{ APP_WINDOW_WIDTH / 2.0f, APP_WINDOW_HEIGHT / 2.0f };
+    float zoom = 1.0f; // 2 = everything twice as big
+    float rotation = 0; // degrees, clockwise, like raylib's Camera2D
+
+    // Follow this object: every frame, after it has moved, the camera centres
+    // on it. Empty = the camera stays where you left it. A handle, so a target
+    // that dies simply stops being followed.
+    Handle<Object> follow;
+
+    // Never show outside this rectangle, in world units. Empty = no limits. A
+    // limit narrower than the view centres the view on it.
+    Rectangle limits{};
+
+    // What is visible, in world units, ignoring rotation.
+    [[nodiscard]] Rectangle view() const;
+    [[nodiscard]] Vector2 to_screen(Vector2 world) const;
+    [[nodiscard]] Vector2 to_world(Vector2 screen) const;
+
+    // The raylib camera this is, for BeginMode2D() in your own drawing.
+    [[nodiscard]] Camera2D raylib() const;
+
+    // Called by the scene once per frame after the objects have moved: apply
+    // `follow`, then `limits`. Public so a test can drive it; not for a game.
+    void detail_settle();
+};
+
 class Scene {
 public:
     Scene() = default;
@@ -121,6 +174,10 @@ public:
     // That is what turns Tiled from a parser into the place you design the
     // level: you put the enemies in the editor and they turn up in the game.
     Tilemap map;
+
+    // The framing. See rmp::Camera above; a scene that never touches it draws
+    // in screen units, exactly as before it existed.
+    Camera camera;
 
     // -----------------------------------------------------------------------
     // Objects.
