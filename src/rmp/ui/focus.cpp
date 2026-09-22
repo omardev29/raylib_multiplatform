@@ -46,6 +46,7 @@ bool g_pointer_over_ui = false;
 // the pointer straight back to the game -- and nothing cleared it at all if the
 // dragging slider stopped being drawn.
 uint32_t g_pointer_capture_id = 0;
+uint32_t g_press_id = 0;
 bool g_keyboard_captured = false;
 int g_nav_x_for_tests = detail::kNavFromDevices;
 
@@ -148,10 +149,15 @@ void begin_focus_frame() {
     g_nav_x = 0;
     g_activate_pending = false;
 
-    // A drag ends when the pointer goes up, whatever is or is not being drawn.
-    // That is a property of the pointer and not of a pass, which is why it is
-    // released here and not with the other two capture flags.
-    if (!pointer_down()) g_pointer_capture_id = 0;
+    // A drag and a press both end when the pointer goes up, whatever is or is
+    // not being drawn. That is a property of the pointer and not of a pass,
+    // which is why they are released here and not with the other two capture
+    // flags -- and not on the release frame itself, which is the frame the
+    // click is made of.
+    if (!pointer_down() && !pointer_released()) {
+        g_pointer_capture_id = 0;
+        g_press_id = 0;
+    }
 
     if (!g_navigation_enabled) return;
 
@@ -228,6 +234,9 @@ void set_pointer_captured(uint32_t id, bool c) {
 }
 
 void set_keyboard_captured(bool c) { g_keyboard_captured = c; }
+
+uint32_t press_id() { return g_press_id; }
+void set_press_id(uint32_t id) { g_press_id = id; }
 
 void begin_capture_frame() {
     g_pointer_over_ui = false;

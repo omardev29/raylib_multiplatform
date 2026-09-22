@@ -68,10 +68,33 @@ bool pointer_released();
 // frame.
 bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out);
 
+// Is the pointer over this element? OURS, from the per-pass snapshot above and
+// not from Clay_PointerOver(): Clay hit-tests against whatever tree it holds at
+// the time, so with two passes in a frame it answered each of them from the
+// other one's geometry and nothing in either scene could be hovered or clicked.
+//
+// False for a pass input cannot reach, so no widget has to remember that
+// either. `slop_y` grows the box up and down, for a slider's rail, which is
+// thinner than a finger.
+bool pointer_over(Clay_ElementId id);
+bool pointer_over(Clay_ElementId id, float slop_y);
+
+// A clipping container is open: everything declared inside it can only be
+// hovered where the container itself is. Paired, and reset per pass.
+void push_clip(Clay_ElementId id);
+void pop_clip();
+
+// This element is in FRONT of the rest of its pass and takes the pointer — an
+// open dropdown list. Recorded because a box test has no z-order of its own.
+void block_pointer(Clay_ElementId id);
+
 // A stable id derived from another one, for the parts a widget is made of —
 // a slider's track, say. Hashing a fixed suffix instead would give every
-// slider in the frame the same track.
+// slider in the frame the same track. sub_id() also records it in the pass, so
+// its box is remembered; peek_sub_id() is for ASKING about an element before it
+// is declared, where recording it early would put it in the wrong container.
 Clay_ElementId sub_id(Clay_ElementId base, uint32_t which);
+Clay_ElementId peek_sub_id(Clay_ElementId base, uint32_t which);
 
 // True on the platforms whose only pointer is a finger. There, hover has to be
 // suppressed when nothing is touching the screen, or the last place tapped
@@ -229,6 +252,16 @@ int nav_axis_x();
 // Someone is dragging, or the pointer is over something interactive. This is
 // what wants_pointer() answers with.
 void set_pointer_over_ui();
+
+// Which element a press started on, so a click is "released over the element it
+// was pressed on". It lives here rather than in widgets.cpp because it is
+// pointer state and has to outlive a PASS: end() used to clear it whenever the
+// pointer was not down, and a pass input cannot reach reports nothing as down —
+// so a HUD drawn under an open menu wiped the press before the menu's own pass
+// ran, and its buttons never fired. Cleared at the frame boundary instead, once
+// the pointer has been up for a whole frame.
+uint32_t press_id();
+void set_press_id(uint32_t id);
 
 // A drag belongs to ONE element. It used to be a plain bool, so a slider drawn
 // after the one being dragged cleared the capture for everybody and the click

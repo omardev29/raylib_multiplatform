@@ -355,6 +355,11 @@ void close_cell() {
 void open_scroll(const ScrollOptions &o) {
     if (!frame_open()) return;
     const Theme &t = current_theme();
+    // Named or not, a scroll area gets an id: hit testing has to know where the
+    // area is to decide whether what is inside it is on screen at all.
+    Clay_ElementId clip_id = o.id != nullptr
+        ? element_id(std::string_view{ o.id }, o.id)
+        : element_id(std::string_view{ "scroll" }, nullptr);
 
     Clay_ElementDeclaration d{};
     d.layout.sizing.width = axis(o.grow_x, o.width);
@@ -371,7 +376,15 @@ void open_scroll(const ScrollOptions &o) {
     d.clip.vertical = o.vertical;
     d.clip.childOffset = Clay_GetScrollOffset();
 
-    open_with_id(o.id, d);
+    Clay__OpenElementWithId(clip_id);
+    Clay__ConfigureOpenElement(d);
+    push_clip(clip_id);
+}
+
+void close_scroll() {
+    if (!frame_open()) return;
+    pop_clip();
+    Clay__CloseElement();
 }
 
 void close_element() {

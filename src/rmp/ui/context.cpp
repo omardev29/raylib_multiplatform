@@ -112,16 +112,49 @@ constexpr uint32_t kIndicesPerPass = 4096;
 constexpr int kMaxBounds = 512;
 struct BoundsEntry {
     uint32_t id;
+    // The innermost container this element was declared inside that owns what
+    // the pointer does there: a scroll area, or an open dropdown list. 0 for
+    // most elements. Hit testing needs it twice over -- a row scrolled out of a
+    // list still has a box, it is just outside the list and the pointer would
+    // find it there; and an element is only exempt from what is in front of it
+    // when it belongs to it.
+    uint32_t clip;
     Clay_BoundingBox box;
 };
 BoundsEntry g_bounds[2][kMaxBounds];
 int g_bounds_count[2] = { 0, 0 };
 int g_bounds_front = 0; // the one this frame writes; the other is last frame's
 
+// Elements that are IN FRONT and take the pointer — an open dropdown list, and
+// so far nothing else. Hit testing is a box test against a snapshot, which
+// knows no z-order and no parentage, so the one case that matters is recorded
+// explicitly: while the pointer is inside one of these, only what is inside it
+// can be over. Per pass, and double-buffered with the geometry because a
+// blocker declared this frame can only be known to the next one.
+constexpr int kMaxBlockers = 4;
+struct Blocker {
+    int pass;
+    uint32_t id;
+};
+Blocker g_blockers[2][kMaxBlockers];
+int g_blocker_count[2] = { 0, 0 };
+
 // The ids handed out during the pass being described, so that capture_pass_
 // bounds() knows what to ask Clay about when the pass closes. Cleared per pass.
-uint32_t g_pass_ids[kMaxBounds];
+struct PassId {
+    uint32_t id;
+    uint32_t clip;
+};
+PassId g_pass_ids[kMaxBounds];
 int g_pass_id_count = 0;
+
+// The clipping containers open right now, innermost last. Pushed by
+// open_scroll() and popped by close_scroll(); reset per pass so an imbalance
+// cannot leak into the next one.
+constexpr int kMaxClipDepth = 8;
+uint32_t g_clips[kMaxClipDepth];
+int g_clip_depth = 0;
+int g_clip_overflow = 0; // pushed past the limit, so the pops still pair up
 
 MeasureFn g_measure = measure_with_raylib;
 PointerFn g_pointer = pointer_from_raylib;
@@ -366,7 +399,9 @@ namespace {
 // only consequence is that one element forgets how big it was last frame, and
 // capture_pass_bounds() is where that gets said out loud, once.
 void remember_id(uint32_t id) {
-    if (g_pass_id_count < kMaxBounds) g_pass_ids[g_pass_id_count++] = id;
+    if (g_pass_id_count >= kMaxBounds) return;
+    const uint32_t clip = g_clip_depth > 0 ? g_clips[g_clip_depth - 1] : 0u;
+    g_pass_ids[g_pass_id_count++] = PassId{ id, clip };
 }
 } // namespace
 
@@ -375,6 +410,8 @@ void reset_id_counters() {
     g_label_overflow = 0;
     g_layer_z = 0;
     g_pass_id_count = 0;
+    g_clip_depth = 0;
+    g_clip_overflow = 0;
 }
 
 bool frame_marked() { return g_frame_marked; }
@@ -405,11 +442,41 @@ void capture_pass_bounds() {
             return;
         }
         Clay_ElementId key{};
-        key.id = g_pass_ids[i];
+        key.id = g_pass_ids[i].id;
         Clay_ElementData d = Clay_GetElementData(key);
         if (!d.found) continue;
-        g_bounds[g_bounds_front][count++] = BoundsEntry{ g_pass_ids[i], d.boundingBox };
+        g_bounds[g_bounds_front][count++] =
+            BoundsEntry{ g_pass_ids[i].id, g_pass_ids[i].clip, d.boundingBox };
     }
+}
+
+// --- clipping and occlusion, declared by the containers -------------------
+
+void push_clip(Clay_ElementId id) {
+    // Paired even when it overflows, the way the grid stack learned to be: a
+    // push that does not happen must not be followed by a pop that does.
+    if (g_clip_depth < kMaxClipDepth) {
+        g_clips[g_clip_depth++] = id.id;
+    } else {
+        g_clip_overflow++;
+        RMP_REPORT_ONCE("UI: scroll areas nested more than %d deep; the ones past that "
+                        "do not clip what can be clicked inside them",
+                        kMaxClipDepth);
+    }
+}
+
+void pop_clip() {
+    if (g_clip_overflow > 0) {
+        g_clip_overflow--;
+    } else if (g_clip_depth > 0) {
+        g_clip_depth--;
+    }
+}
+
+void block_pointer(Clay_ElementId id) {
+    int &count = g_blocker_count[g_bounds_front];
+    if (count >= kMaxBlockers) return; // four open dropdowns is already absurd
+    g_blockers[g_bounds_front][count++] = Blocker{ current_pass(), id.id };
 }
 
 } // namespace detail
@@ -427,13 +494,6 @@ namespace detail {
 // nobody else gets to open another. Preparing is not, because the UI may not
 // exist yet — see prepare_frame().
 void begin_frame() {
-    // Nobody drew any UI last frame, so the UI wants neither the pointer nor
-    // the keyboard. It is said here because otherwise there is nothing to say
-    // it: the flags are cleared by the first begin() of a frame, and a pause
-    // menu popping while the pointer sits over one of its buttons means there
-    // is no next begin() at all — and the game's mouse would stay dead.
-    if (g_pass < 0) begin_capture_frame();
-
     g_frame_marked = true;
     g_pass = -1;
     g_pass_input = true;
@@ -453,6 +513,7 @@ void prepare_frame() {
     // Swap the geometry buffers: what this frame writes, the next one reads.
     g_bounds_front = 1 - g_bounds_front;
     g_bounds_count[g_bounds_front] = 0;
+    g_blocker_count[g_bounds_front] = 0;
 
     reset_frame_arena();
     update_scale();
@@ -482,6 +543,12 @@ void prepare_frame() {
 void end_frame() {
     if (!g_frame_marked) return;
     if (g_frame_prepared) end_focus_frame();
+    // The UI drew nothing this frame, so it wants neither the pointer nor the
+    // keyboard. It is said here because otherwise there is nothing to say it:
+    // the flags are cleared by the FIRST begin() of a frame, and a pause menu
+    // popping while the pointer sits over one of its buttons means there is no
+    // next begin() at all — and the game's mouse would stay dead.
+    if (g_pass < 0) begin_capture_frame();
     g_frame_marked = false;
     g_frame_self_marked = false;
     g_frame_prepared = false;
@@ -598,13 +665,21 @@ void set_measure_provider(MeasureFn fn) {
     if (g_started) Clay_SetMeasureTextFunction(g_measure, nullptr);
 }
 
+// Both of these throw away what the UI thinks about the pointer, and they have
+// to: wants_pointer() answers from a position and a geometry that have just
+// been replaced by somebody else's. Without it a test that leaves the pointer
+// over a button hands the NEXT test a UI that still believes the pointer is
+// its -- which is how a click on an rmp::Object in a completely unrelated suite
+// came back consumed.
 void set_pointer_provider(PointerFn fn) {
     g_pointer = (fn != nullptr) ? fn : pointer_from_raylib;
+    begin_capture_frame();
 }
 
 void set_test_viewport(float width, float height) {
     g_test_width = width;
     g_test_height = height;
+    begin_capture_frame();
 }
 
 bool test_mode() { return g_test_width > 0.0f && g_test_height > 0.0f; }
@@ -662,28 +737,119 @@ bool pointer_just_pressed() {
 }
 bool pointer_released() { return g_pass_input && !g_pointer_down && g_pointer_was_down; }
 
-bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out) {
-    // The BACK buffer: what the last frame measured. The front one is being
-    // filled by the frame we are inside, and half of it does not exist yet.
+namespace {
+// The BACK buffer: what the last frame measured. The front one is being filled
+// by the frame we are inside, and half of it does not exist yet.
+const BoundsEntry *entry_of(uint32_t id) {
     const int back = 1 - g_bounds_front;
     for (int i = 0; i < g_bounds_count[back]; i++) {
-        if (g_bounds[back][i].id != id.id) continue;
-        if (out != nullptr) *out = g_bounds[back][i].box;
-        return true;
+        if (g_bounds[back][i].id == id) return &g_bounds[back][i];
+    }
+    return nullptr;
+}
+
+bool inside_box(Clay_Vector2 p, const Clay_BoundingBox &b) {
+    return p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
+}
+
+// Is `ancestor` one of the containers this element was declared inside? The
+// chain of them is what the snapshot keeps instead of the tree, and it answers
+// exactly where a box test cannot: a dropdown's own items stick two pixels out
+// of the list they live in, so "inside its box" would say they are not its.
+bool descends_from(const BoundsEntry *e, uint32_t ancestor) {
+    uint32_t clip = e->clip;
+    for (int depth = 0; clip != 0 && depth <= kMaxClipDepth; depth++) {
+        if (clip == ancestor) return true;
+        const BoundsEntry *c = entry_of(clip);
+        if (c == nullptr) return false;
+        clip = c->clip;
     }
     return false;
 }
+} // namespace
 
-Clay_ElementId sub_id(Clay_ElementId base, uint32_t which) {
+bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out) {
+    const BoundsEntry *e = entry_of(id.id);
+    if (e == nullptr) return false;
+    if (out != nullptr) *out = e->box;
+    return true;
+}
+
+// Hit testing, OURS. It used to be Clay_PointerOver(), and that could not work
+// with more than one pass: Clay_SetPointerState() runs against whatever tree is
+// in Clay at the time, and begin() called it before Clay_BeginLayout — so pass 0
+// was tested against last frame's pass 1 and pass 1 against this frame's pass 0.
+// Neither pass ever met its own geometry, so with a pause menu over a HUD
+// nothing in either scene could be hovered or clicked.
+//
+// This reads the per-pass snapshot instead, which is the same one-frame-old
+// geometry every other interaction here uses, and it is per pass by
+// construction. What the box test does not get for free is what Clay's tree
+// walk gave us, so the two that matter are kept explicitly: the clipping
+// ancestor an element was declared in, and anything declared in front of it.
+bool pointer_over(Clay_ElementId id) { return pointer_over(id, 0.0f); }
+
+bool pointer_over(Clay_ElementId id, float slop_y) {
+    // The gate for a pass input cannot reach lives in pointer_present(), so no
+    // widget has to remember it.
+    if (!pointer_present()) return false;
+
+    const BoundsEntry *e = entry_of(id.id);
+    if (e == nullptr) return false;
+    // An element with no area is not on screen, so nothing can be over it. It
+    // is not a hypothetical: a headless frame has a viewport of 0x0, every box
+    // in it is 0x0 at the origin, and a pointer resting at the origin is inside
+    // every single one of them.
+    if (e->box.width <= 0.0f || e->box.height <= 0.0f) return false;
+
+    const Clay_Vector2 p = pointer_position();
+    Clay_BoundingBox box = e->box;
+    box.y -= slop_y;
+    box.height += slop_y * 2.0f;
+    if (!inside_box(p, box)) return false;
+
+    // Clipped out of the container it lives in: on screen it is not there at
+    // all, and the box it remembers is wherever it was pushed to. The innermost
+    // one only — a floating list escapes the clipping of whatever it was
+    // declared inside, so walking the whole chain would stop the items of a
+    // dropdown that lives in a scroll area from being clickable.
+    if (e->clip != 0) {
+        const BoundsEntry *clip = entry_of(e->clip);
+        if (clip != nullptr && !inside_box(p, clip->box)) return false;
+    }
+
+    // Something in front of it has the pointer.
+    const int back = 1 - g_bounds_front;
+    for (int i = 0; i < g_blocker_count[back]; i++) {
+        const Blocker &b = g_blockers[back][i];
+        if (b.pass != current_pass() || b.id == id.id) continue;
+        const BoundsEntry *front = entry_of(b.id);
+        if (front == nullptr || !inside_box(p, front->box)) continue;
+        if (!descends_from(e, b.id)) return false;
+    }
+    return true;
+}
+
+Clay_ElementId peek_sub_id(Clay_ElementId base, uint32_t which) {
     Clay_ElementId out = base;
     // Knuth's multiplicative constant: cheap, and it scatters the derived ids
     // far enough from the originals that a collision would be bad luck rather
     // than a pattern.
     out.id = base.id ^ ((which + 1) * 2654435761u);
+    return out;
+}
+
+Clay_ElementId sub_id(Clay_ElementId base, uint32_t which) {
+    Clay_ElementId out = peek_sub_id(base, which);
     // Remembered like any other id. A slider's rail is derived here rather than
     // through element_id(), and forgetting to record it is what made the rail
     // have no box to aim at the first time this snapshot existed — the layout
     // test caught it, which is exactly what it is for.
+    //
+    // Which is why the version that does NOT remember exists: an id ASKED about
+    // before the element is declared -- a dropdown checking whether the pointer
+    // is over one of its items -- would otherwise be recorded first, outside the
+    // list it belongs to, and the record of the declaration would lose to it.
     remember_id(out.id);
     return out;
 }
