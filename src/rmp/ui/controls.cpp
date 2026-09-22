@@ -61,6 +61,10 @@ void label_text(std::string_view s, Color c, float size) {
 
 // The row every one of these controls sits in: label on the left, the control
 // itself on the right, the whole thing focusable as one unit.
+// The sub-id of a dropdown's open list. Far away from the items, which take 1
+// to count: a list of nine things would otherwise collide with it.
+constexpr uint32_t kMenuSub = 0x10000u;
+
 Clay_ElementDeclaration control_row(bool has_focus) {
     const Theme &t = current_theme();
     Clay_ElementDeclaration d{};
@@ -95,7 +99,7 @@ bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
     const Theme &t = current_theme();
 
     Clay_ElementId id = detail::element_id(label, o.id);
-    const bool over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    const bool over = o.enabled && detail::pointer_over(id);
     if (over) detail::set_pointer_over_ui();
 
     const bool has_focus = o.enabled && detail::focusable(id, label);
@@ -124,7 +128,7 @@ bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
         // The fill follows the value rather than the pointer, so ticking a box
         // reads as the box filling in instead of swapping colour between two
         // frames. Its own sub-id, so it does not share a slot with the row.
-        const float on = detail::anim_value(detail::sub_id(id, 7), 0, *value);
+        const float on = detail::anim_value(detail::peek_sub_id(id, 7), 0, *value);
         box.backgroundColor = to_clay(
             !o.enabled ? t.disabled : detail::mix_color(t.surface, t.primary, on));
         float r = px(t.corner_radius * 0.5f);
@@ -182,10 +186,11 @@ bool slider(std::string_view label, float *value, float min, float max,
     Clay_BoundingBox box{};
     const bool have_box = detail::bounds_of_id(track_id, &box);
 
-    if (o.enabled && have_box && detail::pointer_present()) {
+    if (o.enabled && have_box) {
         Clay_Vector2 p = detail::pointer_position();
-        const bool inside = p.x >= box.x && p.x <= box.x + box.width &&
-            p.y >= box.y - px(8) && p.y <= box.y + box.height + px(8);
+        // The rail is thinner than a finger, so the box it is hit-tested
+        // against is taller than the rail.
+        const bool inside = detail::pointer_over(track_id, px(8));
         if (inside) detail::set_pointer_over_ui();
         if (inside && detail::pointer_just_pressed()) st->flag = true;
         if (!detail::pointer_down()) st->flag = false;
@@ -320,7 +325,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     Clay_ElementId id = detail::element_id(label, o.id);
     detail::WidgetState *st = detail::state_for(id.id);
 
-    const bool over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    const bool over = o.enabled && detail::pointer_over(id);
     if (over) detail::set_pointer_over_ui();
     const bool has_focus = o.enabled && detail::focusable(id, label);
 
@@ -331,7 +336,8 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     bool over_any_item = false;
     if (st->flag && detail::pointer_present()) {
         for (int i = 0; i < count; i++) {
-            if (Clay_PointerOver(detail::sub_id(id, static_cast<uint32_t>(i) + 1))) {
+            if (detail::pointer_over(
+                    detail::peek_sub_id(id, static_cast<uint32_t>(i) + 1))) {
                 over_any_item = true;
                 break;
             }
@@ -365,7 +371,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
         field.layout.childAlignment =
             Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
         field.backgroundColor = to_clay(
-            detail::state_color(detail::sub_id(id, 8), t.surface, t.surface_hover,
+            detail::state_color(detail::peek_sub_id(id, 8), t.surface, t.surface_hover,
                                 t.surface_press, over, over && detail::pointer_down()));
         float r = px(t.corner_radius);
         field.cornerRadius = Clay_CornerRadius{ r, r, r, r };
@@ -380,6 +386,13 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
             // rather than shoving it down the screen, which is the one thing a
             // dropdown must not do.
             if (st->flag) {
+                // The open list is in front of everything else in this pass and
+                // it takes the pointer, which a box test cannot work out on its
+                // own — so it says so. Without it a click meant for the list
+                // would also press whatever is behind it.
+                Clay_ElementId menu_id = detail::sub_id(id, kMenuSub);
+                detail::block_pointer(menu_id);
+
                 Clay_ElementDeclaration menu{};
                 menu.layout.sizing.width = grow();
                 menu.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
@@ -395,13 +408,15 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                 menu.border.color = to_clay(t.border);
                 menu.border.width = Clay_BorderWidth{ bw, bw, bw, bw, 0 };
 
-                Clay__OpenElement();
+                Clay__OpenElementWithId(menu_id);
                 Clay__ConfigureOpenElement(menu);
+                // Everything in the list belongs to the list, which is what
+                // makes the items themselves exempt from the block above.
+                detail::push_clip(menu_id);
                 for (int i = 0; i < count; i++) {
                     Clay_ElementId item_id =
                         detail::sub_id(id, static_cast<uint32_t>(i) + 1);
-                    const bool item_over =
-                        detail::pointer_present() && Clay_PointerOver(item_id);
+                    const bool item_over = detail::pointer_over(item_id);
                     if (item_over) detail::set_pointer_over_ui();
                     // An open list is in front of the game, so it takes the
                     // pointer whether or not this particular item is under it.
@@ -429,6 +444,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                     label_text(std::string_view{ items[i] }, t.text, t.font_size);
                     Clay__CloseElement();
                 }
+                detail::pop_clip();
                 Clay__CloseElement();
             }
         }
@@ -453,7 +469,7 @@ bool text_input(std::string_view label, char *buffer, int capacity,
     const Theme &t = current_theme();
 
     Clay_ElementId id = detail::element_id(label, o.id);
-    const bool over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    const bool over = o.enabled && detail::pointer_over(id);
     if (over) detail::set_pointer_over_ui();
 
     const bool has_focus = o.enabled && detail::focusable(id, label);

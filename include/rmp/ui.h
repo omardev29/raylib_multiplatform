@@ -499,12 +499,19 @@ void close_grid();
 void open_cell();
 void close_cell();
 void open_scroll(const ScrollOptions &o);
+void close_scroll();
 
 struct GridCloser {
     ~GridCloser() { close_grid(); }
 };
 struct CellCloser {
     ~CellCloser() { close_cell(); }
+};
+// A scroll area closes like any other container AND stops clipping, and the
+// second half is why it needs a closer of its own: what is inside one can only
+// be clicked where the area itself is.
+struct ScrollCloser {
+    ~ScrollCloser() { close_scroll(); }
 };
 } // namespace detail
 
@@ -543,7 +550,7 @@ template <class Body> void grid(Body &&body) {
 // with a finger — the same gesture on a phone.
 template <class Body> void scroll(const ScrollOptions &o, Body &&body) {
     detail::open_scroll(o);
-    detail::Closer close;
+    detail::ScrollCloser close;
     body();
 }
 template <class Body> void scroll(Body &&body) {

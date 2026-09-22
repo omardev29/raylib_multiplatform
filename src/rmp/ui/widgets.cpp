@@ -87,12 +87,6 @@ Clay_ChildAlignment alignment_of(Align a) {
     return Clay_ChildAlignment{ x, y };
 }
 
-// Which element the press started on, so a click is "released over the element
-// it was pressed on" rather than "the button happens to be down". The pointer
-// state itself is sampled once per frame in context.cpp, so every widget in the
-// frame sees the same thing.
-uint32_t g_pressed_id = 0;
-
 Clay_Padding uniform_padding(float p) {
     auto v = static_cast<uint16_t>(p);
     return Clay_Padding{ v, v, v, v };
@@ -133,15 +127,6 @@ void begin(const FrameOptions &o) {
     detail::begin_pass();
 
     const Theme &t = current_theme();
-
-    // The pointer was sampled once at the frame boundary; this hands the same
-    // answer to Clay for each pass. A pass that input cannot reach is given a
-    // position no element can contain, which is what stops a HUD under a pause
-    // menu from lighting up under the cursor.
-    const bool reachable = detail::pass_input();
-    const Clay_Vector2 pointer =
-        reachable ? detail::pointer_position() : Clay_Vector2{ -1.0e6f, -1.0e6f };
-    Clay_SetPointerState(pointer, reachable && detail::pointer_down());
 
     Clay_BeginLayout();
 
@@ -189,6 +174,22 @@ void end() {
 
     Clay_RenderCommandArray commands = Clay_EndLayout(detail::frame_time());
 
+    // AFTER the layout, not before it. Clay hit-tests against the tree it holds
+    // at the time, and this is the only moment it holds THIS pass's: called
+    // from begin() it tested pass 0 against last frame's pass 1 and pass 1
+    // against this frame's pass 0, which is how a pause menu over a HUD ended
+    // up with nothing clickable in either scene.
+    //
+    // Our own widgets no longer read it -- detail::pointer_over() answers them
+    // from the snapshot below -- but Clay still needs it for the one thing it
+    // owns: which scroll container the wheel and a drag belong to. A pass that
+    // input cannot reach is given a position no element can contain, so a HUD
+    // under an open menu cannot be scrolled either.
+    const bool reachable = detail::pass_input();
+    Clay_SetPointerState(reachable ? detail::pointer_position()
+                                   : Clay_Vector2{ -1.0e6f, -1.0e6f },
+                         reachable && detail::pointer_down());
+
     // Now that the layout exists, remember where everything landed. The next
     // frame's matching pass reads it — see bounds_of_id().
     detail::capture_pass_bounds();
@@ -196,8 +197,6 @@ void end() {
     // In test mode there is no GL context to draw into; the layout is the
     // whole point and it has already happened.
     if (!detail::test_mode()) detail::draw(commands);
-
-    if (!detail::pointer_down()) g_pressed_id = 0;
 
     // Only when there was no app to mark it. With one, the boundary closes
     // after the last scene has drawn, not after the first.
@@ -216,18 +215,18 @@ bool button(std::string_view label, const ButtonOptions &o) {
     const Theme &t = current_theme();
     Clay_ElementId id = detail::element_id(label, o.id);
 
-    // Hit-testing uses the geometry this element had LAST frame — Clay has not
-    // laid out this one yet. It is inherent to immediate mode: the first frame
+    // Hit-testing uses the geometry this element had LAST frame — this one has
+    // not been laid out yet. It is inherent to immediate mode: the first frame
     // a button exists it cannot be clicked, which is 16 ms at 60 fps.
-    const bool over = o.enabled && detail::pointer_present() && Clay_PointerOver(id);
+    const bool over = o.enabled && detail::pointer_over(id);
     const bool pressed = over && detail::pointer_down();
 
     if (over) detail::set_pointer_over_ui();
-    if (over && detail::pointer_just_pressed()) g_pressed_id = id.id;
+    if (over && detail::pointer_just_pressed()) detail::set_press_id(id.id);
 
     // Released over the same element it was pressed on. Drag off and let go and
     // nothing happens, which is what every interface worth using does.
-    bool clicked = over && detail::pointer_released() && g_pressed_id == id.id;
+    bool clicked = over && detail::pointer_released() && detail::press_id() == id.id;
 
     // Keyboard and gamepad get here without the widget knowing how: it declares
     // itself focusable and asks whether it is the one.

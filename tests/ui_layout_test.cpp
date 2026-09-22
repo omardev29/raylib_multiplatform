@@ -690,8 +690,14 @@ void run_two_sliders() {
 
     // Let go with the menu gone, which is Escape closing a settings scene
     // mid-drag. The capture must not outlive the drag.
+    //
+    // Two frames, and the second one is the point: the capture is held through
+    // the frame the release happens in, because that frame is what a click is
+    // made of, and it is let go at the boundary after it. One frame either way
+    // is the same tolerance every other interaction here has.
     g_down = false;
     sliders_on_screen = false;
+    frame();
     frame();
     check(!rmp::ui::wants_pointer(),
           "releasing gives the pointer back even if the slider is never drawn again");
@@ -895,29 +901,15 @@ void run_two_passes() {
     check(remembered && low_box.y != high_box.y,
           "the per-pass snapshot remembers both, in the two places they were drawn");
 
-    // Hit testing, and what it CANNOT do today. Clay_SetPointerState walks the
-    // tree that is in Clay right now, and begin() calls it before
-    // Clay_BeginLayout — so with one pass per frame it answers from that pass's
-    // own previous layout, which is right, and with two passes it answers pass
-    // 1 from pass 0's tree and pass 0 from last frame's pass 1. Neither pass can
-    // hover or click anything, and the probe below is the proof: the pointer is
-    // inside the box and Clay says it is not over the element.
-    //
-    // It is NOT fixed here — hover would have to come from our own per-pass
-    // snapshot in every widget, which is a bigger change than this one — and it
-    // is recorded rather than asserted, because the day it is fixed this reads
-    // as a test that has to be deleted rather than a behaviour to keep.
+    // The pass on top is clickable. It was not, until hit testing stopped going
+    // through Clay: see run_two_pass_clicks() below for the whole of that.
     g_pointer =
         Clay_Vector2{ high_box.x + high_box.width / 2, high_box.y + high_box.height / 2 };
     g_down = true;
     frame(false);
     g_down = false;
     frame(false);
-    if (menu_clicks == 0) {
-        std::printf(
-            "note  hit testing does not work with two passes (see the comment above): "
-            "the pointer was inside the button and Clay did not see it\n");
-    }
+    check(menu_clicks == 1, "the pass on top is clickable");
 
     // What IS gated, and where: the pointer state every widget reads is turned
     // off for a pass input cannot reach, so nothing in the HUD under an open
@@ -960,6 +952,270 @@ void run_image_lifetime() {
           "and the copy still reads right once the caller's texture is gone");
 }
 
+// ---------------------------------------------------------------------------
+// Hit testing with a scene stack
+//
+// A pause menu over a HUD is the flagship of the scene stack and it is what
+// examples/scenes/01_stack shows, so "nothing in either scene can be clicked"
+// is about as bad as a UI bug gets. Two causes, and both are here:
+//
+//   Clay_SetPointerState() ran before Clay_BeginLayout(), so it answered pass 0
+//   from last frame's pass 1 and pass 1 from this frame's pass 0 — never from
+//   the pass's own geometry.
+//
+//   end() cleared the press capture whenever the pointer was not down, and a
+//   pass input cannot reach reports nothing as down. The HUD underneath wiped
+//   the press the moment the player let go, so the menu's button never fired.
+// ---------------------------------------------------------------------------
+
+void run_two_pass_clicks() {
+    std::printf("\n--- two passes: hover and click ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    int hud_clicks = 0;
+    int menu_clicks = 0;
+    bool hud_reachable = false;
+
+    // Exactly the shape rmp::app draws a stack in: one frame boundary, the
+    // scene underneath first with its own input_below, the one on top second.
+    auto frame = [&] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::set_pass_input(hud_reachable);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        if (rmp::ui::button("Hud")) hud_clicks++;
+        rmp::ui::end();
+        rmp::ui::detail::set_pass_input(true);
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
+        if (rmp::ui::button("Menu")) menu_clicks++;
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+
+    auto click_at = [&](Clay_BoundingBox box) {
+        g_pointer = Clay_Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
+        g_down = true;
+        frame();
+        g_down = false;
+        frame();
+    };
+
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+    frame();
+
+    Clay_BoundingBox hud{};
+    Clay_BoundingBox menu{};
+    const bool laid_out = rmp::ui::detail::bounds_of_id(
+                              rmp::ui::detail::peek_element_id("Hud", 0, 0), &hud) &&
+        rmp::ui::detail::bounds_of_id(rmp::ui::detail::peek_element_id("Menu", 0, 1),
+                                      &menu);
+    check(laid_out && hud.width > 0 && menu.width > 0, "both passes laid out");
+
+    // Hover answers on the first frame after the geometry exists, which is the
+    // whole immediate-mode contract: one frame of lag and not two.
+    g_pointer = Clay_Vector2{ menu.x + menu.width / 2, menu.y + menu.height / 2 };
+    frame();
+    check(rmp::ui::wants_pointer(), "the menu on top is hovered on the very next frame");
+
+    // The menu is clickable with a HUD under it that input cannot reach. This
+    // is the one that was broken twice over.
+    click_at(menu);
+    check(menu_clicks == 1, "pressing the menu's button clicks it");
+    check(hud_clicks == 0, "and the HUD under it stays out of it");
+
+    // The HUD is not hoverable while the menu owns the input.
+    g_pointer = Clay_Vector2{ hud.x + hud.width / 2, hud.y + hud.height / 2 };
+    frame();
+    check(!rmp::ui::wants_pointer(), "a pass input cannot reach is not hovered");
+    click_at(hud);
+    check(hud_clicks == 0, "nor clicked");
+
+    // input_below = true: now the scene underneath takes its own clicks, and
+    // the pointer is nowhere near the menu.
+    hud_reachable = true;
+    frame();
+    click_at(hud);
+    check(hud_clicks == 1, "with input_below the scene underneath clicks too");
+    check(menu_clicks == 1, "and the click does not also reach the scene above");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// A frame in which no scene draws any UI. There is no begin() to clear the
+// capture flags, so the frame boundary has to - otherwise a pause menu popping
+// while the pointer sits over one of its buttons leaves the game's mouse dead
+// for good.
+void run_idle_frame() {
+    std::printf("\n--- a frame with no UI at all ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    auto frame = [] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::begin();
+        rmp::ui::button("Pause");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+    frame();
+
+    Box pause = box_of("Pause");
+    g_pointer = Clay_Vector2{ pause.x + pause.w / 2, pause.y + pause.h / 2 };
+    frame();
+    check(rmp::ui::wants_pointer(), "the pointer is over the menu");
+
+    // The scene pops: the boundary still runs, nothing draws.
+    rmp::ui::detail::begin_frame();
+    rmp::ui::detail::end_frame();
+    check(!rmp::ui::wants_pointer(),
+          "and one frame with nothing drawn gives it straight back");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// An element with no area cannot be under the pointer. A headless frame has a
+// viewport of 0x0 and every box in it is 0x0 at the origin, so a pointer resting
+// at the origin is inside all of them at once — and on a real machine a
+// minimised window reports the same 0x0.
+void run_zero_area() {
+    std::printf("\n--- an element with no area ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    auto frame = [] {
+        rmp::ui::begin();
+        rmp::ui::panel({ .box = { .padding = 0, .id = "empty" } }, [] {});
+        rmp::ui::button("Solid");
+        rmp::ui::end();
+    };
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+    frame();
+
+    Box empty = box_of("empty");
+    check(empty.w == 0 && empty.h == 0, "an empty panel with no padding has no area");
+
+    // Exactly on it. The box test alone would say yes — the corner of a zero
+    // box contains the corner of itself — so this is the rule and nothing else.
+    g_pointer = Clay_Vector2{ empty.x, empty.y };
+    frame();
+    check(!rmp::ui::detail::pointer_over(rmp::ui::detail::peek_element_id("empty", 0, 0)),
+          "nothing is ever over it, not even the point it sits on");
+    check(!rmp::ui::wants_pointer(), "and the UI does not claim the pointer for it");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// An open dropdown is in front of whatever it covers. Hit testing is ours now,
+// and a box test on its own would let a click go straight through the list into
+// the control underneath.
+void run_dropdown_occlusion() {
+    std::printf("\n--- an open list covers what is under it ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    static const char *items[] = { "Off", "Low", "High" };
+    int quality = 0;
+    int clicks = 0;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::panel([&] {
+            rmp::ui::dropdown("Quality", &quality, items, 3);
+            if (rmp::ui::button("Underneath")) clicks++;
+        });
+        rmp::ui::end();
+    };
+
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+    frame();
+
+    // Open the list.
+    Box field = box_of("Quality");
+    g_pointer = Clay_Vector2{ field.x + field.w * 0.8f, field.y + field.h / 2 };
+    g_down = true;
+    frame();
+    g_down = false;
+    frame();
+    frame();
+
+    Box under = box_of("Underneath");
+    Clay_BoundingBox item{};
+    const bool have_item = rmp::ui::detail::bounds_of_id(
+        rmp::ui::detail::sub_id(rmp::ui::detail::peek_element_id("Quality", 0, 0), 2),
+        &item);
+    check(have_item, "the open list laid its items out");
+
+    // The list hangs over the button below it. Aim where they overlap.
+    const bool overlaps = item.y < under.y + under.h && item.y + item.height > under.y;
+    check(overlaps, "and it hangs over the button underneath");
+
+    g_pointer = Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
+    g_down = true;
+    frame();
+    g_down = false;
+    frame();
+    check(clicks == 0, "clicking the list does not press the button behind it");
+    check(quality == 1, "it picks the item, which is what was under the pointer");
+}
+
+// A scroll container clips what is inside it. An item scrolled out of view is
+// not on screen, so it must not be clickable either — the box it remembers is
+// outside the container, which is precisely where the pointer must not find it.
+void run_scroll_clip() {
+    std::printf("\n--- a clipped list is not clickable outside its box ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    int clicks = 0;
+    auto frame = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::scroll({ .height = 80, .id = "list" }, [&] {
+            for (int i = 0; i < 8; i++) {
+                if (rmp::ui::button(TextFormat("row%d", i))) clicks++;
+            }
+        });
+        rmp::ui::end();
+    };
+
+    g_pointer = Clay_Vector2{ -1, -1 };
+    g_down = false;
+    frame();
+    frame();
+
+    Box list = box_of("list");
+    Box last = box_of("row7");
+    check(list.h > 0 && last.h > 0, "the list and its last row both laid out");
+    check(last.y > list.y + list.h, "the last row sits below the bottom of the list");
+
+    g_pointer = Clay_Vector2{ last.x + last.w / 2, last.y + last.h / 2 };
+    g_down = true;
+    frame();
+    g_down = false;
+    frame();
+    check(clicks == 0, "a row clipped out of the list cannot be clicked");
+    check(!rmp::ui::wants_pointer(), "and the UI does not claim the pointer for it");
+
+    // The row that IS inside the box still works, or the check above would pass
+    // for the wrong reason.
+    Box first = box_of("row0");
+    g_pointer = Clay_Vector2{ first.x + first.w / 2, first.y + first.h / 2 };
+    g_down = true;
+    frame();
+    g_down = false;
+    frame();
+    check(clicks == 1, "and a row inside it still is");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
 } // namespace
 
 int main() {
@@ -988,6 +1244,11 @@ int main() {
     run_label_overflow();
     run_nested_grids();
     run_two_passes();
+    run_two_pass_clicks();
+    run_idle_frame();
+    run_zero_area();
+    run_dropdown_occlusion();
+    run_scroll_clip();
     run_image_lifetime();
     run_sizes();
     run_themes();
