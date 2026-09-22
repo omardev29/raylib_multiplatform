@@ -7,7 +7,7 @@
 //
 // Clay is C99 with an explicit C++20 path (it swaps compound literals for
 // aggregate initialisation under __cplusplus), so this compiles as C++ on all
-// fourteen targets, MSVC included.
+// seventeen targets, MSVC included.
 // ===========================================================================
 
 #define CLAY_IMPLEMENTATION

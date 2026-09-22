@@ -99,7 +99,7 @@ jobs:
           # the raylib-build-image repo. Pinned by DIGEST, never by tag: a tag
           # can be moved, so `:latest` would let an unrelated rebuild silently
           # change what every Linux job compiles with.
-          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:698fefd0742ce0daef850536e84c465bbb59cc689b2d6643670a877af624ca60'
+          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:b31cd48c4f0dcb024c83e0b76f19a18810385410f1c8b2484f6bb6c3c051121f'
           OVERRIDE: ${{ inputs.image_digest }}
           # Through the environment and never interpolated into the script: this
           # one is a free-text box on a web page, and `${{ }}` inside a `run:`
@@ -250,6 +250,19 @@ jobs:
       # somebody an undefined macro in a file that looks like every other file.
       - name: Every public header stands alone
         run: bash tools/header_check.sh
+
+      # What each public header costs to include, in preprocessed lines against
+      # the budget written inside this same image. <memory> was allowed into
+      # the headers on purpose and measured; a header that quietly starts
+      # pulling <functional> or <regex> into every game is what this catches.
+      - name: No public header grew past its budget
+        run: bash tools/header_cost_check.sh
+
+      # No owning raw pointer under include/rmp/ or src/rmp/: new, delete,
+      # malloc and free are allowed in exactly two files, both speaking
+      # raylib's C loader contract, and the list only shrinks.
+      - name: The framework owns nothing by hand
+        run: bash tools/ownership_check.sh
 
       # The Linux jobs have GNU everything, so they are exactly the wrong place
       # to notice that a script only works with GNU everything. `mapfile` was in

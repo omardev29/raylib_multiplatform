@@ -266,7 +266,7 @@ void sample_with_raylib(DeviceState *out) {
         out->axes[axis] = pad ? GetGamepadAxisMovement(0, axis) : 0.0f;
     }
     // Touch and mouse are the same pointer, which is what lets the same code
-    // work on all fourteen targets with no #ifdef. raylib already maps the
+    // work on all seventeen targets with no #ifdef. raylib already maps the
     // first touch onto the mouse, so this is one call and not two.
     out->pointer = GetMousePosition();
 }

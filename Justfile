@@ -231,6 +231,14 @@ test what="all": (_reconfigure "Debug")
         echo "== portable =="
         bash tools/portable_check.sh
     }
+    run_ownership() {
+        echo "== ownership =="
+        bash tools/ownership_check.sh
+    }
+    run_header_cost() {
+        echo "== header cost =="
+        bash tools/header_cost_check.sh
+    }
     run_shell() {
         echo "== shell =="
         bash tools/shell_pattern_check.sh
@@ -253,7 +261,7 @@ test what="all": (_reconfigure "Debug")
         python3 -m unittest discover -s tests -p 'configure_test.py' 2>&1 | tail -3
     }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_repo; run_seam; run_workflows; run_portable; run_shell; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
+        all)      just fmt check; run_config; run_repo; run_seam; run_workflows; run_portable; run_shell; run_ownership; run_headers; run_header_cost; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
@@ -264,11 +272,13 @@ test what="all": (_reconfigure "Debug")
         headers)  run_headers ;;
         portable) run_portable ;;
         shell)    run_shell ;;
+        ownership) run_ownership ;;
+        cost)     run_header_cost ;;
         repo)     run_repo ;;
         workflows) run_workflows ;;
         render)   run_render ;;
         render-update) run_render update ;;
-        *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | shell | headers | render | layout | smoke | config | configure)"; exit 1 ;;
+        *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | shell | ownership | headers | cost | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 

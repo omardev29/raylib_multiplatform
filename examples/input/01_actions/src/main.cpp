@@ -81,7 +81,7 @@ public:
     void _draw() override {
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         // The pointer is one pointer: mouse on a desktop, finger on a phone,
-        // and the same code on all fourteen targets with no #ifdef.
+        // and the same code on all seventeen targets with no #ifdef.
         rmp::ui::text(rmp::input::pointer_down() ? "pointer down" : "pointer up");
         rmp::ui::end();
     }
