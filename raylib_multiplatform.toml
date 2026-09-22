@@ -1,7 +1,7 @@
 # raylib_multiplatform — project configuration
 #
 # This file plus `src/` and `include/` is the whole of your side of the
-# template. Everything else — CMake, Gradle, the Xcode spec, the 14-target CI —
+# template. Everything else — CMake, Gradle, the Xcode spec, the 17-target CI —
 # is generated or driven from here and you should not need to open it.
 #
 # Delete this file and the build still works, on defaults, with a warning.
@@ -148,7 +148,7 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 #            windows-x64 windows-arm64
 #            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
 #
-# `all` here is NOT the fourteen. macOS and iOS are refused because the binary
+# `all` here is NOT the seventeen. macOS and iOS are refused because the binary
 # is code-signed and compressing it breaks the signature; Android because what
 # ships is a .so inside an APK, which is already a zip, so compressing it makes
 # the APK BIGGER; web because it is .wasm and the browser fetches it gzipped.
@@ -193,7 +193,7 @@ max_size_mb = 600
 [linux]
 # Which windowing backend Linux uses, and whether it talks to Wayland natively.
 #
-# backend  "glfw" (default) or "rgfw". GLFW is what the fourteen-target matrix
+# backend  "glfw" (default) or "rgfw". GLFW is what the seventeen-target matrix
 #          is tested against; RGFW is smaller and younger — and on Linux it is
 #          X11-ONLY, so it cannot be combined with wayland = true. The
 #          generator refuses that pair rather than letting the build pick one.
@@ -265,7 +265,7 @@ glibc   = "2.28"
 # Which windowing backend Windows uses.
 #
 #   "glfw"   the default, and what raylib uses everywhere else. Mature, and it
-#            is what the fourteen-target matrix is tested against.
+#            is what the seventeen-target matrix is tested against.
 #   "win32"  raylib 6.0's native Win32 backend: no GLFW at all, one dependency
 #            fewer and a smaller .exe.
 #   "rgfw"   RGFW, a single-header windowing library. Also no GLFW, also

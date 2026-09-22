@@ -145,6 +145,42 @@ fi
 if [ -r "$IMAGE_MANIFEST" ]; then
     echo "== Running build image ($IMAGE_MANIFEST) =="
     m() { sed -nE "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\1/p" "$IMAGE_MANIFEST" | head -1; }
+
+    # The host toolchain the Linux jobs compile with. Unchecked until now, and
+    # the cost of that is specific: tools/linux_build.sh uses the image's zig
+    # only `if [ "$(zig version)" = "$VERSION" ]` and otherwise curls 45 MB from
+    # ziglang.org, and tools/upx_pack.sh does the same for upx. Both are the
+    # laptop fallback and both were SILENT in CI, so an image that drifted off
+    # the pin turned every Linux job into a download -- the one thing the image
+    # exists to prevent.
+    check "image apt snapshot"        apt_snapshot        "$(m apt_snapshot)"
+    check "image ubuntu"              ubuntu              "$(m ubuntu)"
+    check "image cmake"               cmake               "$(m cmake)"
+    check "image ninja"               ninja_linux         "$(m ninja)"
+    check "image zig"                 zig                 "$(m zig)"
+    check "image upx"                 upx                 "$(m upx)"
+    check "image emscripten"          emscripten          "$(m emscripten)"
+    check "image actionlint"          actionlint          "$(m actionlint)"
+    check "image butler"              butler              "$(m butler)"
+    # One value, two names: the image calls the clang bundle clang_tools, the
+    # frozen block names the two binaries the lint job actually runs.
+    check "image clang tooling"       clang_format        "$(m clang_tools)"
+
+    # ZIG_WARM_GLIBC is not a pin of its own -- it is a COPY of [linux] glibc,
+    # baked into the image so zig's libc++ cache is already warm for the glibc
+    # this project targets. Warming for the wrong one buys nothing and nothing
+    # says so: the build still works, it is just slower for a reason no log
+    # mentions. This is the one comparison that catches it.
+    checks=$((checks + 1))
+    want_glibc=$(python3 tools/configure.py --print-glibc)
+    if [ "$(m zig_warm_glibc)" = "$want_glibc" ]; then
+        printf '  ok    %-26s %s\n' "image zig_warm_glibc" "$want_glibc"
+    else
+        printf '  DRIFT %-26s [linux] glibc=%s, image warmed %s\n' \
+               "image zig_warm_glibc" "$want_glibc" "$(m zig_warm_glibc)"
+        fails=$((fails + 1))
+    fi
+
     check "image android_platform"    android_platform    "$(m android_platform)"
     check "image android_build_tools" android_build_tools "$(m android_build_tools)"
     check "image android_ndk"         android_ndk         "$(m android_ndk)"

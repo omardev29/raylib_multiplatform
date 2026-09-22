@@ -43,11 +43,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Pinned. butler self-updates if you let it, which is the opposite of what a
-  # frozen pipeline wants.
-  BUTLER_VERSION: '15.24.0'
-
 jobs:
   itch:
     name: itch.io — ${{ matrix.channel }}
@@ -63,17 +58,44 @@ jobs:
       run:
         shell: bash
     timeout-minutes: 20
-    # One channel failing must not stop the other eight from publishing.
-    continue-on-error: true
+    # `fail-fast: false` is what keeps one channel's failure from stopping the
+    # other seven: matrix legs are independent and a failing leg cancels
+    # nothing. A job-level `continue-on-error: true` was here as well, and it
+    # added exactly one thing -- reporting the failing leg to the workflow as a
+    # SUCCESS. Nothing gates on the itch result, so a butler push that 401'd, or
+    # a payload with no index.html, published nothing and the run was entirely
+    # green. See _apple.yml's note on the iOS simulator test: a disabled test is
+    # honest, a lying test is not.
     strategy:
       fail-fast: false
       matrix:
         include:
           # itch infers the platform from the CHANNEL NAME, and only recognises
           # a fixed set: linux, windows, osx, android, html5 (plus -x64/-arm64
-          # style suffixes on the first two). The riscv64 and BSD channels below
-          # are therefore published as plain downloads with no platform tag —
-          # that is expected, not a bug.
+          # style suffixes on the first two). linux-riscv64-glibc below is
+          # therefore published as a plain download with no platform tag — that
+          # is expected, not a bug. (There is no BSD channel here; the previous
+          # version of this comment described one.)
+          #
+          # EVERY enabled target is either a row here or an entry in the block
+          # below, and tests/configure_test.py checks that against TARGETS —
+          # which is how linux-x64-musl and linux-arm64-glibc-drm came to be
+          # built, gated, uploaded and then published nowhere.
+          #
+          # no-itch-channel: linux-x64-musl — the Alpine build. Same game as
+          #   linux-x64-glibc; a second `linux-x64` channel would show players
+          #   two identical downloads and itch gives no way to say which.
+          # no-itch-channel: linux-x64-glibc-drm — boots straight onto KMS with
+          #   no desktop. Useful on a handheld or a kiosk, not something to hand
+          #   an itch player who will double-click it inside a desktop session.
+          # no-itch-channel: linux-arm64-glibc-drm — same, for the Pi.
+          # no-itch-channel: freebsd-x64 — itch has no BSD platform and the
+          # no-itch-channel: freebsd-arm64   audience that wants these builds
+          # no-itch-channel: openbsd-x64     finds them on the GitHub release,
+          # no-itch-channel: openbsd-arm64   which does attach all five.
+          # no-itch-channel: netbsd-x64
+          # no-itch-channel: ios — there is no way to install an iOS app from a
+          #   downloaded file. It ships as an xcframework on the release.
           - { artifact: linux-x64-glibc-build,     channel: linux-x64-glibc,     kind: zip }
           - { artifact: linux-arm64-glibc-build,   channel: linux-arm64-glibc,   kind: zip }
           - { artifact: linux-riscv64-glibc-build, channel: linux-riscv64-glibc, kind: zip }

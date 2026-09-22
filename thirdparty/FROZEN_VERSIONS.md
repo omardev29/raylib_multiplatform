@@ -61,6 +61,21 @@ zig_sha256_x86_64         70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49a
 zig_sha256_aarch64        ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
 clang_format              22.1.8
 clang_tidy                22.1.8
+# The build image's OWN toolchain. These are rows rather than prose because
+# /etc/raylib-build-image.json bakes the same numbers into the image, and a
+# number nobody compares is a number that drifts: the manifest section of
+# versions_check.sh used to check the five android_* keys and nothing else,
+# so zig, upx, cmake, ninja and emscripten could all move under the jobs
+# without a word. The consequence is not academic — tools/linux_build.sh and
+# tools/upx_pack.sh fall back to DOWNLOADING when the version they find is not
+# the pinned one, which is the one thing a Linux job must never do.
+apt_snapshot              20260801T000000Z
+ubuntu                    24.04
+cmake                     3.30.3
+ninja_linux               1.12.1
+emscripten                3.1.61
+actionlint                1.7.12
+butler                    15.24.0
 freebsd                   15.1
 openbsd                   7.9
 netbsd                    10.1

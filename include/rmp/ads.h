@@ -3,7 +3,7 @@
 // rmp::ads — interstitial and rewarded ads.
 //
 // Real calls on Android, no-ops everywhere else, so ad code compiles on all
-// fourteen targets without a single #ifdef. And when [android.admob] enabled =
+// seventeen targets without a single #ifdef. And when [android.admob] enabled =
 // false in raylib_multiplatform.toml, the Google Mobile Ads SDK is not in the
 // build at all and these still compile and still do nothing.
 //

@@ -56,8 +56,10 @@ esac
 
 VERSION=$(awk '/^zig /{print $2}' thirdparty/FROZEN_VERSIONS.md)
 SHA=$(awk -v k="zig_sha256_${ZIG_ARCH}" '$1==k{print $2}' thirdparty/FROZEN_VERSIONS.md)
-[ -n "$VERSION" ] && [ -n "$SHA" ] || {
-  echo "FALLA: no zig pin for $ZIG_ARCH in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
+if [ -z "$VERSION" ] || [ -z "$SHA" ]; then
+  echo "FALLA: no zig pin for $ZIG_ARCH in thirdparty/FROZEN_VERSIONS.md"
+  exit 1
+fi
 
 # THE IMAGE'S COPY FIRST. CI runs inside a container that already has zig at
 # the pinned version, with its libc++ cache warm -- see CLAUDE.md: a Linux job
@@ -68,6 +70,21 @@ if command -v zig > /dev/null 2>&1 && [ "$(zig version)" = "$VERSION" ]; then
   ZIG_BIN=$(command -v zig)
   ZIG_HOME=$(dirname "$ZIG_BIN")
   echo "  using the zig already here: $ZIG_BIN ($VERSION)"
+fi
+
+# INSIDE THE IMAGE, the fallback is not a fallback -- it is a bug report. The
+# image exists so a Linux job downloads nothing; if the zig it ships is not the
+# pinned one, the quiet outcome is 45 MB off ziglang.org in the middle of a
+# matrix leg, which is a single point of failure no amount of sha256 fixes.
+# Fail here instead, naming both numbers, so the image gets bumped.
+if [ -r /etc/raylib-build-image.json ] && [ -z "$ZIG_BIN" ]; then
+  HAVE="no zig at all"
+  if command -v zig > /dev/null 2>&1; then HAVE=$(zig version); fi
+  echo "FALLA: inside the build image, but its zig is not the pinned $VERSION."
+  echo "       have: $HAVE"
+  echo "       A Linux job downloads nothing -- bump the image, or the pin in"
+  echo "       thirdparty/FROZEN_VERSIONS.md, so the two agree."
+  exit 1
 fi
 
 ZIG_HOME="${ZIG_HOME:-$PWD/.zig-$VERSION-$ZIG_ARCH}"

@@ -24,7 +24,35 @@ set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The calls that make a run differ from the next one.
-PATTERN='GetFrameTime|GetTime\(\)|GetMousePosition|GetMouseWheelMove|GetTouchPosition|IsKeyDown|IsKeyPressed|IsMouseButtonDown|IsMouseButtonPressed|GetRandomValue|SetRandomSeed'
+#
+# It scans src/rmp AND include/rmp. It used to scan src/rmp only, and
+# include/rmp/app.h carries the RMP_ENTRY_POINT / RMP_GAME macro bodies and the
+# runner functions -- inline code that compiles into EVERY translation unit and
+# was invisible to this.
+#
+# The list grew with it. GetScreenWidth/GetScreenHeight are here because the
+# viewport is a thing a headless test has to be able to set; the gamepad, the
+# character queue and the *Released half of the key and mouse API are here
+# because they are the same seam as their *Down and *Pressed twins and were
+# simply missed; IsWindowReady because "is there a window" is the question
+# every headless path has to be able to answer without one.
+PATTERN='GetFrameTime|GetTime\(\)|GetMousePosition|GetMouseWheelMove|GetTouch[A-Za-z]*|IsKeyDown|IsKeyPressed|IsKeyReleased|IsMouseButtonDown|IsMouseButtonPressed|IsMouseButtonReleased|GetRandomValue|SetRandomSeed|GetScreenWidth|GetScreenHeight|GetGamepad[A-Za-z]*|IsGamepadButton[A-Za-z]*|GetCharPressed|IsWindowReady'
+
+# Comments do not count. Naming a call in the note that explains why it is not
+# used is not using it, and the alternative is that the explanation cannot be
+# written next to the code it explains -- four public headers and random.cpp
+# do exactly that, and before this they were hits. `// ...` to end of line and
+# a leading `*` continuation line are stripped; line numbers survive, because
+# sed substitutes rather than deletes.
+strip_comments() { sed -e 's|//.*||' -e 's|^[[:space:]]*\*.*||' -- "$1"; }
+
+# `grep -c` and not `grep -q`, and it is not a style choice: `grep -q` exits the
+# moment it matches, sed on the other side of the pipe takes SIGPIPE, and with
+# `set -o pipefail` the PIPELINE then reports 141 even though the match
+# succeeded. Whether it happens depends on whether sed had finished writing --
+# so the check passed on small files and failed on large ones, which is the
+# worst kind of intermittent. -c reads all of its input.
+count_hits() { strip_comments "$1" | grep -cE "$PATTERN"; }
 
 # Files allowed to call them, and why. Two kinds:
 #
@@ -48,10 +76,25 @@ ALLOWED=(
   "src/rmp/ui/context.cpp"    # the seam: read_pointer() and frame_time(), and
                              # the frame boundary that samples both once
   "src/rmp/ui/style.cpp"      # the seam: anim_begin_frame(), 0 in test mode
-  "src/rmp/random.cpp"        # names GetRandomValue in a comment, explaining why not
+  "src/rmp/object.cpp"        # THE seam for the viewport: view_rect() falls back
+                             # to the screen for an object with empty bounds, and
+                             # GetScreenWidth()/GetScreenHeight() are what "the
+                             # screen" means. It is two calls in one function and
+                             # it returns 0 with no window, which the callers
+                             # already handle -- see the note at the site.
+  "src/rmp/scene.cpp"         # THE seam for "is there a window": one
+                             # IsWindowReady() guard so the scene stack can run
+                             # its transitions headless. This is the call the
+                             # RAY_TEST_BOOT_OK gate was missing, not one to
+                             # route away.
   "src/rmp/ui/focus.cpp"      # DEBT: keyboard and gamepad navigation -> phase 14
-  "src/rmp/ui/controls.cpp"   # DEBT: slider repeat and the caret blink -> phase 14
+  "src/rmp/ui/controls.cpp"   # DEBT: slider repeat, the text caret and the
+                             # character queue -> phase 14
 )
+
+# src/rmp/random.cpp was on this list for naming GetRandomValue in a COMMENT.
+# Comments are stripped now, so it stopped matching and the ratchet's other
+# half asked for the entry back. That is the list working in both directions.
 
 # The two DEBT entries said "-> phase 5" until phase 5 arrived and did not take
 # them. That was the honest outcome rather than a slip: rmp::input samples
@@ -68,21 +111,35 @@ ALLOWED=(
 
 fails=0
 found_any=0
+scanned=0
+
+# A scan that found no FILES is not a clean tree, it is a broken scan -- and it
+# prints the same "ok" as a clean tree. Renaming a directory was enough to do
+# it: `find src/rmp` writes to stderr and carries on, and the loop below then
+# runs zero times.
+if [ "$(find src/rmp include/rmp \( -name '*.cpp' -o -name '*.h' \) 2>/dev/null | grep -c .)" -lt 10 ]; then
+  echo "  FAIL  fewer than 10 sources found under src/rmp/ and include/rmp/."
+  echo "        Something moved; this check was about to pass by scanning nothing."
+  exit 1
+fi
+
 while IFS= read -r file; do
+  scanned=$((scanned + 1))
+  if [ "$(count_hits "$file")" -eq 0 ]; then continue; fi
   found_any=1
   allowed=0
   for ok in "${ALLOWED[@]}"; do
     if [ "$file" = "$ok" ]; then allowed=1; break; fi
   done
   if [ "$allowed" -eq 0 ]; then
-    echo "  FAIL  $file reads time, input or randomness directly:"
-    grep -nE "$PATTERN" "$file" | sed 's/^/          /'
+    echo "  FAIL  $file reads time, input, randomness or the screen directly:"
+    strip_comments "$file" | grep -nE "$PATTERN" | sed 's/^/          /'
     fails=$((fails + 1))
   fi
-done < <(grep -rlE "$PATTERN" src/rmp --include='*.cpp' --include='*.h' | sort)
+done < <(find src/rmp include/rmp \( -name '*.cpp' -o -name '*.h' \) | sort)
 
 if [ "$found_any" -eq 0 ]; then
-  echo "  ok    nothing under src/rmp/ reads time, input or randomness"
+  echo "  ok    nothing under src/rmp/ or include/rmp/ reads time, input or randomness"
   exit 0
 fi
 
@@ -92,7 +149,7 @@ for ok in "${ALLOWED[@]}"; do
   if [ ! -f "$ok" ]; then
     echo "  FAIL  the allowlist names $ok, which does not exist. Remove the entry."
     fails=$((fails + 1))
-  elif ! grep -qE "$PATTERN" "$ok"; then
+  elif [ "$(count_hits "$ok")" -eq 0 ]; then
     echo "  FAIL  $ok is on the allowlist but no longer needs to be. Remove the entry —"
     echo "        the list may only get shorter."
     fails=$((fails + 1))
@@ -106,7 +163,7 @@ if [ "$fails" -ne 0 ]; then
   echo "       rmp::random — see next_architecture/12-testing.md."
   exit 1
 fi
-echo "  ok    the seam holds (${#ALLOWED[@]} known exceptions, all still needed)"
+echo "  ok    the seam holds in $scanned file(s) (${#ALLOWED[@]} known exceptions, all still needed)"
 
 # --- rule two: shadowed raylib types ---------------------------------------
 #
@@ -117,8 +174,12 @@ echo "  ok    the seam holds (${#ALLOWED[@]} known exceptions, all still needed)
 #
 # That is not a style question. `Image pack_read_image(const char *)` in a
 # shared internal header meant rmp::Image in one .cpp and ::Image in another:
-# two different functions, one missing symbol, and it linked on thirteen of the
-# fourteen targets. Windows ARM64 was the one that noticed.
+# two different functions, one missing symbol, and it linked on sixteen of the
+# seventeen targets. Windows ARM64 was the one that noticed.
+#
+# include/rmp/ is scanned as well as src/rmp/, for the same reason rule one is:
+# a declaration in a public header is exactly where this bites, because the
+# header is what the two .cpp files disagree about.
 SHADOWED='Image|Font|Sound|Music|Shader'
 shadow_fails=0
 while IFS= read -r hit; do
@@ -127,7 +188,7 @@ while IFS= read -r hit; do
   echo "          $hit"
   shadow_fails=$((shadow_fails + 1))
 done < <(grep -rnE "(^|[^:_[:alnum:]])($SHADOWED) +\*?[a-zA-Z_][a-zA-Z_0-9]*" \
-           src/rmp --include='*.cpp' --include='*.h' \
+           src/rmp include/rmp --include='*.cpp' --include='*.h' \
          | grep -vE "::($SHADOWED)|rmp::|^[^:]*:[0-9]+: *(//|\*)" || true)
 
 if [ "$shadow_fails" -ne 0 ]; then

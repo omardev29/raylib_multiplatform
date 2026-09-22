@@ -32,15 +32,35 @@ const MIN_RATIO = 0.0005;
 const MAX_RATIO = 0.98;
 
 // Console "error" messages matching these are expected noise on a headless
-// browser (no real audio device / GPU / gamepad) and must not fail the test.
+// browser (no real audio device, no GPU, no gamepad) and must not fail the
+// test.
+//
+// NARROW ON PURPOSE. This list used to be subsystem names -- /webgl/i and
+// /audio/i -- and /webgl/i matches "WebGL: CONTEXT_LOST_WEBGL", "WebGL:
+// INVALID_OPERATION", every shader compile and link failure, and "Failed to
+// create WebGL context". Those are not noise; they are the entire set of
+// diagnostics a web render regression produces. The gate was suppressing the
+// thing it was written to catch, and the pixel-ratio check was the only
+// assertion left standing.
+//
+// So: the exact strings headless Chromium emits on a clean run, and nothing
+// broader. If a new benign message appears, add it VERBATIM -- one more line
+// costs nothing; one more subsystem name costs the gate. The suppressed count
+// is printed below so a sudden jump is visible in the log.
 const BENIGN = [
-  /webgl/i,
-  /audio/i,
+  // The audio context cannot start until a user gesture, and there is no user.
+  /AudioContext was not allowed to start/i,
+  /The AudioContext was not allowed to start/i,
+  /play\(\) failed because the user didn't interact/i,
+  // No audio device at all in the container.
   /alsa/i,
   /pulse/i,
-  /no sound/i,
-  /gamepad/i,
-  /autoplay/i,
+  // Chromium's own GPU-process chatter on a machine with no GPU. It is about
+  // the browser's compositor, not about our context: ours is the swiftshader
+  // fallback and it works.
+  /Failed to create GLES3 context/i,
+  /Automatic fallback to software WebGL has been deprecated/i,
+  /GroupMarkerNotSet/i,
 ];
 
 // Fraction of pixels that are NOT the background colour.
@@ -84,14 +104,18 @@ function contentRatio(pngBuffer) {
     const page = await browser.newPage();
     const errors = [];
     const logs = [];
+    const suppressed = [];
 
     page.on('pageerror', (err) => errors.push('pageerror: ' + err.message));
     page.on('console', (msg) => {
       const text = msg.text();
       logs.push(msg.type() + ': ' + text);
-      if (msg.type() === 'error' && !BENIGN.some((re) => re.test(text))) {
-        errors.push('console.error: ' + text);
+      if (msg.type() !== 'error') return;
+      if (BENIGN.some((re) => re.test(text))) {
+        suppressed.push(text);
+        return;
       }
+      errors.push('console.error: ' + text);
     });
     page.on('requestfailed', (req) => {
       errors.push('requestfailed: ' + req.url() + ' ' + (req.failure() || {}).errorText);
@@ -117,6 +141,12 @@ function contentRatio(pngBuffer) {
     console.log('---- captured console log (last 40 lines) ----');
     logs.slice(-40).forEach((l) => console.log(l));
     console.log('----------------------------------------------');
+
+    // What the BENIGN list swallowed, and how much of it. A count that jumps
+    // is the visible edge of a filter that has started covering something
+    // real, and it is free to print.
+    console.log('suppressed benign console errors: ' + suppressed.length);
+    suppressed.forEach((s) => console.log('  benign: ' + s));
 
     if (errors.length > 0) {
       console.error('FAIL: errors during web boot:');

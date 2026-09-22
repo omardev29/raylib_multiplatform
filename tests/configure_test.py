@@ -24,6 +24,8 @@ this has to run on a Windows runner and inside the pinned container alike.
 
 from __future__ import annotations
 
+import ast
+import bisect
 import contextlib
 import copy
 import re
@@ -104,6 +106,33 @@ def quiet():
     """configure.py warns on stderr. A test run should not be noisy."""
     with contextlib.redirect_stderr(io.StringIO()):
         yield
+
+
+IN_BUILD_IMAGE = Path("/etc/raylib-build-image.json").is_file()
+
+
+def require_yaml(case):
+    """PyYAML, or a decision about why it is not here.
+
+    These tests used to `skipTest("PyYAML not installed; the iOS job has it")`,
+    and the iOS job does not run this file -- the LINT job does, inside the
+    build image, which had no PyYAML either. So they were skipped everywhere
+    and the skip read like a pass. The image ships python3-yaml now, and inside
+    it a missing PyYAML is a failure: a gate that cannot fail is not a gate.
+
+    On a laptop it stays a skip. Somebody who has just cloned the repository
+    should not have to pip-install anything to run `just test`.
+    """
+    try:
+        import yaml
+    except ImportError:
+        if IN_BUILD_IMAGE:
+            case.fail("PyYAML is missing inside the build image, so this test cannot "
+                      "run. It is what checks the generated Xcode spec parses at all. "
+                      "Add python3-yaml to the image.")
+        case.skipTest("PyYAML not installed (it ships in the build image, where "
+                      "this is a failure rather than a skip)")
+    return yaml
 
 
 # ---------------------------------------------------------------------------
@@ -658,10 +687,7 @@ class ConfigureGeneratorsTest(unittest.TestCase):
         ET.parse(path)
 
     def test_the_xcode_spec_is_well_formed_yaml(self):
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML not installed; the iOS job has it")
+        yaml = require_yaml(self)
         with quiet():
             cfgmod.gen_ios_project(base_config())
         path = Path(self._tmp.name) / "ios" / "project.yml"
@@ -673,10 +699,7 @@ class ConfigureGeneratorsTest(unittest.TestCase):
         """The reason yaml_scalar() exists, checked end to end rather than in
         isolation: a game called `Hero: "the game", v2 #1` must not break the
         spec that Xcode is generated from."""
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML not installed; the iOS job has it")
+        yaml = require_yaml(self)
         nasty = 'Hero: "the game", v2 #1'
         cfg = base_config()
         cfg["window"]["title"] = nasty
@@ -708,6 +731,8 @@ class ConfigureGeneratorsTest(unittest.TestCase):
         try:
             import yaml
         except ImportError:
+            if IN_BUILD_IMAGE:
+                self.fail("PyYAML is missing inside the build image; add python3-yaml")
             return   # The raw assertions above are the gate; the parse is a bonus
         spec = yaml.safe_load(text)
         settings = spec["targets"][base_config()["project"]["name"]]["settings"]["base"]
@@ -1569,6 +1594,22 @@ class DocumentedTargetCountTest(unittest.TestCase):
     files, because prose has nothing checking it. A count is a fact about the
     code and it goes stale exactly the way a count in a test does -- so it gets
     the same treatment.
+
+    THE FIRST VERSION OF THIS TEST MISSED TWENTY STALE COUNTS, which is worth
+    writing down because the shape of the miss is the usual one: it read four
+    files and required the number to be immediately followed by "targets" or
+    "platforms". Every survivor was phrased just outside that -- "the 14-target
+    CI" (a hyphen), "all 14 of the targets" (three words in between), "NOT the
+    fourteen" with the noun on the next line, "Build all 16 targets" in a
+    workflow_dispatch input DESCRIPTION, which is text a human reads in the
+    GitHub UI -- or it was in a file the test did not open: the workflows, the
+    Justfile, tools/, include/rmp/, src/main.cpp.
+
+    So the text is NORMALISED before matching: hyphens and dashes become
+    spaces, comment and table punctuation becomes spaces, and newlines become
+    spaces so a claim split across a line break is one string. Every
+    replacement is one character for one character, which is what lets the
+    match still be reported at the right line.
     """
 
     WORDS = {
@@ -1579,39 +1620,75 @@ class DocumentedTargetCountTest(unittest.TestCase):
 
     # PROGRESS.md is deliberately absent: it is a log, and an entry that said
     # "14 targets" in August was right in August. Rewriting history to keep a
-    # gate quiet is how a log stops being worth reading. These four describe
-    # the present, and the present is what can be wrong.
-    DOCS = ("README.md", "TECHNICAL.md", "raylib_multiplatform.toml", "../CLAUDE.md")
+    # gate quiet is how a log stops being worth reading. These describe the
+    # present, and the present is what can be wrong.
+    DOCS = ("README.md", "TECHNICAL.md", "raylib_multiplatform.toml", "../CLAUDE.md",
+            "examples/README.md", "src/main.cpp", "Justfile")
+    GLOBS = (".github/workflows/*.yml", ".github/scripts/*.py", ".github/scripts/*.js",
+             "tools/*.sh", "tools/*.py", "tests/*.py", "tests/*.h", "include/rmp/*.h")
+
+    # One character in, one character out, so offsets survive and the line
+    # number a hit is reported at is the line it is actually on.
+    FLATTEN = str.maketrans("\n\t-\u2013\u2014#*|/", " " * len("\n\t-\u2013\u2014#*|/"))
+
+    def _files(self):
+        seen = []
+        for name in self.DOCS:
+            path = REPO / name
+            if path.exists():
+                seen.append((name, path))
+        for pattern in self.GLOBS:
+            for path in sorted(REPO.glob(pattern)):
+                if path.name == Path(__file__).name:
+                    continue        # this file names every stale spelling
+                seen.append((path.relative_to(REPO).as_posix(), path))
+        return seen
 
     def test_no_document_states_a_stale_target_count(self):
         expected = len(cfgmod.TARGETS)
+        # `(?![:\w])` after the noun: in YAML `timeout-minutes: 15` followed by
+        # a `targets:` key would otherwise read, once the newline is a space,
+        # as "15 targets". A key is followed by a colon; prose is not.
         pattern = re.compile(
-            r"\*{0,2}(\d{1,2}|" + "|".join(self.WORDS) + r")\*{0,2}\s+(?:build\s+)?(?:targets|platforms)\b",
+            r"\b(\d{1,2}|" + "|".join(self.WORDS) + r")\s+"
+            r"(?:(?:of|the|all|enabled|supported|shipped|build|CI|real)\s+){0,3}"
+            r"(targets?|platforms?|toolchains?)(?![:\w])",
             re.IGNORECASE)
-        for name in self.DOCS:
-            path = REPO / name
-            if not path.exists():
-                continue
-            text = path.read_text()
-            for line_no, line in enumerate(text.splitlines(), 1):
+
+        checked = 0
+        for name, path in self._files():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            flat = text.translate(self.FLATTEN)
+            self.assertEqual(len(flat), len(text))      # the offsets have to hold
+            # offset -> line number, by counting the newlines in the ORIGINAL.
+            starts = [0]
+            for i, ch in enumerate(text):
+                if ch == "\n":
+                    starts.append(i + 1)
+            checked += 1
+            for match in pattern.finditer(flat):
+                token = match.group(1).lower()
+                value = self.WORDS.get(token)
+                if value is None:
+                    try:
+                        value = int(token)
+                    except ValueError:
+                        continue
+                if value < 10:      # "3 targets" in an example is not a claim
+                    continue
+                line_no = bisect.bisect_right(starts, match.start())
+                line = text.splitlines()[line_no - 1] if line_no else ""
                 # Historical sections describe what was true then, on purpose.
                 if line.lstrip().startswith(("<summary>", "Validado con el tag")):
                     continue
-                for match in pattern.finditer(line):
-                    token = match.group(1).lower()
-                    value = self.WORDS.get(token, None)
-                    if value is None:
-                        try:
-                            value = int(token)
-                        except ValueError:
-                            continue
-                    if value < 10:      # "3 targets" in an example is not a claim
-                        continue
-                    with self.subTest(doc=name, line=line_no, said=match.group(0)):
-                        self.assertEqual(
-                            value, expected,
-                            f"{name}:{line_no} says {match.group(0)!r}, "
-                            f"but TARGETS holds {expected}")
+                with self.subTest(doc=name, line=line_no, said=match.group(0)):
+                    self.assertEqual(
+                        value, expected,
+                        f"{name}:{line_no} says {match.group(0)!r}, "
+                        f"but TARGETS holds {expected}")
+        self.assertGreater(checked, 25,
+                           "this scanned almost nothing -- the globs stopped matching, "
+                           "which looks exactly like a tree with no stale counts in it")
 
 
 class ConfigureMaxDeltaTest(unittest.TestCase):
@@ -2456,6 +2533,894 @@ class ZeroEntryPackFixtureTest(unittest.TestCase):
         prop_count, entries = struct.unpack_from("<II", data, info_at + 32)
         self.assertEqual(prop_count, 1, "rres reads props[0] without checking this")
         self.assertEqual(entries, 0, "the whole point: a directory holding nothing")
+
+
+# ---------------------------------------------------------------------------
+# validate(): the rejections that had no test, and the gate that counts them
+# ---------------------------------------------------------------------------
+
+
+def validate_rejections(source: str) -> list[tuple[int, str]]:
+    """(line, key phrase) for every `raise ConfigError` lexically in validate().
+
+    Parsed, not grepped, so a `raise` inside a nested `if` or a loop counts the
+    same as one at the top, and a ConfigError raised from somewhere else in the
+    file does not. The KEY PHRASE is what links a rejection to its test: the
+    `[section] key` the message opens with, or -- when that is interpolated,
+    as in `f"[android.{table}] {k} = ..."` -- the first literal sentence long
+    enough to be distinctive.
+    """
+    fn = next(n for n in ast.parse(source).body
+              if isinstance(n, ast.FunctionDef) and n.name == "validate")
+    hole = "\x00"
+
+    def literal(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(v.value if isinstance(v, ast.Constant)
+                           and isinstance(v.value, str) else hole for v in node.values)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return literal(node.left) + literal(node.right)
+        return ""
+
+    key_re = re.compile(r"\[[a-z][a-z.]*\] [a-z_]+\b")
+    out = []
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)):
+            continue
+        func = node.exc.func
+        if getattr(func, "id", getattr(func, "attr", "")) != "ConfigError":
+            continue
+        if not node.exc.args:
+            continue
+        text = literal(node.exc.args[0])
+        found = key_re.search(text)
+        if found:
+            out.append((node.lineno, found.group(0)))
+            continue
+        phrase = ""
+        for frag in re.split(r"[\x00\n]", text):
+            frag = re.sub(r"\s+", " ", frag).strip(" .,:;=")
+            if len(frag) >= 18:
+                phrase = frag[:60].rsplit(" ", 1)[0] if len(frag) > 60 else frag
+                break
+        out.append((node.lineno, phrase or re.sub(r"\s+", " ", text.replace(hole, " ")).strip()))
+    return out
+
+
+class ConfigureRejectionCoverageTest(unittest.TestCase):
+    """CLAUDE.md: "every combination that cannot work is a rejection with a
+    reason, and every rejection has a test in tests/configure_test.py".
+
+    That was an intention, not a fact. About a dozen rejections had never been
+    fired by anything -- [ui] scale, [input] deadzone, [android] min_sdk, the
+    com.raylib.raymob rule, the firebase charsets -- and the existing
+    "every rejection can be located" test only checked that an error could be
+    POINTED AT, never that it happens.
+
+    So this is the meta-gate: it parses validate(), extracts the key phrase of
+    every `raise ConfigError`, and asserts each phrase is used as an expectation
+    somewhere in this file. It cannot be satisfied by a test that merely calls
+    validate() -- the phrase only appears if something asserts on the message.
+    The table in ConfigureEveryRejectionFiresTest below is where the missing
+    ones went.
+    """
+
+    def test_every_rejection_in_validate_has_a_test_that_names_it(self):
+        source = (REPO / "tools" / "configure.py").read_text()
+        mine = Path(__file__).read_text()
+        phrases = validate_rejections(source)
+        self.assertGreater(len(phrases), 40,
+                           "the parse found almost no rejections, which looks exactly "
+                           "like a validate() with nothing to check")
+        missing = sorted({p for _, p in phrases if p not in mine})
+        self.assertEqual(
+            missing, [],
+            "these rejections in validate() have no test that expects their message:\n  "
+            + "\n  ".join(missing)
+            + "\n\nAdd a row to ConfigureEveryRejectionFiresTest.CASES with a config that "
+              "triggers it, using the phrase as the needle.")
+
+
+class ConfigureEveryRejectionFiresTest(unittest.TestCase):
+    """One config per rejection, and the rejection actually happens.
+
+    The table is the point: it is what the meta-gate above counts. Each row is
+    a mutation of a valid config that can only be answered by the message named
+    in the key -- so a rejection that gets deleted, renamed or accidentally
+    made unreachable fails here rather than going quiet.
+    """
+
+    # phrase -> (section, key-path, value). The path is a tuple so nested
+    # tables ([android.admob] enabled) fit the same shape as flat ones.
+    CASES = {
+        "[linux] wayland":            ("linux", ("wayland",), "yes"),
+        "[web] memory":               ("web", ("memory",), 8),
+        "[web] grow":                 ("web", ("grow",), "true"),
+        "[project] name":             ("project", ("name",), "9lives"),
+        "[window] title":             ("window", ("title",), "two\nlines"),
+        "[window] orientation":       ("window", ("orientation",), "sideways"),
+        "must be an integer between 16 and 16384": ("window", ("width",), 4),
+        "[android] category":         ("android", ("category",), "not-a-category"),
+        "must be true or false":      ("android", ("display", "keep_on"), "false"),
+        "[android.admob] enabled":    ("android", ("admob", "enabled"), "yes"),
+        "[android] application_id":   ("android", ("application_id",), "nodotshere"),
+        "[ios] bundle_id":            ("ios", ("bundle_id",), "nodotshere"),
+        "[ios] deployment_target":    ("ios", ("deployment_target",), "fifteen"),
+        "[android] gl_version":       ("android", ("gl_version",), "ES10"),
+        "[android] min_sdk":          ("android", ("min_sdk",), 19),
+        "[raylib] disabled_modules":  ("raylib", ("disabled_modules",), ["rcore"]),
+        "[dev] linker":               ("dev", ("linker",), "gold"),
+        "[icon] adaptive_background": ("icon", ("adaptive_background",), "blue"),
+        "[resources] rres_password":  ("resources", ("rres_password",), ""),
+        "[deploy] credits_note":      ("deploy", ("credits_note",), 5),
+        'or "" to leave it unset':    ("deploy", ("itch", "user"), "not a slug!"),
+        "[input] deadzone":           ("input", ("deadzone",), 0.99),
+        "[ui] font":                  ("ui", ("font",), 12),
+        "[ui] font_size":             ("ui", ("font_size",), 2),
+        "[ui] scale":                 ("ui", ("scale",), 99),
+        "[ui] max_elements":          ("ui", ("max_elements",), 4),
+    }
+
+    def build(self, section, path, value):
+        table = copy.deepcopy(cfgmod.DEFAULTS[section])
+        node = table
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+        cfg = base_config(**{section: table})
+        # base_config() makes the two example ids real; a row that overwrites
+        # one of them on purpose keeps what it asked for.
+        return cfg
+
+    def test_each_rejection_fires_with_its_own_message(self):
+        for phrase, (section, path, value) in self.CASES.items():
+            with self.subTest(rejection=phrase):
+                cfg = self.build(section, path, value)
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn(phrase, str(caught.exception))
+
+    def test_the_second_application_id_rule_is_the_raymob_one(self):
+        """A valid id that CONTAINS com.raylib.raymob. Gradle string-substitutes
+        that exact text into the raymob sources and reverts it afterwards, so an
+        id containing it makes the revert non-idempotent and mangles them."""
+        cfg = base_config()
+        cfg["android"]["application_id"] = "com.raylib.raymob.mine"
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("com.raylib.raymob", str(caught.exception))
+
+    def test_an_unknown_raylib_module_is_a_different_message(self):
+        cfg = base_config()
+        cfg["raylib"]["disabled_modules"] = ["rnotathing"]
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("unknown module", str(caught.exception))
+
+    def test_placeholder_identifiers_are_refused_on_a_release(self):
+        """refusing to build a release with placeholder identifiers -- the one
+        rejection whose consequence cannot be taken back, because a Google Play
+        application id is permanent."""
+        cfg = copy.deepcopy(cfgmod.DEFAULTS)     # NOT base_config(): the examples
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, True)
+        self.assertIn("refusing to build a release with placeholder identifiers",
+                      str(caught.exception))
+
+
+class ConfigureListValueTest(unittest.TestCase):
+    """A list where a list goes, and a named error where it does not.
+
+    ConfigureMembershipTest exists because `x in some_set` raises TypeError on
+    an unhashable value. The same hole survived one level up, in the keys that
+    are ITERATED rather than tested: `[targets] enabled = 5` came back as
+    `TypeError: 'int' object is not iterable` from inside expand_targets, and
+    `enabled = "all"` -- the most natural typo of the lot, because a group name
+    is one word -- was accepted as the characters a, l and l and rejected with
+    "unknown target or group 'a'", a message about a letter.
+    """
+
+    LIST_KEYS = [("targets", "enabled"), ("targets", "disabled"),
+                 ("upx", "enabled"), ("upx", "disabled"),
+                 ("raylib", "disabled_modules")]
+    HOSTILE = [5, 3.5, True, None, {"a": 1}, ["ok", 5]]
+
+    def with_value(self, section, key, value):
+        table = copy.deepcopy(cfgmod.DEFAULTS[section])
+        table[key] = value
+        return base_config(**{section: table})
+
+    def test_a_non_list_is_a_named_error_and_not_a_traceback(self):
+        for section, key in self.LIST_KEYS:
+            for value in self.HOSTILE:
+                with self.subTest(option=f"[{section}] {key}", value=value):
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(self.with_value(section, key, value), False)
+
+    def test_a_bare_string_says_to_add_the_brackets(self):
+        """`enabled = "all"` is iterable, which is exactly why it is dangerous:
+        nothing crashes, it just means something else."""
+        for section, key in self.LIST_KEYS:
+            with self.subTest(option=f"[{section}] {key}"):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.with_value(section, key, "all"), False)
+                self.assertIn("brackets", str(caught.exception))
+
+
+class ConfigureStringValueTest(unittest.TestCase):
+    """The keys that are read AS strings, and what a TOML array does to them.
+
+    `[window] title = ["My Game"]` used to pass validate() outright, because
+    `"\n" in ["My Game"]` is a perfectly good membership test on a list. It
+    then reached gen_app_config and died with `'list' object has no attribute
+    'replace'` -- a traceback, from a generator, about a config typo.
+    """
+
+    STRING_KEYS = [("project", "name"), ("window", "title"),
+                   ("android", "application_id"), ("ios", "bundle_id"),
+                   ("icon", "adaptive_background"), ("resources", "rres_password")]
+    HOSTILE = [["a"], {"a": "b"}, 5, 3.5, True, None]
+
+    def with_value(self, section, key, value):
+        table = copy.deepcopy(cfgmod.DEFAULTS[section])
+        table[key] = value
+        return base_config(**{section: table})
+
+    def test_a_non_string_never_reaches_a_generator(self):
+        for section, key in self.STRING_KEYS:
+            for value in self.HOSTILE:
+                with self.subTest(option=f"[{section}] {key}", value=value):
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(self.with_value(section, key, value), False)
+
+    def test_a_list_title_does_not_reach_the_generated_header(self):
+        """End to end, because that is where it landed: validate() accepted it
+        and gen_app_config() raised AttributeError."""
+        cfg = base_config()
+        cfg["window"]["title"] = ["My Game"]
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(cfg, False)
+
+
+class ConfigureRresPasswordTest(unittest.TestCase):
+    """[resources] rres_password is one of exactly two config values that end
+    up INSIDE the shipped binary, and it had no validation at all."""
+
+    def test_an_empty_password_is_refused_and_says_how_to_ship_loose_files(self):
+        cfg = base_config()
+        cfg["resources"]["rres_password"] = ""
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        message = str(caught.exception)
+        self.assertIn("AES key of nothing", message)
+        self.assertIn("loose files", message,
+                      "the message has to say how to turn encryption off, or it is "
+                      "a rule with no way out")
+
+    def test_the_default_password_reaches_the_generated_header(self):
+        with generated_header(base_config()) as text:
+            self.assertIn("APP_RRES_PASSWORD", text)
+
+
+class ConfigureVersionCodeCeilingTest(unittest.TestCase):
+    """versionCode is major*1_000_000 + minor*1_000 + patch, and Google Play
+    refuses anything above 2,100,000,000. minor and patch were bounded; major
+    was not, so v2101.0.0 produced a code the store rejects -- and an Android
+    version code is a number you can never go back down from."""
+
+    def code_for(self, tag):
+        os.environ["GITHUB_REF_TYPE"] = "tag"
+        os.environ["GITHUB_REF_NAME"] = tag
+        try:
+            return cfgmod.resolve_version()
+        finally:
+            os.environ.pop("GITHUB_REF_TYPE", None)
+            os.environ.pop("GITHUB_REF_NAME", None)
+
+    def test_a_major_past_the_play_ceiling_is_rejected(self):
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            self.code_for("v2100.0.0")
+        self.assertIn("2,100,000,000", str(caught.exception))
+
+    def test_the_hard_limit_itself_is_the_last_accepted_value(self):
+        name, code = self.code_for("v2099.999.999")
+        self.assertEqual(name, "2099.999.999")
+        self.assertEqual(code, 2_099_999_999)
+        self.assertLess(code, cfgmod.PLAY_MAX_VERSION_CODE)
+
+    def test_the_constants_agree_with_each_other(self):
+        """PLAY_MAX_MAJOR is derived from PLAY_MAX_VERSION_CODE, so they cannot
+        be bumped independently."""
+        self.assertLess(cfgmod.PLAY_MAX_MAJOR * 1_000_000 + 999_000 + 999,
+                        cfgmod.PLAY_MAX_VERSION_CODE)
+        self.assertGreaterEqual((cfgmod.PLAY_MAX_MAJOR + 1) * 1_000_000,
+                                cfgmod.PLAY_MAX_VERSION_CODE)
+
+
+# ---------------------------------------------------------------------------
+# The workflows, read as data. Everything below is a fact about CI that went
+# wrong once and is cheaper to assert than to remember.
+# ---------------------------------------------------------------------------
+
+WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.yml"))
+
+
+def job_block(path: Path, job: str) -> str:
+    """The text of one job in a workflow, by indentation.
+
+    Not a YAML parse: this has to work without PyYAML on a laptop, and the
+    things being asserted below are about the TEXT -- a `default:` on an input,
+    a step that runs a script -- which a parse would normalise away.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out, inside = [], False
+    for line in lines:
+        if re.match(rf"^  {re.escape(job)}:\s*$", line):
+            inside = True
+            continue
+        if inside and line.strip() and not line.startswith("    "):
+            break
+        if inside:
+            out.append(line)
+    return "\n".join(out)
+
+
+class ReleaseAttachesEveryTargetTest(unittest.TestCase):
+    """Every target that produces an artifact is attached to the release.
+
+    linux-x64-musl and linux-arm64-glibc-drm were not, from the day they were
+    added. Both built, both passed their gates, both uploaded an artifact, and
+    neither was ever a release asset -- while SHA256SUMS listed them, because
+    that step globs whatever was downloaded rather than what was published. So
+    an Alpine user got nothing, and anyone running `sha256sum -c SHA256SUMS`
+    got "No such file or directory" and a non-zero exit, which reads exactly
+    like a tampered download.
+
+    The list was hand-maintained. This is what makes it a derived fact.
+    """
+
+    # Targets with no zip of their own, and why. iOS ships as an xcframework
+    # and a simulator app, both attached by name; android ships an apk and an
+    # aab; web ships web-build.zip.
+    NOT_A_TARGET_ZIP = {
+        "ios": "ios-raylib-xcframework.zip and ios-app-simulator",
+        "android": "an .apk and an .aab, attached by their own globs",
+        "web": "web-build.zip",
+        "freebsd-x64": "bsd-*-build/*.zip covers all five BSD legs",
+        "freebsd-arm64": "bsd-*-build/*.zip",
+        "openbsd-x64": "bsd-*-build/*.zip",
+        "openbsd-arm64": "bsd-*-build/*.zip",
+        "netbsd-x64": "bsd-*-build/*.zip",
+    }
+
+    def files_block(self):
+        text = (REPO / ".github" / "workflows" / "_release.yml").read_text()
+        block = text.split("files: |", 1)[1]
+        out = []
+        for line in block.splitlines()[1:]:
+            if line.strip() and not line.startswith("            "):
+                break
+            if line.strip():
+                out.append(line.strip())
+        return out
+
+    def test_every_target_zip_is_attached_to_the_release(self):
+        attached = " ".join(self.files_block())
+        self.assertIn("SHA256SUMS", attached, "the file list did not parse")
+        for target in cfgmod.TARGETS:
+            if target in self.NOT_A_TARGET_ZIP:
+                continue
+            with self.subTest(target=target):
+                self.assertIn(f"{target}-build.zip", attached,
+                              f"{target} uploads {target}-build but the release job "
+                              f"never attaches it. SHA256SUMS will list a file that "
+                              f"is not there.")
+
+    def test_the_uploaded_artifact_names_are_the_ones_the_release_expects(self):
+        """The other half: the release globs `<name>-build/<name>-build.zip`,
+        so the artifact NAME has to match the target id."""
+        uploads = "\n".join(p.read_text() for p in WORKFLOWS)
+        for target in cfgmod.TARGETS:
+            if target in self.NOT_A_TARGET_ZIP:
+                continue
+            with self.subTest(target=target):
+                self.assertIn(f"name: {target}-build", uploads)
+
+    def test_every_target_has_an_itch_channel_or_a_written_reason(self):
+        """itch.io publishes a subset, on purpose. The subset has to be a
+        DECISION and not an oversight -- which is exactly what musl and the two
+        DRM targets were."""
+        text = (REPO / ".github" / "workflows" / "_itch.yml").read_text()
+        for target in cfgmod.TARGETS:
+            with self.subTest(target=target):
+                has_channel = bool(
+                    re.search(rf"artifact: {re.escape(target)}-build\b", text)
+                    # (?<![-\w]) or the `no-itch-channel: ios` line below counts
+                    # as `channel: ios` and every excluded target reads as
+                    # published as well.
+                    or re.search(rf"(?<![-\w])channel: {re.escape(target)}(?![\w-])", text))
+                excluded = bool(
+                    re.search(rf"no-itch-channel: {re.escape(target)}(?![\w-])", text))
+                self.assertTrue(
+                    has_channel or excluded,
+                    f"{target} has neither an itch channel nor a "
+                    f"`# no-itch-channel: {target} — <why>` line in _itch.yml.")
+                self.assertFalse(has_channel and excluded,
+                                 f"{target} is both published and excluded")
+
+
+class NoJobLevelContinueOnErrorTest(unittest.TestCase):
+    """`continue-on-error` on a JOB reports a failed job as a success.
+
+    _itch.yml had it next to `fail-fast: false`, which already gives the thing
+    the comment claimed it was for -- matrix legs are independent without it.
+    All it added was that a butler push that 401'd published nothing and the
+    run was entirely green. _firebase.yml had it twice, where the
+    steps.cfg.outputs.ok guard already handles "not configured".
+
+    Step level is a different thing and is left alone: a step that is allowed
+    to fail is usually a diagnostic, and _apple.yml's note on the iOS simulator
+    test is the argument for why even that is usually wrong.
+    """
+
+    def test_no_job_declares_continue_on_error(self):
+        offenders = []
+        for path in WORKFLOWS:
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                # Four spaces = a key of a job. Eight = a key of a step.
+                if re.match(r"^    continue-on-error:\s*true\s*$", line):
+                    offenders.append(f"{path.name}:{n}")
+        self.assertEqual(offenders, [],
+                         "a job-level continue-on-error reports failure as success:\n  "
+                         + "\n  ".join(offenders))
+
+
+class PinnedInputsHaveNoDefaultTest(unittest.TestCase):
+    """A pin lives once, in thirdparty/FROZEN_VERSIONS.md.
+
+    _apple.yml's own header said "ci.yml always passes explicit values read
+    from there, so this file is never the source of truth" while ci.yml passed
+    none of them -- so every Apple build ran on the defaults in the callee, and
+    versions_check.sh never compared them because it did not know they existed.
+    The pins now travel `configure.py --print-pins` -> the config job's outputs
+    -> these inputs, and the inputs have no defaults to fall back to.
+    """
+
+    PINNED = {
+        "_apple.yml": ["runner", "xcode_version", "ninja_version", "ninja_sha256",
+                       "xcodegen_version", "xcodegen_sha256"],
+        "_windows.yml": ["runner", "mesa_version", "mesa_sha256"],
+    }
+
+    def inputs_of(self, name):
+        """{input name: its block of text}, from the workflow_call inputs."""
+        text = (REPO / ".github" / "workflows" / name).read_text()
+        body = text.split("inputs:", 1)[1]
+        out, current = {}, None
+        for line in body.splitlines():
+            if re.match(r"^\S", line):
+                break
+            m = re.match(r"^      ([a-z0-9_]+):\s*$", line)
+            if m:
+                current = m.group(1)
+                out[current] = []
+                continue
+            if current and line.startswith("        "):
+                out[current].append(line.strip())
+        return {k: "\n".join(v) for k, v in out.items()}
+
+    def test_no_pinned_input_carries_a_default(self):
+        for name, pins in self.PINNED.items():
+            declared = self.inputs_of(name)
+            for pin in pins:
+                with self.subTest(workflow=name, input=pin):
+                    self.assertIn(pin, declared, f"{name} no longer declares {pin}")
+                    self.assertNotIn("default:", declared[pin],
+                                     f"{name}: input `{pin}` has a default, which is a "
+                                     f"second home for a number that lives in "
+                                     f"thirdparty/FROZEN_VERSIONS.md")
+                    self.assertIn("required: true", declared[pin])
+
+    def test_every_caller_passes_every_pin(self):
+        callers = {"ci.yml": ("windows", "apple"), "canary.yml": ("windows", "apple")}
+        for caller, jobs in callers.items():
+            text = (REPO / ".github" / "workflows" / caller).read_text()
+            for job in jobs:
+                block = job_block(REPO / ".github" / "workflows" / caller, job)
+                self.assertTrue(block, f"{caller} has no job called {job}")
+                name = "_apple.yml" if job == "apple" else "_windows.yml"
+                for pin in self.PINNED[name]:
+                    with self.subTest(caller=caller, job=job, input=pin):
+                        self.assertRegex(block, rf"(?m)^\s+{pin}:",
+                                         f"{caller}: job `{job}` does not pass `{pin}` to "
+                                         f"{name}, which now requires it")
+
+    def test_the_pins_the_config_job_publishes_exist_in_the_frozen_block(self):
+        pins = cfgmod.frozen_versions()
+        for key in ("macos_runner", "xcode", "ninja_mac", "ninja_mac_sha256",
+                    "xcodegen", "xcodegen_sha256", "windows_runner", "mesa", "mesa_sha256"):
+            self.assertIn(key, pins)
+
+
+class JustfileAndLintJobAgreeTest(unittest.TestCase):
+    """Every gate `just test` runs, the lint job runs too.
+
+    ui_layout_test is why. `-DBUILD_UI_TESTS=ON` appears in ci.yml exactly
+    once, inside the clang-tidy step, so that the file gets a real
+    compile_commands.json entry -- and nothing ever built or ran the binary.
+    The headless UI layout assertions, four resolutions and no GPU, the thing
+    phases 1-4 of the UI architecture are gated on, ran on developer machines
+    only for four phases.
+
+    A gate that exists in one of the two places is the failure mode, so the two
+    lists are compared rather than maintained.
+    """
+
+    # Stages whose assertion the lint job makes some other way. Each one names
+    # what covers it, and the string has to be in the lint job.
+    COVERED_BY = {
+        "fmt": "clang-format",
+        "run_smoke": "render_check.sh",   # boots the binary and greps the markers
+    }
+
+    def recipe(self):
+        text = (REPO / "Justfile").read_text()
+        body = text.split("\ntest what=", 1)[1]
+        return body.split("\n# Every example is a directory", 1)[0]
+
+    def stages(self):
+        recipe = self.recipe()
+        line = next(l for l in recipe.splitlines() if l.strip().startswith("all)"))
+        names = re.findall(r"run_[a-z_]+", line)
+        if "just fmt check" in line:
+            names.insert(0, "fmt")
+        return names, recipe
+
+    def bodies(self, recipe):
+        out = {}
+        for m in re.finditer(r"^    (run_[a-z_]+)\(\) \{$", recipe, re.M):
+            start = m.end()
+            end = recipe.index("\n    }", start)
+            out[m.group(1)] = recipe[start:end]
+        return out
+
+    def test_every_stage_of_just_test_has_a_step_in_the_lint_job(self):
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("actionlint", lint, "the lint job did not parse")
+        names, recipe = self.stages()
+        self.assertGreater(len(names), 8, "the `all)` line did not parse")
+        bodies = self.bodies(recipe)
+        for stage in names:
+            wanted = set()
+            body = bodies.get(stage, "")
+            wanted.update(re.findall(r"tools/[a-z_]+\.sh", body))
+            wanted.update(re.findall(r"build/([a-z_]+_test)\b", body))
+            if "unittest discover" in body:
+                wanted.add("unittest discover")
+            if not wanted:
+                self.assertIn(stage, self.COVERED_BY,
+                              f"`just test` runs {stage}, which names no script and no "
+                              f"test binary, so nothing here can check that CI runs it "
+                              f"too. Add it to COVERED_BY with what covers it.")
+                wanted.add(self.COVERED_BY[stage])
+            for token in sorted(wanted):
+                with self.subTest(stage=stage, needs=token):
+                    self.assertIn(token, lint,
+                                  f"`just test {stage}` runs {token} and the lint job "
+                                  f"does not. A gate that exists locally and not in CI "
+                                  f"is a gate that is about to stop existing.")
+
+    def test_the_lint_job_runs_the_headless_ui_layout_test(self):
+        """Named on its own because it is the one that was missing, and a
+        regression here is invisible: the binary still BUILDS in the clang-tidy
+        step's configure."""
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("--target ui_layout_test", lint)
+        self.assertIn("./build/ui_layout_test", lint)
+
+    def test_actionlint_asserts_shellcheck_is_there(self):
+        """actionlint shellchecks every `run:` block IF shellcheck is on PATH,
+        and says nothing when it is not -- so the day the image loses it, this
+        step keeps printing PASS having checked half of what it used to."""
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("command -v shellcheck", lint)
+
+
+class PackagingShipsOneArchiveShapeTest(unittest.TestCase):
+    """Every release archive has the same contents, or says why not.
+
+    Four jobs shipped `resources.rres`; five shipped a loose `resources/`
+    folder, three of them for no stated reason. Both work -- the loader falls
+    back to loose files -- so the difference was invisible until somebody
+    compared two downloads.
+
+    The rule: pack where the packer can run (native builds), ship loose with a
+    PACK_SKIPPED.txt naming the reason where it cannot (cross-compiled
+    targets). The test is what stops a sixth shape appearing.
+    """
+
+    # Cross-compiled: rres_pack comes out for the TARGET and cannot run on the
+    # host that built it. Each of these must ship loose files AND the note.
+    CROSS = ("linux-x64-musl", "linux-riscv64-glibc", "windows-arm64")
+
+    def package_steps(self):
+        """(workflow, step text) for every step that assembles `package/`.
+
+        Keyed on `package/resources`, which is what a desktop archive is: a
+        binary, a resources folder and the licence notice. Web and the iOS
+        .app are deliberately not in it -- the browser bundle embeds its assets
+        in the wasm package and the .app carries them inside the bundle, so
+        neither has an archive shape to be consistent with.
+        """
+        out = []
+        for path in WORKFLOWS:
+            lines = path.read_text().splitlines()
+            for i, line in enumerate(lines):
+                if not re.match(r"^      - name: Package\b", line):
+                    continue
+                body = []
+                for follow in lines[i + 1:]:
+                    if follow.strip() and not follow.startswith("        "):
+                        break
+                    body.append(follow)
+                text = "\n".join(body)
+                if "package/resources" in text:
+                    out.append((path.name, text))
+        return out
+
+    def test_there_are_as_many_packaging_steps_as_there_are_archives(self):
+        steps = self.package_steps()
+        # six Linux, one macOS, two Windows, one BSD.
+        self.assertGreaterEqual(len(steps), 10,
+                                "the Package steps stopped parsing, and a scan that "
+                                "finds nothing passes every assertion below")
+        self.assertEqual({"_linux.yml", "_apple.yml", "_windows.yml", "_bsd.yml"},
+                         {name for name, _ in steps})
+
+    def test_every_archive_ships_the_pack_or_says_why_it_does_not(self):
+        for name, body in self.package_steps():
+            with self.subTest(workflow=name, step=body.splitlines()[0][:60]):
+                packs = "resources.rres package/resources/" in body
+                loose = ("cp -r resources package/" in body
+                         or "Copy-Item resources package/ -Recurse" in body)
+                self.assertTrue(packs or loose, "this step ships no resources at all")
+                self.assertFalse(packs and loose, "this step ships both shapes")
+                if loose:
+                    self.assertIn(
+                        "PACK_SKIPPED.txt", body,
+                        "a loose-resources archive has to say why in the zip: every "
+                        "other archive carries resources.rres, and an undocumented "
+                        "difference is the bug this test exists for.")
+
+    def test_the_cross_compiled_targets_are_the_only_loose_ones(self):
+        loose = []
+        for name, body in self.package_steps():
+            if "PACK_SKIPPED.txt" in body:
+                loose.append(body)
+        self.assertEqual(len(loose), len(self.CROSS),
+                         f"expected exactly {len(self.CROSS)} loose-resource archives "
+                         f"({', '.join(self.CROSS)}), found {len(loose)}")
+        joined = "\n".join(loose)
+        for target in self.CROSS:
+            self.assertIn(target, joined)
+
+    def test_every_archive_carries_the_licence_notice(self):
+        for name, body in self.package_steps():
+            with self.subTest(workflow=name):
+                self.assertIn("LICENSES.txt", body)
+
+
+class BsdInlineScriptSizeTest(unittest.TestCase):
+    """The cpa.sh script has a size limit and nothing was measuring it.
+
+    cross-platform-actions carries the step's `run:` block into the VM through
+    its own shell and cuts it off somewhere between 4.8 KB (worked) and 5.6 KB
+    (did not). Both cuts were silent: one landed inside a quoted string and
+    came back as "Unterminated quoted string" on an unplaceable line, the other
+    landed somewhere that parsed, so the shell hit EOF and EXITED 0 with half
+    the step unrun -- a green that proved nothing.
+
+    portable_check.sh enforces it; this checks the same number independently,
+    because the two would have to break the same way to both be wrong.
+    """
+
+    LIMIT = 4096
+
+    def block(self):
+        lines = (REPO / ".github" / "workflows" / "_bsd.yml").read_text().splitlines()
+        start = next(i for i, l in enumerate(lines)
+                     if l.strip() == "run: |" and "Install deps" in lines[i - 1])
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        out = []
+        for line in lines[start + 1:]:
+            if line.strip() and (len(line) - len(line.lstrip())) <= indent:
+                break
+            out.append(line[indent + 2:] if len(line) > indent else line)
+        return "\n".join(out)
+
+    def test_the_script_carried_into_the_vm_is_under_the_limit(self):
+        size = len(self.block().encode("utf-8"))
+        self.assertLess(size, self.LIMIT,
+                        f"the cpa.sh script is {size} bytes. Move the work into a "
+                        f"committed file the way tools/render_check.sh did.")
+
+    def test_it_is_pure_ascii(self):
+        """An em dash inside a double-quoted echo came back as
+        `sh: 83: Syntax error: Unterminated quoted string`, from a line number
+        belonging to a generated script, in a step whose real job was to build
+        the game."""
+        body = self.block()
+        bad = [c for c in body if ord(c) > 126 or (ord(c) < 32 and c not in "\n\t")]
+        self.assertEqual(bad, [], f"non-ASCII in the cpa.sh block: {bad!r}")
+
+    def test_portable_check_enforces_the_same_limit(self):
+        text = (REPO / "tools" / "portable_check.sh").read_text()
+        self.assertIn(f"BSD_LIMIT={self.LIMIT}", text,
+                      "the script and this test have to agree on the number")
+
+    def test_the_last_line_of_the_vm_script_is_the_render_check(self):
+        """Anything after it can simply not be there: the truncation lands
+        where it lands, and the completion marker is written from inside
+        render_check.sh so there is nothing after the call to lose."""
+        last = [l for l in self.block().splitlines() if l.strip()][-1]
+        self.assertIn("tools/render_check.sh", last)
+
+
+class ShellPatternCheckTest(unittest.TestCase):
+    """`A && B || C` is not if/then/else, and shellcheck does not say so.
+
+    SC2015 only fires on a couple of degenerate shapes. Every occurrence this
+    repository has shipped was of a shape it says nothing about: it was
+    written, fixed, and then written again in seven more places two rounds
+    later. CLAUDE.md credited actionlint with catching it; actionlint does not.
+    """
+
+    SCRIPT = REPO / "tools" / "shell_pattern_check.sh"
+
+    def run_on(self, *lines, suffix=".sh"):
+        import subprocess, tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as fh:
+            fh.write("\n".join(lines) + "\n")
+            name = fh.name
+        try:
+            return subprocess.run(["bash", str(self.SCRIPT), name],
+                                  capture_output=True, text=True)
+        finally:
+            os.unlink(name)
+
+    def test_it_goes_red_on_the_shape_it_exists_for(self):
+        got = self.run_on('make_it && echo ok || exit 1')
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("not if/then/else", got.stdout)
+
+    def test_the_guard_shape_is_allowed(self):
+        """`cmd || { echo ...; exit 1; }` has no `&&`, which is the whole
+        reason it is the shape to reach for."""
+        got = self.run_on('make_it || { echo "FALLA: no"; exit 1; }',
+                          'if make_it; then echo ok; else echo no; exit 1; fi')
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_a_string_or_a_comment_is_not_code(self):
+        """portable_check.sh's own advice string contains `&& pwd` inside double
+        quotes on a line that really does end in `|| fails=...`. A rule that
+        flags that is a rule somebody switches off within a week."""
+        got = self.run_on('echo "cd \\"$(dirname \\"$0\\")\\" && pwd" || fails=1',
+                          '# A && B || C is what this forbids')
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_a_github_expression_is_not_shell(self):
+        """`${{ a && b || c }}` really is a ternary, in GitHub's language, and
+        it never reaches a shell."""
+        got = self.run_on("NAME: ${{ inputs.x == 'y' && 'a' || 'b' }}")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_the_whole_tree_is_clean(self):
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT)], cwd=REPO,
+                             capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_it_is_wired_into_just_test_and_the_lint_job(self):
+        self.assertIn("shell_pattern_check.sh", (REPO / "Justfile").read_text())
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("shell_pattern_check.sh", lint)
+
+
+class PushRefusesEveryLiveRunTest(unittest.TestCase):
+    """`just push` refused only `in_progress`.
+
+    ci.yml's concurrency group cancels QUEUED runs too, and a full matrix sits
+    queued behind hosted-runner availability for minutes -- which is precisely
+    the window in which somebody pushes again. It has happened three times.
+    """
+
+    def test_it_asks_about_queued_and_waiting_as_well(self):
+        text = (REPO / "Justfile").read_text()
+        push = text.split("\npush what=", 1)[1].split("\n# ---", 1)[0]
+        for status in ("queued", "in_progress", "waiting"):
+            self.assertIn(f'"{status}"', push,
+                          f"a {status} run is cancelled by a push just the same")
+
+
+class WorkflowSecretsInheritTest(unittest.TestCase):
+    """A callee that reads `secrets.*` needs a caller that passes them.
+
+    ci.yml's own header calls this failure mode #2: "Called workflows get no
+    secrets unless you say `secrets: inherit`. Miss it and the signing / butler
+    / GCP steps all quietly take their 'not configured, skipping' branch and
+    the pipeline looks green." Nothing checked it -- the tree happened to be
+    right, which is the state immediately before a regression.
+
+    Run against a fixture rather than only against the tree, because a checker
+    nobody has watched go red is a hope with a name.
+    """
+
+    CALLEE = """
+name: Callee
+on:
+  workflow_call:
+    inputs:
+      who:
+        required: true
+        type: string
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" > key
+"""
+
+    CALLER = """
+name: Caller
+on: [push]
+jobs:
+  android:
+    uses: ./.github/workflows/_callee.yml
+    with:
+      who: me
+%s
+"""
+
+    def run_check(self, caller_tail):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as root:
+            flows = Path(root) / ".github" / "workflows"
+            flows.mkdir(parents=True)
+            (flows / "_callee.yml").write_text(self.CALLEE)
+            (flows / "caller.yml").write_text(self.CALLER % caller_tail)
+            return subprocess.run(
+                ["bash", str(REPO / "tools" / "workflow_check.sh"), root],
+                capture_output=True, text=True)
+
+    def test_a_caller_that_forgets_secrets_inherit_is_red(self):
+        got = self.run_check("")
+        if "skip  PyYAML" in got.stdout:
+            self.skipTest("PyYAML not installed")
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("without `secrets: inherit`", got.stdout)
+        self.assertIn("ANDROID_KEYSTORE_BASE64", got.stdout)
+
+    def test_a_caller_that_inherits_is_green(self):
+        got = self.run_check("    secrets: inherit")
+        if "skip  PyYAML" in got.stdout:
+            self.skipTest("PyYAML not installed")
+        self.assertEqual(got.returncode, 0, got.stdout)
+
+    def test_the_real_tree_passes(self):
+        import subprocess
+        got = subprocess.run(["bash", str(REPO / "tools" / "workflow_check.sh")],
+                             capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout)
+
+    def test_the_pyyaml_skip_is_a_failure_inside_the_image(self):
+        """The branch that made this check a no-op in CI for months. The image
+        has no reason to lose python3-yaml again, but the difference between a
+        skip and a failure is the difference between a gate and a habit."""
+        text = (REPO / "tools" / "workflow_check.sh").read_text()
+        self.assertIn("/etc/raylib-build-image.json", text)
+        self.assertIn("FALLA: PyYAML is missing INSIDE the build image", text)
 
 
 class ThisFileRunsWholeTest(unittest.TestCase):

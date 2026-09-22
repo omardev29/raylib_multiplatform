@@ -44,8 +44,12 @@ jobs:
     name: Real device — Android
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # No GCP account must not turn the pipeline red.
-    continue-on-error: true
+    # No job-level continue-on-error. "No GCP account must not turn the
+    # pipeline red" is already handled, and handled better, by the
+    # steps.cfg.outputs.ok guard below: unconfigured means every later step is
+    # skipped and the job is honestly green. The blanket flag only added the
+    # other case -- a real Test Lab failure on a CONFIGURED project reported as
+    # a success, which is the one outcome nobody wants.
     steps:
       - name: Check configuration
         id: cfg

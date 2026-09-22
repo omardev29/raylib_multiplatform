@@ -93,7 +93,13 @@ for t in $targets; do
   fi
   shot="$SHOTS/$t.png"
   rm -f "$shot"
-  out=$(RAY_TEST_MAX_FRAMES="$FRAMES" RAY_TEST_SCREENSHOT="$shot" $LIMIT "$exe" 2>&1) && status=0 || status=$?
+  # Two statements and not `... && status=0 || status=$?`: that shape runs the
+  # `||` branch when the MIDDLE command fails too, which is the bug
+  # tools/shell_pattern_check.sh exists for. Here it happened to be harmless
+  # (an assignment cannot fail), and "happened to be harmless" is how the shape
+  # stays in a codebase until the day it is not.
+  status=0
+  out=$(RAY_TEST_MAX_FRAMES="$FRAMES" RAY_TEST_SCREENSHOT="$shot" $LIMIT "$exe" 2>&1) || status=$?
   ran=$((ran + 1))
   ok=1
   echo "$out" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " || ok=0

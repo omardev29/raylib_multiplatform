@@ -354,6 +354,14 @@ UPX_GROUPS: dict[str, list[str]] = {
 # binary that grows into the awkward range is skipped, not fatal.
 UPX_HARD_LIMIT_MB = 768
 
+# Google Play's ceiling on versionCode. Not ours either: the store refuses an
+# upload above it, and an Android version code is a number you can never go
+# back down from.
+PLAY_MAX_VERSION_CODE = 2_100_000_000
+# major*1_000_000 + 999*1_000 + 999 has to stay under it, so major stops here:
+# 2099.999.999 is 2_099_999_999, and 2100.0.0 would be the ceiling exactly.
+PLAY_MAX_MAJOR = 2099
+
 
 def expand_upx(cfg: dict, targets: list[str]) -> list[str]:
     """Which of the targets being built get compressed.
@@ -508,6 +516,48 @@ PROTECTED_MODULES = {
 OPTIONAL_MODULES = {"rmodels", "raudio"}
 
 
+def list_of_strings(value, where: str, extra: str = "") -> None:
+    """`where` must be a TOML array of strings.
+
+    Same hole as one_of(), one level up: a bare value where a list goes does
+    not raise on the membership test, it ITERATES. `enabled = 5` came back as
+    `TypeError: 'int' object is not iterable` from three frames away, and
+    `enabled = "all"` -- the most natural typo of the lot, because a group name
+    is a single word -- was accepted as the four characters a, l, l and
+    rejected with "unknown target or group 'a'", a message about a letter.
+
+    A string is rejected explicitly rather than falling out of the isinstance
+    check, because the fix for it is different: add brackets.
+    """
+    if isinstance(value, str):
+        raise ConfigError(
+            f"{where} = {value!r} is a string, and this has to be a list.\n"
+            f"Write {where} = [{value!r}] -- with the brackets. Without them TOML "
+            "hands over the characters one at a time." + (f"\n{extra}" if extra else ""))
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ConfigError(
+            f"{where} = {value!r} has to be a list of strings, e.g. "
+            f'{where} = ["one", "two"].' + (f"\n{extra}" if extra else ""))
+
+
+def a_string(value, where: str, extra: str = "") -> None:
+    """`where` must be a str, checked BEFORE anything reads it as one.
+
+    Every regex match, `.replace()` and `in` test below assumes a string, and
+    TOML will hand over a list or a table for any of them. The difference
+    between doing this and not is a named error at line N of the .toml versus
+    an AttributeError from inside a generator -- and for [window] title it was
+    worse than that: `"\\n" in ["My Game"]` is a perfectly good membership test
+    on a list, so validate() ACCEPTED it and the crash arrived later, in
+    gen_app_config, as 'list' object has no attribute 'replace'.
+    """
+    if not isinstance(value, str):
+        raise ConfigError(
+            f"{where} = {value!r} has to be a string.\n"
+            "A TOML array or table here is almost always a stray pair of "
+            "brackets." + (f"\n{extra}" if extra else ""))
+
+
 def one_of(value, allowed: set[str], where: str, extra: str = "") -> None:
     """`where` must be one of `allowed`, and it must be a string first.
 
@@ -570,10 +620,15 @@ COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 
 
 def validate(cfg: dict, strict_release: bool) -> None:
+    # The lists, first and together. expand_targets() and the module loop below
+    # both ITERATE what they are given, so a non-list reaches them as a
+    # TypeError from three frames away rather than as a sentence naming the key.
     for key in ("enabled", "disabled"):
-        value = cfg["upx"][key]
-        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-            raise ConfigError(f"[upx] {key} has to be a list of strings, got {value!r}")
+        list_of_strings(cfg["targets"][key], f"[targets] {key}",
+                        "Groups count as names here: [\"all\"], [\"desktop\"].")
+        list_of_strings(cfg["upx"][key], f"[upx] {key}")
+    list_of_strings(cfg["raylib"]["disabled_modules"], "[raylib] disabled_modules",
+                    "Optional modules are: " + ", ".join(sorted(OPTIONAL_MODULES)) + ".")
 
     # bool first: in Python `True` is an int, and `max_size_mb = true` in the
     # TOML would otherwise sail through as 1 MB and skip every binary you have.
@@ -658,12 +713,14 @@ def validate(cfg: dict, strict_release: bool) -> None:
            "compiles it either way.")
 
     name = cfg["project"]["name"]
+    a_string(name, "[project] name")
     if not NAME_RE.match(name):
         raise ConfigError(
             f"[project] name = {name!r} is not usable as a filename.\n"
             "Use letters, digits, '_' and '-', starting with a letter. It becomes the "
             "executable name on five operating systems.")
 
+    a_string(cfg["window"]["title"], "[window] title")
     if "\n" in cfg["window"]["title"] or "\r" in cfg["window"]["title"]:
         raise ConfigError("[window] title must be a single line: it becomes a Java "
                           ".properties value and an Xcode build setting.")
@@ -741,6 +798,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
                           f"{cfg['android']['admob']['enabled']!r} must be true or false.")
 
     appid = cfg["android"]["application_id"]
+    a_string(appid, "[android] application_id")
     if not APPID_RE.match(appid):
         raise ConfigError(
             f"[android] application_id = {appid!r} is not a valid Android application id.\n"
@@ -756,6 +814,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "an id containing it corrupts them.")
 
     bundle = cfg["ios"]["bundle_id"]
+    a_string(bundle, "[ios] bundle_id")
     if not BUNDLE_RE.match(bundle):
         raise ConfigError(
             f"[ios] bundle_id = {bundle!r} is not a valid bundle identifier.\n"
@@ -823,8 +882,26 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "Use \"lld\", or \"auto\" to let the build pick whatever actually links here.")
 
     bg = cfg["icon"]["adaptive_background"]
+    a_string(bg, "[icon] adaptive_background", 'Use "" for no colour at all.')
     if bg and not re.match(r"^#[0-9a-fA-F]{6}$", bg):
         raise ConfigError(f"[icon] adaptive_background = {bg!r} must be #RRGGBB, or \"\".")
+
+    # [resources] rres_password. One of exactly two config values that end up
+    # INSIDE the shipped binary (the other is the title), and it had no
+    # validation at all: `rres_password = 5` passed validate() and then died in
+    # cmake_escape with an AttributeError, and `rres_password = ""` passed and
+    # produced `#define APP_RRES_PASSWORD ""` -- a release shipping an AES key
+    # of nothing, silently.
+    password = cfg["resources"]["rres_password"]
+    a_string(password, "[resources] rres_password")
+    if not password:
+        raise ConfigError(
+            "[resources] rres_password is empty, which ships the pack with an AES key "
+            "of nothing rather than with no encryption.\n"
+            "Put a passphrase here. To ship the assets as loose files instead, do not "
+            "build the pack: `just unpack` locally, and leave resources/ in the "
+            "archive -- the loader falls back to loose files when there is no pack.",
+            ("resources", "rres_password"))
 
     if not isinstance(cfg["deploy"]["licenses"], bool):
         raise ConfigError(f"[deploy] licenses = {cfg['deploy']['licenses']!r} must be true "
@@ -856,7 +933,11 @@ def validate(cfg: dict, strict_release: bool) -> None:
          r"^[A-Za-z0-9_.,=-]*$", "a gcloud device spec, e.g. model=MediumPhone.arm,version=33"),
     ):
         if not isinstance(value, str) or not re.match(pattern, value):
-            raise ConfigError(f"{key} = {value!r} must be {shape}, or \"\".")
+            # The literal half of this message carries the only words a test can
+            # hold on to: everything else in it is interpolated, and the
+            # rejection meta-gate keys tests to a phrase from the message.
+            raise ConfigError(
+                f"{key} = {value!r} must be {shape}, or \"\" to leave it unset.")
 
     # Half-configured is worse than not configured, because the workflow reads
     # both and skips silently when either is empty — so a deploy that was meant
@@ -956,6 +1037,17 @@ def resolve_version() -> tuple[str, int]:
                 raise ConfigError(
                     f"tag {ref_name!r}: minor and patch must each stay below 1000 so the Android "
                     "versionCode stays monotonic.")
+            # And a ceiling on major, which had none. Google Play refuses any
+            # versionCode above 2100000000, so v2101.0.0 produces a code the
+            # store rejects -- and versionCode is the value ci.yml's own note
+            # calls out as having a consequence that cannot be taken back.
+            # 2099 * 1_000_000 + 999_999 = 2_099_999_999, the last code that
+            # fits, so 2099 is the last accepted major.
+            if major > PLAY_MAX_MAJOR:
+                raise ConfigError(
+                    f"tag {ref_name!r}: major must stay at or below {PLAY_MAX_MAJOR}. "
+                    f"The Android versionCode is major*1_000_000 + minor*1_000 + patch, and "
+                    f"Google Play refuses anything above {PLAY_MAX_VERSION_CODE:,}.")
             return ref_name[1:], major * 1_000_000 + minor * 1_000 + patch
         # ci.yml releases on 'v*', so a v-tag that does not parse is on the
         # release path. Falling back would publish a release named 0.0.0-dev.

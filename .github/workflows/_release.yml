@@ -74,11 +74,22 @@ jobs:
           # on the default. Note what is NOT here: android-unsigned-aab, the
           # throwaway-signed bundle, which must never become a release asset.
           fail_on_unmatched_files: false
+          # ONE LINE PER TARGET, and tests/configure_test.py derives the list
+          # from configure.py's TARGETS and fails if one is missing. It was
+          # hand-maintained, and two targets had been missing since the day
+          # they were added: linux-x64-musl and linux-arm64-glibc-drm both
+          # built, both passed their gates, both uploaded an artifact, and
+          # neither was ever attached to a release -- while SHA256SUMS listed
+          # them, because it globs whatever was downloaded. An Alpine user got
+          # nothing, and anyone running `sha256sum -c SHA256SUMS` got a missing
+          # file and a non-zero exit, which reads as a tampered download.
           files: |
             linux-x64-glibc-build/linux-x64-glibc-build.zip
             linux-arm64-glibc-build/linux-arm64-glibc-build.zip
             linux-riscv64-glibc-build/linux-riscv64-glibc-build.zip
+            linux-x64-musl-build/linux-x64-musl-build.zip
             linux-x64-glibc-drm-build/linux-x64-glibc-drm-build.zip
+            linux-arm64-glibc-drm-build/linux-arm64-glibc-drm-build.zip
             web-build/web-build.zip
             android-debug-apk/*.apk
             android-release-aab/*.aab

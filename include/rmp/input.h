@@ -170,7 +170,7 @@ Vector2 vector();
 
 // ---------------------------------------------------------------------------
 // The pointer. Mouse and finger are the same pointer, which is what lets the
-// same code work on all fourteen targets without an #ifdef.
+// same code work on all seventeen targets without an #ifdef.
 // ---------------------------------------------------------------------------
 
 Vector2 pointer_screen(); // in pixels, top-left origin
