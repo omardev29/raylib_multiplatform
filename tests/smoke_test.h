@@ -108,10 +108,17 @@ static inline int SmokeTest_CaptureAt(void) {
 //   * Not after EndDrawing(). That call ends with SwapScreenBuffer(), so
 //     afterwards you are reading the *new* back buffer, whose contents are
 //     undefined. Under llvmpipe you tend to get the previous frame and it
-//     looks like it works; on Web it is guaranteed to fail, because the build
-//     uses -s ASYNCIFY, EndDrawing() yields to the browser, and WebGL clears
-//     the drawing buffer once it has composited — glReadPixels then returns
-//     all zeros and this gate would fail a perfectly good build.
+//     looks like it works; on Web it is guaranteed to fail. The browser owns
+//     the frame loop through emscripten_set_main_loop, so EndDrawing() is
+//     where the callback ENDS and control goes back to the browser, which
+//     composites — and WebGL clears the drawing buffer on composite unless
+//     preserveDrawingBuffer is set. glReadPixels then returns all zeros and
+//     this gate would fail a perfectly good build.
+//
+//     (This used to say the web build uses `-s ASYNCIFY`. It does not, on
+//     purpose and at length: see the note at CMakeLists.txt:599. The
+//     conclusion was right and the reason was not, which is worse than no
+//     reason, because a reader relies on it.)
 //
 //   * Not without the explicit batch flush. raylib queues draw calls into a
 //     render batch and only submits them inside EndDrawing(). Read before that

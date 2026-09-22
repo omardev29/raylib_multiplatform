@@ -148,6 +148,8 @@ test what="all": (_reconfigure "Debug")
     # unit      doctest: rmp::random and whatever each phase adds. No window
     # seam      nothing under src/rmp/ reads the clock, input or rand() on its own
     # portable  our own scripts run on macOS and the BSDs, not just on GNU
+    # shell     no `A && B || C` anywhere -- it is not if/then/else, and
+    #           shellcheck's SC2015 does not see the shapes we keep writing
     # workflows a reusable workflow is granted what it asks for, and given its inputs
     # headers   every public header compiles alone and carries the .toml values
     # render    draw a frame with raylib's SOFTWARE renderer — no GPU, no window —
@@ -229,6 +231,10 @@ test what="all": (_reconfigure "Debug")
         echo "== portable =="
         bash tools/portable_check.sh
     }
+    run_shell() {
+        echo "== shell =="
+        bash tools/shell_pattern_check.sh
+    }
     run_headers() {
         echo "== headers =="
         bash tools/header_check.sh
@@ -247,7 +253,7 @@ test what="all": (_reconfigure "Debug")
         python3 -m unittest discover -s tests -p 'configure_test.py' 2>&1 | tail -3
     }
     case "{{ what }}" in
-        all)      just fmt check; run_config; run_repo; run_seam; run_workflows; run_portable; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
+        all)      just fmt check; run_config; run_repo; run_seam; run_workflows; run_portable; run_shell; run_headers; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
@@ -257,11 +263,12 @@ test what="all": (_reconfigure "Debug")
         seam)     run_seam ;;
         headers)  run_headers ;;
         portable) run_portable ;;
+        shell)    run_shell ;;
         repo)     run_repo ;;
         workflows) run_workflows ;;
         render)   run_render ;;
         render-update) run_render update ;;
-        *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | headers | render | layout | smoke | config | configure)"; exit 1 ;;
+        *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | shell | headers | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 
@@ -320,14 +327,22 @@ example name="list":
 push what="":
     #!/usr/bin/env bash
     set -euo pipefail
+    # THREE statuses, not one. `--status in_progress` missed `queued` -- a run
+    # that has been dispatched and is waiting for a runner -- and `waiting`,
+    # which is an environment approval. cancel-in-progress cancels those too,
+    # and the BSD legs in particular sit queued behind hosted-runner
+    # availability for minutes at a time, which is exactly the window in which
+    # somebody pushes again.
     if [ "{{ what }}" != "force" ] && command -v gh >/dev/null 2>&1; then
-        running=$(gh run list --workflow ci.yml --status in_progress \
-                    --json databaseId,event --jq '.[] | "\(.databaseId) \(.event)"' 2>/dev/null || true)
+        running=$(gh run list --workflow ci.yml --limit 20 \
+                    --json databaseId,status,event \
+                    --jq '.[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting")
+                          | "\(.databaseId) \(.status) \(.event)"' 2>/dev/null || true)
         if [ -n "$running" ]; then
             echo "FALLA: a CI run is in flight, and pushing cancels it."
             echo "$running" | sed 's/^/  /'
             echo
-            echo "  gh run watch \$(gh run list --workflow ci.yml --status in_progress --json databaseId --jq '.[0].databaseId')"
+            echo "  gh run watch $(echo "$running" | head -1 | cut -d' ' -f1)"
             echo "  just push force     # if killing it is what you meant"
             exit 1
         fi
@@ -336,7 +351,7 @@ push what="":
 
 # --- releasing --------------------------------------------------------------
 
-# Cut a release: tag it and push the tag. CI builds all 14 targets and publishes.
+# Cut a release: tag it and push the tag. CI builds all 17 targets and publishes.
 deploy version:
     #!/usr/bin/env bash
     # The version comes from the tag and nowhere else — there is no number to
@@ -395,7 +410,7 @@ deploy version:
     git push origin "$v"
 
     echo
-    echo "pushed $v. CI is building all 14 targets and will attach them to the release."
+    echo "pushed $v. CI is building all 17 targets and will attach them to the release."
     echo "  gh run watch"
     echo
     echo "to undo, if you were quick enough:"

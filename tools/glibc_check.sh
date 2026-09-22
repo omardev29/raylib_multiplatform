@@ -14,7 +14,7 @@
 # What this project actually needs is much older -- every high symbol version in
 # our binary is libm (powf, hypot, fmod) or the pthread/dl functions glibc 2.34
 # folded into libc, not a single new API -- so the floor is a build setting, not
-# a rewrite. See tools/zig_toolchain.sh.
+# a rewrite. See tools/linux_build.sh.
 #
 # THE ONE TARGET THIS CANNOT GATE is DRM. Every other Linux binary we ship
 # either dlopens its windowing system (GLFW resolves X11 at runtime, so nothing
@@ -102,5 +102,5 @@ objdump -T "$BINARY" 2>/dev/null | grep "(GLIBC_" \
 echo
 echo "        This binary will not start on anything older, with"
 echo "        \"version GLIBC_$HIGHEST not found\" and nothing else."
-echo "        Build it with tools/zig_toolchain.sh, or lower the floor."
+echo "        Build it with tools/linux_build.sh, or lower the floor."
 exit 1

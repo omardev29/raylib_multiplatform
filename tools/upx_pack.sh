@@ -64,6 +64,19 @@ if command -v upx > /dev/null 2>&1 && upx --version 2>/dev/null | head -1 | grep
   echo "  using the upx already here: $UPX ($VERSION)"
 fi
 
+# Inside the image the download is not a fallback, it is a drift report: the
+# image ships upx at the pin, and a Linux job downloads nothing. Silently
+# fetching 2 MB off GitHub in the middle of a release leg is exactly the single
+# point of failure the image was built to remove.
+if [ -r /etc/raylib-build-image.json ] && [ -z "${UPX:-}" ]; then
+  HAVE="no upx at all"
+  if command -v upx > /dev/null 2>&1; then HAVE=$(upx --version 2>/dev/null | head -1); fi
+  echo "FALLA: inside the build image, but its upx is not the pinned $VERSION."
+  echo "       have: $HAVE"
+  echo "       Bump the image, or the pin in thirdparty/FROZEN_VERSIONS.md."
+  exit 1
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 NAME="upx-${VERSION}-${ARCH}_linux"

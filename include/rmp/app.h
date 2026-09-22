@@ -370,7 +370,7 @@ template <class T> T &global() {
 // list. In a static library or an iOS xcframework the linker DISCARDS any
 // object file no symbol refers to, and a self-registering object is exactly
 // that. It does not fail to compile: it ships, runs on your desktop, and finds
-// no scenes on the phone. That is the worst failure a fourteen-target framework
+// no scenes on the phone. That is the worst failure a seventeen-target framework
 // can have, so the door is shut rather than guarded.
 //
 // Between putting it here and putting it in the scene's own .cpp, both give the

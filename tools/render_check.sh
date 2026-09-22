@@ -71,15 +71,41 @@ grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
 # both instruction sets -- there is no driver in between to differ.
 GOT=$(grep -o "hash=[0-9a-f]*" "$LOG" | head -1 | cut -d= -f2)
 
+# The completion marker, written from the earliest point at which every exit
+# below is a deliberate one. It used to be the last line of the file, and the
+# two early `exit 0`s above it skipped it -- so `update` mode and a missing
+# golden both left the BSD job failing with "the build step reported success
+# but did not reach its last line. Something stopped it early", which is a true
+# sentence about the wrong thing and sends you looking for a truncation that is
+# not there. See the note at the bottom for why the marker is written in here
+# and not by the caller.
+mark_complete() {
+    mkdir -p build
+    echo "reached-the-end" > build/.rmp-render-complete
+}
+
 if [ "$MODE" = "update" ]; then
     mkdir -p "$(dirname "$GOLDEN")"
     echo "$GOT" > "$GOLDEN"
     echo "  golden hash recorded: $GOT -- commit it, and say what changed visually"
+    mark_complete
     exit 0
 fi
 
 if [ ! -f "$GOLDEN" ]; then
+    # On a laptop this is somebody's first run and the friendly message is
+    # right. In CI it is a missing fixture, and a render gate with no golden
+    # hash is not a gate -- it is the pixel-identity check quietly doing
+    # nothing while the job goes green. Two of those have shipped from this
+    # repository already.
+    if [ -n "${CI:-}" ]; then
+        echo "FALLA: $GOLDEN is missing, so there is nothing to compare the frame to."
+        echo "       The fixture is committed; if this fired, it was deleted or the"
+        echo "       checkout is incomplete. Record one with: just test render-update"
+        exit 1
+    fi
     echo "  no golden hash yet. Record one with: just test render-update"
+    mark_complete
     exit 0
 fi
 WANT=$(cat "$GOLDEN")
@@ -97,5 +123,4 @@ echo "PASS: booted, rendered and exited under software rendering"
 # were inside the cut on OpenBSD and outside it on FreeBSD, so one BSD passed
 # and the other did not, with identical code. With the marker written from in
 # here there is nothing after the call to lose.
-mkdir -p build
-echo "reached-the-end" > build/.rmp-render-complete
+mark_complete

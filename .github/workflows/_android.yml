@@ -149,11 +149,27 @@ jobs:
 
           # `unzip -l | grep META-INF/.*\.SF` only proves a signature block is
           # present, not whose it is or whether it verifies. jarsigner checks it.
-          jarsigner -verify -strict "$BUNDLE" | tee /tmp/jarsigner.txt || true
+          jarsigner -verify -strict "$BUNDLE" > /tmp/jarsigner.txt 2>&1 || true
+          cat /tmp/jarsigner.txt
           grep -q "jar verified" /tmp/jarsigner.txt || { echo "FAIL: AAB signature does not verify"; exit 1; }
 
-          SIGNER=$(keytool -printcert -jarfile "$BUNDLE" | grep -m1 "Owner:" || true)
+          # NO PIPE, and no `|| true`. This was
+          #     SIGNER=$(keytool -printcert -jarfile "$BUNDLE" | grep -m1 "Owner:" || true)
+          # and under `bash -eo pipefail` the `grep -m1` exits early, keytool
+          # takes SIGPIPE, the pipeline returns 141, `|| true` swallows it and
+          # SIGNER ends up EMPTY. An empty string does not match "CI THROWAWAY",
+          # so the release branch below printed "signed with the configured
+          # upload key" having verified nothing whatsoever about the signer.
+          keytool -printcert -jarfile "$BUNDLE" > /tmp/cert.txt
+          SIGNER=$(grep -m1 "Owner:" /tmp/cert.txt || true)
           echo "signer: $SIGNER"
+          if [ -z "$SIGNER" ]; then
+            echo "FAIL: keytool printed no Owner line, so there is nothing to check."
+            echo "      That is the fail-open this assertion existed to avoid."
+            head -40 /tmp/cert.txt
+            exit 1
+          fi
+
           case "${{ steps.signing.outputs.mode }}" in
             release)
               # A real key must not be the throwaway one — that would mean the
@@ -161,11 +177,39 @@ jobs:
               if echo "$SIGNER" | grep -q "CI THROWAWAY"; then
                 echo "FAIL: mode=release but the bundle is signed with the throwaway CI key"; exit 1
               fi
-              echo "PASS: AAB verified and signed with the configured upload key" ;;
+              # "jar verified" is a PREFIX of "jar verified, with signer
+              # errors". On the throwaway key that second half is expected (it
+              # is self-signed, so the chain does not validate); on a real
+              # upload key it means something is wrong with the certificate and
+              # the upload to Play is going to be refused anyway.
+              if grep -q "with signer errors" /tmp/jarsigner.txt; then
+                echo "FAIL: mode=release and jarsigner reports signer errors:"
+                grep -A5 "with signer errors" /tmp/jarsigner.txt
+                exit 1
+              fi
+              # The POSITIVE assertion. "not the throwaway" is a test that
+              # passes for every wrong key in the world; this one names the key
+              # that is supposed to be there. Set the repository variable
+              # ANDROID_SIGNER_CN to the CN of your upload key.
+              EXPECT_CN='${{ vars.ANDROID_SIGNER_CN }}'
+              if [ -n "$EXPECT_CN" ]; then
+                if ! echo "$SIGNER" | grep -qF "CN=$EXPECT_CN"; then
+                  echo "FAIL: the bundle is signed by [$SIGNER]"
+                  echo "      but vars.ANDROID_SIGNER_CN says it should be CN=$EXPECT_CN"
+                  exit 1
+                fi
+                echo "PASS: AAB verified and signed with CN=$EXPECT_CN"
+              else
+                echo "::warning::Set the repository variable ANDROID_SIGNER_CN to your upload key's CN. Without it this step can only check that the signer is not the throwaway key, which every wrong key also passes."
+                echo "PASS: AAB verified and signed with a key that is not the CI throwaway"
+              fi ;;
             *)
               if ! echo "$SIGNER" | grep -q "CI THROWAWAY"; then
                 echo "FAIL: mode=ci but the signer is not the throwaway key"; exit 1
               fi
+              # "with signer errors" is EXPECTED here and is not checked: the
+              # throwaway key is self-signed, so jarsigner has no chain to
+              # validate and says so on every single CI run.
               echo "PASS: AAB verified (throwaway CI signature, not publishable)" ;;
           esac
 

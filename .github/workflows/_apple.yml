@@ -19,34 +19,33 @@ on:
         required: true
         type: string
       # Everything below is a pin the weekly canary floats to find out what is
-      # about to break. Defaults match FROZEN_VERSIONS.md, but ci.yml always
-      # passes explicit values read from there, so this file is never the
-      # source of truth.
+      # about to break. They are REQUIRED and have no defaults, and that is the
+      # whole point: a `default:` here is a second copy of a number whose one
+      # home is thirdparty/FROZEN_VERSIONS.md, and versions_check.sh cannot
+      # compare against a copy it does not know exists. The header used to
+      # claim "ci.yml always passes explicit values read from there" while
+      # ci.yml passed none of them, so every Apple build ran on the defaults.
+      # Callers read them with `configure.py --print-pins`, which is the frozen
+      # block verbatim; a configure_test asserts no pin input regrows a default.
       runner:
-        required: false
-        default: macos-26
+        required: true
         type: string
       xcode_version:
         description: 'Exact version, or "latest" for the newest installed'
-        required: false
-        default: '26.6'
+        required: true
         type: string
       ninja_version:
-        required: false
-        default: '1.13.2'
+        required: true
         type: string
       ninja_sha256:
         description: 'Empty skips verification — required when a version floats'
-        required: false
-        default: 'c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b'
+        required: true
         type: string
       xcodegen_version:
-        required: false
-        default: '2.46.0'
+        required: true
         type: string
       xcodegen_sha256:
-        required: false
-        default: '4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806'
+        required: true
         type: string
 
 permissions:
@@ -136,7 +135,7 @@ jobs:
 
       # macOS shipped for years proving only that it COMPILES, which is the
       # weaker half of what CI is for: the segfault-at-shutdown from phase 3
-      # compiled cleanly on all fourteen targets and was caught by a runtime
+      # compiled cleanly on all seventeen targets and was caught by a runtime
       # test that only Linux had.
       #
       # PLATFORM=Memory is what makes running possible here without a display:
@@ -148,10 +147,6 @@ jobs:
       # Single-slice on purpose: this one is never shipped, it is run, and
       # building both architectures to execute one of them is a minute for
       # nothing.
-      # macOS shipped for years proving only that it COMPILES, which is the
-      # weaker half of what CI is for: the segfault-at-shutdown from phase 3
-      # compiled cleanly on all fourteen targets and was caught by a runtime
-      # test that only Linux had.
       #
       # The same tools/render_check.sh the five BSD jobs use, and the same one
       # that runs on a laptop. One script, three places, one behaviour.

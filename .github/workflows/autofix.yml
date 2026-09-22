@@ -274,7 +274,16 @@ jobs:
             # with a probe job holding exactly these permissions: the push
             # succeeds, and `gh pr create` comes back with "GitHub Actions is
             # not permitted to create or approve pull requests".
-            if [ -z "$(gh pr list --state open --head "${branches%%$'\n'*}" --json number -q '.[].number' 2>/dev/null)" ]; then
+            #
+            # `gh pr list --search 'head:autofix/'`, and not `--head` with a
+            # branch name pulled out of the ls-remote output. That is what this
+            # did, and `${branches%%$'\n'*}` keeps the whole first LINE --
+            # "<40-char sha><TAB>refs/heads/autofix/xyz" -- which `--head` then
+            # matched against nothing, forever. The query below always reported
+            # "no pull request", including on the runs where there was one.
+            PRS=$(gh pr list --state open --search 'head:autofix/' \
+                    --json number,headRefName -q '.[].number' 2>/dev/null || true)
+            if [ -z "$PRS" ]; then
               {
                 echo "## Branch pushed, but no pull request"
                 echo

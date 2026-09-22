@@ -281,8 +281,21 @@ jobs:
           mkdir -p package/resources
           if [ -f cmake/generated/LICENSES.txt ]; then cp cmake/generated/LICENSES.txt package/; fi
           cp build/${{ inputs.project_name }} package/
+          # LOOSE RESOURCES, and the zip says so rather than leaving the reader
+          # to compare archives. zig builds rres_pack for the musl target too,
+          # and a musl-linked packer cannot run in this glibc image -- there is
+          # no /lib/ld-musl-x86_64.so.1 here. The game falls back to loose
+          # files when there is no pack, so the archive works; it is just a
+          # different shape, and an undocumented difference is the bug.
           cp -r resources package/
-          bash tools/upx_pack.sh linux-x64-musl "package/${{ inputs.project_name }}" || true
+          printf '%s\n' \
+            "resources.rres was NOT built for this archive." \
+            "linux-x64-musl is cross-compiled with zig, so the rres packer comes out" \
+            "musl-linked and cannot run on the glibc image that builds it. The loose" \
+            "files next to this note are the same assets; the game reads them when" \
+            "there is no pack. See .github/workflows/_linux.yml." \
+            > package/resources/PACK_SKIPPED.txt
+          bash tools/upx_pack.sh linux-x64-musl "package/${{ inputs.project_name }}"
           cd package && zip -r ../linux-x64-musl-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -402,7 +415,17 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-riscv64-glibc "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
+          # LOOSE RESOURCES, said out loud in the zip. rres_pack is built for
+          # riscv64 here and cannot run on the amd64 host, so there is no pack
+          # to ship. The game reads loose files when there is none.
           cp -r resources package/
+          printf '%s\n' \
+            "resources.rres was NOT built for this archive." \
+            "linux-riscv64-glibc is cross-compiled, so the rres packer comes out as a" \
+            "riscv64 binary and cannot run on the amd64 host that builds it. The loose" \
+            "files next to this note are the same assets; the game reads them when" \
+            "there is no pack. See .github/workflows/_linux.yml." \
+            > package/resources/PACK_SKIPPED.txt
           cd package && zip -r ../linux-riscv64-glibc-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -493,8 +516,17 @@ jobs:
           path: build/${{ inputs.project_name }}
           retention-days: 1
 
+      # The DRM jobs build NATIVELY (`cmake --preset release -DRMP_TARGET_DRM=ON`,
+      # not tools/linux_build.sh), so rres_pack is a host binary and this can
+      # ship the same one file every other native archive ships. It used to
+      # `cp -r resources` for no stated reason while x64 and arm64 next door
+      # packed -- two archive shapes from one pipeline.
+      - name: Pack resources
+        run: cmake --build build --target pack_resources
+
       - name: Package
         run: |
+          set -euo pipefail
           mkdir -p package/resources
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
@@ -503,7 +535,7 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-x64-glibc-drm "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
-          cp -r resources package/
+          cp resources/resources.rres package/resources/
           cd package && zip -r ../linux-x64-glibc-drm-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -601,6 +633,11 @@ jobs:
     # the Pi's own vc4/v3d KMS driver and Mesa's v3d, neither of which vkms and
     # llvmpipe resemble. A green run here would say the binary starts on a
     # virtual display, which is not the question. The hardware answers it.
+    #
+    # (There is deliberately no drm-arm64-run job. A copy of drm-x64-run's
+    # header comment used to sit at the end of this file with no job under it,
+    # describing one -- twelve lines directly contradicting the paragraph
+    # above. It is gone; this note is here so nobody restores it from a diff.)
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-arm64-glibc-drm')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
@@ -665,8 +702,14 @@ jobs:
           fi
           echo "PASS: no X11 and no Wayland"
 
+      # Native aarch64 build on an arm64 runner, so the packer runs. Same
+      # archive shape as every other native target.
+      - name: Pack resources
+        run: cmake --build build --target pack_resources
+
       - name: Package
         run: |
+          set -euo pipefail
           mkdir -p package/resources
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
@@ -675,7 +718,7 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-arm64-glibc-drm "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
-          cp -r resources package/
+          cp resources/resources.rres package/resources/
           cd package && zip -r ../linux-arm64-glibc-drm-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -684,15 +727,3 @@ jobs:
           path: linux-arm64-glibc-drm-build.zip
           retention-days: 7
 
-  # DRM has no windowing system, so there is nothing for xvfb to fake: the
-  # backend talks to a card through /dev/dri, and a runner has no screen. So the
-  # kernel provides one. vkms is mainline Virtual Kernel Mode Setting -- a DRM
-  # device with a CRTC, an encoder and a connector and no hardware behind any of
-  # them -- and Mesa's kms_swrast rasterises into it on the CPU. Between the two
-  # the binary meets a real DRM/KMS stack and a real GBM surface.
-  #
-  # A bare runner rather than a container job, because modprobe needs the host's
-  # kernel and a container job has no way to reach it. The binary then runs
-  # inside the build image through `docker run --device /dev/dri`, so the
-  # libraries it meets are the ones it was linked against and nothing is
-  # installed at job time.

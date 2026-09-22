@@ -1,7 +1,7 @@
 # Orchestrator. This is the only workflow you normally read or edit.
 #
 #   push / pull_request  ->  fast lane: Linux x64, Web, Android, Windows x64
-#   tag v*               ->  all 14 targets, then Release and itch.io
+#   tag v*               ->  all 17 targets, then Release and itch.io
 #   workflow_dispatch    ->  either, via the `full` input
 #
 # Why a fast lane: the full matrix spends about an hour of BSD QEMU and macOS
@@ -35,7 +35,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: 'Build all 16 targets (default: fast lane only)'
+        description: 'Build all 17 targets (default: fast lane only)'
         type: boolean
         default: false
       targets:
@@ -75,6 +75,21 @@ jobs:
       itch_game: ${{ steps.o.outputs.itch_game }}
       firebase_project: ${{ steps.o.outputs.firebase_project }}
       firebase_device: ${{ steps.o.outputs.firebase_device }}
+      # The Apple and Windows pins, straight out of thirdparty/FROZEN_VERSIONS.md
+      # via --print-pins. They are outputs rather than defaults in the callees
+      # because a `default:` in a reusable workflow is a second place a version
+      # lives, and versions_check.sh cannot compare a number it does not know
+      # about -- which is how xcode, ninja and mesa drifted out of the frozen
+      # block's reach in the first place.
+      macos_runner: ${{ steps.o.outputs.macos_runner }}
+      xcode: ${{ steps.o.outputs.xcode }}
+      ninja_mac: ${{ steps.o.outputs.ninja_mac }}
+      ninja_mac_sha256: ${{ steps.o.outputs.ninja_mac_sha256 }}
+      xcodegen: ${{ steps.o.outputs.xcodegen }}
+      xcodegen_sha256: ${{ steps.o.outputs.xcodegen_sha256 }}
+      windows_runner: ${{ steps.o.outputs.windows_runner }}
+      mesa: ${{ steps.o.outputs.mesa }}
+      mesa_sha256: ${{ steps.o.outputs.mesa_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -109,16 +124,28 @@ jobs:
           # is not a target or a group, and rejects one whose targets are all
           # switched off in the .toml, so a workflow input cannot build
           # something the project has turned off.
+          # ${NARROW:+"$NARROW"} and not a bare $NARROW: the flag is either one
+          # argument or NO argument, and an unquoted empty variable is the only
+          # spelling of "no argument" a shell has -- which is also SC2086, now
+          # that the image ships shellcheck and actionlint runs it. The :+ form
+          # says the same thing without the warning: nothing at all when unset,
+          # exactly one quoted word when set.
           NARROW=""
           if [ -n "${ONLY:-}" ]; then NARROW="--only=${ONLY}"; fi
           {
             echo "project_name=$(python3 tools/configure.py --print-name)"
-            echo "targets=$(python3 tools/configure.py --print-targets $NARROW)"
-            echo "families=$(python3 tools/configure.py --print-families $NARROW)"
-            echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd $NARROW)"
+            echo "targets=$(python3 tools/configure.py --print-targets ${NARROW:+"$NARROW"})"
+            echo "families=$(python3 tools/configure.py --print-families ${NARROW:+"$NARROW"})"
+            echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd ${NARROW:+"$NARROW"})"
             python3 tools/configure.py --print-deploy
+            # The pins the Apple and Windows jobs build with. They live in
+            # thirdparty/FROZEN_VERSIONS.md and are read ONCE, here, so that
+            # `_apple.yml` and `_windows.yml` carry no version of their own --
+            # a default in a callee is a second source of truth that nothing
+            # compares against the first one.
+            python3 tools/configure.py --print-pins
           } >> "$GITHUB_OUTPUT"
-          python3 tools/configure.py --print-targets $NARROW | sed 's/^/targets: /'
+          python3 tools/configure.py --print-targets ${NARROW:+"$NARROW"} | sed 's/^/targets: /'
 
   # Cheap, fast, and catches the class of mistake that otherwise only shows up
   # on a tag: a typo'd input name in a reusable workflow, or pins that have
@@ -149,12 +176,23 @@ jobs:
       - name: actionlint
         run: |
           set -euo pipefail
+          # actionlint runs shellcheck over every `run:` block IF shellcheck is
+          # on PATH, and SAYS NOTHING when it is not -- so the day the image
+          # loses it, this step keeps printing PASS having checked half of what
+          # it used to. That is the RAY_TEST_BOOT_OK failure mode again: a gate
+          # that cannot fail. Assert the dependency instead of hoping for it.
+          command -v shellcheck >/dev/null || {
+            echo "FALLA: shellcheck is not on PATH, so actionlint would silently"
+            echo "       skip every shell check in every run: block. It ships in"
+            echo "       the build image; if this fired, the image drifted."
+            exit 1; }
+          shellcheck --version | sed -n '2p'
           # No file arguments: actionlint finds .github/workflows itself. An
           # explicit glob breaks the moment an extension stops being used —
           # `*.yaml` matched nothing once build.yaml was split up, and the shell
           # passed the literal pattern straight through as a filename.
           actionlint -color
-          echo "PASS: actionlint clean"
+          echo "PASS: actionlint clean (with shellcheck)"
 
       # What actionlint cannot see: it reads one file at a time, so a reusable
       # workflow asking for a permission its caller does not grant sails past
@@ -201,7 +239,7 @@ jobs:
       # Two grep rules over src/rmp/: nothing reads the clock, input or
       # randomness on its own, and no shadowed raylib type is written without
       # `::`. The second one exists because it cost a link error on exactly one
-      # of the fourteen targets.
+      # of the seventeen targets.
       - name: The seam holds
         run: bash tools/seam_check.sh
 
@@ -220,6 +258,14 @@ jobs:
       # workflow's steps, not the Justfile.
       - name: The scripts run off GNU too
         run: bash tools/portable_check.sh
+
+      # `A && B || C` is not if/then/else: when A succeeds and B fails, C runs
+      # as well. shellcheck's SC2015 only sees a couple of degenerate shapes,
+      # and every occurrence this repository has shipped was of a shape it says
+      # nothing about -- it was written, fixed, and then written again in seven
+      # more places. actionlint above does not catch it; this does.
+      - name: No `A && B || C`
+        run: bash tools/shell_pattern_check.sh
 
       # A `git add -A` once committed 78 files of a CMake build directory, and
       # they went unnoticed for sessions because .gitignore listed `build/` and
@@ -250,6 +296,20 @@ jobs:
           ./build/unit_test
           ./build/unit_test --order-by=rand --rand-seed=1337
 
+      # The headless UI layout assertions: four resolutions, no window, no GPU,
+      # and the thing phases 1-4 of the UI architecture are gated on. It was
+      # CONFIGURED in this job (the clang-tidy step passes -DBUILD_UI_TESTS=ON
+      # so the file gets a real compile_commands.json entry) and never built or
+      # run -- so for four phases it ran on developer machines only. The
+      # Justfile-versus-lint-job parity test in tests/configure_test.py is what
+      # stops a stage existing in one place and not the other again.
+      - name: UI layout tests (headless)
+        run: |
+          set -euo pipefail
+          cmake --preset debug -DBUILD_UI_TESTS=ON > /dev/null
+          cmake --build build --target ui_layout_test > /dev/null
+          ./build/ui_layout_test
+
       # raylib's SOFTWARE renderer: no GPU, no window, no display server, and
       # therefore the same pixels on every operating system — there is no
       # driver in between to differ. That is what turns the frame hash from a
@@ -265,22 +325,17 @@ jobs:
       # rendering was used at all — the five BSDs and macOS now run it too, in
       # their own jobs, which is where it earns the most: those targets used to
       # prove only that they compile.
+      #
+      # Through tools/render_check.sh, which is the SAME script the five BSD
+      # jobs, the macOS job and `just test render` run. This step used to be a
+      # second copy of the assertion, and the copy was weaker: it checked
+      # RENDER_OK and the hash but not RAY_TEST_BOOT_OK and not
+      # RAY_TEST_DONE_FRAMES, so a process that died on its way out passed here
+      # and failed on FreeBSD. One assertion, one place.
       - name: Render (software, no GPU)
         run: |
           set -euo pipefail
-          cmake --preset memory > /dev/null
-          cmake --build build/memory > /dev/null
-          NAME=$(python3 tools/configure.py --print-name)
-          OUT=$(RAY_TEST_MAX_FRAMES=10 "./build/memory/$NAME" 2>&1) || true
-          echo "$OUT" | grep -q "RAY_TEST_RENDER_OK" || { echo "$OUT" | tail -20; echo "FALLA: nothing was drawn"; exit 1; }
-          GOT=$(echo "$OUT" | grep -oE "hash=[0-9a-f]+" | head -1 | cut -d= -f2)
-          WANT=$(cat tests/fixtures/render_hash.txt)
-          if [ "$GOT" != "$WANT" ]; then
-            echo "FALLA: the frame changed — expected $WANT, got $GOT"
-            echo "If that was on purpose: just test render-update, and commit the new hash"
-            exit 1
-          fi
-          echo "PASS: pixel-identical to the golden hash ($GOT)"
+          sh tools/render_check.sh Ninja "" "$(python3 tools/configure.py --print-name)"
 
       # Formatting first: it is instant, and an unformatted file makes every
       # other diff in the pull request unreadable.
@@ -393,6 +448,9 @@ jobs:
       project_name: ${{ needs.config.outputs.project_name }}
       full: ${{ needs.config.outputs.full == 'true' }}
       targets: ${{ needs.config.outputs.targets }}
+      runner: ${{ needs.config.outputs.windows_runner }}
+      mesa_version: ${{ needs.config.outputs.mesa }}
+      mesa_sha256: ${{ needs.config.outputs.mesa_sha256 }}
 
   android:
     needs: config
@@ -413,6 +471,12 @@ jobs:
     with:
       project_name: ${{ needs.config.outputs.project_name }}
       targets: ${{ needs.config.outputs.targets }}
+      runner: ${{ needs.config.outputs.macos_runner }}
+      xcode_version: ${{ needs.config.outputs.xcode }}
+      ninja_version: ${{ needs.config.outputs.ninja_mac }}
+      ninja_sha256: ${{ needs.config.outputs.ninja_mac_sha256 }}
+      xcodegen_version: ${{ needs.config.outputs.xcodegen }}
+      xcodegen_sha256: ${{ needs.config.outputs.xcodegen_sha256 }}
 
   bsd:
     needs: config

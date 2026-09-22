@@ -72,6 +72,13 @@ jobs:
       bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
       build_image: ${{ steps.o.outputs.build_image }}
       floating: ${{ steps.o.outputs.floating }}
+      # The pins the canary does NOT float. _apple.yml has no defaults any
+      # more -- the number lives once, in thirdparty/FROZEN_VERSIONS.md -- so
+      # every caller has to hand them over, the canary included.
+      ninja_mac: ${{ steps.o.outputs.ninja_mac }}
+      ninja_mac_sha256: ${{ steps.o.outputs.ninja_mac_sha256 }}
+      xcodegen: ${{ steps.o.outputs.xcodegen }}
+      xcodegen_sha256: ${{ steps.o.outputs.xcodegen_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -93,6 +100,8 @@ jobs:
             echo "families=${ALL_FAMILIES}"
             echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd)"
             echo "build_image=ghcr.io/omardev29/raylib-build:${IMAGE_TAG}"
+            # The frozen block verbatim, for the pins the canary keeps pinned.
+            python3 tools/configure.py --print-pins
           } >> "$GITHUB_OUTPUT"
 
           # Optional narrowing, for testing the canary without paying for the
@@ -182,6 +191,10 @@ jobs:
       # Ninja and XcodeGen keep their pins: they are not what drifts. Apple is.
       # Floating everything at once would tell us something broke without
       # telling us which change did it.
+      ninja_version: ${{ needs.config.outputs.ninja_mac }}
+      ninja_sha256: ${{ needs.config.outputs.ninja_mac_sha256 }}
+      xcodegen_version: ${{ needs.config.outputs.xcodegen }}
+      xcodegen_sha256: ${{ needs.config.outputs.xcodegen_sha256 }}
 
   bsd:
     needs: config
