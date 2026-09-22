@@ -73,12 +73,12 @@ all, and the screenshot says whether they look like games.
 
 | | |
 |---|---|
-| [01_pong](games/01_pong/src/main.cpp) | `rmp::behavior::Ball` and `Edge::CLAMP`. No bounce arithmetic, no bounds check, no frame loop. The serve is the game's, because no behavior chooses a direction for you. **Start here.** |
-| [02_breakout](games/02_breakout/src/main.cpp) | A wall of bricks, and "a brick breaks" as a one-line `on_collision` — which is exactly why `destroy_on_hit` is not in the catalogue. |
-| [03_space_invaders](games/03_space_invaders/src/main.cpp) | Collision layers earning their place, `Timer` + a callback instead of a `shooter` behavior, and the formation written out — because the formation **is** Space Invaders. |
-| [04_top_down](games/04_top_down/src/main.cpp) | `TopDown` with eight normalised directions, `Follow` for the enemies, and what you can only say with layers: the player's shot misses the player, and enemies pass through each other but not walls. |
-| [05_endless_runner](games/05_endless_runner/src/main.cpp) | `Parallax`, `Runner` and a `Spawner` **by distance**. No background loop, no distance counter, no obstacle recycling. Read it for what is not there. |
-| [06_tetris](games/06_tetris/src/main.cpp) | The honest one: a Tetris is a 10×20 array and the rules of Tetris, and the framework does not pretend otherwise. What it does contribute is named at the top of the file, and so is what it does not. |
+| [01_pong](games/01_pong/src/main.cpp) | `rmp::behavior::Ball` and `Edge::CLAMP`, two players, first to seven. No bounce arithmetic, no bounds check, no frame loop. The serve is the game's, because no behavior chooses a direction for you — and so is the one field that makes a point possible: `bounds` WIDER than the court, since a ball that bounces off all four sides can never go out. **Start here.** |
+| [02_breakout](games/02_breakout/src/main.cpp) | A wall of bricks, and "a brick breaks" as a one-line `on_collision` — which is exactly why `destroy_on_hit` is not in the catalogue. Three lives, and an open floor for the same reason Pong has open sides. |
+| [03_space_invaders](games/03_space_invaders/src/main.cpp) | Collision layers earning their place, `Timer` + a callback instead of a `shooter` behavior, `hurt_by` deciding what may hurt the ship, and the formation written out — because the formation **is** Space Invaders. A handle per alien and one number is the whole of it. |
+| [04_top_down](games/04_top_down/src/main.cpp) | `TopDown` with eight normalised directions, `Follow` for the enemies, an HP bar with `rmp::ui::progress`, and what you can only say with layers: the player's shot misses the player, enemies pass through each other but not walls, and the doorway out sees the player and nothing else. The bits are named once, in `include/layers.h`. |
+| [05_endless_runner](games/05_endless_runner/src/main.cpp) | `Parallax`, `Runner`, a `Spawner` **by distance** and a camera that follows. No background loop, no distance counter, no camera arithmetic. Read it for what is not there. Its art is in its own `resources/`, drawn by [`tools/make_example_art.py`](../tools/make_example_art.py). |
+| [06_tetris](games/06_tetris/src/main.cpp) | The honest one: a Tetris is a 10×20 array and the rules of Tetris, and the framework does not pretend otherwise. What it does contribute is named at the top of the file, and so is what it does not — plus a 7-bag out of `rmp::random`, which is what makes the same seed the same game. |
 
 ## [`platform/`](platform)
 
