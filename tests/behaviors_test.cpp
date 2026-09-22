@@ -912,15 +912,3 @@ TEST_CASE_FIXTURE(Fixture, "Runner: an object that was never on the ground canno
         CHECK(other.velocity.y == doctest::Approx(-500)); // no second one
     }
 }
-
-TEST_CASE_FIXTURE(Fixture, "Runner: a null duck action is no duck action") {
-    // Every other action field goes through or_default(); this one read
-    // duck_action[0] straight, so a nullptr was a segfault.
-    World world;
-    rmp::Object &player =
-        world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 20 }) });
-    auto &runner =
-        player.add<rmp::behavior::Runner>({ .gravity = 0, .duck_action = nullptr });
-    tick(player, 1.0f / 60);
-    CHECK_FALSE(runner.ducking());
-}

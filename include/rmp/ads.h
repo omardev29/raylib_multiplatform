@@ -10,7 +10,8 @@
 // The chain behind them: thirdparty/raymob/admob.c (JNI) -> NativeLoader.java
 // -> AdmobBridge.java. The ad unit ids come from [android.admob].
 //
-// A wrapper, not a layer: these forward to the C functions in <admob.h>, which
+// A wrapper, not a layer: these forward to the C functions in <admob.h> from
+// src/rmp/ads.cpp -- that header stays out of yours -- which
 // stay exactly where they are because they are the real JNI boundary and the
 // pure-C entry point (examples/main.c) has no namespaces to call into.
 //
@@ -24,7 +25,6 @@
 // Before shipping with ads on, read the consent (UMP) warning in README.md.
 // ---------------------------------------------------------------------------
 
-#include <admob.h>
 #include <rmp/config.h>
 
 namespace rmp::ads {
@@ -32,24 +32,24 @@ namespace rmp::ads {
 // --- Interstitial ----------------------------------------------------------
 
 // Start preloading one. Do it early; loading takes seconds.
-inline void request_interstitial() { ::RequestInterstitialAd(); }
+void request_interstitial();
 
 // Has one finished loading?
-inline bool is_interstitial_loaded() { return ::IsInterstitialAdLoaded(); }
+bool is_interstitial_loaded();
 
 // Show it. The ad is consumed: request another one to show again.
-inline void show_interstitial() { ::ShowInterstitialAd(); }
+void show_interstitial();
 
 // --- Rewarded --------------------------------------------------------------
 
-inline void request_rewarded() { ::RequestRewardedAd(); }
-inline bool is_rewarded_loaded() { return ::IsRewardedAdLoaded(); }
-inline void show_rewarded() { ::ShowRewardedAd(); }
+void request_rewarded();
+bool is_rewarded_loaded();
+void show_rewarded();
 
 // True once per earned reward, and clears the flag. Poll it from the game
 // loop; the amount is then in reward_amount().
-inline bool take_reward_earned() { return ::TakeRewardEarned(); }
+bool take_reward_earned();
 
-inline int reward_amount() { return ::GetRewardAmount(); }
+int reward_amount();
 
 } // namespace rmp::ads

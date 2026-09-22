@@ -111,19 +111,18 @@ const char *file_name_of(const char *path) {
 // Returns the wrapper map, which OWNS the tileset; the caller frees it with
 // cute_tiled_free_map once it has copied what it needs.
 cute_tiled_map_t *load_external_tileset(const char *source) {
-    int size = 0;
-    unsigned char *bytes = rmp::assets::load_data(file_name_of(source), &size);
-    if (bytes == nullptr) return nullptr;
+    const std::vector<unsigned char> bytes = rmp::assets::load_data(file_name_of(source));
+    if (bytes.empty()) return nullptr;
+    const int size = static_cast<int>(bytes.size());
     std::string document;
     if (size > 0) {
         document.reserve(static_cast<std::size_t>(size) + 16);
         document = "{\"tilesets\":[";
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        document.append(reinterpret_cast<const char *>(bytes),
+        document.append(reinterpret_cast<const char *>(bytes.data()),
                         static_cast<std::size_t>(size));
         document += "]}";
     }
-    UnloadFileData(bytes);
     if (document.empty()) return nullptr;
     return cute_tiled_load_map_from_memory(document.data(),
                                            static_cast<int>(document.size()), nullptr);

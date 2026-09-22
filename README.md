@@ -285,11 +285,16 @@ in a file that mixes them you can always tell which is which.
 Put files in `resources/` and load them by name:
 
 ```cpp
-Texture2D tex = rmp::assets::load_texture("player.png");
-Sound     sfx = rmp::assets::load_sound("jump.wav");
-Font      f   = rmp::assets::load_font("ui.ttf", 32);
-unsigned char *lvl = rmp::assets::load_data("level1.json", &size);
+rmp::Texture tex = rmp::assets::load_texture("player.png");   // counted; releases itself
+rmp::Sound   sfx = rmp::assets::load_sound("jump.wav");
+rmp::Font    f   = rmp::assets::load_font("ui.ttf", 32);
+std::vector<unsigned char> lvl = rmp::assets::load_data("level1.json");
+DrawTexture(tex, 0, 0, WHITE);   // converts to raylib's type where a raylib function wants it
 ```
+
+`Texture2D t = rmp::assets::load_texture(...)` does not compile, on purpose: the temporary handle
+would release the texture on the same line, and `t` would be a texture that had already been
+unloaded. Keep the `rmp::` handle; hand it to raylib where raylib wants it.
 
 `cmake --build build --target pack_resources` bundles everything into one AES-encrypted
 [rres](https://github.com/raysan5/rres) file, which is what a release ships. Without it the game

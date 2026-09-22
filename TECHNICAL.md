@@ -54,6 +54,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── behavior_internal.h
 │       ├── input.cpp         #   rmp::input -- actions, the device seam, routing against the UI
 │       ├── random.cpp        #   rmp::random -- xoshiro128++, seeded once at start
+│       ├── ads.cpp           #   rmp::ads -- the one file that includes <admob.h>
 │       ├── assets.cpp        #   rmp::assets -- the public surface, with the loose-file fallback
 │       ├── resource.cpp      #   the counted resource slots behind rmp::Texture and friends
 │       ├── pack.cpp          #   open/close resources.rres, read one entry
@@ -87,7 +88,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── assets.h          #   rmp::assets -- load_*() by name, the counted handles
 │       ├── tilemap.h         #   rmp::Tilemap -- a level designed in Tiled
 │       ├── random.h          #   rmp::random -- seeded, reproducible
-│       ├── ads.h             #   rmp::ads -- inline wrappers over <admob.h>
+│       ├── ads.h             #   rmp::ads -- interstitial and rewarded ads; no-ops off Android
 │       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)
 │       ├── config.h          #   the APP_* values from the .toml
 │       └── generated/        #   GENERATED config.h, git-ignored

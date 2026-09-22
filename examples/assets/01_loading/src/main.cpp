@@ -21,6 +21,8 @@
 #include <rmp/app.h>
 #include <rmp/assets.h>
 
+#include <vector>
+
 // The counted handles, not the raylib structs. Each one owns what it loaded
 // and releases it when it goes -- there is no Unload* anywhere in this file.
 // Writing `Texture2D t = rmp::assets::load_texture(...)` instead would copy
@@ -40,10 +42,10 @@ static inline void on_ready() {
     ui = rmp::assets::load_font("ui.ttf", 20);
     jump = rmp::assets::load_sound("jump.wav");
 
-    // Anything else, as bytes. Free it with UnloadFileData().
-    int size = 0;
-    unsigned char *level = rmp::assets::load_data("level1.json", &size);
-    if (level != nullptr) UnloadFileData(level);
+    // Anything else, as bytes: a vector that frees itself, empty when the
+    // file is not there.
+    const std::vector<unsigned char> level = rmp::assets::load_data("level1.json");
+    TraceLog(LOG_INFO, "level1.json: %d bytes", static_cast<int>(level.size()));
 
     // Plain raylib works too, and reads the pack just the same: opening the
     // pack also routes raylib's own file loading through it. That is what

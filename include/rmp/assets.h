@@ -29,7 +29,8 @@
 #include <rmp/config.h>
 
 #include <memory> // std::shared_ptr: what owns a resource slot's payload
-#include <vector> // the sheet tables
+#include <string_view> // names on the way in
+#include <vector> // the sheet tables, and load_data()'s bytes
 
 namespace rmp {
 class Tilemap;
@@ -241,15 +242,15 @@ bool using_pack();
 // A name that is in neither the pack nor resources/ gives an empty resource
 // rather than a crash. valid() tells them apart, and drawing an empty one draws
 // nothing — a hole in the picture, not a dead process.
-rmp::Image load_image(const char *name);
-rmp::Texture load_texture(const char *name);
+rmp::Image load_image(std::string_view name);
+rmp::Texture load_texture(std::string_view name);
 
 // InitAudioDevice() must have been called first.
-rmp::Sound load_sound(const char *name);
+rmp::Sound load_sound(std::string_view name);
 
 // font_size is the baked glyph size, and it is part of the cache key: the same
 // font at 16 and at 32 is two resources, because it is two textures.
-rmp::Font load_font(const char *name, int font_size);
+rmp::Font load_font(std::string_view name, int font_size);
 
 // An .aseprite or .ase from resources/. Every frame is packed into one texture
 // in a single row, so drawing a hundred enemies from the same sheet is one
@@ -257,7 +258,7 @@ rmp::Font load_font(const char *name, int font_size);
 //
 // On a machine with no GPU the texture is left empty and the metadata is still
 // there, which is what lets tests/animation_test.cpp exist.
-rmp::SpriteSheet load_sheet(const char *name);
+rmp::SpriteSheet load_sheet(std::string_view name);
 
 // A Tiled map, as JSON with the tile layers saved as CSV -- which is what a new
 // map in Tiled does by default. The tileset images are loaded by file name
@@ -267,13 +268,16 @@ rmp::SpriteSheet load_sheet(const char *name);
 // Returns an empty map and says why if it cannot be read, and for the one
 // failure people actually hit -- layers saved compressed or as base64 -- the
 // message names the setting in the editor rather than the byte it choked on.
-void load_map(const char *name, rmp::Tilemap *into);
+void load_map(std::string_view name, rmp::Tilemap *into);
+// The same, by value: `map = rmp::assets::load_map("level1.json");`
+rmp::Tilemap load_map(std::string_view name);
 
 // Raw bytes for anything else — a level file, a shader, JSON. `size` receives
 // the byte count. This one is NOT counted or cached: free it with
-// UnloadFileData(), because there is no sensible shared lifetime for a blob
+// The bytes of a file, as a vector that frees itself. Empty when the name is
+// in neither the pack nor resources/.
 // whose meaning only the caller knows.
-unsigned char *load_data(const char *name, int *size);
+std::vector<unsigned char> load_data(std::string_view name); // empty when it is not there
 
 // How many rmp::assets:: loads were asked for, and how many found nothing in the
 // pack and nothing on disk either. The entry point reports these to the CI

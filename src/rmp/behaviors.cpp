@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string_view>
 #include <numbers>
 #include <vector>
 
@@ -62,12 +63,12 @@ float approach(float current, float target, float rate, float delta) {
 
 // The action name a behavior was given, or the standard one when it was left
 // empty. Empty means "the defaults", and the defaults are what rmp::input ships.
-const char *or_default(const char *given, const char *fallback) {
-    return (given != nullptr && given[0] != '\0') ? given : fallback;
+std::string_view or_default(std::string_view given, std::string_view fallback) {
+    return given.empty() ? fallback : given;
 }
 
-bool held(const char *action) { return rmp::input::pressed(action); }
-bool pressed(const char *action) { return rmp::input::just_pressed(action); }
+bool held(std::string_view action) { return rmp::input::pressed(action); }
+bool pressed(std::string_view action) { return rmp::input::just_pressed(action); }
 
 // Is there something SOLID directly below? A raycast rather than a flag on the
 // object, because the collision pass does not keep a contact list -- and a ray
@@ -145,21 +146,21 @@ void TopDown::_update(Object &self, float delta) {
     // .aseprite, with suffixes you can change.
     if (!self.sprite.sheet.valid()) return;
     const bool moving = wanted.x != 0 || wanted.y != 0;
-    const char *base = moving ? walk : idle;
-    if (base == nullptr || base[0] == '\0') return;
+    const std::string &base = moving ? walk : idle;
+    if (base.empty()) return;
 
     if (moving) {
         char tag[kMaxTagName * 2];
-        const char *suffix = suffixes[sector()];
+        const std::string &suffix = suffixes[static_cast<std::size_t>(sector())];
         int at = 0;
-        for (int i = 0; base[i] != '\0' && at + 1 < static_cast<int>(sizeof(tag)); i++) {
+        for (std::size_t i = 0; i < base.size() && at + 1 < static_cast<int>(sizeof(tag));
+             i++) {
             tag[at++] = base[i];
         }
-        if (suffix != nullptr && suffix[0] != '\0' &&
-            at + 1 < static_cast<int>(sizeof(tag))) {
+        if (!suffix.empty() && at + 1 < static_cast<int>(sizeof(tag))) {
             tag[at++] = '_';
-            for (int i = 0; suffix[i] != '\0' && at + 1 < static_cast<int>(sizeof(tag));
-                 i++) {
+            for (std::size_t i = 0;
+                 i < suffix.size() && at + 1 < static_cast<int>(sizeof(tag)); i++) {
                 tag[at++] = suffix[i];
             }
         }
@@ -169,7 +170,7 @@ void TopDown::_update(Object &self, float delta) {
             return;
         }
     }
-    self.sprite.play(base);
+    self.sprite.play(base.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -248,10 +249,7 @@ void Runner::_update(Object &self, float delta) {
     if (speed > max_speed) speed = max_speed;
     ours.distance += speed * delta;
 
-    // Through or_default like every other action field: a nullptr here is
-    // "no duck action", not a segfault.
-    const char *duck = or_default(duck_action, "");
-    ours.ducking = duck[0] != '\0' && held(duck);
+    ours.ducking = !duck_action.empty() && held(duck_action);
 
     const bool was_grounded = ours.grounded;
     ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -kEpsilon;
@@ -499,9 +497,7 @@ void GridSnap::_late_update(Object &self, float delta) {
 
 void Parallax::_ready(Object &self) {
     (void)self;
-    if (texture != nullptr && texture[0] != '\0') {
-        ours.art = rmp::assets::load_texture(texture);
-    }
+    if (!texture.empty()) ours.art = rmp::assets::load_texture(texture);
 }
 
 void Parallax::_update(Object &self, float delta) {

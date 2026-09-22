@@ -9,6 +9,9 @@
 // ===========================================================================
 
 #include <raylib.h>
+
+#include <string>
+#include <vector>
 #include <rmp/assets.h>
 #include <rmp/tilemap.h>
 
@@ -166,7 +169,9 @@ Texture2D load_texture_raw(const char *name) {
 // the missing file and loading again still gave you the hole, until the game
 // restarted.
 
-rmp::Image load_image(const char *name) {
+rmp::Image load_image(std::string_view name_view) {
+    const std::string key(name_view);
+    const char *name = key.c_str();
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::IMAGE, name, 0))
         return rmp::Image{ hit };
@@ -180,7 +185,9 @@ rmp::Image load_image(const char *name) {
     return rmp::Image{ slot };
 }
 
-rmp::Texture load_texture(const char *name) {
+rmp::Texture load_texture(std::string_view name_view) {
+    const std::string key(name_view);
+    const char *name = key.c_str();
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::TEXTURE, name, 0))
         return rmp::Texture{ hit };
@@ -194,7 +201,9 @@ rmp::Texture load_texture(const char *name) {
     return rmp::Texture{ slot };
 }
 
-rmp::Sound load_sound(const char *name) {
+rmp::Sound load_sound(std::string_view name_view) {
+    const std::string key(name_view);
+    const char *name = key.c_str();
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::SOUND, name, 0))
         return rmp::Sound{ hit };
@@ -208,7 +217,9 @@ rmp::Sound load_sound(const char *name) {
     return rmp::Sound{ slot };
 }
 
-rmp::Font load_font(const char *name, int font_size) {
+rmp::Font load_font(std::string_view name_view, int font_size) {
+    const std::string key(name_view);
+    const char *name = key.c_str();
     using rmp::detail::ResourceKind;
     // font_size is part of the key: the same face at 16 and at 32 is two
     // baked atlases, so it has to be two resources.
@@ -224,30 +235,30 @@ rmp::Font load_font(const char *name, int font_size) {
     return rmp::Font{ slot };
 }
 
-rmp::SpriteSheet load_sheet(const char *name) {
+rmp::SpriteSheet load_sheet(std::string_view name_view) {
+    const std::string key(name_view);
+    const char *name = key.c_str();
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::SHEET, name, 0))
         return rmp::SpriteSheet{ hit };
 
     // Through load_data, so a sheet comes out of the rres pack exactly like
     // every other asset -- the animation layer never learns where files live.
-    int size = 0;
-    unsigned char *bytes = load_data(name, &size);
-    if (bytes == nullptr) return rmp::SpriteSheet{};
+    const std::vector<unsigned char> bytes = load_data(name_view);
+    if (bytes.empty()) return rmp::SpriteSheet{};
+    const int size = static_cast<int>(bytes.size());
 
     SheetData sheet{};
-    const bool parsed = rmp::animation::detail::parse_sheet(bytes, size, &sheet);
+    const bool parsed = rmp::animation::detail::parse_sheet(bytes.data(), size, &sheet);
     if (!parsed) {
         TraceLog(LOG_WARNING, "SHEET: [%s] is not an .aseprite file this can read", name);
-        UnloadFileData(bytes);
         detail::g_failed_count++;
         return rmp::SpriteSheet{};
     }
 
     // Every frame into ONE image, side by side, then one texture. A hundred
     // enemies from the same sheet is then one bind rather than a hundred.
-    sheet.texture = rmp::animation::detail::upload_sheet(bytes, size, sheet);
-    UnloadFileData(bytes);
+    sheet.texture = rmp::animation::detail::upload_sheet(bytes.data(), size, sheet);
 
     auto *slot = rmp::detail::adopt_named(ResourceKind::SHEET, name, 0, sheet);
     if (slot == nullptr) {
@@ -257,17 +268,17 @@ rmp::SpriteSheet load_sheet(const char *name) {
     return rmp::SpriteSheet{ slot };
 }
 
-void load_map(const char *name, rmp::Tilemap *into) {
+void load_map(std::string_view name_view, rmp::Tilemap *into) {
     if (into == nullptr) return;
-    int size = 0;
-    unsigned char *bytes = load_data(name, &size);
-    if (bytes == nullptr) {
+    const std::string key(name_view);
+    const std::vector<unsigned char> bytes = load_data(name_view);
+    if (bytes.empty()) {
         into->adopt(
             rmp::tilemap::detail::MapPtr(nullptr, &rmp::tilemap::detail::free_map));
         return;
     }
-    auto parsed = rmp::tilemap::detail::parse_map(bytes, size, name);
-    UnloadFileData(bytes);
+    auto parsed = rmp::tilemap::detail::parse_map(
+        bytes.data(), static_cast<int>(bytes.size()), key.c_str());
     if (parsed == nullptr) detail::g_failed_count++;
     // Owned by the map from here, and whatever was there goes. A map is not a
     // cached resource the way a texture is: one scene owns one map, the
@@ -275,18 +286,38 @@ void load_map(const char *name, rmp::Tilemap *into) {
     into->adopt(std::move(parsed));
 }
 
-unsigned char *load_data(const char *name, int *size) {
+rmp::Tilemap load_map(std::string_view name) {
+    rmp::Tilemap map;
+    load_map(name, &map);
+    return map;
+}
+
+std::vector<unsigned char> load_data(std::string_view name_view) {
+    const std::string key(name_view);
+    const char *name = key.c_str();
     detail::g_requested_count++;
+    // Copied out of raylib's buffer and into a vector that frees itself: the
+    // one place the framework touches raylib's C loader contract on the way
+    // in, so nobody downstream has to remember UnloadFileData.
+    const auto owned = [](unsigned char *data, int size) {
+        std::vector<unsigned char> out;
+        if (data != nullptr && size > 0) out.assign(data, data + size);
+        if (data != nullptr) UnloadFileData(data);
+        return out;
+    };
     if (detail::pack_is_open()) {
-        unsigned char *data = detail::pack_read(name, size);
-        if (data != nullptr) return data;
+        int size = 0;
+        unsigned char *data = detail::pack_read(name, &size);
+        if (data != nullptr) return owned(data, size);
         TraceLog(LOG_WARNING,
                  "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
     char path[2048];
     fallback_path(name, path, sizeof(path));
-    return LoadFileData(path, size);
+    int size = 0;
+    unsigned char *data = LoadFileData(path, &size);
+    return owned(data, size);
 }
 
 } // namespace rmp::assets

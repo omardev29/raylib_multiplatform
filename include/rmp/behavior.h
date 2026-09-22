@@ -38,6 +38,10 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <array>
+#include <string> // the action and tag names a behavior is given; owned, so a
+// std::string's c_str() or a temporary can no longer dangle
+
 namespace rmp::behavior {
 
 // ---------------------------------------------------------------------------
@@ -61,15 +65,15 @@ struct TopDown {
     // sheet all work with nothing configured. Wired up in phase 9, with
     // rmp::SpriteSheet; until then the direction and the flip are set and the
     // names are carried.
-    const char *idle = "idle";
-    const char *walk = "walk";
-    const char *suffixes[8] = { "e", "ne", "n", "nw", "w", "sw", "s", "se" };
+    std::string idle = "idle";
+    std::string walk = "walk";
+    std::array<std::string, 8> suffixes = { "e", "ne", "n", "nw", "w", "sw", "s", "se" };
 
     // Which actions move it. Empty = the move_* actions that come as standard.
-    const char *left = "";
-    const char *right = "";
-    const char *up = "";
-    const char *down = "";
+    std::string left;
+    std::string right;
+    std::string up;
+    std::string down;
 
     // The last non-zero direction, normalised. What a game reads to fire a
     // weapon the way the character is looking.
@@ -106,9 +110,9 @@ struct Platformer {
     // A jump pressed this long before landing still fires on landing.
     float jump_buffer = 0.12f;
 
-    const char *left = "";
-    const char *right = "";
-    const char *jump_action = "";
+    std::string left;
+    std::string right;
+    std::string jump_action;
 
     [[nodiscard]] bool on_ground() const { return ours.grounded; }
 
@@ -142,8 +146,8 @@ struct Runner {
     float jump = 720;
     int air_jumps = 0;
 
-    const char *jump_action = ""; // empty = ui_accept
-    const char *duck_action = "";
+    std::string jump_action; // empty = ui_accept
+    std::string duck_action;
 
     [[nodiscard]] float distance() const { return ours.distance; }
     [[nodiscard]] bool ducking() const { return ours.ducking; }
@@ -279,7 +283,7 @@ struct GridSnap {
 // be drawn TWICE with the offset taken modulo its width, and it has to be
 // recomputed when the window changes size.
 struct Parallax {
-    const char *texture = ""; // a name for rmp::assets::load_texture
+    std::string texture; // a name for rmp::assets::load_texture
     float factor = 0.5f; // 1 = moves with the camera, 0 = pinned
     float speed = 0; // units per second of its own, for a sky that drifts
     float y = 0; // where the top of the strip sits

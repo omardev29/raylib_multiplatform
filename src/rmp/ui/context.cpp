@@ -52,8 +52,8 @@ float g_scale_override = APP_UI_SCALE; // 0 = automatic
 // The font. When [ui] font is empty we use raylib's built-in one, which needs
 // no asset, no licence and no loading — and is a bitmap font, which is why its
 // scale is rounded to a whole number below.
-::Font g_font = { 0 };
-bool g_font_loaded = false; // true only when we loaded a file and must unload it
+rmp::Font g_font; // counted, like every other resource: nothing here unloads it
+bool g_font_loaded = false; // true once a file has been baked at g_baked_size
 float g_font_scale = 1.0f;
 int g_baked_size = 0;
 // A configured font that cannot be loaded is a one-time problem, not a
@@ -277,7 +277,7 @@ bool ensure_started() {
 void shutdown_context() {
     if (!g_started) return;
     if (g_font_loaded) {
-        UnloadFont(g_font);
+        g_font = rmp::Font{};
         g_font_loaded = false;
     }
     g_arena.reset();
@@ -337,11 +337,10 @@ void set_scale_override(float s) {
 
     // Baking at 20 and drawing at 48 is how UI text ends up blurry. Re-bake
     // when the size the layout actually asks for has moved.
-    if (g_font_loaded && wanted == g_baked_size) return g_font;
-    if (g_font_loaded) UnloadFont(g_font);
-
+    if (g_font_loaded && wanted == g_baked_size) return g_font.raw();
+    // Assigning releases the old size; the resource table unloads it.
     g_font = rmp::assets::load_font(APP_UI_FONT, wanted);
-    if (g_font.glyphCount <= 0) {
+    if (g_font.raw().glyphCount <= 0) {
         RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
                         APP_UI_FONT);
         g_font_loaded = false;
@@ -351,7 +350,7 @@ void set_scale_override(float s) {
     }
     g_font_loaded = true;
     g_baked_size = wanted;
-    return g_font;
+    return g_font.raw();
 }
 
 // ---------------------------------------------------------------------------
