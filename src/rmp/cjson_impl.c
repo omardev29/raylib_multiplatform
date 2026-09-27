@@ -12,11 +12,12 @@
  * thirdparty/FROZEN_VERSIONS.md.
  * ------------------------------------------------------------------------- */
 
-/* The parser reads numbers with strtod, which follows the C locale's decimal
- * point: a game that calls setlocale() for a German UI would find "0.5" in
- * its own save unreadable. With ENABLE_LOCALES cJSON swaps '.' for the
- * locale's point before strtod, and reads saves the same in every locale.
- * (Numbers are WRITTEN by src/rmp/save.cpp, locale-independently.) */
-#define ENABLE_LOCALES
+/* How deep a save may nest. The same number as rmp::save::detail::kMaxDepth
+ * in save_internal.h, which is C++ and cannot be included here; the nesting
+ * test in tests/save_test.cpp fails if the two drift apart. The default of
+ * 1000 overflowed the web's 64 KB stack long before it was reached.
+ * (Numbers are read and written under the "C" locale by src/rmp/save.cpp, so
+ * ENABLE_LOCALES is not wanted: it took one byte of a two-byte point.) */
+#define CJSON_NESTING_LIMIT 64
 
 #include <cJSON.c>

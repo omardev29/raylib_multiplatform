@@ -493,6 +493,17 @@ class ConfigureValidateTest(unittest.TestCase):
     def test_ios_deployment_target(self):
         self.assert_rejects(base_config(ios__deployment_target="fifteen"))
 
+    def test_ios_below_13_is_refused_because_of_std_filesystem(self):
+        for too_old in ("12.4", "11.0", "9.3", "12.99.1"):
+            with self.subTest(target=too_old):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(base_config(ios__deployment_target=too_old), False)
+                self.assertIn("below 13.0", str(caught.exception))
+                self.assertIn("std::filesystem", str(caught.exception))
+        for fine in ("13.0", "15.6", "18.2.1"):
+            with self.subTest(target=fine), quiet():
+                cfgmod.validate(base_config(ios__deployment_target=fine), False)
+
     def test_raylib_modules_must_exist_and_be_optional(self):
         self.assert_rejects(base_config(raylib={"disabled_modules": ["rcore"]}))
         self.assert_rejects(base_config(raylib={"disabled_modules": ["rnothing"]}))
@@ -1879,7 +1890,7 @@ class LicenceGuardTest(unittest.TestCase):
         dep = FIXTURES / "two_file_dep" / "dep"
         sources = ldb.pinned_sources(dep)
         self.assertEqual([p.name for p in sources], ["thing.c", "thing.h"])
-        good = {"sha256_two_file_dep": ldb.pin_of(sources)}
+        good = {"sha256_two_file_dep": ldb.pin_of(sources, dep)}
         self.assertEqual(self.check(rows, self.fixture("two_file_dep"), good), [])
         # The pin is over BOTH files: the hash of either one alone is stale.
         for alone in sources:
@@ -1893,7 +1904,33 @@ class LicenceGuardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copy(dep / "thing.h", Path(tmp) / "thing.h")
             shutil.copy(dep / "thing.c", Path(tmp) / "other.c")
-            self.assertNotEqual(ldb.pin_of(ldb.pinned_sources(Path(tmp))), ldb.pin_of(sources))
+            self.assertNotEqual(ldb.pin_of(ldb.pinned_sources(Path(tmp)), Path(tmp)),
+                                ldb.pin_of(sources, dep))
+
+    def test_what_a_component_bundles_is_in_its_pin(self):
+        # rres/external/ holds the monocypher rmp::save seals with; a pin of
+        # the top level alone let a line appended to monocypher.c pass.
+        dep = FIXTURES / "nested_dep" / "dep"
+        sources = ldb.pinned_sources(dep)
+        self.assertEqual([p.relative_to(dep).as_posix() for p in sources],
+                         ["sub/bundled.c", "top.h"])
+        rows = self.rows_for_one("nested_dep", licences="MIT")
+        pin = {"sha256_nested_dep": ldb.pin_of(sources, dep)}
+        self.assertEqual(self.check(rows, self.fixture("nested_dep"), pin), [])
+        # The top file alone is a stale pin now.
+        stale = {"sha256_nested_dep": ldb.sha256_of(dep / "top.h")}
+        fails = self.check(rows, self.fixture("nested_dep"), stale)
+        self.assertTrue(any("does not match the pin" in f for f in fails), fails)
+        # And a change one level down moves it.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "dep"
+            shutil.copytree(dep, copy)
+            with (copy / "sub" / "bundled.c").open("a") as f:
+                f.write("/* one more line */\n")
+            self.assertNotEqual(ldb.pin_of(ldb.pinned_sources(copy), copy),
+                                ldb.pin_of(sources, dep))
 
     def test_one_file_keeps_the_plain_sha256(self):
         # So a one-file pin can still be checked with sha256sum by hand.

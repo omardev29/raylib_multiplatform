@@ -384,28 +384,33 @@ def notice_text(component: Path, evidence: str, families: list[str]) -> str | No
 
 def pinned_sources(component: Path) -> list[Path]:
     """The source files a component's pin covers: the component itself when it
-    is a file, else the .c/.h/.cpp/.hpp directly inside it, sorted. Not
-    recursive: a subdirectory is bundled code with rows of its own."""
+    is a file, else every .c/.h/.cpp/.hpp under it, subdirectories included,
+    sorted by their path inside it. Recursive because what a component bundles
+    is part of what it is: rres/external/ holds the monocypher rmp::save seals
+    with, and a pin of the top level alone let it change unnoticed."""
     if component.is_file():
         return [component]
     if not component.is_dir():
         return []
-    return sorted(p for p in component.iterdir()
-                  if p.is_file() and p.suffix in (".c", ".h", ".cpp", ".hpp"))
+    return sorted((p for p in component.rglob("*")
+                   if p.is_file() and p.suffix in (".c", ".h", ".cpp", ".hpp")),
+                  key=lambda p: p.relative_to(component).as_posix())
 
 
 def sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def pin_of(sources: list[Path]) -> str:
-    """One file: its sha256, so a pin can be checked with sha256sum. Several
-    (cJSON is a .c and a .h): the sha256 of one "name NUL sha256 LF" line per
-    file, so a renamed, added or removed file moves the pin as surely as an
-    edited one."""
+def pin_of(sources: list[Path], base: Path | None = None) -> str:
+    """One file: its sha256, so a pin can be checked with sha256sum. Several:
+    the sha256 of one "path NUL sha256 LF" line per file, the path relative to
+    `base` (the component's directory) -- so a renamed, added, moved or removed
+    file moves the pin as surely as an edited one."""
     if len(sources) == 1:
         return sha256_of(sources[0])
-    lines = "".join(f"{p.name}\0{sha256_of(p)}\n" for p in sources)
+    def name(p: Path) -> str:
+        return p.relative_to(base).as_posix() if base is not None else p.name
+    lines = "".join(f"{name(p)}\0{sha256_of(p)}\n" for p in sources)
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
@@ -541,7 +546,7 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
             # .h) were unmodified on trust. A submodule is pinned by its commit.
             key = "sha256_" + re.sub(r"[^a-z0-9]+", "_", label.lower())
             want = pins.get(key)
-            have = pin_of(pinned_sources(path))
+            have = pin_of(pinned_sources(path), path if path.is_dir() else None)
             if want is None:
                 fails.append(f"{label}: unmodified component with no pin. Add "
                              f"`{key} {have}` to the versions block of FROZEN_VERSIONS.md, "

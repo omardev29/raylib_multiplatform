@@ -14,9 +14,11 @@
 // UNREADABLE rather than guessing. <version> is [save] version, the game's.
 // The payload is the JSON, or -- sealed -- a 24-byte nonce, a 16-byte tag and
 // the JSON encrypted with XChaCha20-Poly1305 (monocypher, the same copy rres
-// ships). The CRC-32 covers the header up to and including the kind, a '\n',
-// and the payload, so a changed version or length is caught like a changed
-// byte. The seal authenticates the same header as associated data.
+// ships). The CRC-32 covers the header up to and including the length, a
+// '\n', and the payload, so a changed version or length is caught like a
+// changed byte; the header must be exactly as the writer puts it, so the CRC
+// covers the bytes on disk. The seal authenticates the same header as
+// associated data.
 //
 // Why a text header: a person who opens a plain save sees what it is and can
 // read the JSON under it, and a truncation is recognisable by eye.
@@ -52,8 +54,15 @@ std::uint32_t crc32(const unsigned char *data, std::size_t size);
 // (nested past the depth cJSON would read back).
 bool encode(const Value &value, int version, bool sealed, Bytes *out);
 
-// The inverse. On OK, *out is replaced and carries the file's version.
-Status decode(const Bytes &file, Value *out);
+// The inverse. On OK, *out is replaced and carries the file's version. With
+// `sealed_only`, a plain file is MODIFIED: see rmp::save::ReadOptions.
+Status decode(const Bytes &file, Value *out, bool sealed_only = false);
+
+// How deep a save may nest, writing and reading alike. src/rmp/cjson_impl.c
+// sets CJSON_NESTING_LIMIT to the same number, and tests/save_test.cpp checks
+// that the two agree. Small on purpose: the conversion is recursive, and the
+// web's default stack of 64 KB overflowed at about 400 levels.
+constexpr int kMaxDepth = 64;
 
 // JSON alone, no header: what goes inside, and what a test compares.
 std::string to_json(const Value &value);

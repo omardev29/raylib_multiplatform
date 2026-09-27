@@ -21,8 +21,8 @@
 
 #include <rmp/save.h>
 
-#include <cJSON.h> // CJSON_NESTING_LIMIT, the depth a save may reach
-
+#include <cctype>
+#include <chrono>
 #include <climits>
 #include <clocale>
 #include <cmath>
@@ -328,6 +328,19 @@ TEST_SUITE("save: Value") {
         list[0] = 10; // and an existing one is replaced
         CHECK(list[0].as_int() == 10);
 
+        // And a write that fails deep down creates nothing on the way to it:
+        // this used to leave {"a":{"b":[]}} behind.
+        Value empty;
+        empty["a"]["b"][5] = 1;
+        CHECK(empty.type() == Value::Type::NONE);
+        Value inv;
+        inv["inv"].push(Value{});
+        inv["inv"].push(3);
+        const Value inv_before = inv;
+        inv["inv"][0]["slot"][7] = "sword";
+        CHECK(inv == inv_before);
+        CHECK(inv["inv"][0].type() == Value::Type::NONE);
+
         Value number = 3;
         number.push(4);
         CHECK(number.as_int() == 3);
@@ -413,6 +426,8 @@ TEST_SUITE("save: Value") {
         CHECK(Value(3).size() == 0);
         CHECK_FALSE(Value(3).contains("a"));
         CHECK_FALSE(Value(3).erase("a"));
+        v["cleared"] = Value{};
+        CHECK_FALSE(v.erase("cleared")); // nothing was there
     }
 
     TEST_CASE("equality: same type and contents, keys in any order, version ignored") {
@@ -498,8 +513,11 @@ TEST_SUITE("save: format") {
         Value fb;
         REQUIRE(rmp::save::detail::from_json(rmp::save::detail::to_json(f), &fb));
         CHECK(fb.as_float() == 0.1f);
-        // And a whole number is written as one.
+        // And a whole number is written as one, and a short one short: 17
+        // digits every time would say 0.10000000000000001.
         CHECK(rmp::save::detail::to_json(Value(1250)) == "1250");
+        CHECK(rmp::save::detail::to_json(Value(0.1)) == "0.1");
+        CHECK(rmp::save::detail::to_json(Value(0.1f)) == "0.10000000149011612");
     }
 
     TEST_CASE("numbers are written in C notation whatever the locale") {
@@ -524,8 +542,10 @@ TEST_SUITE("save: format") {
         const std::string json = rmp::save::detail::to_json(v);
         Value back;
         const bool parsed = rmp::save::detail::from_json(json, &back);
+        const std::string during = std::setlocale(LC_NUMERIC, nullptr);
         std::setlocale(LC_NUMERIC, was.c_str());
         CHECK(json == R"({"half":0.5,"big":1234567.25})");
+        CHECK(during.find(comma) != std::string::npos); // the game's locale, given back
         REQUIRE(parsed);
         CHECK(back == v);
     }
@@ -588,9 +608,11 @@ TEST_SUITE("save: format") {
     }
 
     TEST_CASE("nesting: as deep as can be read back, and not one level more") {
-        // cJSON refuses to parse past its nesting limit, so a Value deeper
-        // than that must be refused at write -- a save that writes and never
-        // reads back is the worst kind.
+        // The parser refuses past its nesting limit, so a Value deeper than
+        // that must be refused at write -- a save that writes and never reads
+        // back is the worst kind. kMaxDepth here and CJSON_NESTING_LIMIT in
+        // cjson_impl.c must agree, and this is what says so.
+        constexpr int kLimit = rmp::save::detail::kMaxDepth;
         const auto nested = [](int depth) {
             Value inner = 1;
             for (int i = 0; i < depth; i++) {
@@ -601,8 +623,7 @@ TEST_SUITE("save: format") {
             return inner;
         };
         int deepest_ok = 0;
-        for (int depth = CJSON_NESTING_LIMIT - 3; depth <= CJSON_NESTING_LIMIT + 3;
-             depth++) {
+        for (int depth = kLimit - 3; depth <= kLimit + 3; depth++) {
             Bytes out;
             const bool wrote = rmp::save::detail::encode(nested(depth), 1, false, &out);
             if (!wrote) continue;
@@ -611,10 +632,33 @@ TEST_SUITE("save: format") {
             CHECK(decode(out, &back) == Status::OK); // anything written reads back
             deepest_ok = depth;
         }
-        CHECK(deepest_ok >= CJSON_NESTING_LIMIT - 3);
+        CHECK(deepest_ok == kLimit); // every level up to the limit, and not beyond
         Bytes out;
-        CHECK_FALSE(
-            rmp::save::detail::encode(nested(CJSON_NESTING_LIMIT + 3), 1, false, &out));
+        CHECK_FALSE(rmp::save::detail::encode(nested(kLimit + 1), 1, false, &out));
+        // And the parser, on its own: JSON nested past the limit is refused
+        // even when somebody else wrote it.
+        const auto arrays = [](int depth) {
+            return std::string(static_cast<std::size_t>(depth), '[') +
+                std::string(static_cast<std::size_t>(depth), ']');
+        };
+        Value v;
+        CHECK(rmp::save::detail::from_json(arrays(kLimit), &v));
+        CHECK_FALSE(rmp::save::detail::from_json(arrays(kLimit + 1), &v));
+    }
+
+    TEST_CASE("a string or a key with a NUL in it is refused, not cut short") {
+        // cJSON reads strings as C strings: "ab\0cd" came back as "ab", OK.
+        Value v;
+        v["s"] = std::string("ab\0cd", 5);
+        Bytes out;
+        CHECK_FALSE(rmp::save::detail::encode(v, 1, false, &out));
+        CHECK(rmp::save::detail::to_json(v).empty());
+        Value k;
+        k[std::string("a\0b", 3)] = 1;
+        CHECK_FALSE(rmp::save::detail::encode(k, 1, false, &out));
+        Value fine;
+        fine["s"] = "no nul here";
+        CHECK(rmp::save::detail::encode(fine, 1, false, &out));
     }
 
     TEST_CASE("a plain save is readable text: a header line, then the JSON") {
@@ -787,6 +831,45 @@ TEST_SUITE("save: format") {
         }
     }
 
+    TEST_CASE(
+        "a sealed header edited and re-checksummed is MODIFIED: the seal covers it") {
+        // The header is the seal's associated data. Take it out and every
+        // other test still passed -- this one is why that cannot happen again.
+        Bytes file = encoded(sample(), true, 1);
+        const std::size_t at = text_of(file).find(" 1 sealed ");
+        REQUIRE(at != std::string::npos);
+        file[at + 1] = '7'; // the version
+        CHECK(decode(with_fixed_crc(file)) == Status::MODIFIED);
+    }
+
+    TEST_CASE("where the game seals its saves, a plain file is MODIFIED") {
+        // The one edit a seal exists to stop: replace the sealed file with
+        // your own plain one and fix its CRC -- the format is documented.
+        const auto bytes = [](const std::string &s) { return Bytes(s.begin(), s.end()); };
+        const Bytes forged =
+            with_fixed_crc(bytes("rmp-save 1 1 plain 17 00000000\n{\"coins\":1000000}"));
+        Value v;
+        CHECK(rmp::save::detail::decode(forged, &v, true) == Status::MODIFIED);
+        CHECK(v.type() == Value::Type::NONE);
+        CHECK(rmp::save::detail::decode(forged, &v, false) == Status::OK);
+        CHECK(v["coins"].as_int() == 1000000);
+        Value sealed;
+        CHECK(rmp::save::detail::decode(encoded(sample(), true), &sealed, true) ==
+              Status::OK);
+        CHECK(rmp::save::ReadOptions{}.sealed_only == (APP_SAVE_ENCRYPT != 0));
+    }
+
+    TEST_CASE("a sealed payload too short to hold its nonce and tag is MODIFIED") {
+        const auto bytes = [](const std::string &s) { return Bytes(s.begin(), s.end()); };
+        for (int length = 0; length < 40; length++) {
+            CAPTURE(length);
+            const std::string head =
+                "rmp-save 1 1 sealed " + std::to_string(length) + " 00000000\n";
+            const std::string body(static_cast<std::size_t>(length), 'x');
+            CHECK(decode(with_fixed_crc(bytes(head + body))) == Status::MODIFIED);
+        }
+    }
+
     TEST_CASE("sealed relabelled as plain, re-checksummed: never OK") {
         Bytes file = encoded(sample(), true);
         const std::size_t at = text_of(file).find("sealed");
@@ -830,6 +913,25 @@ TEST_SUITE("save: format") {
                "rmp-save 1 1 plain 2 00000000 ", "RMP-SAVE 1 1 plain 2 00000000" }) {
             CAPTURE(header);
             CHECK(decode(bytes(std::string(header) + "\n{}")) == Status::UNREADABLE);
+        }
+        // Not only unparseable ones: what parses but is not how our writer
+        // puts it -- upper-case hex, leading zeros, a version below 1 -- is
+        // not ours either, even with its CRC made to match.
+        // The right CRC, in upper case -- with_fixed_crc() writes lower case.
+        Bytes upper = with_fixed_crc(bytes("rmp-save 1 1 plain 2 00000000\n{}"));
+        REQUIRE(decode(upper) == Status::OK);
+        for (std::size_t i = header_end(upper) - 8; i < header_end(upper); i++) {
+            upper[i] = static_cast<unsigned char>(std::toupper(upper[i]));
+        }
+        REQUIRE(text_of(upper).find("F27F7A6A") != std::string::npos); // it has letters
+        CHECK(decode(upper) == Status::UNREADABLE);
+        for (const char *header :
+             { "rmp-save 1 01 plain 2 00000000", "rmp-save 1 1 plain 02 00000000",
+               "rmp-save 01 1 plain 2 00000000", "rmp-save 1 0 plain 2 00000000",
+               "rmp-save 1 -5 plain 2 00000000" }) {
+            CAPTURE(header);
+            CHECK(decode(with_fixed_crc(bytes(std::string(header) + "\n{}"))) ==
+                  Status::UNREADABLE);
         }
     }
 
@@ -972,10 +1074,19 @@ TEST_SUITE("save: files") {
 
     TEST_CASE_FIXTURE(Fixture,
                       "a huge file called like a save is UNREADABLE, not an allocation") {
-        // Sparse, so it costs nothing on disk: 64 MB and one byte of nothing.
+        // Sparse, so it costs nothing on disk: 64 MB and one byte, behind a
+        // header that declares exactly that length -- read whole, it would
+        // be a CRC mismatch (MODIFIED); only the cap makes it UNREADABLE.
+        const std::uintmax_t size = std::uintmax_t{ 64 } * 1024 * 1024 + 1;
+        std::string head;
+        std::uintmax_t payload = size;
+        for (int pass = 0; pass < 3; pass++) { // the length's digits are in the header
+            head = "rmp-save 1 1 plain " + std::to_string(payload) + " 00000000\n";
+            payload = size - head.size();
+        }
         const fs::path file = dir.path / "huge.save";
-        std::ofstream(file) << "rmp-save ";
-        fs::resize_file(file, std::uintmax_t{ 64 } * 1024 * 1024 + 1);
+        std::ofstream(file, std::ios::binary) << head;
+        fs::resize_file(file, size);
         Value v;
         CHECK(rmp::save::read("huge", &v).status == Status::UNREADABLE);
     }
@@ -999,6 +1110,88 @@ TEST_SUITE("save: files") {
 }
 
 TEST_SUITE("save: portable") {
+    TEST_CASE(
+        "a save made while the portable folder was blocked is found the next session") {
+        // Session 1: a portable build in a folder it cannot write -- the save
+        // goes to the user's folder. Session 2: the game was moved somewhere
+        // writable, as the log suggested. Reading only the chosen folder, it
+        // found nothing, and the player's progress was gone without a word.
+        const TempDir root;
+        const TempDir user;
+        const fs::path blocker = root.path / "blocked";
+        std::ofstream(blocker) << "x";
+        rmp::save::detail::set_folders_for_tests((blocker / "saves").string(),
+                                                 user.str());
+        Value progress;
+        progress["level"] = 9;
+        REQUIRE(rmp::save::write("slot", progress));
+        REQUIRE(fs::exists(user.path / "slot.save"));
+
+        const fs::path moved = root.path / "moved" / "saves";
+        rmp::save::detail::set_folders_for_tests(moved.string(), user.str());
+        CHECK(fs::equivalent(fs::path(rmp::save::directory()), moved)); // writable again
+        Value back;
+        REQUIRE(rmp::save::read("slot", &back));
+        CHECK(back["level"].as_int() == 9);
+        CHECK(rmp::save::exists("slot"));
+        rmp::save::detail::reset_for_tests();
+    }
+
+    TEST_CASE(
+        "with a save in both folders, the newer one is read, and remove takes both") {
+        // The other half: a write-time fallback (the stick filled up) leaves
+        // the newer save in the user's folder and an older one next to the
+        // game. Reading the older one would roll the player back.
+        const TempDir portable;
+        const TempDir user;
+        rmp::save::detail::set_folders_for_tests(portable.str(), user.str());
+        const auto put = [](const fs::path &path, int level) {
+            Value v;
+            v["level"] = level;
+            Bytes bytes;
+            REQUIRE(rmp::save::detail::encode(v, 1, false, &bytes));
+            std::ofstream(path, std::ios::binary)
+                .write(reinterpret_cast<const char *>(bytes.data()),
+                       static_cast<std::streamsize>(bytes.size()));
+        };
+        put(portable.path / "slot.save", 1);
+        put(user.path / "slot.save", 2);
+        const auto now = fs::file_time_type::clock::now();
+        fs::last_write_time(portable.path / "slot.save", now - std::chrono::hours(2));
+        fs::last_write_time(user.path / "slot.save", now - std::chrono::hours(1));
+        Value back;
+        REQUIRE(rmp::save::read("slot", &back));
+        CHECK(back["level"].as_int() == 2);
+        fs::last_write_time(portable.path / "slot.save", now); // and the other way round
+        REQUIRE(rmp::save::read("slot", &back));
+        CHECK(back["level"].as_int() == 1);
+
+        CHECK(rmp::save::remove("slot"));
+        CHECK_FALSE(fs::exists(portable.path / "slot.save"));
+        CHECK_FALSE(fs::exists(user.path / "slot.save")); // or it would come back
+        CHECK_FALSE(rmp::save::exists("slot"));
+        rmp::save::detail::reset_for_tests();
+    }
+
+    TEST_CASE(
+        "a portable folder that passes the probe and fails the write falls back, once") {
+        // The write-time fallback, exercised: the slot's name is taken by a
+        // non-empty folder, so the temporary is written and the rename fails.
+        const TempDir portable;
+        const TempDir user;
+        fs::create_directories(portable.path / "slot.save" / "in_the_way");
+        rmp::save::detail::set_folders_for_tests(portable.str(), user.str());
+        REQUIRE(fs::equivalent(fs::path(rmp::save::directory()), portable.path));
+        CHECK(rmp::save::write("slot", sample()));
+        CHECK(fs::exists(user.path / "slot.save"));
+        CHECK(rmp::save::detail::fallbacks() == 1);
+        CHECK(fs::equivalent(fs::path(rmp::save::directory()), user.path));
+        CHECK_FALSE(fs::exists(portable.path / "slot.save.tmp")); // cleaned up
+        CHECK(rmp::save::write("other", sample()));
+        CHECK(rmp::save::detail::fallbacks() == 1); // once
+        rmp::save::detail::reset_for_tests();
+    }
+
     TEST_CASE("a writable portable folder is used") {
         const TempDir portable;
         const TempDir user;

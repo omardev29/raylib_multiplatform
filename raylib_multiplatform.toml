@@ -446,12 +446,15 @@ sfx    = 1.0
 #          Only Windows, Linux and the BSDs have such a place; macOS, Android,
 #          iOS and web ignore it. If the folder cannot be written (a portable
 #          build copied into Program Files), the saves go to the user's
-#          folder instead and the log says so once -- never lost in silence.
+#          folder instead and the log says so once -- never lost in silence:
+#          reads look in both folders and take the newer save.
 #
 # encrypt: whether rmp::save::write() seals the file by default. Sealed means
-#   unreadable and any edit detected; the key is derived from [project] name,
-#   so it lives in the binary. That stops a text editor, not a determined
-#   player. Every save has a checksum either way.
+#   unreadable and any edit detected, and with it on a plain file reads as
+#   modified -- nobody swaps in a save of their own. The key is derived from
+#   [project] name, so it lives in the binary: that stops a text editor, not a
+#   determined player, and renaming the project makes old sealed saves
+#   unreadable. Every save has a checksum either way.
 #
 # version: the version of YOUR save format. Adding a key never needs a bump --
 #   a missing key reads as its default. Bump it when a key changes meaning,

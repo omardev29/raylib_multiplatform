@@ -239,23 +239,36 @@ struct WriteOptions {
     bool encrypted = APP_SAVE_ENCRYPT != 0; // [save] encrypt decides the default
 };
 
+struct ReadOptions {
+    // With [save] encrypt on, a PLAIN file reads as MODIFIED: anyone can write
+    // one -- the format is documented and a plain save shows it -- and
+    // accepting it would let a player replace a sealed save with their own.
+    // A game that turns sealing on in an update reads its players' old plain
+    // saves with { .sealed_only = false } for as long as they may have one.
+    bool sealed_only = APP_SAVE_ENCRYPT != 0;
+};
+
 // A slot is a file name without the extension: letters, digits, '_', '-' and
 // '.', not starting with '.', at most 64 of them. Anything else is refused
 // and said once -- a slot name is not a place to put a path.
 //
 // False when it could not be written; the previous save, if any, is intact.
+// Also false, and said once, for a Value that could not be read back: nested
+// deeper than 64 levels, or with a NUL character in a string or a key.
 bool write(std::string_view slot, const Value &value, const WriteOptions &options = {});
 
 // Fills *out and says so. On anything but OK, *out is left exactly as it was,
 // so a game can fill it with defaults first and read over them.
-Result read(std::string_view slot, Value *out);
+Result read(std::string_view slot, Value *out, const ReadOptions &options = {});
 
 [[nodiscard]] bool exists(std::string_view slot);
 bool remove(std::string_view slot); // false when there was nothing to remove
 
-// Where the saves really are: the folder [save] portable asked for if it can
-// be written, otherwise the user's data folder -- and never where the .toml
-// asked for if that turned out to be read-only. With a trailing separator.
+// Where saves are written: the folder [save] portable asked for if it can be
+// written, otherwise the user's data folder -- never where the .toml asked
+// for if that turned out to be read-only. With a trailing separator. With
+// [save] portable, read() looks in both folders and takes the newer save, so
+// a session that had to fall back and the next one that did not agree.
 [[nodiscard]] std::string directory();
 
 } // namespace save

@@ -837,6 +837,15 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if not re.match(r"^\d+\.\d+(\.\d+)?$", str(cfg["ios"]["deployment_target"])):
         raise ConfigError(f"[ios] deployment_target = {cfg['ios']['deployment_target']!r} "
                           "must look like \"15.6\".")
+    # std::filesystem, which rmp::save is built on, is unavailable in Apple's
+    # libc++ before iOS 13. Below that the failure is a wall of "is unavailable:
+    # introduced in iOS 13.0" from the compiler, twenty minutes into the iOS
+    # job, instead of this line.
+    if int(str(cfg["ios"]["deployment_target"]).split(".")[0]) < 13:
+        raise ConfigError(
+            f"[ios] deployment_target = {cfg['ios']['deployment_target']!r} is below 13.0.\n"
+            "rmp::save uses std::filesystem, which Apple's C++ library only has from iOS 13. "
+            "Use 13.0 or later; the default, 15.6, covers every iPhone Apple still updates.")
 
     if cfg["android"]["gl_version"] not in ("ES20", "ES30", "ES31", "ES32"):
         raise ConfigError(f"[android] gl_version = {cfg['android']['gl_version']!r} must be one "

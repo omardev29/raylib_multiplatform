@@ -1421,8 +1421,12 @@ can fill it with defaults first and read over them.
 rmp-save 1 <version> <plain|sealed> <payload bytes> <crc32>\n{"level":7,...}
 ```
 
-The CRC-32 covers the header up to the kind and the payload, so an edited version or length is
-caught like an edited byte. A plain save is readable: open it and the JSON is under the header.
+The CRC-32 covers the header up to the length and the payload, so an edited version or length is
+caught like an edited byte, and the header must be exactly what the writer puts there — no leading
+zeros, no upper-case hex, no version below 1 — so the CRC covers the bytes on disk. A plain save is
+readable: open it and the JSON is under the header. A Value nests at most 64 levels (the web's
+64 KB stack overflowed near 400), and a string or key containing a NUL is refused at write rather
+than cut short, which is what cJSON's C strings would do.
 `tests/save_test.cpp` cuts a save at every byte (always `TRUNCATED`), flips every byte of the
 payload (always `MODIFIED`) and every byte of the header (never `OK`), for plain and sealed files.
 
@@ -1432,7 +1436,10 @@ vendored — with a fresh random 24-byte nonce per write and the header as assoc
 is derived from `[project] name`, so two games cannot open each other's saves and **renaming the
 project makes old sealed saves unreadable**. **The key is in the binary: this is tamper
 resistance, not security.** It stops a text editor; any change to a sealed file, even with the CRC
-recomputed, reads as `MODIFIED`. The roadmap had proposed tiny-AES-c, which rres also ships; it was
+recomputed, reads as `MODIFIED`, and so does a **plain** file where the game seals its saves —
+otherwise anyone could replace a sealed save with their own plain one. A game that turns sealing on
+in an update reads its players' old plain saves with `rmp::save::read(slot, &v, { .sealed_only =
+false })` for as long as they may have one. The roadmap had proposed tiny-AES-c, which rres also ships; it was
 not taken because its modes are unauthenticated, and telling "edited" from "damaged" is the point.
 
 **Writes are all or nothing.** The bytes go to `<slot>.save.tmp`, are flushed to the disk
@@ -1457,21 +1464,31 @@ once.
 the BSDs — the zip-from-itch.io case, where deleting the folder should delete everything. Where the
 executable's folder cannot be written (a portable build copied into `Program Files`), that is found
 by actually writing a probe file, the saves go to the user's folder instead, the log says so once,
-and `directory()` returns where they really are. macOS, Android, iOS and web have no such folder and
-ignore the setting.
+and `directory()` returns where they really are. Reads look in **both** folders and take the newer
+file, and `remove()` clears both: a session that could not write next to the game and the next one
+that can (the game was moved out of `Program Files`) must not disagree about where the save is, or
+the player's progress is gone or rolled back without a word. macOS, Android, iOS and web have no
+such folder and ignore the setting. On Windows every folder comes from the wide API
+(`_wgetenv`, `GetModuleFileNameW`): the narrow one answers in the ANSI code page, and a user called
+José had a profile path that is not UTF-8 — converting it threw out of `read()` and `write()`.
 
 **Web** is the one that loses saves silently if it is done wrong: Emscripten's files are memory
 until they are synced. `cmake/web/rmp_web.js` mounts IndexedDB at `/rmp_save` **before `main()`**,
 holding the program back with a run dependency until the folder has been filled — otherwise the
 first scene's read would find nothing and a player's progress would look deleted — and every write
-and remove calls `FS.syncfs(false)`. With no IndexedDB (some private windows, `file://`), the game
-still starts and its saves last as long as the tab.
+and remove calls `FS.syncfs(false)`. With no IndexedDB at all (node, some `file://` pages) the mount
+is not attempted — IDBFS asserts, and in a debug build that is `abort()` before `main()` — and the
+folder works in memory; where IndexedDB exists but refuses (a private window), the fill fails through
+its callback. Either way the game starts, and its saves last as long as the tab.
 
-**cJSON** (1.7.19, MIT, unmodified) is compiled by `src/rmp/cjson_impl.c` and included by
-`save.cpp` alone. Two things are done around it rather than inside it: numbers are written by
-`save.cpp` as the shortest text that reads back as the same double, in C notation whatever the
-locale (cJSON's own printer rounds 2^53 and would follow a German locale's comma), and it is
-compiled with `ENABLE_LOCALES` so that it reads those numbers back under any locale.
+**cJSON** (1.7.19, MIT, unmodified) is compiled by `src/rmp/cjson_impl.c` (which sets its nesting
+limit to the same 64) and included by `save.cpp` alone. Two things are done around it rather than
+inside it: numbers are written by `save.cpp` with 15 significant digits when those read back as the
+same double, else 16, else 17 (cJSON's own printer keeps 15 whenever they read back *nearly*, and
+2^53 came back rounded); and every conversion runs under the `"C"` numeric locale for its duration,
+switching only when the game's locale does not already use `.`, so a German or Pashto locale neither
+writes `0,5` nor fails to read `0.5`. (`ENABLE_LOCALES`, cJSON's own answer, takes one byte of the
+decimal point; Pashto's is two.)
 
 ## AdMob (Android)
 

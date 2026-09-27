@@ -70,9 +70,7 @@ constexpr const char *kMagic = "rmp-save";
 constexpr const char *kExtension = ".save";
 constexpr std::size_t kNonce = 24;
 constexpr std::size_t kTag = 16;
-// cJSON refuses to parse deeper than this, so nothing deeper is written: a
-// save that could be written and never read back is the worst kind.
-constexpr int kMaxDepth = CJSON_NESTING_LIMIT;
+using detail::kMaxDepth;
 
 // ---- CRC-32 ----------------------------------------------------------------
 
@@ -99,34 +97,80 @@ struct JsonTextDelete {
 };
 using JsonText = std::unique_ptr<char, JsonTextDelete>;
 
-// A number as the shortest text that reads back as exactly the same double.
-// Not cJSON's printer: it tries 15 digits and keeps them when they read back
-// within an epsilon, so 2^53 came back as 9007199254740990 -- a save that does
-// not return what was written. And in "C" notation whatever the locale: a game
-// that sets a German locale would otherwise write 0,1, which is not JSON.
+// Numbers go through printf and strtod, and both follow the C library's
+// LC_NUMERIC: a game that sets a German locale for its interface would write
+// 0,5 -- which is not JSON -- and fail to read 0.5. For the length of one
+// to_json() or from_json(), and only when the current locale does not already
+// use '.', the numeric locale is "C". (cJSON's own ENABLE_LOCALES was the
+// first attempt; it takes one byte of the decimal point, and Pashto's is two.)
+// setlocale() is process-wide: a save made while another thread formats
+// numbers can disturb it for those microseconds, which is the price of not
+// touching cJSON.
+class CNumbers {
+public:
+    CNumbers() {
+        const char *point = std::localeconv()->decimal_point;
+        if (point != nullptr && std::strcmp(point, ".") == 0) return;
+        const char *current = std::setlocale(LC_NUMERIC, nullptr);
+        saved_ = current != nullptr ? current : "C";
+        switched_ = std::setlocale(LC_NUMERIC, "C") != nullptr;
+    }
+    ~CNumbers() {
+        if (switched_) std::setlocale(LC_NUMERIC, saved_.c_str());
+    }
+    CNumbers(const CNumbers &) = delete;
+    CNumbers &operator=(const CNumbers &) = delete;
+
+private:
+    std::string saved_;
+    bool switched_ = false;
+};
+
+// A number as text that reads back as exactly the same double: 15 significant
+// digits when they do, else 16, else 17, which always do. Not cJSON's printer:
+// it keeps 15 whenever they read back within an epsilon, so 2^53 came back as
+// 9007199254740990 -- a save that does not return what was written. Called
+// under CNumbers, so the point is always '.'.
 std::string format_number(double n) {
     char text[40];
     for (int digits = 15; digits <= 17; digits++) {
         std::snprintf(text, sizeof text, "%.*g", digits, n);
-        // Read back in the same locale it was printed in; the point is fixed
-        // only afterwards.
         if (std::strtod(text, nullptr) == n) break;
     }
-    const char *point = std::localeconv()->decimal_point;
-    std::string out(text);
-    if (point != nullptr && point[0] != '\0' && std::strcmp(point, ".") != 0) {
-        const std::size_t at = out.find(point);
-        if (at != std::string::npos) out.replace(at, std::strlen(point), ".");
-    }
-    return out;
+    return text;
 }
 
-// A Value into a new cJSON tree. Null when it is nested past kMaxDepth or
-// cJSON runs out of memory. Object members that are NONE are left out: a key
+// Why a Value cannot be saved, or nullptr. Checked before anything is written,
+// so write() can say which of the two it is.
+const char *unsavable(const Value &v, int depth) {
+    // Deeper than the parser reads back (cjson_impl.c sets its limit to the
+    // same number): a save that writes and never reads back is the worst kind.
+    if (depth > kMaxDepth) return "it is nested deeper than rmp::save reads back";
+    if (v.type() == Value::Type::STRING &&
+        v.as_string().find('\0') != std::string_view::npos) {
+        // JSON can say \u0000, but cJSON reads strings as C strings and would
+        // hand back everything before the NUL: a save that returns less than
+        // it was given, without a word.
+        return "a string in it contains a NUL character";
+    }
+    for (int i = 0; i < v.size(); i++) {
+        if (v.type() == Value::Type::OBJECT) {
+            if (v.key(i).find('\0') != std::string_view::npos) {
+                return "a key in it contains a NUL character";
+            }
+            if (const char *why = unsavable(v[v.key(i)], depth + 1)) return why;
+        } else if (const char *why = unsavable(v[i], depth + 1)) {
+            return why;
+        }
+    }
+    return nullptr;
+}
+
+// A Value into a new cJSON tree, once unsavable() has said it can be. Null
+// only when cJSON runs out of memory. Object members that are NONE are left out: a key
 // holding nothing and a missing key read the same, and writing the first as
 // `"key": null` would only grow the file.
-Json to_cjson(const Value &v, int depth) {
-    if (depth > kMaxDepth) return nullptr;
+Json to_cjson(const Value &v) {
     switch (v.type()) {
         case Value::Type::NONE:
             return Json(cJSON_CreateNull());
@@ -147,7 +191,7 @@ Json to_cjson(const Value &v, int depth) {
             Json list(cJSON_CreateArray());
             if (!list) return nullptr;
             for (int i = 0; i < v.size(); i++) {
-                Json item = to_cjson(v[i], depth + 1);
+                Json item = to_cjson(v[i]);
                 if (!item) return nullptr;
                 cJSON_AddItemToArray(list.get(), item.release());
             }
@@ -160,7 +204,7 @@ Json to_cjson(const Value &v, int depth) {
                 const std::string_view key = v.key(i);
                 const Value &item = v[key];
                 if (item.type() == Value::Type::NONE) continue;
-                Json node = to_cjson(item, depth + 1);
+                Json node = to_cjson(item);
                 if (!node) return nullptr;
                 cJSON_AddItemToObject(object.get(), std::string(key).c_str(),
                                       node.release());
@@ -285,7 +329,9 @@ std::uint32_t crc32(const unsigned char *data, std::size_t size) {
 }
 
 std::string to_json(const Value &value) {
-    const Json tree = to_cjson(value, 0);
+    if (unsavable(value, 0) != nullptr) return {};
+    const CNumbers c_numbers;
+    const Json tree = to_cjson(value);
     if (!tree) return {};
     const JsonText text(cJSON_PrintUnformatted(tree.get()));
     return text ? std::string(text.get()) : std::string();
@@ -299,6 +345,7 @@ bool from_json(std::string_view json, Value *out) {
     // middle followed by more text included -- so the length handed over
     // counts the NUL std::string keeps at the end.
     const std::string text(json);
+    const CNumbers c_numbers;
     const Json tree(cJSON_ParseWithLengthOpts(text.c_str(), text.size() + 1, nullptr, 1));
     if (!tree) return false;
     *out = from_cjson(tree.get());
@@ -334,7 +381,7 @@ bool encode(const Value &value, int version, bool sealed, Bytes *out) {
     return true;
 }
 
-Status decode(const Bytes &file, Value *out) {
+Status decode(const Bytes &file, Value *out, bool sealed_only) {
     // The header line. A file that stops before its '\n' but starts like one
     // of ours was cut short; one that does not start like ours never was.
     const std::string magic = std::string(kMagic) + " ";
@@ -372,6 +419,17 @@ Status decode(const Bytes &file, Value *out) {
     if (format != kFormat) return Status::UNREADABLE; // a newer framework wrote it
     const bool sealed = kind == "sealed";
     if (!sealed && kind != "plain") return Status::UNREADABLE;
+    // And exactly as our writer puts it: no leading zeros, no upper-case hex,
+    // no version below 1. Then the CRC, computed over the canonical text,
+    // covers the bytes on disk and not a re-rendering of them.
+    char hex[9];
+    std::snprintf(hex, sizeof hex, "%08x", static_cast<unsigned>(crc));
+    if (version < 1 || header != header_prefix(version, sealed, declared) + " " + hex) {
+        return Status::UNREADABLE;
+    }
+    // A plain file where the game seals its saves is somebody's own file with
+    // a recomputed CRC -- the one edit a seal exists to stop.
+    if (sealed_only && !sealed) return Status::MODIFIED;
 
     const std::size_t have = file.size() - newline - 1;
     if (have < declared) return Status::TRUNCATED;
@@ -430,7 +488,7 @@ struct Folders {
     std::string portable; // empty = [save] portable is off, or this OS has no such place
     std::string user;
     bool resolved = false;
-    std::string chosen;
+    std::string chosen; // where writes go this session
     int fallbacks = 0;
 };
 
@@ -439,15 +497,45 @@ Folders &folders() {
     return f;
 }
 
-std::string env(const char *name) {
-    const char *value = std::getenv(name);
-    return value != nullptr ? std::string(value) : std::string();
-}
-
 std::string with_separator(std::string path) {
     if (!path.empty() && path.back() != '/' && path.back() != '\\') path += '/';
     return path;
 }
+
+#if defined(_WIN32)
+// One Win32 call, declared by hand: <windows.h> defines CloseWindow,
+// Rectangle and DrawText and does not compile next to raylib.h. The
+// declaration is raylib's own, character for character (rcore.c declares and
+// links it the same way), and identical to <windows.h>'s, so the two could
+// not conflict even if both ever met in one file.
+extern "C" __declspec(dllimport) unsigned long __stdcall
+GetModuleFileNameW(struct HINSTANCE__ *hModule, wchar_t *lpFilename, unsigned long nSize);
+
+// Windows paths as UTF-8, from the wide API. The narrow one hands back the
+// ANSI code page, and a user called José has a profile folder whose bytes
+// are not UTF-8: converting them as UTF-8 threw out of read() and write(),
+// and a game that saves died with std::terminate for every José, Jürgen and
+// Hélène. CI cannot see it -- the runner's user is "runneradmin".
+std::string utf8_of(const wchar_t *wide) {
+    if (wide == nullptr) return {};
+    try {
+        const std::u8string u8 = fs::path(wide).u8string();
+        return { u8.begin(), u8.end() };
+    } catch (...) {
+        return {};
+    }
+}
+
+std::string env(const char *name) {
+    const std::wstring wide_name(name, name + std::strlen(name));
+    return utf8_of(_wgetenv(wide_name.c_str()));
+}
+#else
+std::string env(const char *name) {
+    const char *value = std::getenv(name);
+    return value != nullptr ? std::string(value) : std::string();
+}
+#endif
 
 } // namespace
 
@@ -494,9 +582,18 @@ namespace {
 // Next to the executable, where [save] portable asks for it and the OS has
 // such a place. Empty otherwise.
 std::string portable_folder() {
-#if APP_SAVE_PORTABLE &&                                              \
-    (defined(_WIN32) || defined(__linux__) || defined(__FreeBSD__) || \
-     defined(__NetBSD__) || defined(__OpenBSD__)) &&                  \
+#if APP_SAVE_PORTABLE && defined(_WIN32)
+    std::wstring name(32768, L'\0');
+    const unsigned long length =
+        GetModuleFileNameW(nullptr, name.data(), static_cast<unsigned long>(name.size()));
+    if (length == 0 || length >= name.size()) return {};
+    name.resize(length);
+    const std::string dir = utf8_of(fs::path(name).parent_path().c_str());
+    if (dir.empty()) return {};
+    return with_separator(dir) + "saves/";
+#elif APP_SAVE_PORTABLE &&                                                \
+    (defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+     defined(__OpenBSD__)) &&                                             \
     !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
     const char *dir = GetApplicationDirectory();
     // raylib answers "" or "./" where it cannot tell (NetBSD, OpenBSD): a
@@ -514,11 +611,20 @@ std::string portable_folder() {
 #endif
 }
 
+// A folder name as the file system wants it. Never throws: on Windows the
+// UTF-8 is converted to wide, which throws on bytes that are not UTF-8, and
+// an empty path is what every caller already treats as "cannot be used".
 fs::path to_path(const std::string &utf8) {
-    // u8path is deprecated in C++20, and it is the one spelling that means
-    // "these bytes are UTF-8" on Windows too, where %APPDATA% can hold a
-    // user name that is not in the ANSI code page.
-    return std::u8string(utf8.begin(), utf8.end());
+#if defined(_WIN32)
+    try {
+        return std::u8string(utf8.begin(), utf8.end());
+    } catch (...) {
+        return {};
+    }
+#else
+    // The native encoding is bytes; whatever $HOME holds is used as it is.
+    return utf8;
+#endif
 }
 
 struct FileClose {
@@ -529,6 +635,7 @@ struct FileClose {
 using File = std::unique_ptr<std::FILE, FileClose>;
 
 File open_file(const fs::path &path, bool for_write) {
+    if (path.empty()) return nullptr;
 #if defined(_WIN32)
     return File(_wfopen(path.c_str(), for_write ? L"wb" : L"rb"));
 #else
@@ -565,7 +672,6 @@ void give_up_on_portable(Folders &f) {
         "Files?); saving in %s instead",
         f.portable.c_str(), f.user.c_str());
     f.chosen = f.user;
-    f.portable.clear();
 }
 
 const std::string &resolve() {
@@ -587,8 +693,36 @@ const std::string &resolve() {
     return f.chosen;
 }
 
-std::string file_for(std::string_view slot) {
-    return resolve() + std::string(slot) + kExtension;
+std::string file_in(const std::string &folder, std::string_view slot) {
+    return folder + std::string(slot) + kExtension;
+}
+
+// Where a slot is READ from. Writes go to one folder a session, but with
+// [save] portable there are two a save can be in: a session that could not
+// write next to the executable saved in the user's folder, and the next one
+// -- the game moved out of Program Files, as the log suggested -- can write
+// there again. Looking in one folder only, that session found no save, or
+// an older one, and the player's progress was gone without a word. So both
+// are looked in, and the newer file wins.
+fs::path find_slot(std::string_view slot) {
+    Folders &f = folders();
+    (void)resolve();
+    std::vector<std::string> places{ f.chosen };
+    if (!f.portable.empty()) places.push_back(f.chosen == f.user ? f.portable : f.user);
+    fs::path best;
+    fs::file_time_type best_time{};
+    for (const std::string &place : places) {
+        std::error_code ec;
+        const fs::path path = to_path(file_in(place, slot));
+        if (path.empty() || !fs::is_regular_file(path, ec)) continue;
+        const fs::file_time_type when = fs::last_write_time(path, ec);
+        if (ec) continue;
+        if (best.empty() || when > best_time) {
+            best = path;
+            best_time = when;
+        }
+    }
+    return best;
 }
 
 void persist() {
@@ -628,6 +762,7 @@ bool read_file(const fs::path &path, detail::Bytes *out) {
 // std::filesystem::rename does on Windows too (MoveFileExW with
 // MOVEFILE_REPLACE_EXISTING), which plain std::rename does not.
 bool write_atomically(const fs::path &path, const detail::Bytes &bytes) {
+    if (path.empty()) return false;
     fs::path temp = path;
     temp += ".tmp";
     {
@@ -692,46 +827,44 @@ int fallbacks() { return folders().fallbacks; }
 
 bool write(std::string_view slot, const Value &value, const WriteOptions &options) {
     if (!check_slot(slot)) return false;
-    detail::Bytes bytes;
-    if (!detail::encode(value, APP_SAVE_VERSION, options.encrypted, &bytes)) {
-        RMP_REPORT_ONCE(
-            "SAVE: a Value nested deeper than %d levels cannot be saved: it could "
-            "not be read back",
-            kMaxDepth);
+    if (const char *why = unsavable(value, 0)) {
+        RMP_REPORT_ONCE_KEYED(why, "SAVE: \"%s\" was not saved: %s",
+                              std::string(slot).c_str(), why);
         return false;
     }
+    detail::Bytes bytes;
+    if (!detail::encode(value, APP_SAVE_VERSION, options.encrypted, &bytes)) return false;
     Folders &f = folders();
     (void)resolve();
     std::error_code ec;
     fs::create_directories(to_path(f.chosen), ec);
-    if (write_atomically(to_path(file_for(slot)), bytes)) {
+    if (write_atomically(to_path(file_in(f.chosen, slot)), bytes)) {
         persist();
         return true;
     }
     // The portable folder passed the probe and failed now (the disk filled,
     // a permission changed under us): the user's folder, once, rather than
-    // losing the save.
+    // losing the save. find_slot() looks in both, so the next session finds it.
     if (f.chosen != f.user) {
         give_up_on_portable(f);
         fs::create_directories(to_path(f.chosen), ec);
-        if (write_atomically(to_path(file_for(slot)), bytes)) {
+        if (write_atomically(to_path(file_in(f.chosen, slot)), bytes)) {
             persist();
             return true;
         }
     }
-    TraceLog(LOG_WARNING, "SAVE: could not write %s", file_for(slot).c_str());
+    TraceLog(LOG_WARNING, "SAVE: could not write %s", file_in(f.chosen, slot).c_str());
     return false;
 }
 
-Result read(std::string_view slot, Value *out) {
+Result read(std::string_view slot, Value *out, const ReadOptions &options) {
     Result result;
     if (out == nullptr || !check_slot(slot)) {
         result.status = Status::UNREADABLE;
         return result;
     }
-    const fs::path path = to_path(file_for(slot));
-    std::error_code ec;
-    if (!fs::exists(path, ec)) {
+    const fs::path path = find_slot(slot);
+    if (path.empty()) {
         result.status = Status::MISSING;
         return result;
     }
@@ -740,20 +873,23 @@ Result read(std::string_view slot, Value *out) {
         result.status = Status::UNREADABLE;
         return result;
     }
-    result.status = detail::decode(bytes, out);
+    result.status = detail::decode(bytes, out, options.sealed_only);
     return result;
 }
 
 bool exists(std::string_view slot) {
-    if (!detail::valid_slot(slot)) return false;
-    std::error_code ec;
-    return fs::exists(to_path(file_for(slot)), ec);
+    return detail::valid_slot(slot) && !find_slot(slot).empty();
 }
 
 bool remove(std::string_view slot) {
     if (!check_slot(slot)) return false;
-    std::error_code ec;
-    const bool removed = fs::remove(to_path(file_for(slot)), ec);
+    // From every folder it can be read from, or the older copy comes back.
+    bool removed = false;
+    for (fs::path path = find_slot(slot); !path.empty(); path = find_slot(slot)) {
+        std::error_code ec;
+        if (!fs::remove(path, ec)) break;
+        removed = true;
+    }
     if (removed) persist();
     return removed;
 }

@@ -86,9 +86,8 @@ std::string_view Value::as_string(std::string_view fallback) const {
 }
 
 // An object member that holds nothing does not exist, for every function
-// here: reading a key through a non-const Value inserts one (it has to, for
-// the write that usually follows), and a read must not be visible afterwards
-// in size(), key(), contains(), == or the file.
+// here: `v["x"] = rmp::Value{}` clears a key, and "nothing" and "missing" read
+// the same everywhere -- size(), key(), contains(), == and the file.
 int Value::size() const {
     if (type_ == Type::LIST) return static_cast<int>(items_.size());
     if (type_ != Type::OBJECT) return 0;
@@ -141,9 +140,12 @@ bool Value::erase(std::string_view key) {
     if (type_ != Type::OBJECT) return false;
     for (std::size_t i = 0; i < keys_.size(); i++) {
         if (keys_[i] == key) {
+            // A member holding nothing was not there, so erasing it is
+            // "false" -- and it goes all the same.
+            const bool was_there = items_[i].type_ != Type::NONE;
             keys_.erase(keys_.begin() + static_cast<std::ptrdiff_t>(i));
             items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(i));
-            return true;
+            return was_there;
         }
     }
     return false;
@@ -232,47 +234,72 @@ Value *Value::Ref::find() {
 }
 
 Value *Value::Ref::materialise() {
-    Value *at = root_;
+    // Two passes. The first walks the path touching nothing and says whether
+    // the write can land at all; only then does the second create what is
+    // missing. In one pass, a write that failed halfway -- v["a"]["b"][5] = 1
+    // on an empty Value -- had already turned "a" and "b" into an object and
+    // an empty list, which then went into the file while the log said
+    // nothing was written.
+    const Value *at = root_; // nullptr once the path leaves what exists
     for (const Step &step : path_) {
+        const Type type = at != nullptr ? at->type_ : Type::NONE;
         if (step.is_key) {
-            if (at->type_ == Type::NONE) *at = Value::object();
-            if (at->type_ != Type::OBJECT) {
+            if (type != Type::NONE && type != Type::OBJECT) {
                 RMP_REPORT_ONCE_KEYED(
                     step.key.c_str(),
                     "SAVE: writing [\"%s\"] into %s: nothing was written. "
                     "Assign it first -- v[...] = rmp::Value::object() -- if "
                     "it is meant to change type",
-                    step.key.c_str(), type_name(at->type_));
+                    step.key.c_str(), type_name(type));
                 return nullptr;
             }
-            Value *found = nullptr;
-            for (std::size_t i = 0; i < at->keys_.size(); i++) {
-                if (at->keys_[i] == step.key) found = &at->items_[i];
+            const Value *next = nullptr;
+            if (type == Type::OBJECT) {
+                for (std::size_t i = 0; i < at->keys_.size(); i++) {
+                    if (at->keys_[i] == step.key) next = &at->items_[i];
+                }
             }
-            if (found == nullptr) {
-                at->keys_.push_back(step.key);
-                at->items_.emplace_back();
-                found = &at->items_.back();
-            }
-            at = found;
+            at = next;
         } else {
-            if (at->type_ == Type::NONE) *at = Value::list();
-            const int count = static_cast<int>(at->items_.size());
-            if (at->type_ != Type::LIST || step.index < 0 || step.index > count) {
+            const int count =
+                type == Type::LIST ? static_cast<int>(at->items_.size()) : 0;
+            if ((type != Type::NONE && type != Type::LIST) || step.index < 0 ||
+                step.index > count) {
                 // A list grows by one, at the end: v[1000000000] = x filling a
                 // billion NONEs in between is a crash, not a feature.
                 RMP_REPORT_ONCE(
                     "SAVE: writing [%d] into %s of size %d: nothing was written. A "
                     "list is written at 0..size(), and size() appends one",
-                    step.index, type_name(at->type_),
-                    at->type_ == Type::LIST ? count : 0);
+                    step.index, type_name(type), count);
                 return nullptr;
             }
-            if (step.index == count) at->items_.emplace_back();
-            at = &at->items_[static_cast<std::size_t>(step.index)];
+            at = step.index < count ? &at->items_[static_cast<std::size_t>(step.index)]
+                                    : nullptr;
         }
     }
-    return at;
+
+    Value *here = root_;
+    for (const Step &step : path_) {
+        if (step.is_key) {
+            if (here->type_ == Type::NONE) *here = Value::object();
+            Value *found = nullptr;
+            for (std::size_t i = 0; i < here->keys_.size(); i++) {
+                if (here->keys_[i] == step.key) found = &here->items_[i];
+            }
+            if (found == nullptr) {
+                here->keys_.push_back(step.key);
+                here->items_.emplace_back();
+                found = &here->items_.back();
+            }
+            here = found;
+        } else {
+            if (here->type_ == Type::NONE) *here = Value::list();
+            if (std::cmp_equal(step.index, here->items_.size()))
+                here->items_.emplace_back();
+            here = &here->items_[static_cast<std::size_t>(step.index)];
+        }
+    }
+    return here;
 }
 
 Value::Ref &Value::Ref::operator=(Value value) {

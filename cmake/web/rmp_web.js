@@ -37,21 +37,33 @@
 // dependency until the fill has finished -- otherwise the first read of every
 // session would find nothing and a player's progress would look deleted.
 //
-// It must never hold the game back for good. With no IndexedDB (a private
-// window in some browsers, a file:// page, storage switched off) the mount or
-// the fill fails; the error is logged, the dependency is released, and the
-// game runs with saves that last as long as the tab does. Needs -lidbfs.js,
-// which rmp_add_game() links next to this file.
+// It must never hold the game back for good. With no IndexedDB at all (node,
+// a file:// page in some browsers) the mount is not even tried: IDBFS asserts
+// on it, and in a debug build an assert is abort(), after which main() never
+// runs -- releasing the run dependency did not help. The folder is made
+// anyway, so saves work for as long as the tab lasts. Where IndexedDB exists
+// but refuses (a private window, storage switched off), the fill fails
+// through its callback: the error is logged, the dependency released, and
+// the game runs the same way. Needs -lidbfs.js, which rmp_add_game() links
+// next to this file.
 Module['preRun'] = Module['preRun'] || [];
 if (typeof Module['preRun'] === 'function') Module['preRun'] = [Module['preRun']];
 Module['preRun'].push(function () {
+  try {
+    FS.mkdir('/rmp_save');
+  } catch (e) {
+    // already there
+  }
+  if (typeof indexedDB === 'undefined') {
+    console.warn('rmp::save: no IndexedDB here; saves last as long as the page does');
+    return;
+  }
   addRunDependency('rmp-save');
   var done = function (err) {
     if (err) console.warn('rmp::save: saves will not survive a reload: ' + err);
     removeRunDependency('rmp-save');
   };
   try {
-    FS.mkdir('/rmp_save');
     FS.mount(IDBFS, {}, '/rmp_save');
     FS.syncfs(true, done);
   } catch (e) {
