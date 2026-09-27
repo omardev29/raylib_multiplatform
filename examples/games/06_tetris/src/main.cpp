@@ -13,6 +13,10 @@
 //   rmp::input      named actions for move, rotate and soft drop.
 //   rmp::random     the 7-bag, and therefore a game that can be replayed from
 //                   a seed rather than one that is different every time.
+//   rmp::save       the best score, kept between sessions -- three lines to
+//                   read it and four to write it, and no `if` on the read:
+//                   the first time there is no save, the Value stays empty,
+//                   and an empty Value reads as the default.
 //
 // And one thing it does NOT contribute here, said plainly because the
 // alternative is a comment that rots: rmp::behavior::GridSnap is not used in
@@ -30,6 +34,7 @@
 #include <rmp/app.h>
 #include <rmp/input.h>
 #include <rmp/random.h>
+#include <rmp/save.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
@@ -87,6 +92,10 @@ public:
         }
         next_ = from_bag();
         next_piece();
+
+        rmp::Value saved;
+        rmp::save::read("tetris", &saved);
+        best_ = saved["best_lines"].as_int(0);
     }
 
     void _update(float delta) override {
@@ -135,6 +144,8 @@ public:
 
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::text(TextFormat("Lines %d", lines_), { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(TextFormat("Best %d", best_),
+                      { .color = rmp::ui::ColorRole::MUTED });
         rmp::ui::text("Next", { .color = rmp::ui::ColorRole::MUTED });
         rmp::ui::end();
     }
@@ -190,7 +201,7 @@ private:
             const int x = at_[0] + cell[0];
             const int y = at_[1] + cell[1];
             if (y < 0) {
-                rmp::Scene::push<OverScene<TetrisScene>>("Game over");
+                game_over();
                 return;
             }
             board_[y][x] = current_;
@@ -242,9 +253,19 @@ private:
         at_[0] = kWide / 2;
         at_[1] = 0;
         // The other way a Tetris ends: there is no room for what comes next.
-        if (!fits(shape_, at_[0], at_[1])) {
-            rmp::Scene::push<OverScene<TetrisScene>>("Game over");
+        if (!fits(shape_, at_[0], at_[1])) game_over();
+    }
+
+    // The one number that outlives a game, and the whole of saving it.
+    void game_over() {
+        const bool record = lines_ > best_;
+        if (record) {
+            best_ = lines_;
+            rmp::Value v;
+            v["best_lines"] = best_;
+            rmp::save::write("tetris", v);
         }
+        rmp::Scene::push<OverScene<TetrisScene>>(record ? "New best!" : "Game over");
     }
 
     int board_[kTall][kWide] = {};
@@ -255,6 +276,7 @@ private:
     int current_ = 0;
     int next_ = 0;
     int lines_ = 0;
+    int best_ = 0;
     float fall_ = 0;
     float step_ = 0.5f;
 };

@@ -16,14 +16,23 @@
 //
 //     if (rmp::ui::checkbox("Fullscreen", &cfg.fullscreen)) apply(cfg);
 //
+// And they are kept: load() reads them through rmp::save when the screen
+// opens, store() writes them on Apply. The Settings struct stays plain data;
+// the Value is only the shape it has on disk.
+//
 // Built and booted by CI on every push, and by `just example` here.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
 #include <rmp/audio.h>
+#include <rmp/save.h>
 #include <rmp/ui.h>
 
 #include "settings.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <string>
 
 static Settings cfg;
 static Settings saved; // what was on disk, to know if anything changed
@@ -45,12 +54,48 @@ static void apply(const Settings &s) {
              kQuality[s.quality]);
 }
 
+// What is on disk, over what the struct says. Every field reads with its
+// current value as the default, so the first run -- no save yet -- and a save
+// from an older version missing a field both simply keep the defaults. There
+// is no `if` around the read for the same reason.
+static void load(Settings &s) {
+    rmp::Value v;
+    rmp::save::read("settings", &v);
+    s.fullscreen = v["fullscreen"].as_bool(s.fullscreen);
+    s.vsync = v["vsync"].as_bool(s.vsync);
+    s.master = v["master"].as_float(s.master);
+    s.music = v["music"].as_float(s.music);
+    s.sensitivity = v["sensitivity"].as_float(s.sensitivity);
+    // An index from a file is clamped before it indexes anything: a save can
+    // be edited, or come from a version with a longer list.
+    s.quality = std::clamp(v["quality"].as_int(s.quality), 0, 3);
+    s.language = std::clamp(v["language"].as_int(s.language), 0, 2);
+    const std::string name(v["player"].as_string(s.player));
+    std::snprintf(s.player, sizeof(s.player), "%s", name.c_str());
+}
+
+static void store(const Settings &s) {
+    rmp::Value v;
+    v["fullscreen"] = s.fullscreen;
+    v["vsync"] = s.vsync;
+    v["master"] = s.master;
+    v["music"] = s.music;
+    v["sensitivity"] = s.sensitivity;
+    v["quality"] = s.quality;
+    v["language"] = s.language;
+    v["player"] = s.player;
+    rmp::save::write("settings", v);
+}
+
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
-    // The sliders start where the buses are: [audio] in the .toml.
+    // The sliders start where the buses are, [audio] in the .toml -- and
+    // then whatever the player saved last time wins.
     cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);
     cfg.music = rmp::audio::volume(rmp::audio::Bus::MUSIC);
+    load(cfg);
+    apply(cfg);
     saved = cfg;
 
     // Put the focus somewhere when the screen opens. Without this a controller
@@ -109,6 +154,7 @@ static void on_frame(float delta) {
             if (rmp::ui::button(
                     "Apply", { .style = rmp::ui::Variant::PRIMARY, .enabled = dirty })) {
                 apply(cfg);
+                store(cfg);
                 saved = cfg;
                 dirty = false;
             }

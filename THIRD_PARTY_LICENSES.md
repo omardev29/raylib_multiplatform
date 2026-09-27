@@ -34,6 +34,7 @@ cute_tiled                  thirdparty/cute_tiled                               
 cute_aseprite               thirdparty/cute_aseprite                                zlib|Unlicense           Unlicense      no        all       file
 raylib-cpp                  thirdparty/raylib-cpp                                   zlib                     -              subset    all       file
 rres                        thirdparty/rres                                         MIT                      -              no        all       file
+cJSON                       thirdparty/cJSON                                        MIT                      -              no        all       file
 tiny-AES-c                  thirdparty/rres/external/aes.c                          Unlicense                -              no        all       file:LICENSE-tiny-AES-c.txt
 monocypher                  thirdparty/rres/external/monocypher.c                   BSD-2|CC0                CC0            no        all       header
 lz4                         thirdparty/rres/external/lz4.c                          BSD-2                    -              no        none      header
@@ -114,16 +115,18 @@ every change is commented at its site:
 
 | Component | Mark |
 |---|---|
-| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, no public function changed, nothing under `src/external/` touched |
+| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, and three memory fixes in `raudio.c` backported from upstream; no signature changed, nothing under `src/external/` touched |
 | Clay 0.14 | [`thirdparty/clay/PATCHES.md`](thirdparty/clay/PATCHES.md) -- one line, the C++ version guard |
 | cute_tiled | [`thirdparty/cute_tiled/PATCHES.md`](thirdparty/cute_tiled/PATCHES.md) -- unknown JSON keys are skipped instead of failing the load |
 | raylib-cpp 6.0.3 | [`thirdparty/raylib-cpp/PATCHES.md`](thirdparty/raylib-cpp/PATCHES.md) -- a partial copy, the math headers only |
 | raymob | [`thirdparty/raymob/PATCHES.md`](thirdparty/raymob/PATCHES.md) -- JNI hardening; MIT has no mark clause, recorded anyway |
 
 `thirdparty/FROZEN_VERSIONS.md` carries the same patches with the full
-reasoning, and the sha256 of every unmodified single-header component
-(`sha256_<name>` in its versions block), which `tools/license_check.sh`
-recomputes: a file that changes without its row changing fails the build.
+reasoning, and the content pin of every unmodified component that is not a
+submodule (`sha256_<name>` in its versions block: the file's sha256, or for a
+directory of several sources the sha256 of their names and hashes), which
+`tools/license_check.sh` recomputes: a file that changes without its row
+changing fails the build.
 
 ## Notes on particular components
 

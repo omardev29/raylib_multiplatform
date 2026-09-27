@@ -1870,6 +1870,36 @@ class LicenceGuardTest(unittest.TestCase):
                            self.fixture("zlib_unmarked"), pins)
         self.assertTrue(any("does not match the pin" in f for f in fails), fails)
 
+    def test_a_component_of_several_files_is_pinned_too(self):
+        # rres (two headers) and cJSON (a .c and a .h) used to be "unmodified"
+        # on trust, because only one-file components had a pin to check.
+        rows = self.rows_for_one("two_file_dep", licences="MIT")
+        fails = self.check(rows, self.fixture("two_file_dep"))
+        self.assertTrue(any("no pin" in f and "sha256_two_file_dep" in f for f in fails), fails)
+        dep = FIXTURES / "two_file_dep" / "dep"
+        sources = ldb.pinned_sources(dep)
+        self.assertEqual([p.name for p in sources], ["thing.c", "thing.h"])
+        good = {"sha256_two_file_dep": ldb.pin_of(sources)}
+        self.assertEqual(self.check(rows, self.fixture("two_file_dep"), good), [])
+        # The pin is over BOTH files: the hash of either one alone is stale.
+        for alone in sources:
+            with self.subTest(pinned_only=alone.name):
+                fails = self.check(rows, self.fixture("two_file_dep"),
+                                   {"sha256_two_file_dep": ldb.sha256_of(alone)})
+                self.assertTrue(any("does not match the pin" in f for f in fails), fails)
+        # And a renamed file moves it even with the same bytes.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copy(dep / "thing.h", Path(tmp) / "thing.h")
+            shutil.copy(dep / "thing.c", Path(tmp) / "other.c")
+            self.assertNotEqual(ldb.pin_of(ldb.pinned_sources(Path(tmp))), ldb.pin_of(sources))
+
+    def test_one_file_keeps_the_plain_sha256(self):
+        # So a one-file pin can still be checked with sha256sum by hand.
+        header = FIXTURES / "mit_dep" / "dep" / "thing.h"
+        self.assertEqual(ldb.pin_of([header]), ldb.sha256_of(header))
+
     def test_the_symmetry_both_ways(self):
         root = FIXTURES / "symmetry"
         rel = lambda n: str((root / n).relative_to(REPO))
@@ -2660,6 +2690,9 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
     # tables ([android.admob] enabled) fit the same shape as flat ones.
     CASES = {
         "has to be a number between 0 and 1": ("audio", ("music",), "loud"),
+        "[save] portable": ("save", ("portable",), "yes"),
+        "[save] encrypt": ("save", ("encrypt",), 1),
+        "[save] version": ("save", ("version",), 0),
         "has to be between 0 and 1":  ("audio", ("sfx",), 2),
         "[linux] wayland":            ("linux", ("wayland",), "yes"),
         "[web] memory":               ("web", ("memory",), 8),
@@ -3703,6 +3736,87 @@ class ConfigureTableShapeTest(unittest.TestCase):
                 self.assertEqual(cfgmod.locate_from(caught.exception), (3, "mastr = 0.5"))
             finally:
                 cfgmod.TOML = original
+class ConfigureSaveTest(unittest.TestCase):
+    """[save] portable / encrypt / version -- where rmp::save writes, whether
+    it seals by default, and the version of the game's own save format.
+
+    Two switches and a counter. The mistakes worth catching at the line: a
+    string where a bool goes ("true" in quotes), `1` for a switch, a version of
+    0 or a negative, a float version, and `true` as a version -- which Python
+    counts as the integer 1 and would pass as version 1.
+    """
+
+    def save(self, **overrides):
+        return base_config(save=dict(copy.deepcopy(cfgmod.DEFAULTS["save"]), **overrides))
+
+    def reject(self, **overrides):
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(self.save(**overrides), False)
+        return caught.exception
+
+    def test_the_defaults(self):
+        self.assertEqual(cfgmod.DEFAULTS["save"],
+                         {"portable": False, "encrypt": False, "version": 1})
+
+    def test_every_valid_combination_is_accepted(self):
+        for portable in (False, True):
+            for encrypt in (False, True):
+                for version in (1, 2, 17, 2_000_000_000):
+                    with self.subTest(portable=portable, encrypt=encrypt, version=version), quiet():
+                        cfgmod.validate(self.save(portable=portable, encrypt=encrypt,
+                                                  version=version), False)
+
+    def test_the_switches_are_bools_and_nothing_else(self):
+        for key in ("portable", "encrypt"):
+            for bad in ("true", "false", 1, 0, None, [True], {"on": True}, 1.0):
+                with self.subTest(key=key, value=bad):
+                    error = self.reject(**{key: bad})
+                    self.assertIn(f"[save] {key}", str(error))
+                    self.assertIn("true or false", str(error))
+                    self.assertEqual(error.where, ("save", key))
+
+    def test_the_version_is_a_whole_number(self):
+        for bad in (True, False, "1", 1.0, 1.5, None, [1], {"v": 1}):
+            with self.subTest(value=bad):
+                error = self.reject(version=bad)
+                self.assertIn("[save] version", str(error))
+                self.assertIn("whole number", str(error))
+                self.assertEqual(error.where, ("save", "version"))
+
+    def test_the_version_starts_at_one_and_fits_an_int(self):
+        for bad in (0, -1, -2_000_000_000, 2_000_000_001, 2**31, 2**63):
+            with self.subTest(value=bad):
+                error = self.reject(version=bad)
+                self.assertIn("between 1 and 2000000000", str(error))
+                self.assertEqual(error.where, ("save", "version"))
+
+    def test_an_unknown_key_is_refused(self):
+        # A typo ("portble") must not be a switch that silently stays off.
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            cfgmod.deep_merge(cfgmod.DEFAULTS, {"save": {"portble": True}})
+        self.assertIn("[save.portble]", str(caught.exception))
+
+    def test_the_values_reach_the_generated_header(self):
+        """A switch nothing reads is a switch that does nothing -- so read the
+        header configure.py would write, not the source that writes it."""
+        for portable, encrypt, version in ((False, False, 1), (True, True, 42)):
+            with self.subTest(portable=portable, encrypt=encrypt, version=version):
+                cfg = self.save(portable=portable, encrypt=encrypt, version=version)
+                with quiet():
+                    cfgmod.validate(cfg, False)
+                with generated_header(cfg) as text:
+                    self.assertRegex(text, rf"#define APP_SAVE_PORTABLE\s+{int(portable)}\n")
+                    self.assertRegex(text, rf"#define APP_SAVE_ENCRYPT\s+{int(encrypt)}\n")
+                    self.assertRegex(text, rf"#define APP_SAVE_VERSION\s+{version}\n")
+
+    def test_the_toml_documents_every_key(self):
+        toml = (REPO / "raylib_multiplatform.toml").read_text()
+        section = toml[toml.index("[save]"):toml.index("[ui]")]
+        for key in ("portable", "encrypt", "version"):
+            with self.subTest(key=key):
+                self.assertRegex(section, rf"(?m)^{key}\s*=")
+        # Omar's rule, in the one section where a password would look at home.
+        self.assertNotRegex(section.lower(), r"(?m)^(password|key|secret)\s*=")
 
 
 if __name__ == "__main__":

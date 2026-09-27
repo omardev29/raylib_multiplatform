@@ -23,3 +23,38 @@
   };
   document.addEventListener('keydown', onKey, true);
 })();
+
+// SAVES: IndexedDB mounted at /rmp_save BEFORE main() runs.
+//
+// Emscripten's files live in memory, so a save written there is gone when the
+// tab reloads -- a bug nobody sees in development, because nobody reloads.
+// IDBFS mirrors a folder into the browser's IndexedDB, but only when asked:
+// FS.syncfs(true) fills the folder from IndexedDB, and src/rmp/save.cpp calls
+// FS.syncfs(false) after every write to push it back.
+//
+// The fill is asynchronous, and the game reads its save in its first scene's
+// _ready(), which runs inside main(). So main() is held back with a run
+// dependency until the fill has finished -- otherwise the first read of every
+// session would find nothing and a player's progress would look deleted.
+//
+// It must never hold the game back for good. With no IndexedDB (a private
+// window in some browsers, a file:// page, storage switched off) the mount or
+// the fill fails; the error is logged, the dependency is released, and the
+// game runs with saves that last as long as the tab does. Needs -lidbfs.js,
+// which rmp_add_game() links next to this file.
+Module['preRun'] = Module['preRun'] || [];
+if (typeof Module['preRun'] === 'function') Module['preRun'] = [Module['preRun']];
+Module['preRun'].push(function () {
+  addRunDependency('rmp-save');
+  var done = function (err) {
+    if (err) console.warn('rmp::save: saves will not survive a reload: ' + err);
+    removeRunDependency('rmp-save');
+  };
+  try {
+    FS.mkdir('/rmp_save');
+    FS.mount(IDBFS, {}, '/rmp_save');
+    FS.syncfs(true, done);
+  } catch (e) {
+    done(e);
+  }
+});

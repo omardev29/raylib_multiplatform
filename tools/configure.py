@@ -437,6 +437,7 @@ DEFAULTS: dict = {
 "web": {"memory": 64, "grow": False, "backend": "glfw"},
     "input": {"deadzone": 0.2},
     "audio": {"master": 1.0, "music": 0.8, "sfx": 1.0},
+    "save": {"portable": False, "encrypt": False, "version": 1},
     "windows": {"backend": "glfw"},
     "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc"], "disabled": [],
             "max_size_mb": 600},
@@ -995,6 +996,37 @@ def validate(cfg: dict, strict_release: bool) -> None:
                 "and a negative volume means nothing. Use 1 for full.",
                 ("audio", key))
 
+    # [save] -- where the saves go, whether they are sealed, and the version
+    # this build writes them as. Two switches and a counter, and a wrong type
+    # in any of them is a typo that would otherwise become a C++ error about
+    # APP_SAVE_* several files away.
+    save = cfg["save"]
+    if not isinstance(save["portable"], bool):
+        raise ConfigError(
+            f"[save] portable = {save['portable']!r} is a switch: true or false.\n"
+            "true keeps the saves in a saves/ folder next to the executable (zip builds, "
+            "itch.io); false puts them in the user's data folder (installers, Steam).",
+            ("save", "portable"))
+    if not isinstance(save["encrypt"], bool):
+        raise ConfigError(
+            f"[save] encrypt = {save['encrypt']!r} is a switch: true or false.\n"
+            "It is the default for rmp::save::write(); a write can still ask for the other. "
+            "There is no password to put here: the key is derived from [project] name.",
+            ("save", "encrypt"))
+    version = save["version"]
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ConfigError(
+            f"[save] version = {version!r} has to be a whole number, 1 or more.\n"
+            "It is the version of YOUR save format: bump it when a key changes meaning, "
+            "and read it back with rmp::Value::version() to migrate. Adding a key never "
+            "needs it -- a missing key reads as its default.",
+            ("save", "version"))
+    if not (1 <= version <= 2_000_000_000):
+        raise ConfigError(
+            f"[save] version = {version} has to be between 1 and 2000000000.\n"
+            "It is a counter that only goes up, starting at 1; it is stored as an int.",
+            ("save", "version"))
+
     ui = cfg["ui"]
     one_of(ui["theme"], UI_THEMES, "[ui] theme",
            "It only picks which one the app starts with — rmp::ui::set_theme() "
@@ -1494,6 +1526,15 @@ def gen_app_config(cfg: dict) -> None:
 #define APP_AUDIO_MUSIC     {float(cfg['audio']['music'])}f
 #define APP_AUDIO_SFX       {float(cfg['audio']['sfx'])}f
 
+/* [save]. PORTABLE 1 keeps the saves in saves/ next to the executable
+   (Windows, Linux and the BSDs; elsewhere there is no such place and it is
+   ignored). ENCRYPT is the default for rmp::save::write(). VERSION is the
+   version of the game's own save format, which rmp::Value::version() hands
+   back on read so a migration can test it. */
+#define APP_SAVE_PORTABLE   {1 if cfg['save']['portable'] else 0}
+#define APP_SAVE_ENCRYPT    {1 if cfg['save']['encrypt'] else 0}
+#define APP_SAVE_VERSION    {cfg['save']['version']}
+
 /* [app] max_delta. The longest step the game logic is ever handed, in seconds.
    A frame that really took longer arrives clamped, so the game runs a moment of
    slow motion instead of teleporting everything through the walls. 0 = no
@@ -1763,6 +1804,7 @@ targets:
           - $(SRCROOT)/../thirdparty/clay
           - $(SRCROOT)/../thirdparty/cute_aseprite
           - $(SRCROOT)/../thirdparty/cute_tiled
+          - $(SRCROOT)/../thirdparty/cJSON
           - $(SRCROOT)/../thirdparty
 {extra}""")
 

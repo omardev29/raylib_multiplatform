@@ -16,6 +16,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 - [`rmp::app` — the entry point and closing the app](#rmpapp--the-entry-point-and-closing-the-app)
 - [`rmp::audio` — sound and music](#rmpaudio--sound-and-music)
 - [`rmp::Camera` — follow, limits, smoothing, shake](#rmpcamera--follow-limits-smoothing-shake)
+- [`rmp::save` — saving the game](#rmpsave--saving-the-game)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
 - [Android (raymob)](#android-raymob)
@@ -47,7 +48,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── global.cpp        #   rmp::global<T>() registry and its destruction order
 │       ├── scene.cpp         #   the scene stack, transitions, the frame order
 │       ├── scene_internal.h
-│       ├── camera.cpp        #   rmp::Camera -- follow, limits, world<->screen
+│       ├── camera.cpp        #   rmp::Camera -- follow, smoothing, limits, shake, world<->screen
 │       ├── object.cpp        #   rmp::Object storage, handles, integration, edges, drawing
 │       ├── object_internal.h
 │       ├── collision.cpp     #   the broad-phase grid, sweeps, MTV, raycast, the pointer pass
@@ -70,6 +71,10 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── tiled_impl.cpp    #   compiles cute_tiled once
 │       ├── audio.cpp         #   rmp::audio -- lazy device, voices, the music stream
 │       ├── audio_internal.h
+│       ├── value.cpp         #   rmp::Value -- the tree a save holds, and its Ref
+│       ├── save.cpp          #   rmp::save -- the file format, sealing, where saves go
+│       ├── save_internal.h
+│       ├── cjson_impl.c      #   compiles cJSON once, as C
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
@@ -92,6 +97,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── assets.h          #   rmp::assets -- load_*() by name, the counted handles
 │       ├── tilemap.h         #   rmp::Tilemap -- a level designed in Tiled
 │       ├── audio.h           #   rmp::audio -- effects and music by name, three buses
+│       ├── save.h            #   rmp::Value and rmp::save -- saving the game
 │       ├── random.h          #   rmp::random -- seeded, reproducible
 │       ├── ads.h             #   rmp::ads -- interstitial and rewarded ads; no-ops off Android
 │       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)
@@ -119,6 +125,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 ├── cmake/
 │   ├── configure_hook.cmake  # runs the generator before project()
 │   ├── generated/            # GENERATED, git-ignored (LICENSES.txt lives here, per family)
+│   ├── web/rmp_web.js        # --pre-js of every web build: IndexedDB for saves, key-press audio unlock
 │   └── toolchain-riscv64-linux.cmake
 ├── raymob/                   # Android app shell (Gradle). See "Android (raymob)".
 │   ├── generated.properties  # GENERATED, git-ignored
@@ -137,7 +144,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │   ├── known-breakage.md     # canary failures we have seen and chosen not to chase
 │   └── scripts/              # web boot test, canary triage, upstream report
 └── thirdparty/
-    ├── raylib/               # raylib 6.0 -- MODIFIED, six patches, see its PATCHES.md
+    ├── raylib/               # raylib 6.0 -- MODIFIED, six patches + three upstream backports, see its PATCHES.md
     ├── raylib-ios/           # raylib-iOS fork (submodule) -- iOS only
     ├── raymob/               # raymob C sources (Android native bridge + admob) -- patched, see PATCHES.md
     ├── clay/                 # Clay -- the layout engine behind rmp::ui (zlib) -- one line patched
@@ -145,6 +152,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
     ├── cute_tiled/           # reads Tiled JSON (same licence) -- patched, see PATCHES.md
     ├── raylib-cpp/           # the math subset only, behind rmp/math.h
     ├── rres/                 # rres.h + rres-raylib.h + externals (AES, Monocypher, QOI, LZ4)
+    ├── cJSON/                # cJSON 1.7.19 (MIT), unmodified -- behind rmp::Value, in no public header
     ├── doctest/              # the unit-test framework; never shipped
     └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
@@ -1368,6 +1376,102 @@ lands on what the player clicked. A second `shake()` keeps the stronger of the t
 late in a strong one does not cut it short.
 
 All of it is in `tests/camera_test.cpp`, including the frame-split property above.
+
+## `rmp::save` — saving the game
+
+```cpp
+#include <rmp/save.h>
+
+rmp::Value v;
+v["level"] = 7;
+v["name"] = "Omar";
+v["unlocked"].push("forest");
+rmp::save::write("slot1", v);
+
+rmp::Value loaded;
+rmp::save::read("slot1", &loaded);           // no save yet: `loaded` stays empty
+int level = loaded["level"].as_int(1);       // ...and an empty Value reads as the default
+```
+
+**Every read has a default, and nothing throws.** A save written by yesterday's version is not
+corrupt, it is missing the keys added since, and a missing key reading as its default is what lets
+an update ship without a migration most of the time. A key of the wrong type reads as the default
+too. For the rest, `[save] version` in the `.toml` is written into the file and
+`Value::version()` hands it back: `if (v.version() < 2) v["coins"] = v["gold"].as_int(0);`.
+
+**`rmp::Value`** is a tree: nothing, bool, number (a double, so an int is exact up to 2^53), string,
+list or object, with keys kept in the order they were added. `[]` on a `const Value` reads. `[]` on
+a non-const Value gives a `Value::Ref` — the root and the path, walked again on every use — which
+reads exactly like the const one and creates what is missing only when written through. That is
+the difference from `std::map`: reading a save through a non-const Value never grows it, and a read
+never reports anything, so `[dev] strict` cannot abort a load. A write that cannot land (into a
+number read from an old save, at a negative index, past the end of a list) goes nowhere and is said
+once through `RMP_REPORT_ONCE`; turning the number into an object behind your back would lose it.
+A Ref assigned from a Ref copies the value, never the path, so `v["a"] = v["b"]` copies.
+
+**`read()` says why.** `if (rmp::save::read(...))` is true only on `OK`; otherwise `.status` is
+`MISSING` (first run), `TRUNCATED` (cut short — the power went during a write), `MODIFIED` (the
+checksum or the seal disagrees — edited, or a bad sector) or `UNREADABLE` (not a save, or one from a
+newer framework). The Value handed in is left exactly as it was unless the answer is `OK`, so a game
+can fill it with defaults first and read over them.
+
+**The file.** One ASCII line, then the payload:
+
+```
+rmp-save 1 <version> <plain|sealed> <payload bytes> <crc32>\n{"level":7,...}
+```
+
+The CRC-32 covers the header up to the kind and the payload, so an edited version or length is
+caught like an edited byte. A plain save is readable: open it and the JSON is under the header.
+`tests/save_test.cpp` cuts a save at every byte (always `TRUNCATED`), flips every byte of the
+payload (always `MODIFIED`) and every byte of the header (never `OK`), for plain and sealed files.
+
+**Sealed saves** (`[save] encrypt = true`, or `{ .encrypted = true }` per write) are
+XChaCha20-Poly1305 from Monocypher — the copy rres already ships, so no new cryptography is
+vendored — with a fresh random 24-byte nonce per write and the header as associated data. The key
+is derived from `[project] name`, so two games cannot open each other's saves and **renaming the
+project makes old sealed saves unreadable**. **The key is in the binary: this is tamper
+resistance, not security.** It stops a text editor; any change to a sealed file, even with the CRC
+recomputed, reads as `MODIFIED`. The roadmap had proposed tiny-AES-c, which rres also ships; it was
+not taken because its modes are unauthenticated, and telling "edited" from "damaged" is the point.
+
+**Writes are all or nothing.** The bytes go to `<slot>.save.tmp`, are flushed to the disk
+(`fsync`, `_commit` on Windows), and the temporary is renamed over the old save
+(`std::filesystem::rename`, which replaces atomically on Windows too). At every instant one
+complete save is on disk, the old or the new. A slot is a file name — letters, digits, `_`, `-`,
+`.`, not starting with `.`, at most 64 — and anything else, a path above all, is refused and said
+once.
+
+**Where saves go**, `rmp::save::directory()`:
+
+| Platform | Folder |
+|---|---|
+| Windows | `%APPDATA%\<name>\` |
+| macOS | `~/Library/Application Support/<name>/` |
+| Linux, BSD | `$XDG_DATA_HOME/<name>/` when absolute, else `~/.local/share/<name>/` |
+| Android | the app's internal storage, `<internalDataPath>/saves/` |
+| iOS | `~/Library/Application Support/` — not `Documents`, which the iOS Data Storage Guidelines reserve for what the user created |
+| Web | `/rmp_save/`, IndexedDB-backed |
+
+`[save] portable = true` puts them in `saves/` next to the executable instead, on Windows, Linux and
+the BSDs — the zip-from-itch.io case, where deleting the folder should delete everything. Where the
+executable's folder cannot be written (a portable build copied into `Program Files`), that is found
+by actually writing a probe file, the saves go to the user's folder instead, the log says so once,
+and `directory()` returns where they really are. macOS, Android, iOS and web have no such folder and
+ignore the setting.
+
+**Web** is the one that loses saves silently if it is done wrong: Emscripten's files are memory
+until they are synced. `cmake/web/rmp_web.js` mounts IndexedDB at `/rmp_save` **before `main()`**,
+holding the program back with a run dependency until the folder has been filled — otherwise the
+first scene's read would find nothing and a player's progress would look deleted — and every write
+and remove calls `FS.syncfs(false)`. With no IndexedDB (some private windows, `file://`), the game
+still starts and its saves last as long as the tab.
+
+**cJSON** (1.7.19, MIT, unmodified) is compiled by `src/rmp/cjson_impl.c` and included by
+`save.cpp` alone. Two things are done around it rather than inside it: numbers are written by
+`save.cpp` as the shortest text that reads back as the same double, in C notation whatever the
+locale (cJSON's own printer rounds 2^53 and would follow a German locale's comma), and it is
+compiled with `ENABLE_LOCALES` so that it reads those numbers back under any locale.
 
 ## AdMob (Android)
 

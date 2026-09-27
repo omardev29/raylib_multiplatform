@@ -106,7 +106,7 @@ jobs:
           # tests/configure_test.py checks this list against the others.
           $dirs = @("include", "thirdparty\raylib\src", "thirdparty\rres",
                     "thirdparty\raymob", "thirdparty\clay", "thirdparty\cute_aseprite",
-                    "thirdparty\cute_tiled", "thirdparty", "tests")
+                    "thirdparty\cute_tiled", "thirdparty\cJSON", "thirdparty", "tests")
           # Every example is a directory now, and its own include/ is private
           # to it. Listing all of them is harmless: no two share a header name.
           foreach ($d in Get-ChildItem examples -Recurse -Directory -Filter include) { $dirs += $d.FullName }

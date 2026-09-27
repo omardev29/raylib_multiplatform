@@ -434,6 +434,32 @@ master = 1.0
 music  = 0.8
 sfx    = 1.0
 
+[save]
+# rmp::save -- saving the game. Nothing here is a secret, and nothing may be.
+#
+# portable: where the saves go.
+#   false  the user's data folder: %APPDATA%\<name> on Windows,
+#          ~/Library/Application Support/<name> on macOS, ~/.local/share/<name>
+#          on Linux and the BSDs. What installers and Steam Cloud expect.
+#   true   a saves/ folder next to the executable. What a zip from itch.io
+#          wants: delete the folder and the game is gone, saves included.
+#          Only Windows, Linux and the BSDs have such a place; macOS, Android,
+#          iOS and web ignore it. If the folder cannot be written (a portable
+#          build copied into Program Files), the saves go to the user's
+#          folder instead and the log says so once -- never lost in silence.
+#
+# encrypt: whether rmp::save::write() seals the file by default. Sealed means
+#   unreadable and any edit detected; the key is derived from [project] name,
+#   so it lives in the binary. That stops a text editor, not a determined
+#   player. Every save has a checksum either way.
+#
+# version: the version of YOUR save format. Adding a key never needs a bump --
+#   a missing key reads as its default. Bump it when a key changes meaning,
+#   and migrate on read: if (v.version() < 2) v["coins"] = v["gold"].as_int(0);
+portable = false
+encrypt  = false
+version  = 1
+
 [ui]
 # rmp::ui — the interface layer. Nothing here is required: with all four at
 # their defaults a menu is still three lines of code.

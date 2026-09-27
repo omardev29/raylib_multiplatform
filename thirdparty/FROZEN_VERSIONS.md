@@ -79,18 +79,22 @@ butler                    15.24.0
 freebsd                   15.1
 openbsd                   7.9
 netbsd                    10.1
-# Unmodified single-header components, pinned by content. tools/license_check.sh
-# recomputes these: a file that changes without its row in
-# THIRD_PARTY_LICENSES.md changing is a modification nobody marked.
+# Unmodified components, pinned by content. tools/license_check.sh recomputes
+# these: a file that changes without its row in THIRD_PARTY_LICENSES.md
+# changing is a modification nobody marked. One file: its sha256. A directory
+# of several (rres, cJSON): the sha256 of "name NUL sha256 LF" per file.
 sha256_cute_aseprite      1c2c71f68151b854f7397af94bbde4ce3343809c8f3917e4d705194f8dff8155
 sha256_doctest            a58efc9446d70ddd5dd3b7724ebb8742882860f36f46da64d62993b02911fb6f
+sha256_rres               8eda5c2108491adf670621ad85f23a9fe53498397ba6cbc8e41bd9e0bb7dfc40
+sha256_cjson              5dbda89922a5a3970a9a701341190ac805fc2a0c9ffe16a735cd6b64320b7edd
 ```
 
 | Dependency | Version | How it is pinned |
 |---|---|---|
 | raylib | 6.0.0 | Vendored snapshot committed under `thirdparty/raylib/` (see `src/raylib.h` `RAYLIB_VERSION_*`). The exact committed files ARE the pin. |
 | raylib-iOS | tag `6.0.3-iOS` (commit `29ce933d`) | Git submodule `thirdparty/raylib-ios`, pinned to that commit, pointing at **our fork** `omardev29/raylib-iOS`. |
-| rres | master @ vendor time | Vendored headers committed under `thirdparty/rres/` (`rres.h`, `rres-raylib.h`, `external/`). |
+| rres | master @ `5f2a731019` (2026-06-13) | Vendored headers committed under `thirdparty/rres/` (`rres.h`, `rres-raylib.h`, `external/`). Verified byte for byte against that upstream commit on 2026-09-27; the only later commit (`694a9201e7`) changes whitespace in a comment. Pinned by content as `sha256_rres`. |
+| cJSON | 1.7.19 (tag `v1.7.19`, commit `c859b25da0`) | Vendored unmodified under `thirdparty/cJSON/` (`cJSON.c`, `cJSON.h`, `LICENSE`), MIT, no dependencies. Compiled once by `src/rmp/cjson_impl.c`; included by `src/rmp/save.cpp` only and by no public header, so `rmp::Value` is all a game sees of it. sha256 `298581a0…` (`cJSON.c`), `25b01451…` (`cJSON.h`); pinned together as `sha256_cjson`. |
 | cute_tiled | committed snapshot, **patched**, sha256 `399cff59a820eea2…` | Vendored under `thirdparty/cute_tiled/cute_tiled.h`, ~3 270 lines, zlib **or** public domain, no external dependencies. **Patched:** the six `default:` branches of the layer, object, tileset, map and property parsers skip an unknown JSON value instead of failing. Upstream is verified against the Tiled 1.5 schema and Tiled is on 1.12, so a map saved by any recent editor contains keys it has never heard of and the whole load fails with `Unknown identifier found`. The patch is commented at the site; re-apply it when bumping. `tests/fixtures/map_modern.json` is the proof rather than the claim -- it is rejected by the unpatched parser and accepted by this one. |
 | cute_aseprite | committed snapshot, sha256 `1c2c71f68151b854…` | Vendored under `thirdparty/cute_aseprite/cute_aseprite.h`, 1 374 lines, zlib **or** public domain, and no external dependencies -- it brings its own inflate. The committed file IS the pin, like Clay and rres. It reads the binary `.ase`/`.aseprite` directly, which is what removes a whole step from the workflow: you save in Aseprite and the game has the new animation, with no PNG and no JSON to export and keep in sync. |
 | Clay | 0.14 (one-line patch) | Vendored snapshot committed under `thirdparty/clay/clay.h`. The committed file IS the pin — Clay is pre-1.0 and its API has moved between minor versions, so updating is a decision, never an accident. **Patched:** the C++ version guard accepts `201709L`, because NetBSD's system GCC 10 reports that under `-std=c++20` and would otherwise refuse to build. The patch is commented at the site; re-apply it when bumping. |

@@ -382,18 +382,31 @@ def notice_text(component: Path, evidence: str, families: list[str]) -> str | No
     return "\n".join(out) if out else None
 
 
-def single_source(component: Path) -> Path | None:
-    """The one source file of a single-header component, or None when the
-    component is a file itself (returned as is) or a directory with several."""
+def pinned_sources(component: Path) -> list[Path]:
+    """The source files a component's pin covers: the component itself when it
+    is a file, else the .c/.h/.cpp/.hpp directly inside it, sorted. Not
+    recursive: a subdirectory is bundled code with rows of its own."""
     if component.is_file():
-        return component
-    sources = [p for p in component.iterdir()
-               if p.is_file() and p.suffix in (".c", ".h", ".cpp", ".hpp")]
-    return sources[0] if len(sources) == 1 else None
+        return [component]
+    if not component.is_dir():
+        return []
+    return sorted(p for p in component.iterdir()
+                  if p.is_file() and p.suffix in (".c", ".h", ".cpp", ".hpp"))
 
 
 def sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def pin_of(sources: list[Path]) -> str:
+    """One file: its sha256, so a pin can be checked with sha256sum. Several
+    (cJSON is a .c and a .h): the sha256 of one "name NUL sha256 LF" line per
+    file, so a renamed, added or removed file moves the pin as surely as an
+    edited one."""
+    if len(sources) == 1:
+        return sha256_of(sources[0])
+    lines = "".join(f"{p.name}\0{sha256_of(p)}\n" for p in sources)
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -521,14 +534,16 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
                              "missing or does not say MODIFIED. The zlib licence's clause 2 "
                              "requires altered source to be plainly marked; that file is "
                              "the mark.")
-        elif top_level and single_source(path) is not None:
-            # An unmodified single-header component is pinned by its sha256, so
-            # "unmodified" is a fact the guard recomputes and not a claim.
+        elif top_level and not is_submodule and pinned_sources(path):
+            # An unmodified component is pinned by content, so "unmodified" is
+            # a fact the guard recomputes and not a claim. It used to be only
+            # the single-file ones: rres (two headers) and cJSON (a .c and a
+            # .h) were unmodified on trust. A submodule is pinned by its commit.
             key = "sha256_" + re.sub(r"[^a-z0-9]+", "_", label.lower())
             want = pins.get(key)
-            have = sha256_of(single_source(path))
+            have = pin_of(pinned_sources(path))
             if want is None:
-                fails.append(f"{label}: unmodified single-file component with no pin. Add "
+                fails.append(f"{label}: unmodified component with no pin. Add "
                              f"`{key} {have}` to the versions block of FROZEN_VERSIONS.md, "
                              "or mark it modified with a PATCHES.md.")
             elif want != have:
