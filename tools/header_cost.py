@@ -21,7 +21,12 @@ is more than BUDGET_TOLERANCE over its budget (it grew), and also when it is
 more than that UNDER it (the budget is stale and should come down, so that the
 next growth is caught against the real number). Only inside the pinned build
 image is the toolchain the one the budget was written against, so on a laptop
---check reports and exits 0 unless --strict is given.
+those two report and exit 0 unless --strict is given.
+
+What does NOT depend on the toolchain fails everywhere: a header with no line
+in the budget, and a line in the budget for a header that no longer exists.
+rmp/audio.h reached CI with no budget, because `just test` on a laptop only
+reported it -- and whether a name is in a file is the same on every machine.
 """
 
 from __future__ import annotations
@@ -110,9 +115,17 @@ def main(argv: list[str]) -> int:
                 verdict = f"STALE BUDGET: {lines} lines against a budget of {want}; lower it"
         elif args.check:
             verdict = "NO BUDGET: add it to tools/header_budget.txt"
-        flag = "  FAIL " if verdict and gate else ("  note " if verdict else "  ok   ")
+        # A missing budget line is the same mistake on every machine.
+        fatal = bool(verdict) and (gate or want is None)
+        flag = "  FAIL " if fatal else ("  note " if verdict else "  ok   ")
         print(f"{flag} rmp/{header.name:14} {lines:7} lines {ms:8.1f} ms  {verdict}")
-        if verdict and gate:
+        if fatal:
+            fails += 1
+    if args.check:
+        present = {h.name for h in headers()}
+        for name in sorted(set(budget) - present):
+            print(f"  FAIL  rmp/{name:14} is in tools/header_budget.txt but not in include/rmp/: "
+                  "remove the line")
             fails += 1
 
     if args.write_budget:
