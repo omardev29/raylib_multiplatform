@@ -18,7 +18,9 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -371,9 +373,8 @@ TEST_SUITE("camera") {
     // Shake
     // -----------------------------------------------------------------------
 
-    TEST_CASE_FIXTURE(Fixture, "a shake never touches position, view() or the limits") {
+    TEST_CASE_FIXTURE(Fixture, "a shake never touches position or view()") {
         World world;
-        world.camera.limits = { 0, 0, kW, kH };
         const Vector2 before = world.camera.position;
         const Rectangle view_before = world.camera.view();
         world.camera.shake(30, 0.5f);
@@ -386,12 +387,50 @@ TEST_SUITE("camera") {
             CHECK(world.camera.view().y == doctest::Approx(view_before.y));
             const Vector2 off = world.camera.shake_offset();
             if (off.x != 0 || off.y != 0) moved = true;
-            // What is DRAWN moves by exactly the offset.
+            // With no limits, what is DRAWN moves by exactly the offset.
             const Camera2D drawn = world.camera.raylib();
             CHECK(drawn.target.x == doctest::Approx(before.x + off.x));
             CHECK(drawn.target.y == doctest::Approx(before.y + off.y));
         }
         CHECK(moved); // or the assertions above are about a still camera
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a shake at the edge of the level never draws past the limits") {
+        // "Never show outside this rectangle" is a promise about what is
+        // drawn, so it holds while shaking: near an edge only the inward half
+        // of the shake shows. Checked through to_world() of the screen's
+        // corners, which is what the player actually sees.
+        World world;
+        world.camera.limits = { 0, 0, kW * 3, kH * 3 };
+        world.camera.position = { 0, 0 }; // pinned into the top-left corner
+        world.camera.detail_settle(0.0f);
+        world.camera.shake(30, 0.5f);
+        bool inward = false;
+        for (int i = 0; i < 30; i++) {
+            world.camera.detail_settle(1.0f / 60);
+            for (const Vector2 corner : { Vector2{ 0, 0 }, Vector2{ kW, kH } }) {
+                const Vector2 seen = world.camera.to_world(corner);
+                CHECK(seen.x >= -1e-3f);
+                CHECK(seen.y >= -1e-3f);
+                CHECK(seen.x <= kW * 3 + 1e-3f);
+                CHECK(seen.y <= kH * 3 + 1e-3f);
+            }
+            const Camera2D drawn = world.camera.raylib();
+            if (drawn.target.x > world.camera.position.x + 0.5f) inward = true;
+        }
+        CHECK(inward); // the shake still shows, inwards
+
+        SUBCASE("a view pinned by a limit exactly its size does not shake at all") {
+            World pinned;
+            pinned.camera.limits = { 0, 0, kW, kH };
+            pinned.camera.shake(30, 0.5f);
+            for (int i = 0; i < 10; i++) {
+                pinned.camera.detail_settle(1.0f / 60);
+                CHECK(pinned.camera.raylib().target.x == doctest::Approx(kW / 2));
+                CHECK(pinned.camera.raylib().target.y == doctest::Approx(kH / 2));
+            }
+        }
     }
 
     TEST_CASE_FIXTURE(Fixture,
@@ -440,6 +479,60 @@ TEST_SUITE("camera") {
             }
             CHECK(biggest > 2);
         }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a hit on the tail of a big shake is measured against the tail") {
+        // At t = 0.5 s a shake of 40 over 1 s is moving the screen by
+        // 40 * 0.5^2 = 10. A new hit of 15 is stronger than THAT, and must be
+        // felt -- compared against the start strength (or a linear fade, 20)
+        // it was thrown away.
+        World world;
+        world.camera.shake(40, 1.0f);
+        for (int i = 0; i < 50; i++) world.camera.detail_settle(0.01f);
+        world.camera.shake(15, 0.3f);
+        float peak = 0;
+        for (int i = 0; i < 10; i++) {
+            world.camera.detail_settle(0.01f);
+            const Vector2 off = world.camera.shake_offset();
+            peak = std::max(peak, std::sqrt(off.x * off.x + off.y * off.y));
+        }
+        CHECK(peak > 10.5f);
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a short strong hit does not cut a long shake short") {
+        World world;
+        world.camera.shake(10, 2.0f);
+        world.camera.detail_settle(0.1f);
+        world.camera.shake(10.5f, 0.05f); // a hair stronger, a blink long
+        for (int i = 0; i < 50; i++) world.camera.detail_settle(0.01f); // 0.5 s later
+        float seen = 0;
+        for (int i = 0; i < 10; i++) {
+            world.camera.detail_settle(0.01f);
+            const Vector2 off = world.camera.shake_offset();
+            seen = std::max(seen, std::sqrt(off.x * off.x + off.y * off.y));
+        }
+        CHECK(seen > 1.0f); // still shaking, as the 2 s shake would be
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "infinity poisons nothing: smoothing snaps, shakes are ignored") {
+        World world;
+        auto &target = world.spawn({ .position = { 0, 0 } });
+        world.camera.follow = target.handle();
+        world.camera.detail_settle(0.0f);
+        world.camera.smoothing = std::numeric_limits<float>::infinity();
+        target.position = { 300, 100 };
+        world.camera.detail_settle(0.0f); // -inf * 0 would be NaN
+        CHECK_FALSE(std::isnan(world.camera.position.x));
+        CHECK(near(world.camera.position, Vector2{ 300, 100 }));
+        world.camera.shake(std::numeric_limits<float>::infinity(), 0.5f);
+        world.camera.shake(5, std::numeric_limits<float>::infinity());
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.shake_offset().x == 0.0f);
+        const Vector2 seen = world.camera.to_world(Vector2{ 10, 10 });
+        CHECK_FALSE(std::isnan(seen.x));
+        CHECK_FALSE(std::isnan(seen.y));
     }
 
     TEST_CASE_FIXTURE(Fixture, "nonsense shakes are ignored rather than stored") {

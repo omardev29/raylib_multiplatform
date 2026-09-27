@@ -1268,7 +1268,7 @@ path is behind `RAY_TEST_MAX_FRAMES`, an environment variable no shipped app eve
 #include <rmp/audio.h>
 
 rmp::audio::play("coin");                               // coin.wav, coin.ogg, ...
-rmp::audio::play("hit", { .volume = 0.7f, .pitch = 1.2f });
+rmp::audio::play("hit", { .volume = 0.7f, .pitch = 1.2f, .pan = -0.5f });
 rmp::audio::music("level1");                            // starts, or replaces
 rmp::audio::set_volume(rmp::audio::Bus::MUSIC, 0.5f);
 ```
@@ -1276,8 +1276,11 @@ rmp::audio::set_volume(rmp::audio::Bus::MUSIC, 0.5f);
 There is no `InitAudioDevice()` in a game and no `CloseAudioDevice()`. The device opens the first
 time something needs it — `play()`, `music()`, or `rmp::assets::load_sound()` — so a game with no
 sound never opens it. On the way out `begin_stop()` releases the voices and the music, then the
-resource table, then closes the device, in that order: an alias must not outlive the sound it
-shares a buffer with, and a sound unloaded after its device is gone is a free on a torn-down mixer.
+resource table; the device closes in `end_stop()`, after your stop hook, so a raw `Sound` the hook
+unloads still has a mixer under it. An alias must not outlive the sound it shares a buffer with,
+and a sound unloaded after its device is gone is a free on a torn-down mixer. A game that opened
+the device itself (`InitAudioDevice()` in older code) keeps it: the framework closes only what it
+opened.
 
 **A machine with no sound is not an error.** A CI runner, a server, a laptop with no output: the
 open fails, one warning says so, and every call after that is a no-op. It is tried **once**;
@@ -1287,35 +1290,53 @@ second. `rmp::audio::available()` says which case you are in, and asking does no
 `tests/configure_test.py` keeps complete.
 
 **Logical names.** A name without an extension is looked for as `.wav`, `.ogg`, `.mp3` and
-`.qoa`, in that order, and the first that exists wins; a name with one is taken as given. The
-extension is looked for in the file part only, so `v1.2/coin` has none. There is no `.flac`:
+`.qoa`, in that order, and the first that exists wins; a name with an audio extension (those four,
+`.flac`, `.xm`, `.mod`, any case) is taken as given. Only in the file part, and only audio: `v1.2/coin`
+and `ui.click` are names without one. Looking candidates up does not count as failed loads, so the
+CI boot gate's `assets_failed=0` holds for a game whose sounds are `.ogg`. There is no `.flac`:
 raylib's `config.h` ships its decoder off, and a file found and then undecodable is worse than one
 not found. A name that finds nothing, or finds a file that does not decode, is said once — the two
 differently, because they are fixed differently — and remembered, so asking again costs nothing.
 
-**Overlapping.** Each effect has up to four voices — the loaded sound plus three
-`LoadSoundAlias()` copies that share its samples — so a burst of the same effect overlaps instead
-of restarting. When all four are busy, the oldest is cut.
+**Overlapping.** Each effect has up to four voices, all of them `LoadSoundAlias()` copies that
+share the loaded samples, so a burst of the same effect overlaps instead of restarting; when all
+four are busy, the one playing longest is cut. The loaded sound itself is never played: it is the
+resource table's, and a game holding the same file from `rmp::assets::load_sound()` would find
+every volume, pitch and pan a `play()` set landing on its own copy.
+
+**Pan** is raylib 6's: `-1` left, `0` centre (the default), `1` right. raylib 5 used 0..1 with 0.5
+in the middle, and that value in raylib 6 plays three quarters to the right.
 
 **Music** is one track at a time, streamed. `music("level1")` while `level1` is already playing is
 *not* a restart, so a scene that asks for its song in `_ready()` does not jump it back every time
-it is re-entered. The stream is fed from `end_frame()`, which every runner calls after every frame,
+it is re-entered; a track that has finished (`music("jingle", false)`) does start again. The new
+track is loaded before the old one stops, so a name that finds nothing leaves the music playing,
+and a name that found nothing is not searched for again. The stream is fed from `end_frame()`, which every runner calls after every frame,
 so it keeps playing under a pause menu and in a game with its own three hooks.
 
 **Buses.** `MASTER`, `MUSIC` and `SFX`, starting at `[audio]` in the `.toml` (each 0 to 1,
 rejected otherwise by `configure.py`). An effect plays at its own volume times `SFX`; `MASTER` is
 raylib's master volume on top of everything. `set_volume()` clamps, ignores a NaN, takes effect on
-what is already playing, and never opens the device — a settings screen can move its sliders in a
-game that has made no sound yet.
+what is already playing — effects ringing out keep their own volume and are scaled by the new `SFX`
+— and never opens the device, so a settings screen can move its sliders in a game that has made no
+sound yet.
 
-**Web** keeps audio muted until the first click or key press. That is the browser's rule; music
-started on a title screen is heard from the first input on.
+**Web** keeps audio muted until the first click, touch or key press. That is the browser's rule;
+music started on a title screen is heard from the first such input on. raylib's backend
+(miniaudio) listens only for clicks and touches, so `cmake/web/rmp_web.js`, linked into every web
+build, makes a key press unlock it too. A gamepad button cannot: browsers do not count it as a
+gesture.
 
 **What is tested, and what is not.** `tests/audio_test.cpp` covers everything that does not need
-a device: the name expansion, the volume arithmetic and its clamping, and the device state
+a device: the name expansion, the volume arithmetic and its clamping, pan, and the device state
 machine through a swapped opener — never opened by a settings screen, tried once when there is
-none, reopened after a close. Whether the samples reach a speaker is checked by ear: there is no
-sound device on a runner, and a fake one would test the fake.
+none, reopened after a close. `tests/audio_device_test.cpp` covers what does: it opens the real
+device with the master volume at zero and reads the mixed output back through
+`AttachAudioMixedProcessor` — pan direction, the `SFX` bus on ringing voices, the game's own
+`rmp::Sound` left alone, a finished track replayed and a playing one not restarted, and a device
+closed only by whoever opened it. Where there is no device at all it says so and skips; miniaudio
+keeps its null backend, so most CI runners have a silent one and run it too. It runs once per
+`just test`, not in the random-order pass: it spends about a second listening.
 
 ## `rmp::Camera` — follow, limits, smoothing, shake
 

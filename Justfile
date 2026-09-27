@@ -210,7 +210,11 @@ test what="all": (_reconfigure "Debug")
         # same distance came back depended on where malloc had put them, which
         # depended on what had run earlier. It passed alone and failed in the
         # suite, which is the worst way to find anything.
-        ./build/unit_test --order-by=rand --rand-seed=1337 2>&1 | tail -1
+        # The "audio: device" suite runs once, in the pass above: it spends
+        # real time listening to the mixer (about a second), and its fixture
+        # rebuilds every piece of state it touches, so a second order proves
+        # nothing about it that the first did not.
+        ./build/unit_test --order-by=rand --rand-seed=1337 --test-suite-exclude="audio: device" 2>&1 | tail -1
     }
     run_render() {
         # The software renderer, through the SAME script the five BSD jobs and

@@ -29,10 +29,11 @@
 // playing starts another voice (up to four) instead of restarting the first,
 // so a machine gun sounds like one and not like a stuck record.
 //
-// On the web, browsers keep audio muted until the player has clicked or
-// pressed something. That is the browser's rule and not something a game can
+// On the web, browsers keep audio muted until the player has clicked, touched
+// or pressed a key. That is the browser's rule and not something a game can
 // get round; a game that starts its music on the title screen is heard from
-// the first click on.
+// the first such input on. A gamepad button does not count -- browsers do not
+// treat it as a gesture -- so a gamepad-only player hears nothing until then.
 // ---------------------------------------------------------------------------
 
 #include <rmp/config.h>
@@ -50,7 +51,7 @@ enum class Bus { MASTER, MUSIC, SFX };
 struct PlayOptions {
     float volume = 1.0f; // this play only; times the SFX bus, times MASTER
     float pitch = 1.0f; // 2 = an octave up, 0.5 = an octave down
-    float pan = 0.5f; // 0 = left, 0.5 = centre, 1 = right
+    float pan = 0.0f; // -1 = left, 0 = centre, 1 = right (raylib 6's range)
 };
 
 // A sound effect. Loaded the first time it is asked for and kept, so the

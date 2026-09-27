@@ -22,6 +22,7 @@
 #include "../src/rmp/audio_internal.h"
 #include "../src/rmp/internal.h"
 
+#include <rmp/assets.h>
 #include <rmp/audio.h>
 
 #include <cmath>
@@ -65,10 +66,29 @@ TEST_SUITE("audio") {
         CHECK(got == want);
     }
 
-    TEST_CASE("a name that has an extension is looked for exactly as given") {
+    TEST_CASE("a name that has an audio extension is looked for exactly as given") {
         CHECK(rmp::audio::detail::candidates("coin.ogg") == Names{ "coin.ogg" });
         CHECK(rmp::audio::detail::candidates("music/level1.mp3") ==
               Names{ "music/level1.mp3" });
+        // Any case, and the formats music() streams, and FLAC -- taken as
+        // asked so that it can say it does not decode.
+        for (const char *name : { "COIN.OGG", "Hit.Wav", "theme.xm", "theme.MOD",
+                                  "theme.flac", "voice.qoa" }) {
+            CAPTURE(name);
+            CHECK(rmp::audio::detail::candidates(name) == Names{ name });
+        }
+    }
+
+    TEST_CASE("a dot that is not an audio extension is part of the name") {
+        // "ui.click" is a sound called ui.click, found as ui.click.wav. Taken
+        // as an extension, it was looked for as a file called "ui.click" and
+        // nothing else, while the report claimed .wav, .ogg... were tried.
+        const Names got = rmp::audio::detail::candidates("ui.click");
+        const Names want{ "ui.click.wav", "ui.click.ogg", "ui.click.mp3",
+                          "ui.click.qoa" };
+        CHECK(got == want);
+        CHECK(rmp::audio::detail::candidates("jump.v2").size() == 4);
+        CHECK(rmp::audio::detail::candidates("readme.txt").size() == 4);
     }
 
     TEST_CASE("the extension is looked for in the FILE part, not the path") {
@@ -104,6 +124,32 @@ TEST_SUITE("audio") {
         CHECK(clamp_volume(std::nanf(""), 0.3f) == doctest::Approx(0.3));
         CHECK(clamp_volume(0.0f, 1.0f) == doctest::Approx(0.0));
         CHECK(clamp_volume(1.0f, 0.0f) == doctest::Approx(1.0));
+    }
+
+    TEST_CASE("pan is raylib 6's: -1 left, 0 centre, 1 right, clamped, NaN centred") {
+        using rmp::audio::detail::raylib_pan;
+        CHECK(raylib_pan(0.0f) == 0.0f);
+        CHECK(raylib_pan(-1.0f) == -1.0f);
+        CHECK(raylib_pan(1.0f) == 1.0f);
+        CHECK(raylib_pan(-0.25f) == doctest::Approx(-0.25));
+        CHECK(raylib_pan(-7.0f) == -1.0f);
+        CHECK(raylib_pan(7.0f) == 1.0f);
+        CHECK(raylib_pan(std::nanf("")) == 0.0f);
+        // The default is the centre -- raylib 5's 0.5 would be right of it.
+        CHECK(rmp::audio::PlayOptions{}.pan == 0.0f);
+    }
+
+    TEST_CASE("looking candidates up is not a failed load") {
+        // rmp::audio asks about coin.wav, coin.ogg, coin.mp3 and coin.qoa in
+        // turn. Counted as failed loads, a game whose coin is an .ogg booted
+        // with assets_failed=3 -- red in the CI boot gate for a correct game.
+        const int failed = rmp::assets::failed_loads();
+        const int requested = rmp::assets::requested_loads();
+        for (const char *name : { "nope.wav", "nope.ogg", "nope.mp3", "nope.qoa" }) {
+            CHECK_FALSE(rmp::assets::detail::resource_exists(name));
+        }
+        CHECK(rmp::assets::failed_loads() == failed);
+        CHECK(rmp::assets::requested_loads() == requested);
     }
 
     TEST_CASE("an effect plays at its own volume times the SFX bus") {

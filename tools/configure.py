@@ -106,7 +106,9 @@ def locate(section: str, key: str | None) -> tuple[int, str] | None:
     except OSError:
         return None
 
-    here = None
+    # "" before the first header, so a key written above every section -- the
+    # top level of the file -- can be located as section "".
+    here = ""
     header_at = None
     for i, raw in enumerate(lines, start=1):
         line = raw.strip()
@@ -462,7 +464,17 @@ def deep_merge(base: dict, over: dict, path: str = "") -> dict:
     for k, v in over.items():
         here = f"{path}.{k}" if path else k
         if k not in base:
-            raise ConfigError(f"unknown key [{here}] in raylib_multiplatform.toml")
+            raise ConfigError(f"unknown key [{here}] in raylib_multiplatform.toml",
+                              (path, k) if path else (k, None))
+        # A value where a table goes -- `audio = 0.5` above every section, or
+        # `admob = true` inside [android] -- used to be stored as it was, and
+        # the first check to index it died with "'float' object is not
+        # subscriptable": a traceback, not a line number.
+        if isinstance(base[k], dict) and not isinstance(v, dict):
+            raise ConfigError(
+                f"[{here}] has to be a table, and it is {v!r}.\n"
+                f"Write it as a section: a line [{here}] with its keys under it.",
+                (path, k))
         if isinstance(base[k], dict) and isinstance(v, dict):
             # [ios.settings] is a free-form passthrough; do not police its keys.
             out[k] = v if here == "ios.settings" else deep_merge(base[k], v, here)
@@ -1253,6 +1265,7 @@ void PlayMusicStream(Music music) {{ (void)music; }}
 void StopMusicStream(Music music) {{ (void)music; }}
 void UpdateMusicStream(Music music) {{ (void)music; }}
 bool IsMusicStreamPlaying(Music music) {{ (void)music; return false; }}
+float GetMusicTimePlayed(Music music) {{ (void)music; return 0.0f; }}
 void SetMusicVolume(Music music, float volume) {{ (void)music; (void)volume; }}
 """
 

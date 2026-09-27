@@ -130,7 +130,7 @@ void after_ready(); // report to CI whether any asset failed to load
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
 void end_frame(); // advance the CI frame budget, feed the music stream
 void begin_stop(); // the UI closes here, BEFORE your stop hook: see below
-void end_stop(); // the asset pack closes here, AFTER it
+void end_stop(); // the asset pack and the sound device close here, AFTER it
 
 // The three that RMP_GAME wires to the hooks above. start() opens the window
 // and enters your first scene, frame() runs one turn of the scene stack, and

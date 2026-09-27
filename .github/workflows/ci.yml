@@ -307,7 +307,7 @@ jobs:
           cmake --preset debug -DBUILD_TESTS=ON > /dev/null
           cmake --build build --target unit_test > /dev/null
           ./build/unit_test
-          ./build/unit_test --order-by=rand --rand-seed=1337
+          ./build/unit_test --order-by=rand --rand-seed=1337 --test-suite-exclude="audio: device"
 
       # The headless UI layout assertions: four resolutions, no window, no GPU,
       # and the thing phases 1-4 of the UI architecture are gated on. It was

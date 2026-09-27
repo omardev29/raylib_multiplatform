@@ -62,12 +62,18 @@ void fallback_path(const char *name, char *out, size_t n) {
 
 } // namespace
 
-// Declared in internal.h. Here because this is where the loose path is built.
+// Declared in internal.h. Here because this is where the loose path is built
+// -- but NOT through fallback_path(), which counts a miss as a failed load.
+// rmp::audio asks this about coin.wav, coin.ogg, coin.mp3 and coin.qoa in
+// turn, and a game whose coin is an .ogg asked for one asset, not for three
+// that failed: counted, the boot gate read assets_failed=3 for a correct game,
+// and only on a machine where the device opens. A name that resolves to
+// nothing at all is reported by rmp::audio itself.
 bool detail::resource_exists(const char *name) {
     if (name == nullptr || name[0] == '\0') return false;
     if (detail::pack_has(name)) return true;
     char path[2048];
-    fallback_path(name, path, sizeof(path));
+    std::snprintf(path, sizeof(path), "%s%s", detail::resources_root(), name);
     return FileExists(path);
 }
 

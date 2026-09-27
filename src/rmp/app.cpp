@@ -204,21 +204,25 @@ void begin_stop() {
 
     rmp::ui::shutdown();
 
-    //   audio in two halves around the resource table. The voices, the music
-    //   and the cached effects BEFORE it -- a sound alias shares its buffer
-    //   with the sound it came from and must not outlive it -- and the device
-    //   AFTER it, once every sound the game loaded through rmp::assets has
-    //   been unloaded, because unloading a sound after its device has closed
-    //   is a free on a torn-down mixer.
+    //   audio's voices, music and cached effects BEFORE the table -- a sound
+    //   alias shares its buffer with the sound it came from and must not
+    //   outlive it. The device itself closes in end_stop(), after your hook.
     rmp::audio::detail::shutdown();
     rmp::detail::release_all();
-    rmp::audio::detail::close_device();
 }
 
 // And here, after your hook, only what owns nothing on the GPU: the rres pack
 // and raylib's loader hook. Those are file handles, and a file handle does not
 // care that the window is gone.
-void end_stop() { rmp::assets::shutdown(); }
+//
+// The sound device closes here too, and not in begin_stop(): your hook may
+// unload a raw Sound or Music it loaded itself, and unloading one after its
+// device has closed is a free on a torn-down mixer. It is not on the GPU, so
+// the window being gone does not matter to it.
+void end_stop() {
+    rmp::audio::detail::close_device();
+    rmp::assets::shutdown();
+}
 
 // ---------------------------------------------------------------------------
 // What RMP_GAME wires the three platform hooks to.

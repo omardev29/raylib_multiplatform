@@ -107,20 +107,25 @@ public:
     // Shake the view: up to `strength` world units, fading to nothing over
     // `seconds`. A hit, an explosion, a landing.
     //
-    // The shake NEVER TOUCHES `position`, `view()` or the limits: it is an
-    // offset applied only to what is drawn, raylib() and the two conversions
-    // that go with it. So an object clamped to the view does not jitter, the
-    // limits are not violated by a shake near the edge, and the camera is
+    // The shake NEVER TOUCHES `position` or `view()`: it is an offset applied
+    // only to what is drawn, raylib() and the two conversions that go with it.
+    // So an object clamped to the view does not jitter, and the camera is
     // exactly where it was when the shake ends -- nothing to restore. And a
     // click during a shake still lands on what is under the pointer, because
-    // to_world() converts through the same shaken camera that drew it.
+    // to_world() converts through the same shaken camera that drew it. The
+    // drawn view is clamped to `limits` like the position is, so a shake near
+    // the edge of the level shakes inwards and never shows the void.
     //
-    // Shaking again while a shake is running keeps the STRONGER of the two
-    // rather than adding them, so a burst of hits cannot build a shake that
-    // throws the screen across the room.
+    // Shaking again while a shake is running keeps the STRONGER of the two --
+    // measured against what the running one is doing now, not what it
+    // started at -- rather than adding them, so a burst of hits cannot build
+    // a shake that throws the screen across the room. A short strong hit on
+    // a long shake lasts at least as long as the long one had left. A
+    // strength or duration that is not a positive finite number is ignored.
     void shake(float strength, float seconds = 0.3f);
 
-    // How far the shake has the view moved right now; {0,0} when still.
+    // How far the shake asks to move the view right now; {0,0} when still.
+    // Near a limit less of it shows: raylib() clamps the result.
     [[nodiscard]] Vector2 shake_offset() const { return shake_now_; }
 
     // What is visible, in world units, ignoring rotation.

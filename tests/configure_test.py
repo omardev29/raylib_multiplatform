@@ -3521,12 +3521,21 @@ class ConfigureAudioTest(unittest.TestCase):
                 self.assertEqual(caught.exception.where, ("audio", key))
 
     def test_the_values_reach_the_generated_header(self):
-        """A volume nothing reads is a volume that does nothing."""
-        src = (REPO / "tools" / "configure.py").read_text()
+        """A volume nothing reads is a volume that does nothing -- and a
+        generator that wrote music's value into MASTER passed the old version
+        of this test, which only looked for the macro names. Three different
+        values, each read back from the header configure.py would write."""
+        cfg = self.audio(master=0.125, music=0.25, sfx=0.5)
+        with quiet():
+            cfgmod.validate(cfg, False)
+        with generated_header(cfg) as text:
+            self.assertRegex(text, r"#define APP_AUDIO_MASTER\s+0\.125f\n")
+            self.assertRegex(text, r"#define APP_AUDIO_MUSIC\s+0\.25f\n")
+            self.assertRegex(text, r"#define APP_AUDIO_SFX\s+0\.5f\n")
+        audio_cpp = (REPO / "src" / "rmp" / "audio.cpp").read_text()
         for define in ("APP_AUDIO_MASTER", "APP_AUDIO_MUSIC", "APP_AUDIO_SFX"):
             with self.subTest(define=define):
-                self.assertIn(define, src)
-                self.assertIn(define, (REPO / "src" / "rmp" / "audio.cpp").read_text())
+                self.assertIn(define, audio_cpp)
 
 
 
@@ -3554,17 +3563,36 @@ class RaudioStubCoverageTest(unittest.TestCase):
             names.add(re.findall(r"(\w+)$", ret)[0])
         return names
 
+    @staticmethod
+    def code_only(text: str) -> str:
+        """The text with comments and string literals blanked out, so a name
+        mentioned in a log message or a comment is not a reference."""
+        return re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'',
+                      " ", text, flags=re.S)
+
     def called(self, names: set[str]) -> dict[str, list[str]]:
-        sources = sorted((REPO / "src" / "rmp").rglob("*.cpp")) + \
-            sorted((REPO / "src" / "rmp").rglob("*.h")) + \
+        # Every REFERENCE, not only calls: `&SetMusicPitch` stored in a pointer
+        # needs a stub just as much, and the first version of this gate, which
+        # looked for `Name(`, passed while that link failed. And every source
+        # the rmp library compiles, .c included.
+        sources = sorted(p for p in (REPO / "src" / "rmp").rglob("*")
+                         if p.suffix in (".cpp", ".c", ".h")) + \
             [REPO / "thirdparty" / "rres" / "rres-raylib.h"]
         found: dict[str, list[str]] = {}
         for path in sources:
-            text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+            text = self.code_only(path.read_text(encoding="utf-8"))
             for name in names:
-                if re.search(r"(?<![\w.>])(?:::)?%s\s*\(" % name, text):
+                if re.search(r"(?<![\w.>])%s\b" % name, text):
                     found.setdefault(name, []).append(str(path.relative_to(REPO)))
         return found
+
+    def test_a_reference_that_is_not_a_call_is_seen(self):
+        names = {"SetMusicPitch", "PlaySound"}
+        text = self.code_only('auto f = &SetMusicPitch; // PlaySound( in a comment\n'
+                              'log("PlaySound(x)"); /* PlaySound( */')
+        self.assertRegex(text, r"(?<![\w.>])SetMusicPitch\b")
+        self.assertNotIn("PlaySound", text)
+        del names
 
     def stubbed(self) -> set[str]:
         # A definition starts a line: return type, name, parameters, then the
@@ -3623,6 +3651,58 @@ class RaudioStubCoverageTest(unittest.TestCase):
                  "-I", str(self.RAYLIB_H.parent), str(src)],
                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+
+class ConfigureTableShapeTest(unittest.TestCase):
+    """A value where a table goes is a rejection with a line, not a traceback.
+
+    `audio = 0.5` above every section, or `admob = true` inside [android], used
+    to be stored as it was, and the first check to index it died with
+    "TypeError: 'float' object is not subscriptable". CLAUDE.md: the wrong TYPE
+    is one of the cases every option is tested with.
+    """
+
+    def test_every_table_refuses_a_scalar(self):
+        tables = [k for k, v in cfgmod.DEFAULTS.items() if isinstance(v, dict)]
+        self.assertGreater(len(tables), 10)
+        for table in tables:
+            for bad in (0.5, 1, True, "text", [1, 2]):
+                with self.subTest(table=table, value=bad):
+                    with self.assertRaises(cfgmod.ConfigError) as caught:
+                        cfgmod.deep_merge(cfgmod.DEFAULTS, {table: bad})
+                    self.assertIn(f"[{table}] has to be a table", str(caught.exception))
+                    self.assertEqual(caught.exception.where, ("", table))
+
+    def test_a_nested_table_refuses_a_scalar_too(self):
+        nested = [(t, k) for t, v in cfgmod.DEFAULTS.items() if isinstance(v, dict)
+                  for k, w in v.items() if isinstance(w, dict)]
+        self.assertTrue(nested, "no nested table left to test")
+        for table, key in nested:
+            with self.subTest(table=table, key=key):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    cfgmod.deep_merge(cfgmod.DEFAULTS, {table: {key: True}})
+                self.assertIn(f"[{table}.{key}] has to be a table", str(caught.exception))
+                self.assertEqual(caught.exception.where, (table, key))
+
+    def test_the_line_is_found_at_the_top_level_and_inside_a_section(self):
+        import tempfile
+        original = cfgmod.TOML
+        with tempfile.TemporaryDirectory() as tmp:
+            cfgmod.TOML = Path(tmp) / "raylib_multiplatform.toml"
+            try:
+                cfgmod.TOML.write_text('# a comment\naudio = 0.5\n\n[input]\ndeadzone = 0.2\n')
+                self.assertEqual(cfgmod.locate("", "audio"), (2, "audio = 0.5"))
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    cfgmod.load_config()
+                self.assertEqual(cfgmod.locate_from(caught.exception), (2, "audio = 0.5"))
+                # And an unknown key names its own line, not only its name.
+                cfgmod.TOML.write_text('[audio]\nmaster = 1.0\nmastr = 0.5\n')
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    cfgmod.load_config()
+                self.assertEqual(cfgmod.locate_from(caught.exception), (3, "mastr = 0.5"))
+            finally:
+                cfgmod.TOML = original
 
 
 if __name__ == "__main__":

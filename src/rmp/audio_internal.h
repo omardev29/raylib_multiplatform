@@ -20,9 +20,10 @@
 namespace rmp::audio::detail {
 
 // What a logical name expands to, in search order: "coin" -> coin.wav,
-// coin.ogg, coin.mp3, coin.qoa; "coin.ogg" -> just that. The
-// extension is looked for in the FILE part only, so "v1.2/coin" is a name
-// without one. Empty for an empty name.
+// coin.ogg, coin.mp3, coin.qoa; "coin.ogg" -> just that. Only an audio
+// extension counts (.wav .ogg .mp3 .qoa .flac .xm .mod, any case), and only
+// in the FILE part: "v1.2/coin" and "ui.click" are names without one. Empty
+// for an empty name.
 std::vector<std::string> candidates(std::string_view name);
 
 // The volume a sound effect is set to before MASTER, which raylib applies on
@@ -32,6 +33,10 @@ float effect_volume(float per_play, float sfx_bus);
 // A volume as stored: clamped to 0..1, and a NaN replaced by `previous`
 // rather than stored, so one bad slider value cannot silence the game.
 float clamp_volume(float value, float previous);
+
+// PlayOptions::pan as raylib 6 takes it: -1 left, 0 centre, 1 right, clamped,
+// and a NaN is the centre.
+float raylib_pan(float pan);
 
 // How the device is opened. The real one calls InitAudioDevice() and asks
 // IsAudioDeviceReady(); a test swaps in a function that returns false, which
@@ -49,16 +54,25 @@ bool ensure_device();
 // proves it is once.
 int open_attempts();
 
+// Whether the framework opened the device, and so is the one to close it.
+bool opened_by_us();
+
+// Seconds into the current track; 0 with none. For the test that proves
+// asking for the same track does not restart it.
+float music_time();
+
 // Every frame, from rmp::app: feed the music stream. Nothing when there is no
 // device or no music.
 void update();
 
-// On the way out, in two halves around the resource table. shutdown() BEFORE
-// rmp::detail::release_all(): the voices, the music and the cached effects go
-// first, because a sound alias shares its buffer with the sound it was made
-// from and must not outlive it. close_device() AFTER it: every sound the game
-// loaded through rmp::assets is unloaded by then, and a sound unloaded after
-// its device has closed is a free on a torn-down mixer.
+// On the way out, in two halves. shutdown() BEFORE rmp::detail::release_all(),
+// in begin_stop(): the voices, the music and the cached effects go first,
+// because a sound alias shares its buffer with the sound it was made from and
+// must not outlive it. close_device() in end_stop(), AFTER the game's stop
+// hook: every sound loaded through rmp::assets is unloaded by then, and so is
+// any raw Sound the hook unloads itself -- a sound unloaded after its device
+// has closed is a free on a torn-down mixer. And only if the framework opened
+// the device: a game that opened it closes it.
 void shutdown();
 void close_device();
 

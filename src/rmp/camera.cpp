@@ -27,16 +27,40 @@ Vector2 screen_size() {
     return Vector2{ r.width, r.height };
 }
 
+// Where a view of `view_w` x `view_h` centred on `p` may be so that it shows
+// nothing outside `limits`, one axis at a time: a zero width or height means
+// "unbounded on this axis", which is what an endless runner wants (follow x,
+// pin y). A limit narrower than the view has no position that shows nothing
+// outside it, so the view is centred on it instead -- the alternative,
+// showing the void on one side, is the black strip this exists to prevent.
+Vector2 clamp_to(Vector2 p, const Rectangle &limits, float view_w, float view_h) {
+    const auto axis = [](float at, float lo_edge, float size, float view) {
+        if (!(size > 0)) return at;
+        if (size <= view) return lo_edge + size / 2;
+        const float lo = lo_edge + view / 2;
+        const float hi = lo_edge + size - view / 2;
+        return at < lo ? lo : (at > hi ? hi : at);
+    };
+    return Vector2{ axis(p.x, limits.x, limits.width, view_w),
+                    axis(p.y, limits.y, limits.height, view_h) };
+}
+
 } // namespace
 
 Camera2D Camera::raylib() const {
     const Vector2 screen = screen_size();
     // The shake goes HERE and in nothing that gameplay reads: this is what is
     // drawn, and to_screen/to_world below go through it so a click lands on
-    // what is under the pointer. view() and position do not see it.
+    // what is under the pointer. view() and position do not see it. It is
+    // clamped to the limits like the position is -- "never show outside this
+    // rectangle" holds while shaking too -- so near an edge only the part of
+    // the shake that points inwards shows.
+    const Rectangle v = view();
+    const Vector2 shaken =
+        clamp_to(Vector2{ position.x + shake_now_.x, position.y + shake_now_.y }, limits,
+                 v.width, v.height);
     return Camera2D{ .offset = Vector2{ screen.x / 2, screen.y / 2 },
-                     .target =
-                         Vector2{ position.x + shake_now_.x, position.y + shake_now_.y },
+                     .target = shaken,
                      .rotation = rotation,
                      .zoom = zoom > 0 ? zoom : 1.0f };
 }
@@ -58,17 +82,25 @@ Vector2 Camera::to_world(Vector2 screen) const {
 }
 
 void Camera::shake(float strength, float seconds) {
-    if (!(strength > 0) || !(seconds > 0)) return; // also rejects NaN
+    // Also rejects NaN, and infinity: an infinite strength would put NaN into
+    // the drawn camera for the length of the shake.
+    if (!(strength > 0) || !(seconds > 0) || !std::isfinite(strength) ||
+        !std::isfinite(seconds)) {
+        return;
+    }
     // The stronger of the two, never the sum: ten hits in a frame must not
-    // build a shake that throws the screen across the room. And a strong
-    // shake is not cut short by a weak one arriving late.
+    // build a shake that throws the screen across the room. "Stronger" is
+    // measured against what the running shake is doing NOW -- its strength
+    // times the square of the time left, the same envelope that moves the
+    // screen -- so a hit landing on the tail of a big shake is felt.
     const float remaining = shake_seconds_ - shake_elapsed_;
-    const float current = (shake_seconds_ > 0 && remaining > 0)
-        ? shake_strength_ * (remaining / shake_seconds_)
-        : 0.0f;
-    if (strength < current) return;
+    const float left =
+        (shake_seconds_ > 0 && remaining > 0) ? remaining / shake_seconds_ : 0.0f;
+    if (strength < shake_strength_ * left * left) return;
+    // And a short strong hit does not cut a long shake short: it lasts at
+    // least as long as what was left of the one it replaces.
     shake_strength_ = strength;
-    shake_seconds_ = seconds;
+    shake_seconds_ = remaining > seconds ? remaining : seconds;
     shake_elapsed_ = 0;
 }
 
@@ -80,7 +112,9 @@ void Camera::detail_settle(float delta) {
 
     if (const Object *target = follow.get()) {
         const bool new_target = !(follow == followed_);
-        if (smoothing > 0 && !new_target) {
+        // An infinite rate is a snap, and must not become -inf * 0 = NaN on a
+        // frame with no time in it.
+        if (smoothing > 0 && std::isfinite(smoothing) && !new_target) {
             // Delta in the EXPONENT. The fraction of the remaining distance
             // covered is 1 - exp(-rate * dt), which composes exactly: two
             // frames of dt/2 land where one frame of dt does. A per-frame
@@ -96,31 +130,10 @@ void Camera::detail_settle(float delta) {
         followed_ = Handle<Object>();
     }
 
+    // Limits win over follow -- see clamp_to() for the rule, which raylib()
+    // applies to the shaken view as well.
     const Rectangle v = view();
-    // Limits win over follow, one axis at a time: a zero width or height
-    // means "unbounded on this axis", which is what an endless runner wants
-    // (follow x, pin y) and used to need a made-up level length to say. A
-    // limit narrower than the view has no position that shows nothing outside
-    // it, so the view is centred on it instead -- the alternative, showing the
-    // void on one side, is the black strip this exists to prevent.
-    if (limits.width > 0) {
-        if (limits.width <= v.width) {
-            position.x = limits.x + limits.width / 2;
-        } else {
-            const float lo = limits.x + v.width / 2;
-            const float hi = limits.x + limits.width - v.width / 2;
-            position.x = position.x < lo ? lo : (position.x > hi ? hi : position.x);
-        }
-    }
-    if (limits.height > 0) {
-        if (limits.height <= v.height) {
-            position.y = limits.y + limits.height / 2;
-        } else {
-            const float lo = limits.y + v.height / 2;
-            const float hi = limits.y + limits.height - v.height / 2;
-            position.y = position.y < lo ? lo : (position.y > hi ? hi : position.y);
-        }
-    }
+    position = clamp_to(position, limits, v.width, v.height);
 
     // The shake last, and apart. Its amplitude falls off with the square of
     // the time left, which reads as a jolt that settles rather than a buzz
