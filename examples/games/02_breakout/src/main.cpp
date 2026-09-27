@@ -92,6 +92,10 @@ public:
                 rmp::Scene::push<OverScene<BreakoutScene>>("Game over");
                 return;
             }
+            // A life lost, felt: the view jolts and settles in a third of a
+            // second. It never moves the paddle, the ball or the bricks --
+            // gameplay does not see it, only what is drawn does.
+            camera.shake(8, 0.35f);
             serve();
         }
         if (bricks_ == 0) rmp::Scene::push<OverScene<BreakoutScene>>("You win");

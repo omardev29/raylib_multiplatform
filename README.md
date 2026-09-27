@@ -223,9 +223,9 @@ built on top of it.
 ### What we add on top of raylib
 
 All of raylib's API is there: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. The copy in
-`thirdparty/raylib/` is raylib 6.0.0 with six local patches, all listed in
-[`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) and marked at each site, none of
-them changing a public function. On top of it this framework adds a few small namespaces, all
+`thirdparty/raylib/` is raylib 6.0.0 with six local patches and three memory fixes backported from
+upstream, all listed in [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) and marked
+at each site, none of them changing a signature. On top of it this framework adds a few small namespaces, all
 under `rmp::`. They exist because they are the things every game needs and raylib deliberately
 does not decide for you.
 
@@ -239,6 +239,9 @@ does not decide for you.
 | **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default: written once, a menu is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. Playable with a mouse, a finger and a controller, for free. |
 | **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. Counted handles (`rmp::Texture`, `rmp::Font`, `rmp::Sound`, `rmp::SpriteSheet`) release what they own. |
 | **`rmp::Tilemap`** | A level designed in Tiled: `map = rmp::assets::load_map("level1.json")` and the scene draws it, collides against its solid tiles and spawns its objects through the factories you register. |
+| **`rmp::Camera`** | Every scene's `camera`: `follow` an object, keep inside `limits`, `smoothing` that is the same at 30 and 144 Hz, and `shake()` that never touches gameplay -- a click during a shake still lands on what is under the pointer. |
+| **`rmp::audio`** | `play("coin")` and `music("level1")` by name, whatever the format; three volume buses for a settings screen. The device opens on the first sound, and a machine without one simply runs silent. |
+| **`rmp::save`** | `rmp::save::write("slot1", v)` and `read("slot1", &v)`, where `rmp::Value` holds a real structure. Every read has a default, so an update never breaks an old save; a damaged, cut-short or edited file says which; saves can be sealed; the right folder on every platform. |
 | **`rmp::random`** | Seeded and reproducible: the number on a bug report reproduces the run. |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
 
@@ -309,7 +312,8 @@ You do **not** need the paid rrespacker tool; `tools/rres_pack.c` does the packi
 Two things stay outside that, and both are raylib's design rather than a gap here:
 
 - **`LoadMusicStream`** opens the file itself so it can stream instead of holding the song in
-  memory. Ship music as a loose file next to the executable.
+  memory, so music loaded with it has to ship as a loose file. `rmp::audio::music()` reads through
+  the pack and has no such limit.
 - **Subfolders.** Resource names are flat and the packer does not recurse, so `resources/art/x.png`
   is not packed. Keep assets directly in `resources/`; a release build warns you if it finds a
   subfolder.
@@ -475,6 +479,10 @@ Channels are per platform, and itch infers the OS from the channel name. HTML5 i
 directory with `index.html` at the root, so it is playable in the browser rather than a zip
 somebody has to download — a detail that is very easy to get wrong by hand.
 
+For the downloadable builds, `[save] portable = true` is what itch.io wants: saves go next to the
+executable, so deleting the folder deletes the game, saves included. Installers and Steam want the
+default, the user's data folder.
+
 ### Firebase Test Lab (optional)
 
 Runs the debug APK on **real Android hardware**. An emulator inside an unaccelerated runner is slow
@@ -537,7 +545,7 @@ raylib_multiplatform.toml   your configuration — the only non-code file you ed
 src/main.cpp                your game
 resources/                  your assets — flat, the pack does not recurse
 branding/icon.png           the source for every app icon on every platform
-include/rmp/               the framework's headers — app, ui, assets, ads, math, config.
+include/rmp/               the framework's headers — one per module, see the table above.
 src/rmp/                    its implementation. Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
@@ -545,7 +553,7 @@ examples/                   ui/ ads/ assets/ platform/ plain_c/ — read, copy, 
 Justfile                    the handful of commands you type: just run, just test
 tools/configure.py          turns the config into build files
 cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
-thirdparty/                 raylib 6.0, raymob, rres, Clay, the raylib-iOS fork
+thirdparty/                 raylib 6.0, raymob, rres, Clay, cute_tiled, cute_aseprite, cJSON, the raylib-iOS fork
 .github/workflows/          ci.yml + one reusable workflow per platform
 ```
 
@@ -560,8 +568,9 @@ is MIT; see [LICENSE](LICENSE).
 
 It is **built on raylib**, which is zlib/libpng licensed and is not ours. This project is not
 affiliated with or endorsed by raylib or Ramon Santamaria. The copy it vendors is **modified**:
-six patches, listed in [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md), as the
-zlib licence's second clause requires of altered source versions. Clay and cute_tiled are
+six patches and three upstream backports, listed in
+[`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md), as the zlib licence's second clause
+requires of altered source versions. Clay and cute_tiled are
 likewise modified and likewise listed.
 
 Every vendored component — down to the libraries raylib bundles — with its licence, the

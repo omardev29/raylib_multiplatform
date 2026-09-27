@@ -37,6 +37,7 @@
 static Settings cfg;
 static Settings saved; // what was on disk, to know if anything changed
 static bool dirty = false;
+static bool damaged = false; // the saved settings were edited or cut short
 
 static void apply(const Settings &s) {
     // Where you would actually act on it. Called only when something changed,
@@ -60,7 +61,12 @@ static void apply(const Settings &s) {
 // is no `if` around the read for the same reason.
 static void load(Settings &s) {
     rmp::Value v;
-    rmp::save::read("settings", &v);
+    // When the read fails, `v` stays empty and every field keeps its default
+    // -- that is the whole of "the first run". Only a damaged file is worth
+    // telling the player about; a missing one is simply the first time.
+    const rmp::save::Result read = rmp::save::read("settings", &v);
+    damaged = read.status == rmp::save::Status::MODIFIED ||
+        read.status == rmp::save::Status::TRUNCATED;
     s.fullscreen = v["fullscreen"].as_bool(s.fullscreen);
     s.vsync = v["vsync"].as_bool(s.vsync);
     s.master = v["master"].as_float(s.master);
@@ -163,6 +169,10 @@ static void on_frame(float delta) {
         if (dirty) {
             rmp::ui::text("unsaved changes",
                           { .color = rmp::ui::ColorRole::DANGER, .size = 14 });
+        }
+        if (damaged) {
+            rmp::ui::text("the saved settings were damaged; these are the defaults",
+                          { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
         }
     });
     rmp::ui::end();

@@ -1,0 +1,11 @@
+comment_char %
+escape_char /
+% A locale for tests/save_test.cpp, and nothing else: LC_NUMERIC only, with a
+% comma for the decimal point. Built at test time with localedef and loaded
+% through LOCPATH, so the test runs where no real locale is installed -- the CI
+% build image has none.
+LC_NUMERIC
+decimal_point "<U002C>"
+thousands_sep ""
+grouping -1
+END LC_NUMERIC

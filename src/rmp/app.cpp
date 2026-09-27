@@ -18,6 +18,7 @@
 #include <rmp/config.h>
 #include <rmp/input.h>
 #include <rmp/random.h>
+#include <rmp/save.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 #include <smoke_test.h>
@@ -46,6 +47,31 @@ namespace rmp::app {
 
 namespace {
 bool g_quit_requested = false;
+
+// Write a small save, read it back, compare, remove it. The string is not
+// ASCII on purpose. False, with RAY_TEST_BOOT_FAIL and the reason, when any
+// step fails -- and then RAY_TEST_BOOT_OK is never printed, which is what
+// every CI job greps for.
+bool smoke_save_round_trip() {
+    constexpr const char *kSlot = "rmp-ci-smoke";
+    rmp::Value sent;
+    sent["frames"] = SmokeTest_maxFrames;
+    sent["name"] = "Jos\xc3\xa9 M\xc3\xbcller";
+    rmp::Value back;
+    const bool wrote = rmp::save::write(kSlot, sent);
+    const rmp::save::Result read = rmp::save::read(kSlot, &back);
+    const bool same = read && back == sent;
+    const bool removed = rmp::save::remove(kSlot);
+    if (wrote && same && removed) {
+        TraceLog(LOG_INFO, "RAY_TEST_SAVE_OK dir=%s", rmp::save::directory().c_str());
+        return true;
+    }
+    TraceLog(LOG_ERROR,
+             "RAY_TEST_BOOT_FAIL save: wrote=%d read_status=%d same=%d removed=%d dir=%s",
+             wrote, static_cast<int>(read.status), same, removed,
+             rmp::save::directory().c_str());
+    return false;
+}
 } // namespace
 
 void quit() {
@@ -129,6 +155,13 @@ void begin_run() {
 }
 
 void after_ready() {
+    // Under the CI smoke test, a save goes to this platform's real folder and
+    // back before the boot counts -- because that folder code is different on
+    // every platform (%APPDATA% through the wide API, Application Support on
+    // iOS, internal storage on Android, IndexedDB on the web) and the unit
+    // tests only ever run it on Linux. It is how a Windows user called José,
+    // whose profile path once made every save throw, is tested at all.
+    if (SmokeTest_maxFrames > 0 && !smoke_save_round_trip()) return;
     SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
 }
 

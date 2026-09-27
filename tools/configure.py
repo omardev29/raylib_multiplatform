@@ -1345,6 +1345,14 @@ set(TEMPLATE_LINUX_BACKEND "{cfg["linux"]["backend"]}")
 set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
 """)
 
+    # The game's name for the web's save folder, handed to cmake/web/rmp_web.js
+    # through a --pre-js of its own that runs first. Emscripten names the
+    # IndexedDB database after the folder it is mounted on, so a fixed
+    # /rmp_save would make every rmp game on one origin -- every project site
+    # on user.github.io -- share one database and each other's slots.
+    write(REPO / "cmake" / "generated" / "rmp_web_name.js",
+          f"// {GEN_HEADER}\nModule['rmpSaveName'] = {json.dumps(name)};\n")
+
     defs, stubs = raylib_defs(cfg)
     stub_path = REPO / "cmake" / "generated" / "module_stubs.c"
     if stubs:

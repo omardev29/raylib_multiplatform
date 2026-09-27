@@ -31,6 +31,7 @@ PATTERNS='(^|/)CMakeCache\.txt$
 \.log$
 \.(o|obj|a|lib|so|so\.[0-9]|dylib|dll|exe|pdb|ilk|exp)$
 (^|/)core$
+(^|/)a\.out$
 (^|/)\.DS_Store$
 (^|/)Thumbs\.db$'
 

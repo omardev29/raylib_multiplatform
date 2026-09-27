@@ -175,6 +175,15 @@ jobs:
           $ErrorActionPreference = "Stop"
           $exe = Resolve-Path "build/${{ inputs.project_name }}.exe"
 
+          # The boot saves a file and reads it back (after_ready() in
+          # src/rmp/app.cpp), into %APPDATA% -- set here to a folder named
+          # "Jos\u00e9 M\u00fcller". A profile path like that, read through the
+          # narrow API, is not UTF-8, and once made every save throw and the
+          # game terminate; the runner's own user is ASCII and hid it. Built
+          # from code points so this file stays ASCII.
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP ("Jos" + [char]0x00E9 + " M" + [char]0x00FC + "ller")
+          New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
+
           function Invoke-Game([string]$driver) {
             Remove-Item out.txt,err.txt -ErrorAction SilentlyContinue
             $env:RAY_TEST_MAX_FRAMES = "30"
@@ -207,6 +216,7 @@ jobs:
 
           $all = $result.text
           if ($all -notmatch "RAY_TEST_BOOT_OK assets_failed=0 ") { Write-Host "FAIL: boot marker missing, or an asset failed to load"; exit 1 }
+          if ($all -notmatch "RAY_TEST_SAVE_OK dir=.*Jos") { Write-Host "FAIL: the save round trip did not use the non-ASCII APPDATA"; exit 1 }
           if ($all -notmatch "RAY_TEST_RENDER_OK")   { Write-Host "FAIL: render marker missing (blank frame?)"; exit 1 }
           if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }
           Write-Host "PASS: Windows boot + render verified on GALLIUM_DRIVER=$used"

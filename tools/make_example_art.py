@@ -3,7 +3,9 @@
 
 Every PNG under examples/*/*/resources/ that this file knows how to make is
 generated here, deterministically, from a few lines of arithmetic: a gradient,
-a couple of sine curves, a strip. It is committed next to the pictures so that
+a couple of sine curves, a strip. So are Pong's three sounds: square waves
+with an attack and a decay (tests/configure_test.py checks that the committed
+WAVs are byte for byte what pong_sounds() makes). It is committed next to the pictures so that
 the pictures can be explained, changed and regenerated instead of being blobs
 nobody dares touch -- the same reason tools/make_aseprite_fixture.py exists.
 
@@ -11,22 +13,27 @@ Nothing here is anyone's work but ours, so nothing here needs a licence line.
 
     python3 tools/make_example_art.py        # rewrites every file it owns
 
-Pillow only. It is in the build image (python3-pil) and on every runner.
+Pillow for the pictures -- it is in the build image (python3-pil) and on every
+runner; the sounds need only the standard library.
 """
 from __future__ import annotations
 
+import io
 import math
+import struct
 import sys
+import wave
 from pathlib import Path
 
 try:
     from PIL import Image, ImageDraw
-except ImportError:
-    print("make_example_art.py: Pillow is not installed (pip install pillow)")
-    sys.exit(1)
+except ImportError:  # the sounds do not need it; main() says so for the pictures
+    Image = ImageDraw = None
 
 REPO = Path(__file__).resolve().parent.parent
 RUNNER = REPO / "examples" / "games" / "05_endless_runner" / "resources"
+PONG = REPO / "examples" / "games" / "01_pong" / "resources"
+SOUND_RATE = 22050
 
 WIDTH = 800  # every strip is one screen wide and repeats seamlessly
 
@@ -116,7 +123,45 @@ def rock() -> Image.Image:
     return img
 
 
+def tone(freqs: list[float], seconds: float, volume: float = 0.35) -> bytes:
+    """Square waves one after another, 16-bit mono at SOUND_RATE, each with a
+    2 ms attack (no click at the start) and a quadratic decay (none at the
+    end). A WAV file's bytes."""
+    samples = []
+    n = int(SOUND_RATE * seconds)
+    for f in freqs:
+        for i in range(n):
+            envelope = (1 - i / n) ** 2
+            attack = min(1.0, i / (SOUND_RATE * 0.002))
+            square = 1.0 if math.sin(2 * math.pi * f * i / SOUND_RATE) >= 0 else -1.0
+            samples.append(int(32767 * volume * envelope * attack * square))
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SOUND_RATE)
+        w.writeframes(b"".join(struct.pack("<h", s) for s in samples))
+    return out.getvalue()
+
+
+def pong_sounds() -> dict[str, bytes]:
+    """hit: one 480 Hz blip. point: 660 then 440 Hz. win: C5 E5 G5 C6."""
+    return {
+        "hit.wav": tone([480], 0.06),
+        "point.wav": tone([660, 440], 0.11),
+        "win.wav": tone([523, 659, 784, 1046], 0.12, 0.3),
+    }
+
+
 def main() -> int:
+    PONG.mkdir(parents=True, exist_ok=True)
+    for name, data in pong_sounds().items():
+        (PONG / name).write_bytes(data)
+        print(f"  wrote {PONG.relative_to(REPO) / name}")
+    if Image is None:
+        print("make_example_art.py: Pillow is not installed (pip install pillow); "
+              "the pictures were not made")
+        return 1
     RUNNER.mkdir(parents=True, exist_ok=True)
     for name, make in (("sky.png", sky), ("hills.png", hills), ("ground.png", ground),
                        ("runner.png", runner), ("rock.png", rock)):

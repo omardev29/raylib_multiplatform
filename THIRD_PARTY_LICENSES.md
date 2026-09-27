@@ -156,11 +156,17 @@ changing fails the build.
   Unlicense -- the vendored files carry no notice of their own, so the
   Unlicense text and the provenance are in
   [`thirdparty/rres/external/LICENSE-tiny-AES-c.txt`](thirdparty/rres/external/LICENSE-tiny-AES-c.txt)),
-  **Monocypher 4.0.2** (Loup Vaillant), **QOI** (Dominic Szablewski, MIT), and
+  **Monocypher 4.0.2** (Loup Vaillant; its XChaCha20-Poly1305 also seals
+  `rmp::save` files, and its BLAKE2b derives their key), **QOI** (Dominic
+  Szablewski, MIT), and
   **LZ4** (Yann Collet, BSD-2-Clause), which is in the tree but **not compiled**:
   `src/rmp/rres_impl.cpp` enables AES and XChaCha20 and never
   `RRES_SUPPORT_COMPRESSION_LZ4`. The day `[resources]` gains compression its
   row changes from `none` to `all` and its notice starts shipping.
+- **cJSON** (Dave Gamble and cJSON contributors, MIT) is the JSON under
+  `rmp::save`: compiled once by `src/rmp/cjson_impl.c`, included by
+  `src/rmp/save.cpp` alone and by no public header, unmodified and pinned by
+  content.
 - **Clay** (Nic Barker, zlib) is the layout engine behind `rmp::ui`.
 - **raylib-cpp** (Rob Loach, zlib): the math subset only, header-only, behind
   `rmp/math.h`.

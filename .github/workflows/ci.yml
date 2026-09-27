@@ -306,6 +306,15 @@ jobs:
           set -euo pipefail
           cmake --preset debug -DBUILD_TESTS=ON > /dev/null
           cmake --build build --target unit_test > /dev/null
+          # The locale tests and the audio device tests skip where they cannot
+          # run -- on a laptop that is honest, here it would be a gate that
+          # passes by not looking. Both are required in this job: the locales
+          # are built from tests/fixtures/locale/, and the device is miniaudio's
+          # null backend, which the image has.
+          bash tools/test_locales.sh build/test-locales
+          export LOCPATH="$PWD/build/test-locales"
+          export RMP_REQUIRE_TEST_LOCALES=1
+          export RMP_REQUIRE_AUDIO_DEVICE=1
           ./build/unit_test
           ./build/unit_test --order-by=rand --rand-seed=1337 --test-suite-exclude="audio: device"
 

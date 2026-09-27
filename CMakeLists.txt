@@ -478,7 +478,8 @@ function(rmp_add_game NAME DIR)
           # the tab dies with "Cannot enlarge memory arrays", not a raylib error.
           LINK_FLAGS "-s TOTAL_MEMORY=${TEMPLATE_WEB_TOTAL_MEMORY} \
 -s ALLOW_MEMORY_GROWTH=${TEMPLATE_WEB_ALLOW_MEMORY_GROWTH} \
--lidbfs.js --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/web/rmp_web.js \
+-lidbfs.js --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/rmp_web_name.js \
+--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/web/rmp_web.js \
 --preload-file ${_res_dir}@/resources/"
       )
   endif()

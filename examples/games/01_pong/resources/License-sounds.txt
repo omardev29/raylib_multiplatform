@@ -1,6 +1,6 @@
 hit.wav, point.wav and win.wav
 
-Synthesized for this repository: square waves at 22050 Hz, 16-bit mono, with a
+Synthesized for this repository by tools/make_example_art.py (pong_sounds): square waves at 22050 Hz, 16-bit mono, with a
 2 ms attack and a quadratic decay. hit is one 480 Hz blip of 60 ms; point is
 660 Hz then 440 Hz, 110 ms each; win is C5 E5 G5 C6, 120 ms each.
 

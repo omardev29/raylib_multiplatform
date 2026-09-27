@@ -21,7 +21,12 @@
 //
 // Markers emitted (the CI greps for these):
 //   RAY_TEST_BOOT_OK      — the game booted and loaded its assets
-//   RAY_TEST_BOOT_FAIL    — InitWindow() never got a window; nothing else ran
+//   RAY_TEST_BOOT_FAIL    — InitWindow() never got a window; nothing else ran,
+//                           or (with "save:") a save did not make it to this
+//                           platform's folder and back -- see after_ready()
+//                           in src/rmp/app.cpp. BOOT_OK is not printed then.
+//   RAY_TEST_SAVE_OK      — that save round trip worked; printed just before
+//                           BOOT_OK by every game built on the framework
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content
 //   RAY_TEST_RENDER_FAIL  — the frame was blank; something stopped drawing
 //   RAY_TEST_DONE_FRAMES  — the frame budget was rendered, exiting cleanly

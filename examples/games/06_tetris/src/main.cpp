@@ -16,7 +16,10 @@
 //   rmp::save       the best score, kept between sessions -- three lines to
 //                   read it and four to write it, and no `if` on the read:
 //                   the first time there is no save, the Value stays empty,
-//                   and an empty Value reads as the default.
+//                   and an empty Value reads as the default. (The write is at
+//                   game over, which the CI boot's thirty frames never reach;
+//                   rmp::save is tested in tests/save_test.cpp, and on every
+//                   platform by the boot itself -- see src/rmp/app.cpp.)
 //
 // And one thing it does NOT contribute here, said plainly because the
 // alternative is a comment that rots: rmp::behavior::GridSnap is not used in

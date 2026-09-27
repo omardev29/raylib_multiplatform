@@ -35,8 +35,8 @@
 // them needed. tools/header_check.sh compiles this one on its own.
 #include <raylib.h>
 #include <rmp/config.h>
-#include <rmp/object.h>
-#include <rmp/scene.h>
+#include <rmp/object.h> // rmp::Object, Handle and Callback, held by value in the catalogue
+#include <rmp/scene.h> // rmp::Scene, for Spawner's on_spawn -- and what every behavior game uses
 
 #include <array>
 #include <string> // the action and tag names a behavior is given; owned, so a

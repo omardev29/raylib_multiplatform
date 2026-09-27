@@ -2211,12 +2211,26 @@ class DocumentedTreeTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, on_disk, f"TECHNICAL.md's tree names {name}, which does not exist")
 
+    # Each public header and the module it is, as the README's table names it.
+    # A header missing from this map fails below, which is what makes a new
+    # module (rmp/audio.h and rmp/save.h were missing from the table for a
+    # whole phase, behind a hard-coded list) add its README row.
+    MODULES = {"app.h": ["rmp::app"], "scene.h": ["rmp::Scene", "rmp::Camera"],
+               "object.h": ["rmp::Object"], "behavior.h": ["rmp::behavior"],
+               "input.h": ["rmp::input"], "ui.h": ["rmp::ui"], "assets.h": ["rmp::assets"],
+               "tilemap.h": ["rmp::Tilemap"], "audio.h": ["rmp::audio"], "save.h": ["rmp::save"],
+               "random.h": ["rmp::random"], "ads.h": ["rmp::ads"],
+               "math.h": [], "config.h": []}  # math and config are not modules with a row
+
     def test_the_readme_namespace_table_names_every_module(self):
         readme = (REPO / "README.md").read_text()
-        for module in ("rmp::app", "rmp::Scene", "rmp::Object", "rmp::behavior", "rmp::input",
-                       "rmp::ui", "rmp::assets", "rmp::Tilemap", "rmp::random", "rmp::ads"):
-            with self.subTest(module=module):
-                self.assertIn(f"| **`{module}`** |", readme)
+        headers = {p.name for p in (REPO / "include" / "rmp").glob("*.h")}
+        self.assertEqual(headers - set(self.MODULES), set(),
+                         "a public header with no entry in MODULES -- add it, and its README row")
+        for header, modules in self.MODULES.items():
+            for module in modules:
+                with self.subTest(header=header, module=module):
+                    self.assertIn(f"| **`{module}`** |", readme)
 
 
 class NoAbsoluteIncludeTest(unittest.TestCase):
@@ -3854,6 +3868,183 @@ class ConfigureSaveTest(unittest.TestCase):
                 self.assertRegex(section, rf"(?m)^{key}\s*=")
         # Omar's rule, in the one section where a password would look at home.
         self.assertNotRegex(section.lower(), r"(?m)^(password|key|secret)\s*=")
+
+
+
+class WebSavesLinkTest(unittest.TestCase):
+    """The web half of rmp::save is three things in the link line, and losing
+    any of them loses every save on reload while the game boots green.
+
+    -lidbfs.js provides IDBFS; cmake/generated/rmp_web_name.js hands the
+    game's name to cmake/web/rmp_web.js, which must come after it and mounts
+    IndexedDB at /rmp_save/<name>; src/rmp/save.cpp must look in that same
+    folder. The browser boot test catches a failing mount at run time
+    (.github/scripts/web_boot_test.js turns any "rmp::save:" warning into an
+    error); this catches the link line before anything is built.
+    """
+
+    def link_flags(self) -> str:
+        cmake = (REPO / "CMakeLists.txt").read_text()
+        start = cmake.index('LINK_FLAGS "-s TOTAL_MEMORY=')
+        return cmake[start:cmake.index('")', start)]
+
+    def test_idbfs_and_both_pre_js_are_linked_in_order(self):
+        flags = self.link_flags()
+        self.assertIn("-lidbfs.js", flags)
+        name_js = flags.find("--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/rmp_web_name.js")
+        web_js = flags.find("--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/web/rmp_web.js")
+        self.assertGreaterEqual(name_js, 0)
+        self.assertGreaterEqual(web_js, 0)
+        self.assertLess(name_js, web_js, "the name has to be set before rmp_web.js reads it")
+
+    def test_the_mount_and_the_folder_agree(self):
+        web = (REPO / "cmake" / "web" / "rmp_web.js").read_text()
+        self.assertIn("'/rmp_save/' + (Module['rmpSaveName']", web)
+        self.assertIn("FS.mount(IDBFS, {}, dir)", web)
+        save = (REPO / "src" / "rmp" / "save.cpp").read_text()
+        self.assertIn('return "/rmp_save/" APP_NAME "/";', save)
+
+    def test_the_generated_name_is_the_project_name_as_a_js_string(self):
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+        try:
+            for name in ("ray_test", 'quo"te', "back\\slash"):
+                with self.subTest(name=name):
+                    captured.clear()
+                    cfg = base_config()
+                    cfg["project"]["name"] = name
+                    cfgmod.gen_cmake(cfg)
+                    js = captured["rmp_web_name.js"]
+                    self.assertIn(f"Module['rmpSaveName'] = {json.dumps(name)};", js)
+        finally:
+            cfgmod.write = original
+
+    def test_the_boot_test_fails_on_a_save_warning(self):
+        boot = (REPO / ".github" / "scripts" / "web_boot_test.js").read_text()
+        at = boot.index("/^rmp::save:/.test(text)")
+        # And before the line that drops everything that is not an error.
+        self.assertLess(at, boot.index("if (msg.type() !== 'error') return;"))
+
+
+
+class OwnHeaderIncludeTest(unittest.TestCase):
+    """CLAUDE.md: "Our headers do not include each other." Where a type by
+    value makes it unavoidable, the header includes the other one and says why
+    -- on the include's own line, which is what this checks, so an include
+    added without a reason fails here instead of quietly dragging a module
+    into every file that touches this one. And no cycles: two of ours that
+    need each other means one of them should not exist.
+
+    next_architecture/02-headers.md said a test compared this; none did until
+    the phase 11-12 completeness review found the claim unbacked.
+    """
+
+    INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]rmp/([a-z_]+\.h)[>"](.*)$')
+
+    def own_includes(self) -> dict[str, list[tuple[int, str, str]]]:
+        found: dict[str, list[tuple[int, str, str]]] = {}
+        for header in sorted((REPO / "include" / "rmp").glob("*.h")):
+            for n, line in enumerate(header.read_text().splitlines(), start=1):
+                m = self.INCLUDE.match(line)
+                if m and m.group(1) != "config.h":
+                    found.setdefault(header.name, []).append((n, m.group(1), m.group(2)))
+        return found
+
+    def test_the_scan_sees_the_known_ones(self):
+        found = self.own_includes()
+        self.assertIn("object.h", [inc for _, inc, _ in found.get("scene.h", [])])
+        self.assertIn("assets.h", [inc for _, inc, _ in found.get("object.h", [])])
+
+    def test_every_include_of_another_rmp_header_says_why_on_its_line(self):
+        unexplained = [f"{h}:{n} includes rmp/{inc} without a // reason"
+                       for h, rows in self.own_includes().items()
+                       for n, inc, rest in rows
+                       if not re.match(r"\s*//\s*\S", rest)]
+        self.assertEqual(unexplained, [])
+
+    def test_no_two_of_ours_include_each_other(self):
+        graph = {h: {inc for _, inc, _ in rows} for h, rows in self.own_includes().items()}
+
+        def reaches(start: str, goal: str, seen: set[str]) -> bool:
+            for nxt in graph.get(start, ()):
+                if nxt == goal or (nxt not in seen and reaches(nxt, goal, seen | {nxt})):
+                    return True
+            return False
+
+        cycles = sorted(h for h in graph if reaches(h, h, {h}))
+        self.assertEqual(cycles, [])
+
+    def test_the_new_modules_stand_alone(self):
+        # audio.h and save.h include nothing of ours but config.h.
+        found = self.own_includes()
+        self.assertNotIn("audio.h", found)
+        self.assertNotIn("save.h", found)
+
+
+
+class ExampleSoundsExistTest(unittest.TestCase):
+    """Every sound an example asks rmp::audio for by name is in its resources/.
+
+    Sounds load the first time they play, so a missing hit.wav is invisible to
+    the examples job: thirty frames of Pong never reach a paddle, the game
+    boots with assets_failed=0, and the first player to return a serve hears
+    nothing. The names are looked up the way rmp::audio looks them up.
+    """
+
+    CALL = re.compile(r'rmp::audio::(?:play|music)\(\s*"([^"]+)"')
+    SEARCH = (".wav", ".ogg", ".mp3", ".qoa")
+    KNOWN = SEARCH + (".flac", ".xm", ".mod")
+
+    def candidates(self, name: str) -> list[str]:
+        file = re.split(r"[/\\]", name)[-1]
+        dot = file.rfind(".")
+        if dot > 0 and file[dot:].lower() in self.KNOWN:
+            return [name]
+        return [name + ext for ext in self.SEARCH]
+
+    def calls(self) -> list[tuple[Path, str]]:
+        found = []
+        for src in sorted((REPO / "examples").rglob("*.cpp")):
+            # Comments out, strings kept: a comment that mentions
+            # music("song") is prose, not a sound the game asks for.
+            code = re.sub(r"//[^\n]*|/\*.*?\*/", " ", src.read_text(), flags=re.S)
+            for name in self.CALL.findall(code):
+                found.append((src, name))
+        return found
+
+    def resources_of(self, src: Path) -> Path:
+        # examples/<area>/<name>/src/... -> examples/<area>/<name>/resources,
+        # else the game's own resources/, as rmp_add_game() decides.
+        for parent in src.parents:
+            if parent.name == "src" and (parent.parent / "resources").is_dir():
+                return parent.parent / "resources"
+        return REPO / "resources"
+
+    def test_the_scan_finds_the_sounds_the_games_play(self):
+        names = {name for _, name in self.calls()}
+        self.assertTrue({"hit", "point", "win"} <= names, names)
+
+    def test_pongs_sounds_are_what_the_generator_makes(self):
+        # License-sounds.txt says they were synthesized; this says by what,
+        # and that the committed bytes are exactly its output.
+        spec = importlib.util.spec_from_file_location(
+            "make_example_art", REPO / "tools" / "make_example_art.py")
+        art = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(art)
+        made = art.pong_sounds()
+        self.assertEqual(sorted(made), ["hit.wav", "point.wav", "win.wav"])
+        for name, data in made.items():
+            with self.subTest(sound=name):
+                committed = (REPO / "examples" / "games" / "01_pong" / "resources" / name).read_bytes()
+                self.assertEqual(data, committed)
+
+    def test_every_named_sound_resolves_to_a_file(self):
+        missing = [f"{src.relative_to(REPO)}: \"{name}\" (looked for "
+                   f"{', '.join(self.candidates(name))} in {self.resources_of(src).relative_to(REPO)})"
+                   for src, name in self.calls()
+                   if not any((self.resources_of(src) / c).is_file() for c in self.candidates(name))]
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

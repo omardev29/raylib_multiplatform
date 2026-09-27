@@ -1,0 +1,9 @@
+comment_char %
+escape_char /
+% The same, with U+066B ARABIC DECIMAL SEPARATOR: two bytes in UTF-8, which
+% is what cJSON's ENABLE_LOCALES got wrong (it takes the first byte only).
+LC_NUMERIC
+decimal_point "<U066B>"
+thousands_sep ""
+grouping -1
+END LC_NUMERIC

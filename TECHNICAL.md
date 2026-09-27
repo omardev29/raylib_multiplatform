@@ -226,6 +226,11 @@ get indexed). It requires the NDK:
 | `RRES_PASSWORD` | string | rres decryption password (see below) |
 | `APP_NAME`, `APP_WINDOW_TITLE`, `APP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
 | `APP_UI_FONT`, `APP_UI_FONT_SIZE`, `APP_UI_SCALE`, `APP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
+| `APP_INPUT_DEADZONE` | from `[input]` | The stick travel that reads as zero |
+| `APP_AUDIO_MASTER`, `APP_AUDIO_MUSIC`, `APP_AUDIO_SFX` | from `[audio]` | What the three `rmp::audio` buses start at |
+| `APP_SAVE_PORTABLE`, `APP_SAVE_ENCRYPT`, `APP_SAVE_VERSION` | from `[save]` | Where saves go, whether they are sealed, the game's save-format version |
+| `APP_MAX_DELTA` | from `[app]` | The longest step the game logic is handed |
+| `APP_DEV_STRICT` | from `[dev]` | The first framework diagnostic aborts a debug build |
 
 ```cpp
 Texture2D tex = LoadTexture(RESOURCES_PATH "player.png");  // raw path form
@@ -1458,7 +1463,7 @@ once.
 | Linux, BSD | `$XDG_DATA_HOME/<name>/` when absolute, else `~/.local/share/<name>/` |
 | Android | the app's internal storage, `<internalDataPath>/saves/` |
 | iOS | `~/Library/Application Support/` — not `Documents`, which the iOS Data Storage Guidelines reserve for what the user created |
-| Web | `/rmp_save/`, IndexedDB-backed |
+| Web | `/rmp_save/<name>/`, one IndexedDB database per game |
 
 `[save] portable = true` puts them in `saves/` next to the executable instead, on Windows, Linux and
 the BSDs — the zip-from-itch.io case, where deleting the folder should delete everything. Where the
@@ -1473,7 +1478,7 @@ such folder and ignore the setting. On Windows every folder comes from the wide 
 José had a profile path that is not UTF-8 — converting it threw out of `read()` and `write()`.
 
 **Web** is the one that loses saves silently if it is done wrong: Emscripten's files are memory
-until they are synced. `cmake/web/rmp_web.js` mounts IndexedDB at `/rmp_save` **before `main()`**,
+until they are synced. `cmake/web/rmp_web.js` mounts IndexedDB at `/rmp_save/<name>` **before `main()`**,
 holding the program back with a run dependency until the folder has been filled — otherwise the
 first scene's read would find nothing and a player's progress would look deleted — and every write
 and remove calls `FS.syncfs(false)`. With no IndexedDB at all (node, some `file://` pages) the mount
@@ -1489,6 +1494,17 @@ same double, else 16, else 17 (cJSON's own printer keeps 15 whenever they read b
 switching only when the game's locale does not already use `.`, so a German or Pashto locale neither
 writes `0,5` nor fails to read `0.5`. (`ENABLE_LOCALES`, cJSON's own answer, takes one byte of the
 decimal point; Pashto's is two.)
+
+**What is tested, and what is not.** `tests/save_test.cpp` runs on Linux in `just test` and in the
+CI `lint` job: the Value and its Ref, the file format attacked byte by byte, sealing, the portable
+fallback across two sessions, the XDG folders, and numbers under a comma and a two-byte decimal
+point (locales built from `tests/fixtures/locale/` by `tools/test_locales.sh`, required in CI).
+What only another platform can run is covered by the boot instead: under the CI smoke test every
+game saves a small file to its platform's real folder, reads it back and removes it before it may
+print `RAY_TEST_BOOT_OK` (`after_ready()` in `src/rmp/app.cpp`), so all seventeen targets exercise
+their own folder code -- and the Windows job does it with `%APPDATA%` set to a folder called "José
+Müller". What no job checks is that a web save survives a real page reload, beyond the boot test
+failing on any `rmp::save:` warning from the IndexedDB mount.
 
 ## AdMob (Android)
 
@@ -2038,7 +2054,13 @@ Specifics to expect when the stores move:
 picks it up on the next build. Headers go in `include/`.
 
 **Libraries:** put the library in `thirdparty/`, `add_subdirectory(thirdparty/yourlib)` it, and add
-its target to `target_link_libraries`:
+its target to `target_link_libraries` -- and before any of that, its row in the components block of
+`THIRD_PARTY_LICENSES.md`, because `tools/license_check.sh` fails on a directory under `thirdparty/`
+it does not know. An unmodified library is also pinned by content: the failure message prints the
+exact `sha256_<name>` line to add to the versions block of `thirdparty/FROZEN_VERSIONS.md` (for a
+directory, a hash over every source file in it, subdirectories included). A modified one gets a
+`PATCHES.md` that says MODIFIED instead. And a library with headers goes on the four include lists
+the framework keeps -- `tests/configure_test.py` names them when one is missing.
 
 ```cmake
 target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE

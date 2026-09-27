@@ -522,32 +522,70 @@ TEST_SUITE("save: format") {
 
     TEST_CASE("numbers are written in C notation whatever the locale") {
         // A game that calls setlocale() for its UI must not start writing
-        // 0,5 -- which is not JSON -- into its saves.
+        // 0,5 -- which is not JSON -- into its saves, nor fail to read 0.5.
+        // rmp_comma and rmp_twobyte are built from tests/fixtures/locale/ by
+        // tools/test_locales.sh; the real ones are there for a laptop.
+        struct Case {
+            std::vector<const char *> names;
+            const char *what;
+        };
+        const std::vector<Case> cases = {
+            { { "rmp_comma", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8", "es_ES.UTF-8" },
+              "a comma" },
+            // U+066B, two bytes: cJSON's ENABLE_LOCALES took the first only,
+            // and a game under it could not read its own saves.
+            { { "rmp_twobyte", "ps_AF.UTF-8" }, "a two-byte decimal point" },
+        };
         const std::string was = std::setlocale(LC_NUMERIC, nullptr);
-        const char *comma = nullptr;
-        for (const char *name :
-             { "de_DE.UTF-8", "de_DE.utf8", "de_DE", "fr_FR.UTF-8", "es_ES.UTF-8" }) {
-            if (std::setlocale(LC_NUMERIC, name) != nullptr) {
-                comma = name;
-                break;
+        for (const Case &c : cases) {
+            const std::string what = c.what; // a std::string, or doctest prints "1"
+            CAPTURE(what);
+            const char *found = nullptr;
+            for (const char *name : c.names) {
+                if (std::setlocale(LC_NUMERIC, name) != nullptr) {
+                    found = name;
+                    break;
+                }
             }
+            if (found == nullptr) {
+                const char *must = std::getenv("RMP_REQUIRE_TEST_LOCALES");
+                if (must != nullptr && std::string(must) == "1") {
+                    FAIL_CHECK("no locale with "
+                               << what << ": run tools/test_locales.sh and set LOCPATH");
+                } else {
+                    MESSAGE("no locale with " << what << " here: skipped");
+                }
+                continue;
+            }
+            const std::string locale = found;
+            CAPTURE(locale);
+            // Printing 0.5 under it really does not give "0.5" -- or this
+            // case tests nothing.
+            char raw[16];
+            std::snprintf(raw, sizeof raw, "%g", 0.5);
+            CHECK(std::string(raw) != "0.5");
+
+            Value v;
+            v["half"] = 0.5;
+            v["big"] = 1234567.25;
+            const std::string json = rmp::save::detail::to_json(v);
+            Value back;
+            const bool parsed = rmp::save::detail::from_json(json, &back);
+            Bytes file;
+            REQUIRE(rmp::save::detail::encode(v, 1, false, &file));
+            Value decoded;
+            const Status status = rmp::save::detail::decode(file, &decoded);
+            const std::string during = std::setlocale(LC_NUMERIC, nullptr);
+            std::setlocale(LC_NUMERIC, was.c_str());
+            CHECK(json == R"({"half":0.5,"big":1234567.25})");
+            REQUIRE(parsed);
+            CHECK(back == v);
+            CHECK(status == Status::OK);
+            CHECK(decoded == v);
+            CHECK(during.find(found) !=
+                  std::string::npos); // the game's locale, given back
         }
-        if (comma == nullptr) {
-            MESSAGE("no comma-decimal locale installed here: skipped");
-            return;
-        }
-        Value v;
-        v["half"] = 0.5;
-        v["big"] = 1234567.25;
-        const std::string json = rmp::save::detail::to_json(v);
-        Value back;
-        const bool parsed = rmp::save::detail::from_json(json, &back);
-        const std::string during = std::setlocale(LC_NUMERIC, nullptr);
         std::setlocale(LC_NUMERIC, was.c_str());
-        CHECK(json == R"({"half":0.5,"big":1234567.25})");
-        CHECK(during.find(comma) != std::string::npos); // the game's locale, given back
-        REQUIRE(parsed);
-        CHECK(back == v);
     }
 
     TEST_CASE("NaN and infinity are written as nothing, and read as the default") {

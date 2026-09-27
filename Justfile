@@ -202,6 +202,10 @@ test what="all": (_reconfigure "Debug")
         echo "== unit =="
         cmake --preset debug -DBUILD_TESTS=ON >/dev/null
         cmake --build build --target unit_test >/dev/null
+        # Two locales built from tests/fixtures/locale/, so the save tests see
+        # a decimal point that is not '.' on any Linux box; see the script.
+        bash tools/test_locales.sh build/test-locales
+        export LOCPATH="$PWD/build/test-locales"
         ./build/unit_test 2>&1 | tail -3
         # And again in a different order, with a FIXED seed so a failure is
         # reproducible. A suite whose result depends on the order it runs in is

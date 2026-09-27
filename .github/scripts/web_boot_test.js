@@ -110,6 +110,15 @@ function contentRatio(pngBuffer) {
     page.on('console', (msg) => {
       const text = msg.text();
       logs.push(msg.type() + ': ' + text);
+      // rmp::save's web half only ever warns when saves will not survive a
+      // reload -- IDBFS missing from the link, the mount failing. Headless
+      // Chromium has IndexedDB, so here any of them is a broken build: a warn
+      // that was dropped with the other warnings let a build that loses every
+      // save on reload boot green.
+      if (/^rmp::save:/.test(text)) {
+        errors.push('rmp::save: ' + text);
+        return;
+      }
       if (msg.type() !== 'error') return;
       if (BENIGN.some((re) => re.test(text))) {
         suppressed.push(text);

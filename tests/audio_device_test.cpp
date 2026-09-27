@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -115,6 +116,20 @@ void write_tone(const fs::path &path, double seconds, double hz) {
     }
 }
 
+// Where there is no device at all these tests skip -- but the CI lint job
+// sets RMP_REQUIRE_AUDIO_DEVICE=1, and there a skip is a failure: miniaudio's
+// null backend is in the image, and a suite that quietly stops running is a
+// gate that passes by not looking.
+void skipped() {
+    const char *must = std::getenv("RMP_REQUIRE_AUDIO_DEVICE");
+    if (must != nullptr && std::string(must) == "1") {
+        FAIL_CHECK(
+            "no sound device, and RMP_REQUIRE_AUDIO_DEVICE=1 says there must be one");
+    } else {
+        MESSAGE("no sound device here, not even a null one: skipped");
+    }
+}
+
 // The real device, silent, with a folder of tones as resources/. `ok` is
 // false where there is no device, and every test then returns.
 struct Device {
@@ -135,7 +150,7 @@ struct Device {
         rmp::audio::detail::reset_for_tests(); // the real opener
         ok = rmp::audio::detail::ensure_device();
         if (!ok) {
-            MESSAGE("no sound device here, not even a null one: skipped");
+            skipped();
             return;
         }
         SetMasterVolume(0.0f); // nothing reaches the speakers
@@ -256,7 +271,7 @@ TEST_SUITE("audio: device") {
         rmp::audio::detail::reset_for_tests();
         InitAudioDevice();
         if (!IsAudioDeviceReady()) {
-            MESSAGE("no sound device here: skipped");
+            skipped();
             return;
         }
         CHECK(rmp::audio::detail::ensure_device());
@@ -271,7 +286,7 @@ TEST_SUITE("audio: device") {
     TEST_CASE("a device the framework opened, the framework closes") {
         rmp::audio::detail::reset_for_tests();
         if (!rmp::audio::detail::ensure_device()) {
-            MESSAGE("no sound device here: skipped");
+            skipped();
             return;
         }
         CHECK(rmp::audio::detail::opened_by_us());

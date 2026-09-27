@@ -10,8 +10,10 @@
 // It is a whole game: two players, a point when the ball leaves by a side,
 // first to seven, and a way to play again. With sound, by name: the three
 // files in resources/ are hit.wav, point.wav and win.wav, and nothing in this
-// file opens, feeds or closes a sound device. On a machine without one -- the
-// CI runner that boots this -- it plays the same game in silence.
+// file opens, feeds or closes a sound device. On a machine without one it
+// plays the same game in silence. (The CI runner that boots it has a silent
+// null device; tests/configure_test.py checks the three files exist, since
+// thirty frames never reach a paddle to play them.)
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

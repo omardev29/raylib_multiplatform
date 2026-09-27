@@ -543,8 +543,9 @@ std::string env(const char *name) {
 // configure.py only accepts in a form every file system takes.
 std::string detail::user_folder() {
 #if defined(__EMSCRIPTEN__)
-    // Mounted on IndexedDB before main() by cmake/web/rmp_web.js.
-    return "/rmp_save/";
+    // Mounted on IndexedDB before main() by cmake/web/rmp_web.js, one
+    // database per game: cmake/generated/rmp_web_name.js hands it this name.
+    return "/rmp_save/" APP_NAME "/";
 #elif defined(PLATFORM_ANDROID)
     // The app's private internal storage: no permission needed, removed with
     // the app, invisible to other apps.
@@ -730,12 +731,10 @@ void persist() {
     // Without this the save lives in memory until the tab is closed and is
     // then gone: IDBFS only reaches IndexedDB on a sync. It is asynchronous,
     // and that is fine -- the file is already complete in memory.
+    // Module.rmpPersist lives in cmake/web/rmp_web.js, which keeps it to one
+    // FS.syncfs at a time.
     EM_ASM({
-        FS.syncfs(
-            false, function(err) {
-                if (err)
-                    console.warn('rmp::save: could not persist to IndexedDB: ' + err);
-            });
+        if (Module['rmpPersist']) Module['rmpPersist']();
     });
 #endif
 }
@@ -853,6 +852,9 @@ bool write(std::string_view slot, const Value &value, const WriteOptions &option
             return true;
         }
     }
+    // A plain log, every time: a refused write is the machine (a full disk, a
+    // permission), not a mistake in the game, so not RMP_REPORT_ONCE -- strict
+    // would abort -- and writes are rare enough that each one deserves its line.
     TraceLog(LOG_WARNING, "SAVE: could not write %s", file_in(f.chosen, slot).c_str());
     return false;
 }

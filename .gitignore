@@ -52,3 +52,6 @@ build-memory/
 
 # Agent worktrees (Claude Code): checkouts of this repository, never sources.
 /.claude/worktrees/
+# A compiler run without -o. One was committed on 2026-09-27; tools/repo_check.sh
+# now refuses it too.
+a.out
