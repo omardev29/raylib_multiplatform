@@ -16,6 +16,7 @@
 #include <rmp/tilemap.h>
 
 #include "animation_internal.h"
+#include "audio_internal.h"
 #include "tilemap_internal.h"
 #include "internal.h"
 
@@ -60,6 +61,15 @@ void fallback_path(const char *name, char *out, size_t n) {
 }
 
 } // namespace
+
+// Declared in internal.h. Here because this is where the loose path is built.
+bool detail::resource_exists(const char *name) {
+    if (name == nullptr || name[0] == '\0') return false;
+    if (detail::pack_has(name)) return true;
+    char path[2048];
+    fallback_path(name, path, sizeof(path));
+    return FileExists(path);
+}
 
 void init() {
     if (detail::open_pack()) detail::install_loader_hook();
@@ -202,6 +212,13 @@ rmp::Texture load_texture(std::string_view name_view) {
 }
 
 rmp::Sound load_sound(std::string_view name_view) {
+    // A sound needs the device open, and this used to need the game to have
+    // called InitAudioDevice() first -- one more line in every project, and a
+    // silent empty sound when it was missing. The device opens here now, the
+    // same lazy way rmp::audio opens it, and rmp::app closes it on the way out
+    // in the right order. On a machine with no device this is empty and says
+    // so once.
+    if (!rmp::audio::detail::ensure_device()) return rmp::Sound{};
     const std::string key(name_view);
     const char *name = key.c_str();
     using rmp::detail::ResourceKind;

@@ -4,8 +4,9 @@
 // hit test. No window: the camera projects onto the design size when there is
 // none, which is exactly what makes these deterministic.
 //
-// Not here yet, because the camera does not have it yet (phase 11): the
-// exponential smoothing and the shake.
+// And phase 11's two: the exponential smoothing, whose whole point is that it
+// does not depend on the frame rate, and the shake, whose whole point is that
+// nothing gameplay reads can see it.
 // ---------------------------------------------------------------------------
 
 #include <doctest.h>
@@ -16,6 +17,9 @@
 #include <rmp/input.h>
 #include <rmp/object.h>
 #include <rmp/scene.h>
+
+#include <cmath>
+#include <vector>
 
 namespace {
 
@@ -53,7 +57,7 @@ void frame(rmp::Scene &scene, float delta = 1.0f / 60) {
     rmp::objects::detail::pointer(scene);
     rmp::objects::detail::update(scene, delta);
     rmp::objects::detail::collide(scene);
-    scene.camera.detail_settle();
+    scene.camera.detail_settle(delta);
     rmp::objects::detail::collect();
 }
 
@@ -230,5 +234,260 @@ TEST_SUITE("camera") {
             frame(world);
             CHECK(clicks == 1);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Smoothing
+    // -----------------------------------------------------------------------
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "smoothing covers exactly 1 - exp(-rate * delta) of the distance") {
+        World world;
+        auto &target = world.spawn({ .position = { 100, 100 } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 5;
+        world.camera.detail_settle(1.0f / 60); // acquires the target: a snap
+        REQUIRE(near(world.camera.position, Vector2{ 100, 100 }));
+
+        target.position = { 300, 100 };
+        world.camera.detail_settle(0.1f);
+        const float expected = 100 + 200 * (1 - std::exp(-5.0f * 0.1f));
+        CHECK(world.camera.position.x == doctest::Approx(expected).epsilon(1e-5));
+        CHECK(world.camera.position.y == doctest::Approx(100));
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "two half frames land exactly where one whole frame does") {
+        // THE test for "delta in the exponent". A per-frame lerp factor --
+        // position += (target - position) * 0.1 -- fails this, and that is the
+        // bug that makes a camera follow twice as fast at 120 Hz as at 60.
+        auto settle_to = [](int steps, float total) {
+            World world;
+            auto &target = world.spawn({ .position = { 0, 0 } });
+            world.camera.follow = target.handle();
+            world.camera.smoothing = 7.5f;
+            world.camera.detail_settle(0.0f); // acquire
+            target.position = { 640, -320 };
+            for (int i = 0; i < steps; i++) {
+                world.camera.detail_settle(total / static_cast<float>(steps));
+            }
+            return world.camera.position;
+        };
+        const Vector2 one = settle_to(1, 0.2f);
+        const Vector2 two = settle_to(2, 0.2f);
+        const Vector2 eight = settle_to(8, 0.2f);
+        CHECK(two.x == doctest::Approx(one.x).epsilon(1e-4));
+        CHECK(two.y == doctest::Approx(one.y).epsilon(1e-4));
+        CHECK(eight.x == doctest::Approx(one.x).epsilon(1e-4));
+        CHECK(eight.y == doctest::Approx(one.y).epsilon(1e-4));
+        // And it actually moved, or the equality above is about nothing.
+        CHECK(one.x > 100);
+        CHECK(one.x < 640);
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "it converges on the target and does not overshoot") {
+        World world;
+        auto &target = world.spawn({ .position = { 0, 0 } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 4;
+        world.camera.detail_settle(0.0f);
+        target.position = { 500, 200 };
+        float last = 0;
+        for (int i = 0; i < 600; i++) {
+            world.camera.detail_settle(1.0f / 60);
+            // Monotonic: exponential approach never passes the target.
+            CHECK(world.camera.position.x >= last - 1e-4f);
+            CHECK(world.camera.position.x <= 500 + 1e-3f);
+            last = world.camera.position.x;
+        }
+        CHECK(near(world.camera.position, Vector2{ 500, 200 }));
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a NEW target is snapped to, not glided to") {
+        // A level opening with the camera drifting in from the middle of the
+        // screen is the other half of the classic smoothing bug.
+        World world;
+        auto &a = world.spawn({ .position = { 1000, 50 } });
+        auto &b = world.spawn({ .position = { -800, 300 } });
+        world.camera.smoothing = 3;
+
+        world.camera.follow = a.handle();
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(near(world.camera.position, Vector2{ 1000, 50 }));
+
+        SUBCASE("and switching to another target snaps too") {
+            world.camera.follow = b.handle();
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(near(world.camera.position, Vector2{ -800, 300 }));
+        }
+        SUBCASE("and the same target moving is smoothed, not snapped") {
+            a.position = { 1200, 50 };
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(world.camera.position.x > 1000);
+            CHECK(world.camera.position.x < 1200);
+        }
+        SUBCASE("a target that dies and is followed again later snaps again") {
+            world.camera.follow = rmp::Handle<rmp::Object>();
+            world.camera.detail_settle(1.0f / 60);
+            a.position = { 0, 0 };
+            world.camera.follow = a.handle();
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(near(world.camera.position, Vector2{ 0, 0 }));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "limits still win over a smoothed follow") {
+        World world;
+        auto &target = world.spawn({ .position = { kW / 2, kH / 2 } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 2;
+        world.camera.limits = { 0, 0, kW * 2, kH };
+        world.camera.detail_settle(0.0f);
+        target.position = { -5000, kH / 2 };
+        for (int i = 0; i < 300; i++) {
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(world.camera.view().x >= -1e-3f); // never the void on the left
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a zero, negative or NaN delta moves nothing and poisons nothing") {
+        World world;
+        auto &target = world.spawn({ .position = { 0, 0 } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 5;
+        world.camera.detail_settle(0.0f);
+        target.position = { 400, 0 };
+        for (float bad : { 0.0f, -1.0f, -0.016f, std::nanf("") }) {
+            CAPTURE(bad);
+            world.camera.detail_settle(bad);
+            CHECK(world.camera.position.x == doctest::Approx(0));
+            CHECK_FALSE(std::isnan(world.camera.position.x));
+            CHECK_FALSE(std::isnan(world.camera.position.y));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Shake
+    // -----------------------------------------------------------------------
+
+    TEST_CASE_FIXTURE(Fixture, "a shake never touches position, view() or the limits") {
+        World world;
+        world.camera.limits = { 0, 0, kW, kH };
+        const Vector2 before = world.camera.position;
+        const Rectangle view_before = world.camera.view();
+        world.camera.shake(30, 0.5f);
+
+        bool moved = false;
+        for (int i = 0; i < 20; i++) {
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(near(world.camera.position, before));
+            CHECK(world.camera.view().x == doctest::Approx(view_before.x));
+            CHECK(world.camera.view().y == doctest::Approx(view_before.y));
+            const Vector2 off = world.camera.shake_offset();
+            if (off.x != 0 || off.y != 0) moved = true;
+            // What is DRAWN moves by exactly the offset.
+            const Camera2D drawn = world.camera.raylib();
+            CHECK(drawn.target.x == doctest::Approx(before.x + off.x));
+            CHECK(drawn.target.y == doctest::Approx(before.y + off.y));
+        }
+        CHECK(moved); // or the assertions above are about a still camera
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "it stays within its strength and ends at exactly nothing") {
+        World world;
+        world.camera.shake(12, 0.25f);
+        float peak = 0;
+        // 0.25 s of 1/100 s frames is 25 steps; run past the end.
+        for (int i = 0; i < 40; i++) {
+            world.camera.detail_settle(0.01f);
+            const Vector2 off = world.camera.shake_offset();
+            const float len = std::sqrt(off.x * off.x + off.y * off.y);
+            peak = len > peak ? len : peak;
+            CHECK(len <= 12 * 1.0001f + 1e-4f);
+        }
+        CHECK(peak > 0.5f);
+        // Exactly zero, not an epsilon: the camera must be exactly where it was.
+        CHECK(world.camera.shake_offset().x == 0.0f);
+        CHECK(world.camera.shake_offset().y == 0.0f);
+        CHECK(world.camera.raylib().target.x == world.camera.position.x);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a burst of hits keeps the stronger shake instead of adding up") {
+        World world;
+        for (int i = 0; i < 50; i++) world.camera.shake(10, 0.5f);
+        for (int i = 0; i < 30; i++) {
+            world.camera.detail_settle(1.0f / 60);
+            const Vector2 off = world.camera.shake_offset();
+            CHECK(std::sqrt(off.x * off.x + off.y * off.y) <= 10 * 1.0001f + 1e-4f);
+        }
+
+        SUBCASE("a weak shake arriving late does not cut a strong one short") {
+            World w;
+            w.camera.shake(40, 1.0f);
+            w.camera.detail_settle(0.1f);
+            w.camera.shake(1, 0.05f);
+            for (int i = 0; i < 10; i++) w.camera.detail_settle(0.01f);
+            // 0.2 s into a 1 s shake of 40: still well above what 1 could do.
+            float biggest = 0;
+            for (int i = 0; i < 20; i++) {
+                w.camera.detail_settle(0.01f);
+                const Vector2 off = w.camera.shake_offset();
+                const float len = std::sqrt(off.x * off.x + off.y * off.y);
+                biggest = len > biggest ? len : biggest;
+            }
+            CHECK(biggest > 2);
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "nonsense shakes are ignored rather than stored") {
+        World world;
+        for (float bad : { 0.0f, -5.0f, std::nanf("") }) {
+            world.camera.shake(bad, 0.5f);
+            world.camera.shake(5, bad);
+        }
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.shake_offset().x == 0.0f);
+        CHECK(world.camera.shake_offset().y == 0.0f);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "the same frames give the same shake: it is reproducible") {
+        auto run = [] {
+            World world;
+            world.camera.shake(20, 0.4f);
+            std::vector<Vector2> offsets;
+            for (int i = 0; i < 24; i++) {
+                world.camera.detail_settle(1.0f / 60);
+                offsets.push_back(world.camera.shake_offset());
+            }
+            return offsets;
+        };
+        const auto a = run();
+        const auto b = run();
+        REQUIRE(a.size() == b.size());
+        for (std::size_t i = 0; i < a.size(); i++) {
+            CHECK(a[i].x == b[i].x);
+            CHECK(a[i].y == b[i].y);
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a click during a shake lands on what is drawn under it") {
+        // to_world converts through the SHAKEN camera, because that is what
+        // drew the frame the player is aiming at.
+        World world;
+        world.camera.shake(25, 0.5f);
+        for (int i = 0; i < 5; i++) world.camera.detail_settle(1.0f / 60);
+        const Vector2 off = world.camera.shake_offset();
+        REQUIRE((off.x != 0 || off.y != 0));
+
+        const Vector2 world_point{ 300, 200 };
+        const Vector2 on_screen = world.camera.to_screen(world_point);
+        CHECK(near(world.camera.to_world(on_screen), world_point)); // round trip
+        // And it is not where the unshaken camera would have drawn it.
+        CHECK(on_screen.x == doctest::Approx(world_point.x - off.x).epsilon(0.001));
+        CHECK(on_screen.y == doctest::Approx(world_point.y - off.y).epsilon(0.001));
     }
 }

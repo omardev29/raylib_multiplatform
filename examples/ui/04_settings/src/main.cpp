@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
+#include <rmp/audio.h>
 #include <rmp/ui.h>
 
 #include "settings.h"
@@ -35,6 +36,11 @@ static void apply(const Settings &s) {
         SetTargetFPS(60);
     else
         SetTargetFPS(0);
+    // The two volume sliders are the audio buses. Neither call opens the
+    // sound device: a game can show and apply this screen before it has made
+    // a sound, and what is already playing changes at once.
+    rmp::audio::set_volume(rmp::audio::Bus::MASTER, s.master);
+    rmp::audio::set_volume(rmp::audio::Bus::MUSIC, s.music);
     TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)", (double)s.master,
              kQuality[s.quality]);
 }
@@ -42,6 +48,9 @@ static void apply(const Settings &s) {
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    // The sliders start where the buses are: [audio] in the .toml.
+    cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);
+    cfg.music = rmp::audio::volume(rmp::audio::Bus::MUSIC);
     saved = cfg;
 
     // Put the focus somewhere when the screen opens. Without this a controller

@@ -2659,6 +2659,8 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
     # phrase -> (section, key-path, value). The path is a tuple so nested
     # tables ([android.admob] enabled) fit the same shape as flat ones.
     CASES = {
+        "has to be a number between 0 and 1": ("audio", ("music",), "loud"),
+        "has to be between 0 and 1":  ("audio", ("sfx",), 2),
         "[linux] wayland":            ("linux", ("wayland",), "yes"),
         "[web] memory":               ("web", ("memory",), 8),
         "[web] grow":                 ("web", ("grow",), "true"),
@@ -3463,6 +3465,164 @@ class ThisFileRunsWholeTest(unittest.TestCase):
         self.assertTrue(text.endswith('if __name__ == "__main__":\n    unittest.main(verbosity=2)'),
                         "something was added after the __main__ block; move the block back "
                         "to the end of the file")
+
+
+class ConfigureAudioTest(unittest.TestCase):
+    """[audio] master / music / sfx -- the volumes rmp::audio starts at.
+
+    Each is a fraction of full volume. The mistakes worth catching at the line
+    rather than by ear: a value above 1 (it is not "louder", it is clipping, and
+    rmp::audio would clamp it silently), a negative, a string, and `true` --
+    which Python counts as the integer 1 and would sail through as full volume.
+    """
+
+    def audio(self, **overrides):
+        return base_config(audio=dict(copy.deepcopy(cfgmod.DEFAULTS["audio"]), **overrides))
+
+    def test_the_defaults_leave_headroom_for_the_music(self):
+        self.assertEqual(cfgmod.DEFAULTS["audio"], {"master": 1.0, "music": 0.8, "sfx": 1.0})
+
+    def test_every_value_a_slider_can_produce_is_accepted(self):
+        for key in ("master", "music", "sfx"):
+            for value in (0, 0.0, 0.25, 0.5, 1, 1.0):
+                with self.subTest(key=key, value=value), quiet():
+                    cfgmod.validate(self.audio(**{key: value}), False)
+
+    def test_out_of_range_is_refused_and_says_it_is_a_fraction(self):
+        for key in ("master", "music", "sfx"):
+            for bad in (-0.1, -1, 1.01, 2, 100):
+                with self.subTest(key=key, value=bad):
+                    with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                        cfgmod.validate(self.audio(**{key: bad}), False)
+                    self.assertIn("between 0 and 1", str(caught.exception))
+                    self.assertIn(key, str(caught.exception))
+
+    def test_nan_is_refused(self):
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(self.audio(sfx=float("nan")), False)
+
+    def test_it_has_to_be_a_number_and_true_is_not_one(self):
+        for key in ("master", "music", "sfx"):
+            for bad in (True, False, "0.5", None, [0.5], {"v": 1}):
+                with self.subTest(key=key, value=bad):
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(self.audio(**{key: bad}), False)
+
+    def test_the_error_points_at_the_line(self):
+        """The rule: an invalid .toml fails in configure.py and says WHERE --
+        the key, so the reporter can put the cursor on the exact line."""
+        for key in ("master", "music", "sfx"):
+            with self.subTest(key=key):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.audio(**{key: 3}), False)
+                self.assertEqual(caught.exception.where, ("audio", key))
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.audio(**{key: "x"}), False)
+                self.assertEqual(caught.exception.where, ("audio", key))
+
+    def test_the_values_reach_the_generated_header(self):
+        """A volume nothing reads is a volume that does nothing."""
+        src = (REPO / "tools" / "configure.py").read_text()
+        for define in ("APP_AUDIO_MASTER", "APP_AUDIO_MUSIC", "APP_AUDIO_SFX"):
+            with self.subTest(define=define):
+                self.assertIn(define, src)
+                self.assertIn(define, (REPO / "src" / "rmp" / "audio.cpp").read_text())
+
+
+
+class RaudioStubCoverageTest(unittest.TestCase):
+    """`disabled_modules = ["raudio"]` links, because every raudio function the
+    framework calls has a stub.
+
+    The stub list used to be kept by memory, and memory had already missed
+    UnloadSound (the resource table has called it since phase 3; GNU ld's
+    section GC hid it, Apple's ld64 would not have). rmp::audio then made the
+    calls reachable from every game, so a missing stub is a link error on every
+    linker. This scans the sources for calls to anything raylib.h declares
+    under "(Module: audio)" and requires a definition for each in the stub.
+    """
+
+    RAYLIB_H = REPO / "thirdparty" / "raylib" / "src" / "raylib.h"
+
+    def audio_functions(self) -> set[str]:
+        text = self.RAYLIB_H.read_text(encoding="utf-8")
+        start = text.index("(Module: audio)")
+        end = text.index("#if defined(__cplusplus)", start)
+        block = re.sub(r"//[^\n]*", "", text[start:end])
+        names = set()
+        for ret in re.findall(r"RLAPI\s+([^;(]+?)\s*\(", block):
+            names.add(re.findall(r"(\w+)$", ret)[0])
+        return names
+
+    def called(self, names: set[str]) -> dict[str, list[str]]:
+        sources = sorted((REPO / "src" / "rmp").rglob("*.cpp")) + \
+            sorted((REPO / "src" / "rmp").rglob("*.h")) + \
+            [REPO / "thirdparty" / "rres" / "rres-raylib.h"]
+        found: dict[str, list[str]] = {}
+        for path in sources:
+            text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+            for name in names:
+                if re.search(r"(?<![\w.>])(?:::)?%s\s*\(" % name, text):
+                    found.setdefault(name, []).append(str(path.relative_to(REPO)))
+        return found
+
+    def stubbed(self) -> set[str]:
+        # A definition starts a line: return type, name, parameters, then the
+        # body's brace on the same line or the next.
+        body = cfgmod.STUB_SOURCE.format(header="x")
+        return set(re.findall(r"^[A-Za-z]\w*\s+\*?(\w+)\([^;{]*\)\s*\{", body, re.M))
+
+    def test_the_scan_sees_the_audio_module(self):
+        # A regex that matched nothing would pass everything below.
+        names = self.audio_functions()
+        self.assertGreater(len(names), 50)
+        for name in ("InitAudioDevice", "PlaySound", "UpdateMusicStream", "UnloadSound"):
+            self.assertIn(name, names)
+        self.assertNotIn("DrawTexture", names)
+
+    def test_the_scan_sees_the_framework_calling_it(self):
+        found = self.called(self.audio_functions())
+        # rmp::audio and the resource table, at least; if these vanish the
+        # scan broke, not the framework.
+        self.assertIn("InitAudioDevice", found)
+        self.assertIn("src/rmp/resource.cpp", found.get("UnloadSound", []))
+        self.assertIn("thirdparty/rres/rres-raylib.h", found.get("LoadWaveFromMemory", []))
+
+    def test_every_called_audio_function_has_a_stub(self):
+        found = self.called(self.audio_functions())
+        missing = {n: where for n, where in found.items() if n not in self.stubbed()}
+        self.assertEqual(missing, {}, "called by the framework but not stubbed in "
+                         "STUB_SOURCE in tools/configure.py -- disabled_modules = "
+                         "[\"raudio\"] would not link")
+
+    def test_the_stub_parser_is_not_blind(self):
+        stubbed = self.stubbed()
+        self.assertIn("IsAudioDeviceReady", stubbed)
+        self.assertIn("LoadWaveFromMemory", stubbed)
+        self.assertIn("LoadMusicStreamFromMemory", stubbed)
+
+    def test_no_device_is_what_the_stub_says(self):
+        # The one stub with behaviour: rmp::audio asks it once and goes quiet.
+        self.assertIn("bool IsAudioDeviceReady(void) { return false; }",
+                      cfgmod.STUB_SOURCE.format(header="x"))
+
+    def test_the_stub_compiles_against_the_real_raylib_h(self):
+        # A stub with the wrong signature is a conflicting-types error in the
+        # one build that uses it, which nobody runs until they need it.
+        import shutil
+        import subprocess
+        import tempfile
+        cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+        if cc is None:
+            self.skipTest("no C compiler on PATH")
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "module_stubs.c"
+            src.write_text(cfgmod.STUB_SOURCE.format(header="test"), encoding="utf-8")
+            result = subprocess.run(
+                [cc, "-std=c99", "-Wall", "-Werror", "-fsyntax-only",
+                 "-I", str(self.RAYLIB_H.parent), str(src)],
+                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

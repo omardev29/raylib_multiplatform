@@ -14,6 +14,8 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
   - [Why web does not get a `while` loop](#why-web-does-not-get-a-while-loop)
 - [`rmp::ui` — the interface layer](#rmpui--the-interface-layer)
 - [`rmp::app` — the entry point and closing the app](#rmpapp--the-entry-point-and-closing-the-app)
+- [`rmp::audio` — sound and music](#rmpaudio--sound-and-music)
+- [`rmp::Camera` — follow, limits, smoothing, shake](#rmpcamera--follow-limits-smoothing-shake)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
 - [Android (raymob)](#android-raymob)
@@ -66,6 +68,8 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── tilemap.cpp       #   rmp::Tilemap -- Tiled maps, solid tiles, object factories
 │       ├── tilemap_internal.h
 │       ├── tiled_impl.cpp    #   compiles cute_tiled once
+│       ├── audio.cpp         #   rmp::audio -- lazy device, voices, the music stream
+│       ├── audio_internal.h
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
@@ -87,6 +91,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── ui.h              #   rmp::ui -- the public API and the Theme
 │       ├── assets.h          #   rmp::assets -- load_*() by name, the counted handles
 │       ├── tilemap.h         #   rmp::Tilemap -- a level designed in Tiled
+│       ├── audio.h           #   rmp::audio -- effects and music by name, three buses
 │       ├── random.h          #   rmp::random -- seeded, reproducible
 │       ├── ads.h             #   rmp::ads -- interstitial and rewarded ads; no-ops off Android
 │       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)
@@ -414,22 +419,24 @@ Everything directly in the folder is packed — the packer does not filter by ty
 | You put in `resources/` | Load it with | Notes |
 |---|---|---|
 | `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | `rmp::assets::load_texture` / `LoadImage`, or plain `LoadTexture` | the extension in props tells raylib which decoder to use |
-| `.wav .ogg .mp3 .flac .qoa .xm .mod` | `rmp::assets::load_sound` | short sounds; fully decoded into RAM |
+| `.wav .ogg .mp3 .qoa` | `rmp::audio::play("name")`, or `rmp::assets::load_sound` | short sounds; fully decoded into RAM |
 | `.ttf .otf` | `rmp::assets::load_font(name, size)` | size is baked at load time, as always in raylib |
 | `.obj .mtl .gltf .glb .bin .iqm .vox .m3d` | plain `LoadModel(RESOURCES_PATH "…")` | works through the loader hook, siblings included — keep them all directly in `resources/` |
 | `.vs .fs .glsl` | plain `LoadShader(RESOURCES_PATH "…")` | also hooked; `LoadShaderFromMemory` if you prefer |
 | `.json .txt .csv` and anything else | `rmp::assets::load_data` | you get the bytes |
-| **long music** (`.ogg/.mp3` streamed) | see below | the one real exception |
+| **music** (`.ogg .mp3 .wav .qoa`, and `.xm .mod` by full name) | `rmp::audio::music("name")` | streamed, from the pack too; plain `LoadMusicStream` is the exception, see below |
 
 ### The two things that stay outside the pack
 
-**Streamed music.** `LoadMusicStream` is path-only by design, and unlike the model loaders it does
-not go through `LoadFileData`: `raudio.c` hands the file name straight to `drwav_init_file`,
-`drmp3_init_file` or `jar_xm_create_context_from_file`, which open it themselves. The point of a
-music stream is that it is *not* fully in memory, so there is nothing for the hook to intercept.
-(`LoadMusicStreamFromMemory` exists in recent raylib, but it requires you to keep the whole encoded
-buffer alive for the lifetime of the stream, which defeats the purpose. Short sound effects have no
-such problem — use `rmp::assets::load_sound`.)
+**Music through raylib directly.** `LoadMusicStream` is path-only by design, and unlike the model
+loaders it does not go through `LoadFileData`: `raudio.c` hands the file name straight to
+`drwav_init_file`, `drmp3_init_file` or `jar_xm_create_context_from_file`, which open them
+themselves, so there is nothing for the hook to intercept and a packed song is invisible to it.
+`rmp::audio::music()` does not have that problem: it reads the song through `load_data`, which
+serves the pack and the loose files alike, and streams it with `LoadMusicStreamFromMemory`. The
+price is that the *encoded* file stays in memory while it plays — a three-minute OGG is about 3 MB
+— and the decoding is still streamed, so the 30 MB of PCM it would decode to never exists at once.
+Only code that calls `LoadMusicStream` itself needs the song as a loose file.
 
 **Subfolders.** `file(GLOB …)` in `CMakeLists.txt` does not recurse and resource names are flat, so
 nothing inside `resources/art/` is packed.
@@ -1254,6 +1261,92 @@ The CI smoke test still terminates the simulator, because a bounded test run has
 path is behind `RAY_TEST_MAX_FRAMES`, an environment variable no shipped app ever sets.
 
 ---
+
+## `rmp::audio` — sound and music
+
+```cpp
+#include <rmp/audio.h>
+
+rmp::audio::play("coin");                               // coin.wav, coin.ogg, ...
+rmp::audio::play("hit", { .volume = 0.7f, .pitch = 1.2f });
+rmp::audio::music("level1");                            // starts, or replaces
+rmp::audio::set_volume(rmp::audio::Bus::MUSIC, 0.5f);
+```
+
+There is no `InitAudioDevice()` in a game and no `CloseAudioDevice()`. The device opens the first
+time something needs it — `play()`, `music()`, or `rmp::assets::load_sound()` — so a game with no
+sound never opens it. On the way out `begin_stop()` releases the voices and the music, then the
+resource table, then closes the device, in that order: an alias must not outlive the sound it
+shares a buffer with, and a sound unloaded after its device is gone is a free on a torn-down mixer.
+
+**A machine with no sound is not an error.** A CI runner, a server, a laptop with no output: the
+open fails, one warning says so, and every call after that is a no-op. It is tried **once**;
+a footstep sixty times a second does not pay for a failing `InitAudioDevice()` sixty times a
+second. `rmp::audio::available()` says which case you are in, and asking does not open anything.
+`[raylib] disabled_modules = ["raudio"]` behaves exactly the same way, through stubs that
+`tests/configure_test.py` keeps complete.
+
+**Logical names.** A name without an extension is looked for as `.wav`, `.ogg`, `.mp3` and
+`.qoa`, in that order, and the first that exists wins; a name with one is taken as given. The
+extension is looked for in the file part only, so `v1.2/coin` has none. There is no `.flac`:
+raylib's `config.h` ships its decoder off, and a file found and then undecodable is worse than one
+not found. A name that finds nothing, or finds a file that does not decode, is said once — the two
+differently, because they are fixed differently — and remembered, so asking again costs nothing.
+
+**Overlapping.** Each effect has up to four voices — the loaded sound plus three
+`LoadSoundAlias()` copies that share its samples — so a burst of the same effect overlaps instead
+of restarting. When all four are busy, the oldest is cut.
+
+**Music** is one track at a time, streamed. `music("level1")` while `level1` is already playing is
+*not* a restart, so a scene that asks for its song in `_ready()` does not jump it back every time
+it is re-entered. The stream is fed from `end_frame()`, which every runner calls after every frame,
+so it keeps playing under a pause menu and in a game with its own three hooks.
+
+**Buses.** `MASTER`, `MUSIC` and `SFX`, starting at `[audio]` in the `.toml` (each 0 to 1,
+rejected otherwise by `configure.py`). An effect plays at its own volume times `SFX`; `MASTER` is
+raylib's master volume on top of everything. `set_volume()` clamps, ignores a NaN, takes effect on
+what is already playing, and never opens the device — a settings screen can move its sliders in a
+game that has made no sound yet.
+
+**Web** keeps audio muted until the first click or key press. That is the browser's rule; music
+started on a title screen is heard from the first input on.
+
+**What is tested, and what is not.** `tests/audio_test.cpp` covers everything that does not need
+a device: the name expansion, the volume arithmetic and its clamping, and the device state
+machine through a swapped opener — never opened by a settings screen, tried once when there is
+none, reopened after a close. Whether the samples reach a speaker is checked by ear: there is no
+sound device on a runner, and a fake one would test the fake.
+
+## `rmp::Camera` — follow, limits, smoothing, shake
+
+Every scene has one, `camera`. The app opens it around the map and the objects and closes it
+before `Scene::_draw()`, so UI drawn there does not move with the view; `BeginMode2D(camera.raylib())`
+is how to draw in world units yourself.
+
+```cpp
+camera.follow = player;          // a Handle<Object>; a target that dies stops being followed
+camera.limits = level_bounds;    // the view never shows outside this rectangle
+camera.smoothing = 8;            // rate per second; 0 (the default) snaps
+camera.shake(6, 0.25f);          // a hit: 6 world units, a quarter of a second
+```
+
+**Smoothing** moves the camera a fraction `1 - exp(-smoothing * delta)` of the way to its target
+each frame. The exponent is what makes it frame-rate independent: two half frames land exactly
+where one whole frame does, which a fixed `lerp(…, 0.1f)` never can — it is twice as fast at
+120 Hz as at 60. A **new** target snaps rather than gliding across the level, so the first frame
+of a scene and a switch of `follow` do not pan. The delta is the one the scene stack is given,
+through the clock seam, never `GetFrameTime()`.
+
+**Limits** are applied after smoothing, so a smoothed camera never shows outside them either.
+
+**Shake** is a separate, decaying offset: layered sines scaled by the strength and by the square
+of the time left, clamped to the strength and exactly zero when it ends. It is added only where
+the view is drawn and where clicks are converted (`raylib()`, `to_screen()`, `to_world()`), never
+to `position`, `view()` or the limits — so gameplay never sees it, and a click during a shake still
+lands on what the player clicked. A second `shake()` keeps the stronger of the two; a weak one
+late in a strong one does not cut it short.
+
+All of it is in `tests/camera_test.cpp`, including the frame-split property above.
 
 ## AdMob (Android)
 

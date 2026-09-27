@@ -128,7 +128,7 @@ float step_delta();
 void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
 void after_ready(); // report to CI whether any asset failed to load
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
-void end_frame(); // advance the CI frame budget
+void end_frame(); // advance the CI frame budget, feed the music stream
 void begin_stop(); // the UI closes here, BEFORE your stop hook: see below
 void end_stop(); // the asset pack closes here, AFTER it
 

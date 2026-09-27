@@ -434,6 +434,7 @@ DEFAULTS: dict = {
     "raylib": {"disabled_modules": []},
 "web": {"memory": 64, "grow": False, "backend": "glfw"},
     "input": {"deadzone": 0.2},
+    "audio": {"master": 1.0, "music": 0.8, "sfx": 1.0},
     "windows": {"backend": "glfw"},
     "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc"], "disabled": [],
             "max_size_mb": 600},
@@ -963,6 +964,25 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "which on a worn controller means the character walks on its own; past 0.95 "
             "there is almost no travel left to read.")
 
+    # [audio] -- the three buses a settings screen offers. Each one is a
+    # fraction, 0 to 1: MASTER scales everything, MUSIC and SFX scale their own
+    # on top of it. A value above 1 is not "louder", it is clipping, and
+    # rmp::audio would clamp it anyway -- so it is refused here, at the line,
+    # where it is still obviously a typo.
+    for key in ("master", "music", "sfx"):
+        value = cfg["audio"][key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConfigError(
+                f"[audio] {key} = {value!r} has to be a number between 0 and 1.\n"
+                "It is a volume: 0 is silent, 1 is full. 0.8 is 80 %.",
+                ("audio", key))
+        if value != value or not (0.0 <= value <= 1.0):  # value != value is NaN
+            raise ConfigError(
+                f"[audio] {key} = {value} has to be between 0 and 1.\n"
+                "It is a fraction of full volume, not a gain: past 1 is clipping, "
+                "and a negative volume means nothing. Use 1 for full.",
+                ("audio", key))
+
     ui = cfg["ui"]
     one_of(ui["theme"], UI_THEMES, "[ui] theme",
            "It only picks which one the app starts with — rmp::ui::set_theme() "
@@ -1141,61 +1161,99 @@ def raylib_defs(cfg: dict) -> tuple[list[str], list[str]]:
 
     defs = ["EXTERNAL_CONFIG_FLAGS"] + [f"{k}={v}" for k, v in sorted(flags.items())]
 
-    # Disabling raudio leaves the asset layer referencing symbols that no longer
-    # exist: assets::LoadSound calls LoadWaveFromMemory, LoadSoundFromWave,
-    # UnloadWave and raylib's own LoadSound, and rres-raylib.h compiles audio
-    # loaders regardless of which raylib modules are on.
+    # Disabling raudio leaves the framework referencing symbols that no longer
+    # exist: rmp::audio is linked into every game (the app feeds its music
+    # stream each frame and closes its device on the way out), the asset layer
+    # decodes sounds, the resource table unloads them, and rres-raylib.h
+    # compiles audio loaders regardless of which raylib modules are on.
     #
-    # GNU ld hides this. It garbage-collects the unreachable sections before it
-    # complains, so a Linux build of `disabled_modules = ["raudio"]` links
-    # cleanly. Apple's ld64 resolves undefined symbols BEFORE dead-stripping, so
-    # the identical config fails on macOS and iOS only. Stubs cost nothing and
-    # work on every linker.
+    # GNU ld hid the asset-layer half of this for a long time: it garbage-
+    # collects unreachable sections before it complains. Apple's ld64 resolves
+    # undefined symbols BEFORE dead-stripping, so the identical config failed on
+    # macOS and iOS only -- and since rmp::audio, the symbols are reachable and
+    # every linker would fail. Stubs cost nothing and work on every linker.
     stubs = ["raudio"] if "raudio" in cfg["raylib"]["disabled_modules"] else []
     return defs, stubs
 
 
+# Every raudio function the framework calls, stubbed. The list is not kept by
+# memory: tests/configure_test.py scans src/rmp/ and rres-raylib.h for calls to
+# any function raylib.h declares under "(Module: audio)" and fails if one has
+# no stub here -- which is how UnloadSound, called by the resource table since
+# phase 3, was found missing from it.
+#
+# The one that matters is IsAudioDeviceReady() returning false: rmp::audio asks
+# it once, hears "no device", and every call from then on is the silent no-op a
+# machine without sound gets anyway. The rest are there to resolve.
 STUB_SOURCE = """/* {header}
  *
  * [raylib] disabled_modules = ["raudio"] removes these from libraylib, but the
- * template's asset layer still refers to them — assets::LoadSound decodes a
- * Wave and turns it into a Sound, and rres-raylib.h compiles audio loaders
- * whatever the module flags say.
+ * framework still refers to them: rmp::audio is linked into every game, the
+ * asset layer decodes sounds, the resource table unloads them, and
+ * rres-raylib.h compiles audio loaders whatever the module flags say.
  *
- * They have to resolve even though nothing reachable calls them: Apple's ld64
- * errors on undefined symbols before it ever dead-strips them, so without this
- * file the config that links fine on Linux fails on macOS and iOS only.
+ * With them, a game built without raudio behaves exactly like one running on a
+ * machine with no sound device: IsAudioDeviceReady() is false, rmp::audio says
+ * so once, and every sound call is a no-op. Nothing loads, nothing plays.
  *
  * raylib.h supplies the real types, so these cannot drift out of ABI with the
  * declarations they are standing in for.
  */
 #include <raylib.h>
 
+/* The device: never there. */
+void InitAudioDevice(void) {{ }}
+void CloseAudioDevice(void) {{ }}
+bool IsAudioDeviceReady(void) {{ return false; }}
+void SetMasterVolume(float volume) {{ (void)volume; }}
+
+/* Waves and sounds: empty, so every caller's "did it load" check says no. */
 Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int dataSize)
 {{
     (void)fileType; (void)fileData; (void)dataSize;
     Wave empty = {{0}};
     return empty;
 }}
-
-Sound LoadSoundFromWave(Wave wave)
-{{
-    (void)wave;
-    Sound empty = {{0}};
-    return empty;
-}}
-
+void UnloadWave(Wave wave) {{ (void)wave; }}
 Sound LoadSound(const char *fileName)
 {{
     (void)fileName;
     Sound empty = {{0}};
     return empty;
 }}
-
-void UnloadWave(Wave wave)
+Sound LoadSoundFromWave(Wave wave)
 {{
     (void)wave;
+    Sound empty = {{0}};
+    return empty;
 }}
+Sound LoadSoundAlias(Sound source)
+{{
+    (void)source;
+    Sound empty = {{0}};
+    return empty;
+}}
+void UnloadSound(Sound sound) {{ (void)sound; }}
+void UnloadSoundAlias(Sound alias) {{ (void)alias; }}
+void PlaySound(Sound sound) {{ (void)sound; }}
+bool IsSoundPlaying(Sound sound) {{ (void)sound; return false; }}
+void SetSoundVolume(Sound sound, float volume) {{ (void)sound; (void)volume; }}
+void SetSoundPitch(Sound sound, float pitch) {{ (void)sound; (void)pitch; }}
+void SetSoundPan(Sound sound, float pan) {{ (void)sound; (void)pan; }}
+
+/* Music: never loads, so never plays. */
+Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data, int dataSize)
+{{
+    (void)fileType; (void)data; (void)dataSize;
+    Music empty = {{0}};
+    return empty;
+}}
+void UnloadMusicStream(Music music) {{ (void)music; }}
+void PlayMusicStream(Music music) {{ (void)music; }}
+void StopMusicStream(Music music) {{ (void)music; }}
+void UpdateMusicStream(Music music) {{ (void)music; }}
+bool IsMusicStreamPlaying(Music music) {{ (void)music; return false; }}
+void SetMusicVolume(Music music, float volume) {{ (void)music; (void)volume; }}
 """
 
 
@@ -1415,6 +1473,13 @@ def gen_app_config(cfg: dict) -> None:
 /* [input]. The fraction of an analogue stick's travel that reads as zero.
    rmp::input::set_deadzone() changes it at runtime — a settings screen. */
 #define APP_INPUT_DEADZONE  {cfg['input']['deadzone']}f
+
+/* [audio]. The volumes the three buses START at, 0..1. MASTER scales
+   everything; MUSIC and SFX scale their own on top of it.
+   rmp::audio::set_volume() changes them at runtime -- a settings screen. */
+#define APP_AUDIO_MASTER    {float(cfg['audio']['master'])}f
+#define APP_AUDIO_MUSIC     {float(cfg['audio']['music'])}f
+#define APP_AUDIO_SFX       {float(cfg['audio']['sfx'])}f
 
 /* [app] max_delta. The longest step the game logic is ever handed, in seconds.
    A frame that really took longer arrives clamped, so the game runs a moment of

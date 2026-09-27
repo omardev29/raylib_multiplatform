@@ -67,9 +67,9 @@ namespace rmp {
 // Two details that are written wrong by hand more often than not:
 //   - `limits` win over `follow`: when the player nears the edge of the map
 //     the camera stops and the player keeps going, instead of a black strip.
-//   - Smoothing and shake are not here yet (phase 11): the camera is pinned to
-//     what it follows. When they arrive, shake is a separate offset that decays
-//     on its own and never touches `position`.
+//   - Smoothing is a rate with delta in the exponent, not a lerp per frame,
+//     and shake is a separate offset that decays on its own and never touches
+//     `position`. Both are explained where they are declared below.
 // ---------------------------------------------------------------------------
 class Camera {
 public:
@@ -82,11 +82,46 @@ public:
     // that dies simply stops being followed.
     Handle<Object> follow;
 
+    // How fast `follow` catches up, per second. 0 = it snaps, which is the
+    // default and what every one-screen game wants. 5 is a gentle drift, 20
+    // is nearly a snap. It is a RATE and not a lerp factor per frame: the
+    // camera covers the same fraction of the distance in a second whether that
+    // second was 30 frames or 144, because delta is in the exponent --
+    // 1 - exp(-smoothing * delta). The per-frame `position += (target -
+    // position) * 0.1` that every tutorial writes follows twice as fast at 120
+    // Hz as at 60, which is the bug this exists to not have.
+    //
+    // A NEW target is snapped to, not glided to: a level that opens with the
+    // camera drifting in from the middle of the screen is the other half of
+    // the same classic bug.
+    float smoothing = 0;
+
     // Never show outside this rectangle, in world units. One axis at a time:
     // a zero width or a zero height means "unbounded on that axis", so a
     // runner pins y with `{ 0, 0, 0, APP_WINDOW_HEIGHT }` and follows x freely.
     // Empty = no limits. A limit narrower than the view centres the view on it.
+    // Applied AFTER the smoothing, so a smoothed camera still never shows the
+    // void past the edge of the level.
     Rectangle limits{};
+
+    // Shake the view: up to `strength` world units, fading to nothing over
+    // `seconds`. A hit, an explosion, a landing.
+    //
+    // The shake NEVER TOUCHES `position`, `view()` or the limits: it is an
+    // offset applied only to what is drawn, raylib() and the two conversions
+    // that go with it. So an object clamped to the view does not jitter, the
+    // limits are not violated by a shake near the edge, and the camera is
+    // exactly where it was when the shake ends -- nothing to restore. And a
+    // click during a shake still lands on what is under the pointer, because
+    // to_world() converts through the same shaken camera that drew it.
+    //
+    // Shaking again while a shake is running keeps the STRONGER of the two
+    // rather than adding them, so a burst of hits cannot build a shake that
+    // throws the screen across the room.
+    void shake(float strength, float seconds = 0.3f);
+
+    // How far the shake has the view moved right now; {0,0} when still.
+    [[nodiscard]] Vector2 shake_offset() const { return shake_now_; }
 
     // What is visible, in world units, ignoring rotation.
     [[nodiscard]] Rectangle view() const;
@@ -97,8 +132,22 @@ public:
     [[nodiscard]] Camera2D raylib() const;
 
     // Called by the scene once per frame after the objects have moved: apply
-    // `follow`, then `limits`. Public so a test can drive it; not for a game.
-    void detail_settle();
+    // `follow` with its smoothing, then `limits`, then advance the shake.
+    // `delta` is the one the scene was handed -- never GetFrameTime(), which
+    // tools/seam_check.sh rejects anywhere but the clock's own seam. Public so
+    // a test can drive it with an exact delta; not for a game.
+    void detail_settle(float delta);
+
+private:
+    // The object followed last frame, so a CHANGE of target snaps rather than
+    // glides. Compared by handle, so a target that dies and whose slot is
+    // reused by something else is correctly a new target.
+    Handle<Object> followed_;
+
+    float shake_strength_ = 0;
+    float shake_seconds_ = 0;
+    float shake_elapsed_ = 0;
+    Vector2 shake_now_{};
 };
 
 class Scene {

@@ -249,7 +249,8 @@ bool using_pack();
 rmp::Image load_image(std::string_view name);
 rmp::Texture load_texture(std::string_view name);
 
-// InitAudioDevice() must have been called first.
+// The sound device opens on the first call, the same lazy way rmp::audio
+// opens it; on a machine with no device this comes back empty.
 rmp::Sound load_sound(std::string_view name);
 
 // font_size is the baked glyph size, and it is part of the cache key: the same

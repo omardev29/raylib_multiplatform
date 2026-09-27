@@ -5,10 +5,11 @@ reproduced unaltered in `LICENSE`.
 
 The zlib licence's second clause requires altered source versions to be plainly
 marked as such, and not misrepresented as the original. This file is that mark.
-Nothing below changes a public raylib function: every change is in the build
-system or in platform selection, each one is commented `PATCHED
+Every change is in the build system, in platform selection, or a backport of
+a fix upstream has already merged; each one is commented `PATCHED
 (raylib_multiplatform)` at its site, and nothing under `src/external/` -- the
-libraries raylib bundles -- is touched at all.
+libraries raylib bundles -- is touched at all. The backports change no
+signature and no behaviour a game can see, except that memory is freed.
 
 | File | Line | Change | Why |
 |---|---|---|---|
@@ -18,7 +19,8 @@ libraries raylib bundles -- is touched at all.
 | `cmake/LibraryConfigurations.cmake` | 216 | a `PLATFORM=Win32` branch setting `PLATFORM_DESKTOP_WIN32` | same situation as WebEmscripten: the backend ships, nothing selected it; drives `[windows] backend` |
 | `src/rcore.c` | 546, 630 | `#elif defined(PLATFORM_WEB_EMSCRIPTEN)` in the platform include chain, and a matching `TRACELOG` line | the header of `rcore.c` lists the platform as supported; without the branch the build fell through to `#else` and failed at link |
 | `src/CMakeLists.txt` | 72 | `-sUSE_GLFW=3` narrowed from `PLATFORM MATCHES Web` to `PLATFORM STREQUAL "Web"` | it was `PUBLIC` and leaked into the GLFW-free web backends, which then linked the GLFW-in-JavaScript shim anyway |
+| `src/raudio.c` | 1044, 1769 | three frees corrected in `UnloadSoundAlias` and `UnloadMusicStream`: backports of upstream `dcb0ca5d14` (#5857), `86c7edfd74` (#5963) and `8d31d0c3cc` (#5916) | 6.0.0 leaked each sound alias's converter cache and each WAV music stream's decoder, and double-freed a FLAC one. LeakSanitizer found the first two the first time `rmp::audio` ran on a real device. Drop at the next bump: upstream master has all three |
 
-Re-apply all six when bumping raylib. `thirdparty/FROZEN_VERSIONS.md` carries the
+Re-apply the first six when bumping raylib; the `raudio.c` backports are already upstream. `thirdparty/FROZEN_VERSIONS.md` carries the
 same list with the full reasoning, and `tools/license_check.sh` fails if this
 file goes missing while the component is recorded as modified.

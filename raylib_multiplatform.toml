@@ -422,6 +422,18 @@ backend = "glfw"
 [input]
 deadzone = 0.2
 
+[audio]
+# The volumes rmp::audio starts at, each a fraction from 0 (silent) to 1
+# (full). MASTER scales everything; MUSIC and SFX scale their own on top of it,
+# so music = 0.8 under master = 0.5 plays at 40 %. A settings screen changes
+# them at runtime with rmp::audio::set_volume() -- these are only the start.
+#
+# Nothing here opens the sound device: it opens the first time something is
+# played, so a game with no sound never touches it.
+master = 1.0
+music  = 0.8
+sfx    = 1.0
+
 [ui]
 # rmp::ui — the interface layer. Nothing here is required: with all four at
 # their defaults a menu is still three lines of code.

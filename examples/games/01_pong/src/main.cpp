@@ -8,10 +8,14 @@
 // claim this file exists to make checkable.
 //
 // It is a whole game: two players, a point when the ball leaves by a side,
-// first to seven, and a way to play again.
+// first to seven, and a way to play again. With sound, by name: the three
+// files in resources/ are hit.wav, point.wav and win.wav, and nothing in this
+// file opens, feeds or closes a sound device. On a machine without one -- the
+// CI runner that boots this -- it plays the same game in silence.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
+#include <rmp/audio.h>
 #include <rmp/behavior.h>
 #include <rmp/input.h>
 #include <rmp/object.h>
@@ -99,6 +103,8 @@ public:
               .shape = rmp::circle(7),
               .bounds = { -240, 0, APP_WINDOW_WIDTH + 480.0f, APP_WINDOW_HEIGHT } });
         ball.add<rmp::behavior::Ball>({ .speed = kServeSpeed });
+        // Ball does the bouncing; the sound of it is the game's.
+        ball.on_collision([](rmp::Object &, rmp::Object &) { rmp::audio::play("hit"); });
         ball_ = ball.handle();
         serve(1);
     }
@@ -150,7 +156,12 @@ private:
     void point(int &counter, const char *winner, float towards) {
         counter++;
         serve(towards);
-        if (counter >= kWinningScore) rmp::Scene::push<OverScene<PongScene>>(winner);
+        if (counter >= kWinningScore) {
+            rmp::audio::play("win");
+            rmp::Scene::push<OverScene<PongScene>>(winner);
+        } else {
+            rmp::audio::play("point");
+        }
     }
 
     // Between frames, a handle. A raw pointer to an object is good for the

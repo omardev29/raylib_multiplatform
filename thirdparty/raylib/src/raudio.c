@@ -1048,6 +1048,11 @@ void UnloadSoundAlias(Sound alias)
     {
         UntrackAudioBuffer(alias.stream.buffer);
         ma_data_converter_uninit(&alias.stream.buffer->converter, NULL);
+        // PATCHED (raylib_multiplatform): backport of upstream dcb0ca5d14
+        // (#5857). LoadAudioBuffer() allocates converterResidual for every
+        // buffer, an alias's included, and only UnloadAudioBuffer() freed it:
+        // 64 bytes leaked per alias, found by LeakSanitizer under rmp::audio.
+        RL_FREE(alias.stream.buffer->converterResidual);
         RL_FREE(alias.stream.buffer);
     }
 }
@@ -1771,7 +1776,10 @@ void UnloadMusicStream(Music music)
     {
         if (false) { }
 #if SUPPORT_FILEFORMAT_WAV
-        else if (music.ctxType == MUSIC_AUDIO_WAV) drwav_uninit((drwav *)music.ctxData);
+        // PATCHED (raylib_multiplatform): backport of upstream 86c7edfd74
+        // (#5963). The drwav was RL_CALLOC'd by LoadMusicStream*() and
+        // drwav_uninit() does not free it: 408 bytes leaked per WAV track.
+        else if (music.ctxType == MUSIC_AUDIO_WAV) { drwav_uninit((drwav *)music.ctxData); RL_FREE(music.ctxData); }
 #endif
 #if SUPPORT_FILEFORMAT_OGG
         else if (music.ctxType == MUSIC_AUDIO_OGG) stb_vorbis_close((stb_vorbis *)music.ctxData);
@@ -1783,7 +1791,11 @@ void UnloadMusicStream(Music music)
         else if (music.ctxType == MUSIC_AUDIO_QOA) qoaplay_close((qoaplay_desc *)music.ctxData);
 #endif
 #if SUPPORT_FILEFORMAT_FLAC
-        else if (music.ctxType == MUSIC_AUDIO_FLAC) { drflac_close((drflac *)music.ctxData); drflac_free((drflac *)music.ctxData, NULL); }
+        // PATCHED (raylib_multiplatform): backport of upstream 8d31d0c3cc
+        // (#5916). drflac_close() already frees the context; the extra
+        // drflac_free() was a double free. Compiled out here while
+        // SUPPORT_FILEFORMAT_FLAC is 0, fixed so enabling it is safe.
+        else if (music.ctxType == MUSIC_AUDIO_FLAC) drflac_close((drflac *)music.ctxData);
 #endif
 #if SUPPORT_FILEFORMAT_XM
         else if (music.ctxType == MUSIC_MODULE_XM) jar_xm_free_context((jar_xm_context_t *)music.ctxData);

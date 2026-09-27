@@ -30,6 +30,14 @@ bool pack_is_open();
 // the byte count and is zeroed on failure.
 unsigned char *pack_read(const char *name, int *size);
 
+// Whether the pack holds an entry by this name, without reading it.
+bool pack_has(const char *name);
+
+// Whether an asset by this name exists at all: in the pack when one is open,
+// otherwise as a loose file under resources_root(). Reads nothing. Defined in
+// assets.cpp, where the loose path is built.
+bool resource_exists(const char *name);
+
 // An image, decoded. Images are the one resource rrespacker stores decoded
 // (an IMGE chunk) rather than as the original file, so this cannot go through
 // pack_read(). Returns a zeroed Image when the name is not packed or does not

@@ -20,6 +20,7 @@
 
 #include <rmp/app.h>
 #include <rmp/assets.h>
+#include <rmp/audio.h>
 
 #include <vector>
 
@@ -34,12 +35,15 @@ static rmp::Sound jump;
 // Called once at startup: the pack (if any) is already open by now.
 static inline void on_ready() {
     InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
-    InitAudioDevice(); // LoadSound needs this first
 
     // Load by resource name — no path, no extension guessing, and no #ifdef
     // for "did this build get a pack or not".
     player = rmp::assets::load_texture("rabbit.png");
     ui = rmp::assets::load_font("ui.ttf", 20);
+    // The sound device opens here, on the first sound, with no
+    // InitAudioDevice() and no CloseAudioDevice() anywhere: a game with no
+    // sound never opens it, and on a machine without one this comes back
+    // empty and the game runs silent.
     jump = rmp::assets::load_sound("jump.wav");
 
     // Anything else, as bytes: a vector that frees itself, empty when the
@@ -53,13 +57,15 @@ static inline void on_ready() {
     // reads the .obj, its .mtl and the textures the .mtl names through the
     // same LoadFileData the pack is hooked into.
     //
-    // One exception: LoadMusicStream opens the file itself, so it can stream
-    // the song instead of holding it in memory, and never sees the pack. Ship
-    // music as a loose file next to the executable.
+    // One exception: raylib's LoadMusicStream opens the file itself and never
+    // sees the pack. rmp::audio::music("song") does, and so does
+    // rmp::audio::play("jump") -- the same sound as above, by logical name,
+    // with overlapping voices and no handle to keep.
 }
 
 static inline void on_frame(float delta) {
     if (IsKeyPressed(KEY_SPACE)) PlaySound(jump);
+    if (IsKeyPressed(KEY_ENTER)) rmp::audio::play("jump");
 
     BeginDrawing();
     ClearBackground(RAYWHITE);
@@ -74,12 +80,13 @@ static inline void on_frame(float delta) {
 }
 
 static inline void on_exit() {
-    // Release while the window and the audio device still exist. A handle
-    // held in a global would otherwise let go after main() has returned.
+    // The framework has already released everything in the resource table
+    // and closed the sound device by the time this runs; letting the handles
+    // go is tidiness, not a requirement -- a handle that outlives the table
+    // is empty, not dangling.
     jump = {};
     ui = {};
     player = {};
-    CloseAudioDevice();
     CloseWindow();
 }
 

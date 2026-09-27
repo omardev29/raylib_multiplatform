@@ -85,6 +85,12 @@ void close_pack() {
 
 bool pack_is_open() { return g_using_pack; }
 
+bool pack_has(const char *name) {
+    // The central directory alone: nothing is read, decrypted or allocated,
+    // which is what makes it cheap enough to try five extensions per name.
+    return g_using_pack && name != nullptr && rresGetResourceId(g_cdir, name) != 0;
+}
+
 unsigned char *pack_read(const char *name, int *size) {
     if (size != nullptr) *size = 0;
     if (!g_using_pack || name == nullptr) return nullptr;

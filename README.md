@@ -210,7 +210,8 @@ if (rmp::input::just_pressed("pause")) rmp::Scene::push<PauseScene>();
 
 There is no umbrella header: you include what you use, and each one is a concept you can name —
 `rmp/app.h`, `rmp/scene.h`, `rmp/object.h`, `rmp/behavior.h`, `rmp/input.h`, `rmp/ui.h`,
-`rmp/assets.h`, `rmp/tilemap.h`, `rmp/random.h`, `rmp/ads.h`, `rmp/math.h` — and `rmp/config.h`,
+`rmp/assets.h`, `rmp/tilemap.h`, `rmp/audio.h`, `rmp/random.h`, `rmp/ads.h`, `rmp/math.h` — and
+`rmp/config.h`,
 which every one of them already carries for you. See
 [`examples/platform/03_minimal_includes/`](examples/platform/03_minimal_includes/src/hud.cpp),
 one translation unit that includes `rmp/ui.h` and nothing else of ours.

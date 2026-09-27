@@ -9,6 +9,7 @@
 
 #include <rmp/app.h>
 
+#include "audio_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
 
@@ -164,6 +165,13 @@ void end_frame() {
     // SmokeTest_CaptureFrameIfMissed().
     SmokeTest_CaptureFrameIfMissed();
     SmokeTest_Tick();
+
+    // The music stream, once per frame. Here and not in frame(), because this
+    // runs after every frame on every runner -- a game with its own three
+    // hooks and no scene stack plays music too -- and a streamed track that is
+    // not fed runs dry and stutters. It keeps playing under a pause menu that
+    // freezes the scene below. A no-op with no music or no device.
+    rmp::audio::detail::update();
 }
 
 // Everything that owns something on the GPU is released HERE, before the stop
@@ -195,7 +203,16 @@ void begin_stop() {
     shutdown_globals();
 
     rmp::ui::shutdown();
+
+    //   audio in two halves around the resource table. The voices, the music
+    //   and the cached effects BEFORE it -- a sound alias shares its buffer
+    //   with the sound it came from and must not outlive it -- and the device
+    //   AFTER it, once every sound the game loaded through rmp::assets has
+    //   been unloaded, because unloading a sound after its device has closed
+    //   is a free on a torn-down mixer.
+    rmp::audio::detail::shutdown();
     rmp::detail::release_all();
+    rmp::audio::detail::close_device();
 }
 
 // And here, after your hook, only what owns nothing on the GPU: the rres pack

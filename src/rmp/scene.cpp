@@ -192,7 +192,7 @@ void update(float delta) {
         // collision pass has had its say, and its limits are applied after
         // its follow. Anything reading camera.view() next frame -- the
         // default bounds, the pointer, Parallax -- sees the settled frame.
-        scene.camera.detail_settle();
+        scene.camera.detail_settle(delta);
     }
     rmp::input::detail::set_layer_input(true);
 }
