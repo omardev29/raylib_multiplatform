@@ -8,7 +8,7 @@
     "web-test": "node .github/scripts/web_boot_test.js"
   },
   "devDependencies": {
-    "playwright": "1.62.1",
+    "playwright": "1.63.0",
     "pngjs": "7.0.0"
   }
 }
