@@ -57,6 +57,14 @@
 // then the settings -- would otherwise start two, and Emscripten reports that
 // on console.error. A sync asked for while one runs is folded into one more
 // run after it, which carries everything written meanwhile.
+//
+// A sync that fails while another is pending is NOT a failure to report.
+// IDBFS lists the folder when the sync starts and reads each file later, once
+// IndexedDB answers; a file removed in between -- a save written and deleted
+// in one frame, which is exactly the CI boot round trip -- is gone when it
+// goes to read it, and the sync ends in ENOENT. The pending run lists the
+// folder again and carries the removal, so only a sync with nothing changed
+// under it says that persisting failed.
 Module['rmpPersist'] = function () {
   var sync = Module['rmpSyncState'] || (Module['rmpSyncState'] = { busy: false, again: false });
   if (sync.busy) {
@@ -66,9 +74,16 @@ Module['rmpPersist'] = function () {
   sync.busy = true;
   sync.again = false;
   FS.syncfs(false, function (err) {
-    if (err) console.warn('rmp::save: could not persist to IndexedDB: ' + err);
     sync.busy = false;
-    if (sync.again) Module['rmpPersist']();
+    if (sync.again) {
+      Module['rmpPersist']();
+      return;
+    }
+    if (err) {
+      // Emscripten's ErrnoError is not an Error, and prints as [object Object].
+      var why = err.errno !== undefined ? 'errno ' + err.errno : String(err);
+      console.warn('rmp::save: could not persist to IndexedDB: ' + why);
+    }
   });
 };
 
@@ -99,7 +114,10 @@ Module['preRun'].push(function () {
   }
   addRunDependency('rmp-save');
   var done = function (err) {
-    if (err) console.warn('rmp::save: saves will not survive a reload: ' + err);
+    if (err) {
+      var why = err.errno !== undefined ? 'errno ' + err.errno : String(err);
+      console.warn('rmp::save: saves will not survive a reload: ' + why);
+    }
     removeRunDependency('rmp-save');
   };
   try {
