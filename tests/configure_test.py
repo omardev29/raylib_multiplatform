@@ -2348,6 +2348,29 @@ class VendoredHeaderPathsTest(unittest.TestCase):
                                  path + " has grown its own include list again; "
                                  "examples are CMake targets, build them that way")
 
+    def test_no_two_examples_share_a_header_name(self):
+        """The MSVC pass over examples/ puts EVERY example's include/ on one path.
+
+        _windows.yml says so in a comment -- "no two share a header name" -- and
+        nothing checked it. The day a second example brings its own game.h, the
+        first include/ on the list wins for both, and one of them is compiled
+        against the other's header: a syntax pass that fails for no reason in
+        the file it names, or passes against the wrong declarations.
+        """
+        seen = {}
+        for header in sorted((REPO / "examples").glob("**/include/**/*.h")):
+            rel = header.relative_to(REPO)
+            # The path below include/, which is what `#include "..."` names.
+            parts = rel.parts
+            name = "/".join(parts[parts.index("include") + 1:])
+            with self.subTest(header=str(rel)):
+                self.assertNotIn(name, seen,
+                                 f"{rel} and {seen.get(name)} are both \"{name}\": the MSVC "
+                                 "syntax pass in _windows.yml puts every example's include/ "
+                                 "on one path, so rename one of them")
+            seen.setdefault(name, rel)
+        self.assertIn("game.h", seen)  # or the glob found nothing and proved nothing
+
 
 # ---------------------------------------------------------------------------
 # The Android JNI boundary

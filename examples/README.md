@@ -61,7 +61,7 @@ what is ours.
 |---|---|
 | [01_loading](assets/01_loading/src/main.cpp) | Loading by name — the same code whether it comes from loose files or a packed, AES-encrypted `resources.rres`. The counted handles (`rmp::Texture`, `rmp::Font`, `rmp::Sound`) and why there is no `Unload*` in the file, nor an `InitAudioDevice()`: the sound device opens on the first sound. Brings its own [`resources/`](assets/01_loading/resources), which is all an example has to do to read its own. |
 
-## [`games/`](games) — six whole games
+## [`games/`](games) — seven whole games
 
 Not decoration. They are the judges of the one rule that outranks the others —
 *the API has to be as simple as possible for the user* — and they are what turns
@@ -79,6 +79,7 @@ all, and the screenshot says whether they look like games.
 | [04_top_down](games/04_top_down/src/main.cpp) | `TopDown` with eight normalised directions, `Follow` for the enemies, an HP bar with `rmp::ui::progress`, and what you can only say with layers: the player's shot misses the player, enemies pass through each other but not walls, and the doorway out sees the player and nothing else. The bits are named once, in `include/layers.h`. |
 | [05_endless_runner](games/05_endless_runner/src/main.cpp) | `Parallax`, `Runner`, a `Spawner` **by distance** and a camera that follows, with a little smoothing. No background loop, no distance counter, no camera arithmetic. Read it for what is not there. Its art is in its own `resources/`, drawn by [`tools/make_example_art.py`](../tools/make_example_art.py). |
 | [06_tetris](games/06_tetris/src/main.cpp) | The honest one: a Tetris is a 10×20 array and the rules of Tetris, and the framework does not pretend otherwise. What it does contribute is named at the top of the file, and so is what it does not — plus a 7-bag out of `rmp::random`, which is what makes the same seed the same game, and the best score kept between sessions with `rmp::save`. |
+| [07_platformer](games/07_platformer/src/main.cpp) | **A level designed in [LDtk](https://ldtk.io).** Three levels side by side in one world — a meadow, a desert, a snowfield — with Kenney's Pixel Platformer art. The player stands on the IntGrid and runs along it without catching on a seam, every coin, enemy, sign, door and platform is placed in the editor and arrives through `on_object()` with its fields (a patrol is an `Array<Point>`, a platform's destination a `Point`, the key names its door with an `EntityRef`), and walking off the edge of a level is `neighbour_at()` and a scene change. Music, effects, a shaking camera held to each level's edges, the run in an `rmp::global`, the best one in `rmp::save`. The art, the sounds and the first version of `world.ldtk` come out of [`tools/make_platformer_assets.py`](../tools/make_platformer_assets.py); the level is LDtk's from there on. One file per scene under `src/scenes/`, the things in the level under `src/objects/`. |
 
 ## [`platform/`](platform)
 

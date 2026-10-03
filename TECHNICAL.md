@@ -107,7 +107,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── config.h          #   the APP_* values from the .toml
 │       └── generated/        #   GENERATED config.h, git-ignored
 ├── examples/                 # one mini-project each, by area: scenes/ input/ ui/ ads/ assets/ games/ platform/
-│   ├── games/                # six whole games, playable start to finish; CI boots them all
+│   ├── games/                # seven whole games, playable start to finish; CI boots them all
 │   └── plain_c/src/main.c    # the opt-out: plain C, <raylib.h> only, your own main()
 ├── tests/
 │   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES, RAY_TEST_SCREENSHOT), header-only
