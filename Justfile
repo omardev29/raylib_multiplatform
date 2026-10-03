@@ -159,6 +159,10 @@ test what="all": (_reconfigure "Debug")
     #           manifest and Xcode spec parsed by a real parser
     # layout    the UI layout at four resolutions, with no window and no GPU
     # smoke     boot the game headless and prove it drew actual pixels
+    # sanitize  the unit tests again, built with ASan and UBSan in build/sanitize:
+    #           what a test cannot see -- an int overflow that wraps somewhere
+    #           harmless, a float cast that lands in range -- fails here. NOT
+    #           part of "all", because it is a second build; the lint job runs it.
     # examples  every example builds and BOOTS under the software renderer,
     #           with a screenshot each. NOT part of "all", on purpose: there is
     #           no reason not to keep writing examples, and nobody wants their
@@ -174,6 +178,10 @@ test what="all": (_reconfigure "Debug")
         # rmp/config.h; after `just clean` that file does not exist yet.
         python3 tools/configure.py >/dev/null
         bash tools/examples_build.sh
+    }
+    run_sanitize() {
+        bash tools/test_locales.sh build/test-locales
+        bash tools/sanitize_check.sh
     }
     run_layout() {
         echo "== layout =="
@@ -271,6 +279,7 @@ test what="all": (_reconfigure "Debug")
     case "{{ what }}" in
         all)      just fmt check; run_config; run_repo; run_seam; run_workflows; run_portable; run_shell; run_ownership; run_headers; run_header_cost; run_configure_tests; run_unit; run_layout; run_render; run_smoke ;;
         examples) run_examples ;;
+        sanitize) run_sanitize ;;
         layout)   run_layout ;;
         smoke)    run_smoke ;;
         config)   run_config ;;
@@ -286,7 +295,7 @@ test what="all": (_reconfigure "Debug")
         workflows) run_workflows ;;
         render)   run_render ;;
         render-update) run_render update ;;
-        *) echo "unknown: {{ what }} (all | examples | unit | seam | workflows | portable | shell | ownership | headers | cost | render | layout | smoke | config | configure)"; exit 1 ;;
+        *) echo "unknown: {{ what }} (all | examples | sanitize | unit | seam | workflows | portable | shell | ownership | headers | cost | render | layout | smoke | config | configure)"; exit 1 ;;
     esac
     echo "PASS"
 

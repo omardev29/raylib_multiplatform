@@ -318,6 +318,19 @@ jobs:
           ./build/unit_test
           ./build/unit_test --order-by=rand --rand-seed=1337 --test-suite-exclude="audio: device"
 
+      # The same unit tests built with AddressSanitizer and UndefinedBehavior-
+      # Sanitizer, every report fatal. A test asserts what it can see, and UB
+      # is what it cannot: the LDtk reader reached its first review with a
+      # signed overflow, float casts past INT_MAX and a read off the end of a
+      # vector, every one under a passing test. gcc here -- the image's clang
+      # has no sanitizer runtime -- which the script picks by itself.
+      - name: Unit tests under ASan and UBSan
+        run: |
+          set -euo pipefail
+          export LOCPATH="$PWD/build/test-locales"
+          export RMP_REQUIRE_TEST_LOCALES=1
+          bash tools/sanitize_check.sh
+
       # The headless UI layout assertions: four resolutions, no window, no GPU,
       # and the thing phases 1-4 of the UI architecture are gated on. It was
       # CONFIGURED in this job (the clang-tidy step passes -DBUILD_UI_TESTS=ON

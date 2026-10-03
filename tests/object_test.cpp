@@ -239,8 +239,8 @@ TEST_CASE_FIXTURE(Fixture,
     b.name = "b";
 
     a.destroy();
+    CHECK(a.ends == 1); // before the frame: frame() frees `a` at its end
     frame(world);
-    CHECK(a.ends == 1);
     CHECK(b.updates == 1);
     CHECK(g_log == "?.ready ?.ready a.end b.update");
 }
@@ -269,12 +269,16 @@ TEST_CASE_FIXTURE(Fixture, "scene.destroy(object) is the same thing") {
 namespace {
 // Destroys itself the first time it is updated. The classic way to find out
 // whether a container is being walked while it is written to.
+// Counted outside the object: it is freed at the end of the frame it dies in,
+// and reading a member of it afterwards was reading freed memory (found by
+// tools/sanitize_check.sh).
+int g_self_destruct_updates = 0;
+
 class SelfDestruct : public rmp::Object {
 public:
-    int updates = 0;
     void _update(float delta) override {
         (void)delta;
-        updates++;
+        g_self_destruct_updates++;
         destroy();
     }
 };
@@ -282,9 +286,10 @@ public:
 
 TEST_CASE_FIXTURE(Fixture, "an object may destroy itself from its own _update") {
     World world;
-    auto &object = world.spawn<SelfDestruct>();
+    g_self_destruct_updates = 0;
+    world.spawn<SelfDestruct>();
     frame(world);
-    CHECK(object.updates == 1);
+    CHECK(g_self_destruct_updates == 1);
     CHECK(rmp::objects::detail::live_count() == 0);
     frame(world);
     CHECK(rmp::objects::detail::live_count() == 0);

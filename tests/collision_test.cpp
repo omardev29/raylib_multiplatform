@@ -333,10 +333,15 @@ TEST_CASE_FIXTURE(Fixture,
         world.spawn<Probe>({ .position = { -5, 0 }, .shape = rmp::rect({ 10, 10 }) });
     a.die_on_hit = true;
 
-    frame(world);
+    // The frame without its collection: `a` is freed at the end of it, and
+    // reading a.hits after that was reading freed memory -- which this test
+    // did, unnoticed until the sanitized build (tools/sanitize_check.sh).
+    rmp::objects::detail::update(world, 1.0f);
+    rmp::objects::detail::collide(world);
     CHECK_FALSE(a.alive());
     CHECK(a.hits == 1); // told once, by the first pair; nothing from the second
     CHECK(b.hits + c.hits == 2); // both of the others were told about a
+    rmp::objects::detail::collect();
     CHECK(world.object_count() == 2);
 }
 

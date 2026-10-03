@@ -37,7 +37,12 @@ option(RMP_BUILD_EXAMPLES "Build every example under examples/ as an executable"
 # [dev] compiler/linker from the config. Deliberately only for development
 # builds: CI builds `release`/`web`, so nothing here can change what ships.
 # Must precede project(), which is where CMake locks in the compiler.
-if(NOT PRODUCTION_BUILD)
+#
+# RMP_DEV_TOOLCHAIN=OFF is for a build that has to choose its own compiler:
+# tools/sanitize_check.sh, which needs a compiler with a sanitizer runtime and
+# in the CI image that is gcc, whatever [dev] says.
+option(RMP_DEV_TOOLCHAIN "Apply [dev] compiler from raylib_multiplatform.toml to development builds" ON)
+if(NOT PRODUCTION_BUILD AND RMP_DEV_TOOLCHAIN)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_toolchain.cmake" OPTIONAL)
 elseif(DEFINED RMP_DEV_COMPILER)
   # The debug and release presets share ${sourceDir}/build, so `cmake --preset
@@ -560,6 +565,33 @@ if(RMP_BUILD_EXAMPLES)
   foreach(_t ${RMP_EXAMPLE_TARGETS})
     file(APPEND "${CMAKE_BINARY_DIR}/example_targets.txt" "${_t}\n")
   endforeach()
+endif()
+
+# --- the platformer, PLAYED -------------------------------------------------
+# tests/platformer_play.cpp drives examples/games/07_platformer's own sources
+# through the real loop, with the keys fed through the input and UI seams, to
+# the flag and to game over. Not an example, so not in RMP_EXAMPLE_TARGETS
+# (whose count is asserted against the tree); tools/examples_build.sh runs it
+# after booting them. Defined with BUILD_TESTS too, so the lint configure has a
+# compile_commands.json entry for it -- but out of `all` there, so `just test`
+# never compiles the game for it.
+set(_platformer "${CMAKE_CURRENT_SOURCE_DIR}/examples/games/07_platformer")
+if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
+  file(GLOB_RECURSE _platformer_sources CONFIGURE_DEPENDS "${_platformer}/src/*.cpp")
+  list(FILTER _platformer_sources EXCLUDE REGEX "/src/main\\.cpp$")
+  add_executable(platformer_play ${_platformer_sources}
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/platformer_play.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+  set_property(TARGET platformer_play PROPERTY CXX_STANDARD 20)
+  if(NOT RMP_BUILD_EXAMPLES)
+    set_property(TARGET platformer_play PROPERTY EXCLUDE_FROM_ALL TRUE)
+  endif()
+  target_link_libraries(platformer_play PRIVATE rmp)
+  target_include_directories(platformer_play PRIVATE "${_platformer}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp")
+  target_compile_definitions(platformer_play PRIVATE RESOURCES_PATH="${_platformer}/resources/")
+  rmp_apply_compile_flags(platformer_play)
+  rmp_apply_link_flags(platformer_play)
 endif()
 
 # --- rres resource packing --------------------------------------------------

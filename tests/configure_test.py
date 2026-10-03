@@ -3245,6 +3245,13 @@ class JustfileAndLintJobAgreeTest(unittest.TestCase):
                                   f"does not. A gate that exists locally and not in CI "
                                   f"is a gate that is about to stop existing.")
 
+    def test_the_lint_job_runs_the_sanitized_unit_tests(self):
+        """`just test sanitize` is not in `all` -- it is a second build -- so the
+        comparison above cannot see it. CI is where it has to run every time."""
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("bash tools/sanitize_check.sh", lint)
+        self.assertIn("sanitize) run_sanitize", (REPO / "Justfile").read_text())
+
     def test_the_lint_job_runs_the_headless_ui_layout_test(self):
         """Named on its own because it is the one that was missing, and a
         regression here is invisible: the binary still BUILDS in the clang-tidy

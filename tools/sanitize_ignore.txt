@@ -1,0 +1,10 @@
+# What tools/sanitize_check.sh does not report, and why each line is here.
+# A line is a decision about code that is NOT ours; nothing under src/ or
+# include/ may ever be listed. Clang's -fsanitize-ignorelist format.
+
+# cute_tiled finds a struct from a pointer to its member with the classic
+# OFFSET_OF macro, `&((T *)0)->member`: a member access through a null pointer,
+# undefined by the letter of the standard and what every C compiler has always
+# done in practice. Vendored, and frozen with Tiled (see rmp/tilemap.h).
+# C++ names are matched mangled (_Z19cute_tiled_free_map...), hence the stars.
+fun:*cute_tiled_*

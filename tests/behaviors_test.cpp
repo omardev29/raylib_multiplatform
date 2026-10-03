@@ -932,6 +932,10 @@ TEST_CASE_FIXTURE(Fixture, "a projectile that dies on contact still counts as a 
     alien.add<rmp::behavior::Health>(
         { .hp = 2, .invulnerable_for = 0, .hurt_by = kBullets });
     alien.on_collision([&hits](rmp::Object &, rmp::Object &) { hits++; });
+    // Asked through handles: frame() collects the dead, so after it a
+    // reference to one is a reference to freed memory -- which is what this
+    // test did, unnoticed until the sanitized build (tools/sanitize_check.sh).
+    const rmp::Handle<rmp::Object> alien_handle = alien.handle();
 
     for (int order = 0; order < 2; order++) {
         // Both orders of the pair, because that was the coin.
@@ -939,13 +943,15 @@ TEST_CASE_FIXTURE(Fixture, "a projectile that dies on contact still counts as a 
             world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 4, 4 }) });
         bullet.collision_layer = kBullets;
         bullet.add<rmp::behavior::Projectile>({ .speed = 0 });
+        const rmp::Handle<rmp::Object> bullet_handle = bullet.handle();
         frame(world, 1.0f / 60);
-        CHECK_FALSE(bullet.alive());
+        CHECK_FALSE(bullet_handle);
         CHECK(hits == order + 1); // the killing blow is reported too
         if (order == 0) {
-            CHECK(alien.get<rmp::behavior::Health>()->hp == 1);
+            REQUIRE(alien_handle);
+            CHECK(alien_handle->get<rmp::behavior::Health>()->hp == 1);
         } else {
-            CHECK_FALSE(alien.alive()); // and it did kill
+            CHECK_FALSE(alien_handle); // and it did kill
         }
     }
 }

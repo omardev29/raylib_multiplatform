@@ -686,7 +686,16 @@ TEST_SUITE("input consumption, against the real UI") {
 } // TEST_SUITE
 
 TEST_SUITE("input, hostile values") {
-    TEST_CASE("a key code past the end of the table does not read past it") {
+    // These two make enum values outside their enum's range -- the casts below
+    // ARE undefined behaviour in C++, which is the point: the framework has to
+    // hold up when somebody does it anyway. Under UBSan the cast itself is
+    // the report, so the sanitized build (tools/sanitize_check.sh, which
+    // defines RMP_SANITIZE) skips them; the normal build runs them.
+    TEST_CASE("a key code past the end of the table does not read past it"
+#if defined(RMP_SANITIZE)
+              * doctest::skip()
+#endif
+    ) {
         Fixture fix;
         frame();
         // Not something anyone types on purpose. It is something a cast, a saved
@@ -706,7 +715,11 @@ TEST_SUITE("input, hostile values") {
         // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange)
     }
 
-    TEST_CASE("an action bound to an out-of-range code is inert, not a crash") {
+    TEST_CASE("an action bound to an out-of-range code is inert, not a crash"
+#if defined(RMP_SANITIZE)
+              * doctest::skip()
+#endif
+    ) {
         Fixture fix;
         // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
         rmp::input::action("bad", static_cast<::KeyboardKey>(50000));
