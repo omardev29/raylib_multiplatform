@@ -1501,10 +1501,15 @@ fallback across two sessions, the XDG folders, and numbers under a comma and a t
 point (locales built from `tests/fixtures/locale/` by `tools/test_locales.sh`, required in CI).
 What only another platform can run is covered by the boot instead: under the CI smoke test every
 game saves a small file to its platform's real folder, reads it back and removes it before it may
-print `RAY_TEST_BOOT_OK` (`after_ready()` in `src/rmp/app.cpp`), so all seventeen targets exercise
-their own folder code -- and the Windows job does it with `%APPDATA%` set to a folder called "José
-Müller". What no job checks is that a web save survives a real page reload, beyond the boot test
-failing on any `rmp::save:` warning from the IndexedDB mount.
+print `RAY_TEST_BOOT_OK` (`after_ready()` in `src/rmp/app.cpp`). Every target CI actually boots
+does it: Windows (with `%APPDATA%` set to a folder called "José Müller"), macOS, Linux on glibc,
+musl and DRM, the three BSDs, every example, and the web, whose boot test opens the page with
+`?ray_test_save=1` and requires the save to have gone through IndexedDB. **Two families are not
+covered at run time:** iOS, because the hosted simulator does not boot and the job only builds;
+and Android, because the Firebase job is a Robo crawl on real hardware that proves the app starts
+and does not crash, with no log to read a marker from. Their folder code (Application Support,
+internal storage) is only reviewed, not run. Nor does any job check that a web save survives a
+real page reload.
 
 ## AdMob (Android)
 

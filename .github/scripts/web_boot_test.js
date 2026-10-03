@@ -20,7 +20,13 @@
 const { chromium } = require('playwright');
 const { PNG } = require('pngjs');
 
-const url = process.argv[2] || 'http://localhost:8000/index.html';
+// ray_test_save=1 asks the game for the boot-time save round trip that the
+// native targets do under RAY_TEST_MAX_FRAMES: cmake/web/rmp_web.js turns it
+// into RAY_TEST_SAVE in the module's ENV, and src/rmp/app.cpp then writes a
+// save into IndexedDB, reads it back and removes it before RAY_TEST_BOOT_OK.
+// Without it the web target never exercised its own save folder.
+const base = process.argv[2] || 'http://localhost:8000/index.html';
+const url = base + (base.includes('?') ? '&' : '?') + 'ray_test_save=1';
 const BOOT_TIMEOUT_MS = 60000;   // total boot budget
 const SETTLE_MS = 15000;         // time to let the engine render a few frames
 
@@ -156,6 +162,15 @@ function contentRatio(pngBuffer) {
     // real, and it is free to print.
     console.log('suppressed benign console errors: ' + suppressed.length);
     suppressed.forEach((s) => console.log('  benign: ' + s));
+
+    // The save round trip ran and worked -- or the boot marker is missing,
+    // because app.cpp withholds RAY_TEST_BOOT_OK when the save fails.
+    if (!logs.some((l) => /RAY_TEST_SAVE_OK dir=\/rmp_save\//.test(l))) {
+      errors.push('no RAY_TEST_SAVE_OK into /rmp_save/: the boot save round trip did not run or failed');
+    }
+    if (!logs.some((l) => /RAY_TEST_BOOT_OK/.test(l))) {
+      errors.push('no RAY_TEST_BOOT_OK in the console');
+    }
 
     if (errors.length > 0) {
       console.error('FAIL: errors during web boot:');

@@ -26,7 +26,7 @@
 //                           platform's folder and back -- see after_ready()
 //                           in src/rmp/app.cpp. BOOT_OK is not printed then.
 //   RAY_TEST_SAVE_OK      — that save round trip worked; printed just before
-//                           BOOT_OK by every game built on the framework
+//                           BOOT_OK under RAY_TEST_MAX_FRAMES or RAY_TEST_SAVE=1
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content
 //   RAY_TEST_RENDER_FAIL  — the frame was blank; something stopped drawing
 //   RAY_TEST_DONE_FRAMES  — the frame budget was rendered, exiting cleanly

@@ -74,6 +74,16 @@ Module['rmpPersist'] = function () {
 
 Module['preRun'] = Module['preRun'] || [];
 if (typeof Module['preRun'] === 'function') Module['preRun'] = [Module['preRun']];
+// The CI boot test opens the page with ?ray_test_save=1. A browser has no
+// environment variables, so this puts it into the module's own ENV, where
+// getenv("RAY_TEST_SAVE") in src/rmp/app.cpp finds it: the web's way into the
+// boot-time save round trip the native targets do under RAY_TEST_MAX_FRAMES.
+Module['preRun'].push(function () {
+  if (typeof location !== 'undefined' && /[?&]ray_test_save=1(&|$)/.test(location.search)) {
+    ENV['RAY_TEST_SAVE'] = '1';
+  }
+});
+
 Module['preRun'].push(function () {
   var dir = '/rmp_save/' + (Module['rmpSaveName'] || 'game');
   ['/rmp_save', dir].forEach(function (d) {

@@ -160,8 +160,17 @@ void after_ready() {
     // every platform (%APPDATA% through the wide API, Application Support on
     // iOS, internal storage on Android, IndexedDB on the web) and the unit
     // tests only ever run it on Linux. It is how a Windows user called José,
-    // whose profile path once made every save throw, is tested at all.
-    if (SmokeTest_maxFrames > 0 && !smoke_save_round_trip()) return;
+    // whose profile path once made every save throw, is tested at all. It runs
+    // on every target CI boots: the desktops, the BSDs and the web. iOS
+    // (the hosted simulator does not boot) and Android (Firebase's Robo test
+    // only proves it starts on real hardware, with no log to read) are not
+    // booted with it -- see "What is tested" in TECHNICAL.md's rmp::save chapter.
+    // RAY_TEST_SAVE=1 asks for it without a frame budget: it is how the web
+    // boot test gets it (cmake/web/rmp_web.js sets it from the page's URL).
+    const char *asked = std::getenv("RAY_TEST_SAVE");
+    const bool save_test =
+        SmokeTest_maxFrames > 0 || (asked != nullptr && asked[0] == '1');
+    if (save_test && !smoke_save_round_trip()) return;
     SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
 }
 
