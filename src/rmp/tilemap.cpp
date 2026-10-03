@@ -450,6 +450,18 @@ const MapObject *object_at(const MapData *data, int index) {
     return &data->objects[static_cast<std::size_t>(index)];
 }
 
+float smallest_cell(const MapData *data) {
+    if (data == nullptr) return 0;
+    float smallest = 0;
+    for (const Layer &layer : data->layers) {
+        const int w = layer.cell_width > 0 ? layer.cell_width : data->tile_width;
+        const int h = layer.cell_height > 0 ? layer.cell_height : data->tile_height;
+        const auto cell = static_cast<float>(std::min(w, h));
+        if (cell > 0 && (smallest == 0 || cell < smallest)) smallest = cell;
+    }
+    return smallest;
+}
+
 Rectangle tile_source(const MapData *data, int gid) {
     if (data == nullptr) return Rectangle{};
     const Tileset *set = tileset_for(*data, gid);
@@ -607,22 +619,48 @@ bool Tilemap::solid_at(Vector2 world_position) const {
 bool Tilemap::solid_in(Rectangle world_rect) const {
     if (!valid()) return false;
     const MapData *data = data_.get();
-    // Every cell the rectangle touches, not just the four corners: a rectangle
+    // Every cell the rectangle covers, not just the four corners: a rectangle
     // wider than a tile can straddle a solid one with all four corners in empty
     // space, and that is the bug everybody writes the first time. Each layer
     // in its own grid, because LDtk layers can have different ones.
+    //
+    // COVERS, not touches: the right and bottom edges are open, so a box
+    // resting exactly on a floor -- bottom edge on the floor's top -- is not
+    // in the floor, and one flush against a wall is not in the wall. That is
+    // what lets the collision pass stop an object AT a cell instead of
+    // calling it stuck there. A rectangle with no area asks about the cell
+    // its corner is in, as solid_at() does.
+    //
+    // The span is clamped to the layer before it becomes an int: a rectangle
+    // a million cells wide asks about the cells there are, and a NaN or an
+    // infinity asks about none.
+    if (!(world_rect.width >= 0) || !(world_rect.height >= 0)) return false;
     for (const Layer &layer : data->layers) {
         const int w = cell_w(*data, layer);
         const int h = cell_h(*data, layer);
-        if (w <= 0 || h <= 0) continue;
-        const float left = world_rect.x - data->origin.x - layer.offset.x;
-        const float top = world_rect.y - data->origin.y - layer.offset.y;
-        const int first_col = static_cast<int>(std::floor(left / static_cast<float>(w)));
-        const int first_row = static_cast<int>(std::floor(top / static_cast<float>(h)));
-        const int last_col = static_cast<int>(
-            std::floor((left + world_rect.width) / static_cast<float>(w)));
-        const int last_row = static_cast<int>(
-            std::floor((top + world_rect.height) / static_cast<float>(h)));
+        if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) continue;
+        const float left =
+            (world_rect.x - data->origin.x - layer.offset.x) / static_cast<float>(w);
+        const float top =
+            (world_rect.y - data->origin.y - layer.offset.y) / static_cast<float>(h);
+        const float right = left + (world_rect.width / static_cast<float>(w));
+        const float bottom = top + (world_rect.height / static_cast<float>(h));
+        if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) ||
+            !std::isfinite(bottom)) {
+            continue;
+        }
+        const auto cells_x = static_cast<float>(layer.width);
+        const auto cells_y = static_cast<float>(layer.height);
+        const float first_x = std::floor(left);
+        const float first_y = std::floor(top);
+        const float last_x = std::max(first_x, std::ceil(right) - 1);
+        const float last_y = std::max(first_y, std::ceil(bottom) - 1);
+        if (last_x < 0 || last_y < 0 || first_x >= cells_x || first_y >= cells_y)
+            continue;
+        const int first_col = static_cast<int>(std::max(first_x, 0.0f));
+        const int first_row = static_cast<int>(std::max(first_y, 0.0f));
+        const int last_col = static_cast<int>(std::min(last_x, cells_x - 1));
+        const int last_row = static_cast<int>(std::min(last_y, cells_y - 1));
         for (int row = first_row; row <= last_row; row++) {
             for (int column = first_col; column <= last_col; column++) {
                 if (solid_cell(*data, layer, column, row)) return true;

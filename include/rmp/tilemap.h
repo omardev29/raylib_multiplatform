@@ -14,8 +14,10 @@
 //     };
 //
 // AND THERE IS NO draw(). `map` is a field of rmp::Scene, so the scene draws it
-// underneath everything, collides against its solid tiles, and `object.bounds`
-// left empty comes to mean THE MAP'S bounds instead of the view's. An empty map
+// underneath everything, a solid object that moves is stopped by its solid
+// cells (the floor holds the player up, a wall stops it, and Platformer counts
+// the floor as ground), and `object.bounds` left empty comes to mean THE MAP'S
+// bounds instead of the view's. An empty map
 // costs nothing and a menu scene simply never touches it.
 //
 // That is what turns the editor from "a file format" into "where you design the
@@ -165,6 +167,8 @@ public:
     // ---- queries, for whatever you want to do yourself ---------------------
     [[nodiscard]] int tile_at(int layer, int column, int row) const;
     [[nodiscard]] bool solid_at(Vector2 world_position) const;
+    // Whether a solid cell covers any of the rectangle. Only touching it is
+    // not: a box standing on the floor is not in the floor.
     [[nodiscard]] bool solid_in(Rectangle world_rect) const;
 
     // Drawn by the scene, underneath everything. Here because a game that wants

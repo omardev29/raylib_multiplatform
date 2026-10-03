@@ -87,6 +87,14 @@ bool standing_on_something(Object &self, float reach) {
     const Rectangle box = self.world_collider();
     if (box.height <= 0) return false;
     const Vector2 feet{ box.x + box.width / 2, box.y + box.height };
+    // The map's solid cells first, across the whole width of the feet: the
+    // map holds up a box any part of which is over a solid cell (see
+    // move_through_map in object.cpp), so the ground has to be the same, or a
+    // player half over a ledge is held up and cannot jump.
+    if (scene->map.valid() && self.solid && !self.immovable &&
+        scene->map.solid_in(Rectangle{ box.x, feet.y, box.width, reach })) {
+        return true;
+    }
     const RayQuery query{ .from = Vector2{ feet.x, feet.y - 1 },
                           .to = Vector2{ feet.x, feet.y + reach },
                           .mask = self.collision_mask,

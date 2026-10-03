@@ -32,8 +32,10 @@
 #include "animation_internal.h"
 #include "internal.h"
 #include "object_internal.h"
+#include "tilemap_internal.h" // smallest_cell, for the steps through the map
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -519,6 +521,122 @@ bool apply_edges(Object &object) {
     return false;
 }
 
+// ---- THE MAP IS SOLID -------------------------------------------------------
+//
+// A solid object that moves is stopped by the map's solid cells. Not in the
+// collision pass with the objects, and the reason is the classic one: pushing
+// a box out of each overlapping cell along its shortest way out makes a player
+// running along a floor of tiles catch on the seam between two of them, where
+// the shortest way out of the next tile is sideways. So here, during the
+// move, EACH AXIS ON ITS OWN, x and then y: running is tested only against
+// walls and falling only against floors, and a seam is never a wall.
+//
+// Fast objects move in steps no longer than half the smallest cell or half
+// the object, so a fall faster than a tile per frame lands on the floor
+// instead of passing through it. The step that would end inside a solid cell
+// is bisected down to the contact, and the velocity along that axis becomes
+// zero: the landing, or the head on the ceiling.
+
+constexpr int kContactBisections = 12; // half a cell / 4096: well under a pixel
+
+bool in_map(const Tilemap &map, const Object &object) {
+    return map.solid_in(object.world_collider());
+}
+
+// An object that is ALREADY inside a solid cell -- spawned in a wall, or
+// pushed into the floor by another object in the collision pass -- is moved
+// out the shortest way among the four, up to a cell plus its own size. Left
+// there, every axis would be blocked from its first step and it would be
+// stuck for good. Up wins a tie, which is the right answer for the commonest
+// case: something pushed into the floor.
+void push_out(Object &object, const Tilemap &map, float cell) {
+    const Rectangle box = object.world_collider();
+    const float reach = cell + std::max(box.width, box.height);
+    const Vector2 directions[] = { { 0, -1 }, { -1, 0 }, { 1, 0 }, { 0, 1 } };
+    float best = 0;
+    Vector2 best_direction{};
+    const Vector2 start = object.position;
+    for (const Vector2 &d : directions) {
+        // Out along d, in steps of a pixel, then bisected back to the edge.
+        float out = 0;
+        const int pixels = static_cast<int>(std::min(reach, 4096.0f));
+        for (int px = 1; px <= pixels; px++) {
+            const auto step = static_cast<float>(px);
+            object.position = Vector2{ start.x + (d.x * step), start.y + (d.y * step) };
+            if (!in_map(map, object)) {
+                out = step;
+                break;
+            }
+        }
+        if (out == 0) continue;
+        float lo = out - 1;
+        float hi = out;
+        for (int i = 0; i < kContactBisections; i++) {
+            const float mid = (lo + hi) / 2;
+            object.position = Vector2{ start.x + d.x * mid, start.y + d.y * mid };
+            if (in_map(map, object))
+                lo = mid;
+            else
+                hi = mid;
+        }
+        if (best == 0 || hi < best) {
+            best = hi;
+            best_direction = d;
+        }
+    }
+    object.position = start;
+    if (best > 0) {
+        object.position = Vector2{ start.x + best_direction.x * best,
+                                   start.y + best_direction.y * best };
+    }
+}
+
+void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
+    const float cell = tilemap::detail::smallest_cell(map.detail_data());
+    const Rectangle box = object.world_collider();
+    if (cell <= 0 || box.width <= 0 || box.height <= 0) {
+        object.position.x += step.x;
+        object.position.y += step.y;
+        return;
+    }
+    if (in_map(map, object)) push_out(object, map, cell);
+    const float limit = std::max(1.0f, std::min({ cell, box.width, box.height }) / 2);
+
+    for (int axis = 0; axis < 2; axis++) {
+        const float travel = axis == 0 ? step.x : step.y;
+        if (travel == 0 || !std::isfinite(travel)) continue;
+        float &coordinate = axis == 0 ? object.position.x : object.position.y;
+        float &speed = axis == 0 ? object.velocity.x : object.velocity.y;
+        if (in_map(map, object)) {
+            // Still inside after push_out (nowhere to go within reach): the
+            // map cannot say where it should be, so it does not try.
+            coordinate += travel;
+            continue;
+        }
+        const int steps = static_cast<int>(std::ceil(std::fabs(travel) / limit));
+        const float increment = travel / static_cast<float>(steps);
+        for (int i = 0; i < steps; i++) {
+            const float from = coordinate;
+            coordinate = from + increment;
+            if (!in_map(map, object)) continue;
+            // This increment ends inside: find the contact within it.
+            float lo = 0;
+            float hi = 1;
+            for (int k = 0; k < kContactBisections; k++) {
+                const float mid = (lo + hi) / 2;
+                coordinate = from + (increment * mid);
+                if (in_map(map, object))
+                    hi = mid;
+                else
+                    lo = mid;
+            }
+            coordinate = from + (increment * lo);
+            speed = 0;
+            break;
+        }
+    }
+}
+
 } // namespace
 
 void update(Scene &scene, float delta) {
@@ -585,8 +703,16 @@ void update(Scene &scene, float delta) {
 
             object->velocity.x += acceleration.x * delta;
             object->velocity.y += acceleration.y * delta;
-            object->position.x += object->velocity.x * delta;
-            object->position.y += object->velocity.y * delta;
+            const Vector2 step{ object->velocity.x * delta, object->velocity.y * delta };
+            // Solid and free to move: the map stops it (see move_through_map).
+            // Anything else -- a coin, a trigger, a bullet, a platform the
+            // game moves by hand -- goes where its velocity says.
+            if (object->solid && !object->immovable && scene.map.valid()) {
+                move_through_map(*object, scene.map, step);
+            } else {
+                object->position.x += step.x;
+                object->position.y += step.y;
+            }
         }
 
         // A wrap moves the object by the width of the world, and the swept test

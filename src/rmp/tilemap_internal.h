@@ -148,6 +148,10 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
 int object_count(const MapData *data);
 const MapObject *object_at(const MapData *data, int index);
 
+// The smallest cell of any layer, 0 for a map with none: how far a moving
+// object may step before the collision pass looks at the map again.
+float smallest_cell(const MapData *data);
+
 // Where one gid is in its tileset image, with the tileset's margin and spacing
 // already in it. {0,0,0,0} when no tileset in the map holds that gid. This is
 // the arithmetic draw() does, split out because it is the half a headless test

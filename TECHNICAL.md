@@ -1430,6 +1430,17 @@ when a game needs it: level backgrounds, parallax, IntGrid values other than `so
 arrays of anything but Points, `FilePath` and `Tile` fields. A tileset must be a PNG (or anything
 `load_texture()` reads); LDtk also accepts an `.aseprite` there, and the map then draws nothing for it.
 
+**The map is solid.** A `solid` object that is not `immovable` is stopped by the solid cells as
+it moves: the floor holds the player up, a wall stops it, a ceiling ends a jump, and `Platformer`
+counts the floor as ground. It moves each axis on its own, across and then down, so it runs along a
+floor of separate tiles without catching on the seams between them (the snag a per-cell push-out
+has) and a jump that reaches the corner of a ledge lands on it. It moves in steps no longer than
+half a cell, so a fall faster than a tile per frame still lands, and an object that ends up inside a
+cell — pushed there by another object — comes out the shortest way, up on a tie. A coin, a trigger
+or a platform the game moves by hand passes through. `solid_in()` means *covers*: a box standing on
+the floor is not in it. `tests/map_collision_test.cpp` has every one of these, as a picture of the
+level it runs in.
+
 **Walking into the next level.** `neighbour_at(point)` is the other level of the same world at a
 point — `""` while the point is still in this level, or in none — so changing level is one `if`:
 

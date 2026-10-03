@@ -492,6 +492,10 @@ public:
     //
     //     ground.solid = true;  ground.immovable = true;
     //     player.solid = true;  player.gravity_scale = 1;
+    //
+    // The scene's map counts as ground too: an object that is solid and not
+    // immovable is stopped by the map's solid cells as it moves, each axis on
+    // its own, so it runs along a floor of tiles without catching on the seams.
     bool solid = false;
     bool immovable = false;
 
