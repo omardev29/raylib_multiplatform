@@ -125,3 +125,23 @@ if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 echo "PASS: $ran examples booted, drew and exited; screenshots in $SHOTS/"
+
+# Booting a game for thirty frames proves its title screen draws, and nothing
+# else. tests/platformer_play.cpp PLAYS the platformer through its real loop:
+# to the flag at 60 Hz, Play again, three falls, game over, Menu; a jump from
+# the moving platform at 60 and 240 Hz; to the flag again at 240 Hz. See the
+# file for why each one is there.
+echo "== examples: the platformer, played =="
+if [ ! -x "$BUILD/platformer_play" ]; then
+  echo "FALLA: $BUILD/platformer_play was not built (CMakeLists.txt, RMP_BUILD_EXAMPLES)"
+  exit 1
+fi
+status=0
+out=$($LIMIT "$BUILD/platformer_play" 2>&1) || status=$?
+printf '%s\n' "$out" | grep '^PLAY' | sed 's/^/  /'
+if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^PLAY PASS$'; then
+  printf '%s\n' "$out" | tail -15 | sed 's/^/          /'
+  echo "FALLA: the platformer could not be played to the end (exit $status)"
+  exit 1
+fi
+echo "PASS: the platformer was won at 60 and 240 Hz, lost, and started again"

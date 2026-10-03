@@ -73,7 +73,13 @@ void Platform::_update(float delta) {
     const bool going_down = position.y > before.y;
     const bool grounded = scene() != nullptr &&
         scene()->map.solid_in(Rectangle{ them.x, feet, them.width, 1 });
-    if (on_top && !(going_down && grounded)) {
+    // And a rider on its way UP is jumping, not standing: within three pixels
+    // of the top for the first frames of a jump, it was put back on it every
+    // frame -- at 60 Hz a jump climbs more than that in one frame and got
+    // away, above ~127 Hz no jump ever did. tests/platformer_play.cpp jumps
+    // from here at 60 and at 240 Hz.
+    const bool rising = rider_now->velocity.y < 0;
+    if (on_top && !rising && !(going_down && grounded)) {
         // Across by as much as it moved; up or down to stand exactly ON its
         // top. Adding the platform's own step instead kept whatever overlap
         // the rider had when it got on, a pixel or so -- and at the top of
