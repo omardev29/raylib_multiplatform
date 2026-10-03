@@ -155,7 +155,25 @@ struct Device {
         }
         SetMasterVolume(0.0f); // nothing reaches the speakers
         AttachAudioMixedProcessor(capture);
+        warm_up();
         (void)take();
+    }
+
+    // A real backend can take longer than a play's 0.15 s to start its stream
+    // the first time -- PulseAudio did, and the first case of the suite then
+    // compared silence with silence and failed one run in a few. So the mixer
+    // is woken first: one tone, waited for until it is heard (or two seconds,
+    // and then the cases say what they hear).
+    static void warm_up() {
+        (void)take();
+        rmp::audio::play("short", {});
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < until) {
+            wait(0.02);
+            const std::scoped_lock hold(g_lock);
+            if (g_energy.total() > 0) break;
+        }
+        wait(0.15); // and let it finish, so it is not in the first measurement
     }
     ~Device() {
         if (ok) DetachAudioMixedProcessor(capture);
