@@ -1,0 +1,751 @@
+{
+ "__header__": {
+  "fileType": "LDtk Project JSON",
+  "app": "LDtk",
+  "doc": "https://ldtk.io/json",
+  "schema": "https://ldtk.io/files/JSON_SCHEMA.json",
+  "appAuthor": "hand-written for tests/ldtk_test.cpp",
+  "appVersion": "1.5.3",
+  "url": "https://ldtk.io"
+ },
+ "jsonVersion": "1.5.3",
+ "defaultGridSize": 16,
+ "worldLayout": "GridVania",
+ "externalLevels": false,
+ "identifierStyle": "Capitalize",
+ "defs": {
+  "layers": [
+   {
+    "uid": 1,
+    "identifier": "Collisions",
+    "type": "IntGrid",
+    "gridSize": 16,
+    "intGridValues": [
+     {
+      "value": 1,
+      "identifier": "Solid"
+     },
+     {
+      "value": 2,
+      "identifier": "water"
+     },
+     {
+      "value": 3,
+      "identifier": null
+     }
+    ]
+   },
+   {
+    "uid": 2,
+    "identifier": "Ground",
+    "type": "Tiles",
+    "gridSize": 16,
+    "intGridValues": []
+   },
+   {
+    "uid": 3,
+    "identifier": "Things",
+    "type": "Entities",
+    "gridSize": 16,
+    "intGridValues": []
+   },
+   {
+    "uid": 4,
+    "identifier": "Fine",
+    "type": "IntGrid",
+    "gridSize": 8,
+    "intGridValues": [
+     {
+      "value": 1,
+      "identifier": "SOLID"
+     }
+    ]
+   }
+  ],
+  "entities": [],
+  "enums": [],
+  "externalEnums": [],
+  "levelFields": [],
+  "tilesets": [
+   {
+    "uid": 7,
+    "identifier": "Tiles",
+    "relPath": "../art/tiles.png",
+    "embedAtlas": null,
+    "pxWid": 73,
+    "pxHei": 73,
+    "tileGridSize": 16,
+    "spacing": 2,
+    "padding": 1,
+    "__cWid": 4,
+    "__cHei": 4,
+    "tagsSourceEnumUid": 50,
+    "enumTags": [
+     {
+      "enumValueId": "Solid",
+      "tileIds": [
+       5
+      ]
+     },
+     {
+      "enumValueId": "Water",
+      "tileIds": [
+       6
+      ]
+     }
+    ],
+    "customData": []
+   },
+   {
+    "uid": 9,
+    "identifier": "Props",
+    "relPath": "props.png",
+    "embedAtlas": null,
+    "pxWid": 16,
+    "pxHei": 16,
+    "tileGridSize": 8,
+    "spacing": 0,
+    "padding": 0,
+    "__cWid": 2,
+    "__cHei": 2,
+    "tagsSourceEnumUid": null,
+    "enumTags": [],
+    "customData": []
+   }
+  ]
+ },
+ "levels": [
+  {
+   "identifier": "Start",
+   "iid": "start-iid",
+   "uid": 0,
+   "worldX": 0,
+   "worldY": 0,
+   "worldDepth": 0,
+   "pxWid": 64,
+   "pxHei": 48,
+   "externalRelPath": null,
+   "fieldInstances": [],
+   "__neighbours": [
+    {
+     "levelIid": "next-iid",
+     "dir": "e"
+    }
+   ],
+   "layerInstances": [
+    {
+     "__identifier": "Things",
+     "__type": "Entities",
+     "__cWid": 4,
+     "__cHei": 3,
+     "__gridSize": 16,
+     "__opacity": 1,
+     "__pxTotalOffsetX": 2,
+     "__pxTotalOffsetY": 0,
+     "__tilesetDefUid": null,
+     "__tilesetRelPath": null,
+     "iid": "Things-iid",
+     "levelId": 0,
+     "layerDefUid": 3,
+     "pxOffsetX": 2,
+     "pxOffsetY": 0,
+     "visible": true,
+     "optionalRules": [],
+     "intGridCsv": [],
+     "autoLayerTiles": [],
+     "seed": 0,
+     "overrideTilesetUid": null,
+     "gridTiles": [],
+     "entityInstances": [
+      {
+       "__identifier": "Player",
+       "__grid": [
+        0,
+        0
+       ],
+       "__pivot": [
+        0.5,
+        1
+       ],
+       "__tags": [],
+       "__tile": null,
+       "__smartColor": "#FFFFFF",
+       "iid": "player-1",
+       "width": 16,
+       "height": 24,
+       "defUid": 0,
+       "px": [
+        24,
+        40
+       ],
+       "fieldInstances": [],
+       "__worldX": null,
+       "__worldY": null
+      },
+      {
+       "__identifier": "Enemy",
+       "__grid": [
+        0,
+        0
+       ],
+       "__pivot": [
+        0,
+        0
+       ],
+       "__tags": [],
+       "__tile": null,
+       "__smartColor": "#FFFFFF",
+       "iid": "enemy-1",
+       "width": 16,
+       "height": 16,
+       "defUid": 0,
+       "px": [
+        32,
+        16
+       ],
+       "fieldInstances": [
+        {
+         "__identifier": "hp",
+         "__type": "Int",
+         "__value": 3,
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "speed",
+         "__type": "Float",
+         "__value": 1.5,
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "boss",
+         "__type": "Bool",
+         "__value": true,
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "name",
+         "__type": "String",
+         "__value": "Bob",
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "note",
+         "__type": "Multilines",
+         "__value": "a\nb",
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "kind",
+         "__type": "LocalEnum.Kind",
+         "__value": "Slime",
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "tint",
+         "__type": "Color",
+         "__value": "#FF8000",
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "patrol",
+         "__type": "Array<Point>",
+         "__value": [
+          {
+           "cx": 1,
+           "cy": 2
+          },
+          null,
+          {
+           "cx": 3,
+           "cy": 2
+          }
+         ],
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "home",
+         "__type": "Point",
+         "__value": {
+          "cx": 0,
+          "cy": 0
+         },
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "target",
+         "__type": "EntityRef",
+         "__value": {
+          "entityIid": "door-1",
+          "layerIid": "Things-iid",
+          "levelIid": "start-iid",
+          "worldIid": "w"
+         },
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "unset",
+         "__type": "Int",
+         "__value": null,
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "nowhere",
+         "__type": "Point",
+         "__value": null,
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "empty",
+         "__type": "Array<Point>",
+         "__value": [],
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "file",
+         "__type": "FilePath",
+         "__value": "a.png",
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        },
+        {
+         "__identifier": "ints",
+         "__type": "Array<Int>",
+         "__value": [
+          1,
+          2
+         ],
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        }
+       ],
+       "__worldX": null,
+       "__worldY": null
+      },
+      {
+       "__identifier": "Door",
+       "__grid": [
+        0,
+        0
+       ],
+       "__pivot": [
+        0.5,
+        0.5
+       ],
+       "__tags": [],
+       "__tile": null,
+       "__smartColor": "#FFFFFF",
+       "iid": "door-1",
+       "width": 8,
+       "height": 32,
+       "defUid": 0,
+       "px": [
+        56,
+        24
+       ],
+       "fieldInstances": [],
+       "__worldX": null,
+       "__worldY": null
+      }
+     ]
+    },
+    {
+     "__identifier": "Ground",
+     "__type": "Tiles",
+     "__cWid": 4,
+     "__cHei": 3,
+     "__gridSize": 16,
+     "__opacity": 0.5,
+     "__pxTotalOffsetX": 4,
+     "__pxTotalOffsetY": -2,
+     "__tilesetDefUid": 7,
+     "__tilesetRelPath": null,
+     "iid": "Ground-iid",
+     "levelId": 0,
+     "layerDefUid": 2,
+     "pxOffsetX": 4,
+     "pxOffsetY": -2,
+     "visible": true,
+     "optionalRules": [],
+     "intGridCsv": [],
+     "autoLayerTiles": [],
+     "seed": 0,
+     "overrideTilesetUid": null,
+     "gridTiles": [
+      {
+       "px": [
+        0,
+        32
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 0,
+       "t": 0,
+       "d": [
+        0
+       ],
+       "a": 1
+      },
+      {
+       "px": [
+        16,
+        32
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 1,
+       "t": 5,
+       "d": [
+        0
+       ],
+       "a": 0.25
+      },
+      {
+       "px": [
+        16,
+        32
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 2,
+       "t": 2,
+       "d": [
+        0
+       ],
+       "a": 1
+      },
+      {
+       "px": [
+        48,
+        0
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 3,
+       "t": 15,
+       "d": [
+        0
+       ],
+       "a": 1
+      },
+      {
+       "px": [
+        64,
+        0
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 0,
+       "t": 1,
+       "d": [
+        0
+       ],
+       "a": 1
+      },
+      {
+       "px": [
+        0,
+        0
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 0,
+       "t": 99,
+       "d": [
+        0
+       ],
+       "a": 1
+      }
+     ],
+     "entityInstances": []
+    },
+    {
+     "__identifier": "Fine",
+     "__type": "IntGrid",
+     "__cWid": 8,
+     "__cHei": 6,
+     "__gridSize": 8,
+     "__opacity": 1,
+     "__pxTotalOffsetX": 0,
+     "__pxTotalOffsetY": 0,
+     "__tilesetDefUid": null,
+     "__tilesetRelPath": null,
+     "iid": "Fine-iid",
+     "levelId": 0,
+     "layerDefUid": 4,
+     "pxOffsetX": 0,
+     "pxOffsetY": 0,
+     "visible": true,
+     "optionalRules": [],
+     "intGridCsv": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "autoLayerTiles": [],
+     "seed": 0,
+     "overrideTilesetUid": null,
+     "gridTiles": [],
+     "entityInstances": []
+    },
+    {
+     "__identifier": "Collisions",
+     "__type": "IntGrid",
+     "__cWid": 4,
+     "__cHei": 3,
+     "__gridSize": 16,
+     "__opacity": 1,
+     "__pxTotalOffsetX": 0,
+     "__pxTotalOffsetY": 0,
+     "__tilesetDefUid": 7,
+     "__tilesetRelPath": null,
+     "iid": "Collisions-iid",
+     "levelId": 0,
+     "layerDefUid": 1,
+     "pxOffsetX": 0,
+     "pxOffsetY": 0,
+     "visible": false,
+     "optionalRules": [],
+     "intGridCsv": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      2,
+      0,
+      0,
+      1,
+      1,
+      3,
+      1
+     ],
+     "autoLayerTiles": [
+      {
+       "px": [
+        0,
+        32
+       ],
+       "src": [
+        0,
+        0
+       ],
+       "f": 0,
+       "t": 4,
+       "d": [
+        0
+       ],
+       "a": 1
+      }
+     ],
+     "seed": 0,
+     "overrideTilesetUid": null,
+     "gridTiles": [],
+     "entityInstances": []
+    }
+   ]
+  },
+  {
+   "identifier": "Next",
+   "iid": "next-iid",
+   "uid": 1,
+   "worldX": 64,
+   "worldY": -16,
+   "worldDepth": 0,
+   "pxWid": 32,
+   "pxHei": 64,
+   "externalRelPath": null,
+   "fieldInstances": [],
+   "__neighbours": [
+    {
+     "levelIid": "start-iid",
+     "dir": "w"
+    }
+   ],
+   "layerInstances": [
+    {
+     "__identifier": "Things",
+     "__type": "Entities",
+     "__cWid": 2,
+     "__cHei": 4,
+     "__gridSize": 16,
+     "__opacity": 1,
+     "__pxTotalOffsetX": 0,
+     "__pxTotalOffsetY": 0,
+     "__tilesetDefUid": null,
+     "__tilesetRelPath": null,
+     "iid": "Things-iid",
+     "levelId": 0,
+     "layerDefUid": 3,
+     "pxOffsetX": 0,
+     "pxOffsetY": 0,
+     "visible": true,
+     "optionalRules": [],
+     "intGridCsv": [],
+     "autoLayerTiles": [],
+     "seed": 0,
+     "overrideTilesetUid": null,
+     "gridTiles": [],
+     "entityInstances": [
+      {
+       "__identifier": "Coin",
+       "__grid": [
+        0,
+        0
+       ],
+       "__pivot": [
+        0.5,
+        0.5
+       ],
+       "__tags": [],
+       "__tile": null,
+       "__smartColor": "#FFFFFF",
+       "iid": "coin-1",
+       "width": 8,
+       "height": 8,
+       "defUid": 0,
+       "px": [
+        8,
+        8
+       ],
+       "fieldInstances": [
+        {
+         "__identifier": "target",
+         "__type": "Point",
+         "__value": {
+          "cx": 1,
+          "cy": 1
+         },
+         "__tile": null,
+         "defUid": 0,
+         "realEditorValues": []
+        }
+       ],
+       "__worldX": null,
+       "__worldY": null
+      }
+     ]
+    },
+    {
+     "__identifier": "Collisions",
+     "__type": "IntGrid",
+     "__cWid": 2,
+     "__cHei": 4,
+     "__gridSize": 16,
+     "__opacity": 1,
+     "__pxTotalOffsetX": 0,
+     "__pxTotalOffsetY": 0,
+     "__tilesetDefUid": null,
+     "__tilesetRelPath": null,
+     "iid": "Collisions-iid",
+     "levelId": 0,
+     "layerDefUid": 1,
+     "pxOffsetX": 0,
+     "pxOffsetY": 0,
+     "visible": true,
+     "optionalRules": [],
+     "intGridCsv": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "autoLayerTiles": [],
+     "seed": 0,
+     "overrideTilesetUid": null,
+     "gridTiles": [],
+     "entityInstances": []
+    }
+   ]
+  }
+ ],
+ "worlds": []
+}

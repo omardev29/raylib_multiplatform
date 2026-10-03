@@ -164,8 +164,9 @@ changing fails the build.
   `RRES_SUPPORT_COMPRESSION_LZ4`. The day `[resources]` gains compression its
   row changes from `none` to `all` and its notice starts shipping.
 - **cJSON** (Dave Gamble and cJSON contributors, MIT) is the JSON under
-  `rmp::save`: compiled once by `src/rmp/cjson_impl.c`, included by
-  `src/rmp/save.cpp` alone and by no public header, unmodified and pinned by
+  `rmp::save` and the LDtk reader: compiled once by `src/rmp/cjson_impl.c`,
+  included through `src/rmp/json_internal.h` by `src/rmp/save.cpp` and
+  `src/rmp/ldtk.cpp` and by no public header, unmodified and pinned by
   content.
 - **Clay** (Nic Barker, zlib) is the layout engine behind `rmp::ui`.
 - **raylib-cpp** (Rob Loach, zlib): the math subset only, header-only, behind

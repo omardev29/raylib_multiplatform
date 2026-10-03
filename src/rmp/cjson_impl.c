@@ -1,9 +1,10 @@
 /* ---------------------------------------------------------------------------
  * cJSON, compiled once, as C.
  *
- * src/rmp/save.cpp is the only file that includes cJSON.h, and no public
- * header does: the JSON library is an implementation detail of rmp::save the
- * way Clay is of rmp::ui, so replacing it touches no game. It is compiled
+ * src/rmp/save.cpp and src/rmp/ldtk.cpp include cJSON.h, through
+ * json_internal.h, and no public header does: the JSON library is an
+ * implementation detail of rmp::save and of the LDtk reader the way Clay is of
+ * rmp::ui, so replacing it touches no game. It is compiled
  * here and not listed as a source because every build already globs src/rmp
  * -- CMake, Android's raymob CMakeLists and the generated Xcode project --
  * and a source listed in three places is a source missing from one of them.

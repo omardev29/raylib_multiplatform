@@ -265,17 +265,22 @@ rmp::Font load_font(std::string_view name, int font_size);
 // there, which is what lets tests/animation_test.cpp exist.
 rmp::SpriteSheet load_sheet(std::string_view name);
 
-// A Tiled map, as JSON with the tile layers saved as CSV -- which is what a new
-// map in Tiled does by default. The tileset images are loaded by file name
-// through load_texture above, so they come out of resources.rres in a release
-// and out of resources/ while developing without the map knowing which.
+// A level: an LDtk project (.ldtk) or a Tiled map (.json), told apart by the
+// extension. See rmp/tilemap.h for what each editor's conventions mean here,
+// and which of the two is maintained. The tileset images -- and an LDtk
+// project's separate level files -- are loaded by FILE NAME through the same
+// asset layer, so they come out of resources.rres in a release and out of
+// resources/ while developing without the map knowing which.
 //
-// Returns an empty map and says why if it cannot be read, and for the one
-// failure people actually hit -- layers saved compressed or as base64 -- the
-// message names the setting in the editor rather than the byte it choked on.
+// `level` picks an LDtk level by its identifier; without it, the first level.
+// Tiled maps have one level and ignore it.
+//
+// Returns an empty map and says why if it cannot be read.
 void load_map(std::string_view name, rmp::Tilemap *into);
-// The same, by value: `map = rmp::assets::load_map("level1.json");`
+// The same, by value: `map = rmp::assets::load_map("world.ldtk");`
 rmp::Tilemap load_map(std::string_view name);
+// An LDtk level by name: `map = rmp::assets::load_map("world.ldtk", "Level_2");`
+rmp::Tilemap load_map(std::string_view name, std::string_view level);
 
 // Raw bytes for anything else — a level file, a shader, JSON. `size` receives
 // the byte count. This one is NOT counted or cached: free it with

@@ -1,10 +1,10 @@
 #pragma once
 // ---------------------------------------------------------------------------
-// rmp/tilemap.h — a level designed in Tiled.
+// rmp/tilemap.h — a level designed in LDtk (or in Tiled).
 //
 //     class GameScene : public rmp::Scene {
 //         void _ready() override {
-//             map = rmp::assets::load_map("level1.json");
+//             map = rmp::assets::load_map("world.ldtk");
 //             map.on_object("enemy", [](rmp::Scene &s, const rmp::MapObject &o) {
 //                 auto &e = s.spawn<Goblin>({ .position = o.position });
 //                 e.hp = o.property_int("hp", 20);
@@ -18,18 +18,33 @@
 // left empty comes to mean THE MAP'S bounds instead of the view's. An empty map
 // costs nothing and a menu scene simply never touches it.
 //
-// That is what turns Tiled from "a parser" into "where you design the level":
-// you place the enemies in the editor, give them properties, and they turn up
-// in the game.
+// That is what turns the editor from "a file format" into "where you design the
+// level": you place the enemies in it, give them fields, and they turn up in
+// the game.
 //
-// TILED MUST SAVE THE LAYERS AS CSV. That is the default for a new map, so most
-// people never find out; the ones who do find out clearly, because the check is
-// explicit and the message names the setting -- Map > Map Properties > Tile
-// Layer Format > CSV -- instead of failing somewhere inside the file.
+// TWO EDITORS, ONE MAP, AND ONLY ONE OF THEM KEEPS MOVING. load_map() picks the
+// reader by extension:
 //
-// The parser is thirdparty/cute_tiled, and like Clay it appears in no public
-// header: it lives behind this class, in src/rmp/tilemap.cpp. Changing parsers
-// one day touches nobody's code.
+//   .ldtk  LDtk, the one this framework TESTS AND MAINTAINS. It is the more
+//          modern editor -- auto-layers, IntGrid, entities with typed fields,
+//          worlds of many levels, a documented JSON format, stable since 1.5 --
+//          and keeping two readers at the same level of testing is more than
+//          it is worth. src/rmp/ldtk.cpp, on cJSON.
+//   .json  Tiled, through thirdparty/cute_tiled. It stays wired up for whoever
+//          uses it, with the tests it has, and that is all: it gets nothing new
+//          and no guarantees. Its layers must be saved as CSV, and the message
+//          says where that setting is when they are not.
+//
+// Neither parser appears in this header. Whatever they read lands in one map,
+// and nothing after parsing knows which editor made it.
+//
+// LDTK, IN ONE PARAGRAPH. A level is a map: load_map("world.ldtk") loads the
+// first, load_map("world.ldtk", "Level_2") that one. Levels sit in WORLD
+// coordinates, so bounds() is where the level is in the world and every
+// position -- objects, solids, the camera -- is in those same units; that is
+// what makes walking into the next level a matter of neighbour_at(). Solid is an
+// IntGrid value whose identifier is `solid`, or a tile tagged `solid` with the
+// tileset's enum. Entities are MapObjects, their fields are properties.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
@@ -41,8 +56,8 @@
 namespace rmp {
 
 namespace tilemap::detail {
-// The parsed map. A forward declaration so that cute_tiled and its vectors
-// stay out of this header; src/rmp/tilemap.cpp defines it. The owning pointer
+// The parsed map. A forward declaration so that the parsers and their vectors
+// stay out of this header; src/rmp/tilemap_internal.h defines it. The owning pointer
 // carries its deleter as a plain function, so a translation unit can hold and
 // drop one without ever seeing the complete type.
 struct MapData;
@@ -53,7 +68,7 @@ using MapPtr = std::unique_ptr<MapData, void (*)(MapData *)>;
 class Scene;
 
 // ---------------------------------------------------------------------------
-// One object from a Tiled object layer.
+// One object of the map: an LDtk entity, or an object from a Tiled object layer.
 //
 // `const char *` rather than std::string_view for the names and the property
 // keys, for the same reason rmp::assets::load_texture takes one: <string_view>
@@ -64,8 +79,9 @@ class Scene;
 
 struct MapObject {
     const char *name = "";
-    const char *type = ""; // Tiled's `class`, which it used to call `type`
-    Vector2 position{}; // THE CENTRE, like rmp::Object. Tiled gives a corner.
+    const char *type = ""; // the LDtk entity; Tiled's `class`
+    const char *iid = ""; // LDtk's unique id, what an EntityRef field holds
+    Vector2 position{}; // THE CENTRE, like rmp::Object; the editors give a corner
     Vector2 size{};
     float rotation = 0;
     int gid = 0; // 0 when it is not a tile object
@@ -75,6 +91,17 @@ struct MapObject {
     [[nodiscard]] float property_float(const char *key, float fallback = 0) const;
     [[nodiscard]] const char *property_string(const char *key,
                                               const char *fallback = "") const;
+
+    // An LDtk Point field, as the WORLD position of the centre of the cell it
+    // names -- the same units as `position`, so a patrol route or a platform's
+    // destination is used as it comes. A list of them (Array<Point>) is read
+    // by index; property_count() is how many there are, and 1 for any other
+    // field that exists. Enums read as text, colours as "#rrggbb", and an
+    // EntityRef as the iid of the entity it points at.
+    [[nodiscard]] Vector2 property_point(const char *key, Vector2 fallback = {}) const;
+    [[nodiscard]] Vector2 property_point(const char *key, int index,
+                                         Vector2 fallback = {}) const;
+    [[nodiscard]] int property_count(const char *key) const;
 
     // The parsed object this came from. Ours; it is what the property lookups
     // read, and it is only public because MapObject has to stay an aggregate.
@@ -106,11 +133,26 @@ public:
     [[nodiscard]] int layer_count() const;
     [[nodiscard]] int object_count() const;
 
+    // ---- the levels of an LDtk world ---------------------------------------
+    //
+    // The level this map is, and the OTHER level of its world at a point --
+    // "" while the point is still in this one, or in none. So walking into
+    // the next level is
+    //
+    //     const char *next = map.neighbour_at(player.position);
+    //     if (next[0] != '\0') rmp::Scene::change<Level>(next, player.position);
+    //
+    // and the new scene loads that level and puts the player back where it
+    // was: the coordinates are the world's, so they still mean the same place.
+    // Tiled maps and LDtk's linear layouts have no world, and always say "".
+    [[nodiscard]] const char *level() const;
+    [[nodiscard]] const char *neighbour_at(Vector2 world_position) const;
+
     // ---- object layers -> objects in the scene -----------------------------
     //
-    // A class with no factory registered comes out as a plain rmp::Object with
+    // A type with no factory registered comes out as a plain rmp::Object with
     // the position, the size and a collider -- and `solid` already set WHEN
-    // TILED GAVE IT AN AREA, which is the right default for a wall or a
+    // THE EDITOR GAVE IT AN AREA, which is the right default for a wall or a
     // platform drawn in the editor. A point, and anything else whose width or
     // height is zero, is a marker rather than a shape and comes out non-solid:
     // an invisible collider at a spawn point is not what anybody drew.

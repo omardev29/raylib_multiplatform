@@ -16,6 +16,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 - [`rmp::app` — the entry point and closing the app](#rmpapp--the-entry-point-and-closing-the-app)
 - [`rmp::audio` — sound and music](#rmpaudio--sound-and-music)
 - [`rmp::Camera` — follow, limits, smoothing, shake](#rmpcamera--follow-limits-smoothing-shake)
+- [`rmp::Tilemap` — levels from LDtk (and Tiled)](#rmptilemap--levels-from-ldtk-and-tiled)
 - [`rmp::save` — saving the game](#rmpsave--saving-the-game)
 - [AdMob (Android)](#admob-android)
 - [Web export](#web-export)
@@ -66,8 +67,9 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── animation.cpp     #   rmp::Sprite playback from an Aseprite sheet
 │       ├── animation_internal.h
 │       ├── aseprite_impl.cpp #   compiles cute_aseprite once
-│       ├── tilemap.cpp       #   rmp::Tilemap -- Tiled maps, solid tiles, object factories
-│       ├── tilemap_internal.h
+│       ├── tilemap.cpp       #   rmp::Tilemap -- drawing, solids, object factories; the Tiled reader
+│       ├── tilemap_internal.h #  the parsed map both readers fill
+│       ├── ldtk.cpp          #   the LDtk reader: levels, worlds, IntGrid, entities and their fields
 │       ├── tiled_impl.cpp    #   compiles cute_tiled once
 │       ├── audio.cpp         #   rmp::audio -- lazy device, voices, the music stream
 │       ├── audio_internal.h
@@ -75,6 +77,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── save.cpp          #   rmp::save -- the file format, sealing, where saves go
 │       ├── save_internal.h
 │       ├── cjson_impl.c      #   compiles cJSON once, as C
+│       ├── json_internal.h   #   cJSON owned, and read in the "C" locale (saves and LDtk)
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
@@ -95,7 +98,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── input.h           #   rmp::input -- named actions, axes, the pointer
 │       ├── ui.h              #   rmp::ui -- the public API and the Theme
 │       ├── assets.h          #   rmp::assets -- load_*() by name, the counted handles
-│       ├── tilemap.h         #   rmp::Tilemap -- a level designed in Tiled
+│       ├── tilemap.h         #   rmp::Tilemap -- a level designed in LDtk (or Tiled)
 │       ├── audio.h           #   rmp::audio -- effects and music by name, three buses
 │       ├── save.h            #   rmp::Value and rmp::save -- saving the game
 │       ├── random.h          #   rmp::random -- seeded, reproducible
@@ -111,7 +114,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │   ├── *_test.cpp            # doctest, no window: objects, collision, behaviors, scenes, input, assets, tilemap...
 │   ├── ui_layout_test.cpp    # layout and hit-testing with no window (-DBUILD_UI_TESTS=ON)
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
-│   └── fixtures/             # Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
+│   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
 ├── resources/                # Your assets (flat -- the pack does not recurse)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
@@ -152,7 +155,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
     ├── cute_tiled/           # reads Tiled JSON (same licence) -- patched, see PATCHES.md
     ├── raylib-cpp/           # the math subset only, behind rmp/math.h
     ├── rres/                 # rres.h + rres-raylib.h + externals (AES, Monocypher, QOI, LZ4)
-    ├── cJSON/                # cJSON 1.7.19 (MIT), unmodified -- behind rmp::Value, in no public header
+    ├── cJSON/                # cJSON 1.7.19 (MIT), unmodified -- behind rmp::save and the LDtk reader, in no public header
     ├── doctest/              # the unit-test framework; never shipped
     └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
@@ -1381,6 +1384,72 @@ lands on what the player clicked. A second `shake()` keeps the stronger of the t
 late in a strong one does not cut it short.
 
 All of it is in `tests/camera_test.cpp`, including the frame-split property above.
+
+## `rmp::Tilemap` — levels from LDtk (and Tiled)
+
+Every scene has a `map`. The scene draws it underneath everything, collides against its solid
+cells, and an object whose `bounds` are empty is kept inside the map rather than the view.
+
+```cpp
+map = rmp::assets::load_map("world.ldtk");             // the first level
+map = rmp::assets::load_map("world.ldtk", "Level_2");  // one by name
+map.on_object("Enemy", [](rmp::Scene &s, const rmp::MapObject &o) {
+    auto &e = s.spawn<Slime>({ .position = o.position });
+    for (int i = 0; i < o.property_count("patrol"); i++) e.route.push_back(o.property_point("patrol", i));
+});
+map.spawn_objects(*this);
+camera.limits = map.bounds();
+```
+
+**Two editors, and only one of them is maintained.** `load_map()` picks the reader by extension:
+`.ldtk` is [LDtk](https://ldtk.io), `.json` is Tiled. **LDtk is the format this framework tests and
+keeps up to date**: it is the more modern editor — auto-layers, IntGrid, entities with typed fields,
+worlds of many levels, a JSON format it documents and has kept stable since 1.5 — and holding two
+readers to the same level of testing is more than it is worth. The Tiled reader stays wired up for
+whoever uses it, with the tests it already has; it gets nothing new and no guarantees. Neither parser
+appears in a public header, and everything after parsing — drawing, solids, objects — is shared.
+
+**What an LDtk level becomes:**
+
+| In LDtk | In the map |
+|---|---|
+| a level | the map. `level()` is its identifier |
+| the level's place in a GridVania or Free world | `bounds()`, and every position the map hands out: objects, solids, Points. Linear layouts have no world and start at 0,0 |
+| an IntGrid value called `solid` (any case: LDtk's default style saves it as `Solid`) | a solid cell |
+| a tile tagged `solid` with its tileset's enum | a solid cell, even under another tile |
+| Tiles, AutoLayer and IntGrid layers with tiles | drawn bottom to top, each with its grid, offset, opacity and visibility; tiles flipped and faded one by one |
+| an entity | a `MapObject` at its CENTRE (LDtk gives the pivot), with its `iid`. One with no factory comes out **non-solid**: its box is only its size in the editor, and walls are IntGrid |
+| Int, Float, Bool, String, Multilines | `property_int/float/bool/string` |
+| an Enum, a Color | `property_string`: the value's name, `"#rrggbb"` |
+| a Point, an `Array<Point>` | `property_point(key)`, `property_point(key, i)` and `property_count(key)`: the world centre of the cell, in the same units as `position` |
+| an EntityRef | `property_string`: the iid of the entity it names. Linking two objects is the game's, by comparing iids |
+| a level saved to its own file (`.ldtkl`) | fetched by file name from `resources/`, like the tileset images |
+
+A field left empty in the editor is null, and reads as the fallback. Not read yet, each a few lines
+when a game needs it: level backgrounds, parallax, IntGrid values other than `solid`, level fields,
+arrays of anything but Points, `FilePath` and `Tile` fields. A tileset must be a PNG (or anything
+`load_texture()` reads); LDtk also accepts an `.aseprite` there, and the map then draws nothing for it.
+
+**Walking into the next level.** `neighbour_at(point)` is the other level of the same world at a
+point — `""` while the point is still in this level, or in none — so changing level is one `if`:
+
+```cpp
+const char *next = map.neighbour_at(player.position);
+if (next[0] != '\0') rmp::Scene::change<Level>(next, player.position);
+```
+
+and the new scene loads that level and puts the player back at the same position: the coordinates
+are the world's, so they still mean the same place. `examples/games/07_platformer` does exactly this.
+
+**`resources/` is flat**, so the tileset images and the `.ldtkl` files are looked up by file name:
+LDtk's relative paths keep only their last part. A missing one is a warning that names the file.
+
+**Tested** in `tests/ldtk_test.cpp`, against two kinds of fixture: `tests/fixtures/ldtk/minimal.ldtk`,
+written by hand so that every value in it is known, and four sample projects **saved by LDtk 1.5.3
+itself**, checked against LDtk's own arithmetic — every tile against the `src` rectangle LDtk wrote
+next to it, every entity against the `__worldX`/`__worldY` LDtk computed — so the reader cannot
+agree with its author's idea of the format and still disagree with the editor. Every node of the
+minimal project is also replaced by the wrong type, one at a time, and the result parsed.
 
 ## `rmp::save` — saving the game
 
