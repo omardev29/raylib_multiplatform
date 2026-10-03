@@ -30,6 +30,7 @@
 #include <cJSON.h>
 #include <raylib.h>
 
+#include <algorithm>
 #include <chrono>
 #include <clocale>
 #include <cmath>
@@ -903,6 +904,75 @@ TEST_SUITE("ldtk") {
         const Parsed missing(text, "SeparateLevelFiles.ldtk", "World_Level_1");
         CHECK_FALSE(missing.map.valid());
         CHECK(rmp::assets::failed_loads() > failed);
+    }
+
+    TEST_CASE("the platformer's own world can still be played through") {
+        // examples/games/07_platformer/resources/world.ldtk is edited in LDtk
+        // from now on, by hand. What the game needs from it is checked here,
+        // so that a redesign that breaks the game breaks `just test` first:
+        // every level loads, they chain from the first one rightwards through
+        // neighbours, there is one Player and one Goal, every key opens a door
+        // that exists in its level, and every route stays inside its level.
+        const Quiet quiet;
+        const std::string file = std::string(RMP_TEST_FIXTURES) +
+            "../../examples/games/07_platformer/resources/world.ldtk";
+        std::ifstream in(file, std::ios::binary);
+        REQUIRE_MESSAGE(in.good(), "missing " << file);
+        const std::string text{ std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>() };
+
+        int players = 0;
+        int goals = 0;
+        int keys = 0;
+        std::string level;
+        Parsed first(text, "world.ldtk");
+        REQUIRE(first.map.valid());
+        level = first.map.level();
+        std::vector<std::string> visited;
+        while (!level.empty() && visited.size() < 32) {
+            CAPTURE(level);
+            visited.push_back(level);
+            const Parsed p(text, "world.ldtk", level.c_str());
+            REQUIRE(p.map.valid());
+            const Rectangle b = p.map.bounds();
+            CHECK(p.map.layer_count() > 0);
+            CHECK(p.map.solid_in(b)); // there is ground to stand on
+            for (int i = 0; i < rmp::tilemap::detail::object_count(p.data); i++) {
+                const rmp::MapObject *o = rmp::tilemap::detail::object_at(p.data, i);
+                const std::string type = o->type;
+                CAPTURE(type);
+                if (type == "Player") players++;
+                if (type == "Goal") goals++;
+                if (type == "Key") {
+                    keys++;
+                    const rmp::MapObject *door =
+                        object_by_iid(p.data, o->property_string("opens"));
+                    REQUIRE_MESSAGE(door != nullptr,
+                                    "a key that opens no door in its level");
+                    CHECK(std::string(door->type) == "Door");
+                }
+                for (const char *route : { "patrol", "to" }) {
+                    for (int k = 0; k < o->property_count(route); k++) {
+                        const Vector2 at = o->property_point(route, k);
+                        CHECK_MESSAGE(CheckCollisionPointRec(at, b),
+                                      route << " leaves the level");
+                    }
+                }
+            }
+            // The next level is the one past the right edge, at the height of
+            // the ground there.
+            std::string next;
+            for (float y = b.y; y < b.y + b.height && next.empty(); y += 9) {
+                next = p.map.neighbour_at({ b.x + b.width + 1, y });
+            }
+            level = next;
+            CHECK(std::find(visited.begin(), visited.end(), level) == visited.end());
+        }
+        CHECK(visited.size() >= 2);
+        CHECK(players == 1);
+        CHECK(goals == 1);
+        CHECK(keys >= 1);
+        MESSAGE(visited.size() << " levels, left to right");
     }
 
     TEST_CASE("load_map picks the reader by the extension") {
