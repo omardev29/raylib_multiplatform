@@ -538,6 +538,11 @@ bool apply_edges(Object &object) {
 // zero: the landing, or the head on the ceiling.
 
 constexpr int kContactBisections = 12; // half a cell / 4096: well under a pixel
+// The most steps one axis takes in one frame. Half a cell each, so this is
+// tens of thousands of pixels per frame before an absurd velocity starts
+// stepping over cells -- and the frame never turns into a million solid_in()
+// calls, nor casts a step count past INT_MAX.
+constexpr float kMaxSteps = 4096;
 
 bool in_map(const Tilemap &map, const Object &object) {
     return map.solid_in(object.world_collider());
@@ -600,6 +605,15 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
         return;
     }
     if (in_map(map, object)) push_out(object, map, cell);
+    if (in_map(map, object)) {
+        // BURIED: no way out within a cell plus its own size, in any of the
+        // four directions. It stays where it is and stops. Letting it move
+        // freely instead was letting gravity take it down through every solid
+        // row of the map -- and a body visibly stuck in a wall is a level bug
+        // somebody can see, where one that fell out of the world is a mystery.
+        object.velocity = Vector2{};
+        return;
+    }
     const float limit = std::max(1.0f, std::min({ cell, box.width, box.height }) / 2);
 
     for (int axis = 0; axis < 2; axis++) {
@@ -607,13 +621,8 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
         if (travel == 0 || !std::isfinite(travel)) continue;
         float &coordinate = axis == 0 ? object.position.x : object.position.y;
         float &speed = axis == 0 ? object.velocity.x : object.velocity.y;
-        if (in_map(map, object)) {
-            // Still inside after push_out (nowhere to go within reach): the
-            // map cannot say where it should be, so it does not try.
-            coordinate += travel;
-            continue;
-        }
-        const int steps = static_cast<int>(std::ceil(std::fabs(travel) / limit));
+        const float wanted = std::ceil(std::fabs(travel) / limit);
+        const int steps = static_cast<int>(std::min(wanted, kMaxSteps));
         const float increment = travel / static_cast<float>(steps);
         for (int i = 0; i < steps; i++) {
             const float from = coordinate;

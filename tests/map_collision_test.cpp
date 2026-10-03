@@ -23,6 +23,8 @@
 #include <rmp/scene.h>
 #include <rmp/tilemap.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -302,6 +304,69 @@ TEST_SUITE("map collision") {
         CHECK(box.position.x == doctest::Approx(77));
         CHECK(box.velocity.y == doctest::Approx(0));
         CHECK(box.velocity.x == doctest::Approx(240));
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "pushed into a thin wall by something moving, it stays this side") {
+        // A platform the game moves by hand (immovable, solid) shoves the box
+        // into a wall one cell thick. Separation does not look at the map, and
+        // once the box was more than halfway in, "the shortest way out" was
+        // the far side: it came out through the wall. The map outranks a
+        // push now, and the box stays against the near face.
+        World world;
+        load(world,
+             { "..........", "..........", "..........", "..........", "..........",
+               "..........", ".....#....", "##########" });
+        rmp::Object &box =
+            world.spawn({ .position = { 70, 102 }, .shape = rmp::rect({ 10, 20 }) });
+        box.solid = true;
+        rmp::Object &pusher =
+            world.spawn({ .position = { 40, 102 }, .shape = rmp::rect({ 30, 20 }) });
+        pusher.solid = true;
+        pusher.immovable = true;
+        pusher.velocity = { 180, 0 }; // 3 px a frame, into the box and the wall
+        float furthest = 0;
+        for (int i = 0; i < 40; i++) {
+            frame(world);
+            furthest = std::max(furthest, box.position.x);
+        }
+        // The wall's near face is x = 80; the box is 10 wide.
+        CHECK(furthest <= 75.01f);
+        CHECK_FALSE(world.map.solid_in(box.world_collider()));
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "buried with no way out, it stays where it is") {
+        // Deeper in solid cells than a cell plus its own size, in every
+        // direction: there is no right answer. It used to move freely, and
+        // gravity took it down through every row of the map.
+        World world;
+        load(world,
+             { "##########", "##########", "##########", "##########", "##########",
+               "##########", "##########", "##########" });
+        rmp::Object &box = faller(world, { 80, 64 });
+        for (int i = 0; i < 120; i++) frame(world);
+        CHECK(box.position.x == doctest::Approx(80));
+        CHECK(box.position.y == doctest::Approx(64));
+        CHECK(box.velocity.y == doctest::Approx(0));
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "an absurd velocity costs a bounded frame and nothing undefined") {
+        // 1e13 px/s is a step count past INT_MAX: the cast was undefined, and
+        // a merely huge one was a million solid_in() calls in one frame.
+        World world;
+        load(world, room());
+        rmp::Object &box = faller(world, { 80, 40 });
+        box.gravity_scale = 0;
+        box.velocity = { 1e13f, 3e8f };
+        const auto start = std::chrono::steady_clock::now();
+        frame(world);
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - start)
+                              .count();
+        CHECK(std::isfinite(box.position.x));
+        CHECK(std::isfinite(box.position.y));
+        CHECK(ms < 200);
     }
 
     TEST_CASE_FIXTURE(Fixture, "the map is where the level is in the world") {

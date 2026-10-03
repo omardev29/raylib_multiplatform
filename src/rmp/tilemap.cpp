@@ -505,12 +505,20 @@ bool cell_under(const MapData &data, const Layer &layer, Vector2 world, int *col
     const int w = cell_w(data, layer);
     const int h = cell_h(data, layer);
     if (w <= 0 || h <= 0) return false;
-    const float x = world.x - data.origin.x - layer.offset.x;
-    const float y = world.y - data.origin.y - layer.offset.y;
-    if (x < 0 || y < 0) return false;
-    *column = static_cast<int>(x) / w;
-    *row = static_cast<int>(y) / h;
-    return *column < layer.width && *row < layer.height;
+    // Divided and compared as floats, and only cast once it is known to be a
+    // cell of the layer: a position of 1e20, an infinity or a NaN cast to int
+    // straight away is undefined behaviour, and a NaN passed `x < 0`.
+    const float x =
+        std::floor((world.x - data.origin.x - layer.offset.x) / static_cast<float>(w));
+    const float y =
+        std::floor((world.y - data.origin.y - layer.offset.y) / static_cast<float>(h));
+    if (std::isnan(x) || std::isnan(y) || x < 0 || y < 0 ||
+        x >= static_cast<float>(layer.width) || y >= static_cast<float>(layer.height)) {
+        return false;
+    }
+    *column = static_cast<int>(x);
+    *row = static_cast<int>(y);
+    return true;
 }
 
 std::size_t cell_index(const Layer &layer, int column, int row) {

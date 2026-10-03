@@ -113,6 +113,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES, RAY_TEST_SCREENSHOT), header-only
 │   ├── *_test.cpp            # doctest, no window: objects, collision, behaviors, scenes, input, assets, tilemap...
 │   ├── ui_layout_test.cpp    # layout and hit-testing with no window (-DBUILD_UI_TESTS=ON)
+│   ├── platformer_play.cpp   # a bot that plays examples/games/07_platformer to the end (examples job)
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
 ├── resources/                # Your assets (flat -- the pack does not recurse)
@@ -1460,7 +1461,9 @@ written by hand so that every value in it is known, and four sample projects **s
 itself**, checked against LDtk's own arithmetic — every tile against the `src` rectangle LDtk wrote
 next to it, every entity against the `__worldX`/`__worldY` LDtk computed — so the reader cannot
 agree with its author's idea of the format and still disagree with the editor. Every node of the
-minimal project is also replaced by the wrong type, one at a time, and the result parsed.
+minimal project is also replaced, keeping its key, by every hostile kind of value -- the wrong
+type, null, 1e300, -1e300, INT_MAX, -1 -- one at a time, and the result parsed; the same tests run
+under ASan and UBSan (`just test sanitize`).
 
 ## `rmp::save` — saving the game
 
@@ -2007,6 +2010,22 @@ rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `e2
 `tools/render_check.sh` fails on anything else. DRM renders through OpenGL ES on llvmpipe and
 gives a different hash with the same pixel count and ratio; that one is compared against its
 own golden and must not be "fixed" by copying one over the other.
+
+**Played, not just booted** — `tests/platformer_play.cpp` drives `examples/games/07_platformer`
+through its real loop with the keys fed through the input and UI seams: to the flag at 60 Hz, Play
+again, three falls, game over, Menu; a jump from the moving platform at 60 and at 240 Hz; and to
+the flag again at 240 Hz. The examples job runs it after booting every example, and it prints
+`PLAY PASS` or what went wrong and where. It was written to answer "is the game playable from start
+to finish?", and it found three bugs a boot never would: a lift that turned round the frame it
+arrived (nobody could step off), a rider that kept a pixel of overlap (the ledge's corner), and a
+platform that undid every jump from it above ~127 FPS.
+
+**Sanitized** — the unit tests are built a second time with AddressSanitizer and
+UndefinedBehaviorSanitizer, every report fatal (`tools/sanitize_check.sh`, `just test sanitize`, a
+step of the `lint` job). A test asserts what it can see; an int overflow that wraps somewhere
+harmless or a float cast that lands in range is what it cannot. The first run found the LDtk
+reader's casts and three tests reading objects already freed. Third-party code it must not report
+is listed, with the reason, in `tools/sanitize_ignore.txt`.
 
 > **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
 > format-checked but never run — there is no runner or emulator for them here. Android is built

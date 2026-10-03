@@ -77,12 +77,25 @@ namespace {
 using rmp::detail::CNumbers;
 using rmp::detail::Json;
 
-// Bigger than any level or tileset an editor makes, and small enough that a
-// broken or hostile file cannot make the reader allocate gigabytes: a layer of
-// 16M cells is a 65 536 x 65 536 px level at 16 px, and a tileset of 4M tiles
-// is a 32 768 px square image of 16 px tiles, past any GPU's texture limit.
+// Bigger than any level or project an editor makes, and small enough that a
+// broken or hostile file cannot make the reader allocate gigabytes. BUDGETS FOR
+// THE WHOLE FILE, not limits per layer or per tileset: a limit per layer let a
+// 1.5 KB file of a dozen 4096 x 4096 layers take three quarters of a gigabyte.
+// 16M cells is all the layers of a 65 536 x 65 536 px level at 16 px; 4M tiles
+// is every tileset of a project, each a 32 768 px square of 16 px tiles.
 constexpr long long kMaxCells = 1LL << 24;
 constexpr long long kMaxTiles = 1LL << 22;
+
+// A coordinate in cells, or false when it is not a finite number inside
+// 0..limit: a float past INT_MAX, an infinity or a NaN cast to int is
+// undefined behaviour, and a file can hold any of them.
+bool cell_of(double pixels, int cell, int limit, int *out) {
+    if (cell <= 0) return false;
+    const double c = std::floor(pixels / cell);
+    if (!std::isfinite(c) || c < 0 || c >= limit) return false;
+    *out = static_cast<int>(c);
+    return true;
+}
 
 // ---- reading cJSON without trusting it -------------------------------------
 //
@@ -106,6 +119,14 @@ int as_int(double value) {
     constexpr double kMax = 2147483647.0;
     constexpr double kMin = -2147483648.0;
     return static_cast<int>(std::clamp(value, kMin, kMax));
+}
+
+// A float out of a double, clamped and with NaN as 0: a double past FLT_MAX
+// converted to float is undefined behaviour in C++, IEEE or not.
+float as_float(double value) {
+    if (std::isnan(value)) return 0;
+    constexpr double kMax = 3.4e38;
+    return static_cast<float>(std::clamp(value, -kMax, kMax));
 }
 
 int integer(const cJSON *object, const char *key, int fallback) {
@@ -154,30 +175,35 @@ struct Project {
     const char *name = ""; // the file, for the messages
     std::vector<TilesetRef> tilesets;
     const cJSON *layer_defs = nullptr;
+    long long cells_left = kMaxCells; // what the level's layers may still allocate
 };
 
 // Every tileset of the project gets a range of gids, used or not, so a gid
 // means the same tile whichever level is loaded. Only the ones a layer of
 // this level draws with load their image (see load_used_textures).
 void read_tilesets(const cJSON *defs, Project *project, MapData *data) {
+    // Gids start at 1 and never pass kMaxTiles + 1, so none of the sums below
+    // can overflow an int whatever the file says.
     int next_gid = 1;
+    long long tiles_left = kMaxTiles;
     const cJSON *set = nullptr;
     cJSON_ArrayForEach(set, array(defs, "tilesets")) {
         Tileset out;
         const int columns = integer(set, "__cWid", 0);
         const int rows = integer(set, "__cHei", 0);
-        const long long area = static_cast<long long>(columns) * rows;
-        const int count =
-            columns > 0 && rows > 0 && area <= kMaxTiles ? static_cast<int>(area) : 0;
-        if (area > kMaxTiles) {
+        const long long area =
+            columns > 0 && rows > 0 ? static_cast<long long>(columns) * rows : 0;
+        const int count = area <= tiles_left ? static_cast<int>(area) : 0;
+        if (area > tiles_left) {
             TraceLog(LOG_WARNING,
-                     "MAP: [%s] has a tileset of %lld tiles, which is not a real one; "
-                     "it draws nothing.",
+                     "MAP: [%s] has tilesets of more tiles than any real project; one of "
+                     "%lld tiles draws nothing.",
                      project->name, area);
         }
+        tiles_left -= count;
         out.first_gid = next_gid;
         out.last_gid = next_gid + count - 1;
-        next_gid += count > 0 ? count : 0;
+        next_gid += count;
         out.columns = columns > 0 ? columns : 1;
         out.tile_width = integer(set, "tileGridSize", 0);
         out.tile_height = out.tile_width;
@@ -268,27 +294,31 @@ void read_tiles(const cJSON *tiles, const Tileset &set, Layer *layer) {
     const cJSON *tile = nullptr;
     cJSON_ArrayForEach(tile, tiles) {
         const int id = integer(tile, "t", -1);
-        if (id < 0 || set.first_gid + id > set.last_gid) continue;
+        // Against the COUNT, not first_gid + id against last_gid: a tile id
+        // near INT_MAX overflowed that sum and passed the check.
+        if (id < 0 || id > set.last_gid - set.first_gid) continue;
         PlacedTile placed;
         placed.gid = set.first_gid + id;
-        placed.at = Vector2{ static_cast<float>(pair_at(tile, "px", 0, 0)),
-                             static_cast<float>(pair_at(tile, "px", 1, 0)) };
+        placed.at = Vector2{ as_float(pair_at(tile, "px", 0, 0)),
+                             as_float(pair_at(tile, "px", 1, 0)) };
         const int flips = integer(tile, "f", 0);
         placed.flip_x = (flips & 1) != 0;
         placed.flip_y = (flips & 2) != 0;
-        placed.alpha = static_cast<float>(number(tile, "a", 1.0));
+        placed.alpha = as_float(number(tile, "a", 1.0));
         layer->placed.push_back(placed);
 
         // The grid view of the same tiles: the top one of each cell, for
         // tile_at(), and the cell marked solid if ANY tile in it is tagged
         // so -- an auto-layer puts grass over ground, and the grass on top
         // must not make the ground walkable.
-        const int column = static_cast<int>(
-            std::floor(placed.at.x / static_cast<float>(layer->cell_width)));
-        const int row = static_cast<int>(
-            std::floor(placed.at.y / static_cast<float>(layer->cell_height)));
-        if (column < 0 || row < 0 || column >= layer->width || row >= layer->height)
+        int column = 0;
+        int row = 0;
+        if (!cell_of(pair_at(tile, "px", 0, 0), layer->cell_width, layer->width,
+                     &column) ||
+            !cell_of(pair_at(tile, "px", 1, 0), layer->cell_height, layer->height,
+                     &row)) {
             continue;
+        }
         const std::size_t at =
             static_cast<std::size_t>(row) * static_cast<std::size_t>(layer->width) +
             static_cast<std::size_t>(column);
@@ -310,10 +340,8 @@ bool read_field(const cJSON *field, Vector2 cell_origin, float grid, Property *o
     const auto point = [&](const cJSON *p, Vector2 *at) {
         if (!cJSON_IsNumber(member(p, "cx")) || !cJSON_IsNumber(member(p, "cy")))
             return false;
-        *at = Vector2{
-            cell_origin.x + (static_cast<float>(number(p, "cx", 0)) + 0.5f) * grid,
-            cell_origin.y + (static_cast<float>(number(p, "cy", 0)) + 0.5f) * grid
-        };
+        *at = Vector2{ cell_origin.x + (as_float(number(p, "cx", 0)) + 0.5f) * grid,
+                       cell_origin.y + (as_float(number(p, "cy", 0)) + 0.5f) * grid };
         return true;
     };
 
@@ -324,7 +352,7 @@ bool read_field(const cJSON *field, Vector2 cell_origin, float grid, Property *o
     }
     if (kind == "Float" && cJSON_IsNumber(value)) {
         out->kind = Property::Kind::FLOAT;
-        out->floating = static_cast<float>(value->valuedouble);
+        out->floating = as_float(value->valuedouble);
         return true;
     }
     if (kind == "Bool" && cJSON_IsBool(value)) {
@@ -379,14 +407,14 @@ void read_entities(const cJSON *layer, Vector2 base, float grid, MapData *data) 
             if (read_field(field, base, grid, &prop))
                 info->properties.push_back(std::move(prop));
         }
-        const auto w = static_cast<float>(number(entity, "width", 0));
-        const auto h = static_cast<float>(number(entity, "height", 0));
+        const auto w = as_float(number(entity, "width", 0));
+        const auto h = as_float(number(entity, "height", 0));
         // `px` is where the PIVOT is, and the pivot is a fraction of the
         // size: 0.5,1 (the default) is the middle of the bottom edge.
-        const auto pivot_x = static_cast<float>(pair_at(entity, "__pivot", 0, 0.5));
-        const auto pivot_y = static_cast<float>(pair_at(entity, "__pivot", 1, 1.0));
-        const auto px = static_cast<float>(pair_at(entity, "px", 0, 0));
-        const auto py = static_cast<float>(pair_at(entity, "px", 1, 0));
+        const auto pivot_x = as_float(pair_at(entity, "__pivot", 0, 0.5));
+        const auto pivot_y = as_float(pair_at(entity, "__pivot", 1, 1.0));
+        const auto px = as_float(pair_at(entity, "px", 0, 0));
+        const auto py = as_float(pair_at(entity, "px", 1, 0));
 
         MapObject &out = data->add_object(std::move(info));
         out.size = Vector2{ w, h };
@@ -398,8 +426,8 @@ void read_entities(const cJSON *layer, Vector2 base, float grid, MapData *data) 
 void read_layer(const cJSON *layer, Project *project, MapData *data) {
     const std::string type = text(layer, "__type");
     const int grid = integer(layer, "__gridSize", 0);
-    const Vector2 offset{ static_cast<float>(number(layer, "__pxTotalOffsetX", 0)),
-                          static_cast<float>(number(layer, "__pxTotalOffsetY", 0)) };
+    const Vector2 offset{ as_float(number(layer, "__pxTotalOffsetX", 0)),
+                          as_float(number(layer, "__pxTotalOffsetY", 0)) };
     if (grid <= 0) return;
 
     if (type == "Entities") {
@@ -414,17 +442,19 @@ void read_layer(const cJSON *layer, Project *project, MapData *data) {
     out.name = text(layer, "__identifier");
     out.width = std::max(0, integer(layer, "__cWid", 0));
     out.height = std::max(0, integer(layer, "__cHei", 0));
-    if (static_cast<long long>(out.width) * out.height > kMaxCells) {
+    const long long area = static_cast<long long>(out.width) * out.height;
+    if (area > project->cells_left) {
         TraceLog(LOG_WARNING,
-                 "MAP: layer \"%s\" of [%s] is %d x %d cells, which is not a real "
-                 "one; it is left out.",
+                 "MAP: layer \"%s\" of [%s] is %d x %d cells, more than any real level "
+                 "has in all its layers; it is left out.",
                  out.name.c_str(), project->name, out.width, out.height);
         return;
     }
+    project->cells_left -= area;
     out.cell_width = grid;
     out.cell_height = grid;
     out.offset = offset;
-    out.opacity = static_cast<float>(number(layer, "__opacity", 1.0));
+    out.opacity = as_float(number(layer, "__opacity", 1.0));
     const cJSON *visible = member(layer, "visible");
     out.visible = !cJSON_IsBool(visible) || cJSON_IsTrue(visible) != 0;
     const std::size_t cells =
@@ -603,16 +633,16 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
     data->size_px = Vector2{ static_cast<float>(std::max(0, integer(lv, "pxWid", 0))),
                              static_cast<float>(std::max(0, integer(lv, "pxHei", 0))) };
     if (world) {
-        data->origin = Vector2{ static_cast<float>(number(lv, "worldX", 0)),
-                                static_cast<float>(number(lv, "worldY", 0)) };
+        data->origin = Vector2{ as_float(number(lv, "worldX", 0)),
+                                as_float(number(lv, "worldY", 0)) };
         for (const LevelRef &ref : levels) {
             if (ref.world != chosen->world) continue;
             LevelInfo info;
             info.name = text(ref.level, "identifier");
-            info.world = Rectangle{ static_cast<float>(number(ref.level, "worldX", 0)),
-                                    static_cast<float>(number(ref.level, "worldY", 0)),
-                                    static_cast<float>(number(ref.level, "pxWid", 0)),
-                                    static_cast<float>(number(ref.level, "pxHei", 0)) };
+            info.world = Rectangle{ as_float(number(ref.level, "worldX", 0)),
+                                    as_float(number(ref.level, "worldY", 0)),
+                                    as_float(number(ref.level, "pxWid", 0)),
+                                    as_float(number(ref.level, "pxHei", 0)) };
             data->levels.push_back(std::move(info));
         }
     }
@@ -642,10 +672,11 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
         }
     }
     data->tile_height = data->tile_width;
-    data->width = static_cast<int>(
-        std::ceil(data->size_px.x / static_cast<float>(data->tile_width)));
-    data->height = static_cast<int>(
-        std::ceil(data->size_px.y / static_cast<float>(data->tile_height)));
+    // In whole numbers, so a pxWid near INT_MAX cannot round up past it.
+    const int w = std::max(0, integer(lv, "pxWid", 0));
+    const int h = std::max(0, integer(lv, "pxHei", 0));
+    data->width = (w / data->tile_width) + (w % data->tile_width != 0 ? 1 : 0);
+    data->height = (h / data->tile_height) + (h % data->tile_height != 0 ? 1 : 0);
 
     load_used_textures(project, data.get());
     return { data.release(), &free_map };

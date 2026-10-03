@@ -547,23 +547,32 @@ TEST_SUITE("ldtk") {
     }
 
     TEST_CASE("every value of the project, replaced by the wrong type, is survived") {
-        // Each node of minimal.ldtk in turn becomes a string, an array, null
-        // and a huge number -- two of those per node, rotating -- and the
-        // result is parsed. Nothing may crash,
-        // allocate without bound or hang: the reader either refuses the
-        // document or reads what it can. Of a long array (a CSV, a list of
-        // tiles) only the first two elements are walked: the rest are the
-        // same role again. Still over six hundred parses, and the clock is
-        // part of the test, because `just test` runs this twice.
+        // Each node of minimal.ldtk in turn is replaced -- KEEPING ITS KEY, so
+        // {"t": 5} becomes {"t": 1e300} and not {"": 1e300}, which is what
+        // replacing it as an array element did, deleting every field instead
+        // of corrupting it -- and the result is parsed. A number becomes each
+        // of the numbers a file can hold that hurt (1e300, -1e300, INT_MAX,
+        // -1) and a string; anything else becomes two of a string, an array,
+        // null, an object and a huge number, rotating, so every kind meets
+        // every depth. Nothing may crash, read out of bounds, allocate without
+        // bound or hang: the reader refuses the document or reads what it
+        // can. The UBSan build (`just test sanitize`) is what sees an int
+        // overflow or a float cast that happens to land somewhere harmless.
+        // Of a long array (a CSV, a list of tiles) only the first two elements
+        // are walked: the rest are the same role again. The clock is part of
+        // the test, because `just test` runs this twice.
         const Quiet quiet;
         const Json original(cJSON_Parse(text_of("minimal.ldtk").c_str()));
         REQUIRE(original != nullptr);
 
-        // Paths to every node, as child indices from the root.
-        std::vector<std::vector<int>> paths;
+        struct Node {
+            std::vector<int> path;
+            bool number;
+        };
+        std::vector<Node> nodes;
         const std::function<void(const cJSON *, std::vector<int> &)> walk =
             [&](const cJSON *node, std::vector<int> &path) {
-                if (!path.empty()) paths.push_back(path);
+                if (!path.empty()) nodes.push_back({ path, cJSON_IsNumber(node) != 0 });
                 int i = 0;
                 for (const cJSON *child = node->child; child != nullptr;
                      child = child->next) {
@@ -575,47 +584,75 @@ TEST_SUITE("ldtk") {
             };
         std::vector<int> root_path;
         walk(original.get(), root_path);
-        REQUIRE(paths.size() > 300);
+        REQUIRE(nodes.size() > 300);
 
-        const auto hostile = [](int kind) -> cJSON * {
+        enum Kind { STRING, ARRAY, NUL, OBJECT, HUGE_UP, HUGE_DOWN, INT_TOP, MINUS_ONE };
+        const auto hostile = [](Kind kind) -> cJSON * {
             switch (kind) {
-                case 0:
+                case STRING:
                     return cJSON_CreateString("x");
-                case 1:
+                case ARRAY:
                     return cJSON_CreateArray();
-                case 2:
+                case NUL:
                     return cJSON_CreateNull();
-                default:
+                case OBJECT:
+                    return cJSON_CreateObject();
+                case HUGE_UP:
                     return cJSON_CreateNumber(1e300);
+                case HUGE_DOWN:
+                    return cJSON_CreateNumber(-1e300);
+                case INT_TOP:
+                    return cJSON_CreateNumber(2147483647.0);
+                default:
+                    return cJSON_CreateNumber(-1);
             }
         };
 
         const auto start = std::chrono::steady_clock::now();
         int parsed = 0;
         int valid = 0;
-        for (const std::vector<int> &path : paths) {
-            // Two of the four per node, rotating, so every node meets two
-            // and every kind meets every depth: half the parses of all four.
-            const int first = static_cast<int>(&path - paths.data()) % 4;
-            for (int kind : { first, (first + 1) % 4 }) {
+        int keyed = 0;
+        for (std::size_t n = 0; n < nodes.size(); n++) {
+            const Node &node = nodes[n];
+            std::vector<Kind> kinds;
+            if (node.number) {
+                kinds = { HUGE_UP, HUGE_DOWN, INT_TOP, MINUS_ONE, STRING };
+            } else {
+                const Kind general[] = { STRING, ARRAY, NUL, OBJECT, HUGE_UP };
+                kinds = { general[n % 5], general[(n + 1) % 5] };
+            }
+            for (Kind kind : kinds) {
                 const Json copy(cJSON_Duplicate(original.get(), 1));
                 cJSON *parent = copy.get();
-                for (std::size_t d = 0; d + 1 < path.size(); d++) {
-                    parent = cJSON_GetArrayItem(parent, path[d]);
+                for (std::size_t d = 0; d + 1 < node.path.size(); d++) {
+                    parent = cJSON_GetArrayItem(parent, node.path[d]);
                 }
                 REQUIRE(parent != nullptr);
-                REQUIRE(cJSON_ReplaceItemInArray(parent, path.back(), hostile(kind)));
-                const char *printed = cJSON_PrintUnformatted(copy.get());
+                const cJSON *child = cJSON_GetArrayItem(parent, node.path.back());
+                REQUIRE(child != nullptr);
+                if (cJSON_IsObject(parent)) {
+                    REQUIRE(child->string != nullptr);
+                    const std::string key = child->string;
+                    REQUIRE(cJSON_ReplaceItemInObjectCaseSensitive(parent, key.c_str(),
+                                                                   hostile(kind)));
+                    REQUIRE(cJSON_GetObjectItemCaseSensitive(parent, key.c_str()) !=
+                            nullptr);
+                    keyed++;
+                } else {
+                    REQUIRE(cJSON_ReplaceItemInArray(parent, node.path.back(),
+                                                     hostile(kind)));
+                }
+                char *printed = cJSON_PrintUnformatted(copy.get());
                 REQUIRE(printed != nullptr);
                 const std::string text(printed);
-                cJSON_free(const_cast<char *>(
-                    printed)); // NOLINT(cppcoreguidelines-pro-type-const-cast)
+                cJSON_free(printed);
                 const Parsed p(text, "hostile.ldtk");
                 parsed++;
                 if (p.map.valid()) {
                     valid++;
                     // Whatever was read can be asked about.
                     (void)p.map.solid_in(p.map.bounds());
+                    (void)p.map.solid_at({ 1e20f, 1e20f });
                     (void)p.map.neighbour_at({ 70, 0 });
                     for (int i = 0; i < p.map.object_count(); i++) {
                         const rmp::MapObject *o =
@@ -629,10 +666,60 @@ TEST_SUITE("ldtk") {
         const double seconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
                 .count();
-        MESSAGE(parsed << " hostile documents, " << valid << " read, in " << seconds
-                       << " s");
+        MESSAGE(parsed << " hostile documents (" << keyed << " by key), " << valid
+                       << " read, in " << seconds << " s");
+        CHECK(keyed > parsed / 2); // most nodes are fields, and they kept their keys
         CHECK(valid > parsed / 2); // most single changes leave a readable level
+#if defined(RMP_SANITIZE)
+        CHECK(seconds < 20.0); // ASan and UBSan cost several times the time
+#else
         CHECK(seconds < 2.0);
+#endif
+    }
+
+    TEST_CASE("a tile id near INT_MAX is dropped, not read past its tileset") {
+        // first_gid + id overflowed for an id near INT_MAX, passed the bounds
+        // check, and indexed the tileset's solid flags far out of range.
+        const Quiet quiet;
+        for (const char *t : { "2147483647", "2147483646", "1e10", "-1", "16" }) {
+            CAPTURE(std::string(t));
+            const std::string doc =
+                std::string(
+                    R"({"defs":{"tilesets":[{"uid":1,"__cWid":4,"__cHei":4,"tileGridSize":16,)"
+                    R"("enumTags":[{"enumValueId":"Solid","tileIds":[0]}]}]},"levels":[)"
+                    R"({"identifier":"A","pxWid":32,"pxHei":32,"layerInstances":[)"
+                    R"({"__type":"Tiles","__gridSize":16,"__cWid":2,"__cHei":2,)"
+                    R"("__tilesetDefUid":1,"gridTiles":[{"px":[0,0],"t":)") +
+                t + R"(}]}]}]})";
+            const Parsed p(doc, "big_id.ldtk");
+            REQUIRE(p.map.valid());
+            REQUIRE(p.map.layer_count() == 1);
+            CHECK(p.data->layers[0].placed.empty()); // 16 is past the last tile too
+        }
+    }
+
+    TEST_CASE("a tile somewhere no float can say is drawn nowhere and gridded nowhere") {
+        const Quiet quiet;
+        for (const char *px : { "[1e300,0]", "[0,-1e300]", "[3e9,3e9]", "[-1,-1]" }) {
+            CAPTURE(std::string(px));
+            const std::string doc =
+                std::string(
+                    R"({"defs":{"tilesets":[{"uid":1,"__cWid":4,"__cHei":4,"tileGridSize":16}]},)"
+                    R"("levels":[{"identifier":"A","pxWid":32,"pxHei":32,"layerInstances":[)"
+                    R"({"__type":"Tiles","__gridSize":16,"__cWid":2,"__cHei":2,)"
+                    R"("__tilesetDefUid":1,"gridTiles":[{"t":1,"px":)") +
+                px + R"(}]}]}]})";
+            const Parsed p(doc, "far.ldtk");
+            REQUIRE(p.map.valid());
+            CHECK(p.map.tile_at(0, 0, 0) == 0);
+            CHECK(p.map.tile_at(0, 1, 1) == 0);
+        }
+        // And a map asked about such places answers no.
+        const Parsed p(text_of("minimal.ldtk"), "minimal.ldtk");
+        CHECK_FALSE(p.map.solid_at({ 1e20f, 1e20f }));
+        CHECK_FALSE(p.map.solid_at({ NAN, 8 }));
+        CHECK_FALSE(p.map.solid_at({ 8, INFINITY }));
+        CHECK_FALSE(p.map.solid_at({ -INFINITY, 8 }));
     }
 
     TEST_CASE("sizes that would ask for gigabytes are refused, not allocated") {
@@ -652,6 +739,46 @@ TEST_SUITE("ldtk") {
         REQUIRE(huge.map.valid());
         CHECK(huge.data->tilesets.size() == 1);
         CHECK(huge.data->tilesets[0].solid.empty());
+    }
+
+    TEST_CASE("the budgets are for the whole file, not for each layer or tileset") {
+        // A limit per layer let a 1.5 KB file of a dozen 4096 x 4096 layers take
+        // three quarters of a gigabyte; a limit per tileset let 600 tilesets
+        // overflow the gid counter into negative numbers.
+        const Quiet quiet;
+        std::string layers;
+        for (int i = 0; i < 6; i++) {
+            if (!layers.empty()) layers += ",";
+            layers += R"({"__identifier":"L)" + std::to_string(i) +
+                R"(","__type":"IntGrid","__gridSize":16,"__cWid":2048,"__cHei":2048})";
+        }
+        const Parsed many(
+            R"({"defs":{},"levels":[{"identifier":"A","pxWid":16,"pxHei":16,)"
+            R"("layerInstances":[)" +
+                layers + "]}]}",
+            "many.ldtk");
+        REQUIRE(many.map.valid());
+        CHECK(many.map.layer_count() == 4); // 4 x 2048^2 is the whole budget, exactly
+
+        std::string sets;
+        for (int i = 0; i < 600; i++) {
+            if (!sets.empty()) sets += ",";
+            sets += R"({"uid":)" + std::to_string(i + 1) +
+                R"(,"__cWid":2048,"__cHei":2048,"tileGridSize":16})";
+        }
+        const Parsed tilesets(
+            R"({"defs":{"tilesets":[)" + sets +
+                R"(]},"levels":[{"identifier":"A","layerInstances":[]}]})",
+            "tilesets.ldtk");
+        REQUIRE(tilesets.map.valid());
+        REQUIRE(tilesets.data->tilesets.size() == 600);
+        std::size_t flags = 0;
+        for (const auto &set : tilesets.data->tilesets) {
+            CHECK(set.first_gid >= 1); // never wrapped round into the negatives
+            CHECK(set.last_gid >= set.first_gid - 1);
+            flags += set.solid.size();
+        }
+        CHECK(flags == 4194304); // one tileset's worth: the budget
     }
 
     TEST_CASE("a level file on its own is refused with what to do instead") {
@@ -962,11 +1089,13 @@ TEST_SUITE("ldtk") {
             // The next level is the one past the right edge, at the height of
             // the ground there.
             std::string next;
-            for (float y = b.y; y < b.y + b.height && next.empty(); y += 9) {
-                next = p.map.neighbour_at({ b.x + b.width + 1, y });
+            for (int step = 0; static_cast<float>(step * 9) < b.height && next.empty();
+                 step++) {
+                next = p.map.neighbour_at(
+                    { b.x + b.width + 1, b.y + static_cast<float>(step * 9) });
             }
             level = next;
-            CHECK(std::find(visited.begin(), visited.end(), level) == visited.end());
+            CHECK(std::ranges::find(visited, level) == visited.end());
         }
         CHECK(visited.size() >= 2);
         CHECK(players == 1);

@@ -807,6 +807,33 @@ void collide(Scene &scene) {
         touch.rewind->position = touch.rewind_to;
     }
 
+    // THE MAP OUTRANKS A PUSH. Separation moves objects without looking at
+    // the map, so a platform the game moves by hand could shove a player into
+    // a wall -- and once it was more than halfway in, the shortest way out
+    // was the far side. So whoever separation is about to move is noted with
+    // where it was and whether it was clear of the map, and a push that ends
+    // inside a solid cell is undone below: the player stays against the wall,
+    // overlapping what pushed it, which is a crush to resolve and not a
+    // teleport through the level.
+    struct Before {
+        Object *object;
+        Vector2 position;
+    };
+    std::vector<Before> before;
+    if (scene.map.valid()) {
+        for (const Touch &touch : touching) {
+            if (!touch.a->solid || !touch.b->solid) continue;
+            for (Object *o : { touch.a, touch.b }) {
+                if (o->immovable || !o->alive()) continue;
+                const bool listed = std::ranges::any_of(
+                    before, [o](const Before &b) { return b.object == o; });
+                if (!listed && !scene.map.solid_in(o->world_collider())) {
+                    before.push_back({ o, o->position });
+                }
+            }
+        }
+    }
+
     // Then separation, for the pairs that are both solid.
     for (const Touch &touch : touching) {
         Object &a = *touch.a;
@@ -828,6 +855,10 @@ void collide(Scene &scene) {
         // Two immovable objects overlapping is a mistake in the level, not
         // something to solve at runtime. Doing nothing is right: moving one
         // would be inventing an answer.
+    }
+    for (const Before &b : before) {
+        if (scene.map.solid_in(b.object->world_collider()))
+            b.object->position = b.position;
     }
 
     // Notification last, so that by the time the user's code runs, the
