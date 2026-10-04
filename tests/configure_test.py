@@ -363,6 +363,44 @@ class ConfigureUpxTest(unittest.TestCase):
         with self.assertRaises(cfgmod.ConfigError), quiet():
             cfgmod.validate(cfg, False)
 
+    def test_validate_refuses_what_cannot_be_compressed(self):
+        """The refusals lived in expand_upx(), which only the packaging step
+        calls (--print-upx), so `configure.py --check` passed
+        `enabled = ["macos"]` and the release failed twenty minutes in."""
+        for where in ("enabled", "disabled"):
+            for refused, needle in (("macos", "signature"), ("ios", "signature"),
+                                    ("android", "APK"), ("web", "wasm")):
+                with self.subTest(where=where, target=refused):
+                    cfg = base_config(**{f"upx__{where}": [refused]})
+                    with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                        cfgmod.validate(cfg, False)
+                    self.assertIn(f"[upx] {where}: {refused!r} cannot be compressed",
+                                  str(caught.exception))
+                    self.assertIn(needle, str(caught.exception))
+                    self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_validate_refuses_an_unknown_name(self):
+        for where in ("enabled", "disabled"):
+            with self.subTest(where=where):
+                cfg = base_config(**{f"upx__{where}": ["playstation"]})
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn(f"[upx] {where}: unknown target or group 'playstation'",
+                              str(caught.exception))
+                self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_each_group_is_every_compressible_target_of_its_family(self):
+        """UPX_GROUPS["linux"] was a list somebody kept, and it left out
+        linux-arm64-glibc-drm: `enabled = ["linux"]` did not compress it."""
+        for group in ("linux", "windows", "bsd"):
+            with self.subTest(group=group):
+                family = [t for t in cfgmod.UPX_TARGETS if cfgmod.TARGETS[t][0] == group]
+                self.assertEqual(sorted(cfgmod.UPX_GROUPS[group]), sorted(family))
+        self.assertEqual(sorted(cfgmod.UPX_GROUPS["all"]), sorted(cfgmod.UPX_TARGETS))
+        every = set(cfgmod.TARGETS)
+        self.assertEqual(set(cfgmod.UPX_TARGETS) | set(cfgmod.UPX_REFUSED), every,
+                         "every target is either compressible or refused with a reason")
+
 
 class ConfigureUpxSizeCapTest(unittest.TestCase):
     """[upx] max_size_mb: the ceiling above which the binary is left alone.
@@ -3795,6 +3833,8 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         "[dev] strict":               ("dev", ("strict",), "yes"),
         "[linux] glibc":              ("linux", ("glibc",), 2.28),
         "[upx] max_size_mb":          ("upx", ("max_size_mb",), "big"),
+        "cannot be compressed \u2014":  ("upx", ("enabled",), ["macos"]),
+        "unknown target or group":    ("upx", ("disabled",), ["playstation"]),
         "[web] backend":              ("web", ("backend",), "sdl"),
         "[window] fps":               ("window", ("fps",), -1),
         "must be an integer between 16 and 16384": ("window", ("width",), 4),

@@ -340,14 +340,14 @@ UPX_REFUSED = {
 }
 
 UPX_GROUPS: dict[str, list[str]] = {
-    # `all` here is NOT the fourteen: it is every target that can be compressed
-    # at all. Windows is in it, but not in the default — see the .toml.
+    # `all` here is NOT every target: it is every target that can be compressed
+    # at all. Windows is in it, but not in the default — see the .toml. Each
+    # family group is derived from TARGETS rather than written out: written
+    # out, "linux" left linux-arm64-glibc-drm behind.
     "all":     list(UPX_TARGETS),
-    "linux":   ["linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm",
-                "linux-x64-musl"],
-    "windows": ["windows-x64", "windows-arm64"],
-    "bsd":     ["freebsd-x64", "freebsd-arm64",
-                "openbsd-x64", "openbsd-arm64", "netbsd-x64"],
+    "linux":   [t for t in UPX_TARGETS if TARGETS[t][0] == "linux"],
+    "windows": [t for t in UPX_TARGETS if TARGETS[t][0] == "windows"],
+    "bsd":     [t for t in UPX_TARGETS if TARGETS[t][0] == "bsd"],
 }
 
 
@@ -685,6 +685,21 @@ def validate(cfg: dict, strict_release: bool) -> None:
         list_of_strings(cfg["upx"][key], f"[upx] {key}")
     list_of_strings(cfg["raylib"]["disabled_modules"], "[raylib] disabled_modules",
                     "Optional modules are: " + ", ".join(sorted(OPTIONAL_MODULES)) + ".")
+
+    # The names in [upx]. Refused HERE, and not only in expand_upx(): that one
+    # runs when the packaging step asks (--print-upx), so `configure.py --check`
+    # passed `enabled = ["macos"]` and the release failed at its last step.
+    for where in ("enabled", "disabled"):
+        for n in cfg["upx"][where]:
+            if n in UPX_GROUPS or n in UPX_TARGETS:
+                continue
+            if n in UPX_REFUSED:
+                raise ConfigError(
+                    f"[upx] {where}: {n!r} cannot be compressed — {UPX_REFUSED[n]}.\n"
+                    "Remove it; there is no setting that makes it work.")
+            known = ", ".join(sorted(set(UPX_GROUPS) | set(UPX_TARGETS)))
+            raise ConfigError(
+                f"[upx] {where}: unknown target or group {n!r}.\nKnown: {known}")
 
     # bool first: in Python `True` is an int, and `max_size_mb = true` in the
     # TOML would otherwise sail through as 1 MB and skip every binary you have.
