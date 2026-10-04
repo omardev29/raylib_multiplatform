@@ -26,7 +26,7 @@ static int coins = 0;
 static bool waitingForAd = false;
 
 static void on_ready() {
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
 
     // Preload as early as you can. Loading takes seconds, and an ad the player
     // has to wait for is an ad they close.

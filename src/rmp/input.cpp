@@ -50,7 +50,7 @@ bool g_have_previous = false;
 
 detail::SampleFn g_sample = detail::sample_with_raylib;
 
-float g_deadzone = APP_INPUT_DEADZONE;
+float g_deadzone = RMP_INPUT_DEADZONE;
 bool g_layer_input = true;
 
 // One warning per unknown name for the life of the run. The alternative is
@@ -306,7 +306,7 @@ void reset() {
     g_before = DeviceState{};
     g_have_previous = false;
     g_layer_input = true;
-    g_deadzone = APP_INPUT_DEADZONE;
+    g_deadzone = RMP_INPUT_DEADZONE;
     g_factory_installed = false;
     g_sample = sample_with_raylib;
 }

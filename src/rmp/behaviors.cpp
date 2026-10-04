@@ -527,8 +527,8 @@ void Parallax::_draw(Object &self) {
     // stands still in the world. The object's own x shifts it on top of that.
     const Rectangle view = self.scene() != nullptr
         ? self.scene()->camera.view()
-        : Rectangle{ 0, 0, static_cast<float>(APP_WINDOW_WIDTH),
-                     static_cast<float>(APP_WINDOW_HEIGHT) };
+        : Rectangle{ 0, 0, static_cast<float>(RMP_WINDOW_WIDTH),
+                     static_cast<float>(RMP_WINDOW_HEIGHT) };
     // The arithmetic is next door, in detail::parallax_tiling, and this call is
     // the only thing between it and the GPU. That is not tidiness: everything
     // below this line needs a render batch InitWindow() creates, and everything

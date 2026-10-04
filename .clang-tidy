@@ -81,7 +81,7 @@ Checks: >
 #   modernize-avoid-c-arrays               raylib takes C arrays.
 #   modernize-use-nodiscard                would decorate the whole API for the
 #                                          two call sites where it matters.
-#   modernize-macro-to-enum                the generated APP_* values are macros
+#   modernize-macro-to-enum                the generated RMP_* values are macros
 #                                          on purpose: the C entry point uses
 #                                          them too.
 #   modernize-use-designated-initializers  suggests them inside our own

@@ -19,7 +19,7 @@
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // BEFORE InitWindow, or it is ignored
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
 }
 
 static void on_frame(float delta) {

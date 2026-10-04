@@ -950,7 +950,7 @@ TEST_CASE_FIXTURE(Fixture,
                                     .edges = rmp::Edge::CLAMP });
         rmp::objects::detail::update(world, 1.0f);
         const Rectangle b = right.world_bounds();
-        CHECK(b.x + b.width == doctest::Approx(static_cast<float>(APP_WINDOW_WIDTH)));
+        CHECK(b.x + b.width == doctest::Approx(static_cast<float>(RMP_WINDOW_WIDTH)));
     }
 }
 

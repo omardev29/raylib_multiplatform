@@ -33,7 +33,7 @@ static float mana = 0.35f;
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch everything follow
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
     portrait = rmp::assets::load_texture("rabbit.png");
 }
 

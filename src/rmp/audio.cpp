@@ -80,9 +80,9 @@ struct Track {
 };
 
 struct State {
-    float master = APP_AUDIO_MASTER;
-    float music = APP_AUDIO_MUSIC;
-    float sfx = APP_AUDIO_SFX;
+    float master = RMP_AUDIO_MASTER;
+    float music = RMP_AUDIO_MUSIC;
+    float sfx = RMP_AUDIO_SFX;
 
     detail::DeviceOpener opener = nullptr;
     bool attempted = false;
@@ -294,9 +294,9 @@ void reset_for_tests() {
     s.effects.clear();
     s.missing_music.clear();
     s.track = Track{};
-    s.master = APP_AUDIO_MASTER;
-    s.music = APP_AUDIO_MUSIC;
-    s.sfx = APP_AUDIO_SFX;
+    s.master = RMP_AUDIO_MASTER;
+    s.music = RMP_AUDIO_MUSIC;
+    s.sfx = RMP_AUDIO_SFX;
     s.opener = nullptr;
     s.attempted = false;
     s.ready = false;

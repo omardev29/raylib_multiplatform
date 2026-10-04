@@ -3,7 +3,7 @@
 # .toml values.
 #
 # TWO PROMISES, ONE CHECK. For each include/rmp/*.h this compiles a translation
-# unit that includes ONLY that header and then uses APP_WINDOW_WIDTH:
+# unit that includes ONLY that header and then uses RMP_WINDOW_WIDTH:
 #
 #   self-contained  a header that needs something included before it works by
 #                   accident of whatever the .cpp happened to include first,
@@ -43,7 +43,7 @@ for header in include/rmp/*.h; do
 
   cat > "$TMP/one.cpp" <<CPP
 #include <rmp/$name>
-int main() { return APP_WINDOW_WIDTH > 0 ? 0 : 1; }
+int main() { return RMP_WINDOW_WIDTH > 0 ? 0 : 1; }
 CPP
   checked=$((checked + 1))
   if out=$("$CXX" -fsyntax-only -std=c++20 "${INCLUDES[@]}" \

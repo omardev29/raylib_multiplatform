@@ -125,7 +125,7 @@ public:
         // ships are drawn through the camera, so on a window that is not the
         // design size a line drawn in screen units lands somewhere else.
         BeginMode2D(camera.raylib());
-        DrawRectangle(0, static_cast<int>(kGroundY), APP_WINDOW_WIDTH, 3, DARKGREEN);
+        DrawRectangle(0, static_cast<int>(kGroundY), RMP_WINDOW_WIDTH, 3, DARKGREEN);
         EndMode2D();
 
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });

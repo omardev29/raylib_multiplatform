@@ -39,7 +39,7 @@
 // rather than just this one. It costs nothing — twelve #defines, no includes of
 // its own, 27 ms against an empty file's 28, which is below measurement noise —
 // and rule 1 exists for compile time and coupling, so a leaf header that costs
-// neither is not what the rule is aimed at. What it buys is that APP_WINDOW_*
+// neither is not what the rule is aimed at. What it buys is that RMP_WINDOW_*
 // and the rest are simply THERE, in scenes and objects and everywhere else,
 // with nothing to remember. See rmp/config.h.
 // ---------------------------------------------------------------------------

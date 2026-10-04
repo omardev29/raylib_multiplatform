@@ -567,16 +567,50 @@ class ConfigureValidateTest(unittest.TestCase):
                     "true or false")
         with generated_header(base_config(dev={"compiler": "clang", "linker": "auto",
                                                "strict": True})) as header:
-            self.assertIn("#define APP_DEV_STRICT      1", header)
+            self.assertIn("#define RMP_DEV_STRICT      1", header)
         with generated_header(base_config()) as header:
-            self.assertIn("#define APP_DEV_STRICT      0", header)
+            self.assertIn("#define RMP_DEV_STRICT      0", header)
         # And the entry point reads it; a macro nobody tests is a comment.
         app_cpp = (REPO / "src" / "rmp" / "app.cpp").read_text()
-        self.assertIn("APP_DEV_STRICT", app_cpp)
+        self.assertIn("RMP_DEV_STRICT", app_cpp)
         self.assertIn("!defined(NDEBUG)", app_cpp)
 
     def test_windows_backend(self):
         self.assert_rejects(base_config(windows={"backend": "sdl"}))
+
+
+class GeneratedFallbacksTest(unittest.TestCase):
+    """A source file that guards a generated value with `#ifndef RMP_X` names
+    a value the generator really emits.
+
+    The fallbacks (`#ifndef RMP_UI_FONT_SIZE / #define RMP_UI_FONT_SIZE 20`)
+    exist so a header compiles before configure.py has run. If the generator
+    renames a value and a fallback does not follow, nothing fails: the
+    fallback quietly becomes the only definition, and the .toml setting stops
+    reaching that file. That is exactly what a rename of every generated name
+    could have left behind, so every guard is checked against the header the
+    generator writes from the defaults."""
+
+    def test_every_fallback_guards_a_generated_name(self):
+        with generated_header(base_config()) as header:
+            emitted = set(re.findall(r"^#define\s+(RMP_\w+)", header, re.M))
+        self.assertIn("RMP_WINDOW_WIDTH", emitted)
+        guarded = {}
+        for root in ("include", "src", "tests", "examples"):
+            for path in sorted((REPO / root).rglob("*")):
+                if path.suffix not in (".h", ".c", ".cpp") or "generated" in path.parts:
+                    continue
+                for name in re.findall(r"^\s*#\s*ifndef\s+(RMP_\w+)",
+                                       path.read_text(errors="replace"), re.M):
+                    guarded.setdefault(name, path.relative_to(REPO).as_posix())
+        # The include guard of the smoke-test header is a guard, not a fallback.
+        guarded.pop("RMP_SMOKE_TEST_H", None)
+        self.assertGreaterEqual(len(guarded), 5, "the fallbacks were not found at all")
+        for name, where in sorted(guarded.items()):
+            with self.subTest(name=name):
+                self.assertIn(name, emitted,
+                              f"{where} falls back on {name}, which configure.py "
+                              f"does not generate")
 
 
 class ConfigureHelpersTest(unittest.TestCase):
@@ -1783,7 +1817,7 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         app_h = (REPO / "include" / "rmp" / "app.h").read_text()
         self.assertNotIn("FRAME(GetFrameTime())", app_h)
         self.assertEqual(app_h.count("FRAME(rmp::app::detail::step_delta())"), 3)
-        self.assertIn("APP_MAX_DELTA", (REPO / "src" / "rmp" / "app.cpp").read_text())
+        self.assertIn("RMP_MAX_DELTA", (REPO / "src" / "rmp" / "app.cpp").read_text())
 
 
 def load_license_db():
@@ -2941,7 +2975,7 @@ class ConfigureRresPasswordTest(unittest.TestCase):
 
     def test_the_default_password_reaches_the_generated_header(self):
         with generated_header(base_config()) as text:
-            self.assertIn("APP_RRES_PASSWORD", text)
+            self.assertIn("RMP_RRES_PASSWORD", text)
 
 
 class ConfigureVersionCodeCeilingTest(unittest.TestCase):
@@ -3781,11 +3815,11 @@ class ConfigureAudioTest(unittest.TestCase):
         with quiet():
             cfgmod.validate(cfg, False)
         with generated_header(cfg) as text:
-            self.assertRegex(text, r"#define APP_AUDIO_MASTER\s+0\.125f\n")
-            self.assertRegex(text, r"#define APP_AUDIO_MUSIC\s+0\.25f\n")
-            self.assertRegex(text, r"#define APP_AUDIO_SFX\s+0\.5f\n")
+            self.assertRegex(text, r"#define RMP_AUDIO_MASTER\s+0\.125f\n")
+            self.assertRegex(text, r"#define RMP_AUDIO_MUSIC\s+0\.25f\n")
+            self.assertRegex(text, r"#define RMP_AUDIO_SFX\s+0\.5f\n")
         audio_cpp = (REPO / "src" / "rmp" / "audio.cpp").read_text()
-        for define in ("APP_AUDIO_MASTER", "APP_AUDIO_MUSIC", "APP_AUDIO_SFX"):
+        for define in ("RMP_AUDIO_MASTER", "RMP_AUDIO_MUSIC", "RMP_AUDIO_SFX"):
             with self.subTest(define=define):
                 self.assertIn(define, audio_cpp)
 
@@ -4024,9 +4058,9 @@ class ConfigureSaveTest(unittest.TestCase):
                 with quiet():
                     cfgmod.validate(cfg, False)
                 with generated_header(cfg) as text:
-                    self.assertRegex(text, rf"#define APP_SAVE_PORTABLE\s+{int(portable)}\n")
-                    self.assertRegex(text, rf"#define APP_SAVE_ENCRYPT\s+{int(encrypt)}\n")
-                    self.assertRegex(text, rf"#define APP_SAVE_VERSION\s+{version}\n")
+                    self.assertRegex(text, rf"#define RMP_SAVE_PORTABLE\s+{int(portable)}\n")
+                    self.assertRegex(text, rf"#define RMP_SAVE_ENCRYPT\s+{int(encrypt)}\n")
+                    self.assertRegex(text, rf"#define RMP_SAVE_VERSION\s+{version}\n")
 
     def test_the_toml_documents_every_key(self):
         toml = (REPO / "raylib_multiplatform.toml").read_text()
@@ -4070,7 +4104,7 @@ class WebSavesLinkTest(unittest.TestCase):
         self.assertIn("'/rmp_save/' + (Module['rmpSaveName']", web)
         self.assertIn("FS.mount(IDBFS, {}, dir)", web)
         save = (REPO / "src" / "rmp" / "save.cpp").read_text()
-        self.assertIn('return "/rmp_save/" APP_NAME "/";', save)
+        self.assertIn('return "/rmp_save/" RMP_PROJECT_NAME "/";', save)
 
     def test_the_generated_name_is_the_project_name_as_a_js_string(self):
         captured = {}

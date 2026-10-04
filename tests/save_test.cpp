@@ -115,7 +115,7 @@ Value sample() {
     return v;
 }
 
-Bytes encoded(const Value &v, bool sealed, int version = APP_SAVE_VERSION) {
+Bytes encoded(const Value &v, bool sealed, int version = RMP_SAVE_VERSION) {
     Bytes out;
     REQUIRE(rmp::save::detail::encode(v, version, sealed, &out));
     return out;
@@ -457,8 +457,8 @@ TEST_SUITE("save: Value") {
     }
 
     TEST_CASE("a Value made in code is of this build's version") {
-        CHECK(Value().version() == APP_SAVE_VERSION);
-        CHECK(sample().version() == APP_SAVE_VERSION);
+        CHECK(Value().version() == RMP_SAVE_VERSION);
+        CHECK(sample().version() == RMP_SAVE_VERSION);
     }
 }
 
@@ -894,7 +894,7 @@ TEST_SUITE("save: format") {
         Value sealed;
         CHECK(rmp::save::detail::decode(encoded(sample(), true), &sealed, true) ==
               Status::OK);
-        CHECK(rmp::save::ReadOptions{}.sealed_only == (APP_SAVE_ENCRYPT != 0));
+        CHECK(rmp::save::ReadOptions{}.sealed_only == (RMP_SAVE_ENCRYPT != 0));
     }
 
     TEST_CASE("a sealed payload too short to hold its nonce and tag is MODIFIED") {
@@ -1001,9 +1001,9 @@ TEST_SUITE("save: files") {
     TEST_CASE_FIXTURE(Fixture, "the default of write() is [save] encrypt") {
         REQUIRE(rmp::save::write("slot", sample()));
         const std::string text = file_text(dir.path / "slot.save");
-        CHECK(text.find(APP_SAVE_ENCRYPT != 0 ? " sealed " : " plain ") !=
+        CHECK(text.find(RMP_SAVE_ENCRYPT != 0 ? " sealed " : " plain ") !=
               std::string::npos);
-        CHECK(rmp::save::WriteOptions{}.encrypted == (APP_SAVE_ENCRYPT != 0));
+        CHECK(rmp::save::WriteOptions{}.encrypted == (RMP_SAVE_ENCRYPT != 0));
     }
 
     TEST_CASE_FIXTURE(Fixture, "the save folder is created on the first write") {
@@ -1311,16 +1311,16 @@ TEST_SUITE("save: where, on this platform") {
 
         setenv("HOME", "/home/player", 1);
         setenv("XDG_DATA_HOME", "/data", 1);
-        CHECK(rmp::save::detail::user_folder() == "/data/" APP_NAME "/");
+        CHECK(rmp::save::detail::user_folder() == "/data/" RMP_PROJECT_NAME "/");
         setenv("XDG_DATA_HOME", "/data/", 1);
-        CHECK(rmp::save::detail::user_folder() == "/data/" APP_NAME "/");
+        CHECK(rmp::save::detail::user_folder() == "/data/" RMP_PROJECT_NAME "/");
         // The spec: a relative XDG_DATA_HOME is invalid and ignored.
         setenv("XDG_DATA_HOME", "relative/path", 1);
         CHECK(rmp::save::detail::user_folder() ==
-              "/home/player/.local/share/" APP_NAME "/");
+              "/home/player/.local/share/" RMP_PROJECT_NAME "/");
         unsetenv("XDG_DATA_HOME");
         CHECK(rmp::save::detail::user_folder() ==
-              "/home/player/.local/share/" APP_NAME "/");
+              "/home/player/.local/share/" RMP_PROJECT_NAME "/");
 
         if (old_xdg != nullptr) {
             setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);

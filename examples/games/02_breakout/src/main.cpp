@@ -70,7 +70,7 @@ public:
         auto &ball =
             spawn({ .position = { 400, 380 },
                     .shape = rmp::circle(7),
-                    .bounds = { 0, 0, APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT + 300.0f } });
+                    .bounds = { 0, 0, RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT + 300.0f } });
         ball.add<rmp::behavior::Ball>({ .speed = 320, .speed_up = 1.03f });
         ball_ = ball.handle();
         serve();
@@ -87,7 +87,7 @@ public:
 
         // The two rules the framework has no opinion about: the ball is lost,
         // and the wall is gone.
-        if (ball_->position.y > APP_WINDOW_HEIGHT + 20) {
+        if (ball_->position.y > RMP_WINDOW_HEIGHT + 20) {
             if (--lives_ <= 0) {
                 rmp::Scene::push<OverScene<BreakoutScene>>("Game over");
                 return;

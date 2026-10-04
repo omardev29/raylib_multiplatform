@@ -104,7 +104,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │       ├── random.h          #   rmp::random -- seeded, reproducible
 │       ├── ads.h             #   rmp::ads -- interstitial and rewarded ads; no-ops off Android
 │       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)
-│       ├── config.h          #   the APP_* values from the .toml
+│       ├── config.h          #   the RMP_* values from the .toml
 │       └── generated/        #   GENERATED config.h, git-ignored
 ├── examples/                 # one mini-project each, by area: scenes/ input/ ui/ ads/ assets/ games/ platform/
 │   ├── games/                # seven whole games, playable start to finish; CI boots them all
@@ -228,13 +228,13 @@ get indexed). It requires the NDK:
 | `RESOURCES_PATH` | absolute (dev) or `"./resources/"` (prod) | Asset folder path |
 | `PRODUCTION_BUILD` | `0` / `1` | `#if PRODUCTION_BUILD` to strip debug code |
 | `RRES_PASSWORD` | string | rres decryption password (see below) |
-| `APP_NAME`, `APP_WINDOW_TITLE`, `APP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
-| `APP_UI_FONT`, `APP_UI_FONT_SIZE`, `APP_UI_SCALE`, `APP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
-| `APP_INPUT_DEADZONE` | from `[input]` | The stick travel that reads as zero |
-| `APP_AUDIO_MASTER`, `APP_AUDIO_MUSIC`, `APP_AUDIO_SFX` | from `[audio]` | What the three `rmp::audio` buses start at |
-| `APP_SAVE_PORTABLE`, `APP_SAVE_ENCRYPT`, `APP_SAVE_VERSION` | from `[save]` | Where saves go, whether they are sealed, the game's save-format version |
-| `APP_MAX_DELTA` | from `[app]` | The longest step the game logic is handed |
-| `APP_DEV_STRICT` | from `[dev]` | The first framework diagnostic aborts a debug build |
+| `RMP_PROJECT_NAME`, `RMP_WINDOW_TITLE`, `RMP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
+| `RMP_UI_FONT`, `RMP_UI_FONT_SIZE`, `RMP_UI_SCALE`, `RMP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
+| `RMP_INPUT_DEADZONE` | from `[input]` | The stick travel that reads as zero |
+| `RMP_AUDIO_MASTER`, `RMP_AUDIO_MUSIC`, `RMP_AUDIO_SFX` | from `[audio]` | What the three `rmp::audio` buses start at |
+| `RMP_SAVE_PORTABLE`, `RMP_SAVE_ENCRYPT`, `RMP_SAVE_VERSION` | from `[save]` | Where saves go, whether they are sealed, the game's save-format version |
+| `RMP_MAX_DELTA` | from `[app]` | The longest step the game logic is handed |
+| `RMP_DEV_STRICT` | from `[dev]` | The first framework diagnostic aborts a debug build |
 
 ```cpp
 Texture2D tex = LoadTexture(RESOURCES_PATH "player.png");  // raw path form
@@ -489,7 +489,7 @@ subfolder in `resources/`. If you need one anyway, extend the `package/` step in
 ### Encryption
 
 Password: `[resources] rres_password` in `raylib_multiplatform.toml`, which reaches both sides from
-one place — `RRES_PACK_PASSWORD` for the packer and `APP_RRES_PASSWORD` in
+one place — `RRES_PACK_PASSWORD` for the packer and `RMP_RRES_PASSWORD` in
 `include/rmp/generated/config.h` for the game. (They used to be two hardcoded literals in
 `CMakeLists.txt` and the asset layer; desynchronising them broke loading at runtime only.)
 
@@ -907,10 +907,10 @@ Layout happens in pixels, and pixels are not a unit you can design in: a 40 px b
 everything is multiplied by one number before it is drawn:
 
 ```
-scale = clamp( min( width / APP_WINDOW_WIDTH, height / APP_WINDOW_HEIGHT ), 0.5, 4.0 )
+scale = clamp( min( width / RMP_WINDOW_WIDTH, height / RMP_WINDOW_HEIGHT ), 0.5, 4.0 )
 ```
 
-`APP_WINDOW_WIDTH/HEIGHT` come from `[window]` in `raylib_multiplatform.toml`, which gives that
+`RMP_WINDOW_WIDTH/HEIGHT` come from `[window]` in `raylib_multiplatform.toml`, which gives that
 block a second and more useful meaning: **it is the resolution you are designing for**. Declare
 800×450 and the UI is drawn as if for 800×450, whatever the window turns out to be.
 

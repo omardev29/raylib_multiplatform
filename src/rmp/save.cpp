@@ -215,7 +215,8 @@ Value from_cjson(const cJSON *node) {
 const std::array<std::uint8_t, 32> &seal_key() {
     static const std::array<std::uint8_t, 32> kKey = [] {
         std::array<std::uint8_t, 32> k{};
-        const std::string material = std::string("rmp::save sealed v1") + '\0' + APP_NAME;
+        const std::string material =
+            std::string("rmp::save sealed v1") + '\0' + RMP_PROJECT_NAME;
         crypto_blake2b(k.data(), k.size(),
                        reinterpret_cast<const std::uint8_t *>(material.data()),
                        material.size());
@@ -511,7 +512,7 @@ std::string detail::user_folder() {
 #if defined(__EMSCRIPTEN__)
     // Mounted on IndexedDB before main() by cmake/web/rmp_web.js, one
     // database per game: cmake/generated/rmp_web_name.js hands it this name.
-    return "/rmp_save/" APP_NAME "/";
+    return "/rmp_save/" RMP_PROJECT_NAME "/";
 #elif defined(PLATFORM_ANDROID)
     // The app's private internal storage: no permission needed, removed with
     // the app, invisible to other apps.
@@ -528,19 +529,21 @@ std::string detail::user_folder() {
     // no name under it.
     return with_separator(env("HOME")) + "Library/Application Support/";
 #elif defined(__APPLE__)
-    return with_separator(env("HOME")) + "Library/Application Support/" APP_NAME "/";
+    return with_separator(env("HOME")) +
+        "Library/Application Support/" RMP_PROJECT_NAME "/";
 #elif defined(_WIN32)
     // %APPDATA% is Roaming, which is where a save that should follow the
     // player to another machine on a domain belongs.
     const std::string appdata = env("APPDATA");
-    if (!appdata.empty()) return with_separator(appdata) + APP_NAME "/";
-    return with_separator(env("USERPROFILE")) + "AppData/Roaming/" APP_NAME "/";
+    if (!appdata.empty()) return with_separator(appdata) + RMP_PROJECT_NAME "/";
+    return with_separator(env("USERPROFILE")) + "AppData/Roaming/" RMP_PROJECT_NAME "/";
 #else
     // XDG: $XDG_DATA_HOME when it is set and absolute, as the spec requires,
     // else ~/.local/share.
     const std::string xdg = env("XDG_DATA_HOME");
-    if (!xdg.empty() && xdg.front() == '/') return with_separator(xdg) + APP_NAME "/";
-    return with_separator(env("HOME")) + ".local/share/" APP_NAME "/";
+    if (!xdg.empty() && xdg.front() == '/')
+        return with_separator(xdg) + RMP_PROJECT_NAME "/";
+    return with_separator(env("HOME")) + ".local/share/" RMP_PROJECT_NAME "/";
 #endif
 }
 
@@ -549,7 +552,7 @@ namespace {
 // Next to the executable, where [save] portable asks for it and the OS has
 // such a place. Empty otherwise.
 std::string portable_folder() {
-#if APP_SAVE_PORTABLE && defined(_WIN32)
+#if RMP_SAVE_PORTABLE && defined(_WIN32)
     std::wstring name(32768, L'\0');
     const unsigned long length =
         GetModuleFileNameW(nullptr, name.data(), static_cast<unsigned long>(name.size()));
@@ -558,7 +561,7 @@ std::string portable_folder() {
     const std::string dir = utf8_of(fs::path(name).parent_path().c_str());
     if (dir.empty()) return {};
     return with_separator(dir) + "saves/";
-#elif APP_SAVE_PORTABLE &&                                                \
+#elif RMP_SAVE_PORTABLE &&                                                \
     (defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
      defined(__OpenBSD__)) &&                                             \
     !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
@@ -798,7 +801,7 @@ bool write(std::string_view slot, const Value &value, const WriteOptions &option
         return false;
     }
     detail::Bytes bytes;
-    if (!detail::encode(value, APP_SAVE_VERSION, options.encrypted, &bytes)) return false;
+    if (!detail::encode(value, RMP_SAVE_VERSION, options.encrypted, &bytes)) return false;
     Folders &f = folders();
     (void)resolve();
     std::error_code ec;

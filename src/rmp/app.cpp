@@ -144,7 +144,7 @@ void begin_run() {
     // [dev] strict: a framework warning aborts instead of scrolling past. Debug
     // builds only -- NDEBUG is what every release configuration on every
     // platform defines, so a shipped binary can never carry it.
-#if APP_DEV_STRICT && !defined(NDEBUG)
+#if RMP_DEV_STRICT && !defined(NDEBUG)
     rmp::detail::set_strict(true);
 #endif
     SmokeTest_Begin();
@@ -196,8 +196,8 @@ float step_delta() {
     // suspend/resume is not unheard of -- and a negative step would run the
     // whole world in reverse for one frame.
     if (raw < 0) return 0;
-    if (APP_MAX_DELTA <= 0) return raw;
-    return raw > APP_MAX_DELTA ? APP_MAX_DELTA : raw;
+    if (RMP_MAX_DELTA <= 0) return raw;
+    return raw > RMP_MAX_DELTA ? RMP_MAX_DELTA : raw;
 }
 
 void end_frame() {
@@ -276,7 +276,7 @@ void end_stop() {
 // window and a phone held sideways.
 void start(std::unique_ptr<rmp::Scene> first) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
     rmp::scenes::detail::start(std::move(first));
 }
 

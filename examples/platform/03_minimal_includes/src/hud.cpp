@@ -25,7 +25,7 @@
 //     rmp/assets.h    rmp::assets — loading from resources/
 //     rmp/ads.h       rmp::ads — interstitial and rewarded
 //     rmp/math.h      vectors, rectangles, colours, and the arithmetic
-//     rmp/config.h    APP_WINDOW_TITLE and the rest of the .toml
+//     rmp/config.h    RMP_WINDOW_TITLE and the rest of the .toml
 //
 // If you get "'rmp::input' has not been declared", you are missing the header
 // that declares it. The compiler is telling you the truth, which is more than

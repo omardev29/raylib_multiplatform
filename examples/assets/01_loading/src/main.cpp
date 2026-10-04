@@ -34,7 +34,7 @@ static rmp::Sound jump;
 
 // Called once at startup: the pack (if any) is already open by now.
 static inline void on_ready() {
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
 
     // Load by resource name — no path, no extension guessing, and no #ifdef
     // for "did this build get a pack or not".

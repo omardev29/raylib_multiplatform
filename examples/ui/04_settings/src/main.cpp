@@ -95,7 +95,7 @@ static void store(const Settings &s) {
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
     // The sliders start where the buses are, [audio] in the .toml -- and
     // then whatever the player saved last time wins.
     cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);

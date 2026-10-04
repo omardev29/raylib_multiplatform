@@ -24,7 +24,7 @@ void MainMenuScene::_draw() {
         rmp::ui::row({ .gap = 16 }, [&] {
             rmp::ui::image(rabbit, { .width = 64, .height = 64 });
             rmp::ui::column({ .items = rmp::ui::Align::CENTER_LEFT }, [&] {
-                rmp::ui::text(APP_WINDOW_TITLE);
+                rmp::ui::text(RMP_WINDOW_TITLE);
                 rmp::ui::text("raylib + rmp::ui",
                               { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
             });

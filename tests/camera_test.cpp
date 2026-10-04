@@ -25,8 +25,8 @@
 
 namespace {
 
-constexpr float kW = APP_WINDOW_WIDTH;
-constexpr float kH = APP_WINDOW_HEIGHT;
+constexpr float kW = RMP_WINDOW_WIDTH;
+constexpr float kH = RMP_WINDOW_HEIGHT;
 
 class World : public rmp::Scene {
 public:

@@ -147,7 +147,7 @@ private:
     std::string string_;
     std::vector<std::string> keys_; // OBJECT: keys_[i] names items_[i]
     std::vector<Value> items_; // LIST and OBJECT
-    int version_ = APP_SAVE_VERSION;
+    int version_ = RMP_SAVE_VERSION;
 };
 
 // What [] on a non-const Value gives: the root it started from and the keys
@@ -236,7 +236,7 @@ struct Result {
 
 // Declaration order is the order they are written in, as C++20 requires.
 struct WriteOptions {
-    bool encrypted = APP_SAVE_ENCRYPT != 0; // [save] encrypt decides the default
+    bool encrypted = RMP_SAVE_ENCRYPT != 0; // [save] encrypt decides the default
 };
 
 struct ReadOptions {
@@ -245,7 +245,7 @@ struct ReadOptions {
     // accepting it would let a player replace a sealed save with their own.
     // A game that turns sealing on in an update reads its players' old plain
     // saves with { .sealed_only = false } for as long as they may have one.
-    bool sealed_only = APP_SAVE_ENCRYPT != 0;
+    bool sealed_only = RMP_SAVE_ENCRYPT != 0;
 };
 
 // A slot is a file name without the extension: letters, digits, '_', '-' and

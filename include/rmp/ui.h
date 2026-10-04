@@ -31,14 +31,14 @@
 
 #include <raylib.h>
 
-// APP_UI_FONT_SIZE, so the theme's default type Size is the one you set in
+// RMP_UI_FONT_SIZE, so the theme's default type Size is the one you set in
 // [ui] rather than a number baked into this header.
 #include <rmp/config.h>
 
 #include <string_view>
 
-#ifndef APP_UI_FONT_SIZE
-#define APP_UI_FONT_SIZE 20
+#ifndef RMP_UI_FONT_SIZE
+#define RMP_UI_FONT_SIZE 20
 #endif
 
 namespace rmp::ui {
@@ -145,9 +145,9 @@ struct Theme {
     // something each widget decides.
     Color focus = CLITERAL(Color){ 130, 170, 255, 255 };
 
-    float font_size = APP_UI_FONT_SIZE; // [ui] font_size
-    float font_size_small = APP_UI_FONT_SIZE * 0.8f; // Size::SMALL
-    float font_size_large = APP_UI_FONT_SIZE * 1.4f; // Size::LARGE
+    float font_size = RMP_UI_FONT_SIZE; // [ui] font_size
+    float font_size_small = RMP_UI_FONT_SIZE * 0.8f; // Size::SMALL
+    float font_size_large = RMP_UI_FONT_SIZE * 1.4f; // Size::LARGE
     float padding_x = 20; // inside a button
     float padding_y = 12;
     float gap = 12; // between siblings
@@ -192,7 +192,7 @@ Theme theme_light();
 // It is derived from the design resolution you already declared in [window] in
 // raylib_multiplatform.toml:
 //
-//     scale = clamp(min(w / APP_WINDOW_WIDTH, h / APP_WINDOW_HEIGHT), 0.5, 4)
+//     scale = clamp(min(w / RMP_WINDOW_WIDTH, h / RMP_WINDOW_HEIGHT), 0.5, 4)
 //
 // min() and not max(): what does not fit is worse than what is left over.
 // ---------------------------------------------------------------------------

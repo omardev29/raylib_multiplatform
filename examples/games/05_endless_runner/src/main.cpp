@@ -83,7 +83,7 @@ public:
         // the second: follow the x, leave the y alone. A camera that followed
         // the jump would take the ground and the sky up with it.
         camera.follow = player_;
-        camera.limits = { 0, 0, 0, APP_WINDOW_HEIGHT };
+        camera.limits = { 0, 0, 0, RMP_WINDOW_HEIGHT };
         // And a little give: the camera catches up at a rate, so the runner
         // leads the view by a few pixels at speed instead of being nailed to
         // its centre. A rate per second, the same at 30 and at 144 Hz.

@@ -101,8 +101,8 @@ Rectangle view_rect() {
     auto w = static_cast<float>(GetScreenWidth());
     auto h = static_cast<float>(GetScreenHeight());
     if (w <= 0 || h <= 0) {
-        w = static_cast<float>(APP_WINDOW_WIDTH);
-        h = static_cast<float>(APP_WINDOW_HEIGHT);
+        w = static_cast<float>(RMP_WINDOW_WIDTH);
+        h = static_cast<float>(RMP_WINDOW_HEIGHT);
     }
     return Rectangle{ 0, 0, w, h };
 }

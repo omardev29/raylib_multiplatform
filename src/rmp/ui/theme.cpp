@@ -23,8 +23,8 @@
 
 // So this still compiles against a generated header from before [ui] Theme
 // existed. tools/configure.py always provides it now.
-#ifndef APP_UI_THEME
-#define APP_UI_THEME "dark"
+#ifndef RMP_UI_THEME
+#define RMP_UI_THEME "dark"
 #endif
 
 namespace rmp::ui {
@@ -35,7 +35,7 @@ namespace {
 // use rather than at load time. current_theme() is reachable from a static
 // constructor in the user's code, and a global would make that a coin flip.
 Theme &active() {
-    static Theme t = (APP_UI_THEME[0] == 'l') ? theme_light() : theme_dark();
+    static Theme t = (RMP_UI_THEME[0] == 'l') ? theme_light() : theme_dark();
     return t;
 }
 

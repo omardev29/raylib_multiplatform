@@ -34,7 +34,7 @@ static constexpr int kSections = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
-    InitWindow(APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT, APP_WINDOW_TITLE);
+    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
 }
 
 static const char *breakpoint_name() {

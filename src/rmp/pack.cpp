@@ -11,7 +11,7 @@
 #include "rres-raylib.h" // declarations only; the implementation is rres_impl.cpp
 
 #include "internal.h"
-#include <rmp/config.h> // APP_RRES_PASSWORD
+#include <rmp/config.h> // RMP_RRES_PASSWORD
 
 #include <cstdio>
 #include <utility>
@@ -28,7 +28,7 @@
 // one and those two platforms could no longer read their own asset pack, with
 // no error that pointed at the cause. Both now come from the config.
 #ifndef RRES_PASSWORD
-#define RRES_PASSWORD APP_RRES_PASSWORD
+#define RRES_PASSWORD RMP_RRES_PASSWORD
 #endif
 
 namespace rmp::assets::detail {

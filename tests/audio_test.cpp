@@ -163,19 +163,19 @@ TEST_SUITE("audio") {
 
     TEST_CASE_FIXTURE(Fixture, "the buses start at the values in the .toml") {
         CHECK(rmp::audio::volume(rmp::audio::Bus::MASTER) ==
-              doctest::Approx(APP_AUDIO_MASTER));
+              doctest::Approx(RMP_AUDIO_MASTER));
         CHECK(rmp::audio::volume(rmp::audio::Bus::MUSIC) ==
-              doctest::Approx(APP_AUDIO_MUSIC));
-        CHECK(rmp::audio::volume(rmp::audio::Bus::SFX) == doctest::Approx(APP_AUDIO_SFX));
+              doctest::Approx(RMP_AUDIO_MUSIC));
+        CHECK(rmp::audio::volume(rmp::audio::Bus::SFX) == doctest::Approx(RMP_AUDIO_SFX));
     }
 
     TEST_CASE_FIXTURE(
         Fixture, "set_volume clamps, ignores a NaN, and leaves the other buses alone") {
         rmp::audio::set_volume(rmp::audio::Bus::MUSIC, 0.25f);
         CHECK(rmp::audio::volume(rmp::audio::Bus::MUSIC) == doctest::Approx(0.25));
-        CHECK(rmp::audio::volume(rmp::audio::Bus::SFX) == doctest::Approx(APP_AUDIO_SFX));
+        CHECK(rmp::audio::volume(rmp::audio::Bus::SFX) == doctest::Approx(RMP_AUDIO_SFX));
         CHECK(rmp::audio::volume(rmp::audio::Bus::MASTER) ==
-              doctest::Approx(APP_AUDIO_MASTER));
+              doctest::Approx(RMP_AUDIO_MASTER));
 
         rmp::audio::set_volume(rmp::audio::Bus::MUSIC, 9.0f);
         CHECK(rmp::audio::volume(rmp::audio::Bus::MUSIC) == doctest::Approx(1.0));

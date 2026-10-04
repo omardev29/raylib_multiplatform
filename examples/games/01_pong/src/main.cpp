@@ -29,8 +29,8 @@ namespace {
 constexpr float kPaddleSpeed = 420;
 constexpr float kServeSpeed = 340;
 constexpr int kWinningScore = 7;
-constexpr float kMidX = APP_WINDOW_WIDTH / 2.0f;
-constexpr float kMidY = APP_WINDOW_HEIGHT / 2.0f;
+constexpr float kMidX = RMP_WINDOW_WIDTH / 2.0f;
+constexpr float kMidY = RMP_WINDOW_HEIGHT / 2.0f;
 
 // A paddle is a rectangle that goes up and down and stops at the edge. `edges`
 // is the stopping, and it is one field.
@@ -89,7 +89,7 @@ public:
         left.shape.color = theme.primary;
         left_ = left.handle<Paddle>();
 
-        auto &right = spawn<Paddle>({ .position = { APP_WINDOW_WIDTH - 40, kMidY } });
+        auto &right = spawn<Paddle>({ .position = { RMP_WINDOW_WIDTH - 40, kMidY } });
         right.up = "p2_up";
         right.down = "p2_down";
         right.shape.color = theme.danger;
@@ -103,7 +103,7 @@ public:
         auto &ball = spawn(
             { .position = { kMidX, kMidY },
               .shape = rmp::circle(7),
-              .bounds = { -240, 0, APP_WINDOW_WIDTH + 480.0f, APP_WINDOW_HEIGHT } });
+              .bounds = { -240, 0, RMP_WINDOW_WIDTH + 480.0f, RMP_WINDOW_HEIGHT } });
         ball.add<rmp::behavior::Ball>({ .speed = kServeSpeed });
         // Ball does the bouncing; the sound of it is the game's.
         ball.on_collision([](rmp::Object &, rmp::Object &) { rmp::audio::play("hit"); });
@@ -115,7 +115,7 @@ public:
         // The only rule Pong has that the framework does not: a point.
         if (ball_->position.x < 0) {
             point(right_score_, "Red wins", -1);
-        } else if (ball_->position.x > APP_WINDOW_WIDTH) {
+        } else if (ball_->position.x > RMP_WINDOW_WIDTH) {
             point(left_score_, "Blue wins", 1);
         }
     }
@@ -126,7 +126,7 @@ public:
         // camera: on a window that is not the design size the two disagree, and
         // the net ends up somewhere the court is not.
         BeginMode2D(camera.raylib());
-        for (int y = 8; y < APP_WINDOW_HEIGHT; y += 30) {
+        for (int y = 8; y < RMP_WINDOW_HEIGHT; y += 30) {
             DrawRectangle(static_cast<int>(kMidX) - 2, y, 4, 16,
                           Color{ 255, 255, 255, 38 });
         }

@@ -26,7 +26,7 @@
 //                              pack ships resources.rres and nothing else, and
 //                              raw raylib cannot read it. (Reading it is what
 //                              src/rmp/loader_hook.cpp was doing for you.)
-//   APP_WINDOW_TITLE, ...  ->  #include <rmp/config.h>
+//   RMP_WINDOW_TITLE, ...  ->  #include <rmp/config.h>
 //                              if you want them; they are plain #defines and
 //                              work in C. Keeping that one generated header
 //                              costs you nothing else.

@@ -21,17 +21,17 @@
 
 // Defaults, so this still compiles against a generated header from before the
 // [ui] section existed. tools/configure.py normally provides all four.
-#ifndef APP_UI_FONT
-#define APP_UI_FONT ""
+#ifndef RMP_UI_FONT
+#define RMP_UI_FONT ""
 #endif
-#ifndef APP_UI_FONT_SIZE
-#define APP_UI_FONT_SIZE 20
+#ifndef RMP_UI_FONT_SIZE
+#define RMP_UI_FONT_SIZE 20
 #endif
-#ifndef APP_UI_SCALE
-#define APP_UI_SCALE 0.0f
+#ifndef RMP_UI_SCALE
+#define RMP_UI_SCALE 0.0f
 #endif
-#ifndef APP_UI_MAX_ELEMENTS
-#define APP_UI_MAX_ELEMENTS 512
+#ifndef RMP_UI_MAX_ELEMENTS
+#define RMP_UI_MAX_ELEMENTS 512
 #endif
 
 namespace rmp::ui {
@@ -47,7 +47,7 @@ bool g_frame_open = false;
 std::unique_ptr<unsigned char[]> g_arena; // Clay's memory, ours to own
 
 float g_scale = 1.0f;
-float g_scale_override = APP_UI_SCALE; // 0 = automatic
+float g_scale_override = RMP_UI_SCALE; // 0 = automatic
 
 // The font. When [ui] font is empty we use raylib's built-in one, which needs
 // no asset, no licence and no loading — and is a bitmap font, which is why its
@@ -223,7 +223,7 @@ void on_clay_error(Clay_ErrorData e) {
             "UI: more than max_elements (%d) elements in one frame. The interface "
             "will not lay out again until the game is restarted. Raise max_elements "
             "in the [ui] section of raylib_multiplatform.toml, or draw less at once.",
-            APP_UI_MAX_ELEMENTS);
+            RMP_UI_MAX_ELEMENTS);
         return;
     }
 
@@ -258,7 +258,7 @@ bool ensure_started() {
     // set before asking how much memory Clay needs. Clay's own default is 8192
     // elements, which reserves megabytes for a three-button menu — noticeable
     // on a phone, and pure waste everywhere.
-    Clay_SetMaxElementCount(APP_UI_MAX_ELEMENTS);
+    Clay_SetMaxElementCount(RMP_UI_MAX_ELEMENTS);
 
     uint32_t size = Clay_MinMemorySize();
     // new[] of char is aligned for anything Clay puts in it (the default new
@@ -271,7 +271,7 @@ bool ensure_started() {
 
     g_started = true;
     TraceLog(LOG_INFO, "UI: ready (%u bytes, up to %d elements)", size,
-             APP_UI_MAX_ELEMENTS);
+             RMP_UI_MAX_ELEMENTS);
     return true;
 }
 
@@ -300,8 +300,8 @@ void update_scale() {
         // a UI that does not fit is worse than one with room to spare, so the
         // tighter axis wins and everything stays on screen.
         Clay_Dimensions v = viewport();
-        float sx = v.width / static_cast<float>(APP_WINDOW_WIDTH);
-        float sy = v.height / static_cast<float>(APP_WINDOW_HEIGHT);
+        float sx = v.width / static_cast<float>(RMP_WINDOW_WIDTH);
+        float sy = v.height / static_cast<float>(RMP_WINDOW_HEIGHT);
         float s = sx < sy ? sx : sy;
         if (s < 0.5f) s = 0.5f;
         if (s > 4.0f) s = 4.0f;
@@ -311,7 +311,7 @@ void update_scale() {
     // The built-in font is a bitmap. Drawn at 1.73x it is a smeared mess, so
     // its scale is rounded to a whole number and the text Size steps instead of
     // sliding. A TTF rasterises at any size, so it keeps the continuous scale.
-    const bool builtin = (APP_UI_FONT[0] == '\0');
+    const bool builtin = (RMP_UI_FONT[0] == '\0');
     if (builtin) {
         float rounded = std::floor(g_scale + 0.5f);
         g_font_scale = rounded < 1.0f ? 1.0f : rounded;
@@ -329,7 +329,7 @@ void set_scale_override(float s) {
 }
 
 ::Font ui_font() {
-    const bool builtin = (APP_UI_FONT[0] == '\0');
+    const bool builtin = (RMP_UI_FONT[0] == '\0');
     if (builtin || g_font_failed) return GetFontDefault();
 
     int wanted =
@@ -340,10 +340,10 @@ void set_scale_override(float s) {
     // when the size the layout actually asks for has moved.
     if (g_font_loaded && wanted == g_baked_size) return g_font.raw();
     // Assigning releases the old size; the resource table unloads it.
-    g_font = rmp::assets::load_font(APP_UI_FONT, wanted);
+    g_font = rmp::assets::load_font(RMP_UI_FONT, wanted);
     if (g_font.raw().glyphCount <= 0) {
         RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
-                        APP_UI_FONT);
+                        RMP_UI_FONT);
         g_font_loaded = false;
         g_baked_size = 0;
         g_font_failed = true; // say it once, then stop asking

@@ -99,7 +99,7 @@ decide whether a feature enters, in this order:
 - **`rmp/config.h` is in every public header, and the user never types it.**
   It is the one exception to the rule above, and it earns it by measurement:
   twenty `#define`s (the generated config grows with the `.toml`), no includes of its own, 27 ms against an empty file's 28. `tools/header_check.sh` compiles every
-  `include/rmp/*.h` on its own against `APP_WINDOW_WIDTH`, so a new header that
+  `include/rmp/*.h` on its own against `RMP_WINDOW_WIDTH`, so a new header that
   forgets it fails the build instead of handing somebody an undefined macro.
 - **An invalid `.toml` has to fail in `configure.py`, in second one, and say
   where.** Not at `cmake --preset`, not at `just deploy`, not on a runner

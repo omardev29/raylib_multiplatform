@@ -73,7 +73,7 @@ namespace rmp {
 // ---------------------------------------------------------------------------
 class Camera {
 public:
-    Vector2 position{ APP_WINDOW_WIDTH / 2.0f, APP_WINDOW_HEIGHT / 2.0f };
+    Vector2 position{ RMP_WINDOW_WIDTH / 2.0f, RMP_WINDOW_HEIGHT / 2.0f };
     float zoom = 1.0f; // 2 = everything twice as big
     float rotation = 0; // degrees, clockwise, like raylib's Camera2D
 
@@ -98,7 +98,7 @@ public:
 
     // Never show outside this rectangle, in world units. One axis at a time:
     // a zero width or a zero height means "unbounded on that axis", so a
-    // runner pins y with `{ 0, 0, 0, APP_WINDOW_HEIGHT }` and follows x freely.
+    // runner pins y with `{ 0, 0, 0, RMP_WINDOW_HEIGHT }` and follows x freely.
     // Empty = no limits. A limit narrower than the view centres the view on it.
     // Applied AFTER the smoothing, so a smoothed camera still never shows the
     // void past the edge of the level.

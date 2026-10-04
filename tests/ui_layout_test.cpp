@@ -1390,9 +1390,9 @@ int main() {
     // Nothing held down and nothing pressed, until a test says otherwise.
     rmp::ui::detail::set_nav_provider(nav_scripted);
 
-    // The design resolution these are all measured against is APP_WINDOW_*,
+    // The design resolution these are all measured against is RMP_WINDOW_*,
     // straight from [window] in raylib_multiplatform.toml.
-    std::printf("design resolution: %dx%d\n", APP_WINDOW_WIDTH, APP_WINDOW_HEIGHT);
+    std::printf("design resolution: %dx%d\n", RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT);
 
     run_at(800, 600, "small window");
     run_at(1280, 720, "720p");
@@ -1441,7 +1441,7 @@ int main() {
     // the bottom of the screen. This is why the scale uses min() and not max().
     rmp::ui::detail::set_test_viewport(3840, 480);
     draw_menu();
-    float by_height = 480.0f / static_cast<float>(APP_WINDOW_HEIGHT);
+    float by_height = 480.0f / static_cast<float>(RMP_WINDOW_HEIGHT);
     if (by_height < 0.5f) by_height = 0.5f;
     check_near(rmp::ui::scale(), by_height, 0.001f,
                "on a very wide window the height decides");

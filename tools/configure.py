@@ -913,7 +913,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # INSIDE the shipped binary (the other is the title), and it had no
     # validation at all: `rres_password = 5` passed validate() and then died in
     # cmake_escape with an AttributeError, and `rres_password = ""` passed and
-    # produced `#define APP_RRES_PASSWORD ""` -- a release shipping an AES key
+    # produced `#define RMP_RRES_PASSWORD ""` -- a release shipping an AES key
     # of nothing, silently.
     password = cfg["resources"]["rres_password"]
     a_string(password, "[resources] rres_password")
@@ -1008,7 +1008,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # [save] -- where the saves go, whether they are sealed, and the version
     # this build writes them as. Two switches and a counter, and a wrong type
     # in any of them is a typo that would otherwise become a C++ error about
-    # APP_SAVE_* several files away.
+    # RMP_SAVE_* several files away.
     save = cfg["save"]
     if not isinstance(save["portable"], bool):
         raise ConfigError(
@@ -1508,62 +1508,62 @@ def gen_app_config(cfg: dict) -> None:
     w = cfg["window"]
     ui = cfg["ui"]
     write(REPO / "include" / "rmp" / "generated" / "config.h", f"""/* {GEN_HEADER} */
-#ifndef APP_CONFIG_H
-#define APP_CONFIG_H
+#ifndef RMP_GENERATED_CONFIG_H
+#define RMP_GENERATED_CONFIG_H
 
-#define APP_NAME          "{cfg['project']['name']}"
-#define APP_WINDOW_TITLE  "{w['title'].replace('"', chr(92) + chr(34))}"
-#define APP_WINDOW_WIDTH  {w['width']}
-#define APP_WINDOW_HEIGHT {w['height']}
+#define RMP_PROJECT_NAME  "{cfg['project']['name']}"
+#define RMP_WINDOW_TITLE  "{w['title'].replace('"', chr(92) + chr(34))}"
+#define RMP_WINDOW_WIDTH  {w['width']}
+#define RMP_WINDOW_HEIGHT {w['height']}
 
 /* Obfuscation only — this string is in the shipped binary. It lives here
    because Android and iOS never get -DRRES_PASSWORD from their build systems,
    so a value defined only in CMakeLists.txt would silently differ there. */
-#define APP_RRES_PASSWORD "{cfg['resources']['rres_password'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
+#define RMP_RRES_PASSWORD "{cfg['resources']['rres_password'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
 
-/* [ui]. APP_UI_THEME is only which theme the app STARTS with; rmp::ui::set_theme
-   changes it at any time. APP_UI_FONT is "" for raylib's built-in font.
-   APP_UI_FONT_SIZE is in design units, i.e. at the APP_WINDOW_* resolution
-   above: rmp::ui scales it from there. APP_UI_SCALE of 0 means derive the
+/* [ui]. RMP_UI_THEME is only which theme the app STARTS with; rmp::ui::set_theme
+   changes it at any time. RMP_UI_FONT is "" for raylib's built-in font.
+   RMP_UI_FONT_SIZE is in design units, i.e. at the RMP_WINDOW_* resolution
+   above: rmp::ui scales it from there. RMP_UI_SCALE of 0 means derive the
    scale automatically. */
-#define APP_UI_THEME        "{ui['theme']}"
-#define APP_UI_FONT         "{ui['font'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
-#define APP_UI_FONT_SIZE    {ui['font_size']}
-#define APP_UI_SCALE        {float(ui['scale'])}f
-#define APP_UI_MAX_ELEMENTS {ui['max_elements']}
+#define RMP_UI_THEME        "{ui['theme']}"
+#define RMP_UI_FONT         "{ui['font'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
+#define RMP_UI_FONT_SIZE    {ui['font_size']}
+#define RMP_UI_SCALE        {float(ui['scale'])}f
+#define RMP_UI_MAX_ELEMENTS {ui['max_elements']}
 
 /* [input]. The fraction of an analogue stick's travel that reads as zero.
    rmp::input::set_deadzone() changes it at runtime — a settings screen. */
-#define APP_INPUT_DEADZONE  {cfg['input']['deadzone']}f
+#define RMP_INPUT_DEADZONE  {cfg['input']['deadzone']}f
 
 /* [audio]. The volumes the three buses START at, 0..1. MASTER scales
    everything; MUSIC and SFX scale their own on top of it.
    rmp::audio::set_volume() changes them at runtime -- a settings screen. */
-#define APP_AUDIO_MASTER    {float(cfg['audio']['master'])}f
-#define APP_AUDIO_MUSIC     {float(cfg['audio']['music'])}f
-#define APP_AUDIO_SFX       {float(cfg['audio']['sfx'])}f
+#define RMP_AUDIO_MASTER    {float(cfg['audio']['master'])}f
+#define RMP_AUDIO_MUSIC     {float(cfg['audio']['music'])}f
+#define RMP_AUDIO_SFX       {float(cfg['audio']['sfx'])}f
 
 /* [save]. PORTABLE 1 keeps the saves in saves/ next to the executable
    (Windows, Linux and the BSDs; elsewhere there is no such place and it is
    ignored). ENCRYPT is the default for rmp::save::write(). VERSION is the
    version of the game's own save format, which rmp::Value::version() hands
    back on read so a migration can test it. */
-#define APP_SAVE_PORTABLE   {1 if cfg['save']['portable'] else 0}
-#define APP_SAVE_ENCRYPT    {1 if cfg['save']['encrypt'] else 0}
-#define APP_SAVE_VERSION    {cfg['save']['version']}
+#define RMP_SAVE_PORTABLE   {1 if cfg['save']['portable'] else 0}
+#define RMP_SAVE_ENCRYPT    {1 if cfg['save']['encrypt'] else 0}
+#define RMP_SAVE_VERSION    {cfg['save']['version']}
 
 /* [app] max_delta. The longest step the game logic is ever handed, in seconds.
    A frame that really took longer arrives clamped, so the game runs a moment of
    slow motion instead of teleporting everything through the walls. 0 = no
    clamp, and then a stalled frame is the game's problem. */
-#define APP_MAX_DELTA       {float(cfg['app']['max_delta'])}f
+#define RMP_MAX_DELTA       {float(cfg['app']['max_delta'])}f
 
 /* [dev] strict. 1 makes the first framework diagnostic -- an action nobody
    defined, a pop() with nothing under it -- abort a DEBUG build instead of
    scrolling past. Release builds ignore it: rmp::app checks NDEBUG too. */
-#define APP_DEV_STRICT      {1 if cfg['dev']['strict'] else 0}
+#define RMP_DEV_STRICT      {1 if cfg['dev']['strict'] else 0}
 
-#endif /* APP_CONFIG_H */
+#endif /* RMP_GENERATED_CONFIG_H */
 """)
 
 

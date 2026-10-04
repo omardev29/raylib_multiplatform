@@ -104,7 +104,7 @@ void report_once(const void *site, const char *fmt, ...);
 // NOLINTNEXTLINE(modernize-avoid-variadic-functions)
 void report_once_keyed(const void *site, const char *key, const char *fmt, ...);
 
-// [dev] strict. Off unless the entry point turns it on from APP_DEV_STRICT,
+// [dev] strict. Off unless the entry point turns it on from RMP_DEV_STRICT,
 // which the unit tests never do -- they exercise the warnings on purpose.
 void set_strict(bool on);
 bool strict();
