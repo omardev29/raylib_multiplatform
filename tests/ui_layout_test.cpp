@@ -1535,6 +1535,41 @@ void run_press_starts_on_control() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// rmp/ui.h: with input_below, the scene underneath "can hold the focus and the
+// arrows can walk between the two". They could not: the pass underneath ends
+// before the one above has declared anything, so the focus the arrows had
+// just moved up looked like nobody's, and the lower pass took it back every
+// frame.
+template <class Frame> void press_nav(Frame &&frame, rmp::ui::detail::NavState state);
+void run_walk_between_passes() {
+    std::printf("\n--- the arrows walk between two scenes ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    auto frame = [] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::set_pass_input(true); // input_below
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::button("Hud");
+        rmp::ui::end();
+        rmp::ui::detail::set_pass_input(true);
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
+        rmp::ui::button("Resume");
+        rmp::ui::button("Give up");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+    rmp::ui::focus("");
+    frame();
+    frame();
+    check(rmp::ui::focused() == "Hud", "the scene underneath holds the focus");
+    press_nav(frame, rmp::ui::detail::NavState{ .y = 1 });
+    check(rmp::ui::focused() == "Resume", "down walks up into the scene above");
+    press_nav(frame, rmp::ui::detail::NavState{ .y = 1 });
+    check(rmp::ui::focused() == "Give up", "and on through it");
+    press_nav(frame, rmp::ui::detail::NavState{ .y = 1 });
+    check(rmp::ui::focused() == "Hud", "and round to the one underneath again");
+    rmp::ui::focus("");
+}
+
 // One frame with this held or pressed, then one with nothing, so the next press
 // is a press and not a hold.
 template <class Frame> void press_nav(Frame &&frame, rmp::ui::detail::NavState state) {
@@ -2162,6 +2197,7 @@ int main() {
     run_two_pass_clicks();
     run_default_focus();
     run_default_focus_two_passes();
+    run_walk_between_passes();
     run_activate();
     run_idle_frame();
     run_zero_area();
