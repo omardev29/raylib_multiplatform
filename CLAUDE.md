@@ -51,6 +51,78 @@ decide whether a feature enters, in this order:
    `examples/` instead of adding API.
 3. Does it complicate the three-function menu? Then redesign it until it does not.
 
+## Naming
+
+Omar's rule, and checked rather than remembered: `readability-identifier-naming`
+in `.clang-tidy` over `src/`, `tests/` and `examples/`, `-Wshadow`, and
+`tools/naming_check.sh` for what clang-tidy cannot see -- a branch of `#if` for
+another platform, member access, macro names, retired names. The reasons are
+here so that nobody "fixes" one back.
+
+| What | Spelling | Example |
+|---|---|---|
+| Types: class, struct, enum, alias, template parameter | `PascalCase` | `rmp::ui::ButtonOptions` |
+| Enum members | `CONSTANT_CASE` | `rmp::ui::Align::TOP_LEFT` |
+| Constants: every `constexpr`; a `const` at namespace, class or `static` scope | `CONSTANT_CASE` | `MAX_TAG_NAME`, `DeviceState::KEYS` |
+| Functions, methods, variables, parameters, public fields, namespaces | `snake_case` | `current_theme()`, `min_height` |
+| Private and protected data members | `_snake_case` | `_slot`, `_generation` |
+| The hooks we call on your type -- these eight, no other method | `_snake_case` | `_ready` `_update` `_late_update` `_draw` `_collision` `_end` `_suspend` `_resume` |
+| Functions you hand us | `on_snake_case` | `on_click`, `on_ready` |
+| File-scope mutable state in `src/` and `tests/` | a struct per concern, read as `concern.field` | `context.started`, `pointer.down` |
+| File-scope mutable state in `examples/` | `snake_case` | `jumps_seen` |
+| Our macros, and every value the `.toml` generates | `RMP_CONSTANT_CASE` | `RMP_GAME`, `RMP_WINDOW_WIDTH` |
+
+- **One spelling per kind, and no prefixes.** No `k`, no `g_`, no trailing `_`.
+  A type and a value never look alike at the point of use, and raylib's types
+  are PascalCase too, so `rmp::Texture` sits next to `Texture2D`. CONSTANT_CASE
+  means "known when it compiles": `const float half = width / 2;` inside a
+  function is a variable that does not change, and stays snake_case.
+- **An underscore never touches a dot or an arrow.** `foo_.x` and `other._x`
+  are both wrong, in the framework too. Another object's private field is
+  reached through a private method that says what is taken -- `other.slot()`,
+  `other.trade(nullptr)`, `object.take_force()`. The one `x._name` is a hook
+  call: `a._collision(b)`.
+- **A leading underscore on a METHOD means "the framework calls this".** Only
+  the eight hooks wear it (clang-tidy lists them), so a private field never
+  takes a hook's name: Object's callbacks are `_click_handler`,
+  `_drag_handler`, `_collision_handler`. `_name` is legal as a member and
+  reserved at global scope -- which is why the entry-point hooks are `on_*`,
+  and the scene hook is `_end`, not `_exit` (POSIX).
+- **File state is grouped, and the dot is the mark.** `g_` made a global
+  visible at every use. Without it, `started` collided with `started()` in 26
+  places, `index`, `log` and `free` with a C library that declares them on
+  some platforms and not others, and a parameter `scale` would silently have
+  hidden the file's `scale`. A struct per concern keeps the mark and cannot
+  collide; `-Wshadow` catches a local that hides one (two functions took
+  `int pass`, so the group is `this_pass`). In `examples/`, where one variable
+  is often the whole story, a plain name reads better, under the same
+  `-Wshadow`.
+- **A constant's name must not be somebody else's macro.** `PI` and `DEG2RAD`
+  (raylib.h), `EPSILON` (raymath.h), `MIN`/`MAX` (BSD `<sys/param.h>`, rlgl.h),
+  `CHECK` (doctest), `DEBUG` (raymob's debug build). The preprocessor replaces
+  the name on exactly the platforms that define it: green on Linux, red on
+  NetBSD twenty minutes later. Name what the number is for -- `NEAR_ZERO`,
+  `TOLERANCE`, `SECTION_COUNT` -- and for pi, `std::numbers::pi_v<float>`
+  (clang-tidy's `modernize-use-std-numbers` refuses raylib's `PI`).
+  `tools/naming_check.sh --macros` prints the set R6 refuses.
+- **Macros are `RMP_`, never `__`.** The preprocessor has one namespace, shared
+  with raylib, the C library and the game, and `__x` and `_X` belong to the
+  implementation. Generated values follow their table: `[window] width` is
+  `RMP_WINDOW_WIDTH`, `[project] name` is `RMP_PROJECT_NAME`. A vendored
+  library's knobs keep their names in the one file that configures it
+  (`CLAY_IMPLEMENTATION` in `clay_impl.cpp`). **A retired name in `#if` is not
+  an error, it is 0** -- `#if APP_SAVE_PORTABLE` after the rename would have
+  turned portable saves off on Windows and nowhere else -- so
+  `naming_check.sh` refuses every one, and every `#ifndef RMP_X` fallback must
+  guard a name the generator emits.
+- **CMake options keep their names** (`PRODUCTION_BUILD`, `RESOURCES_PATH`,
+  `BUILD_TESTS`). They live in CMake's cache and never reach the preprocessor;
+  what the C++ sees is `RMP_PRODUCTION_BUILD` and `RMP_RESOURCES_PATH`.
+  Renaming an option turns `-DPRODUCTION_BUILD=ON` into a debug build with
+  nothing but an "unused variable" warning.
+- **A name in a comment is spelled like the code.** A rename renames the
+  comments too.
+
 ## Standing rules from Omar
 
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**

@@ -7,34 +7,46 @@ description: The house style for raylib_multiplatform — naming, formatting, wh
 
 ## Naming
 
-Not "everything is snake_case" — that was the old rule and it was replaced,
-because at the point of use it made a type and a value look the same.
+The full table and the reasons are in CLAUDE.md, "Naming"; this is the short
+form. Checked, not remembered: `readability-identifier-naming` in `.clang-tidy`
+(src/, tests/, examples/), `-Wshadow`, and `tools/naming_check.sh` for every
+`#if` branch, member access, macros and retired names.
 
-| Kind | Case | Example |
+| Kind | Spelling | Example |
 |---|---|---|
 | Types — class, struct, enum, alias | `PascalCase` | `rmp::ui::ButtonOptions`, `rmp::Object` |
-| Enum members | `SCREAM_CASE` | `rmp::ui::Align::TOP_LEFT` |
-| Functions and methods | `snake_case` | `rmp::ui::current_theme()` |
-| Variables, parameters, fields | `snake_case` | `min_height`, `delta` |
+| Enum members | `CONSTANT_CASE` | `rmp::ui::Align::TOP_LEFT` |
+| Constants (`constexpr`; `const` at namespace, class, static scope) | `CONSTANT_CASE` | `MAX_LABELS` |
+| Functions, methods, variables, parameters, public fields | `snake_case` | `current_theme()`, `delta` |
 | Namespaces | `snake_case` | `rmp::ui::detail` |
-| Macros | `SCREAM_CASE` | `RMP_ENTRY_POINT` |
-| Compile-time constants | `kPascalCase` | `kMaxLabels` |
-| File-scope mutable state | `g_snake_case` | `g_frame_open` |
+| Private and protected data members | `_snake_case` | `_slot` |
+| The eight hooks, and no other method | `_snake_case` | `_ready`, `_update`, `_collision` |
+| File state in src/ and tests/ | a struct per concern | `context.started` |
+| File state in examples/ | `snake_case` | `jumps_seen` |
+| Macros and generated values | `RMP_CONSTANT_CASE` | `RMP_ENTRY_POINT`, `RMP_WINDOW_WIDTH` |
+
+- No prefixes: no `k`, no `g_`, no trailing `_`.
+- An underscore never touches a dot: not `foo_.x`, not `other._x`. Another
+  object's private field goes through a private method that says what is taken
+  (`other.slot()`); the only `x._name` is a hook call.
+- A constant is never named like somebody else's macro (`PI`, `MIN`, `MAX`,
+  `EPSILON`, `DEBUG`): name what the number is for. `naming_check.sh --macros`.
+- A retired macro in `#if` is 0, not an error: rename every use, comments too.
 
 `Align::TOP_LEFT` is unmistakably a constant of a type; `align::top_left` could
 have been a member of a variable called `align`. raylib's own types are
 PascalCase too, so `rmp::Texture` sits next to `Texture2D` without looking
 foreign — the **namespace** is what says whose is whose, not the case.
 
-All of it is enforced by `readability-identifier-naming` in `.clang-tidy`, so it
-is checked rather than remembered.
-
 **The access rule.** Two ways the framework calls your code, and the name says
 which: `_name` is a **method on your type** that we call (`_ready`, `_update`,
 `_draw`, `_end`, `_collision` — on scenes, objects and behaviors alike);
 `on_name` is a **function you hand us at runtime** (`on_click`, `on_drag`,
 `on_collision`, and the free-function entry-point hooks `on_ready` / `on_frame`
-/ `on_exit`). An `on_*` never takes a leading underscore.
+/ `on_exit`). An `on_*` never takes a leading underscore. On a DATA member the
+leading underscore means private (`_slot`), and the two never share a name:
+Object's callbacks are `_click_handler`, `_drag_handler`, `_collision_handler`,
+because `_collision` is the hook.
 
 This is legal precisely where it is used: `_name` is reserved at *global* scope,
 not as a class member — which is also why the entry-point hooks are `on_*` and

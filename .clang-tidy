@@ -1,7 +1,7 @@
 # .clang-tidy — the checks that have caught something, and none of the ones that
 # only produce work.
 #
-#   just lint            check src/ and include/
+#   just lint            check src/, tests/ and examples/ (and the headers they reach)
 #   just lint fix        and apply the fixes it is sure about
 #
 # The selection rule is the same one the framework uses for features: a check
@@ -10,8 +10,9 @@
 # check that fights a decision this repository has already made, and each one
 # says which.
 #
-# It needs build/compile_commands.json, so configure once first:
-#   cmake --preset debug
+# tools/lint.sh configures the `lint` preset (build/lint, configure only) for
+# the compile database it needs, and examples/.clang-tidy narrows this file for
+# the examples.
 
 Checks: >
   -*,
@@ -137,17 +138,22 @@ FormatStyle: file
 ExtraArgs: ['-Wshadow']
 
 CheckOptions:
-  # The naming rule, checked instead of remembered. It is NOT "everything is
-  # snake_case" — that was the old rule and it made a type and a value look the
-  # same at the point of use.
+  # The naming rule, checked instead of remembered. CLAUDE.md, "Naming", has
+  # the table and the reasons; this is the part a compiler can check.
   #
-  #   Types (class, struct, enum, alias)   PascalCase   rmp::ui::ButtonOptions
-  #   Enum members                         SCREAM_CASE  rmp::ui::Align::TOP_LEFT
-  #   Functions and methods                snake_case   rmp::ui::current_theme()
-  #   Variables, parameters, fields        snake_case   min_height, delta
-  #   Namespaces                           snake_case   rmp::ui::detail
-  #   Macros                               RMP_SCREAM   RMP_ENTRY_POINT
-  #   Constants                            SCREAM_CASE  MAX_LABELS
+  #   Types (class, struct, enum, alias)   PascalCase      rmp::ui::ButtonOptions
+  #   Enum members                         CONSTANT_CASE   rmp::ui::Align::TOP_LEFT
+  #   Constants                            CONSTANT_CASE   MAX_LABELS
+  #   Functions and methods                snake_case      rmp::ui::current_theme()
+  #   Variables, parameters, public fields snake_case      min_height, delta
+  #   Private and protected fields         _snake_case     _slot
+  #   The eight hooks (methods)            _snake_case     _ready, _update
+  #   Namespaces                           snake_case      rmp::ui::detail
+  #   Macros                               RMP_CONSTANT    RMP_ENTRY_POINT
+  #
+  # tools/naming_check.sh says the rest, over every #if branch: no g_ or k
+  # names, no underscore touching a dot, no constant named like somebody
+  # else's macro, no retired name.
   #
   # What it buys: at any point of use you can tell a type from a value without
   # going to look. `Align::TOP_LEFT` is unmistakably a constant of a type;
