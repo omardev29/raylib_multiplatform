@@ -1023,9 +1023,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
         raise ConfigError(
             "[resources] rres_password is empty, which ships the pack with an AES key "
             "of nothing rather than with no encryption.\n"
-            "Put a passphrase here. To ship the assets as loose files instead, do not "
-            "build the pack: `rmp unpack` locally, and leave resources/ in the "
-            "archive -- the loader falls back to loose files when there is no pack.",
+            "Put a passphrase here. There is no setting for an unencrypted pack: every "
+            "release job that builds resources.rres encrypts it with this value. A game "
+            "reads loose files only where no pack was built -- a development build, or "
+            "an archive whose resources/ holds PACK_SKIPPED.txt.",
             ("resources", "rres_password"))
 
     if not isinstance(cfg["deploy"]["licenses"], bool):

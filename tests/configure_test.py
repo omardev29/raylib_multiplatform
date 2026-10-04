@@ -1612,6 +1612,32 @@ class ConfigureAdmobIdsTest(unittest.TestCase):
                                         rewarded_id=""), False)
 
 
+class TechnicalSignaturesTest(unittest.TestCase):
+    """TECHNICAL.md's "What you actually get" listed `Texture2D
+    load_texture(const char *)` and `load_data(const char *, int *)` long
+    after both had become counted handles taking std::string_view. A
+    signature in the notes is checked against the header it describes."""
+
+    def test_every_listed_loader_is_declared_so_in_assets_h(self):
+        text = (REPO / "TECHNICAL.md").read_text()
+        start = text.index("### What you actually get")
+        block = text[text.index("```cpp", start) + 6:text.index("```", text.index("```cpp", start) + 6)]
+        header = re.sub(r"\s+", " ", (REPO / "include" / "rmp" / "assets.h").read_text())
+        seen = 0
+        for line in block.splitlines():
+            line = line.split("//", 1)[0].strip()
+            match = re.match(r"(.+?)\s+rmp::assets::(\w+)\((.*)\);$", line)
+            if not match:
+                continue
+            seen += 1
+            kind, name, params = match.groups()
+            with self.subTest(name=name):
+                kind = re.sub(r"\s+", " ", kind)
+                declared = f"{kind} {name}({params});"
+                self.assertIn(declared, header)
+        self.assertGreaterEqual(seen, 7)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
@@ -4092,16 +4118,19 @@ class ConfigureRresPasswordTest(unittest.TestCase):
     """[resources] rres_password is one of exactly two config values that end
     up INSIDE the shipped binary, and it had no validation at all."""
 
-    def test_an_empty_password_is_refused_and_says_how_to_ship_loose_files(self):
+    def test_an_empty_password_is_refused_and_says_there_is_no_unencrypted_pack(self):
+        """It used to say: ship loose files instead, `rmp unpack` locally and
+        leave resources/ in the archive. The release jobs build the pack
+        themselves whatever the checkout holds, so that was a way out that led
+        nowhere. What is true is that there is none."""
         cfg = base_config()
         cfg["resources"]["rres_password"] = ""
         with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
             cfgmod.validate(cfg, False)
         message = str(caught.exception)
         self.assertIn("AES key of nothing", message)
-        self.assertIn("loose files", message,
-                      "the message has to say how to turn encryption off, or it is "
-                      "a rule with no way out")
+        self.assertIn("no setting for an unencrypted pack", message)
+        self.assertNotIn("leave resources/ in the archive", message)
 
     def test_the_default_password_reaches_the_generated_header(self):
         with generated_header(base_config()) as text:

@@ -124,6 +124,19 @@ std::string resolve(std::string_view name) {
     return {};
 }
 
+// The files resolve() looked for, for the line that says none was there:
+// "coin.wav, coin.ogg, coin.mp3, coin.qoa" for a bare name, "coin.ogg" for a
+// name with an audio extension. Built from the same list, so the line cannot
+// claim a search that did not happen.
+std::string looked_for(std::string_view name) {
+    std::string out;
+    for (const std::string &candidate : detail::candidates(name)) {
+        if (!out.empty()) out += ", ";
+        out += candidate;
+    }
+    return out;
+}
+
 void unload_track(Track &track) {
     if (track.loaded && state().ready) {
         StopMusicStream(track.music);
@@ -326,10 +339,11 @@ void play(std::string_view name, const PlayOptions &options) {
         // cost a directory search sixty times a second; said once, and the two
         // failures said differently, because they are fixed differently.
         if (file.empty()) {
-            RMP_REPORT_ONCE_KEYED(e->name.c_str(),
-                                  "AUDIO: no sound called \"%s\" in resources/ (tried "
-                                  "the name as given, then .wav, .ogg, .mp3, .qoa)",
-                                  e->name.c_str());
+            RMP_REPORT_ONCE_KEYED(
+                e->name.c_str(),
+                "AUDIO: no sound called \"%s\" in resources/ (looked for "
+                "%s)",
+                e->name.c_str(), looked_for(e->name).c_str());
         } else if (!e->base.valid()) {
             RMP_REPORT_ONCE_KEYED(
                 e->name.c_str(),
@@ -380,9 +394,10 @@ void music(std::string_view name, bool loop) {
     const std::string file = resolve(name);
     if (file.empty()) {
         s.missing_music.emplace_back(name);
-        RMP_REPORT_ONCE_KEYED(std::string(name).c_str(),
-                              "AUDIO: no music called \"%s\" in resources/",
-                              std::string(name).c_str());
+        RMP_REPORT_ONCE_KEYED(
+            std::string(name).c_str(),
+            "AUDIO: no music called \"%s\" in resources/ (looked for %s)",
+            std::string(name).c_str(), looked_for(name).c_str());
         return;
     }
 

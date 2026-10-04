@@ -105,13 +105,13 @@ struct Sprite {
 
     // ---- animation, when there is a sheet ---------------------------------
     //
-    //     player.sprite = rmp::assets::load_sheet("player.aseprite");
+    //     player.sprite.sheet = rmp::assets::load_sheet("player.aseprite");
     //     player.sprite.play("walk");     // "walk" is a tag of YOURS
     //
-    // `const char *` and not std::string_view, for the same reason
-    // rmp::assets::load_texture takes one: <string_view> is 77 ms in every
-    // translation unit that includes this header, tags are string literals in
-    // practice, and a std::string caller writes .c_str() once.
+    // `const char *`, and playing() hands one back: a tag is compared with
+    // the sheet's own names, which are NUL-terminated strings, and given back
+    // as one of them, so it goes straight into raylib's DrawText(). Tags are
+    // string literals in practice; a std::string caller writes .c_str().
     //
     // A tag that is not in the sheet WARNS ONCE and does nothing -- it does not
     // land on a blank frame, and it does not fill the console sixty times a
@@ -532,7 +532,7 @@ public:
     // character's sprite includes hair, a cape and air, and nobody wants to
     // collide with the air.
     //
-    //     player.sprite   = sheet;                    // drawn as the picture
+    //     player.sprite.sheet = sheet;                // drawn as the picture
     //     player.collider = rmp::rect({ 20, 44 });    // collided as a box
     Shape collider;
 
@@ -670,7 +670,7 @@ public:
     // override _collision AND carry an on_collision, and both run.
     //
     //     coin.on_collision([&](rmp::Object &self, rmp::Object &other) {
-    //         if (&other == player) { score += 10; self.destroy(); }
+    //         if (&other == &player) { score += 10; self.destroy(); }
     //     });
     //
     // Setting one twice replaces it. There is no list, because a list of

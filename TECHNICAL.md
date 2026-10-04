@@ -439,18 +439,24 @@ Three details make the hook safe rather than clever:
   `.obj` or `.gltf` refers to — the `.mtl`, the `.bin` buffers, the textures named inside the
   material — through the same two functions. Hooking those two hooks the whole chain.
 
-`rmp::assets::shutdown()` unhooks and frees the directory. Calling `Init()` twice is a no-op.
+`rmp::assets::shutdown()` unhooks and frees the directory. Calling `rmp::assets::init()` twice is a
+no-op; the entry point calls it for you.
 
 ### What you actually get
 
 ```cpp
-Texture2D      rmp::assets::load_texture(const char *name);
-Image          rmp::assets::load_image  (const char *name);
-Sound          rmp::assets::load_sound  (const char *name);
-Font           rmp::assets::load_font   (const char *name, int fontSize);
-unsigned char *rmp::assets::load_data   (const char *name, int *size);   // free with UnloadFileData
-bool           rmp::assets::using_pack();
+rmp::Texture     rmp::assets::load_texture(std::string_view name);
+rmp::Image       rmp::assets::load_image(std::string_view name);
+rmp::Sound       rmp::assets::load_sound(std::string_view name);
+rmp::Font        rmp::assets::load_font(std::string_view name, int font_size);
+rmp::SpriteSheet rmp::assets::load_sheet(std::string_view name);
+rmp::Tilemap     rmp::assets::load_map(std::string_view name);   // and (name, level)
+std::vector<unsigned char> rmp::assets::load_data(std::string_view name);   // frees itself
+bool             rmp::assets::using_pack();
 ```
+
+The resources are counted and release themselves (see `include/rmp/assets.h`): nothing to unload,
+and the same name twice is the same resource.
 
 `name` is the **bare file name** — `rmp::assets::load_sound("jump.wav")`. Not a path. `tools/rres_pack.c`
 stores every entry under its basename and the CMake glob does not recurse, so `resources/sfx/` is
@@ -459,7 +465,9 @@ below.
 
 Every one of them has the same shape: if in pack mode, look the name up, decrypt, decode from
 memory; if anything fails, **log a warning and fall back to the loose file**. A missing entry
-degrades instead of crashing, and the warning names the asset.
+degrades instead of crashing, and the warning names the asset. What comes back empty -- nothing in
+the pack or on disk, or a file that is there and does not decode -- counts in
+`rmp::assets::failed_loads()`, which every CI boot requires to be 0.
 
 ### What happens to each kind of file in `resources/`
 
@@ -494,22 +502,24 @@ For both: the files have to actually ship, and **the release packages are not un
 
 | Target | Packs? | What ships in the package |
 |---|---|---|
-| Linux x64/arm64, Windows x64, macOS | yes | **`resources.rres` only** — nothing else is copied in |
-| Linux riscv64, Windows arm64, the three BSDs | no | the whole `resources/` folder |
+| Linux x64/arm64 (glibc, and DRM), Windows x64, macOS, the BSDs | yes | **`resources.rres` only** — nothing else is copied in |
+| Linux musl and riscv64, Windows arm64 | no | the whole `resources/` folder, and a `PACK_SKIPPED.txt` saying why: the packer is built for the target and cannot run on the machine that cross-compiles it |
 | Web | no | the whole folder, preloaded into the Emscripten virtual FS |
 | Android | no | the whole folder, copied into `assets/` (minus any `.rres`) |
 | iOS | no | the whole folder, as a folder reference inside the `.app` |
 
-Only the first row runs `pack_resources`, which has a consequence worth saying out loud: **the
-encryption applies to four targets and no others.** On Web, Android, iOS, BSD and riscv64 your
-assets ship as ordinary files that anyone can open. If that matters, pack them yourself in the job
-that builds those targets — but see the Android note below before you try it there.
+Only the first row runs `pack_resources` -- the BSDs inside their VM, where the packer is a native
+binary -- which has a consequence worth saying out loud: **the encryption applies to the first row
+and no other.** On musl, riscv64, Windows arm64, Web, Android and iOS your assets ship as ordinary
+files that anyone can open. If that matters, pack them yourself in the job that builds those
+targets — but see the Android note below before you try it there.
 
-So an un-packable file works in development, works on Web and Android, works on BSD — and is
-missing only in the four packaged desktop builds. That is the worst possible failure mode, so
+So an un-packable file works in development, works on Web and Android — and is missing only in the
+packaged desktop builds of the first row. That is the worst possible failure mode, so
 `CMakeLists.txt` emits a `WARNING` at configure time when `PRODUCTION_BUILD=ON` and it finds a
 subfolder in `resources/`. If you need one anyway, extend the `package/` step in
-`.github/workflows/_linux.yml`, `_windows.yml` and `_apple.yml` to copy it alongside the pack.
+`.github/workflows/_linux.yml`, `_windows.yml`, `_apple.yml` and `_bsd.yml` to copy it alongside the
+pack.
 
 > The pack is also never used on **Android**, whatever you do. rres opens the container with plain
 > `fopen`, and inside an APK there is no such file — raylib reaches its assets through
@@ -1671,8 +1681,10 @@ Interstitial + rewarded ads. The API is `rmp::ads`, and it arrives with
 | `rmp::ads::request_rewarded()` / `is_rewarded_loaded()` / `show_rewarded()` | rewarded |
 | `rmp::ads::take_reward_earned()` (true once, then clears) + `reward_amount()` | poll the reward |
 
-They are `inline` wrappers over the C functions in `<admob.h>`, which stay where they are: that
-header is the real JNI boundary, and the pure-C entry point has no namespaces to call into.
+They are defined out of line, in `src/rmp/ads.cpp`, over the C functions in `<admob.h>` -- the one
+file that includes it, so a game that shows no ad never compiles the JNI bridge's header and
+`rmp/ads.h` includes nothing of raymob's. `<admob.h>` stays where it is: it is the real JNI boundary,
+and the pure-C entry point has no namespaces to call into.
 
 Configuration is in `raylib_multiplatform.toml`:
 
@@ -1690,11 +1702,12 @@ injected into the manifest, the ad units are exposed to Java via `BuildConfig`. 
 
 ### Where it actually lives
 
-Four steps, and each one exists because the one above it cannot do its job:
+Five steps, and each one exists because the one above it cannot do its job:
 
 | Layer | File | What it does |
 |---|---|---|
-| API | `thirdparty/raymob/admob.h` | the eight functions. Real on Android, inline no-ops elsewhere |
+| API | `include/rmp/ads.h`, `src/rmp/ads.cpp` | the eight functions of `rmp::ads`, each one call into `admob.h` |
+| C | `thirdparty/raymob/admob.h` | the eight C functions. Real on Android, inline no-ops elsewhere |
 | JNI | `thirdparty/raymob/admob.c` | calls the methods **by name** on the Activity instance |
 | Java | `raymob/.../NativeLoader.java` | the eight public methods, kept by `proguard-rules.pro` |
 | SDK | `raymob/app/src/{admob,noadmob}/java/.../AdmobBridge.java` | Google Mobile Ads, or nothing |
@@ -1707,7 +1720,7 @@ on the source path. That split is what makes the switch real rather than cosmeti
 
 `enabled = false` removes AdMob from the build: no `play-services-ads` dependency, no `AD_ID`
 permission, no `APPLICATION_ID` meta-data, no `MobileAds.initialize()` at startup. Your game code
-does not change — `<admob.h>` keeps compiling and the calls do nothing, exactly as they already do
+does not change — `rmp::ads` keeps compiling and the calls do nothing, exactly as they already do
 on desktop.
 
 It also **turns itself off when `android` is not in `[targets]`**, however you removed it: by name,

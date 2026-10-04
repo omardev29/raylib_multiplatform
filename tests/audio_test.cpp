@@ -25,7 +25,11 @@
 #include <rmp/assets.h>
 #include <rmp/audio.h>
 
+#include <raylib.h>
+
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -52,6 +56,17 @@ struct Fixture {
 };
 
 using Names = std::vector<std::string>;
+
+// What raylib's log said while a test listened, one formatted line each.
+struct {
+    std::vector<std::string> lines;
+} heard;
+
+void hear(int /*level*/, const char *text, va_list args) {
+    char line[512];
+    std::vsnprintf(line, sizeof(line), text, args);
+    heard.lines.emplace_back(line);
+}
 
 } // namespace
 
@@ -281,6 +296,34 @@ TEST_SUITE("audio") {
         CHECK(rmp::detail::report_count() == 3);
         CHECK_FALSE(rmp::audio::music_playing());
         CHECK(device_opens.count == 1);
+        rmp::detail::reset_reports_for_tests();
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a sound that is not there is reported with the files looked for") {
+        // The line said "tried the name as given, then .wav, .ogg, .mp3, .qoa"
+        // for every name, and a bare name is never tried as given: "coin" is
+        // looked for as coin.wav and the rest, and "coin.ogg" as coin.ogg
+        // alone. It names the files now, so it cannot say anything else.
+        rmp::detail::reset_reports_for_tests();
+        rmp::audio::detail::set_device_opener(fake_device);
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
+        rmp::audio::play("definitely_not_a_sound_anywhere");
+        rmp::audio::play("definitely_not_a_sound_anywhere.ogg");
+        SetTraceLogCallback(nullptr);
+        REQUIRE(heard.lines.size() == 2);
+        CHECK(heard.lines[0].find("looked for definitely_not_a_sound_anywhere.wav, "
+                                  "definitely_not_a_sound_anywhere.ogg, "
+                                  "definitely_not_a_sound_anywhere.mp3, "
+                                  "definitely_not_a_sound_anywhere.qoa") !=
+              std::string::npos);
+        CHECK(heard.lines[1].find("looked for definitely_not_a_sound_anywhere.ogg)") !=
+              std::string::npos);
+        for (const std::string &line : heard.lines) {
+            CAPTURE(line);
+            CHECK(line.find("as given") == std::string::npos);
+        }
         rmp::detail::reset_reports_for_tests();
     }
 

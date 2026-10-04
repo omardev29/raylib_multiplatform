@@ -1,7 +1,8 @@
 # raylib_multiplatform — project configuration
 #
-# This file plus `src/` and `include/` is the whole of your side of the
-# template. Everything else — CMake, Gradle, the Xcode spec, the 17-target CI —
+# This file and your game's own code -- its scenes and objects under src/ --
+# are what a game writes; src/rmp/ and include/rmp/ are the framework's.
+# Everything else -- CMake, Gradle, the Xcode spec, the CI for every target --
 # is generated or driven from here and you should not need to open it.
 #
 # Delete this file and the build still works, on defaults, with a warning.
@@ -136,8 +137,8 @@ accelerometer = false
 [android.admob]
 # false removes AdMob completely: no Google Mobile Ads dependency, no AD_ID
 # permission, no SDK init at startup, and nothing to declare in Play's Data
-# safety form. Your code does not change — the <admob.h> calls stay compilable
-# and do nothing, exactly as they already do off Android.
+# safety form. Your code does not change — the rmp::ads calls (rmp/ads.h) stay
+# compilable and do nothing, exactly as they already do off Android.
 #
 # It also turns itself off when "android" is not in [targets], however you
 # removed it: by name, or by leaving out a group like "mobile".
@@ -151,7 +152,7 @@ interstitial_id = "ca-app-pub-3940256099942544/1033173712"
 rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 
 # NOT DONE YET: consent. Serving ads to users in the EEA or the UK requires a
-# Google-certified CMP (the UMP SDK) since January 2024, and this template does
+# Google-certified CMP (the UMP SDK) since January 2024, and the framework does
 # not ship one. See "AdMob" in TECHNICAL.md before you publish with ads on.
 
 [upx]

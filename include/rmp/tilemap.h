@@ -73,10 +73,11 @@ class Scene;
 // One object of the map: an LDtk entity, or an object from a Tiled object layer.
 //
 // `const char *` rather than std::string_view for the names and the property
-// keys, for the same reason rmp::assets::load_texture takes one: <string_view>
-// is 77 ms in every translation unit that includes this header, the strings
-// here are NUL-terminated inside the parsed map anyway, and a std::string
-// caller writes .c_str() once.
+// keys. The names point into the parsed map, where they are NUL-terminated
+// strings already, so they go straight into raylib's C functions -- DrawText()
+// takes a `const char *`, and a string_view promises no terminator. The keys
+// are looked up among those same strings, and are literals in practice; a
+// std::string caller writes .c_str().
 // ---------------------------------------------------------------------------
 
 // One object placed in the map, as spawn_objects() hands it to the factory

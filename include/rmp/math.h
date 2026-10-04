@@ -33,7 +33,7 @@
 // raylib's types; what you get is methods on top of them, if you want them:
 //
 //     position = position + velocity * delta;   // raymath's operators, plain Vector2
-//     raylib::Vector2 v = aim; v.Normalize();   // raylib-cpp's methods
+//     Vector2 dir = raylib::Vector2(aim).Normalize();   // raylib-cpp's methods
 //
 // The rest of raylib-cpp is deliberately not vendored. Its resource wrappers
 // throw RaylibException on a failed load, and this framework does not throw —
