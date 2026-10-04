@@ -22,8 +22,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <string_view>
 #include <numbers>
+#include <string_view>
 #include <vector>
 
 // Every function below is one half of an INTERFACE: the engine finds it with
@@ -40,14 +40,13 @@ namespace rmp::behavior {
 
 namespace {
 
-constexpr float kPi = std::numbers::pi_v<float>;
-constexpr float kEpsilon = 0.0001f;
+constexpr float NEAR_ZERO = 0.0001f;
 
 float length_of(Vector2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
 Vector2 normalised(Vector2 v) {
     const float len = length_of(v);
-    if (len < kEpsilon) return Vector2{ 0, 0 };
+    if (len < NEAR_ZERO) return Vector2{ 0, 0 };
     return Vector2{ v.x / len, v.y / len };
 }
 
@@ -114,8 +113,8 @@ int TopDown::sector() const {
     // positive angle is downward on screen. The suffix table starts at "e" and
     // goes anticlockwise in screen terms, which is why the angle is negated.
     float angle = std::atan2(-ours.facing.y, ours.facing.x);
-    if (angle < 0) angle += 2 * kPi;
-    const float eighth = 2 * kPi / 8;
+    if (angle < 0) angle += 2 * std::numbers::pi_v<float>;
+    const float eighth = 2 * std::numbers::pi_v<float> / 8;
     auto index = static_cast<int>((angle + eighth / 2) / eighth);
     return index % 8;
 }
@@ -144,8 +143,8 @@ void TopDown::_update(Object &self, float delta) {
 
     // The flip first, because it is the half that works with no sheet at all:
     // a one-direction sheet mirrored for the left.
-    if (ours.facing.x < -kEpsilon) self.flip_x = true;
-    if (ours.facing.x > kEpsilon) self.flip_x = false;
+    if (ours.facing.x < -NEAR_ZERO) self.flip_x = true;
+    if (ours.facing.x > NEAR_ZERO) self.flip_x = false;
 
     // And then the tag. The rule is: try "<walk>_<suffix>", and if the sheet
     // has no such tag, fall back to "<walk>" and let flip_x cover the left.
@@ -158,7 +157,7 @@ void TopDown::_update(Object &self, float delta) {
     if (base.empty()) return;
 
     if (moving) {
-        char tag[kMaxTagName * 2];
+        char tag[MAX_TAG_NAME * 2];
         const std::string &suffix = suffixes[static_cast<std::size_t>(sector())];
         int at = 0;
         for (std::size_t i = 0; i < base.size() && at + 1 < static_cast<int>(sizeof(tag));
@@ -199,7 +198,7 @@ void Platformer::_update(Object &self, float delta) {
     self.velocity.x = approach(self.velocity.x, dir * speed, acceleration, delta);
 
     const bool was_grounded = ours.grounded;
-    ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -kEpsilon;
+    ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -NEAR_ZERO;
     if (ours.grounded) {
         ours.since_grounded = 0;
         if (!was_grounded) ours.jumps_used = 0;
@@ -260,7 +259,7 @@ void Runner::_update(Object &self, float delta) {
     ours.ducking = !duck_action.empty() && held(duck_action);
 
     const bool was_grounded = ours.grounded;
-    ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -kEpsilon;
+    ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -NEAR_ZERO;
     if (ours.grounded) {
         if (!was_grounded) ours.jumps_used = 0;
     } else if (ours.jumps_used == 0) {
@@ -319,7 +318,8 @@ void Ball::_collision(Object &self, Object &other) {
         if (theirs.height > 0 && max_bounce_deg > 0) {
             const float along = (my_y - their_y) / (theirs.height / 2);
             const float clamped = along < -1 ? -1 : (along > 1 ? 1 : along);
-            const float angle = clamped * max_bounce_deg * kPi / 180;
+            const float angle =
+                clamped * max_bounce_deg * std::numbers::pi_v<float> / 180;
             const float sign = self.velocity.x < 0 ? -1.0f : 1.0f;
             self.velocity =
                 Vector2{ sign * std::cos(angle) * speed, std::sin(angle) * speed };
@@ -330,7 +330,8 @@ void Ball::_collision(Object &self, Object &other) {
         if (theirs.width > 0 && max_bounce_deg > 0) {
             const float along = (my_x - their_x) / (theirs.width / 2);
             const float clamped = along < -1 ? -1 : (along > 1 ? 1 : along);
-            const float angle = clamped * max_bounce_deg * kPi / 180;
+            const float angle =
+                clamped * max_bounce_deg * std::numbers::pi_v<float> / 180;
             const float sign = self.velocity.y < 0 ? -1.0f : 1.0f;
             self.velocity =
                 Vector2{ std::sin(angle) * speed, sign * std::cos(angle) * speed };
@@ -347,7 +348,7 @@ void Ball::_update(Object &self, float delta) {
     // and what makes `ball.velocity = {}` a stable "stopped" rather than
     // something the next frame undoes.
     const float len = length_of(self.velocity);
-    if (len < kEpsilon) return;
+    if (len < NEAR_ZERO) return;
     self.velocity =
         Vector2{ self.velocity.x / len * speed, self.velocity.y / len * speed };
 }
@@ -367,7 +368,7 @@ void Projectile::_update(Object &self, float delta) {
     (void)delta;
     if (speed <= 0) return; // keep whatever it was given
     const float len = length_of(self.velocity);
-    if (len < kEpsilon) return;
+    if (len < NEAR_ZERO) return;
     self.velocity =
         Vector2{ self.velocity.x / len * speed, self.velocity.y / len * speed };
 }
@@ -576,16 +577,16 @@ ParallaxTiling parallax_tiling(float shift, float width, float screen) {
 namespace {
 
 // The cap this spawner can actually hold to. A live cap needs a handle per live
-// object, and there are kMaxSpawned of them -- so a larger max_alive is a
+// object, and there are MAX_SPAWNED of them -- so a larger max_alive is a
 // number the behavior cannot honour, and saying so once is better than quietly
 // enforcing a different one.
 int spawner_cap(int max_alive) {
-    if (max_alive <= kMaxSpawned) return max_alive;
+    if (max_alive <= MAX_SPAWNED) return max_alive;
     RMP_REPORT_ONCE("BEHAVIOR: Spawner::max_alive = %d, and a spawner tracks %d live "
                     "objects. Capping at %d -- for more than that, pool the objects "
                     "instead of making new ones, or use a second spawner.",
-                    max_alive, kMaxSpawned, kMaxSpawned);
-    return kMaxSpawned;
+                    max_alive, MAX_SPAWNED, MAX_SPAWNED);
+    return MAX_SPAWNED;
 }
 
 } // namespace
@@ -661,7 +662,7 @@ void Spawner::_update(Object &self, float delta) {
 
     for (Object *made : rmp::objects::detail::live_objects(*scene)) {
         if (std::ranges::binary_search(before, made)) continue;
-        if (ours.made_count >= kMaxSpawned) break;
+        if (ours.made_count >= MAX_SPAWNED) break;
         ours.made[ours.made_count++] = made->handle();
     }
 }

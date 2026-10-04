@@ -111,8 +111,8 @@ struct GridFrame {
     bool row_open = false;
     float gap = 0;
 };
-constexpr int kMaxGridDepth = 4;
-GridFrame g_grids[kMaxGridDepth];
+constexpr int MAX_GRID_DEPTH = 4;
+GridFrame g_grids[MAX_GRID_DEPTH];
 int g_grid_depth = 0;
 // Grids opened past the limit. They push no frame, so their close must not pop
 // one either: it used to, which meant the fifth grid's close consumed the
@@ -279,14 +279,14 @@ void open_grid(const GridOptions &o) {
     }
     if (columns <= 0) columns = 4;
 
-    if (g_grid_depth < kMaxGridDepth) {
+    if (g_grid_depth < MAX_GRID_DEPTH) {
         g_grids[g_grid_depth] = GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
         g_grid_depth++;
     } else {
         g_grid_overflow++;
         RMP_REPORT_ONCE("UI: grids nested more than %d deep; the ones past that lay "
                         "their cells out as plain boxes in a column",
-                        kMaxGridDepth);
+                        MAX_GRID_DEPTH);
     }
     Clay__OpenElementWithId(grid_id);
     Clay__ConfigureOpenElement(d);

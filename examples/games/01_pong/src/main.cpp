@@ -26,11 +26,11 @@
 
 namespace {
 
-constexpr float kPaddleSpeed = 420;
-constexpr float kServeSpeed = 340;
-constexpr int kWinningScore = 7;
-constexpr float kMidX = RMP_WINDOW_WIDTH / 2.0f;
-constexpr float kMidY = RMP_WINDOW_HEIGHT / 2.0f;
+constexpr float PADDLE_SPEED = 420;
+constexpr float SERVE_SPEED = 340;
+constexpr int WINNING_SCORE = 7;
+constexpr float MID_X = RMP_WINDOW_WIDTH / 2.0f;
+constexpr float MID_Y = RMP_WINDOW_HEIGHT / 2.0f;
 
 // A paddle is a rectangle that goes up and down and stops at the edge. `edges`
 // is the stopping, and it is one field.
@@ -47,7 +47,7 @@ public:
     }
 
     void _update(float) override {
-        velocity.y = rmp::input::axis(up, down) * kPaddleSpeed;
+        velocity.y = rmp::input::axis(up, down) * PADDLE_SPEED;
     }
 };
 
@@ -85,11 +85,11 @@ public:
         rmp::input::action("p2_down", KEY_DOWN);
 
         const rmp::ui::Theme &theme = rmp::ui::current_theme();
-        auto &left = spawn<Paddle>({ .position = { 40, kMidY } });
+        auto &left = spawn<Paddle>({ .position = { 40, MID_Y } });
         left.shape.color = theme.primary;
         left_ = left.handle<Paddle>();
 
-        auto &right = spawn<Paddle>({ .position = { RMP_WINDOW_WIDTH - 40, kMidY } });
+        auto &right = spawn<Paddle>({ .position = { RMP_WINDOW_WIDTH - 40, MID_Y } });
         right.up = "p2_up";
         right.down = "p2_down";
         right.shape.color = theme.danger;
@@ -101,10 +101,10 @@ public:
         // no point can ever be scored. Tall as the court and wide past it, and
         // it bounces off the top and the bottom and leaves by the sides.
         auto &ball = spawn(
-            { .position = { kMidX, kMidY },
+            { .position = { MID_X, MID_Y },
               .shape = rmp::circle(7),
               .bounds = { -240, 0, RMP_WINDOW_WIDTH + 480.0f, RMP_WINDOW_HEIGHT } });
-        ball.add<rmp::behavior::Ball>({ .speed = kServeSpeed });
+        ball.add<rmp::behavior::Ball>({ .speed = SERVE_SPEED });
         // Ball does the bouncing; the sound of it is the game's.
         ball.on_collision([](rmp::Object &, rmp::Object &) { rmp::audio::play("hit"); });
         ball_ = ball.handle();
@@ -127,7 +127,7 @@ public:
         // the net ends up somewhere the court is not.
         BeginMode2D(camera.raylib());
         for (int y = 8; y < RMP_WINDOW_HEIGHT; y += 30) {
-            DrawRectangle(static_cast<int>(kMidX) - 2, y, 4, 16,
+            DrawRectangle(static_cast<int>(MID_X) - 2, y, 4, 16,
                           Color{ 255, 255, 255, 38 });
         }
         EndMode2D();
@@ -148,17 +148,17 @@ private:
     // and not a force: a force is spread over the frame it is applied in, and
     // only the direction of this one matters -- Ball normalises it to `speed`.
     void serve(float towards) {
-        ball_->position = { kMidX, kMidY };
+        ball_->position = { MID_X, MID_Y };
         ball_->velocity = {};
         ball_->apply_impulse({ towards, 0.35f });
-        left_->position.y = kMidY; // a new rally starts level
-        right_->position.y = kMidY;
+        left_->position.y = MID_Y; // a new rally starts level
+        right_->position.y = MID_Y;
     }
 
     void point(int &counter, const char *winner, float towards) {
         counter++;
         serve(towards);
-        if (counter >= kWinningScore) {
+        if (counter >= WINNING_SCORE) {
             rmp::audio::play("win");
             rmp::Scene::push<OverScene<PongScene>>(winner);
         } else {

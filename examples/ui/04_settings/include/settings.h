@@ -14,5 +14,5 @@ struct Settings {
     char player[24] = "Player";
 };
 
-inline const char *const kQuality[] = { "Low", "Medium", "High", "Ultra" };
-inline const char *const kLanguage[] = { "English", "Espanol", "Francais" };
+inline const char *const QUALITY[] = { "Low", "Medium", "High", "Ultra" };
+inline const char *const LANGUAGE[] = { "English", "Espanol", "Francais" };

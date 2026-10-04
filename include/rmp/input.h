@@ -214,15 +214,15 @@ bool layer_input();
 // struct, and the whole of the test seam: a headless test writes one of these
 // and every function above answers from it.
 struct DeviceState {
-    static constexpr int kKeys = 512;
-    static constexpr int kMouseButtons = 8;
-    static constexpr int kPadButtons = 18;
-    static constexpr int kAxes = 6;
+    static constexpr int KEYS = 512;
+    static constexpr int MOUSE_BUTTONS = 8;
+    static constexpr int PAD_BUTTONS = 18;
+    static constexpr int AXES = 6;
 
-    bool keys[kKeys] = {};
-    bool mouse[kMouseButtons] = {};
-    bool pad[kPadButtons] = {};
-    float axes[kAxes] = {};
+    bool keys[KEYS] = {};
+    bool mouse[MOUSE_BUTTONS] = {};
+    bool pad[PAD_BUTTONS] = {};
+    float axes[AXES] = {};
     Vector2 pointer = { 0, 0 };
 };
 

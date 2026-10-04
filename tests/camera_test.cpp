@@ -25,8 +25,8 @@
 
 namespace {
 
-constexpr float kW = RMP_WINDOW_WIDTH;
-constexpr float kH = RMP_WINDOW_HEIGHT;
+constexpr float SCREEN_WIDTH = RMP_WINDOW_WIDTH;
+constexpr float SCREEN_HEIGHT = RMP_WINDOW_HEIGHT;
 
 class World : public rmp::Scene {
 public:
@@ -75,18 +75,20 @@ TEST_SUITE("camera") {
         // The promise every one-screen game relies on: a scene that never
         // mentions the camera draws where it always did.
         World world;
-        CHECK(near(world.camera.position, Vector2{ kW / 2, kH / 2 }));
+        CHECK(
+            near(world.camera.position, Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }));
         CHECK(near(world.camera.to_world(Vector2{ 0, 0 }), Vector2{ 0, 0 }));
         CHECK(near(world.camera.to_world(Vector2{ 123, 45 }), Vector2{ 123, 45 }));
         CHECK(near(world.camera.to_screen(Vector2{ 123, 45 }), Vector2{ 123, 45 }));
         const Rectangle v = world.camera.view();
         CHECK(v.x == doctest::Approx(0));
         CHECK(v.y == doctest::Approx(0));
-        CHECK(v.width == doctest::Approx(kW));
-        CHECK(v.height == doctest::Approx(kH));
+        CHECK(v.width == doctest::Approx(SCREEN_WIDTH));
+        CHECK(v.height == doctest::Approx(SCREEN_HEIGHT));
         // And a frame does not move it.
         frame(world);
-        CHECK(near(world.camera.position, Vector2{ kW / 2, kH / 2 }));
+        CHECK(
+            near(world.camera.position, Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }));
     }
 
     TEST_CASE_FIXTURE(Fixture, "follow centres the view on the object, after it moved") {
@@ -117,14 +119,16 @@ TEST_SUITE("camera") {
         frame(world);
         // Near the top-left corner of the level: the camera stops at the edge
         // and shows the level, not the void.
-        CHECK(near(world.camera.position, Vector2{ kW / 2, kH / 2 }));
+        CHECK(
+            near(world.camera.position, Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }));
         const Rectangle v = world.camera.view();
         CHECK(v.x == doctest::Approx(0));
         CHECK(v.y == doctest::Approx(0));
 
         player.position = Vector2{ 1500, 850 };
         frame(world);
-        CHECK(near(world.camera.position, Vector2{ 1600 - kW / 2, 900 - kH / 2 }));
+        CHECK(near(world.camera.position,
+                   Vector2{ 1600 - SCREEN_WIDTH / 2, 900 - SCREEN_HEIGHT / 2 }));
 
         player.position = Vector2{ 800, 450 };
         frame(world);
@@ -136,17 +140,19 @@ TEST_SUITE("camera") {
         // The runner: follow x wherever it goes, pin y. It used to need a
         // limits rectangle as wide as an invented level length.
         World world;
-        world.camera.limits = Rectangle{ 0, 0, 0, kH };
+        world.camera.limits = Rectangle{ 0, 0, 0, SCREEN_HEIGHT };
         rmp::Object &player = world.spawn({ .position = { 50000, 50 } });
         world.camera.follow = player.handle();
         frame(world);
         CHECK(world.camera.position.x == doctest::Approx(50000));
-        CHECK(world.camera.position.y == doctest::Approx(kH / 2)); // pinned by the height
+        CHECK(world.camera.position.y ==
+              doctest::Approx(SCREEN_HEIGHT / 2)); // pinned by the height
 
         world.camera.limits = Rectangle{ 0, 0, 1600, 0 };
         player.position = Vector2{ 5, -900 };
         frame(world);
-        CHECK(world.camera.position.x == doctest::Approx(kW / 2)); // clamped by the width
+        CHECK(world.camera.position.x ==
+              doctest::Approx(SCREEN_WIDTH / 2)); // clamped by the width
         CHECK(world.camera.position.y == doctest::Approx(-900)); // free
     }
 
@@ -165,19 +171,20 @@ TEST_SUITE("camera") {
         world.camera.position = Vector2{ 1000, 600 };
         world.camera.zoom = 2;
         // The centre of the screen is the camera's position.
-        CHECK(
-            near(world.camera.to_world(Vector2{ kW / 2, kH / 2 }), Vector2{ 1000, 600 }));
+        CHECK(near(world.camera.to_world(Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }),
+                   Vector2{ 1000, 600 }));
         // Twice as big: a screen pixel is half a world unit.
-        CHECK(near(world.camera.to_world(Vector2{ kW / 2 + 100, kH / 2 }),
-                   Vector2{ 1050, 600 }));
+        CHECK(near(
+            world.camera.to_world(Vector2{ SCREEN_WIDTH / 2 + 100, SCREEN_HEIGHT / 2 }),
+            Vector2{ 1050, 600 }));
         for (const Vector2 p :
              { Vector2{ 0, 0 }, Vector2{ 1234, -50 }, Vector2{ -3, 999 } }) {
             CHECK(near(world.camera.to_world(world.camera.to_screen(p)), p));
         }
         const Rectangle v = world.camera.view();
-        CHECK(v.width == doctest::Approx(kW / 2));
-        CHECK(v.height == doctest::Approx(kH / 2));
-        CHECK(v.x == doctest::Approx(1000 - kW / 4));
+        CHECK(v.width == doctest::Approx(SCREEN_WIDTH / 2));
+        CHECK(v.height == doctest::Approx(SCREEN_HEIGHT / 2));
+        CHECK(v.x == doctest::Approx(1000 - SCREEN_WIDTH / 4));
     }
 
     TEST_CASE_FIXTURE(Fixture,
@@ -204,9 +211,10 @@ TEST_SUITE("camera") {
         // identity camera is what pointer() answers with.
         World world;
         world.camera.position = Vector2{ 1000, 600 };
-        g_devices.pointer = Vector2{ kW / 2, kH / 2 };
+        g_devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
         rmp::input::detail::begin_frame();
-        CHECK(near(rmp::input::pointer_screen(), Vector2{ kW / 2, kH / 2 }));
+        CHECK(near(rmp::input::pointer_screen(),
+                   Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }));
         CHECK(near(world.camera.to_world(rmp::input::pointer_screen()),
                    Vector2{ 1000, 600 }));
     }
@@ -221,7 +229,7 @@ TEST_SUITE("camera") {
 
         // The object is at the centre of the VIEW, which is the centre of the
         // screen. A press there, in pixels, has to land on it.
-        g_devices.pointer = Vector2{ kW / 2, kH / 2 };
+        g_devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
         g_devices.mouse[MOUSE_BUTTON_LEFT] = true;
         frame(world);
         g_devices.mouse[MOUSE_BUTTON_LEFT] = false;
@@ -340,12 +348,13 @@ TEST_SUITE("camera") {
 
     TEST_CASE_FIXTURE(Fixture, "limits still win over a smoothed follow") {
         World world;
-        auto &target = world.spawn({ .position = { kW / 2, kH / 2 } });
+        auto &target =
+            world.spawn({ .position = { SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 } });
         world.camera.follow = target.handle();
         world.camera.smoothing = 2;
-        world.camera.limits = { 0, 0, kW * 2, kH };
+        world.camera.limits = { 0, 0, SCREEN_WIDTH * 2, SCREEN_HEIGHT };
         world.camera.detail_settle(0.0f);
-        target.position = { -5000, kH / 2 };
+        target.position = { -5000, SCREEN_HEIGHT / 2 };
         for (int i = 0; i < 300; i++) {
             world.camera.detail_settle(1.0f / 60);
             CHECK(world.camera.view().x >= -1e-3f); // never the void on the left
@@ -402,19 +411,20 @@ TEST_SUITE("camera") {
         // of the shake shows. Checked through to_world() of the screen's
         // corners, which is what the player actually sees.
         World world;
-        world.camera.limits = { 0, 0, kW * 3, kH * 3 };
+        world.camera.limits = { 0, 0, SCREEN_WIDTH * 3, SCREEN_HEIGHT * 3 };
         world.camera.position = { 0, 0 }; // pinned into the top-left corner
         world.camera.detail_settle(0.0f);
         world.camera.shake(30, 0.5f);
         bool inward = false;
         for (int i = 0; i < 30; i++) {
             world.camera.detail_settle(1.0f / 60);
-            for (const Vector2 corner : { Vector2{ 0, 0 }, Vector2{ kW, kH } }) {
+            for (const Vector2 corner :
+                 { Vector2{ 0, 0 }, Vector2{ SCREEN_WIDTH, SCREEN_HEIGHT } }) {
                 const Vector2 seen = world.camera.to_world(corner);
                 CHECK(seen.x >= -1e-3f);
                 CHECK(seen.y >= -1e-3f);
-                CHECK(seen.x <= kW * 3 + 1e-3f);
-                CHECK(seen.y <= kH * 3 + 1e-3f);
+                CHECK(seen.x <= SCREEN_WIDTH * 3 + 1e-3f);
+                CHECK(seen.y <= SCREEN_HEIGHT * 3 + 1e-3f);
             }
             const Camera2D drawn = world.camera.raylib();
             if (drawn.target.x > world.camera.position.x + 0.5f) inward = true;
@@ -423,12 +433,14 @@ TEST_SUITE("camera") {
 
         SUBCASE("a view pinned by a limit exactly its size does not shake at all") {
             World pinned;
-            pinned.camera.limits = { 0, 0, kW, kH };
+            pinned.camera.limits = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
             pinned.camera.shake(30, 0.5f);
             for (int i = 0; i < 10; i++) {
                 pinned.camera.detail_settle(1.0f / 60);
-                CHECK(pinned.camera.raylib().target.x == doctest::Approx(kW / 2));
-                CHECK(pinned.camera.raylib().target.y == doctest::Approx(kH / 2));
+                CHECK(pinned.camera.raylib().target.x ==
+                      doctest::Approx(SCREEN_WIDTH / 2));
+                CHECK(pinned.camera.raylib().target.y ==
+                      doctest::Approx(SCREEN_HEIGHT / 2));
             }
         }
     }

@@ -76,7 +76,7 @@ void frame(rmp::Scene &scene, float delta = 1.0f) {
     rmp::objects::detail::collect();
 }
 
-constexpr float kEps = 0.0001f;
+constexpr float TOLERANCE = 0.0001f;
 
 } // namespace
 
@@ -791,8 +791,8 @@ TEST_CASE_FIXTURE(Fixture, "Edge::BOUNCE flips the velocity on the axis that hit
         for (int i = 0; i < 20; i++) rmp::objects::detail::update(world, 1.0f);
         // It never left, whatever else it did.
         const Rectangle b = o.world_bounds();
-        CHECK(b.x >= -kEps);
-        CHECK(b.x + b.width <= 100 + kEps);
+        CHECK(b.x >= -TOLERANCE);
+        CHECK(b.x + b.width <= 100 + TOLERANCE);
     }
 }
 
@@ -842,8 +842,8 @@ TEST_CASE_FIXTURE(Fixture, "Edge::WRAP only fires once the object is COMPLETELY 
         for (int i = 0; i < 120; i++) {
             rmp::objects::detail::update(world, 1.0f);
             const Rectangle b = o.world_bounds();
-            CHECK(b.x + b.width >= 0 - kEps);
-            CHECK(b.x <= 100 + kEps);
+            CHECK(b.x + b.width >= 0 - TOLERANCE);
+            CHECK(b.x <= 100 + TOLERANCE);
         }
     }
     SUBCASE("and the same on the vertical") {

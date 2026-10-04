@@ -27,8 +27,8 @@ namespace rmp {
 namespace {
 
 const Value &none() {
-    static const Value kNone;
-    return kNone;
+    static const Value NOTHING;
+    return NOTHING;
 }
 
 const char *type_name(Value::Type type) {

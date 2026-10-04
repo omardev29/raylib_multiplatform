@@ -54,18 +54,18 @@ constexpr State expanded(uint64_t value) {
 // rmp::app::detail::begin_run() replaces it with the clock, so a shipped game
 // still behaves differently each time. Nothing in the tests calls begin_run(),
 // which is what keeps every headless run reproducible.
-constexpr uint64_t kDefaultSeed = 0x2545F4914F6CDD1Dull;
+constexpr uint64_t DEFAULT_SEED = 0x2545F4914F6CDD1Dull;
 
 // Expanded at COMPILE TIME, and then copied. Both halves matter: a run that
-// never calls seed() has to start from exactly the state seed(kDefaultSeed)
+// never calls seed() has to start from exactly the state seed(DEFAULT_SEED)
 // produces, or current_seed() names a sequence the process is not running --
 // and doing the expansion in a runtime initialiser before main() would be a
 // static initialisation order question in the one file whose whole promise is
 // that the first value is the same every time.
-constexpr State kDefaultState = expanded(kDefaultSeed);
+constexpr State DEFAULT_STATE = expanded(DEFAULT_SEED);
 
-constinit State g_state = kDefaultState;
-constinit uint64_t g_seed = kDefaultSeed;
+constinit State g_state = DEFAULT_STATE;
+constinit uint64_t g_seed = DEFAULT_SEED;
 
 constexpr uint32_t rotl(uint32_t x, int k) { return (x << k) | (x >> (32 - k)); }
 

@@ -43,12 +43,12 @@
 
 namespace {
 
-constexpr int kWide = 10;
-constexpr int kTall = 20;
-constexpr float kCell = 20;
-constexpr Vector2 kOrigin{ 300, 30 };
-constexpr Vector2 kPreview{ 72, 132 }; // where the next piece is shown
-constexpr int kSquare = 1; // the O, the one piece that must not turn
+constexpr int WIDE = 10;
+constexpr int TALL = 20;
+constexpr float CELL = 20;
+constexpr Vector2 ORIGIN{ 300, 30 };
+constexpr Vector2 PREVIEW{ 72, 132 }; // where the next piece is shown
+constexpr int SQUARE = 1; // the O, the one piece that must not turn
 
 // The seven pieces, as offsets from their pivot. Four rotations are worked out
 // rather than tabulated, because rotating a coordinate is two lines.
@@ -56,7 +56,7 @@ struct Piece {
     int cells[4][2];
     Color color;
 };
-constexpr Piece kPieces[7] = {
+constexpr Piece PIECES[7] = {
     { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 2, 0 } }, SKYBLUE }, // I
     { { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }, GOLD }, // O
     { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 } }, VIOLET }, // T
@@ -122,25 +122,25 @@ public:
         // corner of a window that is not the design size instead of keeping it
         // where the design put it.
         BeginMode2D(camera.raylib());
-        const Rectangle well{ kOrigin.x, kOrigin.y, kWide * kCell, kTall * kCell };
+        const Rectangle well{ ORIGIN.x, ORIGIN.y, WIDE * CELL, TALL * CELL };
         DrawRectangleRec(well, Color{ 22, 22, 32, 255 });
         DrawRectangleLinesEx(
             Rectangle{ well.x - 4, well.y - 4, well.width + 8, well.height + 8 }, 4,
             rmp::ui::current_theme().border);
 
-        for (int y = 0; y < kTall; y++) {
-            for (int x = 0; x < kWide; x++) {
+        for (int y = 0; y < TALL; y++) {
+            for (int x = 0; x < WIDE; x++) {
                 if (board_[y][x] < 0) continue;
-                draw_cell(x, y, kPieces[board_[y][x]].color);
+                draw_cell(x, y, PIECES[board_[y][x]].color);
             }
         }
         for (const auto &cell : shape_) {
-            draw_cell(at_[0] + cell[0], at_[1] + cell[1], kPieces[current_].color);
+            draw_cell(at_[0] + cell[0], at_[1] + cell[1], PIECES[current_].color);
         }
-        for (const auto &cell : kPieces[next_].cells) {
-            draw_block(kPreview.x + static_cast<float>(cell[0]) * kCell,
-                       kPreview.y + static_cast<float>(cell[1]) * kCell,
-                       kPieces[next_].color);
+        for (const auto &cell : PIECES[next_].cells) {
+            draw_block(PREVIEW.x + static_cast<float>(cell[0]) * CELL,
+                       PREVIEW.y + static_cast<float>(cell[1]) * CELL,
+                       PIECES[next_].color);
         }
 
         EndMode2D();
@@ -156,19 +156,19 @@ public:
 private:
     static void draw_block(float x, float y, Color color) {
         DrawRectangle(static_cast<int>(x), static_cast<int>(y),
-                      static_cast<int>(kCell) - 1, static_cast<int>(kCell) - 1, color);
+                      static_cast<int>(CELL) - 1, static_cast<int>(CELL) - 1, color);
     }
 
     static void draw_cell(int x, int y, Color color) {
-        draw_block(kOrigin.x + static_cast<float>(x) * kCell,
-                   kOrigin.y + static_cast<float>(y) * kCell, color);
+        draw_block(ORIGIN.x + static_cast<float>(x) * CELL,
+                   ORIGIN.y + static_cast<float>(y) * CELL, color);
     }
 
     bool fits(const int cells[4][2], int cx, int cy) const {
         for (int i = 0; i < 4; i++) {
             const int x = cx + cells[i][0];
             const int y = cy + cells[i][1];
-            if (x < 0 || x >= kWide || y >= kTall) return false;
+            if (x < 0 || x >= WIDE || y >= TALL) return false;
             if (y >= 0 && board_[y][x] >= 0) return false;
         }
         return true;
@@ -186,7 +186,7 @@ private:
         // its four cells slides the piece one column left. Every Tetris there
         // has ever been leaves it alone, and that is the rule, not a special
         // case: a rotation that moves the piece is not a rotation.
-        if (current_ == kSquare) return;
+        if (current_ == SQUARE) return;
         int turned[4][2];
         for (int i = 0; i < 4; i++) {
             turned[i][0] = -shape_[i][1];
@@ -214,14 +214,14 @@ private:
     }
 
     void clear_lines() {
-        for (int y = kTall - 1; y >= 0; y--) {
+        for (int y = TALL - 1; y >= 0; y--) {
             bool full = true;
-            for (int x = 0; x < kWide && full; x++) full = board_[y][x] >= 0;
+            for (int x = 0; x < WIDE && full; x++) full = board_[y][x] >= 0;
             if (!full) continue;
             for (int row = y; row > 0; row--) {
-                for (int x = 0; x < kWide; x++) board_[row][x] = board_[row - 1][x];
+                for (int x = 0; x < WIDE; x++) board_[row][x] = board_[row - 1][x];
             }
-            for (int x = 0; x < kWide; x++) board_[0][x] = -1;
+            for (int x = 0; x < WIDE; x++) board_[0][x] = -1;
             lines_++;
             step_ = step_ > 0.12f ? step_ - 0.01f : step_;
             y++; // the same row again, now that everything fell into it
@@ -250,10 +250,10 @@ private:
         current_ = next_;
         next_ = from_bag();
         for (int i = 0; i < 4; i++) {
-            shape_[i][0] = kPieces[current_].cells[i][0];
-            shape_[i][1] = kPieces[current_].cells[i][1];
+            shape_[i][0] = PIECES[current_].cells[i][0];
+            shape_[i][1] = PIECES[current_].cells[i][1];
         }
-        at_[0] = kWide / 2;
+        at_[0] = WIDE / 2;
         at_[1] = 0;
         // The other way a Tetris ends: there is no room for what comes next.
         if (!fits(shape_, at_[0], at_[1])) game_over();
@@ -271,7 +271,7 @@ private:
         rmp::Scene::push<OverScene<TetrisScene>>(record ? "New best!" : "Game over");
     }
 
-    int board_[kTall][kWide] = {};
+    int board_[TALL][WIDE] = {};
     int shape_[4][2] = {};
     int at_[2] = {};
     int bag_[7] = {};

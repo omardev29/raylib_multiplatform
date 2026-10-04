@@ -22,9 +22,9 @@
 
 namespace {
 
-constexpr int kEnemies = 5;
-constexpr int kPlayerHp = 5;
-constexpr float kDoorY = 225; // the gap in the right-hand wall
+constexpr int ENEMIES = 5;
+constexpr int PLAYER_HP = 5;
+constexpr float DOOR_Y = 225; // the gap in the right-hand wall
 
 // The end of a level, PUSHED on top of it: the room below freezes, stays on
 // screen and stops hearing the keyboard, so this scene writes no policy at all
@@ -72,26 +72,26 @@ public:
             spawn({ .position = { 200, 225 }, .shape = rmp::rect({ 26, 26 }) });
         player.shape.color = rmp::ui::current_theme().primary;
         player.solid = true;
-        player.collision_layer = layer::kPlayer;
-        player.collision_mask = layer::kWorld | layer::kEnemy | layer::kTrigger;
+        player.collision_layer = layer::PLAYER;
+        player.collision_mask = layer::WORLD | layer::ENEMY | layer::TRIGGER;
         // Eight directions, normalised, so the diagonal is not 41 % faster.
         player.add<rmp::behavior::TopDown>({ .speed = 240 });
         // WHAT IS ALLOWED TO HURT IT. Without `hurt_by` a Health is a
         // hit-point counter that nothing ever reduces, which is how this
         // player used to walk through five enemies and not notice.
         player.add<rmp::behavior::Health>({
-            .hp = kPlayerHp,
+            .hp = PLAYER_HP,
             .invulnerable_for = 0.8f,
             .destroy_on_death = false, // it stays on screen under the overlay
             .on_death =
                 [](rmp::Object &) {
                     rmp::Scene::push<OverScene<TopDownScene>>("You died");
                 },
-            .hurt_by = layer::kEnemy,
+            .hurt_by = layer::ENEMY,
         });
         player_ = player.handle();
 
-        for (int i = 0; i < kEnemies; i++) add_enemy(560 + static_cast<float>(i) * 30);
+        for (int i = 0; i < ENEMIES; i++) add_enemy(560 + static_cast<float>(i) * 30);
     }
 
     void _update(float) override {
@@ -102,7 +102,7 @@ public:
         auto *health = player_->get<rmp::behavior::Health>();
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::row({ .gap = 16 }, [&] {
-            rmp::ui::progress(static_cast<float>(health->hp) / kPlayerHp,
+            rmp::ui::progress(static_cast<float>(health->hp) / PLAYER_HP,
                               { .width = 150, .fill = rmp::ui::current_theme().danger });
             rmp::ui::text(TextFormat("Enemies %d", enemies_));
         });
@@ -114,7 +114,7 @@ private:
         auto &wall = spawn({ .position = at, .size = size });
         wall.solid = true;
         wall.immovable = true;
-        wall.collision_layer = layer::kWorld;
+        wall.collision_layer = layer::WORLD;
         wall.collision_mask = 0;
         wall.shape.color = DARKGRAY;
     }
@@ -123,10 +123,10 @@ private:
     // and on a layer of its own that only the player's bit is in -- an enemy
     // standing in the doorway does not finish the level.
     void add_door() {
-        auto &door = spawn({ .position = { 780, kDoorY }, .size = { 34, 90 } });
+        auto &door = spawn({ .position = { 780, DOOR_Y }, .size = { 34, 90 } });
         door.shape.color = GOLD;
-        door.collision_layer = layer::kTrigger;
-        door.collision_mask = layer::kPlayer;
+        door.collision_layer = layer::TRIGGER;
+        door.collision_mask = layer::PLAYER;
         door.on_collision([](rmp::Object &, rmp::Object &) {
             rmp::Scene::push<OverScene<TopDownScene>>("Level cleared");
         });
@@ -135,10 +135,10 @@ private:
     void add_enemy(float x) {
         auto &enemy = spawn({ .position = { x, 225 }, .shape = rmp::circle(14) });
         enemy.solid = true;
-        enemy.collision_layer = layer::kEnemy;
+        enemy.collision_layer = layer::ENEMY;
         // Walls, bullets and the player, not other enemies: they walk through
         // each other.
-        enemy.collision_mask = layer::kWorld | layer::kBullet | layer::kPlayer;
+        enemy.collision_mask = layer::WORLD | layer::BULLET | layer::PLAYER;
         enemy.shape.color = MAROON;
         enemy.add<rmp::behavior::Follow>({ .target = player_, .speed = 90 });
         // Two hits, and what may land them. No `if` at the top of a
@@ -148,7 +148,7 @@ private:
             .hp = 2,
             .invulnerable_for = 0.1f,
             .on_death = [this](rmp::Object &) { enemies_--; },
-            .hurt_by = layer::kBullet,
+            .hurt_by = layer::BULLET,
         });
         enemies_++;
     }
@@ -159,8 +159,8 @@ private:
         auto &shot = spawn({ .position = player_->position, .shape = rmp::circle(4) });
         shot.shape.color = GOLD;
         shot.velocity = { aim.x * 520, aim.y * 520 };
-        shot.collision_layer = layer::kBullet;
-        shot.collision_mask = layer::kEnemy | layer::kWorld; // never the player
+        shot.collision_layer = layer::BULLET;
+        shot.collision_mask = layer::ENEMY | layer::WORLD; // never the player
         shot.add<rmp::behavior::Projectile>();
         shot.add<rmp::behavior::Lifespan>({ .seconds = 1.5f });
     }

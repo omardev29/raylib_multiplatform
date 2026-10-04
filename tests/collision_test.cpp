@@ -81,10 +81,10 @@ struct Rng {
 using PairList = std::vector<std::pair<rmp::Object *, rmp::Object *>>;
 
 PairList pairs_of(const rmp::Scene &scene, bool use_grid) {
-    constexpr std::size_t kMax = 4096;
-    std::vector<rmp::Object *> raw(kMax * 2, nullptr);
+    constexpr std::size_t CAPACITY = 4096;
+    std::vector<rmp::Object *> raw(CAPACITY * 2, nullptr);
     const int n = rmp::objects::detail::touching_pairs_for_tests(
-        scene, use_grid, raw.data(), static_cast<int>(kMax));
+        scene, use_grid, raw.data(), static_cast<int>(CAPACITY));
     PairList out;
     out.reserve(static_cast<std::size_t>(n));
     for (int i = 0; i < n; i++) {
@@ -96,7 +96,7 @@ PairList pairs_of(const rmp::Scene &scene, bool use_grid) {
     return out;
 }
 
-constexpr float kEps = 0.001f;
+constexpr float TOLERANCE = 0.001f;
 
 } // namespace
 
@@ -363,21 +363,21 @@ TEST_CASE_FIXTURE(Fixture, "by default everything collides with everything") {
 }
 
 TEST_CASE_FIXTURE(Fixture, "the three things layers exist for") {
-    constexpr unsigned kPlayer = 1u << 0;
-    constexpr unsigned kEnemy = 1u << 1;
-    constexpr unsigned kBullet = 1u << 2;
-    constexpr unsigned kWorld = 1u << 3;
+    constexpr unsigned PLAYER = 1u << 0;
+    constexpr unsigned ENEMY = 1u << 1;
+    constexpr unsigned BULLET = 1u << 2;
+    constexpr unsigned WORLD = 1u << 3;
 
     SUBCASE("the player's bullet does not hit the player") {
         World world;
         auto &player =
             world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
-        player.collision_layer = kPlayer;
-        player.collision_mask = kEnemy | kWorld;
+        player.collision_layer = PLAYER;
+        player.collision_mask = ENEMY | WORLD;
         auto &bullet =
             world.spawn<Probe>({ .position = { 2, 0 }, .shape = rmp::rect({ 4, 4 }) });
-        bullet.collision_layer = kBullet;
-        bullet.collision_mask = kEnemy | kWorld;
+        bullet.collision_layer = BULLET;
+        bullet.collision_mask = ENEMY | WORLD;
         frame(world);
         CHECK(player.hits == 0);
         CHECK(bullet.hits == 0);
@@ -391,10 +391,10 @@ TEST_CASE_FIXTURE(Fixture, "the three things layers exist for") {
         auto &wall =
             world.spawn<Probe>({ .position = { 8, 0 }, .shape = rmp::rect({ 10, 10 }) });
         for (Probe *e : { &e1, &e2 }) {
-            e->collision_layer = kEnemy;
-            e->collision_mask = kWorld;
+            e->collision_layer = ENEMY;
+            e->collision_mask = WORLD;
         }
-        wall.collision_layer = kWorld;
+        wall.collision_layer = WORLD;
         wall.collision_mask = 0;
         frame(world);
         CHECK(e1.hits == 1); // the wall
@@ -407,15 +407,15 @@ TEST_CASE_FIXTURE(Fixture, "the three things layers exist for") {
         auto &trigger =
             world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 40, 40 }) });
         trigger.collision_layer = 0;
-        trigger.collision_mask = kPlayer;
+        trigger.collision_mask = PLAYER;
         auto &player =
             world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
-        player.collision_layer = kPlayer;
-        player.collision_mask = kWorld;
+        player.collision_layer = PLAYER;
+        player.collision_mask = WORLD;
         auto &enemy =
             world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
-        enemy.collision_layer = kEnemy;
-        enemy.collision_mask = kWorld;
+        enemy.collision_layer = ENEMY;
+        enemy.collision_mask = WORLD;
         frame(world);
         CHECK(trigger.hits == 1);
         CHECK(trigger.last == &player);
@@ -773,16 +773,16 @@ TEST_CASE_FIXTURE(Fixture, "ignore is why this exists and not CheckCollisionLine
 }
 
 TEST_CASE_FIXTURE(Fixture, "the mask filters the same way the collision pass does") {
-    constexpr unsigned kEnemy = 1u << 1;
-    constexpr unsigned kScenery = 1u << 4;
+    constexpr unsigned ENEMY = 1u << 1;
+    constexpr unsigned SCENERY = 1u << 4;
     World world;
     auto &bush = world.spawn({ .position = { 50, 0 }, .shape = rmp::rect({ 20, 20 }) });
-    bush.collision_layer = kScenery;
+    bush.collision_layer = SCENERY;
     auto &enemy = world.spawn({ .position = { 150, 0 }, .shape = rmp::rect({ 20, 20 }) });
-    enemy.collision_layer = kEnemy;
+    enemy.collision_layer = ENEMY;
 
     const rmp::RayHit shot =
-        world.raycast({ .from = { 0, 0 }, .to = { 400, 0 }, .mask = kEnemy });
+        world.raycast({ .from = { 0, 0 }, .to = { 400, 0 }, .mask = ENEMY });
     CHECK(shot.object.get() == &enemy);
 
     const rmp::RayHit sight = world.raycast({ 0, 0 }, { 400, 0 });

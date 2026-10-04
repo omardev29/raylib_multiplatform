@@ -13,7 +13,7 @@ inline Item g_items[] = {
     { "Key", 2, false },  { "Bread", 5, false },  { "Coin", 240, false },
     { "Gem", 4, false },  { "Bow", 1, false },    { "Arrow", 60, false },
 };
-inline constexpr int kItemCount = 12;
+inline constexpr int ITEM_COUNT = 12;
 inline int g_selected = 0;
 
 // An rmp::Texture and not a Texture2D: the handle owns the texture, and it is

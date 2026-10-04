@@ -310,7 +310,7 @@ struct Parallax {
 // more than the <rmp/input.h> this header was carrying for nothing -- and a
 // spawner that needs hundreds of things alive at once is a pool, not a spawner.
 // A `max_alive` above this warns once and is treated as this.
-inline constexpr int kMaxSpawned = 64;
+inline constexpr int MAX_SPAWNED = 64;
 
 // Produces objects every N seconds, or every N units TRAVELLED.
 //
@@ -350,7 +350,7 @@ struct Spawner {
         // a spawner that what it made has died, so `max_alive` became a cap on
         // how many it had ever produced and an endless runner stopped making
         // obstacles thirty seconds in. A handle answers on its own.
-        Handle<Object> made[kMaxSpawned];
+        Handle<Object> made[MAX_SPAWNED];
         int made_count = 0;
     } ours;
 
@@ -412,7 +412,7 @@ struct Health {
     // it once here instead of writing the same `if` at the top of every
     // _collision.
     //
-    //     player.add<rmp::behavior::Health>({ .hp = 3, .hurt_by = layer::kEnemy });
+    //     player.add<rmp::behavior::Health>({ .hp = 3, .hurt_by = layer::ENEMY });
     //
     // It is the OTHER object's `collision_layer` that is tested, the same
     // numbers rmp::Object::collision_mask uses -- so a spike, an enemy and a

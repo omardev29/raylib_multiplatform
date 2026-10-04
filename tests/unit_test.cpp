@@ -42,7 +42,7 @@ StartState capture_start() {
     return out;
 }
 
-const StartState kStart = capture_start();
+const StartState START = capture_start();
 
 } // namespace
 
@@ -195,9 +195,9 @@ TEST_SUITE("random") {
         // It did not. g_seed sat at 0 while the state sat at four compile-time
         // constants that seed(0) does not produce, so the bug report sent the
         // reader to a different run than the one that crashed.
-        CHECK(kStart.seed != 0);
-        rmp::random::seed(kStart.seed);
-        for (float expected : kStart.values) {
+        CHECK(START.seed != 0);
+        rmp::random::seed(START.seed);
+        for (float expected : START.values) {
             CHECK(rmp::random::value() == doctest::Approx(expected));
         }
     }

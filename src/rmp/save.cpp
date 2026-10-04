@@ -66,12 +66,12 @@ namespace rmp::save {
 
 namespace {
 
-constexpr int kFormat = 1;
-constexpr const char *kMagic = "rmp-save";
-constexpr const char *kExtension = ".save";
-constexpr std::size_t kNonce = 24;
-constexpr std::size_t kTag = 16;
-using detail::kMaxDepth;
+constexpr int FORMAT = 1;
+constexpr const char *MAGIC = "rmp-save";
+constexpr const char *EXTENSION = ".save";
+constexpr std::size_t NONCE = 24;
+constexpr std::size_t TAG = 16;
+using detail::MAX_DEPTH;
 
 // ---- CRC-32 ----------------------------------------------------------------
 
@@ -84,7 +84,7 @@ constexpr std::array<std::uint32_t, 256> make_crc_table() {
     }
     return table;
 }
-constexpr std::array<std::uint32_t, 256> kCrcTable = make_crc_table();
+constexpr std::array<std::uint32_t, 256> CRC_TABLE = make_crc_table();
 
 // ---- cJSON, owned ----------------------------------------------------------
 
@@ -111,7 +111,7 @@ std::string format_number(double n) {
 const char *unsavable(const Value &v, int depth) {
     // Deeper than the parser reads back (cjson_impl.c sets its limit to the
     // same number): a save that writes and never reads back is the worst kind.
-    if (depth > kMaxDepth) return "it is nested deeper than rmp::save reads back";
+    if (depth > MAX_DEPTH) return "it is nested deeper than rmp::save reads back";
     if (v.type() == Value::Type::STRING &&
         v.as_string().find('\0') != std::string_view::npos) {
         // JSON can say \u0000, but cJSON reads strings as C strings and would
@@ -213,7 +213,7 @@ Value from_cjson(const cJSON *node) {
 // renaming [project] name makes old sealed saves unreadable, which the
 // .toml's [save] comment says.
 const std::array<std::uint8_t, 32> &seal_key() {
-    static const std::array<std::uint8_t, 32> kKey = [] {
+    static const std::array<std::uint8_t, 32> KEY = [] {
         std::array<std::uint8_t, 32> k{};
         const std::string material =
             std::string("rmp::save sealed v1") + '\0' + RMP_PROJECT_NAME;
@@ -222,20 +222,20 @@ const std::array<std::uint8_t, 32> &seal_key() {
                        material.size());
         return k;
     }();
-    return kKey;
+    return KEY;
 }
 
 // 24 random bytes. A nonce must never repeat under one key, and at random
 // with 192 bits it will not. std::random_device is the OS's entropy on every
 // target we build; if it throws (it may, where there is none), the clock and
 // a counter stand in -- weaker, and still never the same twice in a run.
-std::array<std::uint8_t, kNonce> make_nonce() {
-    std::array<std::uint8_t, kNonce> nonce{};
+std::array<std::uint8_t, NONCE> make_nonce() {
+    std::array<std::uint8_t, NONCE> nonce{};
     static std::uint64_t counter = 0;
     counter++;
     try {
         std::random_device device;
-        for (std::size_t i = 0; i < kNonce; i += 4) {
+        for (std::size_t i = 0; i < NONCE; i += 4) {
             const std::uint32_t r = device();
             std::memcpy(nonce.data() + i, &r, 4);
         }
@@ -247,7 +247,7 @@ std::array<std::uint8_t, kNonce> make_nonce() {
     // The counter is mixed in either way, so two writes in the same tick with
     // a broken device still differ.
     for (std::size_t i = 0; i < sizeof counter; i++) {
-        nonce[kNonce - 1 - i] ^= static_cast<std::uint8_t>(counter >> (8 * i));
+        nonce[NONCE - 1 - i] ^= static_cast<std::uint8_t>(counter >> (8 * i));
     }
     return nonce;
 }
@@ -263,7 +263,7 @@ template <class T> bool whole_number(std::string_view text, int base, T *out) {
 }
 
 std::string header_prefix(int version, bool sealed, std::size_t payload) {
-    return std::string(kMagic) + " " + std::to_string(kFormat) + " " +
+    return std::string(MAGIC) + " " + std::to_string(FORMAT) + " " +
         std::to_string(version) + " " + (sealed ? "sealed" : "plain") + " " +
         std::to_string(payload);
 }
@@ -274,9 +274,9 @@ std::uint32_t crc_of(const std::string &prefix, const unsigned char *payload,
     std::string head = prefix + "\n";
     std::uint32_t c = 0xFFFFFFFFU;
     for (const char ch : head)
-        c = kCrcTable[(c ^ static_cast<unsigned char>(ch)) & 0xFFU] ^ (c >> 8U);
+        c = CRC_TABLE[(c ^ static_cast<unsigned char>(ch)) & 0xFFU] ^ (c >> 8U);
     for (std::size_t i = 0; i < size; i++)
-        c = kCrcTable[(c ^ payload[i]) & 0xFFU] ^ (c >> 8U);
+        c = CRC_TABLE[(c ^ payload[i]) & 0xFFU] ^ (c >> 8U);
     return c ^ 0xFFFFFFFFU;
 }
 
@@ -291,7 +291,7 @@ namespace detail {
 std::uint32_t crc32(const unsigned char *data, std::size_t size) {
     std::uint32_t c = 0xFFFFFFFFU;
     for (std::size_t i = 0; i < size; i++)
-        c = kCrcTable[(c ^ data[i]) & 0xFFU] ^ (c >> 8U);
+        c = CRC_TABLE[(c ^ data[i]) & 0xFFU] ^ (c >> 8U);
     return c ^ 0xFFFFFFFFU;
 }
 
@@ -325,12 +325,12 @@ bool encode(const Value &value, int version, bool sealed, Bytes *out) {
 
     Bytes payload;
     if (sealed) {
-        payload.resize(kNonce + kTag + json.size());
-        const std::array<std::uint8_t, kNonce> nonce = make_nonce();
-        std::memcpy(payload.data(), nonce.data(), kNonce);
+        payload.resize(NONCE + TAG + json.size());
+        const std::array<std::uint8_t, NONCE> nonce = make_nonce();
+        std::memcpy(payload.data(), nonce.data(), NONCE);
         const std::string prefix = header_prefix(version, true, payload.size());
         crypto_aead_lock(
-            payload.data() + kNonce + kTag, payload.data() + kNonce, seal_key().data(),
+            payload.data() + NONCE + TAG, payload.data() + NONCE, seal_key().data(),
             nonce.data(), reinterpret_cast<const std::uint8_t *>(prefix.data()),
             prefix.size(), reinterpret_cast<const std::uint8_t *>(json.data()),
             json.size());
@@ -351,7 +351,7 @@ bool encode(const Value &value, int version, bool sealed, Bytes *out) {
 Status decode(const Bytes &file, Value *out, bool sealed_only) {
     // The header line. A file that stops before its '\n' but starts like one
     // of ours was cut short; one that does not start like ours never was.
-    const std::string magic = std::string(kMagic) + " ";
+    const std::string magic = std::string(MAGIC) + " ";
     const std::size_t probe = file.size() < magic.size() ? file.size() : magic.size();
     if (probe == 0 || std::memcmp(file.data(), magic.data(), probe) != 0) {
         return Status::UNREADABLE;
@@ -377,13 +377,13 @@ Status decode(const Bytes &file, Value *out, bool sealed_only) {
     int version = 0;
     std::size_t declared = 0;
     std::uint32_t crc = 0;
-    if (field.size() != 6 || field[0] != kMagic || !whole_number(field[1], 10, &format) ||
+    if (field.size() != 6 || field[0] != MAGIC || !whole_number(field[1], 10, &format) ||
         !whole_number(field[2], 10, &version) || !whole_number(field[4], 10, &declared) ||
         field[5].size() != 8 || !whole_number(field[5], 16, &crc)) {
         return Status::UNREADABLE;
     }
     const std::string_view kind = field[3];
-    if (format != kFormat) return Status::UNREADABLE; // a newer framework wrote it
+    if (format != FORMAT) return Status::UNREADABLE; // a newer framework wrote it
     const bool sealed = kind == "sealed";
     if (!sealed && kind != "plain") return Status::UNREADABLE;
     // And exactly as our writer puts it: no leading zeros, no upper-case hex,
@@ -408,13 +408,12 @@ Status decode(const Bytes &file, Value *out, bool sealed_only) {
 
     std::string json;
     if (sealed) {
-        if (have < kNonce + kTag) return Status::MODIFIED;
-        json.resize(have - kNonce - kTag);
+        if (have < NONCE + TAG) return Status::MODIFIED;
+        json.resize(have - NONCE - TAG);
         if (crypto_aead_unlock(reinterpret_cast<std::uint8_t *>(json.data()),
-                               payload + kNonce, seal_key().data(), payload,
+                               payload + NONCE, seal_key().data(), payload,
                                reinterpret_cast<const std::uint8_t *>(prefix.data()),
-                               prefix.size(), payload + kNonce + kTag,
-                               json.size()) != 0) {
+                               prefix.size(), payload + NONCE + TAG, json.size()) != 0) {
             // The CRC matched and the seal did not: somebody recomputed the
             // CRC, or the game was renamed and the key moved with it.
             return Status::MODIFIED;
@@ -664,7 +663,7 @@ const std::string &resolve() {
 }
 
 std::string file_in(const std::string &folder, std::string_view slot) {
-    return folder + std::string(slot) + kExtension;
+    return folder + std::string(slot) + EXTENSION;
 }
 
 // Where a slot is READ from. Writes go to one folder a session, but with
@@ -712,12 +711,12 @@ void persist() {
 // Sized first and read in one call. And capped: a save is kilobytes, and a
 // 4 GB file that happens to be called slot1.save must be UNREADABLE, not a
 // bad_alloc out of a function that promises not to throw.
-constexpr std::uintmax_t kMaxFile = std::uintmax_t{ 64 } * 1024 * 1024;
+constexpr std::uintmax_t MAX_FILE = std::uintmax_t{ 64 } * 1024 * 1024;
 
 bool read_file(const fs::path &path, detail::Bytes *out) {
     std::error_code ec;
     const std::uintmax_t size = fs::file_size(path, ec);
-    if (ec || size > kMaxFile) return false;
+    if (ec || size > MAX_FILE) return false;
     const File f = open_file(path, false);
     if (!f) return false;
     out->assign(static_cast<std::size_t>(size), 0);

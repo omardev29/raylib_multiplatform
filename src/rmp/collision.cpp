@@ -46,7 +46,7 @@ namespace rmp {
 
 namespace {
 
-constexpr float kEpsilon = 0.0001f;
+constexpr float NEAR_ZERO = 0.0001f;
 
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -157,7 +157,7 @@ bool overlap_circle_circle(const Placed &a, const Placed &b, Vector2 *mtv) {
     if (d2 >= sum * sum) return false;
 
     const float d = std::sqrt(d2);
-    if (d < kEpsilon) {
+    if (d < NEAR_ZERO) {
         // Exactly concentric. There is no direction to push in, so one is
         // chosen rather than dividing by zero and producing NaN positions that
         // spread to everything they touch afterwards.
@@ -179,7 +179,7 @@ bool overlap_circle_rect(const Placed &a, const Placed &b, Vector2 *mtv) {
     const float dy = a.centre.y - nearest_y;
     const float d2 = dx * dx + dy * dy;
 
-    if (d2 > kEpsilon * kEpsilon) {
+    if (d2 > NEAR_ZERO * NEAR_ZERO) {
         // The centre is outside the rectangle: the nearest point is on an edge
         // or a corner, and the normal runs through it. This is the branch that
         // makes a Pong ball leave the corner of a paddle at the right angle.
@@ -260,7 +260,7 @@ bool ray_rect(Vector2 from, Vector2 to, const Placed &box, float *t, Vector2 *no
         const float lo = i == 0 ? min_x : min_y;
         const float hi = i == 0 ? max_x : max_y;
 
-        if (dir > -kEpsilon && dir < kEpsilon) {
+        if (dir > -NEAR_ZERO && dir < NEAR_ZERO) {
             // Parallel to this pair of faces: either inside the slab for the
             // whole ray, or never.
             if (origin < lo || origin > hi) return false;
@@ -288,7 +288,7 @@ bool ray_rect(Vector2 from, Vector2 to, const Placed &box, float *t, Vector2 *no
     // points back down the ray, which is the only answer that is not a lie.
     if (axis.x == 0 && axis.y == 0) {
         const float len = std::sqrt(d.x * d.x + d.y * d.y);
-        axis = len > kEpsilon ? Vector2{ -d.x / len, -d.y / len } : Vector2{ 0, -1 };
+        axis = len > NEAR_ZERO ? Vector2{ -d.x / len, -d.y / len } : Vector2{ 0, -1 };
     }
     *normal = axis;
     return true;
@@ -299,7 +299,7 @@ bool ray_circle(Vector2 from, Vector2 to, const Placed &circle, float *t,
     const Vector2 d{ to.x - from.x, to.y - from.y };
     const Vector2 m{ from.x - circle.centre.x, from.y - circle.centre.y };
     const float a = d.x * d.x + d.y * d.y;
-    if (a < kEpsilon) return false;
+    if (a < NEAR_ZERO) return false;
     const float b = 2 * (m.x * d.x + m.y * d.y);
     const float c = m.x * m.x + m.y * m.y - circle.radius * circle.radius;
 
@@ -314,7 +314,7 @@ bool ray_circle(Vector2 from, Vector2 to, const Placed &circle, float *t,
     const Vector2 point{ from.x + d.x * hit, from.y + d.y * hit };
     Vector2 n{ point.x - circle.centre.x, point.y - circle.centre.y };
     const float len = std::sqrt(n.x * n.x + n.y * n.y);
-    *normal = len > kEpsilon ? Vector2{ n.x / len, n.y / len } : Vector2{ 0, -1 };
+    *normal = len > NEAR_ZERO ? Vector2{ n.x / len, n.y / len } : Vector2{ 0, -1 };
     return true;
 }
 
@@ -759,8 +759,8 @@ std::vector<Touch> detect(const Scene &scene, bool use_grid) {
                      moving.position.y +
                          (mover.from.y - mover.shape.centre.y) * (1 - t) };
         // Contact with no depth: the MTV is the contact normal, pointing at a.
-        touch.mtv = a_moves ? Vector2{ normal.x * kEpsilon, normal.y * kEpsilon }
-                            : Vector2{ -normal.x * kEpsilon, -normal.y * kEpsilon };
+        touch.mtv = a_moves ? Vector2{ normal.x * NEAR_ZERO, normal.y * NEAR_ZERO }
+                            : Vector2{ -normal.x * NEAR_ZERO, -normal.y * NEAR_ZERO };
         touching.push_back(touch);
     }
     return touching;

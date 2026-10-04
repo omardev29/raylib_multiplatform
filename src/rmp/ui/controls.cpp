@@ -63,7 +63,7 @@ void label_text(std::string_view s, Color c, float size) {
 // itself on the right, the whole thing focusable as one unit.
 // The sub-id of a dropdown's open list. Far away from the items, which take 1
 // to count: a list of nine things would otherwise collide with it.
-constexpr uint32_t kMenuSub = 0x10000u;
+constexpr uint32_t MENU_SUB = 0x10000u;
 
 Clay_ElementDeclaration control_row(bool has_focus) {
     const Theme &t = current_theme();
@@ -390,7 +390,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                 // it takes the pointer, which a box test cannot work out on its
                 // own — so it says so. Without it a click meant for the list
                 // would also press whatever is behind it.
-                Clay_ElementId menu_id = detail::sub_id(id, kMenuSub);
+                Clay_ElementId menu_id = detail::sub_id(id, MENU_SUB);
                 detail::block_pointer(menu_id);
 
                 Clay_ElementDeclaration menu{};

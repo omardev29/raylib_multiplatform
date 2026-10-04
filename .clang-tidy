@@ -140,7 +140,7 @@ CheckOptions:
   #   Variables, parameters, fields        snake_case   min_height, delta
   #   Namespaces                           snake_case   rmp::ui::detail
   #   Macros                               RMP_SCREAM   RMP_ENTRY_POINT
-  #   Compile-time constants               kPascalCase  kMaxLabels
+  #   Constants                            SCREAM_CASE  MAX_LABELS
   #
   # What it buys: at any point of use you can tell a type from a value without
   # going to look. `Align::TOP_LEFT` is unmistakably a constant of a type;
@@ -201,20 +201,19 @@ CheckOptions:
   - key: readability-identifier-naming.GlobalVariablePrefix
     value: 'g_'
 
-  # Compile-time constants keep kPascalCase. It reads as "a constant" without
-  # colliding with SCREAM_CASE, which now means "enum member" and only that.
+  # Constants are CONSTANT_CASE, with no prefix: every constexpr, and a const at
+  # namespace, class or static scope. A runtime `const float half = w / 2;` in a
+  # function is a variable that does not change, and stays snake_case -- which
+  # is why LocalConstant is deliberately not set. A constant must not take the
+  # name of somebody else's macro (PI, MIN, MAX): tools/naming_check.sh R6.
   - key: readability-identifier-naming.ConstexprVariableCase
-    value: CamelCase
-  - key: readability-identifier-naming.ConstexprVariablePrefix
-    value: 'k'
+    value: UPPER_CASE
   - key: readability-identifier-naming.GlobalConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.GlobalConstantPrefix
-    value: 'k'
+    value: UPPER_CASE
   - key: readability-identifier-naming.StaticConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.StaticConstantPrefix
-    value: 'k'
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ClassConstantCase
+    value: UPPER_CASE
 
   # Every macro we define is RMP_: the preprocessor has one namespace, shared
   # with raylib, the C library and the game. tools/naming_check.sh says the

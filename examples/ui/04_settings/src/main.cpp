@@ -52,7 +52,7 @@ static void apply(const Settings &s) {
     rmp::audio::set_volume(rmp::audio::Bus::MASTER, s.master);
     rmp::audio::set_volume(rmp::audio::Bus::MUSIC, s.music);
     TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)", (double)s.master,
-             kQuality[s.quality]);
+             QUALITY[s.quality]);
 }
 
 // What is on disk, over what the struct says. Every field reads with its
@@ -140,8 +140,8 @@ static void on_frame(float delta) {
         // --- pick one of a list -------------------------------------------
         // The dropdown owns nothing but the open/closed flag, and that is ours,
         // not yours: *selected is an index into the array you passed.
-        if (rmp::ui::dropdown("Quality", &cfg.quality, kQuality, 4)) dirty = true;
-        if (rmp::ui::dropdown("Language", &cfg.language, kLanguage, 3)) dirty = true;
+        if (rmp::ui::dropdown("Quality", &cfg.quality, QUALITY, 4)) dirty = true;
+        if (rmp::ui::dropdown("Language", &cfg.language, LANGUAGE, 3)) dirty = true;
 
         // --- typing -------------------------------------------------------
         // Writes into your buffer, NUL-terminated, never past capacity.

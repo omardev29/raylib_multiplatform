@@ -63,11 +63,11 @@ TEST_SUITE("report_once") {
     TEST_CASE_FIXTURE(Fixture, "the plain form is not confused with an empty key") {
         // Same address, unkeyed vs keyed with "": they share the entry, which is
         // the honest reading -- there is nothing to tell them apart by.
-        static const char kSite = 0;
-        rmp::detail::report_once(&kSite, "plain");
-        rmp::detail::report_once_keyed(&kSite, "", "keyed empty");
+        static const char SITE = 0;
+        rmp::detail::report_once(&SITE, "plain");
+        rmp::detail::report_once_keyed(&SITE, "", "keyed empty");
         CHECK(rmp::detail::report_count() == 1);
-        rmp::detail::report_once_keyed(&kSite, "x", "keyed x");
+        rmp::detail::report_once_keyed(&SITE, "x", "keyed x");
         CHECK(rmp::detail::report_count() == 2);
     }
 

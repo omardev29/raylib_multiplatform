@@ -13,9 +13,9 @@
 // ---------------------------------------------------------------------------
 
 namespace layer {
-constexpr unsigned kPlayer = 1u << 0;
-constexpr unsigned kEnemy = 1u << 1;
-constexpr unsigned kBullet = 1u << 2;
-constexpr unsigned kWorld = 1u << 3;
-constexpr unsigned kTrigger = 1u << 4; // the door: it sees the player, nothing else
+constexpr unsigned PLAYER = 1u << 0;
+constexpr unsigned ENEMY = 1u << 1;
+constexpr unsigned BULLET = 1u << 2;
+constexpr unsigned WORLD = 1u << 3;
+constexpr unsigned TRIGGER = 1u << 4; // the door: it sees the player, nothing else
 } // namespace layer

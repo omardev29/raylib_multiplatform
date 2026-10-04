@@ -25,23 +25,23 @@
 namespace {
 
 namespace layer {
-constexpr unsigned kPlayer = 1u << 0;
-constexpr unsigned kAlien = 1u << 1;
-constexpr unsigned kPlayerShot = 1u << 2;
-constexpr unsigned kAlienShot = 1u << 3;
+constexpr unsigned PLAYER = 1u << 0;
+constexpr unsigned ALIEN = 1u << 1;
+constexpr unsigned PLAYER_SHOT = 1u << 2;
+constexpr unsigned ALIEN_SHOT = 1u << 3;
 } // namespace layer
 
-constexpr int kColumns = 11;
-constexpr int kRows = 4;
-constexpr int kAliens = kColumns * kRows;
-constexpr float kMarch = 40; // how far the block slides each way
-constexpr float kDrop = 16; // and how far down it steps when it turns
-constexpr float kPlayerY = 410;
-constexpr float kGroundY = 434;
+constexpr int COLUMNS = 11;
+constexpr int ROWS = 4;
+constexpr int ALIENS = COLUMNS * ROWS;
+constexpr float MARCH = 40; // how far the block slides each way
+constexpr float DROP = 16; // and how far down it steps when it turns
+constexpr float PLAYER_Y = 410;
+constexpr float GROUND_Y = 434;
 
 // One per row, and the row a picture would put the strange ones in is the one
 // at the top.
-constexpr Color kRowColors[kRows] = { VIOLET, PINK, ORANGE, GOLD };
+constexpr Color ROW_COLORS[ROWS] = { VIOLET, PINK, ORANGE, GOLD };
 
 // The end of a game, PUSHED on top of it: the board below freezes, stays on
 // screen and stops hearing the keyboard, so this scene writes no policy at all
@@ -68,11 +68,11 @@ public:
         background = Color{ 8, 10, 20, 255 };
 
         auto &player =
-            spawn({ .position = { 400, kPlayerY }, .shape = rmp::rect({ 44, 18 }) });
+            spawn({ .position = { 400, PLAYER_Y }, .shape = rmp::rect({ 44, 18 }) });
         player.shape.color = LIME;
         player.edges = rmp::Edge::CLAMP;
-        player.collision_layer = layer::kPlayer;
-        player.collision_mask = layer::kAlienShot | layer::kAlien;
+        player.collision_layer = layer::PLAYER;
+        player.collision_mask = layer::ALIEN_SHOT | layer::ALIEN;
         // WHO IS ALLOWED TO HURT IT, and it is one field. Without `hurt_by` a
         // Health is a hit-point counter that nothing ever reduces, which is
         // how this player used to be immortal.
@@ -84,11 +84,11 @@ public:
                 [](rmp::Object &) {
                     rmp::Scene::push<OverScene<InvadersScene>>("Game over");
                 },
-            .hurt_by = layer::kAlienShot | layer::kAlien,
+            .hurt_by = layer::ALIEN_SHOT | layer::ALIEN,
         });
         player_ = player.handle();
 
-        for (int i = 0; i < kAliens; i++) add_alien(i);
+        for (int i = 0; i < ALIENS; i++) add_alien(i);
     }
 
     void _update(float delta) override {
@@ -97,16 +97,16 @@ public:
 
         // The formation. Every alien moves as one, turns at the wall, drops a
         // step, and the whole block speeds up as it thins -- which is the game.
-        march_ += step_ * delta * static_cast<float>(kAliens) /
+        march_ += step_ * delta * static_cast<float>(ALIENS) /
             static_cast<float>(alive_ > 0 ? alive_ : 1);
-        if (march_ > kMarch || march_ < -kMarch) {
+        if (march_ > MARCH || march_ < -MARCH) {
             step_ = -step_;
-            march_ = march_ > 0 ? kMarch : -kMarch;
-            drop_ += kDrop;
+            march_ = march_ > 0 ? MARCH : -MARCH;
+            drop_ += DROP;
         }
 
         float lowest = 0;
-        for (int i = 0; i < kAliens; i++) {
+        for (int i = 0; i < ALIENS; i++) {
             rmp::Object *alien = aliens_[i].get();
             if (alien == nullptr) continue; // a handle answers this on its own
             alien->position = { home(i).x + march_, home(i).y + drop_ };
@@ -115,7 +115,7 @@ public:
 
         if (alive_ == 0) {
             rmp::Scene::push<OverScene<InvadersScene>>("You win");
-        } else if (lowest > kPlayerY - 30) {
+        } else if (lowest > PLAYER_Y - 30) {
             rmp::Scene::push<OverScene<InvadersScene>>("They landed");
         }
     }
@@ -125,7 +125,7 @@ public:
         // ships are drawn through the camera, so on a window that is not the
         // design size a line drawn in screen units lands somewhere else.
         BeginMode2D(camera.raylib());
-        DrawRectangle(0, static_cast<int>(kGroundY), RMP_WINDOW_WIDTH, 3, DARKGREEN);
+        DrawRectangle(0, static_cast<int>(GROUND_Y), RMP_WINDOW_WIDTH, 3, DARKGREEN);
         EndMode2D();
 
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
@@ -141,15 +141,15 @@ private:
     // Where an alien belongs when the block has not moved. The formation is
     // this plus one offset, which is why no alien has to remember anything.
     static Vector2 home(int index) {
-        return { 180 + static_cast<float>(index % kColumns) * 44,
-                 70 + static_cast<float>(index / kColumns) * 38 };
+        return { 180 + static_cast<float>(index % COLUMNS) * 44,
+                 70 + static_cast<float>(index / COLUMNS) * 38 };
     }
 
     void add_alien(int index) {
         auto &alien = spawn({ .position = home(index), .shape = rmp::rect({ 32, 22 }) });
-        alien.shape.color = kRowColors[index / kColumns];
-        alien.collision_layer = layer::kAlien;
-        alien.collision_mask = layer::kPlayerShot;
+        alien.shape.color = ROW_COLORS[index / COLUMNS];
+        alien.collision_layer = layer::ALIEN;
+        alien.collision_mask = layer::PLAYER_SHOT;
         alien.on_collision([this](rmp::Object &self, rmp::Object &) {
             self.destroy();
             alive_--;
@@ -171,20 +171,20 @@ private:
             spawn({ .position = player_->position, .shape = rmp::rect({ 4, 14 }) });
         shot.shape.color = LIME;
         shot.velocity = { 0, -560 };
-        shot.collision_layer = layer::kPlayerShot;
-        shot.collision_mask = layer::kAlien;
+        shot.collision_layer = layer::PLAYER_SHOT;
+        shot.collision_mask = layer::ALIEN;
         shot.add<rmp::behavior::Projectile>();
     }
 
     // Only the lowest alien of a column fires. The ones above it would shoot
     // their own row in the back, and one `if` against a handle says so.
     void alien_shoot(rmp::Object &from, int index) {
-        if (index + kColumns < kAliens && aliens_[index + kColumns]) return;
+        if (index + COLUMNS < ALIENS && aliens_[index + COLUMNS]) return;
         auto &shot = spawn({ .position = from.position, .shape = rmp::rect({ 4, 14 }) });
         shot.shape.color = RED;
         shot.velocity = { 0, 300 };
-        shot.collision_layer = layer::kAlienShot;
-        shot.collision_mask = layer::kPlayer;
+        shot.collision_layer = layer::ALIEN_SHOT;
+        shot.collision_mask = layer::PLAYER;
         shot.add<rmp::behavior::Projectile>();
     }
 
@@ -192,7 +192,7 @@ private:
     // in and no longer -- and an alien is the thing most likely to die between
     // two of them.
     rmp::Handle<rmp::Object> player_;
-    rmp::Handle<rmp::Object> aliens_[kAliens];
+    rmp::Handle<rmp::Object> aliens_[ALIENS];
     int alive_ = 0;
     float march_ = 0;
     float step_ = 40;

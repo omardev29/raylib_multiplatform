@@ -28,7 +28,7 @@ namespace {
 // while both are on screen at once with different states, which in practice
 // means one of them is hovered and the other is not. Paying for a real hash
 // map to avoid a missing 120 ms fade would be the wrong trade.
-constexpr int kSlots = 512;
+constexpr int SLOTS = 512;
 
 struct Slot {
     uint32_t key = 0;
@@ -36,7 +36,7 @@ struct Slot {
     bool used = false;
 };
 
-Slot g_slots[kSlots];
+Slot g_slots[SLOTS];
 float g_dt = 0.0f;
 
 // Smoothstep. Linear in, eased out: the value still arrives exactly on time,
@@ -81,7 +81,7 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
     if (duration <= 0.0f) return target;
 
     const uint32_t key = id.id ^ ((channel + 1u) * 2246822519u);
-    Slot &s = g_slots[key & (kSlots - 1)];
+    Slot &s = g_slots[key & (SLOTS - 1)];
     if (!s.used || s.key != key) {
         // First sight of this control, or the slot belonged to another one.
         // Start where it is going, so nothing fades in from nowhere the frame

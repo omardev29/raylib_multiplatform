@@ -648,9 +648,9 @@ TEST_SUITE("save: format") {
     TEST_CASE("nesting: as deep as can be read back, and not one level more") {
         // The parser refuses past its nesting limit, so a Value deeper than
         // that must be refused at write -- a save that writes and never reads
-        // back is the worst kind. kMaxDepth here and CJSON_NESTING_LIMIT in
+        // back is the worst kind. MAX_DEPTH here and CJSON_NESTING_LIMIT in
         // cjson_impl.c must agree, and this is what says so.
-        constexpr int kLimit = rmp::save::detail::kMaxDepth;
+        constexpr int LIMIT = rmp::save::detail::MAX_DEPTH;
         const auto nested = [](int depth) {
             Value inner = 1;
             for (int i = 0; i < depth; i++) {
@@ -661,7 +661,7 @@ TEST_SUITE("save: format") {
             return inner;
         };
         int deepest_ok = 0;
-        for (int depth = kLimit - 3; depth <= kLimit + 3; depth++) {
+        for (int depth = LIMIT - 3; depth <= LIMIT + 3; depth++) {
             Bytes out;
             const bool wrote = rmp::save::detail::encode(nested(depth), 1, false, &out);
             if (!wrote) continue;
@@ -670,9 +670,9 @@ TEST_SUITE("save: format") {
             CHECK(decode(out, &back) == Status::OK); // anything written reads back
             deepest_ok = depth;
         }
-        CHECK(deepest_ok == kLimit); // every level up to the limit, and not beyond
+        CHECK(deepest_ok == LIMIT); // every level up to the limit, and not beyond
         Bytes out;
-        CHECK_FALSE(rmp::save::detail::encode(nested(kLimit + 1), 1, false, &out));
+        CHECK_FALSE(rmp::save::detail::encode(nested(LIMIT + 1), 1, false, &out));
         // And the parser, on its own: JSON nested past the limit is refused
         // even when somebody else wrote it.
         const auto arrays = [](int depth) {
@@ -680,8 +680,8 @@ TEST_SUITE("save: format") {
                 std::string(static_cast<std::size_t>(depth), ']');
         };
         Value v;
-        CHECK(rmp::save::detail::from_json(arrays(kLimit), &v));
-        CHECK_FALSE(rmp::save::detail::from_json(arrays(kLimit + 1), &v));
+        CHECK(rmp::save::detail::from_json(arrays(LIMIT), &v));
+        CHECK_FALSE(rmp::save::detail::from_json(arrays(LIMIT + 1), &v));
     }
 
     TEST_CASE("a string or a key with a NUL in it is refused, not cut short") {

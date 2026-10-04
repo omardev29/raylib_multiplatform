@@ -135,9 +135,9 @@ public:
     // raylib draws nothing for one of those, which is the behaviour a missing
     // asset should have: a hole in the picture, not a dead process.
     const T &raw() const {
-        static const T kEmpty{};
+        static const T EMPTY{};
         const void *p = payload(slot_);
-        return p ? *static_cast<const T *>(p) : kEmpty;
+        return p ? *static_cast<const T *>(p) : EMPTY;
     }
     // Only an LVALUE converts. `DrawTexture(rabbit, ...)` compiles;
     // `Texture2D t = load_texture("x.png");` does NOT, and that is the point
@@ -173,7 +173,7 @@ private:
 // because it is compared per frame and never grows.
 // ---------------------------------------------------------------------------
 
-constexpr int kMaxTagName = 32;
+constexpr int MAX_TAG_NAME = 32;
 
 struct SheetFrame {
     Rectangle source{}; // where this frame is in the packed texture
@@ -181,7 +181,7 @@ struct SheetFrame {
 };
 
 struct SheetTag {
-    char name[kMaxTagName] = {};
+    char name[MAX_TAG_NAME] = {};
     int from = 0;
     int to = 0; // inclusive, the way Aseprite counts
     bool ping_pong = false;
@@ -202,13 +202,13 @@ struct SheetData {
     [[nodiscard]] int frame_count() const { return static_cast<int>(frames.size()); }
     [[nodiscard]] int tag_count() const { return static_cast<int>(tags.size()); }
     [[nodiscard]] const SheetFrame &frame(int index) const {
-        static const SheetFrame kEmpty{};
-        if (index < 0 || index >= frame_count()) return kEmpty;
+        static const SheetFrame EMPTY{};
+        if (index < 0 || index >= frame_count()) return EMPTY;
         return frames[static_cast<std::size_t>(index)];
     }
     [[nodiscard]] const SheetTag &tag(int index) const {
-        static const SheetTag kEmpty{};
-        if (index < 0 || index >= tag_count()) return kEmpty;
+        static const SheetTag EMPTY{};
+        if (index < 0 || index >= tag_count()) return EMPTY;
         return tags[static_cast<std::size_t>(index)];
     }
 };

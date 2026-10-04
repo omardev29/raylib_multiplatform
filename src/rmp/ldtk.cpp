@@ -83,8 +83,8 @@ using rmp::detail::Json;
 // 1.5 KB file of a dozen 4096 x 4096 layers take three quarters of a gigabyte.
 // 16M cells is all the layers of a 65 536 x 65 536 px level at 16 px; 4M tiles
 // is every tileset of a project, each a 32 768 px square of 16 px tiles.
-constexpr long long kMaxCells = 1LL << 24;
-constexpr long long kMaxTiles = 1LL << 22;
+constexpr long long MAX_CELLS = 1LL << 24;
+constexpr long long MAX_TILES = 1LL << 22;
 
 // A coordinate in cells, or false when it is not a finite number inside
 // 0..limit: a float past INT_MAX, an infinity or a NaN cast to int is
@@ -116,17 +116,17 @@ double number(const cJSON *object, const char *key, double fallback) {
 // a value past INT_MAX cast straight to int is undefined behaviour.
 int as_int(double value) {
     if (std::isnan(value)) return 0;
-    constexpr double kMax = 2147483647.0;
-    constexpr double kMin = -2147483648.0;
-    return static_cast<int>(std::clamp(value, kMin, kMax));
+    constexpr double HIGHEST = 2147483647.0;
+    constexpr double LOWEST = -2147483648.0;
+    return static_cast<int>(std::clamp(value, LOWEST, HIGHEST));
 }
 
 // A float out of a double, clamped and with NaN as 0: a double past FLT_MAX
 // converted to float is undefined behaviour in C++, IEEE or not.
 float as_float(double value) {
     if (std::isnan(value)) return 0;
-    constexpr double kMax = 3.4e38;
-    return static_cast<float>(std::clamp(value, -kMax, kMax));
+    constexpr double HIGHEST = 3.4e38;
+    return static_cast<float>(std::clamp(value, -HIGHEST, HIGHEST));
 }
 
 int integer(const cJSON *object, const char *key, int fallback) {
@@ -175,17 +175,17 @@ struct Project {
     const char *name = ""; // the file, for the messages
     std::vector<TilesetRef> tilesets;
     const cJSON *layer_defs = nullptr;
-    long long cells_left = kMaxCells; // what the level's layers may still allocate
+    long long cells_left = MAX_CELLS; // what the level's layers may still allocate
 };
 
 // Every tileset of the project gets a range of gids, used or not, so a gid
 // means the same tile whichever level is loaded. Only the ones a layer of
 // this level draws with load their image (see load_used_textures).
 void read_tilesets(const cJSON *defs, Project *project, MapData *data) {
-    // Gids start at 1 and never pass kMaxTiles + 1, so none of the sums below
+    // Gids start at 1 and never pass MAX_TILES + 1, so none of the sums below
     // can overflow an int whatever the file says.
     int next_gid = 1;
-    long long tiles_left = kMaxTiles;
+    long long tiles_left = MAX_TILES;
     const cJSON *set = nullptr;
     cJSON_ArrayForEach(set, array(defs, "tilesets")) {
         Tileset out;

@@ -13,7 +13,7 @@ namespace game {
 
 namespace {
 bool is_player(const rmp::Object &other) {
-    return (other.collision_layer & layer::kPlayer) != 0;
+    return (other.collision_layer & layer::PLAYER) != 0;
 }
 
 // The top-left corner of an object's box, which is where tiles are drawn from.
@@ -30,8 +30,8 @@ void Platform::_ready() {
     // box is LDtk's, set by the factory.
     solid = true;
     immovable = true;
-    collision_layer = layer::kSolid;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::SOLID;
+    collision_mask = layer::PLAYER;
 }
 
 void Platform::_update(float delta) {
@@ -93,8 +93,8 @@ void Platform::_update(float delta) {
 void Platform::_draw() {
     const Vector2 at = corner(*this);
     draw_tile(48, at);
-    draw_tile(49, { at.x + kTile, at.y });
-    draw_tile(50, { at.x + (2 * kTile), at.y });
+    draw_tile(49, { at.x + TILE, at.y });
+    draw_tile(50, { at.x + (2 * TILE), at.y });
 }
 
 // ---- coins, the key, the door -------------------------------------------------
@@ -103,8 +103,8 @@ void Coin::_ready() {
     sprite.sheet = rmp::assets::load_sheet("coin.aseprite");
     sprite.play("spin");
     collider = rmp::rect({ 10, 10 });
-    collision_layer = layer::kPickup;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::PICKUP;
+    collision_mask = layer::PLAYER;
 }
 
 void Coin::_collision(rmp::Object &other) {
@@ -117,8 +117,8 @@ void Coin::_collision(rmp::Object &other) {
 
 void Key::_ready() {
     collider = rmp::rect({ 14, 10 });
-    collision_layer = layer::kPickup;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::PICKUP;
+    collision_mask = layer::PLAYER;
 }
 
 void Key::_update(float delta) { clock_ += delta; }
@@ -126,7 +126,7 @@ void Key::_update(float delta) { clock_ += delta; }
 void Key::_draw() {
     const float bob =
         std::sin(clock_ * 3) * 2; // it floats, so it reads as a thing to take
-    draw_tile(27, { position.x - (kTile / 2), position.y - (kTile / 2) + bob });
+    draw_tile(27, { position.x - (TILE / 2), position.y - (TILE / 2) + bob });
 }
 
 void Key::_collision(rmp::Object &other) {
@@ -140,13 +140,13 @@ void Key::_collision(rmp::Object &other) {
 void Door::_ready() {
     solid = true;
     immovable = true;
-    collision_layer = layer::kSolid;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::SOLID;
+    collision_mask = layer::PLAYER;
 }
 
 void Door::_draw() {
     const Vector2 at = corner(*this);
-    for (float y = 0; y + 1 < world_collider().height; y += kTile)
+    for (float y = 0; y + 1 < world_collider().height; y += TILE)
         draw_tile(28, { at.x, at.y + y });
 }
 
@@ -160,16 +160,16 @@ void Door::_collision(rmp::Object &other) {
 // ---- what hurts, what talks, what wins ----------------------------------------
 
 void Spikes::_ready() {
-    collision_layer = layer::kHazard;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::HAZARD;
+    collision_mask = layer::PLAYER;
 }
 
 void Spikes::_draw() {
     // The collider is the points only, the bottom of the cells; the art fills
     // the cells, so it is drawn from the cells' corner.
     const float width = world_collider().width + 4;
-    const Vector2 at{ position.x - (width / 2), position.y - (kTile / 2) };
-    for (float x = 0; x + 1 < width; x += kTile) draw_tile(68, { at.x + x, at.y });
+    const Vector2 at{ position.x - (width / 2), position.y - (TILE / 2) };
+    for (float x = 0; x + 1 < width; x += TILE) draw_tile(68, { at.x + x, at.y });
 }
 
 void Spikes::_collision(rmp::Object &other) {
@@ -179,14 +179,14 @@ void Spikes::_collision(rmp::Object &other) {
 void Sign::_ready() {
     // The box is where the player can read it from, not the sign itself.
     collider = rmp::rect({ 54, 36 });
-    collision_layer = layer::kSign;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::SIGN;
+    collision_mask = layer::PLAYER;
 }
 
 void Sign::_update(float delta) { near_ -= delta; }
 
 void Sign::_draw() {
-    draw_tile(tile, { position.x - (kTile / 2), position.y - (kTile / 2) });
+    draw_tile(tile, { position.x - (TILE / 2), position.y - (TILE / 2) });
     if (near_ <= 0 || text.empty()) return;
     // World space, in raylib's default font at its own 10 px: the camera's
     // zoom makes it as chunky as the art.
@@ -203,17 +203,17 @@ void Sign::_collision(rmp::Object &other) {
 
 void Goal::_ready() {
     collider = rmp::rect({ 10, 36 });
-    collision_layer = layer::kGoal;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::GOAL;
+    collision_mask = layer::PLAYER;
 }
 
 void Goal::_draw() {
     // The pole in the bottom cell, the flag waving in the top one.
     const Rectangle box = world_collider();
-    const float left = position.x - (kTile / 2);
-    draw_tile(131, { left, box.y + box.height - kTile });
+    const float left = position.x - (TILE / 2);
+    draw_tile(131, { left, box.y + box.height - TILE });
     const int frame = static_cast<int>(GetTime() * 4) % 2;
-    draw_tile(111 + frame, { left, box.y + box.height - (2 * kTile) });
+    draw_tile(111 + frame, { left, box.y + box.height - (2 * TILE) });
 }
 
 void Goal::_collision(rmp::Object &other) {

@@ -64,8 +64,8 @@ bool g_font_failed = false;
 // Text arena. Clay keeps pointers into whatever we hand it and reads them at
 // Clay_EndLayout, so the memory has to survive the frame. 8 KB is a lot of
 // menu; if a UI ever needs more, the truncation below says so out loud.
-constexpr int kArenaSize = 8 * 1024;
-char g_text_arena[kArenaSize];
+constexpr int ARENA_SIZE = 8 * 1024;
+char g_text_arena[ARENA_SIZE];
 int g_arena_used = 0;
 
 // Occurrence counters, so two buttons with the same label are two elements.
@@ -75,12 +75,12 @@ int g_arena_used = 0;
 // max_elements in the first place. It used to be 128, which an inventory with
 // unique item names reaches while the frame is still perfectly legal -- and the
 // 129th label onwards silently shared occurrence 0 with every other one.
-constexpr int kMaxLabels = 256;
+constexpr int MAX_LABELS = 256;
 struct LabelCount {
     uint32_t hash;
     uint16_t count;
 };
-LabelCount g_labels[kMaxLabels];
+LabelCount g_labels[MAX_LABELS];
 int g_label_count = 0;
 // Labels that did not fit. They take indices from the TOP of the pass block,
 // counting down, so two elements sharing an unrecorded label are still two
@@ -103,14 +103,14 @@ bool g_pass_input = true;
 // Each pass gets its own block of element indices, so that a scene's ids depend
 // only on that scene. 4096 is far more widgets than a pass will ever have and
 // leaves room for 2^20 passes, which is not a number anyone will reach.
-constexpr uint32_t kIndicesPerPass = 4096;
+constexpr uint32_t INDICES_PER_PASS = 4096;
 
 // Last frame's geometry, per pass. Two buffers: one being filled by the frame
 // being described, one being read by it. Clay cannot answer this itself —
 // Clay_BeginLayout resets its element map, so after two passes only the second
 // one's boxes exist, and the first scene's grid would size itself from the
 // second scene's layout.
-constexpr int kMaxBounds = 512;
+constexpr int MAX_BOUNDS = 512;
 struct BoundsEntry {
     uint32_t id;
     // The innermost container this element was declared inside that owns what
@@ -122,7 +122,7 @@ struct BoundsEntry {
     uint32_t clip;
     Clay_BoundingBox box;
 };
-BoundsEntry g_bounds[2][kMaxBounds];
+BoundsEntry g_bounds[2][MAX_BOUNDS];
 int g_bounds_count[2] = { 0, 0 };
 int g_bounds_front = 0; // the one this frame writes; the other is last frame's
 
@@ -132,12 +132,12 @@ int g_bounds_front = 0; // the one this frame writes; the other is last frame's
 // explicitly: while the pointer is inside one of these, only what is inside it
 // can be over. Per pass, and double-buffered with the geometry because a
 // blocker declared this frame can only be known to the next one.
-constexpr int kMaxBlockers = 4;
+constexpr int MAX_BLOCKERS = 4;
 struct Blocker {
     int pass;
     uint32_t id;
 };
-Blocker g_blockers[2][kMaxBlockers];
+Blocker g_blockers[2][MAX_BLOCKERS];
 int g_blocker_count[2] = { 0, 0 };
 
 // The ids handed out during the pass being described, so that capture_pass_
@@ -146,14 +146,14 @@ struct PassId {
     uint32_t id;
     uint32_t clip;
 };
-PassId g_pass_ids[kMaxBounds];
+PassId g_pass_ids[MAX_BOUNDS];
 int g_pass_id_count = 0;
 
 // The clipping containers open right now, innermost last. Pushed by
 // open_scroll() and popped by close_scroll(); reset per pass so an imbalance
 // cannot leak into the next one.
-constexpr int kMaxClipDepth = 8;
-uint32_t g_clips[kMaxClipDepth];
+constexpr int MAX_CLIP_DEPTH = 8;
+uint32_t g_clips[MAX_CLIP_DEPTH];
 int g_clip_depth = 0;
 int g_clip_overflow = 0; // pushed past the limit, so the pops still pair up
 
@@ -364,7 +364,7 @@ void *frame_alloc(size_t bytes) {
     // Everything stored here is at most pointer-aligned, so rounding the
     // cursor up to 8 is enough and costs a few bytes a frame.
     int aligned = (g_arena_used + 7) & ~7;
-    if (aligned + static_cast<int>(bytes) > kArenaSize) return nullptr;
+    if (aligned + static_cast<int>(bytes) > ARENA_SIZE) return nullptr;
     void *p = g_text_arena + aligned;
     g_arena_used = aligned + static_cast<int>(bytes);
     return p;
@@ -372,10 +372,10 @@ void *frame_alloc(size_t bytes) {
 
 Clay_String intern(std::string_view s) {
     int len = static_cast<int>(s.size());
-    if (len > kArenaSize - g_arena_used) {
-        len = kArenaSize - g_arena_used;
+    if (len > ARENA_SIZE - g_arena_used) {
+        len = ARENA_SIZE - g_arena_used;
         RMP_REPORT_ONCE("UI: text arena full (%d bytes); labels are being truncated",
-                        kArenaSize);
+                        ARENA_SIZE);
     }
     if (len <= 0) return Clay_String{ false, 0, g_text_arena };
 
@@ -397,7 +397,7 @@ namespace {
 // only consequence is that one element forgets how big it was last frame, and
 // capture_pass_bounds() is where that gets said out loud, once.
 void remember_id(uint32_t id) {
-    if (g_pass_id_count >= kMaxBounds) return;
+    if (g_pass_id_count >= MAX_BOUNDS) return;
     const uint32_t clip = g_clip_depth > 0 ? g_clips[g_clip_depth - 1] : 0u;
     g_pass_ids[g_pass_id_count++] = PassId{ id, clip };
 }
@@ -433,11 +433,11 @@ bool pass_input() { return g_pass_input; }
 void capture_pass_bounds() {
     int &count = g_bounds_count[g_bounds_front];
     for (int i = 0; i < g_pass_id_count; i++) {
-        if (count >= kMaxBounds) {
+        if (count >= MAX_BOUNDS) {
             RMP_REPORT_ONCE("UI: more than %d elements in one frame; the extra ones lose "
                             "their remembered geometry, so a grid or slider among them "
                             "may size itself oddly",
-                            kMaxBounds);
+                            MAX_BOUNDS);
             return;
         }
         Clay_ElementId key{};
@@ -454,13 +454,13 @@ void capture_pass_bounds() {
 void push_clip(Clay_ElementId id) {
     // Paired even when it overflows, the way the grid stack learned to be: a
     // push that does not happen must not be followed by a pop that does.
-    if (g_clip_depth < kMaxClipDepth) {
+    if (g_clip_depth < MAX_CLIP_DEPTH) {
         g_clips[g_clip_depth++] = id.id;
     } else {
         g_clip_overflow++;
         RMP_REPORT_ONCE("UI: scroll areas nested more than %d deep; the ones past that "
                         "do not clip what can be clicked inside them",
-                        kMaxClipDepth);
+                        MAX_CLIP_DEPTH);
     }
 }
 
@@ -474,7 +474,7 @@ void pop_clip() {
 
 void block_pointer(Clay_ElementId id) {
     int &count = g_blocker_count[g_bounds_front];
-    if (count >= kMaxBlockers) return; // four open dropdowns is already absurd
+    if (count >= MAX_BLOCKERS) return; // four open dropdowns is already absurd
     g_blockers[g_bounds_front][count++] = Blocker{ current_pass(), id.id };
 }
 
@@ -576,7 +576,7 @@ Clay_ElementId peek_element_id(std::string_view label, unsigned occurrence, int 
     // screen.
     Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
     return Clay_GetElementIdWithIndex(
-        s, static_cast<uint32_t>(pass) * kIndicesPerPass + occurrence);
+        s, static_cast<uint32_t>(pass) * INDICES_PER_PASS + occurrence);
 }
 
 Clay_ElementId peek_element_id(std::string_view label) {
@@ -613,7 +613,7 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
     }
     if (slot >= 0) {
         occurrence = ++g_labels[slot].count;
-    } else if (g_label_count < kMaxLabels) {
+    } else if (g_label_count < MAX_LABELS) {
         g_labels[g_label_count++] = LabelCount{ h, 0 };
     } else {
         // The table is full. Leaving these at occurrence 0 is what made two
@@ -627,10 +627,10 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
         RMP_REPORT_ONCE("UI: more than %d distinct labels in one pass; the ones past "
                         "that keep working but are numbered from the other end. Give "
                         "the repeated ones an explicit id if anything looks swapped.",
-                        kMaxLabels);
-        if (g_label_overflow < static_cast<int>(kIndicesPerPass) / 2) g_label_overflow++;
+                        MAX_LABELS);
+        if (g_label_overflow < static_cast<int>(INDICES_PER_PASS) / 2) g_label_overflow++;
         return finish_id(label,
-                         static_cast<unsigned>(kIndicesPerPass) -
+                         static_cast<unsigned>(INDICES_PER_PASS) -
                              static_cast<unsigned>(g_label_overflow));
     }
     // Same label twice in one pass => different index => different element, so
@@ -802,7 +802,7 @@ bool inside_box(Clay_Vector2 p, const Clay_BoundingBox &b) {
 // of the list they live in, so "inside its box" would say they are not its.
 bool descends_from(const BoundsEntry *e, uint32_t ancestor) {
     uint32_t clip = e->clip;
-    for (int depth = 0; clip != 0 && depth <= kMaxClipDepth; depth++) {
+    for (int depth = 0; clip != 0 && depth <= MAX_CLIP_DEPTH; depth++) {
         if (clip == ancestor) return true;
         const BoundsEntry *c = entry_of(clip);
         if (c == nullptr) return false;

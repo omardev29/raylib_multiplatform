@@ -14,8 +14,8 @@
 namespace game {
 
 namespace {
-constexpr float kGrace = 1.5f; // seconds of not being hurt again
-constexpr float kKnock = 0.3f; // seconds without control, thrown back
+constexpr float GRACE = 1.5f; // seconds of not being hurt again
+constexpr float KNOCK = 0.3f; // seconds without control, thrown back
 int g_jumps_seen = 0;
 } // namespace
 
@@ -30,9 +30,9 @@ void Player::_ready() {
     // a little narrower than it, with its feet where the picture's are.
     collider = rmp::rect({ 12, 20 });
     collider.offset = { 0, 2 };
-    collision_layer = layer::kPlayer;
-    collision_mask = layer::kEnemy | layer::kPickup | layer::kHazard | layer::kSolid |
-        layer::kGoal | layer::kSign;
+    collision_layer = layer::PLAYER;
+    collision_mask = layer::ENEMY | layer::PICKUP | layer::HAZARD | layer::SOLID |
+        layer::GOAL | layer::SIGN;
     layer = 5;
     add<rmp::behavior::Platformer>({
         .speed = 130,
@@ -77,8 +77,8 @@ void Player::_update(float delta) {
 
 void Player::hurt(float from_x) {
     if (grace_ > 0) return;
-    grace_ = kGrace;
-    knocked_ = kKnock;
+    grace_ = GRACE;
+    knocked_ = KNOCK;
     velocity = { position.x < from_x ? -110.0f : 110.0f, -240 };
     // The player only ever lives in a LevelScene.
     static_cast<LevelScene *>(scene())->lose_life();

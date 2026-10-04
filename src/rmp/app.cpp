@@ -43,7 +43,7 @@
 // to `main`".
 extern "C" void rmp_entry_point_is_declared_exactly_once();
 namespace {
-void (*const kRequireEntryPoint)() = &rmp_entry_point_is_declared_exactly_once;
+void (*const REQUIRE_ENTRY_POINT)() = &rmp_entry_point_is_declared_exactly_once;
 } // namespace
 
 #if defined(PLATFORM_ANDROID)
@@ -62,15 +62,15 @@ bool g_quit_requested = false;
 // step fails -- and then RAY_TEST_BOOT_OK is never printed, which is what
 // every CI job greps for.
 bool smoke_save_round_trip() {
-    constexpr const char *kSlot = "rmp-ci-smoke";
+    constexpr const char *SLOT = "rmp-ci-smoke";
     rmp::Value sent;
     sent["frames"] = SmokeTest_maxFrames;
     sent["name"] = "Jos\xc3\xa9 M\xc3\xbcller";
     rmp::Value back;
-    const bool wrote = rmp::save::write(kSlot, sent);
-    const rmp::save::Result read = rmp::save::read(kSlot, &back);
+    const bool wrote = rmp::save::write(SLOT, sent);
+    const rmp::save::Result read = rmp::save::read(SLOT, &back);
     const bool same = read && back == sent;
-    const bool removed = rmp::save::remove(kSlot);
+    const bool removed = rmp::save::remove(SLOT);
     if (wrote && same && removed) {
         TraceLog(LOG_INFO, "RAY_TEST_SAVE_OK dir=%s", rmp::save::directory().c_str());
         return true;

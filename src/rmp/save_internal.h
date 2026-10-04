@@ -62,7 +62,7 @@ Status decode(const Bytes &file, Value *out, bool sealed_only = false);
 // sets CJSON_NESTING_LIMIT to the same number, and tests/save_test.cpp checks
 // that the two agree. Small on purpose: the conversion is recursive, and the
 // web's default stack of 64 KB overflowed at about 400 levels.
-constexpr int kMaxDepth = 64;
+constexpr int MAX_DEPTH = 64;
 
 // JSON alone, no header: what goes inside, and what a test compares.
 std::string to_json(const Value &value);

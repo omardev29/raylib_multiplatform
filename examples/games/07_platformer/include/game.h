@@ -13,18 +13,18 @@
 
 namespace game {
 
-constexpr float kTile = 18; // the grid of tiles.png and of every level
+constexpr float TILE = 18; // the grid of tiles.png and of every level
 
 // Who notices whom. The player is on its own layer and everything that can
 // touch it looks at that layer; nothing else needs to know about anything else.
 namespace layer {
-constexpr unsigned kPlayer = 1u << 0;
-constexpr unsigned kEnemy = 1u << 1;
-constexpr unsigned kPickup = 1u << 2; // coins and keys
-constexpr unsigned kHazard = 1u << 3; // spikes
-constexpr unsigned kSolid = 1u << 4; // moving platforms and doors
-constexpr unsigned kGoal = 1u << 5;
-constexpr unsigned kSign = 1u << 6;
+constexpr unsigned PLAYER = 1u << 0;
+constexpr unsigned ENEMY = 1u << 1;
+constexpr unsigned PICKUP = 1u << 2; // coins and keys
+constexpr unsigned HAZARD = 1u << 3; // spikes
+constexpr unsigned SOLID = 1u << 4; // moving platforms and doors
+constexpr unsigned GOAL = 1u << 5;
+constexpr unsigned SIGN = 1u << 6;
 } // namespace layer
 
 // THE RUN: what survives walking from one level into the next, and dying.

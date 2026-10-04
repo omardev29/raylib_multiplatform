@@ -20,15 +20,15 @@
 
 namespace {
 
-constexpr int kColumns = 10;
-constexpr int kRows = 5;
-constexpr float kBrickWidth = 72;
-constexpr float kBrickHeight = 24;
-constexpr int kLives = 3;
-constexpr float kPaddleY = 420;
+constexpr int COLUMNS = 10;
+constexpr int ROWS = 5;
+constexpr float BRICK_WIDTH = 72;
+constexpr float BRICK_HEIGHT = 24;
+constexpr int LIVES = 3;
+constexpr float PADDLE_Y = 420;
 
 // One per row, top to bottom. A wall of one colour is a wall; five is a game.
-constexpr Color kRowColors[kRows] = { MAROON, ORANGE, GOLD, LIME, SKYBLUE };
+constexpr Color ROW_COLORS[ROWS] = { MAROON, ORANGE, GOLD, LIME, SKYBLUE };
 
 // The end of a game, PUSHED on top of it: the wall below freezes, stays on
 // screen and stops hearing the keyboard, so this scene writes no policy at all
@@ -55,7 +55,7 @@ public:
         background = Color{ 16, 18, 34, 255 };
 
         auto &paddle =
-            spawn({ .position = { 400, kPaddleY }, .shape = rmp::rect({ 110, 16 }) });
+            spawn({ .position = { 400, PADDLE_Y }, .shape = rmp::rect({ 110, 16 }) });
         paddle.shape.color = rmp::ui::current_theme().primary;
         paddle.edges = rmp::Edge::CLAMP;
         paddle.solid = true;
@@ -75,8 +75,8 @@ public:
         ball_ = ball.handle();
         serve();
 
-        for (int row = 0; row < kRows; row++) {
-            for (int column = 0; column < kColumns; column++) {
+        for (int row = 0; row < ROWS; row++) {
+            for (int column = 0; column < COLUMNS; column++) {
                 add_brick(row, column);
             }
         }
@@ -114,13 +114,13 @@ public:
 private:
     void add_brick(int row, int column) {
         auto &brick = spawn({
-            .position = { 44 + static_cast<float>(column) * (kBrickWidth + 4),
-                          60 + static_cast<float>(row) * (kBrickHeight + 4) },
-            .shape = rmp::rect({ kBrickWidth, kBrickHeight }),
+            .position = { 44 + static_cast<float>(column) * (BRICK_WIDTH + 4),
+                          60 + static_cast<float>(row) * (BRICK_HEIGHT + 4) },
+            .shape = rmp::rect({ BRICK_WIDTH, BRICK_HEIGHT }),
         });
         brick.solid = true;
         brick.immovable = true;
-        brick.shape.color = kRowColors[row];
+        brick.shape.color = ROW_COLORS[row];
         bricks_++;
         // The whole of "a brick breaks". No behavior, no subclass.
         brick.on_collision([this](rmp::Object &self, rmp::Object &other) {
@@ -134,7 +134,7 @@ private:
     // upwards, and an impulse rather than a force because only the direction
     // survives -- Ball normalises whatever it is given to `speed`.
     void serve() {
-        ball_->position = { paddle_->position.x, kPaddleY - 40 };
+        ball_->position = { paddle_->position.x, PADDLE_Y - 40 };
         ball_->velocity = {};
         ball_->apply_impulse({ 0.4f, -1 });
     }
@@ -144,7 +144,7 @@ private:
     rmp::Handle<rmp::Object> paddle_;
     rmp::Handle<rmp::Object> ball_;
     int bricks_ = 0;
-    int lives_ = kLives;
+    int lives_ = LIVES;
 };
 
 } // namespace

@@ -638,7 +638,7 @@ TEST_CASE_FIXTURE(
 TEST_CASE_FIXTURE(Fixture,
                   "TopDown: a tag name too long for the buffer falls back instead of "
                   "truncating into a stranger") {
-    // The tag is built into a fixed char[kMaxTagName * 2] from two strings the
+    // The tag is built into a fixed char[MAX_TAG_NAME * 2] from two strings the
     // user supplied. A name that does not fit has to come back as "not in the
     // sheet", not as some other tag's name by accident.
     World world;
@@ -770,7 +770,7 @@ TEST_CASE_FIXTURE(
     rmp::Object &source = world.spawn();
     auto &spawner = source.add<rmp::behavior::Spawner>({
         .every_seconds = 0.01f,
-        .max_alive = rmp::behavior::kMaxSpawned + 10,
+        .max_alive = rmp::behavior::MAX_SPAWNED + 10,
         .on_spawn =
             [&](rmp::Scene &scene, Vector2 where) {
                 scene.spawn({ .position = where });
@@ -779,8 +779,8 @@ TEST_CASE_FIXTURE(
     });
 
     for (int i = 0; i < 600; i++) frame(world, 1.0f / 60);
-    CHECK(made == rmp::behavior::kMaxSpawned);
-    CHECK(spawner.alive() == rmp::behavior::kMaxSpawned);
+    CHECK(made == rmp::behavior::MAX_SPAWNED);
+    CHECK(spawner.alive() == rmp::behavior::MAX_SPAWNED);
     // Once, not once per frame: a warning printed sixty times a second is the
     // same as no warning at all.
     CHECK(rmp::detail::report_count() == 1);
@@ -791,8 +791,8 @@ TEST_CASE_FIXTURE(
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr unsigned kEnemyLayer = 1u << 1;
-constexpr unsigned kCoinLayer = 1u << 2;
+constexpr unsigned ENEMY_LAYER = 1u << 1;
+constexpr unsigned COIN_LAYER = 1u << 2;
 
 rmp::Object &toucher(World &world, unsigned layer) {
     rmp::Object &one =
@@ -811,15 +811,15 @@ TEST_CASE_FIXTURE(Fixture, "Health: contact with a layer in hurt_by costs hp") {
     auto &health = player.add<rmp::behavior::Health>({ .hp = 5,
                                                        .max_hp = 5,
                                                        .invulnerable_for = 0,
-                                                       .hurt_by = kEnemyLayer,
+                                                       .hurt_by = ENEMY_LAYER,
                                                        .damage_on_hit = 2 });
 
     // A coin is contact, and contact is not damage.
-    toucher(world, kCoinLayer);
+    toucher(world, COIN_LAYER);
     frame(world, 1.0f / 60);
     CHECK(health.hp == 5);
 
-    toucher(world, kEnemyLayer);
+    toucher(world, ENEMY_LAYER);
     frame(world, 1.0f / 60);
     CHECK(health.hp == 3);
 }
@@ -831,8 +831,8 @@ TEST_CASE_FIXTURE(Fixture, "Health: hurt_by = 0 is never, which is the default")
     player.collision_mask = 0xFFFFFFFFu;
     auto &health = player.add<rmp::behavior::Health>({ .hp = 5, .invulnerable_for = 0 });
 
-    toucher(world, kEnemyLayer);
-    toucher(world, kCoinLayer);
+    toucher(world, ENEMY_LAYER);
+    toucher(world, COIN_LAYER);
     for (int i = 0; i < 10; i++) frame(world, 1.0f / 60);
     CHECK(health.hp == 5);
 }
@@ -845,9 +845,9 @@ TEST_CASE_FIXTURE(Fixture,
         world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 20 }) });
     player.collision_mask = 0xFFFFFFFFu;
     auto &health = player.add<rmp::behavior::Health>(
-        { .hp = 5, .max_hp = 5, .invulnerable_for = 0.5f, .hurt_by = kEnemyLayer });
+        { .hp = 5, .max_hp = 5, .invulnerable_for = 0.5f, .hurt_by = ENEMY_LAYER });
 
-    toucher(world, kEnemyLayer);
+    toucher(world, ENEMY_LAYER);
     for (int i = 0; i < 12; i++) frame(world, 1.0f / 60); // a fifth of a second
     CHECK(health.hp == 4);
 }
@@ -867,10 +867,10 @@ TEST_CASE_FIXTURE(
         .destroy_on_death = false,
         .on_death = [&](rmp::Object &) { deaths++; },
         .on_damage = [&](rmp::Object &, int amount) { landed += amount; },
-        .hurt_by = kEnemyLayer,
+        .hurt_by = ENEMY_LAYER,
     });
 
-    toucher(world, kEnemyLayer);
+    toucher(world, ENEMY_LAYER);
     for (int i = 0; i < 10; i++) frame(world, 1.0f / 60);
     CHECK(landed == 1);
     CHECK(deaths == 1); // once, however many frames the contact lasts
@@ -925,12 +925,12 @@ TEST_CASE_FIXTURE(Fixture, "a projectile that dies on contact still counts as a 
     // player in the six games was immortal and every enemy unkillable, on a
     // coin flip of which object the pair listed first.
     World world;
-    constexpr unsigned kBullets = 1u << 3;
+    constexpr unsigned BULLETS = 1u << 3;
     int hits = 0;
     rmp::Object &alien =
         world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 40, 40 }) });
     alien.add<rmp::behavior::Health>(
-        { .hp = 2, .invulnerable_for = 0, .hurt_by = kBullets });
+        { .hp = 2, .invulnerable_for = 0, .hurt_by = BULLETS });
     alien.on_collision([&hits](rmp::Object &, rmp::Object &) { hits++; });
     // Asked through handles: frame() collects the dead, so after it a
     // reference to one is a reference to freed memory -- which is what this
@@ -941,7 +941,7 @@ TEST_CASE_FIXTURE(Fixture, "a projectile that dies on contact still counts as a 
         // Both orders of the pair, because that was the coin.
         rmp::Object &bullet =
             world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 4, 4 }) });
-        bullet.collision_layer = kBullets;
+        bullet.collision_layer = BULLETS;
         bullet.add<rmp::behavior::Projectile>({ .speed = 0 });
         const rmp::Handle<rmp::Object> bullet_handle = bullet.handle();
         frame(world, 1.0f / 60);

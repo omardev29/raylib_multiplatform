@@ -537,12 +537,12 @@ bool apply_edges(Object &object) {
 // is bisected down to the contact, and the velocity along that axis becomes
 // zero: the landing, or the head on the ceiling.
 
-constexpr int kContactBisections = 12; // half a cell / 4096: well under a pixel
+constexpr int CONTACT_BISECTIONS = 12; // half a cell / 4096: well under a pixel
 // The most steps one axis takes in one frame. Half a cell each, so this is
 // tens of thousands of pixels per frame before an absurd velocity starts
 // stepping over cells -- and the frame never turns into a million solid_in()
 // calls, nor casts a step count past INT_MAX.
-constexpr float kMaxSteps = 4096;
+constexpr float MAX_STEPS = 4096;
 
 bool in_map(const Tilemap &map, const Object &object) {
     return map.solid_in(object.world_collider());
@@ -576,7 +576,7 @@ void push_out(Object &object, const Tilemap &map, float cell) {
         if (out == 0) continue;
         float lo = out - 1;
         float hi = out;
-        for (int i = 0; i < kContactBisections; i++) {
+        for (int i = 0; i < CONTACT_BISECTIONS; i++) {
             const float mid = (lo + hi) / 2;
             object.position = Vector2{ start.x + d.x * mid, start.y + d.y * mid };
             if (in_map(map, object))
@@ -622,7 +622,7 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
         float &coordinate = axis == 0 ? object.position.x : object.position.y;
         float &speed = axis == 0 ? object.velocity.x : object.velocity.y;
         const float wanted = std::ceil(std::fabs(travel) / limit);
-        const int steps = static_cast<int>(std::min(wanted, kMaxSteps));
+        const int steps = static_cast<int>(std::min(wanted, MAX_STEPS));
         const float increment = travel / static_cast<float>(steps);
         for (int i = 0; i < steps; i++) {
             const float from = coordinate;
@@ -631,7 +631,7 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
             // This increment ends inside: find the contact within it.
             float lo = 0;
             float hi = 1;
-            for (int k = 0; k < kContactBisections; k++) {
+            for (int k = 0; k < CONTACT_BISECTIONS; k++) {
                 const float mid = (lo + hi) / 2;
                 coordinate = from + (increment * mid);
                 if (in_map(map, object))

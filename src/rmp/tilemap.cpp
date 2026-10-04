@@ -349,7 +349,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                 // the gid falls through to its default, while `gid == 0 means
                 // not a tile object` still passes and nothing looks wrong.
                 out.gid =
-                    static_cast<int>(static_cast<unsigned>(object->gid) & ~kFlipMask);
+                    static_cast<int>(static_cast<unsigned>(object->gid) & ~FLIP_MASK);
                 // TILED GIVES A CORNER and rmp::Object's position is the
                 // CENTRE. Converting here rather than at every call site is
                 // most of what this struct is for -- and WHICH corner depends
@@ -380,7 +380,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         for (int i = 0; i < layer->data_count; i++) {
             // The top three bits are Tiled's flip flags, not part of the id.
             out.gids.push_back(
-                static_cast<int>(static_cast<unsigned>(layer->data[i]) & ~kFlipMask));
+                static_cast<int>(static_cast<unsigned>(layer->data[i]) & ~FLIP_MASK));
         }
         data->layers.push_back(std::move(out));
     }

@@ -42,7 +42,7 @@ void copy_name(char *into, const char *from) {
         return;
     }
     std::size_t i = 0;
-    for (; from[i] != '\0' && i + 1 < static_cast<std::size_t>(kMaxTagName); i++) {
+    for (; from[i] != '\0' && i + 1 < static_cast<std::size_t>(MAX_TAG_NAME); i++) {
         into[i] = from[i];
     }
     into[i] = '\0';

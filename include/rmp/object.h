@@ -295,8 +295,8 @@ namespace detail {
 // B. Works with -fno-rtti, costs nothing, and is stable across translation
 // units because the static lives in an inline function template.
 template <class B> const void *behavior_type() {
-    static const char kTag = 0;
-    return &kTag;
+    static const char TAG = 0;
+    return &TAG;
 }
 
 // The hooks a behavior may have, erased. A null entry means the struct did not
@@ -312,7 +312,7 @@ struct BehaviorOps {
 };
 
 template <class B> const BehaviorOps &ops_for() {
-    static const BehaviorOps kOps = [] {
+    static const BehaviorOps OPS = [] {
         BehaviorOps o;
         if constexpr (requires(B &b, Object &o2, float d) { b._update(o2, d); }) {
             o.update = [](void *self, Object &object, float delta) {
@@ -346,7 +346,7 @@ template <class B> const BehaviorOps &ops_for() {
         }
         return o;
     }();
-    return kOps;
+    return OPS;
 }
 
 // Takes the behavior -- a shared_ptr<void> because that is what carries B's
@@ -511,10 +511,10 @@ public:
     // alternative is an `if` at the top of every _collision, which is the
     // mechanical work this framework exists to absorb.
     //
-    //     namespace layer { constexpr unsigned kPlayer = 1 << 0, kEnemy = 1 << 1,
-    //                                          kBullet = 1 << 2, kWorld = 1 << 3; }
-    //     bullet.collision_layer = layer::kBullet;
-    //     bullet.collision_mask  = layer::kEnemy | layer::kWorld;   // not the player
+    //     namespace layer { constexpr unsigned PLAYER = 1 << 0, ENEMY = 1 << 1,
+    //                                          BULLET = 1 << 2, WORLD = 1 << 3; }
+    //     bullet.collision_layer = layer::BULLET;
+    //     bullet.collision_mask  = layer::ENEMY | layer::WORLD;   // not the player
     unsigned collision_layer = 1; // which layers I am ON
     unsigned collision_mask = 1; // which layers I collide WITH
 

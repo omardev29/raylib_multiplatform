@@ -31,11 +31,11 @@ namespace rmp::input {
 
 namespace {
 
-constexpr int kMaxBindings = 8;
+constexpr int MAX_BINDINGS = 8;
 
 struct Action {
     std::string name;
-    detail::Binding bindings[kMaxBindings];
+    detail::Binding bindings[MAX_BINDINGS];
     int count = 0;
 };
 
@@ -83,16 +83,16 @@ bool in_range(int value, int limit) { return value >= 0 && value < limit; }
 bool binding_down(const detail::Binding &binding, const detail::DeviceState &state) {
     switch (binding.device) {
         case detail::Device::KEY:
-            return in_range(binding.code, detail::DeviceState::kKeys) &&
+            return in_range(binding.code, detail::DeviceState::KEYS) &&
                 state.keys[binding.code];
         case detail::Device::MOUSE:
-            return in_range(binding.code, detail::DeviceState::kMouseButtons) &&
+            return in_range(binding.code, detail::DeviceState::MOUSE_BUTTONS) &&
                 state.mouse[binding.code];
         case detail::Device::PAD_BUTTON:
-            return in_range(binding.code, detail::DeviceState::kPadButtons) &&
+            return in_range(binding.code, detail::DeviceState::PAD_BUTTONS) &&
                 state.pad[binding.code];
         case detail::Device::PAD_AXIS: {
-            if (!in_range(binding.code, detail::DeviceState::kAxes)) return false;
+            if (!in_range(binding.code, detail::DeviceState::AXES)) return false;
             const float value = state.axes[binding.code];
             if (std::fabs(value) < g_deadzone) return false;
             return binding.sign < 0 ? value < 0.0f : value > 0.0f;
@@ -108,7 +108,7 @@ float binding_amount(const detail::Binding &binding, const detail::DeviceState &
     if (binding.device != detail::Device::PAD_AXIS) {
         return binding_down(binding, state) ? 1.0f : 0.0f;
     }
-    if (!in_range(binding.code, detail::DeviceState::kAxes)) return 0.0f;
+    if (!in_range(binding.code, detail::DeviceState::AXES)) return 0.0f;
     const float raw = state.axes[binding.code];
     const float magnitude = std::fabs(raw);
     if (magnitude < g_deadzone) return 0.0f;
@@ -231,12 +231,12 @@ namespace detail {
 
 void define(std::string_view name, const Binding *bindings, int count) {
     ensure_factory();
-    if (count > kMaxBindings) {
+    if (count > MAX_BINDINGS) {
         TraceLog(LOG_WARNING,
                  "INPUT: \"%.*s\" was given %d bindings and the limit is %d; the extra "
                  "ones are ignored.",
-                 static_cast<int>(name.size()), name.data(), count, kMaxBindings);
-        count = kMaxBindings;
+                 static_cast<int>(name.size()), name.data(), count, MAX_BINDINGS);
+        count = MAX_BINDINGS;
     }
 
     Action *existing = find(name);
@@ -249,20 +249,20 @@ void define(std::string_view name, const Binding *bindings, int count) {
 }
 
 void sample_with_raylib(DeviceState *out) {
-    for (int key = 0; key < DeviceState::kKeys; key++) {
+    for (int key = 0; key < DeviceState::KEYS; key++) {
         out->keys[key] = IsKeyDown(key);
     }
-    for (int button = 0; button < DeviceState::kMouseButtons; button++) {
+    for (int button = 0; button < DeviceState::MOUSE_BUTTONS; button++) {
         out->mouse[button] = IsMouseButtonDown(button);
     }
     // Gamepad 0 only, deliberately: local multiplayer is a real feature and a
     // bigger one than a second index, so it waits for a game that needs it
     // rather than being half-there.
     const bool pad = IsGamepadAvailable(0);
-    for (int button = 0; button < DeviceState::kPadButtons; button++) {
+    for (int button = 0; button < DeviceState::PAD_BUTTONS; button++) {
         out->pad[button] = pad && IsGamepadButtonDown(0, button);
     }
-    for (int axis = 0; axis < DeviceState::kAxes; axis++) {
+    for (int axis = 0; axis < DeviceState::AXES; axis++) {
         out->axes[axis] = pad ? GetGamepadAxisMovement(0, axis) : 0.0f;
     }
     // Touch and mouse are the same pointer, which is what lets the same code
@@ -347,7 +347,7 @@ bool just_released(::GamepadButton button) {
 
 float axis_value(::GamepadAxis which) {
     const int index = static_cast<int>(which);
-    if (!in_range(index, detail::DeviceState::kAxes)) return 0.0f;
+    if (!in_range(index, detail::DeviceState::AXES)) return 0.0f;
     const float raw = g_now.axes[index];
     if (std::fabs(raw) < g_deadzone) return 0.0f;
     const float span = 1.0f - g_deadzone;

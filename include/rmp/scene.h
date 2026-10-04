@@ -282,7 +282,7 @@ public:
     //
     //     if (auto hit = raycast(muzzle, muzzle + aim * 400)) { ... }
     //     auto hit = raycast({ .from = muzzle, .to = target,
-    //                          .mask = layer::kEnemy, .ignore = &self });
+    //                          .mask = layer::ENEMY, .ignore = &self });
     // -----------------------------------------------------------------------
     [[nodiscard]] RayHit raycast(Vector2 from, Vector2 to) const;
     [[nodiscard]] RayHit raycast(const RayQuery &query) const;
@@ -355,8 +355,8 @@ private:
     // two end conditions firing together, which Invaders did -- be pushed
     // once. An address of a static per T, no RTTI, like behavior_type().
     template <class T> static const void *scene_type() {
-        static const char kTag = 0;
-        return &kTag;
+        static const char TAG = 0;
+        return &TAG;
     }
     static void detail_change(std::unique_ptr<Scene> next, const void *type);
     static void detail_push(std::unique_ptr<Scene> next, const void *type);

@@ -13,7 +13,7 @@
  * thirdparty/FROZEN_VERSIONS.md.
  * ------------------------------------------------------------------------- */
 
-/* How deep a save may nest. The same number as rmp::save::detail::kMaxDepth
+/* How deep a save may nest. The same number as rmp::save::detail::MAX_DEPTH
  * in save_internal.h, which is C++ and cannot be included here; the nesting
  * test in tests/save_test.cpp fails if the two drift apart. The default of
  * 1000 overflowed the web's 64 KB stack long before it was reached.

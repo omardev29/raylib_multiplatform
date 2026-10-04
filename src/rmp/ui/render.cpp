@@ -22,8 +22,8 @@ namespace {
 // Clay's string slices are NOT null terminated — it slices the original buffer
 // when wrapping text instead of cloning strings. raylib's text functions all
 // want a terminator, so every slice passes through here first.
-constexpr int kScratch = 1024;
-char g_scratch[kScratch];
+constexpr int SCRATCH = 1024;
+char g_scratch[SCRATCH];
 
 Rectangle to_rect(Clay_BoundingBox b) { return Rectangle{ b.x, b.y, b.width, b.height }; }
 
@@ -43,7 +43,7 @@ float roundness(Clay_CornerRadius r, Clay_BoundingBox b) {
 
 const char *cstr(Clay_StringSlice slice) {
     int len = slice.length;
-    if (len >= kScratch) len = kScratch - 1;
+    if (len >= SCRATCH) len = SCRATCH - 1;
     if (len > 0) std::memcpy(g_scratch, slice.chars, static_cast<size_t>(len));
     g_scratch[len] = '\0';
     return g_scratch;

@@ -101,7 +101,7 @@ struct Fat {
     void _update(rmp::Object &, float) { updates++; }
 };
 
-constexpr float kEps = 0.001f;
+constexpr float TOLERANCE = 0.001f;
 
 } // namespace
 
@@ -381,8 +381,8 @@ TEST_CASE_FIXTURE(Fixture, "two bounces in a corner do not leave it stuck") {
     for (int i = 0; i < 120; i++) frame(world, 1.0f / 60);
     // It is still inside, still moving, and still at its pace.
     const Rectangle box = ball.world_collider();
-    CHECK(box.x >= -kEps);
-    CHECK(box.y >= -kEps);
+    CHECK(box.x >= -TOLERANCE);
+    CHECK(box.y >= -TOLERANCE);
     const float len =
         std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.y * ball.velocity.y);
     CHECK(len == doctest::Approx(400).epsilon(0.02));

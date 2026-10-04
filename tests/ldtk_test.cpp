@@ -148,7 +148,7 @@ const char *str(const cJSON *o, const char *key) {
     return cJSON_IsString(item) ? item->valuestring : "";
 }
 
-constexpr const char *kSamples[] = {
+constexpr const char *SAMPLES[] = {
     "Test_file_for_API_showing_all_features.ldtk",
     "Typical_2D_platformer_example.ldtk",
     "Typical_TopDown_example.ldtk",
@@ -812,7 +812,7 @@ TEST_SUITE("ldtk") {
         const Quiet quiet;
         int tiles = 0;
         int entities = 0;
-        for (const char *sample : kSamples) {
+        for (const char *sample : SAMPLES) {
             CAPTURE(std::string(sample));
             const std::string text = text_of(sample);
             const Json root(cJSON_Parse(text.c_str()));

@@ -35,14 +35,14 @@ namespace {
 // compressed ones by how common they are in games; QOA last, raylib's own.
 // No FLAC: raylib's config.h ships SUPPORT_FILEFORMAT_FLAC as 0, so a .flac
 // would be found and then fail to decode, which is worse than not found.
-constexpr std::array<const char *, 4> kExtensions = { ".wav", ".ogg", ".mp3", ".qoa" };
+constexpr std::array<const char *, 4> EXTENSIONS = { ".wav", ".ogg", ".mp3", ".qoa" };
 
 // What counts as "this name already says its format". Only audio: "ui.click"
 // is a name with a dot in it, not a file in a format called ".click". FLAC is
 // here so that "theme.flac" is taken as asked and then says it cannot be
 // decoded, instead of turning into a search for theme.flac.wav; XM and MOD
 // because music() streams them.
-constexpr std::array<const char *, 7> kKnownExtensions = { ".wav", ".ogg",  ".mp3",
+constexpr std::array<const char *, 7> KNOWN_EXTENSIONS = { ".wav", ".ogg",  ".mp3",
                                                            ".qoa", ".flac", ".xm",
                                                            ".mod" };
 
@@ -53,7 +53,7 @@ constexpr std::array<const char *, 7> kKnownExtensions = { ".wav", ".ogg",  ".mp
 // the samples and has its own settings, so a voice costs a few bytes rather
 // than a second copy of the audio. Four because that is what a burst of the
 // same effect needs before the oldest voice being cut is inaudible anyway.
-constexpr int kVoices = 4;
+constexpr int VOICES = 4;
 
 struct Voice {
     ::Sound sound{};
@@ -64,7 +64,7 @@ struct Voice {
 struct Effect {
     std::string name; // as asked for, which is the cache key
     rmp::Sound base; // empty when the name resolved to nothing
-    std::array<Voice, kVoices> voices{};
+    std::array<Voice, VOICES> voices{};
     int voice_count = 0;
 };
 
@@ -148,7 +148,7 @@ Voice &pick_voice(Effect &e) {
         Voice &v = e.voices[static_cast<std::size_t>(i)];
         if (!IsSoundPlaying(v.sound)) return v;
     }
-    if (e.voice_count < kVoices) {
+    if (e.voice_count < VOICES) {
         Voice &v = e.voices[static_cast<std::size_t>(e.voice_count++)];
         v.sound = LoadSoundAlias(e.base);
         return v;
@@ -186,20 +186,20 @@ std::vector<std::string> candidates(std::string_view name) {
         slash == std::string_view::npos ? name : name.substr(slash + 1);
     const std::size_t dot = file.find_last_of('.');
     // A leading dot is a hidden file's name, not an extension; and only an
-    // audio extension is one here -- see kKnownExtensions.
+    // audio extension is one here -- see KNOWN_EXTENSIONS.
     if (dot != std::string_view::npos && dot > 0) {
         std::string ext(file.substr(dot));
         for (char &c : ext)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        for (const char *known : kKnownExtensions) {
+        for (const char *known : KNOWN_EXTENSIONS) {
             if (ext == known) {
                 out.emplace_back(name);
                 return out;
             }
         }
     }
-    out.reserve(kExtensions.size());
-    for (const char *ext : kExtensions) out.push_back(std::string(name) + ext);
+    out.reserve(EXTENSIONS.size());
+    for (const char *ext : EXTENSIONS) out.push_back(std::string(name) + ext);
     return out;
 }
 

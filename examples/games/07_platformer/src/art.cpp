@@ -22,14 +22,14 @@ struct Art {
 
 Rectangle source_of(int index) {
     const int columns = 20;
-    return Rectangle{ static_cast<float>(index % columns) * kTile,
-                      static_cast<float>(index / columns) * kTile, kTile, kTile };
+    return Rectangle{ static_cast<float>(index % columns) * TILE,
+                      static_cast<float>(index / columns) * TILE, TILE, TILE };
 }
 
 void draw_scaled_tile(int index, Vector2 at, float scale) {
     const Texture2D &tiles = rmp::global<Art>().tiles;
     DrawTexturePro(tiles, source_of(index),
-                   Rectangle{ at.x, at.y, kTile * scale, kTile * scale }, Vector2{}, 0,
+                   Rectangle{ at.x, at.y, TILE * scale, TILE * scale }, Vector2{}, 0,
                    WHITE);
 }
 

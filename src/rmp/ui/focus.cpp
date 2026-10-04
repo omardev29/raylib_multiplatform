@@ -22,16 +22,16 @@ namespace {
 // Two lists: the one being built this frame, and last frame's, which is what
 // navigation reasons about — the same one-frame-behind rule as hit testing,
 // for the same reason. This frame's order is not known until end().
-constexpr int kMaxFocusables = 128;
+constexpr int MAX_FOCUSABLES = 128;
 
 struct Entry {
     uint32_t id = 0;
     char name[48] = { 0 };
 };
 
-Entry g_current[kMaxFocusables];
+Entry g_current[MAX_FOCUSABLES];
 int g_current_count = 0;
-Entry g_previous[kMaxFocusables];
+Entry g_previous[MAX_FOCUSABLES];
 int g_previous_count = 0;
 
 uint32_t g_focused_id = 0;
@@ -62,8 +62,8 @@ bool g_keyboard_captured = false;
 // one item and stopping.
 float g_repeat_timer = 0.0f;
 int g_last_nav_y = 0;
-constexpr float kRepeatDelay = 0.45f;
-constexpr float kRepeatInterval = 0.09f;
+constexpr float REPEAT_DELAY = 0.45f;
+constexpr float REPEAT_INTERVAL = 0.09f;
 
 void copy_name(char *dst, std::string_view s) {
     size_t n = s.size() < 47 ? s.size() : 47;
@@ -84,7 +84,7 @@ void move_focus(int delta) {
     // provably inside g_previous[] from this function alone, rather than from
     // an invariant kept somewhere else in the file.
     const int count =
-        g_previous_count < kMaxFocusables ? g_previous_count : kMaxFocusables;
+        g_previous_count < MAX_FOCUSABLES ? g_previous_count : MAX_FOCUSABLES;
     if (count <= 0) return;
 
     const int at = index_of(g_focused_id);
@@ -135,14 +135,14 @@ void begin_focus_frame() {
     if (!g_keyboard_captured) {
         if (nav.y != 0 && nav.y != g_last_nav_y) {
             move_focus(nav.y);
-            g_repeat_timer = kRepeatDelay;
+            g_repeat_timer = REPEAT_DELAY;
         } else if (nav.y != 0) {
             // frame_time(), not GetFrameTime(): 0 in test mode, so a headless
             // run moves exactly one step per press and always the same way.
             g_repeat_timer -= frame_time();
             if (g_repeat_timer <= 0.0f) {
                 move_focus(nav.y);
-                g_repeat_timer = kRepeatInterval;
+                g_repeat_timer = REPEAT_INTERVAL;
             }
         }
         g_last_nav_y = nav.y;
@@ -164,7 +164,7 @@ void end_focus_frame() {
     // — but it is the one line that makes the bound a property of the copy
     // instead of something three call sites each have to remember.
     int n = g_current_count;
-    if (n > kMaxFocusables) n = kMaxFocusables;
+    if (n > MAX_FOCUSABLES) n = MAX_FOCUSABLES;
     for (int i = 0; i < n; i++) g_previous[i] = g_current[i];
     g_previous_count = n;
 
@@ -183,7 +183,7 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     // something in a scene the player could not even see the cursor in.
     if (!pass_input()) return false;
 
-    if (g_current_count < kMaxFocusables) {
+    if (g_current_count < MAX_FOCUSABLES) {
         g_current[g_current_count].id = id.id;
         copy_name(g_current[g_current_count].name, name);
         g_current_count++;
@@ -264,8 +264,8 @@ void focus_by_id(uint32_t id, std::string_view name) {
 // --- widget scratch --------------------------------------------------------
 
 WidgetState *state_for(uint32_t id) {
-    constexpr int kSlots = 64;
-    static WidgetState slots[kSlots];
+    constexpr int SLOTS = 64;
+    static WidgetState slots[SLOTS];
     static int next = 0;
     for (auto &slot : slots) {
         if (slot.id == id) return &slot;
@@ -280,7 +280,7 @@ WidgetState *state_for(uint32_t id) {
     // Full. Evicting round-robin loses one dropdown's open flag rather than
     // refusing to draw it, which is the right way round for a UI.
     WidgetState *s = &slots[next];
-    next = (next + 1) % kSlots;
+    next = (next + 1) % SLOTS;
     *s = WidgetState{};
     s->id = id;
     return s;

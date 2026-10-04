@@ -360,7 +360,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
   the `"C"` numeric locale for its duration. **`ENABLE_LOCALES` is deliberately NOT defined** in
   `cjson_impl.c`: it was the first fix, and it takes ONE byte of the decimal point -- Pashto's is
   two. cJSON itself stays unmodified; `cjson_impl.c` only sets its nesting limit to 64, the same
-  as `rmp::save::detail::kMaxDepth` (the web's 64 KB stack overflowed near 400 levels).
+  as `rmp::save::detail::MAX_DEPTH` (the web's 64 KB stack overflowed near 400 levels).
 - **A new public header needs its line in `tools/header_budget.txt`, measured in the image.** The
   size comparison only gates inside the pinned image, and `rmp/audio.h` reached CI with no line at
   all. A missing or stale line now fails everywhere; the number itself is the `lines` column of

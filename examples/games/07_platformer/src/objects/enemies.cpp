@@ -12,7 +12,7 @@
 namespace game {
 
 void Enemy::_collision(rmp::Object &other) {
-    if (dying_ >= 0 || (other.collision_layer & layer::kPlayer) == 0) return;
+    if (dying_ >= 0 || (other.collision_layer & layer::PLAYER) == 0) return;
     auto &player = static_cast<Player &>(other);
     if (stompable && player.falling_onto(*this)) {
         player.bounce();
@@ -48,8 +48,8 @@ void Walker::_ready() {
     sprite.play("walk");
     collider = rmp::rect({ 14, 12 });
     collider.offset = { 0, 6 }; // the beetle is the bottom half of its frame
-    collision_layer = layer::kEnemy;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::ENEMY;
+    collision_mask = layer::PLAYER;
 }
 
 void Walker::patrol(float delta) {
@@ -68,8 +68,8 @@ void Bat::_ready() {
     sprite.sheet = rmp::assets::load_sheet("bat.aseprite");
     sprite.play("fly");
     collider = rmp::rect({ 16, 12 });
-    collision_layer = layer::kEnemy;
-    collision_mask = layer::kPlayer;
+    collision_layer = layer::ENEMY;
+    collision_mask = layer::PLAYER;
 }
 
 void Bat::patrol(float delta) {

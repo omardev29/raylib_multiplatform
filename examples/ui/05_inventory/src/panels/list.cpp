@@ -11,7 +11,7 @@ void item_list() {
         rmp::ui::text("All items");
 
         rmp::ui::scroll({ .gap = 4, .id = "list" }, [&] {
-            for (int i = 0; i < kItemCount; i++) {
+            for (int i = 0; i < ITEM_COUNT; i++) {
                 // Two buttons could share a label across a long list, so the
                 // ids are made explicit. Identical labels in one frame are told
                 // apart automatically; this is for when you want the identity

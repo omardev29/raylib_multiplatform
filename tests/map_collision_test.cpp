@@ -57,8 +57,8 @@ struct Fixture {
     Fixture &operator=(const Fixture &) = delete;
 };
 
-constexpr int kCell = 16;
-constexpr float kDt = 1.0f / 60;
+constexpr int CELL = 16;
+constexpr float DELTA = 1.0f / 60;
 
 // A one-level LDtk project of `rows`, 16 px cells, its level at `origin`.
 std::string project_of(const std::vector<std::string> &rows, Vector2 origin = {}) {
@@ -71,14 +71,14 @@ std::string project_of(const std::vector<std::string> &rows, Vector2 origin = {}
             csv += c == '#' ? "1" : (c == 'w' ? "2" : "0");
         }
     }
-    const std::string cells = std::to_string(kCell);
+    const std::string cells = std::to_string(CELL);
     return R"({"defs":{"layers":[{"uid":1,"identifier":"Collisions","type":"IntGrid",)"
            R"("gridSize":16,"intGridValues":[{"value":1,"identifier":"Solid"},)"
            R"({"value":2,"identifier":"water"}]}],"tilesets":[]},)"
            R"("worldLayout":"Free","levels":[{"identifier":"Level","worldX":)" +
         std::to_string(static_cast<int>(origin.x)) + R"(,"worldY":)" +
         std::to_string(static_cast<int>(origin.y)) + R"(,"pxWid":)" +
-        std::to_string(w * kCell) + R"(,"pxHei":)" + std::to_string(h * kCell) +
+        std::to_string(w * CELL) + R"(,"pxHei":)" + std::to_string(h * CELL) +
         R"(,"layerInstances":[{"__identifier":"Collisions","__type":"IntGrid",)"
         R"("__gridSize":)" +
         cells + R"(,"__cWid":)" + std::to_string(w) + R"(,"__cHei":)" +
@@ -92,7 +92,7 @@ void load(World &world, const std::vector<std::string> &rows, Vector2 origin = {
     REQUIRE(world.map.valid());
 }
 
-void frame(rmp::Scene &scene, float delta = kDt) {
+void frame(rmp::Scene &scene, float delta = DELTA) {
     rmp::input::detail::begin_frame();
     rmp::objects::detail::update(scene, delta);
     rmp::objects::detail::collide(scene);
@@ -192,7 +192,8 @@ TEST_SUITE("map collision") {
             frame(world);
             CHECK(box.velocity.x == doctest::Approx(300));
         }
-        CHECK(box.position.x == doctest::Approx(start + (300 * 20 * kDt)).epsilon(0.001));
+        CHECK(box.position.x ==
+              doctest::Approx(start + (300 * 20 * DELTA)).epsilon(0.001));
         CHECK(bottom_of(box) == doctest::Approx(112).epsilon(0.0001));
     }
 
@@ -208,7 +209,7 @@ TEST_SUITE("map collision") {
         CHECK(box.position.x == doctest::Approx(139).epsilon(0.0001));
         CHECK(box.velocity.x == doctest::Approx(0));
         CHECK(box.velocity.y == doctest::Approx(60)); // still sliding down
-        CHECK(box.position.y == doctest::Approx(40 + (60 * 10 * kDt)).epsilon(0.001));
+        CHECK(box.position.y == doctest::Approx(40 + (60 * 10 * DELTA)).epsilon(0.001));
     }
 
     TEST_CASE_FIXTURE(Fixture, "the ceiling stops a jump") {

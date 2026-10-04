@@ -30,7 +30,7 @@ static int selected = 0;
 static bool showGrid = true;
 
 static const char *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
-static constexpr int kSections = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
+static constexpr int SECTION_COUNT = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
@@ -61,7 +61,7 @@ static void sidebar() {
     const bool narrow = rmp::ui::compact();
 
     auto items = [] {
-        for (int i = 0; i < kSections; i++) {
+        for (int i = 0; i < SECTION_COUNT; i++) {
             const bool active = (i == selected);
             if (rmp::ui::button(SECTIONS[i],
                                 { .style = active ? rmp::ui::Variant::PRIMARY

@@ -14,7 +14,7 @@ void inventory_grid() {
         // grid an id and it can measure itself; without one it falls back to
         // four, which is a reasonable guess and never the right answer.
         rmp::ui::grid({ .columns = 0, .min_cell = 88, .id = "inv" }, [&] {
-            for (int i = 0; i < kItemCount; i++) {
+            for (int i = 0; i < ITEM_COUNT; i++) {
                 rmp::ui::cell([&] {
                     rmp::ui::panel(
                         { .box = { .padding = 6 },

@@ -25,12 +25,12 @@
 namespace {
 
 namespace layer {
-constexpr unsigned kPlayer = 1u << 0;
-constexpr unsigned kGround = 1u << 1;
-constexpr unsigned kRock = 1u << 2;
+constexpr unsigned PLAYER = 1u << 0;
+constexpr unsigned GROUND = 1u << 1;
+constexpr unsigned ROCK = 1u << 2;
 } // namespace layer
 
-constexpr float kGroundTop = 360; // where ground.png starts, and the floor with it
+constexpr float GROUND_TOP = 360; // where ground.png starts, and the floor with it
 
 // The end of a run, PUSHED on top of it: the world below freezes, stays on
 // screen -- distance counter and all -- and stops hearing the keyboard, so this
@@ -58,14 +58,14 @@ public:
         // the camera, so nothing here has to tell them it moved.
         add_layer("sky.png", 0.1f, 0);
         add_layer("hills.png", 0.4f, 120);
-        add_layer("ground.png", 1.0f, kGroundTop);
+        add_layer("ground.png", 1.0f, GROUND_TOP);
 
         auto &player = spawn({ .position = { 120, 300 } });
         player.sprite.texture = rmp::assets::load_texture("runner.png");
         // The picture is 36x54 and includes air; the box that collides is not.
         player.collider = rmp::rect({ 26, 48 });
-        player.collision_layer = layer::kPlayer;
-        player.collision_mask = layer::kGround | layer::kRock;
+        player.collision_layer = layer::PLAYER;
+        player.collision_mask = layer::GROUND | layer::ROCK;
         player.add<rmp::behavior::Runner>({ .speed = 320, .accelerate = 6 });
         // One rock is the whole of it. `hurt_by` is what makes the contact
         // cost something -- without it this player ran through the scenery.
@@ -75,7 +75,7 @@ public:
             .destroy_on_death = false, // it stays on screen under the overlay
             .on_death =
                 [](rmp::Object &) { rmp::Scene::push<OverScene<RunnerScene>>("Ouch"); },
-            .hurt_by = layer::kRock,
+            .hurt_by = layer::ROCK,
         });
         player_ = player.handle();
 
@@ -121,11 +121,11 @@ private:
 
     void add_ground() {
         auto &floor =
-            spawn({ .position = { 400, kGroundTop + 60 }, .size = { 2400, 120 } });
+            spawn({ .position = { 400, GROUND_TOP + 60 }, .size = { 2400, 120 } });
         floor.visible = false; // ground.png is the picture; this is the floor
         floor.solid = true;
         floor.immovable = true;
-        floor.collision_layer = layer::kGround;
+        floor.collision_layer = layer::GROUND;
         floor.collision_mask = 0;
         ground_ = floor.handle();
     }
@@ -145,8 +145,8 @@ private:
                     auto &rock = scene.spawn({ .position = { at.x + 520, 330 } });
                     rock.sprite.texture = rmp::assets::load_texture("rock.png");
                     rock.collider = rmp::rect({ 30, 52 });
-                    rock.collision_layer = layer::kRock;
-                    rock.collision_mask = layer::kPlayer;
+                    rock.collision_layer = layer::ROCK;
+                    rock.collision_mask = layer::PLAYER;
                     rock.edges = rmp::Edge::DESTROY; // once the view is past it
                 },
         });
