@@ -9,7 +9,7 @@ struct MenuState {
     int score = 0;
     bool music = true;
 };
-inline MenuState g_state;
+inline MenuState game;
 
 // One function per screen, one file per screen under src/screens/.
 void main_menu();

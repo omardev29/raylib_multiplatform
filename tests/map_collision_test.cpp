@@ -36,22 +36,25 @@ public:
     ~World() override { rmp::objects::detail::release_scene(*this); }
 };
 
-rmp::input::detail::DeviceState g_devices;
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
+// The fake device the input seam reads. The dot says "file state".
+struct {
+    rmp::input::detail::DeviceState devices;
+} fake;
+void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
 
 struct Fixture {
     Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::objects::detail::reset_behaviors_for_tests();
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
     }
     ~Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::objects::detail::reset_behaviors_for_tests();
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
     }
     Fixture(const Fixture &) = delete;
     Fixture &operator=(const Fixture &) = delete;
@@ -393,9 +396,9 @@ TEST_SUITE("map collision") {
         CHECK(platformer.on_ground());
         CHECK(player.velocity.y == doctest::Approx(0));
 
-        g_devices.keys[KEY_SPACE] = true; // ui_accept
+        fake.devices.keys[KEY_SPACE] = true; // ui_accept
         frame(world);
-        g_devices.keys[KEY_SPACE] = false;
+        fake.devices.keys[KEY_SPACE] = false;
         CHECK_FALSE(platformer.on_ground());
         for (int i = 0; i < 4; i++) frame(world);
         CHECK(bottom_of(player) < 90); // in the air

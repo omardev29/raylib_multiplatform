@@ -23,11 +23,14 @@
 
 namespace {
 
-std::string g_log;
+// What happened, in order. The dot says "file state".
+struct {
+    std::string log;
+} trace;
 
 void note(const std::string &event) {
-    if (!g_log.empty()) g_log += ' ';
-    g_log += event;
+    if (!trace.log.empty()) trace.log += ' ';
+    trace.log += event;
 }
 
 // A scene that is never on the stack. spawn() only needs `this` as a key, so a
@@ -64,7 +67,7 @@ public:
 struct Fixture {
     Fixture() {
         rmp::objects::detail::reset_for_tests();
-        g_log.clear();
+        trace.log.clear();
     }
     ~Fixture() { rmp::objects::detail::reset_for_tests(); }
 };
@@ -134,7 +137,7 @@ TEST_CASE_FIXTURE(Fixture, "spawn puts an object in the scene and runs _ready") 
     CHECK(probe.alive());
     CHECK(probe.scene() == &world);
     // _ready() ran before spawn returned, so it ran before the name was set.
-    CHECK(g_log == "?.ready");
+    CHECK(trace.log == "?.ready");
 }
 
 TEST_CASE_FIXTURE(Fixture, "spawn applies every option it was given") {
@@ -190,7 +193,7 @@ TEST_CASE_FIXTURE(Fixture, "spawn<T> keeps the derived type and its overrides") 
     probe.name = "p";
     frame(world);
     CHECK(probe.updates == 1);
-    CHECK(g_log == "?.ready p.update");
+    CHECK(trace.log == "?.ready p.update");
 }
 
 TEST_CASE_FIXTURE(Fixture, "two scenes do not see each other's objects") {
@@ -227,7 +230,7 @@ TEST_CASE_FIXTURE(Fixture,
     rmp::objects::detail::collect();
     CHECK(world.object_count() == 0);
     CHECK(rmp::objects::detail::live_count() == 0);
-    CHECK(g_log == "?.ready p.end");
+    CHECK(trace.log == "?.ready p.end");
 }
 
 TEST_CASE_FIXTURE(Fixture,
@@ -242,7 +245,7 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(a.ends == 1); // before the frame: frame() frees `a` at its end
     frame(world);
     CHECK(b.updates == 1);
-    CHECK(g_log == "?.ready ?.ready a.end b.update");
+    CHECK(trace.log == "?.ready ?.ready a.end b.update");
 }
 
 TEST_CASE_FIXTURE(Fixture, "destroying twice is harmless and _end runs once") {
@@ -272,13 +275,15 @@ namespace {
 // Counted outside the object: it is freed at the end of the frame it dies in,
 // and reading a member of it afterwards was reading freed memory (found by
 // tools/sanitize_check.sh).
-int g_self_destruct_updates = 0;
+struct {
+    int self_destruct_updates = 0;
+} counts;
 
 class SelfDestruct : public rmp::Object {
 public:
     void _update(float delta) override {
         (void)delta;
-        g_self_destruct_updates++;
+        counts.self_destruct_updates++;
         destroy();
     }
 };
@@ -286,10 +291,10 @@ public:
 
 TEST_CASE_FIXTURE(Fixture, "an object may destroy itself from its own _update") {
     World world;
-    g_self_destruct_updates = 0;
+    counts.self_destruct_updates = 0;
     world.spawn<SelfDestruct>();
     frame(world);
-    CHECK(g_self_destruct_updates == 1);
+    CHECK(counts.self_destruct_updates == 1);
     CHECK(rmp::objects::detail::live_count() == 0);
     frame(world);
     CHECK(rmp::objects::detail::live_count() == 0);
@@ -456,9 +461,9 @@ TEST_CASE_FIXTURE(Fixture, "releasing a scene runs every _end") {
         a.name = "a";
         auto &b = world.spawn<Probe>();
         b.name = "b";
-        g_log.clear();
+        trace.log.clear();
     }
-    CHECK(g_log == "a.end b.end");
+    CHECK(trace.log == "a.end b.end");
 }
 
 // ---------------------------------------------------------------------------

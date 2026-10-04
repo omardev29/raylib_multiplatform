@@ -16,7 +16,7 @@ namespace game {
 namespace {
 constexpr float GRACE = 1.5f; // seconds of not being hurt again
 constexpr float KNOCK = 0.3f; // seconds without control, thrown back
-int g_jumps_seen = 0;
+int jumps_seen = 0;
 } // namespace
 
 void Player::_ready() {
@@ -41,7 +41,7 @@ void Player::_ready() {
         .jump = 380, // 3.6 tiles high, 4.5 long at full speed
         .jump_action = "jump",
     });
-    g_jumps_seen = 0;
+    jumps_seen = 0;
 }
 
 void Player::_update(float delta) {
@@ -56,9 +56,9 @@ void Player::_update(float delta) {
 
     // A jump is the Platformer spending one: the sound goes with that, so a
     // buffered jump and a coyote jump sound like any other.
-    if (platformer->ours.jumps_used > g_jumps_seen)
+    if (platformer->ours.jumps_used > jumps_seen)
         rmp::audio::play("jump", { .volume = 0.6f });
-    g_jumps_seen = platformer->ours.jumps_used;
+    jumps_seen = platformer->ours.jumps_used;
 
     const bool on_ground = platformer->on_ground();
     if (hurting()) {

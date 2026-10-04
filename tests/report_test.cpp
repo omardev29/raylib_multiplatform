@@ -13,8 +13,10 @@
 
 namespace {
 
-int g_stops = 0;
-void count_stop() { g_stops++; }
+struct {
+    int stops = 0;
+} strict;
+void count_stop() { strict.stops++; }
 
 // A site that reports through the macro, the way every module does.
 void warn_from_one_site(int n) { RMP_REPORT_ONCE("test: warning number %d", n); }
@@ -25,7 +27,7 @@ struct Fixture {
     Fixture() {
         rmp::detail::reset_reports_for_tests();
         rmp::detail::set_strict(false);
-        g_stops = 0;
+        strict.stops = 0;
         previous = rmp::detail::set_strict_handler(count_stop);
     }
     ~Fixture() {
@@ -84,17 +86,17 @@ TEST_SUITE("report_once") {
         rmp::detail::set_strict(true);
         CHECK(rmp::detail::strict());
         warn_from_one_site(1);
-        CHECK(g_stops == 1);
+        CHECK(strict.stops == 1);
         warn_from_one_site(1); // already said: nothing, not a second stop
-        CHECK(g_stops == 1);
+        CHECK(strict.stops == 1);
         warn_keyed("fire"); // a new line is a new stop
-        CHECK(g_stops == 2);
+        CHECK(strict.stops == 2);
     }
 
     TEST_CASE_FIXTURE(Fixture, "strict off is a log line and nothing else") {
         warn_from_one_site(1);
         warn_keyed("fire");
-        CHECK(g_stops == 0);
+        CHECK(strict.stops == 0);
         CHECK(rmp::detail::report_count() == 2);
     }
 

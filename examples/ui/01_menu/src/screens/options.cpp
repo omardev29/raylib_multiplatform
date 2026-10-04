@@ -12,8 +12,8 @@ void options_menu() {
 
     // A button whose label is built this frame. std::string_view takes it, and
     // the text is copied immediately -- temporaries are safe here.
-    if (rmp::ui::button(std::string("Music: ") + (g_state.music ? "on" : "off"))) {
-        g_state.music = !g_state.music;
+    if (rmp::ui::button(std::string("Music: ") + (game.music ? "on" : "off"))) {
+        game.music = !game.music;
     }
 
     // Semantic variants: you say what the button MEANS, the theme decides what
@@ -23,7 +23,7 @@ void options_menu() {
     // Disabled controls still lay out, and still look deliberate.
     rmp::ui::button("Cloud saves", { .enabled = false });
 
-    if (rmp::ui::button("Back")) g_state.screen = Screen::MENU;
+    if (rmp::ui::button("Back")) game.screen = Screen::MENU;
 
     rmp::ui::end();
 }

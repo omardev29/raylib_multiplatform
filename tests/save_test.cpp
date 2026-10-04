@@ -159,7 +159,9 @@ std::string file_text(const fs::path &path) {
     return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
 }
 
-int g_strict_stops = 0;
+struct {
+    int stops = 0;
+} strict;
 
 } // namespace
 
@@ -1280,10 +1282,10 @@ TEST_SUITE("save: portable") {
         rmp::save::detail::set_folders_for_tests((blocker / "saves").string(),
                                                  user.str());
         rmp::detail::reset_reports_for_tests();
-        g_strict_stops = 0;
+        strict.stops = 0;
         const bool was = rmp::detail::strict();
         const rmp::detail::StrictHandler previous =
-            rmp::detail::set_strict_handler([] { g_strict_stops++; });
+            rmp::detail::set_strict_handler([] { strict.stops++; });
         rmp::detail::set_strict(true);
 
         Value v;
@@ -1294,7 +1296,7 @@ TEST_SUITE("save: portable") {
 
         rmp::detail::set_strict(was);
         rmp::detail::set_strict_handler(previous);
-        CHECK(g_strict_stops == 0);
+        CHECK(strict.stops == 0);
         rmp::save::detail::reset_for_tests();
         rmp::detail::reset_reports_for_tests();
     }

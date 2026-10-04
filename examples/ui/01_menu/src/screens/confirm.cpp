@@ -26,8 +26,7 @@ void confirm_quit() {
     // labels inside ONE frame are told apart automatically; an explicit id is
     // for when the UI is conditional -- as it is here -- and you want an
     // element's hover state to stay its own across screen changes.
-    if (rmp::ui::button("Cancel", { .id = "confirm.cancel" }))
-        g_state.screen = Screen::MENU;
+    if (rmp::ui::button("Cancel", { .id = "confirm.cancel" })) game.screen = Screen::MENU;
 
     rmp::ui::end();
 }

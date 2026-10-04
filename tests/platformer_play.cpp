@@ -55,19 +55,24 @@ namespace {
 
 // ---- the devices --------------------------------------------------------------
 
-rmp::input::detail::DeviceState g_dev;
-// The seams' signatures, which write through `out`.
-void sample(rmp::input::detail::DeviceState *out) { *out = g_dev; }
+// The fake devices, and Enter's last state so that holding it is one press.
+// The dot at every use says "file state".
+struct {
+    rmp::input::detail::DeviceState devices;
+    bool enter_was = false;
+} fake;
 
-bool g_enter_was = false;
+// The seams' signatures, which write through `out`.
+void sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
+
 void navigate(rmp::ui::detail::NavState *out) {
     out->x = 0;
-    out->y = g_dev.keys[KEY_DOWN] ? 1 : (g_dev.keys[KEY_UP] ? -1 : 0);
-    out->activate = g_dev.keys[KEY_ENTER] && !g_enter_was;
-    g_enter_was = g_dev.keys[KEY_ENTER];
+    out->y = fake.devices.keys[KEY_DOWN] ? 1 : (fake.devices.keys[KEY_UP] ? -1 : 0);
+    out->activate = fake.devices.keys[KEY_ENTER] && !fake.enter_was;
+    fake.enter_was = fake.devices.keys[KEY_ENTER];
 }
 
-void release_all() { g_dev = rmp::input::detail::DeviceState{}; }
+void release_all() { fake.devices = rmp::input::detail::DeviceState{}; }
 
 // ---- what the bot can see --------------------------------------------------------
 
@@ -122,8 +127,11 @@ struct Hands {
     int dir = 0;
     bool jump = false;
 };
-bool g_jump_was = false;
-int g_route = 0; // where in the Desert's detour to the key
+// What the bot did last frame, and where in the Desert's detour to the key it is.
+struct {
+    bool jump_was = false;
+    int route = 0;
+} driver;
 
 Hands steer(game::LevelScene &scene, game::Player &p) {
     Hands h{ 1, false };
@@ -131,38 +139,38 @@ Hands steer(game::LevelScene &scene, game::Player &p) {
     const Rectangle box = p.world_collider();
     const float feet = box.y + box.height;
     const Rectangle bounds = scene.map.bounds();
-    const auto press_jump = [&h] { h.jump = !g_jump_was; };
+    const auto press_jump = [&h] { h.jump = !driver.jump_was; };
 
     // THE DESERT'S KEY, which is the one thing that is not straight ahead:
     // up to the platform at row 10, left and up to the one at row 7 where the
     // key floats, then down and on to the door. Level coordinates.
     if (std::string(scene.map.level()) == "Desert" && game::run().keys.empty()) {
         const float x = p.position.x - bounds.x;
-        if (g_route == 0 && ground && feet > 230 && x > 560) g_route = 1;
-        if (g_route == 1) {
+        if (driver.route == 0 && ground && feet > 230 && x > 560) driver.route = 1;
+        if (driver.route == 1) {
             if (x < 586) {
                 h.dir = 1;
             } else if (x > 598) {
                 h.dir = -1;
             } else if (ground) {
                 press_jump();
-                g_route = 2;
+                driver.route = 2;
             }
-        } else if (g_route == 2) {
+        } else if (driver.route == 2) {
             if (ground && !h.jump)
-                g_route = std::fabs(feet - 180) < 3 ? 3 : (feet > 230 ? 1 : 2);
-        } else if (g_route == 3) {
+                driver.route = std::fabs(feet - 180) < 3 ? 3 : (feet > 230 ? 1 : 2);
+        } else if (driver.route == 3) {
             h.dir = -1;
             if (x <= 621 && ground) {
                 press_jump();
-                g_route = 4;
+                driver.route = 4;
             }
-        } else if (g_route == 4) {
+        } else if (driver.route == 4) {
             h.dir = -1;
             if (ground && !h.jump)
-                g_route = std::fabs(feet - 180) < 3 ? 3 : (feet > 230 ? 1 : 4);
+                driver.route = std::fabs(feet - 180) < 3 ? 3 : (feet > 230 ? 1 : 4);
         }
-        if (g_route > 0) return h;
+        if (driver.route > 0) return h;
     }
 
     const float front = box.x + box.width + 1;
@@ -196,10 +204,10 @@ Hands steer(game::LevelScene &scene, game::Player &p) {
 
 void apply(const Hands &h) {
     release_all();
-    if (h.dir > 0) g_dev.keys[KEY_RIGHT] = true;
-    if (h.dir < 0) g_dev.keys[KEY_LEFT] = true;
-    g_dev.keys[KEY_SPACE] = h.jump;
-    g_jump_was = h.jump;
+    if (h.dir > 0) fake.devices.keys[KEY_RIGHT] = true;
+    if (h.dir < 0) fake.devices.keys[KEY_LEFT] = true;
+    fake.devices.keys[KEY_SPACE] = h.jump;
+    driver.jump_was = h.jump;
 }
 
 // Down `downs` times, then Enter: a player without a mouse. The first button
@@ -210,9 +218,9 @@ void press_button(int t, int downs) {
     const int step = t / 4;
     const bool on = t % 4 == 0;
     if (step < downs)
-        g_dev.keys[KEY_DOWN] = on;
+        fake.devices.keys[KEY_DOWN] = on;
     else if (step == downs)
-        g_dev.keys[KEY_ENTER] = on;
+        fake.devices.keys[KEY_ENTER] = on;
 }
 
 // ---- the missions ------------------------------------------------------------------------
@@ -230,25 +238,28 @@ enum class Phase {
     DONE,
 };
 
-Phase g_phase = Phase::TITLE;
-int g_t = 0; // frames in this phase
-float g_dt = 1.0f / 60;
-int g_failures = 0;
-std::string g_level_seen;
-int g_jump_rate = 0; // which of the two frame rates the jump check is at
-float g_platform_top = 0;
-float g_highest_feet = 0;
+// The run: which phase, how long in it, at what step, and what it found.
+struct {
+    Phase phase = Phase::TITLE;
+    int frames = 0; // in this phase
+    float delta = 1.0f / 60;
+    int failures = 0;
+    std::string level_seen;
+    int jump_rate = 0; // which of the two frame rates the jump check is at
+    float platform_top = 0;
+    float highest_feet = 0;
+} run;
 
 void fail(const std::string &why) {
     std::printf("PLAY FAIL %s\n", why.c_str());
-    g_failures++;
+    run.failures++;
 }
 
 void next(Phase p) {
-    g_phase = p;
-    g_t = 0;
-    g_route = 0;
-    g_jump_was = false;
+    run.phase = p;
+    run.frames = 0;
+    driver.route = 0;
+    driver.jump_was = false;
     release_all();
 }
 
@@ -271,21 +282,21 @@ void play(bool fall) {
     auto *p = first<game::Player>(*level);
     if (p == nullptr) return;
     const std::string name = level->map.level();
-    if (name != g_level_seen) {
+    if (name != run.level_seen) {
         std::printf("PLAY  %s\n", where().c_str());
-        g_level_seen = name;
-        g_route = 0;
+        run.level_seen = name;
+        driver.route = 0;
     }
     apply(fall ? Hands{ 1, false } : steer(*level, *p));
 }
 
 void step() {
-    g_t++;
-    switch (g_phase) {
+    run.frames++;
+    switch (run.phase) {
         case Phase::TITLE:
-            press_button(g_t - 30, 0); // Play
+            press_button(run.frames - 30, 0); // Play
             if (top<game::LevelScene>() != nullptr) next(Phase::PLAY_TO_WIN);
-            if (g_t > 200) {
+            if (run.frames > 200) {
                 fail("Enter on the title did not start a game");
                 next(Phase::DONE);
             }
@@ -295,32 +306,32 @@ void step() {
             play(false);
             if (top<game::EndScene>() != nullptr) {
                 release_all();
-                const bool fast = g_phase == Phase::FAST_PLAY;
+                const bool fast = run.phase == Phase::FAST_PLAY;
                 std::printf("PLAY  the run ended %s: lives %d, coins %d, %.1f s\n",
                             fast ? "at 240 Hz" : "at 60 Hz", game::run().lives,
                             game::run().coins, game::run().seconds);
                 if (game::run().lives <= 0)
                     fail("the bot lost every life on the way to the flag");
                 next(fast ? Phase::DONE : Phase::WON);
-            } else if (static_cast<float>(g_t) * g_dt > 180) {
+            } else if (static_cast<float>(run.frames) * run.delta > 180) {
                 fail("no flag after three minutes of play, " + where());
                 next(Phase::DONE);
             }
             break;
         case Phase::WON: {
-            if (g_t == 1) {
+            if (run.frames == 1) {
                 const game::Best b = game::best();
                 if (b.coins != game::run().coins)
                     fail("the best run was not kept on disk");
             }
-            press_button(g_t - 30, 0); // Play again
+            press_button(run.frames - 30, 0); // Play again
             auto *level = top<game::LevelScene>();
-            if (level != nullptr && g_t > 30) {
+            if (level != nullptr && run.frames > 30) {
                 if (game::run().lives != 3 || game::run().coins != 0)
                     fail("Play again kept the old run");
-                g_level_seen.clear();
+                run.level_seen.clear();
                 next(Phase::PLAY_TO_LOSE);
-            } else if (g_t > 200) {
+            } else if (run.frames > 200) {
                 fail("Play again did not start a game");
                 next(Phase::DONE);
             }
@@ -331,32 +342,33 @@ void step() {
             if (top<game::EndScene>() != nullptr) {
                 if (game::run().lives != 0) fail("the game ended with lives left");
                 next(Phase::LOST);
-            } else if (g_t > 60 * 60) {
+            } else if (run.frames > 60 * 60) {
                 fail("three falls into the first pit did not end the game, " + where());
                 next(Phase::DONE);
             }
             break;
         case Phase::LOST:
-            press_button(g_t - 30, 1); // Menu
+            press_button(run.frames - 30, 1); // Menu
             if (top<game::TitleScene>() != nullptr) {
                 std::printf("PLAY  game over, and back at the title\n");
                 next(Phase::JUMP_SETUP);
-            } else if (g_t > 200) {
+            } else if (run.frames > 200) {
                 fail("Menu did not go back to the title");
                 next(Phase::DONE);
             }
             break;
         case Phase::JUMP_SETUP:
-            if (g_t == 2) {
+            if (run.frames == 2) {
                 // Straight onto the Desert's platform, at its start, where it
                 // waits: the platform's left cell is (9, 11), so its middle is
                 // x = 189 in the level, 909 in the world, and its top y = 198.
-                g_dt = g_jump_rate == 0 ? 1.0f / 60 : 1.0f / 240;
+                run.delta = run.jump_rate == 0 ? 1.0f / 60 : 1.0f / 240;
                 game::new_run();
                 rmp::Scene::change<game::LevelScene>(
                     "Desert", game::Entry{ true, { 909, 186 }, { 0, 0 } });
             }
-            if (g_t > 2 && top<game::LevelScene>() != nullptr) next(Phase::JUMP_MEASURE);
+            if (run.frames > 2 && top<game::LevelScene>() != nullptr)
+                next(Phase::JUMP_MEASURE);
             break;
         case Phase::JUMP_MEASURE: {
             auto *level = top<game::LevelScene>();
@@ -370,17 +382,17 @@ void step() {
             }
             const Rectangle box = p->world_collider();
             const float feet = box.y + box.height;
-            const int settle = static_cast<int>(0.15f / g_dt);
+            const int settle = static_cast<int>(0.15f / run.delta);
             release_all();
-            if (g_t == settle) {
-                g_platform_top = platform->world_collider().y;
-                g_highest_feet = feet;
-                g_dev.keys[KEY_SPACE] = true;
+            if (run.frames == settle) {
+                run.platform_top = platform->world_collider().y;
+                run.highest_feet = feet;
+                fake.devices.keys[KEY_SPACE] = true;
             }
-            if (g_t > settle) g_highest_feet = std::min(g_highest_feet, feet);
-            if (static_cast<float>(g_t - settle) * g_dt > 0.8f) {
-                const float rise = g_platform_top - g_highest_feet;
-                const int hz = static_cast<int>(std::lround(1.0f / g_dt));
+            if (run.frames > settle) run.highest_feet = std::min(run.highest_feet, feet);
+            if (static_cast<float>(run.frames - settle) * run.delta > 0.8f) {
+                const float rise = run.platform_top - run.highest_feet;
+                const int hz = static_cast<int>(std::lround(1.0f / run.delta));
                 std::printf(
                     "PLAY  a jump from the moving platform at %d Hz rose %.1f px\n", hz,
                     rise);
@@ -388,7 +400,7 @@ void step() {
                     fail("a jump from the moving platform at " + std::to_string(hz) +
                          " Hz rose " + std::to_string(rise) + " px");
                 }
-                if (++g_jump_rate < 2) {
+                if (++run.jump_rate < 2) {
                     next(Phase::JUMP_SETUP);
                 } else {
                     next(Phase::FAST_SETUP);
@@ -397,13 +409,14 @@ void step() {
             break;
         }
         case Phase::FAST_SETUP:
-            if (g_t == 2) {
-                g_dt = 1.0f / 240;
+            if (run.frames == 2) {
+                run.delta = 1.0f / 240;
                 game::new_run();
-                g_level_seen.clear();
+                run.level_seen.clear();
                 rmp::Scene::change<game::LevelScene>("");
             }
-            if (g_t > 2 && top<game::LevelScene>() != nullptr) next(Phase::FAST_PLAY);
+            if (run.frames > 2 && top<game::LevelScene>() != nullptr)
+                next(Phase::FAST_PLAY);
             break;
         case Phase::DONE:
             release_all();
@@ -415,7 +428,7 @@ void step() {
 // input, the scenes, what they queued -- which is what makes 240 Hz affordable
 // on the software renderer; menus are drawn, because their buttons are.
 void frame_of_game(float dt) {
-    if (top<game::LevelScene>() != nullptr && g_phase != Phase::TITLE) {
+    if (top<game::LevelScene>() != nullptr && run.phase != Phase::TITLE) {
         rmp::input::detail::begin_frame();
         rmp::scenes::detail::update(dt);
         rmp::scenes::detail::apply_pending();
@@ -436,17 +449,17 @@ void ready() {
 void frame(float /*real time is not the game's time here*/) {
     rmp::ui::detail::set_nav_provider(navigate);
     step();
-    if (g_phase == Phase::DONE) {
-        if (g_failures == 0) {
+    if (run.phase == Phase::DONE) {
+        if (run.failures == 0) {
             std::printf("PLAY PASS\n");
         } else {
-            std::printf("PLAY FAIL (%d)\n", g_failures);
+            std::printf("PLAY FAIL (%d)\n", run.failures);
         }
         rmp::save::remove("platformer");
         rmp::app::quit();
         return;
     }
-    frame_of_game(g_dt);
+    frame_of_game(run.delta);
 }
 
 void stop() { rmp::app::detail::stop(); }

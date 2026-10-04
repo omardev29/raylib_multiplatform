@@ -17,8 +17,8 @@ void item_list() {
                 // apart automatically; this is for when you want the identity
                 // to survive the list being reordered.
                 std::string id = "item" + std::to_string(i);
-                if (rmp::ui::button(g_items[i].name, { .id = id.c_str() })) {
-                    g_selected = i;
+                if (rmp::ui::button(items[i].name, { .id = id.c_str() })) {
+                    selected = i;
                 }
             }
         });

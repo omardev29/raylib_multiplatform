@@ -25,7 +25,7 @@
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    g_icon = rmp::assets::load_texture("rabbit.png");
+    icon = rmp::assets::load_texture("rabbit.png");
 }
 
 static void on_frame(float delta) {
@@ -52,7 +52,7 @@ static void on_frame(float delta) {
 static void on_exit() {
     // Let go of the texture while the window -- and its GL context -- is still
     // there. A handle held in a global would otherwise release after main().
-    g_icon = {};
+    icon = {};
     CloseWindow();
 }
 

@@ -46,9 +46,12 @@ public:
 // The device state the fake provider hands over, exactly as tests/input_test.cpp
 // does it: there is no raylib under any of this and no device attached to the
 // machine running it.
-rmp::input::detail::DeviceState g_devices;
+// The fake device the input seam reads. The dot says "file state".
+struct {
+    rmp::input::detail::DeviceState devices;
+} fake;
 
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
+void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
 
 struct Fixture {
     Fixture() {
@@ -56,7 +59,7 @@ struct Fixture {
         rmp::objects::detail::reset_behaviors_for_tests();
         rmp::objects::detail::reset_pointer_for_tests();
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
         rmp::detail::reset_reports_for_tests();
     }
@@ -66,12 +69,12 @@ struct Fixture {
         // reset() puts the raylib provider back, so nothing leaks a pointer
         // into this translation unit after the case ends.
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         rmp::detail::release_all();
     }
 };
 
-void hold(::KeyboardKey key, bool down = true) { g_devices.keys[key] = down; }
+void hold(::KeyboardKey key, bool down = true) { fake.devices.keys[key] = down; }
 
 // One turn of the loop for ONE object's behaviors. No integration, so the test
 // keeps control of where the object is -- which is what lets a ground check be
@@ -501,7 +504,7 @@ TEST_CASE_FIXTURE(Fixture,
     };
 
     for (const Case &one : cases) {
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(one.first);
         if (one.second != KEY_NULL) hold(one.second);
         tick(player, 1.0f / 60);
@@ -565,7 +568,7 @@ TEST_CASE_FIXTURE(Fixture,
     };
 
     for (const Case &one : cases) {
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(one.first);
         if (one.second != KEY_NULL) hold(one.second);
         tick(player, 1.0f / 60);

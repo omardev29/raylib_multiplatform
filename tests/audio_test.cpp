@@ -31,20 +31,22 @@
 
 namespace {
 
-int g_opens = 0;
+struct {
+    int count = 0;
+} device_opens;
 bool no_device() {
-    g_opens++;
+    device_opens.count++;
     return false;
 }
 bool fake_device() {
-    g_opens++;
+    device_opens.count++;
     return true;
 }
 
 struct Fixture {
     Fixture() {
         rmp::audio::detail::reset_for_tests();
-        g_opens = 0;
+        device_opens.count = 0;
     }
     ~Fixture() { rmp::audio::detail::reset_for_tests(); }
 };
@@ -200,7 +202,7 @@ TEST_SUITE("audio") {
         CHECK_FALSE(rmp::audio::available());
         CHECK_FALSE(rmp::audio::music_playing());
         rmp::audio::stop_music();
-        CHECK(g_opens == 0);
+        CHECK(device_opens.count == 0);
         CHECK(rmp::audio::detail::open_attempts() == 0);
     }
 
@@ -208,7 +210,7 @@ TEST_SUITE("audio") {
         rmp::audio::detail::set_device_opener(no_device);
         rmp::audio::play("");
         rmp::audio::music("");
-        CHECK(g_opens == 0);
+        CHECK(device_opens.count == 0);
     }
 
     TEST_CASE_FIXTURE(Fixture,
@@ -221,12 +223,12 @@ TEST_SUITE("audio") {
             rmp::audio::play("coin", { .volume = 0.5f, .pitch = 2.0f });
             rmp::audio::music("level1");
         }
-        CHECK(g_opens == 1);
+        CHECK(device_opens.count == 1);
         CHECK(rmp::audio::detail::open_attempts() == 1);
         CHECK_FALSE(rmp::audio::available());
         CHECK_FALSE(rmp::audio::music_playing());
         CHECK_FALSE(rmp::audio::detail::ensure_device());
-        CHECK(g_opens == 1);
+        CHECK(device_opens.count == 1);
     }
 
     TEST_CASE_FIXTURE(Fixture,
@@ -248,7 +250,7 @@ TEST_SUITE("audio") {
         rmp::audio::music("level1");
         rmp::detail::set_strict(was_strict);
         rmp::detail::set_strict_handler(previous);
-        CHECK(g_opens == 1);
+        CHECK(device_opens.count == 1);
         CHECK(stops == 0);
         CHECK(rmp::detail::report_count() == 0);
         rmp::detail::reset_reports_for_tests();
@@ -259,7 +261,7 @@ TEST_SUITE("audio") {
         CHECK(rmp::audio::detail::ensure_device());
         CHECK(rmp::audio::detail::ensure_device());
         CHECK(rmp::audio::detail::ensure_device());
-        CHECK(g_opens == 1);
+        CHECK(device_opens.count == 1);
         CHECK(rmp::audio::available());
     }
 
@@ -278,7 +280,7 @@ TEST_SUITE("audio") {
         rmp::audio::music("definitely_not_music_anywhere");
         CHECK(rmp::detail::report_count() == 3);
         CHECK_FALSE(rmp::audio::music_playing());
-        CHECK(g_opens == 1);
+        CHECK(device_opens.count == 1);
         rmp::detail::reset_reports_for_tests();
     }
 
@@ -288,6 +290,6 @@ TEST_SUITE("audio") {
         rmp::audio::detail::shutdown();
         rmp::audio::detail::close_device();
         CHECK_FALSE(rmp::audio::detail::ensure_device());
-        CHECK(g_opens == 2); // one per open, not one per call
+        CHECK(device_opens.count == 2); // one per open, not one per call
     }
 }

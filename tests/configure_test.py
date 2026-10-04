@@ -3787,6 +3787,17 @@ class NamingCheckTest(unittest.TestCase):
                              capture_output=True, text=True)
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
 
+    def test_every_rule_is_enforced_on_the_tree(self):
+        """The rules joined ENFORCED one by one as each rename landed. All of
+        them hold now, and a rule taken back out would let its mistake back in
+        without a word."""
+        text = self.SCRIPT.read_text()
+        enforced = set(re.findall(r'"(R\d)"', re.search(r"^ENFORCED = \{([^}]*)\}",
+                                                       text, re.M).group(1)))
+        rules = set(re.findall(r'^    "(R\d)": ', text, re.M))
+        self.assertEqual(len(rules), 7)
+        self.assertEqual(enforced, rules)
+
     def test_it_is_wired_into_just_test_and_the_lint_job(self):
         self.assertIn("naming_check.sh", (REPO / "Justfile").read_text())
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")

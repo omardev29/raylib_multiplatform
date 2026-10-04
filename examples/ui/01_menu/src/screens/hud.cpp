@@ -12,7 +12,7 @@ void hud() {
 
     // Built fresh every frame, which is exactly how immediate mode is meant to
     // be used: no label object to update, no "setText" to remember.
-    rmp::ui::text("Score: " + std::to_string(g_state.score));
+    rmp::ui::text("Score: " + std::to_string(game.score));
     rmp::ui::text("Press ESC for the menu",
                   { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
 

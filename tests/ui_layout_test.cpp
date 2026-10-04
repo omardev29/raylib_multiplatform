@@ -27,18 +27,20 @@
 
 namespace {
 
-int g_failures = 0;
+struct {
+    int failures = 0;
+} results;
 
 void check(bool ok, const char *what) {
     std::printf("%s  %s\n", ok ? "ok  " : "FAIL", what);
-    if (!ok) g_failures++;
+    if (!ok) results.failures++;
 }
 
 void check_near(float got, float want, float tolerance, const char *what) {
     bool ok = std::fabs(got - want) <= tolerance;
     std::printf("%s  %s (got %.2f, want %.2f +/- %.2f)\n", ok ? "ok  " : "FAIL", what,
                 got, want, tolerance);
-    if (!ok) g_failures++;
+    if (!ok) results.failures++;
 }
 
 // A stub that needs no font: every glyph is half the font Size wide, and a line
@@ -73,7 +75,7 @@ Box box_of(const char *label) {
     Clay_BoundingBox b{};
     if (!rmp::ui::detail::bounds_of(label, 0, 0, &b)) {
         std::printf("FAIL  '%s' produced no element at all\n", label);
-        g_failures++;
+        results.failures++;
         return Box{ 0, 0, 0, 0 };
     }
     return Box{ b.x, b.y, b.width, b.height };
@@ -210,21 +212,25 @@ void run_containers(float w, float h) {
 // injected pointer, so it still needs no window.
 // ---------------------------------------------------------------------------
 
-Clay_Vector2 g_pointer{ -1, -1 };
-bool g_down = false;
+struct {
+    Clay_Vector2 position{ -1, -1 };
+    bool down = false;
+} fake_pointer;
 
 void pointer_scripted(Clay_Vector2 *position, bool *down) {
-    *position = g_pointer;
-    *down = g_down;
+    *position = fake_pointer.position;
+    *down = fake_pointer.down;
 }
 
 // The keyboard and the gamepad, through the same kind of seam: what the player
 // is pushing, and whether they just pressed the button that means "do it".
 // Without this a headless test can lay a menu out and click it with a fake
 // mouse, but cannot press its buttons the way a controller does.
-rmp::ui::detail::NavState g_nav{};
+struct {
+    rmp::ui::detail::NavState state{};
+} fake_nav;
 
-void nav_scripted(rmp::ui::detail::NavState *out) { *out = g_nav; }
+void nav_scripted(rmp::ui::detail::NavState *out) { *out = fake_nav.state; }
 
 void run_interaction() {
     std::printf("\n--- interaction ---\n");
@@ -248,43 +254,43 @@ void run_interaction() {
     // Frame one only establishes geometry: hit testing answers for the layout
     // of the frame before, so nothing can be clicked until something has been
     // laid out at least once. That is the rule, and this is it being true.
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
 
     Box btn = box_of("Apply");
     check(btn.w > 0, "the button has a Box to aim at");
 
     // Press and release over the button.
-    g_pointer = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
-    g_down = true;
+    fake_pointer.position = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
+    fake_pointer.down = true;
     frame();
     check(clicks == 0, "a press alone does not click");
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     check(clicks == 1, "press then release over the button clicks it");
 
     // Press on it, drag off, release: nothing. This is the behaviour people
     // rely on without ever noticing it, and the one that quietly disappears if
     // a click is implemented as "button is down over the element".
-    g_down = true;
+    fake_pointer.down = true;
     frame();
-    g_pointer = Clay_Vector2{ 5, 5 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ 5, 5 };
+    fake_pointer.down = false;
     frame();
     check(clicks == 1, "dragging off before releasing does not click");
 
     // The checkbox writes to the caller's variable.
     Box cb = box_of("Fullscreen");
-    g_pointer = Clay_Vector2{ cb.x + cb.w / 2, cb.y + cb.h / 2 };
-    g_down = true;
+    fake_pointer.position = Clay_Vector2{ cb.x + cb.w / 2, cb.y + cb.h / 2 };
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     check(checked, "the checkbox toggled the caller's bool");
-    g_down = true;
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     check(!checked, "and toggled it back");
 
@@ -304,23 +310,24 @@ void run_interaction() {
         rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(vol_id, 0), &rail);
     check(have_rail && rail.width > 0, "the slider's rail has a Box to aim at");
 
-    g_pointer = Clay_Vector2{ rail.x + rail.width * 0.95f, rail.y + rail.height / 2 };
-    g_down = true;
+    fake_pointer.position =
+        Clay_Vector2{ rail.x + rail.width * 0.95f, rail.y + rail.height / 2 };
+    fake_pointer.down = true;
     frame();
     frame();
     check(volume > 0.7f, "dragging the slider to the right raises the value");
-    g_pointer = Clay_Vector2{ rail.x, rail.y + rail.height / 2 };
+    fake_pointer.position = Clay_Vector2{ rail.x, rail.y + rail.height / 2 };
     frame();
     check(volume < 0.3f, "and dragging it back lowers it");
-    g_down = false;
+    fake_pointer.down = false;
     frame();
 
     // wants_pointer() is what stops the click that pressed a button from also
     // firing the player's weapon.
-    g_pointer = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
+    fake_pointer.position = Clay_Vector2{ btn.x + btn.w / 2, btn.y + btn.h / 2 };
     frame();
     check(rmp::ui::wants_pointer(), "wants_pointer() is true over a control");
-    g_pointer = Clay_Vector2{ 4, 4 };
+    fake_pointer.position = Clay_Vector2{ 4, 4 };
     frame();
     check(!rmp::ui::wants_pointer(), "and false out in the open");
 
@@ -354,16 +361,16 @@ void run_dropdown() {
         rmp::ui::end();
     };
 
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
 
     // Open the first one.
     Box q = box_of("Quality");
-    g_pointer = Clay_Vector2{ q.x + q.w * 0.8f, q.y + q.h / 2 };
-    g_down = true;
+    fake_pointer.position = Clay_Vector2{ q.x + q.w * 0.8f, q.y + q.h / 2 };
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     frame();
 
@@ -384,10 +391,11 @@ void run_dropdown() {
 
     if (have_item) {
         // Pick "Low" from the first list; the second must not move.
-        g_pointer = Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
-        g_down = true;
+        fake_pointer.position =
+            Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
+        fake_pointer.down = true;
         frame();
-        g_down = false;
+        fake_pointer.down = false;
         frame();
         check(quality == 1, "clicking an item selects it");
         check(shadows == 0, "and leaves the other dropdown alone");
@@ -618,15 +626,15 @@ void run_slider_nav() {
     rmp::ui::end();
     rmp::ui::focus("Quality");
 
-    g_nav.x = 0;
+    fake_nav.state.x = 0;
     frame();
     check_near(quality, 2.0f, 0.001f, "a stick at rest moves nothing");
 
-    g_nav.x = 1;
+    fake_nav.state.x = 1;
     frame();
     check_near(quality, 3.0f, 0.001f, "pushing right moves it exactly one step");
 
-    g_nav.x = -1;
+    fake_nav.state.x = -1;
     frame();
     check_near(quality, 2.0f, 0.001f, "and pushing left moves it back");
 
@@ -639,14 +647,14 @@ void run_slider_nav() {
     // Pressed again, three times, which is two steps of travel and one of
     // nothing because it is already at the end.
     for (int i = 0; i < 3; i++) {
-        g_nav.x = 0;
+        fake_nav.state.x = 0;
         frame();
-        g_nav.x = -1;
+        fake_nav.state.x = -1;
         frame();
     }
     check_near(quality, 0.0f, 0.001f, "and it stops at min instead of running past it");
 
-    g_nav = rmp::ui::detail::NavState{};
+    fake_nav.state = rmp::ui::detail::NavState{};
 }
 
 // Pointer capture belongs to the element that took it. It used to be one global
@@ -674,8 +682,8 @@ void run_two_sliders() {
         rmp::ui::end();
     };
 
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
     frame();
 
@@ -687,10 +695,11 @@ void run_two_sliders() {
 
     // Press on Music and drag away from both of them. SFX is declared after
     // Music and is not being dragged: it must not answer for the pointer.
-    g_pointer = Clay_Vector2{ rail.x + rail.width * 0.5f, rail.y + rail.height / 2 };
-    g_down = true;
+    fake_pointer.position =
+        Clay_Vector2{ rail.x + rail.width * 0.5f, rail.y + rail.height / 2 };
+    fake_pointer.down = true;
     frame();
-    g_pointer = Clay_Vector2{ 4, 4 };
+    fake_pointer.position = Clay_Vector2{ 4, 4 };
     frame();
     check(rmp::ui::wants_pointer(),
           "a slider being dragged keeps the pointer, whatever is drawn after it");
@@ -703,7 +712,7 @@ void run_two_sliders() {
     // the frame the release happens in, because that frame is what a click is
     // made of, and it is let go at the boundary after it. One frame either way
     // is the same tolerance every other interaction here has.
-    g_down = false;
+    fake_pointer.down = false;
     sliders_on_screen = false;
     frame();
     frame();
@@ -888,8 +897,8 @@ void run_two_passes() {
         rmp::ui::detail::end_frame();
     };
 
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame(false);
     frame(false);
 
@@ -911,22 +920,22 @@ void run_two_passes() {
 
     // The pass on top is clickable. It was not, until hit testing stopped going
     // through Clay: see run_two_pass_clicks() below for the whole of that.
-    g_pointer =
+    fake_pointer.position =
         Clay_Vector2{ high_box.x + high_box.width / 2, high_box.y + high_box.height / 2 };
-    g_down = true;
+    fake_pointer.down = true;
     frame(false);
-    g_down = false;
+    fake_pointer.down = false;
     frame(false);
     check(menu_clicks == 1, "the pass on top is clickable");
 
     // What IS gated, and where: the pointer state every widget reads is turned
     // off for a pass input cannot reach, so nothing in the HUD under an open
     // menu can be pressed even once hit testing works.
-    g_pointer =
+    fake_pointer.position =
         Clay_Vector2{ low_box.x + low_box.width / 2, low_box.y + low_box.height / 2 };
-    g_down = true;
+    fake_pointer.down = true;
     frame(false);
-    g_down = false;
+    fake_pointer.down = false;
     frame(false);
     check(hud_clicks == 0, "a pass input cannot reach is not clickable");
 
@@ -1001,15 +1010,16 @@ void run_two_pass_clicks() {
     };
 
     auto click_at = [&](Clay_BoundingBox box) {
-        g_pointer = Clay_Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
-        g_down = true;
+        fake_pointer.position =
+            Clay_Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
+        fake_pointer.down = true;
         frame();
-        g_down = false;
+        fake_pointer.down = false;
         frame();
     };
 
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
     frame();
 
@@ -1023,7 +1033,8 @@ void run_two_pass_clicks() {
 
     // Hover answers on the first frame after the geometry exists, which is the
     // whole immediate-mode contract: one frame of lag and not two.
-    g_pointer = Clay_Vector2{ menu.x + menu.width / 2, menu.y + menu.height / 2 };
+    fake_pointer.position =
+        Clay_Vector2{ menu.x + menu.width / 2, menu.y + menu.height / 2 };
     frame();
     check(rmp::ui::wants_pointer(), "the menu on top is hovered on the very next frame");
 
@@ -1034,7 +1045,7 @@ void run_two_pass_clicks() {
     check(hud_clicks == 0, "and the HUD under it stays out of it");
 
     // The HUD is not hoverable while the menu owns the input.
-    g_pointer = Clay_Vector2{ hud.x + hud.width / 2, hud.y + hud.height / 2 };
+    fake_pointer.position = Clay_Vector2{ hud.x + hud.width / 2, hud.y + hud.height / 2 };
     frame();
     check(!rmp::ui::wants_pointer(), "a pass input cannot reach is not hovered");
     click_at(hud);
@@ -1067,13 +1078,13 @@ void run_idle_frame() {
         rmp::ui::end();
         rmp::ui::detail::end_frame();
     };
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
     frame();
 
     Box pause = box_of("Pause");
-    g_pointer = Clay_Vector2{ pause.x + pause.w / 2, pause.y + pause.h / 2 };
+    fake_pointer.position = Clay_Vector2{ pause.x + pause.w / 2, pause.y + pause.h / 2 };
     frame();
     check(rmp::ui::wants_pointer(), "the pointer is over the menu");
 
@@ -1101,8 +1112,8 @@ void run_zero_area() {
         rmp::ui::button("Solid");
         rmp::ui::end();
     };
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
     frame();
 
@@ -1111,7 +1122,7 @@ void run_zero_area() {
 
     // Exactly on it. The box test alone would say yes — the corner of a zero
     // box contains the corner of itself — so this is the rule and nothing else.
-    g_pointer = Clay_Vector2{ empty.x, empty.y };
+    fake_pointer.position = Clay_Vector2{ empty.x, empty.y };
     frame();
     check(!rmp::ui::detail::pointer_over(rmp::ui::detail::peek_element_id("empty", 0, 0)),
           "nothing is ever over it, not even the point it sits on");
@@ -1140,17 +1151,18 @@ void run_dropdown_occlusion() {
         rmp::ui::end();
     };
 
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
     frame();
 
     // Open the list.
     Box field = box_of("Quality");
-    g_pointer = Clay_Vector2{ field.x + field.w * 0.8f, field.y + field.h / 2 };
-    g_down = true;
+    fake_pointer.position =
+        Clay_Vector2{ field.x + field.w * 0.8f, field.y + field.h / 2 };
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     frame();
 
@@ -1165,10 +1177,11 @@ void run_dropdown_occlusion() {
     const bool overlaps = item.y < under.y + under.h && item.y + item.height > under.y;
     check(overlaps, "and it hangs over the button underneath");
 
-    g_pointer = Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
-    g_down = true;
+    fake_pointer.position =
+        Clay_Vector2{ item.x + item.width / 2, item.y + item.height / 2 };
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     check(clicks == 0, "clicking the list does not press the button behind it");
     check(quality == 1, "it picks the item, which is what was under the pointer");
@@ -1193,8 +1206,8 @@ void run_scroll_clip() {
         rmp::ui::end();
     };
 
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     frame();
     frame();
 
@@ -1203,10 +1216,10 @@ void run_scroll_clip() {
     check(list.h > 0 && last.h > 0, "the list and its last row both laid out");
     check(last.y > list.y + list.h, "the last row sits below the bottom of the list");
 
-    g_pointer = Clay_Vector2{ last.x + last.w / 2, last.y + last.h / 2 };
-    g_down = true;
+    fake_pointer.position = Clay_Vector2{ last.x + last.w / 2, last.y + last.h / 2 };
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     check(clicks == 0, "a row clipped out of the list cannot be clicked");
     check(!rmp::ui::wants_pointer(), "and the UI does not claim the pointer for it");
@@ -1214,10 +1227,10 @@ void run_scroll_clip() {
     // The row that IS inside the box still works, or the check above would pass
     // for the wrong reason.
     Box first = box_of("row0");
-    g_pointer = Clay_Vector2{ first.x + first.w / 2, first.y + first.h / 2 };
-    g_down = true;
+    fake_pointer.position = Clay_Vector2{ first.x + first.w / 2, first.y + first.h / 2 };
+    fake_pointer.down = true;
     frame();
-    g_down = false;
+    fake_pointer.down = false;
     frame();
     check(clicks == 1, "and a row inside it still is");
 
@@ -1237,8 +1250,8 @@ void run_default_focus() {
     std::printf("\n--- the focus nobody asked for ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
-    g_pointer = Clay_Vector2{ -1, -1 };
-    g_down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
     rmp::ui::focus(""); // nothing focused, which is how a fresh scene starts
     rmp::ui::detail::set_focus_visible(false);
 
@@ -1253,21 +1266,21 @@ void run_default_focus() {
     // so a player holding a mouse would find one on the first button of every
     // menu that opens -- and the recorded render hash is what would say so.
     check(!rmp::ui::detail::focus_visible(), "a focus nobody asked for is not drawn");
-    g_nav.y = 1;
+    fake_nav.state.y = 1;
     rmp::ui::begin();
     rmp::ui::button("Play again");
     rmp::ui::button("Quit");
     rmp::ui::end();
-    g_nav.y = 0;
+    fake_nav.state.y = 0;
     check(rmp::ui::detail::focus_visible(), "touching the keyboard draws it");
 
     // And going back to the mouse puts it away again.
-    g_pointer = Clay_Vector2{ 4, 4 };
-    g_down = true;
+    fake_pointer.position = Clay_Vector2{ 4, 4 };
+    fake_pointer.down = true;
     rmp::ui::begin();
     rmp::ui::button("Play again");
     rmp::ui::end();
-    g_down = false;
+    fake_pointer.down = false;
     check(!rmp::ui::detail::focus_visible(), "and clicking puts it away");
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 
@@ -1350,20 +1363,20 @@ void run_activate() {
     frame(); // the first one is what takes the focus
     check(rmp::ui::focused() == "Play again", "the first button has the focus");
 
-    g_nav.activate = true;
+    fake_nav.state.activate = true;
     frame();
-    g_nav.activate = false;
+    fake_nav.state.activate = false;
     check(played == 1, "Enter presses the focused button");
     check(quit == 0, "and only that one");
 
     // Down, then Enter: the other one.
-    g_nav.y = 1;
+    fake_nav.state.y = 1;
     frame();
-    g_nav.y = 0;
+    fake_nav.state.y = 0;
     check(rmp::ui::focused() == "Quit", "Down moves the focus");
-    g_nav.activate = true;
+    fake_nav.state.activate = true;
     frame();
-    g_nav.activate = false;
+    fake_nav.state.activate = false;
     check(quit == 1, "and Enter presses what it landed on");
     check(played == 1, "without pressing the one it left");
 
@@ -1371,15 +1384,15 @@ void run_activate() {
     // player presses.
     rmp::ui::detail::begin_frame();
     rmp::ui::detail::set_pass_input(false);
-    g_nav.activate = true;
+    fake_nav.state.activate = true;
     rmp::ui::begin();
     if (rmp::ui::button("Play again")) played++;
     rmp::ui::end();
     rmp::ui::detail::end_frame();
-    g_nav.activate = false;
+    fake_nav.state.activate = false;
     check(played == 1, "a pass input cannot reach does not answer the keyboard");
 
-    g_nav = rmp::ui::detail::NavState{};
+    fake_nav.state = rmp::ui::detail::NavState{};
 }
 
 } // namespace
@@ -1466,6 +1479,6 @@ int main() {
 
     rmp::ui::shutdown();
 
-    std::printf("\n%s\n", g_failures == 0 ? "PASS" : "FAILED");
-    return g_failures == 0 ? 0 : 1;
+    std::printf("\n%s\n", results.failures == 0 ? "PASS" : "FAILED");
+    return results.failures == 0 ? 0 : 1;
 }

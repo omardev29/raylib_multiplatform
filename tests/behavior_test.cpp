@@ -58,10 +58,13 @@ void frame(rmp::Scene &scene, float delta) {
     rmp::objects::detail::collect();
 }
 
-std::string g_log;
+// What happened, in order. The dot says "file state".
+struct {
+    std::string log;
+} trace;
 void note(const std::string &what) {
-    if (!g_log.empty()) g_log += ' ';
-    g_log += what;
+    if (!trace.log.empty()) trace.log += ' ';
+    trace.log += what;
 }
 
 // Behaviors of our own, which is the claim the model makes: one of these and
@@ -167,7 +170,7 @@ TEST_CASE_FIXTURE(Fixture,
 }
 
 TEST_CASE_FIXTURE(Fixture, "they run in the order they were added") {
-    g_log.clear();
+    trace.log.clear();
     Loose object;
     object.add<Chatty>({ .name = "a" });
     object.add<Chatty>({ .name = "b" });
@@ -175,14 +178,14 @@ TEST_CASE_FIXTURE(Fixture, "they run in the order they were added") {
     // and replacing runs the first one's _end, which is the part worth pinning:
     // a behavior being thrown away gets to clean up.
     CHECK(rmp::objects::detail::behavior_count(object) == 1);
-    CHECK(g_log == "a.ready a.end b.ready");
+    CHECK(trace.log == "a.ready a.end b.ready");
 
     SUBCASE("two DIFFERENT types both stay, in the order they went in") {
-        g_log.clear();
+        trace.log.clear();
         object.add<Spin>();
         CHECK(rmp::objects::detail::behavior_count(object) == 2);
         rmp::objects::detail::update_behaviors(object, 0.1f);
-        CHECK(g_log == "b.update");
+        CHECK(trace.log == "b.update");
     }
 }
 
@@ -199,7 +202,7 @@ TEST_CASE_FIXTURE(Fixture, "the optional hooks are only called when they exist")
 }
 
 TEST_CASE_FIXTURE(Fixture, "every hook fires, in the right place") {
-    g_log.clear();
+    trace.log.clear();
     Loose object;
     Loose other;
     object.add<Chatty>({ .name = "c" });
@@ -207,7 +210,7 @@ TEST_CASE_FIXTURE(Fixture, "every hook fires, in the right place") {
     rmp::objects::detail::draw_behaviors(object);
     rmp::objects::detail::collide_behaviors(object, other);
     object.remove<Chatty>();
-    CHECK(g_log == "c.ready c.update c.draw c.collision c.end");
+    CHECK(trace.log == "c.ready c.update c.draw c.collision c.end");
 }
 
 namespace {
@@ -254,25 +257,25 @@ TEST_CASE_FIXTURE(Fixture, "behaviors run BEFORE the object's own _update") {
     public:
         void _update(float) override { note("object"); }
     };
-    g_log.clear();
+    trace.log.clear();
     World world;
     auto &object = world.spawn<Last>();
     object.add<Chatty>({ .name = "b" });
-    g_log.clear();
+    trace.log.clear();
     frame(world, 0.1f);
-    CHECK(g_log == "b.update object");
+    CHECK(trace.log == "b.update object");
 }
 
 TEST_CASE_FIXTURE(Fixture, "destroying the object runs every _end once") {
-    g_log.clear();
+    trace.log.clear();
     World world;
     auto &object = world.spawn();
     object.add<Chatty>({ .name = "d" });
-    g_log.clear();
+    trace.log.clear();
     object.destroy();
-    CHECK(g_log == "d.end");
+    CHECK(trace.log == "d.end");
     rmp::objects::detail::collect();
-    CHECK(g_log == "d.end");
+    CHECK(trace.log == "d.end");
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,16 +1054,16 @@ TEST_CASE_FIXTURE(Fixture,
     object.add<Runner<1>>({ .name = "B" });
     object.add<Runner<2>>({ .name = "C" });
 
-    g_log.clear();
+    trace.log.clear();
     rmp::objects::detail::update_behaviors(object, 0.1f);
-    CHECK(g_log == "A B C");
+    CHECK(trace.log == "A B C");
     CHECK_FALSE(object.has<Leaver>());
     CHECK(rmp::objects::detail::behavior_count(object) == 2);
 
     // And the compaction afterwards left the two survivors, in order.
-    g_log.clear();
+    trace.log.clear();
     rmp::objects::detail::update_behaviors(object, 0.1f);
-    CHECK(g_log == "B C");
+    CHECK(trace.log == "B C");
 }
 
 // ---------------------------------------------------------------------------

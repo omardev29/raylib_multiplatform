@@ -18,15 +18,15 @@ void inventory_grid() {
                 rmp::ui::cell([&] {
                     rmp::ui::panel(
                         { .box = { .padding = 6 },
-                          .background = (i == g_selected)
+                          .background = (i == selected)
                               ? rmp::ui::current_theme().surface_hover
                               : rmp::ui::current_theme().surface },
                         [&] {
-                            rmp::ui::image(g_icon, { .width = 40, .height = 40 });
-                            rmp::ui::text(g_items[i].name, { .size = 13 });
-                            if (g_items[i].count > 1) {
+                            rmp::ui::image(icon, { .width = 40, .height = 40 });
+                            rmp::ui::text(items[i].name, { .size = 13 });
+                            if (items[i].count > 1) {
                                 rmp::ui::text(
-                                    "x" + std::to_string(g_items[i].count),
+                                    "x" + std::to_string(items[i].count),
                                     { .color = rmp::ui::ColorRole::MUTED, .size = 12 });
                             }
                         });

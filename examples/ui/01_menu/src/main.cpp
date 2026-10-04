@@ -24,9 +24,9 @@ static void on_ready() {
 
 static void on_frame(float delta) {
     (void)delta;
-    if (g_state.screen == Screen::PLAYING) {
-        g_state.score += 1;
-        if (IsKeyPressed(KEY_ESCAPE)) g_state.screen = Screen::MENU;
+    if (game.screen == Screen::PLAYING) {
+        game.score += 1;
+        if (IsKeyPressed(KEY_ESCAPE)) game.screen = Screen::MENU;
     }
 
     BeginDrawing();
@@ -34,7 +34,7 @@ static void on_frame(float delta) {
 
     // The UI draws in end(), so the whole pair belongs between BeginDrawing()
     // and EndDrawing() -- and after whatever you want it to sit on top of.
-    switch (g_state.screen) {
+    switch (game.screen) {
         case Screen::MENU:
             main_menu();
             break;

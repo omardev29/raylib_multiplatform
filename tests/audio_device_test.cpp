@@ -50,8 +50,11 @@ struct Energy {
     [[nodiscard]] double total() const { return left + right; }
 };
 
-std::mutex g_lock;
-Energy g_energy;
+// What the mixer has played, written on the audio thread under the lock.
+struct {
+    std::mutex lock;
+    Energy energy;
+} mixed;
 
 // On the audio thread: raylib mixes in 32-bit float, two channels.
 void capture(void *buffer, unsigned int frames) {
@@ -64,15 +67,15 @@ void capture(void *buffer, unsigned int frames) {
         l += static_cast<double>(left) * left;
         r += static_cast<double>(right) * right;
     }
-    const std::scoped_lock hold(g_lock);
-    g_energy.left += l;
-    g_energy.right += r;
+    const std::scoped_lock hold(mixed.lock);
+    mixed.energy.left += l;
+    mixed.energy.right += r;
 }
 
 Energy take() {
-    const std::scoped_lock hold(g_lock);
-    const Energy e = g_energy;
-    g_energy = Energy{};
+    const std::scoped_lock hold(mixed.lock);
+    const Energy e = mixed.energy;
+    mixed.energy = Energy{};
     return e;
 }
 
@@ -170,8 +173,8 @@ struct Device {
         const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < until) {
             wait(0.02);
-            const std::scoped_lock hold(g_lock);
-            if (g_energy.total() > 0) break;
+            const std::scoped_lock hold(mixed.lock);
+            if (mixed.energy.total() > 0) break;
         }
         wait(0.15); // and let it finish, so it is not in the first measurement
     }

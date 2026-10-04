@@ -192,7 +192,7 @@ TEST_SUITE("random") {
         // prints one on its pause screen and in its crash report, and handing
         // that number back has to give the sequence the process was running.
         //
-        // It did not. g_seed sat at 0 while the state sat at four compile-time
+        // It did not. The seed sat at 0 while the state sat at four compile-time
         // constants that seed(0) does not produce, so the bug report sent the
         // reader to a different run than the one that crashed.
         CHECK(START.seed != 0);

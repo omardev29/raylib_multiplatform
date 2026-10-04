@@ -33,15 +33,18 @@ public:
     ~World() override { rmp::objects::detail::release_scene(*this); }
 };
 
-rmp::input::detail::DeviceState g_devices;
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
+// The fake device the input seam reads. The dot says "file state".
+struct {
+    rmp::input::detail::DeviceState devices;
+} fake;
+void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
 
 struct Fixture {
     Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::objects::detail::reset_pointer_for_tests();
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
         rmp::ui::detail::begin_capture_frame();
         rmp::input::detail::begin_frame();
@@ -49,7 +52,7 @@ struct Fixture {
     ~Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
     }
 };
 
@@ -211,7 +214,7 @@ TEST_SUITE("camera") {
         // identity camera is what pointer() answers with.
         World world;
         world.camera.position = Vector2{ 1000, 600 };
-        g_devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
+        fake.devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
         rmp::input::detail::begin_frame();
         CHECK(near(rmp::input::pointer_screen(),
                    Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }));
@@ -229,18 +232,18 @@ TEST_SUITE("camera") {
 
         // The object is at the centre of the VIEW, which is the centre of the
         // screen. A press there, in pixels, has to land on it.
-        g_devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
-        g_devices.mouse[MOUSE_BUTTON_LEFT] = true;
+        fake.devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
+        fake.devices.mouse[MOUSE_BUTTON_LEFT] = true;
         frame(world);
-        g_devices.mouse[MOUSE_BUTTON_LEFT] = false;
+        fake.devices.mouse[MOUSE_BUTTON_LEFT] = false;
         frame(world);
         CHECK(clicks == 1);
 
         SUBCASE("and a press at the object's WORLD coordinates in pixels misses it") {
-            g_devices.pointer = Vector2{ 1000, 600 }; // off screen at this framing
-            g_devices.mouse[MOUSE_BUTTON_LEFT] = true;
+            fake.devices.pointer = Vector2{ 1000, 600 }; // off screen at this framing
+            fake.devices.mouse[MOUSE_BUTTON_LEFT] = true;
             frame(world);
-            g_devices.mouse[MOUSE_BUTTON_LEFT] = false;
+            fake.devices.mouse[MOUSE_BUTTON_LEFT] = false;
             frame(world);
             CHECK(clicks == 1);
         }

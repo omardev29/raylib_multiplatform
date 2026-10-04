@@ -1061,8 +1061,11 @@ TEST_CASE_FIXTURE(Fixture, "solid_only skips the trigger and finds the ground") 
 
 namespace {
 
-rmp::input::detail::DeviceState g_devices;
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
+// The fake device the input seam reads. The dot says "file state".
+struct {
+    rmp::input::detail::DeviceState devices;
+} fake;
+void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
 
 // The pointer pass reads rmp::input, so the test writes the devices and drives
 // one frame of each. Split in two because the case being tested is a frame
@@ -1071,7 +1074,7 @@ void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
 struct Pointer {
     Pointer() {
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
         // A UI case that ran before this one may have left the pointer "over
         // the UI" -- the flag only clears at the next begin(), which this
@@ -1082,12 +1085,12 @@ struct Pointer {
     }
     ~Pointer() {
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
     }
 
     static void sample(Vector2 at, bool down) {
-        g_devices.pointer = at;
-        g_devices.mouse[MOUSE_BUTTON_LEFT] = down;
+        fake.devices.pointer = at;
+        fake.devices.mouse[MOUSE_BUTTON_LEFT] = down;
         rmp::input::detail::begin_frame();
     }
     static void step(rmp::Scene &scene, Vector2 at, bool down) {

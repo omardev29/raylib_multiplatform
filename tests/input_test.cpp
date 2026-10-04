@@ -27,21 +27,24 @@ namespace {
 
 // The device state the fake provider hands over. Tests write it directly, which
 // is the whole seam: there is nothing between this and what rmp::input answers.
-rmp::input::detail::DeviceState g_devices;
+// The fake device the input seam reads. The dot says "file state".
+struct {
+    rmp::input::detail::DeviceState devices;
+} fake;
 
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = g_devices; }
+void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
 
 // Every test starts from nothing: no actions, no history, the factory set
 // reinstalled on first use, and the fake provider in place.
 struct Fixture {
     Fixture() {
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
     }
     ~Fixture() {
         rmp::input::detail::reset();
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
     }
 };
 
@@ -50,10 +53,10 @@ struct Fixture {
 // is testing the wrong thing.
 void frame() { rmp::input::detail::begin_frame(); }
 
-void hold(::KeyboardKey key, bool down = true) { g_devices.keys[key] = down; }
-void hold(::MouseButton button, bool down = true) { g_devices.mouse[button] = down; }
-void hold(::GamepadButton button, bool down = true) { g_devices.pad[button] = down; }
-void push(::GamepadAxis axis, float value) { g_devices.axes[axis] = value; }
+void hold(::KeyboardKey key, bool down = true) { fake.devices.keys[key] = down; }
+void hold(::MouseButton button, bool down = true) { fake.devices.mouse[button] = down; }
+void hold(::GamepadButton button, bool down = true) { fake.devices.pad[button] = down; }
+void push(::GamepadAxis axis, float value) { fake.devices.axes[axis] = value; }
 
 float length(Vector2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
@@ -68,7 +71,7 @@ TEST_SUITE("input actions") {
         CHECK(!rmp::input::pressed("jump"));
 
         for (int which = 0; which < 3; which++) {
-            g_devices = rmp::input::detail::DeviceState{};
+            fake.devices = rmp::input::detail::DeviceState{};
             if (which == 0) hold(KEY_SPACE);
             if (which == 1) hold(KEY_W);
             if (which == 2) hold(GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
@@ -78,7 +81,7 @@ TEST_SUITE("input actions") {
         }
 
         // And nothing else: a neighbouring key is not a near miss, it is a miss.
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_A);
         hold(KEY_E);
         hold(MOUSE_BUTTON_LEFT);
@@ -141,7 +144,7 @@ TEST_SUITE("input actions") {
         frame();
         CHECK(!rmp::input::pressed("fire"));
 
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_G);
         frame();
         CHECK(rmp::input::pressed("fire"));
@@ -198,7 +201,7 @@ TEST_SUITE("input actions") {
         CHECK(rmp::input::pressed("many"));
         // The ones past the limit are gone, and the point of the test is that
         // asking about them is safe rather than a read past the end of the array.
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_L);
         frame();
         CHECK(!rmp::input::pressed("many"));
@@ -238,7 +241,7 @@ TEST_SUITE("input directions") {
         frame();
         CHECK(rmp::input::axis() == doctest::Approx(-1.0f));
 
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_D);
         frame();
         CHECK(rmp::input::axis() == doctest::Approx(1.0f));
@@ -274,14 +277,14 @@ TEST_SUITE("input directions") {
             { KEY_W, KEY_A }, { KEY_W, KEY_D }, { KEY_S, KEY_A }, { KEY_S, KEY_D }
         };
         for (const auto &pair : pairs) {
-            g_devices = rmp::input::detail::DeviceState{};
+            fake.devices = rmp::input::detail::DeviceState{};
             hold(pair.a);
             hold(pair.b);
             frame();
             CHECK(length(rmp::input::vector()) == doctest::Approx(1.0f).epsilon(0.001));
         }
         for (::KeyboardKey key : { KEY_W, KEY_A, KEY_S, KEY_D }) {
-            g_devices = rmp::input::detail::DeviceState{};
+            fake.devices = rmp::input::detail::DeviceState{};
             hold(key);
             frame();
             CHECK(length(rmp::input::vector()) == doctest::Approx(1.0f).epsilon(0.001));
@@ -294,7 +297,7 @@ TEST_SUITE("input directions") {
         frame();
         CHECK(rmp::input::vector().y < 0.0f);
 
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_S);
         frame();
         CHECK(rmp::input::vector().y > 0.0f);
@@ -354,14 +357,14 @@ TEST_SUITE("input directions") {
         Fixture fix;
         for (const char *name : { "move_left", "move_right", "move_up", "move_down",
                                   "ui_accept", "ui_cancel" }) {
-            g_devices = rmp::input::detail::DeviceState{};
+            fake.devices = rmp::input::detail::DeviceState{};
             frame();
             CHECK_MESSAGE(!rmp::input::pressed(name), name, " should be up");
         }
         hold(KEY_ENTER);
         frame();
         CHECK(rmp::input::pressed("ui_accept"));
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_ESCAPE);
         frame();
         CHECK(rmp::input::pressed("ui_cancel"));
@@ -373,7 +376,7 @@ TEST_SUITE("input directions") {
         hold(KEY_A); // the old binding
         frame();
         CHECK(!rmp::input::pressed("move_left"));
-        g_devices = rmp::input::detail::DeviceState{};
+        fake.devices = rmp::input::detail::DeviceState{};
         hold(KEY_H);
         frame();
         CHECK(rmp::input::pressed("move_left"));
@@ -382,7 +385,7 @@ TEST_SUITE("input directions") {
     TEST_CASE("keyboard, d-pad and stick all reach the same action") {
         Fixture fix;
         for (int which = 0; which < 3; which++) {
-            g_devices = rmp::input::detail::DeviceState{};
+            fake.devices = rmp::input::detail::DeviceState{};
             rmp::input::set_deadzone(0.2f);
             if (which == 0) hold(KEY_D);
             if (which == 1) hold(GAMEPAD_BUTTON_LEFT_FACE_RIGHT);
@@ -542,7 +545,7 @@ TEST_SUITE("input consumption") {
 TEST_SUITE("input pointer") {
     TEST_CASE("the delta is zero on the first frame") {
         Fixture fix;
-        g_devices.pointer = Vector2{ 100, 100 };
+        fake.devices.pointer = Vector2{ 100, 100 };
         frame();
         // There is no previous position, and inventing one would report a jump from
         // the origin the moment the game starts.
@@ -552,9 +555,9 @@ TEST_SUITE("input pointer") {
 
     TEST_CASE("and is the difference after that") {
         Fixture fix;
-        g_devices.pointer = Vector2{ 100, 100 };
+        fake.devices.pointer = Vector2{ 100, 100 };
         frame();
-        g_devices.pointer = Vector2{ 130, 90 };
+        fake.devices.pointer = Vector2{ 130, 90 };
         frame();
         CHECK(rmp::input::pointer_delta().x == doctest::Approx(30.0f));
         CHECK(rmp::input::pointer_delta().y == doctest::Approx(-10.0f));
@@ -596,10 +599,10 @@ TEST_SUITE("input consumption, against the real UI") {
 
     // The UI reads the pointer through its own provider, and rmp::input through
     // its sample provider. They have to agree or the test is measuring nothing —
-    // so both come from the same g_devices the test writes.
+    // so both come from the same fake.devices the test writes.
     void ui_pointer(Clay_Vector2 *position, bool *down) {
-        *position = Clay_Vector2{ g_devices.pointer.x, g_devices.pointer.y };
-        *down = g_devices.mouse[MOUSE_BUTTON_LEFT];
+        *position = Clay_Vector2{ fake.devices.pointer.x, fake.devices.pointer.y };
+        *down = fake.devices.mouse[MOUSE_BUTTON_LEFT];
     }
 
     struct HeadlessUi {
@@ -635,7 +638,7 @@ TEST_SUITE("input consumption, against the real UI") {
         rmp::input::action("fire", KEY_F, MOUSE_BUTTON_LEFT);
 
         // Away from the menu: the pointer is the game's.
-        g_devices.pointer = Vector2{ 5, 5 };
+        fake.devices.pointer = Vector2{ 5, 5 };
         hold(MOUSE_BUTTON_LEFT);
         hold(KEY_F);
         frame_with_menu();
@@ -645,7 +648,7 @@ TEST_SUITE("input consumption, against the real UI") {
 
         // Over the button in the middle of the viewport. This is the case the whole
         // routing rule exists for: a finger that presses Play must not also fire.
-        g_devices.pointer = Vector2{ 400, 225 };
+        fake.devices.pointer = Vector2{ 400, 225 };
         frame_with_menu();
         frame_with_menu();
         REQUIRE(rmp::ui::wants_pointer());
@@ -672,12 +675,12 @@ TEST_SUITE("input consumption, against the real UI") {
         rmp::input::action("shoot", MOUSE_BUTTON_LEFT);
         hold(MOUSE_BUTTON_LEFT);
 
-        g_devices.pointer = Vector2{ 400, 225 };
+        fake.devices.pointer = Vector2{ 400, 225 };
         frame_with_menu();
         frame_with_menu();
         CHECK(!rmp::input::pressed("shoot"));
 
-        g_devices.pointer = Vector2{ 2, 2 };
+        fake.devices.pointer = Vector2{ 2, 2 };
         frame_with_menu();
         frame_with_menu();
         CHECK(rmp::input::pressed("shoot"));

@@ -30,13 +30,16 @@
 
 namespace {
 
-std::string g_log;
+// What happened, in order. The dot says "file state".
+struct {
+    std::string log;
+} trace;
 
 void note(const char *name, const char *event) {
-    if (!g_log.empty()) g_log += ' ';
-    g_log += name;
-    g_log += '.';
-    g_log += event;
+    if (!trace.log.empty()) trace.log += ' ';
+    trace.log += name;
+    trace.log += '.';
+    trace.log += event;
 }
 
 // A scene that writes down everything that happens to it. The name is a
@@ -77,11 +80,11 @@ void run_frame() {
 struct Fixture {
     Fixture() {
         rmp::scenes::detail::shutdown();
-        g_log.clear();
+        trace.log.clear();
     }
     ~Fixture() {
         rmp::scenes::detail::shutdown();
-        g_log.clear();
+        trace.log.clear();
     }
 };
 
@@ -89,7 +92,7 @@ struct Fixture {
 // reads as "given a running stack, when X, then the transcript is Y".
 template <class T> void start_clean() {
     rmp::scenes::detail::start(std::make_unique<T>());
-    g_log.clear();
+    trace.log.clear();
 }
 
 // --- the headless UI seams, for the two-scene tests at the bottom -----------
@@ -104,27 +107,29 @@ Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *conf
 // Where the pointer is and whether it is held, for the tests that drive one.
 // Off-screen and up by default, which is what every other test in this file
 // wants: nothing is hovered and nothing is clicked.
-Clay_Vector2 g_pointer{ -1.0f, -1.0f };
-bool g_pointer_down = false;
+struct {
+    Clay_Vector2 position{ -1.0f, -1.0f };
+    bool down = false;
+} fake_pointer;
 
 void pointer_stub(Clay_Vector2 *position, bool *down) {
-    *position = g_pointer;
-    *down = g_pointer_down;
+    *position = fake_pointer.position;
+    *down = fake_pointer.down;
 }
 
 // Headless UI for the duration of a test, and raylib's own providers back
 // afterwards — a later test that touched the UI without a window would crash.
 struct HeadlessUi {
     HeadlessUi() {
-        g_pointer = Clay_Vector2{ -1.0f, -1.0f };
-        g_pointer_down = false;
+        fake_pointer.position = Clay_Vector2{ -1.0f, -1.0f };
+        fake_pointer.down = false;
         rmp::ui::detail::set_measure_provider(measure_stub);
         rmp::ui::detail::set_pointer_provider(pointer_stub);
         rmp::ui::detail::set_test_viewport(1280, 720);
     }
     ~HeadlessUi() {
-        g_pointer = Clay_Vector2{ -1.0f, -1.0f };
-        g_pointer_down = false;
+        fake_pointer.position = Clay_Vector2{ -1.0f, -1.0f };
+        fake_pointer.down = false;
         rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
         rmp::ui::detail::set_pointer_provider(rmp::ui::detail::pointer_from_raylib);
         rmp::ui::detail::set_test_viewport(0, 0);
@@ -173,7 +178,7 @@ TEST_SUITE("scenes") {
         rmp::scenes::detail::start(std::move(owned));
         // Not deferred, and it cannot be: the first frame draws, and drawing a
         // scene whose _ready has not run would be drawing uninitialised state.
-        CHECK(g_log == "A.ready");
+        CHECK(trace.log == "A.ready");
         CHECK(rmp::Scene::depth() == 1);
         CHECK(rmp::scenes::detail::running());
         // current() is the scene that was started, and not a fallback: this
@@ -218,12 +223,12 @@ TEST_SUITE("scenes") {
             auto again = std::make_unique<A>();
             const A *first = again.get(); // shadows the outer one on purpose
             rmp::scenes::detail::start(std::move(again));
-            g_log.clear();
+            trace.log.clear();
             rmp::scenes::detail::start(nullptr);
             CHECK(rmp::Scene::depth() == 1);
             CHECK(&rmp::Scene::current() == first);
             CHECK(rmp::scenes::detail::running());
-            CHECK(g_log.empty());
+            CHECK(trace.log.empty());
         }
     }
 
@@ -231,7 +236,7 @@ TEST_SUITE("scenes") {
         Fixture fix;
         start_clean<A>();
         run_frame();
-        CHECK(g_log == "A.update A.draw");
+        CHECK(trace.log == "A.update A.draw");
     }
 
     TEST_CASE("push suspends what is under it, pop resumes it") {
@@ -240,20 +245,20 @@ TEST_SUITE("scenes") {
 
         rmp::Scene::push<B>();
         // Still nothing: the transition is queued, not applied.
-        CHECK(g_log.empty());
+        CHECK(trace.log.empty());
         CHECK(rmp::Scene::depth() == 1);
 
         rmp::scenes::detail::apply_pending();
-        CHECK(g_log == "A.suspend B.ready");
+        CHECK(trace.log == "A.suspend B.ready");
         CHECK(rmp::Scene::depth() == 2);
         // current() is the TOP of the stack, not the one that has been there
         // longest. B is what the player is looking at.
         CHECK(dynamic_cast<B *>(&rmp::Scene::current()) != nullptr);
 
-        g_log.clear();
+        trace.log.clear();
         rmp::Scene::pop();
         rmp::scenes::detail::apply_pending();
-        CHECK(g_log == "B.end A.resume");
+        CHECK(trace.log == "B.end A.resume");
         CHECK(rmp::Scene::depth() == 1);
     }
 
@@ -274,12 +279,12 @@ TEST_SUITE("scenes") {
         };
 
         rmp::scenes::detail::start(std::make_unique<Leaver>());
-        g_log.clear();
+        trace.log.clear();
         run_frame();
 
         // Its _draw still ran, and its _end came after it — not in the middle of
         // the update that asked for it.
-        CHECK(g_log == "L.update L.draw L.end A.ready");
+        CHECK(trace.log == "L.update L.draw L.end A.ready");
     }
 
     TEST_CASE("change ends the whole stack, top down") {
@@ -289,13 +294,13 @@ TEST_SUITE("scenes") {
         rmp::Scene::push<C>();
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         rmp::Scene::change<A>();
         rmp::scenes::detail::apply_pending();
 
         // Top down, so no scene is ended while something it put on the stack is
         // still above it.
-        CHECK(g_log == "C.end B.end A.end A.ready");
+        CHECK(trace.log == "C.end B.end A.end A.ready");
         CHECK(rmp::Scene::depth() == 1);
     }
 
@@ -305,13 +310,13 @@ TEST_SUITE("scenes") {
         rmp::Scene::push<B>();
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         rmp::Scene::replace<C>();
         rmp::scenes::detail::apply_pending();
 
         // A stays suspended. It was suspended when B went on and nothing has come
         // off since, so a _resume here would be a lie.
-        CHECK(g_log == "B.end C.ready");
+        CHECK(trace.log == "B.end C.ready");
         CHECK(rmp::Scene::depth() == 2);
     }
 
@@ -323,7 +328,7 @@ TEST_SUITE("scenes") {
 
         // An empty stack is a black window on desktop and, on iOS, a screen with
         // no way back. Refusing beats obeying.
-        CHECK(g_log.empty());
+        CHECK(trace.log.empty());
         CHECK(rmp::Scene::depth() == 1);
     }
 
@@ -334,7 +339,7 @@ TEST_SUITE("scenes") {
         rmp::Scene::pop();
         rmp::scenes::detail::apply_pending();
 
-        CHECK(g_log == "A.suspend B.ready B.end A.resume");
+        CHECK(trace.log == "A.suspend B.ready B.end A.resume");
         CHECK(rmp::Scene::depth() == 1);
     }
 
@@ -352,13 +357,13 @@ TEST_SUITE("scenes") {
         };
 
         rmp::scenes::detail::start(std::make_unique<Eager>());
-        CHECK(g_log == "E.ready");
+        CHECK(trace.log == "E.ready");
 
         // Applying inside apply_pending() would mean recursing into the vector it
         // is walking. It waits.
-        g_log.clear();
+        trace.log.clear();
         rmp::scenes::detail::apply_pending();
-        CHECK(g_log == "E.suspend A.ready");
+        CHECK(trace.log == "E.suspend A.ready");
     }
 
 } // TEST_SUITE
@@ -380,14 +385,14 @@ TEST_SUITE("scene policies") {
         rmp::Scene::push<B>(); // B takes every default
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         run_frame();
 
         // A does not update — the world is frozen — but it is still drawn, so the
         // player can see what they paused. B updates because B is the top scene;
         // the policy is about what is UNDERNEATH. That is a pause menu, and neither
         // scene said a word about it.
-        CHECK(g_log == "B.update A.draw B.draw");
+        CHECK(trace.log == "B.update A.draw B.draw");
     }
 
     TEST_CASE("updates_below lets the world below keep running") {
@@ -397,9 +402,9 @@ TEST_SUITE("scene policies") {
         rmp::Scene::push<Hud>();
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         run_frame();
-        CHECK(g_log == "A.update H.update A.draw H.draw");
+        CHECK(trace.log == "A.update H.update A.draw H.draw");
     }
 
     TEST_CASE("draws_below false is a full-screen scene, and it is two words") {
@@ -409,9 +414,9 @@ TEST_SUITE("scene policies") {
         rmp::Scene::push<Loading>();
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         run_frame();
-        CHECK(g_log == "L.update L.draw");
+        CHECK(trace.log == "L.update L.draw");
     }
 
     TEST_CASE("the policy is read from the whole stack, not just the top") {
@@ -422,13 +427,13 @@ TEST_SUITE("scene policies") {
         rmp::Scene::push<B>(); // freezes everything under it
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         run_frame();
 
         // B stops the updates at P, so A does not run even though P would have let
         // it. Walking down from the top and stopping at the first scene that says
         // no is what makes a pause menu freeze a whole stack rather than one layer.
-        CHECK(g_log == "B.update A.draw P.draw B.draw");
+        CHECK(trace.log == "B.update A.draw P.draw B.draw");
     }
 
     TEST_CASE("the clear colour comes from the lowest scene that is visible") {
@@ -461,9 +466,9 @@ TEST_SUITE("scene shutdown") {
         rmp::Scene::push<C>();
         rmp::scenes::detail::apply_pending();
 
-        g_log.clear();
+        trace.log.clear();
         rmp::scenes::detail::shutdown();
-        CHECK(g_log == "C.end B.end A.end");
+        CHECK(trace.log == "C.end B.end A.end");
         CHECK(rmp::Scene::depth() == 0);
         CHECK(!rmp::scenes::detail::running());
     }
@@ -473,12 +478,12 @@ TEST_SUITE("scene shutdown") {
         start_clean<A>();
         rmp::Scene::push<B>();
 
-        g_log.clear();
+        trace.log.clear();
         rmp::scenes::detail::shutdown();
 
         // B is never entered. Running its _ready would give it a chance to load
         // assets that are about to be released, for a scene nobody will ever see.
-        CHECK(g_log == "A.end");
+        CHECK(trace.log == "A.end");
     }
 
     TEST_CASE("a frame after shutdown does nothing rather than crashing") {
@@ -486,9 +491,9 @@ TEST_SUITE("scene shutdown") {
         start_clean<A>();
         rmp::scenes::detail::shutdown();
 
-        g_log.clear();
+        trace.log.clear();
         run_frame();
-        CHECK(g_log.empty());
+        CHECK(trace.log.empty());
     }
 
 } // TEST_SUITE
@@ -501,12 +506,12 @@ TEST_SUITE("scene ui passes") {
         start_clean<UiScene<'A'>>();
         rmp::Scene::push<UiScene<'B'>>();
         rmp::scenes::detail::apply_pending();
-        g_log.clear();
+        trace.log.clear();
 
         run_frame(); // records the geometry
         run_frame(); // and reads it back
 
-        CHECK(g_log == "A.draw B.draw A.draw B.draw");
+        CHECK(trace.log == "A.draw B.draw A.draw B.draw");
 
         // The point of the pass offset. Both scenes drew a button labelled
         // "Back", and each has to be its own element — otherwise hovering one
@@ -574,15 +579,16 @@ TEST_SUITE("scene ui passes") {
         Clay_BoundingBox box{};
         REQUIRE(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 0, 0), &box));
         REQUIRE(box.width > 0);
-        g_pointer = Clay_Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
+        fake_pointer.position =
+            Clay_Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
 
-        g_pointer_down = true;
+        fake_pointer.down = true;
         run_frame(); // press
-        g_pointer_down = false;
-        g_log.clear();
+        fake_pointer.down = false;
+        trace.log.clear();
         run_frame(); // release, which is where a click happens
 
-        CHECK(g_log == (through ? "A.draw A.click L.draw" : "A.draw L.draw"));
+        CHECK(trace.log == (through ? "A.draw A.click L.draw" : "A.draw L.draw"));
     }
 
 } // TEST_SUITE

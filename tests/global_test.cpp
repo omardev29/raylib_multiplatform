@@ -18,20 +18,23 @@
 
 namespace {
 
-std::string g_log;
+// What happened, in order. The dot says "file state".
+struct {
+    std::string log;
+} trace;
 
 // Types that say when they are built and when they go. A distinct type per
 // test, because rmp::global<T>() keys on the type and a shared one would carry
 // state between test cases.
 template <int N> struct Marker {
-    Marker() { g_log += "+"; }
-    ~Marker() { g_log += "-"; }
+    Marker() { trace.log += "+"; }
+    ~Marker() { trace.log += "-"; }
     int value = 0;
 };
 
 struct Named {
     explicit Named(const char *n = "?") : name(n) {}
-    ~Named() { g_log += name; }
+    ~Named() { trace.log += name; }
     const char *name;
 };
 
@@ -52,7 +55,7 @@ struct Third : Named {
 // anything running during the teardown does without meaning to.
 struct Rebuilder {
     ~Rebuilder() {
-        g_log += "R";
+        trace.log += "R";
         rmp::global<Marker<6>>().value = 1;
     }
 };
@@ -60,11 +63,11 @@ struct Rebuilder {
 struct Fixture {
     Fixture() {
         rmp::app::detail::shutdown_globals();
-        g_log.clear();
+        trace.log.clear();
     }
     ~Fixture() {
         rmp::app::detail::shutdown_globals();
-        g_log.clear();
+        trace.log.clear();
     }
 };
 
@@ -74,19 +77,19 @@ TEST_SUITE("globals") {
     TEST_CASE("it is built once and the same one comes back") {
         Fixture fix;
         rmp::global<Marker<1>>().value = 7;
-        CHECK(g_log == "+");
+        CHECK(trace.log == "+");
 
         // Same instance, not a copy: the whole point is that a scene change does
         // not lose what was written here.
         CHECK(rmp::global<Marker<1>>().value == 7);
-        CHECK(g_log == "+");
+        CHECK(trace.log == "+");
     }
 
     TEST_CASE("it is default-constructed, and only when first asked for") {
         Fixture fix;
-        CHECK(g_log.empty()); // nothing built yet
+        CHECK(trace.log.empty()); // nothing built yet
         CHECK(rmp::global<Marker<2>>().value == 0);
-        CHECK(g_log == "+");
+        CHECK(trace.log == "+");
     }
 
     TEST_CASE("one instance per type, and the type is the whole key") {
@@ -97,7 +100,7 @@ TEST_SUITE("globals") {
         // No name, no registration, no lookup table: two types are two globals.
         CHECK(rmp::global<Marker<3>>().value == 3);
         CHECK(rmp::global<Marker<4>>().value == 4);
-        CHECK(g_log == "++");
+        CHECK(trace.log == "++");
     }
 
     TEST_CASE("shutdown destroys them, reverse of first use") {
@@ -105,46 +108,46 @@ TEST_SUITE("globals") {
         rmp::global<First>();
         rmp::global<Second>();
         rmp::global<Third>();
-        g_log.clear();
+        trace.log.clear();
 
         rmp::app::detail::shutdown_globals();
 
         // Reverse, so a global that exists because another one needed it is still
         // there while that one is being taken apart.
-        CHECK(g_log == "321");
+        CHECK(trace.log == "321");
     }
 
     TEST_CASE("asking again after shutdown builds a fresh one") {
         Fixture fix;
         rmp::global<Marker<5>>().value = 99;
         rmp::app::detail::shutdown_globals();
-        g_log.clear();
+        trace.log.clear();
 
         // The pointer was nulled, not just deleted. Getting the old value back
         // here would be a read through a dangling pointer that happened to work.
         CHECK(rmp::global<Marker<5>>().value == 0);
-        CHECK(g_log == "+");
+        CHECK(trace.log == "+");
     }
 
     TEST_CASE("shutdown twice destroys nothing the second time") {
         Fixture fix;
         rmp::global<First>();
-        g_log.clear();
+        trace.log.clear();
 
         rmp::app::detail::shutdown_globals();
-        CHECK(g_log == "1");
+        CHECK(trace.log == "1");
 
         // The registry is cleared as it is drained. Without that, a second
         // shutdown — and there is one on every path that quits twice — would
         // delete an already-deleted object.
         rmp::app::detail::shutdown_globals();
-        CHECK(g_log == "1");
+        CHECK(trace.log == "1");
     }
 
     TEST_CASE("shutdown with nothing registered is a no-op") {
         Fixture fix;
         rmp::app::detail::shutdown_globals();
-        CHECK(g_log.empty());
+        CHECK(trace.log.empty());
     }
 
     TEST_CASE("a global re-created during the shutdown is refused, and said so") {
@@ -157,18 +160,18 @@ TEST_SUITE("globals") {
         Fixture fix;
         rmp::detail::reset_reports_for_tests();
         rmp::global<Rebuilder>();
-        g_log.clear();
+        trace.log.clear();
 
         rmp::app::detail::shutdown_globals();
         // "R" is the destructor running, "+" the global it built on its way
         // out. Both are allowed; what is not allowed is the registration.
-        CHECK(g_log == "R+");
+        CHECK(trace.log == "R+");
         CHECK(rmp::detail::report_count() == 1);
 
         // Nothing was added to the registry, so there is nothing left to drain.
-        g_log.clear();
+        trace.log.clear();
         rmp::app::detail::shutdown_globals();
-        CHECK(g_log.empty());
+        CHECK(trace.log.empty());
     }
 
 } // TEST_SUITE
