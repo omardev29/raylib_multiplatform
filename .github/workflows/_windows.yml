@@ -70,16 +70,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # MSVC's toolset version floats with the runner image. Recording it means
-      # a compiler-specific failure can at least be correlated after the fact.
-      - name: Record MSVC toolset
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          & $vswhere -latest -products * -property catalog_productDisplayVersion
-          Get-Content "$(& $vswhere -latest -products * -property installationPath)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
-
       - name: Configure
         run: cmake --preset release
+
+      # The compiler that builds the shipped .exe is whichever one CMake finds
+      # first on the runner's PATH -- today the runner's MinGW GCC, which moves
+      # with the runner image and is pinned by nobody. Read back from the cache,
+      # because that is what the build used, so a compiler-specific failure can
+      # at least be correlated after the fact.
+      - name: Record the compiler
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cxx = (Select-String -Path build/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
+          Write-Host "compiler: $cxx"
+          & $cxx --version | Select-Object -First 1
 
       - name: Build
         run: cmake --build --preset release
@@ -103,6 +107,11 @@ jobs:
           # by hand below.
           $PSNativeCommandUseErrorActionPreference = $false
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          # MSVC floats with the runner image too; this is the one step on
+          # this job that uses it, so this is where it is recorded.
+          $vs = & $vswhere -latest -products * -property catalog_productDisplayVersion
+          $tools = Get-Content "$(& $vswhere -latest -products * -property installationPath)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+          Write-Host "MSVC: Visual Studio $vs, toolset $tools"
           $vcvars = & $vswhere -latest -products * -find "VC\Auxiliary\Build\vcvarsall.bat" | Select-Object -First 1
           if (-not $vcvars) { throw "vcvarsall.bat not found" }
           cmd /c "`"$vcvars`" x64 >nul && set" | ForEach-Object {
@@ -147,6 +156,15 @@ jobs:
           if (-not ($head[0] -eq 0x4D -and $head[1] -eq 0x5A)) { Write-Host "FAIL: not a PE (no MZ header)"; exit 1 }
           Write-Host "PASS: static binary checks ($((Get-Item $exe).Length) bytes)"
 
+      # A player's machine has Windows and nothing else. The import table says
+      # what the .exe will ask the loader for, whatever this runner has
+      # installed: the MinGW build imported libstdc++-6.dll and
+      # libgcc_s_seh-1.dll, and the boot below passed anyway because MinGW's
+      # bin/ was on PATH. Before the boot, so a red here is not hidden behind
+      # whatever the boot does.
+      - name: Test (static) -- the .exe imports nothing Windows does not ship
+        run: python tools/binary_check.py windows "build/${{ inputs.project_name }}.exe"
+
       - name: Set up Mesa software OpenGL (pinned)
         run: |
           $ErrorActionPreference = "Stop"
@@ -190,6 +208,28 @@ jobs:
           # from code points so this file stays ASCII.
           $env:APPDATA = Join-Path $env:RUNNER_TEMP ("Jos" + [char]0x00E9 + " M" + [char]0x00FC + "ller")
           New-Item -ItemType Directory -Force -Path $env:APPDATA | Out-Null
+
+          # The boot runs with the compiler OFF PATH, as on a player's machine.
+          # Windows looks for an imported DLL on PATH, so with MinGW's bin/
+          # there an .exe that needs libstdc++-6.dll starts here and nowhere
+          # else. Out goes the directory of the compiler that built it, and
+          # every directory holding a MinGW runtime DLL (Git and Strawberry
+          # Perl ship some too); the game inherits this PATH.
+          $cxx = (Select-String -Path build/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
+          $compilerDir = (Resolve-Path (Split-Path $cxx)).Path.TrimEnd('\')
+          $runtime = @("libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")
+          $kept = @(); $dropped = @()
+          foreach ($dir in ($env:PATH -split ';')) {
+            if (-not $dir) { continue }
+            $full = $dir.TrimEnd('\').Replace('/', '\')
+            # .NET, not Join-Path/Test-Path: a PATH entry naming a drive this
+            # machine lacks would be an error there, and this is a filter.
+            $hasRuntime = @($runtime | Where-Object {
+              [System.IO.File]::Exists([System.IO.Path]::Combine($dir, $_)) }).Count -gt 0
+            if ($hasRuntime -or $full -ieq $compilerDir) { $dropped += $dir } else { $kept += $dir }
+          }
+          $env:PATH = $kept -join ';'
+          Write-Host "off PATH for the boot: $($dropped -join '; ')"
 
           function Invoke-Game([string]$driver) {
             Remove-Item out.txt,err.txt -ErrorAction SilentlyContinue
@@ -387,6 +427,12 @@ jobs:
           $machine = [BitConverter]::ToUInt16($b, $pe + 4)
           if ($machine -ne 0xAA64) { Write-Host "FAIL: machine type 0x$($machine.ToString('X4')) != ARM64 (0xAA64)"; exit 1 }
           Write-Host "PASS: static binary checks (ARM64 PE, $((Get-Item $exe).Length) bytes)"
+
+      # This .exe never runs here, so its import table is the only thing that
+      # can say it will start on a player's machine: MSVC with the dynamic CRT
+      # imports VCRUNTIME140.dll and MSVCP140.dll, which Windows does not ship.
+      - name: Test (static) -- the .exe imports nothing Windows does not ship
+        run: python tools/binary_check.py windows "build/${{ inputs.project_name }}.exe"
 
       # Cross-compiled target: the rres packer is built for ARM64 and cannot run
       # on the x64 host, so ship loose resources (the game falls back to them).

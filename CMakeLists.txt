@@ -67,18 +67,37 @@ elseif(DEFINED RMP_DEV_COMPILER)
     "  Run `rmp clean` (or delete build/) and configure again.")
 endif()
 
-if(MSVC)
-  # Static CRT in every configuration (/MT for Release, /MTd for Debug)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  add_compile_options(/arch:AVX2) #make sure SIMD optimizations take place
-endif()
-
-
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Raylib as static libraries" FORCE)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json" FORCE)
 
 project(${TEMPLATE_PROJECT_NAME})
+
+# --- what the .exe asks of the player's machine ------------------------------
+# Windows and nothing else: a player double-clicking the game has no compiler
+# installed, so the C and C++ runtimes go INTO the .exe. After project(),
+# because MSVC and MINGW are not set before it (above it, the static CRT is
+# silently never applied). Before add_subdirectory(raylib), so raylib and GLFW,
+# which inherit the variable, are built against the same runtime.
+#
+#   MSVC   /MT (/MTd in Debug): the CRT in the .exe, no VC++ Redistributable.
+#   MinGW  -static: libstdc++, libgcc and winpthread in the .exe, not
+#          libstdc++-6.dll and libgcc_s_seh-1.dll next to a compiler the player
+#          does not have.
+#
+# The Universal C Runtime is part of Windows 10 and stays a DLL. The windows
+# jobs read every shipped .exe's imports (tools/binary_check.py windows) and
+# boot it with MinGW off PATH, because a runner with MinGW on PATH starts an
+# .exe that needs it.
+#
+# No /arch: the x64 baseline is SSE2, which every x64 CPU has. /arch:AVX2 would
+# make the .exe die with an illegal instruction on a CPU without AVX2, and there
+# is no such thing on ARM64.
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+elseif(MINGW)
+  add_link_options(-static)
+endif()
 
 # [dev] linker, and it has to be HERE rather than with the compiler above:
 # choosing a linker means checking that it links, and checking that means

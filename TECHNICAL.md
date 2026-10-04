@@ -190,7 +190,12 @@ commands (`rmp lint`, `rmp example`) and every gate as a stage of `rmp test`.
 ## Build system
 
 raylib is linked **statically** (`raylib_static`), so you ship a single self-contained
-binary — no DLLs, and on MSVC even the CRT is static (no VC++ Redistributable).
+binary. On Windows the compiler's own runtime goes in too: MinGW links with `-static`
+(libstdc++, libgcc and winpthread inside the `.exe`) and MSVC with the static CRT (no VC++
+Redistributable). What the `.exe` still imports is Windows itself -- `KERNEL32`, `USER32`,
+`GDI32`, `SHELL32`, `WINMM` and the Universal C Runtime that is part of Windows 10 -- and the
+Windows jobs fail on anything else: `tools/binary_check.py windows` reads the import table of
+every `.exe` they ship, and the x64 boot runs with MinGW off `PATH`.
 
 **Presets** (`CMakePresets.json`), all Ninja-based:
 
@@ -2242,7 +2247,9 @@ The target name is whatever the library's own `CMakeLists.txt` defines.
 A: Delete `build/` and reconfigure — CMake caches the value and VS doesn't always notice the change.
 
 **Q: Do I need to ship DLLs?**
-A: No. Everything links statically; on MSVC even the CRT is static.
+A: No. raylib and the C and C++ runtimes are linked into the `.exe` (MinGW `-static`, MSVC
+`/MT`), and CI reads the import table to prove it: `python tools/binary_check.py windows
+build/<name>.exe` lists every DLL it needs and fails on one Windows 10 does not have.
 
 **Q: `file` / arch checks fail in CI?**
 A: The static tests use `od` to read the ELF magic + `e_machine` (no `file` dependency in the

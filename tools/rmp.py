@@ -286,6 +286,9 @@ STAGES = [
     Stage("rmp", "this command itself",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "rmp_test.py"])]),
+    Stage("binaries", "the readers that judge a shipped .exe and Mac binary",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "binary_check_test.py"])]),
     Stage("unit", "the unit tests, in two orders",
           [("configure", ["-DBUILD_TESTS=ON"]),
            ("build", "unit_test"),
@@ -630,7 +633,7 @@ INCLUDE = (
     "tools/configure.py", "tools/license_db.py", "tools/rres_pack.c", "tools/md5.c",
     "tools/md5.h", "tools/linux_build.sh", "tools/glibc_check.sh", "tools/upx_pack.sh",
     "tools/render_check.sh", "tools/versions_check.sh", "tools/dev_shell.sh",
-    "tools/android_release_check.py", "tools/rmp.py",
+    "tools/android_release_check.py", "tools/binary_check.py", "tools/rmp.py",
     "rmp", "rmp.ps1", "rmp.cmd",
 )
 

@@ -283,6 +283,15 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: python3 -m unittest discover -s tests -p 'rmp_test.py' -v
 
+      # tools/binary_check.py judges what the Windows and macOS jobs ship, on
+      # runners where nothing else would notice a DLL the player lacks or a
+      # macOS the player does not have. Its readers are tested here against
+      # binaries built byte by byte, the shapes that were shipped broken among
+      # them, so the gate is seen red before it is trusted green.
+      - name: The binary readers
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'binary_check_test.py' -v
+
       # Time, input and randomness enter through a seam so that headless tests
       # can replace them. One stray GetFrameTime() in the wrong file is enough
       # to make a test flaky, and a flaky test teaches everyone to ignore red.
