@@ -134,7 +134,7 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-x64-glibc "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
-          cp resources/resources.rres package/resources/
+          sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-build.zip .
 
       # THE ARCHIVE, unzipped, started from a folder with no resources/ in it --
@@ -238,7 +238,7 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-arm64-glibc "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
-          cp resources/resources.rres package/resources/
+          sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-build.zip .
 
       # THE ARCHIVE, unzipped, started from a folder with no resources/ in it --
@@ -598,7 +598,7 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-x64-glibc-drm "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
-          cp resources/resources.rres package/resources/
+          sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-drm-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -784,7 +784,7 @@ jobs:
           # which is the normal case: the default compresses linux only.
           bash tools/upx_pack.sh linux-arm64-glibc-drm "build/${{ inputs.project_name }}"
           cp build/${{ inputs.project_name }} package/
-          cp resources/resources.rres package/resources/
+          sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-drm-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

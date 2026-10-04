@@ -600,6 +600,25 @@ jobs:
             echo "FAIL: the game compared a golden frame it should not have"; exit 1; }
           xvfb-run -a -s "-screen 0 1280x720x24" ./rmp test smoke
 
+      # The way out of the framework, followed as documented: the recipe at the
+      # top of examples/plain_c/src/main.c, read out of that file and run in a
+      # copy of the game, then the game's own render check -- built, booted,
+      # its asset found, a frame drawn, a clean exit. The recipe once stopped
+      # CMake at "No SOURCES given to target: rmp", and nothing ran it.
+      - name: A game in plain C, made the way examples/plain_c says
+        run: |
+          set -euo pipefail
+          EXAMPLE="$GITHUB_WORKSPACE/examples/plain_c/src/main.c"
+          RECIPE=$(sed -n 's|^//     \(rm src/main\.cpp .*\)$|\1|p' "$EXAMPLE")
+          test -n "$RECIPE" || { echo "FAIL: no recipe at the top of $EXAMPLE"; exit 1; }
+          cp -r "$GAME" /tmp/ci_game_c
+          cd /tmp/ci_game_c
+          echo "  $RECIPE"
+          sh -c "$RECIPE"
+          cp "$EXAMPLE" src/
+          OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
+          printf '%s\n' "$OUT" | tail -5
+
   # The documentation lives in its own repository, omardev29/rmp-docs, and
   # documents one commit of this one. Here it is checked against THIS commit:
   # every page's gates, every name it links, every C and C++ block it shows

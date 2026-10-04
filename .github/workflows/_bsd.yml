@@ -232,15 +232,12 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          # resources.rres and nothing else, the same as every other archive.
-          # It is packed in the VM (see the note above the build step); if it is
-          # not here, the workspace did not sync back and that is a fact worth
-          # failing on rather than quietly shipping a different archive shape.
-          test -f resources/resources.rres || {
-            echo "FAIL: resources/resources.rres did not come back from the VM."
-            echo "       The pack_resources step in the build script is what makes it."
-            exit 1; }
-          cp resources/resources.rres package/resources/
+          # resources.rres and nothing else, the same as every other archive --
+          # or the loose files, for a game in plain C (tools/ship_resources.sh).
+          # The pack is made in the VM (see the note above the build step); if
+          # it is not here, the workspace did not sync back, and the script
+          # fails on that rather than quietly shipping a different archive.
+          sh tools/ship_resources.sh package
           # UPX BEFORE the copy. It was the other way round for the whole life
           # of this job: upx rewrote build/<name> and the zip had already been
           # given the uncompressed copy, so [upx] did nothing at all here while

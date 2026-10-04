@@ -92,7 +92,7 @@ all, and the screenshot says whether they look like games.
 
 | | |
 |---|---|
-| [main.c](plain_c/src/main.c) | **The opt-out.** A C entry point that includes only `<raylib.h>`: none of our headers, none of `rmp::`, your own `main()`. You keep fifteen of the seventeen build targets and lose the runtime layer — iOS and Web are the two you give up, because on those the loop is not yours to write, and the file says so. Built by CI as C99, and not booted: it has no frame budget. |
+| [main.c](plain_c/src/main.c) | **The opt-out.** A C entry point with your own `main()`: raylib, plus two headers of ours that are C -- `<rmp/config.h>` for the `[window]` values and `<smoke_test.h>` for the CI hooks -- and none of `rmp::`. You keep every build target but two and lose the runtime layer: iOS and Web are the two you give up, because on those the loop is not yours to write, and the file says so. Its top lines are the recipe, which CI follows in a game made with `rmp new`. Built as C99 and booted like the rest; a release of a plain C game ships its loose `resources/`, which raw raylib reads, instead of the pack it cannot. |
 
 ## Notes
 

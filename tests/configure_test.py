@@ -2180,6 +2180,56 @@ class EntryPointGuardTest(unittest.TestCase):
         self.assertIn("rmp_entry_point_is_declared_exactly_once", said)
 
 
+class PlainCGameTest(unittest.TestCase):
+    """examples/plain_c is the way out of the framework, and the way out did
+    not work: its recipe deleted src/rmp/ and CMake stopped at "No SOURCES
+    given to target: rmp"; the example ignored the CI frame budget, so it ran
+    until killed and was never booted; `<smoke_test.h>` was on no plain C
+    game's include path; and every release archive shipped resources.rres
+    alone, which raw raylib cannot read. The rmp_new job follows the recipe
+    in a fresh game and runs its render check; these hold the pieces."""
+
+    EXAMPLE = REPO / "examples" / "plain_c" / "src" / "main.c"
+
+    def test_the_framework_library_is_built_only_when_it_is_there(self):
+        text = (REPO / "CMakeLists.txt").read_text()
+        guard = text.index("if(RMP_SOURCES)")
+        self.assertLess(guard, text.index("add_library(rmp STATIC"))
+        add_game = function_body(text.replace("endfunction()", "\n}\n"),
+                                 "function(rmp_add_game NAME DIR)")
+        plain = add_game[add_game.index("if(_plain_c)"):add_game.index("else()")]
+        self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/tests"', plain)
+        self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/include"', plain)
+
+    def test_the_example_runs_under_the_ci_frame_budget(self):
+        code = "\n".join(line for line in self.EXAMPLE.read_text().splitlines()
+                         if not line.lstrip().startswith("//"))
+        for call in ("SmokeTest_Begin();", "SmokeTest_ReportBoot(", "SmokeTest_Done()",
+                     "SmokeTest_CaptureFrame();", "SmokeTest_Tick();"):
+            with self.subTest(call=call):
+                self.assertIn(call, code)
+        self.assertLess(code.index("SmokeTest_CaptureFrame();"), code.index("EndDrawing();"))
+        self.assertIn("#include <smoke_test.h>", code)
+        self.assertNotIn("../tests/smoke_test.h", code)
+        # A boot line printed by hand cannot say no: the hooks' one checks the window.
+        self.assertNotIn('"RAY_TEST_BOOT_OK', code)
+
+    def test_the_examples_job_boots_it(self):
+        script = (REPO / "tools" / "examples_build.sh").read_text()
+        self.assertNotIn('"$t" = "example_plain_c"', script)
+        self.assertIn('if [ "$ran" -ne "$expected" ]', script)
+
+    def test_the_recipe_is_where_ci_reads_it(self):
+        recipe = re.findall(r"^//     (rm src/main\.cpp .*)$", self.EXAMPLE.read_text(), re.M)
+        self.assertEqual(recipe, ["rm src/main.cpp && rm -r src/rmp/ src/scenes/"])
+        ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("- name: A game in plain C, made the way examples/plain_c says", ci)
+        self.assertIn('sh -c "$RECIPE"', ci)
+        readme = (REPO / "README.md").read_text()
+        self.assertIn(recipe[0], readme)
+        self.assertNotIn("(examples/plain_c/main.c)", readme)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
@@ -5080,10 +5130,52 @@ class PackagingShipsOneArchiveShapeTest(unittest.TestCase):
         self.assertEqual({"_linux.yml", "_apple.yml", "_windows.yml", "_bsd.yml"},
                          {name for name, _ in steps})
 
+    def test_every_native_archive_ships_through_the_one_script(self):
+        """`cp resources/resources.rres package/resources/` was the whole of it,
+        so a game in plain C -- which raw raylib cannot read a pack for --
+        shipped a release that found none of its files. tools/ship_resources.sh
+        decides, and _windows.yml says the same in PowerShell."""
+        for name, body in self.package_steps():
+            if "PACK_SKIPPED.txt" in body and "ship_resources" not in body:
+                continue  # a cross-compiled target: loose, with the note
+            with self.subTest(workflow=name, step=body.splitlines()[0][:60]):
+                self.assertNotIn("cp resources/resources.rres package/resources/", body)
+                self.assertIn("ship_resources", body)
+
+    def ship(self, framework: bool, packed: bool):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "resources" / "art").mkdir(parents=True)
+            (root / "resources" / "rabbit.png").write_bytes(b"png")
+            (root / "resources" / "art" / "tree.png").write_bytes(b"png")
+            if packed:
+                (root / "resources" / "resources.rres").write_bytes(b"rres")
+            if framework:
+                (root / "src" / "rmp").mkdir(parents=True)
+            got = subprocess.run(["sh", str(REPO / "tools" / "ship_resources.sh"), "package"],
+                                 cwd=root, capture_output=True, text=True)
+            shipped = sorted(p.relative_to(root / "package").as_posix()
+                             for p in (root / "package").rglob("*") if p.is_file())
+            return got.returncode, shipped
+
+    def test_a_framework_game_ships_the_pack_alone(self):
+        self.assertEqual(self.ship(framework=True, packed=True),
+                         (0, ["resources/resources.rres"]))
+        code, _ = self.ship(framework=True, packed=False)
+        self.assertNotEqual(code, 0, "a framework game with no pack is a failed release")
+
+    def test_a_plain_c_game_ships_its_loose_files_and_says_why(self):
+        code, shipped = self.ship(framework=False, packed=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(shipped, ["resources/PACK_SKIPPED.txt", "resources/art/tree.png",
+                                   "resources/rabbit.png"])
+
     def test_every_archive_ships_the_pack_or_says_why_it_does_not(self):
         for name, body in self.package_steps():
             with self.subTest(workflow=name, step=body.splitlines()[0][:60]):
-                packs = "resources.rres package/resources/" in body
+                packs = ("resources.rres package/resources/" in body
+                         or "ship_resources" in body)
                 loose = ("cp -r resources package/" in body
                          or "Copy-Item resources package/ -Recurse" in body)
                 self.assertTrue(packs or loose, "this step ships no resources at all")
@@ -5098,7 +5190,9 @@ class PackagingShipsOneArchiveShapeTest(unittest.TestCase):
     def test_the_cross_compiled_targets_are_the_only_loose_ones(self):
         loose = []
         for name, body in self.package_steps():
-            if "PACK_SKIPPED.txt" in body:
+            # ship_resources' own PACK_SKIPPED is the plain C game's, which any
+            # native archive can be; this counts the ones that are always loose.
+            if "PACK_SKIPPED.txt" in body and "ship_resources" not in body:
                 loose.append(body)
         self.assertEqual(len(loose), len(self.CROSS),
                          f"expected exactly {len(self.CROSS)} loose-resource archives "

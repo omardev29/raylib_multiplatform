@@ -25,9 +25,11 @@
 #   4. The platformer is played to the end (tests/platformer_play.cpp), and
 #      rmp::input is read both ways a game is written (tests/input_play.cpp).
 #
-# What is NOT run: examples/plain_c, which is the opt-out and has no frame
-# budget (it would loop forever under a platform with no window to close), and
-# the header-only examples, which are compiled and have nothing to run.
+# What is NOT run: the header-only examples, which are compiled and have
+# nothing to run. examples/plain_c is booted like the rest: it is plain C with
+# its own main(), and it calls the C smoke-test hooks every other example gets
+# from the entry point -- it used to be skipped for having no frame budget,
+# which meant the one file people copy to leave the framework was never run.
 #
 # Usage: tools/examples_build.sh                 (from the repo root)
 #        RMP_EXAMPLE_FRAMES=60 tools/examples_build.sh
@@ -89,10 +91,6 @@ for t in $targets; do
     echo "  ok    $t  (header-only: compiled, nothing to run)"
     continue
   fi
-  if [ "$t" = "example_plain_c" ]; then
-    echo "  ok    $t  (the opt-out: built, not booted -- it has no frame budget)"
-    continue
-  fi
   shot="$SHOTS/$t.png"
   rm -f "$shot"
   # Two statements and not `... && status=0 || status=$?`: that shape runs the
@@ -117,9 +115,9 @@ for t in $targets; do
   fi
 done
 
-# The opt-out and the header-only ones are the only ones not booted.
-if [ "$ran" -ne $((expected - 1)) ]; then
-  echo "FALLA: booted $ran examples, expected $((expected - 1)). Something was skipped."
+# The header-only ones are the only ones not booted.
+if [ "$ran" -ne "$expected" ]; then
+  echo "FALLA: booted $ran examples, expected $expected. Something was skipped."
   exit 1
 fi
 if [ "$failed" -ne 0 ]; then

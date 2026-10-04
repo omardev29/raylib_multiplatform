@@ -29,8 +29,9 @@ generated from the config on every build, which is why they cannot drift out of 
 
 Two paths in there are the framework's, not yours, and they carry the same name so you can tell
 at a glance: `include/rmp/` (the headers you include) and `src/rmp/` (the implementation).
-Everything else under `src/` and `include/` is yours. You can delete both — see [`examples/plain_c/main.c`](examples/plain_c/main.c), which is a plain C
-entry point that keeps the seventeen build targets and none of the runtime layer.
+Everything else under `src/` and `include/` is yours. You can delete `src/rmp/` — see
+[`examples/plain_c/src/main.c`](examples/plain_c/src/main.c), which is a plain C entry point that
+keeps the build targets (all but iOS and Web) and none of the runtime layer.
 
 `branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
 has to agree with it, so `art/logo.png` is just as valid. If the file is missing the build warns
@@ -353,11 +354,14 @@ AdMob, and adding third-party libraries.
 
 ### If you would rather write plain C
 
-[`examples/plain_c/main.c`](examples/plain_c/main.c) is a complete entry point that includes only `<raylib.h>` — no
-none of our headers, no `rmp::` anything, your own `main()`. Copy it over `src/`, delete
-`src/rmp/`, and you keep the seventeen build targets, the pinned toolchains, the
-generated icons and identifiers, and the release pipeline. You lose the resource pack, which raw
-raylib cannot read, and iOS, whose entry point the macro exists to provide.
+[`examples/plain_c/src/main.c`](examples/plain_c/src/main.c) is a complete entry point with your
+own `main()`: raylib, `<rmp/config.h>` for the `[window]` values and `<smoke_test.h>` for the CI
+hooks, both plain C, and no `rmp::` anything. Its first lines are the recipe -- in a game made with
+`rmp new`, `rm src/main.cpp && rm -r src/rmp/ src/scenes/` and copy the file into `src/` -- and
+CI follows them in a fresh game on every commit. You keep the build targets but iOS and Web, the
+pinned toolchains, the generated icons and identifiers, and the release pipeline. You lose the
+resource pack, which raw raylib cannot read: a release of a plain C game ships its loose
+`resources/`, with a `PACK_SKIPPED.txt` saying why (`tools/ship_resources.sh`).
 
 ---
 

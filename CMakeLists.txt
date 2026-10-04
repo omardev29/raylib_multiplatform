@@ -397,6 +397,11 @@ list(REMOVE_ITEM RMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
 
 # RAYLIB_STUB_SOURCES is empty unless a module was disabled that rres still
 # references. It lives in cmake/generated/, never in src/, which is the user's.
+#
+# NO src/rmp/ AT ALL is a game written in plain C -- examples/plain_c, whose
+# recipe deletes it -- and then there is no framework to build. It used to stop
+# here with "No SOURCES given to target: rmp", on the documented path.
+if(RMP_SOURCES)
 add_library(rmp STATIC ${RMP_SOURCES} ${RAYLIB_STUB_SOURCES})
 set_property(TARGET rmp PROPERTY CXX_STANDARD 20)
 target_include_directories(rmp PUBLIC
@@ -429,6 +434,9 @@ if(NOT PRODUCTION_BUILD)
   target_link_libraries(rmp PUBLIC raymoblib)
 endif()
 rmp_apply_compile_flags(rmp)
+else()
+  message(STATUS "=== NO src/rmp/: no framework library, a plain C game ===")
+endif()
 
 # Designated initialisers out of declaration order -- `{ .grow_y = true,
 # .width = 8 }` -- are an ERROR in GCC and only a warning in Clang, and Clang is
@@ -526,11 +534,22 @@ function(rmp_add_game NAME DIR)
     add_executable(${NAME} ${_game_sources})
     set_property(TARGET ${NAME} PROPERTY C_STANDARD 99)
     target_link_libraries(${NAME} PRIVATE raylib_static)
+    # include/ for <rmp/config.h>, the [window] values as plain #defines, and
+    # tests/ for <smoke_test.h>, the CI hooks; both are C. A C++ game gets them
+    # from the framework library's include list; a plain C one has none.
+    target_include_directories(${NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                               "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     # A C++ executable gets libm through libstdc++; a C one has to ask.
     if(NOT MSVC)
       target_link_libraries(${NAME} PRIVATE m)
     endif()
   else()
+    if(NOT TARGET rmp)
+      message(FATAL_ERROR
+        "${DIR}/src has C++ sources and there is no src/rmp/, so no framework to link "
+        "them to. A C++ game keeps src/rmp/; a plain C game has no .cpp in src/ -- see "
+        "examples/plain_c/src/main.c.")
+    endif()
     add_executable(${NAME} ${_game_sources} "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
     set_property(TARGET ${NAME} PROPERTY CXX_STANDARD 20)
     target_link_libraries(${NAME} PRIVATE rmp)

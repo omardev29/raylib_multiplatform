@@ -201,7 +201,7 @@ jobs:
             cp cmake/generated/LICENSES.txt package/
           fi
           cp build/${{ inputs.project_name }} package/
-          cp resources/resources.rres package/resources/
+          sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../macos-build.zip .
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

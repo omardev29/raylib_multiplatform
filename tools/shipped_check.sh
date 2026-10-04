@@ -36,18 +36,19 @@ cmake -B "$BUILD" -G "$GENERATOR" -DCMAKE_BUILD_TYPE=Release \
 cmake --build "$BUILD" --target "$NAME"
 test -x "$BUILD/$NAME" || { echo "FAIL: $BUILD/$NAME was not built"; exit 1; }
 
-# The pack the Package steps ship. CI has already made it; on a laptop it is
+# What the Package steps ship, by the same script: the pack -- or, for a game
+# in plain C, the loose files. CI has already made the pack; on a laptop it is
 # made here and taken away again, so that the development build does not start
 # reading a pack it was never asked to.
 MADE_PACK=0
-if [ ! -f resources/resources.rres ]; then
+if [ -d src/rmp ] && [ ! -f resources/resources.rres ]; then
     cmake --build "$BUILD" --target pack_resources
     MADE_PACK=1
 fi
 SHIP="$BUILD/shipped"
-mkdir -p "$SHIP/resources" "$BUILD/elsewhere"
+mkdir -p "$SHIP" "$BUILD/elsewhere"
 cp "$BUILD/$NAME" "$SHIP/"
-cp resources/resources.rres "$SHIP/resources/"
+sh tools/ship_resources.sh "$SHIP"
 if [ "$MADE_PACK" -eq 1 ]; then rm -f resources/resources.rres; fi
 
 LOG="$ROOT/$BUILD/shipped.log"
