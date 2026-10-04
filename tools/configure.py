@@ -649,6 +649,12 @@ def on_macos() -> bool:
 
 
 COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
+ORIENTATIONS = {"landscape", "portrait", "unspecified"}
+GL_VERSIONS = {"ES20", "ES30", "ES31", "ES32"}
+LINKERS = {"auto", "mold", "lld", "default"}
+# android:appCategory: how the Play Store files the app.
+APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",
+                  "maps", "productivity", "accessibility"}
 
 
 def validate(cfg: dict, strict_release: bool) -> None:
@@ -766,7 +772,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
                           ".properties value and an Xcode build setting.")
 
     orient = cfg["window"]["orientation"]
-    if orient not in ("landscape", "portrait", "unspecified"):
+    if orient not in ORIENTATIONS:
         raise ConfigError(f"[window] orientation = {orient!r} must be "
                           "'landscape', 'portrait' or 'unspecified'.")
     for k in ("width", "height"):
@@ -840,8 +846,6 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # where the only value that works is LAUNCHER. Setting it to anything else
     # produced an APK that installed and then had no icon anywhere on the
     # device — see the comment in raymob/app/AndroidManifest.template.xml.
-    APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",
-                      "maps", "productivity", "accessibility"}
     category = str(cfg["android"]["category"]).lower()
     if category not in APP_CATEGORIES:
         raise ConfigError(
@@ -900,7 +904,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "rmp::save uses std::filesystem, which Apple's C++ library only has from iOS 13. "
             "Use 13.0 or later; the default, 15.6, covers every iPhone Apple still updates.")
 
-    if cfg["android"]["gl_version"] not in ("ES20", "ES30", "ES31", "ES32"):
+    if cfg["android"]["gl_version"] not in GL_VERSIONS:
         raise ConfigError(f"[android] gl_version = {cfg['android']['gl_version']!r} must be one "
                           "of ES20, ES30, ES31, ES32.")
 
@@ -922,7 +926,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # There used to be a second check here allowing only clang/gcc/default, and
     # the two disagreed the moment mingw and msvc were added — which is exactly
     # what tests/configure_test.py caught.
-    if cfg["dev"]["linker"] not in ("auto", "mold", "lld", "default"):
+    if cfg["dev"]["linker"] not in LINKERS:
         raise ConfigError("[dev] linker must be 'auto', 'mold', 'lld' or 'default'.")
 
     # mingw and msvc are Windows toolchains, and [dev] is local development only
@@ -1559,73 +1563,104 @@ def gen_dev_linker(cfg: dict) -> None:
     write(REPO / "cmake" / "generated" / "dev_linker.cmake", "\n".join(lines) + "\n")
 
 
+def _c_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _c_float(value) -> str:
+    return f"{float(value)}f"
+
+
+def _c_bool(value) -> str:
+    return "1" if value else "0"
+
+
+def _c_int(value) -> str:
+    return str(value)
+
+
+# Every #define the generated rmp/config.h carries, in order: its name, the
+# .toml key it comes from, and how the value is written in C. A string is a
+# group's comment. gen_app_config() writes the header from this table and
+# --print-defines prints it -- one list, so no define exists without its key,
+# and the documentation's table of them cannot leave one out.
+APP_DEFINES = [
+    ("RMP_PROJECT_NAME", "project.name", _c_string),
+    ("RMP_WINDOW_TITLE", "window.title", _c_string),
+    ("RMP_WINDOW_WIDTH", "window.width", _c_int),
+    ("RMP_WINDOW_HEIGHT", "window.height", _c_int),
+    "[window] vsync and fps. VSYNC 1 waits for the screen's refresh (no tearing,\n"
+    "   no wasted frames); FPS caps the frame rate, 0 for no cap. The web and iOS\n"
+    "   ignore FPS: the browser and the display link pace the frame there.",
+    ("RMP_WINDOW_VSYNC", "window.vsync", _c_bool),
+    ("RMP_WINDOW_FPS", "window.fps", _c_int),
+    "Obfuscation only — this string is in the shipped binary. It lives here\n"
+    "   because Android and iOS take nothing from CMakeLists.txt, so a value defined\n"
+    "   only there would silently differ on those two.",
+    ("RMP_RRES_PASSWORD", "resources.rres_password", _c_string),
+    "[ui]. RMP_UI_THEME is only which theme the app STARTS with; rmp::ui::set_theme\n"
+    "   changes it at any time. RMP_UI_FONT is \"\" for raylib's built-in font.\n"
+    "   RMP_UI_FONT_SIZE is in design units, i.e. at the RMP_WINDOW_* resolution\n"
+    "   above: rmp::ui scales it from there. RMP_UI_SCALE of 0 means derive the\n"
+    "   scale automatically.",
+    ("RMP_UI_THEME", "ui.theme", _c_string),
+    ("RMP_UI_FONT", "ui.font", _c_string),
+    ("RMP_UI_FONT_SIZE", "ui.font_size", _c_int),
+    ("RMP_UI_SCALE", "ui.scale", _c_float),
+    ("RMP_UI_MAX_ELEMENTS", "ui.max_elements", _c_int),
+    "[input]. The fraction of an analogue stick's travel that reads as zero.\n"
+    "   rmp::input::set_deadzone() changes it at runtime — a settings screen.",
+    ("RMP_INPUT_DEADZONE", "input.deadzone", _c_float),
+    "[audio]. The volumes the three buses START at, 0..1. MASTER scales\n"
+    "   everything; MUSIC and SFX scale their own on top of it.\n"
+    "   rmp::audio::set_volume() changes them at runtime -- a settings screen.",
+    ("RMP_AUDIO_MASTER", "audio.master", _c_float),
+    ("RMP_AUDIO_MUSIC", "audio.music", _c_float),
+    ("RMP_AUDIO_SFX", "audio.sfx", _c_float),
+    "[save]. PORTABLE 1 keeps the saves in saves/ next to the executable\n"
+    "   (Windows, Linux and the BSDs; elsewhere there is no such place and it is\n"
+    "   ignored). ENCRYPT is the default for rmp::save::write(). VERSION is the\n"
+    "   version of the game's own save format, which rmp::Value::version() hands\n"
+    "   back on read so a migration can test it.",
+    ("RMP_SAVE_PORTABLE", "save.portable", _c_bool),
+    ("RMP_SAVE_ENCRYPT", "save.encrypt", _c_bool),
+    ("RMP_SAVE_VERSION", "save.version", _c_int),
+    "[app] max_delta. The longest step the game logic is ever handed, in seconds.\n"
+    "   A frame that really took longer arrives clamped, so the game runs a moment of\n"
+    "   slow motion instead of teleporting everything through the walls. 0 = no\n"
+    "   clamp, and then a stalled frame is the game's problem.",
+    ("RMP_MAX_DELTA", "app.max_delta", _c_float),
+    "[dev] strict. 1 makes the first framework diagnostic -- an action nobody\n"
+    "   defined, a pop() with nothing under it -- abort a DEBUG build instead of\n"
+    "   scrolling past. Release builds ignore it: rmp::app checks NDEBUG too.",
+    ("RMP_DEV_STRICT", "dev.strict", _c_bool),
+]
+
+
+def setting(cfg: dict, key: str):
+    section, name = key.split(".", 1)
+    return cfg[section][name]
+
+
+def app_defines(cfg: dict) -> list[dict]:
+    """The table above with this project's values: what --print-defines prints."""
+    return [{"name": name, "key": key, "value": render(setting(cfg, key))}
+            for name, key, render in (e for e in APP_DEFINES if not isinstance(e, str))]
+
+
 def gen_app_config(cfg: dict) -> None:
-    w = cfg["window"]
-    ui = cfg["ui"]
-    write(REPO / "include" / "rmp" / "generated" / "config.h", f"""/* {GEN_HEADER} */
-#ifndef RMP_GENERATED_CONFIG_H
-#define RMP_GENERATED_CONFIG_H
-
-#define RMP_PROJECT_NAME  "{cfg['project']['name']}"
-#define RMP_WINDOW_TITLE  "{w['title'].replace('"', chr(92) + chr(34))}"
-#define RMP_WINDOW_WIDTH  {w['width']}
-#define RMP_WINDOW_HEIGHT {w['height']}
-
-/* [window] vsync and fps. VSYNC 1 waits for the screen's refresh (no tearing,
-   no wasted frames); FPS caps the frame rate, 0 for no cap. The web and iOS
-   ignore FPS: the browser and the display link pace the frame there. */
-#define RMP_WINDOW_VSYNC  {1 if w['vsync'] else 0}
-#define RMP_WINDOW_FPS    {w['fps']}
-
-/* Obfuscation only — this string is in the shipped binary. It lives here
-   because Android and iOS take nothing from CMakeLists.txt, so a value defined
-   only there would silently differ on those two. */
-#define RMP_RRES_PASSWORD "{cfg['resources']['rres_password'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
-
-/* [ui]. RMP_UI_THEME is only which theme the app STARTS with; rmp::ui::set_theme
-   changes it at any time. RMP_UI_FONT is "" for raylib's built-in font.
-   RMP_UI_FONT_SIZE is in design units, i.e. at the RMP_WINDOW_* resolution
-   above: rmp::ui scales it from there. RMP_UI_SCALE of 0 means derive the
-   scale automatically. */
-#define RMP_UI_THEME        "{ui['theme']}"
-#define RMP_UI_FONT         "{ui['font'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
-#define RMP_UI_FONT_SIZE    {ui['font_size']}
-#define RMP_UI_SCALE        {float(ui['scale'])}f
-#define RMP_UI_MAX_ELEMENTS {ui['max_elements']}
-
-/* [input]. The fraction of an analogue stick's travel that reads as zero.
-   rmp::input::set_deadzone() changes it at runtime — a settings screen. */
-#define RMP_INPUT_DEADZONE  {cfg['input']['deadzone']}f
-
-/* [audio]. The volumes the three buses START at, 0..1. MASTER scales
-   everything; MUSIC and SFX scale their own on top of it.
-   rmp::audio::set_volume() changes them at runtime -- a settings screen. */
-#define RMP_AUDIO_MASTER    {float(cfg['audio']['master'])}f
-#define RMP_AUDIO_MUSIC     {float(cfg['audio']['music'])}f
-#define RMP_AUDIO_SFX       {float(cfg['audio']['sfx'])}f
-
-/* [save]. PORTABLE 1 keeps the saves in saves/ next to the executable
-   (Windows, Linux and the BSDs; elsewhere there is no such place and it is
-   ignored). ENCRYPT is the default for rmp::save::write(). VERSION is the
-   version of the game's own save format, which rmp::Value::version() hands
-   back on read so a migration can test it. */
-#define RMP_SAVE_PORTABLE   {1 if cfg['save']['portable'] else 0}
-#define RMP_SAVE_ENCRYPT    {1 if cfg['save']['encrypt'] else 0}
-#define RMP_SAVE_VERSION    {cfg['save']['version']}
-
-/* [app] max_delta. The longest step the game logic is ever handed, in seconds.
-   A frame that really took longer arrives clamped, so the game runs a moment of
-   slow motion instead of teleporting everything through the walls. 0 = no
-   clamp, and then a stalled frame is the game's problem. */
-#define RMP_MAX_DELTA       {float(cfg['app']['max_delta'])}f
-
-/* [dev] strict. 1 makes the first framework diagnostic -- an action nobody
-   defined, a pop() with nothing under it -- abort a DEBUG build instead of
-   scrolling past. Release builds ignore it: rmp::app checks NDEBUG too. */
-#define RMP_DEV_STRICT      {1 if cfg['dev']['strict'] else 0}
-
-#endif /* RMP_GENERATED_CONFIG_H */
-""")
+    lines = [f"/* {GEN_HEADER} */", "#ifndef RMP_GENERATED_CONFIG_H",
+             "#define RMP_GENERATED_CONFIG_H", ""]
+    for entry in APP_DEFINES:
+        if isinstance(entry, str):
+            if lines[-1] != "":
+                lines.append("")
+            lines.append(f"/* {entry} */")
+            continue
+        name, key, render = entry
+        lines.append(f"#define {name:<19} {render(setting(cfg, key))}")
+    lines += ["", "#endif /* RMP_GENERATED_CONFIG_H */", ""]
+    write(REPO / "include" / "rmp" / "generated" / "config.h", "\n".join(lines))
 
 
 def gen_gradle_properties(cfg: dict, targets: list[str]) -> None:
@@ -2255,6 +2290,107 @@ def _print_matrix(cfg: dict, family: str, targets: list[str]) -> None:
     print(json.dumps({"include": include}, separators=(",", ":")))
 
 
+# The keys whose value is one of a set: what the documentation lists as the
+# choices. tests/configure_test.py runs every value through validate() and one
+# that is not in the set, so this table cannot claim a choice validate()
+# refuses, nor miss one it takes.
+ALLOWED = {
+    "window.orientation": ORIENTATIONS,
+    "android.gl_version": GL_VERSIONS,
+    "android.category": APP_CATEGORIES,
+    "windows.backend": WINDOWS_BACKENDS,
+    "linux.backend": LINUX_BACKENDS,
+    "web.backend": WEB_BACKENDS,
+    "dev.compiler": COMPILERS,
+    "dev.linker": LINKERS,
+    "ui.theme": UI_THEMES,
+}
+# Keys that are a LIST of choices.
+ALLOWED_ITEMS = {
+    "targets.enabled": lambda: sorted(set(GROUPS) | set(TARGETS)),
+    "targets.disabled": lambda: sorted(set(GROUPS) | set(TARGETS)),
+    "upx.enabled": lambda: sorted(set(UPX_GROUPS) | set(UPX_TARGETS)),
+    "upx.disabled": lambda: sorted(set(UPX_GROUPS) | set(UPX_TARGETS)),
+    "raylib.disabled_modules": lambda: sorted(OPTIONAL_MODULES),
+}
+
+
+def toml_comments(path: Path) -> dict[str, str]:
+    """`section.key` -> the comment the .toml gives it: the `#` lines right
+    above it and the one at the end of its line. The framework's own .toml is
+    the documentation of every key; --print-schema carries it."""
+    out: dict[str, str] = {}
+    section = ""
+    above: list[str] = []
+    run = ""            # the block above a run of keys written one after another
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line:
+            above, run = [], ""
+            continue
+        if line.startswith("#"):
+            # One space after the #, and the rest as written: an aligned
+            # "deadzone  How much..." block stays aligned.
+            text = line[1:]
+            above.append((text[1:] if text.startswith(" ") else text).rstrip())
+            continue
+        m = re.match(r"\[([^\]]+)\]", line)
+        if m:
+            section = m.group(1).strip()
+            out.setdefault(section, "\n".join(above).strip())
+            above, run = [], ""
+            continue
+        m = re.match(r"([A-Za-z0-9_\-]+)\s*=", line)
+        if m:
+            key = f"{section}.{m.group(1)}" if section else m.group(1)
+            trailing = ""
+            hash_at = _comment_start(line)
+            if hash_at >= 0:
+                trailing = line[hash_at + 1:].strip()
+            if above:
+                run = "\n".join(above).strip("\n")
+            out[key] = "\n".join(x for x in (run, trailing) if x)
+        above = []
+    return out
+
+
+def _comment_start(line: str) -> int:
+    quote = None
+    for i, c in enumerate(line):
+        if quote:
+            if c == quote:
+                quote = None
+        elif c in "\"'":
+            quote = c
+        elif c == "#":
+            return i
+    return -1
+
+
+def schema() -> list[dict]:
+    """Every key of the .toml: default, type, choices, and its comment."""
+    comments = toml_comments(REPO / "raylib_multiplatform.toml")
+    out = []
+
+    def walk(prefix: str, table: dict):
+        for key, value in table.items():
+            full = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                walk(full, value)
+                continue
+            kind = ("bool" if isinstance(value, bool) else "int" if isinstance(value, int)
+                    else "float" if isinstance(value, float) else "string" if isinstance(value, str)
+                    else "list" if isinstance(value, list) else type(value).__name__)
+            row = {"key": full, "default": value, "type": kind, "comment": comments.get(full, "")}
+            if full in ALLOWED:
+                row["allowed"] = sorted(ALLOWED[full])
+            if full in ALLOWED_ITEMS:
+                row["allowed_items"] = ALLOWED_ITEMS[full]()
+            out.append(row)
+    walk("", DEFAULTS)
+    return out
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -2281,6 +2417,17 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--print-stamp", action="store_true")
     ap.add_argument("--print-pins", action="store_true",
                     help="the ```versions block as key=value, for $GITHUB_OUTPUT")
+    ap.add_argument("--config", metavar="PATH", type=Path,
+                    help="read this .toml instead of the project's (the docs site "
+                         "checks its examples with it); generates nothing unless asked")
+    ap.add_argument("--print-defines", action="store_true",
+                    help="JSON: every #define the generated rmp/config.h carries, its .toml "
+                         "key and this project's value")
+    ap.add_argument("--print-schema", action="store_true",
+                    help="JSON: every .toml key, its default, its type, the values it "
+                         "allows when it is a choice, and the comment the .toml gives it")
+    ap.add_argument("--print-targets-table", action="store_true",
+                    help="JSON: every target with its family, its name and its groups")
     ap.add_argument("--print-deploy", action="store_true",
                     help="[deploy] as key=value, for $GITHUB_OUTPUT")
     ap.add_argument("--make-default-icon", action="store_true")
@@ -2291,6 +2438,26 @@ def main(argv: list[str]) -> int:
                          "(the iOS job: the raylib-iOS submodule has to be checked out)")
     args = ap.parse_args(argv)
 
+    if args.config is not None:
+        # Another .toml, for checking it: the docs site runs every .toml it
+        # shows through here. Generating from it would overwrite the project's
+        # build files with a stranger's, so only --check and --print-* may.
+        global TOML
+        TOML = args.config.resolve()
+        if not TOML.is_file():
+            raise ConfigError(f"--config {args.config}: no such file")
+        asked = args.check or any(v for k, v in vars(args).items() if k.startswith("print_"))
+        if not asked:
+            raise ConfigError("--config is for --check and the --print-* flags; it never "
+                              "generates the project's build files.")
+    if args.print_schema:
+        print(json.dumps(schema(), indent=1, ensure_ascii=False))
+        return 0
+    if args.print_targets_table:
+        print(json.dumps([{"id": t, "family": f, "name": label,
+                           "groups": sorted(g for g, ids in GROUPS.items() if t in ids)}
+                          for t, (f, label) in TARGETS.items()], indent=1))
+        return 0
     cfg = load_config()
     if args.make_default_icon:
         make_default_icon(REPO / cfg["icon"]["source"])
@@ -2298,6 +2465,10 @@ def main(argv: list[str]) -> int:
 
     validate(cfg, strict_release=args.strict_release)
     targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
+
+    if args.print_defines:
+        print(json.dumps(app_defines(cfg), indent=1, ensure_ascii=False))
+        return 0
 
     if args.print_name:
         print(cfg["project"]["name"])

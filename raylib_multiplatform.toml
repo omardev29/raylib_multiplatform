@@ -19,6 +19,11 @@ name = "ray_test"
 # bump twice.
 
 [window]
+# title    The title bar on desktop, and the app's name under its icon on
+#          Android and iOS.
+# width    The window's size when it opens on desktop, and the DESIGN
+# height   resolution: rmp::ui lays out at this size and scales to the real
+#          one, and the camera starts centred on it.
 title  = "Raylib is Multiplatform!"
 width  = 800
 height = 450
@@ -98,6 +103,8 @@ disabled = []
 # still says com.example.*.
 application_id = "com.example.raytest"
 
+# The oldest Android the app installs on, as an API level: 24 is Android 7.0.
+# 21 to 36.
 min_sdk = 24
 # ES20 | ES30 | ES31 | ES32. Devices without the requested version are not
 # offered your app on the Play Store.
@@ -290,6 +297,8 @@ backend = "glfw"
 [ios]
 # Same warning as Android: this is your App Store identity.
 bundle_id = "com.example.raytest"
+# The oldest iOS the app runs on: 13.0 at the least, because rmp::save uses
+# std::filesystem and Apple's C++ library has it from iOS 13.
 deployment_target = "15.6"
 
 [ios.settings]
@@ -415,8 +424,7 @@ grow   = false
 backend = "glfw"
 
 
-# --- [input] ----------------------------------------------------------------
-#
+[input]
 # deadzone  How much of an analogue stick's travel reads as zero, 0..0.95.
 #           Sticks drift as they wear, so 0 means a character that walks on its
 #           own on a controller that has seen some use; too much and the stick
@@ -429,7 +437,6 @@ backend = "glfw"
 #           Keyboard and d-pad are unaffected — they are on or off and have no
 #           travel to ignore. rmp::input::set_deadzone() changes it at runtime,
 #           which is what a settings slider does.
-[input]
 deadzone = 0.2
 
 [audio]

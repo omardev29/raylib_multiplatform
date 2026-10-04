@@ -1139,11 +1139,11 @@ class ConfigureWindowPacingTest(unittest.TestCase):
 
     def test_both_reach_the_header(self):
         with generated_header(base_config(window={"vsync": False, "fps": 144})) as header:
-            self.assertIn("#define RMP_WINDOW_VSYNC  0", header)
-            self.assertIn("#define RMP_WINDOW_FPS    144", header)
+            self.assertRegex(header, r"#define RMP_WINDOW_VSYNC +0\n")
+            self.assertRegex(header, r"#define RMP_WINDOW_FPS +144\n")
         with generated_header(base_config()) as header:
-            self.assertIn("#define RMP_WINDOW_VSYNC  1", header)
-            self.assertIn("#define RMP_WINDOW_FPS    0", header)
+            self.assertRegex(header, r"#define RMP_WINDOW_VSYNC +1\n")
+            self.assertRegex(header, r"#define RMP_WINDOW_FPS +0\n")
 
     def test_the_toml_documents_both_in_window(self):
         text = (REPO / "raylib_multiplatform.toml").read_text()
@@ -3385,6 +3385,126 @@ class GameResourcesTest(unittest.TestCase):
         text = (REPO / "CMakeLists.txt").read_text()
         self.assertIn("include(cmake/game_resources.cmake)", text)
         self.assertIn('rmp_game_resources("${DIR}" _res _res_dir)', text)
+
+
+class ConfigTablesTest(unittest.TestCase):
+    """What configure.py prints for the documentation is what it does.
+
+    --print-defines is the table gen_app_config() writes the header FROM, so a
+    define cannot exist without its row; --print-schema's choices are checked
+    against validate() value by value, so the table cannot offer a value that
+    is refused or leave out one that is taken; every key of DEFAULTS has its
+    comment in the .toml, which is what the site shows for it."""
+
+    def run_cfg(self, *argv, cwd=None):
+        import subprocess
+        import tempfile  # noqa: F401 - used by the callers below
+        return subprocess.run([sys.executable, str(REPO / "tools" / "configure.py"), *argv],
+                              capture_output=True, text=True, cwd=cwd or REPO)
+
+    def test_every_define_in_the_header_is_a_row_and_back(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = cfgmod.load_config()
+            original = cfgmod.REPO
+            try:
+                cfgmod.REPO = Path(tmp)
+                cfgmod.gen_app_config(cfg)
+                header = (Path(tmp) / "include" / "rmp" / "generated" / "config.h").read_text()
+            finally:
+                cfgmod.REPO = original
+        written = re.findall(r"^#define (RMP_\w+) (.*)$", header, re.M)
+        written = [(n, v.strip()) for n, v in written if n != "RMP_GENERATED_CONFIG_H"]
+        rows = [(d["name"], d["value"]) for d in cfgmod.app_defines(cfg)]
+        self.assertEqual(written, rows)
+        self.assertGreater(len(rows), 20)
+        got = self.run_cfg("--print-defines")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual([(d["name"], d["value"]) for d in json.loads(got.stdout)], rows)
+
+    def test_every_row_names_a_key_of_the_toml(self):
+        for entry in cfgmod.APP_DEFINES:
+            if isinstance(entry, str):
+                continue
+            name, key, _render = entry
+            with self.subTest(define=name):
+                section, field = key.split(".", 1)
+                self.assertIn(field, cfgmod.DEFAULTS[section])
+
+    def test_every_key_has_its_comment_in_the_toml(self):
+        rows = cfgmod.schema()
+        self.assertGreater(len(rows), 50)
+        for row in rows:
+            with self.subTest(key=row["key"]):
+                self.assertTrue(row["comment"].strip(), f"{row['key']} has no comment in "
+                                "raylib_multiplatform.toml; the site shows that comment for it")
+
+    def validates(self, key, value):
+        cfg = copy.deepcopy(cfgmod.DEFAULTS)   # DEFAULTS itself must never change
+        table = cfg
+        *path, last = key.split(".")
+        for part in path:
+            table = table[part]
+        table[last] = value
+        try:
+            # What a run does with the values before it writes anything:
+            # [targets] and [upx] names are resolved after validate().
+            cfgmod.validate(cfg, strict_release=False)
+            targets = cfgmod.expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
+            cfgmod.expand_upx(cfg, targets)
+            return True
+        except cfgmod.ConfigError:
+            return False
+
+    def test_every_choice_is_taken_and_nothing_else(self):
+        for key, allowed in cfgmod.ALLOWED.items():
+            for value in sorted(allowed):
+                with self.subTest(key=key, value=value):
+                    if key == "dev.compiler" and value in ("mingw", "msvc") and not cfgmod.on_windows():
+                        continue    # Windows toolchains, refused elsewhere on purpose
+                    self.assertTrue(self.validates(key, value), f"{key} = {value!r} is refused")
+            with self.subTest(key=key, value="not-a-choice"):
+                self.assertFalse(self.validates(key, "not-a-choice"))
+
+    def test_every_list_item_is_taken_and_nothing_else(self):
+        for key, allowed in cfgmod.ALLOWED_ITEMS.items():
+            items = allowed()
+            if key == "targets.disabled":
+                items = [i for i in items if i != "all"]   # disabling everything is its own refusal
+            for value in items:
+                with self.subTest(key=key, value=value):
+                    self.assertTrue(self.validates(key, [value]), f"{key} = [{value!r}] is refused")
+            with self.subTest(key=key, value="not-a-choice"):
+                self.assertFalse(self.validates(key, ["not-a-choice"]))
+
+    def test_config_reads_another_toml_and_writes_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "good.toml"
+            good.write_text('[window]\nwidth = 640\n')
+            bad = Path(tmp) / "bad.toml"
+            bad.write_text('[window]\nwidth = "wide"\n')
+            got = self.run_cfg("--check", "--config", str(good))
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            got = self.run_cfg("--check", "--config", str(bad))
+            self.assertNotEqual(got.returncode, 0)
+            self.assertIn("[window] width", got.stdout + got.stderr)
+            got = self.run_cfg("--config", str(good))
+            self.assertNotEqual(got.returncode, 0)
+            self.assertIn("never generates", got.stdout + got.stderr)
+            got = self.run_cfg("--check", "--config", str(Path(tmp) / "nope.toml"))
+            self.assertNotEqual(got.returncode, 0)
+            self.assertIn("no such file", got.stdout + got.stderr)
+            got = self.run_cfg("--print-defines", "--config", str(good))
+            width = next(d for d in json.loads(got.stdout) if d["name"] == "RMP_WINDOW_WIDTH")
+            self.assertEqual(width["value"], "640")
+
+    def test_the_targets_table_is_every_target(self):
+        got = self.run_cfg("--print-targets-table")
+        rows = json.loads(got.stdout)
+        self.assertEqual([r["id"] for r in rows], list(cfgmod.TARGETS))
+        for r in rows:
+            self.assertIn("all", r["groups"])
 
 
 class FindPythonTest(unittest.TestCase):
