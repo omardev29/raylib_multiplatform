@@ -430,6 +430,70 @@ if(NOT PRODUCTION_BUILD)
 endif()
 rmp_apply_compile_flags(rmp)
 
+# Designated initialisers out of declaration order -- `{ .grow_y = true,
+# .width = 8 }` -- are an ERROR in GCC and only a warning in Clang, and Clang is
+# the [dev] compiler: a game built clean on the laptop and failed on the GCC
+# builds (Linux release, the BSDs) twenty minutes later. With this, Clang and
+# AppleClang refuse it too, in the framework and -- PUBLIC -- in every game,
+# example and test that links it. MSVC needs no flag: out of order is an error
+# there already. Android's native build (raymob/app/src/main/cpp/CMakeLists.txt)
+# carries the same flag.
+set(RMP_STRICT_CXX_FLAGS "")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set(RMP_STRICT_CXX_FLAGS -Werror=reorder-init-list)
+endif()
+target_compile_options(rmp PUBLIC $<$<COMPILE_LANGUAGE:CXX>:${RMP_STRICT_CXX_FLAGS}>)
+
+# The proof, at every configure that builds the tests: what rmp hands every
+# game, read back off the target, has to refuse the out-of-order initialiser.
+# Unset first, because check_cxx_source_compiles caches its answer and a stale
+# answer is exactly what would hide a flag that went away.
+if(BUILD_TESTS)
+  include(CheckCXXSourceCompiles)
+  get_target_property(_rmp_public_options rmp INTERFACE_COMPILE_OPTIONS)
+  if(NOT _rmp_public_options)
+    set(_rmp_public_options "")
+  endif()
+  string(REGEX REPLACE "\\$<\\$<COMPILE_LANGUAGE:CXX>:([^>]*)>" "\\1" _rmp_public_options
+         "${_rmp_public_options}")
+  # C++20 comes from CMAKE_CXX_STANDARD, which the check honours (CMP0067).
+  set(CMAKE_REQUIRED_FLAGS "")
+  set(CMAKE_REQUIRED_QUIET ON)
+  foreach(_flag ${_rmp_public_options})
+    string(APPEND CMAKE_REQUIRED_FLAGS " ${_flag}")
+  endforeach()
+  # The same box written in order has to compile, or the refusal below would
+  # prove nothing but a broken command line.
+  unset(RMP_IN_ORDER_INIT_COMPILES CACHE)
+  check_cxx_source_compiles("
+    struct Box { bool grow_x = false; float width = 0; bool grow_y = false; };
+    int main() { Box b{ .width = 8, .grow_y = true }; return b.grow_y ? 0 : 1; }"
+    RMP_IN_ORDER_INIT_COMPILES)
+  unset(RMP_OUT_OF_ORDER_INIT_COMPILES CACHE)
+  check_cxx_source_compiles("
+    struct Box { bool grow_x = false; float width = 0; bool grow_y = false; };
+    int main() { Box b{ .grow_y = true, .width = 8 }; return b.grow_y ? 0 : 1; }"
+    RMP_OUT_OF_ORDER_INIT_COMPILES)
+  unset(CMAKE_REQUIRED_FLAGS)
+  unset(CMAKE_REQUIRED_QUIET)
+  if(NOT RMP_IN_ORDER_INIT_COMPILES)
+    message(FATAL_ERROR
+      "The designated-initialiser check cannot compile even the correct version "
+      "with the options rmp gives every game (${_rmp_public_options}), so it "
+      "would prove nothing. See RMP_STRICT_CXX_FLAGS in CMakeLists.txt.")
+  endif()
+  if(RMP_OUT_OF_ORDER_INIT_COMPILES)
+    message(FATAL_ERROR
+      "A designated initialiser out of declaration order compiles with "
+      "${CMAKE_CXX_COMPILER_ID} and the options rmp gives every game "
+      "(${_rmp_public_options}). GCC refuses it, so a game that builds here "
+      "fails on the GCC targets. RMP_STRICT_CXX_FLAGS in CMakeLists.txt is what "
+      "makes Clang refuse it too.")
+  endif()
+  unset(RMP_IN_ORDER_INIT_COMPILES CACHE)
+  unset(RMP_OUT_OF_ORDER_INIT_COMPILES CACHE)
+endif()
+
 # --- a game is a directory --------------------------------------------------
 # rmp_add_game(<target> <dir>) builds <dir>/src/**.cpp (and .c) plus the entry
 # point into one executable that links the framework. <dir>/include/ is on

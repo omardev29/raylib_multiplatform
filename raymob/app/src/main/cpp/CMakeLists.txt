@@ -55,6 +55,11 @@ list(APPEND SOURCES ${ANDROID_NDK}/sources/android/native_app_glue/android_nativ
 # Create a shared library with game source files
 add_library(${APP_LIB_NAME} SHARED ${SOURCES} ${RAYLIB_STUB_SOURCES})
 
+# A designated initialiser out of declaration order is an error, as GCC makes
+# it on the desktop targets: the NDK's Clang only warns. RMP_STRICT_CXX_FLAGS in
+# the root CMakeLists.txt is the same flag for every other build.
+target_compile_options(${APP_LIB_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Werror=reorder-init-list>)
+
 # Define compiler macros for the library
 target_compile_definitions(${APP_LIB_NAME} PRIVATE
     PLATFORM_ANDROID
