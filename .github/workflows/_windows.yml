@@ -70,6 +70,32 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # The icon. Windows keeps it INSIDE the .exe: tools/configure.py makes an
+      # .ico out of [icon] source and the resource compiler embeds it -- with
+      # Pillow, and without Pillow it skips that in silence, because an icon
+      # must never fail a developer's build. The image carries Pillow and this
+      # runner is not the image, so it is installed here, at the version and
+      # with the hashes FROZEN_VERSIONS.md pins (pip refuses any other wheel),
+      # and configure.py runs with it before CMake does. CMake's own run of it
+      # may find a Python without Pillow; that one leaves the .ico alone.
+      - name: Pillow (pinned), and the icon it makes
+        run: |
+          $ErrorActionPreference = "Stop"
+          $frozen = "thirdparty/FROZEN_VERSIONS.md"
+          $ver = (Select-String -Path $frozen -Pattern '^pillow +(\S+)').Matches[0].Groups[1].Value
+          $hashes = @(Select-String -Path $frozen -Pattern '^pillow_sha256_\S+ +([0-9a-f]{64})' |
+                      ForEach-Object { $_.Matches[0].Groups[1].Value })
+          if (-not $ver -or $hashes.Count -eq 0) { throw "no pillow pin in $frozen" }
+          $req = Join-Path $env:RUNNER_TEMP "pillow-requirements.txt"
+          Set-Content -Path $req -Value ("pillow==$ver " + (($hashes | ForEach-Object { "--hash=sha256:$_" }) -join " "))
+          python -m pip install --disable-pip-version-check --no-deps --only-binary=:all: --require-hashes -r $req
+          python tools/configure.py
+          $src = (python tools/configure.py --print-config | ConvertFrom-Json).config.icon.source
+          if ((Test-Path $src) -and -not (Test-Path cmake/generated/app_icon.rc)) {
+            Write-Host "FAIL: [icon] source $src exists and configure.py made no app_icon.rc"; exit 1
+          }
+          Write-Host "icon: $src -> $(@(Get-ChildItem cmake/generated/app_icon.*).Name -join ', ')"
+
       - name: Configure
         run: cmake --preset release
 
@@ -163,7 +189,12 @@ jobs:
       # bin/ was on PATH. Before the boot, so a red here is not hidden behind
       # whatever the boot does.
       - name: Test (static) -- the .exe imports nothing Windows does not ship
-        run: python tools/binary_check.py windows "build/${{ inputs.project_name }}.exe"
+        run: |
+          # With an app_icon.rc, CMake compiled it in, so the .exe must carry
+          # the icon too; the Pillow step makes sure the .rc is there.
+          $check = @("tools/binary_check.py", "windows", "build/${{ inputs.project_name }}.exe")
+          if (Test-Path cmake/generated/app_icon.rc) { $check += "--require-icon" }
+          python @check
 
       - name: Set up Mesa software OpenGL (pinned)
         run: |
@@ -408,6 +439,32 @@ jobs:
             if ($_ -match '^([^=]+)=(.*)$') { "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
           }
 
+      # The icon. Windows keeps it INSIDE the .exe: tools/configure.py makes an
+      # .ico out of [icon] source and the resource compiler embeds it -- with
+      # Pillow, and without Pillow it skips that in silence, because an icon
+      # must never fail a developer's build. The image carries Pillow and this
+      # runner is not the image, so it is installed here, at the version and
+      # with the hashes FROZEN_VERSIONS.md pins (pip refuses any other wheel),
+      # and configure.py runs with it before CMake does. CMake's own run of it
+      # may find a Python without Pillow; that one leaves the .ico alone.
+      - name: Pillow (pinned), and the icon it makes
+        run: |
+          $ErrorActionPreference = "Stop"
+          $frozen = "thirdparty/FROZEN_VERSIONS.md"
+          $ver = (Select-String -Path $frozen -Pattern '^pillow +(\S+)').Matches[0].Groups[1].Value
+          $hashes = @(Select-String -Path $frozen -Pattern '^pillow_sha256_\S+ +([0-9a-f]{64})' |
+                      ForEach-Object { $_.Matches[0].Groups[1].Value })
+          if (-not $ver -or $hashes.Count -eq 0) { throw "no pillow pin in $frozen" }
+          $req = Join-Path $env:RUNNER_TEMP "pillow-requirements.txt"
+          Set-Content -Path $req -Value ("pillow==$ver " + (($hashes | ForEach-Object { "--hash=sha256:$_" }) -join " "))
+          python -m pip install --disable-pip-version-check --no-deps --only-binary=:all: --require-hashes -r $req
+          python tools/configure.py
+          $src = (python tools/configure.py --print-config | ConvertFrom-Json).config.icon.source
+          if ((Test-Path $src) -and -not (Test-Path cmake/generated/app_icon.rc)) {
+            Write-Host "FAIL: [icon] source $src exists and configure.py made no app_icon.rc"; exit 1
+          }
+          Write-Host "icon: $src -> $(@(Get-ChildItem cmake/generated/app_icon.*).Name -join ', ')"
+
       - name: Configure
         run: cmake --preset release
 
@@ -432,7 +489,12 @@ jobs:
       # can say it will start on a player's machine: MSVC with the dynamic CRT
       # imports VCRUNTIME140.dll and MSVCP140.dll, which Windows does not ship.
       - name: Test (static) -- the .exe imports nothing Windows does not ship
-        run: python tools/binary_check.py windows "build/${{ inputs.project_name }}.exe"
+        run: |
+          # With an app_icon.rc, CMake compiled it in, so the .exe must carry
+          # the icon too; the Pillow step makes sure the .rc is there.
+          $check = @("tools/binary_check.py", "windows", "build/${{ inputs.project_name }}.exe")
+          if (Test-Path cmake/generated/app_icon.rc) { $check += "--require-icon" }
+          python @check
 
       # Cross-compiled target: the rres packer is built for ARM64 and cannot run
       # on the x64 host, so ship loose resources (the game falls back to them).

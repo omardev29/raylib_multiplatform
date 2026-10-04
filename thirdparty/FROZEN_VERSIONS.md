@@ -38,6 +38,17 @@ xcodegen_sha256           4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368b
 windows_runner            windows-2025
 mesa                      26.1.6
 mesa_sha256               86b506ad38b8dae9d37bdade656a9003518d717bf4ff5475ff3f746e4ee768eb
+# Pillow, on the Windows runners only: tools/configure.py turns [icon] source
+# into the .ico the .exe carries, and without Pillow it skips that in silence.
+# A Windows runner is not the image, so the job installs it -- this version,
+# and pip refuses any wheel whose sha256 is not one of these. One per Python
+# the runner can have (tomllib needs 3.11), win_amd64: the arm64 job builds on
+# an x64 host too.
+pillow                    12.3.0
+pillow_sha256_cp311_win_amd64 8e95e1385e4998ae9694eeaa4730ba5457ff61185b3a55e2e7bea0880aef452a
+pillow_sha256_cp312_win_amd64 a2b55dd6b2a4c4b7d87ffa56bdb33fdc5fdb9a462173861a7bc097f17d91cb09
+pillow_sha256_cp313_win_amd64 1cca606cd25738df4ed873d5ad46bbdb3d83b5cbca291f6b4ff13a4df6b0bbe8
+pillow_sha256_cp314_win_amd64 fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d
 # The formatter and the linter. Pinned because a different minor version of
 # clang-format reformats files that were already formatted, which turns every
 # diff into noise and makes `just fmt check` fail for a reason that has nothing
@@ -122,6 +133,7 @@ sha256_cjson              5dbda89922a5a3970a9a701341190ac805fc2a0c9ffe16a735cd6b
 | XcodeGen | 2.46.0 | GitHub release asset + sha256. Replaces `brew install xcodegen`. |
 | Xcode | 26.6 on `macos-26` | Selected explicitly with `xcode-select`, with a guard that fails if the pin is gone. |
 | Mesa (Windows render test) | mesa-dist-win 26.1.6 | GitHub release asset + sha256. Test-only; asserted absent from the release zip. |
+| Pillow (Windows icon) | 12.3.0 | PyPI wheel, `pip install --require-hashes` against the four win_amd64 hashes above, in the Windows jobs only (the image carries its own). Build-time only: it makes the `.ico`, and `tools/binary_check.py --require-icon` checks the `.exe` carries it. |
 | clang-format / clang-tidy | 22.1.8 | Installed from PyPI at the exact version in the block above, which the `lint` job reads out of this file. `tools/versions_check.sh` then compares the pin against the binary that is actually on PATH, so a local formatter that disagrees with CI is reported before it produces a diff. |
 | butler (itch.io) | 15.24.0 | Downloaded from `broth.itch.zone` at that exact version. |
 | Playwright | see `package-lock.json` | `npm ci`; the Chromium build is keyed to the Playwright version. |

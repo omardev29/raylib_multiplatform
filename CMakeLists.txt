@@ -510,8 +510,10 @@ rmp_add_game("${CMAKE_PROJECT_NAME}" "${CMAKE_CURRENT_SOURCE_DIR}")
 # The Windows icon. Windows keeps the icon INSIDE the .exe as a resource, so a
 # PNG is not enough: tools/configure.py turns [icon] source into a
 # multi-resolution .ico and the one-line .rc below, and the resource compiler
-# embeds it. Missing is fine — the generator skips it when Pillow is not
-# installed, and an icon is cosmetic. The game only: an example has no icon.
+# embeds it. Missing is fine on a developer's machine -- the generator skips it
+# when Pillow is not installed, and an icon is cosmetic -- but not in a release:
+# the Windows jobs install Pillow and fail an .exe without the icon
+# (tools/binary_check.py --require-icon). The game only: an example has no icon.
 if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/app_icon.rc")
   enable_language(RC)
   target_sources("${CMAKE_PROJECT_NAME}" PRIVATE
