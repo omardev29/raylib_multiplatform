@@ -13,12 +13,12 @@ Play refuses an upload whose versionCode is not higher than the last one, and
 there is no way to lower it afterwards. An off-by-one there is not a bug you fix
 next release; it is a listing you cannot upload to.
 
-Run it with `just test` (part of the default set) or on its own:
+Run it with `rmp test` (part of the default set) or on its own:
 
     python3 tests/configure_test.py
     python3 tests/configure_test.py -v ConfigureVersionTest
 
-Standard library only, on purpose: `just test` must not need a pip install, and
+Standard library only, on purpose: `rmp test` must not need a pip install, and
 this has to run on a Windows runner and inside the pinned container alike.
 """
 
@@ -121,7 +121,7 @@ def require_yaml(case):
     it a missing PyYAML is a failure: a gate that cannot fail is not a gate.
 
     On a laptop it stays a skip. Somebody who has just cloned the repository
-    should not have to pip-install anything to run `just test`.
+    should not have to pip-install anything to run `rmp test`.
     """
     try:
         import yaml
@@ -1988,7 +1988,7 @@ class DocumentedTargetCountTest(unittest.TestCase):
     fourteen" with the noun on the next line, "Build all 16 targets" in a
     workflow_dispatch input DESCRIPTION, which is text a human reads in the
     GitHub UI -- or it was in a file the test did not open: the workflows, the
-    Justfile, tools/, include/rmp/, src/main.cpp.
+    command scripts, tools/, include/rmp/, src/main.cpp.
 
     So the text is NORMALISED before matching: hyphens and dashes become
     spaces, comment and table punctuation becomes spaces, and newlines become
@@ -2014,7 +2014,7 @@ class DocumentedTargetCountTest(unittest.TestCase):
     # document that states the count most often was never read where it
     # mattered. It lives in this repository now, and a missing one fails.
     DOCS = ("README.md", "TECHNICAL.md", "raylib_multiplatform.toml", "CLAUDE.md",
-            "examples/README.md", "src/main.cpp", "Justfile")
+            "examples/README.md", "src/main.cpp", "rmp", "rmp.ps1", "rmp.cmd")
     GLOBS = (".github/workflows/*.yml", ".github/scripts/*.py", ".github/scripts/*.js",
              "tools/*.sh", "tools/*.py", "tests/*.py", "tests/*.h", "include/rmp/*.h",
              ".claude/skills/*/SKILL.md")
@@ -2180,7 +2180,7 @@ def row(name, path, licences, elect="-", modified="no", linked="all", evidence="
 
 
 class LicenceGuardTest(unittest.TestCase):
-    """tools/license_check.sh, proven red on each thing it was written for.
+    """tools/license_db.py --check, proven red on each thing it was written for.
 
     The guard is a comparison of three things -- the tree, the record in
     THIRD_PARTY_LICENSES.md, and the licence texts -- so every test here is a
@@ -2402,9 +2402,9 @@ class LicenceGuardTest(unittest.TestCase):
         """The definition of done: every component under thirdparty/ has a row,
         a licence we ship under, its text where the row says, and a mark on
         every alteration -- and it stays that way, because this runs in
-        `just test` and in the lint job."""
+        `rmp test` and in the lint job."""
         import subprocess
-        run = subprocess.run(["bash", str(REPO / "tools" / "license_check.sh")],
+        run = subprocess.run([sys.executable, str(REPO / "tools" / "license_db.py"), "--check"],
                              capture_output=True, text=True, cwd=REPO)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn("PASS:", run.stdout)
@@ -2597,10 +2597,10 @@ class DocumentedTreeTest(unittest.TestCase):
                                  f"TECHNICAL.md's tree does not list src/rmp/{rel}")
 
     def test_nothing_in_the_tree_is_gone(self):
-        # Every leaf the tree names under include/rmp/ and src/rmp/ exists.
+        # Every source, script and CMake file the tree names exists.
         tree = self.tree_block()
-        named = re.findall(r"(?:├|└)── ([A-Za-z_]+\.(?:h|cpp))\s", tree)
-        self.assertGreater(len(named), 30)
+        named = re.findall(r"(?:├|└)── ([A-Za-z_]+\.(?:h|cpp|c|py|sh|cmake))\s", tree)
+        self.assertGreater(len(named), 40)
         on_disk = {p.name for p in (REPO / "include" / "rmp").glob("*.h")}
         on_disk |= {p.name for p in (REPO / "src" / "rmp").rglob("*") if p.is_file()}
         on_disk |= {p.name for p in (REPO / "tests").glob("*")}
@@ -2666,8 +2666,8 @@ class VendoredHeaderPathsTest(unittest.TestCase):
     through a generated Xcode project with its own HEADER_SEARCH_PATHS -- came
     back with `fatal error: 'cute_tiled.h' file not found`.
 
-    There were five. The examples job and the Justfile carried their own -I
-    lists until the examples became CMake targets, which left four -- and
+    There were five. The examples job and the old command script carried
+    their own -I lists until the examples became CMake targets, which left four -- and
     added one the gate had never looked at:
       CMakeLists.txt                        desktop, BSD, Web, and every example
       raymob/app/src/main/cpp/CMakeLists.txt Android, which has its own
@@ -2735,13 +2735,14 @@ class VendoredHeaderPathsTest(unittest.TestCase):
                                  path + " -- rmp/math.h includes <raylib-cpp/*.hpp> through it")
 
     def test_no_build_carries_its_own_examples_include_list(self):
-        """The examples job and the Justfile used to repeat the -I list by hand.
+        """The examples job and the command script used to repeat the -I list
+        by hand.
 
         They compile the examples through CMake now, so a -I list reappearing in
         either is a sixth copy of something that already lives on the `rmp`
         target -- and a copy is what drifts.
         """
-        for path in (".github/workflows/ci.yml", "Justfile"):
+        for path in (".github/workflows/ci.yml", "tools/rmp.py"):
             with self.subTest(file=path):
                 text = (REPO / path).read_text()
                 self.assertNotIn("-Ithirdparty/cute_tiled", text,
@@ -3747,80 +3748,25 @@ class PinnedInputsHaveNoDefaultTest(unittest.TestCase):
             self.assertIn(key, pins)
 
 
-class JustfileAndLintJobAgreeTest(unittest.TestCase):
-    """Every gate `just test` runs, the lint job runs too.
+class LintJobTest(unittest.TestCase):
+    """What the CI lint job has to run, named one by one where a regression
+    would be invisible. That every stage of `rmp test` has its step there is
+    StagesAgreeWithLintTest, in tests/rmp_test.py, which reads the stages from
+    tools/rmp.py itself.
 
-    ui_layout_test is why. `-DBUILD_UI_TESTS=ON` appears in ci.yml exactly
-    once, inside the clang-tidy step, so that the file gets a real
-    compile_commands.json entry -- and nothing ever built or ran the binary.
-    The headless UI layout assertions, four resolutions and no GPU, the thing
-    phases 1-4 of the UI architecture are gated on, ran on developer machines
-    only for four phases.
-
-    A gate that exists in one of the two places is the failure mode, so the two
-    lists are compared rather than maintained.
+    ui_layout_test is why that comparison exists. `-DBUILD_UI_TESTS=ON`
+    appeared in ci.yml exactly once, inside the clang-tidy step, so that the
+    file got a real compile_commands.json entry -- and nothing ever built or
+    ran the binary. The headless UI layout assertions, four resolutions and no
+    GPU, ran on developer machines only for four phases.
     """
 
-    # Stages whose assertion the lint job makes some other way. Each one names
-    # what covers it, and the string has to be in the lint job.
-    COVERED_BY = {
-        "fmt": "clang-format",
-        "run_smoke": "render_check.sh",   # boots the binary and greps the markers
-    }
-
-    def recipe(self):
-        text = (REPO / "Justfile").read_text()
-        body = text.split("\ntest what=", 1)[1]
-        return body.split("\n# Every example is a directory", 1)[0]
-
-    def stages(self):
-        recipe = self.recipe()
-        line = next(l for l in recipe.splitlines() if l.strip().startswith("all)"))
-        names = re.findall(r"run_[a-z_]+", line)
-        if "just fmt check" in line:
-            names.insert(0, "fmt")
-        return names, recipe
-
-    def bodies(self, recipe):
-        out = {}
-        for m in re.finditer(r"^    (run_[a-z_]+)\(\) \{$", recipe, re.M):
-            start = m.end()
-            end = recipe.index("\n    }", start)
-            out[m.group(1)] = recipe[start:end]
-        return out
-
-    def test_every_stage_of_just_test_has_a_step_in_the_lint_job(self):
-        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
-        self.assertIn("actionlint", lint, "the lint job did not parse")
-        names, recipe = self.stages()
-        self.assertGreater(len(names), 8, "the `all)` line did not parse")
-        bodies = self.bodies(recipe)
-        for stage in names:
-            wanted = set()
-            body = bodies.get(stage, "")
-            wanted.update(re.findall(r"tools/[a-z_]+\.sh", body))
-            wanted.update(re.findall(r"build/([a-z_]+_test)\b", body))
-            if "unittest discover" in body:
-                wanted.add("unittest discover")
-            if not wanted:
-                self.assertIn(stage, self.COVERED_BY,
-                              f"`just test` runs {stage}, which names no script and no "
-                              f"test binary, so nothing here can check that CI runs it "
-                              f"too. Add it to COVERED_BY with what covers it.")
-                wanted.add(self.COVERED_BY[stage])
-            for token in sorted(wanted):
-                with self.subTest(stage=stage, needs=token):
-                    self.assertIn(token, lint,
-                                  f"`just test {stage}` runs {token} and the lint job "
-                                  f"does not. A gate that exists locally and not in CI "
-                                  f"is a gate that is about to stop existing.")
-
     def test_the_lint_job_runs_the_sanitized_unit_tests(self):
-        """`just test sanitize` is not in `all` -- it is a second build -- so the
-        comparison above cannot see it. CI is where it has to run every time."""
+        """`rmp test sanitize` is not in `rmp test` -- it is a second build --
+        so CI is where it has to run every time."""
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
         self.assertIn("bash tools/sanitize_check.sh", lint)
-        self.assertIn("sanitize) run_sanitize", (REPO / "Justfile").read_text())
+        self.assertIn('Stage("sanitize"', (REPO / "tools" / "rmp.py").read_text())
 
     def test_the_lint_job_runs_the_headless_ui_layout_test(self):
         """Named on its own because it is the one that was missing, and a
@@ -4032,8 +3978,8 @@ class ShellPatternCheckTest(unittest.TestCase):
                              capture_output=True, text=True)
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
 
-    def test_it_is_wired_into_just_test_and_the_lint_job(self):
-        self.assertIn("shell_pattern_check.sh", (REPO / "Justfile").read_text())
+    def test_it_is_wired_into_rmp_test_and_the_lint_job(self):
+        self.assertIn('"tools/shell_pattern_check.sh"', (REPO / "tools" / "rmp.py").read_text())
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
         self.assertIn("shell_pattern_check.sh", lint)
 
@@ -4174,8 +4120,8 @@ class NamingCheckTest(unittest.TestCase):
         self.assertEqual(len(rules), 7)
         self.assertEqual(enforced, rules)
 
-    def test_it_is_wired_into_just_test_and_the_lint_job(self):
-        self.assertIn("naming_check.sh", (REPO / "Justfile").read_text())
+    def test_it_is_wired_into_rmp_test_and_the_lint_job(self):
+        self.assertIn('"tools/naming_check.sh"', (REPO / "tools" / "rmp.py").read_text())
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
         self.assertIn("naming_check.sh", lint)
 
@@ -4240,17 +4186,17 @@ class ClangTidyNamingTest(unittest.TestCase):
 
 
 class LintWiringTest(unittest.TestCase):
-    """`just lint` and the CI lint job run the same script over the same three
+    """`rmp lint` and the CI lint job run the same script over the same three
     folders, against a compile database of their own."""
 
     def test_both_call_the_script(self):
-        just = (REPO / "Justfile").read_text()
+        rmp = (REPO / "tools" / "rmp.py").read_text()
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
-        self.assertIn("bash tools/lint.sh", just)
+        self.assertIn('"tools/lint.sh"', rmp)
         self.assertIn("bash tools/lint.sh", lint)
         # Nobody calls clang-tidy around it any more: one list of files.
         self.assertNotIn("clang-tidy -p", lint)
-        self.assertNotIn("clang-tidy -p", just)
+        self.assertNotIn('"clang-tidy"', rmp)
 
     def test_the_script_lints_src_tests_and_examples(self):
         text = (REPO / "tools" / "lint.sh").read_text()
@@ -4282,22 +4228,6 @@ class LintWiringTest(unittest.TestCase):
     def test_the_lint_job_requires_clang_tidy_for_the_tests(self):
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
         self.assertIn("RMP_REQUIRE_CLANG_TIDY", lint)
-
-
-class PushRefusesEveryLiveRunTest(unittest.TestCase):
-    """`just push` refused only `in_progress`.
-
-    ci.yml's concurrency group cancels QUEUED runs too, and a full matrix sits
-    queued behind hosted-runner availability for minutes -- which is precisely
-    the window in which somebody pushes again. It has happened three times.
-    """
-
-    def test_it_asks_about_queued_and_waiting_as_well(self):
-        text = (REPO / "Justfile").read_text()
-        push = text.split("\npush what=", 1)[1].split("\n# ---", 1)[0]
-        for status in ("queued", "in_progress", "waiting"):
-            self.assertIn(f'"{status}"', push,
-                          f"a {status} run is cancelled by a push just the same")
 
 
 class WorkflowSecretsInheritTest(unittest.TestCase):
@@ -4431,9 +4361,9 @@ class ThisFileRunsWholeTest(unittest.TestCase):
 
     The `if __name__ == "__main__"` block sat in the middle of the file, and
     every class defined after it was never collected when the file was run
-    directly -- the same shape as the 105-test suite that quietly ran 72. The
-    Justfile uses `unittest discover`, which does not care; a human typing the
-    file name does. The block is the last statement now, and this keeps it
+    directly -- the same shape as the 105-test suite that quietly ran 72.
+    `rmp test` uses `unittest discover`, which does not care; a human typing
+    the file name does. The block is the last statement now, and this keeps it
     there.
     """
 

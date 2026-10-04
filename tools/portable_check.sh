@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Our own scripts have to run on a Mac and on the BSDs, not just on this Linux.
 #
-# WHY THIS EXISTS. `just test` is the thing a new contributor runs first, and it
+# WHY THIS EXISTS. `rmp test` is the thing a new contributor runs first, and it
 # is made of shell. The failure mode is nasty because it is invisible from here:
 # every one of these works perfectly on the machine it was written on and dies
 # on somebody else's, with an error about a builtin or a flag rather than about
@@ -9,11 +9,12 @@
 #
 # The one that was actually in the tree: `mapfile`. It is bash 4, and macOS
 # ships bash 3.2 and always will — bash went GPLv3 and Apple stopped updating
-# it. `just test config` would have died on `mapfile: command not found` on
+# it. `rmp test config` would have died on `mapfile: command not found` on
 # every Mac, and the framework builds for macOS.
 #
-# CI does not catch this. The Linux jobs run GNU everything, and the macOS job
-# runs the workflow's own steps, not the Justfile.
+# CI barely catches this. The Linux jobs run GNU everything, and the macOS job
+# runs `rmp test config` under /bin/bash 3.2 -- which reaches only the scripts
+# that one stage calls. This reads all of them.
 #
 # Usage: tools/portable_check.sh          (from the repo root)
 
@@ -24,12 +25,12 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # step declares the OS it runs on, so GNU flags in a Linux job are correct.
 # This file is excluded: its rules necessarily CONTAIN the patterns they look
 # for, and a checker that fails on its own definitions is a checker nobody keeps.
-# tools/ and the Justfile are what a developer runs. _bsd.yml and _apple.yml are
+# tools/ and `rmp` are what a developer runs. _bsd.yml and _apple.yml are
 # in here for the same reason from the other end: their steps execute ON a BSD
 # and ON a Mac, so a GNU-only flag there fails on the runner rather than on
 # somebody's laptop. Every other workflow declares a Linux runner and is
 # entitled to GNU everything.
-FILES=$(find tools Justfile rmp .github/workflows/_bsd.yml .github/workflows/_apple.yml \
+FILES=$(find tools rmp .github/workflows/_bsd.yml .github/workflows/_apple.yml \
              -type f 2>/dev/null | grep -v 'portable_check.sh' | sort)
 
 # Each rule is: a pattern, and what to do instead. The second half is the point
@@ -172,7 +173,7 @@ if [ -n "$non_ascii" ]; then
     fails=$((fails + 1))
 fi
 
-# Every tools/*.sh a script or the Justfile NAMES has to exist. This is the
+# Every tools/*.sh a script or `rmp` NAMES has to exist. This is the
 # same family of problem as the rules above -- an instruction that does not
 # work on the machine reading it -- and it had a live instance:
 # tools/glibc_check.sh's failure message said "Build it with
@@ -184,7 +185,7 @@ missing_scripts=$(grep -ohE 'tools/[a-z0-9_]+\.sh' $FILES 2>/dev/null | sort -u 
                         if [ ! -f "$ref" ]; then echo "$ref"; fi
                     done)
 if [ -n "$missing_scripts" ]; then
-    echo "  FAIL  a script that does not exist is named in tools/ or the Justfile:"
+    echo "  FAIL  a script that does not exist is named in tools/ or rmp:"
     printf '%s\n' "$missing_scripts" | sed 's/^/          /'
     echo "        instead: name the file that is there, or add the one that is not."
     fails=$((fails + 1))

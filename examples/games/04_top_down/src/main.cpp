@@ -9,7 +9,7 @@
 //
 // A whole level: clear the room or don't, walk out of the door, or die trying.
 //
-// Run it: `just example 04_top_down`.
+// Run it: `rmp example 04_top_down`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

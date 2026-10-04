@@ -93,7 +93,7 @@ the sizing sequence, because every designated initialiser already written
 depends on the order.
 
 Sizing → appearance → identity. When you add a field, ask where a user would
-type it, not where it looks tidy. Then run `just test examples`, which is the
+type it, not where it looks tidy. Then run `rmp test examples`, which is the
 gate that catches this.
 
 ## Boundaries

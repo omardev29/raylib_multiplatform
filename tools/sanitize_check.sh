@@ -12,7 +12,7 @@
 # Its own build directory, so it never disturbs build/ (the debug and release
 # presets already share that one, see CLAUDE.md).
 #
-#   bash tools/sanitize_check.sh        or   just test sanitize
+#   bash tools/sanitize_check.sh        or   rmp test sanitize
 #
 # ASCII only and no GNU-only constructs: tools/portable_check.sh covers this
 # directory, and macOS ships bash 3.2.

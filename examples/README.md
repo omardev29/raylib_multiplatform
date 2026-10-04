@@ -8,10 +8,10 @@ has any, `src/scenes/` or `src/objects/` when it is big enough to want them,
 with this framework. Copy a folder and you have a starting point.
 
 ```
-just example list             what there is
-just example 01_pong          build one and run it
-just example games/01_pong    the same, by path
-just test examples            build every one and boot it headless, with a screenshot each
+rmp example                 what there is
+rmp example 01_pong         build one and run it
+rmp example games/01_pong   the same, by path
+rmp test examples           build every one and boot it headless, with a screenshot each
 ```
 
 CI does the last one on every push, in the pinned build image, under raylib's
@@ -98,8 +98,8 @@ all, and the screenshot says whether they look like games.
 
 - The game is C++20 and so are these, except `plain_c/src/main.c`, which is C99
   on purpose and is built as such.
-- `just test examples` and the CI job run [`tools/examples_build.sh`](../tools/examples_build.sh):
-  one script, so the two cannot drift. `just test` deliberately does **not**
+- `rmp test examples` and the CI job run [`tools/examples_build.sh`](../tools/examples_build.sh):
+  one script, so the two cannot drift. `rmp test` deliberately does **not**
   include it, so your machine is not compiling a growing folder every time you
   check your own change.
 - **There is no umbrella header.** Each example includes the headers it uses and

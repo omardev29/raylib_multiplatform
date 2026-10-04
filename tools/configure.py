@@ -975,7 +975,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "[resources] rres_password is empty, which ships the pack with an AES key "
             "of nothing rather than with no encryption.\n"
             "Put a passphrase here. To ship the assets as loose files instead, do not "
-            "build the pack: `just unpack` locally, and leave resources/ in the "
+            "build the pack: `rmp unpack` locally, and leave resources/ in the "
             "archive -- the loader falls back to loose files when there is no pack.",
             ("resources", "rres_password"))
 
@@ -2023,7 +2023,7 @@ def gen_licenses(cfg: dict, targets: list[str], require_notices: bool = False) -
     and web packages, one for the APK/AAB, one for the iOS bundle.
 
     Generated, never written by hand, from the components block in
-    THIRD_PARTY_LICENSES.md -- the same block tools/license_check.sh compares
+    THIRD_PARTY_LICENSES.md -- the same block license_db.py --check compares
     against the tree. Adding a dependency without a row fails that gate, and a
     row without licence text fails here, so a notice cannot be forgotten
     without a build going red.

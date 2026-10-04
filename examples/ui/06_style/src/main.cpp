@@ -14,7 +14,7 @@
 //
 // If you had passed colours to widgets instead, that line would be a rewrite.
 //
-// Run it: `just example 06_style`.
+// Run it: `rmp example 06_style`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

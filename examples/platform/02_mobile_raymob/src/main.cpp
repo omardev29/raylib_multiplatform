@@ -18,7 +18,7 @@
 //   GetScreenOrientation()              -> portrait / landscape
 //   GetAppStoragePath / WriteToAppStorage / ReadFromAppStorage
 //
-// Run it: `just example 02_mobile_raymob`.
+// Run it: `rmp example 02_mobile_raymob`.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>

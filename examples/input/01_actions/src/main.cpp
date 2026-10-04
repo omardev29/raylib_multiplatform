@@ -4,7 +4,7 @@
 // Named actions, eight-direction movement in one line, and the part nobody
 // thinks about until it bites: who gets to hear a press.
 //
-// Run it: `just example 01_actions`.
+// Run it: `rmp example 01_actions`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

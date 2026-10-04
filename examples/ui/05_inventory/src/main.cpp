@@ -13,7 +13,7 @@
 //     same code, no branch on platform.
 //
 // One panel per file under src/panels/; the item table is in include/.
-// Run it: `just example 05_inventory`.
+// Run it: `rmp example 05_inventory`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

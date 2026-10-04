@@ -1,8 +1,8 @@
 # .clang-tidy — the checks that have caught something, and none of the ones that
 # only produce work.
 #
-#   just lint            check src/, tests/ and examples/ (and the headers they reach)
-#   just lint fix        and apply the fixes it is sure about
+#   rmp lint            check src/, tests/ and examples/ (and the headers they reach)
+#   rmp lint fix        and apply the fixes it is sure about
 #
 # The selection rule is the same one the framework uses for features: a check
 # earns its place by catching a real bug, not by being enabled by default
@@ -126,7 +126,7 @@ HeaderFilterRegex: '.*/(include/rmp|src/rmp|tests)/.*'
 # modernize-* check has the opposite opinion.
 ExcludeHeaderFilterRegex: '.*/(thirdparty|generated|build)/.*|.*/smoke_test\.h'
 
-# Warnings are not errors locally — `just lint` prints them and you decide. CI
+# Warnings are not errors locally — `rmp lint` prints them and you decide. CI
 # passes --warnings-as-errors so a push cannot add one silently.
 WarningsAsErrors: ''
 FormatStyle: file

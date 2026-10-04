@@ -13,7 +13,7 @@
 // below are live and the reward never arrives, which is exactly what you want
 // while building the rest of the game.
 //
-// Run it: `just example 02_rewarded`.
+// Run it: `rmp example 02_rewarded`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/ads.h>

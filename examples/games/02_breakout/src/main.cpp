@@ -6,7 +6,7 @@
 // Breakout has: three lives, a floor the ball can fall through, and a wall
 // that is gone.
 //
-// Run it: `just example 02_breakout`.
+// Run it: `rmp example 02_breakout`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

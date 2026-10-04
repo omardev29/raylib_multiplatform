@@ -25,7 +25,7 @@
 #
 # Usage: tools/shell_pattern_check.sh [file ...]
 #
-# With no arguments: tools/*.sh, the Justfile, and the `run:` blocks of every
+# With no arguments: tools/*.sh, the `rmp` launcher, and the `run:` blocks of every
 # workflow. With arguments, exactly those files -- which is how the test suite
 # points it at a fixture and watches it go red.
 
@@ -125,7 +125,6 @@ def run_block_lines(path):
 def default_sources():
     files = sorted(p for p in pathlib.Path("tools").glob("*.sh")
                    if p.as_posix() != SELF)
-    files.append(pathlib.Path("Justfile"))
     files.append(pathlib.Path("rmp"))
     files.extend(sorted(pathlib.Path(".github/workflows").glob("*.yml")))
     return files

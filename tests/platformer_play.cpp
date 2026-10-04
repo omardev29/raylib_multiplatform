@@ -27,7 +27,7 @@
 // level and a stale route are told apart.
 //
 // Built with the examples (CMakeLists.txt, target platformer_play) and run by
-// tools/examples_build.sh: `just test examples` here, the examples job in CI.
+// tools/examples_build.sh: `rmp test examples` here, the examples job in CI.
 // It prints PLAY PASS or PLAY FAIL and the reason.
 // ===========================================================================
 

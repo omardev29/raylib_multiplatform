@@ -20,7 +20,7 @@
 // opens, store() writes them on Apply. The Settings struct stays plain data;
 // the Value is only the shape it has on disk.
 //
-// Run it: `just example 04_settings`.
+// Run it: `rmp example 04_settings`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

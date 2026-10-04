@@ -800,6 +800,118 @@ class CiModeTest(unittest.TestCase):
                 self.assertIn(says, found[0])
 
 
+class DocsTest(unittest.TestCase):
+    """What the files say about the command is true. `just` is gone, and
+    every `rmp ...` a document, a comment or a workflow shows is a command
+    that exists, with an argument it takes: a stage for `rmp test`, an example
+    for `rmp example`. A help page that names a command it does not have is
+    the kind of lie nobody finds until they type it."""
+
+    # The two words that may still be written down: this file names them to
+    # forbid them.
+    JUST = re.compile(r"\bjust (run|test|dev|rel|fmt|lint|example|push|deploy|clean|pack|"
+                      r"unpack|web|android)\b|\bJustfile\b")
+
+    def texts(self):
+        for path in rmp_tracked_files():
+            if path.startswith("thirdparty/") or path == "tests/rmp_test.py":
+                continue
+            try:
+                yield path, (REPO / path).read_text(encoding="utf-8")
+            except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+                continue
+
+    def test_no_just_is_left(self):
+        found = [f"{path}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)}"
+                 for path, text in self.texts() for m in self.JUST.finditer(text)]
+        self.assertEqual(found, [])
+
+    def shown(self, path, text):
+        """(line, words) for every rmp command line the text shows."""
+        out = []
+        lines = text.splitlines()
+        fenced = False
+        for n, line in enumerate(lines, 1):
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            for m in re.finditer(r"`\.?/?rmp ([^`]+)`", line):
+                out.append((n, m.group(1).split()))
+            if path.endswith(".md") and fenced:
+                m = re.match(r"\s*\.?/?rmp ((?:[^\s#]+ ?)+)", line)
+                if m:
+                    out.append((n, m.group(1).split()))
+            # A command listing in a comment: `#   rmp fmt check    what CI runs`.
+            m = re.match(r"\s*(?:#|//)\s+rmp ([a-z-]+(?: [^\s]+)?)\s{2,}\S", line)
+            if m:
+                out.append((n, m.group(1).split()))
+            # And in a workflow's run: block, a line that runs it.
+            m = re.match(r"\s*\.?/?rmp ([a-z-]+(?: [^\s;|&>]+)*)", line)
+            if m and path.startswith(".github/workflows/"):
+                out.append((n, m.group(1).split()))
+        return out
+
+    def problem(self, words, examples):
+        # A bare `rmp deploy` in prose names the command; only what is given
+        # to it can be wrong.
+        words = [w.rstrip("\\") for w in words]
+        command, rest = words[0], words[1:]
+        if command not in rmp.COMMANDS:
+            return f"there is no `rmp {command}`"
+        usage = rmp.COMMANDS[command].usage.split()[1:]
+        if not rest:
+            return None
+        arg = rest[0]
+        if arg.startswith(("<", "[")) or arg.isupper() or not usage:
+            return None if usage else f"`rmp {command}` takes no argument"
+        slot = usage[0].strip("[]")
+        if slot == "stage":
+            ok = arg in {s.name for s in rmp.STAGES}
+        elif slot == "name":
+            ok = arg in examples or arg.removeprefix("examples/") in examples \
+                or any(e.endswith("/" + arg) for e in examples)
+        elif slot == "command":
+            ok = arg in rmp.COMMANDS
+        elif slot.isupper():
+            ok = True
+        else:
+            ok = arg == slot
+        return None if ok else f"`rmp {command}` does not take {arg!r}"
+
+    def test_every_command_shown_exists(self):
+        examples = set(rmp.examples(rmp.Ctx(REPO)))
+        self.assertIn("games/01_pong", examples)
+        checked, wrong = 0, []
+        for path, text in self.texts():
+            for n, words in self.shown(path, text):
+                checked += 1
+                why = self.problem(words, examples)
+                if why:
+                    wrong.append(f"{path}:{n}: rmp {' '.join(words)} -- {why}")
+        self.assertEqual(wrong, [])
+        self.assertGreater(checked, 60, "the scan found almost nothing; did it stop matching?")
+
+    def test_the_check_sees_a_wrong_command(self):
+        examples = {"games/01_pong"}
+        for words in (["tset"], ["test", "unit-tests"], ["build", "relase"],
+                      ["example", "02_pong"], ["help", "nope"], ["clean", "all"]):
+            with self.subTest(words=words):
+                self.assertIsNotNone(self.problem(words, examples))
+        for words in (["test"], ["test", "smoke"], ["build", "release"], ["example", "01_pong"],
+                      ["deploy", "1.2.0"], ["new", "my_game"], ["help", "deploy"]):
+            with self.subTest(words=words):
+                self.assertIsNone(self.problem(words, examples))
+        text = "Run it: `rmp exampel 01_pong`.\n```bash\nrmp tset\n```\n#   rmp fmt chek    x\n"
+        self.assertEqual([w for _, w in self.shown("x.md", text)],
+                         [["exampel", "01_pong"], ["tset"], ["fmt", "chek"]])
+
+
+def rmp_tracked_files():
+    got = subprocess.run(["git", "-c", "safe.directory=*", "ls-files", "-z"], cwd=REPO,
+                         capture_output=True, text=True, check=True)
+    return [p for p in got.stdout.split("\0") if p]
+
+
 class LauncherTest(unittest.TestCase):
     """The three launchers find a Python 3.11+ and hand it every argument."""
 
@@ -1044,7 +1156,7 @@ class NewTest(unittest.TestCase):
         have = self.git("ls-files")
         for forbidden in ("CLAUDE.md", ".claude/", "examples/", "TECHNICAL.md", ".clang-tidy",
                           "thirdparty/doctest", "tests/configure_test.py", "tests/rmp_test.py",
-                          "tests/fixtures", "canary.yml", "autofix.yml", "Justfile",
+                          "tests/fixtures", "canary.yml", "autofix.yml",
                           "tools/naming_check.sh"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, have)

@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // The unit tests. doctest, no window, no GPU, milliseconds.
 //
-//     just test unit                  all of them
+//     rmp test unit                  all of them
 //     ./build/unit_test -ts=random    one suite
 //     ./build/unit_test -tc="*seed*"  one case
 //
@@ -27,7 +27,7 @@
 namespace {
 
 // What rmp::random looks like BEFORE any test has touched it. Captured at
-// static-initialisation time and not inside a case, because `just test` runs
+// static-initialisation time and not inside a case, because `rmp test` runs
 // the suite a second time with --order-by=rand and every other case here seeds
 // on purpose -- by the time one of them runs, "unseeded" is gone.
 struct StartState {

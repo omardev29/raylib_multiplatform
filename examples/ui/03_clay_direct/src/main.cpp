@@ -28,7 +28,7 @@
 //     anything built at runtime must stay alive until end() has returned. This
 //     is the one footgun rmp::ui::text() removes for you by copying.
 //
-// Run it: `just example 03_clay_direct`.
+// Run it: `rmp example 03_clay_direct`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

@@ -8,7 +8,7 @@ source versions to be plainly marked, and it is the right thing to do whatever
 the licence.
 
 **The block below is machine-readable, and it is the single source of two
-things**: `tools/license_check.sh` compares it against what is actually on disk
+things**: `tools/license_db.py --check` compares it against what is actually on disk
 (both directions, so a dependency added without a row fails and a row without a
 dependency fails), and `tools/configure.py` generates the `LICENSES.txt` that
 ships next to every binary from it. A component that is not here does not ship
@@ -127,7 +127,7 @@ every change is commented at its site:
 reasoning, and the content pin of every unmodified component that is not a
 submodule (`sha256_<name>` in its versions block: the file's sha256, or for a
 directory of several sources the sha256 of their names and hashes), which
-`tools/license_check.sh` recomputes: a file that changes without its row
+`tools/license_db.py --check` recomputes: a file that changes without its row
 changing fails the build.
 
 ## Notes on particular components

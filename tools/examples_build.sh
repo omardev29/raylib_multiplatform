@@ -10,7 +10,7 @@
 # display: the same pixels on every operating system, so a PNG of every
 # example comes out of the run and can be looked at.
 #
-# One implementation, called from `just test examples` and from the CI job, so
+# One implementation, called from `rmp test examples` and from the CI job, so
 # the two cannot drift -- the render check was consolidated into
 # tools/render_check.sh for the same reason, after its two copies did.
 #

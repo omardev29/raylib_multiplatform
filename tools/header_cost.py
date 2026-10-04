@@ -25,7 +25,7 @@ those two report and exit 0 unless --strict is given.
 
 What does NOT depend on the toolchain fails everywhere: a header with no line
 in the budget, and a line in the budget for a header that no longer exists.
-rmp/audio.h reached CI with no budget, because `just test` on a laptop only
+rmp/audio.h reached CI with no budget, because `rmp test` on a laptop only
 reported it -- and whether a name is in a file is the same on every machine.
 """
 

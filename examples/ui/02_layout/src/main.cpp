@@ -15,7 +15,7 @@
 // `width = 200` is 200 at your design Size, 400 at twice it, and never a
 // hard-coded pixel count that looks right on exactly one monitor.
 //
-// Run it: `just example 02_layout`.
+// Run it: `rmp example 02_layout`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

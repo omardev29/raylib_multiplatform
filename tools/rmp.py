@@ -643,7 +643,6 @@ FRAMEWORK_ONLY = {
     "CLAUDE.md": "the framework's instructions for an agent working on it",
     ".claude/": "the framework's agent skills",
     ".clang-tidy": "the framework's lint rules, run by its own lint job",
-    "Justfile": "replaced by rmp",
     ".github/dependabot.yml": "bumps the framework's pins; a game takes them from the framework",
     ".github/known-breakage.md": "the framework's canary",
     ".github/scripts/": "the framework's canary scripts",

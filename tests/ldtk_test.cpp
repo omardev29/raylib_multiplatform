@@ -556,11 +556,11 @@ TEST_SUITE("ldtk") {
         // null, an object and a huge number, rotating, so every kind meets
         // every depth. Nothing may crash, read out of bounds, allocate without
         // bound or hang: the reader refuses the document or reads what it
-        // can. The UBSan build (`just test sanitize`) is what sees an int
+        // can. The UBSan build (`rmp test sanitize`) is what sees an int
         // overflow or a float cast that happens to land somewhere harmless.
         // Of a long array (a CSV, a list of tiles) only the first two elements
         // are walked: the rest are the same role again. The clock is part of
-        // the test, because `just test` runs this twice.
+        // the test, because `rmp test` runs this twice.
         const Quiet quiet;
         const Json original(cJSON_Parse(text_of("minimal.ldtk").c_str()));
         REQUIRE(original != nullptr);
@@ -808,7 +808,7 @@ TEST_SUITE("ldtk") {
         // right for every entity to agree.
         //
         // One test and one parse per level for both, because the samples are
-        // 850 KB of JSON and `just test` runs this twice.
+        // 850 KB of JSON and `rmp test` runs this twice.
         const Quiet quiet;
         int tiles = 0;
         int entities = 0;
@@ -1036,7 +1036,7 @@ TEST_SUITE("ldtk") {
     TEST_CASE("the platformer's own world can still be played through") {
         // examples/games/07_platformer/resources/world.ldtk is edited in LDtk
         // from now on, by hand. What the game needs from it is checked here,
-        // so that a redesign that breaks the game breaks `just test` first:
+        // so that a redesign that breaks the game breaks `rmp test` first:
         // every level loads, they chain from the first one rightwards through
         // neighbours, there is one Player and one Goal, every key opens a door
         // that exists in its level, and every route stays inside its level.

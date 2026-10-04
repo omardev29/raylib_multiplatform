@@ -4,7 +4,7 @@
 #
 # The compile database is build/lint/, from the configure-only `lint` preset:
 # tests and examples ON, nothing built. A separate directory, because turning
-# RMP_BUILD_EXAMPLES on in build/ would make every `just test` after it compile
+# RMP_BUILD_EXAMPLES on in build/ would make every `rmp test` after it compile
 # twenty examples, and the debug and release presets already share build/.
 #
 # Every file linted must have a real entry in that database. Without one,

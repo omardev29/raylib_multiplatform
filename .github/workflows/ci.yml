@@ -311,8 +311,9 @@ jobs:
       # The Linux jobs have GNU everything, so they are exactly the wrong place
       # to notice that a script only works with GNU everything. `mapfile` was in
       # the tree and would have died on every Mac — bash 4 against macOS's 3.2 —
-      # and nothing here would have said so, because the macOS job runs the
-      # workflow's steps, not the Justfile.
+      # and nothing here would have said so. The macOS job runs `rmp test
+      # config` under /bin/bash 3.2 now, but that stage reaches only the
+      # scripts it calls; this reads all of them.
       - name: The scripts run off GNU too
         if: needs.config.outputs.framework == 'true'
         run: bash tools/portable_check.sh
@@ -394,9 +395,8 @@ jobs:
       # CONFIGURED in this job (the clang-tidy step's preset turns
       # BUILD_UI_TESTS on so the file gets a real compile_commands.json entry)
       # and never built or run -- so for four phases it ran on developer
-      # machines only. The
-      # Justfile-versus-lint-job parity test in tests/configure_test.py is what
-      # stops a stage existing in one place and not the other again.
+      # machines only. StagesAgreeWithLintTest in tests/rmp_test.py is what
+      # stops a stage of `rmp test` existing in one place and not the other.
       - name: UI layout tests (headless)
         if: needs.config.outputs.framework == 'true'
         run: |
@@ -422,7 +422,7 @@ jobs:
       # prove only that they compile.
       #
       # Through tools/render_check.sh, which is the SAME script the five BSD
-      # jobs, the macOS job and `just test render` run. This step used to be a
+      # jobs, the macOS job and `rmp test render` run. This step used to be a
       # second copy of the assertion, and the copy was weaker: it checked
       # RENDER_OK and the hash but not RAY_TEST_BOOT_OK and not
       # RAY_TEST_DONE_FRAMES, so a process that died on its way out passed here
@@ -443,7 +443,7 @@ jobs:
                        | grep -v generated | sort); do
             clang-format "$f" | diff -q "$f" - >/dev/null || { echo "  unformatted  $f"; FAILED=1; }
           done
-          [ "$FAILED" -eq 0 ] || { echo "FALLA: run \`just fmt\` and commit the result."; exit 1; }
+          [ "$FAILED" -eq 0 ] || { echo "FALLA: run \`rmp fmt\` and commit the result."; exit 1; }
           echo "PASS: clang-format clean"
 
       # clang-tidy needs a compile database, so the project is CONFIGURED here
@@ -453,7 +453,7 @@ jobs:
       # the framework's names and every bug-finding check, without the
       # modernize/readability ones. Against build/lint, a configure-only
       # preset, and failing on any file that has no compile command, because
-      # clang-tidy would otherwise guess its flags. Same script as `just lint`.
+      # clang-tidy would otherwise guess its flags. Same script as `rmp lint`.
       - name: clang-tidy
         if: needs.config.outputs.framework == 'true'
         run: bash tools/lint.sh
@@ -470,7 +470,7 @@ jobs:
   # Its own job, on its own runner, for two reasons: it is the check most likely
   # to grow (there is no reason not to write more examples), and nobody wants it
   # on the critical path of the build they are waiting for. It also keeps it off
-  # developers' machines — `just test` does not run it by default. In the pinned
+  # developers' machines — `rmp test` does not run it by default. In the pinned
   # image like every other Linux job, so the compiler is the one CI ships with.
   examples:
     needs: config
@@ -544,7 +544,7 @@ jobs:
           # The framework's own things stay behind. tests/rmp_test.py checks
           # the whole tree; these are the ones that would change what the
           # game's CI does.
-          for f in tests/configure_test.py examples Justfile CLAUDE.md .claude .clang-tidy \
+          for f in tests/configure_test.py examples CLAUDE.md .claude .clang-tidy \
                    LICENSE tools/naming_check.sh .github/workflows/canary.yml; do
             if [ -e "$f" ]; then echo "FALLA: $f reached the game"; exit 1; fi
           done

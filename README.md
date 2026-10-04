@@ -44,32 +44,59 @@ If you want CD you will also add a few **secrets** on GitHub — never in the re
 
 ## Quick start
 
+`rmp` is the one command: it builds, runs, tests and ships a game, and makes new ones. Get it
+once by cloning this repository into your home folder and putting it on your PATH:
+
 ```bash
-git clone <your repo>          # or click "Use this template"
-cmake --preset debug           # configures AND generates everything from the .toml
-cmake --build build
-./build/ray_test
+cd ~
+git clone https://github.com/omardev29/raylib_multiplatform
 ```
 
-On Linux you need the X11 development libraries:
+| Shell | Add to PATH (once) |
+| --- | --- |
+| bash on Linux | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.bashrc` |
+| bash on macOS | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.bash_profile` |
+| zsh | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.zshrc` |
+| ksh | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.profile` |
+| PowerShell and cmd | `[Environment]::SetEnvironmentVariable("Path", "$HOME\raylib_multiplatform;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")` |
+
+On Windows, PowerShell also has to be allowed to run a local script, once:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Open a new terminal, then:
+
+```bash
+rmp new my_game       # a game of your own, with the framework and CI for every target
+cd my_game
+rmp run               # build it and play
+```
+
+You need **Python 3.11+**, **CMake** and **Ninja** on PATH, and a C++ compiler. On Linux, the
+X11 development libraries too:
 
 ```bash
 sudo apt install libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
 ```
 
-You need **Python 3.11+** on PATH. It is what turns the config into build files; CMake calls it
-for you, so there is no separate step to remember.
+Then open `raylib_multiplatform.toml` in the new game, set your name and app ids, and build again.
+`rmp new` fills the ids with `com.example.` placeholders, and `rmp deploy` refuses to tag a release
+while they are: a Google Play id can never change once it is published.
 
-Then open `raylib_multiplatform.toml`, set your name and app ids, and build again.
-
-If you have [`just`](https://just.systems), there is a `Justfile` with the handful of commands you
-end up typing several times a day — and nothing else, so `just --list` stays readable:
+The commands you will type every day:
 
 ```bash
-just run       # build if needed, then play
-just test      # examples compile, layout is right, the game boots and draws
-just rel       # release build
-just web       # or android
+rmp run               # build (debug) and play
+rmp test              # the .toml, the pins, the licences, a frame drawn, a boot
+rmp build release     # the release build
+rmp web               # or: rmp android
+rmp help              # every command; rmp help <command> explains one, with examples
+```
+
+Inside a game, `rmp` is the game's own copy (`tools/rmp.py`), so a game keeps working the way
+it did when the framework on your PATH moves on. Without `rmp`, it is plain CMake:
+
+```bash
+cmake --preset debug           # configures AND generates everything from the .toml
+cmake --build build
+./build/my_game
 ```
 
 ---
@@ -552,7 +579,8 @@ src/rmp/                    its implementation. Not yours; deletable.
 tests/smoke_test.h          the CI boot + render hook
 tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
 examples/                   ui/ ads/ assets/ platform/ plain_c/ — read, copy, ignore
-Justfile                    the handful of commands you type: just run, just test
+rmp  rmp.ps1  rmp.cmd       the command, for sh/bash/zsh/ksh, PowerShell and cmd
+tools/rmp.py                what it runs: rmp help lists the commands
 tools/configure.py          turns the config into build files
 cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
 thirdparty/                 raylib 6.0, raymob, rres, Clay, cute_tiled, cute_aseprite, cJSON, the raylib-iOS fork
@@ -578,5 +606,5 @@ likewise modified and likewise listed.
 Every vendored component — down to the libraries raylib bundles — with its licence, the
 alternative we take when there is a choice, and whether we altered it, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). A release ships the full notices as
-`LICENSES.txt` next to the binary, inside the APK, and in the iOS bundle; `tools/license_check.sh`
+`LICENSES.txt` next to the binary, inside the APK, and in the iOS bundle; `tools/license_db.py --check`
 fails the build on a copyleft or unknown licence and on an alteration nobody marked.

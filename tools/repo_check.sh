@@ -11,7 +11,7 @@
 # A .gitignore stops files being added; it does nothing about files already
 # tracked, and it only knows the names somebody thought of. This checks the
 # other direction: whatever the ignore rules say, does the index contain
-# something that a build made? Cheap enough to run in `just test`.
+# something that a build made? Cheap enough to run in `rmp test`.
 #
 # ASCII only and no GNU-only constructs: tools/portable_check.sh covers this
 # directory, and macOS ships bash 3.2.

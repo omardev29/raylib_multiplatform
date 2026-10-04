@@ -126,7 +126,7 @@ WORKFLOWS=$(find .github/workflows -name '*.yml' ! -name 'canary.yml')
 
 # Every container job must pin the same digest, and it must be the declared one.
 # A while-read loop and not mapfile: mapfile is bash 4, and macOS ships bash 3.2
-# and always will — bash went GPLv3 and Apple stopped updating it. `just test`
+# and always will — bash went GPLv3 and Apple stopped updating it. `rmp test`
 # has to run on a Mac without anybody installing a newer shell first.
 DIGESTS=()
 # shellcheck disable=SC2086

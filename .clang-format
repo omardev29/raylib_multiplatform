@@ -9,8 +9,8 @@
 # not an LLVM default is here because the code was written that way first and
 # the formatter had to be taught, not the other way round.
 #
-#   just fmt          format everything
-#   just fmt check    fail if anything is unformatted (this is what CI runs)
+#   rmp fmt          format everything
+#   rmp fmt check    fail if anything is unformatted (this is what CI runs)
 #
 # thirdparty/ is excluded by .clang-format-ignore: those files are frozen
 # snapshots and reformatting one would bury its real patch in noise.

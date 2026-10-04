@@ -13,7 +13,7 @@
 // player, every parallax layer reads it, and the rocks stand still in the world
 // while the view goes past them.
 //
-// Run it: `just example 05_endless_runner`.
+// Run it: `rmp example 05_endless_runner`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

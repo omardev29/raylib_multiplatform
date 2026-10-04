@@ -2,7 +2,7 @@
 """The licence guard: every vendored component has a licence we have decided
 we can live with, and where we altered one, we have said so.
 
-    python3 tools/license_db.py --check      (what tools/license_check.sh runs)
+    python3 tools/license_db.py --check      (rmp test config, and the lint job)
 
 Three things are compared and every disagreement fails:
 
@@ -34,7 +34,7 @@ have no such clause; we record modifications anyway, because a reader cannot
 tell which family imposes what and one rule is cheaper than a table.
 
 Standard library only, no network, no compiler; reads at most 320 lines of any
-source file, so the whole thing is well under the 200 ms a `just test` gate is
+source file, so the whole thing is well under the 200 ms a `rmp test` gate is
 allowed. Not a licence scanner: it does not look for stripped headers inside a
 component, and it does not parse SPDX expressions in full. It answers one
 question the same way every other check here does, by failing the build.

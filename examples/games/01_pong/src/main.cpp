@@ -10,7 +10,7 @@
 // win.wav -- and nothing here opens or closes a sound device. On a machine
 // without one the game is the same, in silence.
 //
-// Run it: `just example 01_pong`.
+// Run it: `rmp example 01_pong`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

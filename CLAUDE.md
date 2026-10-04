@@ -132,14 +132,25 @@ here so that nobody "fixes" one back.
   mini-project (`src/main.cpp`, `include/` when it has headers, `src/scenes/`
   when it has more than one scene, `resources/` when it brings art), built as
   a CMake target and **booted headless with a screenshot** by the `examples`
-  job. `just example <name|path>` builds and runs one. **Omar's machine must
-  not compile them constantly**: they are out of `just test` (which runs in
-  ~1.3 s); `just test examples` runs `tools/examples_build.sh`, the same script
-  CI runs.
+  job. `rmp example <name|path>` builds and runs one. **Omar's machine must
+  not compile them constantly**: they are out of `rmp test` (about half a
+  minute warm); `rmp test examples` runs `tools/examples_build.sh`, the same
+  script CI runs.
 - **A game in `examples/games/` is playable from start to finish** -- win,
   lose, play again -- or it does not belong there. The job boots them all and
   the screenshot says whether they look like games; four of the six sat broken
   for a phase behind a syntax-only check, and that is what this rule is for.
+- **`rmp` is the one command, and a game is a copy made from a list.**
+  `tools/rmp.py`, behind `rmp` (POSIX sh), `rmp.ps1` and `rmp.cmd`, builds,
+  tests and ships; `rmp help` lists it all, and every gate is a stage of
+  `rmp test`. `rmp new DIR` copies what `INCLUDE` in `tools/rmp.py` names and
+  nothing else, so a new tracked file fails `ManifestTest` until it is
+  classified -- `INCLUDE` when a game needs it, `FRAMEWORK_ONLY` with the
+  reason when not -- and a file a game's CI names outside a framework-gated
+  step has to be included (`CiModeTest`). `ci.yml` is the same file in both;
+  what a game lacks is gated on `needs.config.outputs.framework`, never cut
+  out of a copy, and the `rmp_new` job makes a game from every commit and runs
+  its checks on it.
 - **Never put secrets in the TOML** — no keystores, no tokens, no passwords.
   Variables yes, secrets no. The PAT can write repo variables but not secrets.
 - **Commits are plain and in Omar's name.** No `Co-Authored-By`, no extra
@@ -174,7 +185,7 @@ here so that nobody "fixes" one back.
   `include/rmp/*.h` on its own against `RMP_WINDOW_WIDTH`, so a new header that
   forgets it fails the build instead of handing somebody an undefined macro.
 - **An invalid `.toml` has to fail in `configure.py`, in second one, and say
-  where.** Not at `cmake --preset`, not at `just deploy`, not on a runner
+  where.** Not at `cmake --preset`, not at `rmp deploy`, not on a runner
   twenty minutes in. The error names the **exact line**, what is wrong, and what
   to do instead. Every combination that cannot work is a rejection with a
   reason, and every rejection has a test in `tests/configure_test.py`. A config
@@ -239,7 +250,7 @@ here so that nobody "fixes" one back.
   again in seven more places** two rounds later. The note here used to say
   actionlint caught it; it does not (shellcheck's SC2015 fires only on
   degenerate forms), and the audit of 2026-09-22 found two live instances —
-  so it is `tools/shell_pattern_check.sh` now, in `just test` and in `lint`,
+  so it is `tools/shell_pattern_check.sh` now, in `rmp test` and in `lint`,
   and it went red on those two the day it existed. Two disagreeing checks on
   `[dev] compiler` would have made `mingw` unusable, and the configure tests
   found it the day they existed. A context window ends; a gate does not.
@@ -256,7 +267,7 @@ here so that nobody "fixes" one back.
   `thirdparty/raylib/PATCHES.md` exists (clay, cute_tiled, raylib-cpp and
   raymob have one too) and no document may describe the vendored raylib as
   unchanged. **A new dependency is a licence decision**: it gets a row in the
-  components block of `THIRD_PARTY_LICENSES.md` or `tools/license_check.sh`
+  components block of `THIRD_PARTY_LICENSES.md` or `tools/license_db.py --check`
   fails; copyleft (LGPL included -- no dynamic linking on iOS or static musl),
   non-commercial and unknown fail; a zlib or Apache component is either
   pinned unmodified by sha256 or marked modified with a `PATCHES.md`. The
@@ -303,15 +314,15 @@ Each of these was a real bug, found by reproducing rather than by reading.
   paints a flat square over the picture; ours travels via `userData`.
 - **The debug and release presets share `build/`, and a reconfigure does not
   take the compiler back out of the cache.** `[dev] compiler` is written with
-  `FORCE`, so `just rel` after `just test` built with clang instead of the
+  `FORCE`, so `rmp build release` after `rmp test` built with clang instead of the
   platform default — not what CI ships. It surfaced as `libraylib.a: file
   format not recognized`, because clang's `-flto=thin` leaves bitcode in the
   archive where gcc's `-flto=auto` leaves ELF. Guarded now: a release configure
-  on a debug cache is a `FATAL_ERROR` that tells you to `just clean`. Splitting
+  on a debug cache is a `FATAL_ERROR` that tells you to `rmp clean`. Splitting
   the two binary directories is the real fix and is phase 15 debt.
 - **CMake's IPO is per target.** A test target that links raylib in a release
   tree needs the same `INTERPROCEDURAL_OPTIMIZATION` or it cannot read the
-  archive. `just dev`/`just rel` also build only the game target now.
+  archive. `rmp build`/`rmp build release` also build only the game target now.
 - **MSYS2 is Windows, and neither language agrees by default.** `platform.system()`
   there returns `MSYS_NT-…` or `MINGW64_NT-…`, not `Windows`; and in MSYS2's MSYS
   environment CMake sets `MSYS` and `UNIX` but **not `WIN32`**. Both spellings
@@ -343,7 +354,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
   lists lacked it, so that header did not compile on Android, iOS or MSVC and
   nothing said so. Gated in `tests/configure_test.py`: every directory under
   `thirdparty/` holding a header, and the bare root, must appear in all four,
-  and `ci.yml`/`Justfile` may not grow their own `-I` list again.
+  and `ci.yml`/`tools/rmp.py` may not grow their own `-I` list again.
 - **A marker that only ever prints is not a gate.** `SmokeTest_ReportBoot()`
   logged `RAY_TEST_BOOT_OK` unconditionally, so on the DRM job it printed it
   straight after raylib printed `Failed to initialize EGL device` and `Failed to
@@ -377,8 +388,9 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **macOS ships bash 3.2 and always will** (bash went GPLv3). `mapfile`,
   `readarray`, `stat -c`, `grep -P`, `readlink -f`, `nproc` and `sed -i` without
   an argument are all GNU or bash-4 only. `tools/portable_check.sh` rejects them
-  in `tools/` and the `Justfile`; CI cannot, because the Linux jobs have GNU
-  everything and the macOS job runs the workflow's steps, not the Justfile.
+  in `tools/` and in `rmp`, the launcher; the Linux jobs cannot notice, having
+  GNU everything, and the macOS job runs `rmp test config` under `/bin/bash` --
+  which reaches only the scripts that stage calls.
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
@@ -401,8 +413,8 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **Pushing cancels an in-flight CI run.** `ci.yml`'s concurrency group is
   `CI-refs/heads/main` with `cancel-in-progress`. It happened twice, the note
   said so, and then it happened a **third** time to someone who had just read
-  the note — so it is a gate now: **`just push`** refuses while a run is in
-  flight and names the run it would have killed. `just push force` when killing
+  the note — so it is a gate now: **`rmp push`** refuses while a run is in
+  flight and names the run it would have killed. `rmp push force` when killing
   it is what you meant. Three occurrences is where a written caveat stops being
   worth writing and starts being worth checking.
 - **iOS must not call `exit()`** — Apple QA1561: the app "will appear to the user
@@ -468,19 +480,20 @@ Each of these was a real bug, found by reproducing rather than by reading.
 
 ## Verifying
 
-`just fmt` and `just lint` (both clean is a condition, not an intention — see
-below), `just test` locally (format, config, the gates — seam, workflows,
+`rmp fmt` and `rmp lint` (both clean is a condition, not an intention — see
+below), `rmp test` locally (format, config, the gates — seam, workflows,
 portable, shell patterns, ownership, headers, header cost, licences, repo —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
 real mixer for about a second, only in the first), headless layout, render
-and smoke), `just test examples` before touching the public API (it builds
+and smoke), `rmp test examples` before touching the public API (it builds
 and boots all of them with a screenshot each, and plays the platformer to the flag at 60 and
-240 Hz), `just test sanitize` after touching anything that parses, casts or frees (the unit tests
+240 Hz), `rmp test sanitize` after touching anything that parses, casts or frees (the unit tests
 under ASan and UBSan -- it found UB the tests passed over, and three tests reading freed memory,
 on its first run), and a screenshot when the
 change is visual — looking at pixels is how most of the bugs above were
-found. Every `run_*` stage of `just test` has a step in the `lint` job, and a
-test says so. The image-dependent gates (header budget, PyYAML, versions
+found. Every stage of `rmp test` has a step in the `lint` job -- one a game's
+CI runs too, for the stages a game has -- and `StagesAgreeWithLintTest` says
+so. The image-dependent gates (header budget, PyYAML, versions
 against the manifest) run for real only inside the pinned image: `podman run
 --rm -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@sha256:<digest>
 bash tools/<x>_check.sh` is how to see what CI sees.
@@ -533,9 +546,9 @@ Five things in there are load-bearing, and each one is a way this goes wrong:
    nothing because jobs take minutes.
 
 Then, while it runs: **do not poll, do not sleep, do not ask if it is done.**
-Get on with the next thing. And remember that `just push` refuses while a run is
+Get on with the next thing. And remember that `rmp push` refuses while a run is
 in flight — if the fix being pushed changes what the running matrix is testing,
-`just push force` and relaunch is right; if it does not, let the run finish
+`rmp push force` and relaunch is right; if it does not, let the run finish
 first, because a cancelled matrix proves nothing.
 
 The same pattern covers anything with a slow, remote, or unobservable end: an

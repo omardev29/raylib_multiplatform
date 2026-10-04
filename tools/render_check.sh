@@ -25,7 +25,7 @@
 # Usage: render_check.sh <generator> <extra-cmake-args> <project-name> [update]
 #
 # `update` records whatever the frame hashes to instead of comparing, which is
-# what you run after changing the drawing on purpose. `just test render-update`.
+# what you run after changing the drawing on purpose. `rmp test render-update`.
 
 set -e
 
@@ -115,7 +115,7 @@ fi
 WANT=$(cat "$GOLDEN")
 echo "  software-render hash=$GOT want=$WANT"
 test "$GOT" = "$WANT" || {
-    echo "FALLA: the frame changed. If that was on purpose: just test render-update"
+    echo "FALLA: the frame changed. If that was on purpose: rmp test render-update"
     exit 1; }
 
 echo "PASS: booted, rendered and exited under software rendering"

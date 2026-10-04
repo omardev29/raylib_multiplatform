@@ -18,7 +18,7 @@
 // Resize the window and watch the sidebar move under the content when the
 // window becomes taller than it is wide. That is a phone held upright.
 //
-// Run it: `just example 07_responsive`.
+// Run it: `rmp example 07_responsive`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

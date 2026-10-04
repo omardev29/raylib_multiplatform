@@ -9,7 +9,7 @@
 // and each of those decisions can be overridden individually when you need it.
 //
 // One screen per file under src/screens/; this file only says which one is on.
-// Run it: `just example 01_menu`.
+// Run it: `rmp example 01_menu`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

@@ -10,7 +10,7 @@
 // objects looking for aliens, and nothing holds a pointer to one that a shot
 // may have destroyed two frames ago.
 //
-// Run it: `just example 03_space_invaders`.
+// Run it: `rmp example 03_space_invaders`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

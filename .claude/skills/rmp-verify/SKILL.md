@@ -1,6 +1,6 @@
 ---
 name: rmp-verify
-description: How to prove a change to raylib_multiplatform actually works — the local ladder (just test, headless layout, screenshots) and the CI ladder (fast set vs the full 17-target matrix), plus the gotchas that have wasted runs. Load before claiming a change is done, and before pushing.
+description: How to prove a change to raylib_multiplatform actually works — the local ladder (rmp test, headless layout, screenshots) and the CI ladder (fast set vs the full 17-target matrix), plus the gotchas that have wasted runs. Load before claiming a change is done, and before pushing.
 ---
 
 # Verifying a change
@@ -12,18 +12,18 @@ project was found by looking at pixels, dumping an artefact or writing an assert
 ## Local, in the order to run them
 
 ```bash
-just test              # fmt + config + gates + configure tests + unit + layout + render + smoke. Run this always.
-just test examples     # builds every example and boots it headless with a screenshot, then PLAYS the
-                       # platformer to the end (tests/platformer_play.cpp). Before touching public API,
-                       # objects, collision, the map, scenes or the game.
-just test sanitize     # the unit tests again under ASan + UBSan, every report fatal (~20 s cold). After
-                       # touching anything that parses input, casts, indexes or frees: what a test
-                       # cannot see, this does.
-just example 01_pong   # build one example and run it (by name or path; `just example list`)
-just run               # the actual game
+rmp test              # fmt + config + gates + configure and rmp tests + unit + layout + render + smoke. Always.
+rmp test examples     # builds every example and boots it headless with a screenshot, then PLAYS the
+                      # platformer to the end (tests/platformer_play.cpp). Before touching public API,
+                      # objects, collision, the map, scenes or the game.
+rmp test sanitize     # the unit tests again under ASan + UBSan, every report fatal (~20 s cold). After
+                      # touching anything that parses input, casts, indexes or frees: what a test
+                      # cannot see, this does.
+rmp example 01_pong   # build one example and run it (by name or path; `rmp example` lists them)
+rmp run               # the actual game
 ```
 
-`just test` deliberately does **not** compile `examples/`: Omar's machine must
+`rmp test` deliberately does **not** compile `examples/`: Omar's machine must
 not be compiling a growing folder on every check. CI has a job for it on its own
 runner.
 
@@ -46,11 +46,11 @@ Things that are easy to get wrong here, each learnt the hard way:
   and an entry in TECHNICAL's tree. The configure tests fail on the last two;
   the budget gate fails on a missing line everywhere now.
 - **The audio device suite** (`tests/audio_device_test.cpp`) runs once per
-  `just test`, not in the random-order pass, and skips with a MESSAGE where there
+  `rmp test`, not in the random-order pass, and skips with a MESSAGE where there
   is no device. CI sets `RMP_REQUIRE_AUDIO_DEVICE=1` and runs it on miniaudio's
   null backend, so a skip there is a failure.
 - **The locale tests** need the locales `tools/test_locales.sh` builds from
-  `tests/fixtures/locale/` (`LOCPATH`); `just test` builds them, CI requires them
+  `tests/fixtures/locale/` (`LOCPATH`); `rmp test` builds them, CI requires them
   with `RMP_REQUIRE_TEST_LOCALES=1`. Without glibc's `localedef` (macOS) they skip.
 - **Save tests never touch the real user folder**: they point it at a temporary
   directory with `rmp::save::detail::set_folders_for_tests()`. The smoke boot
@@ -79,8 +79,11 @@ Two things that will waste your time:
 
 ## CI
 
-A push runs the fast set (Linux, Windows, Web, Android). The full matrix is
-manual:
+A push runs the fast set: Linux, Windows, Web, Android, the `lint` job, the
+`examples` job, and `rmp_new`, which makes a game from the commit with
+`rmp new` and runs that game's own checks on it. In a game, the same `ci.yml`
+skips the framework's jobs and steps (`needs.config.outputs.framework`). The
+full matrix is manual:
 
 ```bash
 gh workflow run ci.yml -f full=true
@@ -91,7 +94,7 @@ gh run view <id>
 **Pushing cancels an in-flight run.** `ci.yml`'s concurrency group is
 `CI-refs/heads/main` with `cancel-in-progress: true`, so a push while a
 `full=true` dispatch is running kills it. It happened three times, so it is a
-gate: `just push` refuses while a run is in flight and names it; `just push
+gate: `rmp push` refuses while a run is in flight and names it; `rmp push
 force` when killing it is what you meant. Put a background monitor on the run
 (the loop in CLAUDE.md) and keep working; never poll.
 

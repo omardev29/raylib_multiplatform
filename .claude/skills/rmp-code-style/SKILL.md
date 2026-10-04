@@ -64,13 +64,13 @@ committed at the repo root, pinned to clang 22.1.8 in
 `thirdparty/FROZEN_VERSIONS.md`, and both run in the CI `lint` job.
 
 ```
-just fmt          format every file we own
-just fmt check    what CI runs
-just lint         clang-tidy, warnings-as-errors
-just lint fix     apply what it is sure about
+rmp fmt          format every file we own
+rmp fmt check    what CI runs
+rmp lint         clang-tidy, warnings-as-errors
+rmp lint fix     apply what it is sure about
 ```
 
-`just test` runs `just fmt check` first, so an unformatted file fails locally
+`rmp test` runs `rmp fmt check` first, so an unformatted file fails locally
 before it fails in CI. `tools/versions_check.sh` compares the clang-format on
 PATH against the pin — if yours is a different minor version it will reformat
 files that were already correct, and it tells you so.

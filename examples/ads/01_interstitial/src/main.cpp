@@ -26,7 +26,7 @@
 // same no-ops they already are on desktop. Ads are opt-in for a reason — see
 // the consent (UMP) warning in README.md before shipping with them on.
 //
-// Run it: `just example 01_interstitial`.
+// Run it: `rmp example 01_interstitial`.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>

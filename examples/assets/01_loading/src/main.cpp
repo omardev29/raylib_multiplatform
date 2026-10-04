@@ -15,7 +15,7 @@
 // entry point macro opens the pack before on_ready() and closes it after
 // on_exit(), so there is nothing to remember and nothing to get wrong.
 //
-// Run it: `just example 01_loading`.
+// Run it: `rmp example 01_loading`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

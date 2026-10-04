@@ -36,7 +36,7 @@
 // whatever it saves. Paint IntGrid `Solid` and the auto-layer rules draw the
 // edges and corners; a level's `biome` (Grass, Sand or Snow) picks the terrain.
 //
-// Run it: `just example 07_platformer`.
+// Run it: `rmp example 07_platformer`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

@@ -20,7 +20,7 @@
 //      deferred to the end of the frame, so the scene that asked for it
 //      survives the rest of the frame it asked from.
 //
-// Run it: `just example 01_stack`.
+// Run it: `rmp example 01_stack`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

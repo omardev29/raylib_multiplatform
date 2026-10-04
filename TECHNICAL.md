@@ -38,7 +38,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 ├── raylib_multiplatform.toml # THE config. Name, ids, targets, icon, modules. Yours.
 ├── CMakeLists.txt            # Root build: the `rmp` library, rmp_add_game(), presets, rres
 ├── CMakePresets.json         # debug / release / web / memory profiles
-├── Justfile                  # just test / fmt / lint / example / push / deploy
+├── rmp, rmp.ps1, rmp.cmd     # the command, for sh/bash/zsh/ksh, PowerShell and cmd -> tools/rmp.py
 ├── src/                      # YOUR code. Every .cpp/.c here is auto-compiled (GLOB_RECURSE).
 │   ├── main.cpp              # RMP_GAME(MainMenuScene); and nothing else
 │   ├── scenes/               # your scenes, one per file
@@ -115,20 +115,24 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 │   ├── ui_layout_test.cpp    # layout and hit-testing with no window (-DBUILD_UI_TESTS=ON)
 │   ├── platformer_play.cpp   # a bot that plays examples/games/07_platformer to the end (examples job)
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
+│   ├── rmp_test.py           # rmp itself: every command, the launchers, rmp new, CI's game mode
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
 ├── resources/                # Your assets (flat -- the pack does not recurse)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
+│   ├── rmp.py                # `rmp`: every command, its help, the test stages, rmp new's manifest
 │   ├── configure.py          # the config -> every build system. Run by CMake.
-│   ├── license_db.py         # the licence guard (tools/license_check.sh drives it)
+│   ├── license_db.py         # the licence guard, and LICENSES.txt (--check is the gate)
+│   ├── android_release_check.py # the release APK's compile commands: optimised, RMP_PRODUCTION_BUILD=1
 │   ├── *_check.sh            # the gates: versions, seam, portable, naming, headers, repo, workflows, licences
-│   ├── lint.sh               # clang-tidy over src/, tests/ and examples/ (just lint, and CI)
+│   ├── lint.sh               # clang-tidy over src/, tests/ and examples/ (rmp lint, and CI)
 │   ├── examples_build.sh     # builds and boots every example headless, with a screenshot each
 │   ├── make_example_art.py   # the generated art the runner example brings
 │   ├── dev_shell.sh          # run a command inside the pinned CI image
 │   └── rres_pack.c           # open rres packer (AES-256) -- no paid tooling needed
 ├── cmake/
 │   ├── configure_hook.cmake  # runs the generator before project()
+│   ├── find_python.cmake     # the first Python on PATH that is 3.11+, asked, not assumed
 │   ├── generated/            # GENERATED, git-ignored (LICENSES.txt lives here, per family)
 │   ├── web/rmp_web.js        # --pre-js of every web build: IndexedDB for saves, key-press audio unlock
 │   └── toolchain-riscv64-linux.cmake
@@ -174,9 +178,12 @@ XcodeGen never invoke CMake, so those two jobs run `python3 tools/configure.py` 
 into your game; read them and copy what you need into `src/`. CI does syntax-check every one of
 them with GCC and MSVC on each push, so they cannot quietly stop working.
 
-`Justfile` holds the handful of commands worth having a shortcut for — `just run`, `just test`,
-`just rel`, `just web`, `just android` — and deliberately nothing else, so `just --list` stays
-something you can read rather than a menu to search.
+`rmp` is the one command: `rmp run`, `rmp test`, `rmp build release`, `rmp web`, `rmp android`,
+`rmp deploy`, `rmp new` and a few more. `rmp help` lists them on one screen, and
+`rmp help <command>` explains one with examples. It is `tools/rmp.py`, one stdlib Python file,
+behind three launchers -- `rmp` (POSIX sh: bash, zsh, ksh, dash), `rmp.ps1` and `rmp.cmd` -- that
+only find a Python 3.11+ and hand it the arguments. In the framework it also has the maintainer's
+commands (`rmp lint`, `rmp example`) and every gate as a stage of `rmp test`.
 
 ---
 
@@ -1355,7 +1362,7 @@ device with the master volume at zero and reads the mixed output back through
 `rmp::Sound` left alone, a finished track replayed and a playing one not restarted, and a device
 closed only by whoever opened it. Where there is no device at all it says so and skips; miniaudio
 keeps its null backend, so most CI runners have a silent one and run it too. It runs once per
-`just test`, not in the random-order pass: it spends about a second listening.
+`rmp test`, not in the random-order pass: it spends about a second listening.
 
 ## `rmp::Camera` — follow, limits, smoothing, shake
 
@@ -1465,7 +1472,7 @@ next to it, every entity against the `__worldX`/`__worldY` LDtk computed — so 
 agree with its author's idea of the format and still disagree with the editor. Every node of the
 minimal project is also replaced, keeping its key, by every hostile kind of value -- the wrong
 type, null, 1e300, -1e300, INT_MAX, -1 -- one at a time, and the result parsed; the same tests run
-under ASan and UBSan (`just test sanitize`).
+under ASan and UBSan (`rmp test sanitize`).
 
 ## `rmp::save` — saving the game
 
@@ -1580,7 +1587,7 @@ switching only when the game's locale does not already use `.`, so a German or P
 writes `0,5` nor fails to read `0.5`. (`ENABLE_LOCALES`, cJSON's own answer, takes one byte of the
 decimal point; Pashto's is two.)
 
-**What is tested, and what is not.** `tests/save_test.cpp` runs on Linux in `just test` and in the
+**What is tested, and what is not.** `tests/save_test.cpp` runs on Linux in `rmp test` and in the
 CI `lint` job: the Value and its Ref, the file format attacked byte by byte, sealing, the portable
 fallback across two sessions, the XDG folders, and numbers under a comma and a two-byte decimal
 point (locales built from `tests/fixtures/locale/` by `tools/test_locales.sh`, required in CI).
@@ -1827,11 +1834,29 @@ in `ci.yml` too: workflow-level `env` does **not** cross the `workflow_call` bou
 `project_name` as an input); called workflows receive no secrets without `secrets: inherit`;
 and `concurrency` must live only in the orchestrator or parent and children cancel each other.
 
+### The framework, and every game made from it
+
+A game made with `rmp new` carries the same `ci.yml`, byte for byte, and the same reusable
+workflows. The `config` job asks `python3 tools/rmp.py --mode` which one it is running in --
+the framework has `tests/configure_test.py`, a game does not -- and stops the run on any answer
+but `framework` or `game`. What only the framework has is skipped by that answer, never cut out
+of a copy: the framework's own steps in `lint` (its tests and its gates over its own sources),
+the `examples` job, the MSVC pass over `examples/` in `_windows.yml`, and `rmp_new`. A game's
+`lint` job is actionlint, its configuration, the pinned versions, the licences and a frame drawn
+in software. `release` accepts those jobs as skipped only in a game.
+
+`rmp_new` is the framework's check on what a game gets: it makes a game from the commit under
+test, runs actionlint and `tools/workflow_check.sh` on the game's workflows, and the game's own
+`rmp test config`, `rmp test render` (no golden frame: the boot, the pixels, a clean exit) and
+`rmp test smoke`. The launchers run where Linux cannot: `rmp.ps1` and `rmp.cmd` in a Windows job
+of their own (which also makes a game there), `zsh` and `/bin/bash` 3.2 in the macOS job, and
+OpenBSD's `ksh` in its BSD job.
+
 ### When it runs
 
 | Trigger | What builds |
 |---|---|
-| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64 (~10 min) |
+| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64, plus the `lint`, `examples` and `rmp_new` jobs (~10 min) |
 | tag `v*` | All 17 targets, then Release, then itch.io |
 | `workflow_dispatch` | Fast lane, or everything with the `full` input |
 
@@ -2023,7 +2048,7 @@ arrived (nobody could step off), a rider that kept a pixel of overlap (the ledge
 platform that undid every jump from it above ~127 FPS.
 
 **Sanitized** — the unit tests are built a second time with AddressSanitizer and
-UndefinedBehaviorSanitizer, every report fatal (`tools/sanitize_check.sh`, `just test sanitize`, a
+UndefinedBehaviorSanitizer, every report fatal (`tools/sanitize_check.sh`, `rmp test sanitize`, a
 step of the `lint` job). A test asserts what it can see; an int overflow that wraps somewhere
 harmless or a float cast that lands in range is what it cannot. The first run found the LDtk
 reader's casts and three tests reading objects already freed. Third-party code it must not report
@@ -2161,7 +2186,7 @@ picks it up on the next build. Headers go in `include/`.
 
 **Libraries:** put the library in `thirdparty/`, `add_subdirectory(thirdparty/yourlib)` it, and add
 its target to `target_link_libraries` -- and before any of that, its row in the components block of
-`THIRD_PARTY_LICENSES.md`, because `tools/license_check.sh` fails on a directory under `thirdparty/`
+`THIRD_PARTY_LICENSES.md`, because `tools/license_db.py --check` fails on a directory under `thirdparty/`
 it does not know. An unmodified library is also pinned by content: the failure message prints the
 exact `sha256_<name>` line to add to the versions block of `thirdparty/FROZEN_VERSIONS.md` (for a
 directory, a hash over every source file in it, subdirectories included). A modified one gets a

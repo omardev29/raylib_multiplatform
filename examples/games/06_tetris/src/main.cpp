@@ -14,7 +14,7 @@
 //                   around the read: the first time there is no save, and an
 //                   empty Value reads as the default.
 //
-// Run it: `just example 06_tetris`.
+// Run it: `rmp example 06_tetris`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

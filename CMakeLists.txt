@@ -30,7 +30,7 @@ option(RMP_TARGET_DRM "Build for DRM/KMS: no X11, no Wayland, straight to the sc
 
 # Every example under examples/ as its own executable, next to the game. Off by
 # default because a game build has no business compiling twenty examples; on
-# for `just example`, for `just test examples` and for the CI job that boots
+# for `rmp example`, for `rmp test examples` and for the CI job that boots
 # every one of them. See rmp_add_game() below for what an example IS.
 option(RMP_BUILD_EXAMPLES "Build every example under examples/ as an executable" OFF)
 
@@ -64,7 +64,7 @@ elseif(DEFINED RMP_DEV_COMPILER)
     "the compiler to ${RMP_DEV_COMPILER} from [dev] in "
     "raylib_multiplatform.toml. A release build must not inherit it — CI "
     "builds with the platform default, and this one would not match.\n"
-    "  Run `just clean` (or delete build/) and configure again.")
+    "  Run `rmp clean` (or delete build/) and configure again.")
 endif()
 
 if(MSVC)
@@ -576,7 +576,7 @@ endif()
 # the flag and to game over. Not an example, so not in RMP_EXAMPLE_TARGETS
 # (whose count is asserted against the tree); tools/examples_build.sh runs it
 # after booting them. Defined with BUILD_TESTS too, so the lint configure has a
-# compile_commands.json entry for it -- but out of `all` there, so `just test`
+# compile_commands.json entry for it -- but out of `all` there, so `rmp test`
 # never compiles the game for it.
 set(_platformer "${CMAKE_CURRENT_SOURCE_DIR}/examples/games/07_platformer")
 if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
@@ -667,7 +667,7 @@ if(BUILD_TESTS)
   )
   target_compile_definitions(unit_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   # An absolute path, so a fixture is found whatever directory the test binary
-  # is run from. `just test` runs it from the repo root and CI does too, but
+  # is run from. `rmp test` runs it from the repo root and CI does too, but
   # "works from the directory we happen to use" is how a test starts failing for
   # somebody with a different habit.
   target_compile_definitions(unit_test PRIVATE
