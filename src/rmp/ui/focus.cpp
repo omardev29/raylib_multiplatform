@@ -54,6 +54,17 @@ struct {
     bool visible = false;
 } target;
 
+// A focus() asked for between frames -- a pushed scene's _ready() runs after
+// the frame has ended. An element's id depends on the pass it is declared in,
+// and between frames there is no pass: the one last open is the PREVIOUS
+// frame's, and the scene asking may draw in another. So the name waits, and
+// the first control that carries it, in whichever pass, takes the focus. A
+// frame that declares controls and none with the name lets it go.
+struct {
+    bool waiting = false;
+    char name[48] = { 0 };
+} asked;
+
 // Keyboard and gamepad navigation, and held-key repeat, so holding down on a
 // d-pad walks a menu instead of moving one item and stopping.
 struct {
@@ -219,6 +230,11 @@ void end_focus_frame() {
     for (int i = 0; i < n; i++) lists.previous[i] = lists.current[i];
     lists.previous_count = n;
 
+    // A name asked for between frames that this frame's controls did not
+    // carry: it named nothing, and it must not lie in wait for a control
+    // with that label to turn up much later.
+    if (asked.waiting && lists.current_count > 0) asked.waiting = false;
+
     // A text field that was not drawn this frame -- or was, in a pass input
     // could not reach -- has stopped typing, and must not start again by
     // itself the next time it appears.
@@ -245,6 +261,13 @@ bool focusable(Clay_ElementId id, std::string_view name) {
         lists.current[lists.current_count].id = id.id;
         copy_name(lists.current[lists.current_count].name, name);
         lists.current_count++;
+    }
+    // The first control carrying a name focus() asked for between frames.
+    // Matched by id and not by label, so an explicit .id works the same way
+    // it does when focus() is called during a pass.
+    if (asked.waiting && id.id == peek_element_id(asked.name, 0, current_pass()).id) {
+        asked.waiting = false;
+        focus_by_id(id.id, name);
     }
     return navigation.enabled && target.id == id.id;
 }
@@ -377,6 +400,7 @@ bool wants_pointer() { return detail::pointer_over_ui(); }
 bool wants_keyboard() { return detail::keyboard_captured(); }
 
 void focus(std::string_view id) {
+    asked.waiting = false;
     if (id.empty()) {
         detail::focus_by_id(0, "");
         return;
@@ -384,6 +408,15 @@ void focus(std::string_view id) {
     // Asked for by name, by the game: that is deliberate, so it is shown. The
     // focus a pass gives itself is not, until the player reaches for a key.
     detail::set_focus_visible(true);
+    if (!detail::frame_open()) {
+        // Between frames there is no pass to look the name up in: it waits
+        // for the control that carries it. See `asked`. focused() answers
+        // with the name straight away all the same.
+        asked.waiting = true;
+        copy_name(asked.name, id);
+        detail::focus_by_id(0, id);
+        return;
+    }
     // peek, not element_id: the allocating one would count this label as an
     // occurrence of itself, so the widget it is trying to focus would come out
     // as the NEXT one and the two ids could never match.

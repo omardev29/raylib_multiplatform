@@ -1724,6 +1724,84 @@ void run_dropdown_nav() {
     rmp::ui::focus("");
 }
 
+// focus() called between frames -- in a pushed scene's _ready(), which runs
+// after the frame has ended. It looked the name up in the pass that was last
+// open, so when the scene asking draws in a different pass than the one that
+// came last the frame before, the id matched nothing and the screen's own
+// default took over: asked for "Second", got "First".
+void run_focus_between_frames() {
+    std::printf("\n--- focus() between frames ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    fake_nav.state = rmp::ui::detail::NavState{};
+
+    // The game alone, then the game with a menu pushed over it: the menu's
+    // _ready() runs between the two, after a frame of ONE pass.
+    auto game_only = [] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::text("score 0");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+    auto with_menu = [] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::set_pass_input(false);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::text("score 0");
+        rmp::ui::end();
+        rmp::ui::detail::set_pass_input(true);
+        rmp::ui::begin();
+        rmp::ui::button("First");
+        rmp::ui::button("Second");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+
+    rmp::ui::focus("");
+    game_only();
+    rmp::ui::focus("Second"); // the pushed menu's _ready()
+    check(rmp::ui::focused() == "Second", "focused() says what was asked for at once");
+    with_menu();
+    check(rmp::ui::focused() == "Second",
+          "a focus() between frames lands on the control it names");
+    with_menu();
+    check(rmp::ui::focused() == "Second", "and stays there");
+
+    // The other way round: the frame before had MORE passes than the one the
+    // control is in.
+    rmp::ui::focus("First");
+    auto menu_alone = [] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::begin();
+        rmp::ui::button("First");
+        rmp::ui::button("Second");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+    rmp::ui::focus("Second");
+    menu_alone();
+    check(rmp::ui::focused() == "Second", "whichever pass the control turns up in");
+
+    // A name nothing on screen carries is let go of after one frame of UI,
+    // rather than lying in wait for a control with that label to appear.
+    rmp::ui::focus("Nowhere");
+    menu_alone();
+    check(rmp::ui::focused() == "First",
+          "a name nothing carries falls back to the first");
+    auto with_nowhere = [] {
+        rmp::ui::detail::begin_frame();
+        rmp::ui::begin();
+        rmp::ui::button("First");
+        rmp::ui::button("Nowhere");
+        rmp::ui::end();
+        rmp::ui::detail::end_frame();
+    };
+    with_nowhere();
+    check(rmp::ui::focused() == "First", "and is not picked up by a later frame");
+
+    rmp::ui::focus("");
+}
+
 } // namespace
 
 int main() {
@@ -1764,6 +1842,7 @@ int main() {
     run_press_starts_on_control();
     run_text_field_focus();
     run_dropdown_nav();
+    run_focus_between_frames();
     run_scroll_clip();
     run_scroll_moves();
     run_image_lifetime();

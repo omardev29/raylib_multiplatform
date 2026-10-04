@@ -764,7 +764,13 @@ bool wants_keyboard();
 
 // Give a named control the focus — when a menu opens, or to point a controller
 // at something other than the first control. Pass "" to clear it. A focus asked
-// for by name is drawn straight away: you meant it.
+// for by name is drawn straight away: you meant it, and a text field given it
+// takes the keyboard. `id` is the control's label, or its explicit .id.
+//
+// Outside begin()/end() -- in a scene's _ready(), say -- it waits for the next
+// frame that draws controls and lands on the first one carrying that name,
+// whichever scene draws it; if that frame has none, the request is dropped and
+// the screen keeps its own default.
 void focus(std::string_view id);
 
 // What has the focus right now, or "" if nothing does.
