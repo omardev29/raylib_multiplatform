@@ -1830,9 +1830,11 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 - The fork builds `raylib.xcframework` (device + simulator) via
   `thirdparty/raylib-ios/projects/scripts/build-ios-xcframework.sh`.
 - Graphics go through **ANGLE** (OpenGL ES → Metal), bundled in the fork.
-- The game uses the same `on_ready/on_frame/on_exit` lifecycle; the runner maps it to
-  `ios_ready/ios_update/ios_destroy`.
-- Building requires **macOS + Xcode** (see the `build-ios` CI job). iOS ads are not implemented.
+- The game's code is the same: `RMP_GAME` expands to `RMP_IOS_FUNCS` there, which defines the
+  `ios_ready/ios_update/ios_destroy` callbacks the fork's UIKit backend calls.
+- Building requires **macOS + Xcode**. CI's `ios` job in `_apple.yml` builds the xcframework and
+  the app for the simulator, unsigned; `ios/README.md` has the steps by hand. iOS ads are not
+  implemented.
 
 ---
 

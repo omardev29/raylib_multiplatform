@@ -434,7 +434,9 @@ xcrun simctl launch --console booted com.yourname.yourgame
 To get onto a real device you need a Mac and Xcode:
 
 ```bash
-python3 tools/configure.py     # generates ios/project.yml
+git submodule update --init thirdparty/raylib-ios    # the raylib-iOS fork; a clone leaves it empty
+python3 tools/configure.py                           # generates ios/project.yml
+(cd thirdparty/raylib-ios/projects/scripts && bash build-ios-xcframework.sh)   # device + simulator
 cd ios && xcodegen generate
 open my_game.xcodeproj
 ```

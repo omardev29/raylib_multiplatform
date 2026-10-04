@@ -1,65 +1,92 @@
 # iOS target
 
-iOS uses the community fork **`ghera/raylib-iOS`**, pinned as the submodule
-`thirdparty/raylib-ios` at tag `6.0.3-iOS` (see `thirdparty/FROZEN_VERSIONS.md`).
-Upstream raylib has no iOS backend, so this fork provides `rcore_ios.c`
-(UIKit + EGL via ANGLE). Its author ships raylib games on the App Store with it.
+iOS uses the community fork of raylib for iOS, **`ghera/raylib-iOS`**, through a
+copy under our own organisation, **`omardev29/raylib-iOS`** -- so a deleted or
+rewritten upstream cannot break the build. It is the submodule
+`thirdparty/raylib-ios`, pinned at tag `6.0.3-iOS` (commit `29ce933d`; see
+`.gitmodules` and `thirdparty/FROZEN_VERSIONS.md`). Upstream raylib has no iOS
+backend, so this fork provides `rcore_ios.c` (UIKit + EGL via ANGLE).
 
 ## How it differs from desktop
 
-- **No blocking main loop.** iOS is callback-driven. The game already follows a
-  Godot-style lifecycle (`on_ready`/`on_frame`/`on_exit` in `src/main.cpp`), which the
-  runner maps to `ios_ready`/`ios_update`/`ios_destroy` on iOS. No game-code
-  changes are needed per platform.
-- **Graphics** are OpenGL ES 3 through **ANGLE** (GLES→Metal). The fork bundles
+- **No blocking main loop.** UIKit owns the run loop and calls the app. The
+  game's code does not change for it: `RMP_GAME(...)` in `src/main.cpp` expands
+  to `RMP_IOS_FUNCS` (in `include/rmp/app.h`) on iOS, which defines the three
+  callbacks the fork's `rcore_ios.c` calls -- `ios_ready`, `ios_update` and
+  `ios_destroy` -- around the same scene stack every other platform runs.
+- **Graphics** are OpenGL ES 3 through **ANGLE** (GLES -> Metal). The fork bundles
   prebuilt `libEGL.xcframework` / `libGLESv2.xcframework` under
   `thirdparty/raylib-ios/deps/ANGLE/`.
-- **Build is Xcode-based**, not CMake. raylib is compiled to a
-  `raylib.xcframework` with the fork's script, then an Xcode app links it.
+- **The build is Xcode's**, not CMake's. raylib is compiled into a
+  `raylib.xcframework` by the fork's script -- one device slice (`ios-arm64`) and
+  two simulator slices -- and an Xcode project generated from `ios/project.yml`
+  links it into the app.
+- **No quitting.** `rmp::app::quit()` does nothing here: Apple rejects an app
+  that terminates itself. Hide a Quit button with `#if !defined(PLATFORM_IOS)`.
 
-## CI builds this automatically
+## What CI builds
 
-The `ios` job in `.github/workflows/_apple.yml` runs on GitHub's **hosted
-macOS runners** (`macos-26`, with Xcode pinned explicitly) — you do **not** need a local Mac. It builds the
-`raylib.xcframework`, generates the Xcode project with XcodeGen, and compiles the
-app for the simulator (no signing), then installs and launches it in the iOS
-Simulator and requires the boot and render markers. The job is a hard gate on
-releases; only the simulator-launch step is `continue-on-error` while it
-is being tuned. A local Mac is only needed for running on a physical device or
-interactive debugging/signing.
+The `ios` job in `.github/workflows/_apple.yml` runs on GitHub's hosted macOS
+runner (`macos-26`, Xcode pinned in `thirdparty/FROZEN_VERSIONS.md`), so you do
+not need a Mac for it. It checks out the submodule, runs
+`tools/configure.py --require-notices`, builds `raylib.xcframework`, generates
+the Xcode project with XcodeGen, and **builds the app itself** for the
+simulator, unsigned. Then it checks the bundle -- an executable Mach-O, an
+`Info.plist` with a bundle identifier, and `resources/` inside the `.app` -- and
+uploads two artifacts: `ios-app-simulator` (the `.app`) and
+`ios-raylib-xcframework`.
 
-## Manual build steps (macOS + Xcode)
+The step that would boot the app in the simulator is **switched off**: it runs
+only when the repository variable `IOS_SIMULATOR_TEST` is `true`, because the
+hosted simulator does not boot reliably under `simctl`. It is gated off rather
+than made `continue-on-error`, on purpose -- a step that is allowed to fail
+reports green whatever happens, and a disabled one says so. Nothing in CI makes
+a build for a device: that needs signing, which needs credentials that do not
+belong in CI.
+
+## Building it yourself (macOS + Xcode)
 
 ```bash
-# 1. Build raylib.xcframework (device + simulator slices)
-cd thirdparty/raylib-ios/projects/scripts
-chmod +x build-ios-xcframework.sh
-./build-ios-xcframework.sh
+# 0. The fork is a submodule, and a plain clone leaves it empty.
+git submodule update --init thirdparty/raylib-ios
 
-# 2. Generate the app's Xcode project (needs xcodegen: brew install xcodegen)
-cd ../../../../ios
+# 1. The .toml becomes ios/project.yml, the app icon and the iOS LICENSES.txt.
+python3 tools/configure.py
+
+# 2. raylib.xcframework, device and simulator slices in one go. Once, and again
+#    only when the submodule moves.
+(cd thirdparty/raylib-ios/projects/scripts && bash build-ios-xcframework.sh)
+
+# 3. The app's Xcode project (needs XcodeGen: brew install xcodegen).
+cd ios
 xcodegen generate
 
-# 3. Build for the simulator (no signing needed)
+# 4a. For the simulator, no signing needed:
 xcodebuild -project ray_test.xcodeproj -scheme ray_test \
     -destination 'generic/platform=iOS Simulator' \
     CODE_SIGNING_ALLOWED=NO build
+
+# 4b. For a device: open ray_test.xcodeproj, pick the phone and press Run --
+#     or build from here with -destination 'generic/platform=iOS'.
 ```
 
-For a **device** build, set a development team / signing identity and use
-`-destination 'generic/platform=iOS'`.
+`ray_test` is `[project] name` in `raylib_multiplatform.toml`; use yours. A device
+build needs a signing team. Set it in the `.toml` rather than in Xcode, so it
+survives the next `xcodegen generate`:
 
-## Known caveats / TODO
+```toml
+[ios.settings]
+DEVELOPMENT_TEAM = "ABCDE12345"
+CODE_SIGN_STYLE  = "Automatic"
+```
 
-- **Resources:** `RMP_RESOURCES_PATH` is `./resources/` here, and the process does
-  not start inside the bundle — iOS launches it in the app container. `IOS_FUNCS`
-  in `include/rmp/app.h` handles that with a
+## Caveats
+
+- **Resources:** `RMP_RESOURCES_PATH` is `./resources/`, and an iOS process
+  does not start inside its bundle. `rmp::app::detail::begin_run()` (in
+  `src/rmp/app.cpp`, called by `RMP_IOS_FUNCS`) does a
   `ChangeDirectory(GetApplicationDirectory())` before anything loads, so the
-  relative path resolves against the `.app`. Write to
-  `GetIOSDocumentsPath()` instead if you need somewhere writable; the bundle is
-  read-only.
-- **Audio:** verify miniaudio output on device (the experimental upstream PR had
-  audio issues; this fork uses a different path, but confirm).
-- The `ios/project.yml` scaffold is best-effort and should be validated/tuned on
-  a Mac. The CI `build-ios` job builds the `raylib.xcframework` to keep the fork
-  compiling; building the full app is a macOS+Xcode step.
+  relative path resolves against the `.app`. The bundle is read-only: write
+  with `rmp::save`, which puts saves in the app's `Library/Application Support/`.
+- **Audio:** check miniaudio's output on a device; the simulator is not the
+  phone.
