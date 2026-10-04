@@ -1519,6 +1519,99 @@ class EveryBootRequiresItsAssetsTest(unittest.TestCase):
             sample.unlink()
 
 
+class ConfigureAdmobIdsTest(unittest.TestCase):
+    """[android.admob] app_id, interstitial_id and rewarded_id go into the
+    manifest and into the SDK as they are written. `app_id = 5` and
+    `app_id = ""` passed validate(): the first reached Gradle as "5", the
+    second as nothing, and the Google Mobile Ads SDK stops an app at startup
+    over an app id it cannot read. Each one is the AdMob shape:
+
+        app id      ca-app-pub-<16 digits>~<10 digits>
+        ad unit id  ca-app-pub-<16 digits>/<10 digits>
+
+    which Google's own test ids, the ones raylib_multiplatform.toml ships
+    with, are. The type is checked always; the shape while AdMob is on, since
+    an id nothing reads is not wrong."""
+
+    KEYS = ("app_id", "interstitial_id", "rewarded_id")
+
+    def config(self, enabled=True, **ids):
+        cfg = base_config()
+        cfg["android"]["admob"] = {**cfg["android"]["admob"], "enabled": enabled, **ids}
+        return cfg
+
+    def reject(self, needle, **kw):
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(self.config(**kw), False)
+        message = str(caught.exception)
+        self.assertIn(needle, message)
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception),
+                             f"cannot be pointed at: {message}")
+        return message
+
+    def test_googles_test_ids_are_the_defaults_and_they_pass(self):
+        admob = cfgmod.DEFAULTS["android"]["admob"]
+        self.assertEqual(admob["app_id"], "ca-app-pub-3940256099942544~3347511713")
+        self.assertEqual(admob["interstitial_id"], "ca-app-pub-3940256099942544/1033173712")
+        self.assertEqual(admob["rewarded_id"], "ca-app-pub-3940256099942544/5224354917")
+        with quiet():
+            cfgmod.validate(self.config(), False)
+
+    def test_the_shipped_toml_carries_the_same_test_ids(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        admob = cfgmod.DEFAULTS["android"]["admob"]
+        for key in self.KEYS:
+            with self.subTest(key=key):
+                self.assertRegex(text, rf'\n{key} *= "{re.escape(admob[key])}"\n')
+
+    def test_ids_of_the_right_shape_pass(self):
+        with quiet():
+            cfgmod.validate(self.config(app_id="ca-app-pub-1234567890123456~0987654321",
+                                        interstitial_id="ca-app-pub-1234567890123456/1111111111",
+                                        rewarded_id="ca-app-pub-1234567890123456/2222222222"),
+                            False)
+
+    def test_the_wrong_type_is_refused_on_or_off(self):
+        for key in self.KEYS:
+            for bad in (5, True, 1.5, ["ca-app-pub-3940256099942544~3347511713"], {"id": 1}):
+                for enabled in (True, False):
+                    with self.subTest(key=key, value=bad, enabled=enabled):
+                        message = self.reject(f"[android.admob] {key}", enabled=enabled,
+                                              **{key: bad})
+                        self.assertIn("has to be a string", message)
+
+    def test_empty_is_refused_while_admob_is_on(self):
+        for key in self.KEYS:
+            with self.subTest(key=key):
+                message = self.reject(f"[android.admob] {key} is empty", **{key: ""})
+                self.assertIn("enabled = false", message)
+
+    def test_an_id_of_the_wrong_shape_is_refused_while_admob_is_on(self):
+        bad = ("5", "pub-3940256099942544~3347511713", "ca-app-pub-394025609994254~3347511713",
+               "ca-app-pub-3940256099942544~334751171", " ca-app-pub-3940256099942544~3347511713",
+               "ca-app-pub-3940256099942544~3347511713\n", "ca-app-pub-39402565099942544~33475117130")
+        for value in bad:
+            with self.subTest(value=value):
+                message = self.reject("is not an AdMob app id", app_id=value)
+                self.assertIn("ca-app-pub-<16 digits>~<10 digits>", message)
+
+    def test_the_app_id_and_a_unit_id_swapped_say_so(self):
+        message = self.reject("is not an AdMob app id",
+                              app_id="ca-app-pub-3940256099942544/1033173712")
+        self.assertIn("ad unit id", message)
+        for key in ("interstitial_id", "rewarded_id"):
+            with self.subTest(key=key):
+                message = self.reject("is not an AdMob ad unit id",
+                                      **{key: "ca-app-pub-3940256099942544~3347511713"})
+                self.assertIn("the app id", message)
+                self.assertIn("ca-app-pub-<16 digits>/<10 digits>", message)
+
+    def test_off_means_the_shape_is_not_read(self):
+        with quiet():
+            cfgmod.validate(self.config(enabled=False, app_id="", interstitial_id="x",
+                                        rewarded_id=""), False)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 

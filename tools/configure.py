@@ -648,6 +648,24 @@ def on_macos() -> bool:
     return platform.system() == "Darwin"
 
 
+class AdmobShape:
+    """What an AdMob id looks like, for the check and for its message."""
+
+    def __init__(self, separator: str):
+        self.separator = separator
+        self.pattern = r"ca-app-pub-[0-9]{16}" + re.escape(separator) + r"[0-9]{10}"
+        self.pretty = f"ca-app-pub-<16 digits>{separator}<10 digits>"
+
+
+# key, its shape, what it is, and what the other kind is called and the
+# character that marks it -- so an app id pasted where a unit id goes, or the
+# other way round, is named for what it is.
+ADMOB_IDS = (
+    ("app_id", AdmobShape("~"), "app id", ("an ad unit id", "/")),
+    ("interstitial_id", AdmobShape("/"), "ad unit id", ("the app id", "~")),
+    ("rewarded_id", AdmobShape("/"), "ad unit id", ("the app id", "~")),
+)
+
 COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 ORIENTATIONS = {"landscape", "portrait", "unspecified"}
 GL_VERSIONS = {"ES20", "ES30", "ES31", "ES32"}
@@ -867,6 +885,33 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if not isinstance(cfg["android"]["admob"]["enabled"], bool):
         raise ConfigError("[android.admob] enabled = "
                           f"{cfg['android']['admob']['enabled']!r} must be true or false.")
+    # The three ids go into the manifest and into the SDK as they are written,
+    # and the Google Mobile Ads SDK stops an app at startup over an app id it
+    # cannot read. `app_id = 5` and `app_id = ""` both used to pass. The type is
+    # checked always -- it reaches gradle.properties either way -- and the shape
+    # while AdMob is on: an id nothing reads is not wrong. Google's test ids,
+    # the defaults, are this shape too.
+    for key, shape, kind, other in ADMOB_IDS:
+        where = f"[android.admob] {key}"
+        value = cfg["android"]["admob"][key]
+        a_string(value, where, "Copy the id from the AdMob console, in quotes.")
+        if not cfg["android"]["admob"]["enabled"]:
+            continue
+        if not value:
+            raise ConfigError(
+                f"[android.admob] {key} is empty, and AdMob is on.\n"
+                f"Put the {kind} from the AdMob console here -- or Google's test one while "
+                "developing -- or set [android.admob] enabled = false.",
+                ("android.admob", key))
+        if not re.fullmatch(shape.pattern, value):
+            swapped = other[1] in value and shape.separator not in value
+            raise ConfigError(
+                f"[android.admob] {key} = {value!r} is not an AdMob {kind}.\n"
+                f"An AdMob {kind} looks like {shape.pretty}"
+                + (f" -- this one has a {other[1]!r}, which makes it {other[0]}." if swapped
+                   else ".")
+                + "\nCopy it from the AdMob console, or set [android.admob] enabled = false.",
+                ("android.admob", key))
 
     appid = cfg["android"]["application_id"]
     a_string(appid, "[android] application_id")
