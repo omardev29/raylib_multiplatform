@@ -766,6 +766,11 @@ def cmd_new(_ctx, args):
     if mode_of(framework) != "framework":
         raise Refused(f"this rmp belongs to the game in {framework}; `rmp new` needs the "
                       "framework's rmp on PATH")
+    if args == ["--list"]:
+        # What a new game gets, without making one.
+        for path in new_game_paths(tracked(framework)):
+            print(path)
+        return OK
     if shutil.which("git") is None:
         raise Refused("rmp new needs git")
     top = subprocess.run(["git", "-C", str(framework), "rev-parse", "--show-toplevel"],
@@ -837,6 +842,14 @@ def cmd_new(_ctx, args):
     return OK
 
 
+def new_game_paths(entries) -> list[str]:
+    """Every path a new game's index holds: the manifest's, renamed where it
+    says, plus the README rmp new writes and the submodule."""
+    want = {RENAME.get(p, p) for m, s, p in entries if classify(p)[0] in ("include", "rename")}
+    want |= {"README.md", GITLINKS[0]}
+    return sorted(want)
+
+
 def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: str,
               entries) -> None:
     executable = []
@@ -898,8 +911,7 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         git("update-index", "--chmod=+x", rel)
 
     # Nothing but what the manifest says, and everything it says.
-    want = {RENAME.get(p, p) for m, s, p in entries if classify(p)[0] in ("include", "rename")}
-    want |= {"README.md", GITLINKS[0]}
+    want = set(new_game_paths(entries))
     have = set(git("ls-files", "-z").split("\0")) - {""}
     if have != want:
         missing, extra = sorted(want - have), sorted(have - want)
@@ -921,6 +933,18 @@ def secrets_token() -> str:
 
 def cmd_help(ctx_or_none, args):
     mode = ctx_or_none.mode if ctx_or_none else "game"
+    if args == ["--json"]:
+        # Every command and every test stage, framework-only ones marked: what
+        # the docs site checks every rmp command line it shows against.
+        print(json.dumps({
+            "commands": [{"name": name, "usage": c.usage, "summary": c.summary,
+                          "sentence": c.sentence, "framework_only": c.framework_only,
+                          "examples": [{"line": line, "note": note} for line, note in c.examples]}
+                         for name, c in COMMANDS.items()],
+            "stages": [{"name": s.name, "summary": s.summary, "scope": s.scope,
+                        "in_all": s.in_all} for s in STAGES],
+        }, indent=1))
+        return OK
     if not args:
         print(usage_text(mode))
         return OK
@@ -1031,13 +1055,15 @@ COMMANDS = {
         "Make a new game in DIR: a copy of what a game needs from this framework, "
         "named after the folder, ready to build and to ship.",
         [("rmp new my_game", "makes my_game/, here"),
-         ("rmp new ~/games/space_rocks", "anywhere; the name is the folder's")],
+         ("rmp new ~/games/space_rocks", "anywhere; the name is the folder's"),
+         ("rmp new --list", "what a new game gets, without making one")],
         cmd_new, needs_project=False),
     "help": Command(
         "help [command]", "this list, or one command in detail",
         "Show the commands, or one command in detail.",
         [("rmp help", "every command"),
-         ("rmp help deploy", "one of them")],
+         ("rmp help deploy", "one of them"),
+         ("rmp help --json", "every command and test stage, for a tool to read")],
         cmd_help, needs_project=False),
     "lint": Command(
         "lint [fix]", "clang-tidy over src/, tests/ and examples/",
@@ -1166,3 +1192,7 @@ if __name__ == "__main__":
         sys.exit(main(sys.argv[1:]))
     except KeyboardInterrupt:
         sys.exit(INTERRUPTED)
+    except BrokenPipeError:
+        # `rmp new --list | head`: the reader left; there is nobody to tell.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(OK)

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import bisect
+import hashlib
 import contextlib
 import copy
 import re
@@ -2397,6 +2398,25 @@ class LicenceGuardTest(unittest.TestCase):
         families = {family for family, *_ in cfgmod.TARGETS.values()}
         # ios is a target of the apple family and packages separately.
         self.assertEqual(set(ldb.FAMILY_FILES), families | {"ios"})
+
+    def test_a_crlf_checkout_keeps_its_pins(self):
+        """The second thing a Windows checkout broke: three pinned components
+        hashed differently with CRLF line endings, and `rmp new` refused the
+        game it had just made."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            lf, crlf = Path(tmp) / "lf.h", Path(tmp) / "crlf.h"
+            lf.write_bytes(b"int a;\nint b;\n")
+            crlf.write_bytes(b"int a;\r\nint b;\r\n")
+            self.assertEqual(ldb.pin_of([lf]), ldb.pin_of([crlf]))
+            self.assertEqual(ldb.pin_of([lf]), hashlib.sha256(b"int a;\nint b;\n").hexdigest())
+        # And no pinned file is stored with CRLF, so sha256sum on Linux agrees.
+        import subprocess
+        for name in ("cute_aseprite", "rres", "cJSON"):
+            for f in (REPO / "thirdparty" / name).rglob("*"):
+                if f.is_file() and f.suffix in (".c", ".h"):
+                    with self.subTest(file=str(f.relative_to(REPO))):
+                        self.assertNotIn(b"\r\n", f.read_bytes())
 
     def test_a_windows_checkout_names_the_same_components(self):
         """On Windows the walker's paths print with backslashes, and the block

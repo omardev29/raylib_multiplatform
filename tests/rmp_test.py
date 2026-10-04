@@ -849,6 +849,38 @@ class CiModeTest(unittest.TestCase):
                 self.assertIn(says, found[0])
 
 
+class MachineReadableTest(unittest.TestCase):
+    """What the docs site reads from rmp: every command and stage as JSON, and
+    the list of what a new game gets."""
+
+    def test_help_json_is_every_command_and_stage(self):
+        code, out, _ = call(["help", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual([c["name"] for c in data["commands"]], list(rmp.COMMANDS))
+        self.assertEqual([s["name"] for s in data["stages"]], [s.name for s in rmp.STAGES])
+        for c in data["commands"]:
+            with self.subTest(command=c["name"]):
+                self.assertTrue(c["examples"])
+                self.assertEqual(c["framework_only"], rmp.COMMANDS[c["name"]].framework_only)
+
+    def test_new_list_is_the_manifest(self):
+        code, out, _ = call(["new", "--list"])
+        self.assertEqual(code, 0)
+        listed = out.split()
+        self.assertEqual(listed, rmp.new_game_paths(rmp.tracked(REPO)))
+        self.assertIn("README.md", listed)
+        self.assertIn("thirdparty/raylib_multiplatform/LICENSE", listed)
+        self.assertNotIn("LICENSE", listed)
+        self.assertNotIn("tests/configure_test.py", listed)
+
+    def test_a_closed_pipe_is_not_a_traceback(self):
+        got = subprocess.run(f"{sys.executable} {RMP_PY} new --list | head -1", shell=True,
+                             cwd=REPO, capture_output=True, text=True)
+        self.assertEqual(got.stderr, "")
+        self.assertEqual(len(got.stdout.splitlines()), 1)
+
+
 class DocsTest(unittest.TestCase):
     """What the files say about the command is true. `just` is gone, and
     every `rmp ...` a document, a comment or a workflow shows is a command
@@ -1200,6 +1232,11 @@ class NewTest(unittest.TestCase):
         want |= {"README.md", "thirdparty/raylib-ios"}
         have = set(self.git("ls-files").split())
         self.assertEqual(have, want)
+
+    def test_new_list_said_so_beforehand(self):
+        listed = subprocess.run([sys.executable, str(RMP_PY), "new", "--list"], cwd=REPO,
+                                capture_output=True, text=True).stdout.split()
+        self.assertEqual(sorted(listed), sorted(self.git("ls-files").split()))
 
     def test_none_of_the_framework_comes_along(self):
         have = self.git("ls-files")

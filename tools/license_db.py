@@ -398,7 +398,11 @@ def pinned_sources(component: Path) -> list[Path]:
 
 
 def sha256_of(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """With LF line endings: a checkout on Windows has CRLF (.gitattributes says
+    eol=native), and the file it was checked out from -- the one the pin
+    names -- does not. Every pinned file is LF in the repository, so on Linux
+    and macOS this is exactly what sha256sum prints."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def pin_of(sources: list[Path], base: Path | None = None) -> str:
