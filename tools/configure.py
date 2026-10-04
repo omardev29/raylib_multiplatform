@@ -455,6 +455,23 @@ DEFAULTS: dict = {
 }
 
 EXAMPLE_IDS = {"com.example.raytest", "com.raylib.raymob"}
+# Every id under com.example is a placeholder: it is what `rmp new` writes and
+# what nobody can publish under. A release refuses the whole prefix, not just
+# the one value this repository ships with.
+EXAMPLE_ID_PREFIX = "com.example."
+
+# Project names that pass NAME_RE and still cannot build. The name becomes a
+# CMake target, and these are the targets CMakeLists.txt, raylib and raymob
+# already define (tests/configure_test.py reads them back out of the three
+# files); and Windows will not create a file whose name is a device, with any
+# extension.
+RESERVED_NAMES = {
+    "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
+    "ui_layout_test", "platformer_play", "assembler", "pack_resources",
+    "unpack_resources",
+}
+WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
+                   *(f"lpt{i}" for i in range(1, 10))}
 
 # The themes rmp::ui ships. A [ui] theme outside this set is a typo that would
 # otherwise silently fall back to dark at runtime.
@@ -734,6 +751,14 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"[project] name = {name!r} is not usable as a filename.\n"
             "Use letters, digits, '_' and '-', starting with a letter. It becomes the "
             "executable name on five operating systems.")
+    if name in RESERVED_NAMES:
+        raise ConfigError(
+            f"[project] name = {name!r} is already a target of the build: the game would\n"
+            "  collide with it. Call it anything else -- my_game, or the game's title.")
+    if name.lower() in WINDOWS_DEVICES:
+        raise ConfigError(
+            f"[project] name = {name!r} is a device name on Windows, which will not create\n"
+            "  a file called that with any extension. Call it anything else.")
 
     a_string(cfg["window"]["title"], "[window] title")
     if "\n" in cfg["window"]["title"] or "\r" in cfg["window"]["title"]:
@@ -1093,9 +1118,11 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # would ruin clone-and-build.
     if strict_release:
         bad = []
-        if appid in EXAMPLE_IDS and "android" in targets:
+        def placeholder(value):
+            return value in EXAMPLE_IDS or value.startswith(EXAMPLE_ID_PREFIX)
+        if placeholder(appid) and "android" in targets:
             bad.append(f"[android] application_id is still the example value {appid!r}")
-        if bundle in EXAMPLE_IDS and "ios" in targets:
+        if placeholder(bundle) and "ios" in targets:
             bad.append(f"[ios] bundle_id is still the example value {bundle!r}")
         if bad:
             raise ConfigError(

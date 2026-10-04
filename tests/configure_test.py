@@ -3252,6 +3252,65 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         self.assertIn("refusing to build a release with placeholder identifiers",
                       str(caught.exception))
 
+    def test_every_com_example_id_is_a_placeholder_on_a_release(self):
+        """`rmp new` writes com.example.<name>. Only the exact
+        com.example.raytest was refused, so com.example.my_game sailed through
+        --strict-release: the one id that can never be changed once published."""
+        for appid in ("com.example.my_game", "com.example.a", "com.example.x.y"):
+            with self.subTest(id=appid):
+                cfg = base_config(android=dict(copy.deepcopy(cfgmod.DEFAULTS["android"]),
+                                               application_id=appid))
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, True)
+                self.assertIn(appid, str(caught.exception))
+        for appid in ("com.examples.game", "org.example.game", "com.omardev.example"):
+            with self.subTest(id=appid):
+                cfg = base_config(android=dict(copy.deepcopy(cfgmod.DEFAULTS["android"]),
+                                               application_id=appid))
+                with quiet():
+                    cfgmod.validate(cfg, True)
+
+
+class ConfigureProjectNameTest(unittest.TestCase):
+    """A name that passes NAME_RE and still cannot build is refused, with a
+    reason: a CMake target the build already defines, or a Windows device."""
+
+    def reject(self, name):
+        cfg = base_config(project={"name": name})
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+        return str(caught.exception)
+
+    def test_the_targets_the_build_already_defines(self):
+        for name in sorted(cfgmod.RESERVED_NAMES):
+            with self.subTest(name=name):
+                self.assertIn("already a target of the build", self.reject(name))
+
+    def test_windows_device_names_in_any_case(self):
+        for name in ("con", "CON", "Nul", "aux", "prn", "com1", "COM9", "lpt3"):
+            with self.subTest(name=name):
+                self.assertIn("device name on Windows", self.reject(name))
+
+    def test_names_that_only_look_like_them_are_fine(self):
+        for name in ("console", "rmp_game", "raylib-fun", "com10", "unit", "my_game"):
+            with self.subTest(name=name):
+                with quiet():
+                    cfgmod.validate(base_config(project={"name": name}), False)
+
+    def test_the_reserved_set_is_every_target_the_cmake_files_define(self):
+        """Read back out of the files, so a new target in CMakeLists.txt that a
+        game could collide with fails here until it is in the set."""
+        defined = set()
+        for path in (REPO / "CMakeLists.txt", REPO / "thirdparty" / "raylib" / "src" / "CMakeLists.txt",
+                     REPO / "thirdparty" / "raymob" / "CMakeLists.txt"):
+            for m in re.finditer(r"\b(?:add_executable|add_library|add_custom_target)\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
+                                 path.read_text()):
+                defined.add(m.group(1))
+        self.assertGreater(len(defined), 5)
+        self.assertEqual(defined - cfgmod.RESERVED_NAMES, set(),
+                         "a target the build defines is not refused as a project name")
+
 
 class ConfigureListValueTest(unittest.TestCase):
     """A list where a list goes, and a named error where it does not.
