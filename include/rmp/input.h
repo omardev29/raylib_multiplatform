@@ -10,7 +10,7 @@
 //
 // A name and as many bindings as you like. The TYPE of each one says which
 // device it belongs to — raylib's KeyboardKey, MouseButton and GamepadButton
-// are four different enums in C++ — so the dispatch happens at compile time and
+// are different enums in C++ — so the dispatch happens at compile time and
 // passing anything else is a compile error that names the argument.
 //
 // And moving in eight directions, with keyboard, d-pad and stick at once, with
@@ -110,7 +110,7 @@ void action(std::string_view name, First first, Rest... rest) {
 //
 //     if (rmp::input::just_pressed("fire")) shoot();   // not from a UI button
 //
-// instead of what it takes today:
+// instead of what it takes with raylib alone:
 //
 //     if (!rmp::ui::wants_pointer() && IsMouseButtonPressed(0)) shoot();
 //
@@ -179,18 +179,21 @@ Vector2 pointer_screen(); // in pixels, top-left origin
 // it starts.
 Vector2 pointer();
 Vector2 pointer_delta(); // how far it moved since the last frame, in pixels
+// The left mouse button, which a touch presses too: held, the frame it goes
+// down, the frame it comes up. Raw like pressed(MOUSE_BUTTON_LEFT), never routed.
 bool pointer_down();
 bool pointer_pressed();
 bool pointer_released();
 
 // ---------------------------------------------------------------------------
 // Escape hatches. These exist because "I want to decide for myself" is a real
-// answer, and because rmp::ui::wants_pointer() was public before this header
-// existed and stays public.
+// answer. rmp::ui::wants_pointer() and rmp::ui::wants_keyboard() are the UI's
+// half of what consumed_pointer() and consumed_keyboard() answer.
 // ---------------------------------------------------------------------------
 
-// The dead zone below which a stick reads as zero, 0..1. From [input] deadzone
-// in raylib_multiplatform.toml; set it here to change it at runtime.
+// The dead zone below which a stick reads as zero. From [input] deadzone in
+// raylib_multiplatform.toml; set it here to change it at runtime, clamped to
+// 0..0.95 so a slider cannot switch the sticks off.
 float deadzone();
 void set_deadzone(float value);
 

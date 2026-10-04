@@ -17,8 +17,8 @@
 //
 // THE UNDERSCORE IS THE ACCESS RULE, and it is worth knowing because it holds
 // across the whole framework: `_name` is a method on YOUR type that WE call.
-// You override it and never call it. (`on_name` is the other half — a function
-// you hand us — and it turns up from phase 6 onwards.)
+// You override it and never call it. (`on_name` is the other half: a function
+// you hand us, like an object's on_click().)
 //
 // The navigation functions are static because navigation is a service, not a
 // property of any one scene: `rmp::Scene::change<GameScene>()` reads the same
@@ -32,10 +32,11 @@
 #include <rmp/object.h> // rmp::Object and rmp::ObjectOptions, for spawn()
 #include <rmp/tilemap.h> // rmp::Tilemap -- `map` is a field of every scene
 
-// <utility> for std::forward and nothing else. Measured on this machine:
-// <utility> adds 50 ms to a translation unit, <memory> adds 605. A header every
-// scene file includes cannot carry the second one, which is why the three
-// navigation functions below hand over a raw pointer.
+// <memory> for std::unique_ptr: spawn() and the three navigation functions
+// make what they hand over with std::make_unique and move it into the
+// framework, so it is owned from the moment it exists. rmp/object.h, above,
+// already brings it in. <utility> for std::forward, which passes the
+// constructor arguments of change(), push() and replace() through.
 #include <memory> // std::unique_ptr: what spawn() and the transitions hand over
 #include <utility>
 
@@ -73,6 +74,8 @@ namespace rmp {
 // ---------------------------------------------------------------------------
 class Camera {
 public:
+    // The world point at the centre of the view. While `follow` has a target
+    // the camera writes it every frame, and `limits` clamp it.
     Vector2 position{ RMP_WINDOW_WIDTH / 2.0f, RMP_WINDOW_HEIGHT / 2.0f };
     float zoom = 1.0f; // 2 = everything twice as big
     float rotation = 0; // degrees, clockwise, like raylib's Camera2D
@@ -155,6 +158,13 @@ private:
     Vector2 _shake_now{};
 };
 
+// A screen of the game -- a main menu, a level, a pause overlay -- with its own
+// objects, `map` and `camera`. Derive from it and override the hooks you need.
+//
+// The app keeps scenes on a stack: the top one runs, and the ones below it run,
+// draw and hear input as far as updates_below, draws_below and input_below let
+// them. The static functions -- change(), push(), replace(), pop(), current(),
+// depth() -- are that stack, and work from anywhere.
 class Scene {
 public:
     Scene() = default;
@@ -219,17 +229,18 @@ public:
     // is 0 by default. Nothing falls until something asks to.
     Vector2 gravity{ 0, 980 };
 
-    // The level, designed in Tiled. A field and not something you draw:
+    // The level, designed in LDtk or in Tiled (rmp/tilemap.h says which reads
+    // what). A field and not something you draw:
     //
-    //     map = rmp::assets::load_map("level1.json");
+    //     map = rmp::assets::load_map("world.ldtk");
     //
-    // and the scene draws it underneath everything, collides against its solid
-    // tiles, and `object.bounds` left empty comes to mean THE MAP'S bounds
-    // rather than the view's. An empty map costs nothing, and a menu scene
-    // simply never touches it.
+    // and the scene draws it underneath everything, stops a solid object that
+    // moves at its solid cells, and `object.bounds` left empty comes to mean
+    // THE MAP'S bounds rather than the view's. An empty map costs nothing, and
+    // a menu scene simply never touches it.
     //
-    // That is what turns Tiled from a parser into the place you design the
-    // level: you put the enemies in the editor and they turn up in the game.
+    // That is what turns the editor from a file format into the place you
+    // design the level: you put the enemies in it and they turn up in the game.
     Tilemap map;
 
     // The framing. See rmp::Camera above; a scene that never touches it draws
@@ -277,7 +288,7 @@ public:
     [[nodiscard]] int object_count() const;
 
     // -----------------------------------------------------------------------
-    // Raycasting. See the block above RayHit in rmp/object.h for what it is for
+    // Raycasting. See the block above RayQuery in rmp/object.h for what it is for
     // and why it walks the collision grid instead of the object list.
     //
     //     if (auto hit = raycast(muzzle, muzzle + aim * 400)) { ... }
@@ -347,10 +358,9 @@ private:
     // The non-template halves, so that the templates above stay three lines
     // and the stack itself is compiled once, in src/rmp/scene.cpp.
     //
-    // Each TAKES OWNERSHIP of `next`. The pointer is created by the template
-    // above and handed over on the same line, so it is never something a caller
-    // holds — and src/rmp/scene.cpp wraps it in a unique_ptr on arrival, where
-    // <memory> costs nothing.
+    // Each TAKES OWNERSHIP of `next`: the template above makes it with
+    // std::make_unique and moves it in on the same line, so no caller ever
+    // holds it.
     // The type tag is what lets the same scene asked for twice in one frame --
     // two end conditions firing together, which Invaders did -- be pushed
     // once. An address of a static per T, no RTTI, like behavior_type().
@@ -362,7 +372,7 @@ private:
     static void detail_push(std::unique_ptr<Scene> next, const void *type);
     static void detail_replace(std::unique_ptr<Scene> next, const void *type);
 
-    // The non-template half of spawn(). TAKES OWNERSHIP of `made`.
+    // The non-template half of spawn(). TAKES OWNERSHIP of `owned`.
     void detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &options);
 };
 

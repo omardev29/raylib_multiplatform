@@ -10,10 +10,12 @@
 // The chain behind them: thirdparty/raymob/admob.c (JNI) -> NativeLoader.java
 // -> AdmobBridge.java. The ad unit ids come from [android.admob].
 //
-// A wrapper, not a layer: these forward to the C functions in <admob.h> from
-// src/rmp/ads.cpp -- that header stays out of yours -- which
-// stay exactly where they are because they are the real JNI boundary and the
-// pure-C entry point (examples/main.c) has no namespaces to call into.
+// A wrapper, not a layer: src/rmp/ads.cpp forwards these to the C functions in
+// <admob.h>, and that header stays out of yours. Those stay C because they are
+// the real JNI boundary, and because a game in plain C -- the shape of
+// examples/plain_c/src/main.c -- has no namespace to call into and can call
+// them directly. examples/ads/01_interstitial and examples/ads/02_rewarded are
+// both kinds of ad, end to end.
 //
 // Typical use:
 //
@@ -42,14 +44,24 @@ void show_interstitial();
 
 // --- Rewarded --------------------------------------------------------------
 
+// Start preloading a rewarded ad, from [android.admob] rewarded_id. Do it early,
+// and again after each one is shown: loading takes seconds.
 void request_rewarded();
+
+// Has one finished loading? A button that shows it should be live only then.
 bool is_rewarded_loaded();
+
+// Show it. The ad is consumed: request another one to show again. Nothing
+// happens when none has loaded, and the reward is not here: it arrives through
+// take_reward_earned(), and only if the player watched enough of the ad.
 void show_rewarded();
 
 // True once per earned reward, and clears the flag. Poll it from the game
 // loop; the amount is then in reward_amount().
 bool take_reward_earned();
 
+// The amount of the last reward earned, as set on the ad unit in AdMob. 0 until
+// one is earned, and always 0 off Android.
 int reward_amount();
 
 } // namespace rmp::ads

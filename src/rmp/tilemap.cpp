@@ -145,8 +145,8 @@ int MapObject::property_int(const char *key, int fallback) const {
     const Property *p = find_property(raw, key);
     if (p == nullptr) return fallback;
     if (p->kind == Property::Kind::INT) return p->integer;
-    // A float where an int was asked for is a rounding, not a failure: Tiled
-    // will happily save 3 as 3.0 and nobody means anything by it.
+    // A float where an int was asked for is cut towards zero, not a failure:
+    // Tiled will happily save 3 as 3.0 and nobody means anything by it.
     if (p->kind == Property::Kind::FLOAT) return static_cast<int>(p->floating);
     return fallback;
 }

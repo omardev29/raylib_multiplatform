@@ -95,10 +95,8 @@ void draw(Clay_RenderCommandArray commands) {
                 // untouched, so the contract is simply: point it at a Texture2D
                 // you own and keep alive for the frame.
                 //
-                // rmp::ui::image() does not exist yet, but this is implemented
-                // anyway because someone dropping to Clay directly can already
-                // produce IMAGE commands, and silently drawing nothing would be
-                // a worse answer than either supporting it or refusing it.
+                // rmp::ui::image() produces these, and so can a game that
+                // drops to Clay directly: both point imageData at a Texture2D.
                 const auto &img = cmd.renderData.image;
                 if (img.imageData == nullptr) break;
                 const auto *tex = static_cast<const Texture2D *>(img.imageData);

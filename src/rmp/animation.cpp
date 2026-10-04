@@ -32,10 +32,9 @@ namespace rmp {
 
 namespace {
 
-// Aseprite's own maximum is 256 tags; ours is 64, and a sheet with more than
-// that loses the extras rather than overrunning the array. Said out loud in a
-// warning, because silently dropping half of somebody's animations is the kind
-// of thing that gets blamed on Aseprite.
+// A tag's name into the fixed buffer SheetTag keeps it in: at most
+// MAX_TAG_NAME - 1 characters, the rest cut, always terminated. Every tag of the
+// sheet is kept -- `tags` is sized to the file's count.
 void copy_name(char *into, const char *from) {
     if (from == nullptr) {
         into[0] = '\0';

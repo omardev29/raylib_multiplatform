@@ -9,11 +9,11 @@
 //     optionally AES-encrypted;
 //   - the loose files in resources/ (what you get while developing).
 //
-// rmp::assets::init() picks whichever exists. You never call it: the lifecycle
-// macro in <rmp/app.h> does, before on_ready(), and
-// Shutdown() after on_exit().
+// rmp::assets::init() picks whichever exists. You never call it: the entry
+// point in <rmp/app.h> calls it before your ready hook, and
+// rmp::assets::shutdown() after your stop hook.
 //
-// Since Init() also teaches raylib itself to read the pack, plain raylib calls
+// Since init() also teaches raylib itself to read the pack, plain raylib calls
 // work too — LoadTexture(RMP_RESOURCES_PATH "player.png"), LoadModel, LoadShader.
 // The rmp::assets:: functions are the shorter spelling, not a requirement.
 // See TECHNICAL.md, "Resources", for the two things that stay outside this:
@@ -21,7 +21,7 @@
 //
 // Implementation: src/rmp/.
 //
-// Everything this template adds lives under rmp::. What comes from raylib keeps
+// Everything this framework adds lives under rmp::. What comes from raylib keeps
 // its own name, so you can always tell at a glance which is which.
 // ---------------------------------------------------------------------------
 
@@ -108,13 +108,18 @@ const void *payload(const Slot *slot);
 int live_count();
 int ref_count(const char *name);
 
-// The RAII half, once, for all seven types. Copy shares, move steals, and the
-// destructor is the only place an Unload* is ever called.
+// The RAII half, written once for every handle type. Copy shares, move steals,
+// and the last handle to a resource going away is what unloads it.
 template <class T, ResourceKind K> class Resource {
 public:
+    // An empty handle: valid() is false until a loader's result is assigned to
+    // it. The Slot constructor is how the loaders in rmp::assets make a full
+    // one, from a reference the resource table has already counted.
     Resource() = default;
     explicit Resource(Slot *slot) : _slot(slot) {}
 
+    // A copy is one more reference to the same resource; a move takes this
+    // reference over and leaves `other` empty.
     Resource(const Resource &other) : _slot(other.slot()) { retain(_slot); }
     Resource(Resource &&other) noexcept : _slot(other.trade(nullptr)) {}
 
@@ -124,8 +129,11 @@ public:
         _slot = other.trade(_slot);
         return *this;
     }
+    // Drops this reference. When it was the last one, the resource is unloaded.
     ~Resource() { release(_slot); }
 
+    // True when this handle holds a resource. False for one that failed to
+    // load, was never assigned, or was moved from; `if (texture)` asks the same.
     bool valid() const { return _slot != nullptr; }
     explicit operator bool() const { return valid(); }
 
@@ -181,39 +189,50 @@ private:
 // because it is compared per frame and never grows.
 // ---------------------------------------------------------------------------
 
+// The size of a SheetTag's name, terminator included. A tag whose name is
+// longer keeps its first MAX_TAG_NAME - 1 characters.
 constexpr int MAX_TAG_NAME = 32;
 
+// One frame of a sheet: where it is in the packed texture, and how long it shows.
 struct SheetFrame {
     Rectangle source{}; // where this frame is in the packed texture
     float seconds = 0; // from the file, so it plays at the speed you drew it
 };
 
+// One tag of the .aseprite: a named run of frames, and the direction Aseprite
+// plays it in. Its name is what `sprite.play("walk")` looks for.
 struct SheetTag {
-    char name[MAX_TAG_NAME] = {};
-    int from = 0;
+    char name[MAX_TAG_NAME] = {}; // the tag's name in Aseprite, NUL-terminated
+    int from = 0; // the first frame, an index into SheetData::frames
     int to = 0; // inclusive, the way Aseprite counts
-    bool ping_pong = false;
-    bool reverse = false;
+    bool ping_pong = false; // Aseprite's "Ping-pong" direction: forwards, then back
+    bool reverse = false; // Aseprite's "Reverse" direction: last frame first
 };
 
-// The tables are vectors and the sheet owns them: a resource slot holds the
-// whole SheetData behind a shared_ptr, so the language frees them with it and
-// there is no size limit on frames or tags. The texture is the one thing here
-// raylib owns, and the table unloads it before the sheet goes.
+// Everything read out of an .aseprite: the packed texture, the frames and the
+// tags. The tables are vectors and the sheet owns them: a resource slot holds
+// the whole SheetData behind a shared_ptr, so the language frees them with it
+// and there is no size limit on frames or tags. The texture is the one thing
+// here raylib owns, and the table unloads it before the sheet goes.
 struct SheetData {
+    // Every frame side by side in one row. Empty (id 0) when there was no GPU
+    // to upload to; the frames and tags are there all the same.
     Texture2D texture{};
     int width = 0; // one frame's width, not the packed texture's
-    int height = 0;
-    std::vector<SheetFrame> frames;
-    std::vector<SheetTag> tags;
+    int height = 0; // one frame's height, which is the packed texture's too
+    std::vector<SheetFrame> frames; // in the file's order
+    std::vector<SheetTag> tags; // in the file's order
 
+    // How many frames and tags the file had.
     [[nodiscard]] int frame_count() const { return static_cast<int>(frames.size()); }
     [[nodiscard]] int tag_count() const { return static_cast<int>(tags.size()); }
+    // The frame at `index`, or an empty one (no source, 0 seconds) out of range.
     [[nodiscard]] const SheetFrame &frame(int index) const {
         static const SheetFrame EMPTY{};
         if (index < 0 || index >= frame_count()) return EMPTY;
         return frames[static_cast<std::size_t>(index)];
     }
+    // The tag at `index`, or an empty one (no name, frames 0 to 0) out of range.
     [[nodiscard]] const SheetTag &tag(int index) const {
         static const SheetTag EMPTY{};
         if (index < 0 || index >= tag_count()) return EMPTY;
@@ -221,8 +240,16 @@ struct SheetData {
     }
 };
 
+// A loaded sprite sheet, from rmp::assets::load_sheet(). It shares and releases
+// like the handles below, and raw() is its SheetData.
 using SpriteSheet = detail::Resource<SheetData, detail::ResourceKind::SHEET>;
 
+// The resource handles: each one is a detail::Resource around the raylib struct
+// it is named after (Texture2D and RenderTexture2D for the two textures), and
+// converts to it wherever raylib takes one. rmp::Texture, rmp::Image, rmp::Font
+// and rmp::Sound come from the loaders in rmp::assets below. Nothing in
+// rmp::assets returns an rmp::Music, rmp::Shader or rmp::RenderTexture; music
+// is played by name through rmp::audio instead.
 using Texture = detail::Resource<Texture2D, detail::ResourceKind::TEXTURE>;
 using Image = detail::Resource<::Image, detail::ResourceKind::IMAGE>;
 using Font = detail::Resource<::Font, detail::ResourceKind::FONT>;
@@ -237,11 +264,12 @@ using RenderTexture =
 namespace rmp::assets {
 
 // Detect and open the resource pack, if there is one, and route raylib's own
-// file loading through it. Called for you by the lifecycle macro; calling it
+// file loading through it. Called for you by the entry point; calling it
 // twice is harmless.
 void init();
 
-// Release the pack and unhook raylib's loaders. Called for you after on_exit().
+// Release the pack and unhook raylib's loaders. Called for you after your stop
+// hook.
 void shutdown();
 
 // True when assets are being served from a .rres pack.
@@ -290,11 +318,10 @@ rmp::Tilemap load_map(std::string_view name);
 // An LDtk level by name: `map = rmp::assets::load_map("world.ldtk", "Level_2");`
 rmp::Tilemap load_map(std::string_view name, std::string_view level);
 
-// Raw bytes for anything else — a level file, a shader, JSON. `size` receives
-// the byte count. This one is NOT counted or cached: free it with
-// The bytes of a file, as a vector that frees itself. Empty when the name is
-// in neither the pack nor resources/.
-// whose meaning only the caller knows.
+// The bytes of a file -- a level, a shader's source, JSON, anything whose
+// meaning only the caller knows -- as a vector that frees itself. Not cached:
+// every call reads the file again. Empty when the name is in neither the pack
+// nor resources/.
 std::vector<unsigned char> load_data(std::string_view name); // empty when it is not there
 
 // How many rmp::assets:: loads were asked for, and how many found nothing in the

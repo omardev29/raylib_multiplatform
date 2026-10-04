@@ -44,7 +44,7 @@ void seed(uint64_t value);
 uint64_t current_seed();
 
 float value(); // 0..1
-float range(float min, float max);
+float range(float min, float max); // from min up to, never reaching, max
 int range(int min, int max); // inclusive at both ends, like raylib's
 bool chance(float probability); // true with that probability, 0..1
 

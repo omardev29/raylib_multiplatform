@@ -56,6 +56,6 @@
 // C, and a macro of ours would share the preprocessor's one namespace with
 // raylib, the C library and your game.
 namespace rmp {
-inline constexpr Color ALICE_BLUE{ 0, 240, 248, 255 };
+inline constexpr Color ALICE_BLUE{ 0, 240, 248, 255 }; // a bright cyan blue
 inline constexpr Color GIORNO_GOLD{ 238, 207, 34, 255 }; // The Golden Experience
 } // namespace rmp

@@ -79,15 +79,21 @@ class Scene;
 // caller writes .c_str() once.
 // ---------------------------------------------------------------------------
 
+// One object placed in the map, as spawn_objects() hands it to the factory
+// registered for its `type`: where it is, how big, and its properties.
 struct MapObject {
-    const char *name = "";
+    const char *name = ""; // the Tiled object's name; "" for an LDtk entity
     const char *type = ""; // the LDtk entity; Tiled's `class`
     const char *iid = ""; // LDtk's unique id, what an EntityRef field holds
     Vector2 position{}; // THE CENTRE, like rmp::Object; the editors give a corner
-    Vector2 size{};
-    float rotation = 0;
+    Vector2 size{}; // width and height in world units; {0,0} for a Tiled point
+    float rotation = 0; // Tiled's, in degrees clockwise; 0 for an LDtk entity
     int gid = 0; // 0 when it is not a tile object
 
+    // A property by name -- an LDtk field, a Tiled custom property -- or
+    // `fallback` when the object has none by that name or it holds another
+    // kind. property_int() also reads a float, cut towards zero, and
+    // property_float() also reads an int.
     [[nodiscard]] bool property_bool(const char *key, bool fallback = false) const;
     [[nodiscard]] int property_int(const char *key, int fallback = 0) const;
     [[nodiscard]] float property_float(const char *key, float fallback = 0) const;
@@ -112,6 +118,9 @@ struct MapObject {
 
 // ---------------------------------------------------------------------------
 
+// A level read from an LDtk or a Tiled file: its tile layers, which cells are
+// solid, and the objects placed in it. Every Scene has one in `map`, which
+// rmp::assets::load_map() fills; it moves and does not copy.
 class Tilemap {
 public:
     // Declared here and defined in tilemap.cpp, all of them: MapData is
@@ -127,13 +136,16 @@ public:
     Tilemap(Tilemap &&other) noexcept;
     Tilemap &operator=(Tilemap &&other) noexcept;
 
+    // Whether a map is loaded: false for an empty one, and for one whose file
+    // was missing or did not parse. Every query below then answers zero, empty
+    // or false, and on_object() registers nothing.
     [[nodiscard]] bool valid() const { return _data != nullptr; }
     explicit operator bool() const { return valid(); }
 
     [[nodiscard]] Rectangle bounds() const; // in world units
-    [[nodiscard]] Vector2 tile_size() const;
-    [[nodiscard]] int layer_count() const;
-    [[nodiscard]] int object_count() const;
+    [[nodiscard]] Vector2 tile_size() const; // one cell, in world units
+    [[nodiscard]] int layer_count() const; // how many tile layers; 0 is the bottom one
+    [[nodiscard]] int object_count() const; // how many MapObjects it holds
 
     // ---- the levels of an LDtk world ---------------------------------------
     //
@@ -165,7 +177,14 @@ public:
     void spawn_objects(Scene &into);
 
     // ---- queries, for whatever you want to do yourself ---------------------
+    // The tile in one cell of one layer, as its global tile id: 0 when the
+    // cell is empty, outside the layer, or there is no map. Layers count from
+    // 0 in the order the file has them, and the cell is in that layer's own
+    // grid. For LDtk it is the topmost tile of the cell.
     [[nodiscard]] int tile_at(int layer, int column, int row) const;
+    // Whether a solid cell is under a point, in world units, on any layer: an
+    // LDtk IntGrid cell painted with `solid`, any tile of a Tiled layer whose
+    // class is `solid`, or a tile its tileset marks solid. False with no map.
     [[nodiscard]] bool solid_at(Vector2 world_position) const;
     // Whether a solid cell covers any of the rectangle. Only touching it is
     // not: a box standing on the floor is not in the floor.

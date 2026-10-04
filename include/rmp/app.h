@@ -18,16 +18,12 @@
 //
 // WHAT THIS HEADER DOES NOT INCLUDE, and why it matters.
 //
-// Not rmp/ui.h and not rmp/assets.h. It used to include both, because the
-// macros below called rmp::ui::shutdown() and rmp::assets::init() by name —
-// and that meant every translation unit with an entry point paid for the whole
-// interface layer, which is exactly the coupling that splitting the umbrella
-// was meant to end.
-//
-// The fix is that the macros no longer DO anything: they call the functions in
-// rmp::app::detail, compiled once in src/rmp/app.cpp, which is where the
-// includes live now. The macro is left as the only thing it has to be — the
-// platform's entry-point shape.
+// Not rmp/ui.h and not rmp/assets.h, although a run closes the UI and opens the
+// asset pack. Naming rmp::ui::shutdown() or rmp::assets::init() here would make
+// every translation unit with an entry point pay for the whole interface layer.
+// So the macros DO nothing themselves: they call the functions in
+// rmp::app::detail, compiled once in src/rmp/app.cpp, which is where those
+// includes live. A macro is only the platform's entry-point shape.
 //
 // The rule that comes out of it, and it governs every header we add:
 //   1. Include none of our headers. Forward-declare instead.
@@ -36,8 +32,8 @@
 //   3. If two headers end up needing each other, one of them should not exist.
 //
 // rmp/config.h IS THE ONE EXCEPTION, and it is in every public header of ours
-// rather than just this one. It costs nothing — twelve #defines, no includes of
-// its own, 27 ms against an empty file's 28, which is below measurement noise —
+// rather than just this one. It costs nothing — nothing but #defines, no includes
+// of its own, 27 ms against an empty file's 28, which is below measurement noise —
 // and rule 1 exists for compile time and coupling, so a leaf header that costs
 // neither is not what the rule is aimed at. What it buys is that RMP_WINDOW_*
 // and the rest are simply THERE, in scenes and objects and everywhere else,
@@ -48,12 +44,11 @@
 #include <rmp/config.h> // the one of ours that is always here — see below
 #include <memory> // std::unique_ptr / std::shared_ptr: what owns a scene and a global
 
-// NO STANDARD LIBRARY HEADER, and it is measured, not assumed. <memory> alone
-// costs 643 ms to parse on this machine against raylib.h's 38, so pulling it in
-// for a std::unique_ptr parameter would have made this header seventeen times
-// more expensive than the thing it wraps — and paid by every translation unit
-// with an entry point, which is the exact cost splitting the umbrella removed.
-// That is why the two ownership handoffs below are raw pointers. See RMP_GAME.
+// <memory> is the one standard header here, for the two ownership handoffs
+// below: start() takes the first scene as a std::unique_ptr, and
+// register_global() takes each rmp::global<T>() as a std::shared_ptr<void>, so
+// nothing that crosses this header is an owning raw pointer. Its cost is
+// measured, not assumed: tools/header_cost.py, against tools/header_budget.txt.
 
 #if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -111,9 +106,6 @@ void quit();
 bool quit_requested();
 
 namespace detail {
-// The six halves of a run. Not for you — RMP_ENTRY_POINT calls them, and they
-// exist so that this header names nothing from rmp::ui or rmp::assets. Their
-// bodies, and the includes they need, are in src/rmp/app.cpp.
 // GetFrameTime(), with [app] max_delta applied. Every runner below calls this
 // instead of GetFrameTime() directly, so a game written with RMP_ENTRY_POINT
 // and its own three hooks gets the clamp too -- it is a property of the loop,
@@ -125,6 +117,9 @@ namespace detail {
 // overlapped the wall on no frame at all.
 float step_delta();
 
+// The six halves of a run. Not for you — RMP_ENTRY_POINT calls them, and they
+// exist so that this header names nothing from rmp::ui or rmp::assets. Their
+// bodies, and the includes they need, are in src/rmp/app.cpp.
 void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
 void after_ready(); // report to CI whether any asset failed to load
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
@@ -134,10 +129,8 @@ void end_stop(); // the asset pack and the sound device close here, AFTER it
 
 // The three that RMP_GAME wires to the hooks above. start() opens the window
 // and enters your first scene, frame() runs one turn of the scene stack, and
-// stop() closes the window.
-// TAKES OWNERSHIP of `first`, and deletes it when the app closes. Raw because
-// this header cannot afford <memory>; the pointer is created and handed over on
-// the same line, so it is never a pointer anyone holds.
+// stop() closes the window. The scene stack owns `first` from then on;
+// RMP_GAME makes it and hands it over on the same line.
 void start(std::unique_ptr<rmp::Scene> first); // owns it from here on
 void frame(float delta);
 void stop();
@@ -215,12 +208,13 @@ template <class T> T &global() {
 //                                  rmp::Font and rmp::RenderTexture.
 //   end_stop, AFTER your hook      everything that does not — the rres pack and
 //                                  raylib's loader hook, which are file
-//                                  handles and do not care about the window.
+//                                  handles, and the sound device, which a raw
+//                                  Sound your hook unloads still needs.
 //
-// This comment used to say the asset layer could close last "because it owns no
-// GPU objects". That was true until rmp::Texture existed, and the day it did,
-// the release moved to the wrong side of CloseWindow() and the game segfaulted
-// on the way out — under xvfb only, because a real driver tolerated it.
+// The asset layer cannot simply close last, although the pack and the hook are
+// only file handles: the resource table holds rmp::Texture and friends, and a
+// texture released on the wrong side of CloseWindow() segfaults on the way out
+// -- under xvfb; a real driver tolerates it and says nothing.
 
 // A symbol that exists only so that two errors read like sentences.
 //
@@ -236,7 +230,7 @@ template <class T> T &global() {
 //
 // It is emitted by RMP_ENTRY_POINT rather than by RMP_GAME because the
 // examples use the entry point directly, without scenes, and they are entry
-// points too. (The design doc put it on RMP_GAME; this is the correction.)
+// points too.
 #define RMP_DECLARE_ENTRY_POINT_ONCE \
     extern "C" void rmp_entry_point_is_declared_exactly_once() {}
 
@@ -246,8 +240,10 @@ template <class T> T &global() {
 // mangles the continuation of a /* */ inside a macro. The trailing backslashes
 // are a language requirement, not a ruler.
 
-// iOS rcore declares: extern void ios_ready(); ios_update(bool); ios_destroy();
-// extern "C" so the symbols match the C declarations in rcore_ios.c.
+// iOS. UIKit owns the run loop, so this runner is three callbacks instead of a
+// main(). iOS rcore declares: extern void ios_ready(); ios_update(bool);
+// ios_destroy(); extern "C" so the symbols match the C declarations in
+// rcore_ios.c.
 //
 // UIKit owns the run loop and offers no way to return from it, so the CI path
 // tears down and exits explicitly. Outside CI that branch never runs.
@@ -317,6 +313,10 @@ template <class T> T &global() {
     return 0;                                                                  \
   }
 
+// Everywhere else -- Windows, Linux, macOS, the BSDs and Android, where raylib's
+// own android_main() calls main() -- a main() that owns the frame loop: the
+// ordinary raylib shape, ended by the window's X, rmp::app::quit() or the CI
+// frame budget, and then the same stop sequence as the other two.
 #define RMP_DESKTOP_FUNCS(READY, FRAME, STOP)                                        \
   RMP_DECLARE_ENTRY_POINT_ONCE                                  \
   int main() {                                                                 \
@@ -338,11 +338,12 @@ template <class T> T &global() {
   }
 // clang-format on
 
-// The entry point. Give it your three hooks; it picks the right runner.
+#if defined(PLATFORM_IOS)
+// The entry point. Give it your three hooks; it picks the right runner --
+// RMP_IOS_FUNCS on iOS, RMP_WEB_FUNCS on the web, RMP_DESKTOP_FUNCS everywhere
+// else. RMP_GAME uses it, and a game with no scenes can call it directly:
 //
 //     RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
-//
-#if defined(PLATFORM_IOS)
 #define RMP_ENTRY_POINT(READY, FRAME, STOP) RMP_IOS_FUNCS(READY, FRAME, STOP)
 #elif defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
 #define RMP_ENTRY_POINT(READY, FRAME, STOP) RMP_WEB_FUNCS(READY, FRAME, STOP)
@@ -379,6 +380,10 @@ template <class T> T &global() {
 // ---------------------------------------------------------------------------
 
 // clang-format off
+
+// The whole of src/main.cpp: give it your first scene's type, and it opens the
+// window, enters that scene, runs the stack every frame and closes everything
+// on the way out. It is RMP_ENTRY_POINT with the three hooks written for you.
 #define RMP_GAME(SceneType)                                                    \
   static void rmp_game_ready() {                                               \
     rmp::app::detail::start(std::make_unique<SceneType>());                    \

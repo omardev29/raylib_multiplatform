@@ -34,13 +34,12 @@
 #include <rmp/assets.h> // rmp::Texture, for Sprite
 #include <rmp/config.h>
 
-// No <memory> and no <functional>, and that is the point. Measured on this
-// machine against an empty file's 29 ms: <memory> costs 251, <functional> 160,
-// <type_traits> 12. Every file with an entity in it includes this header, so
-// the first two are 380 ms of nothing per translation unit. The storage lives in
-// src/rmp/object.cpp and hands over a raw pointer the way rmp/scene.h already
-// does; the callbacks below are forty lines of type erasure instead of
-// std::function.
+// <memory> for std::shared_ptr, which owns a Callback's captured state and an
+// object's behaviors and carries each one's deleter, so neither needs a
+// `delete` of ours. <type_traits> for the checks that turn a wrong callback,
+// handle or behavior into a sentence instead of a page of template errors.
+// There is no <functional>: Callback below does the part of std::function that
+// is needed, and also takes a move-only lambda, which std::function cannot.
 #include <memory> // std::shared_ptr: what owns a callback's state and a behavior
 #include <type_traits>
 
@@ -50,8 +49,8 @@ class Object;
 class Scene;
 
 // ---------------------------------------------------------------------------
-// Shapes: what gets drawn when there is no sprite, and — from phase 7 — what
-// collides. Two of them, and not five.
+// Shapes: what gets drawn when there is no sprite, and what collides. Two of
+// them, and not five.
 //
 // RECTANGLE and CIRCLE are the two the collision layer can genuinely resolve
 // against each other: rect-rect, circle-circle and circle-rect are three cases
@@ -60,8 +59,15 @@ class Scene;
 // afternoon. To draw anything else, override _draw() and use raylib.
 // ---------------------------------------------------------------------------
 
+// Which of the two a Shape is. RECTANGLE is a box of `size` and CIRCLE a disc
+// of `radius`. NONE is no shape at all: nothing is drawn, and a `collider` of
+// NONE means the object collides as its `shape`, or as its sprite's frame.
 enum class ShapeKind { NONE, RECTANGLE, CIRCLE };
 
+// A rectangle or a circle around an object's centre, moved by `offset` and
+// sized by the object's `scale`. An Object's `shape` is what it draws when it
+// has no sprite and, unless its `collider` says otherwise, what it collides
+// as. rect() and circle() make one.
 struct Shape {
     // Declaration order IS the order these get written in a designated
     // initialiser, because C++20 requires that and rejects any other order.
@@ -71,9 +77,9 @@ struct Shape {
     Vector2 size{}; // RECTANGLE: width and height
     float radius = 0; // CIRCLE
     Vector2 offset{}; // from the object's centre
-    Color color = WHITE; //
-    bool filled = true; //
-    float thickness = 1; // when filled = false
+    Color color = WHITE; // the fill, or the outline when not filled
+    bool filled = true; // false draws the outline only
+    float thickness = 1; // the outline's width when filled = false; a CIRCLE ignores it
 };
 
 // The two spellings that read like what they make.
@@ -81,17 +87,20 @@ Shape rect(Vector2 size);
 Shape circle(float radius);
 
 // ---------------------------------------------------------------------------
-// A sprite: a texture and how to put it on screen. Animation, sheets and
-// per-frame durations are phase 9 and build on top of this without changing it.
+// A sprite: a picture and how to put it on screen. A loose texture, or an
+// .aseprite sheet, which brings its frames, tags and per-frame durations.
 // ---------------------------------------------------------------------------
 
+// What an Object draws in place of its shape when it has one: a texture or a
+// sheet, placed by `origin` around the object's position and turned, scaled and
+// flipped with the object. A sheet also animates; play() picks the tag.
 struct Sprite {
     rmp::Texture texture; // a loose picture, when there is no animation
     rmp::SpriteSheet sheet; // an .aseprite; `sheet` wins over `texture`
     Rectangle source{}; // {0,0,0,0} = the whole texture, or the sheet's frame
     Vector2 origin{ 0.5f, 0.5f }; // NORMALISED, and centred by default
     Vector2 size{}; // {0,0} = the source's own size
-    Color tint = WHITE; //
+    Color tint = WHITE; // multiplies the picture's colours; WHITE leaves them as they are
     float speed = 1.0f; // 2 = twice as fast, 0 = frozen, -1 = backwards
 
     // ---- animation, when there is a sheet ---------------------------------
@@ -133,6 +142,9 @@ struct Sprite {
 // one field rather than five flags.
 // ---------------------------------------------------------------------------
 
+// What an object does at the edge of its `bounds` -- the map's, or the view's,
+// when `bounds` is empty. CLAMP and BOUNCE act as soon as world_bounds()
+// crosses an edge; WRAP and DESTROY wait until it is entirely outside.
 enum class Edge {
     NONE, // the default: objects may leave, and do
     CLAMP, // stops at the edge          a paddle, a player, a cursor
@@ -148,14 +160,20 @@ enum class Edge {
 // every translation unit that includes this header, which is every file with an
 // entity in it. What is actually needed here is a small fraction of
 // std::function -- no copying, no target(), no comparison -- so it is written
-// out: a pointer to the captured state and two function pointers, one to call
-// it and one to free it.
+// out: a shared_ptr to the captured state, which carries its own deleter, and
+// one function pointer to call it. Not copying is also what lets it take a
+// lambda that captures a std::unique_ptr; std::function requires a copyable
+// one.
 //
 // No small-buffer optimisation, deliberately. It would save one allocation per
 // callback, and callbacks are registered once in _ready() and not per frame, so
 // the thing it optimises does not happen.
 // ---------------------------------------------------------------------------
 
+// A function the framework keeps and calls later with arguments of types A...:
+// what on_click(), on_drag(), on_collision() and Tilemap::on_object() store, and
+// the type of the `on_` fields of the behaviors. A lambda converts to it; it
+// moves and does not copy.
 template <class... A> class Callback {
 public:
     Callback() = default;
@@ -185,6 +203,8 @@ public:
         set(static_cast<F &&>(fn));
     }
 
+    // Stores `fn` in place of whatever was there. A function that cannot be
+    // called with A... is a compile error that says so.
     template <class F> void set(F &&fn) {
         clear();
         using Fn = std::decay_t<F>;
@@ -201,12 +221,15 @@ public:
         _invoke = [](void *state, A... args) { (*static_cast<Fn *>(state))(args...); };
     }
 
+    // Drops the stored function, and with it whatever it captured.
     void clear() {
         _state.reset();
         _invoke = nullptr;
     }
 
+    // Whether a function is stored.
     explicit operator bool() const { return _invoke != nullptr; }
+    // Calls the stored function with `args`; an empty Callback does nothing.
     void operator()(A... args) const {
         if (_invoke != nullptr) _invoke(_state.get(), args...);
     }
@@ -254,6 +277,10 @@ namespace detail {
 Object *resolve(unsigned index, unsigned generation);
 } // namespace detail
 
+// A reference to an object that is safe to keep across frames. It gives the
+// object back while it is alive, and nullptr from the moment destroy() is
+// called on it, even once its slot holds another object. Object::handle() makes
+// one; T is the type get() hands back.
 template <class T = Object> class Handle {
 public:
     // get() is an unchecked downcast -- RTTI is off on every target, so there
@@ -394,7 +421,7 @@ void detach(Object &self, const void *type);
 //   builds, with a DDA, so only the objects in the cells the line crosses are
 //   tested. With a thousand objects on screen a ray touches a handful -- and it
 //   is nearly free precisely BECAUSE the grid is already there for the
-//   collision pass. That is why the two live in the same phase.
+//   collision pass.
 //
 //   The other side of sharing it: the grid is rebuilt when the framework moves
 //   the world -- a spawn, a destroy, the start of each update pass and of each
@@ -405,9 +432,12 @@ void detach(Object &self, const void *type);
 //   ground under itself is never the stale half.
 // ---------------------------------------------------------------------------
 
+// What Scene::raycast() and Scene::raycast_all() test: the segment from `from`
+// to `to`, against the scene's objects. The map's tiles are not hit; ask
+// Tilemap::solid_at() about those.
 struct RayQuery {
-    Vector2 from{};
-    Vector2 to{};
+    Vector2 from{}; // where the ray starts, in world units
+    Vector2 to{}; // where it ends; nothing beyond it is hit
     unsigned mask = 0xFFFFFFFFu; // the same layers as the collision pass
     Object *ignore = nullptr; // normally whoever is shooting
 
@@ -426,29 +456,41 @@ struct RayQuery {
 // What spawn() takes. The order is the order it gets written in.
 // ---------------------------------------------------------------------------
 
+// The starting values Scene::spawn() gives a new object. Each field sets the
+// Object field of the same name, except `size`, which is a shorter way to
+// write `shape`:
+//
+//     auto &wall = spawn({ .position = { 400, 225 }, .size = { 20, 200 } });
 struct ObjectOptions {
-    Vector2 position{};
+    Vector2 position{}; // THE CENTRE, in world units
     Vector2 size{}; // shorthand for a RECTANGLE shape of this size
     Shape shape{}; // the full form; used instead of `size` when set
-    Vector2 velocity{};
-    Vector2 scale{ 1, 1 };
-    float rotation = 0;
-    int layer = 0;
-    bool visible = true;
-    Edge edges = Edge::NONE;
-    Rectangle bounds{}; // {0,0,0,0} = the view
+    Vector2 velocity{}; // world units per second
+    Vector2 scale{ 1, 1 }; // multiplies the shape, the collider and the sprite
+    float rotation = 0; // degrees, as raylib counts them
+    int layer = 0; // draw order: a higher layer draws on top
+    bool visible = true; // false: not drawn, but still updated and collided
+    Edge edges = Edge::NONE; // what happens at the edge of `bounds`
+    Rectangle bounds{}; // {0,0,0,0} = the map's bounds, or the view without a map
 };
 
 // ---------------------------------------------------------------------------
 
+// An entity in a scene: the player, an enemy, a bullet, a coin, a platform.
+// Scene::spawn() makes one and the scene owns it; its public fields are the
+// whole of its configuration, read and written directly.
+//
+// Derive from it to override the hooks (_ready, _update, _draw, _collision,
+// _end), add behaviors to it with add(), or hand it functions with on_click(),
+// on_drag() and on_collision().
 class Object {
 public:
     Object() = default;
     // Out of line, in src/rmp/object.cpp, because it has work to do: an object
     // that goes away WITHOUT destroy() -- a stack variable, a member, anything
     // a test builds -- still owns its behaviors, and nothing else would ever
-    // free them. It used to leak them and, worse, leave the engine holding a
-    // record keyed by memory that had been handed back.
+    // free them. Without it they would leak, and the engine would keep a record
+    // keyed by memory that had been handed back.
     virtual ~Object();
 
     // Objects are owned by their scene and referred to by reference and handle.
@@ -458,7 +500,7 @@ public:
 
     // ---- transform --------------------------------------------------------
     Vector2 position{}; // THE CENTRE. See the header comment.
-    Vector2 scale{ 1, 1 };
+    Vector2 scale{ 1, 1 }; // multiplies the shape, the collider and the sprite
     float rotation = 0; // degrees, as raylib counts them
     Vector2 velocity{}; // integrated every frame, by us
     float mass = 1.0f; // only apply_force / apply_impulse read it
@@ -466,9 +508,9 @@ public:
     // ---- appearance -------------------------------------------------------
     Sprite sprite; // if there is a sprite, the sprite is drawn
     Shape shape; // otherwise this is
-    bool flip_x = false;
-    bool flip_y = false;
-    bool visible = true;
+    bool flip_x = false; // mirrors the sprite left to right
+    bool flip_y = false; // mirrors the sprite top to bottom
+    bool visible = true; // false: not drawn, but still updated and collided
     int layer = 0; // draw order; ties break on creation order
 
     // ---- world ------------------------------------------------------------
@@ -477,8 +519,8 @@ public:
     // carrying a downward gravity that nobody uses until they ask is what lets
     // one Object serve a platformer and a Zelda.
     float gravity_scale = 0;
-    Edge edges = Edge::NONE;
-    Rectangle bounds{}; // empty = the view
+    Edge edges = Edge::NONE; // what happens at the edge of `bounds`
+    Rectangle bounds{}; // empty = the map's bounds, or the view without a map
 
     // What it collides AS. NONE means "the same as `shape`", or the sprite's
     // frame when there is no shape -- which is right until it is not, and the
@@ -530,7 +572,12 @@ public:
     unsigned collision_mask = 1; // which layers I collide WITH
 
     // ---- what you override, all of it empty by default --------------------
+    // Once, when spawn() has put the object in its scene and applied the
+    // options: the place to load what it draws and to add its behaviors.
     virtual void _ready() {}
+    // Every frame the object is alive, after its behaviors' _update and before
+    // it is moved by its velocity. One spawned during a frame gets its first
+    // _update the frame after.
     virtual void _update(float delta) { (void)delta; }
     virtual void _draw() {} // the sprite and the shape draw themselves
     virtual void _end() {} // on destruction: drop loot, tell somebody
@@ -634,7 +681,8 @@ public:
 
     // The axis-aligned box this object occupies right now, from the sprite or
     // the shape. Empty when it has neither, which is what an invisible logic
-    // object is. Phase 7's collider defaults to this.
+    // object is. With no `collider` and no `shape`, this box is what the object
+    // collides as, and an empty one collides with nothing.
     [[nodiscard]] Rectangle world_bounds() const;
 
     // The box the collider occupies right now: `collider` if it has one, else

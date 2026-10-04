@@ -13,7 +13,7 @@
 //     t.primary = GOLD;
 //     rmp::ui::set_theme(t);
 //
-// Which one starts is [ui] Theme in raylib_multiplatform.toml. Everything
+// Which one starts is [ui] theme in raylib_multiplatform.toml. Everything
 // after that is a runtime call, so an in-game appearance setting is one line.
 // ===========================================================================
 
@@ -21,8 +21,8 @@
 
 #include <rmp/config.h>
 
-// So this still compiles against a generated header from before [ui] Theme
-// existed. tools/configure.py always provides it now.
+// The fallback for a translation unit compiled without the generated header;
+// tools/configure.py always writes RMP_UI_THEME into it.
 #ifndef RMP_UI_THEME
 #define RMP_UI_THEME "dark"
 #endif

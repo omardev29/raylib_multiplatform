@@ -47,7 +47,8 @@ namespace rmp::audio {
 // starting values come from [audio] in raylib_multiplatform.toml.
 enum class Bus { MASTER, MUSIC, SFX };
 
-// Declaration order is the order they are written in, as C++20 requires.
+// How one play() sounds. Declaration order is the order they are written in,
+// as C++20 requires.
 struct PlayOptions {
     float volume = 1.0f; // this play only; times the SFX bus, times MASTER
     float pitch = 1.0f; // 2 = an octave up, 0.5 = an octave down
@@ -64,6 +65,8 @@ void play(std::string_view name, const PlayOptions &options = {});
 // music("level1") in its _ready() does not jump the song back to the start
 // every time the player dies and the scene is changed to itself.
 void music(std::string_view name, bool loop = true);
+// Stop the music and let the track go; music("") does the same. Nothing
+// happens when none is playing.
 void stop_music();
 
 // Whether music is playing right now. False with no device.

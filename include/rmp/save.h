@@ -63,6 +63,10 @@ struct ValueAccess; // how rmp::save sets version(); nothing a game touches
 // what JSON holds, so a real structure fits and not only flat pairs.
 class Value {
 public:
+    // What a Value holds, one kind per JSON value. NONE is nothing: a missing
+    // key, an index out of range, a default-constructed Value, and JSON's null.
+    // BOOL is true or false, NUMBER a double, STRING text. LIST is values in
+    // order, and OBJECT is keys naming values, in the order they were added.
     enum class Type { NONE, BOOL, NUMBER, STRING, LIST, OBJECT };
     class Ref;
 
@@ -76,6 +80,7 @@ public:
     template <class N>
         requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool>)
     Value(N n) : _type(Type::NUMBER), _number(static_cast<double>(n)) {}
+    // A string, copied in.
     Value(std::string_view s) : _type(Type::STRING), _string(s) {}
     Value(std::string s) : _type(Type::STRING), _string(std::move(s)) {}
     // Without this a string literal would become a bool, which is what C++
@@ -88,6 +93,7 @@ public:
     [[nodiscard]] static Value object();
 
     // ---- reading: never throws, never changes anything ---------------------
+
     // The fallback when this is not of that type -- a missing key is NONE.
     // Types are not converted: a number is not a bool and "7" is not 7.
     // as_int truncates towards zero and clamps to int's range.
@@ -98,17 +104,21 @@ public:
     // object or list that holds it moves it. The fallback's lifetime is yours.
     [[nodiscard]] std::string_view as_string(std::string_view fallback = "") const;
 
+    // What this holds. Reading never needs it -- a read of the wrong type gives
+    // its fallback -- but walking a Value you did not write does.
     [[nodiscard]] Type type() const { return _type; }
     // Elements of a list, keys of an object; 0 for anything else. A member
     // assigned NONE counts as absent, here and in key(), contains(), == and
     // the file: nothing and missing read the same.
     [[nodiscard]] int size() const;
+    // Whether this is an object with that key. False for anything else.
     [[nodiscard]] bool contains(std::string_view key) const;
     // The i-th key of an object, in the order the keys were added; "" out of
     // range. With operator[](key) it is how to walk an object you did not write.
     [[nodiscard]] std::string_view key(int index) const;
 
     // ---- structure ---------------------------------------------------------
+
     // [] on a const Value reads: a missing key, an index out of range, or a
     // Value of another type is NONE.
     //
@@ -174,8 +184,11 @@ class Value::Ref {
 public:
     // Reading: the Value this names, or NONE where the path leads nowhere.
     [[nodiscard]] const Value &get() const;
+    // The Value it names, wherever a `const rmp::Value &` is wanted: a Ref
+    // passes where a Value is read.
     // NOLINTNEXTLINE(google-explicit-constructor): a Ref reads as its Value
     operator const Value &() const { return get(); }
+    // Value's reads, answered from get(): they create nothing.
     [[nodiscard]] bool as_bool(bool fallback = false) const {
         return get().as_bool(fallback);
     }
@@ -207,6 +220,9 @@ public:
     Ref(const Ref &) = default;
     Ref(Ref &&) = default;
     ~Ref() = default;
+    // Value's push() and erase() on the Value this names. push() creates the
+    // path first, like a write; erase() creates nothing and is false when the
+    // path leads nowhere.
     void push(Value value);
     bool erase(std::string_view key);
 
@@ -231,8 +247,10 @@ private:
 
 namespace save {
 
+// Why read() did or did not fill the Value. A slot name read() refuses, or a
+// null `out`, is UNREADABLE too.
 enum class Status {
-    OK,
+    OK, // read, checked, and *out filled
     MISSING, // nothing saved in that slot yet: the first run
     TRUNCATED, // cut short, as a write the power went out on would be
     MODIFIED, // the checksum or the seal does not match: edited, or damaged
@@ -242,15 +260,17 @@ enum class Status {
 // A read's outcome. True in an `if` only when it is OK, so the three-line
 // load stays three lines; .status is there when the reason matters.
 struct Result {
-    Status status = Status::MISSING;
-    explicit operator bool() const { return status == Status::OK; }
+    Status status = Status::MISSING; // why; MISSING until a read() sets it
+    explicit operator bool() const { return status == Status::OK; } // OK, and only OK
 };
 
-// Declaration order is the order they are written in, as C++20 requires.
+// How write() stores a save. Declaration order is the order they are written
+// in, as C++20 requires.
 struct WriteOptions {
     bool encrypted = RMP_SAVE_ENCRYPT != 0; // [save] encrypt decides the default
 };
 
+// What read() accepts as a save.
 struct ReadOptions {
     // With [save] encrypt on, a PLAIN file reads as MODIFIED: anyone can write
     // one -- the format is documented and a plain save shows it -- and
@@ -273,6 +293,9 @@ bool write(std::string_view slot, const Value &value, const WriteOptions &option
 // so a game can fill it with defaults first and read over them.
 Result read(std::string_view slot, Value *out, const ReadOptions &options = {});
 
+// Whether there is a save in that slot, in any folder read() looks in. It does
+// not open it, so a file that would read as TRUNCATED or MODIFIED exists too.
+// False, without a warning, for a slot name write() would refuse.
 [[nodiscard]] bool exists(std::string_view slot);
 bool remove(std::string_view slot); // false when there was nothing to remove
 

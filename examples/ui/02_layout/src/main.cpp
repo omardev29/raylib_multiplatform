@@ -160,8 +160,8 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 // the container ended up being. That pairing is what makes the buttons in a
 // menu come out the same width without anyone measuring anything.
 //
-// NAMING A CONTAINER. Every container takes an optional `.id`. You need it
-// only when you want to ask about that element later:
+// NAMING A CONTAINER. Every container takes an optional `.id`: a stable name,
+// the same element from frame to frame whatever else is on screen.
 //
 //     rmp::ui::panel({ .box = { .id = "inventory" } }, [&]{ ... });
 //
