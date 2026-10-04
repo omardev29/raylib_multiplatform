@@ -79,19 +79,24 @@ public:
     }
 
     void _draw() override {
+        DrawCircleV(_position, 16, SKYBLUE);
+
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         // The pointer is one pointer: mouse on a desktop, finger on a phone,
-        // and the same code on all seventeen targets with no #ifdef.
+        // and the same code on every target with no #ifdef.
         rmp::ui::text(rmp::input::pointer_down() ? "pointer down" : "pointer up");
+        rmp::ui::text(TextFormat("%d jumps, %d shots", _jumps, _shots));
         rmp::ui::end();
     }
 
 private:
-    void jump() {}
-    void shoot() {}
+    void jump() { _jumps++; }
+    void shoot() { _shots++; }
 
     Vector2 _position{ 400, 225 };
     float _speed = 200.0f;
+    int _jumps = 0;
+    int _shots = 0;
 };
 
 RMP_GAME(GameScene);
