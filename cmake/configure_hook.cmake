@@ -22,21 +22,8 @@ set(_tpl_generated "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/project.cmake")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/raylib_multiplatform.toml")
 
-find_program(TEMPLATE_PYTHON NAMES python3 python py)
-
-# `python.exe` on Windows is frequently the Microsoft Store stub, which prints
-# an advert and exits 9009. And tomllib only exists from 3.11. One probe settles
-# both questions.
-set(_tpl_python_ok FALSE)
-if(TEMPLATE_PYTHON)
-  execute_process(
-    COMMAND "${TEMPLATE_PYTHON}" -c "import tomllib"
-    RESULT_VARIABLE _tpl_probe
-    OUTPUT_QUIET ERROR_QUIET)
-  if(_tpl_probe EQUAL 0)
-    set(_tpl_python_ok TRUE)
-  endif()
-endif()
+# TEMPLATE_PYTHON: the first Python on PATH that can import tomllib, or "".
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/find_python.cmake")
 
 if(_tpl_python_ok)
   execute_process(

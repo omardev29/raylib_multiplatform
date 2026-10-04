@@ -3271,6 +3271,61 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
                     cfgmod.validate(cfg, True)
 
 
+class FindPythonTest(unittest.TestCase):
+    """cmake/find_python.cmake asks every candidate, not just the first found.
+
+    The hook took the first of python3/python/py on PATH and probed only that
+    one, so a Windows machine whose `python3.exe` is the Microsoft Store stub
+    -- an advert and exit code 9009 -- failed to configure with a working `py`
+    installed, and a Mac's own 3.9 hid a Homebrew 3.12. Run with `cmake -P`
+    against a PATH built here: a stub that fails, then a real Python."""
+
+    def setUp(self):
+        import shutil
+        self.cmake = shutil.which("cmake")
+        if self.cmake is None:
+            self.skipTest("cmake not installed")
+
+    def run_with(self, names):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp)
+            for name, real in names.items():
+                path = bin_dir / name
+                if real:
+                    path.symlink_to(sys.executable)
+                else:
+                    path.write_text("#!/bin/sh\necho 'Python was not found' >&2\nexit 9009\n")
+                    path.chmod(0o755)
+            script = bin_dir / "probe.cmake"
+            script.write_text(f'set(CMAKE_CURRENT_SOURCE_DIR "{REPO.as_posix()}")\n'
+                              f'include("{(REPO / "cmake" / "find_python.cmake").as_posix()}")\n'
+                              'message(STATUS "PICKED=${TEMPLATE_PYTHON} OK=${_tpl_python_ok}")\n')
+            env = dict(os.environ, PATH=str(bin_dir))
+            got = subprocess.run([self.cmake, "-P", str(script)], env=env,
+                                 capture_output=True, text=True)
+            picked = re.search(r"PICKED=(\S*) OK=(\S+)", got.stdout + got.stderr)
+            self.assertIsNotNone(picked, got.stdout + got.stderr)
+            return Path(picked.group(1)).name, picked.group(2)
+
+    def test_a_stub_python3_is_passed_over_for_a_working_one(self):
+        name, ok = self.run_with({"python3": False, "python3.12": True})
+        self.assertEqual((name, ok), ("python3.12", "TRUE"))
+
+    def test_py_is_found_when_nothing_else_works(self):
+        name, ok = self.run_with({"python3": False, "python": False, "py": True})
+        self.assertEqual((name, ok), ("py", "TRUE"))
+
+    def test_nothing_that_works_is_nothing(self):
+        name, ok = self.run_with({"python3": False, "python": False})
+        self.assertEqual(ok, "FALSE")
+
+    def test_the_hook_uses_it(self):
+        hook = (REPO / "cmake" / "configure_hook.cmake").read_text()
+        self.assertIn("cmake/find_python.cmake", hook)
+        self.assertNotIn("find_program(TEMPLATE_PYTHON", hook)
+
+
 class ConfigureProjectNameTest(unittest.TestCase):
     """A name that passes NAME_RE and still cannot build is refused, with a
     reason: a CMake target the build already defines, or a Windows device."""
