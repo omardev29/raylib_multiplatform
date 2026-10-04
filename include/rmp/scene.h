@@ -126,7 +126,7 @@ public:
 
     // How far the shake asks to move the view right now; {0,0} when still.
     // Near a limit less of it shows: raylib() clamps the result.
-    [[nodiscard]] Vector2 shake_offset() const { return shake_now_; }
+    [[nodiscard]] Vector2 shake_offset() const { return _shake_now; }
 
     // What is visible, in world units, ignoring rotation.
     [[nodiscard]] Rectangle view() const;
@@ -147,12 +147,12 @@ private:
     // The object followed last frame, so a CHANGE of target snaps rather than
     // glides. Compared by handle, so a target that dies and whose slot is
     // reused by something else is correctly a new target.
-    Handle<Object> followed_;
+    Handle<Object> _followed;
 
-    float shake_strength_ = 0;
-    float shake_seconds_ = 0;
-    float shake_elapsed_ = 0;
-    Vector2 shake_now_{};
+    float _shake_strength = 0;
+    float _shake_seconds = 0;
+    float _shake_elapsed = 0;
+    Vector2 _shake_now{};
 };
 
 class Scene {

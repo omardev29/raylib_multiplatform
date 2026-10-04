@@ -127,7 +127,7 @@ public:
     Tilemap(Tilemap &&other) noexcept;
     Tilemap &operator=(Tilemap &&other) noexcept;
 
-    [[nodiscard]] bool valid() const { return data_ != nullptr; }
+    [[nodiscard]] bool valid() const { return _data != nullptr; }
     explicit operator bool() const { return valid(); }
 
     [[nodiscard]] Rectangle bounds() const; // in world units
@@ -180,11 +180,11 @@ public:
     // points that take it rather than the class (tests, mostly).
     void adopt(tilemap::detail::MapPtr data);
     [[nodiscard]] const tilemap::detail::MapData *detail_data() const {
-        return data_.get();
+        return _data.get();
     }
 
 private:
-    tilemap::detail::MapPtr data_{ nullptr, &tilemap::detail::free_map };
+    tilemap::detail::MapPtr _data{ nullptr, &tilemap::detail::free_map };
 };
 
 } // namespace rmp

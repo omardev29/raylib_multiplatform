@@ -57,20 +57,20 @@ public:
 // label on the button.
 template <class Game> class OverScene : public rmp::Scene {
 public:
-    explicit OverScene(const char *said) : said_(said) {}
+    explicit OverScene(const char *said) : _said(said) {}
 
     // So that Enter, Space or the gamepad restart without a mouse: nothing has
     // the focus until something is given it.
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
-        rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
 private:
-    const char *said_;
+    const char *_said;
 };
 
 class PongScene : public rmp::Scene {
@@ -87,13 +87,13 @@ public:
         const rmp::ui::Theme &theme = rmp::ui::current_theme();
         auto &left = spawn<Paddle>({ .position = { 40, MID_Y } });
         left.shape.color = theme.primary;
-        left_ = left.handle<Paddle>();
+        _left = left.handle<Paddle>();
 
         auto &right = spawn<Paddle>({ .position = { RMP_WINDOW_WIDTH - 40, MID_Y } });
         right.up = "p2_up";
         right.down = "p2_down";
         right.shape.color = theme.danger;
-        right_ = right.handle<Paddle>();
+        _right = right.handle<Paddle>();
 
         // BOUNDS WIDER THAN THE COURT, and this is the rule the game turns on:
         // Ball sets Edge::BOUNCE, which bounces off all four sides of its
@@ -107,16 +107,16 @@ public:
         ball.add<rmp::behavior::Ball>({ .speed = SERVE_SPEED });
         // Ball does the bouncing; the sound of it is the game's.
         ball.on_collision([](rmp::Object &, rmp::Object &) { rmp::audio::play("hit"); });
-        ball_ = ball.handle();
+        _ball = ball.handle();
         serve(1);
     }
 
     void _update(float) override {
         // The only rule Pong has that the framework does not: a point.
-        if (ball_->position.x < 0) {
-            point(right_score_, "Red wins", -1);
-        } else if (ball_->position.x > RMP_WINDOW_WIDTH) {
-            point(left_score_, "Blue wins", 1);
+        if (_ball->position.x < 0) {
+            point(_right_score, "Red wins", -1);
+        } else if (_ball->position.x > RMP_WINDOW_WIDTH) {
+            point(_left_score, "Blue wins", 1);
         }
     }
 
@@ -134,9 +134,9 @@ public:
 
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_CENTER });
         rmp::ui::row({ .gap = 110 }, [&] {
-            rmp::ui::text(TextFormat("%d", left_score_),
+            rmp::ui::text(TextFormat("%d", _left_score),
                           { .color = rmp::ui::ColorRole::PRIMARY, .size = 56 });
-            rmp::ui::text(TextFormat("%d", right_score_),
+            rmp::ui::text(TextFormat("%d", _right_score),
                           { .color = rmp::ui::ColorRole::DANGER, .size = 56 });
         });
         rmp::ui::end();
@@ -148,11 +148,11 @@ private:
     // and not a force: a force is spread over the frame it is applied in, and
     // only the direction of this one matters -- Ball normalises it to `speed`.
     void serve(float towards) {
-        ball_->position = { MID_X, MID_Y };
-        ball_->velocity = {};
-        ball_->apply_impulse({ towards, 0.35f });
-        left_->position.y = MID_Y; // a new rally starts level
-        right_->position.y = MID_Y;
+        _ball->position = { MID_X, MID_Y };
+        _ball->velocity = {};
+        _ball->apply_impulse({ towards, 0.35f });
+        _left->position.y = MID_Y; // a new rally starts level
+        _right->position.y = MID_Y;
     }
 
     void point(int &counter, const char *winner, float towards) {
@@ -168,11 +168,11 @@ private:
 
     // Between frames, a handle. A raw pointer to an object is good for the
     // frame it was got in and no longer -- see rmp/object.h.
-    rmp::Handle<Paddle> left_;
-    rmp::Handle<Paddle> right_;
-    rmp::Handle<rmp::Object> ball_;
-    int left_score_ = 0;
-    int right_score_ = 0;
+    rmp::Handle<Paddle> _left;
+    rmp::Handle<Paddle> _right;
+    rmp::Handle<rmp::Object> _ball;
+    int _left_score = 0;
+    int _right_score = 0;
 };
 
 } // namespace

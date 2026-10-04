@@ -25,12 +25,12 @@ public:
     void bounce();
     // Coming down onto the top of `other`: a stomp rather than a bump.
     [[nodiscard]] bool falling_onto(const rmp::Object &other) const;
-    [[nodiscard]] bool hurting() const { return knocked_ > 0; }
+    [[nodiscard]] bool hurting() const { return _knocked > 0; }
 
 private:
-    float grace_ = 0; // seconds of not being hurt again
-    float knocked_ = 0; // seconds without control after a hit
-    bool was_on_ground_ = true;
+    float _grace = 0; // seconds of not being hurt again
+    float _knocked = 0; // seconds without control after a hit
+    bool _was_on_ground = true;
 };
 
 // What walks and flies. The same rules for both when the player touches one:
@@ -47,7 +47,7 @@ protected:
     virtual const char *squashed_tag() const { return nullptr; }
 
 private:
-    float dying_ = -1; // seconds left of the squashed frame, -1 = alive
+    float _dying = -1; // seconds left of the squashed frame, -1 = alive
 };
 
 // Back and forth along its floor, between the x of its first and last patrol
@@ -64,7 +64,7 @@ protected:
     const char *squashed_tag() const override { return "squash"; }
 
 private:
-    int direction_ = -1;
+    int _direction = -1;
 };
 
 // Along the whole route of its Points, there and back again.
@@ -78,8 +78,8 @@ protected:
     void patrol(float delta) override;
 
 private:
-    std::size_t next_ = 1;
-    int step_ = 1;
+    std::size_t _next = 1;
+    int _step = 1;
 };
 
 // From where LDtk put it to its `to` Point and back, carrying whoever stands
@@ -95,9 +95,9 @@ public:
     void _draw() override;
 
 private:
-    float travelled_ = 0;
-    int direction_ = 1;
-    float waiting_ = 0; // at either end, long enough to get on or off
+    float _travelled = 0;
+    int _direction = 1;
+    float _waiting = 0; // at either end, long enough to get on or off
 };
 
 class Coin : public rmp::Object {
@@ -120,7 +120,7 @@ public:
     void _collision(rmp::Object &other) override;
 
 private:
-    float clock_ = 0;
+    float _clock = 0;
 };
 
 class Door : public rmp::Object {
@@ -149,7 +149,7 @@ public:
     void _collision(rmp::Object &other) override;
 
 private:
-    float near_ = 0;
+    float _player_near = 0;
 };
 
 class Goal : public rmp::Object {

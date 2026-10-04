@@ -48,18 +48,18 @@ constexpr Color ROW_COLORS[ROWS] = { VIOLET, PINK, ORANGE, GOLD };
 // -- the pause overlay of examples/scenes/01_stack with another label.
 template <class Game> class OverScene : public rmp::Scene {
 public:
-    explicit OverScene(const char *said) : said_(said) {}
+    explicit OverScene(const char *said) : _said(said) {}
 
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
-        rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
 private:
-    const char *said_;
+    const char *_said;
 };
 
 class InvadersScene : public rmp::Scene {
@@ -86,34 +86,34 @@ public:
                 },
             .hurt_by = layer::ALIEN_SHOT | layer::ALIEN,
         });
-        player_ = player.handle();
+        _player = player.handle();
 
         for (int i = 0; i < ALIENS; i++) add_alien(i);
     }
 
     void _update(float delta) override {
-        player_->velocity.x = rmp::input::axis("move_left", "move_right") * 360;
+        _player->velocity.x = rmp::input::axis("move_left", "move_right") * 360;
         if (rmp::input::just_pressed("ui_accept")) shoot();
 
         // The formation. Every alien moves as one, turns at the wall, drops a
         // step, and the whole block speeds up as it thins -- which is the game.
-        march_ += step_ * delta * static_cast<float>(ALIENS) /
-            static_cast<float>(alive_ > 0 ? alive_ : 1);
-        if (march_ > MARCH || march_ < -MARCH) {
-            step_ = -step_;
-            march_ = march_ > 0 ? MARCH : -MARCH;
-            drop_ += DROP;
+        _march += _step * delta * static_cast<float>(ALIENS) /
+            static_cast<float>(_alive > 0 ? _alive : 1);
+        if (_march > MARCH || _march < -MARCH) {
+            _step = -_step;
+            _march = _march > 0 ? MARCH : -MARCH;
+            _drop += DROP;
         }
 
         float lowest = 0;
         for (int i = 0; i < ALIENS; i++) {
-            rmp::Object *alien = aliens_[i].get();
+            rmp::Object *alien = _aliens[i].get();
             if (alien == nullptr) continue; // a handle answers this on its own
-            alien->position = { home(i).x + march_, home(i).y + drop_ };
+            alien->position = { home(i).x + _march, home(i).y + _drop };
             lowest = alien->position.y > lowest ? alien->position.y : lowest;
         }
 
-        if (alive_ == 0) {
+        if (_alive == 0) {
             rmp::Scene::push<OverScene<InvadersScene>>("You win");
         } else if (lowest > PLAYER_Y - 30) {
             rmp::Scene::push<OverScene<InvadersScene>>("They landed");
@@ -130,8 +130,8 @@ public:
 
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::row({ .gap = 24 }, [&] {
-            rmp::ui::text(TextFormat("Aliens %d", alive_));
-            rmp::ui::text(TextFormat("HP %d", player_->get<rmp::behavior::Health>()->hp),
+            rmp::ui::text(TextFormat("Aliens %d", _alive));
+            rmp::ui::text(TextFormat("HP %d", _player->get<rmp::behavior::Health>()->hp),
                           { .color = rmp::ui::ColorRole::DANGER });
         });
         rmp::ui::end();
@@ -152,7 +152,7 @@ private:
         alien.collision_mask = layer::PLAYER_SHOT;
         alien.on_collision([this](rmp::Object &self, rmp::Object &) {
             self.destroy();
-            alive_--;
+            _alive--;
         });
         // Shooting is a Timer plus a callback, which is why `shooter` is not in
         // the catalogue: the same two pieces make an enemy spawner and a blink.
@@ -162,13 +162,13 @@ private:
             .seconds = rmp::random::range(4.0f, 9.0f),
             .on_timeout = [this, index](rmp::Object &self) { alien_shoot(self, index); },
         });
-        aliens_[index] = alien.handle();
-        alive_++;
+        _aliens[index] = alien.handle();
+        _alive++;
     }
 
     void shoot() {
         auto &shot =
-            spawn({ .position = player_->position, .shape = rmp::rect({ 4, 14 }) });
+            spawn({ .position = _player->position, .shape = rmp::rect({ 4, 14 }) });
         shot.shape.color = LIME;
         shot.velocity = { 0, -560 };
         shot.collision_layer = layer::PLAYER_SHOT;
@@ -179,7 +179,7 @@ private:
     // Only the lowest alien of a column fires. The ones above it would shoot
     // their own row in the back, and one `if` against a handle says so.
     void alien_shoot(rmp::Object &from, int index) {
-        if (index + COLUMNS < ALIENS && aliens_[index + COLUMNS]) return;
+        if (index + COLUMNS < ALIENS && _aliens[index + COLUMNS]) return;
         auto &shot = spawn({ .position = from.position, .shape = rmp::rect({ 4, 14 }) });
         shot.shape.color = RED;
         shot.velocity = { 0, 300 };
@@ -191,12 +191,12 @@ private:
     // Between frames, a handle. A raw pointer is good for the frame it was got
     // in and no longer -- and an alien is the thing most likely to die between
     // two of them.
-    rmp::Handle<rmp::Object> player_;
-    rmp::Handle<rmp::Object> aliens_[ALIENS];
-    int alive_ = 0;
-    float march_ = 0;
-    float step_ = 40;
-    float drop_ = 0;
+    rmp::Handle<rmp::Object> _player;
+    rmp::Handle<rmp::Object> _aliens[ALIENS];
+    int _alive = 0;
+    float _march = 0;
+    float _step = 40;
+    float _drop = 0;
 };
 
 } // namespace

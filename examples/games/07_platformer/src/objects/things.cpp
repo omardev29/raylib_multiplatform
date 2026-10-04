@@ -43,17 +43,17 @@ void Platform::_update(float delta) {
     // A pause at either end: a lift that turns round the instant it arrives is
     // level with the ledge for one frame, and nobody can step off in one frame.
     const Vector2 before = position;
-    if (waiting_ > 0) {
-        waiting_ -= delta;
+    if (_waiting > 0) {
+        _waiting -= delta;
     } else {
-        travelled_ += static_cast<float>(direction_) * speed * delta / length;
-        if (travelled_ >= 1 || travelled_ <= 0) {
-            travelled_ = travelled_ >= 1 ? 1.0f : 0.0f;
-            direction_ = -direction_;
-            waiting_ = 0.6f;
+        _travelled += static_cast<float>(_direction) * speed * delta / length;
+        if (_travelled >= 1 || _travelled <= 0) {
+            _travelled = _travelled >= 1 ? 1.0f : 0.0f;
+            _direction = -_direction;
+            _waiting = 0.6f;
         }
     }
-    position = { from.x + (dx * travelled_), from.y + (dy * travelled_) };
+    position = { from.x + (dx * _travelled), from.y + (dy * _travelled) };
 
     // WHOEVER STANDS ON IT GOES WITH IT. Moving it is not enough: the player
     // on top would stay where it was and the platform would slide out from
@@ -121,11 +121,11 @@ void Key::_ready() {
     collision_mask = layer::PLAYER;
 }
 
-void Key::_update(float delta) { clock_ += delta; }
+void Key::_update(float delta) { _clock += delta; }
 
 void Key::_draw() {
     const float bob =
-        std::sin(clock_ * 3) * 2; // it floats, so it reads as a thing to take
+        std::sin(_clock * 3) * 2; // it floats, so it reads as a thing to take
     draw_tile(27, { position.x - (TILE / 2), position.y - (TILE / 2) + bob });
 }
 
@@ -183,11 +183,11 @@ void Sign::_ready() {
     collision_mask = layer::PLAYER;
 }
 
-void Sign::_update(float delta) { near_ -= delta; }
+void Sign::_update(float delta) { _player_near -= delta; }
 
 void Sign::_draw() {
     draw_tile(tile, { position.x - (TILE / 2), position.y - (TILE / 2) });
-    if (near_ <= 0 || text.empty()) return;
+    if (_player_near <= 0 || text.empty()) return;
     // World space, in raylib's default font at its own 10 px: the camera's
     // zoom makes it as chunky as the art.
     const int width = MeasureText(text.c_str(), 10);
@@ -198,7 +198,7 @@ void Sign::_draw() {
 }
 
 void Sign::_collision(rmp::Object &other) {
-    if (is_player(other)) near_ = 0.15f;
+    if (is_player(other)) _player_near = 0.15f;
 }
 
 void Goal::_ready() {

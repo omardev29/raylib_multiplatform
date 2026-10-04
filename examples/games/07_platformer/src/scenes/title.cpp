@@ -18,17 +18,17 @@ void TitleScene::_ready() {
     map = rmp::assets::load_map("world.ldtk");
     camera.limits = map.bounds();
     rmp::audio::music("music");
-    best_ = best();
+    _best = best();
 }
 
 void TitleScene::_update(float delta) {
     if (GetScreenHeight() > 0)
         camera.zoom = static_cast<float>(GetScreenHeight()) / 225.0f;
-    clock_ += delta;
+    _clock += delta;
     const Rectangle b = map.bounds();
     // Slowly from one end of the level to the other and back; `limits` keeps
     // the view inside it, so the drift needs no arithmetic about the window.
-    camera.position = { b.x + (b.width / 2) + (std::sin(clock_ * 0.15f) * b.width / 2),
+    camera.position = { b.x + (b.width / 2) + (std::sin(_clock * 0.15f) * b.width / 2),
                         b.y + (b.height / 2) };
 }
 
@@ -39,9 +39,9 @@ void TitleScene::_draw() {
     rmp::ui::panel({ .background = Color{ 20, 24, 40, 210 } }, [this] {
         rmp::ui::text("Pixel Platformer",
                       { .size = rmp::ui::Size::LARGE, .wrap = false });
-        if (best_.coins >= 0) {
+        if (_best.coins >= 0) {
             rmp::ui::text(
-                TextFormat("Best: %d coins in %.1f s", best_.coins, best_.seconds),
+                TextFormat("Best: %d coins in %.1f s", _best.coins, _best.seconds),
                 { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
         }
         if (rmp::ui::button("Play")) {

@@ -72,33 +72,33 @@ constexpr Piece PIECES[7] = {
 // focus is what makes ui_accept start again without reaching for the mouse.
 template <class Game> class OverScene : public rmp::Scene {
 public:
-    explicit OverScene(const char *said) : said_(said) {}
+    explicit OverScene(const char *said) : _said(said) {}
 
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
-        rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
 private:
-    const char *said_;
+    const char *_said;
 };
 
 class TetrisScene : public rmp::Scene {
 public:
     void _ready() override {
         background = Color{ 12, 12, 18, 255 };
-        for (auto &row : board_) {
+        for (auto &row : _board) {
             for (int &cell : row) cell = -1;
         }
-        next_ = from_bag();
+        _next = from_bag();
         next_piece();
 
         rmp::Value saved;
         rmp::save::read("tetris", &saved);
-        best_ = saved["best_lines"].as_int(0);
+        _best = saved["best_lines"].as_int(0);
     }
 
     void _update(float delta) override {
@@ -106,9 +106,9 @@ public:
         if (rmp::input::just_pressed("move_right")) try_move(1, 0);
         if (rmp::input::just_pressed("ui_accept")) try_rotate();
 
-        fall_ += delta * (rmp::input::pressed("move_down") ? 12.0f : 1.0f);
-        if (fall_ < step_) return;
-        fall_ = 0;
+        _fall += delta * (rmp::input::pressed("move_down") ? 12.0f : 1.0f);
+        if (_fall < _step) return;
+        _fall = 0;
         if (!try_move(0, 1)) lock_piece();
     }
 
@@ -130,24 +130,24 @@ public:
 
         for (int y = 0; y < TALL; y++) {
             for (int x = 0; x < WIDE; x++) {
-                if (board_[y][x] < 0) continue;
-                draw_cell(x, y, PIECES[board_[y][x]].color);
+                if (_board[y][x] < 0) continue;
+                draw_cell(x, y, PIECES[_board[y][x]].color);
             }
         }
-        for (const auto &cell : shape_) {
-            draw_cell(at_[0] + cell[0], at_[1] + cell[1], PIECES[current_].color);
+        for (const auto &cell : _shape) {
+            draw_cell(_at[0] + cell[0], _at[1] + cell[1], PIECES[_current].color);
         }
-        for (const auto &cell : PIECES[next_].cells) {
+        for (const auto &cell : PIECES[_next].cells) {
             draw_block(PREVIEW.x + static_cast<float>(cell[0]) * CELL,
                        PREVIEW.y + static_cast<float>(cell[1]) * CELL,
-                       PIECES[next_].color);
+                       PIECES[_next].color);
         }
 
         EndMode2D();
 
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
-        rmp::ui::text(TextFormat("Lines %d", lines_), { .size = rmp::ui::Size::LARGE });
-        rmp::ui::text(TextFormat("Best %d", best_),
+        rmp::ui::text(TextFormat("Lines %d", _lines), { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(TextFormat("Best %d", _best),
                       { .color = rmp::ui::ColorRole::MUTED });
         rmp::ui::text("Next", { .color = rmp::ui::ColorRole::MUTED });
         rmp::ui::end();
@@ -169,15 +169,15 @@ private:
             const int x = cx + cells[i][0];
             const int y = cy + cells[i][1];
             if (x < 0 || x >= WIDE || y >= TALL) return false;
-            if (y >= 0 && board_[y][x] >= 0) return false;
+            if (y >= 0 && _board[y][x] >= 0) return false;
         }
         return true;
     }
 
     bool try_move(int dx, int dy) {
-        if (!fits(shape_, at_[0] + dx, at_[1] + dy)) return false;
-        at_[0] += dx;
-        at_[1] += dy;
+        if (!fits(_shape, _at[0] + dx, _at[1] + dy)) return false;
+        _at[0] += dx;
+        _at[1] += dy;
         return true;
     }
 
@@ -186,28 +186,28 @@ private:
         // its four cells slides the piece one column left. Every Tetris there
         // has ever been leaves it alone, and that is the rule, not a special
         // case: a rotation that moves the piece is not a rotation.
-        if (current_ == SQUARE) return;
+        if (_current == SQUARE) return;
         int turned[4][2];
         for (int i = 0; i < 4; i++) {
-            turned[i][0] = -shape_[i][1];
-            turned[i][1] = shape_[i][0];
+            turned[i][0] = -_shape[i][1];
+            turned[i][1] = _shape[i][0];
         }
-        if (!fits(turned, at_[0], at_[1])) return;
+        if (!fits(turned, _at[0], _at[1])) return;
         for (int i = 0; i < 4; i++) {
-            shape_[i][0] = turned[i][0];
-            shape_[i][1] = turned[i][1];
+            _shape[i][0] = turned[i][0];
+            _shape[i][1] = turned[i][1];
         }
     }
 
     void lock_piece() {
-        for (const auto &cell : shape_) {
-            const int x = at_[0] + cell[0];
-            const int y = at_[1] + cell[1];
+        for (const auto &cell : _shape) {
+            const int x = _at[0] + cell[0];
+            const int y = _at[1] + cell[1];
             if (y < 0) {
                 game_over();
                 return;
             }
-            board_[y][x] = current_;
+            _board[y][x] = _current;
         }
         clear_lines();
         next_piece();
@@ -216,14 +216,14 @@ private:
     void clear_lines() {
         for (int y = TALL - 1; y >= 0; y--) {
             bool full = true;
-            for (int x = 0; x < WIDE && full; x++) full = board_[y][x] >= 0;
+            for (int x = 0; x < WIDE && full; x++) full = _board[y][x] >= 0;
             if (!full) continue;
             for (int row = y; row > 0; row--) {
-                for (int x = 0; x < WIDE; x++) board_[row][x] = board_[row - 1][x];
+                for (int x = 0; x < WIDE; x++) _board[row][x] = _board[row - 1][x];
             }
-            for (int x = 0; x < WIDE; x++) board_[0][x] = -1;
-            lines_++;
-            step_ = step_ > 0.12f ? step_ - 0.01f : step_;
+            for (int x = 0; x < WIDE; x++) _board[0][x] = -1;
+            _lines++;
+            _step = _step > 0.12f ? _step - 0.01f : _step;
             y++; // the same row again, now that everything fell into it
         }
     }
@@ -233,55 +233,55 @@ private:
     // every Tetris since 2001 does this instead -- and it comes from
     // rmp::random rather than from raylib's, so the same seed is the same game.
     int from_bag() {
-        if (bag_left_ == 0) {
-            for (int i = 0; i < 7; i++) bag_[i] = i;
+        if (_bag_left == 0) {
+            for (int i = 0; i < 7; i++) _bag[i] = i;
             for (int i = 6; i > 0; i--) {
                 const int j = rmp::random::index(i + 1);
-                const int keep = bag_[i];
-                bag_[i] = bag_[j];
-                bag_[j] = keep;
+                const int keep = _bag[i];
+                _bag[i] = _bag[j];
+                _bag[j] = keep;
             }
-            bag_left_ = 7;
+            _bag_left = 7;
         }
-        return bag_[--bag_left_];
+        return _bag[--_bag_left];
     }
 
     void next_piece() {
-        current_ = next_;
-        next_ = from_bag();
+        _current = _next;
+        _next = from_bag();
         for (int i = 0; i < 4; i++) {
-            shape_[i][0] = PIECES[current_].cells[i][0];
-            shape_[i][1] = PIECES[current_].cells[i][1];
+            _shape[i][0] = PIECES[_current].cells[i][0];
+            _shape[i][1] = PIECES[_current].cells[i][1];
         }
-        at_[0] = WIDE / 2;
-        at_[1] = 0;
+        _at[0] = WIDE / 2;
+        _at[1] = 0;
         // The other way a Tetris ends: there is no room for what comes next.
-        if (!fits(shape_, at_[0], at_[1])) game_over();
+        if (!fits(_shape, _at[0], _at[1])) game_over();
     }
 
     // The one number that outlives a game, and the whole of saving it.
     void game_over() {
-        const bool record = lines_ > best_;
+        const bool record = _lines > _best;
         if (record) {
-            best_ = lines_;
+            _best = _lines;
             rmp::Value v;
-            v["best_lines"] = best_;
+            v["best_lines"] = _best;
             rmp::save::write("tetris", v);
         }
         rmp::Scene::push<OverScene<TetrisScene>>(record ? "New best!" : "Game over");
     }
 
-    int board_[TALL][WIDE] = {};
-    int shape_[4][2] = {};
-    int at_[2] = {};
-    int bag_[7] = {};
-    int bag_left_ = 0;
-    int current_ = 0;
-    int next_ = 0;
-    int lines_ = 0;
-    int best_ = 0;
-    float fall_ = 0;
-    float step_ = 0.5f;
+    int _board[TALL][WIDE] = {};
+    int _shape[4][2] = {};
+    int _at[2] = {};
+    int _bag[7] = {};
+    int _bag_left = 0;
+    int _current = 0;
+    int _next = 0;
+    int _lines = 0;
+    int _best = 0;
+    float _fall = 0;
+    float _step = 0.5f;
 };
 
 } // namespace

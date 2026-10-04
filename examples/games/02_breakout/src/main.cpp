@@ -35,18 +35,18 @@ constexpr Color ROW_COLORS[ROWS] = { MAROON, ORANGE, GOLD, LIME, SKYBLUE };
 // -- the pause overlay of examples/scenes/01_stack with another label.
 template <class Game> class OverScene : public rmp::Scene {
 public:
-    explicit OverScene(const char *said) : said_(said) {}
+    explicit OverScene(const char *said) : _said(said) {}
 
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
-        rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
 private:
-    const char *said_;
+    const char *_said;
 };
 
 class BreakoutScene : public rmp::Scene {
@@ -60,7 +60,7 @@ public:
         paddle.edges = rmp::Edge::CLAMP;
         paddle.solid = true;
         paddle.immovable = true;
-        paddle_ = paddle.handle();
+        _paddle = paddle.handle();
 
         // AN OPEN FLOOR, and it is one field: Ball sets Edge::BOUNCE, which
         // bounces off all four sides of its bounds, so a ball left with the
@@ -72,7 +72,7 @@ public:
                     .shape = rmp::circle(7),
                     .bounds = { 0, 0, RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT + 300.0f } });
         ball.add<rmp::behavior::Ball>({ .speed = 320, .speed_up = 1.03f });
-        ball_ = ball.handle();
+        _ball = ball.handle();
         serve();
 
         for (int row = 0; row < ROWS; row++) {
@@ -83,12 +83,12 @@ public:
     }
 
     void _update(float) override {
-        paddle_->velocity.x = rmp::input::axis("move_left", "move_right") * 520;
+        _paddle->velocity.x = rmp::input::axis("move_left", "move_right") * 520;
 
         // The two rules the framework has no opinion about: the ball is lost,
         // and the wall is gone.
-        if (ball_->position.y > RMP_WINDOW_HEIGHT + 20) {
-            if (--lives_ <= 0) {
+        if (_ball->position.y > RMP_WINDOW_HEIGHT + 20) {
+            if (--_lives <= 0) {
                 rmp::Scene::push<OverScene<BreakoutScene>>("Game over");
                 return;
             }
@@ -98,14 +98,14 @@ public:
             camera.shake(8, 0.35f);
             serve();
         }
-        if (bricks_ == 0) rmp::Scene::push<OverScene<BreakoutScene>>("You win");
+        if (_bricks == 0) rmp::Scene::push<OverScene<BreakoutScene>>("You win");
     }
 
     void _draw() override {
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::row({ .gap = 24 }, [&] {
-            rmp::ui::text(TextFormat("Bricks %d", bricks_));
-            rmp::ui::text(TextFormat("Lives %d", lives_),
+            rmp::ui::text(TextFormat("Bricks %d", _bricks));
+            rmp::ui::text(TextFormat("Lives %d", _lives),
                           { .color = rmp::ui::ColorRole::DANGER });
         });
         rmp::ui::end();
@@ -121,12 +121,12 @@ private:
         brick.solid = true;
         brick.immovable = true;
         brick.shape.color = ROW_COLORS[row];
-        bricks_++;
+        _bricks++;
         // The whole of "a brick breaks". No behavior, no subclass.
         brick.on_collision([this](rmp::Object &self, rmp::Object &other) {
-            if (&other != ball_.get()) return;
+            if (&other != _ball.get()) return;
             self.destroy();
-            bricks_--;
+            _bricks--;
         });
     }
 
@@ -134,17 +134,17 @@ private:
     // upwards, and an impulse rather than a force because only the direction
     // survives -- Ball normalises whatever it is given to `speed`.
     void serve() {
-        ball_->position = { paddle_->position.x, PADDLE_Y - 40 };
-        ball_->velocity = {};
-        ball_->apply_impulse({ 0.4f, -1 });
+        _ball->position = { _paddle->position.x, PADDLE_Y - 40 };
+        _ball->velocity = {};
+        _ball->apply_impulse({ 0.4f, -1 });
     }
 
     // Between frames, a handle. A raw pointer is good for the frame it was got
     // in and no longer -- see rmp/object.h.
-    rmp::Handle<rmp::Object> paddle_;
-    rmp::Handle<rmp::Object> ball_;
-    int bricks_ = 0;
-    int lives_ = LIVES;
+    rmp::Handle<rmp::Object> _paddle;
+    rmp::Handle<rmp::Object> _ball;
+    int _bricks = 0;
+    int _lives = LIVES;
 };
 
 } // namespace

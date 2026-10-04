@@ -46,7 +46,7 @@ import sys
 
 # The rules that hold on the tree today. A rule is written, proven red on a
 # fixture, and joins this set the commit its rename lands.
-ENFORCED = {"R2", "R4", "R5", "R6", "R7"}
+ENFORCED = {"R2", "R3", "R4", "R5", "R6", "R7"}
 
 RULES = {
     "R1": "a `g_` name: file state is a struct per concern (`frame.open`), "

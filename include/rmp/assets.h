@@ -113,20 +113,20 @@ int ref_count(const char *name);
 template <class T, ResourceKind K> class Resource {
 public:
     Resource() = default;
-    explicit Resource(Slot *slot) : slot_(slot) {}
+    explicit Resource(Slot *slot) : _slot(slot) {}
 
-    Resource(const Resource &other) : slot_(other.slot()) { retain(slot_); }
-    Resource(Resource &&other) noexcept : slot_(other.trade(nullptr)) {}
+    Resource(const Resource &other) : _slot(other.slot()) { retain(_slot); }
+    Resource(Resource &&other) noexcept : _slot(other.trade(nullptr)) {}
 
     // Copy-and-swap: one operator for copy AND move assignment, and
     // self-assignment cannot go wrong because the argument is already a copy.
     Resource &operator=(Resource other) noexcept {
-        slot_ = other.trade(slot_);
+        _slot = other.trade(_slot);
         return *this;
     }
-    ~Resource() { release(slot_); }
+    ~Resource() { release(_slot); }
 
-    bool valid() const { return slot_ != nullptr; }
+    bool valid() const { return _slot != nullptr; }
     explicit operator bool() const { return valid(); }
 
     // An empty resource yields a zeroed raylib struct rather than a crash.
@@ -134,7 +134,7 @@ public:
     // asset should have: a hole in the picture, not a dead process.
     const T &raw() const {
         static const T EMPTY{};
-        const void *p = payload(slot_);
+        const void *p = payload(_slot);
         return p ? *static_cast<const T *>(p) : EMPTY;
     }
     // Only an LVALUE converts. `DrawTexture(rabbit, ...)` compiles;
@@ -152,14 +152,14 @@ private:
     // Another resource's slot is reached through these and never by name: an
     // underscore does not touch a dot. trade() hands this resource's slot over
     // and keeps `given` in its place -- the swap and the move are both one.
-    Slot *slot() const { return slot_; }
+    Slot *slot() const { return _slot; }
     Slot *trade(Slot *given) noexcept {
-        Slot *had = slot_;
-        slot_ = given;
+        Slot *had = _slot;
+        _slot = given;
         return had;
     }
 
-    Slot *slot_ = nullptr;
+    Slot *_slot = nullptr;
 };
 
 } // namespace detail

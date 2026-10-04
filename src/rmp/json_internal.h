@@ -42,18 +42,18 @@ public:
         const char *point = std::localeconv()->decimal_point;
         if (point != nullptr && std::strcmp(point, ".") == 0) return;
         const char *current = std::setlocale(LC_NUMERIC, nullptr);
-        saved_ = current != nullptr ? current : "C";
-        switched_ = std::setlocale(LC_NUMERIC, "C") != nullptr;
+        _saved = current != nullptr ? current : "C";
+        _switched = std::setlocale(LC_NUMERIC, "C") != nullptr;
     }
     ~CNumbers() {
-        if (switched_) std::setlocale(LC_NUMERIC, saved_.c_str());
+        if (_switched) std::setlocale(LC_NUMERIC, _saved.c_str());
     }
     CNumbers(const CNumbers &) = delete;
     CNumbers &operator=(const CNumbers &) = delete;
 
 private:
-    std::string saved_;
-    bool switched_ = false;
+    std::string _saved;
+    bool _switched = false;
 };
 
 } // namespace rmp::detail

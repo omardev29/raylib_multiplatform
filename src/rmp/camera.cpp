@@ -57,7 +57,7 @@ Camera2D Camera::raylib() const {
     // the shake that points inwards shows.
     const Rectangle v = view();
     const Vector2 shaken =
-        clamp_to(Vector2{ position.x + shake_now_.x, position.y + shake_now_.y }, limits,
+        clamp_to(Vector2{ position.x + _shake_now.x, position.y + _shake_now.y }, limits,
                  v.width, v.height);
     return Camera2D{ .offset = Vector2{ screen.x / 2, screen.y / 2 },
                      .target = shaken,
@@ -93,15 +93,15 @@ void Camera::shake(float strength, float seconds) {
     // measured against what the running shake is doing NOW -- its strength
     // times the square of the time left, the same envelope that moves the
     // screen -- so a hit landing on the tail of a big shake is felt.
-    const float remaining = shake_seconds_ - shake_elapsed_;
+    const float remaining = _shake_seconds - _shake_elapsed;
     const float left =
-        (shake_seconds_ > 0 && remaining > 0) ? remaining / shake_seconds_ : 0.0f;
-    if (strength < shake_strength_ * left * left) return;
+        (_shake_seconds > 0 && remaining > 0) ? remaining / _shake_seconds : 0.0f;
+    if (strength < _shake_strength * left * left) return;
     // And a short strong hit does not cut a long shake short: it lasts at
     // least as long as what was left of the one it replaces.
-    shake_strength_ = strength;
-    shake_seconds_ = remaining > seconds ? remaining : seconds;
-    shake_elapsed_ = 0;
+    _shake_strength = strength;
+    _shake_seconds = remaining > seconds ? remaining : seconds;
+    _shake_elapsed = 0;
 }
 
 void Camera::detail_settle(float delta) {
@@ -111,7 +111,7 @@ void Camera::detail_settle(float delta) {
     const float dt = delta > 0 ? delta : 0.0f;
 
     if (const Object *target = follow.get()) {
-        const bool new_target = !(follow == followed_);
+        const bool new_target = !(follow == _followed);
         // An infinite rate is a snap, and must not become -inf * 0 = NaN on a
         // frame with no time in it.
         if (smoothing > 0 && std::isfinite(smoothing) && !new_target) {
@@ -125,9 +125,9 @@ void Camera::detail_settle(float delta) {
         } else {
             position = target->position;
         }
-        followed_ = follow;
+        _followed = follow;
     } else {
-        followed_ = Handle<Object>();
+        _followed = Handle<Object>();
     }
 
     // Limits win over follow -- see clamp_to() for the rule, which raylib()
@@ -141,17 +141,17 @@ void Camera::detail_settle(float delta) {
     // not random numbers: white noise changes direction every frame and
     // reads as a broken monitor, and a pure function of the elapsed time is
     // also exactly reproducible, so a test can pin it.
-    if (shake_seconds_ > 0) {
-        shake_elapsed_ += dt;
-        if (shake_elapsed_ >= shake_seconds_) {
-            shake_strength_ = 0;
-            shake_seconds_ = 0;
-            shake_elapsed_ = 0;
-            shake_now_ = Vector2{ 0, 0 };
+    if (_shake_seconds > 0) {
+        _shake_elapsed += dt;
+        if (_shake_elapsed >= _shake_seconds) {
+            _shake_strength = 0;
+            _shake_seconds = 0;
+            _shake_elapsed = 0;
+            _shake_now = Vector2{ 0, 0 };
         } else {
-            const float left = 1.0f - shake_elapsed_ / shake_seconds_;
-            const float amplitude = shake_strength_ * left * left;
-            const float e = shake_elapsed_;
+            const float left = 1.0f - _shake_elapsed / _shake_seconds;
+            const float amplitude = _shake_strength * left * left;
+            const float e = _shake_elapsed;
             const float sx =
                 0.6f * std::sin(e * 47.0f) + 0.4f * std::sin(e * 83.0f + 1.3f);
             const float sy =
@@ -162,7 +162,7 @@ void Camera::detail_settle(float delta) {
             // so "up to `strength`" is true in every direction.
             const float len = std::sqrt(sx * sx + sy * sy);
             const float scale = len > 1.0f ? amplitude / len : amplitude;
-            shake_now_ = Vector2{ sx * scale, sy * scale };
+            _shake_now = Vector2{ sx * scale, sy * scale };
         }
     }
 }

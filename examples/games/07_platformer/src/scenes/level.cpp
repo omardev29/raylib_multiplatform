@@ -16,18 +16,18 @@
 namespace game {
 
 LevelScene::LevelScene(std::string level, Entry entry)
-    : level_(std::move(level)), entry_(entry) {}
+    : _level(std::move(level)), _entry(entry) {}
 
 void LevelScene::_ready() {
     // "" is the first level of the world, whatever LDtk calls it: rename or
     // reorder the levels there and the game still starts at the beginning.
-    map = rmp::assets::load_map("world.ldtk", level_);
+    map = rmp::assets::load_map("world.ldtk", _level);
     rmp::audio::music("music"); // already playing after a level change: not restarted
 
     // The player first, so that what is built below can know who it is.
     auto &player =
-        spawn<Player>({ .position = entry_.position, .velocity = entry_.velocity });
-    player_ = player.handle();
+        spawn<Player>({ .position = _entry.position, .velocity = _entry.velocity });
+    _player = player.handle();
 
     // ---- what LDtk placed, one factory per entity -------------------------
     //
@@ -35,7 +35,7 @@ void LevelScene::_ready() {
     // run().gone by its iid, and is simply not built again.
 
     map.on_object("Player", [this](rmp::Scene &, const rmp::MapObject &o) {
-        if (!entry_.carried) player_->position = o.position;
+        if (!_entry.carried) _player->position = o.position;
     });
     map.on_object("Coin", [](rmp::Scene &s, const rmp::MapObject &o) {
         if (contains(run().gone, o.iid)) return;
@@ -74,7 +74,7 @@ void LevelScene::_ready() {
         platform.from = o.position;
         platform.to = o.property_point("to", o.position);
         platform.speed = o.property_float("speed", 40);
-        platform.rider = player_;
+        platform.rider = _player;
     });
     map.on_object("Key", [](rmp::Scene &s, const rmp::MapObject &o) {
         if (contains(run().gone, o.iid)) return;
@@ -104,10 +104,10 @@ void LevelScene::_ready() {
         s.spawn<Goal>({ .position = o.position });
     });
     map.spawn_objects(*this);
-    start_ = player_->position;
+    _start = _player->position;
 
     // ---- the camera ----------------------------------------------------------
-    camera.follow = player_;
+    camera.follow = _player;
     camera.limits = map.bounds(); // the level's own rectangle, in the world
     camera.smoothing = 10;
 }
@@ -117,17 +117,17 @@ void LevelScene::_update(float delta) {
     // art is 18 px, and that is what makes it look like a game and not a map.
     if (GetScreenHeight() > 0)
         camera.zoom = static_cast<float>(GetScreenHeight()) / 225.0f;
-    if (over_) return;
+    if (_over) return;
     run().seconds += delta;
 
-    Player *player = static_cast<Player *>(player_.get());
+    Player *player = static_cast<Player *>(_player.get());
     if (player == nullptr) return;
 
     // THE NEXT LEVEL. Out of this one and into another of the world: change
     // to it, and arrive at the same world position going the same way.
     const char *next = map.neighbour_at(player->position);
     if (next[0] != '\0') {
-        over_ = true;
+        _over = true;
         rmp::Scene::change<LevelScene>(next,
                                        Entry{ true, player->position, player->velocity });
         return;
@@ -141,32 +141,32 @@ void LevelScene::_update(float delta) {
     }
     if (player->position.y > b.y + b.height + 48) {
         lose_life();
-        if (!over_) respawn();
+        if (!_over) respawn();
     }
 }
 
 void LevelScene::lose_life() {
-    if (over_) return;
+    if (_over) return;
     Run &r = run();
     r.lives--;
     camera.shake(5, 0.35f);
     rmp::audio::play("hurt");
     if (r.lives > 0) return;
-    over_ = true;
+    _over = true;
     rmp::audio::music("lose", false);
     rmp::Scene::push<EndScene>(false, false);
 }
 
 void LevelScene::respawn() {
-    if (Player *player = static_cast<Player *>(player_.get())) {
-        player->position = start_;
+    if (Player *player = static_cast<Player *>(_player.get())) {
+        player->position = _start;
         player->velocity = Vector2{};
     }
 }
 
 void LevelScene::win() {
-    if (over_) return;
-    over_ = true;
+    if (_over) return;
+    _over = true;
     const bool record = keep_if_best(run().coins, run().seconds);
     rmp::audio::music("win", false);
     rmp::Scene::push<EndScene>(true, record);

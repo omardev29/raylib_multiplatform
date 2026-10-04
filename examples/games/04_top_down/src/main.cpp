@@ -31,18 +31,18 @@ constexpr float DOOR_Y = 225; // the gap in the right-hand wall
 // -- the pause overlay of examples/scenes/01_stack with another label.
 template <class Game> class OverScene : public rmp::Scene {
 public:
-    explicit OverScene(const char *said) : said_(said) {}
+    explicit OverScene(const char *said) : _said(said) {}
 
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
-        rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
 private:
-    const char *said_;
+    const char *_said;
 };
 
 class TopDownScene : public rmp::Scene {
@@ -89,7 +89,7 @@ public:
                 },
             .hurt_by = layer::ENEMY,
         });
-        player_ = player.handle();
+        _player = player.handle();
 
         for (int i = 0; i < ENEMIES; i++) add_enemy(560 + static_cast<float>(i) * 30);
     }
@@ -99,12 +99,12 @@ public:
     }
 
     void _draw() override {
-        auto *health = player_->get<rmp::behavior::Health>();
+        auto *health = _player->get<rmp::behavior::Health>();
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::row({ .gap = 16 }, [&] {
             rmp::ui::progress(static_cast<float>(health->hp) / PLAYER_HP,
                               { .width = 150, .fill = rmp::ui::current_theme().danger });
-            rmp::ui::text(TextFormat("Enemies %d", enemies_));
+            rmp::ui::text(TextFormat("Enemies %d", _enemies));
         });
         rmp::ui::end();
     }
@@ -140,23 +140,23 @@ private:
         // each other.
         enemy.collision_mask = layer::WORLD | layer::BULLET | layer::PLAYER;
         enemy.shape.color = MAROON;
-        enemy.add<rmp::behavior::Follow>({ .target = player_, .speed = 90 });
+        enemy.add<rmp::behavior::Follow>({ .target = _player, .speed = 90 });
         // Two hits, and what may land them. No `if` at the top of a
         // _collision, and no counter of our own: `hurt_by` is the rule and
         // on_death is what the room does about it.
         enemy.add<rmp::behavior::Health>({
             .hp = 2,
             .invulnerable_for = 0.1f,
-            .on_death = [this](rmp::Object &) { enemies_--; },
+            .on_death = [this](rmp::Object &) { _enemies--; },
             .hurt_by = layer::BULLET,
         });
-        enemies_++;
+        _enemies++;
     }
 
     void shoot() {
         // The direction the character is facing, which is what TopDown keeps.
-        const Vector2 aim = player_->get<rmp::behavior::TopDown>()->direction();
-        auto &shot = spawn({ .position = player_->position, .shape = rmp::circle(4) });
+        const Vector2 aim = _player->get<rmp::behavior::TopDown>()->direction();
+        auto &shot = spawn({ .position = _player->position, .shape = rmp::circle(4) });
         shot.shape.color = GOLD;
         shot.velocity = { aim.x * 520, aim.y * 520 };
         shot.collision_layer = layer::BULLET;
@@ -167,8 +167,8 @@ private:
 
     // Between frames, a handle -- and Follow takes one for the same reason:
     // what is being chased is the thing most likely to die while it is chased.
-    rmp::Handle<rmp::Object> player_;
-    int enemies_ = 0;
+    rmp::Handle<rmp::Object> _player;
+    int _enemies = 0;
 };
 
 } // namespace

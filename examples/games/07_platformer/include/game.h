@@ -72,8 +72,8 @@ public:
     void _draw() override;
 
 private:
-    Best best_; // read once: a file, not something to ask sixty times a second
-    float clock_ = 0;
+    Best _best; // read once: a file, not something to ask sixty times a second
+    float _clock = 0;
 };
 
 // Where the player comes into a level from: nowhere (a new game, or a level
@@ -99,11 +99,11 @@ public:
 private:
     void respawn();
 
-    std::string level_;
-    Entry entry_;
-    Vector2 start_{}; // where a lost life puts the player back
-    rmp::Handle<rmp::Object> player_;
-    bool over_ = false;
+    std::string _level;
+    Entry _entry;
+    Vector2 _start{}; // where a lost life puts the player back
+    rmp::Handle<rmp::Object> _player;
+    bool _over = false;
 };
 
 // Pushed on top of the level when it ends: the level stays on screen, frozen,
@@ -114,8 +114,8 @@ public:
     void _draw() override;
 
 private:
-    bool won_;
-    bool record_;
+    bool _won;
+    bool _record;
 };
 
 } // namespace game

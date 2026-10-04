@@ -71,16 +71,16 @@ public:
     // every pointer in the program would quietly convert to `true`.
     template <class B>
         requires std::is_same_v<B, bool>
-    Value(B b) : type_(Type::BOOL), boolean_(b) {}
+    Value(B b) : _type(Type::BOOL), _boolean(b) {}
     // Every number type, as a double: an int survives exactly up to 2^53.
     template <class N>
         requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool>)
-    Value(N n) : type_(Type::NUMBER), number_(static_cast<double>(n)) {}
-    Value(std::string_view s) : type_(Type::STRING), string_(s) {}
-    Value(std::string s) : type_(Type::STRING), string_(std::move(s)) {}
+    Value(N n) : _type(Type::NUMBER), _number(static_cast<double>(n)) {}
+    Value(std::string_view s) : _type(Type::STRING), _string(s) {}
+    Value(std::string s) : _type(Type::STRING), _string(std::move(s)) {}
     // Without this a string literal would become a bool, which is what C++
     // does with a pointer when it is given the choice.
-    Value(const char *s) : type_(Type::STRING), string_(s != nullptr ? s : "") {}
+    Value(const char *s) : _type(Type::STRING), _string(s != nullptr ? s : "") {}
 
     // An empty list or object, for when "nothing yet" has to be one of them:
     // v["inventory"] = rmp::Value::list();
@@ -98,7 +98,7 @@ public:
     // object or list that holds it moves it. The fallback's lifetime is yours.
     [[nodiscard]] std::string_view as_string(std::string_view fallback = "") const;
 
-    [[nodiscard]] Type type() const { return type_; }
+    [[nodiscard]] Type type() const { return _type; }
     // Elements of a list, keys of an object; 0 for anything else. A member
     // assigned NONE counts as absent, here and in key(), contains(), == and
     // the file: nothing and missing read the same.
@@ -133,7 +133,7 @@ public:
 
     // The [save] version this came from, when rmp::save::read() filled it; a
     // Value made in code is of this build's version. Not compared by ==.
-    [[nodiscard]] int version() const { return version_; }
+    [[nodiscard]] int version() const { return _version; }
 
     // Same type and same contents, keys in any order.
     friend bool operator==(const Value &a, const Value &b);
@@ -143,21 +143,21 @@ private:
 
     // For list() and object(), and the walks in value.cpp: another Value's
     // fields are reached through these, never by name.
-    explicit Value(Type type) : type_(type) {}
-    [[nodiscard]] double number() const { return number_; }
-    [[nodiscard]] std::vector<std::string> &keys() { return keys_; }
-    [[nodiscard]] const std::vector<std::string> &keys() const { return keys_; }
-    [[nodiscard]] std::vector<Value> &items() { return items_; }
-    [[nodiscard]] const std::vector<Value> &items() const { return items_; }
-    void set_version(int version) { version_ = version; }
+    explicit Value(Type type) : _type(type) {}
+    [[nodiscard]] double number() const { return _number; }
+    [[nodiscard]] std::vector<std::string> &keys() { return _keys; }
+    [[nodiscard]] const std::vector<std::string> &keys() const { return _keys; }
+    [[nodiscard]] std::vector<Value> &items() { return _items; }
+    [[nodiscard]] const std::vector<Value> &items() const { return _items; }
+    void set_version(int version) { _version = version; }
 
-    Type type_ = Type::NONE;
-    bool boolean_ = false;
-    double number_ = 0;
-    std::string string_;
-    std::vector<std::string> keys_; // OBJECT: keys_[i] names items_[i]
-    std::vector<Value> items_; // LIST and OBJECT
-    int version_ = RMP_SAVE_VERSION;
+    Type _type = Type::NONE;
+    bool _boolean = false;
+    double _number = 0;
+    std::string _string;
+    std::vector<std::string> _keys; // OBJECT: _keys[i] names _items[i]
+    std::vector<Value> _items; // LIST and OBJECT
+    int _version = RMP_SAVE_VERSION;
 };
 
 // What [] on a non-const Value gives: the root it started from and the keys
@@ -219,14 +219,14 @@ private:
     };
     Ref(Value *root, Step first);
     // One more key or index on the path; operator[] builds a deeper Ref so.
-    void extend(Step step) { path_.push_back(std::move(step)); }
+    void extend(Step step) { _path.push_back(std::move(step)); }
     // The Value to write into, created on the way; nullptr (said once) when
     // the path cannot be made. find() is the same walk creating nothing.
     Value *materialise();
     Value *find();
 
-    Value *root_;
-    std::vector<Step> path_;
+    Value *_root;
+    std::vector<Step> _path;
 };
 
 namespace save {

@@ -46,13 +46,13 @@ void Player::_ready() {
 
 void Player::_update(float delta) {
     const auto *platformer = get<rmp::behavior::Platformer>();
-    grace_ -= delta;
-    knocked_ -= delta;
+    _grace -= delta;
+    _knocked -= delta;
 
     // Thrown back after a hit: the knock wins over the stick for a moment.
-    if (knocked_ > 0) velocity.x = std::copysign(110.0f, velocity.x);
+    if (_knocked > 0) velocity.x = std::copysign(110.0f, velocity.x);
     // Blinking while it cannot be hurt, so the player can see the grace.
-    visible = grace_ <= 0 || std::fmod(grace_, 0.2f) < 0.12f;
+    visible = _grace <= 0 || std::fmod(_grace, 0.2f) < 0.12f;
 
     // A jump is the Platformer spending one: the sound goes with that, so a
     // buffered jump and a coyote jump sound like any other.
@@ -72,13 +72,13 @@ void Player::_update(float delta) {
     }
     if (velocity.x < -1) flip_x = false;
     if (velocity.x > 1) flip_x = true;
-    was_on_ground_ = on_ground;
+    _was_on_ground = on_ground;
 }
 
 void Player::hurt(float from_x) {
-    if (grace_ > 0) return;
-    grace_ = GRACE;
-    knocked_ = KNOCK;
+    if (_grace > 0) return;
+    _grace = GRACE;
+    _knocked = KNOCK;
     velocity = { position.x < from_x ? -110.0f : 110.0f, -240 };
     // The player only ever lives in a LevelScene.
     static_cast<LevelScene *>(scene())->lose_life();

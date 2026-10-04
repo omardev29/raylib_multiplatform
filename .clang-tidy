@@ -172,11 +172,12 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.MethodCase
     value: lower_case
-  # The access rule: a method you override is _ready, _update, _draw, _end,
-  # _collision. Legal as a member (reserved only at global scope) and checked
-  # here so nobody spells one of them differently.
+  # The access rule: a leading underscore on a METHOD means "the framework calls
+  # this", and only the eight hooks wear it. Legal as a member (reserved only
+  # at global scope). Any other _method fails here, so a private field never
+  # takes a hook's name and a helper never looks like one.
   - key: readability-identifier-naming.MethodIgnoredRegexp
-    value: '^_[a-z][a-z_]*$'
+    value: '^_(ready|update|late_update|draw|collision|end|suspend|resume)$'
 
   - key: readability-identifier-naming.VariableCase
     value: lower_case
@@ -188,12 +189,17 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.PrivateMemberCase
     value: lower_case
-  # A private member carries a trailing underscore, so that a constructor can
-  # take `slot` and assign it to `slot_` without either shadowing the other.
-  - key: readability-identifier-naming.PrivateMemberSuffix
-    value: '_' 
+  # A private or protected member carries a LEADING underscore, so that a
+  # constructor can take `slot` and assign it to `_slot` without either
+  # shadowing the other. It never touches a dot: another object's private
+  # field is reached through a method that says what is taken
+  # (tools/naming_check.sh R3 and R4, which see the uses this cannot).
+  - key: readability-identifier-naming.PrivateMemberPrefix
+    value: '_'
   - key: readability-identifier-naming.ProtectedMemberCase
     value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberPrefix
+    value: '_'
   # File-scope mutable state carries g_, so that a global is visible as one at
   # every use. There should be very little of it, and there is.
   - key: readability-identifier-naming.GlobalVariableCase

@@ -56,35 +56,35 @@ Value Value::list() { return Value(Type::LIST); }
 Value Value::object() { return Value(Type::OBJECT); }
 
 bool Value::as_bool(bool fallback) const {
-    return type_ == Type::BOOL ? boolean_ : fallback;
+    return _type == Type::BOOL ? _boolean : fallback;
 }
 
 int Value::as_int(int fallback) const {
-    if (type_ != Type::NUMBER || std::isnan(number_)) return fallback;
+    if (_type != Type::NUMBER || std::isnan(_number)) return fallback;
     // Clamped BEFORE the cast: converting a double outside int's range to int
     // is undefined behaviour, and 1e10 coins in an edited save must not be.
-    if (number_ >= static_cast<double>(INT_MAX)) return INT_MAX;
-    if (number_ <= static_cast<double>(INT_MIN)) return INT_MIN;
-    return static_cast<int>(number_);
+    if (_number >= static_cast<double>(INT_MAX)) return INT_MAX;
+    if (_number <= static_cast<double>(INT_MIN)) return INT_MIN;
+    return static_cast<int>(_number);
 }
 
 float Value::as_float(float fallback) const {
-    if (type_ != Type::NUMBER || std::isnan(number_)) return fallback;
-    return static_cast<float>(number_);
+    if (_type != Type::NUMBER || std::isnan(_number)) return fallback;
+    return static_cast<float>(_number);
 }
 
 std::string_view Value::as_string(std::string_view fallback) const {
-    return type_ == Type::STRING ? std::string_view(string_) : fallback;
+    return _type == Type::STRING ? std::string_view(_string) : fallback;
 }
 
 // An object member that holds nothing does not exist, for every function
 // here: `v["x"] = rmp::Value{}` clears a key, and "nothing" and "missing" read
 // the same everywhere -- size(), key(), contains(), == and the file.
 int Value::size() const {
-    if (type_ == Type::LIST) return static_cast<int>(items_.size());
-    if (type_ != Type::OBJECT) return 0;
+    if (_type == Type::LIST) return static_cast<int>(_items.size());
+    if (_type != Type::OBJECT) return 0;
     return static_cast<int>(std::ranges::count_if(
-        items_, [](const Value &item) { return item.type() != Type::NONE; }));
+        _items, [](const Value &item) { return item.type() != Type::NONE; }));
 }
 
 bool Value::contains(std::string_view key) const {
@@ -92,51 +92,51 @@ bool Value::contains(std::string_view key) const {
 }
 
 std::string_view Value::key(int index) const {
-    if (type_ != Type::OBJECT || index < 0) return {};
+    if (_type != Type::OBJECT || index < 0) return {};
     int seen = 0;
-    for (std::size_t i = 0; i < keys_.size(); i++) {
-        if (items_[i].type() == Type::NONE) continue;
-        if (seen++ == index) return keys_[i];
+    for (std::size_t i = 0; i < _keys.size(); i++) {
+        if (_items[i].type() == Type::NONE) continue;
+        if (seen++ == index) return _keys[i];
     }
     return {};
 }
 
 const Value &Value::operator[](std::string_view key) const {
-    if (type_ != Type::OBJECT) return none();
-    for (std::size_t i = 0; i < keys_.size(); i++) {
-        if (keys_[i] == key) return items_[i];
+    if (_type != Type::OBJECT) return none();
+    for (std::size_t i = 0; i < _keys.size(); i++) {
+        if (_keys[i] == key) return _items[i];
     }
     return none();
 }
 
 const Value &Value::operator[](int index) const {
-    if (type_ != Type::LIST || index < 0 ||
-        std::cmp_greater_equal(index, items_.size())) {
+    if (_type != Type::LIST || index < 0 ||
+        std::cmp_greater_equal(index, _items.size())) {
         return none();
     }
-    return items_[static_cast<std::size_t>(index)];
+    return _items[static_cast<std::size_t>(index)];
 }
 
 void Value::push(Value value) {
-    if (type_ == Type::NONE) type_ = Type::LIST;
-    if (type_ != Type::LIST) {
+    if (_type == Type::NONE) _type = Type::LIST;
+    if (_type != Type::LIST) {
         RMP_REPORT_ONCE(
             "SAVE: push() on %s: only a list can be pushed to; nothing was added",
-            type_name(type_));
+            type_name(_type));
         return;
     }
-    items_.push_back(std::move(value));
+    _items.push_back(std::move(value));
 }
 
 bool Value::erase(std::string_view key) {
-    if (type_ != Type::OBJECT) return false;
-    for (std::size_t i = 0; i < keys_.size(); i++) {
-        if (keys_[i] == key) {
+    if (_type != Type::OBJECT) return false;
+    for (std::size_t i = 0; i < _keys.size(); i++) {
+        if (_keys[i] == key) {
             // A member holding nothing was not there, so erasing it is
             // "false" -- and it goes all the same.
-            const bool was_there = items_[i].type() != Type::NONE;
-            keys_.erase(keys_.begin() + static_cast<std::ptrdiff_t>(i));
-            items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(i));
+            const bool was_there = _items[i].type() != Type::NONE;
+            _keys.erase(_keys.begin() + static_cast<std::ptrdiff_t>(i));
+            _items.erase(_items.begin() + static_cast<std::ptrdiff_t>(i));
             return was_there;
         }
     }
@@ -183,8 +183,8 @@ Value::Ref Value::operator[](int index) {
     return Ref(this, Ref::Step{ .key = {}, .index = index, .is_key = false });
 }
 
-Value::Ref::Ref(Value *root, Step first) : root_(root) {
-    path_.push_back(std::move(first));
+Value::Ref::Ref(Value *root, Step first) : _root(root) {
+    _path.push_back(std::move(first));
 }
 
 Value::Ref Value::Ref::operator[](std::string_view key) const {
@@ -200,16 +200,16 @@ Value::Ref Value::Ref::operator[](int index) const {
 }
 
 const Value &Value::Ref::get() const {
-    const Value *at = root_;
-    for (const Step &step : path_) {
+    const Value *at = _root;
+    for (const Step &step : _path) {
         at = step.is_key ? &(*at)[std::string_view(step.key)] : &(*at)[step.index];
     }
     return *at;
 }
 
 Value *Value::Ref::find() {
-    Value *at = root_;
-    for (const Step &step : path_) {
+    Value *at = _root;
+    for (const Step &step : _path) {
         Value *next = nullptr;
         if (step.is_key && at->type() == Type::OBJECT) {
             for (std::size_t i = 0; i < at->keys().size(); i++) {
@@ -232,8 +232,8 @@ Value *Value::Ref::materialise() {
     // on an empty Value -- had already turned "a" and "b" into an object and
     // an empty list, which then went into the file while the log said
     // nothing was written.
-    const Value *at = root_; // nullptr once the path leaves what exists
-    for (const Step &step : path_) {
+    const Value *at = _root; // nullptr once the path leaves what exists
+    for (const Step &step : _path) {
         const Type type = at != nullptr ? at->type() : Type::NONE;
         if (step.is_key) {
             if (type != Type::NONE && type != Type::OBJECT) {
@@ -270,8 +270,8 @@ Value *Value::Ref::materialise() {
         }
     }
 
-    Value *here = root_;
-    for (const Step &step : path_) {
+    Value *here = _root;
+    for (const Step &step : _path) {
         if (step.is_key) {
             if (here->type() == Type::NONE) *here = Value::object();
             Value *found = nullptr;

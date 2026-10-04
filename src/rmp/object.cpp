@@ -189,54 +189,54 @@ void Storage::set_behavior_slot(Object &object, int slot) {
 // ---------------------------------------------------------------------------
 
 void Object::attach(Scene *scene, unsigned index, unsigned generation, Vector2 position) {
-    scene_ = scene;
-    index_ = index;
-    generation_ = generation;
-    alive_ = true;
+    _scene = scene;
+    _index = index;
+    _generation = generation;
+    _alive = true;
     // Not {0,0}. The swept test reads the difference between this and the
     // current position, so a brand new object at (900, 400) would look like it
     // had crossed the whole world this frame -- and in a scene full of them,
     // every swept box would span from the origin and they would all "collide"
     // near it. Found by the differential test, which is the one place a wrong
     // answer of that shape cannot hide.
-    previous_position_ = position;
+    _previous_position = position;
 }
 
 Vector2 Object::take_force() {
-    const Vector2 force = pending_force_;
-    pending_force_ = Vector2{ 0, 0 };
+    const Vector2 force = _pending_force;
+    _pending_force = Vector2{ 0, 0 };
     return force;
 }
 
-Vector2 Object::previous_position() const { return previous_position_; }
+Vector2 Object::previous_position() const { return _previous_position; }
 
-void Object::remember_position() { previous_position_ = position; }
+void Object::remember_position() { _previous_position = position; }
 
-void Object::notify_collision(Object &other) { collision_(*this, other); }
+void Object::notify_collision(Object &other) { _collision_handler(*this, other); }
 
-void Object::notify_click() { click_(*this); }
+void Object::notify_click() { _click_handler(*this); }
 
-void Object::notify_drag(Vector2 moved) { drag_(*this, moved); }
+void Object::notify_drag(Vector2 moved) { _drag_handler(*this, moved); }
 
 bool Object::has_pointer_callback() const {
-    return static_cast<bool>(click_) || static_cast<bool>(drag_);
+    return static_cast<bool>(_click_handler) || static_cast<bool>(_drag_handler);
 }
 
-int Object::behavior_slot() const { return behavior_slot_; }
+int Object::behavior_slot() const { return _behavior_slot; }
 
-void Object::set_behavior_slot(int slot) { behavior_slot_ = slot; }
+void Object::set_behavior_slot(int slot) { _behavior_slot = slot; }
 
-bool Object::entered_bounds() const { return entered_bounds_; }
+bool Object::entered_bounds() const { return _entered_bounds; }
 
-void Object::set_entered_bounds(bool entered) { entered_bounds_ = entered; }
+void Object::set_entered_bounds(bool entered) { _entered_bounds = entered; }
 
 // ---------------------------------------------------------------------------
 // Object
 // ---------------------------------------------------------------------------
 
 void Object::apply_force(Vector2 force) {
-    pending_force_.x += force.x;
-    pending_force_.y += force.y;
+    _pending_force.x += force.x;
+    _pending_force.y += force.y;
 }
 
 void Object::apply_impulse(Vector2 impulse) {
@@ -310,20 +310,20 @@ Object::~Object() {
 }
 
 void Object::destroy() {
-    if (!alive_) return; // twice is harmless, and happens
-    alive_ = false;
+    if (!_alive) return; // twice is harmless, and happens
+    _alive = false;
     _end();
     // After the object's own _end, for the same reason a scene's objects go
     // after the scene's: the thing being torn down gets to speak first, while
     // everything it owns is still there.
     objects::detail::release_behaviors(*this);
     // Generation 0 is "points at nothing", so an object carrying it was never
-    // spawned and owns no slot. Releasing index_ anyway frees SLOT ZERO --
+    // spawned and owns no slot. Releasing _index anyway frees SLOT ZERO --
     // whoever the scene happens to have put there -- and the game goes on
     // holding a reference to memory that has been handed back. It is reachable
     // from anything holding a plain rmp::Object: a member, a local, a test.
-    if (generation_ == 0) return;
-    objects::detail::mark_for_release(index_);
+    if (_generation == 0) return;
+    objects::detail::mark_for_release(_index);
 }
 
 // ---------------------------------------------------------------------------

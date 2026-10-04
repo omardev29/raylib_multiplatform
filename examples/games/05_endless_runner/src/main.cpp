@@ -37,18 +37,18 @@ constexpr float GROUND_TOP = 360; // where ground.png starts, and the floor with
 // scene writes no policy at all.
 template <class Game> class OverScene : public rmp::Scene {
 public:
-    explicit OverScene(const char *said) : said_(said) {}
+    explicit OverScene(const char *said) : _said(said) {}
 
     void _draw() override {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
         rmp::ui::begin();
-        rmp::ui::text(said_, { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
         if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
         rmp::ui::end();
     }
 
 private:
-    const char *said_;
+    const char *_said;
 };
 
 class RunnerScene : public rmp::Scene {
@@ -77,12 +77,12 @@ public:
                 [](rmp::Object &) { rmp::Scene::push<OverScene<RunnerScene>>("Ouch"); },
             .hurt_by = layer::ROCK,
         });
-        player_ = player.handle();
+        _player = player.handle();
 
         // THE CAMERA IS THE GAME'S ONE LINE, and `limits` with a zero width is
         // the second: follow the x, leave the y alone. A camera that followed
         // the jump would take the ground and the sky up with it.
-        camera.follow = player_;
+        camera.follow = _player;
         camera.limits = { 0, 0, 0, RMP_WINDOW_HEIGHT };
         // And a little give: the camera catches up at a rate, so the runner
         // leads the view by a few pixels at speed instead of being nailed to
@@ -96,7 +96,7 @@ public:
     void _update(float) override {
         // The floor travels with the runner, so the strip under the art is
         // always there. One line instead of a mile of collider.
-        ground_->position.x = player_->position.x;
+        _ground->position.x = _player->position.x;
     }
 
     void _draw() override {
@@ -104,7 +104,7 @@ public:
         rmp::ui::text(
             TextFormat(
                 "%d m",
-                static_cast<int>(player_->get<rmp::behavior::Runner>()->distance() / 10)),
+                static_cast<int>(_player->get<rmp::behavior::Runner>()->distance() / 10)),
             { .size = 40 });
         rmp::ui::end();
     }
@@ -127,7 +127,7 @@ private:
         floor.immovable = true;
         floor.collision_layer = layer::GROUND;
         floor.collision_mask = 0;
-        ground_ = floor.handle();
+        _ground = floor.handle();
     }
 
     // ONE ROCK EVERY 520 UNITS TRAVELLED, not every N seconds -- which is the
@@ -139,7 +139,7 @@ private:
             .every_distance = 520,
             .jitter = 120,
             .max_alive = 8, // a live cap: it goes down again as they are dropped
-            .track = player_,
+            .track = _player,
             .on_spawn =
                 [](rmp::Scene &scene, Vector2 at) {
                     auto &rock = scene.spawn({ .position = { at.x + 520, 330 } });
@@ -154,8 +154,8 @@ private:
 
     // Between frames, a handle. A raw pointer is good for the frame it was got
     // in and no longer -- see rmp/object.h.
-    rmp::Handle<rmp::Object> player_;
-    rmp::Handle<rmp::Object> ground_;
+    rmp::Handle<rmp::Object> _player;
+    rmp::Handle<rmp::Object> _ground;
 };
 
 } // namespace

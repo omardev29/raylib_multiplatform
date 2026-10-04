@@ -197,41 +197,41 @@ public:
         // inside it, so the type is erased with no `delete` of ours and no
         // <functional>. Ownership is still single -- the copy constructor above
         // is deleted -- the control block is just where the deleter lives.
-        state_ = std::make_shared<Fn>(static_cast<F &&>(fn));
-        invoke_ = [](void *state, A... args) { (*static_cast<Fn *>(state))(args...); };
+        _state = std::make_shared<Fn>(static_cast<F &&>(fn));
+        _invoke = [](void *state, A... args) { (*static_cast<Fn *>(state))(args...); };
     }
 
     void clear() {
-        state_.reset();
-        invoke_ = nullptr;
+        _state.reset();
+        _invoke = nullptr;
     }
 
-    explicit operator bool() const { return invoke_ != nullptr; }
+    explicit operator bool() const { return _invoke != nullptr; }
     void operator()(A... args) const {
-        if (invoke_ != nullptr) invoke_(state_.get(), args...);
+        if (_invoke != nullptr) _invoke(_state.get(), args...);
     }
 
 private:
     using Invoke = void (*)(void *, A...);
 
     void steal(Callback &other) {
-        state_ = other.take_state();
-        invoke_ = other.take_invoke();
+        _state = other.take_state();
+        _invoke = other.take_invoke();
     }
     // What steal() takes from the other callback, leaving it empty.
     std::shared_ptr<void> take_state() {
-        std::shared_ptr<void> had = std::move(state_);
-        state_.reset();
+        std::shared_ptr<void> had = std::move(_state);
+        _state.reset();
         return had;
     }
     Invoke take_invoke() {
-        const Invoke had = invoke_;
-        invoke_ = nullptr;
+        const Invoke had = _invoke;
+        _invoke = nullptr;
         return had;
     }
 
-    std::shared_ptr<void> state_;
-    Invoke invoke_ = nullptr;
+    std::shared_ptr<void> _state;
+    Invoke _invoke = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ public:
     // stops existing. A default-constructed handle has generation 0, which no
     // live slot ever has.
     [[nodiscard]] T *get() const {
-        return static_cast<T *>(rmp::detail::resolve(index_, generation_));
+        return static_cast<T *>(rmp::detail::resolve(_index, _generation));
     }
     explicit operator bool() const { return get() != nullptr; }
     T *operator->() const { return get(); }
@@ -285,14 +285,14 @@ public:
 
 private:
     friend class rmp::Object;
-    unsigned index_ = 0;
-    unsigned generation_ = 0; // 0 is the "points at nothing" generation
+    unsigned _index = 0;
+    unsigned _generation = 0; // 0 is the "points at nothing" generation
 
 public:
     // Public so Object::handle() can build one without befriending every
     // instantiation. Not for calling: the index and generation are ours.
     Handle(unsigned index, unsigned generation)
-        : index_(index), generation_(generation) {}
+        : _index(index), _generation(generation) {}
 };
 
 // ---------------------------------------------------------------------------
@@ -615,10 +615,12 @@ public:
     //
     // Setting one twice replaces it. There is no list, because a list of
     // handlers is a signal system, and that is a bigger idea than this needs.
-    template <class F> void on_click(F &&fn) { click_.set(static_cast<F &&>(fn)); }
-    template <class F> void on_drag(F &&fn) { drag_.set(static_cast<F &&>(fn)); }
+    template <class F> void on_click(F &&fn) {
+        _click_handler.set(static_cast<F &&>(fn));
+    }
+    template <class F> void on_drag(F &&fn) { _drag_handler.set(static_cast<F &&>(fn)); }
     template <class F> void on_collision(F &&fn) {
-        collision_.set(static_cast<F &&>(fn));
+        _collision_handler.set(static_cast<F &&>(fn));
     }
 
     // ---- identity and life ------------------------------------------------
@@ -626,9 +628,9 @@ public:
     // what a behavior holding a target wants: `if (!target) return;` and then
     // `target->hp` without a cast.
     template <class T = Object> [[nodiscard]] Handle<T> handle() const {
-        return Handle<T>(index_, generation_);
+        return Handle<T>(_index, _generation);
     }
-    [[nodiscard]] Scene *scene() const { return scene_; }
+    [[nodiscard]] Scene *scene() const { return _scene; }
 
     // The axis-aligned box this object occupies right now, from the sprite or
     // the shape. Empty when it has neither, which is what an invisible logic
@@ -647,7 +649,7 @@ public:
 
     // False from the moment destroy() is called, not from the moment the
     // memory goes away.
-    [[nodiscard]] bool alive() const { return alive_; }
+    [[nodiscard]] bool alive() const { return _alive; }
 
 private:
     friend class Scene;
@@ -669,27 +671,27 @@ private:
     [[nodiscard]] bool entered_bounds() const;
     void set_entered_bounds(bool entered);
 
-    Callback<Object &> click_;
-    Callback<Object &, Vector2> drag_;
-    Callback<Object &, Object &> collision_;
+    Callback<Object &> _click_handler;
+    Callback<Object &, Vector2> _drag_handler;
+    Callback<Object &, Object &> _collision_handler;
 
-    Scene *scene_ = nullptr;
-    unsigned index_ = 0;
-    unsigned generation_ = 0;
+    Scene *_scene = nullptr;
+    unsigned _index = 0;
+    unsigned _generation = 0;
     // Which record in the behavior engine is this object's, or -1 for "none".
     // The engine used to find it by scanning a list for the object's ADDRESS,
     // which made every lookup O(number of objects with behaviors) -- one per
     // behavior per pass, so a frame grew with the square of the object count --
     // and made a recycled address inherit a dead object's behaviors.
-    int behavior_slot_ = -1;
-    bool alive_ = true;
-    bool entered_bounds_ = false; // Edge::DESTROY fires only after this
-    Vector2 pending_force_{}; // accumulated by apply_force, spent on integrate
+    int _behavior_slot = -1;
+    bool _alive = true;
+    bool _entered_bounds = false; // Edge::DESTROY fires only after this
+    Vector2 _pending_force{}; // accumulated by apply_force, spent on integrate
 
     // Where the centre was before this frame's integration. The swept test
     // needs it: an object that crossed a thin wall never overlapped it on any
     // frame, so the only evidence it was ever there is the segment it covered.
-    Vector2 previous_position_{};
+    Vector2 _previous_position{};
 };
 
 // RayHit lives below Object, and not with RayQuery above, because its handle

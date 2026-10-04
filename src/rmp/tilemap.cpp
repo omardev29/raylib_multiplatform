@@ -486,7 +486,7 @@ Tilemap::~Tilemap() = default;
 Tilemap::Tilemap(Tilemap &&other) noexcept = default;
 Tilemap &Tilemap::operator=(Tilemap &&other) noexcept = default;
 
-void Tilemap::adopt(tilemap::detail::MapPtr data) { data_ = std::move(data); }
+void Tilemap::adopt(tilemap::detail::MapPtr data) { _data = std::move(data); }
 
 namespace {
 
@@ -558,7 +558,7 @@ bool solid_cell(const MapData &data, const Layer &layer, int column, int row) {
 
 Rectangle Tilemap::bounds() const {
     if (!valid()) return Rectangle{};
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     const Vector2 size = data->size_px.x > 0
         ? data->size_px
         : Vector2{ static_cast<float>(data->width * data->tile_width),
@@ -568,22 +568,22 @@ Rectangle Tilemap::bounds() const {
 
 Vector2 Tilemap::tile_size() const {
     if (!valid()) return Vector2{};
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     return Vector2{ static_cast<float>(data->tile_width),
                     static_cast<float>(data->tile_height) };
 }
 
 int Tilemap::layer_count() const {
-    return valid() ? static_cast<int>(data_.get()->layers.size()) : 0;
+    return valid() ? static_cast<int>(_data.get()->layers.size()) : 0;
 }
 
-int Tilemap::object_count() const { return tilemap::detail::object_count(data_.get()); }
+int Tilemap::object_count() const { return tilemap::detail::object_count(_data.get()); }
 
-const char *Tilemap::level() const { return valid() ? data_.get()->level.c_str() : ""; }
+const char *Tilemap::level() const { return valid() ? _data.get()->level.c_str() : ""; }
 
 const char *Tilemap::neighbour_at(Vector2 world_position) const {
     if (!valid()) return "";
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     // Still inside this level is no neighbour -- which is what makes "walked
     // out, so change" a single if. Half-open, like the cells: a point on the
     // right or bottom edge is already the next level's.
@@ -605,7 +605,7 @@ const char *Tilemap::neighbour_at(Vector2 world_position) const {
 
 int Tilemap::tile_at(int layer_index, int column, int row) const {
     if (!valid()) return 0;
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     if (layer_index < 0 || static_cast<std::size_t>(layer_index) >= data->layers.size()) {
         return 0;
     }
@@ -614,7 +614,7 @@ int Tilemap::tile_at(int layer_index, int column, int row) const {
 
 bool Tilemap::solid_at(Vector2 world_position) const {
     if (!valid()) return false;
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     for (const Layer &layer : data->layers) {
         int column = 0;
         int row = 0;
@@ -626,7 +626,7 @@ bool Tilemap::solid_at(Vector2 world_position) const {
 
 bool Tilemap::solid_in(Rectangle world_rect) const {
     if (!valid()) return false;
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     // Every cell the rectangle covers, not just the four corners: a rectangle
     // wider than a tile can straddle a solid one with all four corners in empty
     // space, and that is the bug everybody writes the first time. Each layer
@@ -680,7 +680,7 @@ bool Tilemap::solid_in(Rectangle world_rect) const {
 
 void Tilemap::on_object(const char *type, Callback<Scene &, const MapObject &> factory) {
     if (!valid() || type == nullptr) return;
-    MapData *data = data_.get();
+    MapData *data = _data.get();
     const std::string key(type);
     for (auto &entry : data->factories) {
         if (entry.first == key) {
@@ -695,7 +695,7 @@ void Tilemap::on_object(const char *type, Callback<Scene &, const MapObject &> f
 
 void Tilemap::spawn_objects(Scene &into) {
     if (!valid()) return;
-    MapData *data = data_.get();
+    MapData *data = _data.get();
     for (const MapObject &object : data->objects) {
         bool made = false;
         for (auto &entry : data->factories) {
@@ -729,7 +729,7 @@ void Tilemap::spawn_objects(Scene &into) {
 
 void Tilemap::draw() const {
     if (!valid()) return;
-    const MapData *data = data_.get();
+    const MapData *data = _data.get();
     for (const Layer &layer : data->layers) {
         if (!layer.visible || layer.opacity <= 0) continue;
         const Vector2 base{ data->origin.x + layer.offset.x,

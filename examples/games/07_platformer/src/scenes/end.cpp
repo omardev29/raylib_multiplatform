@@ -9,15 +9,15 @@
 
 namespace game {
 
-EndScene::EndScene(bool won, bool record) : won_(won), record_(record) {}
+EndScene::EndScene(bool won, bool record) : _won(won), _record(record) {}
 
 void EndScene::_draw() {
     DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 10, 12, 24, 170 });
     const Run &r = run();
     rmp::ui::begin();
-    rmp::ui::text(won_ ? "You made it!" : "Game over", { .size = rmp::ui::Size::LARGE });
+    rmp::ui::text(_won ? "You made it!" : "Game over", { .size = rmp::ui::Size::LARGE });
     rmp::ui::text(TextFormat("%d coins in %.1f s", r.coins, r.seconds));
-    if (won_ && record_)
+    if (_won && _record)
         rmp::ui::text("A new best!", { .color = rmp::ui::ColorRole::PRIMARY });
     if (rmp::ui::button("Play again")) {
         rmp::audio::play("select");
