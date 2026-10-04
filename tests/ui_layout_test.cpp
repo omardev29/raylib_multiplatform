@@ -1964,6 +1964,22 @@ void run_frame_grow() {
     check(box_of("filler").w < 100.0f, "without grow, the frame still fits its content");
 }
 
+// rmp/ui.h: "There is no init(): the UI starts itself on the first begin()".
+// After shutdown() it did not -- it crashed: Clay's current context still
+// pointed into the arena shutdown() had just freed, and the first thing a
+// restart does is write the element ceiling into that context.
+void run_restart_after_shutdown() {
+    std::printf("\n--- begin() after shutdown() ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::shutdown();
+    rmp::ui::begin();
+    rmp::ui::button("Again");
+    rmp::ui::end();
+    Clay_BoundingBox again{};
+    check(rmp::ui::detail::bounds_of("Again", 0, 0, &again) && again.width > 0,
+          "the UI starts again on the next begin(), as it did the first time");
+}
+
 } // namespace
 
 int main() {
@@ -2014,6 +2030,7 @@ int main() {
     run_sizes();
     run_themes();
     run_breakpoints();
+    run_restart_after_shutdown();
 
     std::printf("\n--- scale limits ---\n");
 

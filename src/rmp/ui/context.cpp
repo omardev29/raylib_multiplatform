@@ -318,6 +318,11 @@ void shutdown_context() {
         font.loaded = false;
     }
     context.arena.reset();
+    // Clay's current context lived in that arena. Left pointing at it, the next
+    // begin() -- which starts the UI again, there being no init() -- wrote the
+    // element ceiling into freed memory before anything else. With none, Clay
+    // is exactly where it was before the first start.
+    Clay_SetCurrentContext(nullptr);
     context.started = false;
 }
 
