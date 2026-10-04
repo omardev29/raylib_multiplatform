@@ -17,7 +17,7 @@ need to open it.
 
 | You edit | For |
 | --- | --- |
-| `src/main.cpp` | Your game. Every `.cpp`/`.c` under `src/` is compiled automatically, subfolders included. |
+| `src/` | Your game. `src/main.cpp` is one line, `RMP_GAME(MainMenuScene);`, naming the first scene; the game is in `src/scenes/` (and `src/objects/` when it has objects of its own). Every `.cpp`/`.c` under `src/` is compiled automatically, subfolders included. |
 | `include/` | Your headers. |
 | `resources/` | Your assets — images, sounds, fonts, levels, models. |
 | `branding/icon.png` | Your app icon. One 1024×1024 PNG. |

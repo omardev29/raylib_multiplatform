@@ -1379,6 +1379,23 @@ class NewTest(unittest.TestCase):
         self.assertEqual(len((self.game / rmp.TOML).read_text().splitlines()),
                          len((REPO / rmp.TOML).read_text().splitlines()))
 
+    def test_the_readme_describes_the_game_it_is_in(self):
+        """It said "Your game is src/main.cpp", and src/main.cpp is one line
+        naming the first scene: the game is in src/scenes/. Every path it names
+        is in the game, and every part of the game a person edits is named."""
+        readme = (self.game / "README.md").read_text()
+        self.assertNotIn("Your game is `src/main.cpp`", readme)
+        named = set(re.findall(r"`([^`\s]+/?)`", readme))
+        for path in sorted(named):
+            if "/" in path or path.endswith((".toml", ".png", ".cpp")):
+                with self.subTest(named=path):
+                    self.assertTrue((self.game / path).exists(), f"{path} is not in the game")
+        for part in ("src/main.cpp", "src/scenes/", "resources/", "branding/icon.png",
+                     "include/", rmp.TOML, "src/rmp/", "include/rmp/"):
+            with self.subTest(part=part):
+                self.assertIn(f"`{part}`", readme)
+        self.assertIn("RMP_GAME", readme)
+
     def test_the_games_own_checks_pass(self):
         for check in (["tools/configure.py", "--check"], ["tools/license_db.py", "--check"]):
             got = subprocess.run([sys.executable, *check], cwd=self.game, capture_output=True,

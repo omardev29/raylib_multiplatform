@@ -744,8 +744,20 @@ A game made with [raylib_multiplatform]({FRAMEWORK_URL}).
     rmp test         check it: the config, the boot, the pixels
     rmp help         everything else
 
-Your game is `src/main.cpp`, `src/scenes/`, `resources/` and
-`{TOML}`. `src/rmp/` and `include/rmp/` are the framework.
+What is yours:
+
+    src/main.cpp     RMP_GAME(MainMenuScene); -- the first scene, and nothing else
+    src/scenes/      the game: a scene per screen, starting with the main menu
+    include/         your headers, when the game has some
+    resources/       the art, sounds, fonts and levels the game loads
+    branding/icon.png  the app icon on every platform
+    {TOML}  the name, the app ids, the platforms
+
+`src/main.cpp` names the first scene with `RMP_GAME`, and the game is in
+`src/scenes/` -- an object of your own goes in a folder of its own beside it.
+Every .cpp under `src/` is built. The rest is `include/` for your headers,
+`resources/`, `branding/icon.png` and `{TOML}`. `src/rmp/` and
+`include/rmp/` are the framework: you include its headers and never edit it.
 """
 
 
