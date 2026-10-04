@@ -160,6 +160,35 @@ class HelpTest(unittest.TestCase):
     def test_help_for_nothing_is_a_usage_error(self):
         self.assertEqual(call(["help", "nosuch"])[0], 2)
 
+    def test_every_word_a_command_accepts_is_in_its_usage(self):
+        """`rmp test all`, `rmp build debug`, `rmp fmt write` and `rmp lint
+        check` were accepted and listed nowhere -- and `rmp help --json` is
+        what the docs site checks command lines against. They are refused now,
+        one spelling per thing; and every word a handler's one_of() takes is
+        in the usage line it is listed under."""
+        tree = ast.parse(RMP_PY.read_text())
+        handlers = {fn.name: fn for fn in tree.body if isinstance(fn, ast.FunctionDef)}
+        checked = 0
+        for name, command in rmp.COMMANDS.items():
+            fn = handlers[command.handler.__name__]
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "one_of":
+                    for word in ast.literal_eval(node.args[1]):
+                        checked += 1
+                        with self.subTest(command=name, word=word):
+                            self.assertRegex(command.usage, rf"\b{re.escape(word)}\b")
+        self.assertGreater(checked, 3)
+        for argv in (["test", "all"], ["build", "debug"], ["fmt", "write"], ["lint", "check"]):
+            with self.subTest(refused=" ".join(argv)):
+                self.assertEqual(call(argv)[0], 2)
+
+    def test_no_page_says_ci_runs_what_a_games_ci_does_not(self):
+        """`rmp help fmt` called `rmp fmt check` "what CI runs"; a game's CI
+        does not check formatting -- the fmt stage is the framework's."""
+        stages = {s.name: s for s in rmp.STAGES}
+        self.assertEqual(stages["fmt"].scope, "framework")
+        self.assertNotIn("CI", rmp.page("fmt", "game"))
+
 
 class DispatchTest(unittest.TestCase):
     def test_an_unknown_command_suggests_the_near_one(self):
@@ -1173,6 +1202,35 @@ class ManifestTest(unittest.TestCase):
     def test_every_tracked_path_is_classified(self):
         unclassified = [p for _, _, p in self.entries() if rmp.classify(p) is None]
         self.assertEqual(unclassified, [])
+
+    def test_every_test_target_a_game_lacks_is_guarded(self):
+        """CMakePresets.json goes into every game, and its `lint` preset turns
+        on BUILD_TESTS, BUILD_UI_TESTS and RMP_BUILD_EXAMPLES. In a game made
+        with rmp new -- tests/ holds smoke_test.h and nothing else -- that
+        configure stopped at "No SOURCES given to target" for unit_test,
+        ui_layout_test and input_play. Every executable built from a file a
+        game does not get is defined only when that file is there."""
+        lines = (REPO / "CMakeLists.txt").read_text().splitlines()
+        stack = []
+        found = 0
+        for line in lines:
+            code = line.split("#", 1)[0].strip()
+            if re.match(r"if\s*\(", code):
+                stack.append(code)
+            elif re.match(r"endif\s*\(", code) and stack:
+                stack.pop()
+            match = re.match(r"add_executable\((\w+)", code)
+            if not match:
+                continue
+            target = match.group(1)
+            if target not in ("unit_test", "ui_layout_test", "input_play", "platformer_play"):
+                continue
+            found += 1
+            with self.subTest(target=target):
+                self.assertTrue(any("EXISTS" in cond or "UNIT_TEST_SOURCES" in cond
+                                    for cond in stack),
+                                f"{target} is not guarded by the file it is built from")
+        self.assertEqual(found, 4)
 
     def test_what_a_game_gets_speaks_english(self):
         """Talk to Omar in Spanish; code, comments and messages are English --

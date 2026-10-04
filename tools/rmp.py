@@ -348,7 +348,7 @@ def cmd_run(ctx, args):
 
 
 def cmd_build(ctx, args):
-    release = one_of(args, ("debug", "release"), "debug") == "release"
+    release = one_of(args, ("release",), "debug") == "release"
     name = build(ctx, release)
     print(f"  built  {ctx.exe(f'build/{name}').relative_to(ctx.root)}")
     return OK
@@ -452,11 +452,11 @@ def fmt(ctx, check: bool) -> int:
 
 
 def cmd_fmt(ctx, args):
-    return fmt(ctx, check=one_of(args, ("write", "check"), "write") == "check")
+    return fmt(ctx, check=one_of(args, ("check",), "write") == "check")
 
 
 def cmd_lint(ctx, args):
-    what = one_of(args, ("check", "fix"), "check")
+    what = one_of(args, ("fix",), "check")
     ctx.run([ctx.bash(), "tools/lint.sh", what])
     if what == "fix":
         fmt(ctx, check=False)
@@ -467,9 +467,9 @@ def cmd_test(ctx, args):
     stages = {s.name: s for s in stages_for(ctx.mode)}
     if len(args) > 1:
         raise Usage("one stage at a time; `rmp help test` names them")
-    if args and args[0] not in stages and args[0] != "all":
+    if args and args[0] not in stages:
         raise Usage(f"no stage called {args[0]!r}; `rmp help test` names them")
-    chosen = all_stages(ctx.mode) if not args or args[0] == "all" else [stages[args[0]]]
+    chosen = all_stages(ctx.mode) if not args else [stages[args[0]]]
     for stage in chosen:
         print(f"== {stage.name} ==")
         for step in stage.steps:
@@ -1018,7 +1018,7 @@ COMMANDS = {
     "build": Command(
         "build [release]", "compile the game: debug, or release",
         "Compile the game without running it: debug by default, or release "
-        "(optimised, with its assets read from ./resources/).",
+        "(optimised, with its assets read from the resources/ next to it).",
         [("rmp build", "writes build/<name>"),
          ("rmp build release", "the release build, as CI ships it")],
         cmd_build),
@@ -1048,7 +1048,7 @@ COMMANDS = {
         "Format your C and C++ with clang-format -- the version pinned in "
         "thirdparty/FROZEN_VERSIONS.md.",
         [("rmp fmt", "rewrite what needs it"),
-         ("rmp fmt check", "only report, which is what CI runs")],
+         ("rmp fmt check", "only report what it would change")],
         cmd_fmt),
     "pack": Command(
         "pack", "bundle resources/ into resources.rres, as a release does",

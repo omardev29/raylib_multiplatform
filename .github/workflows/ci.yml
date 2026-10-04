@@ -589,6 +589,10 @@ jobs:
         run: |
           set -euo pipefail
           ./rmp test config
+          # The presets a game gets all configure in it -- `lint` asks for the
+          # tests and examples a game does not have, and stopped at "No
+          # SOURCES given to target" until the targets were guarded.
+          cmake --preset lint > /dev/null
           # A game has no golden frame: the boot, the pixels and a clean exit.
           OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
           printf '%s\n' "$OUT"

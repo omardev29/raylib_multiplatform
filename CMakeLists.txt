@@ -690,7 +690,7 @@ endif()
 # shape a game with its own hooks does, and then through frame() as RMP_GAME
 # does, and checks each press is seen exactly once. Same arrangement as the
 # platformer above: built with the examples, run by tools/examples_build.sh.
-if(RMP_BUILD_EXAMPLES OR BUILD_TESTS)
+if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp")
   add_executable(input_play
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
@@ -765,7 +765,12 @@ if(BUILD_TESTS)
   file(GLOB UNIT_TEST_SOURCES CONFIGURE_DEPENDS
        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
   list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
-
+endif()
+# A game made with `rmp new` has tests/smoke_test.h and no tests, and its copy
+# of CMakePresets.json still has the `lint` preset, which asks for them: with
+# nothing to build, there is no target. The framework's unit stage builds
+# unit_test BY NAME, so a framework that lost its tests fails there, loudly.
+if(BUILD_TESTS AND UNIT_TEST_SOURCES)
   add_executable(unit_test ${UNIT_TEST_SOURCES})
   set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
   # SYSTEM for doctest, so its 9 000 lines of macros are not ours to fix.
@@ -796,7 +801,7 @@ endif()
 #   cmake --preset debug -DBUILD_UI_TESTS=ON
 #   cmake --build build --target ui_layout_test && ./build/ui_layout_test
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
-if(BUILD_UI_TESTS)
+if(BUILD_UI_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
   add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
   set_property(TARGET ui_layout_test PROPERTY CXX_STANDARD 20)
   target_compile_definitions(ui_layout_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
