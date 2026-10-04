@@ -396,7 +396,13 @@ Vector2 vector() { return vector("move_left", "move_right", "move_up", "move_dow
 
 Vector2 pointer_screen() { return frames.now.pointer; }
 
-Vector2 pointer() { return rmp::Scene::current().camera.to_world(frames.now.pointer); }
+// With no scene there is no camera: a game on RMP_ENTRY_POINT samples input
+// and never has a stack, and asking current() there is a report, an abort
+// under [dev] strict, and a stand-in camera.
+Vector2 pointer() {
+    if (rmp::Scene::depth() == 0) return frames.now.pointer;
+    return rmp::Scene::current().camera.to_world(frames.now.pointer);
+}
 
 Vector2 pointer_delta() {
     // No special case for the first frame: begin_frame() makes frames.before equal

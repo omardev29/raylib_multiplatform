@@ -11,7 +11,9 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/object_internal.h"
+#include "../src/rmp/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/input.h>
@@ -21,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <vector>
 
 namespace {
@@ -65,6 +68,21 @@ void frame(rmp::Scene &scene, float delta = 1.0f / 60) {
     scene.camera.detail_settle(delta);
     rmp::objects::detail::collect();
 }
+
+// The scene stack, emptied on the way out however the test ends.
+struct Stack {
+    Stack() = default;
+    Stack(const Stack &) = delete;
+    Stack &operator=(const Stack &) = delete;
+    Stack(Stack &&) = delete;
+    Stack &operator=(Stack &&) = delete;
+    ~Stack() { rmp::scenes::detail::shutdown(); }
+};
+
+// How often [dev] strict would have stopped the program.
+struct {
+    int stops = 0;
+} strictness;
 
 bool near(Vector2 a, Vector2 b) {
     return a.x == doctest::Approx(b.x).epsilon(0.001) &&
@@ -209,17 +227,35 @@ TEST_SUITE("camera") {
 
     TEST_CASE_FIXTURE(
         Fixture, "the pointer is in world units, through the current scene's camera") {
-        // rmp::input::pointer() reads Scene::current(); this scene is not on the
-        // stack, so it goes through the camera directly and the fallback scene's
-        // identity camera is what pointer() answers with.
-        World world;
-        world.camera.position = Vector2{ 1000, 600 };
+        const Stack stack;
+        rmp::scenes::detail::start(std::make_unique<World>());
+        rmp::Scene::current().camera.position = Vector2{ 1000, 600 };
         fake.devices.pointer = Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
         rmp::input::detail::begin_frame();
         CHECK(near(rmp::input::pointer_screen(),
                    Vector2{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 }));
-        CHECK(near(world.camera.to_world(rmp::input::pointer_screen()),
-                   Vector2{ 1000, 600 }));
+        CHECK(near(rmp::input::pointer(), Vector2{ 1000, 600 }));
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "with no scene there is no camera, and pointer() is the screen") {
+        // RMP_ENTRY_POINT samples input and has no scene stack. pointer() asked
+        // the empty stack for its scene anyway: a report, an abort under [dev]
+        // strict, and an answer through a stand-in camera.
+        REQUIRE(rmp::Scene::depth() == 0);
+        rmp::detail::reset_reports_for_tests();
+        rmp::detail::set_strict(true);
+        strictness.stops = 0;
+        const rmp::detail::StrictHandler previous =
+            rmp::detail::set_strict_handler([] { strictness.stops++; });
+        fake.devices.pointer = Vector2{ 123, 45 };
+        rmp::input::detail::begin_frame();
+        CHECK(near(rmp::input::pointer(), Vector2{ 123, 45 }));
+        CHECK(rmp::detail::report_count() == 0);
+        CHECK(strictness.stops == 0);
+        rmp::detail::set_strict(false);
+        rmp::detail::set_strict_handler(previous);
+        rmp::detail::reset_reports_for_tests();
     }
 
     TEST_CASE_FIXTURE(Fixture, "on_click hits what is under the pointer in the world") {
