@@ -59,6 +59,49 @@ def load_configure():
 cfgmod = load_configure()
 
 
+# What configure.py generates into the checkout. No test here may write or
+# delete any of it: test_off_means_no_files_at_all once ran gen_licenses() with
+# only write() stubbed, and its unlink() deleted the real
+# cmake/generated/LICENSES.txt and the Android one every time the suite ran --
+# the next package step shipped no notice, and nothing said so. A test points
+# configure.py at a temporary tree instead (licence_files_in, repo_at), and
+# this compares the generated files before and after the whole module.
+GENERATED = (REPO / "cmake" / "generated", REPO / "include" / "rmp" / "generated",
+             REPO / "raymob" / "generated.properties", REPO / "ios" / "project.yml",
+             REPO / "ios" / "Assets.xcassets")
+
+
+def generated_listing() -> dict:
+    """path -> sha256 of every generated file in the checkout."""
+    out = {}
+    for root in GENERATED:
+        paths = [root] if root.is_file() else (sorted(root.rglob("*")) if root.is_dir() else [])
+        for path in paths:
+            if path.is_file():
+                out[path.relative_to(REPO).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return out
+
+
+_generated_before: dict = {}
+
+
+def setUpModule():
+    _generated_before.update(generated_listing())
+
+
+def tearDownModule():
+    after = generated_listing()
+    gone = sorted(set(_generated_before) - set(after))
+    made = sorted(set(after) - set(_generated_before))
+    edited = sorted(p for p in set(after) & set(_generated_before)
+                    if after[p] != _generated_before[p])
+    if gone or made or edited:
+        raise AssertionError(
+            "the configure tests changed the checkout's generated files -- a test has to "
+            f"point configure.py at a temporary tree.\n  deleted: {gone}\n  created: {made}\n"
+            f"  rewritten: {edited}")
+
+
 def base_config(**overrides) -> dict:
     """A valid configuration, with the example identifiers made real.
 
@@ -84,6 +127,22 @@ def base_config(**overrides) -> dict:
         else:
             cfg[section] = value
     return cfg
+
+
+@contextlib.contextmanager
+def licence_files_in():
+    """configure.py's LICENSE_FILES, pointed at a temporary tree laid out like
+    the checkout (cmake/generated/...), which is yielded."""
+    original = dict(cfgmod.LICENSE_FILES)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for family, path in original.items():
+            cfgmod.LICENSE_FILES[family] = root / path.relative_to(REPO)
+        try:
+            yield root
+        finally:
+            cfgmod.LICENSE_FILES.clear()
+            cfgmod.LICENSE_FILES.update(original)
 
 
 @contextlib.contextmanager
@@ -3640,13 +3699,55 @@ class ConfigureLicencesTest(unittest.TestCase):
 
     @contextlib.contextmanager
     def captured_writes(self):
+        """What the generators would write, by path under the checkout --
+        with the notices pointed at a temporary tree, because gen_licenses()
+        also DELETES them, and that does not go through write()."""
         captured = {}
         original = cfgmod.write
-        cfgmod.write = lambda path, content: captured.__setitem__(str(path.relative_to(REPO)), content)
-        try:
-            yield captured
-        finally:
-            cfgmod.write = original
+
+        def capture(path, content):
+            captured[str(path.relative_to(self._root if self._root in path.parents else REPO))] = content
+            return True
+        cfgmod.write = capture
+        with licence_files_in() as root:
+            self._root = root
+            try:
+                yield captured
+            finally:
+                cfgmod.write = original
+
+    _root = REPO
+
+    def test_off_removes_the_notices_and_says_it_changed_them(self):
+        cfg = base_config()
+        cfg["deploy"]["licenses"] = False
+        cfg["deploy"]["credits_note"] = "the Credits scene"
+        with licence_files_in() as root, quiet():
+            for out in cfgmod.LICENSE_FILES.values():
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text("stale")
+            self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), True)
+            self.assertEqual(sorted(p for p in root.rglob("*") if p.is_file()), [])
+            self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), False,
+                          "nothing left to remove is not a change")
+
+    def test_on_says_whether_it_wrote_anything(self):
+        """`changed = write(...) or changed`, with write() returning None, was
+        False after every configure."""
+        cfg = base_config()
+        with licence_files_in() as root, quiet():
+            self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), True)
+            self.assertTrue((root / "cmake" / "generated" / "LICENSES.txt").is_file())
+            self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), False)
+            cfg["project"]["name"] = "renamed"
+            self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), True)
+
+    def test_write_says_whether_it_wrote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a" / "b.txt"
+            self.assertIs(cfgmod.write(path, "one"), True)
+            self.assertIs(cfgmod.write(path, "one"), False)
+            self.assertIs(cfgmod.write(path, "two"), True)
 
     def test_each_family_gets_what_it_links_and_nothing_else(self):
         cfg = base_config()

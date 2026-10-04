@@ -1470,11 +1470,15 @@ void SetMusicVolume(Music music, float volume) {{ (void)music; (void)volume; }}
 # Generators
 # ---------------------------------------------------------------------------
 
-def write(path: Path, content: str) -> None:
+def write(path: Path, content: str) -> bool:
+    """Write a generated file, and say whether it changed: False when it already
+    held exactly this, so that nothing is touched (and nothing rebuilt) for a
+    configure that changed nothing."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.read_text(encoding="utf-8") == content:
-        return
+        return False
     path.write_text(content, encoding="utf-8")
+    return True
 
 
 def cmake_escape(value: str) -> str:
@@ -2173,15 +2177,22 @@ def gen_licenses(cfg: dict, targets: list[str], require_notices: bool = False) -
     against the tree. Adding a dependency without a row fails that gate, and a
     row without licence text fails here, so a notice cannot be forgotten
     without a build going red.
+
+    Returns whether any notice changed -- written anew, rewritten or removed --
+    which main() reports, because a package step that copies LICENSES.txt
+    copies whatever is there. It used to return `write(...) or changed`, and
+    write() returned None: False after every configure, and True whenever the
+    notices were off, whether or not anything had been removed.
     """
+    changed = False
     if not cfg["deploy"]["licenses"]:
         for out in LICENSE_FILES.values():
             if out.exists():
                 out.unlink()
-        return True
+                changed = True
+        return changed
 
     rows = license_db.load_rows(REPO)
-    changed = False
     for family, out in LICENSE_FILES.items():
         if family == "ios":
             if "ios" not in targets:
@@ -2204,6 +2215,7 @@ def gen_licenses(cfg: dict, targets: list[str], require_notices: bool = False) -
                 warn(message + " before building for iOS. No iOS notice was written.")
                 if out.exists():
                     out.unlink()
+                    changed = True
                 continue
         changed = write(out, licenses_text(cfg, family, rows)) or changed
     return changed
@@ -2674,7 +2686,10 @@ def main(argv: list[str]) -> int:
 
     gen_cmake(cfg)
     gen_app_config(cfg)
-    gen_licenses(cfg, targets, require_notices=args.require_notices)
+    if gen_licenses(cfg, targets, require_notices=args.require_notices):
+        notices = [p.relative_to(REPO).as_posix() for p in LICENSE_FILES.values() if p.is_file()]
+        print("configure: the third-party notices changed: " + ", ".join(notices) if notices
+              else "configure: the third-party notices were removed")
     gen_gradle_properties(cfg, targets)
     gen_android_manifest(cfg, targets)
     generate_icons(cfg, required=args.require_icons)
