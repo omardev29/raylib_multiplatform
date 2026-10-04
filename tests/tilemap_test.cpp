@@ -25,6 +25,9 @@
 #include <rmp/scene.h>
 #include <rmp/tilemap.h>
 
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -77,10 +80,10 @@ struct AtFixtures {
 struct Parsed {
     rmp::Tilemap map;
     const rmp::tilemap::detail::MapData *data = nullptr;
-    explicit Parsed(const char *file) {
-        const std::vector<unsigned char> raw = bytes_of(file);
+    explicit Parsed(const char *file) : Parsed(bytes_of(file), file) {}
+    Parsed(const std::vector<unsigned char> &raw, const char *name) {
         map.adopt(rmp::tilemap::detail::parse_map(raw.data(),
-                                                  static_cast<int>(raw.size()), file));
+                                                  static_cast<int>(raw.size()), name));
         data = map.detail_data();
     }
 };
@@ -385,6 +388,84 @@ TEST_CASE("margin and spacing are part of the source rectangle") {
               doctest::Approx(0));
         CHECK(rmp::tilemap::detail::tile_source(nullptr, 1).width == doctest::Approx(0));
     }
+}
+
+// ---------------------------------------------------------------------------
+// A tileset image that is missing, and one that is there and does not decode
+// ---------------------------------------------------------------------------
+//
+// Both said 'is not in resources/', and a corrupt image that is right there
+// sends you looking for a file you can see. tests/fixtures/corrupt/ is the
+// resources root for these: broken.png is in it, missing.png is not.
+
+namespace {
+
+// What raylib's log said while a test listened. The dot says "file state".
+struct {
+    std::vector<std::string> lines;
+} heard;
+
+void hear(int /*level*/, const char *text, va_list args) {
+    char line[512];
+    std::vsnprintf(line, sizeof(line), text, args);
+    heard.lines.emplace_back(line);
+}
+
+// The resources root is tests/fixtures/corrupt/ and the log is listened to,
+// for the length of one test.
+struct AtCorrupt {
+    std::string previous;
+    AtCorrupt() : previous(rmp::assets::detail::resources_root()) {
+        rmp::assets::detail::set_resources_root(RMP_TEST_FIXTURES "corrupt/");
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
+    }
+    ~AtCorrupt() {
+        SetTraceLogCallback(nullptr);
+        rmp::assets::detail::set_resources_root(previous.c_str());
+    }
+    AtCorrupt(const AtCorrupt &) = delete;
+    AtCorrupt &operator=(const AtCorrupt &) = delete;
+};
+
+std::string tileset_line() {
+    for (const std::string &line : heard.lines) {
+        if (line.starts_with("MAP: the tileset image")) return line;
+    }
+    return "";
+}
+
+// map_minimal.json with its tileset image renamed.
+Parsed with_image(const char *image) {
+    const std::vector<unsigned char> raw = bytes_of("map_minimal.json");
+    std::string text(raw.begin(), raw.end());
+    const std::string::size_type at = text.find("\"tiles.png\"");
+    REQUIRE(at != std::string::npos);
+    text.replace(at, std::strlen("\"tiles.png\""), std::string("\"") + image + "\"");
+    std::vector<unsigned char> edited(text.begin(), text.end());
+    return { edited, "map_minimal.json" };
+}
+
+} // namespace
+
+TEST_CASE("a tileset image that is not there is said to be missing") {
+    const AtCorrupt at;
+    const Parsed loaded = with_image("missing.png");
+    CHECK(loaded.map.valid());
+    const std::string line = tileset_line();
+    CAPTURE(line);
+    CHECK(line.find("\"missing.png\" is not in resources/") != std::string::npos);
+}
+
+TEST_CASE("a tileset image that is there and does not decode is not called missing") {
+    const AtCorrupt at;
+    const Parsed loaded = with_image("broken.png");
+    CHECK(loaded.map.valid());
+    const std::string line = tileset_line();
+    CAPTURE(line);
+    CHECK(line.find("\"broken.png\" is in resources/") != std::string::npos);
+    CHECK(line.find("does not decode") != std::string::npos);
+    CHECK(line.find("is not in resources/") == std::string::npos);
 }
 
 // ---------------------------------------------------------------------------

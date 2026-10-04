@@ -170,4 +170,9 @@ Vector2 tile_origin(const MapData *data, int gid, int column, int row);
 // write paths relative to the map.
 const char *file_name_of(const char *path);
 
+// A tileset image that did not become a texture, said as what it is: not in
+// resources/, or there and not loadable. `map` names an LDtk project in the
+// line; "" for a Tiled map. Both readers call it, so they say the same thing.
+void report_tileset_image(const char *image, const char *map);
+
 } // namespace rmp::tilemap::detail

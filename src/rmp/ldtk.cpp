@@ -255,13 +255,7 @@ void load_used_textures(const Project &project, MapData *data) {
         }
         Tileset &set = data->tilesets[ref.index];
         set.texture = rmp::assets::load_texture(ref.image);
-        if (!set.texture.valid()) {
-            TraceLog(
-                LOG_WARNING,
-                "MAP: the tileset image \"%s\" of [%s] is not in resources/. The map "
-                "loads and draws nothing for that tileset.",
-                ref.image.c_str(), project.name);
-        }
+        if (!set.texture.valid()) report_tileset_image(ref.image.c_str(), project.name);
     }
 }
 

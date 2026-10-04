@@ -282,12 +282,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         const char *image = tilemap::detail::file_name_of(from->image.ptr);
         if (image[0] != '\0') {
             out.texture = rmp::assets::load_texture(image);
-            if (!out.texture.valid()) {
-                TraceLog(LOG_WARNING,
-                         "MAP: the tileset image \"%s\" is not in resources/. The map "
-                         "loads and draws nothing for that tileset.",
-                         image);
-            }
+            if (!out.texture.valid()) tilemap::detail::report_tileset_image(image, "");
         }
         data->tilesets.push_back(std::move(out));
         if (external != nullptr) cute_tiled_free_map(external);
@@ -415,6 +410,25 @@ const char *file_name_of(const char *path) {
         if (*p == '/' || *p == '\\') last = p + 1;
     }
     return last;
+}
+
+void report_tileset_image(const char *image, const char *map) {
+    const std::string of = map[0] == '\0' ? "" : std::string(" of [") + map + "]";
+    // Asked separately, and not through the load that just failed: a corrupt
+    // image that is right there, called missing, sends you looking for a file
+    // you can see. resource_exists() counts nothing; the load already did.
+    if (rmp::assets::detail::resource_exists(image)) {
+        TraceLog(LOG_WARNING,
+                 "MAP: the tileset image \"%s\"%s is in resources/ but did not load: it "
+                 "does not decode, or there is no window to upload it to yet. The map "
+                 "loads and draws nothing for that tileset.",
+                 image, of.c_str());
+    } else {
+        TraceLog(LOG_WARNING,
+                 "MAP: the tileset image \"%s\"%s is not in resources/. The map loads "
+                 "and draws nothing for that tileset.",
+                 image, of.c_str());
+    }
 }
 
 } // namespace tilemap::detail

@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <chrono>
 #include <clocale>
+#include <cstdarg>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -86,6 +87,17 @@ struct AtLdtk {
     AtLdtk(const AtLdtk &) = delete;
     AtLdtk &operator=(const AtLdtk &) = delete;
 };
+
+// What raylib's log said while a test listened. The dot says "file state".
+struct {
+    std::vector<std::string> lines;
+} heard;
+
+void hear(int /*level*/, const char *text, va_list args) {
+    char line[512];
+    std::vsnprintf(line, sizeof(line), text, args);
+    heard.lines.emplace_back(line);
+}
 
 // None of the art the samples name is here, and parsing every level of them
 // would print a warning per missing tileset. Quiet while a test parses in
@@ -1102,6 +1114,43 @@ TEST_SUITE("ldtk") {
         CHECK(goals == 1);
         CHECK(keys >= 1);
         MESSAGE(visited.size() << " levels, left to right");
+    }
+
+    TEST_CASE("a tileset image that is missing and one that does not decode say which") {
+        // Both said 'is not in resources/', and a corrupt image that is right
+        // there sends you looking for a file you can see. The resources root
+        // is tests/fixtures/corrupt/: broken.png is in it, missing.png is not.
+        const std::string previous = rmp::assets::detail::resources_root();
+        rmp::assets::detail::set_resources_root(RMP_TEST_FIXTURES "corrupt/");
+        for (const char *image : { "missing.png", "broken.png" }) {
+            CAPTURE(std::string(image));
+            const std::string doc =
+                std::string(R"({"defs":{"tilesets":[{"uid":1,"__cWid":4,"__cHei":4,)"
+                            R"("tileGridSize":16,"relPath":"../art/)") +
+                image +
+                R"("}]},"levels":[{"identifier":"A","pxWid":32,"pxHei":32,)"
+                R"("layerInstances":[{"__type":"Tiles","__gridSize":16,"__cWid":2,)"
+                R"("__cHei":2,"__tilesetDefUid":1,"gridTiles":[{"px":[0,0],"t":1}]}]}]})";
+            heard.lines.clear();
+            SetTraceLogCallback(hear);
+            const Parsed p(doc, "art.ldtk");
+            SetTraceLogCallback(nullptr);
+            CHECK(p.map.valid());
+            std::string line;
+            for (const std::string &l : heard.lines) {
+                if (l.starts_with("MAP: the tileset image")) line = l;
+            }
+            CAPTURE(line);
+            if (std::string(image) == "missing.png") {
+                CHECK(line.find("\"missing.png\" of [art.ldtk] is not in resources/") !=
+                      std::string::npos);
+            } else {
+                CHECK(line.find("\"broken.png\" of [art.ldtk] is in resources/") !=
+                      std::string::npos);
+                CHECK(line.find("does not decode") != std::string::npos);
+            }
+        }
+        rmp::assets::detail::set_resources_root(previous.c_str());
     }
 
     TEST_CASE("load_map picks the reader by the extension") {
