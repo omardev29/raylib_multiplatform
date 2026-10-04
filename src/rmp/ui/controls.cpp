@@ -483,17 +483,39 @@ bool text_input(std::string_view label, char *buffer, int capacity,
     if (over) detail::set_pointer_over_ui();
 
     const bool has_focus = o.enabled && detail::focusable(id, label);
-    if (clicked(id, over)) detail::focus_by_id(id.id, label);
+    const bool click = clicked(id, over);
+
+    // Typing is having the keyboard, not having the focus. The focus can rest
+    // on a field that is not typing -- after Enter or Escape -- and Tab, up and
+    // down move it on from a field exactly as from anything else.
+    bool typing = o.enabled && detail::has_keyboard(id.id);
+    bool took = false;
+    if (typing) {
+        // Given back by Enter or the A button (not Space: that is a character),
+        // Escape or the B button, or a press anywhere else. The focus stays.
+        if (detail::take_submit() || detail::take_cancel() ||
+            (detail::pointer_just_pressed() && !over)) {
+            detail::release_keyboard(id.id);
+            typing = false;
+        }
+    } else if (o.enabled && click) {
+        detail::focus_by_id(id.id, label); // which hands it the keyboard
+        typing = took = true;
+    } else if (has_focus && detail::take_activate()) {
+        detail::take_keyboard(id.id);
+        typing = took = true;
+    }
 
     bool changed = false;
     int len = static_cast<int>(std::strlen(buffer));
 
-    if (has_focus && o.enabled) {
-        // While a field has focus the keyboard is its own: Tab and the arrows
-        // stop meaning "move to the next control", and the game is told to keep
-        // its hands off via wants_keyboard().
+    if (typing) {
+        // The game is told to keep its hands off via wants_keyboard().
         detail::set_keyboard_captured(true);
-
+    }
+    // Not on the frame it took the keyboard: the Space that took it is in the
+    // character queue too.
+    if (typing && !took) {
         int c;
         while ((c = GetCharPressed()) != 0) {
             if (c >= 32 && c < 127 && len < capacity - 1) {
@@ -535,7 +557,7 @@ bool text_input(std::string_view label, char *buffer, int capacity,
         Clay__OpenElement();
         Clay__ConfigureOpenElement(field);
         {
-            if (len == 0 && !o.placeholder.empty() && !has_focus) {
+            if (len == 0 && !o.placeholder.empty() && !typing) {
                 label_text(o.placeholder, t.text_muted, t.font_size);
             } else {
                 // The caret is a character rather than a drawn rectangle: it
@@ -549,7 +571,7 @@ bool text_input(std::string_view label, char *buffer, int capacity,
                 if (n < 0) n = 0;
                 if (n > 500) n = 500;
                 std::memcpy(shown, buffer, static_cast<size_t>(n));
-                bool caret_on = has_focus && (static_cast<int>(GetTime() * 2.0) % 2) == 0;
+                bool caret_on = typing && (static_cast<int>(GetTime() * 2.0) % 2) == 0;
                 if (caret_on) shown[n++] = '_';
                 shown[n] = '\0';
                 label_text(std::string_view{ shown, static_cast<size_t>(n) },

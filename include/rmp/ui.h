@@ -694,7 +694,14 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
 bool dropdown(std::string_view label, int *selected, const char *const *items, int count,
               const DropdownOptions &o);
 
-// Writes into your buffer, NUL-terminated, never past capacity - 1.
+// Writes into your buffer, NUL-terminated, never past capacity - 1, and only
+// while the field has the keyboard. It takes it when it is clicked, when the
+// focus is moved onto it (Tab, the arrows, the d-pad, focus()), or when Enter,
+// Space or the A button is pressed while it has the focus -- but not from the
+// focus a screen gives its first control by itself. It gives it back on Enter
+// or the A button (Space is typed), on Escape or the B button, and on a click
+// anywhere else; the focus stays on it. Tab, up and down move the focus on from
+// a field as from any other control, and take the keyboard with them.
 bool text_input(std::string_view label, char *buffer, int capacity);
 bool text_input(std::string_view label, char *buffer, int capacity,
                 const TextInputOptions &o);
@@ -720,16 +727,19 @@ bool text_input(std::string_view label, char *buffer, int capacity,
 // slider).
 bool wants_pointer();
 
-// A text field has focus, so the keyboard belongs to it.
+// A text field has the keyboard, so the keys are its own: see text_input().
+// Having the focus is not enough -- a field the player pressed Enter on keeps
+// the focus and gives the keyboard back.
 bool wants_keyboard();
 
 // ---------------------------------------------------------------------------
 // Focus, keyboard and gamepad
 //
 // Every control that can be interacted with is focusable, in the order it was
-// declared. Tab and the arrows (or a d-pad) move between them, Enter or the
-// gamepad's bottom button activates. It costs you nothing: the widgets you
-// already wrote are already navigable.
+// declared. Tab, up and down (or a d-pad) move between them, a text field
+// included; Enter or the gamepad's bottom button activates, and Escape or the
+// right one backs out of a text field or an open dropdown. It costs you
+// nothing: the widgets you already wrote are already navigable.
 //
 // This is what makes a build playable on a TV with a controller, and it is why
 // the focus ring is not optional in the theme.

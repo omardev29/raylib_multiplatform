@@ -55,6 +55,13 @@ struct NavState {
     int x = 0; // -1, 0 or +1 while held: Left/Right, the d-pad, the stick
     int y = 0; // the same up and down, and Tab counts as down
     bool activate = false; // pressed THIS frame: Enter, Space, the A button
+    // Pressed THIS frame: Enter or the A button -- activate without Space. A
+    // text field types a space, so this, and not activate, is what ends its
+    // editing.
+    bool submit = false;
+    // Pressed THIS frame: Escape or the B button. Gives a text field's
+    // keyboard back and closes an open dropdown without picking anything.
+    bool cancel = false;
 };
 void read_nav(NavState *out);
 
@@ -273,6 +280,13 @@ void end_pass_focus();
 // gamepad's bottom face button.
 bool take_activate();
 
+// The same, for the two presses that end a text field's editing: Enter or the
+// A button (Space is typed, so it is not one of them), and Escape or the B
+// button. take_submit() consumes the activate it came with. Both are pending
+// with navigation off too: a field typed into then still has to stop.
+bool take_submit();
+bool take_cancel();
+
 // -1, 0 or +1 from the arrows, the d-pad or the left stick, for the controls
 // where sideways means something (a slider). Repeats while held.
 int nav_axis_x();
@@ -297,8 +311,17 @@ void set_press_id(uint32_t id);
 // only the element that took the pointer can give it back.
 void set_pointer_captured(uint32_t id, bool captured);
 
-// A text field has the keyboard.
+// A text field is typing THIS frame: what wants_keyboard() answers with.
 void set_keyboard_captured(bool captured);
+
+// Which text field has the keyboard, across frames. Not the focus: the focus
+// can sit on a field that is not typing (after Enter), and a field can type
+// with navigation off and nothing focused (after a click). Navigation, focus()
+// and a click hand it to what they land on; the field gives it back itself.
+// has_keyboard() is false in a pass input cannot reach.
+bool has_keyboard(uint32_t id);
+void take_keyboard(uint32_t id);
+void release_keyboard(uint32_t id); // only if `id` is the one that has it
 
 // Both capture flags start empty here, and here only: at the FIRST begin() of a
 // frame. Not at the frame boundary — rmp::app marks that before the scenes

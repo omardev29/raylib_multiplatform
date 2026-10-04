@@ -858,7 +858,8 @@ Every interactive control is focusable, in declaration order, and nothing in you
 |---|---|
 | Tab / Down / d-pad down / left stick | next control |
 | Shift+Tab / Up / d-pad up | previous |
-| Enter / Space / gamepad bottom face button | activate |
+| Enter / Space / gamepad bottom face button | activate; start typing in a text field |
+| Enter / Escape / gamepad right face button | stop typing in a text field (the focus stays) |
 | Left / Right / d-pad / stick | move a slider |
 
 ```cpp
@@ -890,7 +891,10 @@ if (!rmp::ui::wants_keyboard() && IsKeyDown(KEY_W))        walk();
 The UI reads the pointer and the keyboard itself, so these two are how the game finds out to keep
 its hands off. Without the first, the click that presses Pause also fires your weapon. Without the
 second, typing a save name walks the player across the level — `wants_keyboard()` is true only
-while a text field has the focus.
+while a text field has the keyboard. A field takes it when it is clicked or the focus is moved onto
+it (navigation, `focus()`, or Enter on it), and gives it back on Enter, Escape, a click elsewhere,
+or the focus moving on — Tab, up and down leave a text field like any other control. The focus a
+screen gives its first control by itself does not take it.
 
 `wants_pointer()` is true when the pointer is over a control or while a slider is being dragged. It
 answers for the previous frame's layout, like everything else here.

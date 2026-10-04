@@ -202,7 +202,8 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //
 //   Tab / Down / d-pad down / left stick    next control
 //   Shift+Tab / Up / d-pad up               previous
-//   Enter / Space / gamepad bottom button   activate
+//   Enter / Space / gamepad bottom button   activate; start typing in a field
+//   Enter / Escape / gamepad B              stop typing (the focus stays)
 //   Left / Right / d-pad / stick            move a slider
 //
 // The focused control draws the theme's focus ring. That colour is in the
@@ -221,4 +222,5 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //
 // Without the second one, typing "Wolf" into the name field above walks the
 // player across the level. wants_keyboard() is true only while a text field
-// has the focus.
+// has the keyboard: from a click on it or the focus arriving on it, until
+// Enter, Escape, a click elsewhere or the focus moving on.

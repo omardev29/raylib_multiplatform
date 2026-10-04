@@ -59,6 +59,11 @@ struct {
 struct {
     bool enabled = true;
     bool activate_pending = false;
+    // The two that end a text field's editing: Enter or A (activate without
+    // Space), and Escape or B. Kept whether or not navigation is on, because
+    // a field typed into with navigation off still has to be able to stop.
+    bool submit_pending = false;
+    bool cancel_pending = false;
     int x = 0;
     float repeat_timer = 0.0f;
     int last_y = 0;
@@ -73,7 +78,15 @@ struct {
     // cleared it at all if the dragging slider stopped being drawn.
     uint32_t pointer_id = 0;
     uint32_t press_id = 0;
+    // This FRAME: a text field is typing, which is what wants_keyboard() says.
     bool keyboard = false;
+    // ACROSS frames: which text field has the keyboard, or 0. It is not the
+    // focus, and it used to be: a field that had the focus kept the keyboard,
+    // so it kept Tab and the arrows too and nothing could take the focus back
+    // off it. The keyboard follows the focus when the player or the game MOVES
+    // it -- navigation, focus(), a click -- and goes back on Enter, Escape, a
+    // click elsewhere, or the field not being drawn.
+    uint32_t keyboard_id = 0;
 } capture;
 
 constexpr float REPEAT_DELAY = 0.45f;
@@ -115,6 +128,9 @@ void move_focus(int delta) {
     }
     target.id = lists.previous[next].id;
     copy_name(target.name, lists.previous[next].name);
+    // The player moved it here, so a text field it lands on is the one they
+    // are about to type into. Anything else holding this id never asks.
+    capture.keyboard_id = target.id;
 }
 
 } // namespace
@@ -125,6 +141,8 @@ void begin_focus_frame() {
     lists.current_count = 0;
     navigation.x = 0;
     navigation.activate_pending = false;
+    navigation.submit_pending = false;
+    navigation.cancel_pending = false;
 
     // A drag and a press both end when the pointer goes up, whatever is or is
     // not being drawn. That is a property of the pointer and not of a pass,
@@ -136,32 +154,34 @@ void begin_focus_frame() {
         capture.press_id = 0;
     }
 
-    if (!navigation.enabled) return;
-
     // Once per frame, through the provider: see NavState. Everything below is
-    // logic on top of those three numbers, which is what makes a controller
-    // testable without a controller.
+    // logic on top of those numbers, which is what makes a controller testable
+    // without a controller.
     NavState nav{};
     read_nav(&nav);
+    navigation.submit_pending = nav.submit;
+    navigation.cancel_pending = nav.cancel;
 
-    // A text field owns the keyboard while it has focus; Tab and the arrows
-    // there mean "move the caret", not "leave this field".
-    if (!capture.keyboard) {
-        if (nav.y != 0 && nav.y != navigation.last_y) {
+    if (!navigation.enabled) return;
+
+    // Up, down and Tab move the focus whoever has it, a text field included:
+    // the field used to keep them, and with them the focus, for good.
+    if (nav.y != 0 && nav.y != navigation.last_y) {
+        move_focus(nav.y);
+        navigation.repeat_timer = REPEAT_DELAY;
+    } else if (nav.y != 0) {
+        // frame_time(), not GetFrameTime(): 0 in test mode, so a headless
+        // run moves exactly one step per press and always the same way.
+        navigation.repeat_timer -= frame_time();
+        if (navigation.repeat_timer <= 0.0f) {
             move_focus(nav.y);
-            navigation.repeat_timer = REPEAT_DELAY;
-        } else if (nav.y != 0) {
-            // frame_time(), not GetFrameTime(): 0 in test mode, so a headless
-            // run moves exactly one step per press and always the same way.
-            navigation.repeat_timer -= frame_time();
-            if (navigation.repeat_timer <= 0.0f) {
-                move_focus(nav.y);
-                navigation.repeat_timer = REPEAT_INTERVAL;
-            }
+            navigation.repeat_timer = REPEAT_INTERVAL;
         }
-        navigation.last_y = nav.y;
-        navigation.x = nav.x;
     }
+    navigation.last_y = nav.y;
+    // Left and right belong to the text while a field is typing; for
+    // everything else they are a slider's.
+    navigation.x = capture.keyboard ? 0 : nav.x;
 
     navigation.activate_pending = nav.activate;
 
@@ -181,6 +201,13 @@ void end_focus_frame() {
     if (n > MAX_FOCUSABLES) n = MAX_FOCUSABLES;
     for (int i = 0; i < n; i++) lists.previous[i] = lists.current[i];
     lists.previous_count = n;
+
+    // A text field that was not drawn this frame -- or was, in a pass input
+    // could not reach -- has stopped typing, and must not start again by
+    // itself the next time it appears.
+    if (capture.keyboard_id != 0 && index_of(capture.keyboard_id) < 0) {
+        capture.keyboard_id = 0;
+    }
 
     // If whatever had the focus is no longer on screen, hand it to the first
     // thing that is, rather than leaving a controller with nowhere to go.
@@ -240,6 +267,19 @@ bool take_activate() {
     return true;
 }
 
+bool take_submit() {
+    if (!navigation.submit_pending) return false;
+    navigation.submit_pending = false;
+    navigation.activate_pending = false; // it was this press, so nobody else's
+    return true;
+}
+
+bool take_cancel() {
+    if (!navigation.cancel_pending) return false;
+    navigation.cancel_pending = false;
+    return true;
+}
+
 int nav_axis_x() { return navigation.x; }
 
 void set_pointer_over_ui() { capture.pointer_over_ui = true; }
@@ -254,6 +294,12 @@ void set_pointer_captured(uint32_t id, bool c) {
 }
 
 void set_keyboard_captured(bool c) { capture.keyboard = c; }
+
+bool has_keyboard(uint32_t id) { return pass_input() && capture.keyboard_id == id; }
+void take_keyboard(uint32_t id) { capture.keyboard_id = id; }
+void release_keyboard(uint32_t id) {
+    if (capture.keyboard_id == id) capture.keyboard_id = 0;
+}
 
 void set_focus_visible(bool on) { target.visible = on; }
 
@@ -273,6 +319,9 @@ bool focus_visible() { return target.visible; }
 void focus_by_id(uint32_t id, std::string_view name) {
     target.id = id;
     copy_name(target.name, name);
+    // Moved there on purpose, by the game or a click: a text field takes the
+    // keyboard with it, exactly as when the player navigates onto it.
+    capture.keyboard_id = id;
 }
 
 // --- widget scratch --------------------------------------------------------

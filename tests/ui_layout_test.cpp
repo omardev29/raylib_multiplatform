@@ -1535,6 +1535,129 @@ void run_press_starts_on_control() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// One frame with this held or pressed, then one with nothing, so the next press
+// is a press and not a hold.
+template <class Frame> void press_nav(Frame &&frame, rmp::ui::detail::NavState state) {
+    fake_nav.state = state;
+    frame();
+    fake_nav.state = rmp::ui::detail::NavState{};
+    frame();
+}
+
+constexpr rmp::ui::detail::NavState NAV_DOWN{ .y = 1 };
+constexpr rmp::ui::detail::NavState NAV_UP{ .y = -1 };
+constexpr rmp::ui::detail::NavState NAV_LEFT{ .x = -1 };
+constexpr rmp::ui::detail::NavState NAV_RIGHT{ .x = 1 };
+constexpr rmp::ui::detail::NavState NAV_ENTER{ .activate = true, .submit = true };
+constexpr rmp::ui::detail::NavState NAV_SPACE{ .activate = true };
+constexpr rmp::ui::detail::NavState NAV_ESCAPE{ .cancel = true };
+
+// A text field gives the focus back. It used to keep it for good: while it had
+// the focus the keyboard was its own, so Tab, the arrows and the d-pad stopped
+// moving anything, no click or key released it, and wants_keyboard() stayed
+// true -- which silences every key and gamepad action the game has. A gamepad
+// player who walked onto "Name" in a settings screen was stuck there.
+void run_text_field_focus() {
+    std::printf("\n--- a text field gives the focus back ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
+    fake_nav.state = rmp::ui::detail::NavState{};
+
+    char name[16] = "";
+    int before = 0;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::panel([&] {
+            if (rmp::ui::button("Before")) before++;
+            rmp::ui::text_input("Name", name, sizeof name);
+            rmp::ui::button("After");
+        });
+        rmp::ui::end();
+    };
+
+    rmp::ui::focus("");
+    frame();
+    frame();
+    check(rmp::ui::focused() == "Before" && !rmp::ui::wants_keyboard(),
+          "the screen starts on its first control, with the keyboard free");
+
+    press_nav(frame, NAV_DOWN);
+    check(rmp::ui::focused() == "Name" && rmp::ui::wants_keyboard(),
+          "moving onto the field gives it the keyboard");
+    press_nav(frame, NAV_LEFT);
+    press_nav(frame, NAV_RIGHT);
+    check(rmp::ui::focused() == "Name" && rmp::ui::wants_keyboard(),
+          "left and right stay inside the text");
+    press_nav(frame, NAV_DOWN);
+    check(rmp::ui::focused() == "After",
+          "down (Tab, the d-pad) moves the focus out of it");
+    check(!rmp::ui::wants_keyboard(), "and the keyboard goes back to the game");
+    press_nav(frame, NAV_UP);
+    press_nav(frame, NAV_UP);
+    check(rmp::ui::focused() == "Before", "and so does up (Shift+Tab)");
+
+    press_nav(frame, NAV_DOWN);
+    press_nav(frame, NAV_ENTER);
+    check(rmp::ui::focused() == "Name", "Enter keeps the focus on the field");
+    check(!rmp::ui::wants_keyboard(), "and gives the keyboard back");
+    press_nav(frame, NAV_ENTER);
+    check(rmp::ui::wants_keyboard(), "Enter again takes it again");
+    press_nav(frame, NAV_SPACE);
+    check(rmp::ui::wants_keyboard(), "Space does not: the field types it");
+    press_nav(frame, NAV_ESCAPE);
+    check(rmp::ui::focused() == "Name" && !rmp::ui::wants_keyboard(),
+          "Escape gives the keyboard back and keeps the focus");
+    press_nav(frame, NAV_SPACE);
+    check(rmp::ui::wants_keyboard(), "Space on a field that is not typing takes it");
+    check(before == 0, "and nothing else was pressed on the way");
+
+    // A click out in the open gives it back, and leaves the focus alone.
+    fake_pointer.position = Clay_Vector2{ 4, 4 };
+    fake_pointer.down = true;
+    frame();
+    fake_pointer.down = false;
+    frame();
+    frame();
+    check(!rmp::ui::wants_keyboard(), "a click anywhere else gives the keyboard back");
+
+    // Nobody asked for the focus a screen gives itself, so a field that gets
+    // it that way does not take the keyboard: a HUD whose first control is a
+    // chat box would otherwise silence the game from its first frame.
+    auto field_first = [&] {
+        rmp::ui::begin();
+        rmp::ui::text_input("Chat", name, sizeof name);
+        rmp::ui::end();
+    };
+    rmp::ui::focus("");
+    field_first();
+    field_first();
+    check(rmp::ui::focused() == "Chat" && !rmp::ui::wants_keyboard(),
+          "the focus a screen gives itself does not take the keyboard");
+
+    // The keyboard is not the focus: with navigation off, nothing has the
+    // focus, and a click still lets the player type.
+    rmp::ui::set_navigation_enabled(false);
+    field_first();
+    Box chat = box_of("Chat");
+    fake_pointer.position = Clay_Vector2{ chat.x + chat.w * 0.8f, chat.y + chat.h / 2 };
+    fake_pointer.down = true;
+    field_first();
+    fake_pointer.down = false;
+    field_first();
+    field_first();
+    check(rmp::ui::wants_keyboard(),
+          "with navigation off, a click still gives it the keyboard");
+    press_nav(field_first, NAV_ENTER);
+    check(!rmp::ui::wants_keyboard(), "and Enter still gives it back");
+    rmp::ui::set_navigation_enabled(true);
+
+    rmp::ui::focus("");
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
 } // namespace
 
 int main() {
@@ -1573,6 +1696,7 @@ int main() {
     run_zero_area();
     run_dropdown_occlusion();
     run_press_starts_on_control();
+    run_text_field_focus();
     run_scroll_clip();
     run_scroll_moves();
     run_image_lifetime();

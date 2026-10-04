@@ -696,7 +696,8 @@ void pointer_from_raylib(Clay_Vector2 *position, bool *down) {
 }
 
 // Down/Up on the keyboard, the d-pad, or the left stick pushed far enough to
-// be deliberate; Left/Right the same way; and the one press that means "do it".
+// be deliberate; Left/Right the same way; the press that means "do it", and
+// the one that means "never mind" (Escape, the B button).
 // This function is the whole of what the UI reads from the keyboard and the
 // gamepad -- everything else works from the NavState it fills in.
 void nav_from_raylib(NavState *out) {
@@ -707,8 +708,8 @@ void nav_from_raylib(NavState *out) {
     if (IsKeyDown(KEY_RIGHT)) x += 1;
     if (IsKeyDown(KEY_LEFT)) x -= 1;
 
-    bool activate =
-        IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER) || IsKeyPressed(KEY_SPACE);
+    bool submit = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
+    bool cancel = IsKeyPressed(KEY_ESCAPE);
 
     if (IsGamepadAvailable(0)) {
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) y += 1;
@@ -721,7 +722,8 @@ void nav_from_raylib(NavState *out) {
         float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
         if (lx > 0.5f) x += 1;
         if (lx < -0.5f) x -= 1;
-        activate = activate || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+        submit = submit || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+        cancel = cancel || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
     }
 
     // Shift+Tab is "backwards", which is the one convention people expect
@@ -733,7 +735,10 @@ void nav_from_raylib(NavState *out) {
 
     out->x = x > 0 ? 1 : (x < 0 ? -1 : 0);
     out->y = y > 0 ? 1 : (y < 0 ? -1 : 0);
-    out->activate = activate;
+    // Space activates like Enter, and is the one a text field types instead.
+    out->activate = submit || IsKeyPressed(KEY_SPACE);
+    out->submit = submit;
+    out->cancel = cancel;
 }
 
 void read_nav(NavState *out) { providers.nav(out); }
