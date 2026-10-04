@@ -41,6 +41,15 @@ static def getGLVersionCode(String version) {
 // only the dependency, the AD_ID permission and a Data safety declaration.
 def admobEnabled = Boolean.parseBoolean(project.properties['admob.enabled'] ?: 'true')
 
+// Google's published TEST ids (developers.google.com/admob/android/test-ads),
+// the ones raylib_multiplatform.toml starts with. The fallback when the .toml
+// gives none, and what every debug build uses whatever it gives: see buildTypes.
+def googleTestAds = [
+    app_id: 'ca-app-pub-3940256099942544~3347511713',
+    interstitial_id: 'ca-app-pub-3940256099942544/1033173712',
+    rewarded_id: 'ca-app-pub-3940256099942544/5224354917',
+]
+
 // Whichever AdmobBridge.java is actually compiled. preBuild rewrites its
 // package like it does the other Java sources, so it has to be named once.
 def admobBridgePath = (admobEnabled ? 'src/admob' : 'src/noadmob') + '/java/com/raylib/raymob/AdmobBridge.java'
@@ -87,9 +96,10 @@ android {
         buildConfigField("boolean", "FEATURE_DISPLAY_IMMERSIVE", project.properties['display.immersive'] ?: "false")
         buildConfigField("boolean", "FEATURE_DISPLAY_INTO_CUTOUT", project.properties['display.into_cutout'] ?: "false")
 
-        // AdMob ad-unit ids (from gradle.properties), exposed to Java via BuildConfig
-        buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"" + (project.properties['admob.interstitial_id'] ?: "ca-app-pub-3940256099942544/1033173712") + "\"")
-        buildConfigField("String", "ADMOB_REWARDED_ID", "\"" + (project.properties['admob.rewarded_id'] ?: "ca-app-pub-3940256099942544/5224354917") + "\"")
+        // AdMob ad-unit ids (from gradle.properties), exposed to Java via
+        // BuildConfig. The release build's; the debug build type replaces them.
+        buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"" + (project.properties['admob.interstitial_id'] ?: googleTestAds.interstitial_id) + "\"")
+        buildConfigField("String", "ADMOB_REWARDED_ID", "\"" + (project.properties['admob.rewarded_id'] ?: googleTestAds.rewarded_id) + "\"")
 
         // Substitution variables for the manifest
         manifestPlaceholders = [
@@ -99,7 +109,7 @@ android {
             'APP_CATEGORY': project.properties['app.category'] ?: "DEFAULT",
             'REQUIRE_GYROSCOPE': project.properties['requirements.gyroscope'] ?: "false",
             'REQUIRE_ACCELEROMETER': project.properties['requirements.accelerometer'] ?: "false",
-            'ADMOB_APP_ID': project.properties['admob.app_id'] ?: "ca-app-pub-3940256099942544~3347511713"
+            'ADMOB_APP_ID': project.properties['admob.app_id'] ?: googleTestAds.app_id
         ]
 
         // Give to CMake the name of the library
@@ -238,6 +248,16 @@ android {
         debug {
             debuggable true
             jniDebuggable true
+
+            // Google's TEST ads in every debug build, whatever ids the .toml
+            // carries. It is the build you tap through yourself, and the one
+            // Firebase Test Lab's Robo crawler taps at random (_firebase.yml):
+            // a click on a real ad from either is invalid traffic, and invalid
+            // traffic is how AdMob accounts get suspended. Release keeps the
+            // .toml's ids. A build type's value wins over defaultConfig's.
+            buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"${googleTestAds.interstitial_id}\"")
+            buildConfigField("String", "ADMOB_REWARDED_ID", "\"${googleTestAds.rewarded_id}\"")
+            manifestPlaceholders['ADMOB_APP_ID'] = googleTestAds.app_id
         }
         release {
             minifyEnabled true

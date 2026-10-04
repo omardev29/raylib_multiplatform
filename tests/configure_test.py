@@ -2062,6 +2062,66 @@ class ConfigureMessagesSayWhatHappenedTest(unittest.TestCase):
             self.assertFalse((root / "branding" / "icon.png").exists())
 
 
+class DebugApkShowsTestAdsTest(unittest.TestCase):
+    """The debug APK shows Google's test ads, whatever ids the .toml carries.
+
+    _firebase.yml sends the debug APK to Firebase Test Lab, whose Robo crawler
+    taps whatever is on the screen, and said the debug build used Google's
+    test ad units -- while build.gradle set the .toml's ids in defaultConfig,
+    for every build type. A game with its real ids would have had the crawler
+    clicking its real ads, which AdMob counts as invalid traffic. Nothing here
+    can run Gradle (there is no Android SDK outside the build image), so this
+    reads build.gradle: the debug build type overrides all three ids with the
+    test ones, the test ones are configure.py's defaults, release overrides
+    none, and defaultConfig still takes the .toml's."""
+
+    GRADLE = REPO / "raymob" / "app" / "build.gradle"
+
+    @staticmethod
+    def body(text, opener):
+        """What is between `opener {` and its matching brace."""
+        start = re.search(rf"(?m)^\s*{re.escape(opener)}\s*\{{", text)
+        assert start, f"no `{opener} {{` block"
+        depth, i = 1, start.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            i += 1
+        return text[start.end():i - 1]
+
+    def gradle(self):
+        return self.GRADLE.read_text()
+
+    def test_the_test_ids_in_gradle_are_googles(self):
+        table = self.gradle().split("def googleTestAds = [", 1)[1].split("]", 1)[0]
+        admob = cfgmod.DEFAULTS["android"]["admob"]
+        self.assertEqual(dict(re.findall(r"(\w+): '([^']+)'", table)),
+                         {key: admob[key] for key in ConfigureAdmobIdsTest.KEYS})
+
+    def test_the_debug_build_type_overrides_every_id(self):
+        debug = self.body(self.body(self.gradle(), "buildTypes"), "debug")
+        self.assertIn('buildConfigField("String", "ADMOB_INTERSTITIAL_ID", '
+                      '"\\"${googleTestAds.interstitial_id}\\"")', debug)
+        self.assertIn('buildConfigField("String", "ADMOB_REWARDED_ID", '
+                      '"\\"${googleTestAds.rewarded_id}\\"")', debug)
+        self.assertIn("manifestPlaceholders['ADMOB_APP_ID'] = googleTestAds.app_id", debug)
+
+    def test_release_keeps_the_tomls_ids(self):
+        gradle = self.gradle()
+        self.assertNotIn("ADMOB", self.body(self.body(gradle, "buildTypes"), "release"))
+        default = self.body(gradle, "defaultConfig")
+        for key, name in (("interstitial_id", "ADMOB_INTERSTITIAL_ID"),
+                          ("rewarded_id", "ADMOB_REWARDED_ID"), ("app_id", "ADMOB_APP_ID")):
+            with self.subTest(key=key):
+                self.assertRegex(default, rf"{name}.*project\.properties\['admob\.{key}'\]")
+
+    def test_test_lab_gets_the_debug_apk_and_says_why(self):
+        firebase = (REPO / ".github" / "workflows" / "_firebase.yml").read_text()
+        for needle in ("name: android-debug-apk", "refusing to run Test Lab on a non-debug APK",
+                       "the debug build type in raymob/app/build.gradle"):
+            with self.subTest(needle=needle):
+                self.assertTrue(needle in firebase, f"_firebase.yml lost {needle!r}")
+
+
 class AndroidGlVersionTest(unittest.TestCase):
     """[android] gl_version only changed the manifest. raylib on Android was
     always compiled for OpenGL ES 2.0 -- its CMake sets GRAPHICS_API_OPENGL_ES2

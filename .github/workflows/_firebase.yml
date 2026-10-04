@@ -90,9 +90,10 @@ jobs:
           set -euo pipefail
 
           # Deliberately the DEBUG apk only. Robo crawls the UI and will happily
-          # click an ad banner; the debug build uses Google's official test ad
-          # unit ids, so those clicks are harmless. Sending a release build here
-          # would generate invalid traffic against real ad units.
+          # tap an ad; the debug build type in raymob/app/build.gradle shows
+          # Google's official test ad units whatever ids the .toml carries, so
+          # those taps are harmless. Sending a release build here would
+          # generate invalid traffic against the game's real ad units.
           APP=$(find apk -name '*.apk' | head -1)
           [ -n "$APP" ] || { echo "::error::no APK in the artifact"; exit 1; }
           case "$APP" in
