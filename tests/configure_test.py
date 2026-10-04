@@ -4379,6 +4379,53 @@ jobs:
         self.assertIn("FALLA: PyYAML is missing INSIDE the build image", text)
 
 
+class PwshStepEndsWithZeroTest(unittest.TestCase):
+    """A pwsh step ends with the last native exit code -- the runner appends
+    `exit $LASTEXITCODE` -- so a step that checks a command fails the way it
+    should prints PASS and fails. The Windows rmp job did, on its first run."""
+
+    FLOW = """
+name: Flow
+on: [push]
+jobs:
+  win:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: A typo is a usage error
+        run: |
+          & ./rmp.ps1 no-such-command
+          if ($LASTEXITCODE -ne 2) { throw "not 2" }
+          Write-Host "PASS"
+%s
+"""
+
+    def run_check(self, tail):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as root:
+            flows = Path(root) / ".github" / "workflows"
+            flows.mkdir(parents=True)
+            (flows / "flow.yml").write_text(self.FLOW % tail)
+            got = subprocess.run(["bash", str(REPO / "tools" / "workflow_check.sh"), root],
+                                 capture_output=True, text=True)
+        if "skip  PyYAML" in got.stdout:
+            self.skipTest("PyYAML not installed")
+        return got
+
+    def test_without_exit_0_it_is_red(self):
+        got = self.run_check("")
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("A typo is a usage error expects a command to exit non-zero", got.stdout)
+
+    def test_with_exit_0_it_is_green(self):
+        got = self.run_check("          # the 2 above is not this step's answer\n"
+                             "          exit 0")
+        self.assertEqual(got.returncode, 0, got.stdout)
+        self.assertIn("1 pwsh step(s) that expect a failure end with exit 0", got.stdout)
+
+
 class ThisFileRunsWholeTest(unittest.TestCase):
     """`python3 tests/configure_test.py` used to run 108 of these tests.
 

@@ -128,10 +128,39 @@ for caller_path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
                       "'not configured, skipping' branch and the run will be green.")
                 fails += 1
 
+# A pwsh step ENDS with the last native exit code: the runner appends
+# `exit $LASTEXITCODE` to the script. So a step that runs a command expecting
+# it to fail -- `rmp.ps1 no-such-command`, then `$LASTEXITCODE -ne 2` -- passes
+# every check it makes, prints PASS, and fails. The Windows rmp job did exactly
+# that. Such a step has to end with `exit 0`.
+pwsh_steps = 0
+for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+    flow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    flow_shell = ((flow.get("defaults") or {}).get("run") or {}).get("shell", "")
+    for job_name, job in (flow.get("jobs") or {}).items():
+        job_shell = ((job.get("defaults") or {}).get("run") or {}).get("shell", flow_shell)
+        for step in job.get("steps") or []:
+            shell = str(step.get("shell", job_shell))
+            run = str(step.get("run", ""))
+            if not shell.startswith(("pwsh", "powershell")) or not run:
+                continue
+            if not re.search(r"\$LASTEXITCODE\s+-ne\s+[1-9]", run):
+                continue
+            pwsh_steps += 1
+            code = [line.strip() for line in run.splitlines()
+                    if line.strip() and not line.strip().startswith("#")]
+            if code[-1] != "exit 0":
+                print(f"  FAIL  {path.name}: {job_name} / {step.get('name', '?')} expects a "
+                      "command to exit non-zero and does not end with `exit 0`")
+                print("        The runner ends a pwsh step with the last native exit code,")
+                print("        so the step prints its PASS and fails.")
+                fails += 1
+
 if fails:
     print()
-    print(f"FALLA: {fails} problem(s). These are startup failures: the run appears with")
-    print("       zero jobs and no logs, so there is nothing to read afterwards.")
+    print(f"FALLA: {fails} problem(s), each one something GitHub reports late: a")
+    print("       startup failure has zero jobs and no logs to read afterwards.")
     sys.exit(1)
 print(f"  ok    {checked} reusable-workflow call(s): permissions, inputs and secrets agree")
+print(f"  ok    {pwsh_steps} pwsh step(s) that expect a failure end with exit 0")
 PY

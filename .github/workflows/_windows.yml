@@ -316,6 +316,9 @@ jobs:
           & cmd /c rmp.cmd no-such-command 2>$null
           if ($LASTEXITCODE -ne 2) { throw "rmp.cmd no-such-command exited $LASTEXITCODE, not 2" }
           Write-Host "PASS: rmp.ps1 and rmp.cmd print one help page and refuse a typo with 2"
+          # The runner ends a pwsh step with the last native exit code, and
+          # the last one here was the 2 this step wanted to see.
+          exit 0
 
       # A game made on Windows. There is no exec bit here, so `rmp new` sets
       # it in the game's index itself; and the checkout has CRLF endings, which
