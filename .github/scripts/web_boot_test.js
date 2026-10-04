@@ -168,8 +168,10 @@ function contentRatio(pngBuffer) {
     if (!logs.some((l) => /RAY_TEST_SAVE_OK dir=\/rmp_save\//.test(l))) {
       errors.push('no RAY_TEST_SAVE_OK into /rmp_save/: the boot save round trip did not run or failed');
     }
-    if (!logs.some((l) => /RAY_TEST_BOOT_OK/.test(l))) {
-      errors.push('no RAY_TEST_BOOT_OK in the console');
+    // assets_failed=0 and not the marker alone: RAY_TEST_BOOT_OK says the
+    // canvas came up, and a game with every texture missing prints it too.
+    if (!logs.some((l) => /RAY_TEST_BOOT_OK assets_failed=0 /.test(l))) {
+      errors.push('no "RAY_TEST_BOOT_OK assets_failed=0 " in the console: it did not boot, or an asset failed to load');
     }
 
     if (errors.length > 0) {

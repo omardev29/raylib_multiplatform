@@ -60,8 +60,10 @@ tail -25 "$LOG"
 # Three assertions, not one. The third is the one that would have caught the
 # segfault-at-shutdown from phase 3: a process that dies on the way out never
 # prints RAY_TEST_DONE_FRAMES, and until this existed nothing on these targets
-# would have noticed.
-grep -q "RAY_TEST_BOOT_OK" "$LOG" || { echo "FALLA: it did not boot"; exit 1; }
+# would have noticed. And the first asks for assets_failed=0: the marker alone
+# only says a window opened, and a game with every texture missing prints it.
+grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
+    echo "FALLA: it did not boot, or an asset failed to load"; exit 1; }
 grep -q "RAY_TEST_RENDER_OK" "$LOG" || { echo "FALLA: it drew nothing"; exit 1; }
 grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
     echo "FALLA: it died before the end of its frame budget"; exit 1; }
@@ -71,7 +73,7 @@ grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
 # never reaches raylib is a setting that does nothing.
 WANT_VSYNC=$(sed -n 's/^#define RMP_WINDOW_VSYNC *\([01]\).*/\1/p' include/rmp/generated/config.h)
 test -n "$WANT_VSYNC" || { echo "FALLA: RMP_WINDOW_VSYNC is not in the generated header"; exit 1; }
-grep -q "RAY_TEST_BOOT_OK .* vsync=$WANT_VSYNC" "$LOG" || {
+grep -q "RAY_TEST_BOOT_OK assets_failed=0 .* vsync=$WANT_VSYNC" "$LOG" || {
     echo "FALLA: [window] vsync is $WANT_VSYNC and the window was not asked for it"; exit 1; }
 
 # And the same pixels. Linux x86-64 and macos-26 (Apple Silicon) both produce

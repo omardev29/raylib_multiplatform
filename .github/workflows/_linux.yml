@@ -399,7 +399,8 @@ jobs:
             alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \
             "/app/${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -20
-          echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: did not boot on Alpine"; exit 1; }
+          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
+            || { echo "FALLA: did not boot on Alpine, or an asset failed to load"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: died before the end"; exit 1; }
           # The exact frame only where there is a golden one: the framework.
@@ -677,7 +678,8 @@ jobs:
             "${{ inputs.build_image }}" \
             "/app/${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -30
-          echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: it did not boot on DRM"; exit 1; }
+          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
+            || { echo "FALLA: it did not boot on DRM, or an asset failed to load"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: it drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: it died before the end"; exit 1; }
           echo "PASS: booted and rendered through DRM/KMS"

@@ -1465,6 +1465,60 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
         self.assertIn("-DPRODUCTION_BUILD=ON", script)
 
 
+def boot_checks(path: Path) -> list[tuple[int, str]]:
+    """Every line of code in `path` that looks for RAY_TEST_BOOT_OK. Comments
+    are not checks: a `#` line in YAML or shell, a `//` line in JavaScript."""
+    found = []
+    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+        code = line.strip()
+        if code.startswith("#") or code.startswith("//"):
+            continue
+        if "RAY_TEST_BOOT_OK" in code:
+            found.append((lineno, code))
+    return found
+
+
+class EveryBootRequiresItsAssetsTest(unittest.TestCase):
+    """RAY_TEST_BOOT_OK says the window opened. It does not say the game found
+    what it ships: the line carries assets_failed=N, and a boot with every
+    texture missing still prints RAY_TEST_BOOT_OK. The Linux, Windows and iOS
+    boots and the examples required assets_failed=0; render_check.sh (macOS,
+    the BSDs, the lint job, every `rmp new` game), the web boot and the musl
+    and DRM runs grepped the marker alone. So every place a boot is checked
+    has to require assets_failed=0 on the same line."""
+
+    def sources(self):
+        roots = [REPO / ".github" / "workflows", REPO / ".github" / "scripts", REPO / "tools"]
+        for root in roots:
+            for path in sorted(root.iterdir()):
+                if path.suffix in (".yml", ".yaml", ".sh", ".py", ".js"):
+                    yield path
+
+    def test_every_boot_check_requires_assets_failed_0(self):
+        seen = 0
+        for path in self.sources():
+            for lineno, code in boot_checks(path):
+                seen += 1
+                with self.subTest(at=f"{path.relative_to(REPO).as_posix()}:{lineno}"):
+                    self.assertIn("RAY_TEST_BOOT_OK assets_failed=0 ", code,
+                                  "a boot check that does not require assets_failed=0 passes "
+                                  "a game that loaded none of its assets")
+        # The Linux, Windows, iOS, web, musl and DRM boots, render_check.sh,
+        # shipped_check.sh, examples_build.sh and rmp.py's smoke, at least.
+        self.assertGreaterEqual(seen, 12, "the scan found almost no boot checks")
+
+    def test_the_scan_tells_a_check_from_a_comment(self):
+        sample = REPO / "build" / "boot_checks_sample.sh"
+        sample.parent.mkdir(exist_ok=True)
+        sample.write_text('# RAY_TEST_BOOT_OK in a comment\n'
+                          'grep -q RAY_TEST_BOOT_OK "$LOG"\n'
+                          '  // RAY_TEST_BOOT_OK in a JS comment\n')
+        try:
+            self.assertEqual([n for n, _ in boot_checks(sample)], [2])
+        finally:
+            sample.unlink()
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
