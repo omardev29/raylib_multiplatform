@@ -3804,6 +3804,110 @@ class NamingCheckTest(unittest.TestCase):
         self.assertIn("naming_check.sh", lint)
 
 
+class ClangTidyNamingTest(unittest.TestCase):
+    """The naming rules in .clang-tidy, each seen red on a file of its own.
+
+    Run where clang-tidy exists; the lint job sets RMP_REQUIRE_CLANG_TIDY=1, so
+    there a missing clang-tidy is a failure and not a skip. The files are
+    written INSIDE the tree (under a dot-directory that nothing globs), because
+    clang-tidy resolves InheritParentConfig from the file's own directory --
+    with --config-file it silently drops everything examples/.clang-tidy
+    inherits, and a test of that would pass with no rules at all."""
+
+    def setUp(self):
+        import shutil
+        self.tidy = shutil.which("clang-tidy")
+        if self.tidy is None:
+            if os.environ.get("RMP_REQUIRE_CLANG_TIDY") == "1":
+                self.fail("clang-tidy is required here (RMP_REQUIRE_CLANG_TIDY=1)")
+            self.skipTest("clang-tidy not installed")
+
+    def tidy_on(self, where, *lines):
+        import subprocess, tempfile, shutil
+        tmp = Path(tempfile.mkdtemp(prefix=".tidy-probe-", dir=REPO / where))
+        try:
+            src = tmp / "probe.cpp"
+            src.write_text("\n".join(lines) + "\n")
+            got = subprocess.run([self.tidy, "--quiet", str(src), "--", "-std=c++20"],
+                                 capture_output=True, text=True)
+            return got.stdout + got.stderr
+        finally:
+            shutil.rmtree(tmp)
+
+    BAD = (
+        ("constexpr int kBad = 1;", "constexpr variable 'kBad'"),
+        ("class C { int bad_ = 0; public: int get() const { return bad_; } };",
+         "private member 'bad_'"),
+        ("class C { public: void _helper() {} };", "method '_helper'"),
+        ("#define BAD_THING 1", "macro definition 'BAD_THING'"),
+        ("namespace { struct { int count = 0; } state; }\n"
+         "int f(int state) { return state; }", "shadows"),
+    )
+    GOOD = ("constexpr int GOOD = 1;",
+            "class C { int _good = 0; public: int get() const { return _good; } "
+            "void _ready() {} };",
+            "#define RMP_GOOD 1",
+            "void f(float w) { const float half = w / 2; (void)half; }")
+
+    def check(self, where):
+        for line, said in self.BAD:
+            with self.subTest(where=where, line=line):
+                self.assertIn(said, self.tidy_on(where, line))
+        out = self.tidy_on(where, *self.GOOD)
+        self.assertNotIn("warning:", out, out)
+
+    def test_the_framework_rules(self):
+        self.check("src")
+
+    def test_examples_inherit_them(self):
+        self.check("examples")
+
+
+class LintWiringTest(unittest.TestCase):
+    """`just lint` and the CI lint job run the same script over the same three
+    folders, against a compile database of their own."""
+
+    def test_both_call_the_script(self):
+        just = (REPO / "Justfile").read_text()
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("bash tools/lint.sh", just)
+        self.assertIn("bash tools/lint.sh", lint)
+        # Nobody calls clang-tidy around it any more: one list of files.
+        self.assertNotIn("clang-tidy -p", lint)
+        self.assertNotIn("clang-tidy -p", just)
+
+    def test_the_script_lints_src_tests_and_examples(self):
+        text = (REPO / "tools" / "lint.sh").read_text()
+        self.assertIn("find src tests examples -name '*.cpp'", text)
+        self.assertIn("-p build/lint", text)
+        self.assertIn("cmake --preset lint", text)
+
+    def test_the_lint_preset_configures_tests_and_examples_elsewhere(self):
+        presets = json.loads((REPO / "CMakePresets.json").read_text())
+        lint = next(p for p in presets["configurePresets"] if p["name"] == "lint")
+        self.assertEqual(lint["binaryDir"], "${sourceDir}/build/lint")
+        for flag in ("BUILD_TESTS", "BUILD_UI_TESTS", "RMP_BUILD_EXAMPLES"):
+            self.assertEqual(lint["cacheVariables"][flag], "ON")
+        debug = next(p for p in presets["configurePresets"] if p["name"] == "debug")
+        self.assertNotIn("RMP_BUILD_EXAMPLES", debug["cacheVariables"])
+
+    def test_a_file_without_a_compile_command_fails(self):
+        """The guess clang-tidy makes for a file it has no entry for is what
+        once went green here and red on the runner. The script refuses it."""
+        text = (REPO / "tools" / "lint.sh").read_text()
+        self.assertIn("no compile command", text)
+        self.assertIn("sys.exit(1)", text)
+
+    def test_the_examples_config_keeps_the_names(self):
+        text = (REPO / "examples" / ".clang-tidy").read_text()
+        self.assertIn("InheritParentConfig: true", text)
+        self.assertIn("readability-identifier-naming", text)
+
+    def test_the_lint_job_requires_clang_tidy_for_the_tests(self):
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("RMP_REQUIRE_CLANG_TIDY", lint)
+
+
 class PushRefusesEveryLiveRunTest(unittest.TestCase):
     """`just push` refused only `in_progress`.
 

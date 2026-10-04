@@ -1,0 +1,21 @@
+# examples/.clang-tidy -- the framework's NAMES, and every check that finds a
+# bug. Not the modernize/readability checks: they push a more elaborate spelling
+# of correct code at someone learning raylib, and an example is read before it
+# is anything else.
+#
+# The naming rules and -Wshadow come from the root .clang-tidy, never copied:
+# InheritParentConfig appends this list to that one.
+InheritParentConfig: true
+Checks: >
+  -modernize-*,
+  -readability-*,
+  readability-identifier-naming,
+  readability-misleading-indentation,
+  readability-misplaced-array-index,
+  -misc-unused-parameters,
+
+# misc-unused-parameters   a hook takes `float delta` whether this example's
+#                          _update uses it or not; the signature is the API.
+#
+# An example's own headers (examples/*/include/) are reported too.
+HeaderFilterRegex: '.*/(include/rmp|src/rmp|examples)/.*'

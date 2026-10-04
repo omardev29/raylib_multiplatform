@@ -141,8 +141,10 @@ private:
     // Where an alien belongs when the block has not moved. The formation is
     // this plus one offset, which is why no alien has to remember anything.
     static Vector2 home(int index) {
-        return { 180 + static_cast<float>(index % COLUMNS) * 44,
-                 70 + static_cast<float>(index / COLUMNS) * 38 };
+        const int column = index % COLUMNS;
+        const int row = index / COLUMNS;
+        return { 180 + static_cast<float>(column) * 44,
+                 70 + static_cast<float>(row) * 38 };
     }
 
     void add_alien(int index) {

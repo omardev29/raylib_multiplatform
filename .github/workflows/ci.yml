@@ -230,7 +230,10 @@ jobs:
       - name: tools/configure.py
         # discover, not the file directly: running the file executes
         # unittest.main() at whatever line it happens to be on, so anything
-        # defined after it is silently not collected.
+        # defined after it is silently not collected. The image carries
+        # clang-tidy, so the tests of its naming rules may not skip here.
+        env:
+          RMP_REQUIRE_CLANG_TIDY: "1"
         run: python3 -m unittest discover -s tests -p 'configure_test.py' -v
 
       # Time, input and randomness enter through a seam so that headless tests
@@ -341,9 +344,10 @@ jobs:
 
       # The headless UI layout assertions: four resolutions, no window, no GPU,
       # and the thing phases 1-4 of the UI architecture are gated on. It was
-      # CONFIGURED in this job (the clang-tidy step passes -DBUILD_UI_TESTS=ON
-      # so the file gets a real compile_commands.json entry) and never built or
-      # run -- so for four phases it ran on developer machines only. The
+      # CONFIGURED in this job (the clang-tidy step's preset turns
+      # BUILD_UI_TESTS on so the file gets a real compile_commands.json entry)
+      # and never built or run -- so for four phases it ran on developer
+      # machines only. The
       # Justfile-versus-lint-job parity test in tests/configure_test.py is what
       # stops a stage existing in one place and not the other again.
       - name: UI layout tests (headless)
@@ -393,23 +397,16 @@ jobs:
           [ "$FAILED" -eq 0 ] || { echo "FALLA: run \`just fmt\` and commit the result."; exit 1; }
           echo "PASS: clang-format clean"
 
-      # clang-tidy needs build/compile_commands.json, so the project is
-      # CONFIGURED here but never built — the compile database is a by-product
-      # of configuring and costs a couple of seconds.
+      # clang-tidy needs a compile database, so the project is CONFIGURED here
+      # but never built -- the database is a by-product of configuring and
+      # costs a couple of seconds.
+      # src/, tests/ and examples/ -- examples with their own .clang-tidy:
+      # the framework's names and every bug-finding check, without the
+      # modernize/readability ones. Against build/lint, a configure-only
+      # preset, and failing on any file that has no compile command, because
+      # clang-tidy would otherwise guess its flags. Same script as `just lint`.
       - name: clang-tidy
-        run: |
-          set -euo pipefail
-          # BOTH test flags: without them tests/ui_layout_test.cpp has no entry
-          # in compile_commands.json and clang-tidy guesses its flags from a
-          # neighbour — which guessed differently here than on a laptop.
-          cmake --preset debug -DBUILD_TESTS=ON -DBUILD_UI_TESTS=ON > /dev/null
-          # Only .cpp files: clang-tidy reaches the headers through them, and
-          # HeaderFilterRegex in .clang-tidy decides which it reports on. The
-          # *_impl.cpp pair exists to compile a vendored header once, and its
-          # warnings are not ours to fix.
-          mapfile -t FILES < <(find src tests -name '*.cpp' | grep -v _impl | grep -v unit_test | sort)
-          clang-tidy -p build --quiet --warnings-as-errors='*' "${FILES[@]}"
-          echo "PASS: clang-tidy clean"
+        run: bash tools/lint.sh
 
   # examples/ is documentation with code in it, and documentation rots quietly.
   # It already has, twice: the header unification removed the `inlining` macro

@@ -119,26 +119,14 @@ fmt what="write":
 # line above a recipe as its summary.)
 
 # Run clang-tidy over our own sources. `just lint fix` applies what it is sure of.
-lint what="check": (_reconfigure "Debug")
+lint what="check":
     #!/usr/bin/env bash
     set -euo pipefail
-    # BOTH test flags, and it is not belt-and-braces. Without them
-    # tests/ui_layout_test.cpp has no entry in compile_commands.json, and
-    # clang-tidy falls back to GUESSING flags from a neighbouring entry — which
-    # guessed differently here and on the runner: green locally, `clay.h file
-    # not found` in CI. A file that gets linted needs a real entry.
-    cmake --preset debug -DBUILD_TESTS=ON -DBUILD_UI_TESTS=ON >/dev/null
-    # unit_test.cpp is excluded for the same reason as the two *_impl.cpp: it
-    # exists to host a vendored header, and doctest's 9 000 lines of macros
-    # produce analyzer diagnostics that are not ours to fix. Its own logic is
-    # assertions, which is the one kind of code a linter has nothing to say
-    # about. clang-format still covers it.
-    files=$(find src tests -name '*.cpp' | grep -v _impl | grep -v unit_test | sort)
-    case "{{ what }}" in
-      check) clang-tidy -p build --quiet --warnings-as-errors='*' $files && echo "  ok    no warnings" ;;
-      fix)   clang-tidy -p build --quiet --fix --fix-errors $files; just fmt ;;
-      *) echo "unknown: {{ what }} (check | fix)"; exit 1 ;;
-    esac
+    # src/, tests/ and examples/, against build/lint (a configure-only preset,
+    # so build/ never gets the examples). tools/lint.sh says why, and the CI
+    # lint job runs the same script.
+    bash tools/lint.sh "{{ what }}"
+    if [ "{{ what }}" = fix ]; then just fmt; fi
 
 # Check what matters locally: config, layout, smoke. Or name one, or "examples".
 test what="all": (_reconfigure "Debug")

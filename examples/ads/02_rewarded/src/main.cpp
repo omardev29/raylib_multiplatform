@@ -23,7 +23,7 @@
 #include <string>
 
 static int coins = 0;
-static bool waitingForAd = false;
+static bool waiting_for_ad = false;
 
 static void on_ready() {
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
@@ -41,7 +41,7 @@ static void on_frame(float delta) {
     // point of a rewarded ad.
     if (rmp::ads::take_reward_earned()) {
         coins += rmp::ads::reward_amount();
-        waitingForAd = false;
+        waiting_for_ad = false;
 
         // Line the next one up straight away, so the button is live again by
         // the time the player wants it.
@@ -58,7 +58,7 @@ static void on_frame(float delta) {
         if (rmp::ads::is_rewarded_loaded()) {
             if (rmp::ui::button("Watch an ad for 50 coins",
                                 { .style = rmp::ui::Variant::PRIMARY })) {
-                waitingForAd = true;
+                waiting_for_ad = true;
                 rmp::ads::show_rewarded();
             }
         } else {
@@ -68,7 +68,7 @@ static void on_frame(float delta) {
             rmp::ui::button("Ad not ready", { .enabled = false });
         }
 
-        if (waitingForAd) {
+        if (waiting_for_ad) {
             rmp::ui::text("waiting for the reward…",
                           { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
         }

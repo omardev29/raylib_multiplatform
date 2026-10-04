@@ -51,6 +51,19 @@
                 "PRODUCTION_BUILD": "OFF",
                 "PLATFORM": "Memory"
             }
+        },
+        {
+            "name": "lint",
+            "displayName": "Compile database for clang-tidy (configure only)",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build/lint",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "PRODUCTION_BUILD": "OFF",
+                "BUILD_TESTS": "ON",
+                "BUILD_UI_TESTS": "ON",
+                "RMP_BUILD_EXAMPLES": "ON"
+            }
         }
     ],
     "buildPresets": [

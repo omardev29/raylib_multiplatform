@@ -146,8 +146,9 @@ void Door::_ready() {
 
 void Door::_draw() {
     const Vector2 at = corner(*this);
-    for (float y = 0; y + 1 < world_collider().height; y += TILE)
-        draw_tile(28, { at.x, at.y + y });
+    // One tile per row the door is tall.
+    for (int row = 0; static_cast<float>(row) * TILE + 1 < world_collider().height; row++)
+        draw_tile(28, { at.x, at.y + static_cast<float>(row) * TILE });
 }
 
 void Door::_collision(rmp::Object &other) {
@@ -169,7 +170,8 @@ void Spikes::_draw() {
     // the cells, so it is drawn from the cells' corner.
     const float width = world_collider().width + 4;
     const Vector2 at{ position.x - (width / 2), position.y - (TILE / 2) };
-    for (float x = 0; x + 1 < width; x += TILE) draw_tile(68, { at.x + x, at.y });
+    for (int column = 0; static_cast<float>(column) * TILE + 1 < width; column++)
+        draw_tile(68, { at.x + static_cast<float>(column) * TILE, at.y });
 }
 
 void Spikes::_collision(rmp::Object &other) {

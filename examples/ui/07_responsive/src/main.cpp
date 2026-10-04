@@ -27,9 +27,10 @@
 #include <string>
 
 static int selected = 0;
-static bool showGrid = true;
+static bool show_grid = true;
 
-static const char *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting", "Map" };
+static constexpr const char *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting",
+                                            "Map" };
 static constexpr int SECTION_COUNT = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
 
 static void on_ready() {
@@ -93,9 +94,9 @@ static void sidebar() {
 static void content() {
     rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [] {
         rmp::ui::text(SECTIONS[selected], { .size = rmp::ui::Size::LARGE });
-        rmp::ui::checkbox("Show the grid", &showGrid);
+        rmp::ui::checkbox("Show the grid", &show_grid);
 
-        if (showGrid) {
+        if (show_grid) {
             // Nothing responsive to write here: columns = 0 works out how many
             // fit in the width it is given and works it out again every frame.
             // This is the composition answer to "a row that wraps", and it is

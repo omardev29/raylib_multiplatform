@@ -83,7 +83,10 @@ void Bat::patrol(float delta) {
         // There and back along the route: turn round at either end.
         if (_next + 1 >= route.size()) _step = -1;
         if (_next == 0) _step = 1;
-        _next = static_cast<std::size_t>(static_cast<int>(_next) + _step);
+        if (_step > 0)
+            _next++;
+        else
+            _next--;
         return;
     }
     position.x += to.x / distance * step;

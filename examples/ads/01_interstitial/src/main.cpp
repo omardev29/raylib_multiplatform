@@ -33,7 +33,7 @@
 #include <rmp/ads.h> // rmp::ads
 #include <rmp/app.h> // RMP_ENTRY_POINT
 
-static int lastReward = 0;
+static int last_reward = 0;
 
 static void on_ready() {
     InitWindow(800, 450, "admob example");
@@ -58,7 +58,7 @@ static void on_frame(float delta) {
         rmp::ads::request_rewarded();
     }
     if (rmp::ads::take_reward_earned()) { // true exactly once per earned reward
-        lastReward = rmp::ads::reward_amount(); // grant it to the player here
+        last_reward = rmp::ads::reward_amount(); // grant it to the player here
     }
 
     BeginDrawing();
@@ -69,8 +69,8 @@ static void on_frame(float delta) {
              10, 80, 20, GRAY);
     DrawText(rmp::ads::is_rewarded_loaded() ? "rewarded ready" : "rewarded loading...",
              10, 110, 20, GRAY);
-    if (lastReward > 0)
-        DrawText(TextFormat("Last reward: %d", lastReward), 10, 150, 20, DARKGREEN);
+    if (last_reward > 0)
+        DrawText(TextFormat("Last reward: %d", last_reward), 10, 150, 20, DARKGREEN);
     EndDrawing();
 }
 

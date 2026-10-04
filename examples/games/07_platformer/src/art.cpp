@@ -22,8 +22,10 @@ struct Art {
 
 Rectangle source_of(int index) {
     const int columns = 20;
-    return Rectangle{ static_cast<float>(index % columns) * TILE,
-                      static_cast<float>(index / columns) * TILE, TILE, TILE };
+    const int column = index % columns;
+    const int row = index / columns;
+    return Rectangle{ static_cast<float>(column) * TILE, static_cast<float>(row) * TILE,
+                      TILE, TILE };
 }
 
 void draw_scaled_tile(int index, Vector2 at, float scale) {

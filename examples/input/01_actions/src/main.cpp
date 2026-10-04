@@ -47,8 +47,8 @@ public:
         // the diagonal is not 41 % faster — with no configuration at all. The
         // six factory actions (move_*, ui_accept, ui_cancel) are already there,
         // and they are ordinary actions you can redefine.
-        position.x += rmp::input::vector().x * speed * delta;
-        position.y += rmp::input::vector().y * speed * delta;
+        _position.x += rmp::input::vector().x * _speed * delta;
+        _position.y += rmp::input::vector().y * _speed * delta;
 
         if (rmp::input::just_pressed("jump")) jump();
 
@@ -73,9 +73,9 @@ public:
         // listening. The argument type says which of the two you asked for, and
         // you can see it at the call site.
         if (rmp::input::pressed(KEY_LEFT_SHIFT))
-            speed = 400.0f;
+            _speed = 400.0f;
         else
-            speed = 200.0f;
+            _speed = 200.0f;
     }
 
     void _draw() override {
@@ -90,8 +90,8 @@ private:
     void jump() {}
     void shoot() {}
 
-    Vector2 position{ 400, 225 };
-    float speed = 200.0f;
+    Vector2 _position{ 400, 225 };
+    float _speed = 200.0f;
 };
 
 RMP_GAME(GameScene);

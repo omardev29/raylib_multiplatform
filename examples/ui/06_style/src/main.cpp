@@ -25,7 +25,7 @@
 static bool light = false;
 static bool reduce = false; // the accessibility switch, see apply_style()
 static float excitement = 0.35f;
-static int pressedCount = 0;
+static int pressed_count = 0;
 
 // One place decides what the interface looks like, and it is not spread across
 // the widgets. Everything else in this file just says what things mean.
@@ -59,14 +59,14 @@ static void variants() {
 
         rmp::ui::row({ .grow_x = true }, [] {
             if (rmp::ui::button("Start game", { .style = rmp::ui::Variant::PRIMARY }))
-                pressedCount++;
-            if (rmp::ui::button("Load")) pressedCount++;
+                pressed_count++;
+            if (rmp::ui::button("Load")) pressed_count++;
             if (rmp::ui::button("Settings", { .style = rmp::ui::Variant::OUTLINE }))
-                pressedCount++;
+                pressed_count++;
             if (rmp::ui::button("Back", { .style = rmp::ui::Variant::GHOST }))
-                pressedCount++;
+                pressed_count++;
             if (rmp::ui::button("Delete", { .style = rmp::ui::Variant::DANGER }))
-                pressedCount++;
+                pressed_count++;
         });
 
         // Disabled is a state, not a variant: it can happen to any of them, so
@@ -174,7 +174,7 @@ static void on_frame(float) {
         rmp::ui::slider("Excitement", &excitement, 0.0f, 1.0f);
         rmp::ui::progress(excitement);
         rmp::ui::text(
-            "Buttons pressed: " + std::to_string(pressedCount),
+            "Buttons pressed: " + std::to_string(pressed_count),
             { .color = rmp::ui::ColorRole::MUTED, .size = rmp::ui::Size::SMALL });
     });
 
