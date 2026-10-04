@@ -1638,6 +1638,138 @@ class TechnicalSignaturesTest(unittest.TestCase):
         self.assertGreaterEqual(seen, 7)
 
 
+class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
+    """CLAUDE.md: for every option, the wrong TYPE and the EMPTY value. The
+    membership table above was a list somebody kept, and it missed three keys:
+    `orientation = ["landscape"]`, `gl_version = ["ES30"]` and `linker =
+    ["lld"]` each answered with a Python traceback, and `[icon] source` was
+    never checked at all -- `source = 5` passed validate() and died in
+    generate_icons(). So this walks DEFAULTS itself: every key there is, now
+    and when one is added, gets every type it is not, and must be refused with
+    a ConfigError that names its line -- through validate() and on through the
+    generators, so a value validate() lets past cannot crash them either."""
+
+    # Keys whose "" is a value, and what it means. Every other string key
+    # refuses "".
+    EMPTY_STRING_MEANS = {
+        ("icon", "adaptive_background"): "no background colour",
+        ("linux", "glibc"): "build against the host's glibc",
+        ("ui", "font"): "raylib's built-in font",
+        ("deploy", "credits_note"): "nothing to say while licenses = true",
+        ("deploy", "itch", "user"): "itch.io deployment off",
+        ("deploy", "itch", "game"): "itch.io deployment off",
+        ("deploy", "firebase", "project_id"): "Firebase Test Lab off",
+        ("deploy", "firebase", "device"): "the workflow's default device",
+        # Read only while [android.admob] enabled = true; ConfigureAdmobIdsTest
+        # refuses them empty when it is.
+        ("android", "admob", "app_id"): "AdMob off",
+        ("android", "admob", "interstitial_id"): "AdMob off",
+        ("android", "admob", "rewarded_id"): "AdMob off",
+    }
+    # Lists whose [] is a value. Every other list refuses [].
+    EMPTY_LIST_MEANS = {
+        ("targets", "disabled"): "nothing subtracted",
+        ("upx", "enabled"): "no compression",
+        ("upx", "disabled"): "nothing subtracted",
+        ("raylib", "disabled_modules"): "every module",
+    }
+    # A free-form passthrough: its keys are Xcode's, not ours.
+    SKIP = {("ios", "settings")}
+    # Whole-number defaults that are numbers, not counts: 1.5 is a scale.
+    NUMBERS = {("ui", "scale")}
+
+    WRONG = {"a list": ["x"], "a table": {"x": 1}, "a bool": True, "an int": 5,
+             "a float": 1.5, "a string": "x"}
+
+    def leaves(self, node=None, path=()):
+        node = cfgmod.DEFAULTS if node is None else node
+        for key, value in node.items():
+            here = path + (key,)
+            if here in self.SKIP:
+                continue
+            if isinstance(value, dict):
+                yield from self.leaves(value, here)
+            else:
+                yield here, value
+
+    def config_with(self, path, value):
+        cfg = base_config()
+        node = cfg
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = copy.deepcopy(value)
+        return cfg
+
+    def outcome(self, cfg):
+        """None when refused at a line; otherwise what happened instead."""
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: None
+        try:
+            with quiet(), contextlib.redirect_stdout(io.StringIO()):
+                cfgmod.validate(cfg, False)
+                targets = cfgmod.expand_targets(cfg["targets"]["enabled"],
+                                                cfg["targets"]["disabled"])
+                cfgmod.expand_upx(cfg, targets)
+                cfgmod.app_defines(cfg)
+                cfgmod.gen_cmake(cfg)
+                cfgmod.gen_app_config(cfg)
+                cfgmod.gen_gradle_properties(cfg, targets)
+                cfgmod.gen_android_manifest(cfg, targets)
+                cfgmod.gen_ios_project(cfg)
+            return "accepted"
+        except cfgmod.ConfigError as caught:
+            return None if cfgmod.locate_from(caught) is not None else f"no line: {caught}"
+        except Exception as crash:  # noqa: BLE001 -- the point is to see it
+            return f"crashed with {type(crash).__name__}: {crash}"
+        finally:
+            cfgmod.write = original
+
+    @staticmethod
+    def same_kind(default, value):
+        if isinstance(default, bool) or isinstance(value, bool):
+            return type(default) is type(value)
+        if isinstance(default, float):
+            return isinstance(value, (int, float))  # a whole number is a number
+        return type(default) is type(value)
+
+    def test_every_option_refuses_every_type_it_is_not(self):
+        checked = 0
+        for path, default in self.leaves():
+            for label, value in self.WRONG.items():
+                if self.same_kind(default, value):
+                    continue
+                if path in self.NUMBERS and isinstance(value, float):
+                    continue
+                checked += 1
+                with self.subTest(option=".".join(path), value=label):
+                    self.assertIsNone(self.outcome(self.config_with(path, value)))
+        self.assertGreater(checked, 300, "the walk found almost nothing to check")
+
+    def test_every_option_refuses_the_empty_value_unless_it_means_something(self):
+        for path, default in self.leaves():
+            if isinstance(default, str) and path not in self.EMPTY_STRING_MEANS:
+                with self.subTest(option=".".join(path)):
+                    self.assertIsNone(self.outcome(self.config_with(path, "")))
+            if isinstance(default, list) and path not in self.EMPTY_LIST_MEANS:
+                with self.subTest(option=".".join(path)):
+                    self.assertIsNone(self.outcome(self.config_with(path, [])))
+
+    def test_the_empty_values_that_mean_something_are_accepted(self):
+        for path in list(self.EMPTY_STRING_MEANS) + list(self.EMPTY_LIST_MEANS):
+            empty = [] if path in self.EMPTY_LIST_MEANS else ""
+            cfg = self.config_with(path, empty)
+            if path[:2] == ("android", "admob"):
+                cfg["android"]["admob"]["enabled"] = False
+            with self.subTest(option=".".join(path)):
+                self.assertEqual(self.outcome(cfg), "accepted")
+
+    def test_the_lists_name_real_keys(self):
+        keys = {path for path, _ in self.leaves()}
+        for path in list(self.EMPTY_STRING_MEANS) + list(self.EMPTY_LIST_MEANS):
+            with self.subTest(option=".".join(path)):
+                self.assertIn(path, keys)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
@@ -1821,6 +1953,11 @@ class ConfigureMembershipTest(unittest.TestCase):
         ("web", "backend", "glfw"),
         ("dev", "compiler", "clang"),
         ("ui", "theme", "dark"),
+        # These three were not here, and each crashed on a list until
+        # EveryOptionRefusesTheWrongTypeTest walked DEFAULTS instead of a list.
+        ("window", "orientation", "landscape"),
+        ("android", "gl_version", "ES30"),
+        ("dev", "linker", "auto"),
     ]
 
     # Everything TOML can hand over that is not a string. The unhashable ones
@@ -1859,7 +1996,8 @@ class ConfigureMembershipTest(unittest.TestCase):
         for section, key, good in self.OPTIONS:
             with self.subTest(option=f"[{section}] {key}"):
                 with self.assertRaises(cfgmod.ConfigError), quiet():
-                    cfgmod.validate(self.with_value(section, key, good.upper()), False)
+                    # swapcase, not upper: "ES30" is already upper case.
+                    cfgmod.validate(self.with_value(section, key, good.swapcase()), False)
 
     def test_whitespace_is_not_trimmed_into_validity(self):
         for section, key, good in self.OPTIONS:
@@ -3647,6 +3785,8 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         "[web] grow":                 ("web", ("grow",), "true"),
         "[project] name":             ("project", ("name",), "9lives"),
         "[window] title":             ("window", ("title",), "two\nlines"),
+        "[window] title is empty":    ("window", ("title",), "  "),
+        "[icon] source is empty":     ("icon", ("source",), ""),
         "[window] orientation":       ("window", ("orientation",), "sideways"),
         "[window] vsync":             ("window", ("vsync",), "yes"),
         "[app] max_delta":            ("app", ("max_delta",), "fast"),

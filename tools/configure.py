@@ -788,11 +788,15 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if "\n" in cfg["window"]["title"] or "\r" in cfg["window"]["title"]:
         raise ConfigError("[window] title must be a single line: it becomes a Java "
                           ".properties value and an Xcode build setting.")
+    if not cfg["window"]["title"].strip():
+        raise ConfigError(
+            "[window] title is empty. It is the title bar on desktop and the name under "
+            "the app's icon on Android and iOS -- give the game a name.")
 
-    orient = cfg["window"]["orientation"]
-    if orient not in ORIENTATIONS:
-        raise ConfigError(f"[window] orientation = {orient!r} must be "
-                          "'landscape', 'portrait' or 'unspecified'.")
+    # one_of() and not `not in ORIENTATIONS`: a membership test raises TypeError
+    # on a list or a table, and `orientation = ["landscape"]` answered with a
+    # traceback. The same went for gl_version and linker below.
+    one_of(cfg["window"]["orientation"], ORIENTATIONS, "[window] orientation")
     for k in ("width", "height"):
         v = cfg["window"][k]
         if not isinstance(v, int) or not (16 <= v <= 16384):
@@ -949,9 +953,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "rmp::save uses std::filesystem, which Apple's C++ library only has from iOS 13. "
             "Use 13.0 or later; the default, 15.6, covers every iPhone Apple still updates.")
 
-    if cfg["android"]["gl_version"] not in GL_VERSIONS:
-        raise ConfigError(f"[android] gl_version = {cfg['android']['gl_version']!r} must be one "
-                          "of ES20, ES30, ES31, ES32.")
+    one_of(cfg["android"]["gl_version"], GL_VERSIONS, "[android] gl_version")
 
     min_sdk = cfg["android"]["min_sdk"]
     if not isinstance(min_sdk, int) or not (21 <= min_sdk <= 36):
@@ -971,8 +973,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # There used to be a second check here allowing only clang/gcc/default, and
     # the two disagreed the moment mingw and msvc were added — which is exactly
     # what tests/configure_test.py caught.
-    if cfg["dev"]["linker"] not in LINKERS:
-        raise ConfigError("[dev] linker must be 'auto', 'mold', 'lld' or 'default'.")
+    one_of(cfg["dev"]["linker"], LINKERS, "[dev] linker")
 
     # mingw and msvc are Windows toolchains, and [dev] is local development only
     # — CI builds the release preset, which never reads this section. On Linux,
@@ -1005,6 +1006,16 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"[dev] linker = \"mold\" cannot work on {where}. mold links ELF only — its own "
             "--help lists elf32-i386, elf64-x86-64 and friends, and no PE/COFF or Mach-O.\n"
             "Use \"lld\", or \"auto\" to let the build pick whatever actually links here.")
+
+    # [icon] source had no check at all: `source = 5` passed and died in
+    # generate_icons() with a TypeError, and "" named the repository itself.
+    icon = cfg["icon"]["source"]
+    a_string(icon, "[icon] source", 'A path in the repository, e.g. "branding/icon.png".')
+    if not icon.strip():
+        raise ConfigError(
+            "[icon] source is empty. Point it at a square PNG in the repository, e.g. "
+            "\"branding/icon.png\" -- `python3 tools/configure.py --make-default-icon` "
+            "draws a placeholder there.")
 
     bg = cfg["icon"]["adaptive_background"]
     a_string(bg, "[icon] adaptive_background", 'Use "" for no colour at all.')
@@ -2180,7 +2191,9 @@ def generate_icons(cfg: dict, required: bool) -> None:
     src = REPO / cfg["icon"]["source"]
     res = REPO / "raymob" / "app" / "src" / "main" / "res"
 
-    if not src.exists():
+    # is_file(), not exists(): a folder by that name was "found" and then read
+    # as an image.
+    if not src.is_file():
         warn(f"[icon] source = {cfg['icon']['source']!r} not found; keeping whatever icons exist.")
         return
 
