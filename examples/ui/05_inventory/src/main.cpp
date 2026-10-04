@@ -70,12 +70,13 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 // stack()/layer(): one extra call, in exchange for the layout knowing what you
 // meant instead of guessing.
 //
-// SCROLL AND SIZE. A scroll area needs a height to clip against. It grows by
-// default, so it takes whatever its parent gives it — which means a scroll
-// inside a container that also fits its contents clips nothing, because the
-// parent grew to fit everything. Give one of them a size.
+// SCROLL AND SIZE. A scroll area grows by default, so it takes the height its
+// parent gives it and clips there: here, what the panel has left once its two
+// lines of text are in. Its rows never push a parent past the window -- inside
+// one that fits its contents, it is squeezed to the room that is left and
+// clips there. Give it a height when you want a particular one.
 //
 // PERFORMANCE. Every item is rebuilt every frame, and that is fine: this is
-// twelve, and the layout engine is measured in microseconds. When a list is
-// long enough to matter, the fix is to draw only the visible range, and
-// scroll() gives you the box to work that out from.
+// twelve, and the layout engine is measured in microseconds. A list long
+// enough to matter would want to draw only the rows in view, and rmp::ui has
+// no call yet that tells you where the area is or how far it has scrolled.

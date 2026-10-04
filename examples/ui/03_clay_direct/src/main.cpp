@@ -5,9 +5,10 @@
 //
 // rmp::ui is a small, opinionated surface over Clay — enough for menus, HUDs
 // and dialogs without ever mentioning a coordinate. When you want something it
-// does not expose yet (floating elements, clipping, scroll containers, aspect
-// ratios, per-corner radii, z-index), you do not have to wait for us and you do
-// not have to give up rmp::ui to get it.
+// does not expose yet (floating elements placed where you choose, aspect
+// ratios, per-corner radii, a border on one side, an explicit z-index), you do
+// not have to wait for us and you do not have to give up rmp::ui to get it.
+// (Clipping and scrolling it does expose: rmp::ui::scroll().)
 //
 // It is the same bargain as the rest of the framework: rmp::assets does not stop
 // you calling LoadTexture, and rmp::ui does not stop you calling Clay. Or
@@ -90,7 +91,9 @@ static void on_frame(float) {
                    .cornerRadius = CLAY_CORNER_RADIUS(6) }) {
                 // Images: point imageData at a Texture2D you own and keep
                 // alive for the frame. Our renderer draws it stretched to the
-                // element's box, untinted unless you set backgroundColor.
+                // element's box, untinted. A tint is a Color* in userData; a
+                // backgroundColor is NOT a tint -- Clay draws it as a rectangle
+                // after the image, which paints a flat square over it.
                 if (i == 0) {
                     CLAY_AUTO_ID(
                         { .layout = { .sizing = { .width = CLAY_SIZING_GROW(0),
@@ -129,7 +132,8 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //   RECTANGLE      background colour + each corner's own radius
 //   BORDER         colour + each side's own width + each corner's own radius
 //   TEXT           drawn with the UI font; fontId is ignored, there is one font
-//   IMAGE          imageData as a Texture2D*, backgroundColor as the tint
+//   IMAGE          imageData as a Texture2D*; userData as a Color* tint, or
+//                  null for none (a backgroundColor covers the image: see above)
 //   SCISSOR_START  clipping, so Clay's clip/scroll containers work
 //   SCISSOR_END
 //

@@ -527,11 +527,13 @@ void spacer(float fixed); // or just a gap of a given size
 // More widgets
 // ---------------------------------------------------------------------------
 
-// The texture is copied on the way in, so a temporary is fine:
-// rmp::ui::image(rmp::assets::load_texture("icon.png")) draws. What the copy
-// holds is a GPU handle, so the texture itself still has to be loaded when the
-// frame is drawn — but that is your asset's lifetime, not this call's. By
-// default it is drawn at its own size, scaled with the rest of the UI.
+// The Texture2D is copied on the way in, so the struct you pass may be a
+// temporary. What the copy holds is a GPU handle, though, so the texture
+// itself has to stay loaded until end() has drawn the frame: keep the
+// rmp::Texture that owns it, as a member or a global. A temporary rmp::Texture
+// does not compile here -- `image(rmp::assets::load_texture("icon.png"))` would
+// unload the texture at the semicolon. By default it is drawn at its own size,
+// scaled with the rest of the UI.
 void image(const Texture2D &texture);
 void image(const Texture2D &texture, const ImageOptions &o);
 
@@ -567,7 +569,9 @@ struct ScrollOptions {
     float padding = -1; // inside the area; -1 = none
     bool grow_x = true; // fill the parent's width
     float width = 0; // > 0 = a fixed width, overriding grow_x
-    bool grow_y = true; // a scroll area with no height clips nothing
+    // Fill the parent's height, and clip there. In a parent that fits its
+    // contents, that is the room left in the window: the rows never push it.
+    bool grow_y = true;
     float height = 0; // > 0 = a fixed height, overriding grow_y
     // A name for the area. Without one it is told apart by its order among the
     // unnamed scroll areas of the pass, so an area that comes and goes before

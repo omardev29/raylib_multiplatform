@@ -951,8 +951,8 @@ void run_image_lifetime() {
     const void *given = nullptr;
     rmp::ui::begin();
     {
-        // The lifetime of rmp::ui::image(rmp::assets::load_texture("icon.png")):
-        // gone at the semicolon, long before end() draws.
+        // The lifetime of a Texture2D returned by value and passed straight
+        // in: gone at the semicolon, long before end() draws.
         Texture2D local{};
         local.id = 77;
         local.width = 32;

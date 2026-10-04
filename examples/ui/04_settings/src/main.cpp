@@ -109,9 +109,10 @@ static void on_ready() {
     apply(cfg);
     saved = cfg;
 
-    // Put the focus somewhere when the screen opens. Without this a controller
-    // arrives at a screen with nothing selected and the first press does
-    // nothing, which reads as "the menu is broken".
+    // The first control of a screen has the focus without asking, so Enter and
+    // the A button work the moment it appears. Asking for it by name does one
+    // thing more: the ring shows from the start, before the player has touched
+    // a key. Name another control to start somewhere else.
     rmp::ui::focus("Fullscreen");
 }
 
@@ -212,7 +213,7 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 // Theme rather than in each widget for a reason: a controller build where one
 // widget forgot to draw it is a controller build that gets stuck.
 //
-//   rmp::ui::focus("Fullscreen")   put the focus somewhere (when a menu opens)
+//   rmp::ui::focus("Fullscreen")   start somewhere else than the first control
 //   rmp::ui::focused()             what has it
 //   rmp::ui::set_navigation_enabled(false)   if your game drives focus itself
 //

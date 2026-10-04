@@ -453,10 +453,11 @@ void image(const Texture2D &texture, const ImageOptions &o) {
         d.layout.sizing.height = axis(false, h);
     }
     // A COPY, in the frame arena. Clay keeps this pointer until end() draws, and
-    // the signature binds a temporary happily: rmp::ui::image(
-    // rmp::assets::load_texture("icon.png")) compiles, and the address of a
-    // parameter whose object died at the semicolon is what the renderer would
-    // then dereference. The struct is 20 bytes and the arena's lifetime is
+    // the signature binds a temporary Texture2D happily -- one returned by value
+    // from a function, say -- and the address of a parameter whose object died
+    // at the semicolon is what the renderer would then dereference. (A
+    // temporary rmp::Texture does not get this far: its conversion is deleted,
+    // because the texture itself would go with it.) The struct is 20 bytes and the arena's lifetime is
     // exactly the frame Clay needs, which makes the rule true by construction
     // instead of true in a comment. A full arena leaves it null, and Clay emits
     // no IMAGE command for that — the element is still laid out at its size.

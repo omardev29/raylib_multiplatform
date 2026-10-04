@@ -77,7 +77,7 @@ static void sidebar() {
         rmp::ui::panel({ .box = { .grow_x = true } }, [&] {
             // A row that wraps would be better still, and "a row that wraps" is
             // spelled grid({ .columns = 0 }) — see the grid below and
-            // 05_inventory.cpp. Kept as a plain row here so the shape change is
+            // ui/05_inventory. Kept as a plain row here so the shape change is
             // the only thing this example is demonstrating.
             rmp::ui::row({ .grow_x = true }, items);
         });

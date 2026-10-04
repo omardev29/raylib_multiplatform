@@ -708,16 +708,16 @@ void text(std::string_view s, const TextOptions &o);
 
 ```cpp
 struct ButtonOptions {
-    Variant       style = Variant::NORMAL;  // normal|primary|danger|outline|ghost
-    detail::Sizing size{};                  // Size::SMALL|medium|large, or a number
-    bool          enabled = true;
-    const char   *id      = nullptr;
+    Variant style = Variant::NORMAL; // NORMAL, PRIMARY, DANGER, OUTLINE or GHOST
+    detail::Sizing size{}; // Size::SMALL, MEDIUM or LARGE, or a number
+    bool enabled = true;
+    const char *id = nullptr;
 };
 
 struct TextOptions {
-    ColorRole     color = ColorRole::TEXT; // text | muted | primary | danger
-    detail::Sizing size{};                   // a step, a number, or the Theme's
-    bool           wrap  = true;
+    ColorRole color = ColorRole::TEXT; // TEXT, MUTED, PRIMARY or DANGER
+    detail::Sizing size{}; // a step, a number, or the theme's
+    bool wrap = true;
 };
 ```
 
@@ -772,14 +772,14 @@ Every container takes `BoxOptions`:
 
 ```cpp
 struct BoxOptions {
-    float gap     = -1;              // between children; -1 = the Theme's
-    float padding = -1;              // inside this container
-    align items   = Align::CENTER;   // where children sit in the leftover space
-    bool  grow_x  = false;           // fill the parent instead of fitting content
-    bool  grow_y  = false;
-    float width   = 0;               // > 0 = fixed, overriding fit/grow
-    float height  = 0;
-    const char *id = nullptr;        // only if you want to ask about it later
+    float gap = -1; // between children; -1 = the theme's
+    float padding = -1; // inside this container
+    Align items = Align::CENTER; // where children sit in the leftover space
+    bool grow_x = false; // fill the parent instead of fitting content
+    float width = 0; // > 0 = fixed, overriding fit/grow
+    bool grow_y = false;
+    float height = 0;
+    const char *id = nullptr; // only if you want to ask about it later
 };
 ```
 
@@ -803,8 +803,10 @@ void progress(float fraction);                   // 0..1, clamped
 void progress(float fraction, const ProgressOptions &o);
 ```
 
-The texture has to stay alive until `end()` returns — Clay keeps the pointer and reads it at draw
-time.
+The `Texture2D` is copied into the frame as it goes in, so the struct you pass may be a temporary.
+The GPU texture it names is not copied: that has to stay loaded until `end()` has drawn the frame,
+which means keeping the `rmp::Texture` that owns it. A temporary `rmp::Texture` does not compile
+here — `image(rmp::assets::load_texture("icon.png"))` would unload the texture at the semicolon.
 
 > **A field-order rule that will bite you once.** C++20 requires designated initialisers in
 > **declaration order**: `{ .width = 8, .tint = RED }` compiles, `{ .tint = RED, .width = 8 }` does
@@ -859,8 +861,9 @@ engine wraps text, not elements, so the rows are built as real rows — and coun
 what tells the grid when to start one.
 
 `scroll()` clips its contents and moves them with the wheel or with a dragging finger, which is the
-same gesture on a phone and needs no branch. It **grows by default**, because a scroll area with no
-height clips nothing: if the parent also fits its contents, give one of them a size.
+same gesture on a phone and needs no branch. It **grows by default**: it takes the height its parent
+gives it and clips there, and its rows never push a parent past the window — inside a parent that
+fits its contents, it is squeezed to the room that is left. Give it a `height` for a particular one.
 
 ### Focus, keyboard and gamepad
 
@@ -876,13 +879,16 @@ Every interactive control is focusable, in declaration order, and nothing in you
 | Up / Down in an open dropdown | walk its items; Enter or A picks, Escape or B closes it unchanged |
 
 ```cpp
-void rmp::ui::focus(std::string_view id);   // when a menu opens
+void rmp::ui::focus(std::string_view id);   // start somewhere else than the first control
 std::string_view rmp::ui::focused();
 void rmp::ui::set_navigation_enabled(bool); // if your game drives focus itself
 ```
 
-Put the focus somewhere when a screen opens. A controller arriving at a screen with nothing
-selected presses a button and nothing happens, which reads as "the menu is broken".
+You do not have to put the focus anywhere when a screen opens. A screen that declares anything
+focusable and has nothing focused focuses its first control, so Enter or the A button does
+something the moment it appears. `focus()` is for starting somewhere else — and a focus asked for
+by name shows its ring straight away, where the one a screen takes by itself waits until the player
+touches a key.
 
 **No widget implements navigation.** A widget registers itself as focusable and asks whether it is
 the focused one; moving between them, key repeat, and what "activate" means on three input devices
@@ -973,7 +979,7 @@ a sidebar-and-content row has to become a column, or it is unusable.
 if (rmp::ui::compact()) rmp::ui::column([&]{ sidebar(); content(); });
 else                    rmp::ui::row   ([&]{ sidebar(); content(); });
 
-switch (rmp::ui::current_breakpoint()) { /* compact, medium, expanded */ }
+switch (rmp::ui::current_breakpoint()) { /* COMPACT, MEDIUM, EXPANDED */ }
 ```
 
 The classification is by **aspect ratio**, not by pixels, and that is deliberate. A pixel threshold
@@ -983,9 +989,9 @@ a row still fits, is how wide the viewport is next to how tall it is.
 
 | Breakpoint | Aspect | What it is in practice |
 |---|---|---|
-| `compact` | < 1:1 | A phone held upright, a narrow window |
-| `medium` | < 1.6:1 | A tablet on its side, a small desktop window, 4:3 |
-| `expanded` | ≥ 1.6:1 | An ordinary desktop, a TV, a phone on its side |
+| `COMPACT` | < 1:1 | A phone held upright, a narrow window |
+| `MEDIUM` | < 1.6:1 | A tablet on its side, a small desktop window, 4:3 |
+| `EXPANDED` | ≥ 1.6:1 | An ordinary desktop, a TV, a phone on its side |
 
 **Reach for it only when the layout has to become a different layout.** Using a Breakpoint to pick
 a *size* is undoing the work `scale()` already did, and it is how a UI ends up looking right on
@@ -1009,7 +1015,7 @@ Colours use raylib's `Color`, because you already have `RED` and `CLITERAL` and 
 type would only add conversions. Every metric — `font_size`, `padding_x`, `padding_y`, `gap`,
 `panel_padding`, `corner_radius`, `border_width`, `min_touch_size` — is in design units.
 
-**Two themes come with the framework**, and `[ui] Theme` in the `.toml` picks which one the app
+**Two themes come with the framework**, and `[ui] theme` in the `.toml` picks which one the app
 starts with. After that it is a runtime call, so an in-game appearance setting is one line:
 
 ```cpp
@@ -1050,11 +1056,11 @@ rmp::ui::button("Continue",   { .style = rmp::ui::Variant::PRIMARY, .enabled = f
 
 | Variant | What it is for |
 |---|---|
-| `normal` | Most buttons: a filled surface |
-| `primary` | The one thing you want pressed on this screen |
-| `danger` | Destructive, and it should look like it |
-| `outline` | An outline and a label, no fill until you point at it: a secondary action |
-| `ghost` | Just the label. Toolbars, "back" links |
+| `NORMAL` | Most buttons: a filled surface |
+| `PRIMARY` | The one thing you want pressed on this screen |
+| `DANGER` | Destructive, and it should look like it |
+| `OUTLINE` | An outline and a label, no fill until you point at it: a secondary action |
+| `GHOST` | Just the label. Toolbars, "back" links |
 
 `enabled` is a flag and not a sixth Variant, because being disabled can happen to any of them.
 
@@ -1106,14 +1112,14 @@ adjustments happen underneath:
 
 ```toml
 [ui]
-Theme        = "dark"  # or "light" — only which one the app STARTS with
+theme        = "dark"  # or "light" — only which one the app STARTS with
 font         = ""      # "" = raylib's built-in font, or a .ttf in resources/
 font_size    = 20      # design units, i.e. at the [window] resolution
 scale        = 0       # 0 = automatic
 max_elements = 512     # ceiling on the UI tree; it sizes the layout arena
 ```
 
-`Theme` is validated against the themes that exist, so a typo is a configure error and not a
+`theme` is validated against the themes that exist, so a typo is a configure error and not a
 silent fall back to dark at runtime.
 
 The font goes through `rmp::assets::load_font`, once per pixel size it is drawn at, so one packed
@@ -1152,12 +1158,12 @@ is on the include path, and using it directly is supported:
 rmp::ui::begin();
 rmp::ui::text("Inventory");
 
-CLAY_AUTO_ID({ .layout = { .Sizing = { .width = CLAY_SIZING_FIT(0) },
+CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(0) },
                            .childGap = 10,
                            .layoutDirection = CLAY_LEFT_TO_RIGHT },
                .backgroundColor = { 30, 30, 38, 255 },
                .cornerRadius = CLAY_CORNER_RADIUS(10) }) {
-    CLAY(CLAY_IDI("slot", 0), { .layout = { .Sizing = { .width = CLAY_SIZING_FIXED(64) } } }) {}
+    CLAY(CLAY_IDI("slot", 0), { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64) } } }) {}
 }
 
 if (rmp::ui::button("Close")) rmp::app::quit();
@@ -1169,8 +1175,8 @@ is the same bargain as everywhere else in this framework: `rmp::assets` does not
 `LoadTexture`, and `rmp::ui` does not stop you calling Clay — or rlgl, or raw OpenGL.
 
 The full worked version, including images and hover, is
-[`examples/ui/03_clay_direct.cpp`](examples/ui/03_clay_direct.cpp). CI compiles every example with GCC
-**and MSVC** on every run, so that claim cannot quietly stop being true.
+[`examples/ui/03_clay_direct/src/main.cpp`](examples/ui/03_clay_direct/src/main.cpp). CI compiles
+every example with GCC **and MSVC** on every run, so that claim cannot quietly stop being true.
 
 Three things to know before you do it:
 
@@ -1185,8 +1191,9 @@ Three things to know before you do it:
   `rmp::ui` exists at all.
 
 Our renderer handles `RECTANGLE` and `BORDER` (each corner with its own radius, each side of a
-border with its own width), `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you
-own; `backgroundColor` is the tint) and the `SCISSOR` pair, so clipping and scroll containers work.
+border with its own width), `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you own; a tint
+is a `Color *` in `userData`, and a `backgroundColor` is not one — Clay draws it as a rectangle
+after the image, over it) and the `SCISSOR` pair, so clipping and scroll containers work.
 `CUSTOM` is not handled — `src/rmp/ui/render.cpp` is one short file, and adding a case is the
 intended way to extend it.
 
@@ -1198,10 +1205,13 @@ field, which is also what you want when the values are computed from the Theme a
 than written as literals. Nothing about the macros is being avoided; they simply do not fit the
 shape of this particular API.
 
-The implementation is five files under `src/rmp/ui/`: `clay_impl.cpp` (compiles
-the engine once, same idea as `rres_impl.cpp`), `context.cpp` (start-up, scale, font, the text
-arena, element identity), `widgets.cpp`, `render.cpp` (draw commands into raylib calls) and
-`Theme.cpp`.
+The implementation is ten files under `src/rmp/ui/`: `clay_impl.cpp` (compiles the engine once,
+same idea as `rres_impl.cpp`), `internal.h` (the private header, which is where Clay is
+included), `context.cpp` (start-up, scale, font, the text arena, element identity, hit testing, the
+test seams), `widgets.cpp` (`begin`, `end`, `button`, `text`), `containers.cpp` (the containers,
+`image`, `progress`, `grid`, `scroll`), `controls.cpp` (`checkbox`, `slider`, `dropdown`,
+`text_input`), `focus.cpp` (focus, keyboard and gamepad navigation), `style.cpp` (sizes, state
+colours, transitions), `render.cpp` (draw commands into raylib calls) and `theme.cpp`.
 
 Two details from that boundary that are worth knowing:
 
