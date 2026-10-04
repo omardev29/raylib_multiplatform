@@ -2,8 +2,8 @@
 //
 // RMP_GAME opens the window from [window] in raylib_multiplatform.toml, enters
 // the scene you name, runs it every frame, and shuts everything down on the way
-// out — on all seventeen targets, including the two where main() is not a main()
-// at all. Your work is in src/scenes/ and src/objects/.
+// out — on every target, including the two where main() is not a main() at
+// all. Your work is in src/scenes/ and src/objects/.
 
 #include <rmp/app.h>
 

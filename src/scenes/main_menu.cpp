@@ -10,7 +10,7 @@ void MainMenuScene::_ready() {
     // Served from resources.rres when a release packed one, and from the loose
     // file in resources/ otherwise. Same call either way. Asking twice for this
     // name gives the same texture back, not a second copy: the name is the key.
-    rabbit = rmp::assets::load_texture("rabbit.png");
+    _rabbit = rmp::assets::load_texture("rabbit.png");
 }
 
 // Every frame, in screen space. Nothing here mentions a coordinate, a size, a
@@ -22,7 +22,7 @@ void MainMenuScene::_draw() {
 
     rmp::ui::panel([&] {
         rmp::ui::row({ .gap = 16 }, [&] {
-            rmp::ui::image(rabbit, { .width = 64, .height = 64 });
+            rmp::ui::image(_rabbit, { .width = 64, .height = 64 });
             rmp::ui::column({ .items = rmp::ui::Align::CENTER_LEFT }, [&] {
                 rmp::ui::text(RMP_WINDOW_TITLE);
                 rmp::ui::text("raylib + rmp::ui",

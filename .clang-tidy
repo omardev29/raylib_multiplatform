@@ -118,7 +118,7 @@ Checks: >
 # Only our own code. thirdparty/ is frozen: a warning there is not actionable,
 # and the vendored headers are the pin. generated/ is rewritten on every
 # configure.
-HeaderFilterRegex: '.*/(include/rmp|src/rmp|tests)/.*'
+HeaderFilterRegex: '.*/(include/rmp|src/rmp|src/scenes|src/objects|tests)/.*'
 #
 # smoke_test.h is excluded on top of that, and not because it is exempt from
 # review: it is compiled as C99 by examples/plain_c/main.c, so `(void)`
