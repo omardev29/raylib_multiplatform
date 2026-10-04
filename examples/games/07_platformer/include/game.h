@@ -15,6 +15,31 @@ namespace game {
 
 constexpr float TILE = 18; // the grid of tiles.png and of every level
 
+// How much of the world is on screen: twelve and a half rows of tiles, whatever
+// the window's height. The camera zooms to fit it.
+constexpr float VIEW_HEIGHT = 225;
+
+// The tiles of tiles.png this game draws by hand, by index (20 to a row).
+namespace tiles {
+constexpr int KEY = 27;
+constexpr int DOOR = 28;
+constexpr int HEART = 44;
+constexpr int HEART_EMPTY = 46;
+constexpr int PLATFORM_LEFT = 48;
+constexpr int PLATFORM_MIDDLE = 49;
+constexpr int PLATFORM_RIGHT = 50;
+constexpr int SPIKES = 68;
+constexpr int SIGN = 86;
+constexpr int SIGN_LEFT = 87;
+constexpr int SIGN_RIGHT = 88;
+constexpr int FLAG = 111; // and 112, the other half of its wave
+constexpr int POLE = 131;
+constexpr int COIN = 151;
+constexpr int POINT = 157; // the decimal point
+constexpr int TIMES = 158; // the x in "x 12"
+constexpr int DIGIT_0 = 160; // to 169
+} // namespace tiles
+
 // Who notices whom. The player is on its own layer and everything that can
 // touch it looks at that layer; nothing else needs to know about anything else.
 namespace layer {
@@ -35,9 +60,10 @@ struct Run {
     int lives = 3;
     int coins = 0;
     float seconds = 0;
-    std::vector<std::string>
-        gone; // the iids of coins, keys, enemies and doors that are no more
-    std::vector<std::string> keys; // the iids of the doors the player holds a key for
+    // The iids of the coins, keys, enemies and doors that are no more.
+    std::vector<std::string> gone;
+    // The iids of the doors the player holds a key for.
+    std::vector<std::string> keys;
 };
 Run &run();
 void new_run();

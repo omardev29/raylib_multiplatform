@@ -5,6 +5,8 @@
 // what it does when the player touches it is its own _collision().
 // ---------------------------------------------------------------------------
 
+#include "game.h"
+
 #include <rmp/object.h>
 
 #include <raylib.h>
@@ -30,7 +32,7 @@ public:
 private:
     float _grace = 0; // seconds of not being hurt again
     float _knocked = 0; // seconds without control after a hit
-    bool _was_on_ground = true;
+    int _jumps_heard = 0; // the Platformer's jump count when the sound last played
 };
 
 // What walks and flies. The same rules for both when the player touches one:
@@ -95,6 +97,8 @@ public:
     void _draw() override;
 
 private:
+    void carry_rider(Vector2 before);
+
     float _travelled = 0;
     int _direction = 1;
     float _waiting = 0; // at either end, long enough to get on or off
@@ -143,7 +147,7 @@ class Sign : public rmp::Object {
 public:
     void _ready() override;
     std::string text;
-    int tile = 86;
+    int tile = tiles::SIGN;
     void _update(float delta) override;
     void _draw() override;
     void _collision(rmp::Object &other) override;

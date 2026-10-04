@@ -72,12 +72,12 @@ void draw_tile(int index, Vector2 at, Color tint, bool flip_x) {
     DrawTextureRec(tiles, source, at, tint);
 }
 
-// The sheet's digits are tiles 160..169. Each glyph sits in the middle of its
-// cell, so the advance is narrower than the cell.
+// Each digit sits in the middle of its cell, so the advance (11 px) is
+// narrower than the cell.
 void draw_number(int value, Vector2 at, float scale) {
     const std::string digits = std::to_string(std::max(0, value));
     for (std::size_t i = 0; i < digits.size(); i++) {
-        draw_scaled_tile(160 + (digits[i] - '0'),
+        draw_scaled_tile(tiles::DIGIT_0 + (digits[i] - '0'),
                          { at.x + (static_cast<float>(i) * 11 * scale), at.y }, scale);
     }
 }
@@ -87,7 +87,7 @@ void draw_seconds(float seconds, Vector2 at, float scale) {
     draw_number(tenths / 10, at, scale);
     const float after =
         static_cast<float>(std::to_string(tenths / 10).size()) * 11 * scale;
-    draw_scaled_tile(157, { at.x + after - (3 * scale), at.y }, scale); // the point
+    draw_scaled_tile(tiles::POINT, { at.x + after - (3 * scale), at.y }, scale);
     draw_number(tenths % 10, { at.x + after + (5 * scale), at.y }, scale);
 }
 

@@ -23,7 +23,7 @@ void TitleScene::_ready() {
 
 void TitleScene::_update(float delta) {
     if (GetScreenHeight() > 0)
-        camera.zoom = static_cast<float>(GetScreenHeight()) / 225.0f;
+        camera.zoom = static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT;
     _clock += delta;
     const Rectangle b = map.bounds();
     // Slowly from one end of the level to the other and back; `limits` keeps

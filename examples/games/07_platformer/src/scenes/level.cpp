@@ -15,6 +15,15 @@
 
 namespace game {
 
+namespace {
+// A sign's picture: plain, or with the arrow LDtk's `arrow` Enum asks for.
+int sign_tile(const std::string &arrow) {
+    if (arrow == "Left") return tiles::SIGN_LEFT;
+    if (arrow == "Right") return tiles::SIGN_RIGHT;
+    return tiles::SIGN;
+}
+} // namespace
+
 LevelScene::LevelScene(std::string level, Entry entry)
     : _level(std::move(level)), _entry(entry) {}
 
@@ -97,8 +106,7 @@ void LevelScene::_ready() {
     map.on_object("Sign", [](rmp::Scene &s, const rmp::MapObject &o) {
         auto &sign = s.spawn<Sign>({ .position = o.position, .layer = -1 });
         sign.text = o.property_string("text");
-        const std::string arrow = o.property_string("arrow", "None");
-        sign.tile = arrow == "Left" ? 87 : (arrow == "Right" ? 88 : 86);
+        sign.tile = sign_tile(o.property_string("arrow", "None"));
     });
     map.on_object("Goal", [](rmp::Scene &s, const rmp::MapObject &o) {
         s.spawn<Goal>({ .position = o.position });
@@ -113,10 +121,8 @@ void LevelScene::_ready() {
 }
 
 void LevelScene::_update(float delta) {
-    // Show twelve and a half rows of tiles, whatever the window's height: the
-    // art is 18 px, and that is what makes it look like a game and not a map.
     if (GetScreenHeight() > 0)
-        camera.zoom = static_cast<float>(GetScreenHeight()) / 225.0f;
+        camera.zoom = static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT;
     if (_over) return;
     run().seconds += delta;
 
@@ -172,18 +178,20 @@ void LevelScene::win() {
     rmp::Scene::push<EndScene>(true, record);
 }
 
-// The HUD, in screen space: hearts, coins, and the clock.
+// The HUD, in screen space and as big as the window: hearts, coins, the clock.
 void LevelScene::_draw() {
-    const float s = std::max(1.0f, static_cast<float>(GetScreenHeight()) / 225.0f);
+    const float scale =
+        std::max(1.0f, static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT);
     for (int i = 0; i < 3; i++) {
-        draw_icon(i < run().lives ? 44 : 46,
-                  { (6 + (static_cast<float>(i) * 17)) * s, 4 * s }, s);
+        const int heart = i < run().lives ? tiles::HEART : tiles::HEART_EMPTY;
+        draw_icon(heart, { (6 + (static_cast<float>(i) * 17)) * scale, 4 * scale },
+                  scale);
     }
-    draw_icon(151, { 6 * s, 22 * s }, s);
-    draw_icon(158, { 20 * s, 22 * s }, s); // the x
-    draw_number(run().coins, { 32 * s, 22 * s }, s);
+    draw_icon(tiles::COIN, { 6 * scale, 22 * scale }, scale);
+    draw_icon(tiles::TIMES, { 20 * scale, 22 * scale }, scale);
+    draw_number(run().coins, { 32 * scale, 22 * scale }, scale);
     const float right = static_cast<float>(GetScreenWidth());
-    draw_seconds(run().seconds, { right - (60 * s), 4 * s }, s);
+    draw_seconds(run().seconds, { right - (60 * scale), 4 * scale }, scale);
 }
 
 } // namespace game

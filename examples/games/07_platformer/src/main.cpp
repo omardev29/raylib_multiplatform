@@ -1,18 +1,16 @@
 // ---------------------------------------------------------------------------
-// examples/games/07_platformer/src/main.cpp — a platformer, designed in LDtk.
+// examples/games/07_platformer -- a platformer whose levels are made in LDtk.
 //
-// The seventh judge, and the first with a level that somebody designs in an
-// editor instead of a formation written in code. Three levels side by side in
-// one LDtk world -- a meadow, a desert and a snowfield -- with Kenney's Pixel
-// Platformer art, walked through from left to right to the flag.
+// Three levels side by side in one LDtk world -- a meadow, a desert and a
+// snowfield -- with Kenney's Pixel Platformer art, walked through from left to
+// right to the flag.
 //
 // What the framework does here, and therefore what is NOT in these files:
 //
 //   rmp::Tilemap    resources/world.ldtk, loaded by name. The scene draws it,
-//                   the player stands on its IntGrid `Solid` cells and runs
-//                   along them without catching on a seam, and the crate in the
-//                   meadow is solid because its tile is tagged `Solid` in the
-//                   tileset. No collision code anywhere in the game.
+//                   and the player stands on its IntGrid `Solid` cells, and on
+//                   any tile tagged `Solid` in the tileset (the meadow's crate).
+//                   No collision code anywhere in the game.
 //   entities        every coin, enemy, sign and door is placed in LDtk and
 //                   arrives through map.on_object(): a patrol is an
 //                   Array<Point> drawn in the editor, a platform's destination
@@ -24,21 +22,21 @@
 //   Platformer      the run, the jump, coyote time and the buffered jump.
 //   rmp::Camera     follows with smoothing, stops at the level's edges
 //                   (`limits = map.bounds()`), and shakes when you are hit.
-//   rmp::audio      the music loop and the effects, by name; the music does not
-//                   restart when the level changes, because asking for the
-//                   track that is playing is not a restart.
+//   rmp::audio      the music and the effects, by name. Asking for the track
+//                   that is already playing does not restart it, so the music
+//                   carries on from one level to the next.
 //   rmp::save       the best run, kept between sessions.
 //   rmp::global     the run itself -- lives, coins, the clock, what has been
-//                   collected -- which has to survive the change of scene.
+//                   collected -- which has to outlive each level's scene.
 //
 // What is left is the game: what a coin is worth, what a stomp does, how long
 // you are safe after a hit, and when you have won.
 //
-// THE LEVEL IS LDtk's. tools/make_platformer_assets.py generated the first
-// version and cut the art out of Kenney's packs; from there world.ldtk is
-// edited in LDtk 1.5, and the game reads whatever it saves. Paint IntGrid
-// `Solid` and the auto-layer rules draw the edges and corners; set a level's
-// `biome` to Grass, Sand or Snow and they draw that terrain.
+// Open resources/world.ldtk in LDtk 1.5 to change the levels; the game reads
+// whatever it saves. Paint IntGrid `Solid` and the auto-layer rules draw the
+// edges and corners; a level's `biome` (Grass, Sand or Snow) picks the terrain.
+//
+// Run it: `just example 07_platformer`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
