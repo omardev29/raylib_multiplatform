@@ -8,16 +8,19 @@ builds them, **boots them, and checks they actually put pixels on screen**.
 > **This is experimental only, and it is not for production.** The pipeline is green and the render gates
 > are real, but the features are very experimental and not intended to production
 
+**The documentation is at <https://omardev29.github.io/rmp-docs/>**: a tutorial that builds a game
+from nothing to a release, the manual, the examples (most of them playable in the browser),
+publishing, and the reference. Every C and C++ block there is compiled against this repository,
+every `.toml` block goes through its `configure.py`, and what a machine can check about the rest is
+checked, so it is the place to read. This page is the short version.
+
 ---
 
 ## Look how little you have to do
 
-This is the whole list. Everything else is generated, pinned or automated, and you should never
-need to open it.
-
 | You edit | For |
 | --- | --- |
-| `src/` | Your game. `src/main.cpp` is one line, `RMP_GAME(MainMenuScene);`, naming the first scene; the game is in `src/scenes/` (and `src/objects/` when it has objects of its own). Every `.cpp`/`.c` under `src/` is compiled automatically, subfolders included. |
+| `src/` | Your game. `src/main.cpp` ends at `RMP_GAME(MainMenuScene);`, naming the first scene; the game is in `src/scenes/` (and `src/objects/` when it has objects of its own). Every `.cpp`/`.c` under `src/` is compiled automatically, subfolders included. |
 | `include/` | Your headers. |
 | `resources/` | Your assets — images, sounds, fonts, levels, models. |
 | `branding/icon.png` | Your app icon. One 1024×1024 PNG. |
@@ -26,20 +29,8 @@ need to open it.
 That is the list. You do **not** edit CMakeLists.txt to rename your game, or `gradle.properties`
 for Android, or `project.yml` for iOS, or any workflow file to choose platforms. Those are
 generated from the config on every build, which is why they cannot drift out of sync with it.
-
-Two paths in there are the framework's, not yours, and they carry the same name so you can tell
-at a glance: `include/rmp/` (the headers you include) and `src/rmp/` (the implementation).
-Everything else under `src/` and `include/` is yours. You can delete `src/rmp/` — see
-[`examples/plain_c/src/main.c`](examples/plain_c/src/main.c), which is a plain C entry point that
-keeps the build targets (all but iOS and Web) and none of the runtime layer.
-
-`branding/` is yours too, including the name: the path in `[icon] source` is the only thing that
-has to agree with it, so `art/logo.png` is just as valid. If the file is missing the build warns
-and keeps whatever icons are already there instead of failing — `python3 tools/configure.py
---make-default-icon` writes a fresh 1024×1024 placeholder if you want one to draw over.
-
-If you want CD you will also add a few **secrets** on GitHub — never in the repo. See
-[Publishing](#publishing).
+`include/rmp/` and `src/rmp/` are the framework's; everything else under `src/` and `include/` is
+yours.
 
 ---
 
@@ -93,508 +84,82 @@ rmp help              # every command; rmp help <command> explains one, with exa
 
 Inside a game, `rmp` is the game's own copy (`tools/rmp.py`), so a game keeps working the way
 it did when the framework on your PATH moves on. Without `rmp`, it is plain CMake:
-
-```bash
-cmake --preset debug           # configures AND generates everything from the .toml
-cmake --build build
-./build/my_game
-```
+`cmake --preset debug` configures and generates everything from the `.toml`, and
+`cmake --build build` builds it.
 
 ---
 
-## The config file
-
-Everything below has a sensible default. Delete the whole file and the project still builds — with
-a warning telling you what it assumed.
-
-```toml
-[project]
-name = "my_game"                       # binary, CMake target, Xcode scheme, artifact names
-
-[window]
-title  = "My Game"
-width  = 800
-height = 450
-orientation = "landscape"              # applied to Android and iOS at once
-vsync = true                           # wait for the screen's refresh
-fps = 0                                # a cap in frames per second; 0 = none
-
-[targets]
-enabled  = ["all"]                     # groups: all desktop mobile linux windows apple bsd web android
-disabled = []                          # or exact ids: linux-x64-glibc, netbsd-x64, ios, ...
-
-[android]
-application_id = "com.yourname.yourgame"
-min_sdk = 24
-gl_version = "ES20"                    # or ES30: what raylib is compiled for, and the devices offered
-
-[android.permissions]
-internet  = false                      # each one shows up on your Play listing
-vibration = false
-
-[android.admob]
-enabled = false                        # true = ads; also off when android is not a target
-
-[ios]
-bundle_id = "com.yourname.yourgame"
-deployment_target = "15.6"
-
-[icon]
-source = "branding/icon.png"           # one 1024x1024 PNG -> every Android density + iOS AppIcon
-adaptive_background = "#3DDC84"
-
-[ui]
-font      = ""                         # "" = raylib's built-in font; or a .ttf in resources/
-font_size = 20                         # at the [window] resolution; rmp::ui scales from there
-scale     = 0                          # 0 = automatic
-
-[raylib]
-disabled_modules = []                  # rmodels | raudio — shrink the binary
-
-[dev]                                  # local development only; CI is unaffected
-compiler = "clang"
-linker   = "auto"
-
-[deploy.itch]
-user = ""                              # empty = do not publish
-game = ""
-```
-
-The file in the repo is fully commented — read that rather than this summary.
-
-**There is no `version`.** It comes from the git tag: `v1.2.3` becomes the version name everywhere
-and the Android `versionCode`. Untagged builds are `0.0.0-dev`. One source, nothing to bump twice.
-
-### Picking platforms
-
-`enabled` expands groups and deduplicates; `disabled` is subtracted from the result. There is no
-precedence to reason about because there are no conflicts:
-
-```toml
-enabled  = ["all"]
-disabled = ["ios"]        # everything except iOS
-
-enabled  = ["desktop", "web"]
-```
-
-Turning a platform off removes it from the build, the tests and the release.
-
-### Turning raylib modules off
-
-`rcore` and `rlgl` are mandatory. `rmodels` and `raudio` can go.
-
-`rtextures`, `rtext` and `rshapes` cannot, and the config will tell you why if you try: the asset
-layer, the rres loader and the CI render gate are all built on `rtextures`, `rres-raylib.h` calls
-into `rtext` from a code path that is always live — no amount of dead-code elimination drops it —
-and `rmp::ui` draws every panel, button and border with `rshapes`.
-
-On a release build the size win is smaller than you would expect, because LTO and `--gc-sections`
-already strip what you do not call. The real gains are on Web and Android, and in compile time.
-**It does not apply to iOS**, which links a prebuilt xcframework.
-
----
-
-## Writing your game
-
-**`src/main.cpp` is four lines, and only one of them is yours:**
+## A main menu is three functions
 
 ```cpp
-#include <rmp/app.h>
-
-#include "scenes/main_menu.h"
-
-RMP_GAME(MainMenuScene);
+rmp::ui::begin();
+if (rmp::ui::button("Play")) play();
+if (rmp::ui::button("Quit")) quit();
+rmp::ui::end();
 ```
 
-Your work is in scenes. A scene is a self-contained context of state, update and presentation
-that can be entered, left, suspended and resumed — a main menu is one, a level is one, a pause
-overlay is one:
-
-```cpp
-// src/scenes/main_menu.h
-class MainMenuScene : public rmp::Scene {
-    void _draw() override {
-        rmp::ui::begin();
-        if (rmp::ui::button("Play")) rmp::Scene::change<GameScene>();
-        if (rmp::ui::button("Quit")) rmp::app::quit();
-        rmp::ui::end();
-    }
-};
-```
-
-`_ready`, `_update(float delta)`, `_draw`, `_suspend`, `_resume` and `_end` are all optional and
-all empty by default. The leading underscore is the access rule: **`_name` is a method of yours
-that we call.**
-
-`RMP_GAME` opens the window from `[window]` in `raylib_multiplatform.toml`, enters the scene you
-name, and writes the entry point for whichever platform you are building — `main()` with a frame
-loop on desktop and Web, the three callbacks UIKit demands on iOS. There is no `InitWindow`, no
-`BeginDrawing` and no unloading, because none of those were ever yours: they were the same eight
-lines in every game.
-
-Push a scene on top and the one underneath freezes but stays on screen. That is a pause menu, and
-it is the default — **a pause scene writes no policy at all**:
-
-```cpp
-if (rmp::input::just_pressed("pause")) rmp::Scene::push<PauseScene>();
-```
-
-There is no umbrella header: you include what you use, and each one is a concept you can name —
-`rmp/app.h`, `rmp/scene.h`, `rmp/object.h`, `rmp/behavior.h`, `rmp/input.h`, `rmp/ui.h`,
-`rmp/assets.h`, `rmp/tilemap.h`, `rmp/audio.h`, `rmp/save.h`, `rmp/random.h`, `rmp/ads.h`,
-`rmp/math.h` — and `rmp/config.h`,
-which every one of them already carries for you. See
-[`examples/platform/03_minimal_includes/`](examples/platform/03_minimal_includes/src/hud.cpp),
-one translation unit that includes `rmp/ui.h` and nothing else of ours.
-
-`RMP_ENTRY_POINT(on_ready, on_frame, on_exit)` is still there and still supported: it is the same
-three platform runners without the scene stack, and it is what the examples use. `RMP_GAME` is
-built on top of it.
+No coordinates, no sizes, no fonts, no hitboxes, and it does not change when the window does. It is
+the benchmark for every API here: anything that would make it longer is redesigned until it does
+not. The game itself is scenes — `src/main.cpp` names the first one with `RMP_GAME`, which opens
+the window and writes the entry point for whichever platform you build — and the objects in them.
 
 ### What we add on top of raylib
 
 All of raylib's API is there: `DrawTexture`, `LoadModel`, `IsKeyPressed`, everything. The copy in
-`thirdparty/raylib/` is raylib 6.0.0 with six local patches and three memory fixes backported from
-upstream, all listed in [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) and marked
-at each site, none of them changing a signature. On top of it this framework adds a few small namespaces, all
-under `rmp::`. They exist because they are the things every game needs and raylib deliberately
-does not decide for you.
+`thirdparty/raylib/` is raylib 6.0.0 with local patches, all listed in
+[`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) and marked at each site, none of
+them changing a signature. On top of it this framework adds a few small namespaces, all under
+`rmp::`, for the things every game needs and raylib deliberately does not decide for you:
 
 | Namespace | What it is for |
 | --- | --- |
-| **`rmp::app`** | The entry point, and `quit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. `rmp::global<T>()` for what outlives a scene. |
-| **`rmp::Scene`** | A self-contained context of state, update and drawing on a stack: change, push, pop. A pause menu is a scene pushed on top and writes no policy. |
-| **`rmp::Object`** | What lives in a scene: position, velocity, a shape or a sprite, solid or not, collision layers, `on_click`. `spawn<T>()` creates it, `rmp::Handle<T>` is how you keep it across frames. Sweeps, separation and raycasts are the scene's, not yours. |
-| **`rmp::behavior`** | The catalogue: `TopDown`, `Platformer`, `Runner`, `Ball`, `Projectile`, `Follow`, `Tween`, `GridSnap`, `Parallax`, `Spawner`, `Timer`, `Lifespan`, `Health`. `object.add<B>({...})` and the object moves like that game. Seven whole games in `examples/games/` are the proof. |
-| **`rmp::input`** | Named actions with as many bindings as you like, axes and eight-direction vectors, and routing: an action bound to the mouse is silent while the UI wants the pointer. |
-| **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default: written once, a menu is centred and correctly sized from 800×600 to 4K, on a phone and on a desktop, without your code knowing which. Playable with a mouse, a finger and a controller, for free. |
-| **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. Counted handles (`rmp::Texture`, `rmp::Font`, `rmp::Sound`, `rmp::SpriteSheet`) release what they own. |
-| **`rmp::Tilemap`** | A level designed in [LDtk](https://ldtk.io): `map = rmp::assets::load_map("world.ldtk")` and the scene draws it, collides against its solid cells and spawns its entities through the factories you register, with their fields -- Points included -- and the neighbouring levels of the world one call away. Tiled maps load too; LDtk is the format that is tested and maintained. |
-| **`rmp::Camera`** | Every scene's `camera`: `follow` an object, keep inside `limits`, `smoothing` that is the same at 30 and 144 Hz, and `shake()` that never touches gameplay -- a click during a shake still lands on what is under the pointer. |
-| **`rmp::audio`** | `play("coin")` and `music("level1")` by name, whatever the format; three volume buses for a settings screen. The device opens on the first sound, and a machine without one simply runs silent. |
-| **`rmp::save`** | `rmp::save::write("slot1", v)` and `read("slot1", &v)`, where `rmp::Value` holds a real structure. Every read has a default, so an update never breaks an old save; a damaged, cut-short or edited file says which; saves can be sealed; the right folder on every platform. |
-| **`rmp::random`** | Seeded and reproducible: the number on a bug report reproduces the run. |
-| **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. |
+| **`rmp::app`** | The entry point, and `quit()`: closing the app cleanly from anywhere, on every platform, including the two where ending the process yourself is wrong. `rmp::global<T>()` for what outlives a scene. [Manual](https://omardev29.github.io/rmp-docs/manual/core/app.html) |
+| **`rmp::Scene`** | A self-contained context of state, update and drawing on a stack: change, push, pop. A pause menu is a scene pushed on top and writes no policy. [Manual](https://omardev29.github.io/rmp-docs/manual/core/scenes.html) |
+| **`rmp::Object`** | What lives in a scene: position, velocity, a shape or a sprite, solid or not, collision layers, `on_click`. `spawn<T>()` creates it, `rmp::Handle<T>` is how you keep it across frames. Sweeps, separation and raycasts are the scene's, not yours. [Manual](https://omardev29.github.io/rmp-docs/manual/core/objects.html) |
+| **`rmp::behavior`** | The catalogue: `TopDown`, `Platformer`, `Runner`, `Ball`, `Projectile`, `Follow`, `Tween`, `GridSnap`, `Parallax`, `Spawner`, `Timer`, `Lifespan`, `Health`. `object.add<B>({...})` and the object moves like that game; the games in `examples/games/` are the proof. [Manual](https://omardev29.github.io/rmp-docs/manual/core/behaviors.html) |
+| **`rmp::Camera`** | Every scene's `camera`: `follow` an object, keep inside `limits`, `smoothing` that is the same at 30 and 144 Hz, and `shake()` that never touches gameplay. [Manual](https://omardev29.github.io/rmp-docs/manual/core/camera.html) |
+| **`rmp::input`** | Named actions with as many bindings as you like, axes and eight-direction vectors, and routing: an action bound to the mouse is silent while the UI wants the pointer. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/input.html) |
+| **`rmp::ui`** | Menus, buttons, text, lists, and the controls a settings screen is made of. Responsive by default, and playable with a mouse, a finger and a controller. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/ui.html) |
+| **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. Counted handles (`rmp::Texture`, `rmp::Font`, `rmp::Sound`, `rmp::SpriteSheet`) release what they own. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/assets.html) |
+| **`rmp::Tilemap`** | A level designed in [LDtk](https://ldtk.io) (or Tiled): the scene draws it, collides against its solid cells and spawns its entities through the factories you register. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/tilemaps.html) |
+| **`rmp::audio`** | `play("coin")` and `music("level1")` by name, whatever the format; three volume buses for a settings screen. A machine without a sound device simply runs silent. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/audio.html) |
+| **`rmp::save`** | `rmp::save::write("slot1", v)` and `read("slot1", &v)`, where `rmp::Value` holds a real structure. Every read has a default, so an update never breaks an old save; the right folder on every platform. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/saving.html) |
+| **`rmp::random`** | Seeded and reproducible: the number on a bug report reproduces the run. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/random.html) |
+| **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. Off until you turn it on. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/ads.html) |
 
-A main menu, complete:
-
-```cpp
-rmp::ui::begin();
-if (rmp::ui::button("Play"))    play();
-if (rmp::ui::button("Options")) options();
-if (rmp::ui::button("Quit"))    quit();
-rmp::ui::end();
-```
-
-No coordinates, no sizes, no fonts, no hitboxes, and it does not change when the window does. When
-you need structure, containers take their contents as a lambda, so there is no closing call to
-forget:
-
-```cpp
-rmp::ui::panel([&]{
-    rmp::ui::text("Really quit?");
-    rmp::ui::row({ .grow_x = true }, [&]{
-        if (rmp::ui::button("Yes")) quit();
-        rmp::ui::spacer();
-        rmp::ui::button("No");
-    });
-});
-```
-
-You say what a control *means*, never what colour it is — `Variant::PRIMARY`, `Variant::DANGER`,
-`Size::LARGE` — so restyling the whole game is one call and not a tour of every call site:
-
-```cpp
-rmp::ui::set_theme(rmp::ui::theme_light());     // or theme_dark(), or your own
-```
-
-Everything past that — your own Theme, Sizing, scaling, breakpoints, dropping to the layout engine
-directly — is optional and costs you nothing until you ask for it.
-
-**The full API of all three is in [TECHNICAL.md](TECHNICAL.md)**; there are working examples of
-each in [`examples/`](examples/). Everything under `rmp::` is ours, everything else is raylib's, so
-in a file that mixes them you can always tell which is which.
-
-### Assets
-
-Put files in `resources/` and load them by name:
-
-```cpp
-rmp::Texture tex = rmp::assets::load_texture("player.png");   // counted; releases itself
-rmp::Sound   sfx = rmp::assets::load_sound("jump.wav");
-rmp::Font    f   = rmp::assets::load_font("ui.ttf", 32);
-std::vector<unsigned char> lvl = rmp::assets::load_data("level1.json");
-DrawTexture(tex, 0, 0, WHITE);   // converts to raylib's type where a raylib function wants it
-```
-
-`Texture2D t = rmp::assets::load_texture(...)` does not compile, on purpose: the temporary handle
-would release the texture on the same line, and `t` would be a texture that had already been
-unloaded. Keep the `rmp::` handle; hand it to raylib where raylib wants it.
-
-`cmake --build build --target pack_resources` bundles everything into one AES-encrypted
-[rres](https://github.com/raysan5/rres) file, which is what a release ships. Without it the game
-reads loose files, so you can iterate without repacking, and the same code reads whichever exists.
-You do **not** need the paid rrespacker tool; `tools/rres_pack.c` does the packing.
-
-**Plain raylib works too.** `LoadTexture(RMP_RESOURCES_PATH "player.png")`, `LoadModel`, `LoadShader`
-— all of them read the pack, because opening it also routes raylib's own file loading through it.
-`rmp::assets::` is the shorter spelling, not a requirement, and mixing the two is fine.
-
-Two things stay outside that, and both are raylib's design rather than a gap here:
-
-- **`LoadMusicStream`** opens the file itself so it can stream instead of holding the song in
-  memory, so music loaded with it has to ship as a loose file. `rmp::audio::music()` reads through
-  the pack and has no such limit.
-- **Subfolders.** Resource names are flat and the packer does not recurse, so `resources/art/x.png`
-  is not packed. Keep assets directly in `resources/`; a release build warns you if it finds a
-  subfolder.
-
-See [TECHNICAL.md](TECHNICAL.md) for how the pack actually works, the platform-detection macros,
-AdMob, and adding third-party libraries.
+There is no umbrella header: you include what you use, and each one is a module you can name —
+`rmp/app.h`, `rmp/scene.h`, `rmp/object.h`, `rmp/behavior.h`, `rmp/input.h`, `rmp/ui.h`,
+`rmp/assets.h`, `rmp/tilemap.h`, `rmp/audio.h`, `rmp/save.h`, `rmp/random.h`, `rmp/ads.h`,
+`rmp/math.h` — and `rmp/config.h`, which every one of them already carries for you.
 
 ### If you would rather write plain C
 
 [`examples/plain_c/src/main.c`](examples/plain_c/src/main.c) is a complete entry point with your
-own `main()`: raylib, `<rmp/config.h>` for the `[window]` values and `<smoke_test.h>` for the CI
-hooks, both plain C, and no `rmp::` anything. Its first lines are the recipe -- in a game made with
+own `main()` and no `rmp::` anything. Its first lines are the recipe -- in a game made with
 `rmp new`, `rm src/main.cpp && rm -r src/rmp/ src/scenes/` and copy the file into `src/` -- and
-CI follows them in a fresh game on every commit. You keep the build targets but iOS and Web, the
-pinned toolchains, the generated icons and identifiers, and the release pipeline. You lose the
-resource pack, which raw raylib cannot read: a release of a plain C game ships its loose
-`resources/`, with a `PACK_SKIPPED.txt` saying why (`tools/ship_resources.sh`).
+CI follows them in a fresh game on every commit. See
+[Plain C](https://omardev29.github.io/rmp-docs/manual/raylib/plain-c.html) for what you keep and
+what you give up.
 
 ---
 
-## Publishing
+## Releases
 
-Nothing below ever goes in the repo. Everything is a GitHub **secret** except where noted.
+A release is a git tag, and there is no version anywhere in the repository to bump: `rmp deploy
+1.2.3` checks what CI will check, tags `v1.2.3` and pushes the tag. Tagging runs all 17 targets,
+then publishes, and the build is refused while your application id is still `com.example.*`, so
+you cannot cut your first release under a placeholder identity you can never change. Signing keys
+and tokens are GitHub secrets and never go in the repository. Google Play, the App Store, itch.io
+and the rest: [Publishing](https://omardev29.github.io/rmp-docs/publishing/).
 
-### Android
+## What CI covers
 
-> [!CAUTION]
-> **Your `application_id` is permanent.** Once an app is published on Google Play under an
-> application id, it can never be changed — not renamed, not migrated. Getting it wrong means a new
-> listing and losing every install and review. CI refuses to build a tag while it still says
-> `com.example.*`, but only you know whether `com.yourname.yourgame` is the one you want to live
-> with.
-
-The APK builds with no setup. The **AAB** — what Play actually accepts — is built, signed and
-verified on every run too, but with a throwaway key, and the artifact is named
-`*-NOT-FOR-PLAY.aab` and deliberately left out of the release. To sign for real:
-
-1. Create an upload keystore once, and keep it somewhere you will not lose it:
-
-   ```bash
-   keytool -genkey -v -keystore upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
-   ```
-
-   Enable **Play App Signing** in the Play Console so Google can reset it if you do lose it.
-2. Add four repository secrets:
-
-   | Secret | Value |
-   | --- | --- |
-   | `ANDROID_KEYSTORE_BASE64` | `base64 -w0 upload.jks` |
-   | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
-   | `ANDROID_KEY_ALIAS` | `upload` |
-   | `ANDROID_KEY_PASSWORD` | key password |
-
-Tag a release and the signed AAB is attached to it. CI verifies the signature with `jarsigner` and
-asserts the signer is not the throwaway key, so a CI-signed bundle can never masquerade as a
-publishable one.
-
-**Ads are opt-in.** A game made with `rmp new` starts with `[android.admob] enabled = false`, which
-leaves AdMob out of the build completely: no Google Mobile Ads dependency, no `AD_ID` permission, no
-SDK init at startup. Your code does not change — the `rmp::ads` calls stay compilable and do nothing,
-as they already do everywhere except Android. It switches itself off too when `android` is not in `[targets]`. Leave it off unless you
-actually ship ads: the `AD_ID` permission alone obliges you to declare advertising-id collection in
-Play's **Data safety** form.
-
-> [!WARNING]
-> **TODO — consent (UMP) is not implemented.** Showing ads to users in the EEA or the UK requires a
-> Google-certified consent platform, and this framework does not ship one. With ads on, that traffic
-> will be served badly or not at all until you add it. See
-> [AdMob](TECHNICAL.md#admob-android) in TECHNICAL.md for what it takes; it is a call and a form,
-> not a new dependency.
-
-### iOS
-
-This is the roughest corner of the project, and it is worth being precise about what you get.
-
-CI produces two things: `raylib.xcframework` (the engine, built from the pinned fork) and a
-**simulator `.app`**. Neither is installable on a physical iPhone, and no amount of CI will change
-that — Apple requires a signed `.ipa`, and signing requires a paid Apple Developer account, a
-provisioning profile and a certificate that cannot live in a public repo.
-
-What the `.app` **is** good for: dropping onto a running simulator to check your game works.
-
-```bash
-# from a release asset, or ios/dd/Build/Products/Debug-iphonesimulator/ after a local build
-unzip ios-app-simulator.zip
-xcrun simctl boot "iPhone 16"
-open -a Simulator
-xcrun simctl install booted my_game.app
-xcrun simctl launch --console booted com.yourname.yourgame
-```
-
-To get onto a real device you need a Mac and Xcode:
-
-```bash
-git submodule update --init thirdparty/raylib-ios    # the raylib-iOS fork; a clone leaves it empty
-python3 tools/configure.py                           # generates ios/project.yml
-(cd thirdparty/raylib-ios/projects/scripts && bash build-ios-xcframework.sh)   # device + simulator
-cd ios && xcodegen generate
-open my_game.xcodeproj
-```
-
-Then set your team in the config rather than clicking around in Xcode, so it survives
-regeneration:
-
-```toml
-[ios.settings]
-DEVELOPMENT_TEAM = "ABCDE12345"
-CODE_SIGN_STYLE  = "Automatic"
-```
-
-Select your device and press Run. For TestFlight and the App Store, archive from Xcode — that path
-is deliberately not automated here, because it needs credentials that should not be in CI.
-
-### Cutting a release
-
-Releases are driven entirely by git tags. There is no version anywhere in the
-repo to bump — `v1.2.3` becomes the version name on every platform and the
-Android `versionCode`, so there is nothing to forget.
-
-```bash
-git tag -a v1.2.3 -m "What changed in this release"
-git push origin v1.2.3
-```
-
-**Annotated (`-a`), not lightweight.** A lightweight tag is just a moving
-pointer; an annotated one is a real object with an author, a date and a message,
-and it is what `git describe` and most tooling expect from a release.
-
-The tag must be `vMAJOR.MINOR.PATCH`:
-
-| Tag | versionName | Android versionCode | Release |
-| --- | --- | --- | --- |
-| `v1.2.3` | `1.2.3` | `1002003` | normal |
-| `v1.2.3-rc1` | `1.2.3-rc1` | `1002003` | marked pre-release |
-| `v1.2` | rejected — CI fails at config | | |
-
-`versionCode` is `major*1000000 + minor*1000 + patch`, so it only ever increases
-as long as your versions do. Minor and patch must stay under 1000; the config
-refuses a tag that would break monotonicity, because Play rejects an upload
-whose versionCode is not higher than the last one.
-
-A pre-release tag shares its base version's `versionCode` (`v1.2.3-rc1` and
-`v1.2.3` are both `1002003`). Fine here — nothing uploads to Play
-automatically — but do not hand Play both.
-
-Tagging runs all 17 targets, then publishes. It also runs one extra check the
-fast lane skips: **the build is refused while your application id is still
-`com.example.*`**, so you cannot accidentally cut your first release under a
-placeholder identity you can never change.
-
-Undo a tag you have not published yet:
-
-```bash
-git tag -d v1.2.3
-git push origin :refs/tags/v1.2.3      # only if you already pushed it
-```
-
-Deleting a pushed tag does not delete the GitHub Release it created — remove
-that from the Releases page, or with `gh release delete v1.2.3 --cleanup-tag`.
-
-### itch.io
-
-Set `user` and `game` under `[deploy.itch]` in the config, add `BUTLER_API_KEY` as a secret
-(from <https://itch.io/user/settings/api-keys>), and tag pushes publish automatically. Leave them
-empty and the job skips with a warning.
-
-Channels are per platform, and itch infers the OS from the channel name. HTML5 is uploaded as a
-directory with `index.html` at the root, so it is playable in the browser rather than a zip
-somebody has to download — a detail that is very easy to get wrong by hand.
-
-For the downloadable builds, `[save] portable = true` is what itch.io wants: saves go next to the
-executable, so deleting the folder deletes the game, saves included. Installers and Steam want the
-default, the user's data folder.
-
-### Firebase Test Lab (optional)
-
-Runs the debug APK on **real Android hardware**. An emulator inside an unaccelerated runner is slow
-and fails for reasons that have nothing to do with your game.
-
-Set `project_id` under `[deploy.firebase]`, add `GCP_SA_KEY` (the service-account JSON), and:
-
-1. Enable Blaze billing. Test Lab's free Spark quota no longer exists.
-2. `gcloud services enable testing.googleapis.com toolresults.googleapis.com`
-3. Grant the service account `roles/cloudtesting.testAdmin` and `roles/cloudtoolresults.testAdmin`.
-
-Only the debug APK is ever submitted: the robo test crawls the UI and will click ad banners, and
-the debug build uses Google's official test ad units.
-
----
-
-## What CI does and does not cover
-
-Push and pull requests get a **fast lane** — Linux x64, Web, Android and Windows x64, about ten
-minutes. Tags build all 17 targets and then release.
-
-**It really renders.** Booting proves the window opened and the assets loaded, and nothing more; a
-broken shader or a lost texture binding still boots and still exits 0. So the game is started, a
-frame is read back, and the fraction of pixels differing from the background has to be in range:
-
-| Target | How |
-| --- | --- |
-| Linux x64 / ARM64 | headless under `xvfb` |
-| Windows x64 | on the real runner, with Mesa's software rasteriser next to the `.exe` |
-| Web | headless Chromium; the composited canvas is screenshotted and measured |
-
-That check earns its keep: it is how we found that **iOS had been shipping with no textures at
-all** — the app booted, drew its text, and every `LoadTexture` returned 0x0, because nothing had
-ever actually run the app.
-
-**Not covered, and you should not assume otherwise:**
-
-- **BSD, RISC-V and Windows ARM64** are compiled and format-checked but never executed. There is no
-  runner for them.
-- **iOS** is built and statically verified (the bundle must carry a readable identifier and its
-  `resources/`), but the runtime test is **switched off**: the hosted simulator does not boot
-  reliably under `simctl`. Set `vars.IOS_SIMULATOR_TEST=true` to try it.
-- **Android** is built, and optionally smoke-run on real hardware if you configure Test Lab.
-- Nothing here tests *your game*. Test it on the platforms you ship.
-
-**What is pinned:** the build image by digest (not a tag), every apt package by an Ubuntu snapshot
-timestamp, every download by sha256, the runner images and Xcode explicitly, every GitHub Action by
-commit SHA. `tools/versions_check.sh` fails CI when any of it drifts apart.
-
-The honest exception is **BSD**: the QEMU images and the `pkg`/`pkgsrc` mirrors are both rolling and
-neither project runs a snapshot service, so those jobs install whatever the mirror serves that day.
-If a BSD job fails for no reason you caused, suspect that first.
-
----
-
-## Layout
-
-```
-raylib_multiplatform.toml   your configuration — the only non-code file you edit
-src/main.cpp                your game
-resources/                  your assets — flat, the pack does not recurse
-branding/icon.png           the source for every app icon on every platform
-include/rmp/               the framework's headers — one per module, see the table above.
-src/rmp/                    its implementation. Not yours; deletable.
-tests/smoke_test.h          the CI boot + render hook
-tests/ui_layout_test.cpp    layout checks that run with no window (-DBUILD_UI_TESTS=ON)
-examples/                   ui/ ads/ assets/ platform/ plain_c/ — read, copy, ignore
-rmp  rmp.ps1  rmp.cmd       the command, for sh/bash/zsh/ksh, PowerShell and cmd
-tools/rmp.py                what it runs: rmp help lists the commands
-tools/configure.py          turns the config into build files
-cmake/  raymob/  ios/       CMake, the Android shell, the iOS scaffold — generated or fixed
-thirdparty/                 raylib 6.0, raymob, rres, Clay, cute_tiled, cute_aseprite, cJSON, the raylib-iOS fork
-.github/workflows/          ci.yml + one reusable workflow per platform
-```
-
-`git status` stays clean after a build: everything generated is git-ignored on purpose.
+Every push runs a fast lane; a tag, or `gh workflow run ci.yml -f full=true`, runs all 17 targets.
+Booting proves the window opened and the assets loaded; the CI also reads a frame back and checks
+it has pixels on it, because a broken shader still boots and exits 0. What each target gets —
+built, booted, rendered, or only checked statically — and what is pinned is in
+[What CI covers](https://omardev29.github.io/rmp-docs/publishing/ci.html). Nothing here tests
+*your game*: test it on the platforms you ship.
 
 ---
 
@@ -604,10 +169,9 @@ This framework's own code — `src/`, `include/`, `tools/`, `cmake/`, `ios/` and
 is MIT; see [LICENSE](LICENSE).
 
 It is **built on raylib**, which is zlib/libpng licensed and is not ours. This project is not
-affiliated with or endorsed by raylib or Ramon Santamaria. The copy it vendors is **modified**:
-six patches and three upstream backports, listed in
-[`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md), as the zlib licence's second clause
-requires of altered source versions. Clay and cute_tiled are
+affiliated with or endorsed by raylib or Ramon Santamaria. The copy it vendors is **modified**,
+and every change is listed in [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md), as
+the zlib licence's second clause requires of altered source versions. Clay and cute_tiled are
 likewise modified and likewise listed.
 
 Every vendored component — down to the libraries raylib bundles — with its licence, the
