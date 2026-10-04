@@ -1449,6 +1449,92 @@ void run_activate() {
     fake_nav.state = rmp::ui::detail::NavState{};
 }
 
+// A click is a press AND a release on the same control. button() always knew;
+// checkbox, dropdown and text_input reacted to any release over them, so a
+// drag that started on the game and ended on the settings panel ticked a box.
+void run_press_starts_on_control() {
+    std::printf("\n--- a click starts on the control it ends on ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    static const char *items[] = { "Off", "Low", "High" };
+    bool ticked = false;
+    int quality = 0;
+    char name[16] = "";
+    // One control at a time, so what one of them does wrong cannot hide or
+    // fake what the next one does.
+    int showing = 0;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::panel([&] {
+            rmp::ui::button("First");
+            if (showing == 0) rmp::ui::checkbox("Tick", &ticked);
+            if (showing == 1) rmp::ui::dropdown("Pick", &quality, items, 3);
+            if (showing == 2) rmp::ui::text_input("Field", name, sizeof name);
+        });
+        rmp::ui::end();
+    };
+    auto show = [&](int which) {
+        showing = which;
+        rmp::ui::focus("");
+        fake_pointer.position = Clay_Vector2{ -1, -1 };
+        fake_pointer.down = false;
+        frame();
+        frame();
+    };
+    // Pressed out in the open, dragged onto the control, let go there.
+    auto drag_onto = [&](const char *label) {
+        Box b = box_of(label);
+        fake_pointer.position = Clay_Vector2{ 4, 4 };
+        fake_pointer.down = true;
+        frame();
+        fake_pointer.position = Clay_Vector2{ b.x + b.w * 0.8f, b.y + b.h / 2 };
+        frame();
+        fake_pointer.down = false;
+        frame();
+        frame();
+    };
+    auto click_on = [&](const char *label) {
+        Box b = box_of(label);
+        fake_pointer.position = Clay_Vector2{ b.x + b.w * 0.8f, b.y + b.h / 2 };
+        fake_pointer.down = true;
+        frame();
+        fake_pointer.down = false;
+        frame();
+        frame();
+    };
+    const Clay_ElementId pick = rmp::ui::detail::peek_element_id("Pick", 0, 0);
+    auto list_open = [&] {
+        return rmp::ui::detail::bounds_of_id(rmp::ui::detail::peek_sub_id(pick, 1),
+                                             nullptr);
+    };
+
+    show(0);
+    drag_onto("Tick");
+    check(!ticked, "a drag that ends on a checkbox does not tick it");
+    click_on("Tick");
+    check(ticked, "and a click that starts and ends on it does");
+
+    show(1);
+    drag_onto("Pick");
+    check(!list_open(), "a drag that ends on a dropdown does not open it");
+    click_on("Pick");
+    check(list_open(), "and a click on it does");
+
+    show(2);
+    drag_onto("Field");
+    check(rmp::ui::focused() == "First" && !rmp::ui::wants_keyboard(),
+          "a drag that ends on a text field does not hand it the keyboard");
+    click_on("Field");
+    check(rmp::ui::focused() == "Field" && rmp::ui::wants_keyboard(),
+          "and a click on it does");
+
+    rmp::ui::focus("");
+    showing = -1;
+    frame();
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
 } // namespace
 
 int main() {
@@ -1486,6 +1572,7 @@ int main() {
     run_idle_frame();
     run_zero_area();
     run_dropdown_occlusion();
+    run_press_starts_on_control();
     run_scroll_clip();
     run_scroll_moves();
     run_image_lifetime();

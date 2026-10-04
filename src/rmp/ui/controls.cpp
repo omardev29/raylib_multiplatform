@@ -24,6 +24,16 @@ namespace {
 using detail::px;
 using detail::to_clay;
 
+// A click is a press AND a release on the same element, exactly as button()
+// has it. These controls used to answer any release over them, so a drag that
+// started in the game and ended on a settings panel ticked whatever box it
+// ended on. Called every frame the element is declared: it records where a
+// press starts, and answers true on the release that ends on the same element.
+bool clicked(Clay_ElementId id, bool over) {
+    if (over && detail::pointer_just_pressed()) detail::set_press_id(id.id);
+    return over && detail::pointer_released() && detail::press_id() == id.id;
+}
+
 Clay_SizingAxis fixed(float v) {
     Clay_SizingAxis a{};
     a.type = CLAY__SIZING_TYPE_FIXED;
@@ -103,8 +113,7 @@ bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
     if (over) detail::set_pointer_over_ui();
 
     const bool has_focus = o.enabled && detail::focusable(id, label);
-    bool toggled = false;
-    if (over && detail::pointer_released()) toggled = true;
+    bool toggled = clicked(id, over);
     if (has_focus && detail::take_activate()) toggled = true;
     if (toggled) *value = !*value;
 
@@ -345,7 +354,8 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     }
 
     bool changed = false;
-    if ((over && detail::pointer_released()) || (has_focus && detail::take_activate())) {
+    const bool field_clicked = clicked(id, over);
+    if (field_clicked || (has_focus && detail::take_activate())) {
         st->flag = !st->flag;
     } else if (st->flag && detail::pointer_released() && !over_any_item) {
         // Released somewhere else entirely. An open list that will not go away
@@ -421,7 +431,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                     // An open list is in front of the game, so it takes the
                     // pointer whether or not this particular item is under it.
                     detail::set_pointer_over_ui();
-                    if (item_over && detail::pointer_released()) {
+                    if (clicked(item_id, item_over)) {
                         if (*selected != i) changed = true;
                         *selected = i;
                         st->flag = false;
@@ -473,7 +483,7 @@ bool text_input(std::string_view label, char *buffer, int capacity,
     if (over) detail::set_pointer_over_ui();
 
     const bool has_focus = o.enabled && detail::focusable(id, label);
-    if (over && detail::pointer_released()) detail::focus_by_id(id.id, label);
+    if (clicked(id, over)) detail::focus_by_id(id.id, label);
 
     bool changed = false;
     int len = static_cast<int>(std::strlen(buffer));
