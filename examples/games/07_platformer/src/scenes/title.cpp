@@ -49,7 +49,11 @@ void TitleScene::_draw() {
             new_run();
             rmp::Scene::change<LevelScene>("");
         }
+        // quit() does nothing on iOS, where Apple rejects an app that ends
+        // itself -- so the button is not there at all rather than dead.
+#if !defined(PLATFORM_IOS)
         if (rmp::ui::button("Quit")) rmp::app::quit();
+#endif
     });
     rmp::ui::end();
 }
