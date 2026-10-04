@@ -1006,8 +1006,18 @@ void pointer(Scene &scene) {
     if (captured == nullptr) return;
 
     if (rmp::input::pointer_down()) {
-        const Vector2 moved = rmp::input::pointer_delta();
-        if (moved.x != 0 || moved.y != 0) Storage::notify_drag(*captured, moved);
+        // In WORLD units, like `at`, because what a drag is for is
+        // `self.position += moved`: in pixels, a camera zoomed to 2 moved the
+        // object twice as far as the finger and it slid out from under it.
+        // The difference of two points through the camera, and not the pixels
+        // divided by the zoom, so a rotated camera drags the right way too.
+        const Vector2 pixels = rmp::input::pointer_delta();
+        if (pixels.x != 0 || pixels.y != 0) {
+            const Vector2 screen = rmp::input::pointer_screen();
+            const Vector2 was = scene.camera.to_world(
+                Vector2{ screen.x - pixels.x, screen.y - pixels.y });
+            Storage::notify_drag(*captured, Vector2{ at.x - was.x, at.y - was.y });
+        }
         return;
     }
 

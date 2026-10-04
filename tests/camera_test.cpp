@@ -249,6 +249,59 @@ TEST_SUITE("camera") {
         }
     }
 
+    TEST_CASE_FIXTURE(Fixture, "on_drag hands over the movement in world units") {
+        // What a drag is for is `self.position += moved`, and that only keeps
+        // the object under the finger if `moved` is in the units `position`
+        // is in. In pixels, a camera at zoom 2 moved it twice as far as the
+        // finger went.
+        World world;
+        world.camera.position = Vector2{ 1000, 600 };
+        rmp::Object &piece =
+            world.spawn({ .position = { 1000, 600 }, .shape = rmp::rect({ 40, 40 }) });
+        piece.on_drag([](rmp::Object &self, Vector2 moved) {
+            self.position.x += moved.x;
+            self.position.y += moved.y;
+        });
+
+        auto drag = [&](Vector2 from, Vector2 by, int steps) {
+            fake.devices.pointer = from;
+            fake.devices.mouse[MOUSE_BUTTON_LEFT] = true;
+            frame(world);
+            for (int i = 1; i <= steps; i++) {
+                const float t = static_cast<float>(i) / static_cast<float>(steps);
+                fake.devices.pointer = Vector2{ from.x + by.x * t, from.y + by.y * t };
+                frame(world);
+            }
+            fake.devices.mouse[MOUSE_BUTTON_LEFT] = false;
+            frame(world);
+        };
+        const Vector2 centre{ SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 };
+
+        SUBCASE("at zoom 1 a pixel is a unit") {
+            drag(centre, Vector2{ 30, -20 }, 3);
+            CHECK(near(piece.position, Vector2{ 1030, 580 }));
+        }
+        SUBCASE("at zoom 2 the object stays under the finger") {
+            world.camera.zoom = 2;
+            const Vector2 grabbed = world.camera.to_world(centre);
+            drag(centre, Vector2{ 60, 40 }, 4);
+            // 60 pixels at zoom 2 are 30 units, and the point grabbed is
+            // still under the pointer.
+            CHECK(near(piece.position, Vector2{ 1030, 620 }));
+            const Vector2 now =
+                world.camera.to_world(Vector2{ centre.x + 60, centre.y + 40 });
+            CHECK(near(Vector2{ now.x - piece.position.x, now.y - piece.position.y },
+                       Vector2{ grabbed.x - 1000, grabbed.y - 600 }));
+        }
+        SUBCASE("a rotated camera drags the way the finger goes") {
+            world.camera.rotation = 90;
+            const Vector2 target =
+                world.camera.to_world(Vector2{ centre.x + 50, centre.y });
+            drag(centre, Vector2{ 50, 0 }, 5);
+            CHECK(near(piece.position, target));
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Smoothing
     // -----------------------------------------------------------------------

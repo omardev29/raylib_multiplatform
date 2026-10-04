@@ -22,6 +22,8 @@
 #include "../src/rmp/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
+#include <rmp/input.h>
+#include <rmp/object.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
@@ -591,4 +593,124 @@ TEST_SUITE("scene ui passes") {
         CHECK(trace.log == (through ? "A.draw A.click L.draw" : "A.draw L.draw"));
     }
 
+} // TEST_SUITE
+
+// ---------------------------------------------------------------------------
+// When an object spawned during a frame gets its first _update. Here and not
+// in tests/object_test.cpp, because the answer is an ORDERING property of the
+// whole frame -- the pointer, the scene's _update, the object pass, the
+// collision pass -- and only the stack runs all four.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Where a newcomer was spawned from, which decides when it is first updated.
+enum class From { SCENE_UPDATE, ON_CLICK, OBJECT_UPDATE, COLLISION };
+
+// How many times each newcomer has been updated, by where it came from.
+struct {
+    int updates[4] = {};
+    rmp::input::detail::DeviceState devices;
+} spawned;
+
+int updates_of(From from) { return spawned.updates[static_cast<int>(from)]; }
+
+void fake_devices(rmp::input::detail::DeviceState *out) { *out = spawned.devices; }
+
+class Newcomer : public rmp::Object {
+public:
+    From from = From::SCENE_UPDATE;
+    void _update(float /*delta*/) override { spawned.updates[static_cast<int>(from)]++; }
+};
+
+void spawn_newcomer(rmp::Scene &scene, From from) { scene.spawn<Newcomer>().from = from; }
+
+// Spawns one newcomer from its own _update, once.
+class Parent : public rmp::Object {
+public:
+    bool done = false;
+    void _update(float /*delta*/) override {
+        if (done) return;
+        done = true;
+        spawn_newcomer(*scene(), From::OBJECT_UPDATE);
+    }
+};
+
+// Spawns one newcomer from _collision, once.
+class Bumper : public rmp::Object {
+public:
+    bool done = false;
+    void _collision(rmp::Object & /*other*/) override {
+        if (done) return;
+        done = true;
+        spawn_newcomer(*scene(), From::COLLISION);
+    }
+};
+
+class Spawning : public rmp::Scene {
+public:
+    bool done = false;
+    void _ready() override {
+        spawn<Parent>();
+        spawn<Bumper>({ .position = { 600, 400 }, .size = { 10, 10 } });
+        spawn({ .position = { 605, 400 }, .size = { 10, 10 } });
+        auto &button = spawn({ .position = { 100, 100 }, .size = { 40, 40 } });
+        button.on_click(
+            [this](rmp::Object & /*self*/) { spawn_newcomer(*this, From::ON_CLICK); });
+    }
+    void _update(float /*delta*/) override {
+        if (done) return;
+        done = true;
+        spawn_newcomer(*this, From::SCENE_UPDATE);
+    }
+};
+
+// run_frame() without the drawing: these objects have shapes, and drawing one
+// with no window is a segfault in rlgl rather than a no-op.
+void input_frame() {
+    rmp::input::detail::begin_frame();
+    rmp::ui::detail::begin_frame();
+    rmp::scenes::detail::update(1.0f / 60.0f);
+    rmp::ui::detail::end_frame();
+    rmp::scenes::detail::apply_pending();
+}
+
+} // namespace
+
+TEST_SUITE("spawn timing") {
+    TEST_CASE(
+        "spawned before the object pass: this frame; during or after it: the next") {
+        rmp::scenes::detail::shutdown();
+        rmp::input::detail::reset();
+        spawned = {};
+        rmp::input::detail::set_sample_provider(fake_devices);
+        // A UI case before this one may have left the pointer "over the UI";
+        // and the input's first frame has no edges, so a press needs one
+        // sample of the button up before it.
+        rmp::ui::detail::begin_capture_frame();
+        rmp::input::detail::begin_frame();
+        rmp::scenes::detail::start(std::make_unique<Spawning>());
+
+        // Frame 1: the pointer goes down on the button, the scene's _update
+        // spawns, the parent spawns in the object pass and the bumper in the
+        // collision pass.
+        spawned.devices.pointer = Vector2{ 100, 100 };
+        spawned.devices.mouse[MOUSE_BUTTON_LEFT] = true;
+        input_frame();
+        CHECK(updates_of(From::SCENE_UPDATE) == 1); // before the object pass
+        CHECK(updates_of(From::OBJECT_UPDATE) == 0); // during it
+        CHECK(updates_of(From::COLLISION) == 0); // after it
+
+        // Frame 2: the release is the click, in the pointer pass, before
+        // everything else.
+        spawned.devices.mouse[MOUSE_BUTTON_LEFT] = false;
+        input_frame();
+        CHECK(updates_of(From::ON_CLICK) == 1); // before the object pass
+        CHECK(updates_of(From::SCENE_UPDATE) == 2);
+        CHECK(updates_of(From::OBJECT_UPDATE) == 1);
+        CHECK(updates_of(From::COLLISION) == 1);
+
+        rmp::scenes::detail::shutdown();
+        rmp::input::detail::reset();
+    }
 } // TEST_SUITE

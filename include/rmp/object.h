@@ -261,7 +261,7 @@ private:
 // A handle: index plus generation, and the answer to "I want to remember this
 // object between frames".
 //
-//     Dentro del frame, referencia. Entre frames, handle.
+//     Within a frame, a reference. Across frames, a handle.
 //
 // spawn() returns a reference and that reference is good for the whole frame
 // you got it in, because destruction is deferred to the end of the frame. Kept
@@ -582,8 +582,11 @@ public:
     // options: the place to load what it draws and to add its behaviors.
     virtual void _ready() {}
     // Every frame the object is alive, after its behaviors' _update and before
-    // it is moved by its velocity. One spawned during a frame gets its first
-    // _update the frame after.
+    // it is moved by its velocity. A new object's first _update depends on
+    // where in the frame it was spawned: before the object pass -- from the
+    // scene's _update or an on_click -- it is the same frame; during the pass
+    // -- from an object's or a behavior's _update -- or after it, from a
+    // _collision, it is the frame after.
     virtual void _update(float delta) { (void)delta; }
     virtual void _draw() {} // the sprite and the shape draw themselves
     virtual void _end() {} // on destruction: drop loot, tell somebody
@@ -668,6 +671,15 @@ public:
     //
     // Setting one twice replaces it. There is no list, because a list of
     // handlers is a signal system, and that is a bigger idea than this needs.
+    //
+    // on_drag is handed how far the pointer moved since the last frame while
+    // it holds this object, in WORLD units -- through the scene's camera, so
+    // adding it to the position keeps the object under the finger at any zoom:
+    //
+    //     piece.on_drag([](rmp::Object &self, Vector2 moved) {
+    //         self.position.x += moved.x;
+    //         self.position.y += moved.y;
+    //     });
     template <class F> void on_click(F &&fn) {
         _click_handler.set(static_cast<F &&>(fn));
     }
