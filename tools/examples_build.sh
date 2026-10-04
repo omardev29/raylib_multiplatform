@@ -99,7 +99,7 @@ for t in $targets; do
   # (an assignment cannot fail), and "happened to be harmless" is how the shape
   # stays in a codebase until the day it is not.
   status=0
-  out=$(RAY_TEST_MAX_FRAMES="$FRAMES" RAY_TEST_SCREENSHOT="$shot" $LIMIT "$exe" 2>&1) || status=$?
+  out=$(RAY_TEST_MAX_FRAMES="$FRAMES" RAY_TEST_SCREENSHOT="$shot" $LIMIT "$exe" 2>&1 < /dev/null) || status=$?
   ran=$((ran + 1))
   ok=1
   echo "$out" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " || ok=0

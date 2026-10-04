@@ -378,6 +378,18 @@ Each of these was a real bug, found by reproducing rather than by reading.
   `tools/render_check.sh` — which rsyncs in with the workspace, costs one line
   in the workflow, and can be run on a laptop instead of twenty minutes at a
   time in a VM.
+- **A game started inside the BSD VM's script eats the rest of the script.**
+  cross-platform-actions feeds the step's script to the VM's shell on STDIN,
+  and raylib's headless platform (`rcore_memory.c`) polls the keyboard with a
+  non-blocking `getchar()` -- and stdio reads a whole buffer from the fd. On
+  2026-10-05 `shipped_check.sh`, one line before `render_check.sh`, made a 3.1
+  KB script die with `sh: 59: Syntax error: Unterminated quoted string` on its
+  last line: the same two symptoms the size limit above was blamed for (a cut
+  inside a quoted string, a script that runs out and exits 0), well under that
+  limit. Reproduced with ten lines of C doing what `kbhit()` does. Every game
+  launch in `tools/` reads `< /dev/null`, and
+  `GameLaunchesReadNothingFromStdinTest` fails one that does not. The size
+  limit may have been this all along; its gate stays, because it costs nothing.
 - **The BSD jobs' script must be pure ASCII.** `cross-platform-actions` carries
   it into the VM through its `cpa.sh` shell and re-parses it there, and a
   non-ASCII byte does not survive: an em dash inside a double-quoted `echo` came

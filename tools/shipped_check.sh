@@ -55,7 +55,7 @@ LOG="$ROOT/$BUILD/shipped.log"
 case "$(uname -s)" in
     NetBSD | OpenBSD)
         cd "$SHIP"
-        RAY_TEST_MAX_FRAMES=5 "./$NAME" > "$LOG" 2>&1 || true
+        RAY_TEST_MAX_FRAMES=5 "./$NAME" > "$LOG" 2>&1 < /dev/null || true
         cd "$ROOT"
         tail -15 "$LOG"
         grep -q "this system does not say where the executable is" "$LOG" || {
@@ -69,7 +69,7 @@ case "$(uname -s)" in
 esac
 
 cd "$BUILD/elsewhere"
-RAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME" > "$LOG" 2>&1 || true
+RAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME" > "$LOG" 2>&1 < /dev/null || true
 cd "$ROOT"
 tail -15 "$LOG"
 grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {

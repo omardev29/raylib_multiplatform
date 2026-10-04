@@ -5440,6 +5440,34 @@ class PackagingShipsOneArchiveShapeTest(unittest.TestCase):
                 self.assertIn("LICENSES.txt", body)
 
 
+class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
+    """A game a script starts reads nothing from the script's stdin.
+
+    cross-platform-actions feeds the BSD step's script to the VM's shell on
+    STDIN. raylib's headless platform (rcore_memory.c) polls the keyboard with
+    a non-blocking getchar(), and stdio reads a whole buffer from the fd: the
+    game ate the rest of the script. The shell then met a cut line -- "sh: 59:
+    Syntax error: Unterminated quoted string" at the last line of a 3.1 KB
+    script, after shipped_check.sh -- or simply ran out of script and exited 0.
+    render_check.sh survived only by being the last line. Every launch of a
+    game in tools/ takes its stdin from /dev/null.
+    """
+
+    def launches(self):
+        for f in sorted((REPO / "tools").glob("*.sh")):
+            for n, line in enumerate(f.read_text().splitlines(), 1):
+                code = line.split("#", 1)[0] if not line.lstrip().startswith("#") else ""
+                if re.search(r"\bRAY_TEST_MAX_FRAMES=", code):
+                    yield f.name, n, code
+
+    def test_every_launch_reads_dev_null(self):
+        found = list(self.launches())
+        self.assertGreaterEqual(len(found), 4)
+        for name, n, code in found:
+            with self.subTest(at=f"{name}:{n}"):
+                self.assertRegex(code, r"<\s*/dev/null", f"{name}:{n} starts a game that can read the script's stdin")
+
+
 class BsdInlineScriptSizeTest(unittest.TestCase):
     """The cpa.sh script has a size limit and nothing was measuring it.
 

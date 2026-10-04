@@ -54,7 +54,10 @@ BIN="build/memory/$NAME"
 LOG="build/memory/render.log"
 test -x "$BIN" || { echo "FAIL: $BIN was not built"; exit 1; }
 
-RAY_TEST_MAX_FRAMES=10 "./$BIN" > "$LOG" 2>&1 || true
+# stdin from /dev/null: in a BSD VM this script reaches the shell on stdin,
+# and the headless platform polls the keyboard there -- it would eat the
+# rest of the script (GameLaunchesReadNothingFromStdinTest).
+RAY_TEST_MAX_FRAMES=10 "./$BIN" > "$LOG" 2>&1 < /dev/null || true
 tail -25 "$LOG"
 
 # Three assertions, not one. The third is the one that would have caught the
