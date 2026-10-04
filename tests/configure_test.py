@@ -3527,6 +3527,29 @@ class LicenceGuardTest(unittest.TestCase):
                 self.assertIn("Copyright (c) 2026 omardev29", text)
                 self.assertIn("The framework this game is built on", text)
 
+    def test_the_web_package_has_a_notice_of_its_own(self):
+        """The web package shipped the DESKTOP LICENSES.txt, crediting GLFW,
+        RGFW, glad and the Windows shims, none of which is in a .wasm: the
+        browser build talks to Emscripten's JavaScript GLFW, not GLFW's C. The
+        web notice lists what the web build contains, and the web job ships it."""
+        self.assertIn("web", cfgmod.LICENSE_FILES)
+        rows = ldb.load_rows(REPO)
+        text = cfgmod.licenses_text(base_config(), "web", rows)
+        desktop_only = [r for r in rows if r.linked == {"desktop"}]
+        self.assertGreater(len(desktop_only), 3)
+        for r in desktop_only:
+            with self.subTest(absent=r["name"]):
+                self.assertNotIn(f"  {r['name']} --", text)
+        for r in ldb.rows_for(rows, "web"):
+            if r["evidence"].startswith("part-of:"):
+                continue  # credited through its parent's notice
+            with self.subTest(present=r["name"]):
+                self.assertIn(f"  {r['name']} --", text)
+        self.assertIn("raylib_multiplatform -- MIT", text)
+        web = (REPO / ".github" / "workflows" / "_web.yml").read_text()
+        self.assertIn("cmake/generated/web/LICENSES.txt", web)
+        self.assertNotIn("cp cmake/generated/LICENSES.txt build/web/", web)
+
     def test_the_symmetry_both_ways(self):
         root = FIXTURES / "symmetry"
         rel = lambda n: str((root / n).relative_to(REPO))

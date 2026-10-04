@@ -2093,10 +2093,14 @@ def generate_ios_icon(cfg: dict, src: Path) -> None:
 
 LICENSE_FILES = {
     # family -> where its LICENSES.txt goes. The desktop one is picked up by the
-    # Linux, Windows, macOS, BSD and web packaging steps; the other two are
-    # copied into the APK/AAB by raymob/app/build.gradle and into the .app
-    # bundle by the generated ios/project.yml.
+    # Linux, Windows, macOS and BSD packaging steps, the web one by _web.yml;
+    # the other two are copied into the APK/AAB by raymob/app/build.gradle and
+    # into the .app bundle by the generated ios/project.yml. The web package
+    # used to ship the desktop notice, crediting GLFW, RGFW, glad and the
+    # Windows shims -- none of which a .wasm contains: the browser build talks
+    # to Emscripten's JavaScript GLFW, not GLFW's C.
     "desktop": REPO / "cmake" / "generated" / "LICENSES.txt",
+    "web": REPO / "cmake" / "generated" / "web" / "LICENSES.txt",
     "android": REPO / "cmake" / "generated" / "android" / "LICENSES.txt",
     "ios": REPO / "cmake" / "generated" / "ios" / "LICENSES.txt",
 }
@@ -2170,7 +2174,8 @@ def licenses_text(cfg: dict, family: str, rows=None) -> str:
 
 def gen_licenses(cfg: dict, targets: list[str], require_notices: bool = False) -> bool:
     """The LICENSES.txt files that ship with the binaries: one for the desktop
-    and web packages, one for the APK/AAB, one for the iOS bundle.
+    packages, one for the web package, one for the APK/AAB, one for the iOS
+    bundle.
 
     Generated, never written by hand, from the components block in
     THIRD_PARTY_LICENSES.md -- the same block license_db.py --check compares
