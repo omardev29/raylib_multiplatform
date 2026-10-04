@@ -1134,7 +1134,7 @@ class WindowsCheckoutTest(unittest.TestCase):
     READS = ("thirdparty/FROZEN_VERSIONS.md", "raymob/app/build.gradle",
              "raymob/build.gradle", "raymob/gradle/wrapper/gradle-wrapper.properties",
              "raymob/generated.properties", rmp.TOML, "tools/configure.py",
-             "tools/license_db.py")
+             "tools/license_db.py", rmp.FRAMEWORK_MARKER)
 
     def copy(self, root: Path, crlf: bool) -> Path:
         script = root / "tools" / "versions_check.sh"
@@ -1232,6 +1232,26 @@ class NewTest(unittest.TestCase):
         want |= {"README.md", "thirdparty/raylib-ios"}
         have = set(self.git("ls-files").split())
         self.assertEqual(have, want)
+
+    def test_a_game_does_not_keep_the_frameworks_clang_pin(self):
+        """A Windows runner ships clang-format 20, and the game's rmp test
+        config failed on it. The pin is the framework's; in a game it is a skip,
+        and in the framework it is still a DRIFT -- both seen here."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp)
+            for tool in ("clang-format", "clang-tidy"):
+                stub = bin_dir / tool
+                stub.write_text("#!/bin/sh\necho 'Ubuntu clang-format version 20.1.8'\n")
+                stub.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+            game = subprocess.run(["bash", "tools/versions_check.sh"], cwd=self.game,
+                                  capture_output=True, text=True, env=env)
+            self.assertIn("a game formats with the clang-format it has", game.stdout)
+            self.assertNotIn("DRIFT clang", game.stdout)
+            framework = subprocess.run(["bash", "tools/versions_check.sh"], cwd=REPO,
+                                       capture_output=True, text=True, env=env)
+            self.assertIn("DRIFT clang-format", framework.stdout)
+            self.assertNotEqual(framework.returncode, 0)
 
     def test_new_list_said_so_beforehand(self):
         listed = subprocess.run([sys.executable, str(RMP_PY), "new", "--list"], cwd=REPO,

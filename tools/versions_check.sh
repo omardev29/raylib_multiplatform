@@ -106,15 +106,24 @@ check "gradle sha256" gradle_sha256 "$(sed -nE 's/^distributionSha256Sum=(.*)$/\
 # and every diff becomes noise. Skipped where the tools are not installed —
 # most jobs have no reason to.
 echo "== clang tooling (if installed) =="
-for tool in clang-format clang-tidy; do
-    key="${tool//-/_}"
-    if command -v "$tool" >/dev/null 2>&1; then
-        check "$tool" "$key" \
-            "$("$tool" --version | sed -nE 's/.*version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)"
-    else
-        printf '  skip  %-26s not installed here\n' "$tool"
-    fi
-done
+# The framework's own pin: its lint job formats and lints with exactly this
+# version. A game made with `rmp new` formats with whatever clang-format its
+# author has -- a Windows runner, or a laptop, ships another one -- so there
+# the pin is not the game's to keep. tests/configure_test.py is how rmp tells
+# the framework from a game, and this asks the same question.
+if [ ! -f tests/configure_test.py ]; then
+    printf '  skip  %-26s a game formats with the clang-format it has\n' "clang-format/clang-tidy"
+else
+    for tool in clang-format clang-tidy; do
+        key="${tool//-/_}"
+        if command -v "$tool" >/dev/null 2>&1; then
+            check "$tool" "$key" \
+                "$("$tool" --version | sed -nE 's/.*version ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)"
+        else
+            printf '  skip  %-26s not installed here\n' "$tool"
+        fi
+    done
+fi
 
 echo "== Build image pin (workflows) =="
 # canary.yml is excluded from both checks below, deliberately and by name. Its
