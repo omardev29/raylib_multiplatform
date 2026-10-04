@@ -350,10 +350,14 @@ jobs:
           echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: did not boot on Alpine"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FALLA: died before the end"; exit 1; }
-          GOT=$(echo "$OUT" | grep -o "hash=[0-9a-f]*" | head -1 | cut -d= -f2)
-          WANT=$(cat tests/fixtures/render_hash.txt)
-          echo "  software-render hash=$GOT want=$WANT"
-          test "$GOT" = "$WANT" || { echo "FALLA: musl renders a different frame"; exit 1; }
+          # The exact frame only where there is a golden one: the framework.
+          # A game checks the boot, the pixels and the clean exit above.
+          if [ -f tests/fixtures/render_hash.txt ]; then
+            GOT=$(echo "$OUT" | grep -o "hash=[0-9a-f]*" | head -1 | cut -d= -f2)
+            WANT=$(cat tests/fixtures/render_hash.txt)
+            echo "  software-render hash=$GOT want=$WANT"
+            test "$GOT" = "$WANT" || { echo "FALLA: musl renders a different frame"; exit 1; }
+          fi
           echo "PASS: booted and rendered on Alpine"
 
   riscv64:

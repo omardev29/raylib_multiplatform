@@ -101,18 +101,14 @@ if [ "$MODE" = "update" ]; then
 fi
 
 if [ ! -f "$GOLDEN" ]; then
-    # On a laptop this is somebody's first run and the friendly message is
-    # right. In CI it is a missing fixture, and a render gate with no golden
-    # hash is not a gate -- it is the pixel-identity check quietly doing
-    # nothing while the job goes green. Two of those have shipped from this
-    # repository already.
-    if [ -n "${CI:-}" ]; then
-        echo "FALLA: $GOLDEN is missing, so there is nothing to compare the frame to."
-        echo "       The fixture is committed; if this fired, it was deleted or the"
-        echo "       checkout is incomplete. Record one with: just test render-update"
-        exit 1
-    fi
-    echo "  no golden hash yet. Record one with: just test render-update"
+    # A GAME has no golden hash: the exact frame is the framework's own
+    # regression check, and a game's title screen is its author's to change at
+    # will. The boot, the pixels on screen and the clean exit above are checked
+    # all the same. The framework's golden is required by a test of its own
+    # (RenderGoldenTest in tests/configure_test.py), so a fixture deleted from
+    # the framework is a red lint job rather than this branch going green.
+    echo "  no golden hash: checked the boot, the pixels and a clean exit"
+    echo "PASS: booted, rendered and exited under software rendering"
     mark_complete
     exit 0
 fi

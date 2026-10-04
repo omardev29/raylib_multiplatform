@@ -3271,6 +3271,33 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
                     cfgmod.validate(cfg, True)
 
 
+class RenderGoldenTest(unittest.TestCase):
+    """The framework's golden frame exists, and render_check.sh compares
+    against it whenever it is there.
+
+    A game has no golden -- its title screen is its author's to change -- so
+    render_check.sh passes on the boot, the pixels and a clean exit when the
+    file is absent, in CI too. That branch used to fail in CI precisely so a
+    deleted fixture could not go green; this test is what says it in the
+    framework instead."""
+
+    GOLDEN = REPO / "tests" / "fixtures" / "render_hash.txt"
+
+    def test_the_framework_golden_is_there_and_is_a_hash(self):
+        self.assertTrue(self.GOLDEN.is_file(), "the framework's golden frame hash is gone")
+        self.assertRegex(self.GOLDEN.read_text(), r"^[0-9a-f]{8}\n?$")
+
+    def test_render_check_compares_when_it_exists_and_passes_without(self):
+        text = (REPO / "tools" / "render_check.sh").read_text()
+        self.assertIn('if [ ! -f "$GOLDEN" ]; then', text)
+        self.assertIn('test "$GOT" = "$WANT"', text)
+        self.assertIn("no golden hash: checked the boot, the pixels and a clean exit", text)
+
+    def test_the_musl_job_compares_only_when_it_exists(self):
+        text = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        self.assertIn("if [ -f tests/fixtures/render_hash.txt ]; then", text)
+
+
 class FindPythonTest(unittest.TestCase):
     """cmake/find_python.cmake asks every candidate, not just the first found.
 
