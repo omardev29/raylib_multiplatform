@@ -97,7 +97,9 @@ bool transparent(Color c) { return c.a == 0 && c.r == 0 && c.g == 0 && c.b == 0;
 
 // See detail::last_image_data(): what image() handed Clay, so a test can prove
 // it is not the caller's address.
-const void *g_last_image_data = nullptr;
+struct {
+    const void *data = nullptr;
+} last_image;
 
 } // namespace
 
@@ -112,13 +114,16 @@ struct GridFrame {
     float gap = 0;
 };
 constexpr int MAX_GRID_DEPTH = 4;
-GridFrame g_grids[MAX_GRID_DEPTH];
-int g_grid_depth = 0;
-// Grids opened past the limit. They push no frame, so their close must not pop
-// one either: it used to, which meant the fifth grid's close consumed the
-// FOURTH grid's row and every close after it was off by one. Counting them is
-// what makes open and close pairs again, and it is exact because grids nest.
-int g_grid_overflow = 0;
+struct {
+    GridFrame frames[MAX_GRID_DEPTH];
+    int depth = 0;
+    // Grids opened past the limit. They push no frame, so their close must not
+    // pop one either: it used to, which meant the fifth grid's close consumed
+    // the FOURTH grid's row and every close after it was off by one. Counting
+    // them is what makes open and close pairs again, and it is exact because
+    // grids nest.
+    int overflow = 0;
+} grids;
 
 // Named containers get a stable id so they can be asked about later; unnamed
 // ones stay anonymous, which is what most of them should be.
@@ -146,7 +151,7 @@ void open_grid_row(float gap) {
 
 namespace detail {
 
-const void *last_image_data() { return g_last_image_data; }
+const void *last_image_data() { return last_image.data; }
 
 void open_row(const BoxOptions &o) {
     if (!frame_open()) return;
@@ -279,11 +284,12 @@ void open_grid(const GridOptions &o) {
     }
     if (columns <= 0) columns = 4;
 
-    if (g_grid_depth < MAX_GRID_DEPTH) {
-        g_grids[g_grid_depth] = GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
-        g_grid_depth++;
+    if (grids.depth < MAX_GRID_DEPTH) {
+        grids.frames[grids.depth] =
+            GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
+        grids.depth++;
     } else {
-        g_grid_overflow++;
+        grids.overflow++;
         RMP_REPORT_ONCE("UI: grids nested more than %d deep; the ones past that lay "
                         "their cells out as plain boxes in a column",
                         MAX_GRID_DEPTH);
@@ -294,23 +300,23 @@ void open_grid(const GridOptions &o) {
 
 void close_grid() {
     if (!frame_open()) return;
-    if (g_grid_overflow > 0) {
+    if (grids.overflow > 0) {
         // This one never pushed a frame, so it pops nothing. Grids nest, so the
         // overflowing ones are always the innermost and this is exact LIFO.
-        g_grid_overflow--;
-    } else if (g_grid_depth > 0) {
+        grids.overflow--;
+    } else if (grids.depth > 0) {
         // A grid whose last row is not full still has that row open. Closing it
         // here is why a grid of five items with four columns does not corrupt
         // everything after it.
-        if (g_grids[g_grid_depth - 1].row_open) Clay__CloseElement();
-        g_grid_depth--;
+        if (grids.frames[grids.depth - 1].row_open) Clay__CloseElement();
+        grids.depth--;
     }
     Clay__CloseElement();
 }
 
 void open_cell() {
     if (!frame_open()) return;
-    if (g_grid_depth == 0 || g_grid_overflow > 0) {
+    if (grids.depth == 0 || grids.overflow > 0) {
         // A cell outside a grid is a plain box rather than an error: it keeps
         // the tree balanced, and the mistake is visible on screen instead of
         // corrupting the frame. A cell inside a grid nested past the limit is
@@ -324,7 +330,7 @@ void open_cell() {
         return;
     }
 
-    GridFrame &g = g_grids[g_grid_depth - 1];
+    GridFrame &g = grids.frames[grids.depth - 1];
     if (g.index % g.columns == 0) {
         if (g.row_open) Clay__CloseElement();
         open_grid_row(g.gap);
@@ -447,7 +453,7 @@ void image(const Texture2D &texture, const ImageOptions &o) {
         *static_cast<Texture2D *>(copy) = texture;
         d.image.imageData = copy;
     }
-    g_last_image_data = d.image.imageData;
+    last_image.data = d.image.imageData;
 
     // The tint deliberately does NOT go in backgroundColor. Clay emits a
     // RECTANGLE for any element with a background, *in addition to* the IMAGE

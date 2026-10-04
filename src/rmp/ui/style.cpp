@@ -36,8 +36,10 @@ struct Slot {
     bool used = false;
 };
 
-Slot g_slots[SLOTS];
-float g_dt = 0.0f;
+struct {
+    Slot slots[SLOTS];
+    float delta = 0.0f; // this frame's, clamped
+} anim;
 
 // Smoothstep. Linear in, eased out: the value still arrives exactly on time,
 // it just does not start and stop abruptly.
@@ -62,13 +64,13 @@ Color mix_color(Color a, Color b, float t) {
 void anim_begin_frame() {
     // In test mode there is no window, so there is no frame time either, and a
     // headless run must produce the same numbers every time it is run.
-    g_dt = test_mode() ? 0.0f : GetFrameTime();
+    anim.delta = test_mode() ? 0.0f : GetFrameTime();
     // A Breakpoint, a dropped frame or a window drag can hand us a second and a
     // half. Letting that through makes every transition finish instantly, which
     // is not wrong, but capping it keeps the first frame after a stall looking
     // like the frames around it.
-    if (g_dt > 0.1f) g_dt = 0.1f;
-    if (g_dt < 0.0f) g_dt = 0.0f;
+    if (anim.delta > 0.1f) anim.delta = 0.1f;
+    if (anim.delta < 0.0f) anim.delta = 0.0f;
 }
 
 float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
@@ -81,7 +83,7 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
     if (duration <= 0.0f) return target;
 
     const uint32_t key = id.id ^ ((channel + 1u) * 2246822519u);
-    Slot &s = g_slots[key & (SLOTS - 1)];
+    Slot &s = anim.slots[key & (SLOTS - 1)];
     if (!s.used || s.key != key) {
         // First sight of this control, or the slot belonged to another one.
         // Start where it is going, so nothing fades in from nowhere the frame
@@ -92,7 +94,7 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
         return target;
     }
 
-    const float step = (duration > 0.0f) ? (g_dt / duration) : 1.0f;
+    const float step = (duration > 0.0f) ? (anim.delta / duration) : 1.0f;
     if (s.t < target) {
         s.t += step;
         if (s.t > target) s.t = target;

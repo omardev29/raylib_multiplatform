@@ -29,39 +29,53 @@ struct Entry {
     char name[48] = { 0 };
 };
 
-Entry g_current[MAX_FOCUSABLES];
-int g_current_count = 0;
-Entry g_previous[MAX_FOCUSABLES];
-int g_previous_count = 0;
+// The file's state, one struct per concern: the dot at every use says "this
+// is file state", and a group cannot collide with focus(), focused() or a
+// parameter.
+struct {
+    Entry current[MAX_FOCUSABLES];
+    int current_count = 0;
+    Entry previous[MAX_FOCUSABLES];
+    int previous_count = 0;
+    // Where the pass being described starts in current. See end_pass_focus().
+    int pass_first = 0;
+} lists;
 
-uint32_t g_focused_id = 0;
-char g_focused_name[48] = { 0 };
-// Where the pass being described starts in g_current. See end_pass_focus().
-int g_pass_first = 0;
-// Is the focus SHOWN? Having one and drawing a ring around it are two
-// questions, and they have two answers: everything is focusable now, so a menu
-// drawn for a player holding a mouse would wear a ring nobody asked for on its
-// first button, every time. It appears the moment the keyboard or the gamepad
-// is used -- which is the moment it starts meaning something -- and goes away
-// again on a click. The browsers' :focus-visible, for the same reason.
-bool g_focus_visible = false;
+// The focused element, and whether it is SHOWN. Having one and drawing a ring
+// around it are two questions, and they have two answers: everything is
+// focusable now, so a menu drawn for a player holding a mouse would wear a ring
+// nobody asked for on its first button, every time. It appears the moment the
+// keyboard or the gamepad is used -- which is the moment it starts meaning
+// something -- and goes away again on a click. The browsers' :focus-visible,
+// for the same reason.
+struct {
+    uint32_t id = 0;
+    char name[48] = { 0 };
+    bool visible = false;
+} target;
 
-bool g_navigation_enabled = true;
-bool g_activate_pending = false;
-int g_nav_x = 0;
-bool g_pointer_over_ui = false;
-// WHICH element is dragging, or 0. A plain bool meant every slider in the frame
-// wrote to the same flag, so the one drawn after the one being dragged handed
-// the pointer straight back to the game -- and nothing cleared it at all if the
-// dragging slider stopped being drawn.
-uint32_t g_pointer_capture_id = 0;
-uint32_t g_press_id = 0;
-bool g_keyboard_captured = false;
+// Keyboard and gamepad navigation, and held-key repeat, so holding down on a
+// d-pad walks a menu instead of moving one item and stopping.
+struct {
+    bool enabled = true;
+    bool activate_pending = false;
+    int x = 0;
+    float repeat_timer = 0.0f;
+    int last_y = 0;
+} navigation;
 
-// Held-key repeat, so holding down on a d-pad walks a menu instead of moving
-// one item and stopping.
-float g_repeat_timer = 0.0f;
-int g_last_nav_y = 0;
+// Who has the pointer and the keyboard.
+struct {
+    bool pointer_over_ui = false;
+    // WHICH element is dragging, or 0. A plain bool meant every slider in the
+    // frame wrote to the same flag, so the one drawn after the one being
+    // dragged handed the pointer straight back to the game -- and nothing
+    // cleared it at all if the dragging slider stopped being drawn.
+    uint32_t pointer_id = 0;
+    uint32_t press_id = 0;
+    bool keyboard = false;
+} capture;
+
 constexpr float REPEAT_DELAY = 0.45f;
 constexpr float REPEAT_INTERVAL = 0.09f;
 
@@ -72,22 +86,22 @@ void copy_name(char *dst, std::string_view s) {
 }
 
 int index_of(uint32_t id) {
-    for (int i = 0; i < g_previous_count; i++) {
-        if (g_previous[i].id == id) return i;
+    for (int i = 0; i < lists.previous_count; i++) {
+        if (lists.previous[i].id == id) return i;
     }
     return -1;
 }
 
 void move_focus(int delta) {
-    // A local, clamped count. g_previousCount cannot exceed the array today,
+    // A local, clamped count. lists.previous_count cannot exceed the array,
     // but reading it into a bounded local is what makes every index below
-    // provably inside g_previous[] from this function alone, rather than from
+    // provably inside lists.previous[] from this function alone, rather than from
     // an invariant kept somewhere else in the file.
     const int count =
-        g_previous_count < MAX_FOCUSABLES ? g_previous_count : MAX_FOCUSABLES;
+        lists.previous_count < MAX_FOCUSABLES ? lists.previous_count : MAX_FOCUSABLES;
     if (count <= 0) return;
 
-    const int at = index_of(g_focused_id);
+    const int at = index_of(target.id);
     int next;
     if (at < 0 || at >= count) {
         // Nothing focused, or what was focused has gone. Entering from the top
@@ -99,8 +113,8 @@ void move_focus(int delta) {
         next = (at + delta) % count;
         if (next < 0) next += count;
     }
-    g_focused_id = g_previous[next].id;
-    copy_name(g_focused_name, g_previous[next].name);
+    target.id = lists.previous[next].id;
+    copy_name(target.name, lists.previous[next].name);
 }
 
 } // namespace
@@ -108,9 +122,9 @@ void move_focus(int delta) {
 namespace detail {
 
 void begin_focus_frame() {
-    g_current_count = 0;
-    g_nav_x = 0;
-    g_activate_pending = false;
+    lists.current_count = 0;
+    navigation.x = 0;
+    navigation.activate_pending = false;
 
     // A drag and a press both end when the pointer goes up, whatever is or is
     // not being drawn. That is a property of the pointer and not of a pass,
@@ -118,11 +132,11 @@ void begin_focus_frame() {
     // flags -- and not on the release frame itself, which is the frame the
     // click is made of.
     if (!pointer_down() && !pointer_released()) {
-        g_pointer_capture_id = 0;
-        g_press_id = 0;
+        capture.pointer_id = 0;
+        capture.press_id = 0;
     }
 
-    if (!g_navigation_enabled) return;
+    if (!navigation.enabled) return;
 
     // Once per frame, through the provider: see NavState. Everything below is
     // logic on top of those three numbers, which is what makes a controller
@@ -132,29 +146,29 @@ void begin_focus_frame() {
 
     // A text field owns the keyboard while it has focus; Tab and the arrows
     // there mean "move the caret", not "leave this field".
-    if (!g_keyboard_captured) {
-        if (nav.y != 0 && nav.y != g_last_nav_y) {
+    if (!capture.keyboard) {
+        if (nav.y != 0 && nav.y != navigation.last_y) {
             move_focus(nav.y);
-            g_repeat_timer = REPEAT_DELAY;
+            navigation.repeat_timer = REPEAT_DELAY;
         } else if (nav.y != 0) {
             // frame_time(), not GetFrameTime(): 0 in test mode, so a headless
             // run moves exactly one step per press and always the same way.
-            g_repeat_timer -= frame_time();
-            if (g_repeat_timer <= 0.0f) {
+            navigation.repeat_timer -= frame_time();
+            if (navigation.repeat_timer <= 0.0f) {
                 move_focus(nav.y);
-                g_repeat_timer = REPEAT_INTERVAL;
+                navigation.repeat_timer = REPEAT_INTERVAL;
             }
         }
-        g_last_nav_y = nav.y;
-        g_nav_x = nav.x;
+        navigation.last_y = nav.y;
+        navigation.x = nav.x;
     }
 
-    g_activate_pending = nav.activate;
+    navigation.activate_pending = nav.activate;
 
     // Touching the keyboard or the stick is what makes the focus worth showing;
     // going back to the mouse is what stops it.
-    if (nav.x != 0 || nav.y != 0 || nav.activate) g_focus_visible = true;
-    if (pointer_just_pressed()) g_focus_visible = false;
+    if (nav.x != 0 || nav.y != 0 || nav.activate) target.visible = true;
+    if (pointer_just_pressed()) target.visible = false;
 }
 
 void end_focus_frame() {
@@ -163,16 +177,16 @@ void end_focus_frame() {
     // already refuses to write past the array, so this can only ever be a no-op
     // — but it is the one line that makes the bound a property of the copy
     // instead of something three call sites each have to remember.
-    int n = g_current_count;
+    int n = lists.current_count;
     if (n > MAX_FOCUSABLES) n = MAX_FOCUSABLES;
-    for (int i = 0; i < n; i++) g_previous[i] = g_current[i];
-    g_previous_count = n;
+    for (int i = 0; i < n; i++) lists.previous[i] = lists.current[i];
+    lists.previous_count = n;
 
     // If whatever had the focus is no longer on screen, hand it to the first
     // thing that is, rather than leaving a controller with nowhere to go.
-    if (g_focused_id != 0 && index_of(g_focused_id) < 0 && g_previous_count > 0) {
-        g_focused_id = g_previous[0].id;
-        copy_name(g_focused_name, g_previous[0].name);
+    if (target.id != 0 && index_of(target.id) < 0 && lists.previous_count > 0) {
+        target.id = lists.previous[0].id;
+        copy_name(target.name, lists.previous[0].name);
     }
 }
 
@@ -183,12 +197,12 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     // something in a scene the player could not even see the cursor in.
     if (!pass_input()) return false;
 
-    if (g_current_count < MAX_FOCUSABLES) {
-        g_current[g_current_count].id = id.id;
-        copy_name(g_current[g_current_count].name, name);
-        g_current_count++;
+    if (lists.current_count < MAX_FOCUSABLES) {
+        lists.current[lists.current_count].id = id.id;
+        copy_name(lists.current[lists.current_count].name, name);
+        lists.current_count++;
     }
-    return g_navigation_enabled && g_focused_id == id.id;
+    return navigation.enabled && target.id == id.id;
 }
 
 // --- the default focus -----------------------------------------------------
@@ -208,57 +222,57 @@ bool focusable(Clay_ElementId id, std::string_view name) {
 // so the menu cannot steal the focus back every frame and Tab still walks
 // between the two.
 
-void begin_pass_focus() { g_pass_first = g_current_count; }
+void begin_pass_focus() { lists.pass_first = lists.current_count; }
 
 void end_pass_focus() {
-    if (!g_navigation_enabled) return;
-    if (g_current_count <= g_pass_first) return; // nothing focusable in it
-    for (int i = 0; i < g_current_count; i++) {
-        if (g_current[i].id == g_focused_id) return; // already somebody's
+    if (!navigation.enabled) return;
+    if (lists.current_count <= lists.pass_first) return; // nothing focusable in it
+    for (int i = 0; i < lists.current_count; i++) {
+        if (lists.current[i].id == target.id) return; // already somebody's
     }
-    g_focused_id = g_current[g_pass_first].id;
-    copy_name(g_focused_name, g_current[g_pass_first].name);
+    target.id = lists.current[lists.pass_first].id;
+    copy_name(target.name, lists.current[lists.pass_first].name);
 }
 
 bool take_activate() {
-    if (!g_activate_pending) return false;
-    g_activate_pending = false; // exactly one widget gets it
+    if (!navigation.activate_pending) return false;
+    navigation.activate_pending = false; // exactly one widget gets it
     return true;
 }
 
-int nav_axis_x() { return g_nav_x; }
+int nav_axis_x() { return navigation.x; }
 
-void set_pointer_over_ui() { g_pointer_over_ui = true; }
+void set_pointer_over_ui() { capture.pointer_over_ui = true; }
 
 void set_pointer_captured(uint32_t id, bool c) {
     if (c) {
-        g_pointer_capture_id = id;
-    } else if (g_pointer_capture_id == id) {
+        capture.pointer_id = id;
+    } else if (capture.pointer_id == id) {
         // Only the element that took it can give it back.
-        g_pointer_capture_id = 0;
+        capture.pointer_id = 0;
     }
 }
 
-void set_keyboard_captured(bool c) { g_keyboard_captured = c; }
+void set_keyboard_captured(bool c) { capture.keyboard = c; }
 
-void set_focus_visible(bool on) { g_focus_visible = on; }
+void set_focus_visible(bool on) { target.visible = on; }
 
-uint32_t press_id() { return g_press_id; }
-void set_press_id(uint32_t id) { g_press_id = id; }
+uint32_t press_id() { return capture.press_id; }
+void set_press_id(uint32_t id) { capture.press_id = id; }
 
 void begin_capture_frame() {
-    g_pointer_over_ui = false;
-    g_keyboard_captured = false;
+    capture.pointer_over_ui = false;
+    capture.keyboard = false;
 }
 
-bool pointer_over_ui() { return g_pointer_over_ui || g_pointer_capture_id != 0; }
-bool keyboard_captured() { return g_keyboard_captured; }
+bool pointer_over_ui() { return capture.pointer_over_ui || capture.pointer_id != 0; }
+bool keyboard_captured() { return capture.keyboard; }
 
-bool focus_visible() { return g_focus_visible; }
+bool focus_visible() { return target.visible; }
 
 void focus_by_id(uint32_t id, std::string_view name) {
-    g_focused_id = id;
-    copy_name(g_focused_name, name);
+    target.id = id;
+    copy_name(target.name, name);
 }
 
 // --- widget scratch --------------------------------------------------------
@@ -307,9 +321,9 @@ void focus(std::string_view id) {
     detail::focus_by_id(detail::peek_element_id(id).id, id);
 }
 
-std::string_view focused() { return std::string_view{ g_focused_name }; }
+std::string_view focused() { return std::string_view{ target.name }; }
 
-void set_navigation_enabled(bool on) { g_navigation_enabled = on; }
-bool navigation_enabled() { return g_navigation_enabled; }
+void set_navigation_enabled(bool on) { navigation.enabled = on; }
+bool navigation_enabled() { return navigation.enabled; }
 
 } // namespace rmp::ui

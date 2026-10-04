@@ -42,31 +42,43 @@ namespace detail {
 
 namespace {
 
-bool g_started = false;
-bool g_frame_open = false;
-std::unique_ptr<unsigned char[]> g_arena; // Clay's memory, ours to own
+// The file's state, one struct per concern. The dot at every use says "this is
+// file state", and a group cannot collide with a function of the same name
+// (started(), scale(), focus()), a C library name, or a parameter.
 
-float g_scale = 1.0f;
-float g_scale_override = RMP_UI_SCALE; // 0 = automatic
+struct {
+    bool started = false;
+    bool frame_open = false;
+    std::unique_ptr<unsigned char[]> arena; // Clay's memory, ours to own
+} context;
+
+struct {
+    float scale = 1.0f;
+    float scale_override = RMP_UI_SCALE; // 0 = automatic
+} sizing;
 
 // The font. When [ui] font is empty we use raylib's built-in one, which needs
 // no asset, no licence and no loading — and is a bitmap font, which is why its
 // scale is rounded to a whole number below.
-rmp::Font g_font; // counted, like every other resource: nothing here unloads it
-bool g_font_loaded = false; // true once a file has been baked at g_baked_size
-float g_font_scale = 1.0f;
-int g_baked_size = 0;
-// A configured font that cannot be loaded is a one-time problem, not a
-// per-draw one. Without this we would go back to the filesystem and log the
-// same warning for every piece of text, every frame.
-bool g_font_failed = false;
+struct {
+    rmp::Font handle; // counted, like every other resource: nothing here unloads it
+    bool loaded = false; // true once a file has been baked at baked_size
+    float scale = 1.0f;
+    int baked_size = 0;
+    // A configured font that cannot be loaded is a one-time problem, not a
+    // per-draw one. Without this we would go back to the filesystem and log the
+    // same warning for every piece of text, every frame.
+    bool failed = false;
+} font;
 
 // Text arena. Clay keeps pointers into whatever we hand it and reads them at
 // Clay_EndLayout, so the memory has to survive the frame. 8 KB is a lot of
 // menu; if a UI ever needs more, the truncation below says so out loud.
 constexpr int ARENA_SIZE = 8 * 1024;
-char g_text_arena[ARENA_SIZE];
-int g_arena_used = 0;
+struct {
+    char bytes[ARENA_SIZE];
+    int used = 0;
+} text_arena;
 
 // Occurrence counters, so two buttons with the same label are two elements.
 // 256 of them is 2 KB and it is sized against the ceiling, not against taste:
@@ -80,25 +92,27 @@ struct LabelCount {
     uint32_t hash;
     uint16_t count;
 };
-LabelCount g_labels[MAX_LABELS];
-int g_label_count = 0;
-// Labels that did not fit. They take indices from the TOP of the pass block,
-// counting down, so two elements sharing an unrecorded label are still two
-// elements. See element_id().
-int g_label_overflow = 0;
-int16_t g_layer_z = 0;
+struct {
+    LabelCount table[MAX_LABELS];
+    int count = 0;
+    // Labels that did not fit. They take indices from the TOP of the pass block,
+    // counting down, so two elements sharing an unrecorded label are still two
+    // elements. See element_id().
+    int overflow = 0;
+} labels;
 
 // The frame, and the passes inside it. A frame is one turn of the game loop; a
 // pass is one begin()/end(), and there is one per scene that draws UI.
-bool g_frame_marked = false;
-bool g_frame_self_marked = false;
-// Marking a frame and preparing it are two things, because the app marks every
-// frame from the very first one and the UI does not exist until something asks
-// for it. Without the second flag, frame one would be marked-but-unprepared,
-// and the first begin() would open a second boundary on top of the app's.
-bool g_frame_prepared = false;
-int g_pass = -1;
-bool g_pass_input = true;
+struct {
+    bool marked = false;
+    bool self_marked = false;
+    // Marking a frame and preparing it are two things, because the app marks
+    // every frame from the very first one and the UI does not exist until
+    // something asks for it. Without the second flag, frame one would be
+    // marked-but-unprepared, and the first begin() would open a second boundary
+    // on top of the app's.
+    bool prepared = false;
+} frame;
 
 // Each pass gets its own block of element indices, so that a scene's ids depend
 // only on that scene. 4096 is far more widgets than a pass will ever have and
@@ -122,9 +136,11 @@ struct BoundsEntry {
     uint32_t clip;
     Clay_BoundingBox box;
 };
-BoundsEntry g_bounds[2][MAX_BOUNDS];
-int g_bounds_count[2] = { 0, 0 };
-int g_bounds_front = 0; // the one this frame writes; the other is last frame's
+struct {
+    BoundsEntry entries[2][MAX_BOUNDS];
+    int count[2] = { 0, 0 };
+    int front = 0; // the one this frame writes; the other is last frame's
+} bounds;
 
 // Elements that are IN FRONT and take the pointer — an open dropdown list, and
 // so far nothing else. Hit testing is a box test against a snapshot, which
@@ -137,46 +153,66 @@ struct Blocker {
     int pass;
     uint32_t id;
 };
-Blocker g_blockers[2][MAX_BLOCKERS];
-int g_blocker_count[2] = { 0, 0 };
+struct {
+    Blocker entries[2][MAX_BLOCKERS];
+    int count[2] = { 0, 0 };
+} blockers;
 
-// The ids handed out during the pass being described, so that capture_pass_
-// bounds() knows what to ask Clay about when the pass closes. Cleared per pass.
 struct PassId {
     uint32_t id;
     uint32_t clip;
 };
-PassId g_pass_ids[MAX_BOUNDS];
-int g_pass_id_count = 0;
+// The pass being described: which one, whether it takes input, the ids handed
+// out in it -- so that capture_pass_bounds() knows what to ask Clay about when
+// the pass closes -- and its next layer. Cleared per pass.
+struct {
+    int index = -1;
+    bool input = true;
+    PassId ids[MAX_BOUNDS];
+    int id_count = 0;
+    int16_t layer_z = 0;
+} this_pass;
 
 // The clipping containers open right now, innermost last. Pushed by
 // open_scroll() and popped by close_scroll(); reset per pass so an imbalance
 // cannot leak into the next one.
 constexpr int MAX_CLIP_DEPTH = 8;
-uint32_t g_clips[MAX_CLIP_DEPTH];
-int g_clip_depth = 0;
-int g_clip_overflow = 0; // pushed past the limit, so the pops still pair up
+struct {
+    uint32_t stack[MAX_CLIP_DEPTH];
+    int depth = 0;
+    int overflow = 0; // pushed past the limit, so the pops still pair up
+} clips;
 
-MeasureFn g_measure = measure_with_raylib;
-PointerFn g_pointer = pointer_from_raylib;
-NavFn g_nav = nav_from_raylib;
+// Where measuring, the pointer and navigation come from: raylib, unless a test
+// has swapped one out.
+struct {
+    MeasureFn measure = measure_with_raylib;
+    PointerFn pointer = pointer_from_raylib;
+    NavFn nav = nav_from_raylib;
+} providers;
 
 // Test viewport. 0 means "ask raylib", which is every real run.
-float g_test_width = 0.0f;
-float g_test_height = 0.0f;
+struct {
+    float width = 0.0f;
+    float height = 0.0f;
+} test_viewport;
 
 // Clay reports through a handler rather than a return value, so a test that
 // wants to know whether a frame produced a duplicate id or ran out of elements
 // has to be told from here.
-int g_clay_errors = 0;
-// The FIRST since the last reset, not the last: the ones that follow a capacity
-// failure are its consequences, and the first one is the one worth asserting on.
-Clay_ErrorType g_first_clay_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
-// Set by a capacity failure and cleared at the frame boundary. What Clay
-// reports after one of those is its consequence -- an unbalanced tree, because
-// its own CloseElement stops doing anything once the ceiling latches -- and
-// printing that too only sends the reader looking for a bug in their layout.
-bool g_clay_over_capacity = false;
+struct {
+    int errors = 0;
+    // The FIRST since the last reset, not the last: the ones that follow a
+    // capacity failure are its consequences, and the first one is the one worth
+    // asserting on.
+    Clay_ErrorType first_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
+    // Set by a capacity failure and cleared at the frame boundary. What Clay
+    // reports after one of those is its consequence -- an unbalanced tree,
+    // because its own CloseElement stops doing anything once the ceiling
+    // latches -- and printing that too only sends the reader looking for a bug
+    // in their layout.
+    bool over_capacity = false;
+} clay;
 
 // One name per error, so RMP_REPORT_ONCE_KEYED gives each KIND of failure its
 // own line instead of one line for the first one that happens.
@@ -207,8 +243,8 @@ const char *clay_error_name(Clay_ErrorType t) {
 }
 
 void on_clay_error(Clay_ErrorData e) {
-    g_clay_errors++;
-    if (g_clay_errors == 1) g_first_clay_error = e.errorType;
+    clay.errors++;
+    if (clay.errors == 1) clay.first_error = e.errorType;
 
     // The ceiling, translated. Clay's own text says to call
     // Clay_SetMaxElementCount() with a higher value — a function the user
@@ -218,7 +254,7 @@ void on_clay_error(Clay_ErrorData e) {
     // until the game is restarted. That is worth saying in full, once.
     if (e.errorType == CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED ||
         e.errorType == CLAY_ERROR_TYPE_HASH_MAP_CAPACITY_EXCEEDED) {
-        g_clay_over_capacity = true;
+        clay.over_capacity = true;
         RMP_REPORT_ONCE(
             "UI: more than max_elements (%d) elements in one frame. The interface "
             "will not lay out again until the game is restarted. Raise max_elements "
@@ -229,7 +265,7 @@ void on_clay_error(Clay_ErrorData e) {
 
     // Everything else in Clay's own words, but once per kind rather than sixty
     // times a second.
-    if (g_clay_over_capacity) return;
+    if (clay.over_capacity) return;
     RMP_REPORT_ONCE_KEYED(clay_error_name(e.errorType), "UI: clay: %.*s",
                           e.errorText.length, e.errorText.chars);
 }
@@ -249,10 +285,10 @@ uint32_t fnv1a(std::string_view s) {
 // Startup
 // ---------------------------------------------------------------------------
 
-bool started() { return g_started; }
+bool started() { return context.started; }
 
 bool ensure_started() {
-    if (g_started) return true;
+    if (context.started) return true;
 
     // Order matters: the element count is what sizes the arena, so it has to be
     // set before asking how much memory Clay needs. Clay's own default is 8192
@@ -263,38 +299,38 @@ bool ensure_started() {
     uint32_t size = Clay_MinMemorySize();
     // new[] of char is aligned for anything Clay puts in it (the default new
     // alignment is 16 on every toolchain here); Clay itself only needs 8.
-    g_arena = std::make_unique<unsigned char[]>(size);
+    context.arena = std::make_unique<unsigned char[]>(size);
 
-    Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, g_arena.get());
+    Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, context.arena.get());
     Clay_Initialize(arena, viewport(), Clay_ErrorHandler{ on_clay_error, nullptr });
-    Clay_SetMeasureTextFunction(g_measure, nullptr);
+    Clay_SetMeasureTextFunction(providers.measure, nullptr);
 
-    g_started = true;
+    context.started = true;
     TraceLog(LOG_INFO, "UI: ready (%u bytes, up to %d elements)", size,
              RMP_UI_MAX_ELEMENTS);
     return true;
 }
 
 void shutdown_context() {
-    if (!g_started) return;
-    if (g_font_loaded) {
-        g_font = rmp::Font{};
-        g_font_loaded = false;
+    if (!context.started) return;
+    if (font.loaded) {
+        font.handle = rmp::Font{};
+        font.loaded = false;
     }
-    g_arena.reset();
-    g_started = false;
+    context.arena.reset();
+    context.started = false;
 }
 
-bool frame_open() { return g_frame_open; }
-void set_frame_open(bool open) { g_frame_open = open; }
+bool frame_open() { return context.frame_open; }
+void set_frame_open(bool open) { context.frame_open = open; }
 
 // ---------------------------------------------------------------------------
 // Scale
 // ---------------------------------------------------------------------------
 
 void update_scale() {
-    if (g_scale_override > 0.0f) {
-        g_scale = g_scale_override;
+    if (sizing.scale_override > 0.0f) {
+        sizing.scale = sizing.scale_override;
     } else {
         // Against the design resolution declared in [window]. min(), not max():
         // a UI that does not fit is worse than one with room to spare, so the
@@ -305,7 +341,7 @@ void update_scale() {
         float s = sx < sy ? sx : sy;
         if (s < 0.5f) s = 0.5f;
         if (s > 4.0f) s = 4.0f;
-        g_scale = s;
+        sizing.scale = s;
     }
 
     // The built-in font is a bitmap. Drawn at 1.73x it is a smeared mess, so
@@ -313,75 +349,75 @@ void update_scale() {
     // sliding. A TTF rasterises at any size, so it keeps the continuous scale.
     const bool builtin = (RMP_UI_FONT[0] == '\0');
     if (builtin) {
-        float rounded = std::floor(g_scale + 0.5f);
-        g_font_scale = rounded < 1.0f ? 1.0f : rounded;
+        float rounded = std::floor(sizing.scale + 0.5f);
+        font.scale = rounded < 1.0f ? 1.0f : rounded;
     } else {
-        g_font_scale = g_scale;
+        font.scale = sizing.scale;
     }
 }
 
-float ui_scale() { return g_scale; }
-float font_scale() { return g_font_scale; }
+float ui_scale() { return sizing.scale; }
+float font_scale() { return font.scale; }
 
 void set_scale_override(float s) {
-    g_scale_override = (s > 0.0f) ? s : 0.0f;
-    if (g_started) update_scale();
+    sizing.scale_override = (s > 0.0f) ? s : 0.0f;
+    if (context.started) update_scale();
 }
 
 ::Font ui_font() {
     const bool builtin = (RMP_UI_FONT[0] == '\0');
-    if (builtin || g_font_failed) return GetFontDefault();
+    if (builtin || font.failed) return GetFontDefault();
 
     int wanted =
-        static_cast<int>(std::floor(current_theme().font_size * g_font_scale + 0.5f));
+        static_cast<int>(std::floor(current_theme().font_size * font.scale + 0.5f));
     if (wanted < 1) wanted = 1;
 
     // Baking at 20 and drawing at 48 is how UI text ends up blurry. Re-bake
     // when the size the layout actually asks for has moved.
-    if (g_font_loaded && wanted == g_baked_size) return g_font.raw();
+    if (font.loaded && wanted == font.baked_size) return font.handle.raw();
     // Assigning releases the old size; the resource table unloads it.
-    g_font = rmp::assets::load_font(RMP_UI_FONT, wanted);
-    if (g_font.raw().glyphCount <= 0) {
+    font.handle = rmp::assets::load_font(RMP_UI_FONT, wanted);
+    if (font.handle.raw().glyphCount <= 0) {
         RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
                         RMP_UI_FONT);
-        g_font_loaded = false;
-        g_baked_size = 0;
-        g_font_failed = true; // say it once, then stop asking
+        font.loaded = false;
+        font.baked_size = 0;
+        font.failed = true; // say it once, then stop asking
         return GetFontDefault(); // a missing font must not switch the UI off
     }
-    g_font_loaded = true;
-    g_baked_size = wanted;
-    return g_font.raw();
+    font.loaded = true;
+    font.baked_size = wanted;
+    return font.handle.raw();
 }
 
 // ---------------------------------------------------------------------------
 // Frame arena
 // ---------------------------------------------------------------------------
 
-void reset_frame_arena() { g_arena_used = 0; }
+void reset_frame_arena() { text_arena.used = 0; }
 
 void *frame_alloc(size_t bytes) {
     // Everything stored here is at most pointer-aligned, so rounding the
     // cursor up to 8 is enough and costs a few bytes a frame.
-    int aligned = (g_arena_used + 7) & ~7;
+    int aligned = (text_arena.used + 7) & ~7;
     if (aligned + static_cast<int>(bytes) > ARENA_SIZE) return nullptr;
-    void *p = g_text_arena + aligned;
-    g_arena_used = aligned + static_cast<int>(bytes);
+    void *p = text_arena.bytes + aligned;
+    text_arena.used = aligned + static_cast<int>(bytes);
     return p;
 }
 
 Clay_String intern(std::string_view s) {
     int len = static_cast<int>(s.size());
-    if (len > ARENA_SIZE - g_arena_used) {
-        len = ARENA_SIZE - g_arena_used;
+    if (len > ARENA_SIZE - text_arena.used) {
+        len = ARENA_SIZE - text_arena.used;
         RMP_REPORT_ONCE("UI: text arena full (%d bytes); labels are being truncated",
                         ARENA_SIZE);
     }
-    if (len <= 0) return Clay_String{ false, 0, g_text_arena };
+    if (len <= 0) return Clay_String{ false, 0, text_arena.bytes };
 
-    char *dst = g_text_arena + g_arena_used;
+    char *dst = text_arena.bytes + text_arena.used;
     std::memcpy(dst, s.data(), static_cast<size_t>(len));
-    g_arena_used += len;
+    text_arena.used += len;
     // isStaticallyAllocated stays false: this lives exactly one frame, which is
     // the contract Clay asks for.
     return Clay_String{ false, len, dst };
@@ -397,42 +433,42 @@ namespace {
 // only consequence is that one element forgets how big it was last frame, and
 // capture_pass_bounds() is where that gets said out loud, once.
 void remember_id(uint32_t id) {
-    if (g_pass_id_count >= MAX_BOUNDS) return;
-    const uint32_t clip = g_clip_depth > 0 ? g_clips[g_clip_depth - 1] : 0u;
-    g_pass_ids[g_pass_id_count++] = PassId{ id, clip };
+    if (this_pass.id_count >= MAX_BOUNDS) return;
+    const uint32_t clip = clips.depth > 0 ? clips.stack[clips.depth - 1] : 0u;
+    this_pass.ids[this_pass.id_count++] = PassId{ id, clip };
 }
 } // namespace
 
 void reset_id_counters() {
-    g_label_count = 0;
-    g_label_overflow = 0;
-    g_layer_z = 0;
-    g_pass_id_count = 0;
-    g_clip_depth = 0;
-    g_clip_overflow = 0;
+    labels.count = 0;
+    labels.overflow = 0;
+    this_pass.layer_z = 0;
+    this_pass.id_count = 0;
+    clips.depth = 0;
+    clips.overflow = 0;
 }
 
-bool frame_marked() { return g_frame_marked; }
-bool frame_self_marked() { return g_frame_self_marked; }
-void set_frame_self_marked(bool self) { g_frame_self_marked = self; }
+bool frame_marked() { return frame.marked; }
+bool frame_self_marked() { return frame.self_marked; }
+void set_frame_self_marked(bool self) { frame.self_marked = self; }
 
 void begin_pass() {
-    g_pass++;
+    this_pass.index++;
     reset_id_counters();
     begin_pass_focus();
     // The first pass of the frame is where wants_pointer() and wants_keyboard()
     // start again from nothing. See begin_capture_frame().
-    if (g_pass == 0) begin_capture_frame();
+    if (this_pass.index == 0) begin_capture_frame();
 }
 
-int current_pass() { return g_pass < 0 ? 0 : g_pass; }
-bool pass_input() { return g_pass_input; }
+int current_pass() { return this_pass.index < 0 ? 0 : this_pass.index; }
+bool pass_input() { return this_pass.input; }
 
 // Ask Clay for the box of every id this pass used, now that the layout is
 // finished, and write them where the next frame's matching pass will look.
 void capture_pass_bounds() {
-    int &count = g_bounds_count[g_bounds_front];
-    for (int i = 0; i < g_pass_id_count; i++) {
+    int &count = bounds.count[bounds.front];
+    for (int i = 0; i < this_pass.id_count; i++) {
         if (count >= MAX_BOUNDS) {
             RMP_REPORT_ONCE("UI: more than %d elements in one frame; the extra ones lose "
                             "their remembered geometry, so a grid or slider among them "
@@ -441,11 +477,11 @@ void capture_pass_bounds() {
             return;
         }
         Clay_ElementId key{};
-        key.id = g_pass_ids[i].id;
+        key.id = this_pass.ids[i].id;
         Clay_ElementData d = Clay_GetElementData(key);
         if (!d.found) continue;
-        g_bounds[g_bounds_front][count++] =
-            BoundsEntry{ g_pass_ids[i].id, g_pass_ids[i].clip, d.boundingBox };
+        bounds.entries[bounds.front][count++] =
+            BoundsEntry{ this_pass.ids[i].id, this_pass.ids[i].clip, d.boundingBox };
     }
 }
 
@@ -454,10 +490,10 @@ void capture_pass_bounds() {
 void push_clip(Clay_ElementId id) {
     // Paired even when it overflows, the way the grid stack learned to be: a
     // push that does not happen must not be followed by a pop that does.
-    if (g_clip_depth < MAX_CLIP_DEPTH) {
-        g_clips[g_clip_depth++] = id.id;
+    if (clips.depth < MAX_CLIP_DEPTH) {
+        clips.stack[clips.depth++] = id.id;
     } else {
-        g_clip_overflow++;
+        clips.overflow++;
         RMP_REPORT_ONCE("UI: scroll areas nested more than %d deep; the ones past that "
                         "do not clip what can be clicked inside them",
                         MAX_CLIP_DEPTH);
@@ -465,17 +501,17 @@ void push_clip(Clay_ElementId id) {
 }
 
 void pop_clip() {
-    if (g_clip_overflow > 0) {
-        g_clip_overflow--;
-    } else if (g_clip_depth > 0) {
-        g_clip_depth--;
+    if (clips.overflow > 0) {
+        clips.overflow--;
+    } else if (clips.depth > 0) {
+        clips.depth--;
     }
 }
 
 void block_pointer(Clay_ElementId id) {
-    int &count = g_blocker_count[g_bounds_front];
+    int &count = blockers.count[bounds.front];
     if (count >= MAX_BLOCKERS) return; // four open dropdowns is already absurd
-    g_blockers[g_bounds_front][count++] = Blocker{ current_pass(), id.id };
+    blockers.entries[bounds.front][count++] = Blocker{ current_pass(), id.id };
 }
 
 } // namespace detail
@@ -493,9 +529,9 @@ namespace detail {
 // nobody else gets to open another. Preparing is not, because the UI may not
 // exist yet — see prepare_frame().
 void begin_frame() {
-    g_frame_marked = true;
-    g_pass = -1;
-    g_pass_input = true;
+    frame.marked = true;
+    this_pass.index = -1;
+    this_pass.input = true;
     prepare_frame();
 }
 
@@ -505,14 +541,14 @@ void begin_frame() {
 // asked for. Called again from the first begin() of the frame, which is where
 // the UI does come up — and does nothing the second time.
 void prepare_frame() {
-    if (g_frame_prepared || !started()) return;
-    g_frame_prepared = true;
-    g_clay_over_capacity = false;
+    if (frame.prepared || !started()) return;
+    frame.prepared = true;
+    clay.over_capacity = false;
 
     // Swap the geometry buffers: what this frame writes, the next one reads.
-    g_bounds_front = 1 - g_bounds_front;
-    g_bounds_count[g_bounds_front] = 0;
-    g_blocker_count[g_bounds_front] = 0;
+    bounds.front = 1 - bounds.front;
+    bounds.count[bounds.front] = 0;
+    blockers.count[bounds.front] = 0;
 
     reset_frame_arena();
     update_scale();
@@ -540,21 +576,21 @@ void prepare_frame() {
 }
 
 void end_frame() {
-    if (!g_frame_marked) return;
-    if (g_frame_prepared) end_focus_frame();
+    if (!frame.marked) return;
+    if (frame.prepared) end_focus_frame();
     // The UI drew nothing this frame, so it wants neither the pointer nor the
     // keyboard. It is said here because otherwise there is nothing to say it:
     // the flags are cleared by the FIRST begin() of a frame, and a pause menu
     // popping while the pointer sits over one of its buttons means there is no
     // next begin() at all — and the game's mouse would stay dead.
-    if (g_pass < 0) begin_capture_frame();
-    g_frame_marked = false;
-    g_frame_self_marked = false;
-    g_frame_prepared = false;
-    g_pass_input = true;
+    if (this_pass.index < 0) begin_capture_frame();
+    frame.marked = false;
+    frame.self_marked = false;
+    frame.prepared = false;
+    this_pass.input = true;
 }
 
-void set_pass_input(bool reachable) { g_pass_input = reachable; }
+void set_pass_input(bool reachable) { this_pass.input = reachable; }
 
 float frame_time() { return test_mode() ? 0.0f : GetFrameTime(); }
 
@@ -562,7 +598,7 @@ float frame_time() { return test_mode() ? 0.0f : GetFrameTime(); }
 // Identity
 // ---------------------------------------------------------------------------
 
-int16_t next_layer_z() { return ++g_layer_z; }
+int16_t next_layer_z() { return ++this_pass.layer_z; }
 
 // The hash, and nothing else: no occurrence bump, no interning, nothing
 // remembered. Both element_id() and everything that wants to FIND an element
@@ -605,16 +641,16 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
     uint32_t h = fnv1a(label);
     uint16_t occurrence = 0;
     int slot = -1;
-    for (int i = 0; i < g_label_count; i++) {
-        if (g_labels[i].hash == h) {
+    for (int i = 0; i < labels.count; i++) {
+        if (labels.table[i].hash == h) {
             slot = i;
             break;
         }
     }
     if (slot >= 0) {
-        occurrence = ++g_labels[slot].count;
-    } else if (g_label_count < MAX_LABELS) {
-        g_labels[g_label_count++] = LabelCount{ h, 0 };
+        occurrence = ++labels.table[slot].count;
+    } else if (labels.count < MAX_LABELS) {
+        labels.table[labels.count++] = LabelCount{ h, 0 };
     } else {
         // The table is full. Leaving these at occurrence 0 is what made two
         // "Use" buttons late in a long list ONE element — hover one, both
@@ -628,10 +664,10 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
                         "that keep working but are numbered from the other end. Give "
                         "the repeated ones an explicit id if anything looks swapped.",
                         MAX_LABELS);
-        if (g_label_overflow < static_cast<int>(INDICES_PER_PASS) / 2) g_label_overflow++;
+        if (labels.overflow < static_cast<int>(INDICES_PER_PASS) / 2) labels.overflow++;
         return finish_id(label,
                          static_cast<unsigned>(INDICES_PER_PASS) -
-                             static_cast<unsigned>(g_label_overflow));
+                             static_cast<unsigned>(labels.overflow));
     }
     // Same label twice in one pass => different index => different element, so
     // hovering one does not light up the other. The pass offset is what keeps
@@ -700,13 +736,15 @@ void nav_from_raylib(NavState *out) {
     out->activate = activate;
 }
 
-void read_nav(NavState *out) { g_nav(out); }
+void read_nav(NavState *out) { providers.nav(out); }
 
-void set_nav_provider(NavFn fn) { g_nav = (fn != nullptr) ? fn : nav_from_raylib; }
+void set_nav_provider(NavFn fn) {
+    providers.nav = (fn != nullptr) ? fn : nav_from_raylib;
+}
 
 void set_measure_provider(MeasureFn fn) {
-    g_measure = (fn != nullptr) ? fn : measure_with_raylib;
-    if (g_started) Clay_SetMeasureTextFunction(g_measure, nullptr);
+    providers.measure = (fn != nullptr) ? fn : measure_with_raylib;
+    if (context.started) Clay_SetMeasureTextFunction(providers.measure, nullptr);
 }
 
 // Both of these throw away what the UI thinks about the pointer, and they have
@@ -716,20 +754,20 @@ void set_measure_provider(MeasureFn fn) {
 // its -- which is how a click on an rmp::Object in a completely unrelated suite
 // came back consumed.
 void set_pointer_provider(PointerFn fn) {
-    g_pointer = (fn != nullptr) ? fn : pointer_from_raylib;
+    providers.pointer = (fn != nullptr) ? fn : pointer_from_raylib;
     begin_capture_frame();
 }
 
 void set_test_viewport(float width, float height) {
-    g_test_width = width;
-    g_test_height = height;
+    test_viewport.width = width;
+    test_viewport.height = height;
     begin_capture_frame();
 }
 
-bool test_mode() { return g_test_width > 0.0f && g_test_height > 0.0f; }
+bool test_mode() { return test_viewport.width > 0.0f && test_viewport.height > 0.0f; }
 
 Clay_Dimensions viewport() {
-    if (test_mode()) return Clay_Dimensions{ g_test_width, g_test_height };
+    if (test_mode()) return Clay_Dimensions{ test_viewport.width, test_viewport.height };
     return Clay_Dimensions{ static_cast<float>(GetScreenWidth()),
                             static_cast<float>(GetScreenHeight()) };
 }
@@ -742,30 +780,34 @@ bool bounds_of(std::string_view label, unsigned occurrence, int pass,
     return true;
 }
 
-int clay_error_count() { return g_clay_errors; }
-Clay_ErrorType first_clay_error() { return g_first_clay_error; }
+int clay_error_count() { return clay.errors; }
+Clay_ErrorType first_clay_error() { return clay.first_error; }
 
 void reset_clay_errors_for_tests() {
-    g_clay_errors = 0;
-    g_first_clay_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
+    clay.errors = 0;
+    clay.first_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
 }
 
-void read_pointer(Clay_Vector2 *position, bool *down) { g_pointer(position, down); }
+void read_pointer(Clay_Vector2 *position, bool *down) {
+    providers.pointer(position, down);
+}
 
 namespace {
-Clay_Vector2 g_pointer_pos{};
-bool g_pointer_down = false;
-bool g_pointer_was_down = false;
-bool g_pointer_present = false;
+struct {
+    Clay_Vector2 position{};
+    bool down = false;
+    bool was_down = false;
+    bool present = false;
+} pointer;
 } // namespace
 
 void update_pointer() {
-    g_pointer_was_down = g_pointer_down;
-    read_pointer(&g_pointer_pos, &g_pointer_down);
+    pointer.was_down = pointer.down;
+    read_pointer(&pointer.position, &pointer.down);
     // A touch screen has no pointer when no finger is on it: the coordinates
     // stay wherever the last tap ended, and a button under them would sit lit
     // up forever.
-    g_pointer_present = g_pointer_down || !touch_only();
+    pointer.present = pointer.down || !touch_only();
 }
 
 // All five are gated on pass_input(). A pass that input cannot reach sees the
@@ -773,21 +815,21 @@ void update_pointer() {
 // nothing is present, nothing was just pressed. Doing it here rather than in
 // each widget is what makes it impossible to miss one — the alternative is
 // twelve widgets that each have to remember.
-Clay_Vector2 pointer_position() { return g_pointer_pos; }
-bool pointer_down() { return g_pass_input && g_pointer_down; }
-bool pointer_present() { return g_pass_input && g_pointer_present; }
+Clay_Vector2 pointer_position() { return pointer.position; }
+bool pointer_down() { return this_pass.input && pointer.down; }
+bool pointer_present() { return this_pass.input && pointer.present; }
 bool pointer_just_pressed() {
-    return g_pass_input && g_pointer_down && !g_pointer_was_down;
+    return this_pass.input && pointer.down && !pointer.was_down;
 }
-bool pointer_released() { return g_pass_input && !g_pointer_down && g_pointer_was_down; }
+bool pointer_released() { return this_pass.input && !pointer.down && pointer.was_down; }
 
 namespace {
 // The BACK buffer: what the last frame measured. The front one is being filled
 // by the frame we are inside, and half of it does not exist yet.
 const BoundsEntry *entry_of(uint32_t id) {
-    const int back = 1 - g_bounds_front;
-    for (int i = 0; i < g_bounds_count[back]; i++) {
-        if (g_bounds[back][i].id == id) return &g_bounds[back][i];
+    const int back = 1 - bounds.front;
+    for (int i = 0; i < bounds.count[back]; i++) {
+        if (bounds.entries[back][i].id == id) return &bounds.entries[back][i];
     }
     return nullptr;
 }
@@ -863,9 +905,9 @@ bool pointer_over(Clay_ElementId id, float slop_y) {
     }
 
     // Something in front of it has the pointer.
-    const int back = 1 - g_bounds_front;
-    for (int i = 0; i < g_blocker_count[back]; i++) {
-        const Blocker &b = g_blockers[back][i];
+    const int back = 1 - bounds.front;
+    for (int i = 0; i < blockers.count[back]; i++) {
+        const Blocker &b = blockers.entries[back][i];
         if (b.pass != current_pass() || b.id == id.id) continue;
         const BoundsEntry *front = entry_of(b.id);
         if (front == nullptr || !inside_box(p, front->box)) continue;

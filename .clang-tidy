@@ -24,6 +24,7 @@ Checks: >
   readability-*,
   cppcoreguidelines-owning-memory,
   cppcoreguidelines-no-malloc,
+  clang-diagnostic-shadow,
 
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
@@ -129,6 +130,12 @@ ExcludeHeaderFilterRegex: '.*/(thirdparty|generated|build)/.*|.*/smoke_test\.h'
 WarningsAsErrors: ''
 FormatStyle: file
 
+# -Wshadow, through clang-tidy rather than the build: a local or a parameter
+# that takes the name of a file-state group (`int pass` against the group
+# `pass`) hides it, and the code that meant the group either fails to compile
+# or, worse, compiles against the local.
+ExtraArgs: ['-Wshadow']
+
 CheckOptions:
   # The naming rule, checked instead of remembered. It is NOT "everything is
   # snake_case" — that was the old rule and it made a type and a value look the
@@ -200,12 +207,12 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.ProtectedMemberPrefix
     value: '_'
-  # File-scope mutable state carries g_, so that a global is visible as one at
-  # every use. There should be very little of it, and there is.
+  # File-scope mutable state is plain snake_case. In src/ and tests/ it is
+  # grouped, one struct per concern (`context.started`), so the dot says "file
+  # state" at every use and a group cannot collide with a function, a C library
+  # name or a parameter. -Wshadow, below, catches a local that hides one.
   - key: readability-identifier-naming.GlobalVariableCase
     value: lower_case
-  - key: readability-identifier-naming.GlobalVariablePrefix
-    value: 'g_'
 
   # Constants are CONSTANT_CASE, with no prefix: every constexpr, and a const at
   # namespace, class or static scope. A runtime `const float half = w / 2;` in a
