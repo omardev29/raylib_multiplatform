@@ -1187,6 +1187,60 @@ void run_dropdown_occlusion() {
     check(quality == 1, "it picks the item, which is what was under the pointer");
 }
 
+// A scroll container scrolls. Dragging inside it moves what is in it -- the
+// gesture a phone has, and the same offset the wheel moves on a desktop. The
+// offset was read from the PARENT element (Clay_GetScrollOffset() asks about
+// the element that is open, and the area was opened after the call), so it
+// was always zero: the list clipped, and never moved.
+void run_scroll_moves() {
+    std::printf("\n--- dragging a scroll area moves what is in it ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    auto frame = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::scroll({ .height = 80, .id = "moving" }, [&] {
+            for (int i = 0; i < 8; i++) rmp::ui::button(TextFormat("item%d", i));
+        });
+        rmp::ui::end();
+    };
+
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
+    frame();
+    frame();
+    Box list = box_of("moving");
+    Box before = box_of("item0");
+    check(list.h > 0 && before.h > 0, "the area and its first row laid out");
+
+    // Press inside the area and drag up, a few pixels a frame.
+    Clay_Vector2 at{ list.x + list.w / 2, list.y + list.h / 2 };
+    fake_pointer.position = at;
+    fake_pointer.down = true;
+    frame();
+    for (int step = 1; step <= 8; step++) {
+        fake_pointer.position =
+            Clay_Vector2{ at.x, at.y - 6.0f * static_cast<float>(step) };
+        frame();
+    }
+    fake_pointer.down = false;
+    frame();
+    frame();
+
+    Box after = box_of("item0");
+    std::printf("  item0 y: %.1f before, %.1f after the drag\n", before.y, after.y);
+    check(after.y < before.y - 20, "dragging up moves the rows up");
+    check(box_of("moving").y == list.y, "and the area itself stays where it was");
+    Box last = box_of("item7");
+    std::printf("  item7 bottom %.1f, the area's bottom %.1f\n", last.y + last.h,
+                list.y + list.h);
+    check(last.y + last.h >= list.y + list.h - 1,
+          "and it stops at the end of the content: the last row is not dragged past the "
+          "bottom");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
 // A scroll container clips what is inside it. An item scrolled out of view is
 // not on screen, so it must not be clickable either — the box it remembers is
 // outside the container, which is precisely where the pointer must not find it.
@@ -1433,6 +1487,7 @@ int main() {
     run_zero_area();
     run_dropdown_occlusion();
     run_scroll_clip();
+    run_scroll_moves();
     run_image_lifetime();
     run_sizes();
     run_themes();

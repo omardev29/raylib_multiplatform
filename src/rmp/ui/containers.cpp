@@ -125,8 +125,8 @@ struct {
     int overflow = 0;
 } grids;
 
-// Named containers get a stable id so they can be asked about later; unnamed
-// ones stay anonymous, which is what most of them should be.
+// Named containers get a stable id, the same whatever else is on screen;
+// unnamed ones stay anonymous, which is what most of them should be.
 void open_with_id(const char *id, const Clay_ElementDeclaration &d) {
     if (id != nullptr)
         Clay__OpenElementWithId(detail::element_id(std::string_view{ id }, id));
@@ -378,11 +378,15 @@ void open_scroll(const ScrollOptions &o) {
     // the offset it is tracking, and the clip keeps the ones outside from being
     // drawn. Clay_UpdateScrollContainers, called in begin(), is what advances
     // that offset from the wheel and from dragging.
+    //
+    // Clay_GetScrollOffset() answers for the element that is OPEN, so it is
+    // asked after this one opens -- Clay's own CLAY() macro does the same. Asked
+    // before, it answered for the parent: zero, and the list never moved.
     d.clip.horizontal = o.horizontal;
     d.clip.vertical = o.vertical;
-    d.clip.childOffset = Clay_GetScrollOffset();
 
     Clay__OpenElementWithId(clip_id);
+    d.clip.childOffset = Clay_GetScrollOffset();
     Clay__ConfigureOpenElement(d);
     push_clip(clip_id);
 }
