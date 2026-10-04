@@ -194,6 +194,13 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # The checkout belongs to the runner's user and this container runs as
+      # root, and git answers nothing about a repository somebody else owns
+      # until it is told the folder is safe. rmp new reads the framework's
+      # index, and so do its tests.
+      - name: git trusts the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: actionlint
         run: |
           set -euo pipefail
