@@ -1827,6 +1827,89 @@ class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
                 self.assertIn(path, keys)
 
 
+def toml_section(name: str) -> str:
+    """The text of `[name]` in the shipped .toml, comments included."""
+    text = (REPO / "raylib_multiplatform.toml").read_text()
+    start = text.index(f"\n[{name}]\n")
+    end = text.find("\n[", start + 1)
+    return text[start:] if end < 0 else text[start:end]
+
+
+def listed_names(section: str, label: str) -> list[str]:
+    """The names a `#   label : a b c` comment lists, continuation lines too."""
+    lines = section.splitlines()
+    first = next(i for i, line in enumerate(lines) if re.match(rf"#\s+{label}\s*:", line))
+    names = lines[first].split(":", 1)[1].split()
+    for line in lines[first + 1:]:
+        if not re.match(r"#\s{4,}\S", line) or ":" in line:
+            break
+        names += line[1:].split()
+    return [n for n in names if n != "|"]
+
+
+class TomlCommentsAreTrueTest(unittest.TestCase):
+    """raylib_multiplatform.toml is copied into every game, and its comments
+    are what a game's author reads. Each one that lists, claims or promises
+    something is held to the code here."""
+
+    def test_the_upx_exact_names_are_the_compressible_targets(self):
+        """It left out linux-x64-musl and linux-arm64-glibc-drm."""
+        self.assertEqual(sorted(listed_names(toml_section("upx"), "exact")),
+                         sorted(cfgmod.UPX_TARGETS))
+        self.assertEqual(sorted(listed_names(toml_section("upx"), "groups")),
+                         sorted(cfgmod.UPX_GROUPS))
+
+    def test_the_targets_exact_names_are_the_targets(self):
+        self.assertEqual(sorted(listed_names(toml_section("targets"), "exact")),
+                         sorted(cfgmod.TARGETS))
+        self.assertEqual(sorted(listed_names(toml_section("targets"), "groups")),
+                         sorted(cfgmod.GROUPS))
+
+    def test_the_raylib_modules_listed_are_the_ones_that_can_go(self):
+        """It offered rshapes, which configure.py refuses: rmp::ui draws with it."""
+        section = toml_section("raylib")
+        listed = re.search(r"#\s+([a-z]+(?:\s*\|\s*[a-z]+)+)\n", section).group(1)
+        self.assertEqual(sorted(re.split(r"\s*\|\s*", listed)),
+                         sorted(cfgmod.OPTIONAL_MODULES))
+        readme = (REPO / "README.md").read_text()
+        for module in cfgmod.PROTECTED_MODULES:
+            with self.subTest(module=module):
+                self.assertNotRegex(readme, rf"disabled_modules = \[\].*{module}")
+        self.assertNotIn("`rshapes`, `rmodels` and `raudio` can go", readme)
+
+    def test_orientation_says_what_reads_it(self):
+        """It said that on desktop it decides the initial window shape. Only
+        the Android manifest and the iOS spec read it."""
+        window = toml_section("window")
+        note = window[window.index('# "landscape"'):window.index("\norientation =")]
+        self.assertNotIn("initial window shape", note)
+        self.assertIn("Android", note)
+        self.assertIn("iOS", note)
+        generated = (REPO / "tools" / "configure.py").read_text()
+        self.assertNotIn("RMP_WINDOW_ORIENTATION", generated)
+
+    def test_upx_says_which_packed_binaries_ci_starts(self):
+        """It said every push starts the packed binary; the boots ran before
+        UPX packed it, and arm64 runs only on a full run. And that
+        linux-x64-glibc-drm is cross-compiled and never executed: it is built
+        natively and booted on vkms."""
+        section = toml_section("upx")
+        self.assertNotIn("every push starts the packed\n# binary", section)
+        self.assertNotIn("nothing ever executes them", section)
+        linux = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        x64 = linux[linux.index("\n  x64:\n"):linux.index("\n  arm64:\n")]
+        self.assertLess(x64.index("- name: Package"),
+                        x64.index("- name: The archive starts from any folder"),
+                        "the packed binary is the one started, after Package")
+
+    def test_no_comment_promises_or_retells(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        for said in ("flip this default when we bump", "It used to build Wayland ALONE",
+                     "all four", "a default later", "Only x64/glibc is built today"):
+            with self.subTest(said=said):
+                self.assertNotIn(said, text)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
@@ -2703,6 +2786,32 @@ class DocumentedTargetCountTest(unittest.TestCase):
         self.assertGreater(checked, 25,
                            "this scanned almost nothing -- the globs stopped matching, "
                            "which looks exactly like a tree with no stale counts in it")
+
+    def test_what_a_game_copies_states_no_count_at_all(self):
+        """The .toml and the public headers go into every game `rmp new`
+        makes, and a game turns targets off: "all seventeen targets" in its
+        own .toml is then simply false. They say "every target" instead."""
+        words = "|".join(self.WORDS)
+        counted = re.compile(
+            r"\b(\d{2}|" + words + r")\s+"
+            r"(?:(?:of|the|all|enabled|supported|shipped|build|CI|real)\s+){0,3}"
+            r"(targets?|platforms?|toolchains?|matrix)(?![:\w])", re.IGNORECASE)
+        # In the .toml a count needs no noun beside it: "`all` here is NOT the
+        # seventeen" was one. The headers use number words for other things
+        # ("ten frames deep"), so there the noun has to be there.
+        bare = re.compile(r"\b(" + words + r")\b", re.IGNORECASE)
+        files = [REPO / "raylib_multiplatform.toml",
+                 *sorted((REPO / "include" / "rmp").glob("*.h"))]
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            flat = text.translate(self.FLATTEN)
+            hits = list(counted.finditer(flat))
+            if path.suffix == ".toml":
+                hits += list(bare.finditer(flat))
+            for match in hits:
+                line_no = text.count("\n", 0, match.start()) + 1
+                with self.subTest(file=path.relative_to(REPO).as_posix(), line=line_no):
+                    self.fail(f"{path.name}:{line_no} counts: {match.group(0)!r}")
 
 
 class ConfigureMaxDeltaTest(unittest.TestCase):

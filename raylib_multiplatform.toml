@@ -28,8 +28,9 @@ name = "ray_test"
 title  = "Raylib is Multiplatform!"
 width  = 800
 height = 450
-# "landscape" | "portrait" | "unspecified" — applied to Android and iOS at once.
-# On desktop it only decides the initial window shape.
+# "landscape" | "portrait" | "unspecified" — applied to Android and iOS at once:
+# the Android manifest's screenOrientation and iOS's supported orientations.
+# Nothing else reads it; on desktop the window's shape is width x height.
 orientation = "landscape"
 # Wait for the screen's refresh before showing each frame: no tearing, and no
 # frames drawn that nobody sees. Without it a desktop game runs as fast as the
@@ -74,19 +75,18 @@ max_delta = 0.05
 # stops at the OS because it is universal. No libc suffix on Linux would have
 # meant "you have to know it is glibc", which is knowledge the name should carry.
 #
-# linux-x64-glibc-drm is DRM/KMS: the game draws straight to the screen with no
-# X11 and no Wayland, from a bare TTY. A Raspberry Pi, an arcade cabinet, a
-# kiosk, or just developing from a console. Both segments before `drm` can
-# differ and are spelled out for that reason — DRM is a kernel interface and
-# exists on every architecture, and the binary links libdrm, gbm and EGL
-# directly instead of dlopening them, so a musl build would be a separate one.
-# Only x64/glibc is built today; the name leaves both doors open.
+# linux-x64-glibc-drm and linux-arm64-glibc-drm are DRM/KMS: the game draws
+# straight to the screen with no X11 and no Wayland, from a bare TTY. A
+# Raspberry Pi, an arcade cabinet, a kiosk, or just developing from a console.
+# Both segments before `drm` can differ and are spelled out for that reason —
+# DRM is a kernel interface and exists on every architecture, and a machine
+# with no desktop is far likelier to be a Pi than an x86 box, hence arm64; and
+# the binary links libdrm, gbm and EGL directly instead of dlopening them, so a
+# musl one would be a separate target. Both are glibc.
 #
-# There are two of them, x64 and arm64, because DRM is a kernel interface and a
-# machine with no desktop is far likelier to be a Pi than an x86 box. The x64 one
-# builds and RUNS in CI on a vkms virtual display; the arm64 one is built and
-# checked, because what it exists for is a Pi's own vc4/v3d pipeline and a
-# virtual display would not be answering that question.
+# The x64 one builds and RUNS in CI on a vkms virtual display; the arm64 one is
+# built and checked, because what it exists for is a Pi's own vc4/v3d pipeline
+# and a virtual display would not be answering that question.
 #
 # Neither honours [linux] glibc: they link the distribution's libdrm, gbm and
 # EGL directly, so their floor is the build machine's. The jobs print it.
@@ -166,11 +166,11 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # Groups expand and deduplicate exactly like [targets], and `disabled` is
 # subtracted afterwards, so there is no precedence to reason about.
 #   groups : all | linux | windows | bsd
-#   exact  : linux-x64-glibc linux-arm64-glibc linux-riscv64-glibc linux-x64-glibc-drm
-#            windows-x64 windows-arm64
+#   exact  : linux-x64-glibc linux-arm64-glibc linux-riscv64-glibc linux-x64-musl
+#            linux-x64-glibc-drm linux-arm64-glibc-drm windows-x64 windows-arm64
 #            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
 #
-# `all` here is NOT the seventeen. macOS and iOS are refused because the binary
+# `all` here is NOT every target. macOS and iOS are refused because the binary
 # is code-signed and compressing it breaks the signature; Android because what
 # ships is a .so inside an APK, which is already a zip, so compressing it makes
 # the APK BIGGER; web because it is .wasm and the browser fetches it gzipped.
@@ -187,15 +187,17 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # alone: upx publishes no FreeBSD/OpenBSD/NetBSD build, so the VMs would have to
 # install it from ports.
 #
-# THE DEFAULT IS EXACTLY THE TARGETS CI BOOTS. linux-x64-glibc and linux-arm64-glibc run on
-# real runners of their own architecture, and every push starts the packed
-# binary and checks it puts pixels on the screen — so if UPX ever produced a
-# stub that does not launch, a push finds out. linux-riscv64-glibc and linux-x64-glibc-drm are
-# cross-compiled and only checked statically: nothing ever executes them, so
-# turning UPX on there would ship a binary whose launch nobody has observed.
-# UPX supports riscv64 perfectly well; what is missing is the evidence, not the
-# support. When riscv64 gets a native runner that boots the game, it belongs in
-# this list.
+# THE DEFAULT IS EXACTLY THE TARGETS WHOSE PACKED BINARY CI STARTS. The
+# linux-x64-glibc job unzips the archive it ships — UPX-packed — and starts it
+# and checks it puts pixels on the screen on every push; the linux-arm64-glibc
+# job does the same on a full run, on a runner of its own architecture. So if
+# UPX ever produced a stub that does not launch, CI finds out. Every other
+# Linux target is either never executed (linux-riscv64-glibc and
+# linux-arm64-glibc-drm: built and checked statically) or executed from a
+# binary UPX has not touched (linux-x64-glibc-drm on a vkms display,
+# linux-x64-musl on Alpine), so turning UPX on there would ship a packed binary
+# whose launch nobody has observed. UPX supports them; what is missing is the
+# evidence.
 enabled  = ["linux-x64-glibc", "linux-arm64-glibc"]
 disabled = []
 
@@ -215,12 +217,12 @@ max_size_mb = 600
 [linux]
 # Which windowing backend Linux uses, and whether it talks to Wayland natively.
 #
-# backend  "glfw" (default) or "rgfw". GLFW is what the seventeen-target matrix
-#          is tested against; RGFW is smaller and younger — and on Linux it is
+# backend  "glfw" (default) or "rgfw". GLFW is what the CI matrix is tested
+#          against; RGFW is smaller and younger — and on Linux it is
 #          X11-ONLY, so it cannot be combined with wayland = true. The
 #          generator refuses that pair rather than letting the build pick one.
 #
-#          Neither key reaches the linux-x64-glibc-drm target: DRM talks to the kernel
+#          Neither key reaches the DRM targets: DRM talks to the kernel
 #          directly and has no windowing backend and no compositor at all.
 # wayland  false (default) builds GLFW against X11 only, so on a Wayland desktop
 #          the game runs through XWayland — an extra hop, and the reason
@@ -232,13 +234,12 @@ max_size_mb = 600
 #          libwayland-dev, wayland-protocols and libxkbcommon-dev on the build
 #          machine.
 #
-#          It used to build Wayland ALONE, which shipped a binary that did not
-#          start on an X11 session at all. The machine that runs the game is not
-#          the one that built it, so this is not a choice to make at build time.
+#          Both, and not Wayland alone: a Wayland-only binary does not start
+#          on an X11 session at all, and the machine that runs the game is not
+#          the one that built it, so that is not a choice to make at build time.
 #
-#          Off here because raylib 6.0's Wayland path is the less travelled
-#          one. raylib 6.2 turns it on upstream — flip this default when we
-#          bump, and delete this paragraph.
+#          Off by default because raylib 6.0's Wayland path is the less
+#          travelled one.
 #
 #          One difference you WILL see, and it is Wayland's design and not a
 #          bug: there is no window position. GetWindowPosition() and
@@ -293,7 +294,7 @@ glibc   = "2.28"
 # Which windowing backend Windows uses.
 #
 #   "glfw"   the default, and what raylib uses everywhere else. Mature, and it
-#            is what the seventeen-target matrix is tested against.
+#            is what the CI matrix is tested against.
 #   "win32"  raylib 6.0's native Win32 backend: no GLFW at all, one dependency
 #            fewer and a smaller .exe.
 #   "rgfw"   RGFW, a single-header windowing library. Also no GLFW, also
@@ -335,9 +336,10 @@ adaptive_background = "#3DDC84"
 [raylib]
 # Modules you do not use, to shrink the binary. rcore and rlgl are mandatory
 # and are not listed on purpose.
-#   rshapes | rmodels | raudio
-# rtextures and rtext cannot be disabled: the asset layer and the CI render
-# gate are built on them, and rres calls into both.
+#   rmodels | raudio
+# rtextures, rtext and rshapes cannot be disabled: the asset layer and the CI
+# render gate are built on rtextures, rres calls into rtext, and rmp::ui draws
+# every panel and button with rshapes. configure.py says so if you try.
 # NOTE: this does not affect iOS, which links a prebuilt xcframework.
 disabled_modules = []
 
@@ -368,8 +370,8 @@ strict   = false     # true: a framework warning aborts a DEBUG build
 #   mold     Linux and the BSDs only. mold emits ELF and nothing else; run
 #            `mold --help` and the list is elf32-i386, elf64-x86-64 and so on,
 #            with no PE/COFF and no Mach-O. Asking for it on Windows or macOS
-#            is refused here rather than at the linker, which used to fail with
-#            a message about `ld` that never said the word mold.
+#            is refused here, at its line, rather than at the linker, which
+#            fails with a message about `ld` that never says the word mold.
 #   lld      everywhere, IF the toolchain can reach it. GCC's -fuse-ld=lld wants
 #            an `ld.lld` on PATH and not just `lld`, and MSYS2 ships one without
 #            the other — so the build checks by linking a test program instead
@@ -415,9 +417,10 @@ grow   = false
 #
 #          BOTH OF THESE ARE VERIFIED IN A BROWSER, not just built: the boot
 #          job in web-backends.yml opens each one in headless Chromium and
-#          screenshots the canvas. For `emscripten` that mattered more than
-#          usual — raylib 6.0 ships the backend and never wired it into the
-#          build, so it took four local patches to compile at all.
+#          screenshots the canvas. For `emscripten` that matters more than
+#          usual — raylib 6.0 ships the backend without wiring it into the
+#          build, and it compiles only through local patches to raylib's
+#          (thirdparty/raylib/PATCHES.md).
 #
 #          WHY NOT `emscripten` BY DEFAULT YET, having read both backends: they
 #          implement the same functions and stub out the same ones — monitor
@@ -430,8 +433,8 @@ grow   = false
 #          alternative for drop callback`. The GLFW path has none of those.
 #
 #          Upstream is going the same way — rcore_web.c itself carries
-#          `TODO: Replace GLFW-web by Emscripten?` — so this is an option now
-#          and a default later, once the keyboard mapping is finished.
+#          `TODO: Replace GLFW-web by Emscripten?` — and this stays an option
+#          and not the default while the keyboard mapping is unfinished.
 backend = "glfw"
 
 
@@ -492,14 +495,14 @@ encrypt  = false
 version  = 1
 
 [ui]
-# rmp::ui — the interface layer. Nothing here is required: with all four at
-# their defaults a menu is still three lines of code.
+# rmp::ui — the interface layer. Nothing here is required: with every key at
+# its default a menu is still three lines of code.
 #
 # theme      "dark" or "light". Only which one the app starts with — an
 #            in-game appearance setting is rmp::ui::set_theme(theme_light()).
 # font       "" uses the font built into raylib: no asset, no licence, works on
-#            all seventeen targets. It is a pixel font, drawn at whatever size
-#            the text asks for. Point it at a .ttf in resources/ for something
+#            every target. It is a pixel font, drawn at whatever size the
+#            text asks for. Point it at a .ttf in resources/ for something
 #            less retro: it is baked at every size the interface draws, so
 #            SMALL, MEDIUM and LARGE are each sharp.
 # font_size  In DESIGN units, i.e. at the [window] resolution above. The UI

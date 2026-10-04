@@ -148,7 +148,7 @@ font_size = 20                         # at the [window] resolution; rmp::ui sca
 scale     = 0                          # 0 = automatic
 
 [raylib]
-disabled_modules = []                  # rshapes | rmodels | raudio — shrink the binary
+disabled_modules = []                  # rmodels | raudio — shrink the binary
 
 [dev]                                  # local development only; CI is unaffected
 compiler = "clang"
@@ -180,11 +180,12 @@ Turning a platform off removes it from the build, the tests and the release.
 
 ### Turning raylib modules off
 
-`rcore` and `rlgl` are mandatory. `rshapes`, `rmodels` and `raudio` can go.
+`rcore` and `rlgl` are mandatory. `rmodels` and `raudio` can go.
 
-`rtextures` and `rtext` cannot, and the config will tell you why if you try: the asset layer, the
-rres loader and the CI render gate are all built on them, and `rres-raylib.h` calls into `rtext`
-from a code path that is always live — no amount of dead-code elimination drops it.
+`rtextures`, `rtext` and `rshapes` cannot, and the config will tell you why if you try: the asset
+layer, the rres loader and the CI render gate are all built on `rtextures`, `rres-raylib.h` calls
+into `rtext` from a code path that is always live — no amount of dead-code elimination drops it —
+and `rmp::ui` draws every panel, button and border with `rshapes`.
 
 On a release build the size win is smaller than you would expect, because LTO and `--gc-sections`
 already strip what you do not call. The real gains are on Web and Android, and in compile time.
