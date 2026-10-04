@@ -2398,6 +2398,22 @@ class LicenceGuardTest(unittest.TestCase):
         # ios is a target of the apple family and packages separately.
         self.assertEqual(set(ldb.FAMILY_FILES), families | {"ios"})
 
+    def test_a_windows_checkout_names_the_same_components(self):
+        """On Windows the walker's paths print with backslashes, and the block
+        is written with slashes: every component read as missing from it, so
+        `rmp test config` and `rmp new` failed on every Windows machine. The
+        Windows rmp job found it. Here the walker is made to return Windows
+        paths, which is what it does there."""
+        import pathlib
+        real = ldb.inventory
+        ldb.inventory = lambda root, repo=REPO: [pathlib.PureWindowsPath(p)
+                                                 for p in real(root, repo)]
+        try:
+            _, fails = ldb.check(ldb.load_rows(), ldb.frozen_pins(), repo=REPO)
+        finally:
+            ldb.inventory = real
+        self.assertEqual([f for f in fails if "on disk, but not" in f], [])
+
     def test_the_real_tree_passes(self):
         """The definition of done: every component under thirdparty/ has a row,
         a licence we ship under, its text where the row says, and a mark on

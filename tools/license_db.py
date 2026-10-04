@@ -430,8 +430,10 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
     fails: list[str] = []
     submodules = submodule_paths(repo)
 
+    # as_posix(): the block is written with slashes, and on Windows a path
+    # prints with backslashes -- every component read as missing there.
     on_disk = inventory(root, repo)
-    by_path = {str(p): p for p in on_disk}
+    by_path = {p.as_posix(): p for p in on_disk}
     rows_by_path = {r["path"]: r for r in rows}
     names = [r["name"] for r in rows]
     for name in set(names):
@@ -440,8 +442,8 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
 
     # (1) symmetry: every component on disk has a row, every row is on disk.
     for path in on_disk:
-        if str(path) not in rows_by_path:
-            fails.append(f"{path}: on disk, but not in the components block of "
+        if path.as_posix() not in rows_by_path:
+            fails.append(f"{path.as_posix()}: on disk, but not in the components block of "
                          "THIRD_PARTY_LICENSES.md. Add a row (licence, whether we modified "
                          "it, which families link it), or take the dependency out.")
     for row in rows:
@@ -600,7 +602,7 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if args.inventory:
         for p in inventory(REPO / "thirdparty"):
-            print(p)
+            print(p.as_posix())
         return 0
     try:
         rows = load_rows()
