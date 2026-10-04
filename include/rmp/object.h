@@ -658,7 +658,7 @@ private:
     // The private half the engine reaches, through Storage in
     // src/rmp/object_internal.h and Scene's spawn. Each says what it takes or
     // sets, so no other object ever names these fields. Defined in object.cpp.
-    void attach(Scene *scene, unsigned index, unsigned generation, Vector2 position);
+    void attach(Scene *scene, unsigned index, unsigned generation, Vector2 at);
     Vector2 take_force();
     [[nodiscard]] Vector2 previous_position() const;
     void remember_position();

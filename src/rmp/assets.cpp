@@ -27,20 +27,21 @@ namespace rmp::assets {
 // For the CI boot gate. failed_count is the number of rmp::assets:: requests that
 // found nothing in the pack and nothing on disk either.
 namespace detail {
-int g_requested_count = 0;
-int g_failed_count = 0;
+LoadCounts loads;
 
 namespace {
 // The default is what this library was compiled with; see internal.h for why
 // it can be replaced at run time.
-char g_resources_root[2048] = RMP_RESOURCES_PATH;
+struct {
+    char root[2048] = RMP_RESOURCES_PATH;
+} resources;
 } // namespace
 
-const char *resources_root() { return g_resources_root; }
+const char *resources_root() { return resources.root; }
 
 void set_resources_root(const char *root) {
     if (root == nullptr) root = "";
-    std::snprintf(g_resources_root, sizeof(g_resources_root), "%s", root);
+    std::snprintf(resources.root, sizeof(resources.root), "%s", root);
 }
 } // namespace detail
 
@@ -57,7 +58,7 @@ namespace {
 // there — and counting those would turn a working build red.
 void fallback_path(const char *name, char *out, size_t n) {
     std::snprintf(out, n, "%s%s", detail::resources_root(), name);
-    if (!FileExists(out)) detail::g_failed_count++;
+    if (!FileExists(out)) detail::loads.failed++;
 }
 
 } // namespace
@@ -93,8 +94,8 @@ void shutdown() {
 
 bool using_pack() { return detail::pack_is_open(); }
 
-int requested_loads() { return detail::g_requested_count; }
-int failed_loads() { return detail::g_failed_count; }
+int requested_loads() { return detail::loads.requested; }
+int failed_loads() { return detail::loads.failed; }
 
 // The raw loaders. Everything below returns a plain raylib struct with no
 // ownership attached; the counted, cached versions that the header declares are
@@ -102,7 +103,7 @@ int failed_loads() { return detail::g_failed_count; }
 namespace {
 
 ::Image load_image_raw(const char *name) {
-    detail::g_requested_count++;
+    detail::loads.requested++;
     if (detail::pack_is_open()) {
         ::Image img = detail::pack_read_image(name);
         if (img.data != nullptr) return img;
@@ -121,7 +122,7 @@ Texture2D load_texture_raw(const char *name) {
 }
 
 ::Sound load_sound_raw(const char *name) {
-    detail::g_requested_count++;
+    detail::loads.requested++;
     if (detail::pack_is_open()) {
         // The extension names the decoder, exactly as rres itself does for a
         // raw chunk (rres-raylib.h reads it back out of props and calls
@@ -151,7 +152,7 @@ Texture2D load_texture_raw(const char *name) {
 }
 
 ::Font load_font_raw(const char *name, int font_size) {
-    detail::g_requested_count++;
+    detail::loads.requested++;
     if (detail::pack_is_open()) {
         // The extension has to come from the name: rres stores the file verbatim
         // and LoadFontFromMemory needs to know what it is. An extensionless name
@@ -275,7 +276,7 @@ rmp::SpriteSheet load_sheet(std::string_view name_view) {
     const bool parsed = rmp::animation::detail::parse_sheet(bytes.data(), size, &sheet);
     if (!parsed) {
         TraceLog(LOG_WARNING, "SHEET: [%s] is not an .aseprite file this can read", name);
-        detail::g_failed_count++;
+        detail::loads.failed++;
         return rmp::SpriteSheet{};
     }
 
@@ -305,7 +306,7 @@ void load_map_level(std::string_view name_view, std::string_view level_view,
     }
     auto parsed = rmp::tilemap::detail::parse_map(
         bytes.data(), static_cast<int>(bytes.size()), key.c_str(), level.c_str());
-    if (parsed == nullptr) detail::g_failed_count++;
+    if (parsed == nullptr) detail::loads.failed++;
     // Owned by the map from here, and whatever was there goes. A map is not a
     // cached resource the way a texture is: one scene owns one map, the
     // factories on it are that scene's, and sharing it would share those too.
@@ -332,7 +333,7 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level) {
 std::vector<unsigned char> load_data(std::string_view name_view) {
     const std::string key(name_view);
     const char *name = key.c_str();
-    detail::g_requested_count++;
+    detail::loads.requested++;
     // Copied out of raylib's buffer and into a vector that frees itself: the
     // one place the framework touches raylib's C loader contract on the way
     // in, so nobody downstream has to remember UnloadFileData.

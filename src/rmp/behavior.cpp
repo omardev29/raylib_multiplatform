@@ -71,16 +71,20 @@ struct Owner {
 //
 // A deque and not a vector because the records must not move: a pass holds a
 // pointer to one across the user's _update, which is entitled to add a behavior
-// to another object. Free records are recycled through g_free_owners.
+// to another object. Free records are recycled through owner_pool.free_slots.
 // Behind a function rather than at file scope because a std::deque allocates in
 // its constructor: an exception during static initialisation is one nobody can
 // catch, and clang-tidy says so. Built on first use, which is when the first
 // behavior is added.
 std::deque<Owner> &owners() {
-    static std::deque<Owner> g_owners;
-    return g_owners;
+    static std::deque<Owner> table;
+    return table;
 }
-std::vector<int> g_free_owners;
+// The records owners() has given back, to be handed out again. The dot at every
+// use says "file state".
+struct {
+    std::vector<int> free_slots;
+} owner_pool;
 
 Owner *owner_of(const Object *object) {
     if (object == nullptr) return nullptr;
@@ -93,9 +97,9 @@ Owner &owner_for(Object *object) {
     if (Owner *found = owner_of(object)) return *found;
 
     int slot = 0;
-    if (!g_free_owners.empty()) {
-        slot = g_free_owners.back();
-        g_free_owners.pop_back();
+    if (!owner_pool.free_slots.empty()) {
+        slot = owner_pool.free_slots.back();
+        owner_pool.free_slots.pop_back();
     } else {
         slot = static_cast<int>(owners().size());
         owners().emplace_back();
@@ -270,7 +274,7 @@ void release_behaviors(Object &object) {
     owner.list.clear();
     owner.object = nullptr;
     owner.walking = 0;
-    g_free_owners.push_back(slot);
+    owner_pool.free_slots.push_back(slot);
 
     for (const Attached &a : taken) {
         if (a.dead) continue; // detach() already ran its _end and freed it
@@ -302,7 +306,7 @@ void reset_behaviors_for_tests() {
         owner.walking = 0;
     }
     owners().clear();
-    g_free_owners.clear();
+    owner_pool.free_slots.clear();
 }
 
 } // namespace objects::detail

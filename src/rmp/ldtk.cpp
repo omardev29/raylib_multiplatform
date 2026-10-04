@@ -55,7 +55,7 @@
 #include <rmp/assets.h>
 #include <rmp/tilemap.h>
 
-#include "internal.h" // RMP_REPORT_ONCE_KEYED, g_failed_count
+#include "internal.h" // RMP_REPORT_ONCE_KEYED, loads.failed
 #include "json_internal.h" // Json, CNumbers
 #include "tilemap_internal.h"
 

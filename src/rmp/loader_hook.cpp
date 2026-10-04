@@ -32,7 +32,9 @@ namespace rmp::assets::detail {
 
 namespace {
 
-bool g_hooked = false;
+struct {
+    bool installed = false;
+} hook;
 
 // "./resources/x" and "resources/x" are the same path. raylib builds the
 // second form out of GetDirectoryPath() when an .obj goes looking for its .mtl.
@@ -120,18 +122,18 @@ bool in_resources_dir(const char *path) {
 }
 
 void install_loader_hook() {
-    if (g_hooked) return;
+    if (hook.installed) return;
     SetLoadFileDataCallback(hooked_load_file_data);
     SetLoadFileTextCallback(hooked_load_file_text);
-    g_hooked = true;
+    hook.installed = true;
     TraceLog(LOG_INFO, "ASSETS: raylib's own loaders will read the pack too");
 }
 
 void remove_loader_hook() {
-    if (!g_hooked) return;
+    if (!hook.installed) return;
     SetLoadFileDataCallback(nullptr);
     SetLoadFileTextCallback(nullptr);
-    g_hooked = false;
+    hook.installed = false;
 }
 
 } // namespace rmp::assets::detail

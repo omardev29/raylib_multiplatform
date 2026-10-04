@@ -56,7 +56,9 @@ struct SlotData {
 
 // unique_ptr so a slot's address is stable while the vector grows: a handle
 // IS that address.
-std::vector<std::unique_ptr<SlotData>> g_slots;
+struct {
+    std::vector<std::unique_ptr<SlotData>> slots;
+} table;
 
 void unload_payload(SlotData &slot) {
     // The one place in the framework where an Unload* is called. Everywhere
@@ -105,7 +107,7 @@ void empty(SlotData &slot) {
 }
 
 SlotData *find_named(ResourceKind kind, const char *name, int font_size) {
-    for (const auto &s : g_slots) {
+    for (const auto &s : table.slots) {
         if (s->refs > 0 && s->named && s->kind == kind && s->font_size == font_size &&
             s->name == name) {
             return s.get();
@@ -115,11 +117,11 @@ SlotData *find_named(ResourceKind kind, const char *name, int font_size) {
 }
 
 SlotData *free_slot() {
-    for (const auto &s : g_slots) {
+    for (const auto &s : table.slots) {
         if (s->refs == 0) return s.get();
     }
-    g_slots.push_back(std::make_unique<SlotData>());
-    return g_slots.back().get();
+    table.slots.push_back(std::make_unique<SlotData>());
+    return table.slots.back().get();
 }
 
 } // namespace
@@ -175,7 +177,7 @@ const void *payload(const Slot *slot) {
 
 int live_count() {
     int n = 0;
-    for (const auto &s : g_slots) {
+    for (const auto &s : table.slots) {
         if (s->refs > 0) n++;
     }
     return n;
@@ -184,7 +186,7 @@ int live_count() {
 int ref_count(const char *name) {
     if (name == nullptr) return 0;
     int n = 0;
-    for (const auto &s : g_slots) {
+    for (const auto &s : table.slots) {
         if (s->refs > 0 && s->named && s->name == name) n += s->refs;
     }
     return n;
@@ -195,7 +197,7 @@ void release_all() {
     // the window closes. A texture released after CloseWindow() is a write to a
     // GL context that no longer exists. The slots stay allocated: see the note
     // at the top about handles that outlive this.
-    for (const auto &s : g_slots) {
+    for (const auto &s : table.slots) {
         if (s->refs > 0) empty(*s);
     }
 }

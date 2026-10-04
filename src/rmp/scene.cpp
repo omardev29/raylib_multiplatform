@@ -26,9 +26,6 @@ namespace rmp {
 
 namespace {
 
-// The stack. Index 0 is the bottom, back() is what the player is looking at.
-std::vector<std::unique_ptr<Scene>> g_stack;
-
 enum class Op { CHANGE, PUSH, REPLACE, POP };
 
 struct Pending {
@@ -37,12 +34,17 @@ struct Pending {
     const void *type = nullptr; // Scene::scene_type<T>(); null for POP
 };
 
-// Everything change/push/replace/pop recorded this frame, in the order it was
-// asked for. More than one in a frame is unusual but well defined: they are
-// applied in that order, so `push(A); pop();` leaves the stack as it was.
-std::vector<Pending> g_pending;
-
-bool g_running = false;
+// The scene stack. The dot at every use says "file state" (not `scenes`,
+// which would hide the namespace).
+struct {
+    // Index 0 is the bottom, back() is what the player is looking at.
+    std::vector<std::unique_ptr<Scene>> items;
+    // Everything change/push/replace/pop recorded this frame, in the order it
+    // was asked for. More than one in a frame is unusual but well defined: they
+    // are applied in that order, so `push(A); pop();` leaves the stack as it was.
+    std::vector<Pending> pending;
+    bool running = false;
+} scene_stack;
 
 // Owning from the template in rmp/scene.h all the way down: nothing between
 // make_unique and the stack ever holds a raw pointer.
@@ -53,7 +55,7 @@ void record(Op op, std::unique_ptr<Scene> next, const void *type = nullptr) {
     // ended up two overlays deep. Nobody means that; the second is dropped and
     // said once.
     if (type != nullptr) {
-        for (const Pending &p : g_pending) {
+        for (const Pending &p : scene_stack.pending) {
             if (p.op == op && p.type == type) {
                 RMP_REPORT_ONCE("SCENE: the same scene was asked for twice in one frame; "
                                 "the second change/push/replace is ignored.");
@@ -61,7 +63,7 @@ void record(Op op, std::unique_ptr<Scene> next, const void *type = nullptr) {
             }
         }
     }
-    g_pending.push_back(Pending{ op, std::move(next), type });
+    scene_stack.pending.push_back(Pending{ op, std::move(next), type });
 }
 
 } // namespace
@@ -82,7 +84,7 @@ void Scene::detail_replace(std::unique_ptr<Scene> next, const void *type) {
 }
 void Scene::pop() { record(Op::POP, nullptr); }
 
-int Scene::depth() { return static_cast<int>(g_stack.size()); }
+int Scene::depth() { return static_cast<int>(scene_stack.items.size()); }
 
 // current() is a reference because there is always a scene while the app runs,
 // and returning a pointer would invite a null check that can never fire. The
@@ -91,12 +93,12 @@ int Scene::depth() { return static_cast<int>(g_stack.size()); }
 // nothing rather than a crash in someone's release build.
 Scene &Scene::current() {
     static Scene fallback;
-    if (g_stack.empty()) {
+    if (scene_stack.items.empty()) {
         RMP_REPORT_ONCE("SCENE: current() with an empty stack — is this before "
                         "RMP_GAME started, or after the app closed?");
         return fallback;
     }
-    return *g_stack.back();
+    return *scene_stack.items.back();
 }
 
 } // namespace rmp
@@ -107,10 +109,10 @@ namespace {
 
 // The lowest scene that still takes part in a pass, found by walking down from
 // the top for as long as each scene lets the one below it through. Returns an
-// index into g_stack; the stack is never empty when this is called.
+// index into scene_stack.items; the stack is never empty when this is called.
 template <class Policy> int lowest_participant(Policy lets_through) {
-    int i = static_cast<int>(g_stack.size()) - 1;
-    while (i > 0 && lets_through(*g_stack[static_cast<size_t>(i)])) i--;
+    int i = static_cast<int>(scene_stack.items.size()) - 1;
+    while (i > 0 && lets_through(*scene_stack.items[static_cast<size_t>(i)])) i--;
     return i;
 }
 
@@ -118,33 +120,33 @@ template <class Policy> int lowest_participant(Policy lets_through) {
 // through. Walking upwards rather than remembering a flag means a stack three
 // deep answers correctly without anything having to be kept in step.
 bool reachable_by_input(int index) {
-    const int top = static_cast<int>(g_stack.size()) - 1;
+    const int top = static_cast<int>(scene_stack.items.size()) - 1;
     for (int above = index + 1; above <= top; above++) {
-        if (!g_stack[static_cast<size_t>(above)]->input_below) return false;
+        if (!scene_stack.items[static_cast<size_t>(above)]->input_below) return false;
     }
     return true;
 }
 
 void end_top() {
-    g_stack.back()->_end();
+    scene_stack.items.back()->_end();
     // The scene's objects go with it, each getting its _end(), and they go
     // AFTER the scene's own _end() so that a scene tidying up can still walk
     // what it spawned. This is the same ordering argument as rmp/app.h's
     // teardown list, and for the same reason: an object may hold an
     // rmp::Texture, and its destructor has to find its slot still there.
-    rmp::objects::detail::release_scene(*g_stack.back());
-    g_stack.pop_back();
+    rmp::objects::detail::release_scene(*scene_stack.items.back());
+    scene_stack.items.pop_back();
 }
 
 void enter(std::unique_ptr<Scene> next) {
-    g_stack.push_back(std::move(next));
-    g_stack.back()->_ready();
+    scene_stack.items.push_back(std::move(next));
+    scene_stack.items.back()->_ready();
 }
 
 } // namespace
 
 void start(std::unique_ptr<Scene> first) {
-    // The null check BEFORE g_running, because the other order leaves the app
+    // The null check BEFORE scene_stack.running, because the other order leaves the app
     // running over an empty stack: a frame loop that draws nothing, forever,
     // and a current() that hands back the fallback scene to everything that
     // asks. Refusing leaves whatever was already on the stack exactly as it
@@ -155,16 +157,16 @@ void start(std::unique_ptr<Scene> first) {
                         "hand-written start() or a T that failed to construct.");
         return;
     }
-    g_running = true;
+    scene_stack.running = true;
     enter(std::move(first));
 }
 
-bool running() { return g_running; }
+bool running() { return scene_stack.running; }
 
 void update(float delta) {
-    if (g_stack.empty()) return;
+    if (scene_stack.items.empty()) return;
     const int lowest = lowest_participant([](const Scene &s) { return s.updates_below; });
-    const int top = static_cast<int>(g_stack.size()) - 1;
+    const int top = static_cast<int>(scene_stack.items.size()) - 1;
     // Bottom upwards: the world moves before whatever is layered on top of it
     // reacts to where the world ended up.
     for (int i = lowest; i <= top; i++) {
@@ -173,7 +175,7 @@ void update(float delta) {
         // input reads every action as false, so `if (just_pressed("fire"))`
         // simply does not fire. Nothing in that scene says so.
         rmp::input::detail::set_layer_input(reachable_by_input(i));
-        Scene &scene = *g_stack[static_cast<size_t>(i)];
+        Scene &scene = *scene_stack.items[static_cast<size_t>(i)];
         // The pointer first, so a press is acted on in the frame it happened
         // and an on_click can spawn or destroy before anything else looks.
         rmp::objects::detail::pointer(scene);
@@ -198,9 +200,9 @@ void update(float delta) {
 }
 
 Color clear_color() {
-    if (g_stack.empty()) return rmp::ui::current_theme().background;
+    if (scene_stack.items.empty()) return rmp::ui::current_theme().background;
     const int lowest = lowest_participant([](const Scene &s) { return s.draws_below; });
-    const Color c = g_stack[static_cast<size_t>(lowest)]->background;
+    const Color c = scene_stack.items[static_cast<size_t>(lowest)]->background;
     // BLANK is the "I did not choose" value rather than a real colour, because
     // a fully transparent clear is never what a scene means and every other
     // colour is.
@@ -209,9 +211,9 @@ Color clear_color() {
 }
 
 void draw() {
-    if (g_stack.empty()) return;
+    if (scene_stack.items.empty()) return;
     const int lowest = lowest_participant([](const Scene &s) { return s.draws_below; });
-    const int top = static_cast<int>(g_stack.size()) - 1;
+    const int top = static_cast<int>(scene_stack.items.size()) - 1;
 
     for (int i = lowest; i <= top; i++) {
         // Input belongs to the top scene unless it says otherwise, and this is
@@ -221,7 +223,7 @@ void draw() {
         // menu is drawn, is not interactive, and neither scene wrote a line
         // about it.
         rmp::ui::detail::set_pass_input(reachable_by_input(i));
-        Scene &scene = *g_stack[static_cast<size_t>(i)];
+        Scene &scene = *scene_stack.items[static_cast<size_t>(i)];
         // Objects first, in world space, and the scene's own _draw() after, in
         // screen space: that is what puts the HUD over the game rather than
         // under it, without either one saying so.
@@ -247,54 +249,54 @@ void draw() {
 
 void apply_pending() {
     // Objects first, and unconditionally: a frame with no scene transition
-    // still has bullets to bury, and an early return on g_pending would have
+    // still has bullets to bury, and an early return on scene_stack.pending would have
     // leaked every one of them. It is the sort of bug that only shows up as a
     // number going up.
     rmp::objects::detail::collect();
 
-    if (g_pending.empty()) return;
+    if (scene_stack.pending.empty()) return;
 
     // Take the queue rather than iterating it: _ready() and _end() are the
     // user's code and are entitled to queue transitions of their own, and those
     // belong to the NEXT frame. Without the swap, one of them pushing here
     // would reallocate the vector being walked.
     std::vector<Pending> batch;
-    batch.swap(g_pending);
+    batch.swap(scene_stack.pending);
 
     for (Pending &p : batch) {
         switch (p.op) {
             case Op::CHANGE:
                 // Top down, so a scene is never ended while something it put on the
                 // stack is still above it.
-                while (!g_stack.empty()) end_top();
+                while (!scene_stack.items.empty()) end_top();
                 enter(std::move(p.next));
                 break;
 
             case Op::PUSH:
-                if (!g_stack.empty()) g_stack.back()->_suspend();
+                if (!scene_stack.items.empty()) scene_stack.items.back()->_suspend();
                 enter(std::move(p.next));
                 break;
 
             case Op::REPLACE:
                 // Only the top changes. What is underneath was suspended when the
                 // top went on and stays suspended, so it gets no _resume().
-                if (!g_stack.empty()) end_top();
+                if (!scene_stack.items.empty()) end_top();
                 enter(std::move(p.next));
                 break;
 
             case Op::POP:
-                if (g_stack.size() <= 1) {
+                if (scene_stack.items.size() <= 1) {
                     // Refusing beats obeying. An empty stack is a black window on
                     // desktop and, on iOS, a screen with no way back — and quit()
                     // is right there and says what it means.
                     RMP_REPORT_ONCE("SCENE: pop() with %d scene(s) on the stack would "
                                     "leave nothing to draw; ignoring. Did you mean "
                                     "rmp::app::quit()?",
-                                    static_cast<int>(g_stack.size()));
+                                    static_cast<int>(scene_stack.items.size()));
                     break;
                 }
                 end_top();
-                g_stack.back()->_resume();
+                scene_stack.items.back()->_resume();
                 break;
         }
     }
@@ -304,9 +306,9 @@ void shutdown() {
     // Anything still queued is dropped: the app is going away, and running a
     // _ready() for a scene nobody will ever see would only give it a chance to
     // load assets that are about to be released.
-    g_pending.clear();
-    while (!g_stack.empty()) end_top();
-    g_running = false;
+    scene_stack.pending.clear();
+    while (!scene_stack.items.empty()) end_top();
+    scene_stack.running = false;
 }
 
 } // namespace rmp::scenes::detail

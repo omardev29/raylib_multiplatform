@@ -27,12 +27,15 @@ struct Global {
     std::shared_ptr<void> instance;
     void (*forget)();
 };
-std::vector<Global> g_globals;
-// Built during shutdown_globals(): kept alive on purpose and never destroyed
-// by us -- see register_global. The process is ending.
-std::vector<std::shared_ptr<void>> g_orphans;
-// True for the duration of shutdown_globals(). See register_global.
-bool g_shutting_down = false;
+// Every rmp::global<T>(). The dot at every use says "file state".
+struct {
+    std::vector<Global> globals;
+    // Built during shutdown_globals(): kept alive on purpose and never
+    // destroyed by us -- see register_global. The process is ending.
+    std::vector<std::shared_ptr<void>> orphans;
+    // True for the duration of shutdown_globals(). See register_global.
+    bool shutting_down = false;
+} registry;
 } // namespace
 
 void register_global(std::shared_ptr<void> instance, void (*forget)()) {
@@ -47,18 +50,18 @@ void register_global(std::shared_ptr<void> instance, void (*forget)()) {
     // Refusing keeps a valid instance that is simply never destroyed by us
     // (the header's pointer stays good, so the caller gets a working object),
     // the process ends, and the report says where to look.
-    if (g_shutting_down) {
+    if (registry.shutting_down) {
         RMP_REPORT_ONCE("GLOBAL: a global was created while the globals were being "
                         "destroyed; it will not be destroyed by the framework. "
                         "Something reached for rmp::global<T>() during shutdown.");
-        g_orphans.push_back(std::move(instance));
+        registry.orphans.push_back(std::move(instance));
         return;
     }
-    g_globals.push_back(Global{ std::move(instance), forget });
+    registry.globals.push_back(Global{ std::move(instance), forget });
 }
 
 void shutdown_globals() {
-    g_shutting_down = true;
+    registry.shutting_down = true;
     // Reverse of first use, which is the order anything that behaves like a
     // static is destroyed in — so a global that was built because another one
     // needed it still exists while that one is being taken apart. The header's
@@ -70,13 +73,13 @@ void shutdown_globals() {
     // 10.1 ships GCC 10.5, whose <ranges> is incomplete, and that toolchain has
     // already cost this project one patch to Clay. A backwards for loop
     // compiles the same everywhere and reads no worse.
-    for (std::size_t i = g_globals.size(); i > 0; i--) {
-        Global &g = g_globals[i - 1];
+    for (std::size_t i = registry.globals.size(); i > 0; i--) {
+        Global &g = registry.globals[i - 1];
         g.forget();
         g.instance.reset();
     }
-    g_globals.clear();
-    g_shutting_down = false;
+    registry.globals.clear();
+    registry.shutting_down = false;
 }
 
 } // namespace rmp::app::detail

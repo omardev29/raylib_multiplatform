@@ -478,13 +478,16 @@ struct Index {
     Grid grid;
     std::vector<int> cursor; // the counting sort's write head per cell
 };
-Index g_index;
 
-// Scratch for the two walks over that index. Separate, because a raycast may be
-// issued from inside a _collision callback and the collision pass must not have
-// its own working memory rewritten underneath it.
-std::vector<Pair> g_pairs;
-std::vector<int> g_candidates;
+// The broad phase: the index, and scratch for the two walks over it. Separate
+// scratch, because a raycast may be issued from inside a _collision callback
+// and the collision pass must not have its own working memory rewritten
+// underneath it. The dot at every use says "file state".
+struct {
+    Index index;
+    std::vector<Pair> pairs;
+    std::vector<int> candidates;
+} broad;
 
 // Which cells an entry's box covers.
 struct CellSpan {
@@ -652,16 +655,16 @@ struct Touch {
 // Build the index for one scene, or hand back the one that is already current.
 // Everything that walks the world in this file goes through here.
 const Index &index_for(const Scene &scene) {
-    if (g_index.built && g_index.scene == &scene &&
-        g_index.version == objects::detail::world_version()) {
-        return g_index;
+    if (broad.index.built && broad.index.scene == &scene &&
+        broad.index.version == objects::detail::world_version()) {
+        return broad.index;
     }
 
-    g_index.scene = &scene;
-    g_index.version = objects::detail::world_version();
-    g_index.built = true;
+    broad.index.scene = &scene;
+    broad.index.version = objects::detail::world_version();
+    broad.index.built = true;
 
-    std::vector<Entry> &entries = g_index.entries;
+    std::vector<Entry> &entries = broad.index.entries;
     entries.clear();
     for (Object *object : objects::detail::live_objects(scene)) {
         Entry e;
@@ -694,8 +697,8 @@ const Index &index_for(const Scene &scene) {
         entries.push_back(e);
     }
 
-    build_grid(entries, &g_index.grid, &g_index.cursor);
-    return g_index;
+    build_grid(entries, &broad.index.grid, &broad.index.cursor);
+    return broad.index;
 }
 
 std::vector<Touch> detect(const Scene &scene, bool use_grid) {
@@ -704,10 +707,10 @@ std::vector<Touch> detect(const Scene &scene, bool use_grid) {
     const std::vector<Entry> &entries = index_for(scene).entries;
     if (entries.size() < 2) return touching;
 
-    std::vector<Pair> &pairs = g_pairs;
+    std::vector<Pair> &pairs = broad.pairs;
     pairs.clear();
     if (use_grid) {
-        candidate_pairs(entries, g_index.grid, &pairs);
+        candidate_pairs(entries, broad.index.grid, &pairs);
     } else {
         const int n = static_cast<int>(entries.size());
         for (int i = 0; i < n; i++) {
@@ -912,8 +915,11 @@ int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, in
 // ---------------------------------------------------------------------------
 
 namespace {
-Handle<Object> g_captured;
-Vector2 g_press_at{};
+// The object a press landed on, and where.
+struct {
+    Handle<Object> captured;
+    Vector2 at{};
+} press;
 } // namespace
 
 void pointer(Scene &scene) {
@@ -921,7 +927,7 @@ void pointer(Scene &scene) {
     // fires the gun underneath it, which is the single most common complaint
     // about hand-rolled input in a game with a HUD.
     if (rmp::input::consumed_pointer()) {
-        g_captured = Handle<Object>();
+        press.captured = Handle<Object>();
         return;
     }
 
@@ -936,7 +942,7 @@ void pointer(Scene &scene) {
         // the up event, the UI takes the pointer for exactly that frame -- and
         // the old capture then survived a press over empty space and fired
         // on_click on the next release, on an object nobody had pressed.
-        g_captured = Handle<Object>();
+        press.captured = Handle<Object>();
 
         // Topmost first: the last thing drawn is the first thing clicked, which
         // is the order a player sees. draw_order() is layer then creation, so
@@ -954,15 +960,15 @@ void pointer(Scene &scene) {
             point.radius = 0;
             Vector2 ignored{};
             if (overlap(point, p, &ignored)) {
-                g_captured = object->handle();
-                g_press_at = at;
+                press.captured = object->handle();
+                press.at = at;
                 break;
             }
         }
         return;
     }
 
-    Object *captured = g_captured.get();
+    Object *captured = press.captured.get();
     if (captured == nullptr) return;
 
     if (rmp::input::pointer_down()) {
@@ -984,11 +990,11 @@ void pointer(Scene &scene) {
         if (p.kind != ShapeKind::NONE && overlap(point, p, &ignored)) {
             Storage::notify_click(*captured);
         }
-        g_captured = Handle<Object>();
+        press.captured = Handle<Object>();
     }
 }
 
-void reset_pointer_for_tests() { g_captured = Handle<Object>(); }
+void reset_pointer_for_tests() { press.captured = Handle<Object>(); }
 
 } // namespace objects::detail
 
@@ -1016,7 +1022,7 @@ int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
     if (entries.empty()) return 0;
     const Grid &grid = index.grid;
 
-    std::vector<int> &candidates = g_candidates;
+    std::vector<int> &candidates = broad.candidates;
     candidates.clear();
     if (grid.empty()) {
         candidates.reserve(entries.size());

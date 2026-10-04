@@ -64,13 +64,16 @@ constexpr uint64_t DEFAULT_SEED = 0x2545F4914F6CDD1Dull;
 // that the first value is the same every time.
 constexpr State DEFAULT_STATE = expanded(DEFAULT_SEED);
 
-constinit State g_state = DEFAULT_STATE;
-constinit uint64_t g_seed = DEFAULT_SEED;
+// The generator. The dot at every use says "file state".
+constinit struct {
+    State state = DEFAULT_STATE;
+    uint64_t seed = DEFAULT_SEED;
+} generator;
 
 constexpr uint32_t rotl(uint32_t x, int k) { return (x << k) | (x >> (32 - k)); }
 
 uint32_t next_u32() {
-    uint32_t *s = g_state.word;
+    uint32_t *s = generator.state.word;
     const uint32_t result = rotl(s[0] + s[3], 7) + s[0];
     const uint32_t t = s[1] << 9;
     s[2] ^= s[0];
@@ -85,11 +88,11 @@ uint32_t next_u32() {
 } // namespace
 
 void seed(uint64_t value) {
-    g_seed = value;
-    g_state = expanded(value);
+    generator.seed = value;
+    generator.state = expanded(value);
 }
 
-uint64_t current_seed() { return g_seed; }
+uint64_t current_seed() { return generator.seed; }
 
 float value() {
     // The top 24 bits, which are the good ones in any xorshift family, scaled

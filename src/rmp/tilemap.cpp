@@ -28,7 +28,7 @@
 #include <rmp/assets.h>
 #include <rmp/scene.h>
 
-#include "internal.h" // RMP_REPORT_ONCE_KEYED, g_failed_count
+#include "internal.h" // RMP_REPORT_ONCE_KEYED, loads.failed
 #include "tilemap_internal.h"
 
 #include <cute_tiled.h>
@@ -252,7 +252,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                     name != nullptr ? name : "", source);
                 // Counted, so the CI boot gate sees it: a game shipped with a
                 // tileset it cannot read comes back red rather than empty.
-                rmp::assets::detail::g_failed_count++;
+                rmp::assets::detail::loads.failed++;
             }
         }
 

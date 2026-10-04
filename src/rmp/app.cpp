@@ -55,7 +55,9 @@ void (*const REQUIRE_ENTRY_POINT)() = &rmp_entry_point_is_declared_exactly_once;
 namespace rmp::app {
 
 namespace {
-bool g_quit_requested = false;
+struct {
+    bool quit_requested = false;
+} loop;
 
 // Write a small save, read it back, compare, remove it. The string is not
 // ASCII on purpose. False, with RAY_TEST_BOOT_FAIL and the reason, when any
@@ -107,8 +109,8 @@ void quit() {
                     "themselves (QA1561). Ignoring.");
     return;
 #else
-    if (g_quit_requested) return;
-    g_quit_requested = true;
+    if (loop.quit_requested) return;
+    loop.quit_requested = true;
     TraceLog(LOG_INFO, "APP: quit requested");
 
 #if defined(PLATFORM_ANDROID)
@@ -125,7 +127,7 @@ void quit() {
 #endif // PLATFORM_IOS
 }
 
-bool quit_requested() { return g_quit_requested; }
+bool quit_requested() { return loop.quit_requested; }
 
 namespace detail {
 

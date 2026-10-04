@@ -66,8 +66,11 @@ bool in_resources_dir(const char *path);
 // --- assets.cpp ------------------------------------------------------------
 // Counters behind rmp::assets::requested_loads() / failed_loads(), which the CI boot
 // gate reads. Defined in assets.cpp.
-extern int g_requested_count;
-extern int g_failed_count;
+struct LoadCounts {
+    int requested = 0;
+    int failed = 0;
+};
+extern LoadCounts loads;
 
 // Where loose files live: the directory that RMP_RESOURCES_PATH used to name at
 // every call site. It is a runtime value now because the framework is compiled

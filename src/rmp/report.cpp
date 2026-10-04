@@ -30,29 +30,33 @@ struct Seen {
 
 // Linear, and that is fine: it holds distinct mistakes, and a game with more
 // than a handful of distinct mistakes has a bigger problem than this lookup.
-std::vector<Seen> g_seen;
-bool g_strict = false;
-
 void abort_on_report() { std::abort(); }
-StrictHandler g_on_strict = abort_on_report;
+
+// The mistakes said so far, and what [dev] strict does with the first one.
+// The dot at every use says "file state".
+struct {
+    std::vector<Seen> seen;
+    bool strict = false;
+    StrictHandler on_strict = abort_on_report;
+} reports;
 
 bool already(const void *site, const char *key) {
     return std::ranges::any_of(
-        g_seen, [&](const Seen &s) { return s.site == site && s.key == key; });
+        reports.seen, [&](const Seen &s) { return s.site == site && s.key == key; });
 }
 
 void emit(const void *site, const char *key, const char *fmt, va_list args) {
     if (already(site, key)) return;
-    g_seen.push_back(Seen{ site, key });
+    reports.seen.push_back(Seen{ site, key });
 
     char line[1024];
     std::vsnprintf(line, sizeof line, fmt, args);
-    TraceLog(g_strict ? LOG_ERROR : LOG_WARNING, "%s", line);
-    if (g_strict) {
+    TraceLog(reports.strict ? LOG_ERROR : LOG_WARNING, "%s", line);
+    if (reports.strict) {
         TraceLog(LOG_ERROR,
                  "[dev] strict = true: the diagnostic above is fatal in a debug build. "
                  "Fix it, or set strict = false in raylib_multiplatform.toml.");
-        g_on_strict();
+        reports.on_strict();
     }
 }
 
@@ -77,16 +81,16 @@ void report_once_keyed(const void *site, const char *key, const char *fmt, ...) 
     va_end(args);
 }
 
-void set_strict(bool on) { g_strict = on; }
-bool strict() { return g_strict; }
+void set_strict(bool on) { reports.strict = on; }
+bool strict() { return reports.strict; }
 
 StrictHandler set_strict_handler(StrictHandler handler) {
-    StrictHandler previous = g_on_strict;
-    g_on_strict = handler != nullptr ? handler : abort_on_report;
+    StrictHandler previous = reports.on_strict;
+    reports.on_strict = handler != nullptr ? handler : abort_on_report;
     return previous;
 }
 
-int report_count() { return static_cast<int>(g_seen.size()); }
-void reset_reports_for_tests() { g_seen.clear(); }
+int report_count() { return static_cast<int>(reports.seen.size()); }
+void reset_reports_for_tests() { reports.seen.clear(); }
 
 } // namespace rmp::detail

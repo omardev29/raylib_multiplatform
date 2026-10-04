@@ -29,70 +29,73 @@ namespace rmp::assets::detail {
 
 namespace {
 
-bool g_using_pack = false;
-rresCentralDir g_cdir = { 0, nullptr };
-char g_pack_path[2048] = { 0 };
+// The pack, when there is one. The dot at every use says "file state".
+struct {
+    bool in_use = false;
+    rresCentralDir directory = { 0, nullptr };
+    char path[2048] = { 0 };
+} pack;
 
 } // namespace
 
 bool open_pack() {
-    if (g_using_pack) return true; // idempotent: the lifecycle macro already called it
+    if (pack.in_use) return true; // idempotent: the lifecycle macro already called it
 
-    std::snprintf(g_pack_path, sizeof(g_pack_path), "%s%s",
+    std::snprintf(pack.path, sizeof(pack.path), "%s%s",
                   rmp::assets::detail::resources_root(), "resources.rres");
 
-    if (!FileExists(g_pack_path)) {
+    if (!FileExists(pack.path)) {
         TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s",
                  rmp::assets::detail::resources_root());
         return false;
     }
 
     rresSetCipherPassword(RMP_RRES_PASSWORD);
-    g_cdir = rresLoadCentralDirectory(g_pack_path);
-    if (g_cdir.count <= 0) {
+    pack.directory = rresLoadCentralDirectory(pack.path);
+    if (pack.directory.count <= 0) {
         // Given back, not dropped: rres allocates the entry array before it
         // knows the count is zero, and close_pack() returns early while no
         // pack is open, so nothing else would ever free it. Zeroed as well,
-        // because a non-null g_cdir.entries sitting behind a false
+        // because a non-null pack.directory.entries sitting behind a false
         // pack_is_open() is a trap for anyone who reads one without the other.
-        rresUnloadCentralDirectory(g_cdir);
-        g_cdir.count = 0;
-        g_cdir.entries = nullptr;
+        rresUnloadCentralDirectory(pack.directory);
+        pack.directory.count = 0;
+        pack.directory.entries = nullptr;
         TraceLog(LOG_WARNING, "ASSETS: %s has no central directory, using loose files",
-                 g_pack_path);
+                 pack.path);
         return false;
     }
 
-    g_using_pack = true;
-    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", g_pack_path,
-             g_cdir.count);
+    pack.in_use = true;
+    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", pack.path,
+             pack.directory.count);
     return true;
 }
 
 void close_pack() {
-    if (!g_using_pack) return;
-    rresUnloadCentralDirectory(g_cdir);
-    g_cdir.count = 0;
-    g_cdir.entries = nullptr;
-    g_using_pack = false;
+    if (!pack.in_use) return;
+    rresUnloadCentralDirectory(pack.directory);
+    pack.directory.count = 0;
+    pack.directory.entries = nullptr;
+    pack.in_use = false;
 }
 
-bool pack_is_open() { return g_using_pack; }
+bool pack_is_open() { return pack.in_use; }
 
 bool pack_has(const char *name) {
     // The central directory alone: nothing is read, decrypted or allocated,
     // which is what makes it cheap enough to try five extensions per name.
-    return g_using_pack && name != nullptr && rresGetResourceId(g_cdir, name) != 0;
+    return pack.in_use && name != nullptr && rresGetResourceId(pack.directory, name) != 0;
 }
 
 unsigned char *pack_read(const char *name, int *size) {
     if (size != nullptr) *size = 0;
-    if (!g_using_pack || name == nullptr) return nullptr;
+    if (!pack.in_use || name == nullptr) return nullptr;
 
-    unsigned int id = rresGetResourceId(g_cdir, name);
+    unsigned int id = rresGetResourceId(pack.directory, name);
     if (id == 0) return nullptr;
 
-    rresResourceChunk chunk = rresLoadResourceChunk(g_pack_path, id);
+    rresResourceChunk chunk = rresLoadResourceChunk(pack.path, id);
     if (UnpackResourceChunk(&chunk) != 0) {
         rresUnloadResourceChunk(chunk);
         return nullptr;
@@ -120,16 +123,16 @@ unsigned char *pack_read(const char *name, int *size) {
 // caller falls back to the loose file.
 ::Image pack_read_image(const char *name) {
     ::Image img = { nullptr };
-    if (!g_using_pack || name == nullptr) return img;
+    if (!pack.in_use || name == nullptr) return img;
 
-    unsigned int id = rresGetResourceId(g_cdir, name);
+    unsigned int id = rresGetResourceId(pack.directory, name);
     if (id == 0) {
         TraceLog(LOG_WARNING,
                  "ASSETS: '%s' not found in pack, falling back to loose file", name);
         return img;
     }
 
-    rresResourceMulti multi = rresLoadResourceMulti(g_pack_path, id);
+    rresResourceMulti multi = rresLoadResourceMulti(pack.path, id);
     if (multi.count > 0) {
         bool ok = true;
         for (int i = 0; std::cmp_less(i, multi.count); i++) {

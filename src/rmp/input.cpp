@@ -39,25 +39,37 @@ struct Action {
     int count = 0;
 };
 
-std::vector<Action> g_actions;
+// The file's state, one struct per concern; the dot says "file state", and a
+// group cannot collide with deadzone(), layer_input() or a parameter.
+
+// The actions defined so far, and whether the factory ones are among them.
+struct {
+    std::vector<Action> actions;
+    bool factory_installed = false;
+} registry;
 
 // Two frames of device state. `just_pressed` is the difference between them,
 // which is why sampling has to happen exactly once per frame: sample twice and
 // the edge disappears between the two reads.
-detail::DeviceState g_now;
-detail::DeviceState g_before;
-bool g_have_previous = false;
+struct {
+    detail::DeviceState now;
+    detail::DeviceState before;
+    bool have_previous = false;
+    detail::SampleFn sample = detail::sample_with_raylib;
+} frames;
 
-detail::SampleFn g_sample = detail::sample_with_raylib;
-
-float g_deadzone = RMP_INPUT_DEADZONE;
-bool g_layer_input = true;
+// How it is read: the stick's dead zone, and whether the layer being updated
+// can reach the input at all.
+struct {
+    float deadzone = RMP_INPUT_DEADZONE;
+    bool layer_input = true;
+} reading;
 
 // One warning per unknown name for the life of the run. The alternative is
 // sixty lines a second, which is the same as no warning at all.
 
 Action *find(std::string_view name) {
-    for (Action &action : g_actions) {
+    for (Action &action : registry.actions) {
         if (action.name == name) return &action;
     }
     return nullptr;
@@ -71,7 +83,7 @@ Action *find(std::string_view name) {
 // follow the keyboard, because that is what the UI's focus navigation uses —
 // a d-pad press that moves the selection must not also move the player.
 bool consumed(const detail::Binding &binding) {
-    if (!g_layer_input) return true;
+    if (!reading.layer_input) return true;
     if (binding.device == detail::Device::MOUSE) return rmp::ui::wants_pointer();
     return rmp::ui::wants_keyboard();
 }
@@ -94,7 +106,7 @@ bool binding_down(const detail::Binding &binding, const detail::DeviceState &sta
         case detail::Device::PAD_AXIS: {
             if (!in_range(binding.code, detail::DeviceState::AXES)) return false;
             const float value = state.axes[binding.code];
-            if (std::fabs(value) < g_deadzone) return false;
+            if (std::fabs(value) < reading.deadzone) return false;
             return binding.sign < 0 ? value < 0.0f : value > 0.0f;
         }
     }
@@ -111,11 +123,11 @@ float binding_amount(const detail::Binding &binding, const detail::DeviceState &
     if (!in_range(binding.code, detail::DeviceState::AXES)) return 0.0f;
     const float raw = state.axes[binding.code];
     const float magnitude = std::fabs(raw);
-    if (magnitude < g_deadzone) return 0.0f;
+    if (magnitude < reading.deadzone) return 0.0f;
     const bool right_half = binding.sign < 0 ? raw < 0.0f : raw > 0.0f;
     if (!right_half) return 0.0f;
-    const float span = 1.0f - g_deadzone;
-    return span <= 0.0f ? 1.0f : (magnitude - g_deadzone) / span;
+    const float span = 1.0f - reading.deadzone;
+    return span <= 0.0f ? 1.0f : (magnitude - reading.deadzone) / span;
 }
 
 enum class Edge { HELD, DOWN, UP };
@@ -137,8 +149,8 @@ bool action_state(std::string_view name, Edge edge) {
     for (int i = 0; i < action->count; i++) {
         const detail::Binding &binding = action->bindings[i];
         if (consumed(binding)) continue;
-        const bool now = binding_down(binding, g_now);
-        const bool before = g_have_previous && binding_down(binding, g_before);
+        const bool now = binding_down(binding, frames.now);
+        const bool before = frames.have_previous && binding_down(binding, frames.before);
         switch (edge) {
             case Edge::HELD:
                 if (now) return true;
@@ -175,7 +187,7 @@ float action_amount(std::string_view name) {
     for (int i = 0; i < action->count; i++) {
         const detail::Binding &binding = action->bindings[i];
         if (consumed(binding)) continue;
-        const float amount = binding_amount(binding, g_now);
+        const float amount = binding_amount(binding, frames.now);
         if (amount > best) best = amount;
     }
     return best;
@@ -186,8 +198,8 @@ bool raw_down(detail::Device device, int code, const detail::DeviceState &state)
 }
 
 bool raw_edge(detail::Device device, int code, Edge edge) {
-    const bool now = raw_down(device, code, g_now);
-    const bool before = g_have_previous && raw_down(device, code, g_before);
+    const bool now = raw_down(device, code, frames.now);
+    const bool before = frames.have_previous && raw_down(device, code, frames.before);
     switch (edge) {
         case Edge::HELD:
             return now;
@@ -215,11 +227,9 @@ void install_factory_actions() {
     action("ui_cancel", KEY_ESCAPE, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
 }
 
-bool g_factory_installed = false;
-
 void ensure_factory() {
-    if (g_factory_installed) return;
-    g_factory_installed = true;
+    if (registry.factory_installed) return;
+    registry.factory_installed = true;
     install_factory_actions();
 }
 
@@ -242,7 +252,7 @@ void define(std::string_view name, const Binding *bindings, int count) {
     Action *existing = find(name);
     // Replace, never accumulate. This is what makes it safe to call from a
     // scene's _ready() when the player enters that scene twenty times.
-    Action &slot = existing != nullptr ? *existing : g_actions.emplace_back();
+    Action &slot = existing != nullptr ? *existing : registry.actions.emplace_back();
     slot.name.assign(name);
     slot.count = count;
     for (int i = 0; i < count; i++) slot.bindings[i] = bindings[i];
@@ -272,15 +282,15 @@ void sample_with_raylib(DeviceState *out) {
 }
 
 void set_sample_provider(SampleFn fn) {
-    g_sample = fn != nullptr ? fn : sample_with_raylib;
+    frames.sample = fn != nullptr ? fn : sample_with_raylib;
 }
 
 void begin_frame() {
     ensure_factory();
-    const bool first = !g_have_previous;
-    g_before = g_now;
-    g_layer_input = true;
-    g_sample(&g_now);
+    const bool first = !frames.have_previous;
+    frames.before = frames.now;
+    reading.layer_input = true;
+    frames.sample(&frames.now);
 
     // THE FIRST FRAME HAS NO EDGES, and it takes a line to say so. Without it
     // the previous frame is a zeroed struct, so anything already held when the
@@ -292,23 +302,23 @@ void begin_frame() {
     // Copying the fresh sample backwards is the whole fix: frame one compares
     // against itself, so nothing changed, which is the truth.
     if (first) {
-        g_before = g_now;
-        g_have_previous = true;
+        frames.before = frames.now;
+        frames.have_previous = true;
     }
 }
 
-void set_layer_input(bool reachable) { g_layer_input = reachable; }
-bool layer_input() { return g_layer_input; }
+void set_layer_input(bool reachable) { reading.layer_input = reachable; }
+bool layer_input() { return reading.layer_input; }
 
 void reset() {
-    g_actions.clear();
-    g_now = DeviceState{};
-    g_before = DeviceState{};
-    g_have_previous = false;
-    g_layer_input = true;
-    g_deadzone = RMP_INPUT_DEADZONE;
-    g_factory_installed = false;
-    g_sample = sample_with_raylib;
+    registry.actions.clear();
+    frames.now = DeviceState{};
+    frames.before = DeviceState{};
+    frames.have_previous = false;
+    reading.layer_input = true;
+    reading.deadzone = RMP_INPUT_DEADZONE;
+    registry.factory_installed = false;
+    frames.sample = sample_with_raylib;
 }
 
 } // namespace detail
@@ -348,10 +358,11 @@ bool just_released(::GamepadButton button) {
 float axis_value(::GamepadAxis which) {
     const int index = static_cast<int>(which);
     if (!in_range(index, detail::DeviceState::AXES)) return 0.0f;
-    const float raw = g_now.axes[index];
-    if (std::fabs(raw) < g_deadzone) return 0.0f;
-    const float span = 1.0f - g_deadzone;
-    const float scaled = (std::fabs(raw) - g_deadzone) / (span <= 0.0f ? 1.0f : span);
+    const float raw = frames.now.axes[index];
+    if (std::fabs(raw) < reading.deadzone) return 0.0f;
+    const float span = 1.0f - reading.deadzone;
+    const float scaled =
+        (std::fabs(raw) - reading.deadzone) / (span <= 0.0f ? 1.0f : span);
     return raw < 0.0f ? -scaled : scaled;
 }
 
@@ -383,28 +394,28 @@ Vector2 vector(std::string_view left, std::string_view right, std::string_view u
 float axis() { return axis("move_left", "move_right"); }
 Vector2 vector() { return vector("move_left", "move_right", "move_up", "move_down"); }
 
-Vector2 pointer_screen() { return g_now.pointer; }
+Vector2 pointer_screen() { return frames.now.pointer; }
 
-Vector2 pointer() { return rmp::Scene::current().camera.to_world(g_now.pointer); }
+Vector2 pointer() { return rmp::Scene::current().camera.to_world(frames.now.pointer); }
 
 Vector2 pointer_delta() {
-    // No special case for the first frame: begin_frame() makes g_before equal
-    // g_now there, so this subtraction is already zero.
-    return Vector2{ g_now.pointer.x - g_before.pointer.x,
-                    g_now.pointer.y - g_before.pointer.y };
+    // No special case for the first frame: begin_frame() makes frames.before equal
+    // frames.now there, so this subtraction is already zero.
+    return Vector2{ frames.now.pointer.x - frames.before.pointer.x,
+                    frames.now.pointer.y - frames.before.pointer.y };
 }
 
 bool pointer_down() { return pressed(MOUSE_BUTTON_LEFT); }
 bool pointer_pressed() { return just_pressed(MOUSE_BUTTON_LEFT); }
 bool pointer_released() { return just_released(MOUSE_BUTTON_LEFT); }
 
-float deadzone() { return g_deadzone; }
+float deadzone() { return reading.deadzone; }
 
 void set_deadzone(float value) {
     // Clamped rather than rejected: this one is reachable from a settings
     // slider, and a slider that can wedge the sticks off is worse than one
     // whose ends do nothing.
-    g_deadzone = value < 0.0f ? 0.0f : (value > 0.95f ? 0.95f : value);
+    reading.deadzone = value < 0.0f ? 0.0f : (value > 0.95f ? 0.95f : value);
 }
 
 bool consumed_pointer() { return !detail::layer_input() || rmp::ui::wants_pointer(); }

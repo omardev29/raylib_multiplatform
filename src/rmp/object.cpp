@@ -54,8 +54,6 @@ struct Cell {
     bool occupied = false;
 };
 
-std::vector<Cell> g_slots;
-std::vector<unsigned> g_free;
 // A vector and not an unordered_map keyed by Scene*, for two reasons that
 // point the same way: iterating a hash map of POINTERS is nondeterministic --
 // the order changes between runs with ASLR, and clang-tidy says so -- and the
@@ -65,18 +63,22 @@ struct SceneObjects {
     const Scene *scene = nullptr;
     std::vector<unsigned> indices;
 };
-std::vector<SceneObjects> g_by_scene;
-std::vector<unsigned> g_pending_free;
 
-// Scratch, reused every draw pass so the sort does not allocate every frame.
-std::vector<Object *> g_draw_order;
-
-// Every point at which the framework knows the world may have changed shape or
-// moved. See world_version() in object_internal.h for what reads it.
-unsigned g_world_version = 1;
+// Every object, in one pool. The dot at every use says "file state".
+struct {
+    std::vector<Cell> slots;
+    std::vector<unsigned> free_slots;
+    std::vector<SceneObjects> by_scene;
+    std::vector<unsigned> pending_free;
+    // Scratch, reused every draw pass so the sort does not allocate every frame.
+    std::vector<Object *> draw_order;
+    // Every point at which the framework knows the world may have changed shape
+    // or moved. See world_version() in object_internal.h for what reads it.
+    unsigned world_version = 1;
+} pool;
 
 std::vector<unsigned> *indices_for(const Scene *scene) {
-    for (SceneObjects &entry : g_by_scene) {
+    for (SceneObjects &entry : pool.by_scene) {
         if (entry.scene == scene) return &entry.indices;
     }
     return nullptr;
@@ -84,13 +86,13 @@ std::vector<unsigned> *indices_for(const Scene *scene) {
 
 std::vector<unsigned> &indices_for_or_add(const Scene *scene) {
     if (std::vector<unsigned> *found = indices_for(scene)) return *found;
-    g_by_scene.push_back(SceneObjects{ scene, {} });
-    return g_by_scene.back().indices;
+    pool.by_scene.push_back(SceneObjects{ scene, {} });
+    return pool.by_scene.back().indices;
 }
 
 Cell *slot_at(unsigned index) {
-    if (index >= g_slots.size()) return nullptr;
-    return &g_slots[index];
+    if (index >= pool.slots.size()) return nullptr;
+    return &pool.slots[index];
 }
 
 // The view, for an object whose `bounds` are empty. GetScreenWidth() is 0
@@ -188,7 +190,7 @@ void Storage::set_behavior_slot(Object &object, int slot) {
 // Object's private half, which Storage above forwards to
 // ---------------------------------------------------------------------------
 
-void Object::attach(Scene *scene, unsigned index, unsigned generation, Vector2 position) {
+void Object::attach(Scene *scene, unsigned index, unsigned generation, Vector2 at) {
     _scene = scene;
     _index = index;
     _generation = generation;
@@ -199,7 +201,7 @@ void Object::attach(Scene *scene, unsigned index, unsigned generation, Vector2 p
     // every swept box would span from the origin and they would all "collide"
     // near it. Found by the differential test, which is the one place a wrong
     // answer of that shape cannot hide.
-    _previous_position = position;
+    _previous_position = at;
 }
 
 Vector2 Object::take_force() {
@@ -333,15 +335,15 @@ void Object::destroy() {
 void Scene::detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &options) {
     Object *made = owned.get(); // non-owning; the slot below takes `owned`
     unsigned index = 0;
-    if (!g_free.empty()) {
-        index = g_free.back();
-        g_free.pop_back();
+    if (!pool.free_slots.empty()) {
+        index = pool.free_slots.back();
+        pool.free_slots.pop_back();
     } else {
-        g_slots.emplace_back();
-        index = static_cast<unsigned>(g_slots.size() - 1);
+        pool.slots.emplace_back();
+        index = static_cast<unsigned>(pool.slots.size() - 1);
     }
 
-    Cell &slot = g_slots[index];
+    Cell &slot = pool.slots[index];
     slot.occupied = true;
     // Never 0 again once a slot has been used, and the `if` is what makes that
     // true rather than nearly true: the counter is 32 bits and a slot reused a
@@ -414,13 +416,13 @@ namespace objects::detail {
 Rectangle view_rect() { return rmp::view_rect(); }
 
 void mark_for_release(unsigned index) {
-    g_pending_free.push_back(index);
+    pool.pending_free.push_back(index);
     bump_world_version();
 }
 
-unsigned world_version() { return g_world_version; }
+unsigned world_version() { return pool.world_version; }
 
-void bump_world_version() { g_world_version++; }
+void bump_world_version() { pool.world_version++; }
 
 namespace {
 
@@ -792,24 +794,24 @@ std::vector<Object *> live_objects(const Scene &scene) {
 }
 
 const std::vector<Object *> &draw_order(Scene &scene) {
-    g_draw_order.clear();
+    pool.draw_order.clear();
     const std::vector<unsigned> *indices = indices_for(&scene);
-    if (indices == nullptr) return g_draw_order;
+    if (indices == nullptr) return pool.draw_order;
 
     for (unsigned index : *indices) {
         Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied || slot->object == nullptr) continue;
         Object *object = slot->object.get();
-        if (object->alive() && object->visible) g_draw_order.push_back(object);
+        if (object->alive() && object->visible) pool.draw_order.push_back(object);
     }
 
     // Stable, so that objects on the same layer keep creation order. That is
     // the documented tie-break and it is the one that makes a scene look the
     // same twice.
-    std::ranges::stable_sort(g_draw_order, [](const Object *a, const Object *b) {
+    std::ranges::stable_sort(pool.draw_order, [](const Object *a, const Object *b) {
         return a->layer < b->layer;
     });
-    return g_draw_order;
+    return pool.draw_order;
 }
 
 void draw(Scene &scene) {
@@ -930,8 +932,8 @@ void draw_one(Object &object) {
 }
 
 void collect() {
-    if (g_pending_free.empty()) return;
-    for (unsigned index : g_pending_free) {
+    if (pool.pending_free.empty()) return;
+    for (unsigned index : pool.pending_free) {
         Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied) continue;
         // The generation goes up HERE and not on reuse, so that a handle taken
@@ -945,14 +947,14 @@ void collect() {
         if (slot->generation == 0) slot->generation = 1;
         slot->occupied = false;
         slot->object.reset();
-        g_free.push_back(index);
+        pool.free_slots.push_back(index);
     }
-    g_pending_free.clear();
+    pool.pending_free.clear();
 
     // Take the freed indices out of their scene's list. Done once per frame
     // rather than per destruction, because a wave of bullets dying together is
     // the normal case and one pass is cheaper than fifty erases.
-    for (SceneObjects &entry : g_by_scene) {
+    for (SceneObjects &entry : pool.by_scene) {
         const auto gone = std::ranges::remove_if(entry.indices, [](unsigned index) {
             const Cell *slot = slot_at(index);
             return slot == nullptr || !slot->occupied;
@@ -975,31 +977,31 @@ void release_scene(Scene &scene) {
     }
     collect();
     const auto gone =
-        std::ranges::remove_if(g_by_scene, [&scene](const SceneObjects &entry) {
+        std::ranges::remove_if(pool.by_scene, [&scene](const SceneObjects &entry) {
             return entry.scene == &scene;
         });
-    g_by_scene.erase(gone.begin(), gone.end());
+    pool.by_scene.erase(gone.begin(), gone.end());
     bump_world_version();
 }
 
 void reset_for_tests() {
-    g_by_scene.clear();
-    g_pending_free.clear();
-    g_draw_order.clear();
-    g_free.clear();
-    g_slots.clear();
+    pool.by_scene.clear();
+    pool.pending_free.clear();
+    pool.draw_order.clear();
+    pool.free_slots.clear();
+    pool.slots.clear();
     bump_world_version();
 }
 
 int live_count() {
     int n = 0;
-    for (const Cell &slot : g_slots) {
+    for (const Cell &slot : pool.slots) {
         if (slot.occupied && slot.object != nullptr && slot.object->alive()) n++;
     }
     return n;
 }
 
-int slot_count() { return static_cast<int>(g_slots.size()); }
+int slot_count() { return static_cast<int>(pool.slots.size()); }
 
 void set_generation_for_tests(unsigned index, unsigned generation) {
     Cell *slot = slot_at(index);
