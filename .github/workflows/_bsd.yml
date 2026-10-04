@@ -181,15 +181,19 @@ jobs:
       # family no other job has. A step of its own, not lines in the build
       # script above, which lives under a size limit. OpenBSD installs Python
       # by its versioned name -- python3.12, no python3 -- which is why the
-      # launcher asks for each version by name.
+      # launcher asks for each version by name. The loop asks for the binary,
+      # not pkg_add's status: its first version stopped at "Can't find
+      # python%3.13" as if that were a success, and installed nothing.
       - name: rmp under ksh (OpenBSD)
         if: matrix.os == 'openbsd'
         run: |
           set -e
-          for v in 3.13 3.12 3.11; do
-            if sudo pkg_add -I "python%$v"; then break; fi
+          for v in 3.14 3.13 3.12 3.11; do
+            sudo pkg_add -I "python%$v" || true
+            if command -v "python$v" > /dev/null; then break; fi
           done
           mkdir -p build
+          ls /usr/local/bin | grep '^python' > build/rmp-ksh-pythons.txt || true
           ksh ./rmp help > build/rmp-ksh-help.txt 2>&1 || echo "exit $?" >> build/rmp-ksh-help.txt
 
       # Read back on the runner: OpenBSD's sh has exited 0 on a syntax error,
@@ -200,6 +204,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f build/rmp-ksh-help.txt || { echo "FALLA: the ksh step left no output"; exit 1; }
+          echo "pythons in the VM: $(tr '\n' ' ' < build/rmp-ksh-pythons.txt)"
           cat build/rmp-ksh-help.txt
           grep -q '^usage: rmp' build/rmp-ksh-help.txt || { echo "FALLA: ksh ./rmp help printed no usage"; exit 1; }
           if grep -q '^exit ' build/rmp-ksh-help.txt; then echo "FALLA: ksh ./rmp help failed"; exit 1; fi
