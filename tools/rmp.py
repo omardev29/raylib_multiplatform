@@ -595,6 +595,327 @@ def cmd_deploy(ctx, args):
     return OK
 
 
+# ---------------------------------------------------------------------------
+# rmp new: a game, made from this framework
+# ---------------------------------------------------------------------------
+#
+# The copy is an explicit list of what a game needs, not "everything except".
+# An exclude list fails silently and for good: the next gate, fixture or
+# canary script added to the framework would ride along into every game and
+# nothing would say so. This one fails loudly instead -- a file a game needs
+# and does not get is a game that does not build in the rmp_new CI job -- and
+# tests/rmp_test.py makes every file the framework tracks be classified here,
+# so a new one forces the question. The longest pattern that matches wins.
+
+INCLUDE = (
+    ".clang-format", ".clang-format-ignore", ".clangd", ".gitattributes", ".gitignore",
+    ".gitmodules", ".github/scripts/web_boot_test.js",
+    ".github/workflows/ci.yml", ".github/workflows/_android.yml",
+    ".github/workflows/_apple.yml", ".github/workflows/_bsd.yml",
+    ".github/workflows/_firebase.yml", ".github/workflows/_itch.yml",
+    ".github/workflows/_linux.yml", ".github/workflows/_release.yml",
+    ".github/workflows/_web.yml", ".github/workflows/_windows.yml",
+    "CMakeLists.txt", "CMakePresets.json", "THIRD_PARTY_LICENSES.md", TOML,
+    "branding/", "cmake/configure_hook.cmake", "cmake/find_python.cmake",
+    "cmake/toolchain-riscv64-linux.cmake", "cmake/web/",
+    "generate_android_commands.ps1", "generate_android_commands.sh",
+    "update_clangd.ps1", "update_clangd.sh",
+    "include/", "ios/ANGLE-LICENSE.txt", "ios/README.md",
+    "package.json", "package-lock.json", "raymob/", "resources/", "src/",
+    "tests/smoke_test.h", "thirdparty/",
+    "tools/configure.py", "tools/license_db.py", "tools/rres_pack.c", "tools/md5.c",
+    "tools/md5.h", "tools/linux_build.sh", "tools/glibc_check.sh", "tools/upx_pack.sh",
+    "tools/render_check.sh", "tools/versions_check.sh", "tools/dev_shell.sh",
+    "tools/android_release_check.py", "tools/rmp.py",
+    "rmp", "rmp.ps1", "rmp.cmd",
+)
+
+# The framework's MIT licence travels as a component of the game, where every
+# other one lives: its row in THIRD_PARTY_LICENSES.md puts it in LICENSES.txt.
+# Not a LICENSE at the root, which would make GitHub call every game MIT.
+RENAME = {"LICENSE": "thirdparty/raylib_multiplatform/LICENSE"}
+
+GITLINKS = ("thirdparty/raylib-ios",)
+
+FRAMEWORK_ONLY = {
+    "README.md": "a game gets its own, written by rmp new",
+    "TECHNICAL.md": "the framework's notes for whoever maintains it",
+    "CLAUDE.md": "the framework's instructions for an agent working on it",
+    ".claude/": "the framework's agent skills",
+    ".clang-tidy": "the framework's lint rules, run by its own lint job",
+    "Justfile": "replaced by rmp",
+    ".github/dependabot.yml": "bumps the framework's pins; a game takes them from the framework",
+    ".github/known-breakage.md": "the framework's canary",
+    ".github/scripts/": "the framework's canary scripts",
+    ".github/workflows/": "the framework's canary, autofix and web-backends workflows",
+    "examples/": "the framework's examples",
+    "tests/": "the framework's tests",
+    "thirdparty/doctest/": "the framework's unit-test library",
+    "tools/": "the framework's gates and generators",
+}
+
+
+def classify(path: str):
+    """(kind, pattern) for a tracked path: the longest pattern that matches."""
+    best = None
+    for kind, patterns in (("include", INCLUDE), ("rename", tuple(RENAME)),
+                           ("gitlink", GITLINKS), ("framework", tuple(FRAMEWORK_ONLY))):
+        for pattern in patterns:
+            hit = path == pattern or (pattern.endswith("/") and path.startswith(pattern))
+            if hit and (best is None or len(pattern) > len(best[1])):
+                best = (kind, pattern)
+    return best
+
+
+def tracked(framework: Path):
+    """(mode, sha, path) for every path the framework's index holds."""
+    got = subprocess.run(["git", "-C", str(framework), "ls-files", "-s", "-z"],
+                         capture_output=True, text=True)
+    if got.returncode != 0:
+        raise Refused("rmp new needs a git clone of the framework: " + got.stderr.strip())
+    out = []
+    for entry in got.stdout.split("\0"):
+        if not entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        mode, sha, _stage = meta.split()
+        out.append((mode, sha, path))
+    return out
+
+
+def load_configure(framework: Path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rmp_new_configure",
+                                                  framework / "tools" / "configure.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(framework / "tools"))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(framework / "tools"))
+    return module
+
+
+def edit_lines(path: Path, edits) -> None:
+    """Apply (match, replace) pairs to a file, line by line, line endings kept.
+    `match(line)` must be true of exactly one line, or nothing is written:
+    a template that drifted is a bug to report, not to paper over. `replace`
+    returns the new line, or None to delete it."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    for match, replace in edits:
+        hits = [i for i, line in enumerate(lines) if match(line)]
+        if len(hits) != 1:
+            raise Refused(f"rmp new: expected one line to change in {path.name}, "
+                          f"found {len(hits)}. This is a bug in the framework.")
+        new = replace(lines[hits[0]])
+        if new is None:
+            del lines[hits[0]]
+        else:
+            lines[hits[0]] = new
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def drop_bullet(path: Path, start: str) -> None:
+    """Remove one `- **x**` bullet from a Markdown list, all of its lines."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    first = [i for i, line in enumerate(lines) if line.startswith(start)]
+    if len(first) != 1:
+        raise Refused(f"rmp new: expected one bullet starting {start!r} in {path.name}")
+    end = first[0] + 1
+    while end < len(lines) and lines[end].startswith("  "):
+        end += 1
+    del lines[first[0]:end]
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def game_readme(name: str) -> str:
+    return f"""# {name}
+
+A game made with [raylib_multiplatform]({FRAMEWORK_URL}).
+
+    rmp run          build it and play it
+    rmp test         check it: the config, the boot, the pixels
+    rmp help         everything else
+
+Your game is `src/main.cpp`, `src/scenes/`, `resources/` and
+`{TOML}`. `src/rmp/` and `include/rmp/` are the framework.
+"""
+
+
+def setting(key: str):
+    """A matcher for `key = ...` at the start of a line."""
+    return lambda line: line.split("=", 1)[0].strip() == key and "=" in line
+
+
+def assign(value: str):
+    """Replace the value of `key = "..."`, keeping the alignment and any comment."""
+    def replace(line: str) -> str:
+        head, rest = line.split("=", 1)
+        quote_end = rest.index('"', rest.index('"') + 1)
+        return f'{head}= "{value}"{rest[quote_end + 1:]}'
+    return replace
+
+
+def cmd_new(_ctx, args):
+    if len(args) != 1:
+        raise Usage("rmp new DIR, for example: rmp new my_game")
+    framework = Path(__file__).resolve().parents[1]
+    if mode_of(framework) != "framework":
+        raise Refused(f"this rmp belongs to the game in {framework}; `rmp new` needs the "
+                      "framework's rmp on PATH")
+    if shutil.which("git") is None:
+        raise Refused("rmp new needs git")
+    top = subprocess.run(["git", "-C", str(framework), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != framework:
+        raise Refused(f"rmp new needs a git clone of the framework, and {framework} is not one")
+
+    target = (Path.cwd() / args[0]).resolve()
+    name = target.name
+    configure = load_configure(framework)
+    if not configure.NAME_RE.match(name) or name in configure.RESERVED_NAMES or \
+            name.lower() in configure.WINDOWS_DEVICES:
+        suggestion = "".join(c if c.isalnum() or c in "_-" else "_" for c in name)
+        if not suggestion[:1].isalpha():
+            suggestion = "game_" + suggestion
+        raise Usage(f"{name!r} cannot be a game's name -- it becomes the executable on five "
+                    f"operating systems. Letters, digits, _ and -, starting with a letter; "
+                    f"for instance {suggestion!r}.")
+    if target == framework or framework in target.parents:
+        raise Refused(f"{target} is inside the framework; make the game somewhere else")
+    if target.exists() and not target.is_dir():
+        raise Refused(f"{target} exists and is not a folder")
+    if target.is_dir() and any(target.iterdir()):
+        raise Refused(f"{target} is not empty")
+
+    # Android ids take `_` and not `-`; Apple bundle ids take `-` and not `_`.
+    app_id = "com.example." + name.lower().replace("-", "_")
+    bundle_id = "com.example." + name.lower().replace("_", "-")
+    assert configure.APPID_RE.match(app_id) and configure.BUNDLE_RE.match(bundle_id)
+
+    entries = tracked(framework)
+    for _mode, _sha, path in entries:
+        if classify(path) is None:
+            raise Refused(f"{path} is not in rmp new's manifest. This is a bug in the framework.")
+
+    created = not target.exists()
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        make_game(framework, target, name, app_id, bundle_id, entries)
+    except BaseException:
+        if created:
+            remove_tree(target)
+        else:
+            for child in target.iterdir():
+                remove_tree(child)
+        raise
+
+    pin = next(sha for mode, sha, path in entries if path == GITLINKS[0])
+    count = sum(1 for _ in target.rglob("*") if _.is_file() and ".git" not in _.parts)
+    print(f"created {target.name}/ from raylib_multiplatform "
+          f"({count} files; raylib-iOS pinned at {pin[:8]})")
+    print()
+    print(f"  [project] name     {name:12} the executable, save folder and store names")
+    print(f"  android id         {app_id}")
+    print(f"  ios bundle id      {bundle_id}")
+    print()
+    print("  Those ids are placeholders, and a tag build refuses them. Set real ones in")
+    print(f"  {TOML} before your first release: a Google Play id is")
+    print("  permanent.")
+    print()
+    print("next:")
+    print(f"  cd {args[0]}")
+    print("  rmp run")
+    print('  git commit -m "New game"')
+    print("  git submodule update --init      only to build for iOS")
+    print()
+    print("The game has no licence of its own; choosing one is yours. The framework's")
+    print("MIT notice ships with every build, in LICENSES.txt.")
+    return OK
+
+
+def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: str,
+              entries) -> None:
+    executable = []
+    for mode, _sha, path in entries:
+        kind, _pattern = classify(path)
+        if kind not in ("include", "rename"):
+            continue
+        dest = target / (RENAME[path] if kind == "rename" else path)
+        source = framework / path
+        if not source.is_file():
+            raise Refused(f"{path} is tracked and missing from the framework's checkout:\n"
+                          f"  git -C {framework} checkout -- {path}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+        if mode == "100755":
+            executable.append(dest.relative_to(target).as_posix())
+
+    edit_lines(target / TOML, [
+        (setting("name"), assign(name)),
+        (setting("title"), assign(name)),
+        (setting("application_id"), assign(app_id)),
+        (setting("bundle_id"), assign(bundle_id)),
+        # Obfuscation, as the .toml says -- and one shared password across
+        # every game made from this framework would be less than that.
+        (setting("rres_password"), assign(secrets_token())),
+    ])
+    edit_lines(target / "THIRD_PARTY_LICENSES.md", [
+        (lambda line: line.startswith("doctest "), lambda line: None),
+        (lambda line: line.startswith("raylib_multiplatform "),
+         lambda line: line.replace("LICENSE                     ",
+                                   "thirdparty/raylib_multiplatform", 1)),
+    ])
+    drop_bullet(target / "THIRD_PARTY_LICENSES.md", "- **doctest**")
+    edit_lines(target / "thirdparty" / "FROZEN_VERSIONS.md", [
+        (lambda line: line.startswith("sha256_doctest "), lambda line: None),
+        (lambda line: line.startswith("| doctest |"), lambda line: None),
+    ])
+    (target / "README.md").write_text(game_readme(name), encoding="utf-8")
+    # The submodule's folder, empty, as a clone without --recursive has it:
+    # without it, `git add -A` would stage the gitlink's deletion.
+    (target / GITLINKS[0]).mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+
+    def git(*argv):
+        got = subprocess.run(["git", "-C", str(target), *argv], capture_output=True,
+                             text=True, env=env)
+        if got.returncode != 0:
+            raise Refused(f"git {' '.join(argv)} failed: {got.stderr.strip()}")
+        return got.stdout
+
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    pin = next(sha for mode, sha, path in entries if path == GITLINKS[0])
+    git("update-index", "--add", "--cacheinfo", f"160000,{pin},{GITLINKS[0]}")
+    # Windows has no exec bit to read, so the index is told: rmp, gradlew and
+    # the scripts are executable in the game's history too.
+    for rel in executable:
+        git("update-index", "--chmod=+x", rel)
+
+    # Nothing but what the manifest says, and everything it says.
+    want = {RENAME.get(p, p) for m, s, p in entries if classify(p)[0] in ("include", "rename")}
+    want |= {"README.md", GITLINKS[0]}
+    have = set(git("ls-files", "-z").split("\0")) - {""}
+    if have != want:
+        missing, extra = sorted(want - have), sorted(have - want)
+        raise Refused(f"the new game's index is not the manifest: missing {missing[:5]}, "
+                      f"extra {extra[:5]}. This is a bug in the framework.")
+
+    # The game's own tools say it is valid, or there is no game.
+    for check in (["tools/configure.py", "--check"], ["tools/license_db.py", "--check"]):
+        got = subprocess.run([sys.executable, *check], cwd=str(target), capture_output=True,
+                             text=True)
+        if got.returncode != 0:
+            raise Refused(f"the new game failed {' '.join(check)}:\n{got.stdout}{got.stderr}")
+
+
+def secrets_token() -> str:
+    import secrets
+    return secrets.token_urlsafe(18)
+
+
 def cmd_help(ctx_or_none, args):
     mode = ctx_or_none.mode if ctx_or_none else "game"
     if not args:
@@ -702,6 +1023,13 @@ COMMANDS = {
          ("rmp deploy 1.2.0-rc1", "a pre-release, marked as one"),
          ("rmp push", "first, if your last commit is not on GitHub yet")],
         cmd_deploy),
+    "new": Command(
+        "new DIR", "make a new game in DIR",
+        "Make a new game in DIR: a copy of what a game needs from this framework, "
+        "named after the folder, ready to build and to ship.",
+        [("rmp new my_game", "makes my_game/, here"),
+         ("rmp new ~/games/space_rocks", "anywhere; the name is the folder's")],
+        cmd_new, needs_project=False),
     "help": Command(
         "help [command]", "this list, or one command in detail",
         "Show the commands, or one command in detail.",

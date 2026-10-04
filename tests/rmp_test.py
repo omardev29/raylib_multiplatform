@@ -631,13 +631,18 @@ class LauncherTest(unittest.TestCase):
                 self.assertFalse(data.startswith(b"\xef\xbb\xbf"))
         self.assertTrue(self.SH.read_text().startswith("#!/bin/sh\n"))
         self.assertNotIn(b"\r", self.SH.read_bytes())
-        mode = subprocess.run(["git", "ls-files", "-s", "rmp"], cwd=REPO,
+        # safe.directory: in a CI container the checkout belongs to another
+        # user, and git then answers nothing at all -- which read as a launcher
+        # with no eol rule.
+        git = ["git", "-c", "safe.directory=*"]
+        mode = subprocess.run([*git, "ls-files", "-s", "rmp"], cwd=REPO,
                               capture_output=True, text=True).stdout.split()[:1]
         if mode:   # tracked
             self.assertEqual(mode[0], "100755")
-        eol = subprocess.run(["git", "check-attr", "eol", "--", "rmp"], cwd=REPO,
-                             capture_output=True, text=True).stdout
-        self.assertIn("eol: lf", eol)
+        eol = subprocess.run([*git, "check-attr", "eol", "--", "rmp"], cwd=REPO,
+                             capture_output=True, text=True)
+        self.assertEqual(eol.returncode, 0, eol.stderr)
+        self.assertIn("eol: lf", eol.stdout)
 
     def shells(self):
         found = [s for s in ("sh", "bash", "dash", "zsh", "ksh", "mksh") if shutil.which(s)]
@@ -741,6 +746,221 @@ class LauncherTest(unittest.TestCase):
         got = subprocess.run([pwsh, "-NoProfile", "-File", str(REPO / "rmp.ps1"), "help"],
                              cwd=REPO, capture_output=True, text=True)
         self.assertTrue(got.stdout.startswith("usage: rmp"), got.stderr)
+
+
+class ManifestTest(unittest.TestCase):
+    """Every file the framework tracks is in rmp new's manifest, one way or
+    the other -- so a new file forces the question of whether games get it --
+    and no pattern in it is dead."""
+
+    def entries(self):
+        return rmp.tracked(REPO)
+
+    def test_every_tracked_path_is_classified(self):
+        unclassified = [p for _, _, p in self.entries() if rmp.classify(p) is None]
+        self.assertEqual(unclassified, [])
+
+    def test_every_pattern_matches_something(self):
+        used = {rmp.classify(p)[1] for _, _, p in self.entries()}
+        every = set(rmp.INCLUDE) | set(rmp.RENAME) | set(rmp.GITLINKS) | set(rmp.FRAMEWORK_ONLY)
+        self.assertEqual(sorted(every - used), [])
+
+    def test_every_gitlink_is_listed(self):
+        links = [p for m, _, p in self.entries() if m == "160000"]
+        self.assertEqual(sorted(links), sorted(rmp.GITLINKS))
+
+    def test_the_framework_marker_never_reaches_a_game(self):
+        self.assertEqual(rmp.classify(rmp.FRAMEWORK_MARKER)[0], "framework")
+
+    def test_every_framework_only_entry_says_why(self):
+        for pattern, reason in rmp.FRAMEWORK_ONLY.items():
+            with self.subTest(pattern=pattern):
+                self.assertGreater(len(reason), 10)
+
+    def test_no_symlink_is_copied(self):
+        for mode, _, path in self.entries():
+            if rmp.classify(path)[0] in ("include", "rename"):
+                with self.subTest(path=path):
+                    self.assertNotEqual(mode, "120000")
+
+
+class NewTest(unittest.TestCase):
+    """rmp new, end to end: the tree it writes, and the game's own checks."""
+
+    @classmethod
+    def setUpClass(cls):
+        if shutil.which("git") is None:
+            raise unittest.SkipTest("git not installed")
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.parent = Path(cls._tmp.name)
+        cls.got = subprocess.run([sys.executable, str(RMP_PY), "new", "space-rocks"],
+                                 cwd=cls.parent, capture_output=True, text=True)
+        cls.game = cls.parent / "space-rocks"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def git(self, *argv):
+        return subprocess.run(["git", "-c", "safe.directory=*", *argv], cwd=self.game,
+                              capture_output=True, text=True).stdout
+
+    def test_it_succeeds_and_says_what_next(self):
+        self.assertEqual(self.got.returncode, 0, self.got.stdout + self.got.stderr)
+        for line in ("created space-rocks/", "com.example.space_rocks", "com.example.space-rocks",
+                     "rmp run", "git submodule update --init", "a Google Play id is"):
+            self.assertIn(line, self.got.stdout)
+
+    def test_the_tree_is_the_manifest_and_nothing_else(self):
+        entries = rmp.tracked(REPO)
+        want = {rmp.RENAME.get(p, p) for _, _, p in entries
+                if rmp.classify(p)[0] in ("include", "rename")}
+        want |= {"README.md", "thirdparty/raylib-ios"}
+        have = set(self.git("ls-files").split())
+        self.assertEqual(have, want)
+
+    def test_none_of_the_framework_comes_along(self):
+        have = self.git("ls-files")
+        for forbidden in ("CLAUDE.md", ".claude/", "examples/", "TECHNICAL.md", ".clang-tidy",
+                          "thirdparty/doctest", "tests/configure_test.py", "tests/rmp_test.py",
+                          "tests/fixtures", "canary.yml", "autofix.yml", "Justfile",
+                          "tools/naming_check.sh"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, have)
+        self.assertFalse((self.game / "LICENSE").exists(), "a root LICENSE makes GitHub call it MIT")
+        self.assertTrue((self.game / "tests" / "smoke_test.h").is_file())
+
+    def test_untransformed_files_are_byte_for_byte_the_frameworks(self):
+        changed = {rmp.TOML, "THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"}
+        for _, _, path in rmp.tracked(REPO):
+            kind = rmp.classify(path)[0]
+            if kind not in ("include", "rename") or path in changed:
+                continue
+            dest = self.game / rmp.RENAME.get(path, path)
+            with self.subTest(path=path):
+                self.assertEqual(dest.read_bytes(), (REPO / path).read_bytes())
+
+    def test_the_toml_is_this_game_and_otherwise_the_frameworks(self):
+        import tomllib
+        mine = tomllib.loads((self.game / rmp.TOML).read_text())
+        base = tomllib.loads((REPO / rmp.TOML).read_text())
+        self.assertEqual(mine["project"]["name"], "space-rocks")
+        self.assertEqual(mine["window"]["title"], "space-rocks")
+        self.assertEqual(mine["android"]["application_id"], "com.example.space_rocks")
+        self.assertEqual(mine["ios"]["bundle_id"], "com.example.space-rocks")
+        self.assertNotEqual(mine["resources"]["rres_password"], base["resources"]["rres_password"])
+        for table in ("project", "window", "android", "ios", "resources"):
+            mine[table] = dict(mine[table])
+        for key in ("name",):
+            mine["project"][key] = base["project"][key]
+        mine["window"]["title"] = base["window"]["title"]
+        mine["android"]["application_id"] = base["android"]["application_id"]
+        mine["ios"]["bundle_id"] = base["ios"]["bundle_id"]
+        mine["resources"]["rres_password"] = base["resources"]["rres_password"]
+        self.assertEqual(mine, base)
+        self.assertEqual(len((self.game / rmp.TOML).read_text().splitlines()),
+                         len((REPO / rmp.TOML).read_text().splitlines()))
+
+    def test_the_games_own_checks_pass(self):
+        for check in (["tools/configure.py", "--check"], ["tools/license_db.py", "--check"]):
+            got = subprocess.run([sys.executable, *check], cwd=self.game, capture_output=True,
+                                 text=True)
+            with self.subTest(check=check):
+                self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_a_tag_build_refuses_its_placeholder_ids(self):
+        got = subprocess.run([sys.executable, "tools/configure.py", "--print-config",
+                              "--strict-release"], cwd=self.game, capture_output=True, text=True,
+                             env=dict(os.environ, GITHUB_REF_TYPE="tag", GITHUB_REF_NAME="v1.0.0"))
+        self.assertNotEqual(got.returncode, 0)
+        self.assertIn("placeholder identifiers", got.stdout + got.stderr)
+
+    def test_the_licences_credit_the_framework_and_not_doctest(self):
+        lic = (self.game / "THIRD_PARTY_LICENSES.md").read_text()
+        self.assertNotIn("doctest", lic)
+        self.assertRegex(lic, r"(?m)^raylib_multiplatform +thirdparty/raylib_multiplatform +MIT")
+        self.assertTrue((self.game / "thirdparty" / "raylib_multiplatform" / "LICENSE").is_file())
+        self.assertNotIn("doctest", (self.game / "thirdparty" / "FROZEN_VERSIONS.md").read_text())
+
+    def test_the_gitlink_and_the_exec_bits(self):
+        pin = next(s for m, s, p in rmp.tracked(REPO) if p == "thirdparty/raylib-ios")
+        self.assertIn(f"160000 {pin} 0\tthirdparty/raylib-ios",
+                      self.git("ls-files", "-s", "thirdparty/raylib-ios"))
+        self.assertTrue((self.game / "thirdparty" / "raylib-ios").is_dir())
+        for path in ("rmp", "raymob/gradlew", "tools/render_check.sh"):
+            with self.subTest(path=path):
+                self.assertTrue(self.git("ls-files", "-s", path).startswith("100755"))
+        status = self.git("status", "--porcelain")
+        self.assertNotIn("?? ", status.replace("?? tools/__pycache__/", ""))
+        self.assertNotIn(" D ", status)
+        self.assertFalse((self.game / ".git" / "modules").exists())
+
+    def test_it_is_a_game_and_its_rmp_knows(self):
+        got = subprocess.run([sys.executable, "tools/rmp.py", "--mode"], cwd=self.game,
+                             capture_output=True, text=True)
+        self.assertEqual(got.stdout, "game\n")
+        got = subprocess.run([sys.executable, "tools/rmp.py", "help"], cwd=self.game,
+                             capture_output=True, text=True)
+        self.assertNotIn("framework only", got.stdout)
+        got = subprocess.run([sys.executable, "tools/rmp.py", "new", "x"], cwd=self.parent,
+                             capture_output=True, text=True, env=dict(os.environ))
+        got = subprocess.run([sys.executable, str(self.game / "tools" / "rmp.py"), "new", "y"],
+                             cwd=self.parent, capture_output=True, text=True)
+        self.assertEqual(got.returncode, 1)
+        self.assertIn("belongs to the game", got.stdout)
+
+
+class NewRefusesTest(unittest.TestCase):
+    def new(self, cwd, *argv):
+        return subprocess.run([sys.executable, str(RMP_PY), "new", *argv], cwd=cwd,
+                              capture_output=True, text=True)
+
+    def test_a_folder_that_is_not_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "full").mkdir()
+            (Path(tmp) / "full" / ".hidden").write_text("x")
+            got = self.new(tmp, "full")
+            self.assertEqual(got.returncode, 1)
+            self.assertIn("not empty", got.stdout)
+            self.assertEqual(os.listdir(Path(tmp) / "full"), [".hidden"])
+
+    def test_names_that_cannot_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("2048", "my game", "rmp", "con", "unit_test"):
+                with self.subTest(name=name):
+                    got = self.new(tmp, name)
+                    self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
+                    self.assertFalse((Path(tmp) / name).exists())
+
+    def test_inside_the_framework(self):
+        got = self.new(REPO / "examples", "nested_game")
+        self.assertEqual(got.returncode, 1)
+        self.assertIn("inside the framework", got.stdout)
+        self.assertFalse((REPO / "examples" / "nested_game").exists())
+
+    def test_a_failure_halfway_leaves_nothing_behind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            real_git = shutil.which("git")
+            (bin_dir / "git").write_text(
+                "#!/bin/sh\n"
+                'case "$*" in *update-index*) echo boom >&2; exit 1 ;; esac\n'
+                f'exec "{real_git}" "$@"\n')
+            (bin_dir / "git").chmod(0o755)
+            env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+            for existed in (False, True):
+                with self.subTest(existed=existed):
+                    target = Path(tmp) / f"g{int(existed)}"
+                    if existed:
+                        target.mkdir()
+                    got = subprocess.run([sys.executable, str(RMP_PY), "new", target.name],
+                                         cwd=tmp, capture_output=True, text=True, env=env)
+                    self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+                    if existed:
+                        self.assertEqual(os.listdir(target), [])
+                    else:
+                        self.assertFalse(target.exists())
 
 
 class SourceTest(unittest.TestCase):
