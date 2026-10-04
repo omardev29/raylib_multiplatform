@@ -35,6 +35,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -1908,6 +1909,98 @@ class TomlCommentsAreTrueTest(unittest.TestCase):
                      "all four", "a default later", "Only x64/glibc is built today"):
             with self.subTest(said=said):
                 self.assertNotIn(said, text)
+
+
+def tiny_png(side: int) -> bytes:
+    """A real, square, grey PNG of `side` pixels, with the standard library."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+    rows = b"".join(b"\0" + b"\x80" * side for _ in range(side))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", side, side, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+@contextlib.contextmanager
+def without_pillow():
+    """As if Pillow were not installed: `from PIL import ...` raises ImportError."""
+    saved = {name: module for name, module in sys.modules.items()
+             if name == "PIL" or name.startswith("PIL.")}
+    for name in saved:
+        del sys.modules[name]
+    sys.modules["PIL"] = None
+    try:
+        yield
+    finally:
+        del sys.modules["PIL"]
+        sys.modules.update(saved)
+
+
+@contextlib.contextmanager
+def repo_at(path: Path):
+    """configure.py's REPO pointed at a scratch tree, so nothing it writes
+    lands in the checkout."""
+    original = cfgmod.REPO
+    cfgmod.REPO = path
+    try:
+        yield
+    finally:
+        cfgmod.REPO = original
+
+
+class ConfigureMessagesSayWhatHappenedTest(unittest.TestCase):
+
+    def test_a_hyphen_in_the_application_id_is_named(self):
+        """`com.my-game.app` was answered with "needs at least one dot and each
+        segment must start with a letter" -- true of it, and not why it was
+        refused. Apple takes a hyphen in a bundle id and Android does not, and
+        the message says that, with the id spelled the way Android takes it."""
+        cfg = base_config()
+        cfg["android"]["application_id"] = "com.my-game.app"
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        message = str(caught.exception)
+        self.assertIn("'-'", message)
+        self.assertIn("com.my_game.app", message)
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_other_characters_are_named_too(self):
+        for appid, named in (("com.my game.app", "' '"), ("com.mygame!.app", "'!'"),
+                             ("com.jögo.app", "'ö'")):
+            with self.subTest(appid=appid):
+                cfg = base_config()
+                cfg["android"]["application_id"] = appid
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn(named, str(caught.exception))
+
+    def test_the_pillow_warning_names_the_configured_icon(self):
+        """It said resources/icon.png whatever [icon] source said -- and the
+        default is branding/icon.png, so it named a file that does not exist."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "art").mkdir()
+            (root / "art" / "logo.png").write_bytes(tiny_png(4))
+            cfg = base_config()
+            cfg["icon"]["source"] = "art/logo.png"
+            with repo_at(root), without_pillow(), quiet():
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    cfgmod.generate_icons(cfg, required=True)
+            message = str(caught.exception)
+            self.assertIn("art/logo.png", message)
+            self.assertNotIn("resources/icon.png", message)
+
+    def test_make_default_icon_without_pillow_is_a_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with repo_at(root), without_pillow(), quiet():
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    cfgmod.make_default_icon(root / "branding" / "icon.png")
+            self.assertIn("pip install pillow", str(caught.exception))
+            self.assertFalse((root / "branding" / "icon.png").exists())
 
 
 class ConfigureCombinationTest(unittest.TestCase):

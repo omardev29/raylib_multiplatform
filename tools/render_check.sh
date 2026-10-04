@@ -52,7 +52,7 @@ BIN="build/memory/$NAME"
 # Inside the build tree, which is already ignored: written at the repository
 # root it got committed once, and a log is not a source file.
 LOG="build/memory/render.log"
-test -x "$BIN" || { echo "FALLA: $BIN was not built"; exit 1; }
+test -x "$BIN" || { echo "FAIL: $BIN was not built"; exit 1; }
 
 RAY_TEST_MAX_FRAMES=10 "./$BIN" > "$LOG" 2>&1 || true
 tail -25 "$LOG"
@@ -63,18 +63,18 @@ tail -25 "$LOG"
 # would have noticed. And the first asks for assets_failed=0: the marker alone
 # only says a window opened, and a game with every texture missing prints it.
 grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
-    echo "FALLA: it did not boot, or an asset failed to load"; exit 1; }
-grep -q "RAY_TEST_RENDER_OK" "$LOG" || { echo "FALLA: it drew nothing"; exit 1; }
+    echo "FAIL: it did not boot, or an asset failed to load"; exit 1; }
+grep -q "RAY_TEST_RENDER_OK" "$LOG" || { echo "FAIL: it drew nothing"; exit 1; }
 grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
-    echo "FALLA: it died before the end of its frame budget"; exit 1; }
+    echo "FAIL: it died before the end of its frame budget"; exit 1; }
 
 # [window] vsync reached the window: the boot line says what the window was
 # asked for, and it must be what the .toml says. A setting that validates and
 # never reaches raylib is a setting that does nothing.
 WANT_VSYNC=$(sed -n 's/^#define RMP_WINDOW_VSYNC *\([01]\).*/\1/p' include/rmp/generated/config.h)
-test -n "$WANT_VSYNC" || { echo "FALLA: RMP_WINDOW_VSYNC is not in the generated header"; exit 1; }
+test -n "$WANT_VSYNC" || { echo "FAIL: RMP_WINDOW_VSYNC is not in the generated header"; exit 1; }
 grep -q "RAY_TEST_BOOT_OK assets_failed=0 .* vsync=$WANT_VSYNC" "$LOG" || {
-    echo "FALLA: [window] vsync is $WANT_VSYNC and the window was not asked for it"; exit 1; }
+    echo "FAIL: [window] vsync is $WANT_VSYNC and the window was not asked for it"; exit 1; }
 
 # And the same pixels. Linux x86-64 and macos-26 (Apple Silicon) both produce
 # this frame byte for byte, so one golden hash covers every operating system and
@@ -117,7 +117,7 @@ fi
 WANT=$(cat "$GOLDEN")
 echo "  software-render hash=$GOT want=$WANT"
 test "$GOT" = "$WANT" || {
-    echo "FALLA: the frame changed. If that was on purpose: rmp test render-update"
+    echo "FAIL: the frame changed. If that was on purpose: rmp test render-update"
     exit 1; }
 
 echo "PASS: booted, rendered and exited under software rendering"

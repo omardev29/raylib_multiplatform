@@ -58,7 +58,7 @@ if [ "$REPORT" -eq 0 ] && [ -z "$WANT" ]; then
   WANT=$(python3 tools/configure.py --print-glibc 2>/dev/null || true)
 fi
 
-[ -f "$BINARY" ] || { echo "FALLA: $BINARY does not exist"; exit 1; }
+[ -f "$BINARY" ] || { echo "FAIL: $BINARY does not exist"; exit 1; }
 
 if [ "$REPORT" -eq 0 ] && [ -z "$WANT" ]; then
   echo "  skip  [linux] glibc is empty — built against the host, nothing to check"

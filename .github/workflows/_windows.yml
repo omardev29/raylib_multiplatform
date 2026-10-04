@@ -158,7 +158,7 @@ jobs:
           # A glob that stops matching looks exactly like a folder where
           # everything passes, so the count is asserted, not assumed.
           if ($files.Count -lt $expected -or $expected -lt 8) {
-            Write-Host "FALLA: found $($files.Count) example sources for $expected examples"; exit 1
+            Write-Host "FAIL: found $($files.Count) example sources for $expected examples"; exit 1
           }
           $failed = 0
           foreach ($f in $files) {
@@ -166,7 +166,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $($f.FullName)"; $failed = 1 }
             else { Write-Host "  ok    $($f.FullName)" }
           }
-          if ($failed -ne 0) { Write-Host "FALLA: an example no longer compiles with MSVC"; exit 1 }
+          if ($failed -ne 0) { Write-Host "FAIL: an example no longer compiles with MSVC"; exit 1 }
           Write-Host "PASS: $($files.Count) example sources compile with MSVC"
 
       - name: Pack resources (AES rres)

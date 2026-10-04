@@ -176,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -f build/.rmp-render-complete ]; then
-            echo "FALLA: the build step reported success but did not reach its last line."
+            echo "FAIL: the build step reported success but did not reach its last line."
             echo "       Something stopped it early and the shell exited 0 anyway."
             echo "       Look at the end of the previous step's output for where it stops."
             exit 1
@@ -209,11 +209,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f build/rmp-ksh-help.txt || { echo "FALLA: the ksh step left no output"; exit 1; }
+          test -f build/rmp-ksh-help.txt || { echo "FAIL: the ksh step left no output"; exit 1; }
           echo "pythons in the VM: $(tr '\n' ' ' < build/rmp-ksh-pythons.txt)"
           cat build/rmp-ksh-help.txt
-          grep -q '^usage: rmp' build/rmp-ksh-help.txt || { echo "FALLA: ksh ./rmp help printed no usage"; exit 1; }
-          if grep -q '^exit ' build/rmp-ksh-help.txt; then echo "FALLA: ksh ./rmp help failed"; exit 1; fi
+          grep -q '^usage: rmp' build/rmp-ksh-help.txt || { echo "FAIL: ksh ./rmp help printed no usage"; exit 1; }
+          if grep -q '^exit ' build/rmp-ksh-help.txt; then echo "FAIL: ksh ./rmp help failed"; exit 1; fi
           echo "PASS: rmp runs under OpenBSD's ksh"
 
       # The cpa.sh shell syncs the VM filesystem back to the runner after each
@@ -237,7 +237,7 @@ jobs:
           # not here, the workspace did not sync back and that is a fact worth
           # failing on rather than quietly shipping a different archive shape.
           test -f resources/resources.rres || {
-            echo "FALLA: resources/resources.rres did not come back from the VM."
+            echo "FAIL: resources/resources.rres did not come back from the VM."
             echo "       The pack_resources step in the build script is what makes it."
             exit 1; }
           cp resources/resources.rres package/resources/
@@ -262,13 +262,13 @@ jobs:
           # all three say "leaving the binary alone".
           if printf '%s' "$UPX_OUT" | grep -q "leaving the binary alone"; then
             if [ "$AFTER" -ne "$BEFORE" ]; then
-              echo "FALLA: upx declined but the binary changed size ($BEFORE -> $AFTER)."
+              echo "FAIL: upx declined but the binary changed size ($BEFORE -> $AFTER)."
               exit 1
             fi
             echo "  ok    upx did not apply to ${{ matrix.target }}; the binary is untouched"
           else
             if [ "$AFTER" -ge "$BEFORE" ]; then
-              echo "FALLA: upx ran on ${{ matrix.target }} and the binary did not shrink"
+              echo "FAIL: upx ran on ${{ matrix.target }} and the binary did not shrink"
               echo "       ($BEFORE -> $AFTER bytes). It packed the wrong file, or none."
               exit 1
             fi

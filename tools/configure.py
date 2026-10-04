@@ -936,8 +936,22 @@ def validate(cfg: dict, strict_release: bool) -> None:
     appid = cfg["android"]["application_id"]
     a_string(appid, "[android] application_id")
     if not APPID_RE.match(appid):
+        # Name the characters Android refuses: a hyphen above all, which Apple
+        # takes in a bundle id and Android does not, and which the general
+        # sentence below never mentioned.
+        refused = sorted({c for c in appid
+                          if not (c.isascii() and (c.isalnum() or c in "._"))})
+        named = ""
+        if refused:
+            named = ("It contains " + ", ".join(repr(c) for c in refused)
+                     + ": an Android id takes letters, digits, '_' and '.', and nothing "
+                     "else.\n")
+        if "-" in refused:
+            named += (f"A '-' is fine in an iOS bundle id and refused here: write "
+                      f"{appid.replace('-', '_')!r}.\n")
         raise ConfigError(
             f"[android] application_id = {appid!r} is not a valid Android application id.\n"
+            + named +
             "It needs at least one dot and each segment must start with a letter, "
             "e.g. com.yourname.yourgame.")
     # The Gradle preBuild hook rewrites sources by string-substituting this id and
@@ -2234,8 +2248,8 @@ def generate_icons(cfg: dict, required: bool) -> None:
         # ask for them explicitly. Everywhere else — the lint job, a macOS or
         # Windows runner, a contributor's laptop — a missing Pillow must not
         # stop the build over an asset that platform will never look at.
-        msg = ("[icon] resources/icon.png changed but Pillow is not installed, so the "
-               "ANDROID launcher icons cannot be regenerated.\n"
+        msg = (f"[icon] {cfg['icon']['source']} changed but Pillow is not installed, so "
+               "the ANDROID launcher icons cannot be regenerated.\n"
                "  pip install pillow      (or: apt install python3-pil)\n"
                "(iOS is unaffected — its icon is a copy, not a resize.)")
         if required:
@@ -2307,7 +2321,14 @@ def make_default_icon(dest: Path) -> None:
     branding/icon.png: the folder is the user's to rename, and writing the
     placeholder somewhere the build is not looking would be worse than not
     writing it at all."""
-    from PIL import Image, ImageDraw
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        raise ConfigError(
+            "--make-default-icon draws the placeholder with Pillow, and Pillow is not "
+            "installed.\n"
+            "  pip install pillow      (or: apt install python3-pil)\n"
+            f"Or put any square PNG at {dest} yourself.") from None
     size = 1024
     img = Image.new("RGBA", (size, size), (26, 28, 44, 255))
     d = ImageDraw.Draw(img)

@@ -1214,7 +1214,7 @@ def main(argv: list[str], cwd: Path | None = None) -> int:
         print(f"rmp {command}: {e}", file=sys.stderr)
         return USAGE
     except Refused as e:
-        print(f"FALLA: {e}")
+        print(f"FAIL: {e}")
         return FAILED
     except KeyboardInterrupt:
         return INTERRUPTED

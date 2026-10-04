@@ -27,7 +27,7 @@ if ! printf '%s' "$WANTED" | grep -q "\"$TARGET\""; then
   exit 0
 fi
 
-[ -f "$BINARY" ] || { echo "FALLA: $BINARY does not exist"; exit 1; }
+[ -f "$BINARY" ] || { echo "FAIL: $BINARY does not exist"; exit 1; }
 
 # UPX has a size ceiling and does not decline politely at it — it exits
 # non-zero, which would fail the release of a game whose only crime is being
@@ -47,7 +47,7 @@ if [ "$SIZE" -gt "$CAP" ]; then
 fi
 
 VERSION=$(awk '/^upx /{print $2}' thirdparty/FROZEN_VERSIONS.md)
-[ -n "$VERSION" ] || { echo "FALLA: no upx pin in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
+[ -n "$VERSION" ] || { echo "FAIL: no upx pin in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
 
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
@@ -55,7 +55,7 @@ case "$(uname -m)" in
   *) echo "  upx: no published build for $(uname -m) — leaving the binary alone"; exit 0 ;;
 esac
 SHA=$(awk -v k="upx_sha256_${ARCH}" '$1==k{print $2}' thirdparty/FROZEN_VERSIONS.md)
-[ -n "$SHA" ] || { echo "FALLA: no upx_sha256_${ARCH} in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
+[ -n "$SHA" ] || { echo "FAIL: no upx_sha256_${ARCH} in thirdparty/FROZEN_VERSIONS.md"; exit 1; }
 
 # The image's copy first — see CLAUDE.md, a Linux job downloads nothing. The
 # download below is what makes this work on a laptop.
@@ -71,7 +71,7 @@ fi
 if [ -r /etc/raylib-build-image.json ] && [ -z "${UPX:-}" ]; then
   HAVE="no upx at all"
   if command -v upx > /dev/null 2>&1; then HAVE=$(upx --version 2>/dev/null | head -1); fi
-  echo "FALLA: inside the build image, but its upx is not the pinned $VERSION."
+  echo "FAIL: inside the build image, but its upx is not the pinned $VERSION."
   echo "       have: $HAVE"
   echo "       Bump the image, or the pin in thirdparty/FROZEN_VERSIONS.md."
   exit 1
@@ -98,7 +98,7 @@ AFTER=$(wc -c < "$BINARY")
 # start is worse than a big one, and UPX has been known to produce those on
 # unusual toolchains — so it is verified here rather than by a player.
 if ! "$UPX" -t "$BINARY" > /dev/null 2>&1; then
-  echo "FALLA: upx cannot verify the packed binary"
+  echo "FAIL: upx cannot verify the packed binary"
   exit 1
 fi
 

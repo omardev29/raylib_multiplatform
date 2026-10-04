@@ -50,14 +50,14 @@ fi
 case "$(uname -m)" in
   x86_64|amd64)  ZIG_ARCH=x86_64;  TRIPLE_ARCH=x86_64 ;;
   aarch64|arm64) ZIG_ARCH=aarch64; TRIPLE_ARCH=aarch64 ;;
-  *) echo "FALLA: no pinned zig for $(uname -m). Set [linux] glibc = \"\" to build here."
+  *) echo "FAIL: no pinned zig for $(uname -m). Set [linux] glibc = \"\" to build here."
      exit 1 ;;
 esac
 
 VERSION=$(awk '/^zig /{print $2}' thirdparty/FROZEN_VERSIONS.md)
 SHA=$(awk -v k="zig_sha256_${ZIG_ARCH}" '$1==k{print $2}' thirdparty/FROZEN_VERSIONS.md)
 if [ -z "$VERSION" ] || [ -z "$SHA" ]; then
-  echo "FALLA: no zig pin for $ZIG_ARCH in thirdparty/FROZEN_VERSIONS.md"
+  echo "FAIL: no zig pin for $ZIG_ARCH in thirdparty/FROZEN_VERSIONS.md"
   exit 1
 fi
 
@@ -80,7 +80,7 @@ fi
 if [ -r /etc/raylib-build-image.json ] && [ -z "$ZIG_BIN" ]; then
   HAVE="no zig at all"
   if command -v zig > /dev/null 2>&1; then HAVE=$(zig version); fi
-  echo "FALLA: inside the build image, but its zig is not the pinned $VERSION."
+  echo "FAIL: inside the build image, but its zig is not the pinned $VERSION."
   echo "       have: $HAVE"
   echo "       A Linux job downloads nothing -- bump the image, or the pin in"
   echo "       thirdparty/FROZEN_VERSIONS.md, so the two agree."

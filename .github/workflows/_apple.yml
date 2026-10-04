@@ -184,8 +184,8 @@ jobs:
           set -euo pipefail
           sh ./rmp help > rmp-sh.txt
           zsh ./rmp help > rmp-zsh.txt
-          grep -q '^usage: rmp' rmp-zsh.txt || { echo "FALLA: zsh ./rmp help printed no usage"; exit 1; }
-          diff rmp-sh.txt rmp-zsh.txt || { echo "FALLA: zsh and sh print different help"; exit 1; }
+          grep -q '^usage: rmp' rmp-zsh.txt || { echo "FAIL: zsh ./rmp help printed no usage"; exit 1; }
+          diff rmp-sh.txt rmp-zsh.txt || { echo "FAIL: zsh and sh print different help"; exit 1; }
           /bin/bash -c 'echo "bash $BASH_VERSION"'
           /bin/bash tools/versions_check.sh
           zsh ./rmp test config

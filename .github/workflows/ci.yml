@@ -130,7 +130,7 @@ jobs:
           case "$MODE" in
             framework) echo "framework=true" >> "$GITHUB_OUTPUT" ;;
             game) echo "framework=false" >> "$GITHUB_OUTPUT" ;;
-            *) echo "FALLA: tools/rmp.py --mode said '$MODE', not framework or game"; exit 1 ;;
+            *) echo "FAIL: tools/rmp.py --mode said '$MODE', not framework or game"; exit 1 ;;
           esac
           echo "mode: $MODE"
 
@@ -220,7 +220,7 @@ jobs:
           # it used to. That is the RAY_TEST_BOOT_OK failure mode again: a gate
           # that cannot fail. Assert the dependency instead of hoping for it.
           command -v shellcheck >/dev/null || {
-            echo "FALLA: shellcheck is not on PATH, so actionlint would silently"
+            echo "FAIL: shellcheck is not on PATH, so actionlint would silently"
             echo "       skip every shell check in every run: block. It ships in"
             echo "       the build image; if this fired, the image drifted."
             exit 1; }
@@ -462,7 +462,7 @@ jobs:
                        | grep -v generated | sort); do
             clang-format "$f" | diff -q "$f" - >/dev/null || { echo "  unformatted  $f"; FAILED=1; }
           done
-          [ "$FAILED" -eq 0 ] || { echo "FALLA: run \`rmp fmt\` and commit the result."; exit 1; }
+          [ "$FAILED" -eq 0 ] || { echo "FAIL: run \`rmp fmt\` and commit the result."; exit 1; }
           echo "PASS: clang-format clean"
 
       # clang-tidy needs a compile database, so the project is CONFIGURED here
@@ -559,21 +559,21 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ./rmp new "$GAME"
           cd "$GAME"
-          test "$(python3 tools/rmp.py --mode)" = game || { echo "FALLA: the game says it is the framework"; exit 1; }
+          test "$(python3 tools/rmp.py --mode)" = game || { echo "FAIL: the game says it is the framework"; exit 1; }
           # The framework's own things stay behind. tests/rmp_test.py checks
           # the whole tree; these are the ones that would change what the
           # game's CI does.
           for f in tests/configure_test.py examples CLAUDE.md .claude .clang-tidy \
                    LICENSE tools/naming_check.sh .github/workflows/canary.yml; do
-            if [ -e "$f" ]; then echo "FALLA: $f reached the game"; exit 1; fi
+            if [ -e "$f" ]; then echo "FAIL: $f reached the game"; exit 1; fi
           done
           case "$(git ls-files -s thirdparty/raylib-ios)" in
             "160000 "*) echo "  ok    raylib-iOS is a submodule, pinned" ;;
-            *) echo "FALLA: thirdparty/raylib-ios is not a gitlink in the game"; exit 1 ;;
+            *) echo "FAIL: thirdparty/raylib-ios is not a gitlink in the game"; exit 1 ;;
           esac
           case "$(git ls-files -s rmp)" in
             "100755 "*) echo "  ok    rmp is executable in the game's index" ;;
-            *) echo "FALLA: rmp is not executable in the game's index"; exit 1 ;;
+            *) echo "FAIL: rmp is not executable in the game's index"; exit 1 ;;
           esac
 
       - name: The game's workflows lint clean
@@ -593,7 +593,7 @@ jobs:
           OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
           printf '%s\n' "$OUT"
           printf '%s\n' "$OUT" | grep -q "no golden hash" || {
-            echo "FALLA: the game compared a golden frame it should not have"; exit 1; }
+            echo "FAIL: the game compared a golden frame it should not have"; exit 1; }
           xvfb-run -a -s "-screen 0 1280x720x24" ./rmp test smoke
 
   # The documentation lives in its own repository, omardev29/rmp-docs, and
