@@ -26,6 +26,12 @@ on:
         description: 'JSON array of enabled target ids (from [targets] in the config)'
         required: true
         type: string
+      # True in the framework's own repository, false in a game made with
+      # `rmp new`, which has no examples/ to compile and no framework to make
+      # another game from. Required, so no caller can forget to say which.
+      framework:
+        required: true
+        type: boolean
       # Floated by the weekly canary; every caller passes the values from
       # thirdparty/FROZEN_VERSIONS.md via `configure.py --print-pins`. No
       # defaults, on purpose: a default is a second copy of a pinned number,
@@ -89,6 +95,7 @@ jobs:
       # environment is imported into this step only, so nothing after it sees a
       # changed PATH.
       - name: Examples still compile (MSVC)
+        if: inputs.framework
         run: |
           # The runner's pwsh wrapper turns a non-zero exit from a native command
           # into a terminating error. Here that would abort on the first bad
@@ -272,6 +279,67 @@ jobs:
           name: windows-x64-build
           path: windows-x64-build.zip
           retention-days: 7
+
+  # `rmp` from the two Windows shells, on its own runner so that a launcher
+  # bug and a build bug never hide each other. The launchers are the part of
+  # rmp the Linux tests cannot run: rmp.ps1 under PowerShell, rmp.cmd under
+  # cmd.exe, and Git's bash for the scripts `rmp test` hands on.
+  rmp:
+    if: contains(fromJSON(inputs.targets), 'windows-x64')
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: pwsh
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # One page whichever way help is asked for, the same page from cmd.exe,
+      # and a typo is a usage error -- 2 -- from both, not a crash and not 0.
+      - name: rmp under PowerShell and cmd
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Exit codes are read by hand below; the runner's wrapper would turn
+          # the expected 2 into a terminating error.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $help = (& ./rmp.ps1 help) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "rmp.ps1 help exited $LASTEXITCODE" }
+          if (-not $help.StartsWith("usage: rmp")) { throw "rmp.ps1 help printed: $help" }
+          foreach ($flag in "-h", "--help") {
+            $other = (& ./rmp.ps1 $flag) -join "`n"
+            if ($other -ne $help) { throw "rmp.ps1 $flag is not the page rmp.ps1 help prints" }
+          }
+          $cmd = (& cmd /c rmp.cmd help) -join "`n"
+          if ($cmd -ne $help) { throw "rmp.cmd help is not the page rmp.ps1 help prints" }
+          & ./rmp.ps1 no-such-command 2>$null
+          if ($LASTEXITCODE -ne 2) { throw "rmp.ps1 no-such-command exited $LASTEXITCODE, not 2" }
+          & cmd /c rmp.cmd no-such-command 2>$null
+          if ($LASTEXITCODE -ne 2) { throw "rmp.cmd no-such-command exited $LASTEXITCODE, not 2" }
+          Write-Host "PASS: rmp.ps1 and rmp.cmd print one help page and refuse a typo with 2"
+
+      # A game made on Windows. There is no exec bit here, so `rmp new` sets
+      # it in the game's index itself; and the checkout has CRLF endings, which
+      # the game's `rmp test config` -- versions_check.sh under Git's bash --
+      # has to read like LF.
+      - name: rmp new, and the game's rmp test config
+        if: inputs.framework
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          $game = Join-Path $env:RUNNER_TEMP "win_game"
+          & ./rmp.ps1 new $game
+          if ($LASTEXITCODE -ne 0) { throw "rmp new exited $LASTEXITCODE" }
+          Set-Location $game
+          if ((& ./rmp.ps1 --mode) -ne "game") { throw "the new game says it is the framework" }
+          # Counted, not filtered: an empty answer must not read as "none wrong".
+          $index = @(& git ls-files -s rmp raymob/gradlew)
+          $exec = @($index | Where-Object { $_ -match '^100755 ' })
+          if ($index.Count -ne 2 -or $exec.Count -ne 2) {
+            throw "rmp and raymob/gradlew are not both executable in the game's index:`n$($index -join "`n")"
+          }
+          & ./rmp.ps1 test config
+          if ($LASTEXITCODE -ne 0) { throw "the new game's rmp test config exited $LASTEXITCODE" }
+          Write-Host "PASS: a game made on Windows passes its own rmp test config"
 
   arm64:
     # Cross-compiled with MSVC. Static checks only: an ARM64 PE cannot run on

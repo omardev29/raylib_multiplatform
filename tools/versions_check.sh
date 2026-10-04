@@ -32,7 +32,9 @@ checks=0
 # A `key value` list, looked up by want() below. Not an associative array:
 # those are bash 4, macOS runs this under bash 3.2, and `declare -A` there is
 # "invalid option" and an empty table -- every check a DRIFT.
-VERSIONS=$(awk '/^```versions$/{f=1;next} /^```$/{f=0} f && $1 != "" && $1 !~ /^#/' "$FROZEN")
+# The carriage return goes first: a checkout on Windows has CRLF endings
+# (.gitattributes: eol=native), and "```versions\r" is not "```versions".
+VERSIONS=$(awk '{ sub(/\r$/, "") } /^```versions$/{f=1;next} /^```$/{f=0} f && $1 != "" && $1 !~ /^#/' "$FROZEN")
 
 # The value for a key, or nothing. The last line for a key wins.
 want() {
@@ -48,7 +50,8 @@ fi
 
 # check <label> <expected-key> <actual-value>
 check() {
-    local label="$1" key="$2" actual="$3"
+    # Without the CR a Windows checkout leaves at the end of a `(.*)$` match.
+    local label="$1" key="$2" actual="${3%$'\r'}"
     local want
     want=$(want "$key")
     [ -n "$want" ] || want="<missing from FROZEN_VERSIONS.md>"

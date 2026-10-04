@@ -177,6 +177,34 @@ jobs:
           fi
           echo "  ok    the VM script ran to completion"
 
+      # `rmp` under OpenBSD's ksh, which is its /bin/sh too: the one shell
+      # family no other job has. A step of its own, not lines in the build
+      # script above, which lives under a size limit. OpenBSD installs Python
+      # by its versioned name -- python3.12, no python3 -- which is why the
+      # launcher asks for each version by name.
+      - name: rmp under ksh (OpenBSD)
+        if: matrix.os == 'openbsd'
+        run: |
+          set -e
+          for v in 3.13 3.12 3.11; do
+            if sudo pkg_add -I "python%$v"; then break; fi
+          done
+          mkdir -p build
+          ksh ./rmp help > build/rmp-ksh-help.txt 2>&1 || echo "exit $?" >> build/rmp-ksh-help.txt
+
+      # Read back on the runner: OpenBSD's sh has exited 0 on a syntax error,
+      # so the VM step going green proves nothing on its own.
+      - name: rmp under ksh printed its help
+        if: matrix.os == 'openbsd'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f build/rmp-ksh-help.txt || { echo "FALLA: the ksh step left no output"; exit 1; }
+          cat build/rmp-ksh-help.txt
+          grep -q '^usage: rmp' build/rmp-ksh-help.txt || { echo "FALLA: ksh ./rmp help printed no usage"; exit 1; }
+          if grep -q '^exit ' build/rmp-ksh-help.txt; then echo "FALLA: ksh ./rmp help failed"; exit 1; fi
+          echo "PASS: rmp runs under OpenBSD's ksh"
+
       # The cpa.sh shell syncs the VM filesystem back to the runner after each
       # step, so build/ is available here. This step runs on the RUNNER (shell:
       # bash overrides the job's cpa.sh default) to package + upload the artifact.

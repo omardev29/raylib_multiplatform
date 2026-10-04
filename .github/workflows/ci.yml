@@ -65,6 +65,11 @@ jobs:
       # Everything downstream agrees on these. The project's own values come
       # from raylib_multiplatform.toml, so there is no second place to rename.
       project_name: ${{ steps.o.outputs.project_name }}
+      # 'true' in the framework's own repository, 'false' in a game made with
+      # `rmp new`. This file is the same in both, byte for byte; what a game
+      # does not have -- the framework's tests, examples and lint gates -- is
+      # skipped by this, never by an edit to a copy.
+      framework: ${{ steps.o.outputs.framework }}
       targets: ${{ steps.o.outputs.targets }}
       families: ${{ steps.o.outputs.families }}
       bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
@@ -118,6 +123,17 @@ jobs:
           fi
           echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
+          # The framework, or a game. Anything but those two words stops the
+          # run here: a job gated on a value nobody checked is a job that
+          # quietly never runs.
+          MODE=$(python3 tools/rmp.py --mode)
+          case "$MODE" in
+            framework) echo "framework=true" >> "$GITHUB_OUTPUT" ;;
+            game) echo "framework=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "FALLA: tools/rmp.py --mode said '$MODE', not framework or game"; exit 1 ;;
+          esac
+          echo "mode: $MODE"
+
           # Read once here, so every leaf gets the same answer and no workflow
           # has to learn to parse TOML.
           # --only narrows; it can never add. configure.py rejects a name that
@@ -157,6 +173,11 @@ jobs:
     permissions:
       contents: read
       packages: read
+    # In a game made with `rmp new` this job is actionlint, the configuration,
+    # the pins, the licences and a software-rendered frame. Every other step
+    # is the framework checking itself -- its tests, its gates over its own
+    # sources -- and is gated on `framework`: a game does not carry those files.
+    #
     # In the image, like every other Linux job. It used to be a bare runner that
     # apt-got raylib's dependencies, pip-installed clang and downloaded
     # actionlint — three chances for a bad network day to fail a job that only
@@ -199,6 +220,7 @@ jobs:
       # it — and GitHub answers that with a startup_failure, a run with zero
       # jobs and no logs to read.
       - name: The workflows agree with each other
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/workflow_check.sh
 
       # No dependency step: the image has raylib's X11/GL/Wayland headers, ninja,
@@ -215,6 +237,7 @@ jobs:
       # patch version of clang-format reformats files that were already correct,
       # which would fail this job for a reason unrelated to the change.
       - name: The clang tooling the image carries
+        if: needs.config.outputs.framework == 'true'
         run: |
           set -euo pipefail
           clang-format --version
@@ -228,6 +251,7 @@ jobs:
       # refuses an upload whose code is not higher than the last one, forever.
       # Everything else in tests/ checks the code that runs after this script.
       - name: tools/configure.py
+        if: needs.config.outputs.framework == 'true'
         # discover, not the file directly: running the file executes
         # unittest.main() at whatever line it happens to be on, so anything
         # defined after it is silently not collected. The image carries
@@ -239,6 +263,7 @@ jobs:
       # `rmp` itself: every command's page, the push and deploy refusals
       # against a real git, the launchers under every shell the image has.
       - name: rmp itself
+        if: needs.config.outputs.framework == 'true'
         run: python3 -m unittest discover -s tests -p 'rmp_test.py' -v
 
       # Time, input and randomness enter through a seam so that headless tests
@@ -249,6 +274,7 @@ jobs:
       # `::`. The second one exists because it cost a link error on exactly one
       # of the seventeen targets.
       - name: The seam holds
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/seam_check.sh
 
       # Two promises in one compile, per public header: it works when included
@@ -257,6 +283,7 @@ jobs:
       # breaks silently, because a new header that forgets it just hands
       # somebody an undefined macro in a file that looks like every other file.
       - name: Every public header stands alone
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/header_check.sh
 
       # What each public header costs to include, in preprocessed lines against
@@ -264,12 +291,14 @@ jobs:
       # the headers on purpose and measured; a header that quietly starts
       # pulling <functional> or <regex> into every game is what this catches.
       - name: No public header grew past its budget
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/header_cost_check.sh
 
       # No owning raw pointer under include/rmp/ or src/rmp/: new, delete,
       # malloc and free are allowed in exactly two files, both speaking
       # raylib's C loader contract, and the list only shrinks.
       - name: The framework owns nothing by hand
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/ownership_check.sh
 
       # The Linux jobs have GNU everything, so they are exactly the wrong place
@@ -278,6 +307,7 @@ jobs:
       # and nothing here would have said so, because the macOS job runs the
       # workflow's steps, not the Justfile.
       - name: The scripts run off GNU too
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/portable_check.sh
 
       # `A && B || C` is not if/then/else: when A succeeds and B fails, C runs
@@ -286,6 +316,7 @@ jobs:
       # nothing about -- it was written, fixed, and then written again in seven
       # more places. actionlint above does not catch it; this does.
       - name: No `A && B || C`
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/shell_pattern_check.sh
 
       # clang-tidy checks the names it parsed, and it parses one branch of
@@ -294,6 +325,7 @@ jobs:
       # PI, which is raylib's macro, nor `#if APP_X` after APP_X was renamed --
       # not an error but 0. This reads every branch as text.
       - name: Names follow the convention
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/naming_check.sh
 
       # A `git add -A` once committed 78 files of a CMake build directory, and
@@ -301,6 +333,7 @@ jobs:
       # the directory was called `build-memory/`. Ignore rules do not apply to
       # what git already tracks, so the index is what has to be checked.
       - name: The repository tracks sources, not build output
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/repo_check.sh
 
       # Every vendored component, down to what raylib bundles, has a licence we
@@ -318,6 +351,7 @@ jobs:
       # distance ties by object pointer, so the winner depended on where malloc
       # had put things, which depended on what had run before it.
       - name: Unit tests
+        if: needs.config.outputs.framework == 'true'
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_TESTS=ON > /dev/null
@@ -341,6 +375,7 @@ jobs:
       # vector, every one under a passing test. gcc here -- the image's clang
       # has no sanitizer runtime -- which the script picks by itself.
       - name: Unit tests under ASan and UBSan
+        if: needs.config.outputs.framework == 'true'
         run: |
           set -euo pipefail
           export LOCPATH="$PWD/build/test-locales"
@@ -356,6 +391,7 @@ jobs:
       # Justfile-versus-lint-job parity test in tests/configure_test.py is what
       # stops a stage existing in one place and not the other again.
       - name: UI layout tests (headless)
+        if: needs.config.outputs.framework == 'true'
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_UI_TESTS=ON > /dev/null
@@ -392,6 +428,7 @@ jobs:
       # Formatting first: it is instant, and an unformatted file makes every
       # other diff in the pull request unreadable.
       - name: Everything we own is formatted
+        if: needs.config.outputs.framework == 'true'
         run: |
           set -euo pipefail
           FAILED=0
@@ -411,6 +448,7 @@ jobs:
       # preset, and failing on any file that has no compile command, because
       # clang-tidy would otherwise guess its flags. Same script as `just lint`.
       - name: clang-tidy
+        if: needs.config.outputs.framework == 'true'
         run: bash tools/lint.sh
 
   # examples/ is documentation with code in it, and documentation rots quietly.
@@ -429,6 +467,7 @@ jobs:
   # image like every other Linux job, so the compiler is the one CI ships with.
   examples:
     needs: config
+    if: needs.config.outputs.framework == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -460,6 +499,76 @@ jobs:
           name: example-screenshots
           path: build/examples-check/screenshots/
           if-no-files-found: warn
+
+  # Every game starts as `rmp new`, and what it copies is a list in
+  # tools/rmp.py. A file a game needs and the list leaves out is a game that
+  # does not build -- and the framework never notices, because the framework
+  # has the file. So a game is made from this commit, here, and has to pass
+  # what its own CI runs: actionlint, the workflows agreeing with each other,
+  # and its `rmp test` -- the configuration, a frame drawn in software, a boot.
+  rmp_new:
+    needs: config
+    if: needs.config.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      GAME: /tmp/ci_game
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: rmp new
+        run: |
+          set -euo pipefail
+          # The checkout belongs to another user than the container's root,
+          # and git answers nothing about such a repository until it is told
+          # the folder is safe. `rmp new` reads the framework's index.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          ./rmp new "$GAME"
+          cd "$GAME"
+          test "$(python3 tools/rmp.py --mode)" = game || { echo "FALLA: the game says it is the framework"; exit 1; }
+          # The framework's own things stay behind. tests/rmp_test.py checks
+          # the whole tree; these are the ones that would change what the
+          # game's CI does.
+          for f in tests/configure_test.py examples Justfile CLAUDE.md .claude .clang-tidy \
+                   LICENSE tools/naming_check.sh .github/workflows/canary.yml; do
+            if [ -e "$f" ]; then echo "FALLA: $f reached the game"; exit 1; fi
+          done
+          case "$(git ls-files -s thirdparty/raylib-ios)" in
+            "160000 "*) echo "  ok    raylib-iOS is a submodule, pinned" ;;
+            *) echo "FALLA: thirdparty/raylib-ios is not a gitlink in the game"; exit 1 ;;
+          esac
+          case "$(git ls-files -s rmp)" in
+            "100755 "*) echo "  ok    rmp is executable in the game's index" ;;
+            *) echo "FALLA: rmp is not executable in the game's index"; exit 1 ;;
+          esac
+
+      - name: The game's workflows lint clean
+        working-directory: ${{ env.GAME }}
+        run: |
+          set -euo pipefail
+          actionlint -color
+          bash "$GITHUB_WORKSPACE/tools/workflow_check.sh" "$GAME"
+          echo "PASS: the game's workflows"
+
+      - name: rmp test, in the game
+        working-directory: ${{ env.GAME }}
+        run: |
+          set -euo pipefail
+          ./rmp test config
+          # A game has no golden frame: the boot, the pixels and a clean exit.
+          OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
+          printf '%s\n' "$OUT"
+          printf '%s\n' "$OUT" | grep -q "no golden hash" || {
+            echo "FALLA: the game compared a golden frame it should not have"; exit 1; }
+          xvfb-run -a -s "-screen 0 1280x720x24" ./rmp test smoke
 
   linux:
     needs: config
@@ -494,6 +603,7 @@ jobs:
       full: ${{ needs.config.outputs.full == 'true' }}
       targets: ${{ needs.config.outputs.targets }}
       runner: ${{ needs.config.outputs.windows_runner }}
+      framework: ${{ needs.config.outputs.framework == 'true' }}
       mesa_version: ${{ needs.config.outputs.mesa }}
       mesa_sha256: ${{ needs.config.outputs.mesa_sha256 }}
 
@@ -557,14 +667,21 @@ jobs:
   # The test is "did not fail", not "succeeded": a family the user turned off in
   # [targets] reports `skipped`, and demanding success would mean disabling any
   # platform silently disables releases too.
+  #
+  # examples and rmp_new are the framework's own; a game skips them. Skipped
+  # passes ONLY in a game: in the framework a skipped job is one that did not
+  # run, and a release it did not check.
   # ---------------------------------------------------------------------------
   release:
-    needs: [config, lint, examples, linux, web, windows, android, apple, bsd]
+    needs: [config, lint, examples, rmp_new, linux, web, windows, android, apple, bsd]
     if: >
       always() &&
       github.ref_type == 'tag' &&
       needs.lint.result == 'success' &&
-      needs.examples.result == 'success' &&
+      (needs.examples.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.examples.result == 'skipped')) &&
+      (needs.rmp_new.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.rmp_new.result == 'skipped')) &&
       needs.linux.result != 'failure'   && needs.linux.result != 'cancelled' &&
       needs.web.result != 'failure'     && needs.web.result != 'cancelled' &&
       needs.windows.result != 'failure' && needs.windows.result != 'cancelled' &&

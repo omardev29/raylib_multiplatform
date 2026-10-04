@@ -578,16 +578,54 @@ class PushTest(unittest.TestCase):
         self.assertIn("warning", got.stdout)
 
 
-def job_block(path: Path, job: str) -> str:
-    text = path.read_text()
-    m = re.search(rf"(?m)^  {re.escape(job)}:\n(.*?)(?=^  [A-Za-z_-]+:\n|\Z)", text, re.S)
-    return m.group(1) if m else ""
+WORKFLOWS = REPO / ".github" / "workflows"
+
+
+def require_yaml(case):
+    """PyYAML: a skip on a laptop, a failure inside the build image -- where
+    the lint job runs this file, and a skip would read as a pass."""
+    try:
+        import yaml
+    except ImportError:
+        if IN_BUILD_IMAGE:
+            case.fail("PyYAML is missing inside the build image")
+        case.skipTest("PyYAML not installed (it ships in the build image)")
+    return yaml
+
+
+def load_workflow(case, name: str) -> dict:
+    return require_yaml(case).safe_load((WORKFLOWS / name).read_text())
+
+
+# The two spellings of "only in the framework's own repository". Exact, so
+# that a condition which merely mentions the mode is not taken for the gate.
+FRAMEWORK_GATES = ("needs.config.outputs.framework == 'true'", "inputs.framework")
+
+
+def gated(condition) -> bool:
+    return " ".join(str(condition or "").split()) in FRAMEWORK_GATES
+
+
+def code_lines(script: str) -> str:
+    """A run: block without its comment lines (sh and pwsh both use #)."""
+    return "\n".join(line for line in script.splitlines()
+                     if not line.lstrip().startswith("#"))
+
+
+def lint_steps(case):
+    """(gated, code) for each step of ci.yml's lint job."""
+    job = load_workflow(case, "ci.yml")["jobs"]["lint"]
+    case.assertFalse(gated(job.get("if")), "the lint job itself is framework-only")
+    return [(gated(step.get("if")), code_lines(str(step.get("run", "")) + " " +
+                                                str(step.get("uses", ""))))
+            for step in job["steps"]]
 
 
 class StagesAgreeWithLintTest(unittest.TestCase):
     """Every stage of `rmp test` runs in the CI lint job too: a stage that
     exists in one place and not the other is how the UI layout test ran on
-    laptops only, for four phases."""
+    laptops only, for four phases. And a stage a game runs has to run in a
+    game's CI: its step may not be gated to the framework."""
 
     COVERED_BY = {"fmt-check": "clang-format", "smoke": "render_check.sh"}
 
@@ -607,15 +645,159 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         return out
 
     def test_every_stage_has_its_step_in_the_lint_job(self):
-        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
-        self.assertIn("actionlint", lint, "the lint job did not parse")
+        steps = lint_steps(self)
+        self.assertTrue(any("actionlint" in code for _, code in steps),
+                        "the lint job did not parse")
         for stage in rmp.STAGES:
             if stage.name in ("examples", "render-update"):
                 continue  # the examples job, and a recording -- not a check
+            # A stage the game runs too needs a step the game's CI runs.
+            usable = [code for is_gated, code in steps
+                      if not is_gated or stage.scope == "framework"]
             for token in self.tokens(stage):
                 with self.subTest(stage=stage.name, token=token):
-                    self.assertTrue(token in lint, f"`rmp test {stage.name}` runs {token} "
-                                    "and the CI lint job does not")
+                    self.assertTrue(any(token in code for code in usable),
+                                    f"`rmp test {stage.name}` runs {token} and the CI lint "
+                                    "job does not" + ("" if stage.scope == "framework" else
+                                                      " in a game"))
+
+
+class CiModeTest(unittest.TestCase):
+    """One ci.yml for the framework and for every game: what a game does not
+    have is skipped by the mode, and nothing a game's CI runs is missing from
+    the game."""
+
+    # Named by an ungated step and absent from a game, on purpose: each is
+    # only ever probed for, and the reason says what happens without it.
+    OPTIONAL = {
+        "tests/fixtures/render_hash.txt":
+            "the framework's golden frame: compared only where it exists",
+    }
+
+    PATH_RE = re.compile(r"(?<![\w.$/-])((?:tools|tests|cmake|examples|\.github/scripts)"
+                         r"[/\\][\w./\\-]*\w)")
+
+    def mode_block(self):
+        config = load_workflow(self, "ci.yml")["jobs"]["config"]
+        script = next(s["run"] for s in config["steps"] if s.get("id") == "o")
+        self.assertIn("set -euo pipefail", script)
+        m = re.search(r"(?ms)^\s*MODE=\$\(python3 tools/rmp\.py --mode\)\n.*?^\s*esac\n",
+                      script)
+        self.assertIsNotNone(m, "the config job does not read tools/rmp.py --mode")
+        self.assertEqual(config["outputs"]["framework"], "${{ steps.o.outputs.framework }}")
+        return m.group(0)
+
+    def run_mode(self, said: str, code: int = 0):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp) / "python3"
+            stub.write_text(f"#!/bin/sh\nprintf '%s\\n' '{said}'\nexit {code}\n")
+            stub.chmod(0o755)
+            out = Path(tmp) / "out"
+            out.write_text("")
+            got = subprocess.run(["bash", "-c", "set -euo pipefail\n" + self.mode_block()],
+                                 capture_output=True, text=True,
+                                 env=dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}",
+                                          GITHUB_OUTPUT=str(out)))
+            return got.returncode, out.read_text()
+
+    def test_the_mode_is_one_of_two_words_or_the_run_stops(self):
+        self.assertEqual(self.run_mode("framework"), (0, "framework=true\n"))
+        self.assertEqual(self.run_mode("game"), (0, "framework=false\n"))
+        for said, code in (("", 0), ("Framework", 0), ("game framework", 0),
+                           ("framework", 1), ("game", 2)):
+            with self.subTest(said=said, code=code):
+                status, out = self.run_mode(said, code)
+                self.assertNotEqual(status, 0)
+                self.assertEqual(out, "")
+
+    def test_the_framework_jobs_are_gated_and_release_tells_skipped_apart(self):
+        jobs = load_workflow(self, "ci.yml")["jobs"]
+        release = " ".join(jobs["release"]["if"].split())
+        for name in ("examples", "rmp_new"):
+            with self.subTest(job=name):
+                self.assertTrue(gated(jobs[name].get("if")))
+                self.assertIn(name, jobs["release"]["needs"])
+                self.assertIn(f"(needs.{name}.result == 'success' || "
+                              f"(needs.config.outputs.framework == 'false' && "
+                              f"needs.{name}.result == 'skipped'))", release)
+        self.assertIn("needs.lint.result == 'success'", release)
+
+    def test_windows_is_told_which_it_is(self):
+        windows = load_workflow(self, "_windows.yml")
+        on = windows.get("on", windows.get(True))   # YAML 1.1 reads `on` as True
+        spec = on["workflow_call"]["inputs"]["framework"]
+        self.assertEqual((spec["type"], spec["required"], "default" in spec),
+                         ("boolean", True, False))
+        ci = load_workflow(self, "ci.yml")["jobs"]["windows"]["with"]["framework"]
+        self.assertEqual(ci, "${{ needs.config.outputs.framework == 'true' }}")
+        canary = load_workflow(self, "canary.yml")["jobs"]["windows"]["with"]["framework"]
+        self.assertIs(canary, True)
+
+    def offences(self, tracked, replaced=None):
+        """What a game's CI would reach for and not find. `replaced` stands a
+        text in for a workflow file, for the test that sees this go red."""
+        yaml = require_yaml(self)
+        found = []
+        for wf in sorted(WORKFLOWS.glob("*.yml")):
+            rel = wf.relative_to(REPO).as_posix()
+            if rmp.classify(rel)[0] != "include":
+                continue
+            data = yaml.safe_load((replaced or {}).get(wf.name) or wf.read_text())
+            for job_name, job in (data.get("jobs") or {}).items():
+                if gated(job.get("if")):
+                    continue
+                uses = str(job.get("uses", ""))
+                if uses.startswith("./") and rmp.classify(uses[2:])[0] != "include":
+                    found.append(f"{rel}: job {job_name} calls {uses}")
+                for step in job.get("steps") or []:
+                    if gated(step.get("if")):
+                        continue
+                    code = code_lines(str(step.get("run", "")))
+                    code += " " + " ".join(str(v) for v in (step.get("with") or {}).values())
+                    where = f"{rel}: {job_name} / {step.get('name', step.get('uses'))}"
+                    if re.search(r"(?<![\w/.-])examples(?![\w/-])", code):
+                        found.append(f"{where} uses examples/")
+                    for path in self.PATH_RE.findall(code):
+                        path = path.replace("\\", "/").rstrip("/")
+                        if path in self.OPTIONAL:
+                            if f"-f {path}" not in code:
+                                found.append(f"{where} reads {path} without asking if it is there")
+                            continue
+                        under = [t for t in tracked if t == path or t.startswith(path + "/")]
+                        if not under:
+                            continue    # generated, or build output
+                        if not any(rmp.classify(t)[0] in ("include", "rename") for t in under):
+                            found.append(f"{where} uses {path}, which a game does not get")
+        return found
+
+    def test_a_game_gets_every_file_its_ci_uses(self):
+        tracked = [p for _, _, p in rmp.tracked(REPO)]
+        self.assertEqual(self.offences(tracked), [])
+
+    def test_the_check_sees_each_kind_of_mistake(self):
+        """Seen red: the same check with one gate or guard taken away."""
+        tracked = [p for _, _, p in rmp.tracked(REPO)]
+        cases = [
+            ("ci.yml", "      - name: The seam holds\n"
+                       "        if: needs.config.outputs.framework == 'true'\n",
+             "      - name: The seam holds\n",
+             "ci.yml: lint / The seam holds uses tools/seam_check.sh, "
+             "which a game does not get"),
+            ("_windows.yml", "      - name: Examples still compile (MSVC)\n"
+                             "        if: inputs.framework\n",
+             "      - name: Examples still compile (MSVC)\n",
+             "_windows.yml: x64 / Examples still compile (MSVC) uses examples/"),
+            ("_linux.yml", "if [ -f tests/fixtures/render_hash.txt ]; then",
+             "if true; then",
+             "reads tests/fixtures/render_hash.txt without asking if it is there"),
+        ]
+        for name, before, after, says in cases:
+            with self.subTest(workflow=name, says=says):
+                original = (WORKFLOWS / name).read_text()
+                self.assertEqual(original.count(before), 1)
+                found = self.offences(tracked, {name: original.replace(before, after)})
+                self.assertEqual(len(found), 1, found)
+                self.assertIn(says, found[0])
 
 
 class LauncherTest(unittest.TestCase):
@@ -746,6 +928,45 @@ class LauncherTest(unittest.TestCase):
         got = subprocess.run([pwsh, "-NoProfile", "-File", str(REPO / "rmp.ps1"), "help"],
                              cwd=REPO, capture_output=True, text=True)
         self.assertTrue(got.stdout.startswith("usage: rmp"), got.stderr)
+
+
+class WindowsCheckoutTest(unittest.TestCase):
+    """On Windows a checkout has CRLF endings -- .gitattributes says
+    `eol=native` for everything but the shell scripts -- and `rmp test config`
+    has to say there what it says here. versions_check.sh read a CRLF
+    FROZEN_VERSIONS.md as having no versions block at all."""
+
+    # What versions_check.sh reads. Running the LF copy must print what the
+    # real tree prints, which is what says this list is complete.
+    READS = ("thirdparty/FROZEN_VERSIONS.md", "raymob/app/build.gradle",
+             "raymob/build.gradle", "raymob/gradle/wrapper/gradle-wrapper.properties",
+             "raymob/generated.properties", rmp.TOML, "tools/configure.py",
+             "tools/license_db.py")
+
+    def copy(self, root: Path, crlf: bool) -> Path:
+        script = root / "tools" / "versions_check.sh"
+        script.parent.mkdir(parents=True)
+        shutil.copy(REPO / "tools" / "versions_check.sh", script)   # *.sh stays LF
+        files = [Path(p) for p in self.READS if (REPO / p).is_file()]
+        files += [p.relative_to(REPO) for p in (REPO / ".github" / "workflows").glob("*.yml")]
+        for rel in files:
+            data = (REPO / rel).read_bytes()
+            if crlf:
+                data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_bytes(data)
+        return script
+
+    def run_check(self, script: Path):
+        got = subprocess.run([rmp.find_bash(), str(script)], capture_output=True, text=True)
+        return got.returncode, got.stdout
+
+    def test_a_crlf_checkout_says_what_an_lf_one_says(self):
+        real = self.run_check(REPO / "tools" / "versions_check.sh")
+        with tempfile.TemporaryDirectory() as lf, tempfile.TemporaryDirectory() as crlf:
+            self.assertEqual(self.run_check(self.copy(Path(lf), crlf=False)), real,
+                             "the LF copy is missing a file versions_check.sh reads")
+            self.assertEqual(self.run_check(self.copy(Path(crlf), crlf=True)), real)
 
 
 class ManifestTest(unittest.TestCase):

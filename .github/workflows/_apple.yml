@@ -153,6 +153,24 @@ jobs:
       - name: Test (runtime) -- boot and render with no GPU
         run: sh tools/render_check.sh Ninja "" "${{ inputs.project_name }}"
 
+      # `rmp` where a Mac user types it: zsh is the login shell, and the
+      # scripts `rmp test config` hands on must run under the bash Apple ships,
+      # 3.2, forever. The Linux jobs have bash 5 and cannot notice a bash-4
+      # feature -- versions_check.sh shipped one, `declare -A`, and nothing
+      # said so. The runner may put a newer bash first on PATH, so /bin/bash
+      # is named.
+      - name: rmp under zsh, and its scripts under bash 3.2
+        run: |
+          set -euo pipefail
+          sh ./rmp help > rmp-sh.txt
+          zsh ./rmp help > rmp-zsh.txt
+          grep -q '^usage: rmp' rmp-zsh.txt || { echo "FALLA: zsh ./rmp help printed no usage"; exit 1; }
+          diff rmp-sh.txt rmp-zsh.txt || { echo "FALLA: zsh and sh print different help"; exit 1; }
+          /bin/bash -c 'echo "bash $BASH_VERSION"'
+          /bin/bash tools/versions_check.sh
+          zsh ./rmp test config
+          rm -f rmp-sh.txt rmp-zsh.txt
+
       - name: Package
         run: |
           mkdir -p package/resources
