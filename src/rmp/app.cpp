@@ -286,7 +286,18 @@ void end_stop() {
 // [window] in the .toml is what lets the same source describe an 800x450 laptop
 // window and a phone held sideways.
 void start(std::unique_ptr<rmp::Scene> first) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    // [window] vsync: wait for the screen's refresh. raylib's default is not
+    // to, and then a desktop game draws as fast as the GPU allows.
+    SetConfigFlags(RMP_WINDOW_VSYNC != 0 ? FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT
+                                         : FLAG_WINDOW_RESIZABLE);
+#if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && !defined(PLATFORM_IOS)
+    // [window] fps. BEFORE InitWindow, because raylib's DRM backend reads the
+    // target to choose the display mode -- 144 asks for a 144 Hz mode -- and
+    // InitWindow does not reset it. Never on the web or iOS: the browser and
+    // the display link pace the frame there, and a wait inside their callback
+    // would only stall it.
+    if (RMP_WINDOW_FPS > 0) SetTargetFPS(RMP_WINDOW_FPS);
+#endif
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
     rmp::scenes::detail::start(std::move(first));
 }

@@ -230,6 +230,7 @@ get indexed). It requires the NDK:
 | `RMP_PRODUCTION_BUILD` | `0` / `1` | `#if RMP_PRODUCTION_BUILD` to strip debug code. Defined on every platform: CMake from its `PRODUCTION_BUILD` option, Android from the Gradle variant (release is `1`), iOS per Xcode configuration |
 | `RMP_RRES_PASSWORD` | from `[resources]` | rres decryption password (see below) |
 | `RMP_PROJECT_NAME`, `RMP_WINDOW_TITLE`, `RMP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
+| `RMP_WINDOW_VSYNC`, `RMP_WINDOW_FPS` | from `[window]` | Wait for the screen's refresh; cap the frame rate (0 = none, ignored on the web and iOS) |
 | `RMP_UI_FONT`, `RMP_UI_FONT_SIZE`, `RMP_UI_SCALE`, `RMP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
 | `RMP_INPUT_DEADZONE` | from `[input]` | The stick travel that reads as zero |
 | `RMP_AUDIO_MASTER`, `RMP_AUDIO_MUSIC`, `RMP_AUDIO_SFX` | from `[audio]` | What the three `rmp::audio` buses start at |

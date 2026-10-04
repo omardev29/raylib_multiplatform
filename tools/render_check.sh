@@ -66,6 +66,14 @@ grep -q "RAY_TEST_RENDER_OK" "$LOG" || { echo "FALLA: it drew nothing"; exit 1; 
 grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
     echo "FALLA: it died before the end of its frame budget"; exit 1; }
 
+# [window] vsync reached the window: the boot line says what the window was
+# asked for, and it must be what the .toml says. A setting that validates and
+# never reaches raylib is a setting that does nothing.
+WANT_VSYNC=$(sed -n 's/^#define RMP_WINDOW_VSYNC *\([01]\).*/\1/p' include/rmp/generated/config.h)
+test -n "$WANT_VSYNC" || { echo "FALLA: RMP_WINDOW_VSYNC is not in the generated header"; exit 1; }
+grep -q "RAY_TEST_BOOT_OK .* vsync=$WANT_VSYNC" "$LOG" || {
+    echo "FALLA: [window] vsync is $WANT_VSYNC and the window was not asked for it"; exit 1; }
+
 # And the same pixels. Linux x86-64 and macos-26 (Apple Silicon) both produce
 # this frame byte for byte, so one golden hash covers every operating system and
 # both instruction sets -- there is no driver in between to differ.

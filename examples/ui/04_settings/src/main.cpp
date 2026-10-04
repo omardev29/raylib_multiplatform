@@ -42,10 +42,14 @@ static bool damaged = false; // the saved settings were edited or cut short
 static void apply(const Settings &s) {
     // Where you would actually act on it. Called only when something changed,
     // which is why the controls return a bool at all.
+#if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__)
+    // VSync is a window state, on and off at any time. Not on the web: the
+    // browser paces the frame there and there is nothing to switch.
     if (s.vsync)
-        SetTargetFPS(60);
+        SetWindowState(FLAG_VSYNC_HINT);
     else
-        SetTargetFPS(0);
+        ClearWindowState(FLAG_VSYNC_HINT);
+#endif
     // The two volume sliders are the audio buses. Neither call opens the
     // sound device: a game can show and apply this screen before it has made
     // a sound, and what is already playing changes at once.
@@ -96,8 +100,9 @@ static void store(const Settings &s) {
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    // The sliders start where the buses are, [audio] in the .toml -- and
-    // then whatever the player saved last time wins.
+    // The controls start where the game does -- [window] vsync and [audio] in
+    // the .toml -- and then whatever the player saved last time wins.
+    cfg.vsync = RMP_WINDOW_VSYNC != 0;
     cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);
     cfg.music = rmp::audio::volume(rmp::audio::Bus::MUSIC);
     load(cfg);
@@ -120,7 +125,12 @@ static void on_frame(float delta) {
 
         // --- toggles ------------------------------------------------------
         if (rmp::ui::checkbox("Fullscreen", &cfg.fullscreen)) dirty = true;
+#if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__)
+        // Not on the web, where there is no such switch at all. That is not
+        // the same as the Subtitles box below: a control that is unavailable
+        // RIGHT NOW is disabled, one that cannot exist here is not shown.
         if (rmp::ui::checkbox("VSync", &cfg.vsync)) dirty = true;
+#endif
 
         // A control that is not available right now is disabled, not missing.
         // A menu whose items appear and disappear is a menu nobody can learn.

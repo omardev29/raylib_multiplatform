@@ -93,9 +93,13 @@ static inline void SmokeTest_ReportBoot(int assetsFailed, int assetsRequested) {
                  "-- it is raylib's last WARNING before this line.");
         return;
     }
-    TraceLog(LOG_INFO,
-             "RAY_TEST_BOOT_OK assets_failed=%d assets_requested=%d testFrames=%d",
-             assetsFailed, assetsRequested, SmokeTest_maxFrames);
+    // vsync= is what the window was asked for, which is how [window] vsync is
+    // checked end to end: the .toml, the generated header, app.cpp, raylib.
+    TraceLog(
+        LOG_INFO,
+        "RAY_TEST_BOOT_OK assets_failed=%d assets_requested=%d testFrames=%d vsync=%d",
+        assetsFailed, assetsRequested, SmokeTest_maxFrames,
+        IsWindowState(FLAG_VSYNC_HINT) ? 1 : 0);
 }
 
 // Which frame to read back. Not frame 0: the first frames of a fresh swap

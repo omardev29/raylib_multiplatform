@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -413,7 +414,7 @@ def admob_on(cfg: dict, targets: list[str]) -> bool:
 DEFAULTS: dict = {
     "project": {"name": "ray_test"},
     "window": {"title": "Raylib is Multiplatform!", "width": 800, "height": 450,
-               "orientation": "landscape"},
+               "orientation": "landscape", "vsync": True, "fps": 0},
     "app": {"max_delta": 0.05},
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
@@ -748,6 +749,22 @@ def validate(cfg: dict, strict_release: bool) -> None:
         if not isinstance(v, int) or not (16 <= v <= 16384):
             raise ConfigError(f"[window] {k} = {v!r} must be an integer between 16 and 16384.")
 
+    # [window] vsync and fps -- how the frame is paced. bool is checked first
+    # for fps, because in Python True is an int and `fps = true` would
+    # otherwise be a cap of one frame per second.
+    vsync = cfg["window"]["vsync"]
+    if not isinstance(vsync, bool):
+        raise ConfigError(f"[window] vsync = {vsync!r} is a switch: true or false.")
+    fps = cfg["window"]["fps"]
+    if isinstance(fps, bool) or not isinstance(fps, int):
+        raise ConfigError(
+            f"[window] fps = {fps!r} has to be a whole number of frames per second,\n"
+            "  or 0 for no cap.")
+    if not 0 <= fps <= 1000:
+        raise ConfigError(
+            f"[window] fps = {fps!r} has to be between 0 and 1000. Above 1000 a frame is\n"
+            "  shorter than the millisecond the timer can wait; 0 is no cap.")
+
     # [app] max_delta -- the longest step the game logic is ever handed.
     #
     # GetFrameTime() returns real elapsed time, and real elapsed time is not
@@ -778,6 +795,17 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"[app] max_delta = {md!r} is shorter than a frame at 240 Hz, so every\n"
             "  frame would be clamped and the game would run in permanent slow\n"
             "  motion. That is never what anyone means. Use 0 to switch it off.")
+
+    # The two together. A cap whose frame is longer than the clamp hands the
+    # game less time than really passed, EVERY frame: fps = 15 against the
+    # default 0.05 runs everything at 75 % speed, forever, and nothing says so.
+    if fps > 0 and md > 0 and 1.0 / fps > md:
+        lowest = math.ceil(1.0 / md)
+        raise ConfigError(
+            f"[window] fps = {fps} makes every frame {1.0 / fps:.4g} s long, but [app]\n"
+            f"  max_delta = {md!r} hands the game at most that much per frame, so the\n"
+            f"  game would run at {fps * md:.0%} speed forever. Raise fps to {lowest} or\n"
+            f"  more, raise max_delta to {1.0 / fps:.4g} or more, or set max_delta = 0.")
 
     # android:appCategory, which is how Play files your app. These are the only
     # values Android accepts; anything else makes the manifest merger fail deep
@@ -1515,6 +1543,12 @@ def gen_app_config(cfg: dict) -> None:
 #define RMP_WINDOW_TITLE  "{w['title'].replace('"', chr(92) + chr(34))}"
 #define RMP_WINDOW_WIDTH  {w['width']}
 #define RMP_WINDOW_HEIGHT {w['height']}
+
+/* [window] vsync and fps. VSYNC 1 waits for the screen's refresh (no tearing,
+   no wasted frames); FPS caps the frame rate, 0 for no cap. The web and iOS
+   ignore FPS: the browser and the display link pace the frame there. */
+#define RMP_WINDOW_VSYNC  {1 if w['vsync'] else 0}
+#define RMP_WINDOW_FPS    {w['fps']}
 
 /* Obfuscation only — this string is in the shipped binary. It lives here
    because Android and iOS take nothing from CMakeLists.txt, so a value defined

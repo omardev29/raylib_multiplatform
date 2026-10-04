@@ -461,7 +461,10 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **Web has no `while` loop and no `-s ASYNCIFY`.** The browser owns the frame
   loop via `emscripten_set_main_loop`. If you ever put a while loop back you have
   to put ASYNCIFY back with it, and it is expensive. Do not call `SetTargetFPS()`
-  on web.
+  on web -- `NoSetTargetFpsOnTheWebTest` walks every `#if` and fails on a call
+  the web build compiles (`ui/04_settings` had one). `[window] fps` is the cap,
+  and `app.cpp` applies it everywhere else, before `InitWindow` (DRM reads it to
+  pick the display mode).
 
 ## Verifying
 

@@ -25,6 +25,16 @@ height = 450
 # "landscape" | "portrait" | "unspecified" — applied to Android and iOS at once.
 # On desktop it only decides the initial window shape.
 orientation = "landscape"
+# Wait for the screen's refresh before showing each frame: no tearing, and no
+# frames drawn that nobody sees. Without it a desktop game runs as fast as the
+# GPU allows. The web paces the frame itself, so there it changes nothing.
+vsync = true
+# A cap in frames per second; 0 is no cap. With vsync on, the screen already
+# paces the game and this is rarely needed. Ignored on the web and on iOS, where
+# the platform paces the frame. On DRM (no desktop) it also picks the display
+# mode: 144 asks for a 144 Hz mode. 1/fps may not be longer than [app]
+# max_delta, or the game would run in slow motion.
+fps = 0
 
 [app]
 # The longest step the game logic is ever handed, in seconds.

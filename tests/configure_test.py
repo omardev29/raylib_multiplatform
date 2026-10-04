@@ -1047,6 +1047,9 @@ class ConfigureErrorLocationTest(unittest.TestCase):
             ("web", {"memory": 1, "grow": False}),
             ("window", {"title": "t", "width": 2, "height": 450,
                         "orientation": "landscape"}),
+            ("window", {"vsync": "on"}),
+            ("window", {"fps": 2000}),
+            ("window", {"fps": 15}),   # against the default max_delta 0.05
             ("raylib", {"disabled_modules": ["rshapes"]}),
             ("ui", dict(cfgmod.DEFAULTS["ui"], theme="chartreuse")),
             ("dev", {"compiler": "clang", "linker": "gold"}),
@@ -1060,6 +1063,190 @@ class ConfigureErrorLocationTest(unittest.TestCase):
                 self.assertIsNotNone(
                     cfgmod.locate_from(caught.exception),
                     f"this rejection cannot be pointed at:\n  {caught.exception}")
+
+
+class ConfigureWindowPacingTest(unittest.TestCase):
+    """[window] vsync and fps: every value they can take, every one they cannot,
+    the combination with [app] max_delta that cannot work, and the proof that
+    both reach the header and app.cpp -- a setting that validates and never
+    reaches raylib is a setting that does nothing."""
+
+    def validate(self, **window):
+        cfg = base_config(window=window)
+        with quiet():
+            cfgmod.validate(cfg, False)
+
+    def reject(self, said, app=None, **window):
+        overrides = {"window": window}
+        if app is not None:
+            overrides["app"] = app
+        cfg = base_config(**overrides)
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn(said, str(caught.exception))
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception),
+                             f"cannot be pointed at: {caught.exception}")
+        return str(caught.exception)
+
+    def test_the_defaults_are_vsync_on_and_no_cap(self):
+        self.assertIs(cfgmod.DEFAULTS["window"]["vsync"], True)
+        self.assertEqual(cfgmod.DEFAULTS["window"]["fps"], 0)
+
+    def test_every_value_they_can_take(self):
+        for vsync in (True, False):
+            with self.subTest(vsync=vsync):
+                self.validate(vsync=vsync)
+        # 20 is exactly 1 / 0.05, the default clamp: allowed, it is not LONGER.
+        for fps in (0, 20, 30, 60, 144, 240, 1000):
+            with self.subTest(fps=fps):
+                self.validate(fps=fps)
+
+    def test_vsync_is_a_switch_and_nothing_else(self):
+        for bad in ("true", "yes", 1, 0, 1.0, None, [True], {"on": True}):
+            with self.subTest(vsync=bad):
+                self.reject("[window] vsync", vsync=bad)
+
+    def test_fps_is_a_whole_number(self):
+        for bad in (True, False, "60", 60.0, 59.94, None, [60], {"fps": 60}):
+            with self.subTest(fps=bad):
+                self.reject("whole number of frames per second", fps=bad)
+
+    def test_fps_is_between_0_and_1000(self):
+        for bad in (-1, 1001, 2 ** 31):
+            with self.subTest(fps=bad):
+                self.reject("between 0 and 1000", fps=bad)
+
+    def test_a_cap_longer_than_the_clamp_is_slow_motion(self):
+        message = self.reject("75% speed", fps=15)
+        self.assertIn("max_delta", message)
+        # And it says what to do: three ways out, with the numbers.
+        self.assertIn("Raise fps to 20", message)
+        self.assertIn("max_delta = 0", message)
+        self.assertIn("[window] fps = 15", message)
+
+    def test_the_same_cap_is_fine_without_a_clamp_or_with_a_longer_one(self):
+        for max_delta in (0, 0.1):
+            with self.subTest(max_delta=max_delta):
+                cfg = base_config(window={"fps": 15}, app={"max_delta": max_delta})
+                with quiet():
+                    cfgmod.validate(cfg, False)
+
+    def test_a_typo_is_refused_by_name(self):
+        cfg = copy.deepcopy(cfgmod.DEFAULTS)
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.deep_merge(cfg, {"window": {"vsnyc": True}})
+        self.assertIn("vsnyc", str(caught.exception))
+
+    def test_both_reach_the_header(self):
+        with generated_header(base_config(window={"vsync": False, "fps": 144})) as header:
+            self.assertIn("#define RMP_WINDOW_VSYNC  0", header)
+            self.assertIn("#define RMP_WINDOW_FPS    144", header)
+        with generated_header(base_config()) as header:
+            self.assertIn("#define RMP_WINDOW_VSYNC  1", header)
+            self.assertIn("#define RMP_WINDOW_FPS    0", header)
+
+    def test_the_toml_documents_both_in_window(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        window = text[text.index("\n[window]"):text.index("\n[app]")]
+        self.assertRegex(window, r"\nvsync = true\n")
+        self.assertRegex(window, r"\nfps = 0\n")
+
+    def test_app_cpp_uses_both_in_the_right_order_and_never_on_the_web(self):
+        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        start = text.index("void start(std::unique_ptr<rmp::Scene> first) {")
+        body = text[start:text.index("\n}\n", start)]
+        self.assertIn("RMP_WINDOW_VSYNC", body)
+        self.assertIn("FLAG_VSYNC_HINT", body)
+        guard = body.index("#if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) "
+                           "&& !defined(PLATFORM_IOS)")
+        cap = body.index("SetTargetFPS(RMP_WINDOW_FPS)")
+        end = body.index("#endif", guard)
+        self.assertLess(guard, cap)
+        self.assertLess(cap, end)
+        # Before the window: raylib's DRM backend reads it to pick the mode.
+        self.assertLess(cap, body.index("InitWindow("))
+
+    def test_the_boot_line_reports_it_and_the_render_check_reads_it(self):
+        self.assertIn("vsync=%d", (REPO / "tests" / "smoke_test.h").read_text())
+        render = (REPO / "tools" / "render_check.sh").read_text()
+        self.assertIn("RMP_WINDOW_VSYNC", render)
+        self.assertIn("vsync=$WANT_VSYNC", render)
+
+
+def unguarded_calls(text: str, call: str) -> list[int]:
+    """Lines where `call(` appears in code that the web build also compiles.
+
+    A preprocessor walk: each #if/#ifdef/#ifndef/#elif pushes its condition,
+    #else negates it, #endif pops. A call is guarded when some condition above
+    it excludes the web: `!defined(PLATFORM_WEB)`, `!defined(__EMSCRIPTEN__)`,
+    or the #else of a branch that was the web. Comments do not count."""
+    stack = []
+    bad = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.split("//", 1)[0].strip()
+        directive = re.match(r"#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)", line)
+        if directive:
+            kind, rest = directive.group(1), directive.group(2).strip()
+            if kind == "if":
+                stack.append(rest)
+            elif kind == "ifdef":
+                stack.append(f"defined({rest})")
+            elif kind == "ifndef":
+                stack.append(f"!defined({rest})")
+            elif kind == "elif" and stack:
+                stack[-1] = rest
+            elif kind == "else" and stack:
+                stack[-1] = f"!({stack[-1]})"
+            elif kind == "endif" and stack:
+                stack.pop()
+            continue
+        if f"{call}(" not in line:
+            continue
+        def excludes_web(cond):
+            if "!defined(PLATFORM_WEB)" in cond or "!defined(__EMSCRIPTEN__)" in cond:
+                return True
+            return cond.startswith("!(") and ("defined(PLATFORM_WEB)" in cond
+                                              or "defined(__EMSCRIPTEN__)" in cond)
+        if not any(excludes_web(c) for c in stack):
+            bad.append(lineno)
+    return bad
+
+
+class NoSetTargetFpsOnTheWebTest(unittest.TestCase):
+    """CLAUDE.md: "Do not call SetTargetFPS() on web." The browser owns the frame
+    loop there, and a wait inside its callback only stalls it. That was a note,
+    and ui/04_settings called SetTargetFPS(60) on every platform anyway, the web
+    included -- so it is a check now, over every #if branch."""
+
+    def test_every_call_excludes_the_web(self):
+        seen = 0
+        for root in ("include", "src", "tests", "examples"):
+            for path in sorted((REPO / root).rglob("*")):
+                if path.suffix not in (".h", ".c", ".cpp") or "fixtures" in path.parts:
+                    continue
+                text = path.read_text(errors="replace")
+                if "SetTargetFPS(" not in text:
+                    continue
+                seen += 1
+                for lineno in unguarded_calls(text, "SetTargetFPS"):
+                    with self.subTest(file=path.relative_to(REPO).as_posix(), line=lineno):
+                        self.fail(f"{path.relative_to(REPO)}:{lineno} calls SetTargetFPS "
+                                  "where the web build compiles it")
+        self.assertGreater(seen, 0, "found no SetTargetFPS at all -- app.cpp has one")
+
+    def test_the_walk_itself(self):
+        self.assertEqual(unguarded_calls("SetTargetFPS(60);", "SetTargetFPS"), [1])
+        self.assertEqual(unguarded_calls(
+            "#if !defined(PLATFORM_WEB) && !defined(PLATFORM_IOS)\nSetTargetFPS(60);\n#endif",
+            "SetTargetFPS"), [])
+        self.assertEqual(unguarded_calls(
+            "#if defined(PLATFORM_WEB)\nx();\n#else\nSetTargetFPS(60);\n#endif",
+            "SetTargetFPS"), [])
+        self.assertEqual(unguarded_calls(
+            "#if defined(PLATFORM_WEB)\nSetTargetFPS(60);\n#endif", "SetTargetFPS"), [2])
+        self.assertEqual(unguarded_calls(
+            "#ifndef __EMSCRIPTEN__\n#endif\nSetTargetFPS(1);", "SetTargetFPS"), [3])
+        self.assertEqual(unguarded_calls("// SetTargetFPS(60);", "SetTargetFPS"), [])
 
 
 class ConfigureCombinationTest(unittest.TestCase):
@@ -2929,9 +3116,29 @@ class ConfigureRejectionCoverageTest(unittest.TestCase):
     ones went.
     """
 
+    @staticmethod
+    def expectations():
+        """Every string this file USES -- in an assertion, a CASES key, a call
+        -- and none of the ones it only SAYS: docstrings and comments are left
+        out. The first version searched the raw text, so a docstring that
+        mentioned "[window] vsync" satisfied the gate with no test behind it
+        at all."""
+        tree = ast.parse(Path(__file__).read_text())
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)) and node.body:
+                first = node.body[0]
+                if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+                        and isinstance(first.value.value, str):
+                    docstrings.add(id(first.value))
+        return "\n".join(n.value for n in ast.walk(tree)
+                         if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                         and id(n) not in docstrings)
+
     def test_every_rejection_in_validate_has_a_test_that_names_it(self):
         source = (REPO / "tools" / "configure.py").read_text()
-        mine = Path(__file__).read_text()
+        mine = self.expectations()
         phrases = validate_rejections(source)
         self.assertGreater(len(phrases), 40,
                            "the parse found almost no rejections, which looks exactly "
@@ -2968,6 +3175,15 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         "[project] name":             ("project", ("name",), "9lives"),
         "[window] title":             ("window", ("title",), "two\nlines"),
         "[window] orientation":       ("window", ("orientation",), "sideways"),
+        "[window] vsync":             ("window", ("vsync",), "yes"),
+        "[app] max_delta":            ("app", ("max_delta",), "fast"),
+        "[deploy] licenses":          ("deploy", ("licenses",), "yes"),
+        "[dev] compiler":             ("dev", ("compiler",), "icc"),
+        "[dev] strict":               ("dev", ("strict",), "yes"),
+        "[linux] glibc":              ("linux", ("glibc",), 2.28),
+        "[upx] max_size_mb":          ("upx", ("max_size_mb",), "big"),
+        "[web] backend":              ("web", ("backend",), "sdl"),
+        "[window] fps":               ("window", ("fps",), -1),
         "must be an integer between 16 and 16384": ("window", ("width",), 4),
         "[android] category":         ("android", ("category",), "not-a-category"),
         "must be true or false":      ("android", ("display", "keep_on"), "false"),

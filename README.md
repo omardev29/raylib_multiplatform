@@ -88,6 +88,8 @@ title  = "My Game"
 width  = 800
 height = 450
 orientation = "landscape"              # applied to Android and iOS at once
+vsync = true                           # wait for the screen's refresh
+fps = 0                                # a cap in frames per second; 0 = none
 
 [targets]
 enabled  = ["all"]                     # groups: all desktop mobile linux windows apple bsd web android
