@@ -4,7 +4,7 @@
 // Named actions, eight-direction movement in one line, and the part nobody
 // thinks about until it bites: who gets to hear a press.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 01_actions`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

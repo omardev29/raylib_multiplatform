@@ -18,7 +18,7 @@
 //   take_reward_earned() -> rewarded only: true once, then reward_amount()
 //
 // Configure your real ad-unit ids in [android.admob] in
-// raylib_multiplatform.toml before shipping (the template defaults to Google's
+// raylib_multiplatform.toml before shipping (the framework defaults to Google's
 // official TEST ids). Banner ads are not supported by design.
 //
 // [android.admob] enabled = false removes AdMob from the Android build
@@ -26,7 +26,7 @@
 // same no-ops they already are on desktop. Ads are opt-in for a reason — see
 // the consent (UMP) warning in README.md before shipping with them on.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 01_interstitial`.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
@@ -44,8 +44,7 @@ static void on_ready() {
     rmp::ads::request_rewarded();
 }
 
-static void on_frame(float delta) {
-    (void)delta;
+static void on_frame(float) {
     // Show an interstitial when it is loaded (here: on SPACE).
     if (IsKeyPressed(KEY_SPACE) && rmp::ads::is_interstitial_loaded()) {
         rmp::ads::show_interstitial();

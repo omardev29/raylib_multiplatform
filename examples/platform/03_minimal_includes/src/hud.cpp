@@ -14,18 +14,27 @@
 //     src/hud.cpp    #include <rmp/ui.h>   <- this file
 //     src/main.cpp   #include <rmp/app.h>
 //
-// It has no main() on purpose. CI compiles every example with -fsyntax-only,
-// which is exactly the right check here: what is being tested is whether the
-// header is self-sufficient, not whether the program runs.
+// It has no main() on purpose. The examples build compiles it and runs
+// nothing, which is the right check here: what is being tested is whether the
+// header is enough on its own, not whether a program runs.
 //
 // The headers, and what each one is for:
 //
-//     rmp/app.h       the entry point, and rmp::app::quit()
-//     rmp/ui.h        rmp::ui — menus, buttons, layout, Theme
-//     rmp/assets.h    rmp::assets — loading from resources/
-//     rmp/ads.h       rmp::ads — interstitial and rewarded
+//     rmp/app.h       the entry point, rmp::app::quit() and rmp::global
+//     rmp/scene.h     rmp::Scene and rmp::Camera
+//     rmp/object.h    rmp::Object and rmp::Handle
+//     rmp/behavior.h  rmp::behavior: TopDown, Platformer, Health and the rest
+//     rmp/input.h     rmp::input: named actions and the pointer
+//     rmp/ui.h        rmp::ui: menus, buttons, layout, Theme
+//     rmp/assets.h    rmp::assets: loading from resources/
+//     rmp/tilemap.h   rmp::Tilemap: LDtk and Tiled maps
+//     rmp/audio.h     rmp::audio: sounds and music, by name
+//     rmp/save.h      rmp::save and rmp::Value: saving the game
+//     rmp/random.h    rmp::random: one seeded generator
+//     rmp/ads.h       rmp::ads: interstitial and rewarded
 //     rmp/math.h      vectors, rectangles, colours, and the arithmetic
-//     rmp/config.h    RMP_WINDOW_TITLE and the rest of the .toml
+//     rmp/config.h    RMP_WINDOW_TITLE and the rest of the .toml -- every
+//                     header above brings it, so you never type this one
 //
 // If you get "'rmp::input' has not been declared", you are missing the header
 // that declares it. The compiler is telling you the truth, which is more than

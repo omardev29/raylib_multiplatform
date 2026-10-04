@@ -15,7 +15,7 @@
 // entry point macro opens the pack before on_ready() and closes it after
 // on_exit(), so there is nothing to remember and nothing to get wrong.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 01_loading`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -33,7 +33,7 @@ static rmp::Font ui;
 static rmp::Sound jump;
 
 // Called once at startup: the pack (if any) is already open by now.
-static inline void on_ready() {
+static void on_ready() {
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
 
     // Load by resource name — no path, no extension guessing, and no #ifdef
@@ -63,7 +63,7 @@ static inline void on_ready() {
     // with overlapping voices and no handle to keep.
 }
 
-static inline void on_frame(float delta) {
+static void on_frame(float delta) {
     if (IsKeyPressed(KEY_SPACE)) PlaySound(jump);
     if (IsKeyPressed(KEY_ENTER)) rmp::audio::play("jump");
 
@@ -79,7 +79,7 @@ static inline void on_frame(float delta) {
     EndDrawing();
 }
 
-static inline void on_exit() {
+static void on_exit() {
     // The framework has already released everything in the resource table
     // and closed the sound device by the time this runs; letting the handles
     // go is tidiness, not a requirement -- a handle that outlives the table

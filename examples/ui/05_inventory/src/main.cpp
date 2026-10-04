@@ -13,7 +13,7 @@
 //     same code, no branch on platform.
 //
 // One panel per file under src/panels/; the item table is in include/.
-// Built and booted by CI on every push, and by `just example 05_inventory` here.
+// Run it: `just example 05_inventory`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -28,8 +28,7 @@ static void on_ready() {
     icon = rmp::assets::load_texture("rabbit.png");
 }
 
-static void on_frame(float delta) {
-    (void)delta;
+static void on_frame(float) {
     // The UI is reading the pointer, so the game must not act on the same
     // click. Without this, picking an item also swings the sword.
     if (!rmp::ui::wants_pointer() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {

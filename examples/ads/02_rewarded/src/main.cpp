@@ -13,7 +13,7 @@
 // below are live and the reward never arrives, which is exactly what you want
 // while building the rest of the game.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 02_rewarded`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/ads.h>
@@ -96,7 +96,7 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //   until the day you publish.
 //
 // * CONSENT IS NOT IMPLEMENTED. Serving ads in the EEA or the UK requires a
-//   Google-certified consent platform, and this template does not ship one.
+//   Google-certified consent platform, and this framework does not ship one.
 //   See the warning in README.md.
 //
 // * Do not gate progress behind an ad that may never load. is_rewarded_loaded()

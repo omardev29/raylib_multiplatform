@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
 // examples/ui/06_style/src/main.cpp
 //
-// Phase 4: the two themes, the five variants, the three sizes, and the
-// transition that ties them together.
+// The two themes, the five variants, the three sizes, and the transition that
+// ties them together.
 //
 // The idea worth taking away is that none of this is a colour parameter. You
 // say what a button MEANS — primary, danger, ghost — and how important it is —
@@ -14,7 +14,7 @@
 //
 // If you had passed colours to widgets instead, that line would be a rewrite.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 06_style`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

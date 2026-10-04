@@ -9,7 +9,7 @@
 // and each of those decisions can be overridden individually when you need it.
 //
 // One screen per file under src/screens/; this file only says which one is on.
-// Built and booted by CI on every push, and by `just example 01_menu` here.
+// Run it: `just example 01_menu`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -22,8 +22,7 @@ static void on_ready() {
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
 }
 
-static void on_frame(float delta) {
-    (void)delta;
+static void on_frame(float) {
     if (game.screen == Screen::PLAYING) {
         game.score += 1;
         if (IsKeyPressed(KEY_ESCAPE)) game.screen = Screen::MENU;

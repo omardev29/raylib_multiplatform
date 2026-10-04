@@ -20,7 +20,7 @@
 // opens, store() writes them on Apply. The Settings struct stays plain data;
 // the Value is only the shape it has on disk.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 04_settings`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

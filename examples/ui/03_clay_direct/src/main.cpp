@@ -9,7 +9,7 @@
 // ratios, per-corner radii, z-index), you do not have to wait for us and you do
 // not have to give up rmp::ui to get it.
 //
-// It is the same bargain as the rest of the template: rmp::assets does not stop
+// It is the same bargain as the rest of the framework: rmp::assets does not stop
 // you calling LoadTexture, and rmp::ui does not stop you calling Clay. Or
 // rlgl. Or raw OpenGL, for that matter.
 //
@@ -28,7 +28,7 @@
 //     anything built at runtime must stay alive until end() has returned. This
 //     is the one footgun rmp::ui::text() removes for you by copying.
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 03_clay_direct`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -46,8 +46,7 @@ static void on_ready() {
     logo = rmp::assets::load_texture("rabbit.png");
 }
 
-static void on_frame(float delta) {
-    (void)delta;
+static void on_frame(float) {
     // A copy of the raylib struct, alive for this frame. The handle above is
     // the owner; this is what Clay is allowed to point at.
     Texture2D logo_tex = logo;

@@ -18,7 +18,7 @@
 //   GetScreenOrientation()              -> portrait / landscape
 //   GetAppStoragePath / WriteToAppStorage / ReadFromAppStorage
 //
-// Built and booted by CI on every push, and by `just example` here.
+// Run it: `just example 02_mobile_raymob`.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
@@ -37,8 +37,7 @@ static void on_ready() {
 #endif
 }
 
-static void on_frame(float delta) {
-    (void)delta;
+static void on_frame(float) {
 #ifdef __ANDROID__
     // Haptics: vibrate for 50 ms whenever the screen is tapped.
     if (IsKeyPressed(KEY_BACK) || IsGestureDetected(GESTURE_TAP)) VibrateMS(50);

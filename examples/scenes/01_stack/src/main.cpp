@@ -20,7 +20,7 @@
 //      deferred to the end of the frame, so the scene that asked for it
 //      survives the rest of the frame it asked from.
 //
-// Built and booted by CI on every push, and by `just example 01_stack` here.
+// Run it: `just example 01_stack`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>

@@ -1,5 +1,5 @@
 // ===========================================================================
-// examples/plain_c/main.c — the template with none of the template.
+// examples/plain_c -- the framework with none of the framework.
 //
 // Plain C, one include, your own main(). No <rmp/...>, no rmp::assets, no
 // scenes, no entry-point macro. What you keep is everything the framework does
@@ -10,7 +10,7 @@
 // To use it:
 //
 //     rm src/main.cpp && rm -r src/rmp/ src/scenes/   # yes, all of them
-//     cp examples/plain_c/main.c src/
+//     cp examples/plain_c/src/main.c src/
 //     cmake --preset debug && cmake --build build
 //
 // src/ is globbed by all four build systems (CMake, the Android CMakeLists,
@@ -63,7 +63,7 @@
 // `assets_failed=0` is the claim being made — no asset was asked for and not
 // found. Nothing here tracks that, so this file simply asserts it; if you load
 // files and want the claim checked, include <smoke_test.h> (it is
-// C-compatible) and use the template's asset layer.
+// C-compatible) and use the framework's asset layer.
 static void report_boot(void) {
     TraceLog(LOG_INFO,
              "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 testFrames=0");
