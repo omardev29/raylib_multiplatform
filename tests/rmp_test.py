@@ -762,7 +762,7 @@ class CiModeTest(unittest.TestCase):
     def test_the_framework_jobs_are_gated_and_release_tells_skipped_apart(self):
         jobs = load_workflow(self, "ci.yml")["jobs"]
         release = " ".join(jobs["release"]["if"].split())
-        for name in ("examples", "rmp_new"):
+        for name in ("examples", "rmp_new", "docs"):
             with self.subTest(job=name):
                 self.assertTrue(gated(jobs[name].get("if")))
                 self.assertIn(name, jobs["release"]["needs"])

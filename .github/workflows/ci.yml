@@ -587,6 +587,55 @@ jobs:
             echo "FALLA: the game compared a golden frame it should not have"; exit 1; }
           xvfb-run -a -s "-screen 0 1280x720x24" ./rmp test smoke
 
+  # The documentation lives in its own repository, omardev29/rmp-docs, and
+  # documents one commit of this one. Here it is checked against THIS commit:
+  # every page's gates, every name it links, every C and C++ block it shows
+  # compiled against these headers, every .toml block through this
+  # configure.py. On a push it only warns -- an API change lands here first
+  # and the docs follow it. On a tag it is strict, and the release needs it:
+  # a version whose documentation lies is not released.
+  docs:
+    needs: config
+    if: needs.config.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Public: no token of ours, and nothing written back.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: omardev29/rmp-docs
+          path: rmp-docs
+          persist-credentials: false
+
+      # The compile tier compiles with the flags the framework's build gives
+      # an example, read from the configure-only lint preset's database.
+      - name: Configure
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 tools/configure.py
+          cmake --preset lint > /dev/null
+
+      - name: The docs, against this commit
+        id: docs
+        continue-on-error: ${{ github.ref_type != 'tag' }}
+        run: python3 rmp-docs/tools/build.py check --framework "$GITHUB_WORKSPACE" --tier compile
+
+      - name: Say so when they do not pass
+        if: steps.docs.outcome == 'failure'
+        run: |
+          echo "::warning title=docs::rmp-docs does not pass against this commit; a tag of it would not be released. The step above says which page and why."
+
   linux:
     needs: config
     if: contains(fromJSON(needs.config.outputs.families), 'linux')
@@ -685,12 +734,12 @@ jobs:
   # [targets] reports `skipped`, and demanding success would mean disabling any
   # platform silently disables releases too.
   #
-  # examples and rmp_new are the framework's own; a game skips them. Skipped
+  # examples, rmp_new and docs are the framework's own; a game skips them. Skipped
   # passes ONLY in a game: in the framework a skipped job is one that did not
   # run, and a release it did not check.
   # ---------------------------------------------------------------------------
   release:
-    needs: [config, lint, examples, rmp_new, linux, web, windows, android, apple, bsd]
+    needs: [config, lint, examples, rmp_new, docs, linux, web, windows, android, apple, bsd]
     if: >
       always() &&
       github.ref_type == 'tag' &&
@@ -699,6 +748,8 @@ jobs:
        (needs.config.outputs.framework == 'false' && needs.examples.result == 'skipped')) &&
       (needs.rmp_new.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.rmp_new.result == 'skipped')) &&
+      (needs.docs.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.docs.result == 'skipped')) &&
       needs.linux.result != 'failure'   && needs.linux.result != 'cancelled' &&
       needs.web.result != 'failure'     && needs.web.result != 'cancelled' &&
       needs.windows.result != 'failure' && needs.windows.result != 'cancelled' &&

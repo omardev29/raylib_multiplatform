@@ -498,7 +498,11 @@ against the manifest) run for real only inside the pinned image: `podman run
 --rm -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@sha256:<digest>
 bash tools/<x>_check.sh` is how to see what CI sees.
 CI: a push runs the fast set, `gh workflow run ci.yml -f full=true` runs all 17
-targets.
+targets. The `docs` job checks `omardev29/rmp-docs` (main) against the commit:
+every page's gates and every code block compiled against these headers. It only
+warns on a push and blocks a tag's release, so a change to the public API is
+followed by the docs change in `../rmp-docs` and a bump of its `FRAMEWORK_REF`
+(`python3 tools/build.py check --tier compile` there says what broke).
 
 ### Never wait on CI by polling. Put a monitor on it.
 
