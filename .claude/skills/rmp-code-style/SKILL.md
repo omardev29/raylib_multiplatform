@@ -22,7 +22,7 @@ form. Checked, not remembered: `readability-identifier-naming` in `.clang-tidy`
 | Private and protected data members | `_snake_case` | `_slot` |
 | The eight hooks, and no other method | `_snake_case` | `_ready`, `_update`, `_collision` |
 | File state in src/ and tests/ | a struct per concern | `context.started` |
-| File state in examples/ | `snake_case` | `jumps_seen` |
+| File state in examples/ | `snake_case` | `player` |
 | Macros and generated values | `RMP_CONSTANT_CASE` | `RMP_ENTRY_POINT`, `RMP_WINDOW_WIDTH` |
 
 - No prefixes: no `k`, no `g_`, no trailing `_`.

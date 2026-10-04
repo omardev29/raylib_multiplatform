@@ -69,7 +69,7 @@ here so that nobody "fixes" one back.
 | The hooks we call on your type -- these eight, no other method | `_snake_case` | `_ready` `_update` `_late_update` `_draw` `_collision` `_end` `_suspend` `_resume` |
 | Functions you hand us | `on_snake_case` | `on_click`, `on_ready` |
 | File-scope mutable state in `src/` and `tests/` | a struct per concern, read as `concern.field` | `context.started`, `pointer.down` |
-| File-scope mutable state in `examples/` | `snake_case` | `jumps_seen` |
+| File-scope mutable state in `examples/` | `snake_case` | `player` (`examples/assets/01_loading`) |
 | Our macros, and every value the `.toml` generates | `RMP_CONSTANT_CASE` | `RMP_GAME`, `RMP_WINDOW_WIDTH` |
 
 - **One spelling per kind, and no prefixes.** No `k`, no `g_`, no trailing `_`.
