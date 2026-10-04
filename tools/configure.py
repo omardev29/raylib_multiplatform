@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn raylib_multiplatform.toml into everything the build systems need.
 
-The template has four build systems (CMake, Gradle, XcodeGen, GitHub Actions)
+The framework has four build systems (CMake, Gradle, XcodeGen, GitHub Actions)
 and they all need to agree on the same handful of facts: what the game is
 called, what its bundle id is, which platforms to build. Left to themselves
 they disagree, and the failure is always silent and always expensive — a

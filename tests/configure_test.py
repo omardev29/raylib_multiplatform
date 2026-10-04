@@ -2348,6 +2348,56 @@ class IosRefusesOutOfOrderInitialisersTest(unittest.TestCase):
         self.assertIn("$(inherited) -Werror=reorder-init-list -DMY_GAME=1", text)
 
 
+class SmallTruthsTest(unittest.TestCase):
+    """Sentences that were false about the code next to them."""
+
+    def test_assets_h_says_where_the_framework_catches(self):
+        """It said the framework "has no exceptions anywhere", and
+        src/rmp/save.cpp catches three times, around standard-library calls
+        that can throw."""
+        text = (REPO / "include" / "rmp" / "assets.h").read_text()
+        self.assertNotIn("no exceptions anywhere", text)
+        catches = (REPO / "src" / "rmp" / "save.cpp").read_text().count("catch (...)")
+        self.assertGreater(catches, 0)
+        self.assertIn("src/rmp/save.cpp", text)
+
+    def test_smoke_test_h_names_its_note_and_not_a_line(self):
+        """"the note at CMakeLists.txt:599" pointed at something else the day
+        the file grew. A pointer into another file names what it points at."""
+        for path in [REPO / "tests" / "smoke_test.h", *sorted((REPO / "include" / "rmp").glob("*.h")),
+                     *sorted((REPO / "src" / "rmp").rglob("*.cpp"))]:
+            with self.subTest(file=path.relative_to(REPO).as_posix()):
+                self.assertNotRegex(path.read_text(), r"\b[\w./]+\.(txt|cpp|h|py|sh|yml):\d+\b")
+
+    def test_no_note_names_a_tool_that_is_gone(self):
+        """tools/license_check.sh became tools/license_db.py, and two notes
+        still named it. (The retired runner in FROZEN_VERSIONS.md is
+        DocsTest.test_no_just_is_left's, which now reads the notes in
+        thirdparty/ that are ours.)"""
+        for rel in ("thirdparty/FROZEN_VERSIONS.md", "thirdparty/raylib/PATCHES.md",
+                    "README.md", "TECHNICAL.md"):
+            text = (REPO / rel).read_text()
+            for tool in re.findall(r"tools/[\w.]+\.(?:sh|py)", text):
+                with self.subTest(file=rel, tool=tool):
+                    self.assertTrue((REPO / tool).is_file(), f"{rel} names {tool}, which is gone")
+
+    def test_configure_py_calls_this_a_framework(self):
+        docstring = ast.get_docstring(ast.parse((REPO / "tools" / "configure.py").read_text()))
+        self.assertNotIn("template", docstring.lower())
+
+    def test_the_seam_check_says_where_the_clock_is_read(self):
+        """seam_check.sh called step_delta() "the single GetFrameTime() in the
+        whole framework", and the UI read it in two more places. The UI has its
+        one read now, frame_time() -- the animation clock goes through it --
+        and the note says there are two seams for the clock: the game's and the
+        UI's."""
+        style = (REPO / "src" / "rmp" / "ui" / "style.cpp").read_text()
+        self.assertNotIn("GetFrameTime()", "\n".join(l.split("//")[0] for l in style.splitlines()))
+        seam = (REPO / "tools" / "seam_check.sh").read_text()
+        self.assertNotIn("is the single", seam)
+        self.assertNotIn('"src/rmp/ui/style.cpp"', seam)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
@@ -5567,6 +5617,22 @@ class NamingCheckTest(unittest.TestCase):
     def test_r5_allows_our_prefix(self):
         self.assert_green("#define RMP_THING 1")
 
+    def test_r8_a_trailing_underscore(self):
+        """"No trailing `_`" is in the naming table, and nothing checked it:
+        RMP_REPORT_ONCE declared `rmp_report_site_` for months. clang-tidy
+        does not name a declaration a macro expands, and R3 only sees the
+        underscore when a dot or an arrow follows it."""
+        self.assert_red("R8", "#define RMP_ONCE() do { static const char site_ = 0; } while (0)")
+        internal = (REPO / "src" / "rmp" / "internal.h").read_text()
+        self.assertNotIn("rmp_report_site_", internal)
+        self.assert_red("R8", "int count_ = 0;")
+        self.assert_red("R8", "void f(int value_);")
+
+    def test_r8_leaves_comments_strings_and_the_foreign_field_alone(self):
+        self.assert_green("// the move_* actions", 'const char *name = "many_";',
+                          "int f(Layer *layer) { return layer->class_.ptr != nullptr; }",
+                          "#define RMP_ARGS(...) f(__VA_ARGS__)")
+
     def test_r6_a_constant_named_like_a_raylib_macro(self):
         self.assert_red("R6", "constexpr float PI = 3.14159f;")
         self.assert_red("R6", "constexpr float EPSILON = 0.000001f;")
@@ -5639,7 +5705,7 @@ class NamingCheckTest(unittest.TestCase):
         enforced = set(re.findall(r'"(R\d)"', re.search(r"^ENFORCED = \{([^}]*)\}",
                                                        text, re.M).group(1)))
         rules = set(re.findall(r'^    "(R\d)": ', text, re.M))
-        self.assertEqual(len(rules), 7)
+        self.assertEqual(len(rules), 8)
         self.assertEqual(enforced, rules)
 
     def test_it_is_wired_into_rmp_test_and_the_lint_job(self):

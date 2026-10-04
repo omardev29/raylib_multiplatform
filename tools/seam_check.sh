@@ -63,22 +63,23 @@ count_hits() { strip_comments "$1" | grep -cE "$PATTERN"; }
 #   cannot be tested for behaviour, only for layout. Phase 5 (rmp::input) is
 #   where these move, and this list is how we notice if they do not.
 ALLOWED=(
-  "src/rmp/app.cpp"           # THE seam for time: step_delta() is the single
-                             # GetFrameTime() in the whole framework, and every
-                             # runner in rmp/app.h goes through it so that
-                             # [app] max_delta applies to all of them. Nothing
-                             # downstream reads the clock -- they are handed a
-                             # delta, which is what makes the object and scene
-                             # tests able to run a frame of exactly 1/30.
+  "src/rmp/app.cpp"           # THE seam for the game's time: step_delta() is
+                             # the one GetFrameTime() the game's code sees, and
+                             # every runner in rmp/app.h goes through it so that
+                             # [app] max_delta applies to all of them. Scenes,
+                             # objects and behaviors are handed a delta, which is
+                             # what makes their tests able to run a frame of
+                             # exactly 1/30. The UI's clock is the other seam,
+                             # frame_time() in ui/context.cpp, below.
   "src/rmp/input.cpp"         # THE seam: sample_with_raylib() is the provider a
                              # test replaces, and the only place the devices are
                              # read at all. Everything else asks rmp::input.
   "src/rmp/ui/context.cpp"    # the seam: read_pointer(), read_nav() and
                              # frame_time() -- the mouse, the keyboard and the
                              # gamepad the UI navigates itself with, and the
-                             # clock, each sampled once at the frame boundary
-                             # through a provider a test replaces
-  "src/rmp/ui/style.cpp"      # the seam: anim_begin_frame(), 0 in test mode
+                             # clock -- frame_time(), which the transitions in
+                             # style.cpp read too -- each sampled once at the
+                             # frame boundary through a provider a test replaces
   "src/rmp/object.cpp"        # THE seam for the viewport: view_rect() falls back
                              # to the screen for an object with empty bounds, and
                              # GetScreenWidth()/GetScreenHeight() are what "the

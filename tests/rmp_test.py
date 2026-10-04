@@ -924,7 +924,11 @@ class DocsTest(unittest.TestCase):
 
     def texts(self):
         for path in rmp_tracked_files():
-            if path.startswith("thirdparty/") or path == "tests/rmp_test.py":
+            # thirdparty/ is other people's text -- except the notes there that
+            # are ours: FROZEN_VERSIONS.md and the PATCHES.md files. Skipping
+            # the whole folder is how `just fmt check` survived in one of them.
+            ours = path == "thirdparty/FROZEN_VERSIONS.md" or path.endswith("/PATCHES.md")
+            if (path.startswith("thirdparty/") and not ours) or path == "tests/rmp_test.py":
                 continue
             try:
                 yield path, (REPO / path).read_text(encoding="utf-8")

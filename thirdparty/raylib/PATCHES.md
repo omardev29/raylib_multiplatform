@@ -29,5 +29,5 @@ scissor clips where it says.
 | `src/external/rlsw.h` | 4213 | `swScissor` reads the scissor's y from the bottom: a backport of upstream `7a247ff40f` (#5976) | raylib passes `rlScissor` a bottom-origin y, as `glScissor` takes it, and the software renderer read it from the top, so every scissored draw under `PLATFORM=Memory` (the CI screenshots, the examples' posters) was clipped to the mirrored band. Drop at the next bump: upstream has it |
 
 Re-apply the first six and the three backend lines when bumping raylib; the `raudio.c` and `rlsw.h` backports are already upstream. `thirdparty/FROZEN_VERSIONS.md` carries the
-same list with the full reasoning, and `tools/license_check.sh` fails if this
-file goes missing while the component is recorded as modified.
+same list with the full reasoning, and `tools/license_db.py --check` fails if
+this file goes missing while the component is recorded as modified.

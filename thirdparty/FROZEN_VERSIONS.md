@@ -51,7 +51,7 @@ pillow_sha256_cp313_win_amd64 1cca606cd25738df4ed873d5ad46bbdb3d83b5cbca291f6b4f
 pillow_sha256_cp314_win_amd64 fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d
 # The formatter and the linter. Pinned because a different minor version of
 # clang-format reformats files that were already formatted, which turns every
-# diff into noise and makes `just fmt check` fail for a reason that has nothing
+# diff into noise and makes `rmp fmt check` fail for a reason that has nothing
 # to do with the change. The lint job reads these two values out of this block
 # rather than repeating them, so there is one number and nothing to drift.
 # UPX, for [upx] in the .toml. Downloaded at this exact version with the
@@ -90,7 +90,7 @@ butler                    15.24.0
 freebsd                   15.1
 openbsd                   7.9
 netbsd                    10.1
-# Unmodified components, pinned by content. tools/license_check.sh recomputes
+# Unmodified components, pinned by content. tools/license_db.py recomputes
 # these: a file that changes without its row in THIRD_PARTY_LICENSES.md
 # changing is a modification nobody marked. One file: its sha256. A directory
 # of several (rres, cJSON): the sha256 of "path NUL sha256 LF" per source file,

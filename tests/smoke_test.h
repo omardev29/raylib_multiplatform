@@ -125,7 +125,8 @@ static inline int SmokeTest_CaptureAt(void) {
 //     this gate would fail a perfectly good build.
 //
 //     (This used to say the web build uses `-s ASYNCIFY`. It does not, on
-//     purpose and at length: see the note at CMakeLists.txt:599. The
+//     purpose and at length: see "No ASYNCIFY, on purpose" in rmp_add_game()
+//     in CMakeLists.txt. The
 //     conclusion was right and the reason was not, which is worse than no
 //     reason, because a reader relies on it.)
 //

@@ -60,8 +60,11 @@ namespace rmp {
 //
 // AND THEY DO NOT THROW. An asset that fails to load gives you an empty
 // resource: valid() is false, and drawing it draws nothing, the same as raylib
-// does with a zeroed struct. That is deliberate — see rmp/app.h for why this
-// framework has no exceptions anywhere.
+// does with a zeroed struct. That is deliberate, and true of the whole
+// framework: nothing of ours throws to your code -- rmp/app.h says why, at
+// quit(). Where a standard-library call can throw, the framework catches it
+// and turns it into a value: three places in src/rmp/save.cpp (the random
+// device, and a path converted on Windows).
 // ---------------------------------------------------------------------------
 
 namespace detail {

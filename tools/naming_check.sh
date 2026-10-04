@@ -22,6 +22,9 @@
 #   R7  no retired name: `#if APP_SAVE_PORTABLE` after the rename is not an
 #       error, it is 0, and it would have turned portable saves off on Windows
 #       and nowhere else.
+#   R8  no name ending in `_`, declared or used -- the table says no trailing
+#       underscore, and clang-tidy does not name a declaration a macro expands:
+#       RMP_REPORT_ONCE's `rmp_report_site_` sat in internal.h unseen.
 #
 # Comments, strings and character literals do not count: they are blanked
 # before any rule runs (a comment may well say what is forbidden).
@@ -45,7 +48,7 @@ import re
 import sys
 
 # Every rule holds on the tree; NamingCheckTest requires that this stays so.
-ENFORCED = {"R1", "R2", "R3", "R4", "R5", "R6", "R7"}
+ENFORCED = {"R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"}
 
 RULES = {
     "R1": "a `g_` name: file state is a struct per concern (`frame.open`), "
@@ -59,6 +62,7 @@ RULES = {
     "R6": "a constant named like a macro somebody else defines, or starting "
           "with RMP_",
     "R7": "a retired name",
+    "R8": "a name ending in `_`: no trailing underscore, anywhere",
 }
 
 # The hooks the framework calls on your type. Calling one on another object
@@ -280,6 +284,10 @@ def check(path, rules, forbidden_macros):
         word = m.group(0)
         if word in RETIRED_NAMES or word.startswith(RETIRED_PREFIXES):
             hit("R7", m.start(), word)
+    # A leading letter, so __VA_ARGS__ and the implementation's __x are not ours.
+    for m in re.finditer(r"\b[A-Za-z]\w*[A-Za-z0-9]_\b", code):
+        if m.group(0) not in FOREIGN_TRAILING:
+            hit("R8", m.start(), m.group(0))
     return found
 
 

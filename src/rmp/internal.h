@@ -126,13 +126,13 @@ void reset_reports_for_tests();
 
 // The site is the address of a static local, so each expansion of the macro is
 // one line in the log and not one per frame. Both forms take a printf format.
-#define RMP_REPORT_ONCE(...)                                        \
-    do {                                                            \
-        static const char rmp_report_site_ = 0;                     \
-        ::rmp::detail::report_once(&rmp_report_site_, __VA_ARGS__); \
+#define RMP_REPORT_ONCE(...)                                            \
+    do {                                                                \
+        static const char rmp_report_once_site = 0;                     \
+        ::rmp::detail::report_once(&rmp_report_once_site, __VA_ARGS__); \
     } while (0)
-#define RMP_REPORT_ONCE_KEYED(key, ...)                                          \
-    do {                                                                         \
-        static const char rmp_report_site_ = 0;                                  \
-        ::rmp::detail::report_once_keyed(&rmp_report_site_, (key), __VA_ARGS__); \
+#define RMP_REPORT_ONCE_KEYED(key, ...)                                              \
+    do {                                                                             \
+        static const char rmp_report_once_site = 0;                                  \
+        ::rmp::detail::report_once_keyed(&rmp_report_once_site, (key), __VA_ARGS__); \
     } while (0)

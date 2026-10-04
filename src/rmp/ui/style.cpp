@@ -62,9 +62,10 @@ Color mix_color(Color a, Color b, float t) {
 }
 
 void anim_begin_frame() {
-    // In test mode there is no window, so there is no frame time either, and a
-    // headless run must produce the same numbers every time it is run.
-    anim.delta = test_mode() ? 0.0f : GetFrameTime();
+    // frame_time(): the UI's one read of the clock (context.cpp), 0 in test
+    // mode -- there is no window, so no frame time either, and a headless run
+    // must produce the same numbers every time it is run.
+    anim.delta = frame_time();
     // A Breakpoint, a dropped frame or a window drag can hand us a second and a
     // half. Letting that through makes every transition finish instantly, which
     // is not wrong, but capping it keeps the first frame after a stall looking
