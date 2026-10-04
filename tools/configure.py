@@ -1892,6 +1892,10 @@ def gen_android_manifest(cfg: dict, targets: list[str]) -> None:
     write(MANIFEST_OUT, "\n".join(tidy).rstrip() + "\n")
 
 
+# What CMakeLists.txt calls RMP_STRICT_CXX_FLAGS for Clang, for the Xcode project.
+IOS_STRICT_CXX_FLAGS = "-Werror=reorder-init-list"
+
+
 def yaml_scalar(v) -> str:
     if isinstance(v, bool):
         return "YES" if v else "NO"
@@ -1915,7 +1919,17 @@ def gen_ios_project(cfg: dict) -> None:
                         "UIInterfaceOrientationLandscapeRight"),
     }[cfg["window"]["orientation"]]
 
-    extra = "".join(f"        {k}: {yaml_scalar(v)}\n" for k, v in ios["settings"].items())
+    # -Werror=reorder-init-list: a designated initialiser out of declaration
+    # order is an error in GCC and only a warning in Clang, and Xcode is Clang.
+    # CMakeLists.txt gives it to every CMake target and raymob's CMake to
+    # Android; this is the third build system. An OTHER_CPLUSPLUSFLAGS of the
+    # game's own in [ios.settings] is kept, after ours, as one key -- YAML takes
+    # the last of two, and either one alone would lose the other.
+    settings = dict(ios["settings"])
+    cxx_flags = "$(inherited) " + IOS_STRICT_CXX_FLAGS
+    if "OTHER_CPLUSPLUSFLAGS" in settings:
+        cxx_flags += " " + str(settings.pop("OTHER_CPLUSPLUSFLAGS"))
+    extra = "".join(f"        {k}: {yaml_scalar(v)}\n" for k, v in settings.items())
     notice = ""
     if cfg["deploy"]["licenses"] and LICENSE_FILES["ios"].is_file():
         # LICENSES.txt at the bundle root: the third-party notice for the iOS
@@ -1997,6 +2011,7 @@ targets:
         {'ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon' if icon else '# no app icon generated'}
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         CLANG_CXX_LIBRARY: libc++
+        OTHER_CPLUSPLUSFLAGS: {yaml_scalar(cxx_flags)}
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/../include
           - $(SRCROOT)/../tests

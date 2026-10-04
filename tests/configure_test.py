@@ -2255,6 +2255,40 @@ class PlainCGameTest(unittest.TestCase):
         self.assertNotIn("(examples/plain_c/main.c)", readme)
 
 
+class IosRefusesOutOfOrderInitialisersTest(unittest.TestCase):
+    """-Werror=reorder-init-list reached every CMake target and Android's
+    native build, and not the third build system: the iOS project XcodeGen
+    makes from ios/project.yml, where Clang only warns about
+    `{ .grow_y = true, .width = 8 }` -- which GCC refuses."""
+
+    def project(self, **settings):
+        cfg = base_config()
+        cfg["ios"]["settings"] = settings
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(str(path), content)
+        try:
+            with quiet():
+                cfgmod.gen_ios_project(cfg)
+        finally:
+            cfgmod.write = original
+        (text,) = (v for k, v in captured.items() if k.endswith("project.yml"))
+        return text
+
+    def test_the_flag_is_in_the_ios_project(self):
+        text = self.project()
+        self.assertRegex(text, r'\n        OTHER_CPLUSPLUSFLAGS: "?\$\(inherited\) -Werror=reorder-init-list"?\n')
+
+    def test_it_is_the_flag_cmake_gives_clang(self):
+        cmake = (REPO / "CMakeLists.txt").read_text()
+        self.assertIn(f"set(RMP_STRICT_CXX_FLAGS {cfgmod.IOS_STRICT_CXX_FLAGS})", cmake)
+
+    def test_a_games_own_flags_are_kept_in_the_same_key(self):
+        text = self.project(OTHER_CPLUSPLUSFLAGS="-DMY_GAME=1")
+        self.assertEqual(text.count("OTHER_CPLUSPLUSFLAGS:"), 1)
+        self.assertIn("$(inherited) -Werror=reorder-init-list -DMY_GAME=1", text)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
