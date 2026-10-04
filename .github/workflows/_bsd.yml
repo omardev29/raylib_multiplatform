@@ -94,6 +94,11 @@ jobs:
       #   resources/resources.rres in it -- so a BSD archive ships the same one
       #   file every other release archive ships, instead of a loose folder.
       #
+      #   shipped_check.sh starts a release, laid out as the archive ships
+      #   it, from another folder: it has to find the resources/ next to
+      #   itself. NetBSD and OpenBSD cannot say where an executable is, and
+      #   the script checks the release says so instead.
+      #
       #   render_check.sh is the LAST line for a reason paid for twice: the
       #   truncation lands wherever it lands, and anything after the call can
       #   simply not be there while the shell still exits 0. The completion
@@ -158,6 +163,7 @@ jobs:
           [ "$MAGIC" = "7f454c46" ] || { echo "FAIL: not an ELF (magic=$MAGIC)"; exit 1; }
           echo "PASS: static binary checks ($(wc -c < "$BIN") bytes)"
           cmake --build build --target pack_resources
+          sh tools/shipped_check.sh "$GENERATOR" "$EXTRA_CMAKE" "${{ inputs.project_name }}"
           sh tools/render_check.sh "$GENERATOR" "$EXTRA_CMAKE" "${{ inputs.project_name }}"
 
 

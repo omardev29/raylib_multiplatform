@@ -1405,6 +1405,66 @@ class InputIsSampledOncePerFrameTest(unittest.TestCase):
         self.assertIn("^INPUT PASS$", script)
 
 
+class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
+    """A production build reads "./resources/", and every CI boot started the
+    binary where resources/ happened to be -- so a release that read it from
+    the working directory, and loaded nothing for a player who started it from
+    a file manager or a shortcut, passed every gate. tools/shipped_check.sh is
+    the gate that saw it fail (assets_failed=1 from another folder); these say
+    that every target that boots a release starts one from somewhere else."""
+
+    WORKFLOWS = REPO / ".github" / "workflows"
+
+    def test_the_desktop_runner_moves_next_to_the_resources_before_opening_them(self):
+        body = function_body((REPO / "src" / "rmp" / "app.cpp").read_text(),
+                             "void begin_run() {")
+        self.assertIn("enter_executable_folder();", body)
+        self.assertLess(body.index("enter_executable_folder();"),
+                        body.index("rmp::assets::init();"))
+        guard = body[:body.index("enter_executable_folder();")]
+        self.assertIn("RMP_PRODUCTION_BUILD", guard[guard.rindex("#elif"):])
+
+    def test_a_system_that_cannot_say_where_the_executable_is_is_said_once(self):
+        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        body = function_body(text, "void enter_executable_folder() {")
+        self.assertIn("this system does not say where the executable is", body)
+        self.assertNotIn("RMP_REPORT_ONCE", body)
+        script = (REPO / "tools" / "shipped_check.sh").read_text()
+        self.assertIn("this system does not say where the executable is", script)
+
+    def test_linux_starts_the_unzipped_archive_from_another_folder(self):
+        text = (self.WORKFLOWS / "_linux.yml").read_text()
+        for target in ("linux-x64-glibc", "linux-arm64-glibc"):
+            with self.subTest(target=target):
+                self.assertIn(f'unzip -q {target}-build.zip -d "$SHIP"', text)
+        self.assertEqual(text.count("- name: The archive starts from any folder"), 2)
+        self.assertEqual(text.count('          cd "$ELSEWHERE"\n          RAY_TEST_MAX_FRAMES=10'), 2)
+
+    def test_the_containers_start_the_release_from_the_root(self):
+        text = (self.WORKFLOWS / "_linux.yml").read_text()
+        self.assertNotIn("-w /app", text)
+        self.assertEqual(text.count("            -w / -e RAY_TEST_MAX_FRAMES=10"), 2)
+        self.assertEqual(text.count('"/app/${{ inputs.project_name }}" 2>&1'), 2)
+
+    def test_windows_starts_the_exe_from_another_folder_next_to_its_pack(self):
+        text = (self.WORKFLOWS / "_windows.yml").read_text()
+        self.assertIn("Copy-Item resources/resources.rres build/resources/", text)
+        self.assertIn("Start-Process -FilePath $exe -WorkingDirectory $elsewhere", text)
+
+    def test_macos_and_the_bsds_run_the_shipped_check(self):
+        self.assertIn('sh tools/shipped_check.sh Ninja "" "${{ inputs.project_name }}"',
+                      (self.WORKFLOWS / "_apple.yml").read_text())
+        bsd = (self.WORKFLOWS / "_bsd.yml").read_text()
+        self.assertIn('sh tools/shipped_check.sh "$GENERATOR" "$EXTRA_CMAKE"', bsd)
+        self.assertLess(bsd.index("tools/shipped_check.sh"), bsd.index("tools/render_check.sh"))
+
+    def test_the_check_starts_it_from_a_folder_with_no_resources(self):
+        script = (REPO / "tools" / "shipped_check.sh").read_text()
+        self.assertIn('cd "$BUILD/elsewhere"\nRAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME"', script)
+        self.assertIn('grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG"', script)
+        self.assertIn("-DPRODUCTION_BUILD=ON", script)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 

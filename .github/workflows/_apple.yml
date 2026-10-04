@@ -165,6 +165,14 @@ jobs:
       - name: Test (runtime) -- boot and render with no GPU
         run: sh tools/render_check.sh Ninja "" "${{ inputs.project_name }}"
 
+      # The release, next to its resources/resources.rres the way the zip
+      # ships it, started from a folder with no resources/ in it -- the way a
+      # player starts it from Finder. Every other boot starts a binary where
+      # resources/ happens to be. Software-rendered for the same reason as
+      # the step above: there is no window server to be logged into.
+      - name: Test (runtime) -- the release starts from any folder
+        run: sh tools/shipped_check.sh Ninja "" "${{ inputs.project_name }}"
+
       # `rmp` where a Mac user types it: zsh is the login shell, and the
       # scripts `rmp test config` hands on must run under the bash Apple ships,
       # 3.2, forever. The Linux jobs have bash 5 and cannot notice a bash-4

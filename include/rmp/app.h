@@ -135,7 +135,7 @@ float step_delta();
 // them, and they exist so that this header names nothing from rmp::input,
 // rmp::ui or rmp::assets. Their bodies, and the includes they need, are in
 // src/rmp/app.cpp.
-void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
+void begin_run(); // smoke test on, chdir next to the resources in a release, assets open
 void after_ready(); // Escape stops closing the window; tell CI if an asset failed
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
 void begin_frame(); // sample the input devices: once a frame, before your hook

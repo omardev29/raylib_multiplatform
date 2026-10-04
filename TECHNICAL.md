@@ -352,6 +352,18 @@ A compile-time string, defined in `CMakeLists.txt`:
 Always build your paths from it (`rmp::assets::` does this for you). A bare `"resources/foo.png"`
 works in dev and silently fails in a release.
 
+`"./resources/"` is relative, and what makes it mean "next to the executable" is the entry point: a
+desktop release (Windows, macOS, Linux and DRM, the BSDs) moves into the executable's folder before
+it opens anything, when there is a `resources/` there. So a game started from a file manager, a
+shortcut or another terminal folder finds its files, and so does a plain raylib
+`LoadTexture(RMP_RESOURCES_PATH "x.png")`, pack or no pack. A release run from the source tree --
+executable in `build/`, `resources/` at the root -- finds none next to itself and keeps the working
+directory, as it always did. iOS moves into its bundle the same way; the web reads a virtual file
+system and Android its APK, so neither moves. NetBSD and OpenBSD cannot say where an executable is
+(raylib's `GetApplicationDirectory()` has no answer there): a release reads `resources/` from the
+working directory and logs that it does. `tools/shipped_check.sh` starts a release from another
+folder, and the Linux, Windows, macOS and BSD jobs all do.
+
 ### 2. rres — one file instead of a folder
 
 [rres](https://github.com/raysan5/rres) is raysan's resource-container format: a header, N data
@@ -2269,4 +2281,5 @@ loads loose files by default.
 
 **Q: The game shows no texture / "Failed to open file".**
 A: Check `RMP_RESOURCES_PATH` — in dev it's an absolute path; in production the `resources/` folder
-(or `resources.rres`) must sit next to the executable.
+(or `resources.rres`) must sit next to the executable. The log says which folder a release read
+(`ASSETS: reading ./resources/ next to the executable, in ...`).

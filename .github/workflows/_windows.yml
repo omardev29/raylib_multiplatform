@@ -262,18 +262,32 @@ jobs:
           $env:PATH = $kept -join ';'
           Write-Host "off PATH for the boot: $($dropped -join '; ')"
 
+          # Laid out the way the zip ships it -- the pack next to the .exe --
+          # and started from a folder with no resources/ in it, the way a
+          # player starts it from Explorer or a shortcut. Started from the
+          # repository root, where resources/ happens to be, a release that
+          # read "./resources/" from the working directory passed this test
+          # and loaded nothing for a player.
+          New-Item -ItemType Directory -Force -Path build/resources | Out-Null
+          Copy-Item resources/resources.rres build/resources/
+          $elsewhere = Join-Path $env:RUNNER_TEMP "elsewhere"
+          New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
+          $out = Join-Path $elsewhere "out.txt"
+          $err = Join-Path $elsewhere "err.txt"
+
           function Invoke-Game([string]$driver) {
-            Remove-Item out.txt,err.txt -ErrorAction SilentlyContinue
+            Remove-Item $out,$err -ErrorAction SilentlyContinue
             $env:RAY_TEST_MAX_FRAMES = "30"
             $env:GALLIUM_DRIVER = $driver
-            $proc = Start-Process -FilePath $exe -RedirectStandardOutput out.txt `
-                                  -RedirectStandardError err.txt -PassThru
+            $proc = Start-Process -FilePath $exe -WorkingDirectory $elsewhere `
+                                  -RedirectStandardOutput $out `
+                                  -RedirectStandardError $err -PassThru
             if (-not $proc.WaitForExit(180000)) {
               $proc.Kill()
               return @{ ok = $false; code = -1; text = "TIMEOUT" }
             }
-            $text = ((Get-Content out.txt -ErrorAction SilentlyContinue) +
-                     (Get-Content err.txt -ErrorAction SilentlyContinue)) -join "`n"
+            $text = ((Get-Content $out -ErrorAction SilentlyContinue) +
+                     (Get-Content $err -ErrorAction SilentlyContinue)) -join "`n"
             return @{ ok = ($proc.ExitCode -eq 0); code = $proc.ExitCode; text = $text }
           }
 
@@ -293,7 +307,7 @@ jobs:
           if ($null -eq $result) { Write-Host "FAIL: no Mesa driver produced a rendered frame"; exit 1 }
 
           $all = $result.text
-          if ($all -notmatch "RAY_TEST_BOOT_OK assets_failed=0 ") { Write-Host "FAIL: boot marker missing, or an asset failed to load"; exit 1 }
+          if ($all -notmatch "RAY_TEST_BOOT_OK assets_failed=0 ") { Write-Host "FAIL: boot marker missing, or an asset failed to load (started from another folder: is resources/ read next to the .exe?)"; exit 1 }
           if ($all -notmatch "RAY_TEST_SAVE_OK dir=.*Jos") { Write-Host "FAIL: the save round trip did not use the non-ASCII APPDATA"; exit 1 }
           if ($all -notmatch "RAY_TEST_RENDER_OK")   { Write-Host "FAIL: render marker missing (blank frame?)"; exit 1 }
           if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }

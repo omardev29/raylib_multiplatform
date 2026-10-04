@@ -25,7 +25,11 @@
 
 #include <chrono> // the value rmp::random is seeded from
 #include <cstdlib>
+#include <cstring>
+#include <filesystem> // the executable's folder, wide on Windows
 #include <memory> // std::exit() on the iOS CI path
+#include <string>
+#include <system_error>
 #include <utility>
 
 // Every build system defines RMP_PRODUCTION_BUILD: CMake from its option, raymob
@@ -52,12 +56,100 @@ void (*const REQUIRE_ENTRY_POINT)() = &rmp_entry_point_is_declared_exactly_once;
 #include <android/native_activity.h> // ANativeActivity_finish()
 #endif
 
+// A production build on a desktop, where "./resources/" has to mean the folder
+// the executable is in. Not the web (a virtual file system with resources/ at
+// its root), not Android (the APK's asset manager) and not iOS (which moves into
+// its bundle on its own, below).
+#if RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(PLATFORM_IOS)
+#if defined(_WIN32)
+// Declared by hand, as src/rmp/save.cpp does and for its reason: <windows.h>
+// does not compile next to raylib.h. raylib's own declaration, character for
+// character.
+extern "C" __declspec(dllimport) unsigned long __stdcall
+GetModuleFileNameW(struct HINSTANCE__ *hModule, wchar_t *lpFilename, unsigned long nSize);
+#endif
+#endif
+
 namespace rmp::app {
 
 namespace {
 struct {
     bool quit_requested = false;
 } loop;
+
+#if RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(PLATFORM_IOS)
+// Where the executable is, or an empty path where the system will not say.
+std::filesystem::path executable_folder() {
+#if defined(_WIN32)
+    // The wide API: GetApplicationDirectory() asks for the ANSI path, which
+    // cannot spell a folder whose name is outside the code page, and
+    // SetCurrentDirectory on that path would then fail for that player alone.
+    std::wstring name(32768, L'\0');
+    const unsigned long length =
+        GetModuleFileNameW(nullptr, name.data(), static_cast<unsigned long>(name.size()));
+    if (length == 0 || length >= name.size()) return {};
+    name.resize(length);
+    return std::filesystem::path(name).parent_path();
+#else
+    // raylib answers "" on NetBSD and OpenBSD, which it has no code for, and
+    // "./" where the call it makes fails (no /proc). Neither is a place.
+    const char *dir = GetApplicationDirectory();
+    if (dir == nullptr || dir[0] == '\0' || std::strcmp(dir, "./") == 0) return {};
+    return std::filesystem::path(dir);
+#endif
+}
+
+// A released game reads RMP_RESOURCES_PATH, "./resources/", and "." was the
+// working directory: started from a file manager, a shortcut or another
+// terminal folder, it found nothing and every asset came back empty. CI never
+// saw it, because every boot started the binary where resources/ happened to
+// be. tools/shipped_check.sh and the "from another folder" steps start it from
+// elsewhere now.
+//
+// A change of directory, and not a resources root made absolute, because that
+// is what keeps the plain raylib calls working too: LoadTexture(
+// RMP_RESOURCES_PATH "x.png"), LoadMusicStream, and any fopen of the game's
+// own, all relative, and the loader hook still recognises "./resources/" as
+// the pack's. It is what the iOS runner has always done.
+//
+// Only when resources/ is THERE: a release built in the source tree and run
+// from its root has the executable in build/ and resources/ beside build/,
+// and keeps reading that one, as it always did.
+//
+// Every line it can say is a condition of the machine, not a mistake in the
+// game, so a plain TraceLog and never RMP_REPORT_ONCE: [dev] strict must not
+// abort a correct game. Said once, because begin_run() runs once.
+void enter_executable_folder() {
+    const std::filesystem::path folder = executable_folder();
+    if (folder.empty()) {
+        TraceLog(LOG_WARNING,
+                 "ASSETS: this system does not say where the executable is, so %s is "
+                 "read from the working directory, %s",
+                 RMP_RESOURCES_PATH, GetWorkingDirectory());
+        return;
+    }
+    std::error_code error;
+    if (!std::filesystem::is_directory(folder / RMP_RESOURCES_PATH, error)) {
+        TraceLog(LOG_INFO,
+                 "ASSETS: no %s next to the executable; reading the working "
+                 "directory's, %s",
+                 RMP_RESOURCES_PATH, GetWorkingDirectory());
+        return;
+    }
+    std::filesystem::current_path(folder, error);
+    if (error) {
+        TraceLog(LOG_WARNING,
+                 "ASSETS: could not move into the executable's folder (%s); reading %s "
+                 "from %s",
+                 error.message().c_str(), RMP_RESOURCES_PATH, GetWorkingDirectory());
+        return;
+    }
+    TraceLog(LOG_INFO, "ASSETS: reading %s next to the executable, in %s",
+             RMP_RESOURCES_PATH, GetWorkingDirectory());
+}
+#endif
 
 // Write a small save, read it back, compare, remove it. The string is not
 // ASCII on purpose. False, with RAY_TEST_BOOT_FAIL and the reason, when any
@@ -131,12 +223,14 @@ bool quit_requested() { return loop.quit_requested; }
 
 namespace detail {
 
-// Everything the entry point does before your ready hook. On iOS that includes
-// a chdir: the process starts in the app container, not inside the bundle, and
-// raylib's iOS backend does not chdir for you — so the relative RMP_RESOURCES_PATH
-// would resolve to nothing and every asset would silently load as 0x0.
-// GetApplicationDirectory() is the .app root there, which is where bundle
-// resources live, and it has to happen before assets::init() looks for the pack.
+// Everything the entry point does before your ready hook. On iOS and in a
+// desktop release that includes a chdir. iOS starts the process in the app
+// container, not inside the bundle, and raylib's iOS backend does not chdir for
+// you -- so the relative RMP_RESOURCES_PATH would resolve to nothing and every
+// asset would silently load as 0x0; GetApplicationDirectory() is the .app root
+// there, which is where bundle resources live. A desktop release is the same
+// problem with a different cause: see enter_executable_folder(). Either way it
+// has to happen before assets::init() looks for the pack.
 void begin_run() {
     // This translation unit is compiled into EACH executable with that
     // executable's own RMP_RESOURCES_PATH; the library it links was compiled with
@@ -161,6 +255,9 @@ void begin_run() {
     SmokeTest_Begin();
 #if defined(PLATFORM_IOS)
     ChangeDirectory(GetApplicationDirectory());
+#elif RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__)
+    enter_executable_folder();
 #endif
     rmp::assets::init();
 }

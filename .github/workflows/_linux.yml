@@ -137,6 +137,29 @@ jobs:
           cp resources/resources.rres package/resources/
           cd package && zip -r ../linux-x64-glibc-build.zip .
 
+      # THE ARCHIVE, unzipped, started from a folder with no resources/ in it --
+      # the way a player starts it from a file manager or a shortcut. Every boot
+      # above starts the binary from the repository root, where resources/
+      # happens to be; a release that read "./resources/" from the working
+      # directory passed all of them and loaded nothing for a player. It is
+      # also the binary that ships, so a [upx]-packed one is started here.
+      - name: The archive starts from any folder
+        run: |
+          set -euo pipefail
+          SHIP=$(mktemp -d)
+          ELSEWHERE=$(mktemp -d)
+          unzip -q linux-x64-glibc-build.zip -d "$SHIP"
+          OUT="$ELSEWHERE/out.txt"
+          cd "$ELSEWHERE"
+          RAY_TEST_MAX_FRAMES=10 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 180 "$SHIP/${{ inputs.project_name }}" >"$OUT" 2>&1 \
+            || { echo "FAIL: the unzipped game exited non-zero"; cat "$OUT"; exit 1; }
+          tail -20 "$OUT"
+          grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
+            || { echo "FAIL: started from another folder, the game did not find its resources/"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          echo "PASS: the archive runs from any folder"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-x64-glibc-build
@@ -217,6 +240,29 @@ jobs:
           cp build/${{ inputs.project_name }} package/
           cp resources/resources.rres package/resources/
           cd package && zip -r ../linux-arm64-glibc-build.zip .
+
+      # THE ARCHIVE, unzipped, started from a folder with no resources/ in it --
+      # the way a player starts it from a file manager or a shortcut. Every boot
+      # above starts the binary from the repository root, where resources/
+      # happens to be; a release that read "./resources/" from the working
+      # directory passed all of them and loaded nothing for a player. It is
+      # also the binary that ships, so a [upx]-packed one is started here.
+      - name: The archive starts from any folder
+        run: |
+          set -euo pipefail
+          SHIP=$(mktemp -d)
+          ELSEWHERE=$(mktemp -d)
+          unzip -q linux-arm64-glibc-build.zip -d "$SHIP"
+          OUT="$ELSEWHERE/out.txt"
+          cd "$ELSEWHERE"
+          RAY_TEST_MAX_FRAMES=10 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 180 "$SHIP/${{ inputs.project_name }}" >"$OUT" 2>&1 \
+            || { echo "FAIL: the unzipped game exited non-zero"; cat "$OUT"; exit 1; }
+          tail -20 "$OUT"
+          grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
+            || { echo "FAIL: started from another folder, the game did not find its resources/"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          echo "PASS: the archive runs from any folder"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -345,11 +391,13 @@ jobs:
           # podman allows exactly that and docker does not, which is why the
           # nesting survived being tested on a laptop and died on the runner.
           cp -r resources musl-bin/resources
+          # Started from / and not from /app: a release has to find the
+          # resources/ next to itself, wherever it is started from.
           OUT=$(docker run --rm \
             -v "$PWD/musl-bin:/app:ro" \
-            -w /app -e RAY_TEST_MAX_FRAMES=10 \
+            -w / -e RAY_TEST_MAX_FRAMES=10 \
             alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \
-            "./${{ inputs.project_name }}" 2>&1) || true
+            "/app/${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -20
           echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: did not boot on Alpine"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: drew nothing"; exit 1; }
@@ -619,13 +667,15 @@ jobs:
           # render node, which is the first thing to suspect when EGL says no.
           docker run --rm --device /dev/dri --entrypoint ls \
             "${{ inputs.build_image }}" -la /dev/dri || true
+          # Started from / and not from /app: a release has to find the
+          # resources/ next to itself, wherever it is started from.
           OUT=$(docker run --rm --device /dev/dri \
             -v "$PWD/drm-bin:/app:ro" \
-            -w /app -e RAY_TEST_MAX_FRAMES=10 \
+            -w / -e RAY_TEST_MAX_FRAMES=10 \
             -e LIBGL_ALWAYS_SOFTWARE=1 \
             -e EGL_LOG_LEVEL=debug \
             "${{ inputs.build_image }}" \
-            "./${{ inputs.project_name }}" 2>&1) || true
+            "/app/${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -30
           echo "$OUT" | grep -q RAY_TEST_BOOT_OK     || { echo "FALLA: it did not boot on DRM"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FALLA: it drew nothing"; exit 1; }
