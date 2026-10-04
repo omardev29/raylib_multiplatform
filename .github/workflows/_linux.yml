@@ -1,12 +1,16 @@
-# Linux targets: x64, ARM64, RISC-V.
+# Linux targets: every one in the `linux` family of tools/configure.py's
+# TARGETS -- linux-x64-glibc, linux-arm64-glibc, linux-riscv64-glibc,
+# linux-x64-musl, linux-x64-glibc-drm and linux-arm64-glibc-drm.
 #
 # Reusable (`workflow_call`) — called from ci.yml.
 #
-# All three build inside the frozen image, so the toolchain is identical to the
+# Every one builds inside the frozen image, so the toolchain is identical to the
 # one recorded in thirdparty/FROZEN_VERSIONS.md and nothing is downloaded at job
-# time. x64 and ARM64 additionally boot the game headless under xvfb and assert
-# it renders; RISC-V is cross-compiled and only checked statically, since there
-# is no riscv64 runner to run it on.
+# time. Four are also run and must render a frame: x64 and ARM64 under xvfb,
+# musl on Alpine (musl-x64-run), and x64 DRM on a vkms virtual display
+# (drm-x64-run). RISC-V has no runner to boot on and ARM64 DRM is for hardware
+# vkms does not resemble, so those two are built and checked statically. Only
+# x64 is in the fast lane; the rest run with `full`.
 
 name: Linux
 
@@ -442,14 +446,13 @@ jobs:
   # X11 and no Wayland. A Raspberry Pi, an arcade cabinet, a kiosk, or a bare
   # TTY.
   #
-  # It only runs when linux-x64-glibc-drm is in [targets], and it is deliberately NOT in
-  # the "all" group — so this job costs nothing until somebody asks for it.
+  # It runs when linux-x64-glibc-drm is in [targets] -- which the "all" group
+  # includes, so a default config builds it -- in the full matrix.
   #
-  # BUILD ONLY, and that is not laziness: DRM takes exclusive control of a
-  # display through /dev/dri, and a GitHub runner has no DRI device at all.
-  # There is nothing to boot into. What this job proves is that the DRM backend
-  # still compiles and links, which is the failure that actually happens —
-  # libdrm moving, or EGL/GBM headers going missing.
+  # This job builds and packages: what it proves is that the DRM backend still
+  # compiles and links, the failure that actually happens -- libdrm moving, or
+  # EGL/GBM headers going missing. drm-x64-run, below, then boots this binary
+  # on a vkms virtual display and requires a rendered frame.
   drm-x64:
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-glibc-drm')
     runs-on: ubuntu-24.04
