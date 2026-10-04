@@ -690,6 +690,10 @@ bool slider(std::string_view label, float *value, float min, float max,
             const SliderOptions &o);
 
 // `items` is an array of `count` C strings; *selected is the index into it.
+// A click, or Enter or the A button while it has the focus, opens the list.
+// Open and focused, up and down walk its items instead of moving the focus,
+// Enter or A picks the one they are on, and Escape or B closes it without
+// changing anything. True on the frame *selected changed.
 bool dropdown(std::string_view label, int *selected, const char *const *items, int count);
 bool dropdown(std::string_view label, int *selected, const char *const *items, int count,
               const DropdownOptions &o);

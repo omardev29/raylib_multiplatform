@@ -291,6 +291,14 @@ bool take_cancel();
 // where sideways means something (a slider). Repeats while held.
 int nav_axis_x();
 
+// The same up and down, for the one control that takes them away from
+// navigation: an open dropdown list, which walks its items with them. It
+// claims them every frame it is open and focused; the claim is read at the
+// next frame boundary, and until then up and down move the focus as usual.
+// nav_axis_y() is 0 for everyone else.
+void claim_vertical(uint32_t id);
+int nav_axis_y();
+
 // Someone is dragging, or the pointer is over something interactive. This is
 // what wants_pointer() answers with.
 void set_pointer_over_ui();

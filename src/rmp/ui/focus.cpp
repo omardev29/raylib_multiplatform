@@ -65,6 +65,8 @@ struct {
     bool submit_pending = false;
     bool cancel_pending = false;
     int x = 0;
+    // One step up or down, handed to an open list instead of moving the focus.
+    int y = 0;
     float repeat_timer = 0.0f;
     int last_y = 0;
 } navigation;
@@ -87,6 +89,10 @@ struct {
     // it -- navigation, focus(), a click -- and goes back on Enter, Escape, a
     // click elsewhere, or the field not being drawn.
     uint32_t keyboard_id = 0;
+    // The element that took up and down for itself last frame -- an open
+    // dropdown list -- or 0. Claimed afresh every frame, so a list that closes
+    // or stops being drawn gives them back by doing nothing.
+    uint32_t vertical_id = 0;
 } capture;
 
 constexpr float REPEAT_DELAY = 0.45f;
@@ -140,6 +146,9 @@ namespace detail {
 void begin_focus_frame() {
     lists.current_count = 0;
     navigation.x = 0;
+    navigation.y = 0;
+    const uint32_t vertical = capture.vertical_id;
+    capture.vertical_id = 0;
     navigation.activate_pending = false;
     navigation.submit_pending = false;
     navigation.cancel_pending = false;
@@ -164,21 +173,29 @@ void begin_focus_frame() {
 
     if (!navigation.enabled) return;
 
-    // Up, down and Tab move the focus whoever has it, a text field included:
-    // the field used to keep them, and with them the focus, for good.
+    // One step per press, then a repeat while it is held.
+    int step = 0;
     if (nav.y != 0 && nav.y != navigation.last_y) {
-        move_focus(nav.y);
+        step = nav.y;
         navigation.repeat_timer = REPEAT_DELAY;
     } else if (nav.y != 0) {
         // frame_time(), not GetFrameTime(): 0 in test mode, so a headless
         // run moves exactly one step per press and always the same way.
         navigation.repeat_timer -= frame_time();
         if (navigation.repeat_timer <= 0.0f) {
-            move_focus(nav.y);
+            step = nav.y;
             navigation.repeat_timer = REPEAT_INTERVAL;
         }
     }
     navigation.last_y = nav.y;
+    // Up, down and Tab move the focus whoever has it, a text field included:
+    // the field used to keep them, and with them the focus, for good. The one
+    // exception is a focused list that is open, where they walk its items.
+    if (step != 0 && vertical != 0 && vertical == target.id) {
+        navigation.y = step;
+    } else if (step != 0) {
+        move_focus(step);
+    }
     // Left and right belong to the text while a field is typing; for
     // everything else they are a slider's.
     navigation.x = capture.keyboard ? 0 : nav.x;
@@ -281,6 +298,9 @@ bool take_cancel() {
 }
 
 int nav_axis_x() { return navigation.x; }
+int nav_axis_y() { return navigation.y; }
+
+void claim_vertical(uint32_t id) { capture.vertical_id = id; }
 
 void set_pointer_over_ui() { capture.pointer_over_ui = true; }
 

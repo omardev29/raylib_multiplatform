@@ -205,6 +205,8 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 //   Enter / Space / gamepad bottom button   activate; start typing in a field
 //   Enter / Escape / gamepad B              stop typing (the focus stays)
 //   Left / Right / d-pad / stick            move a slider
+//   Up / Down in an open dropdown           walk its items; Enter picks one,
+//                                           Escape closes it unchanged
 //
 // The focused control draws the theme's focus ring. That colour is in the
 // Theme rather than in each widget for a reason: a controller build where one

@@ -1658,6 +1658,72 @@ void run_text_field_focus() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// An open dropdown answers the keyboard and the gamepad. Accept used to open
+// and close it and nothing else: the items listened to the pointer only, and
+// up or down while it was open walked the focus off the control, so a
+// controller could open a list and never pick from it.
+void run_dropdown_nav() {
+    std::printf("\n--- a dropdown from the keyboard and the gamepad ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    fake_nav.state = rmp::ui::detail::NavState{};
+
+    static const char *items[] = { "Off", "Low", "High", "Ultra" };
+    int quality = 0;
+    int changes = 0;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::panel([&] {
+            rmp::ui::button("Before");
+            if (rmp::ui::dropdown("Quality", &quality, items, 4)) changes++;
+            rmp::ui::button("After");
+        });
+        rmp::ui::end();
+    };
+    const Clay_ElementId list = rmp::ui::detail::peek_element_id("Quality", 0, 0);
+    auto open = [&] {
+        return rmp::ui::detail::bounds_of_id(rmp::ui::detail::peek_sub_id(list, 1),
+                                             nullptr);
+    };
+
+    rmp::ui::focus("");
+    frame();
+    press_nav(frame, NAV_DOWN);
+    check(rmp::ui::focused() == "Quality", "the focus reaches the dropdown");
+    press_nav(frame, NAV_ENTER);
+    check(open(), "Enter opens it");
+
+    press_nav(frame, NAV_DOWN);
+    check(rmp::ui::focused() == "Quality", "down while it is open stays in the list");
+    press_nav(frame, NAV_DOWN);
+    press_nav(frame, NAV_DOWN);
+    press_nav(frame, NAV_UP);
+    check(quality == 0 && changes == 0, "moving through the list changes nothing yet");
+    press_nav(frame, NAV_ENTER);
+    check(quality == 2 && changes == 1, "Enter picks the item the list was moved to");
+    check(!open(), "and closes it");
+    check(rmp::ui::focused() == "Quality", "with the focus still on it");
+
+    press_nav(frame, NAV_ENTER);
+    check(open(), "Enter opens it again");
+    press_nav(frame, NAV_UP);
+    press_nav(frame, NAV_ESCAPE);
+    check(!open(), "Escape closes it");
+    check(quality == 2 && changes == 1, "without changing the value");
+
+    // The highlight starts at the value, and stops at the ends of the list.
+    press_nav(frame, NAV_ENTER);
+    for (int i = 0; i < 6; i++) press_nav(frame, NAV_DOWN);
+    press_nav(frame, NAV_ENTER);
+    check(quality == 3, "it stops at the last item rather than running past it");
+
+    // Closed again, up and down are navigation again.
+    press_nav(frame, NAV_DOWN);
+    check(rmp::ui::focused() == "After", "and closed, down moves the focus on");
+
+    fake_nav.state = rmp::ui::detail::NavState{};
+    rmp::ui::focus("");
+}
+
 } // namespace
 
 int main() {
@@ -1697,6 +1763,7 @@ int main() {
     run_dropdown_occlusion();
     run_press_starts_on_control();
     run_text_field_focus();
+    run_dropdown_nav();
     run_scroll_clip();
     run_scroll_moves();
     run_image_lifetime();

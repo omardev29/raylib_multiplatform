@@ -353,15 +353,40 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
         }
     }
 
+    // st->flag is open or closed; st->i is the item the keyboard or the
+    // gamepad is on while it is open, starting from the value.
     bool changed = false;
     const bool field_clicked = clicked(id, over);
-    if (field_clicked || (has_focus && detail::take_activate())) {
+    if (st->flag && has_focus && detail::take_cancel()) {
+        st->flag = false; // Escape or B: closed, and nothing picked
+    } else if (field_clicked) {
         st->flag = !st->flag;
+        st->i = *selected;
+    } else if (has_focus && detail::take_activate()) {
+        if (st->flag) {
+            // Accept picks what the list was walked to, as a click would.
+            if (*selected != st->i) changed = true;
+            *selected = st->i;
+            st->flag = false;
+        } else {
+            st->flag = true;
+            st->i = *selected;
+        }
     } else if (st->flag && detail::pointer_released() && !over_any_item) {
         // Released somewhere else entirely. An open list that will not go away
         // when you click past it is the single most irritating thing a dropdown
         // can do.
         st->flag = false;
+    }
+
+    // Open and focused, up and down walk the items instead of the focus: a
+    // list a controller can open, it has to be able to pick from.
+    const bool walking = st->flag && has_focus;
+    if (walking) {
+        detail::claim_vertical(id.id);
+        st->i += detail::nav_axis_y();
+        if (st->i < 0) st->i = 0;
+        if (st->i >= count) st->i = count - 1;
     }
 
     Clay_ElementDeclaration row = control_row(has_focus);
@@ -444,9 +469,13 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                                       static_cast<uint16_t>(px(t.padding_x * 0.5f)),
                                       static_cast<uint16_t>(px(t.padding_y * 0.5f)),
                                       static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+                    // The item the keyboard is on lights up like the one under
+                    // the pointer, once the player has reached for a key.
+                    const bool lit =
+                        item_over || (walking && detail::focus_visible() && i == st->i);
                     item.backgroundColor = to_clay(detail::state_color(
                         item_id, (i == *selected) ? t.surface : t.panel, t.surface_hover,
-                        t.surface_press, item_over, item_over && detail::pointer_down()));
+                        t.surface_press, lit, item_over && detail::pointer_down()));
                     item.cornerRadius =
                         Clay_CornerRadius{ r * 0.5f, r * 0.5f, r * 0.5f, r * 0.5f };
                     Clay__OpenElementWithId(item_id);

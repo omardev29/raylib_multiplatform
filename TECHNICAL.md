@@ -861,6 +861,7 @@ Every interactive control is focusable, in declaration order, and nothing in you
 | Enter / Space / gamepad bottom face button | activate; start typing in a text field |
 | Enter / Escape / gamepad right face button | stop typing in a text field (the focus stays) |
 | Left / Right / d-pad / stick | move a slider |
+| Up / Down in an open dropdown | walk its items; Enter or A picks, Escape or B closes it unchanged |
 
 ```cpp
 void rmp::ui::focus(std::string_view id);   // when a menu opens
