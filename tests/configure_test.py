@@ -3475,6 +3475,137 @@ class ShellPatternCheckTest(unittest.TestCase):
         self.assertIn("shell_pattern_check.sh", lint)
 
 
+class NamingCheckTest(unittest.TestCase):
+    """tools/naming_check.sh: the naming rules clang-tidy cannot see.
+
+    clang-tidy reads one branch of every #if, so the web, iOS, Android and
+    Windows code is invisible to a Linux lint run; it cannot see member access
+    (`foo_.x` is a use, not a declaration); and a retired macro in `#if` is not
+    an error but 0. Every rule is proven red here on a fixture of its own.
+    """
+
+    SCRIPT = REPO / "tools" / "naming_check.sh"
+
+    def run_on(self, *lines, suffix=".cpp"):
+        import subprocess, tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as fh:
+            fh.write("\n".join(lines) + "\n")
+            name = fh.name
+        try:
+            return subprocess.run(["bash", str(self.SCRIPT), name],
+                                  capture_output=True, text=True)
+        finally:
+            os.unlink(name)
+
+    def assert_red(self, rule, *lines, suffix=".cpp"):
+        got = self.run_on(*lines, suffix=suffix)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn(f" {rule} ", got.stdout)
+
+    def assert_green(self, *lines, suffix=".cpp"):
+        got = self.run_on(*lines, suffix=suffix)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_r1_a_g_name(self):
+        self.assert_red("R1", "namespace { bool g_started = false; }")
+
+    def test_r2_a_k_constant(self):
+        self.assert_red("R2", "constexpr int kMaxLabels = 64;")
+
+    def test_r3_an_underscore_before_a_dot(self):
+        self.assert_red("R3", "float f(const Box &box_) { return box_.x; }")
+
+    def test_r3_an_underscore_before_an_arrow(self):
+        self.assert_red("R3", "int f(Slot *slot_) { return slot_->count; }")
+
+    def test_r4_another_objects_private_member(self):
+        self.assert_red("R4", "Resource(const Resource &other) : _slot(other._slot) {}")
+        self.assert_red("R4", "void f(Object *o) { o->_index = 0; }")
+
+    def test_r4_allows_a_call_to_a_hook(self):
+        self.assert_green("void f(Object &a, Object &b) { a._collision(b); b->_update(1); }",
+                          "void g(B *b, Object &o) { b->_late_update(o, 0); }")
+
+    def test_r5_a_macro_without_the_prefix(self):
+        self.assert_red("R5", "#define SCREEN_SIZE 800")
+
+    def test_r5_a_vendored_knob_outside_its_own_file(self):
+        """CLAY_IMPLEMENTATION is allowed in clay_impl.cpp and nowhere else."""
+        self.assert_red("R5", "#define CLAY_IMPLEMENTATION")
+
+    def test_r5_allows_our_prefix(self):
+        self.assert_green("#define RMP_THING 1")
+
+    def test_r6_a_constant_named_like_a_raylib_macro(self):
+        self.assert_red("R6", "constexpr float PI = 3.14159f;")
+        self.assert_red("R6", "constexpr float EPSILON = 0.000001f;")
+
+    def test_r6_a_constant_named_like_a_bsd_macro(self):
+        """MIN and MAX come from <sys/param.h> on the BSDs and macOS -- and from
+        rlgl.h -- so the preprocessor rewrites them on some platforms only."""
+        self.assert_red("R6", "constexpr int MIN = 0;")
+        self.assert_red("R6", "static const int MAX = 9;")
+
+    def test_r6_an_enum_member_named_like_a_macro(self):
+        self.assert_red("R6", "enum class Kind { RED, NOTHING };")
+
+    def test_r6_a_constant_in_the_macros_namespace(self):
+        self.assert_red("R6", "constexpr int RMP_LIMIT = 3;")
+
+    def test_r6_allows_a_descriptive_name(self):
+        self.assert_green("constexpr float NEAR_ZERO = 1e-6f;",
+                          "constexpr int SECTION_COUNT = 3;",
+                          "enum class Kind { SQUARE, CIRCLE };")
+
+    def test_r7_a_retired_name(self):
+        self.assert_red("R7", "#if APP_SAVE_PORTABLE && defined(_WIN32)", "#endif")
+        self.assert_red("R7", "const char *root = RESOURCES_PATH;")
+
+    def test_comments_and_strings_are_not_code(self):
+        self.assert_green("// g_x, kX and foo_.x are what this forbids",
+                          "/* kMax and other._x, across",
+                          "   two lines */",
+                          'const char *s = "g_x kX foo_.x a._b";',
+                          "char c = 'k';",
+                          'const char *raw = R"x(g_y "kZ" foo_.x)x";')
+
+    def test_a_digit_separator_is_not_a_character_literal(self):
+        """`1'000` must not open a character literal and blank the rest of the
+        line -- which would hide the g_ name after it."""
+        self.assert_red("R1", "int n = 1'000; int g_bad = 0;")
+
+    def test_a_foreign_trailing_underscore_is_allowed(self):
+        """cute_tiled's own field is `class_`; tilemap.cpp reads layer->class_.ptr."""
+        self.assert_green("const char *c = layer->class_.ptr;")
+
+    def test_a_local_runtime_constant_stays_snake_case(self):
+        self.assert_green("void f(float w) { const float half = w / 2; (void)half; }")
+
+    def test_the_vendored_macro_names_are_read(self):
+        """R6's set is read from the vendored headers, live. If that parse
+        broke, PI would quietly be allowed again; this says the set is there."""
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT), "--macros"], cwd=REPO,
+                             capture_output=True, text=True)
+        names = set(got.stdout.split())
+        self.assertGreater(len(names), 500, got.stderr)
+        for name in ("PI", "EPSILON", "DEG2RAD", "MIN", "MAX", "RAYWHITE", "CHECK",
+                     "CLAY_STRING", "DEBUG"):
+            self.assertIn(name, names)
+        self.assert_red("R6", "constexpr float DEG2RAD = 0.01745f;")
+
+    def test_the_whole_tree_is_clean(self):
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT)], cwd=REPO,
+                             capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_it_is_wired_into_just_test_and_the_lint_job(self):
+        self.assertIn("naming_check.sh", (REPO / "Justfile").read_text())
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("naming_check.sh", lint)
+
+
 class PushRefusesEveryLiveRunTest(unittest.TestCase):
     """`just push` refused only `in_progress`.
 

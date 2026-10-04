@@ -121,7 +121,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 ├── tools/
 │   ├── configure.py          # the config -> every build system. Run by CMake.
 │   ├── license_db.py         # the licence guard (tools/license_check.sh drives it)
-│   ├── *_check.sh            # the gates: versions, seam, portable, headers, repo, workflows, licences
+│   ├── *_check.sh            # the gates: versions, seam, portable, naming, headers, repo, workflows, licences
 │   ├── examples_build.sh     # builds and boots every example headless, with a screenshot each
 │   ├── make_example_art.py   # the generated art the runner example brings
 │   ├── dev_shell.sh          # run a command inside the pinned CI image
