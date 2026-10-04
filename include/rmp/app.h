@@ -131,12 +131,14 @@ namespace detail {
 // overlapped the wall on no frame at all.
 float step_delta();
 
-// The pieces of a run around your code. Not for you — RMP_ENTRY_POINT calls them, and they
-// exist so that this header names nothing from rmp::ui or rmp::assets. Their
-// bodies, and the includes they need, are in src/rmp/app.cpp.
+// The pieces of a run around your code. Not for you — RMP_ENTRY_POINT calls
+// them, and they exist so that this header names nothing from rmp::input,
+// rmp::ui or rmp::assets. Their bodies, and the includes they need, are in
+// src/rmp/app.cpp.
 void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
 void after_ready(); // Escape stops closing the window; tell CI if an asset failed
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
+void begin_frame(); // sample the input devices: once a frame, before your hook
 void end_frame(); // advance the CI frame budget, feed the music stream
 void begin_stop(); // the UI closes here, BEFORE your stop hook: see below
 void end_stop(); // the asset pack and the sound device close here, AFTER it
@@ -269,6 +271,7 @@ template <class T> T &global() {
     rmp::app::detail::after_ready();                                           \
   }                                                                            \
   extern "C" void ios_update(bool /*viewResized*/) {                           \
+    rmp::app::detail::begin_frame();                                           \
     FRAME(rmp::app::detail::step_delta());                                     \
     /* The CI frame budget advances here, the same as on desktop. It did not, \
        so under RAY_TEST_MAX_FRAMES the simulator never reached its budget.  */ \
@@ -308,6 +311,7 @@ template <class T> T &global() {
 #define RMP_WEB_FUNCS(READY, FRAME, STOP)                                        \
   RMP_DECLARE_ENTRY_POINT_ONCE                                      \
   static void rmp_web_frame() {                                                \
+    rmp::app::detail::begin_frame();                                           \
     FRAME(rmp::app::detail::step_delta());                                     \
     rmp::app::detail::end_frame();                                             \
     /* WindowShouldClose() is deliberately never called: on web it does        \
@@ -342,7 +346,8 @@ template <class T> T &global() {
        then the stop hook and CloseWindow() run exactly as they do when the    \
        window is closed with the X. */                                         \
     while (rmp::app::detail::keep_running()) {                                 \
-      FRAME(rmp::app::detail::step_delta());                                                   \
+      rmp::app::detail::begin_frame();                                         \
+      FRAME(rmp::app::detail::step_delta());                                   \
       rmp::app::detail::end_frame();                                           \
     }                                                                          \
     rmp::app::detail::begin_stop();                                            \

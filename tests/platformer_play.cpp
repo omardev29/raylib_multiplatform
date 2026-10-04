@@ -425,11 +425,11 @@ void step() {
 }
 
 // A frame of the game. While a level is being played it is the logic only --
-// input, the scenes, what they queued -- which is what makes 240 Hz affordable
-// on the software renderer; menus are drawn, because their buttons are.
+// the scenes and what they queued -- which is what makes 240 Hz affordable
+// on the software renderer; menus are drawn, because their buttons are. The
+// input was sampled by the runner before this, as it is for every game.
 void frame_of_game(float dt) {
     if (top<game::LevelScene>() != nullptr && run.phase != Phase::TITLE) {
-        rmp::input::detail::begin_frame();
         rmp::scenes::detail::update(dt);
         rmp::scenes::detail::apply_pending();
     } else {
@@ -446,8 +446,14 @@ void ready() {
     rmp::app::detail::start(std::make_unique<game::TitleScene>());
 }
 
+// The bot decides at the END of a frame what is held during the next one,
+// because that is when a real keyboard changes: raylib polls the events in
+// EndDrawing(), and the runner samples them at the top of the next frame,
+// before this hook runs. A bot that pressed keys at the top of the hook would
+// play one frame late, and the route through the Desert is not that patient.
 void frame(float /*real time is not the game's time here*/) {
     rmp::ui::detail::set_nav_provider(navigate);
+    frame_of_game(run.delta);
     step();
     if (run.phase == Phase::DONE) {
         if (run.failures == 0) {
@@ -457,9 +463,7 @@ void frame(float /*real time is not the game's time here*/) {
         }
         rmp::save::remove("platformer");
         rmp::app::quit();
-        return;
     }
-    frame_of_game(run.delta);
 }
 
 void stop() { rmp::app::detail::stop(); }

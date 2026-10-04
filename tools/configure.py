@@ -467,7 +467,7 @@ EXAMPLE_ID_PREFIX = "com.example."
 # extension.
 RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
-    "ui_layout_test", "platformer_play", "assembler", "pack_resources",
+    "ui_layout_test", "platformer_play", "input_play", "assembler", "pack_resources",
     "unpack_resources",
 }
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),

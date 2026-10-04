@@ -22,6 +22,8 @@
 #   3. Every example that has an entry point boots, draws pixels and exits
 #      within its frame budget (RAY_TEST_BOOT_OK with assets_failed=0,
 #      RAY_TEST_RENDER_OK, RAY_TEST_DONE_FRAMES), and wrote its screenshot.
+#   4. The platformer is played to the end (tests/platformer_play.cpp), and
+#      rmp::input is read both ways a game is written (tests/input_play.cpp).
 #
 # What is NOT run: examples/plain_c, which is the opt-out and has no frame
 # budget (it would loop forever under a platform with no window to close), and
@@ -145,3 +147,21 @@ if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^PLAY PASS$'; then
   exit 1
 fi
 echo "PASS: the platformer was won at 60 and 240 Hz, lost, and started again"
+
+# rmp::input through the real runner, in both shapes a game is written in: a
+# hook that reads the input itself (RMP_ENTRY_POINT) and a scene under frame()
+# (RMP_GAME). Each press has to be seen, and seen once. See tests/input_play.cpp.
+echo "== examples: the input, read both ways =="
+if [ ! -x "$BUILD/input_play" ]; then
+  echo "FALLA: $BUILD/input_play was not built (CMakeLists.txt, RMP_BUILD_EXAMPLES)"
+  exit 1
+fi
+status=0
+out=$($LIMIT "$BUILD/input_play" 2>&1) || status=$?
+printf '%s\n' "$out" | grep '^INPUT' | sed 's/^/  /'
+if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^INPUT PASS$'; then
+  printf '%s\n' "$out" | tail -15 | sed 's/^/          /'
+  echo "FALLA: rmp::input missed a press, or saw one twice (exit $status)"
+  exit 1
+fi
+echo "PASS: a press is seen once, by a game's own hook and by a scene"

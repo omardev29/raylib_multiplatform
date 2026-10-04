@@ -221,6 +221,14 @@ float step_delta() {
     return raw > RMP_MAX_DELTA ? RMP_MAX_DELTA : raw;
 }
 
+// The frame boundary, and it belongs to the RUNNER, not to frame(). It used
+// to be the first line of frame(), which only RMP_GAME calls, so a game with
+// its own on_frame() -- RMP_ENTRY_POINT, as most of the examples are -- read
+// nothing at all through rmp::input. And it is called exactly once: a second
+// sample in the same frame compares every key with itself, and every
+// just_pressed() of that frame is gone. tests/input_play.cpp plays both.
+void begin_frame() { rmp::input::detail::begin_frame(); }
+
 void end_frame() {
     // For a game that owns its own frame -- RMP_ENTRY_POINT -- nothing of ours
     // runs between its last draw call and its EndDrawing(), so the render gate
@@ -314,14 +322,15 @@ void start(std::unique_ptr<rmp::Scene> first) {
 // next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
 // because every interesting property of a scene stack is an ordering property.
 void frame(float delta) {
-    // 1. The frame boundary. Once, whatever the stack looks like: the devices
-    //    are sampled, the scroll advances and the animation clock ticks exactly
-    //    one frame's worth even when three scenes describe UI.
+    // 1. The frame boundary. Once, whatever the stack looks like: the scroll
+    //    advances and the animation clock ticks exactly one frame's worth even
+    //    when three scenes describe UI.
     //
-    //    Input first. Sampling once is what stops two scenes in the same frame
-    //    from disagreeing about what is held down, and it has to happen before
-    //    anything reads it — which the UI does, through its own pointer.
-    rmp::input::detail::begin_frame();
+    //    The devices were sampled before this, by the runner -- begin_frame()
+    //    above, which every runner calls whether the hook is this function or
+    //    a game's own. Sampling once is what stops two scenes in the same
+    //    frame from disagreeing about what is held down; sampling here as well
+    //    would lose every press of the frame.
     rmp::ui::detail::begin_frame();
 
     // 2. Update, bottom upwards, skipping what the scene above freezes.

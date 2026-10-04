@@ -1353,6 +1353,58 @@ class EscapeIsTheGamesKeyTest(unittest.TestCase):
         self.assertTrue(closing.search(bad) and "exitKey" not in bad)
 
 
+class InputIsSampledOncePerFrameTest(unittest.TestCase):
+    """rmp::input reads devices once per frame, at the frame boundary, and the
+    boundary used to be inside rmp::app::detail::frame() -- which only RMP_GAME
+    calls. A game written with RMP_ENTRY_POINT and its own on_frame() read
+    nothing at all. Sampling twice is as bad: the second sample compares the
+    key with itself and every just_pressed() is lost.
+
+    So the boundary belongs to the runner, exactly once, before the frame
+    hook, on all three runners -- and nowhere else in the framework.
+    tests/input_play.cpp drives both shapes through the real desktop runner
+    (`rmp test examples`); this is the half that runs on every `rmp test` and
+    sees the iOS and web runners too."""
+
+    APP_H = REPO / "include" / "rmp" / "app.h"
+    APP_CPP = REPO / "src" / "rmp" / "app.cpp"
+
+    def test_every_runner_begins_the_frame_once_right_before_the_hook(self):
+        app_h = self.APP_H.read_text()
+        for runner in RUNNERS:
+            with self.subTest(runner=runner):
+                body = macro_body(app_h, runner)
+                self.assertEqual(body.count("rmp::app::detail::begin_frame();"), 1)
+                self.assertRegex(body, r"rmp::app::detail::begin_frame\(\);\s*\\\s*\n\s*"
+                                       r"FRAME\(rmp::app::detail::step_delta\(\)\);")
+
+    def test_the_runner_boundary_samples_the_devices(self):
+        body = function_body(self.APP_CPP.read_text(), "void begin_frame() {")
+        self.assertIn("rmp::input::detail::begin_frame();", body)
+
+    def test_frame_does_not_sample_a_second_time(self):
+        body = function_body(self.APP_CPP.read_text(), "void frame(float delta) {")
+        code = "\n".join(line.split("//", 1)[0] for line in body.splitlines())
+        self.assertNotIn("input::detail::begin_frame", code)
+
+    def test_nothing_else_in_the_framework_samples(self):
+        calls = []
+        for path in sorted((REPO / "src").rglob("*")):
+            if path.suffix not in (".cpp", ".h"):
+                continue
+            for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                if "input::detail::begin_frame()" in line.split("//", 1)[0]:
+                    calls.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
+        self.assertEqual(len(calls), 1, calls)
+        self.assertTrue(calls[0].startswith("src/rmp/app.cpp:"), calls)
+
+    def test_the_played_check_is_built_and_run(self):
+        self.assertIn("tests/input_play.cpp", (REPO / "CMakeLists.txt").read_text())
+        script = (REPO / "tools" / "examples_build.sh").read_text()
+        self.assertIn("input_play", script)
+        self.assertIn("^INPUT PASS$", script)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 

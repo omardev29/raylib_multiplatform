@@ -204,8 +204,10 @@ bool consumed_keyboard();
 
 namespace detail {
 
-// Sample every device, once, at the top of the frame. rmp::app calls it, so
+// Sample every device, once, at the top of the frame. The rmp::app runner
+// calls it before the frame hook, for RMP_GAME and RMP_ENTRY_POINT alike, so
 // that two scenes in the same frame cannot disagree about what is held down.
+// Calling it a second time in a frame loses that frame's presses.
 void begin_frame();
 
 // Whether the layer being updated can be reached by input at all. rmp::app

@@ -685,6 +685,25 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
   rmp_apply_link_flags(platformer_play)
 endif()
 
+# --- rmp::input, through the real runner ---------------------------------------
+# tests/input_play.cpp: one RMP_ENTRY_POINT program that reads the input in the
+# shape a game with its own hooks does, and then through frame() as RMP_GAME
+# does, and checks each press is seen exactly once. Same arrangement as the
+# platformer above: built with the examples, run by tools/examples_build.sh.
+if(RMP_BUILD_EXAMPLES OR BUILD_TESTS)
+  add_executable(input_play
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+  set_property(TARGET input_play PROPERTY CXX_STANDARD 20)
+  if(NOT RMP_BUILD_EXAMPLES)
+    set_property(TARGET input_play PROPERTY EXCLUDE_FROM_ALL TRUE)
+  endif()
+  target_link_libraries(input_play PRIVATE rmp)
+  target_compile_definitions(input_play PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
+  rmp_apply_compile_flags(input_play)
+  rmp_apply_link_flags(input_play)
+endif()
+
 # --- rres resource packing --------------------------------------------------
 # Open packing tool (alternative to the paid rrespacker). Standalone C, no raylib.
 add_executable(rres_pack tools/rres_pack.c tools/md5.c)
