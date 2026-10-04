@@ -32,6 +32,14 @@ set(RESOURCES_PATH "")
 # Force static linking for raylib on Android
 set(BUILD_SHARED_LIBS_RAYLIB OFF CACHE BOOL "" FORCE)
 
+# [android] gl_version, from Gradle: what raylib and the game are compiled for,
+# and the GLES library the game links. BEFORE raylib is configured, because that
+# is when it reads OPENGL_VERSION. See gl_version.cmake.
+include("${CMAKE_CURRENT_SOURCE_DIR}/gl_version.cmake")
+rmp_android_gl("${GL_VERSION}" RMP_GL_OPENGL RMP_GL_LIBRARY RMP_GL_DEFINE)
+set(OPENGL_VERSION "${RMP_GL_OPENGL}" CACHE STRING "" FORCE)
+message(STATUS "=== ANDROID: [android] gl_version ${GL_VERSION} -> ${RMP_GL_DEFINE}, ${RMP_GL_LIBRARY} ===")
+
 # Include raylib and raymob as subdirectories (using absolute paths)
 add_subdirectory(${RAYLIB_DIR} "${CMAKE_BINARY_DIR}/raylib-build")
 add_subdirectory(${RAYMOB_DIR} "${CMAKE_BINARY_DIR}/raymob")
@@ -64,6 +72,9 @@ target_compile_options(${APP_LIB_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Werror
 target_compile_definitions(${APP_LIB_NAME} PRIVATE
     PLATFORM_ANDROID
     RMP_RESOURCES_PATH="${RESOURCES_PATH}"
+    # The game is compiled for the GL raylib is: rlgl.h is header-only in part,
+    # and an ES3 raylib behind an ES2 game is two different rlgl.h.
+    ${RMP_GL_DEFINE}
 )
 
 if(PRODUCTION_BUILD)
@@ -113,4 +124,4 @@ else()
 endif()
 
 # Link required libraries to the native application
-target_link_libraries(${APP_LIB_NAME} PRIVATE raylib_static raymoblib)
+target_link_libraries(${APP_LIB_NAME} PRIVATE raylib_static raymoblib ${RMP_GL_LIBRARY})

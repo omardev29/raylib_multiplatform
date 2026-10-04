@@ -2003,6 +2003,110 @@ class ConfigureMessagesSayWhatHappenedTest(unittest.TestCase):
             self.assertFalse((root / "branding" / "icon.png").exists())
 
 
+class AndroidGlVersionTest(unittest.TestCase):
+    """[android] gl_version only changed the manifest. raylib on Android was
+    always compiled for OpenGL ES 2.0 -- its CMake sets GRAPHICS_API_OPENGL_ES2
+    for the platform -- and the -DGL_VERSION Gradle passed was read by nothing,
+    so the default ES30 did one thing: it hid the game from every ES 2.0 device
+    on the Play Store. Now the value is what raylib and the game are compiled
+    for, and what the manifest asks for, and nothing else."""
+
+    GL = REPO / "raymob" / "app" / "src" / "main" / "cpp" / "gl_version.cmake"
+
+    def config(self, value):
+        return base_config(android=dict(copy.deepcopy(cfgmod.DEFAULTS["android"]),
+                                        gl_version=value))
+
+    def test_the_default_is_es20_the_widest_set_of_devices(self):
+        """A game starts with ES20 (DEFAULTS, and `rmp new` writes it --
+        tests/rmp_test.py). The framework's own .toml has ES30 so that its
+        Android job compiles the ES 3.0 path, the one that is new."""
+        self.assertEqual(cfgmod.DEFAULTS["android"]["gl_version"], "ES20")
+        self.assertRegex(toml_section("android"), r'\ngl_version = "ES30"\n')
+
+    def test_es20_and_es30_are_the_values(self):
+        self.assertEqual(cfgmod.GL_VERSIONS, {"ES20", "ES30"})
+        for value in ("ES20", "ES30"):
+            with self.subTest(gl_version=value), quiet():
+                cfgmod.validate(self.config(value), False)
+
+    def test_es31_and_es32_are_refused_with_the_reason(self):
+        """raylib has an ES 3.0 path and no 3.1 or 3.2 one: asking for those
+        would compile ES 3.0 and only hide the game from more devices."""
+        for value in ("ES31", "ES32"):
+            with self.subTest(gl_version=value):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.config(value), False)
+                self.assertIn("ES 3.0", str(caught.exception))
+                self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_the_value_reaches_gradle(self):
+        for value in ("ES20", "ES30"):
+            captured = {}
+            original = cfgmod.write
+            cfgmod.write = lambda path, content: captured.__setitem__(str(path), content)
+            try:
+                with quiet():
+                    cfgmod.gen_gradle_properties(self.config(value), ["android"])
+            finally:
+                cfgmod.write = original
+            (text,) = captured.values()
+            with self.subTest(gl_version=value):
+                self.assertIn(f"gl.version={value}\n", text)
+
+    def test_gradle_asks_the_manifest_for_the_same_version(self):
+        gradle = (REPO / "raymob" / "app" / "build.gradle").read_text()
+        table = gradle[gradle.index("def versionCodes = ["):]
+        table = table[:table.index("]")]
+        self.assertEqual(dict(re.findall(r"'(ES\d\d)': '(0x[0-9a-f]+)'", table)),
+                         {"ES20": "0x00020000", "ES30": "0x00030000"})
+        self.assertIn('"-DGL_VERSION=$glVersion"', gradle)
+        self.assertIn("project.findProperty('gl.version') ?: 'ES20'", gradle)
+
+    def resolve(self, value):
+        import shutil
+        import subprocess
+        cmake = shutil.which("cmake")
+        if cmake is None:
+            self.skipTest("cmake not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "probe.cmake"
+            script.write_text(
+                f'include("{self.GL.as_posix()}")\n'
+                f'rmp_android_gl("{value}" OPENGL GLES DEFINE)\n'
+                'message(STATUS "OPENGL=${OPENGL}|GLES=${GLES}|DEFINE=${DEFINE}")\n')
+            got = subprocess.run([cmake, "-P", str(script)], capture_output=True, text=True)
+            return got.returncode, got.stdout + got.stderr
+
+    def test_the_native_build_compiles_raylib_and_the_game_for_it(self):
+        """What raymob's CMakeLists.txt does with -DGL_VERSION: raylib's own
+        OPENGL_VERSION, the GRAPHICS_API_* the game is compiled with, and the
+        GLES library the .so links -- ES 3.0's functions are in libGLESv3."""
+        for value, opengl, gles, define in (
+                ("ES20", "ES 2.0", "GLESv2", "GRAPHICS_API_OPENGL_ES2"),
+                ("ES30", "ES 3.0", "GLESv3", "GRAPHICS_API_OPENGL_ES3")):
+            with self.subTest(gl_version=value):
+                code, out = self.resolve(value)
+                self.assertEqual(code, 0, out)
+                self.assertIn(f"OPENGL={opengl}|GLES={gles}|DEFINE={define}", out)
+        code, out = self.resolve("ES31")
+        self.assertNotEqual(code, 0, "an unknown value has to stop the Android build")
+        cmakelists = (self.GL.parent / "CMakeLists.txt").read_text()
+        uses = cmakelists.index("rmp_android_gl(")
+        self.assertLess(uses, cmakelists.index("add_subdirectory(${RAYLIB_DIR}"),
+                        "raylib reads OPENGL_VERSION when it is configured")
+        self.assertIn("${RMP_GL_DEFINE}", cmakelists)
+        self.assertIn("${RMP_GL_LIBRARY}", cmakelists)
+
+    def test_raylib_asks_egl_for_the_context_it_was_compiled_for(self):
+        """rcore_android.c asked for EGL_CONTEXT_CLIENT_VERSION 2 whatever it
+        was compiled for, and a driver may then hand an ES3 build an ES 2.0
+        context to call ES 3.0 functions in."""
+        text = (REPO / "thirdparty" / "raylib" / "src" / "platforms" / "rcore_android.c").read_text()
+        self.assertIn("EGL_CONTEXT_CLIENT_VERSION, (rlGetVersion() == RL_OPENGL_ES_30)? 3 : 2,",
+                      text)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 

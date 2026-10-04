@@ -946,7 +946,10 @@ static int InitGraphicsDevice(void)
     };
 
     const EGLint contextAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
+        // PATCHED (raylib_multiplatform): ask for the ES version this was compiled
+        // for. It asked for 2 whatever it was, and a driver may answer that with
+        // an ES 2.0 context for an ES3 build to call ES 3.0 functions in.
+        EGL_CONTEXT_CLIENT_VERSION, (rlGetVersion() == RL_OPENGL_ES_30)? 3 : 2,
         EGL_NONE
     };
 

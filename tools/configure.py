@@ -419,7 +419,7 @@ DEFAULTS: dict = {
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
         "application_id": "com.example.raytest",
-        "min_sdk": 24, "gl_version": "ES30", "category": "game",
+        "min_sdk": 24, "gl_version": "ES20", "category": "game",
         "display": {"keep_on": True, "immersive": True, "into_cutout": True},
         # Permissions and features are different things and used to be one
         # table, which hid a bug: android:required is an attribute of
@@ -669,7 +669,7 @@ ADMOB_IDS = (
 
 COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 ORIENTATIONS = {"landscape", "portrait", "unspecified"}
-GL_VERSIONS = {"ES20", "ES30", "ES31", "ES32"}
+GL_VERSIONS = {"ES20", "ES30"}
 LINKERS = {"auto", "mold", "lld", "default"}
 # android:appCategory: how the Play Store files the app.
 APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",
@@ -983,7 +983,16 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "rmp::save uses std::filesystem, which Apple's C++ library only has from iOS 13. "
             "Use 13.0 or later; the default, 15.6, covers every iPhone Apple still updates.")
 
-    one_of(cfg["android"]["gl_version"], GL_VERSIONS, "[android] gl_version")
+    # ES31 and ES32 were accepted and changed only the manifest: raylib has an
+    # ES 3.0 path and no 3.1 or 3.2 one, so they compiled ES 3.0 and hid the
+    # game from more devices. isinstance first: one_of() below says the rest.
+    gl = cfg["android"]["gl_version"]
+    if isinstance(gl, str) and gl in ("ES31", "ES32"):
+        raise ConfigError(
+            f"[android] gl_version = {gl!r} would compile raylib for ES 3.0 all the same -- "
+            "it has no 3.1 or 3.2 path -- and only hide the game from devices without "
+            f"{gl[2]}.{gl[3]}.\nUse \"ES30\" for ES 3.0, or \"ES20\" to reach every device.")
+    one_of(gl, GL_VERSIONS, "[android] gl_version")
 
     min_sdk = cfg["android"]["min_sdk"]
     if not isinstance(min_sdk, int) or not (21 <= min_sdk <= 36):

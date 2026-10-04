@@ -125,7 +125,7 @@ disabled = []                          # or exact ids: linux-x64-glibc, netbsd-x
 [android]
 application_id = "com.yourname.yourgame"
 min_sdk = 24
-gl_version = "ES30"
+gl_version = "ES20"                    # or ES30: what raylib is compiled for, and the devices offered
 
 [android.permissions]
 internet  = false                      # each one shows up on your Play listing

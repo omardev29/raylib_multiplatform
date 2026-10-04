@@ -107,8 +107,12 @@ application_id = "com.example.raytest"
 # The oldest Android the app installs on, as an API level: 24 is Android 7.0.
 # 21 to 36.
 min_sdk = 24
-# ES20 | ES30 | ES31 | ES32. Devices without the requested version are not
-# offered your app on the Play Store.
+# ES20 | ES30. What raylib and your game are compiled for on Android
+# (GRAPHICS_API_OPENGL_ES2 or _ES3), and the OpenGL ES version the manifest
+# requires: a device without it is not offered your app on the Play Store.
+# ES20 reaches every device, and is what a game made with `rmp new` starts
+# with. ES30 is for a game that needs what raylib's ES 3.0 path adds. (The
+# framework's own .toml has ES30, so that its CI compiles the ES 3.0 path.)
 gl_version = "ES30"
 # How the Play Store files your app (android:appCategory):
 #   game | audio | video | image | social | news | maps | productivity | accessibility

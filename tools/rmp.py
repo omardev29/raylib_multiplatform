@@ -923,6 +923,9 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         # path; a game starts without the SDK, AD_ID and INTERNET, and turns
         # them on when it has an ad to show.
         (setting_in("android.admob", "enabled"), assign_raw("false")),
+        # ES 2.0, which every Android device has. The framework compiles the
+        # ES 3.0 path in its own CI; a game asks for it when it needs it.
+        (setting_in("android", "gl_version"), assign("ES20")),
     ])
     edit_lines(target / "THIRD_PARTY_LICENSES.md", [
         (lambda line: line.startswith("doctest "), lambda line: None),

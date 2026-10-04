@@ -22,11 +22,12 @@ def isAtLeastOnePropertyTrueForPrefix(String prefix) {
 // Returns the hexadecimal code of the desired OpenGL version
 // Used to retrieve the code to write in the AndroidManifest.xml
 static def getGLVersionCode(String version) {
+    // ES20 and ES30 only: raylib has no 3.1 or 3.2 path, so asking the manifest
+    // for one would only hide the game from more devices. The same value is
+    // what the native build compiles for (-DGL_VERSION, below).
     def versionCodes = [
             'ES20': '0x00020000',
-            'ES30': '0x00030000',
-            'ES31': '0x00030001',
-            'ES32': '0x00030002'
+            'ES30': '0x00030000'
     ]
     if (!versionCodes.containsKey(version)) {
         throw new IllegalArgumentException("Version '${version}' is not valid. Valid versions are: ${versionCodes.keySet()}")

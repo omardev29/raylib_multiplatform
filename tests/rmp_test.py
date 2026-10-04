@@ -1366,9 +1366,13 @@ class NewTest(unittest.TestCase):
         # the ads path, and a game starts without the SDK, AD_ID and INTERNET.
         self.assertIs(base["android"]["admob"]["enabled"], True)
         self.assertIs(mine["android"]["admob"]["enabled"], False)
+        # ES 2.0 for a game; the framework compiles the ES 3.0 path in its CI.
+        self.assertEqual(base["android"]["gl_version"], "ES30")
+        self.assertEqual(mine["android"]["gl_version"], "ES20")
         for table in ("project", "window", "android", "ios", "resources"):
             mine[table] = dict(mine[table])
         mine["android"]["admob"] = dict(mine["android"]["admob"], enabled=True)
+        mine["android"]["gl_version"] = base["android"]["gl_version"]
         for key in ("name",):
             mine["project"][key] = base["project"][key]
         mine["window"]["title"] = base["window"]["title"]
