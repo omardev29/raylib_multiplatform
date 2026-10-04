@@ -28,6 +28,8 @@ notice is owed, an upstream URL (`upstream:<url>`).
 
 ```components
 # name                      path                                                    licences                 elect          modified  linked    evidence
+# The framework itself, first: a game made from it ships its notice like any other.
+raylib_multiplatform        LICENSE                                                 MIT                      -              no        all       file
 raylib                      thirdparty/raylib                                       zlib                     -              yes       all       file
 clay                        thirdparty/clay                                         zlib                     -              yes       all       file
 cute_tiled                  thirdparty/cute_tiled                                   zlib|Unlicense           Unlicense      yes       all       file
@@ -182,7 +184,9 @@ changing fails the build.
   RGFW, glad), the software rasteriser (rlsw), the random generator (rprand)
   and three Windows shims (dirent, win32_clipboard, fix_win32_compatibility).
   All permissive; each row above says which family and where its notice is.
-- **The framework's own code** (`src/`, `include/`, `tools/`, `cmake/`, `ios/`,
-  the build files) is under the root `LICENSE` (MIT). `tools/md5.c` is a
+- **The framework's own code** (`src/rmp/`, `include/rmp/`, `tools/`, `cmake/`,
+  `ios/`, the build files) is under the MIT licence the `raylib_multiplatform`
+  row points at, and that notice ships in every `LICENSES.txt` like the others.
+  A game's own code is its author's, under whatever licence they choose. `tools/md5.c` is a
   transcription of RFC 1321 written for this repository's `rres_pack` tool and
   is ours; its header says so.

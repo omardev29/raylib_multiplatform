@@ -1996,7 +1996,11 @@ def licenses_text(cfg: dict, family: str, rows=None) -> str:
         licence = row["licences"].replace("|", " or ")
         if row["elect"] != "-":
             licence += f" (this build takes the {row['elect']} alternative)"
-        if row["modified"] == "yes":
+        if row["name"] == "raylib_multiplatform":
+            # The framework, whose source is the game's own: src/rmp/ and
+            # include/rmp/. "Unmodified" is not ours to claim about a game.
+            mark = "The framework this game is built on: src/rmp/ and include/rmp/ in the source."
+        elif row["modified"] == "yes":
             mark = f"MODIFIED for this build. See thirdparty/{Path(row['path']).name}/PATCHES.md in the source."
         elif row["modified"] == "subset":
             mark = f"PARTIAL copy. See thirdparty/{Path(row['path']).name}/PATCHES.md in the source."

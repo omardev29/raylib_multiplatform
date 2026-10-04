@@ -559,7 +559,16 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
         elif elected in MARK_CHANGES and top_level and is_submodule:
             pass  # pinned by the submodule commit itself
 
-    # (6) packaging: every family that ships names LICENSES.txt.
+    # (6) every content pin belongs to a row. A component taken out leaves its
+    # sha256 behind in FROZEN_VERSIONS.md, pinning nothing, and a game made
+    # from this framework without doctest would carry exactly that.
+    expected = {"sha256_" + re.sub(r"[^a-z0-9]+", "_", r["name"].lower()) for r in rows}
+    for key in sorted(pins):
+        if key.startswith("sha256_") and key not in expected:
+            fails.append(f"{key}: a pin in FROZEN_VERSIONS.md for a component with no row "
+                         "in the components block. Remove the pin, or the row is missing.")
+
+    # (7) packaging: every family that ships names LICENSES.txt.
     for family in sorted(families):
         rel = FAMILY_FILES.get(family)
         if rel is None:

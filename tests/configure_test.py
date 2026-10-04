@@ -2318,6 +2318,25 @@ class LicenceGuardTest(unittest.TestCase):
         header = FIXTURES / "mit_dep" / "dep" / "thing.h"
         self.assertEqual(ldb.pin_of([header]), ldb.sha256_of(header))
 
+    def test_a_pin_with_no_row_is_refused(self):
+        rows = self.rows_for_one("zlib_marked", licences="zlib", modified="yes")
+        fails = self.check(rows, self.fixture("zlib_marked"),
+                           {"sha256_doctest": "a" * 64})
+        self.assertTrue(any("sha256_doctest" in f and "no row" in f for f in fails), fails)
+        # A pin whose row is there is not an orphan.
+        fails = self.check(rows, self.fixture("zlib_marked"), {"sha256_zlib_marked": "a" * 64})
+        self.assertFalse(any("no row" in f for f in fails), fails)
+
+    def test_the_framework_notice_ships_with_every_family(self):
+        """The framework's own MIT notice was in no LICENSES.txt at all. (iOS's
+        needs the raylib-ios submodule checked out; it reads the same rows.)"""
+        for family in ("desktop", "android"):
+            with self.subTest(family=family):
+                text = cfgmod.licenses_text(base_config(), family)
+                self.assertIn("raylib_multiplatform -- MIT", text)
+                self.assertIn("Copyright (c) 2026 omardev29", text)
+                self.assertIn("The framework this game is built on", text)
+
     def test_the_symmetry_both_ways(self):
         root = FIXTURES / "symmetry"
         rel = lambda n: str((root / n).relative_to(REPO))
