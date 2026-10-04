@@ -166,6 +166,16 @@ void begin_run() {
 }
 
 void after_ready() {
+    // Escape is the game's key, not raylib's. InitWindow() makes it the exit
+    // key, so WindowShouldClose() turned true on the press -- and rmp::ui goes
+    // back on Escape and the factory `ui_cancel` action is bound to it, so in
+    // every game the key that meant "back" or "pause" closed the window.
+    // HERE, after the ready hook, because that is where every window opens:
+    // start() for RMP_GAME, the game's own on_ready() for RMP_ENTRY_POINT. And
+    // before anything below can return. The window's close button still quits:
+    // it is a different event. See "Escape" in include/rmp/app.h.
+    SetExitKey(KEY_NULL);
+
     // Under the CI smoke test, a save goes to this platform's real folder and
     // back before the boot counts -- because that folder code is different on
     // every platform (%APPDATA% through the wide API, Application Support on

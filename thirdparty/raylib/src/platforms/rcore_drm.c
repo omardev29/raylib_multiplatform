@@ -1815,7 +1815,10 @@ static void ProcessKeyboard(void)
         if (keysBuffer[i] == 0x1b)
         {
             // Check if ESCAPE key has been pressed to stop program
-            if (bufferByteCount == 1) CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey] = 1;
+            // PATCHED (raylib_multiplatform): a lone ESC byte is the Escape key. It was
+            // written into the EXIT key's slot, so with SetExitKey(KEY_NULL) it pressed
+            // slot 0, which the exit check then read as pressed.
+            if (bufferByteCount == 1) CORE.Input.Keyboard.currentKeyState[KEY_ESCAPE] = 1;
             else
             {
                 if (keysBuffer[i + 1] == 0x5b)    // Special function key

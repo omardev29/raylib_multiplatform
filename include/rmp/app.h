@@ -105,6 +105,20 @@ void quit();
 // unless you want to skip work on the way out.
 bool quit_requested();
 
+// ESCAPE DOES NOT CLOSE THE GAME. raylib's InitWindow() makes Escape the exit
+// key, and then pressing it ends the loop -- which in a game is the key for
+// "back" and "pause": rmp::ui goes back on it, and the `ui_cancel` action is
+// bound to it. So the entry point calls SetExitKey(KEY_NULL) after your ready
+// hook returns, on every runner, whoever opened the window: start() for
+// RMP_GAME, your own InitWindow() for RMP_ENTRY_POINT. The window's close
+// button still closes it: that is a request from the window, not a key.
+//
+// After the ready hook means a SetExitKey() of your own in on_ready() is
+// overwritten. To quit on a key, say so where the game reads its keys, which
+// also runs the stop hook the same way the close button does:
+//
+//     if (IsKeyPressed(KEY_ESCAPE)) rmp::app::quit();
+
 namespace detail {
 // GetFrameTime(), with [app] max_delta applied. Every runner below calls this
 // instead of GetFrameTime() directly, so a game written with RMP_ENTRY_POINT
@@ -121,7 +135,7 @@ float step_delta();
 // exist so that this header names nothing from rmp::ui or rmp::assets. Their
 // bodies, and the includes they need, are in src/rmp/app.cpp.
 void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
-void after_ready(); // report to CI whether any asset failed to load
+void after_ready(); // Escape stops closing the window; tell CI if an asset failed
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
 void end_frame(); // advance the CI frame budget, feed the music stream
 void begin_stop(); // the UI closes here, BEFORE your stop hook: see below

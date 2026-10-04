@@ -1250,6 +1250,109 @@ class NoSetTargetFpsOnTheWebTest(unittest.TestCase):
         self.assertEqual(unguarded_calls("// SetTargetFPS(60);", "SetTargetFPS"), [])
 
 
+def macro_body(text: str, name: str) -> str:
+    """The body of `#define NAME(...)`: every continuation line after it."""
+    start = text.index(f"#define {name}(")
+    lines = []
+    for line in text[start:].splitlines():
+        lines.append(line)
+        if not line.rstrip().endswith("\\"):
+            break
+    return "\n".join(lines)
+
+
+def function_body(text: str, signature: str) -> str:
+    """From `signature` to the first closing brace in column 0."""
+    start = text.index(signature)
+    return text[start:text.index("\n}\n", start)]
+
+
+RUNNERS = ("RMP_IOS_FUNCS", "RMP_WEB_FUNCS", "RMP_DESKTOP_FUNCS")
+
+
+class EscapeIsTheGamesKeyTest(unittest.TestCase):
+    """raylib closes the window on Escape unless told otherwise: InitWindow()
+    sets the exit key to KEY_ESCAPE, and WindowShouldClose() turns true on the
+    press. rmp::ui goes back on Escape and the factory `ui_cancel` action is
+    bound to it, so in every game the framework built, the key that meant
+    "back" or "pause" closed the game instead.
+
+    No key can be pressed into a headless window, so this checks the call and
+    where it is: after the hook that opens the window, on every runner. And
+    raylib's own backends, two of which closed on Escape whatever the exit key
+    said."""
+
+    APP_H = REPO / "include" / "rmp" / "app.h"
+    APP_CPP = REPO / "src" / "rmp" / "app.cpp"
+
+    def test_after_ready_takes_the_exit_key_away_before_anything_can_return(self):
+        body = function_body(self.APP_CPP.read_text(), "void after_ready() {")
+        self.assertIn("SetExitKey(KEY_NULL);", body)
+        code = [line.split("//", 1)[0] for line in body.splitlines()]
+        clear = next(i for i, line in enumerate(code) if "SetExitKey(KEY_NULL)" in line)
+        returns = [i for i, line in enumerate(code) if re.search(r"\breturn\b", line)]
+        self.assertTrue(all(clear < r for r in returns),
+                        "SetExitKey(KEY_NULL) has to come before the first return in "
+                        "after_ready(): a failed save test returns early")
+
+    def test_every_runner_runs_after_ready_straight_after_the_ready_hook(self):
+        """The ready hook is where every window opens -- start() for RMP_GAME,
+        the game's own on_ready() for RMP_ENTRY_POINT -- and InitWindow() puts
+        Escape back. So after_ready() has to follow it on all three runners."""
+        app_h = self.APP_H.read_text()
+        for runner in RUNNERS:
+            with self.subTest(runner=runner):
+                body = macro_body(app_h, runner)
+                self.assertRegex(body, r"READY\(\);\s*\\\s*\n\s*rmp::app::detail::after_ready\(\);")
+
+    def test_no_window_of_ours_ever_called_set_exit_key_back(self):
+        for root in ("src", "include"):
+            for path in sorted((REPO / root).rglob("*")):
+                if path.suffix not in (".h", ".cpp", ".c"):
+                    continue
+                for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                    code = line.split("//", 1)[0]
+                    if "SetExitKey(" in code and "SetExitKey(KEY_NULL)" not in code:
+                        self.fail(f"{path.relative_to(REPO)}:{lineno} gives Escape back to "
+                                  "raylib")
+
+    def test_app_h_says_what_a_game_with_its_own_window_gets(self):
+        text = self.APP_H.read_text()
+        self.assertIn("SetExitKey(KEY_NULL)", text)
+        self.assertIn("rmp::app::quit()", text)
+
+    # Every backend a .toml can select, plus SDL, which raylib ships beside them.
+    # rcore_memory.c is the one left out: it is the headless test platform,
+    # its "keyboard" is the test process's stdin, and nothing ships with it.
+    BACKENDS = ("rcore_desktop_glfw.c", "rcore_desktop_rgfw.c", "rcore_desktop_win32.c",
+                "rcore_desktop_sdl.c", "rcore_drm.c", "rcore_web.c",
+                "rcore_web_emscripten.c", "rcore_android.c")
+
+    def test_no_backend_closes_on_a_key_that_is_not_the_exit_key(self):
+        """rcore_desktop_win32.c closed on KEY_ESCAPE by name, and the DRM
+        backend's terminal keyboard wrote a lone ESC into the EXIT KEY's slot --
+        slot 0 once the exit key is KEY_NULL, which its own exit check then
+        read as pressed. Either way SetExitKey() was not obeyed."""
+        platforms = REPO / "thirdparty" / "raylib" / "src" / "platforms"
+        closing = re.compile(r"shouldClose\s*=\s*true|SetWindowShouldClose\([^)]*TRUE"
+                             r"|setShouldClose\([^)]*true")
+        for name in self.BACKENDS:
+            text = (platforms / name).read_text()
+            for lineno, line in enumerate(text.splitlines(), 1):
+                code = line.split("//", 1)[0]
+                with self.subTest(backend=name, line=lineno):
+                    self.assertNotRegex(code, r"currentKeyState\[CORE\.Input\.Keyboard\.exitKey\]\s*=[^=]")
+                    if closing.search(code) and re.search(r"\bkey\b|KEY_", code):
+                        self.assertIn("exitKey", code,
+                                      f"{name}:{lineno} closes the window on a key, and not "
+                                      "on the one SetExitKey() named")
+
+    def test_the_scan_sees_the_shape_it_is_looking_for(self):
+        closing = re.compile(r"shouldClose\s*=\s*true")
+        bad = "if ((key == KEY_ESCAPE) && (state == 1)) CORE.Window.shouldClose = true;"
+        self.assertTrue(closing.search(bad) and "exitKey" not in bad)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 
