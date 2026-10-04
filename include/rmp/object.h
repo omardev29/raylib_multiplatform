@@ -283,12 +283,14 @@ Object *resolve(unsigned index, unsigned generation);
 // one; T is the type get() hands back.
 template <class T = Object> class Handle {
 public:
-    // get() is an unchecked downcast -- RTTI is off on every target, so there
-    // is no dynamic_cast to make it a checked one. The generation stops a
-    // handle resolving to a DIFFERENT object; what it cannot stop is resolving
-    // to the same object through a type it never was. This catches the half a
-    // compiler can catch, at no runtime cost: a T that is not an Object at all
-    // is a mistake, not a risk somebody took on purpose.
+    // get() is an unchecked downcast, a static_cast. A dynamic_cast would make
+    // it a checked one, and would make the framework need RTTI, which nothing
+    // in it uses -- and a handle resolved every frame would pay for the type
+    // walk. The generation stops a handle resolving to a DIFFERENT object; what
+    // it cannot stop is resolving to the same object through a type it never
+    // was. This catches the half a compiler can catch, at no runtime cost: a T
+    // that is not an Object at all is a mistake, not a risk somebody took on
+    // purpose.
     static_assert(std::is_base_of_v<Object, T>,
                   "Handle<T> holds an rmp::Object. T has to derive from it -- "
                   "handle<Goblin>() on an object that is a Goblin, not a handle "
@@ -447,8 +449,10 @@ struct RayQuery {
     // Without this the nearest hit under a character is whatever trigger
     // happens to be there, and the character walks through the floor.
     //
-    // Last in the struct because designated initialisers are positional in
-    // C++20: a field added anywhere else would stop existing code compiling.
+    // Last in the struct, because added before the others it would shift a
+    // POSITIONAL initialiser -- `RayQuery{ a, b, mask, &self }` -- onto the
+    // wrong fields. A designated one does not mind: it names its fields, in
+    // the order they are declared, and a new one in between is simply left out.
     bool solid_only = false;
 };
 

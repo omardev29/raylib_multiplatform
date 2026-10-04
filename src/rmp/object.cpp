@@ -2,9 +2,10 @@
 // The object storage, the integrator, the edge rules and the draw pass.
 //
 // The public surface is include/rmp/object.h. What lives here is the half the
-// user never calls, and the reason the header can stay free of <memory> and
-// <vector>: a file with an entity in it should not pay 605 ms for the first and
-// this one pays it once.
+// user never calls, and the reason that header can stay free of <vector> and
+// <algorithm>: the storage, the passes and the sort are in here, so a file with
+// an entity in it does not pay for them and this one pays once. (<memory> the
+// header does include: a Callback's state and a behavior are shared_ptrs.)
 //
 // THE STORAGE, and why it is a vector of unique_ptr and not something cleverer.
 //
