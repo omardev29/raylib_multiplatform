@@ -1964,6 +1964,99 @@ void run_frame_grow() {
     check(box_of("filler").w < 100.0f, "without grow, the frame still fits its content");
 }
 
+// A [ui] font is a .ttf, and a .ttf is only sharp at the size it was baked at.
+// It used to be baked ONCE, at the theme's font_size times the scale, and
+// SMALL, LARGE and every number were drawn by stretching that one bake: LARGE
+// came out blurry. Baking needs a GL context, so the test hands the UI a font
+// that "bakes" without one and watches which sizes it is asked for.
+struct {
+    int sizes[32] = {};
+    int count = 0;
+} font_bakes;
+
+rmp::Font fake_bake(const char *name, int pixel_size) {
+    if (font_bakes.count < 32) font_bakes.sizes[font_bakes.count++] = pixel_size;
+    // texture.id 0 is what lets this live and die with no GL context: raylib's
+    // UnloadFont leaves alone a font whose texture is the default font's, and
+    // with no window that id is 0 too.
+    ::Font face{};
+    face.baseSize = pixel_size;
+    face.glyphCount = 1;
+    return rmp::Font{ rmp::detail::adopt_named(rmp::detail::ResourceKind::FONT, name,
+                                               pixel_size, face) };
+}
+
+bool baked(int pixel_size) {
+    int times = 0;
+    for (int i = 0; i < font_bakes.count; i++) times += font_bakes.sizes[i] == pixel_size;
+    return times == 1;
+}
+
+void run_font_sizes() {
+    std::printf("\n--- a [ui] font, sharp at every size ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
+    rmp::ui::detail::set_font_provider(fake_bake, "fake-ui.ttf");
+    font_bakes.count = 0;
+
+    auto frame = [] {
+        rmp::ui::begin();
+        rmp::ui::text("small", { .size = rmp::ui::Size::SMALL });
+        rmp::ui::text("medium");
+        rmp::ui::text("large", { .size = rmp::ui::Size::LARGE });
+        rmp::ui::text("exact", { .size = 34 });
+        rmp::ui::end();
+    };
+    frame();
+    // The pixel size each one is laid out at, exactly as text() works it out.
+    const rmp::ui::Theme &t = rmp::ui::current_theme();
+    auto pixels = [](float units) {
+        return static_cast<int>(static_cast<uint16_t>(units * rmp::ui::scale()));
+    };
+    std::printf("  baked %d face(s):", font_bakes.count);
+    for (int i = 0; i < font_bakes.count; i++) std::printf(" %d", font_bakes.sizes[i]);
+    std::printf("\n");
+    check(baked(pixels(t.font_size_small)), "SMALL is baked at the size it is drawn at");
+    check(baked(pixels(t.font_size)), "so is MEDIUM");
+    check(baked(pixels(t.font_size_large)), "so is LARGE");
+    check(baked(pixels(34)), "and so is a size given as a number");
+    check(font_bakes.count == 4, "one face per size, and no other");
+
+    frame();
+    frame();
+    check(font_bakes.count == 4, "and kept: the next frames bake nothing");
+    check(rmp::ui::detail::ui_font(static_cast<float>(pixels(t.font_size_large)))
+                  .baseSize == pixels(t.font_size_large),
+          "LARGE is drawn and measured with the face baked at its own size");
+
+    // Eight faces at most. More sizes than that in ONE frame bake no more --
+    // the faces already drawn may still be in raylib's batch -- and the next
+    // frame makes room by letting go of the one used longest ago.
+    const int before = font_bakes.count;
+    rmp::ui::detail::begin_frame();
+    for (int px = 60; px < 70; px++) rmp::ui::detail::ui_font(static_cast<float>(px));
+    rmp::ui::detail::end_frame();
+    check(font_bakes.count - before == 8,
+          "eight faces at most, however many sizes a frame asks for");
+    check(rmp::ui::detail::ui_font(69).baseSize != 69,
+          "and a size past that in the same frame borrows the closest face");
+    rmp::ui::detail::begin_frame();
+    check(rmp::ui::detail::ui_font(69).baseSize == 69, "which the next frame bakes");
+    rmp::ui::detail::end_frame();
+
+    rmp::ui::shutdown();
+    check(rmp::detail::ref_count("fake-ui.ttf") == 0, "shutdown() lets every face go");
+
+    // raylib's own font is not baked at all, at any size.
+    rmp::ui::detail::set_font_provider(fake_bake, nullptr); // [ui] font = ""
+    font_bakes.count = 0;
+    frame();
+    check(font_bakes.count == 0, "the built-in font is left exactly as it was");
+
+    rmp::ui::detail::set_font_provider(nullptr, nullptr);
+    rmp::ui::detail::set_measure_provider(measure_stub);
+}
+
 // rmp/ui.h: "There is no init(): the UI starts itself on the first begin()".
 // After shutdown() it did not -- it crashed: Clay's current context still
 // pointed into the arena shutdown() had just freed, and the first thing a
@@ -2031,6 +2124,7 @@ int main() {
     run_themes();
     run_breakpoints();
     run_restart_after_shutdown();
+    run_font_sizes();
 
     std::printf("\n--- scale limits ---\n");
 

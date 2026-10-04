@@ -58,18 +58,36 @@ struct {
 } sizing;
 
 // The font. When [ui] font is empty we use raylib's built-in one, which needs
-// no asset, no licence and no loading — and is a bitmap font, which is why its
-// scale is rounded to a whole number below.
+// no asset, no licence and no loading, and is drawn at whatever size the text
+// asks for.
+//
+// A .ttf is only sharp at the size it was baked at, so it is baked once per
+// PIXEL size the interface draws: SMALL, MEDIUM, LARGE and every number, each
+// times the scale. It used to be baked once, at the theme's font_size, and
+// every other size was that bake stretched -- LARGE came out blurry. A face
+// is kept while it is used and let go of with the UI; past FONT_FACES sizes
+// the one used longest ago makes room, but never one drawn THIS frame: its
+// glyphs may still be waiting in raylib's batch, and unloading the texture
+// under them would draw garbage.
+constexpr int FONT_FACES = 8;
+struct FontFace {
+    int size = 0; // the pixel size it was baked at; 0 = a free slot
+    rmp::Font handle; // counted, like every other resource: emptying it unloads it
+    unsigned frame = 0; // the last frame it was asked for
+};
 struct {
-    rmp::Font handle; // counted, like every other resource: nothing here unloads it
-    bool loaded = false; // true once a file has been baked at baked_size
-    float scale = 1.0f;
-    int baked_size = 0;
+    FontFace faces[FONT_FACES];
+    unsigned frame = 0; // counted at every frame boundary, for FontFace::frame
     // A configured font that cannot be loaded is a one-time problem, not a
     // per-draw one. Without this we would go back to the filesystem and log the
     // same warning for every piece of text, every frame.
     bool failed = false;
 } font;
+
+// Every face goes: the UI is shutting down, or the font is another one.
+void release_fonts() {
+    for (FontFace &face : font.faces) face = FontFace{};
+}
 
 // Text arena. Clay keeps pointers into whatever we hand it and reads them at
 // Clay_EndLayout, so the memory has to survive the frame. 8 KB is a lot of
@@ -185,11 +203,21 @@ struct {
 
 // Where measuring, the pointer and navigation come from: raylib, unless a test
 // has swapped one out.
+rmp::Font load_ui_font(const char *name, int pixel_size) {
+    return rmp::assets::load_font(name, pixel_size);
+}
+
 struct {
     MeasureFn measure = measure_with_raylib;
     PointerFn pointer = pointer_from_raylib;
     NavFn nav = nav_from_raylib;
+    FontFn font = load_ui_font;
+    const char *font_name = nullptr; // nullptr = [ui] font
 } providers;
+
+const char *configured_font() {
+    return providers.font_name != nullptr ? providers.font_name : RMP_UI_FONT;
+}
 
 // Test viewport. 0 means "ask raylib", which is every real run.
 struct {
@@ -313,10 +341,7 @@ bool ensure_started() {
 
 void shutdown_context() {
     if (!context.started) return;
-    if (font.loaded) {
-        font.handle = rmp::Font{};
-        font.loaded = false;
-    }
+    release_fonts();
     context.arena.reset();
     // Clay's current context lived in that arena. Left pointing at it, the next
     // begin() -- which starts the UI again, there being no init() -- wrote the
@@ -348,51 +373,61 @@ void update_scale() {
         if (s > 4.0f) s = 4.0f;
         sizing.scale = s;
     }
-
-    // The built-in font is a bitmap. Drawn at 1.73x it is a smeared mess, so
-    // its scale is rounded to a whole number and the text Size steps instead of
-    // sliding. A TTF rasterises at any size, so it keeps the continuous scale.
-    const bool builtin = (RMP_UI_FONT[0] == '\0');
-    if (builtin) {
-        float rounded = std::floor(sizing.scale + 0.5f);
-        font.scale = rounded < 1.0f ? 1.0f : rounded;
-    } else {
-        font.scale = sizing.scale;
-    }
 }
 
 float ui_scale() { return sizing.scale; }
-float font_scale() { return font.scale; }
 
 void set_scale_override(float s) {
     sizing.scale_override = (s > 0.0f) ? s : 0.0f;
     if (context.started) update_scale();
 }
 
-::Font ui_font() {
-    const bool builtin = (RMP_UI_FONT[0] == '\0');
+::Font ui_font(float pixel_size) {
+    const bool builtin = (configured_font()[0] == '\0');
     if (builtin || font.failed) return GetFontDefault();
 
-    int wanted =
-        static_cast<int>(std::floor(current_theme().font_size * font.scale + 0.5f));
+    int wanted = static_cast<int>(std::lround(pixel_size));
     if (wanted < 1) wanted = 1;
 
-    // Baking at 20 and drawing at 48 is how UI text ends up blurry. Re-bake
-    // when the size the layout actually asks for has moved.
-    if (font.loaded && wanted == font.baked_size) return font.handle.raw();
-    // Assigning releases the old size; the resource table unloads it.
-    font.handle = rmp::assets::load_font(RMP_UI_FONT, wanted);
-    if (font.handle.raw().glyphCount <= 0) {
+    // Already baked at this size? If not: a free slot, else the face used
+    // longest ago -- but not one used this frame.
+    FontFace *free_slot = nullptr;
+    FontFace *stale = nullptr;
+    FontFace *nearest = nullptr;
+    for (FontFace &face : font.faces) {
+        if (face.size == wanted) {
+            face.frame = font.frame;
+            return face.handle.raw();
+        }
+        if (face.size == 0) {
+            if (free_slot == nullptr) free_slot = &face;
+            continue;
+        }
+        if (face.frame != font.frame && (stale == nullptr || face.frame < stale->frame))
+            stale = &face;
+        if (nearest == nullptr ||
+            std::abs(face.size - wanted) < std::abs(nearest->size - wanted))
+            nearest = &face;
+    }
+    FontFace *room = free_slot != nullptr ? free_slot : stale;
+    // Every face was drawn this frame and none is this size: more sizes in one
+    // frame than there are faces. The closest one, stretched, is a soft letter
+    // where the alternative is a texture pulled out from under the batch.
+    if (room == nullptr) return nearest->handle.raw();
+
+    rmp::Font baked = providers.font(configured_font(), wanted);
+    if (baked.raw().glyphCount <= 0) {
         RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
-                        RMP_UI_FONT);
-        font.loaded = false;
-        font.baked_size = 0;
+                        configured_font());
         font.failed = true; // say it once, then stop asking
+        release_fonts();
         return GetFontDefault(); // a missing font must not switch the UI off
     }
-    font.loaded = true;
-    font.baked_size = wanted;
-    return font.handle.raw();
+    // Assigning over an old face releases it; the resource table unloads it.
+    room->size = wanted;
+    room->handle = baked;
+    room->frame = font.frame;
+    return room->handle.raw();
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +593,7 @@ void prepare_frame() {
     reset_frame_arena();
     update_scale();
     anim_begin_frame();
+    font.frame++; // what "drawn this frame" means to the font faces
 
     Clay_SetLayoutDimensions(viewport());
 
@@ -688,8 +724,8 @@ Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
 
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void * /*unused*/) {
-    ::Font f = ui_font();
     auto size = static_cast<float>(config->fontSize);
+    ::Font f = ui_font(size);
     Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
     return Clay_Dimensions{ m.x, m.y };
 }
@@ -750,6 +786,13 @@ void read_nav(NavState *out) { providers.nav(out); }
 
 void set_nav_provider(NavFn fn) {
     providers.nav = (fn != nullptr) ? fn : nav_from_raylib;
+}
+
+void set_font_provider(FontFn fn, const char *name) {
+    providers.font = (fn != nullptr) ? fn : load_ui_font;
+    providers.font_name = name;
+    release_fonts();
+    font.failed = false;
 }
 
 void set_measure_provider(MeasureFn fn) {

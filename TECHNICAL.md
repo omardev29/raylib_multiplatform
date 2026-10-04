@@ -956,10 +956,12 @@ void  rmp::ui::set_scale(float); // pin it; 0 goes back to automatic
 
 Pinning it is how you would build an "interface size" option in a settings menu.
 
-**The built-in font is a bitmap**, so its scale — and only its scale — is rounded to a whole
-number. It steps 1×, 2×, 3× instead of sliding, and stays sharp instead of going blurry. A `.ttf`
-set in `[ui] font` rasterises at any size, so it keeps the continuous scale and is re-baked when
-the size it is asked for changes.
+**Text is drawn at the pixel size the layout asks for**: a step or a number of design units,
+times the scale. The built-in font is a 10-pixel bitmap stretched to that size, whatever it is. A
+`.ttf` set in `[ui] font` is only sharp at the size it was baked at, so it is baked once per pixel
+size the interface draws — `SMALL`, `MEDIUM`, `LARGE` and every number each get their own face —
+and those faces are kept until the UI shuts down. Eight sizes are kept at once; a ninth makes
+room by letting go of the one used longest ago, never of one drawn in the same frame.
 
 ### Breakpoints — the one thing scale cannot do
 
@@ -1114,9 +1116,9 @@ max_elements = 512     # ceiling on the UI tree; it sizes the layout arena
 `Theme` is validated against the themes that exist, so a typo is a configure error and not a
 silent fall back to dark at runtime.
 
-The font goes through `rmp::assets::load_font`, so one packed into the `.rres` works exactly like
-a loose one. If it is missing, the UI says so once and falls back to the built-in font — a missing
-font must not switch off the interface.
+The font goes through `rmp::assets::load_font`, once per pixel size it is drawn at, so one packed
+into the `.rres` works exactly like a loose one. If it is missing, the UI says so once and falls
+back to the built-in font — a missing font must not switch off the interface.
 
 `max_elements` is what sizes the arena, and 512 is generous for menus and HUDs. The engine's own
 default is 8192, which would reserve megabytes for three buttons.

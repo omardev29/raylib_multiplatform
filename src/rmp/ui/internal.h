@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
+#include <rmp/assets.h>
 #include <rmp/ui.h>
 
 #include "clay.h"
@@ -144,13 +145,13 @@ float frame_time();
 // and wrong for a menu.
 float safe_area_inset();
 
-// The font the UI draws with, and the size it was baked at. `::Font` and not
-// `Font`: inside rmp:: the unqualified name is now rmp::Font, the counted
-// handle from rmp/assets.h. This one is raylib's plain struct, owned by the UI. For the built-in
-// bitmap font the scale is rounded to a whole number, because a pixel font at
-// 1.73x is a smeared mess.
-::Font ui_font();
-float font_scale();
+// The font to draw and measure text of this many pixels with. A [ui] font is
+// baked at exactly that size, once, and kept until the UI shuts down, so
+// every size is sharp; raylib's built-in font is the same font at every size,
+// as it always was. `::Font` and not `Font`: inside rmp:: the unqualified name
+// is rmp::Font, the counted handle from rmp/assets.h. This one is raylib's
+// plain struct, valid until the face is let go of -- use it, do not keep it.
+::Font ui_font(float pixel_size);
 
 // Text lives in a bump arena that is reset every begin(). Clay does NOT copy
 // strings — it keeps the pointer and reads it during Clay_EndLayout — so a
@@ -381,10 +382,17 @@ const char *cstr(Clay_StringSlice slice);
 using MeasureFn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
 using PointerFn = void (*)(Clay_Vector2 *position, bool *down);
 using NavFn = void (*)(NavState *out);
+using FontFn = rmp::Font (*)(const char *name, int pixel_size);
 
 void set_measure_provider(MeasureFn fn);
 void set_pointer_provider(PointerFn fn);
 void set_nav_provider(NavFn fn);
+
+// The [ui] font, and what bakes it at a pixel size: RMP_UI_FONT and
+// rmp::assets::load_font, unless a test swaps them -- baking a face needs a GL
+// context, and what decides WHICH sizes get baked is what is worth testing.
+// Every face baked so far is let go of. nullptr puts each one back.
+void set_font_provider(FontFn fn, const char *name);
 
 // Test mode: use the viewport given here instead of asking raylib, and skip
 // drawing in end(). With this on there is no window and no GL context, and
