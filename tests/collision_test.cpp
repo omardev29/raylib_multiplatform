@@ -561,6 +561,103 @@ TEST_CASE_FIXTURE(Fixture, "a player falling onto the floor comes to rest on it"
     CHECK(player.position.y == doctest::Approx(80).epsilon(0.05));
 }
 
+TEST_CASE_FIXTURE(Fixture, "a box resting on another does not keep its fall") {
+    // The push puts it back on top every frame; if its velocity into the
+    // contact stayed, it would grow by gravity every frame it rested, and the
+    // moment the one underneath moved away it would drop at the speed of a
+    // ten-second fall instead of starting from rest. The map took the speed
+    // away; this is the same for an object.
+    World world;
+    world.gravity = { 0, 1000 };
+    auto &floor =
+        world.spawn({ .position = { 0, 100 }, .shape = rmp::rect({ 400, 20 }) });
+    floor.solid = true;
+    floor.immovable = true;
+    auto &box = world.spawn({ .position = { 0, 80 }, .shape = rmp::rect({ 10, 20 }) });
+    box.solid = true;
+    box.gravity_scale = 1;
+
+    const float delta = 1.0f / 60;
+    for (int i = 0; i < 600; i++) frame(world, delta);
+    CHECK(box.position.y == doctest::Approx(80).epsilon(0.01));
+    // What one frame of gravity adds is all it can carry between two pushes.
+    CHECK(box.velocity.y == doctest::Approx(0));
+
+    // The floor goes, and the box starts falling from rest.
+    floor.destroy();
+    frame(world, delta);
+    CHECK(box.velocity.y == doctest::Approx(1000 * delta));
+    CHECK(box.position.y == doctest::Approx(80 + 1000 * delta * delta).epsilon(0.01));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a push takes the velocity into the contact and nothing else") {
+    World world;
+    auto &wall = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 200 }) });
+    wall.solid = true;
+    wall.immovable = true;
+
+    SUBCASE("running into a wall stops the run and keeps the fall") {
+        // Overlapping the wall's right face, moving left and down.
+        auto &runner =
+            world.spawn({ .position = { 12, 0 }, .shape = rmp::rect({ 10, 10 }) });
+        runner.solid = true;
+        runner.velocity = { -100, 50 };
+        frame(world, 0.001f);
+        CHECK(runner.position.x == doctest::Approx(15)); // pushed out, to the right
+        CHECK(runner.velocity.x == doctest::Approx(0));
+        CHECK(runner.velocity.y == doctest::Approx(50));
+    }
+    SUBCASE("moving away from it keeps moving away: a jump off a box is a jump") {
+        auto &leaver =
+            world.spawn({ .position = { 12, 0 }, .shape = rmp::rect({ 10, 10 }) });
+        leaver.solid = true;
+        leaver.velocity = { 100, 0 };
+        frame(world, 0.001f);
+        CHECK(leaver.velocity.x == doctest::Approx(100));
+    }
+    SUBCASE("two movable boxes meeting both stop along the contact") {
+        auto &a = world.spawn({ .position = { 300, 0 }, .shape = rmp::rect({ 10, 10 }) });
+        auto &b = world.spawn({ .position = { 308, 0 }, .shape = rmp::rect({ 10, 10 }) });
+        a.solid = true;
+        b.solid = true;
+        a.velocity = { 50, 7 };
+        b.velocity = { -60, 0 };
+        frame(world, 0.001f);
+        CHECK(a.velocity.x == doctest::Approx(0));
+        CHECK(a.velocity.y == doctest::Approx(7));
+        CHECK(b.velocity.x == doctest::Approx(0));
+    }
+    SUBCASE("_collision reads the velocity it hit with, and a bounce survives") {
+        // The order: separated, told, and only then the velocity into the
+        // contact goes. A hook that flips the velocity turns it away from the
+        // wall, and nothing is taken from it.
+        class Bouncer : public rmp::Object {
+        public:
+            float seen = 0;
+            void _collision(rmp::Object &other) override {
+                (void)other;
+                seen = velocity.x;
+                velocity.x = -velocity.x;
+            }
+        };
+        auto &ball = world.spawn<Bouncer>(
+            { .position = { 12, 0 }, .shape = rmp::rect({ 10, 10 }) });
+        ball.solid = true;
+        ball.velocity = { -100, 0 };
+        frame(world, 0.001f);
+        CHECK(ball.seen == doctest::Approx(-100));
+        CHECK(ball.velocity.x == doctest::Approx(100));
+    }
+    SUBCASE("an object that is not solid is not pushed, and keeps everything") {
+        auto &ghost =
+            world.spawn({ .position = { 12, 0 }, .shape = rmp::rect({ 10, 10 }) });
+        ghost.velocity = { -100, 0 };
+        frame(world, 0.001f);
+        CHECK(ghost.velocity.x == doctest::Approx(-100));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The swept test
 // ---------------------------------------------------------------------------

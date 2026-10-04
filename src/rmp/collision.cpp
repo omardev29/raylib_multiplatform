@@ -837,23 +837,37 @@ void collide(Scene &scene) {
         }
     }
 
-    // Then separation, for the pairs that are both solid.
+    // Then separation, for the pairs that are both solid. Whoever is pushed is
+    // noted with the direction it was pushed in, for the velocity step below.
+    struct Pushed {
+        Object *object;
+        Vector2 out; // unit, the way it was pushed: away from the contact
+    };
+    std::vector<Pushed> pushed;
     for (const Touch &touch : touching) {
         Object &a = *touch.a;
         Object &b = *touch.b;
         if (!a.alive() || !b.alive()) continue;
         if (!a.solid || !b.solid) continue;
+        const float depth =
+            std::sqrt(touch.mtv.x * touch.mtv.x + touch.mtv.y * touch.mtv.y);
+        const Vector2 n =
+            depth > 0 ? Vector2{ touch.mtv.x / depth, touch.mtv.y / depth } : Vector2{};
         if (!a.immovable && !b.immovable) {
             a.position.x += touch.mtv.x / 2;
             a.position.y += touch.mtv.y / 2;
             b.position.x -= touch.mtv.x / 2;
             b.position.y -= touch.mtv.y / 2;
+            pushed.push_back({ &a, n });
+            pushed.push_back({ &b, Vector2{ -n.x, -n.y } });
         } else if (!a.immovable) {
             a.position.x += touch.mtv.x;
             a.position.y += touch.mtv.y;
+            pushed.push_back({ &a, n });
         } else if (!b.immovable) {
             b.position.x -= touch.mtv.x;
             b.position.y -= touch.mtv.y;
+            pushed.push_back({ &b, Vector2{ -n.x, -n.y } });
         }
         // Two immovable objects overlapping is a mistake in the level, not
         // something to solve at runtime. Doing nothing is right: moving one
@@ -894,6 +908,26 @@ void collide(Scene &scene) {
         if (b_was) collide_behaviors(b, a);
         if (a_was) Storage::notify_collision(a, b);
         if (b_was) Storage::notify_collision(b, a);
+    }
+
+    // A push takes away the velocity INTO the contact, the way the map does:
+    // a box resting on another under gravity is pushed back up every frame,
+    // and without this its downward speed grew every frame too, so when the
+    // one underneath moved away it dropped at whatever a minute of falling
+    // adds up to. Only the part going INTO the contact -- what is moving away
+    // keeps moving away, so a jump off a box is a jump.
+    //
+    // After the notification, so a _collision reads the velocity it hit with:
+    // a bounce that flips it (`self.velocity.x = -self.velocity.x`) turns it
+    // away from the contact and loses nothing here, and a game that measures
+    // the impact gets the impact.
+    for (const Pushed &p : pushed) {
+        Object &o = *p.object;
+        const float into = o.velocity.x * p.out.x + o.velocity.y * p.out.y;
+        if (into < 0) {
+            o.velocity.x -= p.out.x * into;
+            o.velocity.y -= p.out.y * into;
+        }
     }
 }
 

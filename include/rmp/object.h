@@ -546,6 +546,12 @@ public:
     //     ground.solid = true;  ground.immovable = true;
     //     player.solid = true;  player.gravity_scale = 1;
     //
+    // Whoever is pushed apart loses the part of its velocity going INTO the
+    // contact, after the _collision hooks have run -- so a box resting on
+    // another starts from rest when the one below moves away, a jump off it
+    // keeps its jump, and a hook that flips the velocity to bounce loses
+    // nothing.
+    //
     // The scene's map counts as ground too: an object that is solid and not
     // immovable is stopped by the map's solid cells as it moves, each axis on
     // its own, so it runs along a floor of tiles without catching on the seams.
