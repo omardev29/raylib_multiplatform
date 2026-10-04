@@ -538,11 +538,15 @@ function(rmp_add_game NAME DIR)
     add_executable(${NAME} ${_game_sources})
     set_property(TARGET ${NAME} PROPERTY C_STANDARD 99)
     target_link_libraries(${NAME} PRIVATE raylib_static)
-    # include/ for <rmp/config.h>, the [window] values as plain #defines, and
-    # tests/ for <smoke_test.h>, the CI hooks; both are C. A C++ game gets them
-    # from the framework library's include list; a plain C one has none.
+    # include/ for <rmp/config.h>, the [window] values as plain #defines,
+    # tests/ for <smoke_test.h>, the CI hooks, and thirdparty/raymob for
+    # <admob.h>, the ads as C functions -- no-ops off Android, where raymob's
+    # own build puts it on the path (rmp/ads.h). All three are C. A C++ game
+    # gets them from the framework library's include list; a plain C one has
+    # none.
     target_include_directories(${NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
-                               "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+                               "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+                               "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob")
     # A C++ executable gets libm through libstdc++; a C one has to ask.
     if(NOT MSVC)
       target_link_libraries(${NAME} PRIVATE m)

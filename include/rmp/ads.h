@@ -14,8 +14,10 @@
 // <admob.h>, and that header stays out of yours. Those stay C because they are
 // the real JNI boundary, and because a game in plain C -- the shape of
 // examples/plain_c/src/main.c -- has no namespace to call into and can call
-// them directly. examples/ads/01_interstitial and examples/ads/02_rewarded are
-// both kinds of ad, end to end.
+// them directly: #include <admob.h>, which is on a plain C game's include
+// path on every target and compiles to no-ops off Android, as these do.
+// examples/ads/01_interstitial and examples/ads/02_rewarded are both kinds of
+// ad, end to end.
 //
 // Typical use:
 //

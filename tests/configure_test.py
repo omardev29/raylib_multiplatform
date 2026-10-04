@@ -2331,6 +2331,23 @@ class PlainCGameTest(unittest.TestCase):
         self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/tests"', plain)
         self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/include"', plain)
 
+    def test_a_plain_c_game_reaches_admob_h_on_every_target(self):
+        """rmp/ads.h says a game in plain C can call <admob.h> directly, and
+        the header is written for it: the real calls on Android, static
+        inline no-ops everywhere else. Android's build had thirdparty/raymob
+        on the game's include path; the plain-C branch of CMakeLists.txt did
+        not, so the same game stopped at "'admob.h' file not found" on every
+        desktop target and the web."""
+        text = (REPO / "CMakeLists.txt").read_text()
+        add_game = function_body(text.replace("endfunction()", "\n}\n"),
+                                 "function(rmp_add_game NAME DIR)")
+        plain = add_game[add_game.index("if(_plain_c)"):add_game.index("else()")]
+        self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob"', plain)
+        android = (REPO / "raymob" / "app" / "src" / "main" / "cpp" / "CMakeLists.txt").read_text()
+        game_includes = android[android.index("target_include_directories(${APP_LIB_NAME}"):]
+        self.assertIn('"${RAYMOB_DIR}"', game_includes[:game_includes.index(")\n")])
+        self.assertTrue((REPO / "thirdparty" / "raymob" / "admob.h").is_file())
+
     def test_nothing_touches_the_rmp_target_where_there_may_be_none(self):
         """The clang flag for designated initialisers arrived as
         `target_compile_options(rmp PUBLIC ...)` below the library, and in a
