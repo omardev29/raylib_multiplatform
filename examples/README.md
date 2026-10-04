@@ -112,7 +112,7 @@ all, and the screenshot says whether they look like games.
   **`rmp::Scene`** and **`rmp::Object`** with **`rmp::behavior`**, **`rmp::input`**,
   **`rmp::ui`**, **`rmp::assets`**, **`rmp::random`**, **`rmp::ads`**. Everything
   under `rmp::` is ours; everything else is raylib's, unchanged in its API. The
-  full reference is in [TECHNICAL.md](../TECHNICAL.md).
+  full reference is on the [documentation site](https://omardev29.github.io/rmp-docs/reference/).
 - `rmp::ads` is safe to call everywhere — no-op off Android, no `#ifdef` needed.
   `<raymob.h>` only declares its functions on Android, so guard **those** with
   `#ifdef __ANDROID__`.
