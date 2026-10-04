@@ -7,8 +7,8 @@
 //
 // A behavior is any struct with `void _update(rmp::Object &, float)`. The model
 // is explained above Object::add in rmp/object.h, and the part worth repeating
-// here is that these thirteen are structs exactly like one of yours: there is
-// no extension API, because there is nothing to extend.
+// here is that every one of these is a struct exactly like one of yours: there
+// is no extension API, because there is nothing to extend.
 //
 // THE FIELDS ARE THE CONFIGURATION, and they are hot:
 //
@@ -28,10 +28,10 @@
 
 // <rmp/input.h> is NOT here, and that is deliberate: nothing this header
 // declares names a type or a function from rmp::input -- the catalogue reads
-// actions in src/rmp/behaviors.cpp, which includes it there. It used to be on
-// this list and cost 52 ms of every translation unit with a behavior in it,
-// which is every gameplay file and every example game, for a header none of
-// them needed. tools/header_check.sh compiles this one on its own.
+// actions in src/rmp/behaviors.cpp, which includes it there. Here it would cost
+// 52 ms of every translation unit with a behavior in it, which is every
+// gameplay file, for a header none of them need. tools/header_check.sh compiles
+// this one on its own, which is what says it is not needed.
 #include <raylib.h>
 #include <rmp/config.h>
 #include <rmp/object.h> // rmp::Object, Handle and Callback, held by value in the catalogue

@@ -3,8 +3,8 @@
 //
 // This file is where the entry point's includes live. rmp/app.h names nothing
 // from rmp::ui or rmp::assets on purpose, so that a translation unit with an
-// entry point does not drag the whole interface layer in; the six detail
-// functions below are what the macro calls instead.
+// entry point does not drag the whole interface layer in; the detail functions
+// below are what the macro calls instead.
 // ===========================================================================
 
 #include <rmp/app.h>
@@ -232,18 +232,16 @@ void end_frame() {
 // UnloadTexture() after that is a write through a GL context that no longer
 // exists.
 //
-// The resource table joined this list in phase 3 and the comment in rmp/app.h
-// had to change with it: it used to say the asset layer could close last
-// "because it owns no GPU objects", which stopped being true the moment
-// rmp::Texture existed. It cost a segfault on the way out, and only under
-// xvfb — a real driver tolerated it and said nothing.
+// The resource table is on this list because an rmp::Texture IS a GPU object:
+// releasing the table after the window is a segfault on the way out, and only
+// under xvfb -- a real driver tolerates it and says nothing.
 void begin_stop() {
     // ORDER, and every step of it was paid for once.
     //
     //   scenes first. A scene can hold an rmp::Texture as a member, and its
     //   destructor releases a slot in the resource table — so the table has to
-    //   still be there. This is the same mistake phase 3 made in the other
-    //   direction, and the reason it is written down rather than remembered.
+    //   still be there. The table too late is the segfault above; the table too
+    //   early is this one, and both are why the order is written down.
     //   globals next, for exactly the same reason, and after the scenes because
     //   a scene's _end() is entitled to write to one.
     //   then the UI's font, then everything left in the resource table.
@@ -281,10 +279,10 @@ void end_stop() {
 // What RMP_GAME wires the three platform hooks to.
 // ---------------------------------------------------------------------------
 
-// The window opens HERE and not in anyone's code. It used to be the first two
-// lines of every on_ready(), identical in every project, and getting them from
-// [window] in the .toml is what lets the same source describe an 800x450 laptop
-// window and a phone held sideways.
+// The window opens HERE and not in anyone's code. Two lines that would be the
+// same in every project, and taking them from [window] in the .toml is what
+// lets the same source describe an 800x450 laptop window and a phone held
+// sideways.
 void start(std::unique_ptr<rmp::Scene> first) {
     // [window] vsync: wait for the screen's refresh. raylib's default is not
     // to, and then a desktop game draws as fast as the GPU allows.
@@ -327,9 +325,8 @@ void frame(float delta) {
     rmp::scenes::detail::draw();
 
     // 5. The CI render gate, between the last draw call and EndDrawing().
-    //    Neither side of that line works — see tests/smoke_test.h. It used to
-    //    be a line in the user's main.cpp; now nobody can put it in the wrong
-    //    place because nobody puts it anywhere.
+    //    Neither side of that line works — see tests/smoke_test.h. It is here
+    //    and in no game's code, so nobody can put it in the wrong place.
     SmokeTest_CaptureFrame();
 
     // 6.

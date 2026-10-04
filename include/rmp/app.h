@@ -117,7 +117,7 @@ namespace detail {
 // overlapped the wall on no frame at all.
 float step_delta();
 
-// The six halves of a run. Not for you — RMP_ENTRY_POINT calls them, and they
+// The pieces of a run around your code. Not for you — RMP_ENTRY_POINT calls them, and they
 // exist so that this header names nothing from rmp::ui or rmp::assets. Their
 // bodies, and the includes they need, are in src/rmp/app.cpp.
 void begin_run(); // smoke test on, chdir into the bundle on iOS, assets open
@@ -371,8 +371,9 @@ template <class T> T &global() {
 // list. In a static library or an iOS xcframework the linker DISCARDS any
 // object file no symbol refers to, and a self-registering object is exactly
 // that. It does not fail to compile: it ships, runs on your desktop, and finds
-// no scenes on the phone. That is the worst failure a seventeen-target framework
-// can have, so the door is shut rather than guarded.
+// no scenes on the phone. For a framework whose whole point is that the
+// desktop build stands for every other one, that is the worst failure there
+// is, so the door is shut rather than guarded.
 //
 // Between putting it here and putting it in the scene's own .cpp, both give the
 // same link errors, and main.cpp wins because a C++ program's entry point has a
