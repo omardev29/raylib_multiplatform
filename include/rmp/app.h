@@ -239,10 +239,11 @@ template <class T> T &global() {
 //                                       "duplicate symbol _main" does not say
 //                                       which of your files to look at.)
 //   NO entry point at all            -> src/rmp/app.cpp references it, so the
-//                                       linker asks for it by this name
-//                                       instead of saying "undefined reference
-//                                       to `main`", which tells a newcomer
-//                                       nothing about what to write.
+//                                       linker asks for it by this name, next
+//                                       to the "undefined reference to `main`"
+//                                       that alone tells a newcomer nothing
+//                                       about what to write. Checked by
+//                                       EntryPointGuardTest, which links one.
 //
 // It is emitted by RMP_ENTRY_POINT rather than by RMP_GAME because the
 // examples use the entry point directly, without scenes, and they are entry

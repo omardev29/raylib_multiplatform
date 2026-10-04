@@ -2107,6 +2107,79 @@ class AndroidGlVersionTest(unittest.TestCase):
                       text)
 
 
+class EntryPointGuardTest(unittest.TestCase):
+    """rmp/app.h promises that a program with NO entry point gets a link error
+    naming rmp_entry_point_is_declared_exactly_once, and one with TWO gets it
+    named twice. The first half never fired: src/rmp/app.cpp referenced the
+    symbol through a constant pointer nothing read, the compiler dropped it --
+    `nm` on app.cpp.o showed no reference at all -- and the program got the
+    "undefined reference to `main`" the guard exists to replace. This compiles
+    app.cpp and links it the way an executable is linked, dead sections
+    discarded, and reads what the linker says."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        cls.cxx = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+        cls.nm = shutil.which("nm")
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+        # The generated header, written here rather than read from the
+        # checkout, which a fresh clone does not have until a configure.
+        with generated_header(base_config()) as text:
+            (cls.tmp / "rmp" / "generated").mkdir(parents=True)
+            (cls.tmp / "rmp" / "generated" / "config.h").write_text(text)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def run_tool(self, argv):
+        import subprocess
+        return subprocess.run(argv, capture_output=True, text=True)
+
+    def compile(self, source: Path, name: str) -> Path:
+        if self.cxx is None or sys.platform == "win32":
+            self.skipTest("no C++ compiler that links ELF or Mach-O here")
+        out = self.tmp / f"{name}.o"
+        got = self.run_tool([
+            self.cxx, "-std=c++20", "-O2", "-ffunction-sections", "-fdata-sections",
+            "-c", str(source), "-o", str(out),
+            "-DRMP_PRODUCTION_BUILD=1", '-DRMP_RESOURCES_PATH="./resources/"',
+            f"-I{self.tmp}", f"-I{REPO / 'include'}", f"-I{REPO / 'thirdparty' / 'raylib' / 'src'}",
+            f"-I{REPO / 'tests'}", f"-I{REPO / 'thirdparty'}", f"-I{REPO / 'thirdparty' / 'clay'}",
+            f"-I{REPO / 'thirdparty' / 'rres'}", f"-I{REPO / 'thirdparty' / 'cJSON'}"])
+        self.assertEqual(got.returncode, 0, got.stderr[-2000:])
+        return out
+
+    def link(self, *objects):
+        dead = "-Wl,-dead_strip" if sys.platform == "darwin" else "-Wl,--gc-sections"
+        got = self.run_tool([self.cxx, *map(str, objects), dead, "-o", str(self.tmp / "program")])
+        return got.returncode, got.stdout + got.stderr
+
+    def test_app_cpp_asks_for_the_symbol(self):
+        app = self.compile(REPO / "src" / "rmp" / "app.cpp", "app")
+        if self.nm is None:
+            self.skipTest("nm not installed")
+        undefined = self.run_tool([self.nm, "-u", str(app)]).stdout
+        self.assertRegex(undefined, r"\b_?rmp_entry_point_is_declared_exactly_once\b")
+
+    def test_a_program_with_no_entry_point_is_told_its_name(self):
+        code, said = self.link(self.compile(REPO / "src" / "rmp" / "app.cpp", "app"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("rmp_entry_point_is_declared_exactly_once", said)
+
+    def test_a_program_with_two_entry_points_is_told_its_name(self):
+        first = self.tmp / "first.cpp"
+        first.write_text("#include <rmp/app.h>\nRMP_DECLARE_ENTRY_POINT_ONCE\n"
+                         "int main() { return 0; }\n")
+        second = self.tmp / "second.cpp"
+        second.write_text("#include <rmp/app.h>\nRMP_DECLARE_ENTRY_POINT_ONCE\n")
+        code, said = self.link(self.compile(first, "first"), self.compile(second, "second"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("rmp_entry_point_is_declared_exactly_once", said)
+
+
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
 

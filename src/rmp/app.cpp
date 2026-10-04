@@ -45,9 +45,22 @@
 // here is what turns a program with no RMP_GAME and no RMP_ENTRY_POINT into a
 // link error that names the thing you forgot, instead of "undefined reference
 // to `main`".
+//
+// A STATIC INITIALIZER, and nothing less will do. This used to be a constant
+// pointer to the symbol, which nothing read, so the compiler dropped it and the
+// object file asked for nothing: a program with no entry point got exactly the
+// "undefined reference to `main`" this exists to replace. Nor would a call from
+// one of the functions below do: with no entry point nothing calls them, and
+// --gc-sections discards them -- undefined references and all -- before the
+// linker reports anything. A constructor of a namespace-scope object is the
+// one code in this file every linker keeps (.init_array, __mod_init_func,
+// .CRT$XCU, __wasm_call_ctors). At run time it calls an empty function, once.
 extern "C" void rmp_entry_point_is_declared_exactly_once();
 namespace {
-void (*const REQUIRE_ENTRY_POINT)() = &rmp_entry_point_is_declared_exactly_once;
+struct RequireEntryPoint {
+    RequireEntryPoint() noexcept { rmp_entry_point_is_declared_exactly_once(); }
+};
+const RequireEntryPoint REQUIRE_ENTRY_POINT;
 } // namespace
 
 #if defined(PLATFORM_ANDROID)
