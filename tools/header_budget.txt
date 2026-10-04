@@ -1,16 +1,17 @@
-# Preprocessed lines per public header, measured by tools/header_cost.py
+# Preprocessed lines of code per public header (blank lines and line
+# markers not counted), measured by tools/header_cost.py
 # inside the pinned build image. --check fails when a header grows past
 # this by more than 20%, or shrinks under it by as much.
-ads.h            44
-app.h            55903
-assets.h         59790
-audio.h          18832
-behavior.h       61510
-input.h          21595
-math.h           48972
-object.h         60289
-random.h         2807
-save.h           36886
-scene.h          60735
-tilemap.h        60395
-ui.h             21628
+ads.h            11
+app.h            38096
+assets.h         41063
+audio.h          13082
+behavior.h       42124
+input.h          15180
+math.h           32575
+object.h         41376
+random.h         2076
+save.h           25624
+scene.h          41611
+tilemap.h        41432
+ui.h             15265

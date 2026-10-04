@@ -9,10 +9,13 @@ every include it carries is paid by every translation unit that includes it.
 The project measures that rather than arguing about it. Two numbers per
 header:
 
-  lines   what the preprocessor emits for a TU that includes only that header
-          (`-E | wc -l`). Deterministic for a given toolchain, so it is what
-          the gate compares: a header that starts pulling <functional> in shows
-          up as thousands of lines, on every machine, every time.
+  lines   the lines of CODE the preprocessor emits for a TU that includes
+          only that header: `-E`, without blank lines and line markers.
+          Deterministic for a given toolchain, so it is what the gate compares:
+          a header that starts pulling <functional> in shows up as thousands of
+          lines, on every machine, every time. Not the raw `-E | wc -l`, which
+          also counted the blank line every comment leaves behind -- so ten
+          lines of documentation put rmp/ads.h 23% over its budget.
   ms      wall time of `-fsyntax-only`, best of five. Machine-dependent, so it
           is reported and never gated; it is the number people actually feel.
 
@@ -67,7 +70,8 @@ def measure(cxx: str, header: Path, runs: int = 5) -> tuple[int, float]:
         tu = Path(tmp) / "one.cpp"
         tu.write_text(f"#include <rmp/{header.name}>\nint main() {{ return 0; }}\n")
         out = subprocess.run([cxx, "-E", *flags, str(tu)], capture_output=True, text=True, check=True)
-        lines = out.stdout.count("\n")
+        lines = sum(1 for line in out.stdout.splitlines()
+                    if line.strip() and not line.startswith("#"))
         best = None
         for _ in range(runs):
             t = time.perf_counter()
@@ -129,7 +133,8 @@ def main(argv: list[str]) -> int:
             fails += 1
 
     if args.write_budget:
-        text = "# Preprocessed lines per public header, measured by tools/header_cost.py\n"
+        text = "# Preprocessed lines of code per public header (blank lines and line\n"
+        text += "# markers not counted), measured by tools/header_cost.py\n"
         text += "# inside the pinned build image. --check fails when a header grows past\n"
         text += f"# this by more than {int(BUDGET_TOLERANCE * 100)}%, or shrinks under it by as much.\n"
         text += "".join(f"{name:16} {lines}\n" for name, lines, _ in rows)
