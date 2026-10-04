@@ -139,7 +139,7 @@ CheckOptions:
   #   Functions and methods                snake_case   rmp::ui::current_theme()
   #   Variables, parameters, fields        snake_case   min_height, delta
   #   Namespaces                           snake_case   rmp::ui::detail
-  #   Macros                               SCREAM_CASE  RMP_ENTRY_POINT
+  #   Macros                               RMP_SCREAM   RMP_ENTRY_POINT
   #   Compile-time constants               kPascalCase  kMaxLabels
   #
   # What it buys: at any point of use you can tell a type from a value without
@@ -216,7 +216,10 @@ CheckOptions:
   - key: readability-identifier-naming.StaticConstantPrefix
     value: 'k'
 
+  # Every macro we define is RMP_: the preprocessor has one namespace, shared
+  # with raylib, the C library and the game. tools/naming_check.sh says the
+  # same over every #if branch, which this only sees one of.
   - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
-  - key: readability-identifier-naming.MacroDefinitionIgnoredRegexp
-    value: '^(SmokeTest_.*|CLITERAL|RMAPI)$'
+  - key: readability-identifier-naming.MacroDefinitionPrefix
+    value: 'RMP_'

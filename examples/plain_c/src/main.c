@@ -64,17 +64,17 @@
 // found. Nothing here tracks that, so this file simply asserts it; if you load
 // files and want the claim checked, include <smoke_test.h> (it is
 // C-compatible) and use the template's asset layer.
-#define RAY_TEST_REPORT_BOOT()                                      \
-    TraceLog(LOG_INFO,                                              \
-             "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 " \
-             "testFrames=0")
+static void report_boot(void) {
+    TraceLog(LOG_INFO,
+             "RAY_TEST_BOOT_OK assets_failed=0 assets_requested=0 testFrames=0");
+}
 
 int main(void) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(800, 450, "raylib, plain C");
 
     Texture2D rabbit = LoadTexture(RMP_RESOURCES_PATH "rabbit.png");
-    RAY_TEST_REPORT_BOOT();
+    report_boot();
 
     while (!WindowShouldClose()) {
         BeginDrawing();

@@ -44,8 +44,8 @@
 // boots, still exits 0, and used to sail straight through CI.
 // ---------------------------------------------------------------------------
 
-#ifndef SMOKE_TEST_H
-#define SMOKE_TEST_H
+#ifndef RMP_SMOKE_TEST_H
+#define RMP_SMOKE_TEST_H
 
 #include <raylib.h> // TraceLog, IsWindowReady, LoadImageFromScreen
 #include <rlgl.h> // rlDrawRenderBatchActive (declaration only)
@@ -294,4 +294,4 @@ static inline int SmokeTest_Done(void) {
     return SmokeTest_frame >= SmokeTest_maxFrames;
 }
 
-#endif // SMOKE_TEST_H
+#endif // RMP_SMOKE_TEST_H
