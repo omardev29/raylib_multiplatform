@@ -16,7 +16,16 @@
 # folded into libc, not a single new API -- so the floor is a build setting, not
 # a rewrite. See tools/linux_build.sh.
 #
-# THE ONE TARGET THIS CANNOT GATE is DRM. Every other Linux binary we ship
+# WHAT IT GATES is linux-x64-glibc and linux-arm64-glibc, the two that
+# tools/linux_build.sh builds with zig against the floor. Two kinds of target
+# it reports on instead, with `report`, so the number is in every run's log:
+#
+# linux-riscv64-glibc is cross-compiled with the image's riscv64 GNU toolchain
+# against the distribution's riscv64 glibc -- Ubuntu 24.04's -- and not with
+# zig, so its floor is that glibc's. It has no runner to boot on either; the
+# report is all there is to see.
+#
+# DRM cannot be gated at all. Every other Linux binary we ship
 # either dlopens its windowing system (GLFW resolves X11 at runtime, so nothing
 # X11 is on the link line) or has none, which is what lets zig link it against
 # an old glibc stub set. The DRM binary links libdrm, libgbm, libEGL and
@@ -72,9 +81,9 @@ HIGHEST=$(printf '%s\n' "$VERSIONS" | tail -1 | sed 's/GLIBC_//')
 
 if [ "$REPORT" -eq 1 ]; then
   echo "  info  this binary needs glibc $HIGHEST or newer"
-  echo "        Not a gate: see the DRM note at the top of this file. It links"
-  echo "        the distribution's libdrm/libgbm/libEGL directly, so its floor"
-  echo "        is the build machine's and cannot be lowered from here."
+  echo "        Not a gate: [linux] glibc does not reach this target, and its"
+  echo "        floor is the build machine's. See the note at the top of"
+  echo "        tools/glibc_check.sh for why (riscv64, DRM)."
   exit 0
 fi
 

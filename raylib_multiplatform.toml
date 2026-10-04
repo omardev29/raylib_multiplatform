@@ -280,7 +280,13 @@ wayland = false
 #
 #        2.28 is the default because it clears the oldest distribution still
 #        getting security updates, and clears sniper with room to spare.
-#        tools/glibc_check.sh fails the build if the binary asks for more.
+#
+#        It reaches linux-x64-glibc and linux-arm64-glibc: those are built by
+#        tools/linux_build.sh, and tools/glibc_check.sh fails the build if the
+#        binary asks for more. linux-riscv64-glibc is cross-compiled with the
+#        distribution's GNU toolchain, and the DRM targets link the
+#        distribution's libdrm, gbm and EGL directly; their floor is the build
+#        machine's glibc, and their jobs print it.
 glibc   = "2.28"
 
 [windows]

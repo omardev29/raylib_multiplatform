@@ -2293,6 +2293,44 @@ class ConfigureGlibcFloorTest(unittest.TestCase):
                 with self.assertRaises(cfgmod.ConfigError), quiet():
                     cfgmod.validate(self.linux(glibc=bad), False)
 
+    @staticmethod
+    def linux_jobs():
+        """job name -> its text, out of _linux.yml, split at the top-level keys."""
+        text = (REPO / ".github" / "workflows" / "_linux.yml").read_text()
+        jobs_at = text.index("\njobs:\n")
+        parts = re.split(r"\n  ([a-z0-9-]+):\n", text[jobs_at:])
+        return dict(zip(parts[1::2], parts[2::2]))
+
+    def test_every_glibc_job_checks_or_reports_its_floor(self):
+        """linux-riscv64-glibc was built with the distribution's riscv64 GNU
+        toolchain against Ubuntu 24.04's glibc, never through
+        tools/linux_build.sh, and nothing looked at the floor it ended up with
+        -- while the .toml said the floor was every Linux binary's. Each glibc
+        job now either gates the floor or prints the one it has."""
+        jobs = self.linux_jobs()
+        gated = {"x64", "arm64"}
+        reported = {"riscv64", "drm-x64", "drm-arm64"}
+        for job in gated | reported:
+            with self.subTest(job=job):
+                self.assertIn(job, jobs)
+                body = jobs[job]
+                self.assertIn("tools/glibc_check.sh", body)
+                if job in gated:
+                    self.assertIn("tools/linux_build.sh", body)
+                    self.assertNotRegex(body, r"glibc_check\.sh [^\n]* report")
+                else:
+                    self.assertRegex(body, r"glibc_check\.sh [^\n]* report")
+
+    def test_the_toml_says_which_targets_the_floor_reaches(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        linux = text[text.index("\n[linux]"):]
+        linux = linux[:linux.index("\n[", 1)]
+        note = linux[linux.index("# glibc"):]
+        self.assertIn("linux-x64-glibc and linux-arm64-glibc", note)
+        for unreached in ("linux-riscv64-glibc", "DRM"):
+            with self.subTest(target=unreached):
+                self.assertIn(unreached, note)
+
     def test_the_floor_reaches_the_tools_that_use_it(self):
         """--print-glibc is what tools/linux_build.sh and glibc_check.sh read.
         A floor nothing can see is a floor that does nothing."""

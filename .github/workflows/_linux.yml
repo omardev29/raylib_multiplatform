@@ -445,6 +445,13 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # `report`, not a gate. This target is cross-compiled with the image's
+      # riscv64 GNU toolchain against Ubuntu 24.04's riscv64 glibc, not with
+      # tools/linux_build.sh, so [linux] glibc does not reach it -- and until
+      # this step nothing even said what floor it ended up with.
+      - name: The glibc it needs (not gated -- see tools/glibc_check.sh)
+        run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
+
       - name: Test (static) — binary exists, is RISC-V ELF, executable
         run: |
           set -e
