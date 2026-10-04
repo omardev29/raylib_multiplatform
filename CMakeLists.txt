@@ -335,11 +335,12 @@ else()
   set(RESOURCES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
 endif()
 
-# Password shared by the packer and the runtime loader. Obfuscation only (the
-# password ends up in the binary). Override with -DRRES_PACK_PASSWORD="...".
-if(NOT DEFINED RRES_PACK_PASSWORD)
-  set(RRES_PACK_PASSWORD "${TEMPLATE_RRES_PASSWORD}")
-endif()
+# Password the packer encrypts with. Obfuscation only (the password ends up in
+# the binary). It is [resources] rres_password and nothing else: the runtime
+# reads the same value from the generated rmp/config.h (RMP_RRES_PASSWORD) on
+# every platform. A -D override here once reached the desktop build alone, so
+# Android and iOS could no longer open the pack they shipped with.
+set(RRES_PACK_PASSWORD "${TEMPLATE_RRES_PASSWORD}")
 
 # --- the framework: one library ---------------------------------------------
 # Everything under src/rmp/ except app.cpp, compiled ONCE and linked into the
@@ -379,17 +380,19 @@ target_include_directories(rmp PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
-# The library's RESOURCES_PATH is the game's, and it is only a DEFAULT: the
+# The library's RMP_RESOURCES_PATH is the game's, and it is only a DEFAULT: the
 # entry point in each executable overrides it at run time, because an example
 # with its own resources/ must not read the game's. See resources_root() in
 # src/rmp/internal.h. PRIVATE, so it cannot collide with the executable's.
-target_compile_definitions(rmp PRIVATE
-  RESOURCES_PATH="${RESOURCES_PATH}"
-  RRES_PASSWORD="${RRES_PACK_PASSWORD}")
+#
+# The CMake variables keep their names (RESOURCES_PATH, PRODUCTION_BUILD): they
+# live in CMake's cache and never reach the preprocessor. What the C++ sees is
+# ours, and ours is RMP_.
+target_compile_definitions(rmp PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
 if(PRODUCTION_BUILD)
-  target_compile_definitions(rmp PUBLIC PRODUCTION_BUILD=1)
+  target_compile_definitions(rmp PUBLIC RMP_PRODUCTION_BUILD=1)
 else()
-  target_compile_definitions(rmp PUBLIC PRODUCTION_BUILD=0)
+  target_compile_definitions(rmp PUBLIC RMP_PRODUCTION_BUILD=0)
 endif()
 target_link_libraries(rmp PUBLIC raylib_static)
 if(NOT PRODUCTION_BUILD)
@@ -452,12 +455,12 @@ function(rmp_add_game NAME DIR)
     set(_res "${RESOURCES_PATH}")
     set(_res_dir "${CMAKE_CURRENT_SOURCE_DIR}/resources")
   endif()
-  target_compile_definitions(${NAME} PRIVATE RESOURCES_PATH="${_res}")
+  target_compile_definitions(${NAME} PRIVATE RMP_RESOURCES_PATH="${_res}")
   if(_plain_c)
     if(PRODUCTION_BUILD)
-      target_compile_definitions(${NAME} PRIVATE PRODUCTION_BUILD=1)
+      target_compile_definitions(${NAME} PRIVATE RMP_PRODUCTION_BUILD=1)
     else()
-      target_compile_definitions(${NAME} PRIVATE PRODUCTION_BUILD=0)
+      target_compile_definitions(${NAME} PRIVATE RMP_PRODUCTION_BUILD=0)
     endif()
   endif()
 
@@ -589,7 +592,7 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
   target_link_libraries(platformer_play PRIVATE rmp)
   target_include_directories(platformer_play PRIVATE "${_platformer}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp")
-  target_compile_definitions(platformer_play PRIVATE RESOURCES_PATH="${_platformer}/resources/")
+  target_compile_definitions(platformer_play PRIVATE RMP_RESOURCES_PATH="${_platformer}/resources/")
   rmp_apply_compile_flags(platformer_play)
   rmp_apply_link_flags(platformer_play)
 endif()
@@ -662,7 +665,7 @@ if(BUILD_TESTS)
   target_include_directories(unit_test SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"
   )
-  target_compile_definitions(unit_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
+  target_compile_definitions(unit_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   # An absolute path, so a fixture is found whatever directory the test binary
   # is run from. `just test` runs it from the repo root and CI does too, but
   # "works from the directory we happen to use" is how a test starts failing for
@@ -689,7 +692,7 @@ option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
 if(BUILD_UI_TESTS)
   add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
   set_property(TARGET ui_layout_test PROPERTY CXX_STANDARD 20)
-  target_compile_definitions(ui_layout_test PRIVATE RESOURCES_PATH="${RESOURCES_PATH}")
+  target_compile_definitions(ui_layout_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   # raylib is linked but never asked to open anything: MeasureTextEx and the
   # drawing calls are all behind the injected seams.
   target_link_libraries(ui_layout_test PRIVATE rmp)
@@ -733,10 +736,10 @@ set(ASM_INCLUDE_FLAGS
   "-I${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
-# Create a header file that defines RESOURCES_PATH as a string literal (with quotes included)
+# Create a header file that defines RMP_RESOURCES_PATH as a string literal (with quotes included)
 # This allows proper string concatenation in C preprocessor
 file(WRITE ${CMAKE_BINARY_DIR}/asm_defines.h "#pragma once
-#define RESOURCES_PATH \"${RESOURCES_PATH}\"
+#define RMP_RESOURCES_PATH \"${RESOURCES_PATH}\"
 ")
 
 # Add assembler target
@@ -747,7 +750,7 @@ if(MSVC)
   file(WRITE "${CMAKE_BINARY_DIR}/generate_asm.bat" "\
 @echo off
 cd /D ${CMAKE_CURRENT_SOURCE_DIR}
-\"${CMAKE_CXX_COMPILER}\" -S -fverbose-asm ${ASM_OPT_FLAGS} ${ASM_INCLUDES_STR} -DPRODUCTION_BUILD=${ASM_PROD_BUILD} -include ${CMAKE_BINARY_DIR}/asm_defines.h %* -o ${CMAKE_BINARY_DIR}/main.s
+\"${CMAKE_CXX_COMPILER}\" -S -fverbose-asm ${ASM_OPT_FLAGS} ${ASM_INCLUDES_STR} -DRMP_PRODUCTION_BUILD=${ASM_PROD_BUILD} -include ${CMAKE_BINARY_DIR}/asm_defines.h %* -o ${CMAKE_BINARY_DIR}/main.s
 ")
   add_custom_target(assembler
     COMMAND cmd /C ${CMAKE_BINARY_DIR}/generate_asm.bat ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
@@ -758,7 +761,7 @@ else()
   # GCC/Clang/MinGW: invoke the compiler directly (cmd.exe does not exist on Unix)
   add_custom_target(assembler
     COMMAND ${CMAKE_CXX_COMPILER} -S -fverbose-asm ${ASM_OPT_FLAGS} ${ASM_INCLUDE_FLAGS}
-            -DPRODUCTION_BUILD=${ASM_PROD_BUILD}
+            -DRMP_PRODUCTION_BUILD=${ASM_PROD_BUILD}
             -include ${CMAKE_BINARY_DIR}/asm_defines.h
             ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
             -o ${CMAKE_BINARY_DIR}/main.s

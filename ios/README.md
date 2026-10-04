@@ -51,7 +51,7 @@ For a **device** build, set a development team / signing identity and use
 
 ## Known caveats / TODO
 
-- **Resources:** `RESOURCES_PATH` is `./resources/` here, and the process does
+- **Resources:** `RMP_RESOURCES_PATH` is `./resources/` here, and the process does
   not start inside the bundle — iOS launches it in the app container. `IOS_FUNCS`
   in `include/rmp/app.h` handles that with a
   `ChangeDirectory(GetApplicationDirectory())` before anything loads, so the

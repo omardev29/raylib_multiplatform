@@ -613,6 +613,135 @@ class GeneratedFallbacksTest(unittest.TestCase):
                               f"does not generate")
 
 
+class ProductionBuildEverywhereTest(unittest.TestCase):
+    """RMP_PRODUCTION_BUILD and RMP_RESOURCES_PATH are defined by every build
+    system, and none of them still defines the names they replaced.
+
+    The C macro PRODUCTION_BUILD existed on the desktop only: Android and iOS
+    never defined it, while TECHNICAL.md told games to write
+    `#if PRODUCTION_BUILD` -- which there is `#if 0`, silently. And Gradle
+    never passed the CMake option at all, so raymob's CMake took its debug
+    branch for the release variant too: every release APK and AAB was compiled
+    at -O0 with _DEBUG. The iOS side is checked on the generated project, in
+    ConfigureGeneratorsTest."""
+
+    RAYMOB = REPO / "raymob" / "app" / "src" / "main" / "cpp" / "CMakeLists.txt"
+
+    def test_the_desktop_build_defines_both(self):
+        text = (REPO / "CMakeLists.txt").read_text()
+        for line in ("target_compile_definitions(rmp PUBLIC RMP_PRODUCTION_BUILD=1)",
+                     "target_compile_definitions(rmp PUBLIC RMP_PRODUCTION_BUILD=0)",
+                     'RMP_RESOURCES_PATH="${RESOURCES_PATH}"'):
+            self.assertTrue(line in text, f"CMakeLists.txt lacks {line}")
+
+    def test_android_defines_both_and_takes_release_from_the_build_type(self):
+        text = self.RAYMOB.read_text()
+        self.assertTrue('RMP_RESOURCES_PATH="${RESOURCES_PATH}"' in text)
+        self.assertTrue("PRIVATE RMP_PRODUCTION_BUILD=1)" in text)
+        self.assertTrue("PRIVATE RMP_PRODUCTION_BUILD=0 _DEBUG DEBUG)" in text)
+        # The option Gradle never set is gone; the build type decides.
+        self.assertNotRegex(text, r"option\(\s*PRODUCTION_BUILD")
+        self.assertRegex(text, r'CMAKE_BUILD_TYPE STREQUAL "Debug"')
+
+    def test_the_msvc_syntax_pass_defines_both(self):
+        text = (REPO / ".github" / "workflows" / "_windows.yml").read_text()
+        for flag in ("/DRMP_PRODUCTION_BUILD=0", "/DRMP_RESOURCES_PATH="):
+            self.assertTrue(flag in text, f"_windows.yml does not pass {flag}")
+
+    def test_the_entry_point_refuses_a_build_system_that_forgot(self):
+        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        self.assertRegex(text, r"#if !defined\(RMP_PRODUCTION_BUILD\)\s*\n#error")
+
+    def test_no_build_system_defines_an_old_name(self):
+        old = re.compile(r"(?:[-/]D|\s|\()(PRODUCTION_BUILD|RESOURCES_PATH|RRES_PASSWORD)=")
+        files = [REPO / "CMakeLists.txt", self.RAYMOB, REPO / "tools" / "configure.py",
+                 REPO / "tools" / "header_check.sh", REPO / "tools" / "header_cost.py",
+                 *sorted((REPO / ".github" / "workflows").glob("*.yml"))]
+        for path in files:
+            for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                # -DPRODUCTION_BUILD=ON is the CMake OPTION, which keeps its
+                # name; the macro took the RMP_ prefix.
+                for m in old.finditer(line):
+                    if m.group(1) == "PRODUCTION_BUILD" and re.search(
+                            r"-DPRODUCTION_BUILD=(ON|OFF)\b", line):
+                        continue
+                    where = path.relative_to(REPO).as_posix()
+                    with self.subTest(file=where, line=lineno):
+                        self.fail(f"{where}:{lineno} defines {m.group(1)}: {line.strip()}")
+
+
+class AndroidReleaseCheckTest(unittest.TestCase):
+    """tools/android_release_check.py, the Android job's proof that the release
+    variant was compiled as a release, seen red on the database the old
+    raymob CMakeLists.txt produced."""
+
+    SCRIPT = REPO / "tools" / "android_release_check.py"
+
+    def run_on(self, variant, *commands):
+        import subprocess, tempfile, json as _json
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / variant / "4x5y6z" / "arm64-v8a"
+            db.mkdir(parents=True)
+            entries = [{"directory": "/b",
+                        "file": name if name.startswith("/") else f"/w/src/{name}",
+                        "command": cmd} for name, cmd in commands]
+            (db / "compile_commands.json").write_text(_json.dumps(entries))
+            return subprocess.run(["python3", str(self.SCRIPT), tmp],
+                                  capture_output=True, text=True)
+
+    RELEASE = "clang++ -DRMP_PRODUCTION_BUILD=1 -O2 -g -DNDEBUG -O3 -flto -c x.cpp"
+    OLD = "clang++ -D_DEBUG -DDEBUG -O2 -g -DNDEBUG -O0 -c x.cpp"
+
+    def test_a_release_compiled_as_a_release_passes(self):
+        got = self.run_on("RelWithDebInfo", ("rmp/app.cpp", self.RELEASE),
+                          ("scenes/main_menu.cpp", self.RELEASE))
+        self.assertEqual(got.returncode, 0, got.stdout)
+        self.assertIn("PASS: 2 release", got.stdout)
+
+    def test_what_the_old_cmake_produced_fails(self):
+        got = self.run_on("RelWithDebInfo", ("rmp/app.cpp", self.OLD))
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("-O0", got.stdout)
+        self.assertIn("no -DRMP_PRODUCTION_BUILD=1", got.stdout)
+        self.assertIn("_DEBUG", got.stdout)
+
+    def test_raylib_is_checked_for_its_optimisation_only(self):
+        """raylib's sources sit under thirdparty/raylib/src/ and never get our
+        define; the old branch forced -O0 on them too, and that is what fails."""
+        ok = self.run_on("RelWithDebInfo", ("rmp/app.cpp", self.RELEASE),
+                         ("/w/thirdparty/raylib/src/rcore.c", "clang -O2 -O3 -c rcore.c"))
+        self.assertEqual(ok.returncode, 0, ok.stdout)
+        bad = self.run_on("RelWithDebInfo", ("rmp/app.cpp", self.RELEASE),
+                          ("/w/thirdparty/raylib/src/rcore.c", "clang -O2 -O0 -c rcore.c"))
+        self.assertEqual(bad.returncode, 1, bad.stdout)
+        self.assertIn("rcore.c: -O0", bad.stdout)
+
+    def test_no_release_database_fails(self):
+        got = self.run_on("Debug", ("rmp/app.cpp", self.OLD))
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("no release compile database", got.stdout)
+
+    def test_a_database_with_nothing_from_src_fails(self):
+        import subprocess, tempfile, json as _json
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "RelWithDebInfo" / "h" / "x86_64"
+            db.mkdir(parents=True)
+            (db / "compile_commands.json").write_text(_json.dumps(
+                [{"directory": "/b", "file": "/w/thirdparty/raylib/src2/rcore.c",
+                  "command": self.RELEASE}]))
+            got = subprocess.run(["python3", str(self.SCRIPT), tmp],
+                                 capture_output=True, text=True)
+        self.assertEqual(got.returncode, 1, got.stdout)
+
+    def test_it_runs_after_the_release_build(self):
+        text = (REPO / ".github" / "workflows" / "_android.yml").read_text()
+        build = text.index("./gradlew bundleRelease")
+        check = text.index("tools/android_release_check.py raymob/app/.cxx")
+        self.assertGreater(check, build)
+
+
 class ConfigureHelpersTest(unittest.TestCase):
     """The small pure functions whose output ends up inside a generated file."""
 
@@ -783,6 +912,30 @@ class ConfigureGeneratorsTest(unittest.TestCase):
         settings = spec["targets"][base_config()["project"]["name"]]["settings"]["base"]
         self.assertTrue(settings["INFOPLIST_KEY_UILaunchScreen_Generation"])
         self.assertNotIn("INFOPLIST_KEY_UILaunchStoryboardName", settings)
+
+    def test_the_ios_build_says_whether_it_is_a_release(self):
+        """RMP_PRODUCTION_BUILD is 0 in Debug and 1 in Release, on iOS as on
+        every other platform, and the list of definitions is whole in both:
+        under XcodeGen's `configs` a key REPLACES the `base` one. And the
+        [ios.settings] passthrough still lands in `base`, where it applies to
+        both configurations, not inside the last one."""
+        yaml = require_yaml(self)
+        cfg = base_config()
+        cfg["ios"]["settings"] = {"DEVELOPMENT_TEAM": "ABCDE12345"}
+        with quiet():
+            cfgmod.gen_ios_project(cfg)
+        spec = yaml.safe_load((Path(self._tmp.name) / "ios" / "project.yml").read_text())
+        settings = spec["targets"][cfg["project"]["name"]]["settings"]
+        self.assertEqual(settings["base"]["DEVELOPMENT_TEAM"], "ABCDE12345")
+        self.assertNotIn("GCC_PREPROCESSOR_DEFINITIONS", settings["base"])
+        for config, value in (("Debug", "0"), ("Release", "1")):
+            with self.subTest(config=config):
+                defs = settings["configs"][config]["GCC_PREPROCESSOR_DEFINITIONS"]
+                self.assertIn(f"RMP_PRODUCTION_BUILD={value}", defs)
+                self.assertIn("PLATFORM_IOS", defs)
+                self.assertIn("GRAPHICS_API_OPENGL_ES3", defs)
+                self.assertIn('RMP_RESOURCES_PATH=\\"./resources/\\"', defs)
+                self.assertNotIn("DEVELOPMENT_TEAM", settings["configs"][config])
 
     def test_gradle_properties_are_key_equals_value(self):
         with quiet():

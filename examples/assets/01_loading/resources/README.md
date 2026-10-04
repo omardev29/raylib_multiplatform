@@ -2,7 +2,7 @@
 
 Every file here is loaded by name from `src/main.cpp`. An example directory
 with its own `resources/` reads that one instead of the game's -- that is what
-`rmp_add_game()` in the root CMakeLists.txt sets `RESOURCES_PATH` to.
+`rmp_add_game()` in the root CMakeLists.txt sets `RMP_RESOURCES_PATH` to.
 
 | File | What | Licence |
 |---|---|---|

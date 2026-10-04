@@ -9,7 +9,15 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 project("${APP_LIB_NAME}")
 
-option(PRODUCTION_BUILD "Make this a production build" OFF)
+# A release is a build type, not an option. Gradle configures its debug variant
+# as CMAKE_BUILD_TYPE=Debug and its release variant as RelWithDebInfo, and it
+# never passes PRODUCTION_BUILD -- so the option that used to be here was OFF
+# for both, and every release APK and AAB was compiled at -O0 with _DEBUG.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "")
+  set(PRODUCTION_BUILD OFF)
+else()
+  set(PRODUCTION_BUILD ON)
+endif()
 # Define absolute paths to the raylib_cmake_template root directory
 # CMAKE_CURRENT_SOURCE_DIR is raymob/app/src/main/cpp
 get_filename_component(USER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../" ABSOLUTE)
@@ -50,11 +58,13 @@ add_library(${APP_LIB_NAME} SHARED ${SOURCES} ${RAYLIB_STUB_SOURCES})
 # Define compiler macros for the library
 target_compile_definitions(${APP_LIB_NAME} PRIVATE
     PLATFORM_ANDROID
-    RESOURCES_PATH="${RESOURCES_PATH}"
+    RMP_RESOURCES_PATH="${RESOURCES_PATH}"
 )
 
-if(NOT PRODUCTION_BUILD)
-  target_compile_definitions(${APP_LIB_NAME} PRIVATE _DEBUG DEBUG)
+if(PRODUCTION_BUILD)
+  target_compile_definitions(${APP_LIB_NAME} PRIVATE RMP_PRODUCTION_BUILD=1)
+else()
+  target_compile_definitions(${APP_LIB_NAME} PRIVATE RMP_PRODUCTION_BUILD=0 _DEBUG DEBUG)
 endif()
 
 # Include directories

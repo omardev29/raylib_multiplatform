@@ -53,7 +53,7 @@ static inline void on_ready() {
 
     // Plain raylib works too, and reads the pack just the same: opening the
     // pack also routes raylib's own file loading through it. That is what
-    // makes ::LoadModel(RESOURCES_PATH "ship.obj") work from a pack — raylib
+    // makes ::LoadModel(RMP_RESOURCES_PATH "ship.obj") work from a pack — raylib
     // reads the .obj, its .mtl and the textures the .mtl names through the
     // same LoadFileData the pack is hooked into.
     //

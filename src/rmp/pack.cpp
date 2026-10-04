@@ -16,20 +16,14 @@
 #include <cstdio>
 #include <utility>
 
-#ifndef RRES_PACK_FILE
-#define RRES_PACK_FILE "resources.rres"
-#endif
-
-// Password used to decrypt encrypted packs. Obfuscation, not real security:
-// it ends up in the binary.
+// The pack's password is RMP_RRES_PASSWORD, [resources] rres_password in the
+// .toml, and the packer in CMakeLists.txt encrypts with the same value.
+// Obfuscation, not real security: it ends up in the binary.
 //
-// It used to be hard-coded here AND in CMakeLists.txt. Only the desktop build
-// passes -DRRES_PASSWORD, so Android and iOS silently used this copy — change
-// one and those two platforms could no longer read their own asset pack, with
-// no error that pointed at the cause. Both now come from the config.
-#ifndef RRES_PASSWORD
-#define RRES_PASSWORD RMP_RRES_PASSWORD
-#endif
+// It used to be hard-coded here AND in CMakeLists.txt, and only the desktop
+// build passed its copy as a -D, so Android and iOS silently used this one --
+// change one and those two platforms could no longer read their own asset
+// pack, with no error that pointed at the cause. One value, from the config.
 
 namespace rmp::assets::detail {
 
@@ -45,7 +39,7 @@ bool open_pack() {
     if (g_using_pack) return true; // idempotent: the lifecycle macro already called it
 
     std::snprintf(g_pack_path, sizeof(g_pack_path), "%s%s",
-                  rmp::assets::detail::resources_root(), RRES_PACK_FILE);
+                  rmp::assets::detail::resources_root(), "resources.rres");
 
     if (!FileExists(g_pack_path)) {
         TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s",
@@ -53,7 +47,7 @@ bool open_pack() {
         return false;
     }
 
-    rresSetCipherPassword(RRES_PASSWORD);
+    rresSetCipherPassword(RMP_RRES_PASSWORD);
     g_cdir = rresLoadCentralDirectory(g_pack_path);
     if (g_cdir.count <= 0) {
         // Given back, not dropped: rres allocates the entry array before it

@@ -19,8 +19,7 @@
       "inherits": "debug",
       "displayName": "Android ARM64 Debug",
       "cacheVariables": {
-        "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a",
-        "PRODUCTION_BUILD": "OFF"
+        "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a"
       }
     },
     {
@@ -29,9 +28,7 @@
       "displayName": "Android ARM64 Release",
       "cacheVariables": {
         "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a",
-        "CMAKE_BUILD_TYPE": "Release",
-        "PRODUCTION_BUILD": "OFF"
-
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -39,8 +36,7 @@
       "inherits": "debug",
       "displayName": "Android ARMv7 Debug",
       "cacheVariables": {
-        "CMAKE_ANDROID_ARCH_ABI": "armeabi-v7a",
-        "PRODUCTION_BUILD": "OFF"
+        "CMAKE_ANDROID_ARCH_ABI": "armeabi-v7a"
       }
     },
     {
@@ -49,8 +45,7 @@
       "displayName": "Android ARMv7 Release",
       "cacheVariables": {
         "CMAKE_ANDROID_ARCH_ABI": "armeabi-v7a",
-        "CMAKE_BUILD_TYPE": "Release",
-        "PRODUCTION_BUILD": "ON"
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -58,8 +53,7 @@
       "inherits": "debug",
       "displayName": "Android x86_64 Debug",
       "cacheVariables": {
-        "CMAKE_ANDROID_ARCH_ABI": "x86_64",
-        "PRODUCTION_BUILD": "ON"
+        "CMAKE_ANDROID_ARCH_ABI": "x86_64"
       }
     },
     {
@@ -68,8 +62,7 @@
       "displayName": "Android x86_64 Release",
       "cacheVariables": {
         "CMAKE_ANDROID_ARCH_ABI": "x86_64",
-        "CMAKE_BUILD_TYPE": "Release",
-        "PRODUCTION_BUILD": "ON"
+        "CMAKE_BUILD_TYPE": "Release"
       }
     }
   ]

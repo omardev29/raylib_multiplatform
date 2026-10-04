@@ -47,7 +47,7 @@ int main() { return RMP_WINDOW_WIDTH > 0 ? 0 : 1; }
 CPP
   checked=$((checked + 1))
   if out=$("$CXX" -fsyntax-only -std=c++20 "${INCLUDES[@]}" \
-             -DRESOURCES_PATH='"./resources/"' -DPRODUCTION_BUILD=0 \
+             -DRMP_RESOURCES_PATH='"./resources/"' -DRMP_PRODUCTION_BUILD=0 \
              "$TMP/one.cpp" 2>&1); then
     echo "  ok    rmp/$name"
   else

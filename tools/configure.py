@@ -1517,8 +1517,8 @@ def gen_app_config(cfg: dict) -> None:
 #define RMP_WINDOW_HEIGHT {w['height']}
 
 /* Obfuscation only — this string is in the shipped binary. It lives here
-   because Android and iOS never get -DRRES_PASSWORD from their build systems,
-   so a value defined only in CMakeLists.txt would silently differ there. */
+   because Android and iOS take nothing from CMakeLists.txt, so a value defined
+   only there would silently differ on those two. */
 #define RMP_RRES_PASSWORD "{cfg['resources']['rres_password'].replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"
 
 /* [ui]. RMP_UI_THEME is only which theme the app STARTS with; rmp::ui::set_theme
@@ -1767,7 +1767,7 @@ targets:
       - path: ../src
       - path: ../include
       # Folder reference (not a group): the whole directory is copied into the
-      # bundle as `resources/`, so RESOURCES_PATH="./resources/" resolves once
+      # bundle as `resources/`, so RMP_RESOURCES_PATH="./resources/" resolves once
       # the app chdir's to its bundle (see RMP_IOS_FUNCS in rmp/app.h).
       # Without this the app builds and boots but every LoadTexture returns 0x0.
       - path: ../resources
@@ -1803,12 +1803,6 @@ targets:
         INFOPLIST_KEY_UIRequiredDeviceCapabilities: arm64
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         {'ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon' if icon else '# no app icon generated'}
-        # raylib iOS backend
-        GCC_PREPROCESSOR_DEFINITIONS:
-          - PLATFORM_IOS
-          - GRAPHICS_API_OPENGL_ES3
-          # Escaped quotes so RESOURCES_PATH expands to a real string literal
-          - RESOURCES_PATH=\\"./resources/\\"
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         CLANG_CXX_LIBRARY: libc++
         HEADER_SEARCH_PATHS:
@@ -1823,7 +1817,25 @@ targets:
           - $(SRCROOT)/../thirdparty/cute_tiled
           - $(SRCROOT)/../thirdparty/cJSON
           - $(SRCROOT)/../thirdparty
-{extra}""")
+{extra}      # The preprocessor definitions are per configuration, because one of them
+      # is: RMP_PRODUCTION_BUILD is 0 in Debug and 1 in Release, like every
+      # other platform. A list under `configs` REPLACES the one in `base` rather
+      # than adding to it, so each configuration carries the whole list.
+      configs:
+        Debug:
+          GCC_PREPROCESSOR_DEFINITIONS:
+            - PLATFORM_IOS
+            - GRAPHICS_API_OPENGL_ES3
+            # Escaped quotes so RMP_RESOURCES_PATH expands to a real string literal
+            - RMP_RESOURCES_PATH=\\"./resources/\\"
+            - RMP_PRODUCTION_BUILD=0
+        Release:
+          GCC_PREPROCESSOR_DEFINITIONS:
+            - PLATFORM_IOS
+            - GRAPHICS_API_OPENGL_ES3
+            - RMP_RESOURCES_PATH=\\"./resources/\\"
+            - RMP_PRODUCTION_BUILD=1
+""")
 
 
 # ---------------------------------------------------------------------------

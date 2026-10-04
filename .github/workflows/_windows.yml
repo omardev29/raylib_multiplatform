@@ -120,7 +120,7 @@ jobs:
           }
           $failed = 0
           foreach ($f in $files) {
-            & cl /nologo /Zs /std:c++20 /EHsc @inc '/DRESOURCES_PATH="./resources/"' /DPRODUCTION_BUILD=0 $f.FullName
+            & cl /nologo /Zs /std:c++20 /EHsc @inc '/DRMP_RESOURCES_PATH="./resources/"' /DRMP_PRODUCTION_BUILD=0 $f.FullName
             if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $($f.FullName)"; $failed = 1 }
             else { Write-Host "  ok    $($f.FullName)" }
           }

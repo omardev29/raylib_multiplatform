@@ -49,7 +49,7 @@ INCLUDES = [
     "include", "thirdparty/raylib/src", "thirdparty/rres", "thirdparty/cute_aseprite",
     "thirdparty/cute_tiled", "thirdparty/raymob", "thirdparty/clay", "thirdparty", "tests",
 ]
-DEFINES = ['-DRESOURCES_PATH="./resources/"', "-DPRODUCTION_BUILD=0"]
+DEFINES = ['-DRMP_RESOURCES_PATH="./resources/"', "-DRMP_PRODUCTION_BUILD=0"]
 
 
 def compiler() -> str:

@@ -28,6 +28,15 @@
 #include <memory> // std::exit() on the iOS CI path
 #include <utility>
 
+// Every build system defines RMP_PRODUCTION_BUILD: CMake from its option, raymob
+// from the Gradle variant, the Xcode project per configuration. A game may write
+// `#if RMP_PRODUCTION_BUILD`, and an undefined macro there is not an error but 0
+// -- which is how Android and iOS once ran every game's debug-only code in
+// release. So a build system that forgets fails here, on its own platform.
+#if !defined(RMP_PRODUCTION_BUILD)
+#error "RMP_PRODUCTION_BUILD is not defined: the build system has to pass it (0 or 1)"
+#endif
+
 // The other half of the entry-point guard in rmp/app.h. Referencing the symbol
 // here is what turns a program with no RMP_GAME and no RMP_ENTRY_POINT into a
 // link error that names the thing you forgot, instead of "undefined reference
@@ -122,16 +131,16 @@ namespace detail {
 
 // Everything the entry point does before your ready hook. On iOS that includes
 // a chdir: the process starts in the app container, not inside the bundle, and
-// raylib's iOS backend does not chdir for you — so the relative RESOURCES_PATH
+// raylib's iOS backend does not chdir for you — so the relative RMP_RESOURCES_PATH
 // would resolve to nothing and every asset would silently load as 0x0.
 // GetApplicationDirectory() is the .app root there, which is where bundle
 // resources live, and it has to happen before assets::init() looks for the pack.
 void begin_run() {
     // This translation unit is compiled into EACH executable with that
-    // executable's own RESOURCES_PATH; the library it links was compiled with
+    // executable's own RMP_RESOURCES_PATH; the library it links was compiled with
     // the game's. Told before anything is loaded, so an example with its own
     // resources/ reads its own. See resources_root() in internal.h.
-    rmp::assets::detail::set_resources_root(RESOURCES_PATH);
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
     // The one place rmp::random is seeded, and the reason it is HERE: a test
     // never comes through the entry point, so a headless run keeps the fixed
     // default seed and stays reproducible, while a shipped game gets a

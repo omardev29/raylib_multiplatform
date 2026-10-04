@@ -33,7 +33,7 @@ int g_failed_count = 0;
 namespace {
 // The default is what this library was compiled with; see internal.h for why
 // it can be replaced at run time.
-char g_resources_root[2048] = RESOURCES_PATH;
+char g_resources_root[2048] = RMP_RESOURCES_PATH;
 } // namespace
 
 const char *resources_root() { return g_resources_root; }

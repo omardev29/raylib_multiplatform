@@ -20,7 +20,7 @@
 //
 // What you give up, and what replaces it:
 //
-//   assets::Load*          ->  LoadTexture(RESOURCES_PATH "x.png"), as below
+//   assets::Load*          ->  LoadTexture(RMP_RESOURCES_PATH "x.png"), as below
 //   the resource pack      ->  gone. Loose files only. Do not run the
 //                              pack_resources target; a release built with a
 //                              pack ships resources.rres and nothing else, and
@@ -53,7 +53,7 @@
 
 #include <raylib.h>
 
-// RESOURCES_PATH is defined by CMake, not by us: an absolute path to
+// RMP_RESOURCES_PATH is defined by CMake, not by us: an absolute path to
 // resources/ in a development build, "./resources/" in a release, "" on
 // Android (where assets sit at the root of the APK). Build every asset path
 // out of it and the same source works on all of them.
@@ -73,7 +73,7 @@ int main(void) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(800, 450, "raylib, plain C");
 
-    Texture2D rabbit = LoadTexture(RESOURCES_PATH "rabbit.png");
+    Texture2D rabbit = LoadTexture(RMP_RESOURCES_PATH "rabbit.png");
     RAY_TEST_REPORT_BOOT();
 
     while (!WindowShouldClose()) {

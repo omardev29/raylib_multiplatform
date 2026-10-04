@@ -138,6 +138,13 @@ jobs:
           chmod +x ./gradlew
           ./gradlew bundleRelease --no-daemon
 
+      # Gradle never passed PRODUCTION_BUILD, so raymob's CMake took its debug
+      # branch for the release variant too: every release APK and AAB was
+      # compiled at -O0 with _DEBUG. The build type decides now; this reads
+      # what the compiler was actually told, from AGP's compile database.
+      - name: The release was compiled as a release
+        run: python3 tools/android_release_check.py raymob/app/.cxx
+
       - name: Test (static) — AAB is well-formed and correctly signed
         run: |
           set -euo pipefail

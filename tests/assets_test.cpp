@@ -63,7 +63,7 @@ TEST_CASE("the loader hook only claims paths inside the resources directory") {
 }
 
 TEST_CASE("an EMPTY resources root claims bare file names and nothing else") {
-    // Android sets RESOURCES_PATH to "": every asset sits at the root of the
+    // Android sets RMP_RESOURCES_PATH to "": every asset sits at the root of the
     // APK's assets/, which is also where the pack goes. An empty prefix used
     // to match every path in the filesystem -- the loop comparing it ran zero
     // times and the function returned true -- so LoadFileData on an absolute

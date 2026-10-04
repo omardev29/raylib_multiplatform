@@ -14,7 +14,7 @@ namespace rmp::assets::detail {
 // --- pack.cpp --------------------------------------------------------------
 // The .rres container: opening it, closing it, and pulling one entry out.
 
-// Look for RESOURCES_PATH/resources.rres and open its central directory.
+// Look for RMP_RESOURCES_PATH/resources.rres and open its central directory.
 // Returns true if a usable pack was opened. Safe to call twice.
 bool open_pack();
 
@@ -58,7 +58,7 @@ bool resource_exists(const char *name);
 void install_loader_hook();
 void remove_loader_hook();
 
-// True when `path` points inside RESOURCES_PATH. Exposed here because it is
+// True when `path` points inside RMP_RESOURCES_PATH. Exposed here because it is
 // the rule that decides what the hook is responsible for, and that rule is
 // worth being able to read in one place.
 bool in_resources_dir(const char *path);
@@ -69,13 +69,13 @@ bool in_resources_dir(const char *path);
 extern int g_requested_count;
 extern int g_failed_count;
 
-// Where loose files live: the directory that RESOURCES_PATH used to name at
+// Where loose files live: the directory that RMP_RESOURCES_PATH used to name at
 // every call site. It is a runtime value now because the framework is compiled
 // ONCE, into the `rmp` library, and linked into the game and into every
 // example -- and an example that carries its own resources/ must not read the
-// game's. The library starts with the RESOURCES_PATH it was compiled with, and
+// game's. The library starts with the RMP_RESOURCES_PATH it was compiled with, and
 // the entry point (src/rmp/app.cpp, compiled into each executable with that
-// executable's own RESOURCES_PATH) overrides it before anything is loaded.
+// executable's own RMP_RESOURCES_PATH) overrides it before anything is loaded.
 // Always ends in a separator or is empty, exactly like the macro.
 const char *resources_root();
 void set_resources_root(const char *root);

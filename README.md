@@ -305,7 +305,7 @@ unloaded. Keep the `rmp::` handle; hand it to raylib where raylib wants it.
 reads loose files, so you can iterate without repacking, and the same code reads whichever exists.
 You do **not** need the paid rrespacker tool; `tools/rres_pack.c` does the packing.
 
-**Plain raylib works too.** `LoadTexture(RESOURCES_PATH "player.png")`, `LoadModel`, `LoadShader`
+**Plain raylib works too.** `LoadTexture(RMP_RESOURCES_PATH "player.png")`, `LoadModel`, `LoadShader`
 — all of them read the pack, because opening it also routes raylib's own file loading through it.
 `rmp::assets::` is the shorter spelling, not a requirement, and mixing the two is fine.
 

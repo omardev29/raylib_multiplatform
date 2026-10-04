@@ -9,7 +9,7 @@ How this framework works, in depth. For the quick-start see [README.md](README.m
 - [Editor / clangd (LSP)](#editor--clangd-lsp)
 - [Compile-time definitions](#compile-time-definitions)
 - [Platform detection macros](#platform-detection-macros)
-- [Resources: `RESOURCES_PATH`, `rmp::assets` and rres](#resources-resources_path-rmpassets-and-rres)
+- [Resources: `RMP_RESOURCES_PATH`, `rmp::assets` and rres](#resources-rmp_resources_path-rmpassets-and-rres)
 - [Game lifecycle (Godot style)](#game-lifecycle-godot-style)
   - [Why web does not get a `while` loop](#why-web-does-not-get-a-while-loop)
 - [`rmp::ui` — the interface layer](#rmpui--the-interface-layer)
@@ -186,7 +186,7 @@ binary — no DLLs, and on MSVC even the CRT is static (no VC++ Redistributable)
 
 **Presets** (`CMakePresets.json`), all Ninja-based:
 
-| Preset | `PRODUCTION_BUILD` | `RESOURCES_PATH` | Notes |
+| Preset | `PRODUCTION_BUILD` (CMake) → `RMP_PRODUCTION_BUILD` | `RMP_RESOURCES_PATH` | Notes |
 |---|---|---|---|
 | `debug` | `0` | absolute source path | run from anywhere |
 | `release` | `1` | `"./resources/"` | LTO, ship `resources/` next to the exe |
@@ -225,9 +225,9 @@ get indexed). It requires the NDK:
 
 | Macro | Value | Meaning |
 |---|---|---|
-| `RESOURCES_PATH` | absolute (dev) or `"./resources/"` (prod) | Asset folder path |
-| `PRODUCTION_BUILD` | `0` / `1` | `#if PRODUCTION_BUILD` to strip debug code |
-| `RRES_PASSWORD` | string | rres decryption password (see below) |
+| `RMP_RESOURCES_PATH` | absolute (dev) or `"./resources/"` (prod) | Asset folder path |
+| `RMP_PRODUCTION_BUILD` | `0` / `1` | `#if RMP_PRODUCTION_BUILD` to strip debug code. Defined on every platform: CMake from its `PRODUCTION_BUILD` option, Android from the Gradle variant (release is `1`), iOS per Xcode configuration |
+| `RMP_RRES_PASSWORD` | from `[resources]` | rres decryption password (see below) |
 | `RMP_PROJECT_NAME`, `RMP_WINDOW_TITLE`, `RMP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
 | `RMP_UI_FONT`, `RMP_UI_FONT_SIZE`, `RMP_UI_SCALE`, `RMP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
 | `RMP_INPUT_DEADZONE` | from `[input]` | The stick travel that reads as zero |
@@ -237,7 +237,7 @@ get indexed). It requires the NDK:
 | `RMP_DEV_STRICT` | from `[dev]` | The first framework diagnostic aborts a debug build |
 
 ```cpp
-Texture2D tex = LoadTexture(RESOURCES_PATH "player.png");  // raw path form
+Texture2D tex = LoadTexture(RMP_RESOURCES_PATH "player.png");  // raw path form
 ```
 
 ---
@@ -309,7 +309,7 @@ Example — this is exactly how the entry-point macro picks the runner, and how
 
 ---
 
-## Resources: `RESOURCES_PATH`, `rmp::assets` and rres
+## Resources: `RMP_RESOURCES_PATH`, `rmp::assets` and rres
 
 ### The problem this solves
 
@@ -320,7 +320,7 @@ copy; on Web every one of them is a separate HTTP request; and the path that wor
 
 Two mechanisms handle that here, and they are independent.
 
-### 1. `RESOURCES_PATH` — where "resources/" is
+### 1. `RMP_RESOURCES_PATH` — where "resources/" is
 
 A compile-time string, defined in `CMakeLists.txt`:
 
@@ -383,11 +383,11 @@ four things that have to happen exactly once:
 Point 4 is what makes plain raylib work:
 
 ```cpp
-Texture2D t = LoadTexture(RESOURCES_PATH "player.png");   // reads the pack
-Model     m = LoadModel(RESOURCES_PATH "ship.obj");       // and so does this
+Texture2D t = LoadTexture(RMP_RESOURCES_PATH "player.png");   // reads the pack
+Model     m = LoadModel(RMP_RESOURCES_PATH "ship.obj");       // and so does this
 ```
 
-It matters more than it looks. Without the hook, `LoadTexture(RESOURCES_PATH "x.png")` works
+It matters more than it looks. Without the hook, `LoadTexture(RMP_RESOURCES_PATH "x.png")` works
 perfectly in development and comes back `0x0` in a release — because a release ships
 `resources.rres` and not the loose files. Nothing warns you; the texture is just blank. Anyone who
 had not read this page would write that line, and it would be the last thing they suspected.
@@ -399,7 +399,7 @@ Three details make the hook safe rather than clever:
   filesystem behind it. So a miss has to delegate by hand, and the exact way to delegate is to
   *unhook, call raylib, hook back*. That runs raylib's own reader, including the Android one, where
   `fopen` is redirected into the APK's asset manager and stdio of our own would find nothing.
-- **It only answers for files under `RESOURCES_PATH`.** The pack is keyed by bare file name, so
+- **It only answers for files under `RMP_RESOURCES_PATH`.** The pack is keyed by bare file name, so
   matching on the name alone would let a save file called `level1.json` anywhere on disk be
   answered with the packed `level1.json`.
 - **Models come along for free.** `rmodels.c` loads `.obj` with `LoadFileText` and
@@ -438,8 +438,8 @@ Everything directly in the folder is packed — the packer does not filter by ty
 | `.png .jpg .bmp .tga .gif .qoi .dds .ktx .hdr` | `rmp::assets::load_texture` / `LoadImage`, or plain `LoadTexture` | the extension in props tells raylib which decoder to use |
 | `.wav .ogg .mp3 .qoa` | `rmp::audio::play("name")`, or `rmp::assets::load_sound` | short sounds; fully decoded into RAM |
 | `.ttf .otf` | `rmp::assets::load_font(name, size)` | size is baked at load time, as always in raylib |
-| `.obj .mtl .gltf .glb .bin .iqm .vox .m3d` | plain `LoadModel(RESOURCES_PATH "…")` | works through the loader hook, siblings included — keep them all directly in `resources/` |
-| `.vs .fs .glsl` | plain `LoadShader(RESOURCES_PATH "…")` | also hooked; `LoadShaderFromMemory` if you prefer |
+| `.obj .mtl .gltf .glb .bin .iqm .vox .m3d` | plain `LoadModel(RMP_RESOURCES_PATH "…")` | works through the loader hook, siblings included — keep them all directly in `resources/` |
+| `.vs .fs .glsl` | plain `LoadShader(RMP_RESOURCES_PATH "…")` | also hooked; `LoadShaderFromMemory` if you prefer |
 | `.json .txt .csv` and anything else | `rmp::assets::load_data` | you get the bytes |
 | **music** (`.ogg .mp3 .wav .qoa`, and `.xm .mod` by full name) | `rmp::audio::music("name")` | streamed, from the pack too; plain `LoadMusicStream` is the exception, see below |
 
@@ -2193,5 +2193,5 @@ A: It's only produced when you run `cmake --build build --target pack_resources`
 loads loose files by default.
 
 **Q: The game shows no texture / "Failed to open file".**
-A: Check `RESOURCES_PATH` — in dev it's an absolute path; in production the `resources/` folder
+A: Check `RMP_RESOURCES_PATH` — in dev it's an absolute path; in production the `resources/` folder
 (or `resources.rres`) must sit next to the executable.

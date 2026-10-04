@@ -14,7 +14,7 @@
 // Shutdown() after on_exit().
 //
 // Since Init() also teaches raylib itself to read the pack, plain raylib calls
-// work too — LoadTexture(RESOURCES_PATH "player.png"), LoadModel, LoadShader.
+// work too — LoadTexture(RMP_RESOURCES_PATH "player.png"), LoadModel, LoadShader.
 // The rmp::assets:: functions are the shorter spelling, not a requirement.
 // See TECHNICAL.md, "Resources", for the two things that stay outside this:
 // LoadMusicStream, and files loaded from outside resources/.

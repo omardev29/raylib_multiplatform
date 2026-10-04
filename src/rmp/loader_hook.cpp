@@ -1,7 +1,7 @@
 // ===========================================================================
 // Teaching raylib's own loaders to read the pack.
 //
-// Without this, LoadTexture(RESOURCES_PATH "player.png") works in development
+// Without this, LoadTexture(RMP_RESOURCES_PATH "player.png") works in development
 // and comes back 0x0 in a release, because a release ships resources.rres and
 // not the loose files. That is the worst shape a bug can have. With it, every
 // raylib call that reads a file — LoadTexture, LoadModel, LoadShader,
@@ -83,21 +83,21 @@ char *hooked_load_file_text(const char *file_name) {
 
 } // namespace
 
-// True when `path` points inside RESOURCES_PATH.
+// True when `path` points inside RMP_RESOURCES_PATH.
 //
 // The pack is keyed by bare file name, so matching on the name alone would let
 // a save file called level1.json anywhere on disk be answered with the packed
 // level1.json instead. Requiring the directory to match keeps the hook to the
 // files it is responsible for; anything else falls through to the real reader.
 //
-// '\' and '/' compare equal. CMake writes RESOURCES_PATH with forward slashes
+// '\' and '/' compare equal. CMake writes RMP_RESOURCES_PATH with forward slashes
 // on every platform, but nothing stops a Windows user writing
-// RESOURCES_PATH "art\\x.png" — and a miss here sends them to the loose file,
+// RMP_RESOURCES_PATH "art\\x.png" — and a miss here sends them to the loose file,
 // which is exactly what a packaged release does not ship.
 bool in_resources_dir(const char *path) {
     const char *root = skip_dot_slash(rmp::assets::detail::resources_root());
     const char *p = skip_dot_slash(path);
-    // Android sets RESOURCES_PATH to "" -- every asset is at the root of the
+    // Android sets RMP_RESOURCES_PATH to "" -- every asset is at the root of the
     // APK's assets/. An empty prefix used to match EVERY path, including an
     // absolute one into the app's internal storage, and the pack IS packaged
     // into assets/ there: a save file named like a packed resource would have
