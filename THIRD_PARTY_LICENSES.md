@@ -70,7 +70,7 @@ qoa                         thirdparty/raylib/src/external/qoa.h                
 qoaplay                     thirdparty/raylib/src/external/qoaplay.c                MIT                      -              no        all       header
 qoi-raylib                  thirdparty/raylib/src/external/qoi.h                    MIT                      -              no        all       header
 rl_gputex                   thirdparty/raylib/src/external/rl_gputex.h              zlib                     -              no        all       header
-rlsw                        thirdparty/raylib/src/external/rlsw.h                   MIT                      -              no        all       header
+rlsw                        thirdparty/raylib/src/external/rlsw.h                   MIT                      -              yes       all       header
 rltexgpu                    thirdparty/raylib/src/external/rltexgpu.h               zlib                     -              no        all       header
 rprand                      thirdparty/raylib/src/external/rprand.h                 zlib                     -              no        all       header
 sdefl                       thirdparty/raylib/src/external/sdefl.h                  MIT|Unlicense            Unlicense      no        all       header
@@ -117,7 +117,7 @@ every change is commented at its site:
 
 | Component | Mark |
 |---|---|
-| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, and three memory fixes in `raudio.c` backported from upstream; no signature changed, nothing under `src/external/` touched |
+| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, three memory fixes in `raudio.c` and the software renderer's scissor in `src/external/rlsw.h`, all backported from upstream; no signature changed |
 | Clay 0.14 | [`thirdparty/clay/PATCHES.md`](thirdparty/clay/PATCHES.md) -- one line, the C++ version guard |
 | cute_tiled | [`thirdparty/cute_tiled/PATCHES.md`](thirdparty/cute_tiled/PATCHES.md) -- unknown JSON keys are skipped instead of failing the load |
 | raylib-cpp 6.0.3 | [`thirdparty/raylib-cpp/PATCHES.md`](thirdparty/raylib-cpp/PATCHES.md) -- a partial copy, the math headers only |

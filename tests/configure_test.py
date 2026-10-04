@@ -2314,6 +2314,27 @@ class LicenceGuardTest(unittest.TestCase):
             self.assertNotEqual(ldb.pin_of(ldb.pinned_sources(copy), copy),
                                 ldb.pin_of(sources, dep))
 
+    def test_a_bundled_file_we_changed_says_so_where_its_owner_does(self):
+        # rlsw.h, inside raylib, carries a backport. Its own row says
+        # modified, and raylib's PATCHES.md -- the mark of the component that
+        # bundles it -- has to name the file, or the row is a claim nobody
+        # recorded.
+        top = str((FIXTURES / "bundled_modified" / "dep").relative_to(REPO))
+        rows = [row("bundled_modified", top, "zlib", modified="yes"),
+                row("inner", top + "/external/inner.h", "MIT", modified="yes", evidence="header")]
+        self.assertEqual(self.check(rows, self.fixture("bundled_modified")), [])
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory(dir=FIXTURES) as tmp:
+            case = Path(tmp)
+            shutil.copytree(FIXTURES / "bundled_modified" / "dep", case / "dep")
+            (case / "dep" / "PATCHES.md").write_text("# This is a MODIFIED copy of thing\n")
+            rel = str((case / "dep").relative_to(REPO))
+            rows = [row("bundled_modified", rel, "zlib", modified="yes"),
+                    row("inner", rel + "/external/inner.h", "MIT", modified="yes", evidence="header")]
+            fails = self.check(rows, case)
+            self.assertTrue(any("inner" in f and "naming external/inner.h" in f for f in fails), fails)
+
     def test_one_file_keeps_the_plain_sha256(self):
         # So a one-file pin can still be checked with sha256sum by hand.
         header = FIXTURES / "mit_dep" / "dep" / "thing.h"
@@ -2451,11 +2472,19 @@ class LicenceGuardTest(unittest.TestCase):
     def test_every_alteration_has_its_mark(self):
         rows = ldb.load_rows(REPO)
         marked = {r["name"] for r in rows if r["modified"] in ("yes", "subset")}
-        self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob"})
+        self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob", "rlsw"})
         for r in rows:
             if r["modified"] in ("yes", "subset"):
                 with self.subTest(component=r["name"]):
-                    note = (REPO / r["path"] / "PATCHES.md").read_text()
+                    path = REPO / r["path"]
+                    if path.is_dir():
+                        note = (path / "PATCHES.md").read_text()
+                    else:
+                        # A bundled file: its change is in the bundling
+                        # component's PATCHES.md, by name.
+                        owner = next(d for d in path.parents if (d / "PATCHES.md").is_file())
+                        note = (owner / "PATCHES.md").read_text()
+                        self.assertIn(f"`{path.relative_to(owner).as_posix()}`", note)
                     self.assertIn("MODIFIED", note)
                     self.assertIn("|", note)  # a table of file/line/change/why
 
@@ -2466,7 +2495,7 @@ class LicenceGuardTest(unittest.TestCase):
         listed = set(re.findall(r"^\| `([^`]+)` \|", note, re.M))
         marked = set()
         for path in (REPO / "thirdparty" / "raylib").rglob("*"):
-            if path.is_file() and path.suffix in (".c", ".txt", ".cmake") and "external" not in path.parts:
+            if path.is_file() and path.suffix in (".c", ".h", ".txt", ".cmake"):
                 if "PATCHED (raylib_multiplatform)" in path.read_text(errors="replace"):
                     marked.add(str(path.relative_to(REPO / "thirdparty" / "raylib")))
         self.assertEqual(marked, listed)

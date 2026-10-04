@@ -529,14 +529,23 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
                          "part-of:<name> or upstream:<url>")
             continue
 
-        # Modifications. Top level only: what raylib bundles is raylib's, and
-        # raylib's PATCHES.md is where "nothing under src/external is touched"
-        # is stated.
+        # Modifications. A top-level component is marked by its own
+        # PATCHES.md; a file it bundles (raylib's src/external/, rres's
+        # external/) says so on its own row, and the change is in the
+        # bundling component's PATCHES.md, which has to name the file.
         top_level = Path(row["path"]).parent == top
         if row["modified"] in ("yes", "subset"):
             if not top_level:
-                fails.append(f"{label}: a bundled component cannot be marked modified; "
-                             "mark the component that bundles it")
+                # A bundled file we changed says so on its own row, and the
+                # change is recorded where the component that bundles it keeps
+                # its mark: the nearest PATCHES.md above it, naming the file.
+                owner = next((d for d in path.parents if (d / "PATCHES.md").is_file()
+                              and repo in d.parents), None)
+                rel = path.relative_to(owner).as_posix() if owner else ""
+                if owner is None or rel not in owner.joinpath("PATCHES.md").read_text(encoding="utf-8"):
+                    fails.append(f"{label}: a bundled file marked modified needs its change in the "
+                                 "PATCHES.md of the component that bundles it, naming "
+                                 f"{rel or row['path']}")
                 continue
             patches = path / "PATCHES.md" if path.is_dir() else path.parent / "PATCHES.md"
             note = patches.read_text(encoding="utf-8") if patches.is_file() else ""

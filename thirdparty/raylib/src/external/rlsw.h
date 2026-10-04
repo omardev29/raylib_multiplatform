@@ -4210,8 +4210,11 @@ void swScissor(int x, int y, int width, int height)
 
     RLSW.scClipMin[0] = (2.0f*(float)RLSW.scMin[0]/(float)RLSW.vpSize[0]) - 1.0f;
     RLSW.scClipMax[0] = (2.0f*(float)RLSW.scMax[0]/(float)RLSW.vpSize[0]) - 1.0f;
-    RLSW.scClipMax[1] = 1.0f - (2.0f*(float)RLSW.scMin[1]/(float)RLSW.vpSize[1]);
-    RLSW.scClipMin[1] = 1.0f - (2.0f*(float)RLSW.scMax[1]/(float)RLSW.vpSize[1]);
+    // PATCHED (raylib_multiplatform): backport of upstream 7a247ff40f (#5976). rlgl
+    // passes the scissor's y from the bottom, as glScissor does; this read it
+    // from the top, so every scissored draw was clipped to the mirrored band.
+    RLSW.scClipMin[1] = (2.0f*(float)RLSW.scMin[1]/(float)RLSW.vpSize[1]) - 1.0f;
+    RLSW.scClipMax[1] = (2.0f*(float)RLSW.scMax[1]/(float)RLSW.vpSize[1]) - 1.0f;
 }
 
 void swClearColor(float r, float g, float b, float a)
