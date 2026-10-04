@@ -2,11 +2,22 @@
 // The catalogue's implementations. The surface, and the argument for each one
 // being in the catalogue at all, is include/rmp/behavior.h.
 //
-// Every one of these is ordinary code against the public API: they read the
-// same rmp::input a game reads, write the same position and velocity a game
-// writes, and call the same scene()->raycast(). That is not an accident of how
-// they were written -- it is the claim the model makes, and the fact that none
-// of this file needs anything a user could not reach is the evidence for it.
+// Nearly all of this is ordinary code against the public API: the behaviors
+// read the same rmp::input a game reads, write the same position and velocity
+// a game writes, and call the same scene()->raycast(). That is the claim the
+// model makes -- one of yours and one of ours are the same thing -- and this
+// file is the evidence for it, with two exceptions that mark where the public
+// API stops:
+//
+//   Spawner asks for the scene's live objects (objects::detail::live_objects),
+//   to tell which ones its on_spawn made; a game is handed the object it
+//   spawns and has no need to list them.
+//
+//   TopDown asks a sheet whether it has a tag (animation::detail::tag_index)
+//   before playing it, because Sprite::play() warns about a tag that is not
+//   there and trying "walk_ne" on a sheet without one is not a mistake.
+//
+// The rest -- Parallax's tiling, the warn-once -- is this file's own.
 // ---------------------------------------------------------------------------
 
 #include <rmp/behavior.h>
@@ -142,7 +153,9 @@ void TopDown::_update(Object &self, float delta) {
     self.velocity.y = approach(self.velocity.y, target.y, acceleration, delta);
 
     // The flip first, because it is the half that works with no sheet at all:
-    // a one-direction sheet mirrored for the left.
+    // a one-direction sheet mirrored for the left. Which assumes the art faces
+    // RIGHT, east, where the suffix table starts; a tag with a suffix is drawn
+    // for its own direction and is played unflipped, below.
     if (ours.facing.x < -NEAR_ZERO) self.flip_x = true;
     if (ours.facing.x > NEAR_ZERO) self.flip_x = false;
 
@@ -173,6 +186,8 @@ void TopDown::_update(Object &self, float delta) {
         }
         tag[at] = '\0';
         if (rmp::animation::detail::tag_index(self.sprite.sheet.raw(), tag) >= 0) {
+            // "walk_w" is drawn facing west; mirroring it would face it east.
+            self.flip_x = false;
             self.sprite.play(tag);
             return;
         }
@@ -185,11 +200,14 @@ void TopDown::_update(Object &self, float delta) {
 // ---------------------------------------------------------------------------
 
 void Platformer::_ready(Object &self) {
-    // A behavior does not own gravity, it CONFIGURES it: these are the same two
-    // fields the game would write, so `player.gravity_scale = 2` afterwards
-    // works and there are not two places where gravity lives.
+    // Solid, so the map and the platforms stop it. And gravity_scale 0,
+    // because this behavior integrates its OWN gravity -- the `gravity` field
+    // above, applied only while off the ground -- so that `jump` reaches the
+    // same height whatever the scene's gravity is. Heavier is
+    // `get<Platformer>()->gravity = 3000`; setting gravity_scale afterwards
+    // adds the scene's gravity on top of this one, twice the fall.
     self.solid = true;
-    self.gravity_scale = 0; // this one integrates its own, to keep `jump` exact
+    self.gravity_scale = 0;
 }
 
 void Platformer::_update(Object &self, float delta) {
@@ -246,9 +264,9 @@ void Platformer::_update(Object &self, float delta) {
 // ---------------------------------------------------------------------------
 
 void Runner::_ready(Object &self) {
+    // As Platformer: solid, and its own gravity rather than the scene's.
     self.solid = true;
     self.gravity_scale = 0;
-    ours.ground_y = self.position.y;
 }
 
 void Runner::_update(Object &self, float delta) {
@@ -530,12 +548,14 @@ void Parallax::_draw(Object &self) {
         ? self.scene()->camera.view()
         : Rectangle{ 0, 0, static_cast<float>(RMP_WINDOW_WIDTH),
                      static_cast<float>(RMP_WINDOW_HEIGHT) };
-    // The arithmetic is next door, in detail::parallax_tiling, and this call is
-    // the only thing between it and the GPU. That is not tidiness: everything
-    // below this line needs a render batch InitWindow() creates, and everything
-    // above it is the part that gets written wrong -- so the part that gets
-    // written wrong is the part a headless test can reach.
-    const float shift = (self.position.x - view.x) * factor + ours.scroll;
+    // The arithmetic is next door, in detail::parallax_shift and
+    // detail::parallax_tiling, and these calls are the only thing between it
+    // and the GPU. That is not tidiness: everything below this line needs a
+    // render batch InitWindow() creates, and everything above it is the part
+    // that gets written wrong -- so the part that gets written wrong is the
+    // part a headless test can reach.
+    const float shift =
+        detail::parallax_shift(self.position.x, view.x, factor, ours.scroll);
     const detail::ParallaxTiling tiling =
         detail::parallax_tiling(shift, static_cast<float>(tex.width), view.width);
 
@@ -547,6 +567,10 @@ void Parallax::_draw(Object &self) {
 }
 
 namespace detail {
+
+float parallax_shift(float x, float view_x, float factor, float scroll) {
+    return (x - view_x) * factor + scroll;
+}
 
 ParallaxTiling parallax_tiling(float shift, float width, float screen) {
     if (width <= 0) return ParallaxTiling{};

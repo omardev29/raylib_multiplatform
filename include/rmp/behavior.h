@@ -64,6 +64,11 @@ struct TopDown {
     // sheet all work with nothing configured. `idle` is played as it is, with no
     // suffix. With no sheet on the object's sprite only flip_x is set, and an
     // empty name plays nothing.
+    //
+    // THE ART FACES RIGHT. flip_x is set while facing left, to mirror the
+    // frames that have no direction of their own -- `walk` without a suffix,
+    // `idle`, or a sprite with no sheet -- so those must be drawn facing east.
+    // A tag with a suffix is drawn for its direction and plays unflipped.
     std::string idle = "idle";
     std::string walk = "walk";
     std::array<std::string, 8> suffixes = { "e", "ne", "n", "nw", "w", "sw", "s", "se" };
@@ -173,7 +178,6 @@ struct Runner {
         bool ducking = false;
         bool grounded = false;
         int jumps_used = 0;
-        float ground_y = 0;
     } ours;
 };
 
@@ -305,7 +309,7 @@ struct GridSnap {
 // recomputed when the window changes size.
 struct Parallax {
     std::string texture; // a name for rmp::assets::load_texture
-    float factor = 0.5f; // 1 = moves with the camera, 0 = pinned
+    float factor = 0.5f; // 1 = scrolls with the world, 0 = pinned to the screen
     float speed = 0; // units per second of its own, for a sky that drifts
     float y = 0; // where the top of the strip sits
     Color tint = WHITE; // multiplies the texture's colours; WHITE = drawn as it is

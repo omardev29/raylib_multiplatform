@@ -136,15 +136,31 @@ std::string playing(const rmp::Object &object) {
 // Platformer — the ground, and what counts as it
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture,
-                  "Platformer configures the object rather than owning gravity") {
+TEST_CASE_FIXTURE(
+    Fixture, "Platformer falls by its own gravity, and gravity_scale adds the scene's") {
+    // The behavior integrates its own `gravity`, so `jump` reaches the same
+    // height in any scene, and leaves gravity_scale at 0. Writing gravity_scale
+    // afterwards does not change its gravity: it adds the scene's on top.
     World world;
-    rmp::Object &player = stander(world);
-    player.add<rmp::behavior::Platformer>({});
-    // The same two fields the game would write, so `player.gravity_scale = 2`
-    // afterwards works and there are not two places where gravity lives.
+    world.gravity = { 0, 1000 };
+    rmp::Object &player =
+        world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 20 }) });
+    player.add<rmp::behavior::Platformer>({ .gravity = 2000 });
     CHECK(player.solid);
     CHECK(player.gravity_scale == doctest::Approx(0));
+
+    const float delta = 1.0f / 60;
+    frame(world, delta);
+    CHECK(player.velocity.y == doctest::Approx(2000 * delta)); // the scene's is not in it
+
+    player.gravity_scale = 1;
+    frame(world, delta);
+    CHECK(player.velocity.y == doctest::Approx(2000 * delta + (2000 + 1000) * delta));
+
+    player.gravity_scale = 0;
+    player.get<rmp::behavior::Platformer>()->gravity = 3000; // heavier is this field
+    frame(world, delta);
+    CHECK(player.velocity.y == doctest::Approx((2000 + 3000 + 3000) * delta));
 }
 
 TEST_CASE_FIXTURE(Fixture, "Platformer: gravity accumulates with nothing underneath") {
@@ -453,6 +469,29 @@ TEST_CASE_FIXTURE(
     CHECK(parallax_tiling(0, 100, 10).copies == 1);
 }
 
+TEST_CASE_FIXTURE(
+    Fixture, "Parallax: factor 1 stands still in the world, factor 0 on the screen") {
+    // What `factor` means, which the header and the implementation once said
+    // two different ways. The first copy's left edge is offset pixels from the
+    // view's left edge; the view's left edge is at view_x in the world.
+    using rmp::behavior::detail::parallax_shift;
+    using rmp::behavior::detail::parallax_tiling;
+    constexpr float WIDTH = 1000;
+    auto on_screen = [](float factor, float view_x) {
+        return parallax_tiling(parallax_shift(0, view_x, factor, 0), WIDTH, 800).offset;
+    };
+    for (const float view_x : { 0.0f, 130.0f, 470.0f, 999.0f }) {
+        CAPTURE(view_x);
+        // Factor 1: wherever the view goes, the layer is at the same place in
+        // the world -- it scrolls exactly as the ground does.
+        CHECK(view_x + on_screen(1, view_x) == doctest::Approx(0));
+        // Factor 0: the same place on the screen -- it goes with the camera.
+        CHECK(on_screen(0, view_x) == doctest::Approx(0));
+        // In between, a share of the scroll: half, at 0.5.
+        CHECK(on_screen(0.5f, view_x) == doctest::Approx(-view_x / 2));
+    }
+}
+
 TEST_CASE_FIXTURE(Fixture,
                   "Parallax: speed is its own drift, and factor is not applied to it") {
     // `factor` multiplies where the OBJECT is, at draw time, so that moving one
@@ -616,6 +655,36 @@ TEST_CASE_FIXTURE(Fixture,
     hold(KEY_A);
     tick(player, 1.0f / 60);
     CHECK(playing(player) == "walk");
+    CHECK(player.flip_x);
+}
+
+TEST_CASE_FIXTURE(
+    Fixture,
+    "TopDown: a tag with a direction is not mirrored, and the rest faces right") {
+    // "walk_w" is drawn facing west. Mirroring it because the character faces
+    // left turned it to face east -- the flip is for the frames that have no
+    // direction of their own, which are drawn facing right.
+    World world;
+    rmp::Object &player = world.spawn();
+    player.sprite.sheet = sheet_with({ "idle", "walk", "walk_e", "walk_w" });
+    player.add<rmp::behavior::TopDown>({ .speed = 100 });
+
+    hold(KEY_A);
+    tick(player, 1.0f / 60);
+    CHECK(playing(player) == "walk_w");
+    CHECK_FALSE(player.flip_x);
+
+    // Up and left: no "walk_nw", so the base tag, mirrored to face left.
+    hold(KEY_W);
+    tick(player, 1.0f / 60);
+    CHECK(playing(player) == "walk");
+    CHECK(player.flip_x);
+
+    // Standing still facing left: idle has no direction, so it is mirrored.
+    hold(KEY_A, false);
+    hold(KEY_W, false);
+    tick(player, 1.0f / 60);
+    CHECK(playing(player) == "idle");
     CHECK(player.flip_x);
 }
 
