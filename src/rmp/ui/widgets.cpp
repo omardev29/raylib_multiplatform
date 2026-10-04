@@ -153,13 +153,19 @@ void begin(const FrameOptions &o) {
     // wide as the widest child; the children then grow to fill it. Without it
     // every button is only as wide as its own label, and a menu reading
     // Play / Options / Quit comes out as a ragged staircase.
+    //
+    // With `grow` the column fills the root instead -- the whole window, less
+    // the padding -- so a child that grows reaches the edges, which is what a
+    // screen laid out as a sidebar beside a content area needs. The column then
+    // places what does not grow, so `placement` keeps its meaning.
     Clay_ElementDeclaration content{};
-    content.layout.sizing.width = size_fit();
-    content.layout.sizing.height = size_fit();
+    content.layout.sizing.width = o.grow ? size_grow() : size_fit();
+    content.layout.sizing.height = o.grow ? size_grow() : size_fit();
     content.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     content.layout.childGap = static_cast<uint16_t>(px(gap));
-    content.layout.childAlignment =
-        Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    content.layout.childAlignment = o.grow
+        ? alignment_of(o.placement)
+        : Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
 
     Clay__OpenElement();
     Clay__ConfigureOpenElement(content);

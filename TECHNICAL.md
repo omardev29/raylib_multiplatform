@@ -671,9 +671,10 @@ reach for when the default is not what you want.
 
 ```cpp
 struct FrameOptions {
-    align placement = Align::CENTER;   // where the root's content sits
-    float gap       = -1;              // between children; -1 = the Theme's
-    float padding   = -1;              // inside the root;  -1 = the Theme's
+    Align placement = Align::CENTER; // where the root's content sits
+    float gap = -1; // between children; -1 = the theme's
+    float padding = -1; // inside the root; -1 = the theme's
+    bool grow = false; // true = the column fills the window instead of fitting its content
 };
 
 void begin();
@@ -681,11 +682,19 @@ void begin(const FrameOptions &o);
 void end();
 ```
 
-`align` has the nine you would expect: `top_left`, `top_center`, `top_right`, `center_left`,
-`center`, `center_right`, `bottom_left`, `bottom_center`, `bottom_right`.
+`Align` has the nine you would expect: `TOP_LEFT`, `TOP_CENTER`, `TOP_RIGHT`, `CENTER_LEFT`,
+`CENTER`, `CENTER_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_CENTER`, `BOTTOM_RIGHT`.
 
-The default is `center` and that is deliberate. A plain top-to-bottom layout would put a menu in
+The default is `CENTER` and that is deliberate. A plain top-to-bottom layout would put a menu in
 the top-left corner, and then "a menu is three functions" would be a lie.
+
+`begin()` opens a root that fills the window and, inside it, a column that **fits its content** —
+which is what makes the buttons of a menu come out one width: the column is as wide as the widest,
+and the rest grow to match. A child with `grow_x` or `grow_y` therefore fills that column and no
+more. A screen laid out edge to edge — a sidebar beside a content area — asks for
+`begin({ .grow = true })`: the column then fills the window less the padding, on both axes, and
+what does not grow is still placed by `placement`. `examples/ui/05_inventory` and
+`examples/ui/07_responsive` are both laid out that way.
 
 ### Widgets
 

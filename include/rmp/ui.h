@@ -294,6 +294,17 @@ struct FrameOptions {
     Align placement = Align::CENTER; // where the root's content sits
     float gap = -1; // between children; -1 = the theme's
     float padding = -1; // inside the root; -1 = the theme's
+    // false: the column FITS what is in it, so a child that grows fills the
+    // column and no more -- which is what makes the buttons of a menu one
+    // width. true: the column fills the window, less the padding, on both
+    // axes, so a child with grow_x or grow_y reaches the edges: a sidebar and
+    // a content area that take the whole screen. What does not grow is still
+    // placed by `placement`.
+    //
+    //     rmp::ui::begin({ .grow = true });
+    //     rmp::ui::row({ .grow_x = true, .grow_y = true }, [&] { side(); main(); });
+    //     rmp::ui::end();
+    bool grow = false;
 };
 
 // Open the UI for this frame. The default is a centred column, which is what

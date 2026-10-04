@@ -1915,6 +1915,55 @@ void run_pointer_over_interface() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// begin() opens a centred column that FITS its content, and that is the
+// three-function menu. Nothing it took could make the frame reach the edges of
+// the window: a growing child filled the fitted column and no more, and two
+// examples that assumed otherwise (ui/05_inventory, ui/07_responsive) came out
+// a third of the width they were drawn for. FrameOptions::grow is that frame.
+void run_frame_grow() {
+    std::printf("\n--- a frame that fills the window ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    auto filled = [&](rmp::ui::Align placement) {
+        for (int i = 0; i < 2; i++) {
+            rmp::ui::begin({ .placement = placement, .padding = 10, .grow = true });
+            rmp::ui::row({ .grow_x = true, .grow_y = true, .id = "filler" },
+                         [] { rmp::ui::text("x"); });
+            rmp::ui::end();
+        }
+        return box_of("filler");
+    };
+    Box f = filled(rmp::ui::Align::CENTER);
+    const float pad = 10.0f * rmp::ui::scale(); // the scale this viewport has
+    check_near(f.x, pad, 0.5f, "grow: a growing row starts at the padding");
+    check_near(f.w, 1280.0f - 2 * pad, 0.5f,
+               "and reaches the right edge less the padding");
+    check_near(f.y, pad, 0.5f, "from the top");
+    check_near(f.h, 720.0f - 2 * pad, 0.5f, "to the bottom");
+
+    // What does not grow is placed where `placement` says, as it always was.
+    for (int i = 0; i < 2; i++) {
+        rmp::ui::begin(
+            { .placement = rmp::ui::Align::BOTTOM_RIGHT, .padding = 10, .grow = true });
+        rmp::ui::column({ .width = 100, .height = 50, .id = "corner" }, [] {});
+        rmp::ui::end();
+    }
+    Box c = box_of("corner");
+    check_near(c.x + c.w, 1280.0f - pad, 0.5f,
+               "a fitted child still goes where placement says");
+    check_near(c.y + c.h, 720.0f - pad, 0.5f, "both ways");
+
+    // And without it, nothing moved: the same row fits the column, which is
+    // what keeps the menu a centred column of equal buttons.
+    for (int i = 0; i < 2; i++) {
+        rmp::ui::begin({ .padding = 10 });
+        rmp::ui::row({ .grow_x = true, .grow_y = true, .id = "filler" },
+                     [] { rmp::ui::text("x"); });
+        rmp::ui::end();
+    }
+    check(box_of("filler").w < 100.0f, "without grow, the frame still fits its content");
+}
+
 } // namespace
 
 int main() {
@@ -1934,6 +1983,7 @@ int main() {
 
     run_containers(1280, 720);
     run_containers(800, 600);
+    run_frame_grow();
     run_grid();
     run_grid_fit();
     run_interaction();

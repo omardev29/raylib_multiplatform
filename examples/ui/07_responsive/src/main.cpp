@@ -122,7 +122,11 @@ static void on_frame(float) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
-    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_CENTER, .padding = 12 });
+    // grow: the frame is the whole window, so the sidebar and the content
+    // below can take all of it. Without it begin() fits its content, which is
+    // a menu's shape and not a screen's.
+    rmp::ui::begin(
+        { .placement = rmp::ui::Align::TOP_CENTER, .padding = 12, .grow = true });
 
     // A status line, so the breakpoint is visible while you drag the window.
     // Nothing in a real game would draw this.

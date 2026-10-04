@@ -38,7 +38,10 @@ static void on_frame(float) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 
-    rmp::ui::begin({ .placement = rmp::ui::Align::CENTER });
+    // grow: the frame is the whole window, so the row below can fill it.
+    // Without it begin() is a column that fits its content -- the right thing
+    // for a menu -- and a growing row would fill that column and no more.
+    rmp::ui::begin({ .grow = true });
     rmp::ui::row({ .gap = 12, .grow_x = true, .grow_y = true }, [&] {
         inventory_grid();
         item_list();
