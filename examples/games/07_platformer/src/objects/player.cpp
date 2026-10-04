@@ -70,8 +70,8 @@ void Player::_update(float delta) {
     } else {
         sprite.play("idle");
     }
-    if (velocity.x < -1) flip_x = true;
-    if (velocity.x > 1) flip_x = false;
+    if (velocity.x < -1) flip_x = false;
+    if (velocity.x > 1) flip_x = true;
     was_on_ground_ = on_ground;
 }
 
