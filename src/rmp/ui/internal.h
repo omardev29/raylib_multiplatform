@@ -99,6 +99,15 @@ bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out);
 bool pointer_over(Clay_ElementId id);
 bool pointer_over(Clay_ElementId id, float slop_y);
 
+// Is the pointer over something this pass PAINTED as the interface? Every
+// render command but text counts: a background (a panel, a progress bar, an
+// open list), a border, an image, and a scroll area -- what is clipped away
+// inside a scroll area does not. Plain text with nothing behind it is the one
+// exception, on purpose: a score drawn over the game must not stop the game
+// being clicked through it. Called by end() with the pass's commands; a hit is
+// what wants_pointer() answers with, alongside the controls' own hover.
+void claim_pointer_over_painted(Clay_RenderCommandArray commands);
+
 // A clipping container is open: everything declared inside it can only be
 // hovered where the container itself is. Paired, and reset per pass.
 void push_clip(Clay_ElementId id);

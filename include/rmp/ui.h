@@ -728,7 +728,12 @@ bool text_input(std::string_view label, char *buffer, int capacity,
 // immediate mode that is one frame of tolerance, which nobody will notice.
 
 // The pointer is over the interface, or the interface is using it (dragging a
-// slider).
+// slider). "Over the interface" is over anything it paints as a surface: every
+// control, every box with a background colour or a border (a panel, a progress
+// bar, an open dropdown list), an image, and a scroll area, empty part
+// included -- but not where a scroll area has clipped its contents away. Plain
+// text with nothing behind it is NOT: a score drawn over the game does not
+// stop the game being clicked through it.
 bool wants_pointer();
 
 // A text field has the keyboard, so the keys are its own: see text_input().

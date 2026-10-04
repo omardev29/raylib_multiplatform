@@ -921,6 +921,68 @@ bool pointer_over(Clay_ElementId id, float slop_y) {
     return true;
 }
 
+void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
+    // The gate for a pass input cannot reach, and for a touch screen nothing is
+    // touching, is the same one hover has.
+    if (!pointer_present()) return;
+    const Clay_Vector2 p = pointer_position();
+
+    // The clip rectangles open at this point of the list, outermost first. A
+    // row scrolled out of its list still has a box, and the pointer must not
+    // find it there.
+    Clay_BoundingBox open_clips[MAX_CLIP_DEPTH];
+    int depth = 0;
+    int overflow = 0;
+    auto shown_under_pointer = [&](const Clay_BoundingBox &b) {
+        // No area, nothing to be over: see pointer_over().
+        if (b.width <= 0.0f || b.height <= 0.0f || !inside_box(p, b)) return false;
+        for (int i = 0; i < depth; i++) {
+            if (!inside_box(p, open_clips[i])) return false;
+        }
+        return true;
+    };
+
+    for (int32_t i = 0; i < commands.length; i++) {
+        const Clay_RenderCommand &cmd = commands.internalArray[i];
+        switch (cmd.commandType) {
+            case CLAY_RENDER_COMMAND_TYPE_RECTANGLE:
+            case CLAY_RENDER_COMMAND_TYPE_BORDER:
+            case CLAY_RENDER_COMMAND_TYPE_IMAGE:
+            case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
+                if (shown_under_pointer(cmd.boundingBox)) {
+                    set_pointer_over_ui();
+                    return;
+                }
+                break;
+            case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START:
+                // A scroll area is interface even where it paints nothing:
+                // dragging inside it scrolls it.
+                if (shown_under_pointer(cmd.boundingBox)) {
+                    set_pointer_over_ui();
+                    return;
+                }
+                if (depth < MAX_CLIP_DEPTH) {
+                    open_clips[depth++] = cmd.boundingBox;
+                } else {
+                    overflow++;
+                }
+                break;
+            case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END:
+                if (overflow > 0) {
+                    overflow--;
+                } else if (depth > 0) {
+                    depth--;
+                }
+                break;
+            case CLAY_RENDER_COMMAND_TYPE_TEXT: // over the game, text is not a wall
+            case CLAY_RENDER_COMMAND_TYPE_OVERLAY_COLOR_START: // a tint, not a surface
+            case CLAY_RENDER_COMMAND_TYPE_OVERLAY_COLOR_END:
+            case CLAY_RENDER_COMMAND_TYPE_NONE:
+                break;
+        }
+    }
+}
+
 Clay_ElementId peek_sub_id(Clay_ElementId base, uint32_t which) {
     Clay_ElementId out = base;
     // Knuth's multiplicative constant: cheap, and it scatters the derived ids

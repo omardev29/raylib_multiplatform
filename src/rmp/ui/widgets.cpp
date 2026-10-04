@@ -194,6 +194,11 @@ void end() {
     // frame's matching pass reads it — see bounds_of_id().
     detail::capture_pass_bounds();
 
+    // And whether the pointer is over anything this pass painted, which is
+    // what "over the interface" means for wants_pointer(): a panel's background
+    // or an image takes the click as surely as a button does.
+    detail::claim_pointer_over_painted(commands);
+
     // And if this pass declared something focusable and nothing in the frame
     // has the focus yet, its first widget takes it.
     detail::end_pass_focus();

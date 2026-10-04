@@ -900,8 +900,11 @@ it (navigation, `focus()`, or Enter on it), and gives it back on Enter, Escape, 
 or the focus moving on — Tab, up and down leave a text field like any other control. The focus a
 screen gives its first control by itself does not take it.
 
-`wants_pointer()` is true when the pointer is over a control or while a slider is being dragged. It
-answers for the previous frame's layout, like everything else here.
+`wants_pointer()` is true when the pointer is over anything the interface paints as a surface —
+every control, every box with a background colour or a border (a panel, a progress bar, an open
+dropdown list), an image, a scroll area including its empty part — and while a slider is being
+dragged. Plain text with nothing behind it does not count, on purpose: a score drawn over the game
+must not stop the game being clicked through it. It answers for the last frame the UI drew.
 
 ### Strings are copied
 

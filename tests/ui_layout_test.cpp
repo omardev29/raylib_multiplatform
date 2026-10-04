@@ -1858,6 +1858,63 @@ void run_grid_fit() {
           "and a grid with nothing measured yet starts at one column");
 }
 
+// wants_pointer() is true over the interface, which is what rmp/ui.h always
+// said and not what it did: only the interactive controls claimed the pointer,
+// so a click on a panel's background, an image or the empty part of a scroll
+// area went straight through to the game's mouse actions and to the objects
+// under it. Plain text with nothing behind it -- a HUD's score -- is the one
+// thing that does NOT claim it, on purpose.
+void run_pointer_over_interface() {
+    std::printf("\n--- wants_pointer() over everything the interface paints ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    Texture2D picture{};
+    picture.id = 1;
+    picture.width = 32;
+    picture.height = 32;
+    auto frame = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::row({ .gap = 40 }, [&] {
+            rmp::ui::panel({ .box = { .padding = 30, .id = "card" } },
+                           [] { rmp::ui::text("Card"); });
+            rmp::ui::column({ .id = "pic" }, [&] { rmp::ui::image(picture); });
+            rmp::ui::column({ .width = 300, .id = "holder" }, [] {
+                rmp::ui::scroll({ .height = 80, .id = "area" },
+                                [] { rmp::ui::text("short"); });
+            });
+            rmp::ui::column({ .id = "score" }, [] { rmp::ui::text("999"); });
+        });
+        rmp::ui::end();
+    };
+    auto pointer_at = [&](float x, float y) {
+        fake_pointer.position = Clay_Vector2{ x, y };
+        fake_pointer.down = false;
+        frame();
+        return rmp::ui::wants_pointer();
+    };
+
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    frame();
+    frame();
+    const Box card = box_of("card");
+    const Box pic = box_of("pic");
+    const Box area = box_of("area");
+    const Box score = box_of("score");
+    check(card.w > 0 && pic.w > 0 && area.w > 0 && score.w > 0, "all four laid out");
+
+    check(pointer_at(card.x + 5, card.y + 5), "true over a panel's background");
+    check(pointer_at(pic.x + pic.w / 2, pic.y + pic.h / 2), "true over an image");
+    check(pointer_at(area.x + area.w - 5, area.y + area.h - 5),
+          "true over the empty part of a scroll area");
+    check(!pointer_at(score.x + score.w / 2, score.y + score.h / 2),
+          "false over plain text with nothing behind it: a HUD's score does not "
+          "block the game");
+    check(!pointer_at(1270, 710), "and false out in the open");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
 } // namespace
 
 int main() {
@@ -1900,6 +1957,7 @@ int main() {
     run_text_field_focus();
     run_dropdown_nav();
     run_focus_between_frames();
+    run_pointer_over_interface();
     run_scroll_clip();
     run_scroll_moves();
     run_image_lifetime();
