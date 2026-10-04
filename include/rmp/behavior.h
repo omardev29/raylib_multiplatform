@@ -122,7 +122,7 @@ struct Platformer {
 
     // Whether it was standing on something at its last update: a solid object
     // or a solid map cell just under its feet, while not moving up.
-    [[nodiscard]] bool on_ground() const { return ours.grounded; }
+    [[nodiscard]] bool grounded() const { return ours.grounded; }
 
     void _ready(Object &self);
     void _update(Object &self, float delta);

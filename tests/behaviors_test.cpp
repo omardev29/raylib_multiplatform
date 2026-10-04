@@ -170,7 +170,7 @@ TEST_CASE_FIXTURE(Fixture, "Platformer: gravity accumulates with nothing underne
     auto &platformer = player.add<rmp::behavior::Platformer>({ .gravity = 1200 });
 
     for (int i = 0; i < 60; i++) tick(player, 1.0f / 60);
-    CHECK_FALSE(platformer.on_ground());
+    CHECK_FALSE(platformer.grounded());
     CHECK(player.velocity.y == doctest::Approx(1200).epsilon(0.001));
 }
 
@@ -181,7 +181,7 @@ TEST_CASE_FIXTURE(Fixture, "Platformer: a solid floor under the feet is ground")
     auto &platformer = player.add<rmp::behavior::Platformer>({ .gravity = 1200 });
 
     for (int i = 0; i < 60; i++) tick(player, 1.0f / 60);
-    CHECK(platformer.on_ground());
+    CHECK(platformer.grounded());
     // And gravity does NOT accumulate while standing, which is the symptom the
     // ground check exists to prevent.
     CHECK(player.velocity.y == doctest::Approx(0));
@@ -203,7 +203,7 @@ TEST_CASE_FIXTURE(Fixture, "Platformer: a coin lying on the floor is not the flo
     auto &platformer = player.add<rmp::behavior::Platformer>({ .gravity = 1200 });
 
     tick(player, 1.0f / 60);
-    CHECK(platformer.on_ground());
+    CHECK(platformer.grounded());
     CHECK(player.velocity.y == doctest::Approx(0));
 }
 
@@ -220,7 +220,7 @@ TEST_CASE_FIXTURE(Fixture,
     auto &platformer = player.add<rmp::behavior::Platformer>({ .gravity = 1200 });
 
     tick(player, 1.0f / 60);
-    CHECK_FALSE(platformer.on_ground());
+    CHECK_FALSE(platformer.grounded());
     CHECK(player.velocity.y == doctest::Approx(20).epsilon(0.001));
 }
 
@@ -233,11 +233,11 @@ TEST_CASE_FIXTURE(Fixture, "Platformer: the ground is what the collision mask ca
     auto &platformer = player.add<rmp::behavior::Platformer>({});
 
     tick(player, 1.0f / 60);
-    CHECK_FALSE(platformer.on_ground());
+    CHECK_FALSE(platformer.grounded());
 
     player.collision_mask = 1u << 4;
     tick(player, 1.0f / 60);
-    CHECK(platformer.on_ground());
+    CHECK(platformer.grounded());
 }
 
 // ---------------------------------------------------------------------------
@@ -277,12 +277,12 @@ TEST_CASE_FIXTURE(Fixture,
         player.add<rmp::behavior::Platformer>({ .gravity = 0, .jump = 500 });
 
     tick(player, 1.0f / 60); // standing, and no edge on the first frame
-    REQUIRE(platformer.on_ground());
+    REQUIRE(platformer.grounded());
 
     hold(KEY_SPACE); // ui_accept
     tick(player, 1.0f / 60);
     CHECK(player.velocity.y == doctest::Approx(-500));
-    CHECK_FALSE(platformer.on_ground());
+    CHECK_FALSE(platformer.grounded());
 
     // Off the ground with air_jumps = 0, a second press is refused.
     hold(KEY_SPACE, false);
@@ -308,7 +308,7 @@ TEST_CASE_FIXTURE(Fixture,
     tick(player, 1.0f / 60);
     hold(KEY_SPACE);
     tick(player, 1.0f / 60);
-    CHECK_FALSE(platformer.on_ground());
+    CHECK_FALSE(platformer.grounded());
     CHECK(player.velocity.y == doctest::Approx(0));
 }
 
@@ -351,7 +351,7 @@ TEST_CASE_FIXTURE(Fixture,
         { .gravity = 0, .jump = 500, .jump_buffer = 0.12f });
 
     tick(player, 1.0f / 60);
-    REQUIRE_FALSE(platformer.on_ground());
+    REQUIRE_FALSE(platformer.grounded());
 
     hold(KEY_SPACE);
     tick(player, 1.0f / 60);
@@ -392,7 +392,7 @@ TEST_CASE_FIXTURE(Fixture,
         { .gravity = 0, .jump = 500, .air_jumps = 1 });
 
     tick(player, 1.0f / 60);
-    REQUIRE(platformer.on_ground());
+    REQUIRE(platformer.grounded());
 
     auto press = [&player]() {
         hold(KEY_SPACE);

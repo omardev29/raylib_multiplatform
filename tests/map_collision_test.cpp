@@ -393,17 +393,17 @@ TEST_SUITE("map collision") {
             player.add<rmp::behavior::Platformer>({ .gravity = 1500, .jump = 400 });
         for (int i = 0; i < 90; i++) frame(world);
         CHECK(bottom_of(player) == doctest::Approx(96).epsilon(0.0001));
-        CHECK(platformer.on_ground());
+        CHECK(platformer.grounded());
         CHECK(player.velocity.y == doctest::Approx(0));
 
         fake.devices.keys[KEY_SPACE] = true; // ui_accept
         frame(world);
         fake.devices.keys[KEY_SPACE] = false;
-        CHECK_FALSE(platformer.on_ground());
+        CHECK_FALSE(platformer.grounded());
         for (int i = 0; i < 4; i++) frame(world);
         CHECK(bottom_of(player) < 90); // in the air
         for (int i = 0; i < 90; i++) frame(world);
-        CHECK(platformer.on_ground()); // and back down
+        CHECK(platformer.grounded()); // and back down
 
         // Half over the ledge at x = 64: the centre is over the gap, the
         // right half over the floor. The map holds it up, so it is ground --
@@ -411,11 +411,11 @@ TEST_SUITE("map collision") {
         player.position.x = 62;
         frame(world);
         CHECK(bottom_of(player) == doctest::Approx(96).epsilon(0.0001));
-        CHECK(platformer.on_ground());
+        CHECK(platformer.grounded());
         // Past the ledge, it falls.
         player.position.x = 50;
         for (int i = 0; i < 30; i++) frame(world);
         CHECK(bottom_of(player) > 100);
-        CHECK_FALSE(platformer.on_ground());
+        CHECK_FALSE(platformer.grounded());
     }
 }

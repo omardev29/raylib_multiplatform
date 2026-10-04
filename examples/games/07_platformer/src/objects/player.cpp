@@ -63,7 +63,7 @@ void Player::_update(float delta) {
 
     if (hurting()) {
         sprite.play("hurt");
-    } else if (!platformer->on_ground()) {
+    } else if (!platformer->grounded()) {
         sprite.play("jump");
     } else if (std::fabs(velocity.x) > 10) {
         sprite.play("walk");

@@ -135,7 +135,7 @@ struct {
 
 Hands steer(game::LevelScene &scene, game::Player &p) {
     Hands h{ 1, false };
-    const bool ground = p.get<rmp::behavior::Platformer>()->on_ground();
+    const bool ground = p.get<rmp::behavior::Platformer>()->grounded();
     const Rectangle box = p.world_collider();
     const float feet = box.y + box.height;
     const Rectangle bounds = scene.map.bounds();
