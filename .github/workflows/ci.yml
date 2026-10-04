@@ -618,6 +618,10 @@ jobs:
           cp "$EXAMPLE" src/
           OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
           printf '%s\n' "$OUT" | tail -5
+          # And its release: the example's main() moves into the executable's
+          # folder itself, and only when resources/ is there -- so it starts
+          # from another folder and from the project folder alike.
+          sh tools/shipped_check.sh Ninja "" "$(python3 tools/configure.py --print-name)"
 
   # The documentation lives in its own repository, omardev29/rmp-docs, and
   # documents one commit of this one. Here it is checked against THIS commit:

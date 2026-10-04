@@ -1581,6 +1581,17 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
         self.assertIn('grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG"', script)
         self.assertIn("-DPRODUCTION_BUILD=ON", script)
 
+    def test_the_check_starts_it_from_the_project_folder_too(self):
+        """Where `rmp build release` leaves it: build/<name>, resources/ at the
+        root, started from the root. It must not move. examples/plain_c moved
+        into build/ in every desktop release and loaded nothing from there
+        (assets_failed=1); this case is the one that said so."""
+        script = (REPO / "tools" / "shipped_check.sh").read_text()
+        root_case = script.index('RAY_TEST_MAX_FRAMES=5 "./$BUILD/$NAME"')
+        self.assertLess(root_case, script.index('case "$(uname -s)" in'))
+        self.assertIn('grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG"',
+                      script[root_case:script.index("from the project folder it reads")])
+
 
 def boot_checks(path: Path) -> list[tuple[int, str]]:
     """Every line of code in `path` that looks for RAY_TEST_BOOT_OK. Comments
@@ -2357,6 +2368,26 @@ class PlainCGameTest(unittest.TestCase):
         self.assertNotIn("../tests/smoke_test.h", code)
         # A boot line printed by hand cannot say no: the hooks' one checks the window.
         self.assertNotIn('"RAY_TEST_BOOT_OK', code)
+
+    def test_its_release_moves_only_when_resources_is_next_to_it(self):
+        """The framework's entry point moves into the executable's folder only
+        when resources/ is there (enter_executable_folder()). The example moved
+        always, so a release run from the project folder read build/resources/,
+        which does not exist. The rmp_new job runs the shipped check on the
+        plain C game, which starts it from the project folder too."""
+        code = "\n".join(line for line in self.EXAMPLE.read_text().splitlines()
+                         if not line.lstrip().startswith("//"))
+        move = code.index("ChangeDirectory(folder);")
+        guard = code[code.rindex("#if RMP_PRODUCTION_BUILD", 0, move):move]
+        self.assertIn("DirectoryExists(TextFormat(\"%s%s\", folder, RMP_RESOURCES_PATH))",
+                      guard)
+        self.assertIn("folder[0] != '\\0'", guard)
+        self.assertEqual(code.count("ChangeDirectory("), 1)
+        ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+        step = ci[ci.index("- name: A game in plain C, made the way examples/plain_c says"):]
+        step = step[:step.index("\n\n")]
+        self.assertIn('sh tools/shipped_check.sh Ninja "" "$(python3 tools/configure.py '
+                      '--print-name)"', step)
 
     def test_the_examples_job_boots_it(self):
         script = (REPO / "tools" / "examples_build.sh").read_text()

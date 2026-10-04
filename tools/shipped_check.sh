@@ -8,7 +8,10 @@
 # folder passed every gate there was. This one builds the production binary
 # under raylib's software renderer (no display, so it runs in the macOS job and
 # in the BSD VMs too), puts it next to resources/resources.rres exactly as the
-# Package steps do, and starts it from a folder with no resources/ in it.
+# Package steps do, and starts it from a folder with no resources/ in it. And,
+# first, from the project folder where it was built, with no resources/ next to
+# it: there it has to stay put and read the root's, which is what `rmp build
+# release` and then build/<name> does.
 #
 #     sh tools/shipped_check.sh Ninja "" ray_test
 #
@@ -50,6 +53,21 @@ mkdir -p "$SHIP" "$BUILD/elsewhere"
 cp "$BUILD/$NAME" "$SHIP/"
 sh tools/ship_resources.sh "$SHIP"
 if [ "$MADE_PACK" -eq 1 ]; then rm -f resources/resources.rres; fi
+
+# First, the release where it was built, started from the project folder --
+# what `rmp build release` leaves, and what running build/<name> from here
+# does. There is no resources/ next to the executable, so it must stay where it
+# was started and read the root's: only a resources/ beside the binary may move
+# it. The framework's entry point checks before it moves, and so does the
+# main() of a game in plain C (examples/plain_c), which moves on its own.
+LOG="$ROOT/$BUILD/source-tree.log"
+RAY_TEST_MAX_FRAMES=5 "./$BUILD/$NAME" > "$LOG" 2>&1 < /dev/null || true
+tail -5 "$LOG"
+grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
+    echo "FAIL: started from the project folder, the release in $BUILD did not boot or"
+    echo "      did not find resources/ -- with none next to it, it reads the working"
+    echo "      directory's, and must not move away from it"; exit 1; }
+echo "  ok    from the project folder it reads the root's resources/"
 
 LOG="$ROOT/$BUILD/shipped.log"
 case "$(uname -s)" in

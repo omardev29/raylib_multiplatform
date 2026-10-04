@@ -14,12 +14,16 @@
 //     rmp run
 //
 // src/ is globbed by all four build systems (CMake, the Android CMakeLists,
-// XcodeGen, Emscripten), so nothing else needs editing. src/rmp/ has to go or
-// you link two main()s -- src/main.cpp is where RMP_GAME puts one -- and with
-// it gone CMakeLists.txt builds no framework library at all. Keep include/rmp/:
-// this file reads [window] from <rmp/config.h>, the one header of ours that is
-// plain #defines. The rmp new CI job follows the first two lines in a fresh
-// game and boots what they make.
+// XcodeGen, Emscripten), so nothing else needs editing. src/rmp/ is the
+// framework itself, and it goes because nothing here uses it: CMakeLists.txt
+// builds the framework library from it whenever it has sources, while a src/
+// with no C++ in it gets an executable linked to raylib alone -- so kept, it
+// is the whole C++ framework compiled for nothing on the desktop, and
+// compiled into the game on Android and iOS, whose builds take everything
+// under src/. With it gone there is no framework library at all. Keep
+// include/rmp/: this file reads [window] from <rmp/config.h>, the one header
+// of ours that is plain #defines. The rmp new CI job follows the first two
+// lines in a fresh game and boots what they make.
 //
 // What you give up, and what replaces it:
 //
@@ -67,9 +71,18 @@ int main(void) {
 #if RMP_PRODUCTION_BUILD && !defined(PLATFORM_ANDROID) && !defined(__EMSCRIPTEN__)
     // A release reads "./resources/", and "." has to be the executable's folder,
     // not wherever it was started from -- a file manager, a shortcut, another
-    // terminal. The framework's entry point does this for a C++ game (see
-    // enter_executable_folder() in src/rmp/app.cpp); here it is yours.
-    ChangeDirectory(GetApplicationDirectory());
+    // terminal. Only when resources/ is THERE, though: `rmp build release`
+    // leaves the executable in build/ and resources/ beside build/, and run
+    // from the project folder it reads that one. The framework's entry point
+    // does the same for a C++ game (enter_executable_folder() in
+    // src/rmp/app.cpp); here it is yours. GetApplicationDirectory() is "" on
+    // NetBSD and OpenBSD, which cannot say where an executable is: there a
+    // release reads the working directory's resources/.
+    const char *folder = GetApplicationDirectory();
+    if (folder[0] != '\0' &&
+        DirectoryExists(TextFormat("%s%s", folder, RMP_RESOURCES_PATH))) {
+        ChangeDirectory(folder);
+    }
 #endif
     // [window] in the .toml, the way RMP_GAME opens it: resizable, vsync if it
     // says so, and its size and title. CI checks the window was asked for the

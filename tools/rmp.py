@@ -1047,7 +1047,9 @@ COMMANDS = {
     "build": Command(
         "build [release]", "compile the game: debug, or release",
         "Compile the game without running it: debug by default, or release "
-        "(optimised, with its assets read from the resources/ next to it).",
+        "(optimised, reading ./resources/: the one next to the executable when "
+        "there is one, as in a shipped package, and the working directory's "
+        "otherwise -- so run build/<name> from the project folder).",
         [("rmp build", "writes build/<name>"),
          ("rmp build release", "the release build, as CI ships it")],
         cmd_build),
