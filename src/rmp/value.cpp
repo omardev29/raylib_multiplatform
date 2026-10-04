@@ -51,17 +51,9 @@ const char *type_name(Value::Type type) {
 
 } // namespace
 
-Value Value::list() {
-    Value v;
-    v.type_ = Type::LIST;
-    return v;
-}
+Value Value::list() { return Value(Type::LIST); }
 
-Value Value::object() {
-    Value v;
-    v.type_ = Type::OBJECT;
-    return v;
-}
+Value Value::object() { return Value(Type::OBJECT); }
 
 bool Value::as_bool(bool fallback) const {
     return type_ == Type::BOOL ? boolean_ : fallback;
@@ -92,18 +84,18 @@ int Value::size() const {
     if (type_ == Type::LIST) return static_cast<int>(items_.size());
     if (type_ != Type::OBJECT) return 0;
     return static_cast<int>(std::ranges::count_if(
-        items_, [](const Value &item) { return item.type_ != Type::NONE; }));
+        items_, [](const Value &item) { return item.type() != Type::NONE; }));
 }
 
 bool Value::contains(std::string_view key) const {
-    return (*this)[key].type_ != Type::NONE;
+    return (*this)[key].type() != Type::NONE;
 }
 
 std::string_view Value::key(int index) const {
     if (type_ != Type::OBJECT || index < 0) return {};
     int seen = 0;
     for (std::size_t i = 0; i < keys_.size(); i++) {
-        if (items_[i].type_ == Type::NONE) continue;
+        if (items_[i].type() == Type::NONE) continue;
         if (seen++ == index) return keys_[i];
     }
     return {};
@@ -142,7 +134,7 @@ bool Value::erase(std::string_view key) {
         if (keys_[i] == key) {
             // A member holding nothing was not there, so erasing it is
             // "false" -- and it goes all the same.
-            const bool was_there = items_[i].type_ != Type::NONE;
+            const bool was_there = items_[i].type() != Type::NONE;
             keys_.erase(keys_.begin() + static_cast<std::ptrdiff_t>(i));
             items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(i));
             return was_there;
@@ -152,27 +144,27 @@ bool Value::erase(std::string_view key) {
 }
 
 bool operator==(const Value &a, const Value &b) {
-    if (a.type_ != b.type_) return false;
+    if (a.type() != b.type()) return false;
     using Type = Value::Type;
-    switch (a.type_) {
+    switch (a.type()) {
         case Type::NONE:
             return true;
         case Type::BOOL:
-            return a.boolean_ == b.boolean_;
+            return a.as_bool() == b.as_bool();
         case Type::NUMBER:
-            return a.number_ == b.number_;
+            return a.number() == b.number();
         case Type::STRING:
-            return a.string_ == b.string_;
+            return a.as_string() == b.as_string();
         case Type::LIST:
-            return a.items_ == b.items_;
+            return a.items() == b.items();
         case Type::OBJECT:
             // Keys in any order: two objects that say the same thing are equal
             // however they were built -- and a member holding nothing is not
             // there.
             if (a.size() != b.size()) return false;
-            for (std::size_t i = 0; i < a.keys_.size(); i++) {
-                if (a.items_[i].type_ == Type::NONE) continue;
-                if (!(a.items_[i] == b[a.keys_[i]])) return false;
+            for (std::size_t i = 0; i < a.keys().size(); i++) {
+                if (a.items()[i].type() == Type::NONE) continue;
+                if (!(a.items()[i] == b[a.keys()[i]])) return false;
             }
             return true;
     }
@@ -197,13 +189,13 @@ Value::Ref::Ref(Value *root, Step first) : root_(root) {
 
 Value::Ref Value::Ref::operator[](std::string_view key) const {
     Ref deeper = *this;
-    deeper.path_.push_back(Step{ .key = std::string(key), .index = 0, .is_key = true });
+    deeper.extend(Step{ .key = std::string(key), .index = 0, .is_key = true });
     return deeper;
 }
 
 Value::Ref Value::Ref::operator[](int index) const {
     Ref deeper = *this;
-    deeper.path_.push_back(Step{ .key = {}, .index = index, .is_key = false });
+    deeper.extend(Step{ .key = {}, .index = index, .is_key = false });
     return deeper;
 }
 
@@ -219,13 +211,13 @@ Value *Value::Ref::find() {
     Value *at = root_;
     for (const Step &step : path_) {
         Value *next = nullptr;
-        if (step.is_key && at->type_ == Type::OBJECT) {
-            for (std::size_t i = 0; i < at->keys_.size(); i++) {
-                if (at->keys_[i] == step.key) next = &at->items_[i];
+        if (step.is_key && at->type() == Type::OBJECT) {
+            for (std::size_t i = 0; i < at->keys().size(); i++) {
+                if (at->keys()[i] == step.key) next = &at->items()[i];
             }
-        } else if (!step.is_key && at->type_ == Type::LIST && step.index >= 0 &&
-                   std::cmp_less(step.index, at->items_.size())) {
-            next = &at->items_[static_cast<std::size_t>(step.index)];
+        } else if (!step.is_key && at->type() == Type::LIST && step.index >= 0 &&
+                   std::cmp_less(step.index, at->items().size())) {
+            next = &at->items()[static_cast<std::size_t>(step.index)];
         }
         if (next == nullptr) return nullptr;
         at = next;
@@ -242,7 +234,7 @@ Value *Value::Ref::materialise() {
     // nothing was written.
     const Value *at = root_; // nullptr once the path leaves what exists
     for (const Step &step : path_) {
-        const Type type = at != nullptr ? at->type_ : Type::NONE;
+        const Type type = at != nullptr ? at->type() : Type::NONE;
         if (step.is_key) {
             if (type != Type::NONE && type != Type::OBJECT) {
                 RMP_REPORT_ONCE_KEYED(
@@ -255,14 +247,14 @@ Value *Value::Ref::materialise() {
             }
             const Value *next = nullptr;
             if (type == Type::OBJECT) {
-                for (std::size_t i = 0; i < at->keys_.size(); i++) {
-                    if (at->keys_[i] == step.key) next = &at->items_[i];
+                for (std::size_t i = 0; i < at->keys().size(); i++) {
+                    if (at->keys()[i] == step.key) next = &at->items()[i];
                 }
             }
             at = next;
         } else {
             const int count =
-                type == Type::LIST ? static_cast<int>(at->items_.size()) : 0;
+                type == Type::LIST ? static_cast<int>(at->items().size()) : 0;
             if ((type != Type::NONE && type != Type::LIST) || step.index < 0 ||
                 step.index > count) {
                 // A list grows by one, at the end: v[1000000000] = x filling a
@@ -273,7 +265,7 @@ Value *Value::Ref::materialise() {
                     step.index, type_name(type), count);
                 return nullptr;
             }
-            at = step.index < count ? &at->items_[static_cast<std::size_t>(step.index)]
+            at = step.index < count ? &at->items()[static_cast<std::size_t>(step.index)]
                                     : nullptr;
         }
     }
@@ -281,22 +273,22 @@ Value *Value::Ref::materialise() {
     Value *here = root_;
     for (const Step &step : path_) {
         if (step.is_key) {
-            if (here->type_ == Type::NONE) *here = Value::object();
+            if (here->type() == Type::NONE) *here = Value::object();
             Value *found = nullptr;
-            for (std::size_t i = 0; i < here->keys_.size(); i++) {
-                if (here->keys_[i] == step.key) found = &here->items_[i];
+            for (std::size_t i = 0; i < here->keys().size(); i++) {
+                if (here->keys()[i] == step.key) found = &here->items()[i];
             }
             if (found == nullptr) {
-                here->keys_.push_back(step.key);
-                here->items_.emplace_back();
-                found = &here->items_.back();
+                here->keys().push_back(step.key);
+                here->items().emplace_back();
+                found = &here->items().back();
             }
             here = found;
         } else {
-            if (here->type_ == Type::NONE) *here = Value::list();
-            if (std::cmp_equal(step.index, here->items_.size()))
-                here->items_.emplace_back();
-            here = &here->items_[static_cast<std::size_t>(step.index)];
+            if (here->type() == Type::NONE) *here = Value::list();
+            if (std::cmp_equal(step.index, here->items().size()))
+                here->items().emplace_back();
+            here = &here->items()[static_cast<std::size_t>(step.index)];
         }
     }
     return here;

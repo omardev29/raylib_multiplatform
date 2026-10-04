@@ -212,15 +212,26 @@ public:
     }
 
 private:
+    using Invoke = void (*)(void *, A...);
+
     void steal(Callback &other) {
-        state_ = std::move(other.state_);
-        invoke_ = other.invoke_;
-        other.state_.reset();
-        other.invoke_ = nullptr;
+        state_ = other.take_state();
+        invoke_ = other.take_invoke();
+    }
+    // What steal() takes from the other callback, leaving it empty.
+    std::shared_ptr<void> take_state() {
+        std::shared_ptr<void> had = std::move(state_);
+        state_.reset();
+        return had;
+    }
+    Invoke take_invoke() {
+        const Invoke had = invoke_;
+        invoke_ = nullptr;
+        return had;
     }
 
     std::shared_ptr<void> state_;
-    void (*invoke_)(void *, A...) = nullptr;
+    Invoke invoke_ = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -268,9 +279,9 @@ public:
     T *operator->() const { return get(); }
     T &operator*() const { return *get(); }
 
-    friend bool operator==(const Handle &a, const Handle &b) {
-        return a.index_ == b.index_ && a.generation_ == b.generation_;
-    }
+    // The same slot and the same generation: the same object, or the same
+    // nothing. Compared member by member, which is what = default does.
+    friend bool operator==(const Handle &, const Handle &) = default;
 
 private:
     friend class rmp::Object;
@@ -641,6 +652,22 @@ public:
 private:
     friend class Scene;
     friend struct Storage;
+
+    // The private half the engine reaches, through Storage in
+    // src/rmp/object_internal.h and Scene's spawn. Each says what it takes or
+    // sets, so no other object ever names these fields. Defined in object.cpp.
+    void attach(Scene *scene, unsigned index, unsigned generation, Vector2 position);
+    Vector2 take_force();
+    [[nodiscard]] Vector2 previous_position() const;
+    void remember_position();
+    void notify_collision(Object &other);
+    void notify_click();
+    void notify_drag(Vector2 moved);
+    [[nodiscard]] bool has_pointer_callback() const;
+    [[nodiscard]] int behavior_slot() const;
+    void set_behavior_slot(int slot);
+    [[nodiscard]] bool entered_bounds() const;
+    void set_entered_bounds(bool entered);
 
     Callback<Object &> click_;
     Callback<Object &, Vector2> drag_;

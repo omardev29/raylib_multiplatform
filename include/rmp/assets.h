@@ -115,15 +115,13 @@ public:
     Resource() = default;
     explicit Resource(Slot *slot) : slot_(slot) {}
 
-    Resource(const Resource &other) : slot_(other.slot_) { retain(slot_); }
-    Resource(Resource &&other) noexcept : slot_(other.slot_) { other.slot_ = nullptr; }
+    Resource(const Resource &other) : slot_(other.slot()) { retain(slot_); }
+    Resource(Resource &&other) noexcept : slot_(other.trade(nullptr)) {}
 
     // Copy-and-swap: one operator for copy AND move assignment, and
     // self-assignment cannot go wrong because the argument is already a copy.
     Resource &operator=(Resource other) noexcept {
-        Slot *tmp = slot_;
-        slot_ = other.slot_;
-        other.slot_ = tmp;
+        slot_ = other.trade(slot_);
         return *this;
     }
     ~Resource() { release(slot_); }
@@ -151,6 +149,16 @@ public:
     operator const T &() const && = delete;
 
 private:
+    // Another resource's slot is reached through these and never by name: an
+    // underscore does not touch a dot. trade() hands this resource's slot over
+    // and keeps `given` in its place -- the swap and the move are both one.
+    Slot *slot() const { return slot_; }
+    Slot *trade(Slot *given) noexcept {
+        Slot *had = slot_;
+        slot_ = given;
+        return had;
+    }
+
     Slot *slot_ = nullptr;
 };
 

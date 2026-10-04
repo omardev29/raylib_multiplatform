@@ -141,6 +141,16 @@ public:
 private:
     friend struct detail::ValueAccess;
 
+    // For list() and object(), and the walks in value.cpp: another Value's
+    // fields are reached through these, never by name.
+    explicit Value(Type type) : type_(type) {}
+    [[nodiscard]] double number() const { return number_; }
+    [[nodiscard]] std::vector<std::string> &keys() { return keys_; }
+    [[nodiscard]] const std::vector<std::string> &keys() const { return keys_; }
+    [[nodiscard]] std::vector<Value> &items() { return items_; }
+    [[nodiscard]] const std::vector<Value> &items() const { return items_; }
+    void set_version(int version) { version_ = version; }
+
     Type type_ = Type::NONE;
     bool boolean_ = false;
     double number_ = 0;
@@ -208,6 +218,8 @@ private:
         bool is_key = true;
     };
     Ref(Value *root, Step first);
+    // One more key or index on the path; operator[] builds a deeper Ref so.
+    void extend(Step step) { path_.push_back(std::move(step)); }
     // The Value to write into, created on the way; nullptr (said once) when
     // the path cannot be made. find() is the same walk creating nothing.
     Value *materialise();

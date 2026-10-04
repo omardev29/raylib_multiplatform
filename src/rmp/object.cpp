@@ -153,42 +153,82 @@ Object *resolve(unsigned index, unsigned generation) {
 // Storage is declared in object_internal.h, so that src/rmp/collision.cpp can
 // reach the same private half without Object having to befriend every internal
 // function by name.
-Vector2 Storage::take_force(Object &object) {
-    const Vector2 force = object.pending_force_;
-    object.pending_force_ = Vector2{ 0, 0 };
+Vector2 Storage::take_force(Object &object) { return object.take_force(); }
+
+Vector2 Storage::previous_position(const Object &object) {
+    return object.previous_position();
+}
+
+void Storage::remember_position(Object &object) { object.remember_position(); }
+
+void Storage::notify_collision(Object &self, Object &other) {
+    self.notify_collision(other);
+}
+
+void Storage::notify_click(Object &self) { self.notify_click(); }
+
+void Storage::notify_drag(Object &self, Vector2 moved) { self.notify_drag(moved); }
+
+bool Storage::has_pointer_callback(const Object &object) {
+    return object.has_pointer_callback();
+}
+
+bool Storage::entered_bounds(const Object &object) { return object.entered_bounds(); }
+void Storage::set_entered_bounds(Object &object, bool entered) {
+    object.set_entered_bounds(entered);
+}
+
+int Storage::behavior_slot(const Object &object) { return object.behavior_slot(); }
+
+void Storage::set_behavior_slot(Object &object, int slot) {
+    object.set_behavior_slot(slot);
+}
+
+// ---------------------------------------------------------------------------
+// Object's private half, which Storage above forwards to
+// ---------------------------------------------------------------------------
+
+void Object::attach(Scene *scene, unsigned index, unsigned generation, Vector2 position) {
+    scene_ = scene;
+    index_ = index;
+    generation_ = generation;
+    alive_ = true;
+    // Not {0,0}. The swept test reads the difference between this and the
+    // current position, so a brand new object at (900, 400) would look like it
+    // had crossed the whole world this frame -- and in a scene full of them,
+    // every swept box would span from the origin and they would all "collide"
+    // near it. Found by the differential test, which is the one place a wrong
+    // answer of that shape cannot hide.
+    previous_position_ = position;
+}
+
+Vector2 Object::take_force() {
+    const Vector2 force = pending_force_;
+    pending_force_ = Vector2{ 0, 0 };
     return force;
 }
 
-Vector2 Storage::previous_position(const Object &object) {
-    return object.previous_position_;
+Vector2 Object::previous_position() const { return previous_position_; }
+
+void Object::remember_position() { previous_position_ = position; }
+
+void Object::notify_collision(Object &other) { collision_(*this, other); }
+
+void Object::notify_click() { click_(*this); }
+
+void Object::notify_drag(Vector2 moved) { drag_(*this, moved); }
+
+bool Object::has_pointer_callback() const {
+    return static_cast<bool>(click_) || static_cast<bool>(drag_);
 }
 
-void Storage::remember_position(Object &object) {
-    object.previous_position_ = object.position;
-}
+int Object::behavior_slot() const { return behavior_slot_; }
 
-void Storage::notify_collision(Object &self, Object &other) {
-    self.collision_(self, other);
-}
+void Object::set_behavior_slot(int slot) { behavior_slot_ = slot; }
 
-void Storage::notify_click(Object &self) { self.click_(self); }
+bool Object::entered_bounds() const { return entered_bounds_; }
 
-void Storage::notify_drag(Object &self, Vector2 moved) { self.drag_(self, moved); }
-
-bool Storage::has_pointer_callback(const Object &object) {
-    return static_cast<bool>(object.click_) || static_cast<bool>(object.drag_);
-}
-
-bool Storage::entered_bounds(const Object &object) { return object.entered_bounds_; }
-void Storage::set_entered_bounds(Object &object, bool entered) {
-    object.entered_bounds_ = entered;
-}
-
-int Storage::behavior_slot(const Object &object) { return object.behavior_slot_; }
-
-void Storage::set_behavior_slot(Object &object, int slot) {
-    object.behavior_slot_ = slot;
-}
+void Object::set_entered_bounds(bool entered) { entered_bounds_ = entered; }
 
 // ---------------------------------------------------------------------------
 // Object
@@ -312,19 +352,8 @@ void Scene::detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &opt
     if (slot.generation == 0) slot.generation = 1;
     slot.object = std::move(owned);
 
-    made->scene_ = this;
-    made->index_ = index;
-    made->generation_ = slot.generation;
-    made->alive_ = true;
-
+    made->attach(this, index, slot.generation, options.position);
     made->position = options.position;
-    // Not {0,0}. The swept test reads the difference between this and the
-    // current position, so a brand new object at (900, 400) would look like it
-    // had crossed the whole world this frame -- and in a scene full of them,
-    // every swept box would span from the origin and they would all "collide"
-    // near it. Found by the differential test, which is the one place a wrong
-    // answer of that shape cannot hide.
-    made->previous_position_ = options.position;
     made->velocity = options.velocity;
     made->scale = options.scale;
     made->rotation = options.rotation;
