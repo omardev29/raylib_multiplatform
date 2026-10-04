@@ -3334,6 +3334,59 @@ class RenderGoldenTest(unittest.TestCase):
         self.assertIn("if [ -f tests/fixtures/render_hash.txt ]; then", text)
 
 
+class GameResourcesTest(unittest.TestCase):
+    """cmake/game_resources.cmake: an example reads, and a web build preloads,
+    its OWN resources/ -- in a production build too.
+
+    Production used to preload the project's resources/ for every target, so
+    an example built for the web in production -- which is how the docs site
+    plays them -- shipped the project's art and failed to load its own."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        cls.cmake = shutil.which("cmake")
+
+    def resolve(self, production, has_own):
+        import subprocess
+        import tempfile
+        if self.cmake is None:
+            self.skipTest("cmake not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            (root / "resources").mkdir(parents=True)
+            game = root / "examples" / "games" / "demo"
+            game.mkdir(parents=True)
+            if has_own:
+                (game / "resources").mkdir()
+            script = Path(tmp) / "probe.cmake"
+            script.write_text(
+                f'set(CMAKE_CURRENT_SOURCE_DIR "{root.as_posix()}")\n'
+                f'set(PRODUCTION_BUILD {"ON" if production else "OFF"})\n'
+                'set(RESOURCES_PATH "/fallback/")\n'
+                f'include("{(REPO / "cmake" / "game_resources.cmake").as_posix()}")\n'
+                f'rmp_game_resources("{game.as_posix()}" P D)\n'
+                'message(STATUS "PATH=${P}|DIR=${D}")\n')
+            got = subprocess.run([self.cmake, "-P", str(script)], capture_output=True, text=True)
+            self.assertEqual(got.returncode, 0, got.stderr)
+            m = re.search(r"PATH=(.*)\|DIR=(.*)", got.stdout + got.stderr)
+            return (m.group(1).strip(), m.group(2).strip().replace(root.as_posix(), "<root>"))
+
+    def test_debug_reads_the_folder_it_has(self):
+        self.assertEqual(self.resolve(False, True)[1], "<root>/examples/games/demo/resources")
+        self.assertTrue(self.resolve(False, True)[0].endswith("/examples/games/demo/resources/"))
+        self.assertEqual(self.resolve(False, False), ("/fallback/", "<root>/resources"))
+
+    def test_production_preloads_the_games_own_folder(self):
+        self.assertEqual(self.resolve(True, True), ("./resources/", "<root>/examples/games/demo/resources"))
+        self.assertEqual(self.resolve(True, False), ("./resources/", "<root>/resources"))
+
+    def test_cmakelists_uses_it(self):
+        text = (REPO / "CMakeLists.txt").read_text()
+        self.assertIn("include(cmake/game_resources.cmake)", text)
+        self.assertIn('rmp_game_resources("${DIR}" _res _res_dir)', text)
+
+
 class FindPythonTest(unittest.TestCase):
     """cmake/find_python.cmake asks every candidate, not just the first found.
 

@@ -412,6 +412,7 @@ rmp_apply_compile_flags(rmp)
 # A directory whose src/ holds no C++ at all -- examples/plain_c -- is plain
 # raylib: its own main(), no entry point, no framework. It gets raylib and
 # nothing else, which is the whole point of that example.
+include(cmake/game_resources.cmake)
 function(rmp_add_game NAME DIR)
   file(GLOB_RECURSE _game_sources CONFIGURE_DEPENDS
     "${DIR}/src/*.cpp"
@@ -445,16 +446,7 @@ function(rmp_add_game NAME DIR)
     target_include_directories(${NAME} PRIVATE "${DIR}/include")
   endif()
 
-  if(PRODUCTION_BUILD)
-    set(_res "./resources/")
-    set(_res_dir "${CMAKE_CURRENT_SOURCE_DIR}/resources")
-  elseif(EXISTS "${DIR}/resources")
-    set(_res "${DIR}/resources/")
-    set(_res_dir "${DIR}/resources")
-  else()
-    set(_res "${RESOURCES_PATH}")
-    set(_res_dir "${CMAKE_CURRENT_SOURCE_DIR}/resources")
-  endif()
+  rmp_game_resources("${DIR}" _res _res_dir)
   target_compile_definitions(${NAME} PRIVATE RMP_RESOURCES_PATH="${_res}")
   if(_plain_c)
     if(PRODUCTION_BUILD)

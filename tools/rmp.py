@@ -620,6 +620,7 @@ INCLUDE = (
     ".github/workflows/_web.yml", ".github/workflows/_windows.yml",
     "CMakeLists.txt", "CMakePresets.json", "THIRD_PARTY_LICENSES.md", TOML,
     "branding/", "cmake/configure_hook.cmake", "cmake/find_python.cmake",
+    "cmake/game_resources.cmake",
     "cmake/toolchain-riscv64-linux.cmake", "cmake/web/",
     "generate_android_commands.ps1", "generate_android_commands.sh",
     "update_clangd.ps1", "update_clangd.sh",
