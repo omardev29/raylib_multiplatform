@@ -29,7 +29,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # and ON a Mac, so a GNU-only flag there fails on the runner rather than on
 # somebody's laptop. Every other workflow declares a Linux runner and is
 # entitled to GNU everything.
-FILES=$(find tools Justfile .github/workflows/_bsd.yml .github/workflows/_apple.yml \
+FILES=$(find tools Justfile rmp .github/workflows/_bsd.yml .github/workflows/_apple.yml \
              -type f 2>/dev/null | grep -v 'portable_check.sh' | sort)
 
 # Each rule is: a pattern, and what to do instead. The second half is the point

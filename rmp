@@ -1,0 +1,42 @@
+#!/bin/sh
+# rmp: build, run, test and ship this project. `rmp help` lists the commands.
+#
+# This file only finds a Python 3.11+ and hands every argument to tools/rmp.py,
+# which is the whole implementation. rmp.ps1 and rmp.cmd are the same launcher
+# for PowerShell and cmd.exe.
+#
+# POSIX sh only: it runs as /bin/sh on Linux (dash), macOS and OpenBSD (ksh),
+# and as `zsh ./rmp`. tests/rmp_test.py runs it under every shell it finds, and
+# `shellcheck -s sh` reads it.
+
+# Where this file really is, through symlinks (ln -s .../rmp ~/bin/rmp):
+# readlink without -f, which macOS and the BSDs do not have, and a counter so a
+# symlink loop cannot hang.
+self=$0
+hops=0
+while [ -L "$self" ] && [ "$hops" -lt 40 ]; do
+    link=$(readlink "$self") || break
+    case $self in */*) dir=${self%/*} ;; *) dir=. ;; esac
+    case $link in /*) self=$link ;; *) self=$dir/$link ;; esac
+    hops=$((hops + 1))
+done
+case $self in */*) here=${self%/*} ;; *) here=. ;; esac
+if ! here=$(CDPATH='' cd "$here" && pwd -P); then exit 1; fi
+
+# The same names, in the same order, as cmake/find_python.cmake. Each is ASKED
+# for 3.11, not just found: macOS's own python3 is 3.9, and on Windows python3
+# can be the Store stub, which exits 9009.
+for py in python3 python3.14 python3.13 python3.12 python3.11 python; do
+    if command -v "$py" > /dev/null 2>&1 &&
+        "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' > /dev/null 2>&1; then
+        exec "$py" "$here/tools/rmp.py" "$@"
+    fi
+done
+# Git Bash on Windows, where python.org may install only the py launcher.
+if command -v py > /dev/null 2>&1 &&
+    py -3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' > /dev/null 2>&1; then
+    exec py -3 "$here/tools/rmp.py" "$@"
+fi
+echo "rmp: needs Python 3.11 or newer on PATH (python3, python or py)." >&2
+echo "     https://www.python.org/downloads/" >&2
+exit 127

@@ -126,6 +126,7 @@ def default_sources():
     files = sorted(p for p in pathlib.Path("tools").glob("*.sh")
                    if p.as_posix() != SELF)
     files.append(pathlib.Path("Justfile"))
+    files.append(pathlib.Path("rmp"))
     files.extend(sorted(pathlib.Path(".github/workflows").glob("*.yml")))
     return files
 

@@ -6,3 +6,4 @@ thirdparty/** linguist-vendored=true
 *.sh  text eol=lf
 
 .clangd filter=gitignore
+rmp   text eol=lf

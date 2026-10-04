@@ -192,7 +192,7 @@ test what="all": (_reconfigure "Debug")
         echo "== config =="
         python3 tools/configure.py --check
         bash tools/versions_check.sh
-        bash tools/license_check.sh
+        python3 tools/license_db.py --check
     }
     run_unit() {
         echo "== unit =="
