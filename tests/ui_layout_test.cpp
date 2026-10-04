@@ -2073,6 +2073,60 @@ void run_restart_after_shutdown() {
           "the UI starts again on the next begin(), as it did the first time");
 }
 
+// Clay gives every corner of a box its own radius, and the renderer drew all
+// four with the top-left one: a panel rounded only at the bottom, a tab rounded
+// only at the top, came out rounded everywhere or nowhere. It is reachable from
+// Clay directly (examples/ui/03_clay_direct), so it is the renderer's to honour.
+void run_corner_radii() {
+    std::printf("\n--- each corner its own radius ---\n");
+    const Clay_BoundingBox box{ 10, 20, 100, 60 };
+    const rmp::ui::detail::Corners c =
+        rmp::ui::detail::corners_of(Clay_CornerRadius{ 0, 10, 20, 30 }, box);
+    check(c.top_left == 0 && c.top_right == 10 && c.bottom_left == 20 &&
+              c.bottom_right == 30,
+          "every corner keeps the radius it was given");
+
+    const rmp::ui::detail::Corners big =
+        rmp::ui::detail::corners_of(Clay_CornerRadius{ 50, 5, 45, -3 }, box);
+    check(big.top_left == 30 && big.top_right == 5 && big.bottom_left == 30 &&
+              big.bottom_right == 0,
+          "each one clamped on its own to half the shorter side, and never below 0");
+
+    // And the outline the renderer fills and outlines along follows each one.
+    using rmp::ui::detail::CORNER_POINTS;
+    Vector2 edge[rmp::ui::detail::BOX_OUTLINE];
+    rmp::ui::detail::box_outline(box, c, Clay_BorderWidth{}, edge);
+    auto arc_radius = [&](int corner, Vector2 centre, float want) {
+        bool all = true;
+        for (int i = 0; i < CORNER_POINTS; i++) {
+            const Vector2 p = edge[corner * CORNER_POINTS + i];
+            const float d = std::hypot(p.x - centre.x, p.y - centre.y);
+            all = all && std::fabs(d - want) < 0.01f;
+        }
+        return all;
+    };
+    bool square = true;
+    for (int i = 0; i < CORNER_POINTS; i++) {
+        square = square && edge[i].x == 10 && edge[i].y == 20;
+    }
+    check(square, "a corner with no radius is the corner of the box");
+    check(arc_radius(1, Vector2{ 30, 60 }, 20), "the bottom-left one curves at 20");
+    check(arc_radius(2, Vector2{ 80, 50 }, 30), "the bottom-right one at 30");
+    check(arc_radius(3, Vector2{ 100, 30 }, 10), "the top-right one at 10");
+
+    // A border's inside: the same curves, pulled in by each side's width.
+    Vector2 inside[rmp::ui::detail::BOX_OUTLINE];
+    rmp::ui::detail::box_outline(box, c, Clay_BorderWidth{ 4, 4, 4, 4, 0 }, inside);
+    bool pulled_in = true;
+    for (int i = 0; i < CORNER_POINTS; i++) {
+        const Vector2 p = inside[2 * CORNER_POINTS + i];
+        pulled_in = pulled_in && std::fabs(std::hypot(p.x - 80, p.y - 50) - 26) < 0.01f;
+    }
+    check(pulled_in, "and a border's inside follows them, its width further in");
+    check(inside[0].x == 14 && inside[0].y == 24,
+          "with a square corner as square on the inside as out");
+}
+
 } // namespace
 
 int main() {
@@ -2123,6 +2177,7 @@ int main() {
     run_sizes();
     run_themes();
     run_breakpoints();
+    run_corner_radii();
     run_restart_after_shutdown();
     run_font_sizes();
 

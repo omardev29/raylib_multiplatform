@@ -368,6 +368,26 @@ void focus_by_id(uint32_t id, std::string_view name);
 
 void draw(Clay_RenderCommandArray commands);
 
+// The radius each corner of a box is drawn with, in pixels: what Clay says,
+// clamped to half the box's shorter side.
+struct Corners {
+    float top_left;
+    float top_right;
+    float bottom_right;
+    float bottom_left;
+};
+Corners corners_of(Clay_CornerRadius radius, Clay_BoundingBox box);
+
+// The outline a box with those corners is drawn along, inset on each side by
+// `inset` -- a border's widths; zero for the box itself. CORNER_POINTS points
+// per corner, a corner with no radius being that many copies of one point, so
+// the outline of a box and of its border's inside pair up point for point. The
+// corners go top-left, bottom-left, bottom-right, top-right.
+constexpr int CORNER_POINTS = 9;
+constexpr int BOX_OUTLINE = 4 * CORNER_POINTS;
+void box_outline(Clay_BoundingBox box, Corners corners, Clay_BorderWidth inset,
+                 Vector2 *out);
+
 // Clay hands out string slices that are NOT null terminated. raylib's
 // DrawTextEx and MeasureTextEx both need one, so every slice has to be copied
 // into a scratch buffer with a terminator first.

@@ -1184,10 +1184,11 @@ Three things to know before you do it:
   is a fair trade for a feature you need today and a bad one for a button, which is most of why
   `rmp::ui` exists at all.
 
-Our renderer handles `RECTANGLE`, `BORDER`, `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you
+Our renderer handles `RECTANGLE` and `BORDER` (each corner with its own radius, each side of a
+border with its own width), `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you
 own; `backgroundColor` is the tint) and the `SCISSOR` pair, so clipping and scroll containers work.
-`CUSTOM` is not handled — `src/rmp/ui/render.cpp` is ~150 readable lines and
-adding a case is the intended way to extend it.
+`CUSTOM` is not handled — `src/rmp/ui/render.cpp` is one short file, and adding a case is the
+intended way to extend it.
 
 **Why `rmp::ui` does not use the macros internally**, since it is a fair question: `CLAY(...)` is a
 `for`-loop block, and this API is a `begin()`/`end()` pair. An element opened inside a block macro

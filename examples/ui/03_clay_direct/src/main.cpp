@@ -65,13 +65,21 @@ static void on_frame(float) {
     // CLAY_AUTO_ID is the version without an explicit id; CLAY(CLAY_ID("x"),
     // ...) is the one to use when you want to ask Clay about the element later
     // with Clay_PointerOver or Clay_GetElementData.
-    CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(0),
-                                           .height = CLAY_SIZING_FIT(0) },
-                               .padding = CLAY_PADDING_ALL(10),
-                               .childGap = 10,
-                               .layoutDirection = CLAY_LEFT_TO_RIGHT },
-                   .backgroundColor = { 30, 30, 38, 255 },
-                   .cornerRadius = CLAY_CORNER_RADIUS(10) }) {
+    //
+    // It is shaped like a tab, which rmp::ui cannot do either: each corner has
+    // its own radius, and the border is on one side only.
+    CLAY_AUTO_ID(
+        { .layout = { .sizing = { .width = CLAY_SIZING_FIT(0),
+                                  .height = CLAY_SIZING_FIT(0) },
+                      .padding = CLAY_PADDING_ALL(10),
+                      .childGap = 10,
+                      .layoutDirection = CLAY_LEFT_TO_RIGHT },
+          .backgroundColor = { 30, 30, 38, 255 },
+          .cornerRadius = { .topLeft = 18,
+                            .topRight = 18,
+                            .bottomLeft = 0,
+                            .bottomRight = 0 },
+          .border = { .color = { 88, 120, 245, 255 }, .width = { .bottom = 3 } } }) {
         for (int i = 0; i < 4; i++) {
             // CLAY_IDI gives each slot in a loop its own identity without
             // building a string per element.
@@ -118,16 +126,15 @@ RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
 // What our renderer understands
 // ---------------------------------------------------------------------------
 //
-//   RECTANGLE      background colour + corner radius
-//   BORDER         colour + width + corner radius
+//   RECTANGLE      background colour + each corner's own radius
+//   BORDER         colour + each side's own width + each corner's own radius
 //   TEXT           drawn with the UI font; fontId is ignored, there is one font
 //   IMAGE          imageData as a Texture2D*, backgroundColor as the tint
 //   SCISSOR_START  clipping, so Clay's clip/scroll containers work
 //   SCISSOR_END
 //
-// CUSTOM commands are not handled. If you need them, src/rmp/
-// ui/render.cpp is ~150 readable lines and adding a case is the intended way to
-// extend it.
+// CUSTOM commands are not handled. If you need them, src/rmp/ui/render.cpp is
+// one short file, and adding a case is the intended way to extend it.
 //
 // AND THE LIMITS. Doing this ties your code to a specific version of Clay
 // (0.14, pinned in thirdparty/FROZEN_VERSIONS.md). rmp::ui exists partly so
