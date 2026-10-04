@@ -577,11 +577,14 @@ def cmd_deploy(ctx, args):
         raise Refused(f"HEAD is not what origin/{branch} points at (as of your last fetch).\n"
                       "  rmp push     # then try again")
 
-    # The exact gate CI runs on a tag: an invalid .toml, a placeholder id
-    # (a Play id is permanent) or a tag that is not vMAJOR.MINOR.PATCH all
-    # fail here instead of twenty minutes and one dead tag later.
+    # The gate CI runs on a tag: an invalid .toml, a tag that is not
+    # vMAJOR.MINOR.PATCH and, in a game, a placeholder id (a Play id is
+    # permanent) all fail here instead of twenty minutes and one dead tag
+    # later. The framework's demo keeps its com.example id on purpose: no
+    # store ever gets it, and every game starts from it.
     print(f"== checking {tag} the way CI will ==")
-    ctx.run([ctx.python, "tools/configure.py", "--print-config", "--strict-release"],
+    strict = ["--strict-release"] if ctx.mode == "game" else []
+    ctx.run([ctx.python, "tools/configure.py", "--print-config", *strict],
             env={"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag}, capture=True)
     print(f"  ok    {tag} is release-ready")
     ctx.run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])

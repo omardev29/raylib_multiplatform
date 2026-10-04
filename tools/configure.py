@@ -2260,7 +2260,8 @@ def main(argv: list[str]) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true", help="validate only, write nothing")
     ap.add_argument("--strict-release", action="store_true",
-                    help="also reject placeholder identifiers (used on tag builds)")
+                    help="also reject placeholder identifiers (a game's tag builds, "
+                         "and rmp deploy in a game)")
     ap.add_argument("--print-name", action="store_true")
     ap.add_argument("--print-targets", action="store_true")
     ap.add_argument("--only", metavar="GROUP_OR_TARGET",

@@ -134,6 +134,16 @@ jobs:
           esac
           echo "mode: $MODE"
 
+          # A game's tag is a release, and a release under a placeholder id is
+          # one nobody can take back: Google Play keeps an application id
+          # forever, and `rmp new` writes com.example.* ids. `rmp deploy`
+          # refuses them before it tags; this refuses a tag pushed by hand.
+          # The framework's own demo keeps com.example.raytest on purpose: no
+          # store ever gets it, and every game starts from it.
+          if [ "${{ github.ref_type }}" = "tag" ] && [ "$MODE" = game ]; then
+            python3 tools/configure.py --check --strict-release
+          fi
+
           # Read once here, so every leaf gets the same answer and no workflow
           # has to learn to parse TOML.
           # --only narrows; it can never add. configure.py rejects a name that

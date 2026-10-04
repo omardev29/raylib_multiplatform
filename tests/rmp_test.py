@@ -438,6 +438,21 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(len(gate), 1)
         self.assertEqual((gate[0]["type"], gate[0]["ref"]), ("tag", "v1.2.0"))
 
+    def test_the_framework_tags_its_demo_without_the_placeholder_check(self):
+        (self.repo.root / rmp.FRAMEWORK_MARKER).parent.mkdir(exist_ok=True)
+        (self.repo.root / rmp.FRAMEWORK_MARKER).write_text("")
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "-m", "the framework")
+        self.repo.git("push", "-q")
+        got = self.repo.rmp("deploy", "1.3.0")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        calls = [json.loads(l) for l in (self.repo.root / "tools" / "calls.json")
+                 .read_text().splitlines()]
+        gate = [c for c in calls if "--print-config" in c["argv"]]
+        self.assertEqual(len(gate), 1)
+        self.assertNotIn("--strict-release", gate[0]["argv"])
+        self.assertEqual((gate[0]["type"], gate[0]["ref"]), ("tag", "v1.3.0"))
+
     def test_a_leading_v_is_the_same_version(self):
         self.assertEqual(self.repo.rmp("deploy", "v1.2.0").returncode, 0)
         self.assertEqual(self.tags(), ["v1.2.0"])
@@ -709,6 +724,40 @@ class CiModeTest(unittest.TestCase):
                 status, out = self.run_mode(said, code)
                 self.assertNotEqual(status, 0)
                 self.assertEqual(out, "")
+
+    def run_tag_gate(self, ref_type, mode):
+        """The config job's tag check, run with a python3 that refuses
+        --strict-release the way configure.py does on a placeholder id."""
+        config = load_workflow(self, "ci.yml")["jobs"]["config"]
+        script = next(s["run"] for s in config["steps"] if s.get("id") == "o")
+        lines = script.splitlines()
+        at = [i for i, line in enumerate(lines) if "--strict-release" in line]
+        self.assertEqual(len(at), 1, "the config job does not check a tag's ids")
+        self.assertEqual(lines[at[0]].strip(), "python3 tools/configure.py --check --strict-release")
+        start = max(i for i in range(at[0]) if lines[i].lstrip().startswith("if "))
+        end = next(i for i in range(at[0], len(lines)) if lines[i].strip() == "fi")
+        block = "\n".join(lines[start:end + 1]).replace("${{ github.ref_type }}", ref_type)
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp) / "python3"
+            stub.write_text('#!/bin/sh\necho "$*" >> "$(dirname "$0")/calls"\n'
+                            'case "$*" in *--strict-release*) exit 1 ;; esac\n')
+            stub.chmod(0o755)
+            got = subprocess.run(["bash", "-c", "set -euo pipefail\n" + block],
+                                 env=dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}",
+                                          MODE=mode), capture_output=True, text=True)
+            calls = (Path(tmp) / "calls").read_text() if (Path(tmp) / "calls").exists() else ""
+        return got.returncode, calls
+
+    def test_a_games_tag_refuses_placeholder_ids(self):
+        """The README says a tag build refuses com.example.* ids. Only
+        `rmp deploy` did; a tag pushed by hand went through."""
+        self.assertEqual(self.run_tag_gate("tag", "game"),
+                         (1, "tools/configure.py --check --strict-release\n"))
+        self.assertEqual(self.run_tag_gate("tag", "framework"), (0, ""))
+        self.assertEqual(self.run_tag_gate("branch", "game"), (0, ""))
+        readme = " ".join((REPO / "README.md").read_text().split())
+        self.assertIn("the build is refused while your application id is still `com.example.*`",
+                      readme)
 
     def test_the_framework_jobs_are_gated_and_release_tells_skipped_apart(self):
         jobs = load_workflow(self, "ci.yml")["jobs"]
