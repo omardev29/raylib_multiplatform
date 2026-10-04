@@ -402,9 +402,11 @@ class CleanTest(unittest.TestCase):
 
 
 class GitRepo:
-    """A git repository in a temp folder, with a bare one as its origin."""
+    """A git repository in a temp folder, with a bare one as its origin.
+    `pushed=False` is a game straight out of `rmp new` with `git remote add
+    origin` run on it: a branch with no upstream, and an empty origin."""
 
-    def __init__(self, tmp: Path):
+    def __init__(self, tmp: Path, pushed: bool = True):
         self.env = dict(os.environ, GIT_CONFIG_GLOBAL=str(tmp / "gitconfig"),
                         GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0",
                         GIT_ALLOW_PROTOCOL="file", RMP_NO_DELEGATE="1",
@@ -428,7 +430,8 @@ class GitRepo:
         (self.root / ".gitignore").write_text("tools/calls.json\n")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "first")
-        self.git("push", "-q", "-u", "origin", "main")
+        if pushed:
+            self.git("push", "-q", "-u", "origin", "main")
 
     def git(self, *argv, cwd=None):
         return subprocess.run(["git", *argv], cwd=cwd or self.root, env=self.env,
@@ -620,6 +623,84 @@ class PushTest(unittest.TestCase):
         got = self.push()
         self.assertEqual(got.returncode, 0)
         self.assertIn("warning", got.stdout)
+
+
+class FirstPushTest(unittest.TestCase):
+    """The first push of a branch sets its upstream. A game made with `rmp
+    new` has `main` and, after `git remote add origin URL`, a remote -- and a
+    bare `git push` there fails with "has no upstream branch"."""
+
+    def setUp(self):
+        if shutil.which("git") is None:
+            self.skipTest("git not installed")
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmp.name)
+        self.repo = GitRepo(tmp, pushed=False)
+        self.bin = tmp / "bin"
+        self.bin.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def push(self, *args, runs=()):
+        script = self.bin / "gh"
+        script.write_text(f"#!/bin/sh\ncat <<'JSON'\n{json.dumps(list(runs))}\nJSON\n")
+        script.chmod(0o755)
+        return self.repo.rmp("push", *args,
+                             env={"PATH": str(self.bin) + os.pathsep + os.environ["PATH"]})
+
+    def upstream(self, branch):
+        got = subprocess.run(["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"],
+                             cwd=self.repo.root, env=self.repo.env, capture_output=True,
+                             text=True)
+        return got.stdout.strip() if got.returncode == 0 else None
+
+    def on_origin(self, branch):
+        return subprocess.run(["git", "--git-dir", str(self.repo.origin), "rev-parse", "-q",
+                               "--verify", f"refs/heads/{branch}"],
+                              capture_output=True, text=True).stdout.strip()
+
+    def head(self):
+        return self.repo.git("rev-parse", "HEAD").stdout.strip()
+
+    def test_a_game_from_rmp_new_pushes_the_first_time(self):
+        self.assertIsNone(self.upstream("main"))
+        got = self.push()
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.on_origin("main"), self.head())
+        self.assertEqual(self.upstream("main"), "origin/main")
+        # And from then on it is a plain push to that upstream.
+        (self.repo.root / "x.txt").write_text("x")
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "-m", "second")
+        got = self.push()
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.on_origin("main"), self.head())
+
+    def test_a_new_branch_is_pushed_under_its_own_name(self):
+        self.repo.git("checkout", "-q", "-b", "feature")
+        self.assertEqual(self.push().returncode, 0)
+        self.assertEqual(self.on_origin("feature"), self.head())
+        self.assertEqual(self.upstream("feature"), "origin/feature")
+        self.assertEqual(self.on_origin("main"), "")
+
+    def test_force_sets_the_upstream_too(self):
+        got = self.push("force", runs=[{"databaseId": 7, "status": "queued", "event": "push"}])
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.upstream("main"), "origin/main")
+
+    def test_a_live_run_still_refuses_the_first_push(self):
+        got = self.push(runs=[{"databaseId": 7, "status": "queued", "event": "push"}])
+        self.assertEqual(got.returncode, 1)
+        self.assertIn("rmp push force", got.stdout)
+        self.assertEqual(self.on_origin("main"), "")
+        self.assertIsNone(self.upstream("main"))
+
+    def test_without_a_remote_it_says_how_to_add_one(self):
+        self.repo.git("remote", "remove", "origin")
+        got = self.push()
+        self.assertEqual(got.returncode, 1)
+        self.assertIn("git remote add origin", got.stdout + got.stderr)
 
 
 WORKFLOWS = REPO / ".github" / "workflows"

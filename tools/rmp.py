@@ -540,6 +540,19 @@ def cmd_push(ctx, args):
             print(f"  gh run watch {live[0].get('databaseId')}")
             print("  rmp push force     # if killing it is what you meant")
             return FAILED
+    # The first push of a branch sets its upstream. A game from `rmp new` has
+    # `main` and, after `git remote add origin URL`, a remote, but nothing that
+    # ties the two: a bare `git push` stops at "has no upstream branch".
+    branch = git_out(ctx, "symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
+    if branch and git_out(ctx, "config", f"branch.{branch}.merge").returncode != 0:
+        remotes = git_out(ctx, "remote").stdout.split()
+        if "origin" in remotes:
+            ctx.run(["git", "push", "-u", "origin", branch])
+            return OK
+        if not remotes:
+            raise Refused("there is no remote to push to. Make the repository on GitHub, then:\n"
+                          "  git remote add origin https://github.com/YOU/GAME.git\n"
+                          "  rmp push")
     ctx.run(["git", "push"])
     return OK
 
@@ -573,7 +586,7 @@ def cmd_deploy(ctx, args):
     branch = git_out(ctx, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     if git_out(ctx, "rev-parse", "-q", "--verify", f"origin/{branch}").returncode != 0:
         raise Refused(f"origin/{branch} does not exist. Push the branch first:\n"
-                      f"  git push -u origin {branch}")
+                      "  rmp push")
     head = git_out(ctx, "rev-parse", "HEAD").stdout.strip()
     upstream = git_out(ctx, "rev-parse", f"origin/{branch}").stdout.strip()
     if head != upstream:
@@ -1090,7 +1103,7 @@ COMMANDS = {
     "push": Command(
         "push [force]", "git push, unless it would cancel a running CI",
         "Run git push -- refused while a CI run is in flight, because the push "
-        "would cancel it.",
+        "would cancel it. The first push of a branch sets its upstream on origin.",
         [("rmp push", "push, or say which run it would kill"),
          ("rmp push force", "push anyway, and cancel the run")],
         cmd_push),
