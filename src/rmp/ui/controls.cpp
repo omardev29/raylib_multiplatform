@@ -357,12 +357,12 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     // gamepad is on while it is open, starting from the value.
     bool changed = false;
     const bool field_clicked = clicked(id, over);
-    if (st->flag && has_focus && detail::take_cancel()) {
-        st->flag = false; // Escape or B: closed, and nothing picked
-    } else if (field_clicked) {
+    // Escape or B: closed, and nothing picked. Ahead of everything else.
+    const bool cancelled = st->flag && has_focus && detail::take_cancel();
+    if (field_clicked && !cancelled) {
         st->flag = !st->flag;
         st->i = *selected;
-    } else if (has_focus && detail::take_activate()) {
+    } else if (!cancelled && has_focus && detail::take_activate()) {
         if (st->flag) {
             // Accept picks what the list was walked to, as a click would.
             if (*selected != st->i) changed = true;
@@ -372,10 +372,10 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
             st->flag = true;
             st->i = *selected;
         }
-    } else if (st->flag && detail::pointer_released() && !over_any_item) {
-        // Released somewhere else entirely. An open list that will not go away
-        // when you click past it is the single most irritating thing a dropdown
-        // can do.
+    } else if (cancelled || (st->flag && detail::pointer_released() && !over_any_item)) {
+        // Or released somewhere else entirely. An open list that will not go
+        // away when you click past it is the single most irritating thing a
+        // dropdown can do.
         st->flag = false;
     }
 

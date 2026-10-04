@@ -105,7 +105,7 @@ Corners corners_of(Clay_CornerRadius r, Clay_BoundingBox b) {
 void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Vector2 *out) {
     // A side wider than half the box would turn the inside out.
     auto side = [](uint16_t width, float span) {
-        const float w = static_cast<float>(width);
+        const auto w = static_cast<float>(width);
         return w > span * 0.5f ? span * 0.5f : w;
     };
     const float left = side(inset.left, b.width);
