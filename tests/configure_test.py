@@ -1633,10 +1633,17 @@ class DocumentedTargetCountTest(unittest.TestCase):
     # "14 targets" in August was right in August. Rewriting history to keep a
     # gate quiet is how a log stops being worth reading. These describe the
     # present, and the present is what can be wrong.
-    DOCS = ("README.md", "TECHNICAL.md", "raylib_multiplatform.toml", "../CLAUDE.md",
+    #
+    # Every name in DOCS has to exist. CLAUDE.md sat in this list as
+    # "../CLAUDE.md" -- the repository of plans, one level up -- which no CI
+    # checkout has, and a missing file was skipped without a word, so the
+    # document that states the count most often was never read where it
+    # mattered. It lives in this repository now, and a missing one fails.
+    DOCS = ("README.md", "TECHNICAL.md", "raylib_multiplatform.toml", "CLAUDE.md",
             "examples/README.md", "src/main.cpp", "Justfile")
     GLOBS = (".github/workflows/*.yml", ".github/scripts/*.py", ".github/scripts/*.js",
-             "tools/*.sh", "tools/*.py", "tests/*.py", "tests/*.h", "include/rmp/*.h")
+             "tools/*.sh", "tools/*.py", "tests/*.py", "tests/*.h", "include/rmp/*.h",
+             ".claude/skills/*/SKILL.md")
 
     # One character in, one character out, so offsets survive and the line
     # number a hit is reported at is the line it is actually on.
@@ -1646,8 +1653,8 @@ class DocumentedTargetCountTest(unittest.TestCase):
         seen = []
         for name in self.DOCS:
             path = REPO / name
-            if path.exists():
-                seen.append((name, path))
+            self.assertTrue(path.is_file(), f"{name} is gone: this test reads it")
+            seen.append((name, path))
         for pattern in self.GLOBS:
             for path in sorted(REPO.glob(pattern)):
                 if path.name == Path(__file__).name:
