@@ -24,8 +24,9 @@
 
 namespace rmp::assets {
 
-// For the CI boot gate. failed_count is the number of rmp::assets:: requests that
-// found nothing in the pack and nothing on disk either.
+// For the CI boot gate. `failed` is the number of rmp::assets:: requests that
+// gave nothing usable: nothing in the pack and nothing on disk, or a file that
+// is there and does not decode.
 namespace detail {
 LoadCounts loads;
 
@@ -56,9 +57,33 @@ namespace {
 // Only rmp::assets:: calls are counted, deliberately. The loader hook sees raylib's
 // internal probing too — an .obj looking for a .mtl that legitimately is not
 // there — and counting those would turn a working build red.
-void fallback_path(const char *name, char *out, size_t n) {
+//
+// Returns whether the file is there. A loader that then cannot DECODE it counts
+// that too, with decode_failed(): a corrupt PNG left a blank texture and a
+// green boot, because only a name with nothing behind it was counted.
+bool fallback_path(const char *name, char *out, size_t n) {
     std::snprintf(out, n, "%s%s", detail::resources_root(), name);
-    if (!FileExists(out)) detail::loads.failed++;
+    if (FileExists(out)) return true;
+    detail::loads.failed++;
+    return false;
+}
+
+// A file that was there and gave nothing usable: as failed as a missing one.
+// Said once per name: a failed load is not cached, so a game that asks for it
+// every frame would otherwise say it every frame.
+void decode_failed(const char *name) {
+    detail::loads.failed++;
+    RMP_REPORT_ONCE_KEYED(name, "ASSETS: '%s' is in %s but could not be decoded", name,
+                          detail::resources_root());
+}
+
+// raylib answers a font it cannot read with GetFontDefault() instead of an
+// empty font. That is not the font that was asked for, and adopted under the
+// file's name it would be cached as if it were -- so it is told apart here, by
+// the glyphs it points at.
+bool font_decoded(const ::Font &font) {
+    return font.glyphs != nullptr && font.glyphCount > 0 &&
+        font.glyphs != GetFontDefault().glyphs;
 }
 
 } // namespace
@@ -110,12 +135,20 @@ namespace {
     }
 
     char path[2048];
-    fallback_path(name, path, sizeof(path));
-    return ::LoadImage(path);
+    const bool there = fallback_path(name, path, sizeof(path));
+    ::Image img = ::LoadImage(path);
+    if (there && img.data == nullptr) decode_failed(name);
+    return img;
 }
 
 Texture2D load_texture_raw(const char *name) {
-    ::Image img = load_image_raw(name); // counts the request for us
+    // Counts the request, and a file that is missing or does not decode.
+    ::Image img = load_image_raw(name);
+    if (img.data == nullptr) return Texture2D{};
+    // A picture that decoded and then did not reach the GPU is not counted:
+    // with no window there is no GPU, which is every headless test, and
+    // whether there is a window is the scene's question to ask, not this
+    // file's (tools/seam_check.sh).
     Texture2D tex = LoadTextureFromImage(img);
     UnloadImage(img);
     return tex;
@@ -147,8 +180,15 @@ Texture2D load_texture_raw(const char *name) {
     }
 
     char path[2048];
-    fallback_path(name, path, sizeof(path));
-    return ::LoadSound(path);
+    const bool there = fallback_path(name, path, sizeof(path));
+    ::Sound sound = ::LoadSound(path);
+    if (there && (sound.stream.buffer == nullptr || sound.frameCount == 0)) {
+        UnloadSound(
+            sound); // a no-op on an empty one, and not empty when it has no frames
+        decode_failed(name);
+        return ::Sound{};
+    }
+    return sound;
 }
 
 ::Font load_font_raw(const char *name, int font_size) {
@@ -164,7 +204,10 @@ Texture2D load_texture_raw(const char *name) {
             if (data != nullptr) {
                 ::Font font = LoadFontFromMemory(ext, data, size, font_size, nullptr, 0);
                 UnloadFileData(data);
-                if (font.glyphCount > 0) return font;
+                if (font_decoded(font)) return font;
+                // UnloadFont() leaves the default font alone, so this is safe
+                // whichever of the two raylib handed back.
+                UnloadFont(font);
             }
         }
         TraceLog(LOG_WARNING,
@@ -172,8 +215,15 @@ Texture2D load_texture_raw(const char *name) {
     }
 
     char path[2048];
-    fallback_path(name, path, sizeof(path));
-    return ::LoadFontEx(path, font_size, nullptr, 0);
+    const bool there = fallback_path(name, path, sizeof(path));
+    if (!there) return ::Font{};
+    ::Font font = ::LoadFontEx(path, font_size, nullptr, 0);
+    if (!font_decoded(font)) {
+        UnloadFont(font);
+        decode_failed(name);
+        return ::Font{};
+    }
+    return font;
 }
 
 } // namespace
@@ -351,6 +401,7 @@ std::vector<unsigned char> load_data(std::string_view name_view) {
                  "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
+    // Bytes have no format to fail to decode: the file is there or it is not.
     char path[2048];
     fallback_path(name, path, sizeof(path));
     int size = 0;

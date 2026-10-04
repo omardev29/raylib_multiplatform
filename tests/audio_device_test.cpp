@@ -304,6 +304,33 @@ TEST_SUITE("audio: device") {
         rmp::audio::detail::reset_for_tests();
     }
 
+    // A sound or a song that is THERE and does not decode is a failed load,
+    // the way a missing one is: the CI boot gate reads assets_failed, and a
+    // corrupt .wav left a silent game and a green boot. The files are
+    // tests/fixtures/corrupt/'s; see the end of tests/assets_test.cpp.
+    TEST_CASE("a sound that does not decode is a failed load") {
+        const Device device;
+        if (!device.ok) return;
+        rmp::assets::detail::set_resources_root(RMP_TEST_FIXTURES "corrupt/");
+        const int requested = rmp::assets::requested_loads();
+        const int failed = rmp::assets::failed_loads();
+        CHECK_FALSE(rmp::assets::load_sound("broken.wav").valid());
+        CHECK(rmp::assets::requested_loads() == requested + 1);
+        CHECK(rmp::assets::failed_loads() == failed + 1);
+    }
+
+    TEST_CASE("music that does not decode is a failed load, and is not asked for again") {
+        const Device device;
+        if (!device.ok) return;
+        rmp::assets::detail::set_resources_root(RMP_TEST_FIXTURES "corrupt/");
+        const int failed = rmp::assets::failed_loads();
+        rmp::audio::music("broken.ogg");
+        CHECK_FALSE(rmp::audio::music_playing());
+        CHECK(rmp::assets::failed_loads() == failed + 1);
+        rmp::audio::music("broken.ogg"); // remembered as missing: no second count
+        CHECK(rmp::assets::failed_loads() == failed + 1);
+    }
+
     TEST_CASE("a device the framework opened, the framework closes") {
         rmp::audio::detail::reset_for_tests();
         if (!rmp::audio::detail::ensure_device()) {

@@ -397,6 +397,10 @@ void music(std::string_view name, bool loop) {
                                                static_cast<int>(next.bytes.size()));
     }
     if (next.bytes.empty() || next.music.stream.buffer == nullptr) {
+        // The bytes were there and did not stream: a failed load, the way a
+        // missing file is one, so the CI boot gate sees a corrupt song.
+        // load_data() has already counted an empty read itself.
+        if (!next.bytes.empty()) rmp::assets::detail::loads.failed++;
         s.missing_music.emplace_back(name);
         RMP_REPORT_ONCE_KEYED(file.c_str(),
                               "AUDIO: \"%s\" is in resources/ but could not be streamed "

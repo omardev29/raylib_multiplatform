@@ -212,3 +212,63 @@ TEST_CASE("a handle that outlives release_all() is harmless, and reads as empty"
     CHECK(rmp::detail::ref_count("after.png") == 1);
     rmp::detail::release_all();
 }
+
+// ---------------------------------------------------------------------------
+// A file that is there and does not decode
+// ---------------------------------------------------------------------------
+//
+// tests/fixtures/corrupt/ holds one of each: every file starts the way its
+// format does, so the decoder is chosen and runs, and is then cut short --
+// what a truncated download or a bad export looks like. The CI boot gate reads
+// assets_failed, and it counted only names with NOTHING behind them: a corrupt
+// PNG left a blank texture and a green boot. The sound and the music need a
+// device, so they are in tests/audio_device_test.cpp.
+
+namespace {
+
+struct Counts {
+    int requested = rmp::assets::requested_loads();
+    int failed = rmp::assets::failed_loads();
+    [[nodiscard]] int more_requested() const {
+        return rmp::assets::requested_loads() - requested;
+    }
+    [[nodiscard]] int more_failed() const { return rmp::assets::failed_loads() - failed; }
+};
+
+} // namespace
+
+TEST_CASE("an image that is there and does not decode is a failed load") {
+    const AtRoot at(RMP_TEST_FIXTURES "corrupt/");
+    const Counts before;
+    CHECK_FALSE(rmp::assets::load_image("broken.png").valid());
+    CHECK(before.more_requested() == 1);
+    CHECK(before.more_failed() == 1);
+}
+
+TEST_CASE("a texture whose image does not decode is a failed load, once") {
+    const AtRoot at(RMP_TEST_FIXTURES "corrupt/");
+    const Counts before;
+    CHECK_FALSE(rmp::assets::load_texture("broken.png").valid());
+    CHECK(before.more_requested() == 1);
+    CHECK(before.more_failed() == 1);
+}
+
+TEST_CASE("a font that does not decode is a failed load, and not the default font") {
+    // raylib answers a font it cannot read with GetFontDefault(). Adopted
+    // under the file's name, that would be cached as if it were the font --
+    // and a failed load is deliberately never cached.
+    const AtRoot at(RMP_TEST_FIXTURES "corrupt/");
+    const Counts before;
+    CHECK_FALSE(rmp::assets::load_font("broken.ttf", 20).valid());
+    CHECK(before.more_requested() == 1);
+    CHECK(before.more_failed() == 1);
+}
+
+TEST_CASE("an image that decodes is not a failed load") {
+    // The control: the counter moves for the corrupt file, not for every file.
+    const Counts before;
+    const rmp::Image image = rmp::assets::load_image("rabbit.png");
+    CHECK(image.valid());
+    CHECK(before.more_requested() == 1);
+    CHECK(before.more_failed() == 0);
+}

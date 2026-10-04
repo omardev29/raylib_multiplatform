@@ -280,8 +280,10 @@ bool using_pack();
 // name gives you the SAME resource with the reference count at two.
 //
 // A name that is in neither the pack nor resources/ gives an empty resource
-// rather than a crash. valid() tells them apart, and drawing an empty one draws
-// nothing — a hole in the picture, not a dead process.
+// rather than a crash, and so does a file that is there and does not decode --
+// a font included: not raylib's built-in one in its place. valid() tells them
+// apart, and drawing an empty one draws nothing — a hole in the picture, not a
+// dead process. Both count in failed_loads().
 rmp::Image load_image(std::string_view name);
 rmp::Texture load_texture(std::string_view name);
 
@@ -324,9 +326,10 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level);
 // nor resources/.
 std::vector<unsigned char> load_data(std::string_view name); // empty when it is not there
 
-// How many rmp::assets:: loads were asked for, and how many found nothing in the
-// pack and nothing on disk either. The entry point reports these to the CI
-// boot gate; you are unlikely to need them yourself.
+// How many rmp::assets:: loads were asked for, and how many gave nothing usable:
+// nothing in the pack and nothing on disk, or a file that is there and does not
+// decode. The entry point reports these to the CI boot gate; you are unlikely
+// to need them yourself.
 int requested_loads();
 int failed_loads();
 
