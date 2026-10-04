@@ -269,7 +269,9 @@ void open_grid(const GridOptions &o) {
     // desktop. It uses last frame's width for the same reason everything else
     // does — it is the only width that exists yet.
     // Named or not, a grid gets an id, because working out the columns means
-    // knowing how wide it was last frame.
+    // knowing how wide it was last frame: an unnamed one is "grid" counted by
+    // its order in the pass, so it is measured just the same, and only a grid
+    // that comes and goes before it can make it borrow another's width.
     Clay_ElementId grid_id = o.id != nullptr
         ? element_id(std::string_view{ o.id }, o.id)
         : element_id(std::string_view{ "grid" }, nullptr);
@@ -282,7 +284,12 @@ void open_grid(const GridOptions &o) {
             columns = static_cast<int>(box.width / (cell > 1 ? cell : 1));
         }
     }
-    if (columns <= 0) columns = 4;
+    // At least one, and never more than fit: when not even one cell fits, one
+    // column is the honest answer. It used to fall back to four, so the
+    // narrower a grid was, the MORE columns it got. A grid with nothing
+    // measured yet -- its first frame -- starts at one too, and has its real
+    // count from the second.
+    if (columns <= 0) columns = 1;
 
     if (grids.depth < MAX_GRID_DEPTH) {
         grids.frames[grids.depth] =

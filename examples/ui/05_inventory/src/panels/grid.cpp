@@ -10,9 +10,10 @@ void inventory_grid() {
     rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [&] {
         rmp::ui::text("Inventory");
 
-        // columns = 0: fit as many 88-unit cells as the width allows. Give the
-        // grid an id and it can measure itself; without one it falls back to
-        // four, which is a reasonable guess and never the right answer.
+        // columns = 0: fit as many 88-unit cells as the width allows, and at
+        // least one. The grid measures the width it had last frame; the id
+        // keeps it the same grid whatever else comes and goes on screen, where
+        // an unnamed one is told apart by its order among the unnamed grids.
         rmp::ui::grid({ .columns = 0, .min_cell = 88, .id = "inv" }, [&] {
             for (int i = 0; i < ITEM_COUNT; i++) {
                 rmp::ui::cell([&] {

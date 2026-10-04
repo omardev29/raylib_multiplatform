@@ -1802,6 +1802,62 @@ void run_focus_between_frames() {
     rmp::ui::focus("");
 }
 
+// grid({ .columns = 0 }) is "as many as fit". When not even one cell fitted it
+// fell back to four, so the narrower the grid, the MORE columns it got.
+void run_grid_fit() {
+    std::printf("\n--- a grid that fits its columns ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    // A cell is min_cell plus a gap: 96 + 12 = 108 design units by default.
+    // Unnamed, on purpose: an unnamed grid is measured too, by its order.
+    float width = 50;
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::column({ .width = width }, [] {
+            rmp::ui::grid({ .columns = 0 }, [] {
+                // Boxes smaller than any cell, so nothing in them can make
+                // the grid wider than the column it is in.
+                for (int i = 0; i < 4; i++) {
+                    rmp::ui::cell([&] {
+                        rmp::ui::column(
+                            { .width = 8, .height = 8, .id = TextFormat("fit%d", i) },
+                            [] {});
+                    });
+                }
+            });
+        });
+        rmp::ui::end();
+    };
+
+    frame();
+    frame();
+    check(box_of("fit1").y > box_of("fit0").y,
+          "narrower than one cell: one column, not four");
+
+    width = 250; // two cells and some
+    frame();
+    frame();
+    check_near(box_of("fit1").y, box_of("fit0").y, 1.0f, "room for two: two columns");
+    check(box_of("fit2").y > box_of("fit0").y, "and not three");
+
+    // A grid seen for the first time has no width to measure yet. It must not
+    // guess more columns than fit, even for that one frame.
+    rmp::ui::begin();
+    rmp::ui::column({ .width = 50 }, [] {
+        rmp::ui::grid({ .columns = 0, .id = "fresh" }, [] {
+            rmp::ui::cell([] {
+                rmp::ui::column({ .width = 8, .height = 8, .id = "new0" }, [] {});
+            });
+            rmp::ui::cell([] {
+                rmp::ui::column({ .width = 8, .height = 8, .id = "new1" }, [] {});
+            });
+        });
+    });
+    rmp::ui::end();
+    check(box_of("new1").y > box_of("new0").y,
+          "and a grid with nothing measured yet starts at one column");
+}
+
 } // namespace
 
 int main() {
@@ -1822,6 +1878,7 @@ int main() {
     run_containers(1280, 720);
     run_containers(800, 600);
     run_grid();
+    run_grid_fit();
     run_interaction();
     run_dropdown();
     run_focus_by_name();

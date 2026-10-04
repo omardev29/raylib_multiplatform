@@ -535,7 +535,7 @@ void progress(float fraction, const ProgressOptions &o);
 // How grid() counts its columns, spaces its cells, and how much room it takes.
 // Measurements are in design units, and -1 means the default given beside it.
 struct GridOptions {
-    int columns = 0; // 0 = as many as fit, recomputed as the window changes
+    int columns = 0; // 0 = as many as fit, at least one, recomputed as the window changes
     float min_cell = 96; // only used when columns = 0
     float gap = -1; // between cells and between rows; -1 = the theme's
     float padding = -1; // inside the grid; -1 = none

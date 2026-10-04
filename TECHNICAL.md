@@ -840,7 +840,10 @@ rmp::ui::scroll([&]{ /* a long list */ });
 
 `grid(0, …)` works out its own column count from the width it has and works it out again when that
 changes — an inventory that reflows on a phone instead of staying at the number someone typed on a
-desktop. Give it an `.id` so it can measure itself; without one it falls back to four.
+desktop. It is always at least one column and never more than fit, and it reads the width it had
+last frame — so the very first frame it is drawn it is one column. It measures itself with or
+without an `.id`; without one it is told apart by its order among the unnamed grids, so give it one
+when a grid before it comes and goes.
 
 **Every child of a grid has to be a `cell()`**, the same bargain as `stack()`/`layer()`. The layout
 engine wraps text, not elements, so the rows are built as real rows — and counting the items is
