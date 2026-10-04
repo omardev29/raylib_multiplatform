@@ -450,13 +450,17 @@ set(RMP_STRICT_CXX_FLAGS "")
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(RMP_STRICT_CXX_FLAGS -Werror=reorder-init-list)
 endif()
-target_compile_options(rmp PUBLIC $<$<COMPILE_LANGUAGE:CXX>:${RMP_STRICT_CXX_FLAGS}>)
+# Only where there is a framework library: a game in plain C has deleted
+# src/rmp/, and a C game has no designated initialisers to order.
+if(TARGET rmp)
+  target_compile_options(rmp PUBLIC $<$<COMPILE_LANGUAGE:CXX>:${RMP_STRICT_CXX_FLAGS}>)
+endif()
 
 # The proof, at every configure that builds the tests: what rmp hands every
 # game, read back off the target, has to refuse the out-of-order initialiser.
 # Unset first, because check_cxx_source_compiles caches its answer and a stale
 # answer is exactly what would hide a flag that went away.
-if(BUILD_TESTS)
+if(BUILD_TESTS AND TARGET rmp)
   include(CheckCXXSourceCompiles)
   get_target_property(_rmp_public_options rmp INTERFACE_COMPILE_OPTIONS)
   if(NOT _rmp_public_options)

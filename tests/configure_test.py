@@ -2201,6 +2201,31 @@ class PlainCGameTest(unittest.TestCase):
         self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/tests"', plain)
         self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/include"', plain)
 
+    def test_nothing_touches_the_rmp_target_where_there_may_be_none(self):
+        """The clang flag for designated initialisers arrived as
+        `target_compile_options(rmp PUBLIC ...)` below the library, and in a
+        game with no src/rmp/ that is "Cannot specify compile options for
+        target rmp which is not built by this project". Every command on the
+        rmp target sits under a condition that says it exists."""
+        stack = []
+        found = 0
+        for line in (REPO / "CMakeLists.txt").read_text().splitlines():
+            code = line.split("#", 1)[0].strip()
+            if re.match(r"if\s*\(", code):
+                stack.append(code)
+            elif re.match(r"(else|elseif)\s*\(", code) and stack:
+                stack[-1] = "else of " + stack[-1]
+            elif re.match(r"endif\s*\(", code) and stack:
+                stack.pop()
+            if re.match(r"(target_\w+|set_property\(TARGET|add_library)\s*\(?\s*rmp\b", code) \
+                    or re.match(r"set_property\(TARGET rmp\b", code):
+                found += 1
+                with self.subTest(line=code[:60]):
+                    self.assertTrue(any(c.startswith(("if(RMP_SOURCES", "if(TARGET rmp"))
+                                        or "AND TARGET rmp" in c for c in stack),
+                                    f"{code} runs where there may be no rmp target")
+        self.assertGreater(found, 6)
+
     def test_the_example_runs_under_the_ci_frame_budget(self):
         code = "\n".join(line for line in self.EXAMPLE.read_text().splitlines()
                          if not line.lstrip().startswith("//"))
