@@ -197,6 +197,12 @@ Redistributable). What the `.exe` still imports is Windows itself -- `KERNEL32`,
 Windows jobs fail on anything else: `tools/binary_check.py windows` reads the import table of
 every `.exe` they ship, and the x64 boot runs with MinGW off `PATH`.
 
+The macOS binary is universal and opens on **macOS 10.15** on Intel and **11.0** on Apple
+silicon (the first macOS that ran there): `CMAKE_OSX_DEPLOYMENT_TARGET` in `CMakeLists.txt`,
+which the build would otherwise take from the SDK -- macOS 26 on the runner. 10.15 is the floor
+`std::filesystem` puts on Apple's libc++. The macos job reads every slice's minimum back out of
+the binary (`tools/binary_check.py macos`) and fails on one above that.
+
 **Presets** (`CMakePresets.json`), all Ninja-based:
 
 | Preset | `PRODUCTION_BUILD` (CMake) → `RMP_PRODUCTION_BUILD` | `RMP_RESOURCES_PATH` | Notes |

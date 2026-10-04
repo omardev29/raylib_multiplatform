@@ -67,6 +67,17 @@ elseif(DEFINED RMP_DEV_COMPILER)
     "  Run `rmp clean` (or delete build/) and configure again.")
 endif()
 
+# The oldest macOS the game opens on. Left unset, the toolchain writes the SDK's
+# own version into every slice -- macOS 26 for a build on a macos-26 runner --
+# and every Mac one release older refuses to open the game, with no message
+# that says why. 10.15 is the floor std::filesystem (src/rmp/save.cpp) puts on
+# Apple's libc++; the arm64 slice starts at 11.0 whatever this says, the first
+# macOS on Apple silicon. Ignored on every other platform. The macos job reads
+# it back out of the cache and checks every slice against it
+# (tools/binary_check.py macos), so this is the one place the number lives.
+# Before project(), which is where the toolchain reads it.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Oldest macOS the game runs on")
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Raylib as static libraries" FORCE)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json" FORCE)

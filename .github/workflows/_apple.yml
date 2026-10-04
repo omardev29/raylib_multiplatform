@@ -133,6 +133,18 @@ jobs:
           lipo -info "$BIN" | grep -q "x86_64" || { echo "FAIL: no x86_64 slice"; exit 1; }
           echo "PASS: universal Mach-O (arm64 + x86_64)"
 
+      # Every slice says which macOS it needs, and a Mac older than that will
+      # not open it. Without a deployment target both slices said 26.0 -- the
+      # runner's own macOS -- and this job, running on macOS 26, could not
+      # notice. The target is read back from the CMake cache rather than
+      # repeated here: CMakeLists.txt is the one place it lives, and an empty
+      # read fails the check instead of passing it.
+      - name: Test (static) -- every slice runs on the macOS the build declares
+        run: |
+          set -euo pipefail
+          TARGET=$(sed -n 's/^CMAKE_OSX_DEPLOYMENT_TARGET:[A-Z]*=//p' build/CMakeCache.txt)
+          python3 tools/binary_check.py macos "build/${{ inputs.project_name }}" --min-os "$TARGET"
+
       # macOS shipped for years proving only that it COMPILES, which is the
       # weaker half of what CI is for: the segfault-at-shutdown from phase 3
       # compiled cleanly on all seventeen targets and was caught by a runtime
