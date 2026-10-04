@@ -29,14 +29,19 @@ fails=0
 checks=0
 
 # --- parse the ```versions block -------------------------------------------
-declare -A WANT
-while read -r key value; do
-    [ -z "${key:-}" ] && continue
-    case "$key" in \#*) continue ;; esac
-    WANT[$key]="$value"
-done < <(awk '/^```versions$/{f=1;next} /^```$/{f=0} f' "$FROZEN")
+# A `key value` list, looked up by want() below. Not an associative array:
+# those are bash 4, macOS runs this under bash 3.2, and `declare -A` there is
+# "invalid option" and an empty table -- every check a DRIFT.
+VERSIONS=$(awk '/^```versions$/{f=1;next} /^```$/{f=0} f && $1 != "" && $1 !~ /^#/' "$FROZEN")
 
-if [ ${#WANT[@]} -eq 0 ]; then
+# The value for a key, or nothing. The last line for a key wins.
+want() {
+    printf '%s\n' "$VERSIONS" | awk -v k="$1" '
+        $1 == k { v = $0; sub(/^[ \t]*[^ \t]+[ \t]+/, "", v); sub(/[ \t]+$/, "", v); found = 1 }
+        END { if (found) print v }'
+}
+
+if [ -z "$VERSIONS" ]; then
     echo "FAIL: no \`\`\`versions block found in $FROZEN"
     exit 1
 fi
@@ -44,7 +49,9 @@ fi
 # check <label> <expected-key> <actual-value>
 check() {
     local label="$1" key="$2" actual="$3"
-    local want="${WANT[$key]:-<missing from FROZEN_VERSIONS.md>}"
+    local want
+    want=$(want "$key")
+    [ -n "$want" ] || want="<missing from FROZEN_VERSIONS.md>"
     checks=$((checks + 1))
     if [ "$want" = "$actual" ]; then
         printf '  ok    %-26s %s\n' "$label" "$actual"
@@ -187,7 +194,7 @@ if [ -r "$IMAGE_MANIFEST" ]; then
     check "image android_sdk_cmake"   android_sdk_cmake   "$(m android_sdk_cmake)"
     # compileSdk N needs platforms;android-N present in the image, or AGP will
     # silently try to download it at job time and the "frozen" claim is void.
-    want_plat="android-${WANT[android_compile_sdk]}"
+    want_plat="android-$(want android_compile_sdk)"
     checks=$((checks + 1))
     if [ "$(m android_platform)" = "$want_plat" ]; then
         printf '  ok    %-26s %s\n' "image serves compileSdk" "$want_plat"

@@ -118,6 +118,12 @@ selftest || fails=$((fails + 1))
 check 'mapfile|readarray' \
       "mapfile/readarray is bash 4; macOS ships bash 3.2" \
       "files=(); while IFS= read -r f; do files+=(\"\$f\"); done < <(...)" || fails=$((fails + 1))
+check 'declare -A|typeset -A|local -A' \
+      "associative arrays are bash 4; macOS ships bash 3.2" \
+      "a function that looks the key up: want() { awk ... }" || fails=$((fails + 1))
+check '\$\{[A-Za-z_][A-Za-z0-9_]*(,,|\^\^)' \
+      "\${x,,} and \${x^^} are bash 4" \
+      "tr '[:upper:]' '[:lower:]'" || fails=$((fails + 1))
 check 'stat -c' \
       "stat -c is GNU; BSD and macOS use stat -f" \
       "wc -c < file" || fails=$((fails + 1))
