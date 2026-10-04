@@ -1,19 +1,16 @@
 // ---------------------------------------------------------------------------
-// examples/games/01_pong/src/main.cpp — Pong, whole.
+// examples/games/01_pong -- Pong, whole.
 //
-// The first of the six judges. What is worth counting here is not the lines but
-// WHAT they say: every one of them is a rule of Pong. There is no frame loop,
-// no bounds check, no bounce arithmetic, no "has it left the screen", no
-// AABB test. Those are not missing -- they are in the framework, which is the
-// claim this file exists to make checkable.
+// Two players, a point when the ball leaves by a side, first to seven, and a
+// way to play again. Every line here is a rule of Pong: there is no frame
+// loop, no bounds check, no bounce arithmetic and no collision test, because
+// those are the framework's.
 //
-// It is a whole game: two players, a point when the ball leaves by a side,
-// first to seven, and a way to play again. With sound, by name: the three
-// files in resources/ are hit.wav, point.wav and win.wav, and nothing in this
-// file opens, feeds or closes a sound device. On a machine without one it
-// plays the same game in silence. (The CI runner that boots it has a silent
-// null device; tests/configure_test.py checks the three files exist, since
-// thirty frames never reach a paddle to play them.)
+// The sounds are played by name -- resources/ holds hit.wav, point.wav and
+// win.wav -- and nothing here opens or closes a sound device. On a machine
+// without one the game is the same, in silence.
+//
+// Run it: `just example 01_pong`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -52,22 +49,12 @@ public:
 };
 
 // The end of a game, PUSHED on top of it: the court below freezes, stays on
-// screen and stops hearing the keyboard, so this scene writes no policy at all
-// -- exactly the pause overlay of examples/scenes/01_stack, with a different
-// label on the button.
-template <class Game> class OverScene : public rmp::Scene {
+// screen and stops hearing the keyboard, which is what the scene stack does on
+// its own -- so this is only what it says and the way out.
+class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : _said(said) {}
-
-    // So that Enter, Space or the gamepad restart without a mouse: nothing has
-    // the focus until something is given it.
-    void _draw() override {
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-        rmp::ui::begin();
-        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-        if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
-        rmp::ui::end();
-    }
+    void _draw() override; // below PongScene, which it starts again
 
 private:
     const char *_said;
@@ -143,10 +130,9 @@ public:
     }
 
 private:
-    // Which way the ball leaves is a RULE OF THE GAME, which is why no behavior
-    // decides it. Here it goes towards whoever just conceded, and an impulse
-    // and not a force: a force is spread over the frame it is applied in, and
-    // only the direction of this one matters -- Ball normalises it to `speed`.
+    // Which way the ball leaves is a rule of the game, so the game decides it:
+    // towards whoever just conceded. An impulse, because only its direction
+    // matters -- Ball keeps its own speed.
     void serve(float towards) {
         _ball->position = { MID_X, MID_Y };
         _ball->velocity = {};
@@ -160,7 +146,7 @@ private:
         serve(towards);
         if (counter >= WINNING_SCORE) {
             rmp::audio::play("win");
-            rmp::Scene::push<OverScene<PongScene>>(winner);
+            rmp::Scene::push<OverScene>(winner);
         } else {
             rmp::audio::play("point");
         }
@@ -174,6 +160,14 @@ private:
     int _left_score = 0;
     int _right_score = 0;
 };
+
+void OverScene::_draw() {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
+    rmp::ui::begin();
+    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+    if (rmp::ui::button("Play again")) rmp::Scene::change<PongScene>();
+    rmp::ui::end();
+}
 
 } // namespace
 

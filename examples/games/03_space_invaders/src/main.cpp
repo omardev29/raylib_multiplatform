@@ -1,17 +1,16 @@
 // ---------------------------------------------------------------------------
-// examples/games/03_space_invaders/src/main.cpp — Space Invaders.
+// examples/games/03_space_invaders -- Space Invaders.
 //
-// The third judge, and the one that makes the case for what is NOT in the
-// catalogue. The formation -- a block of aliens stepping sideways, dropping and
-// speeding up as they thin out -- is *the game of Space Invaders*. A behavior
-// with fields for columns, step and descent would be this file with a different
-// name on it, so the formation is written here and the framework supplies the
-// parts that are not the game: shooting on a Timer, bullets that discard
+// The formation -- a block of aliens stepping sideways, dropping and speeding
+// up as they thin out -- IS the game, so it is written here. The framework
+// supplies what is not the game: shooting on a Timer, bullets that discard
 // themselves, hit points, and who is allowed to hurt whom.
 //
-// The formation is a HANDLE PER ALIEN and one number. Nothing walks a list of
+// The formation is a handle per alien and two offsets. Nothing walks a list of
 // objects looking for aliens, and nothing holds a pointer to one that a shot
 // may have destroyed two frames ago.
+//
+// Run it: `just example 03_space_invaders`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -21,6 +20,8 @@
 #include <rmp/random.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
+
+#include <algorithm>
 
 namespace {
 
@@ -38,25 +39,21 @@ constexpr float MARCH = 40; // how far the block slides each way
 constexpr float DROP = 16; // and how far down it steps when it turns
 constexpr float PLAYER_Y = 410;
 constexpr float GROUND_Y = 434;
+constexpr float PLAYER_SPEED = 360;
+constexpr float PLAYER_SHOT_SPEED = 560;
+constexpr float ALIEN_SHOT_SPEED = 300;
 
 // One per row, and the row a picture would put the strange ones in is the one
 // at the top.
 constexpr Color ROW_COLORS[ROWS] = { VIOLET, PINK, ORANGE, GOLD };
 
 // The end of a game, PUSHED on top of it: the board below freezes, stays on
-// screen and stops hearing the keyboard, so this scene writes no policy at all
-// -- the pause overlay of examples/scenes/01_stack with another label.
-template <class Game> class OverScene : public rmp::Scene {
+// screen and stops hearing the keyboard, which is what the scene stack does on
+// its own -- so this is only what it says and the way out.
+class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : _said(said) {}
-
-    void _draw() override {
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-        rmp::ui::begin();
-        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-        if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
-        rmp::ui::end();
-    }
+    void _draw() override; // below InvadersScene, which it starts again
 
 private:
     const char *_said;
@@ -73,17 +70,13 @@ public:
         player.edges = rmp::Edge::CLAMP;
         player.collision_layer = layer::PLAYER;
         player.collision_mask = layer::ALIEN_SHOT | layer::ALIEN;
-        // WHO IS ALLOWED TO HURT IT, and it is one field. Without `hurt_by` a
-        // Health is a hit-point counter that nothing ever reduces, which is
-        // how this player used to be immortal.
+        // Who is allowed to hurt it is one field, `hurt_by`: without it a
+        // Health is a hit-point counter that nothing ever reduces.
         player.add<rmp::behavior::Health>({
             .hp = 3,
             .invulnerable_for = 1.2f,
             .destroy_on_death = false, // the ship stays on screen under the overlay
-            .on_death =
-                [](rmp::Object &) {
-                    rmp::Scene::push<OverScene<InvadersScene>>("Game over");
-                },
+            .on_death = [](rmp::Object &) { rmp::Scene::push<OverScene>("Game over"); },
             .hurt_by = layer::ALIEN_SHOT | layer::ALIEN,
         });
         _player = player.handle();
@@ -92,15 +85,16 @@ public:
     }
 
     void _update(float delta) override {
-        _player->velocity.x = rmp::input::axis("move_left", "move_right") * 360;
+        _player->velocity.x = rmp::input::axis("move_left", "move_right") * PLAYER_SPEED;
         if (rmp::input::just_pressed("ui_accept")) shoot();
 
-        // The formation. Every alien moves as one, turns at the wall, drops a
-        // step, and the whole block speeds up as it thins -- which is the game.
-        _march += _step * delta * static_cast<float>(ALIENS) /
-            static_cast<float>(_alive > 0 ? _alive : 1);
+        // The formation. Every alien moves as one, turns at the wall and drops
+        // a step, and the block speeds up as it thins: with half of them left
+        // it moves twice as fast.
+        const float alive = static_cast<float>(std::max(_alive, 1));
+        _march += _march_speed * delta * static_cast<float>(ALIENS) / alive;
         if (_march > MARCH || _march < -MARCH) {
-            _step = -_step;
+            _march_speed = -_march_speed;
             _march = _march > 0 ? MARCH : -MARCH;
             _drop += DROP;
         }
@@ -108,15 +102,15 @@ public:
         float lowest = 0;
         for (int i = 0; i < ALIENS; i++) {
             rmp::Object *alien = _aliens[i].get();
-            if (alien == nullptr) continue; // a handle answers this on its own
+            if (alien == nullptr) continue; // shot down: the handle says so
             alien->position = { home(i).x + _march, home(i).y + _drop };
-            lowest = alien->position.y > lowest ? alien->position.y : lowest;
+            lowest = std::max(lowest, alien->position.y);
         }
 
         if (_alive == 0) {
-            rmp::Scene::push<OverScene<InvadersScene>>("You win");
+            rmp::Scene::push<OverScene>("You win");
         } else if (lowest > PLAYER_Y - 30) {
-            rmp::Scene::push<OverScene<InvadersScene>>("They landed");
+            rmp::Scene::push<OverScene>("They landed");
         }
     }
 
@@ -156,10 +150,9 @@ private:
             self.destroy();
             _alive--;
         });
-        // Shooting is a Timer plus a callback, which is why `shooter` is not in
-        // the catalogue: the same two pieces make an enemy spawner and a blink.
-        // A period of its own per alien, from rmp::random -- forty-four timers
-        // started on the same frame with the same number fire as one gun.
+        // Shooting is a Timer and a callback. Each alien gets a period of its
+        // own from rmp::random: forty-four timers started on the same frame with
+        // the same number would fire as one gun.
         alien.add<rmp::behavior::Timer>({
             .seconds = rmp::random::range(4.0f, 9.0f),
             .on_timeout = [this, index](rmp::Object &self) { alien_shoot(self, index); },
@@ -172,7 +165,7 @@ private:
         auto &shot =
             spawn({ .position = _player->position, .shape = rmp::rect({ 4, 14 }) });
         shot.shape.color = LIME;
-        shot.velocity = { 0, -560 };
+        shot.velocity = { 0, -PLAYER_SHOT_SPEED };
         shot.collision_layer = layer::PLAYER_SHOT;
         shot.collision_mask = layer::ALIEN;
         shot.add<rmp::behavior::Projectile>();
@@ -184,22 +177,30 @@ private:
         if (index + COLUMNS < ALIENS && _aliens[index + COLUMNS]) return;
         auto &shot = spawn({ .position = from.position, .shape = rmp::rect({ 4, 14 }) });
         shot.shape.color = RED;
-        shot.velocity = { 0, 300 };
+        shot.velocity = { 0, ALIEN_SHOT_SPEED };
         shot.collision_layer = layer::ALIEN_SHOT;
         shot.collision_mask = layer::PLAYER;
         shot.add<rmp::behavior::Projectile>();
     }
 
-    // Between frames, a handle. A raw pointer is good for the frame it was got
-    // in and no longer -- and an alien is the thing most likely to die between
+    // Between frames, a handle: a raw pointer is good for the frame it was got
+    // in and no longer, and an alien is the thing most likely to die between
     // two of them.
     rmp::Handle<rmp::Object> _player;
     rmp::Handle<rmp::Object> _aliens[ALIENS];
     int _alive = 0;
-    float _march = 0;
-    float _step = 40;
-    float _drop = 0;
+    float _march = 0; // how far the block has slid sideways from home
+    float _march_speed = 40; // units per second, and its sign is the way it goes
+    float _drop = 0; // and how far down
 };
+
+void OverScene::_draw() {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
+    rmp::ui::begin();
+    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+    if (rmp::ui::button("Play again")) rmp::Scene::change<InvadersScene>();
+    rmp::ui::end();
+}
 
 } // namespace
 

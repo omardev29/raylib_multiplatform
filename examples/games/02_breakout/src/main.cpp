@@ -1,14 +1,12 @@
 // ---------------------------------------------------------------------------
-// examples/games/02_breakout/src/main.cpp — Breakout.
+// examples/games/02_breakout -- Breakout.
 //
-// Pong plus a wall of bricks, and the wall is where the second judge earns its
-// place: destroying a brick on contact is `on_collision` and one line, which is
-// why `destroy_on_hit` is not in the catalogue. Question 2 of the three that
-// decide whether a feature enters -- can it be composed from what exists? --
-// answering itself.
+// Pong plus a wall of bricks. A brick breaking on contact is `on_collision`
+// and one line, so there is no behavior for it. The rest is the three rules a
+// Breakout has: three lives, a floor the ball can fall through, and a wall
+// that is gone.
 //
-// The rest of it is the three rules a Breakout has: three lives, a floor the
-// ball can fall through, and a wall that is gone.
+// Run it: `just example 02_breakout`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -26,24 +24,18 @@ constexpr float BRICK_WIDTH = 72;
 constexpr float BRICK_HEIGHT = 24;
 constexpr int LIVES = 3;
 constexpr float PADDLE_Y = 420;
+constexpr float PADDLE_SPEED = 520;
 
 // One per row, top to bottom. A wall of one colour is a wall; five is a game.
 constexpr Color ROW_COLORS[ROWS] = { MAROON, ORANGE, GOLD, LIME, SKYBLUE };
 
 // The end of a game, PUSHED on top of it: the wall below freezes, stays on
-// screen and stops hearing the keyboard, so this scene writes no policy at all
-// -- the pause overlay of examples/scenes/01_stack with another label.
-template <class Game> class OverScene : public rmp::Scene {
+// screen and stops hearing the keyboard, which is what the scene stack does on
+// its own -- so this is only what it says and the way out.
+class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : _said(said) {}
-
-    void _draw() override {
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-        rmp::ui::begin();
-        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-        if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
-        rmp::ui::end();
-    }
+    void _draw() override; // below BreakoutScene, which it starts again
 
 private:
     const char *_said;
@@ -83,13 +75,14 @@ public:
     }
 
     void _update(float) override {
-        _paddle->velocity.x = rmp::input::axis("move_left", "move_right") * 520;
+        _paddle->velocity.x = rmp::input::axis("move_left", "move_right") * PADDLE_SPEED;
 
         // The two rules the framework has no opinion about: the ball is lost,
         // and the wall is gone.
         if (_ball->position.y > RMP_WINDOW_HEIGHT + 20) {
-            if (--_lives <= 0) {
-                rmp::Scene::push<OverScene<BreakoutScene>>("Game over");
+            _lives--;
+            if (_lives <= 0) {
+                rmp::Scene::push<OverScene>("Game over");
                 return;
             }
             // A life lost, felt: the view jolts and settles in a third of a
@@ -98,7 +91,7 @@ public:
             camera.shake(8, 0.35f);
             serve();
         }
-        if (_bricks == 0) rmp::Scene::push<OverScene<BreakoutScene>>("You win");
+        if (_bricks == 0) rmp::Scene::push<OverScene>("You win");
     }
 
     void _draw() override {
@@ -130,9 +123,8 @@ private:
         });
     }
 
-    // Where the ball goes is the game's, not a behavior's: it leaves the paddle
-    // upwards, and an impulse rather than a force because only the direction
-    // survives -- Ball normalises whatever it is given to `speed`.
+    // Where the ball goes is the game's to say: up off the paddle. An impulse,
+    // because only its direction matters -- Ball keeps its own speed.
     void serve() {
         _ball->position = { _paddle->position.x, PADDLE_Y - 40 };
         _ball->velocity = {};
@@ -146,6 +138,14 @@ private:
     int _bricks = 0;
     int _lives = LIVES;
 };
+
+void OverScene::_draw() {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
+    rmp::ui::begin();
+    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+    if (rmp::ui::button("Play again")) rmp::Scene::change<BreakoutScene>();
+    rmp::ui::end();
+}
 
 } // namespace
 

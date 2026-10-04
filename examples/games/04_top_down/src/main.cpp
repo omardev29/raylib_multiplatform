@@ -1,14 +1,15 @@
 // ---------------------------------------------------------------------------
-// examples/games/04_top_down/src/main.cpp — a top-down room, with a way out.
+// examples/games/04_top_down -- a top-down room, with a way out.
 //
-// The fourth judge, and the one that shows the collision layers doing the work
-// they exist for: the player's shot does not hit the player, the enemies walk
-// through each other but not through the walls, the door sees the player and
-// nothing else, and what may hurt the player is one field and not an `if` at
-// the top of a _collision. Every one of those is a pair of integers, and they
-// are named once in include/layers.h.
+// The collision layers doing the work they exist for: the player's shot does
+// not hit the player, the enemies walk through each other but not through the
+// walls, the door sees the player and nothing else, and what may hurt the
+// player is one field rather than an `if` in a _collision. Each of those is a
+// pair of bit masks, named once in include/layers.h.
 //
 // A whole level: clear the room or don't, walk out of the door, or die trying.
+//
+// Run it: `just example 04_top_down`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -25,21 +26,15 @@ namespace {
 constexpr int ENEMIES = 5;
 constexpr int PLAYER_HP = 5;
 constexpr float DOOR_Y = 225; // the gap in the right-hand wall
+constexpr float SHOT_SPEED = 520;
 
 // The end of a level, PUSHED on top of it: the room below freezes, stays on
-// screen and stops hearing the keyboard, so this scene writes no policy at all
-// -- the pause overlay of examples/scenes/01_stack with another label.
-template <class Game> class OverScene : public rmp::Scene {
+// screen and stops hearing the keyboard, which is what the scene stack does on
+// its own -- so this is only what it says and the way out.
+class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : _said(said) {}
-
-    void _draw() override {
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-        rmp::ui::begin();
-        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-        if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
-        rmp::ui::end();
-    }
+    void _draw() override; // below TopDownScene, which it starts again
 
 private:
     const char *_said;
@@ -50,9 +45,8 @@ public:
     void _ready() override {
         background = Color{ 22, 20, 24, 255 };
 
-        // The floor. An object at a layer below everything else rather than a
-        // background colour, and out of the collision pass entirely: layer 0
-        // and mask 0 is the pair that says "I am scenery".
+        // The floor: an object drawn below everything else, and out of the
+        // collision pass entirely -- layer 0 and mask 0 say "I am scenery".
         auto &floor =
             spawn({ .position = { 400, 225 }, .size = { 720, 370 }, .layer = -10 });
         floor.shape.color = Color{ 62, 52, 44, 255 };
@@ -76,17 +70,13 @@ public:
         player.collision_mask = layer::WORLD | layer::ENEMY | layer::TRIGGER;
         // Eight directions, normalised, so the diagonal is not 41 % faster.
         player.add<rmp::behavior::TopDown>({ .speed = 240 });
-        // WHAT IS ALLOWED TO HURT IT. Without `hurt_by` a Health is a
-        // hit-point counter that nothing ever reduces, which is how this
-        // player used to walk through five enemies and not notice.
+        // What may hurt it is one field, `hurt_by`: without it a Health is a
+        // hit-point counter that nothing ever reduces.
         player.add<rmp::behavior::Health>({
             .hp = PLAYER_HP,
             .invulnerable_for = 0.8f,
             .destroy_on_death = false, // it stays on screen under the overlay
-            .on_death =
-                [](rmp::Object &) {
-                    rmp::Scene::push<OverScene<TopDownScene>>("You died");
-                },
+            .on_death = [](rmp::Object &) { rmp::Scene::push<OverScene>("You died"); },
             .hurt_by = layer::ENEMY,
         });
         _player = player.handle();
@@ -128,7 +118,7 @@ private:
         door.collision_layer = layer::TRIGGER;
         door.collision_mask = layer::PLAYER;
         door.on_collision([](rmp::Object &, rmp::Object &) {
-            rmp::Scene::push<OverScene<TopDownScene>>("Level cleared");
+            rmp::Scene::push<OverScene>("Level cleared");
         });
     }
 
@@ -141,8 +131,7 @@ private:
         enemy.collision_mask = layer::WORLD | layer::BULLET | layer::PLAYER;
         enemy.shape.color = MAROON;
         enemy.add<rmp::behavior::Follow>({ .target = _player, .speed = 90 });
-        // Two hits, and what may land them. No `if` at the top of a
-        // _collision, and no counter of our own: `hurt_by` is the rule and
+        // Two hits, and only a bullet lands one: `hurt_by` is the rule, and
         // on_death is what the room does about it.
         enemy.add<rmp::behavior::Health>({
             .hp = 2,
@@ -158,7 +147,7 @@ private:
         const Vector2 aim = _player->get<rmp::behavior::TopDown>()->direction();
         auto &shot = spawn({ .position = _player->position, .shape = rmp::circle(4) });
         shot.shape.color = GOLD;
-        shot.velocity = { aim.x * 520, aim.y * 520 };
+        shot.velocity = { aim.x * SHOT_SPEED, aim.y * SHOT_SPEED };
         shot.collision_layer = layer::BULLET;
         shot.collision_mask = layer::ENEMY | layer::WORLD; // never the player
         shot.add<rmp::behavior::Projectile>();
@@ -170,6 +159,14 @@ private:
     rmp::Handle<rmp::Object> _player;
     int _enemies = 0;
 };
+
+void OverScene::_draw() {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
+    rmp::ui::begin();
+    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+    if (rmp::ui::button("Play again")) rmp::Scene::change<TopDownScene>();
+    rmp::ui::end();
+}
 
 } // namespace
 

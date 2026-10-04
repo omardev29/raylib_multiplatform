@@ -1,9 +1,8 @@
 // ---------------------------------------------------------------------------
-// examples/games/05_endless_runner/src/main.cpp — an endless runner.
+// examples/games/05_endless_runner -- an endless runner.
 //
-// The fifth judge, and the one that asked for the most new abstractions, so it
-// is the one worth reading for what is NOT here: no background loop, no modulo
-// of a texture width, no distance counter, no camera arithmetic, no obstacle
+// Worth reading for what is NOT here: no background loop, no modulo of a
+// texture width, no distance counter, no camera arithmetic, no obstacle
 // recycling.
 //
 // What is left is: what art is in the background, how fast the player runs, how
@@ -13,6 +12,8 @@
 // The camera is what makes it a runner rather than a treadmill: it FOLLOWS the
 // player, every parallax layer reads it, and the rocks stand still in the world
 // while the view goes past them.
+//
+// Run it: `just example 05_endless_runner`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
@@ -33,19 +34,13 @@ constexpr unsigned ROCK = 1u << 2;
 constexpr float GROUND_TOP = 360; // where ground.png starts, and the floor with it
 
 // The end of a run, PUSHED on top of it: the world below freezes, stays on
-// screen -- distance counter and all -- and stops hearing the keyboard, so this
-// scene writes no policy at all.
-template <class Game> class OverScene : public rmp::Scene {
+// screen -- distance and all -- and stops hearing the keyboard, which is what
+// the scene stack does on its own. So this is only what it says and the way
+// out.
+class OverScene : public rmp::Scene {
 public:
     explicit OverScene(const char *said) : _said(said) {}
-
-    void _draw() override {
-        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-        rmp::ui::begin();
-        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-        if (rmp::ui::button("Play again")) rmp::Scene::change<Game>();
-        rmp::ui::end();
-    }
+    void _draw() override; // below RunnerScene, which it starts again
 
 private:
     const char *_said;
@@ -67,21 +62,20 @@ public:
         player.collision_layer = layer::PLAYER;
         player.collision_mask = layer::GROUND | layer::ROCK;
         player.add<rmp::behavior::Runner>({ .speed = 320, .accelerate = 6 });
-        // One rock is the whole of it. `hurt_by` is what makes the contact
-        // cost something -- without it this player ran through the scenery.
+        // One rock and it is over. `hurt_by` is what makes touching a rock
+        // cost something.
         player.add<rmp::behavior::Health>({
             .hp = 1,
             .invulnerable_for = 0,
             .destroy_on_death = false, // it stays on screen under the overlay
-            .on_death =
-                [](rmp::Object &) { rmp::Scene::push<OverScene<RunnerScene>>("Ouch"); },
+            .on_death = [](rmp::Object &) { rmp::Scene::push<OverScene>("Ouch"); },
             .hurt_by = layer::ROCK,
         });
         _player = player.handle();
 
-        // THE CAMERA IS THE GAME'S ONE LINE, and `limits` with a zero width is
-        // the second: follow the x, leave the y alone. A camera that followed
-        // the jump would take the ground and the sky up with it.
+        // The camera follows the runner, and `limits` keeps it level: a zero
+        // width leaves x free, and a height of exactly the view pins y. A camera
+        // that followed the jump would take the ground and the sky up with it.
         camera.follow = _player;
         camera.limits = { 0, 0, 0, RMP_WINDOW_HEIGHT };
         // And a little give: the camera catches up at a rate, so the runner
@@ -100,12 +94,11 @@ public:
     }
 
     void _draw() override {
+        // Ten world units to the metre.
+        const float distance = _player->get<rmp::behavior::Runner>()->distance();
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_CENTER });
-        rmp::ui::text(
-            TextFormat(
-                "%d m",
-                static_cast<int>(_player->get<rmp::behavior::Runner>()->distance() / 10)),
-            { .size = 40 });
+        rmp::ui::text(TextFormat("%d m", static_cast<int>(distance / 10)),
+                      { .size = 40 });
         rmp::ui::end();
     }
 
@@ -130,10 +123,9 @@ private:
         _ground = floor.handle();
     }
 
-    // ONE ROCK EVERY 520 UNITS TRAVELLED, not every N seconds -- which is the
-    // difference that matters once the speed is climbing. By time, the rocks
-    // spread further and further apart the faster you go and the game gets
-    // easier, which is the opposite of the intention.
+    // One rock every 520 units travelled, not every N seconds: by time, the
+    // rocks would spread further apart the faster you go, and the game would
+    // get easier as it speeds up.
     void add_rocks() {
         spawn().add<rmp::behavior::Spawner>({
             .every_distance = 520,
@@ -157,6 +149,14 @@ private:
     rmp::Handle<rmp::Object> _player;
     rmp::Handle<rmp::Object> _ground;
 };
+
+void OverScene::_draw() {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
+    rmp::ui::begin();
+    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+    if (rmp::ui::button("Play again")) rmp::Scene::change<RunnerScene>();
+    rmp::ui::end();
+}
 
 } // namespace
 
