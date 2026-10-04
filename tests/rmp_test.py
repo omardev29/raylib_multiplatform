@@ -1288,8 +1288,13 @@ class NewTest(unittest.TestCase):
         self.assertEqual(mine["android"]["application_id"], "com.example.space_rocks")
         self.assertEqual(mine["ios"]["bundle_id"], "com.example.space-rocks")
         self.assertNotEqual(mine["resources"]["rres_password"], base["resources"]["rres_password"])
+        # Ads are opt-in: the framework keeps them on so its Android job builds
+        # the ads path, and a game starts without the SDK, AD_ID and INTERNET.
+        self.assertIs(base["android"]["admob"]["enabled"], True)
+        self.assertIs(mine["android"]["admob"]["enabled"], False)
         for table in ("project", "window", "android", "ios", "resources"):
             mine[table] = dict(mine[table])
+        mine["android"]["admob"] = dict(mine["android"]["admob"], enabled=True)
         for key in ("name",):
             mine["project"][key] = base["project"][key]
         mine["window"]["title"] = base["window"]["title"]

@@ -397,10 +397,10 @@ Tag a release and the signed AAB is attached to it. CI verifies the signature wi
 asserts the signer is not the throwaway key, so a CI-signed bundle can never masquerade as a
 publishable one.
 
-**Ads are opt-in.** `[android.admob] enabled = false` removes AdMob from the build completely: no
-Google Mobile Ads dependency, no `AD_ID` permission, no SDK init at startup. Your code does not
-change — the `<admob.h>` calls stay compilable and do nothing, as they already do everywhere except
-Android. It switches itself off too when `android` is not in `[targets]`. Leave it off unless you
+**Ads are opt-in.** A game made with `rmp new` starts with `[android.admob] enabled = false`, which
+leaves AdMob out of the build completely: no Google Mobile Ads dependency, no `AD_ID` permission, no
+SDK init at startup. Your code does not change — the `rmp::ads` calls stay compilable and do nothing,
+as they already do everywhere except Android. It switches itself off too when `android` is not in `[targets]`. Leave it off unless you
 actually ship ads: the `AD_ID` permission alone obliges you to declare advertising-id collection in
 Play's **Data safety** form.
 

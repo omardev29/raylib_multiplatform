@@ -754,6 +754,34 @@ def setting(key: str):
     return lambda line: line.split("=", 1)[0].strip() == key and "=" in line
 
 
+def setting_in(section: str, key: str):
+    """A matcher for `key = ...` inside `[section]` only, for a key that more
+    than one table has -- `enabled` is in [targets], [upx] and [android.admob].
+    edit_lines() asks it about every line in order, so it can follow the
+    headers as it goes."""
+    state = {"section": ""}
+
+    def match(line: str) -> bool:
+        stripped = line.strip()
+        if stripped.startswith("[") and "]" in stripped:
+            state["section"] = stripped[1:stripped.index("]")].strip()
+            return False
+        return state["section"] == section and setting(key)(line)
+    return match
+
+
+def assign_raw(value: str):
+    """Replace an unquoted value -- `true`, a number -- keeping any comment."""
+    def replace(line: str) -> str:
+        head, rest = line.split("=", 1)
+        comment = rest[rest.index("#"):] if "#" in rest else ""
+        end = "\n" if line.endswith("\n") else ""
+        if comment:
+            return f"{head}= {value}  {comment.rstrip()}{end}"
+        return f"{head}= {value}{end}"
+    return replace
+
+
 def assign(value: str):
     """Replace the value of `key = "..."`, keeping the alignment and any comment."""
     def replace(line: str) -> str:
@@ -879,6 +907,10 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         # Obfuscation, as the .toml says -- and one shared password across
         # every game made from this framework would be less than that.
         (setting("rres_password"), assign(secrets_token())),
+        # Ads are opt-in. The framework keeps them on so its CI builds the ads
+        # path; a game starts without the SDK, AD_ID and INTERNET, and turns
+        # them on when it has an ad to show.
+        (setting_in("android.admob", "enabled"), assign_raw("false")),
     ])
     edit_lines(target / "THIRD_PARTY_LICENSES.md", [
         (lambda line: line.startswith("doctest "), lambda line: None),

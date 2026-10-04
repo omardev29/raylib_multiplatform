@@ -135,10 +135,14 @@ gyroscope     = false
 accelerometer = false
 
 [android.admob]
-# false removes AdMob completely: no Google Mobile Ads dependency, no AD_ID
-# permission, no SDK init at startup, and nothing to declare in Play's Data
-# safety form. Your code does not change — the rmp::ads calls (rmp/ads.h) stay
-# compilable and do nothing, exactly as they already do off Android.
+# Ads, and off unless you turn them on: a game made with `rmp new` starts with
+# false. (The framework's own .toml has true, so that its CI builds the ads
+# path.) true brings, on Android:
+#   - the Google Mobile Ads SDK in the APK, and MobileAds.initialize() at startup
+#   - the AD_ID permission, and INTERNET with it
+#   - an advertising-id declaration you owe Play's Data safety form
+# false builds none of that, and your code does not change: the rmp::ads calls
+# (rmp/ads.h) stay compilable and do nothing, exactly as they do off Android.
 #
 # It also turns itself off when "android" is not in [targets], however you
 # removed it: by name, or by leaving out a group like "mobile".

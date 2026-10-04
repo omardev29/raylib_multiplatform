@@ -1690,7 +1690,7 @@ Configuration is in `raylib_multiplatform.toml`:
 
 ```toml
 [android.admob]
-enabled         = true                   # false removes AdMob from the build entirely
+enabled         = true                   # off by default; a game made with rmp new has false
 app_id          = "ca-app-pub-...~..."   # AdMob application id (goes into the manifest)
 interstitial_id = "ca-app-pub-.../..."   # interstitial ad unit
 rewarded_id     = "ca-app-pub-.../..."   # rewarded ad unit

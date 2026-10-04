@@ -814,6 +814,25 @@ class ConfigureHelpersTest(unittest.TestCase):
         cfg["android"]["admob"]["enabled"] = False
         self.assertFalse(cfgmod.admob_on(cfg, ["android"]))
 
+    def test_admob_is_off_unless_a_game_turns_it_on(self):
+        """The README says ads are opt-in, and they were on: DEFAULTS and the
+        shipped .toml both said enabled = true, so every game made with
+        `rmp new` carried the Google Mobile Ads SDK, AD_ID and INTERNET and
+        owed Play a Data safety declaration for an ad it never showed."""
+        self.assertIs(cfgmod.DEFAULTS["android"]["admob"]["enabled"], False)
+        with quiet():
+            self.assertFalse(cfgmod.admob_on(base_config(), ["android"]))
+
+    def test_the_framework_keeps_it_on_so_its_android_job_builds_the_ads_path(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        section = text[text.index("\n[android.admob]"):]
+        section = section[:section.index("\n[", 1)]
+        self.assertRegex(section, r"\nenabled = true\n")
+        # And the comment above it says what turning it on brings.
+        for brings in ("Google Mobile Ads", "AD_ID", "INTERNET", "Data safety"):
+            with self.subTest(brings=brings):
+                self.assertIn(brings, section)
+
 
 class ConfigureRaylibFlagsTest(unittest.TestCase):
     """raylib_defs(): the complete set, or a feature silently turns itself off."""

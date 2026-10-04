@@ -427,7 +427,8 @@ DEFAULTS: dict = {
         # internet = false shipped an APK that asked for INTERNET anyway.
         "permissions": {"internet": False, "vibration": False},
         "features": {"gyroscope": False, "accelerometer": False},
-        "admob": {"enabled": True,
+        # Off: a game opts in. See the [android.admob] comment in the .toml.
+        "admob": {"enabled": False,
                   "app_id": "ca-app-pub-3940256099942544~3347511713",
                   "interstitial_id": "ca-app-pub-3940256099942544/1033173712",
                   "rewarded_id": "ca-app-pub-3940256099942544/5224354917"},
