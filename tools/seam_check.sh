@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fail if a file under src/rmp/ reads the clock, the input devices or the global
-# random state on its own.
+# Fail if a file under src/rmp/ or include/rmp/ reads the clock, the input
+# devices, the screen or the global random state on its own.
 #
 # WHY THIS EXISTS. Every headless test in this repository is possible because
 # the things that change between two runs — time, input, randomness — enter
@@ -8,12 +8,14 @@
 # wrong file is enough to make a test flaky, and a flaky test teaches everyone
 # to ignore the colour red. This is that rule, enforced.
 #
-# HOW IT IS ENFORCED. Not as "zero occurrences", because that would be a lie
-# today: the UI layer still reads several of these directly, and routing them
-# through the seam is phase 5's work, not something to fake now. So this is a
-# RATCHET. The files below are the ones that already do it; they are debt, they
-# are listed, and the list may only get shorter. Any OTHER file that starts
-# doing it fails the build.
+# HOW IT IS ENFORCED. Not as "zero occurrences": a seam has to touch the real
+# thing, and that is its job -- the game's clock in app.cpp, the devices in
+# input.cpp, the UI's own pointer, keys and clock (frame_time()) in
+# ui/context.cpp. And one file is still debt: the text field in
+# ui/controls.cpp reads the character queue, backspace and the clock for its
+# caret itself. So this is a RATCHET. The files below are the ones allowed, the
+# debt among them is marked, and the list may only get shorter. Any OTHER file
+# that starts doing it fails the build.
 #
 # It also checks a SECOND rule, added after it cost a link error: inside rmp::,
 # a raylib type whose name we have taken must be written with a leading `::`.
@@ -58,10 +60,9 @@ count_hits() { strip_comments "$1" | grep -cE "$PATTERN"; }
 #
 #   THE SEAM ITSELF — these are the functions a test replaces. They have to
 #   touch the real thing; that is their job.
-#   DEBT — the UI reads input and the clock directly here. It works because the
-#   layout test forces test mode, but it is not the seam and it is why the UI
-#   cannot be tested for behaviour, only for layout. Phase 5 (rmp::input) is
-#   where these move, and this list is how we notice if they do not.
+#   DEBT — a read that should go through a seam and does not yet, so a test
+#   cannot drive it without a window. The note below the list says why the
+#   UI's reads stay in the UI and not in rmp::input.
 ALLOWED=(
   "src/rmp/app.cpp"           # THE seam for the game's time: step_delta() is
                              # the one GetFrameTime() the game's code sees, and

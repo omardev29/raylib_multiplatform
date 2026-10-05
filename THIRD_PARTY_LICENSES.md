@@ -46,8 +46,9 @@ doctest                     thirdparty/doctest                                  
 raylib-ios                  thirdparty/raylib-ios                                   zlib                     -              no        ios       file
 angle                       ios/ANGLE-LICENSE.txt                                   BSD-3                    -              no        ios       file
 # What raylib bundles under src/external/. Statically linked into every binary
-# that uses the module they back; none of them is modified by us (raylib's
-# PATCHES.md says so), so they are recorded as raylib ships them.
+# that uses the module they back. One of them is modified by us, rlsw (a
+# backport of upstream's scissor fix, named in raylib's PATCHES.md), and its
+# row says yes; the rest are recorded as raylib ships them.
 glfw                        thirdparty/raylib/src/external/glfw                     zlib                     -              no        desktop   file
 RGFW                        thirdparty/raylib/src/external/RGFW                     zlib                     -              no        desktop   header
 RGFW.h                      thirdparty/raylib/src/external/RGFW.h                   zlib                     -              no        desktop   header

@@ -328,10 +328,12 @@ deployment_target = "15.6"
 #   CODE_SIGN_STYLE  = "Automatic"
 
 [icon]
-# One square PNG, 1024x1024 recommended. EVERY platform's icon comes out of this
-# one file: every Android density, the round variant, the adaptive foreground,
-# the Play Store asset, the iOS AppIcon, and the multi-resolution .ico that gets
-# embedded into the Windows .exe.
+# One square PNG, 1024x1024 recommended. The app icon on Android, iOS and
+# Windows comes out of this one file: every Android density, the round variant,
+# the adaptive foreground, the Play Store asset, the iOS AppIcon, and the
+# multi-resolution .ico that gets embedded into the Windows .exe. The other
+# targets ship a bare executable (macOS, Linux, the BSDs) or a page (web), with
+# no icon of their own to make from it.
 #
 # Deliberately NOT in resources/: everything in there is packed into
 # resources.rres and shipped with the game, and your launcher icon is a build
@@ -482,8 +484,10 @@ sfx    = 1.0
 #          on Linux and the BSDs. What installers and Steam Cloud expect.
 #   true   a saves/ folder next to the executable. What a zip from itch.io
 #          wants: delete the folder and the game is gone, saves included.
-#          Only Windows, Linux and the BSDs have such a place; macOS, Android,
-#          iOS and web ignore it. If the folder cannot be written (a portable
+#          Only Windows, Linux and FreeBSD have such a place; macOS, Android,
+#          iOS and web ignore it, and NetBSD and OpenBSD cannot say where the
+#          executable is, so there the saves go to the user's folder and the
+#          log says so once. If the folder cannot be written (a portable
 #          build copied into Program Files), the saves go to the user's
 #          folder instead and the log says so once -- never lost in silence:
 #          reads look in both folders and take the newer save.

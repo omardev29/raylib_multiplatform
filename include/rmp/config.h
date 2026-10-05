@@ -20,9 +20,10 @@
 //
 // It is the single exception to the rule in rmp/app.h that our headers include
 // none of our headers, and it earns it by measurement rather than by argument:
-// nothing but #defines, no includes of its own, 27 ms to parse against an
-// empty file's 28. The rule is there to stop compile time and coupling from
-// creeping in, and a leaf header below measurement noise does neither.
+// one include, of the generated file that holds the #defines and includes
+// nothing itself, 27 ms to parse against an empty file's 28. The rule is there
+// to stop compile time and coupling from creeping in, and a leaf header below
+// measurement noise does neither.
 //
 // The alternative would be making people remember an include whose only job is
 // to hand them a number the .toml already decided: a tax with nothing on the

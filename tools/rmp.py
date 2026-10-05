@@ -764,7 +764,7 @@ What is yours:
     src/scenes/      the game: a scene per screen, starting with the main menu
     include/         your headers, when the game has some
     resources/       the art, sounds, fonts and levels the game loads
-    branding/icon.png  the app icon on every platform
+    branding/icon.png  the app icon on Android, iOS and Windows
     {TOML}  the name, the app ids, the platforms
 
 `src/main.cpp` names the first scene with `RMP_GAME`, and the game is in

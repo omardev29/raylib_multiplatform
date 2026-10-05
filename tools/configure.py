@@ -1718,10 +1718,11 @@ APP_DEFINES = [
     ("RMP_AUDIO_MUSIC", "audio.music", _c_float),
     ("RMP_AUDIO_SFX", "audio.sfx", _c_float),
     "[save]. PORTABLE 1 keeps the saves in saves/ next to the executable\n"
-    "   (Windows, Linux and the BSDs; elsewhere there is no such place and it is\n"
-    "   ignored). ENCRYPT is the default for rmp::save::write(). VERSION is the\n"
-    "   version of the game's own save format, which rmp::Value::version() hands\n"
-    "   back on read so a migration can test it.",
+    "   (Windows, Linux and FreeBSD; elsewhere there is no such place and it is\n"
+    "   ignored -- on NetBSD and OpenBSD, which cannot say where the executable\n"
+    "   is, with a line in the log). ENCRYPT is the default for\n"
+    "   rmp::save::write(). VERSION is the version of the game's own save format,\n"
+    "   which rmp::Value::version() hands back on read so a migration can test it.",
     ("RMP_SAVE_PORTABLE", "save.portable", _c_bool),
     ("RMP_SAVE_ENCRYPT", "save.encrypt", _c_bool),
     ("RMP_SAVE_VERSION", "save.version", _c_int),

@@ -32,12 +32,13 @@
 //   3. If two headers end up needing each other, one of them should not exist.
 //
 // rmp/config.h IS THE ONE EXCEPTION, and it is in every public header of ours
-// rather than just this one. It costs nothing — nothing but #defines, no includes
-// of its own, 27 ms against an empty file's 28, which is below measurement noise —
-// and rule 1 exists for compile time and coupling, so a leaf header that costs
-// neither is not what the rule is aimed at. What it buys is that RMP_WINDOW_*
-// and the rest are simply THERE, in scenes and objects and everywhere else,
-// with nothing to remember. See rmp/config.h.
+// rather than just this one. It costs nothing — one include, of the generated
+// file of #defines, which includes nothing; 27 ms against an empty file's 28,
+// which is below measurement noise — and rule 1 exists for compile time and
+// coupling, so a leaf header that costs neither is not what the rule is aimed
+// at. What it buys is that RMP_WINDOW_* and the rest are simply THERE, in
+// scenes and objects and everywhere else, with nothing to remember. See
+// rmp/config.h.
 // ---------------------------------------------------------------------------
 
 #include <raylib.h> // GetFrameTime(), for the frame hook. raylib's, not ours.

@@ -2505,6 +2505,59 @@ class SmallTruthsTest(unittest.TestCase):
         self.assertNotIn("is the single", seam)
         self.assertNotIn('"src/rmp/ui/style.cpp"', seam)
 
+    @staticmethod
+    def toml_comment(table):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        body = text[text.index(f"\n[{table}]\n"):]
+        body = body[:body.index("\n[", 1)]
+        return re.sub(r"\s*\n#\s*", " ", body)
+
+    def test_portable_saves_name_the_bsds_that_cannot_have_them(self):
+        """[save] said a portable folder exists on "Windows, Linux and the
+        BSDs". raylib's GetApplicationDirectory() answers "" on NetBSD and
+        OpenBSD, and portable_folder() falls back to the user's folder there."""
+        save = (REPO / "src" / "rmp" / "save.cpp").read_text()
+        self.assertIn("this system does not say where the", save)
+        comment = self.toml_comment("save")
+        self.assertNotIn("Windows, Linux and the BSDs have", comment)
+        self.assertIn("NetBSD and OpenBSD cannot say where the executable is", comment)
+        generated = "\n".join(e for e in cfgmod.APP_DEFINES if isinstance(e, str))
+        self.assertNotIn("Windows, Linux and the BSDs", generated)
+
+    def test_the_icon_says_which_platforms_get_one(self):
+        """[icon] said EVERY platform's icon comes out of the one file, and a
+        new game's README said "the app icon on every platform".
+        generate_icons() makes Android's, the iOS AppIcon and the Windows .ico;
+        macOS, Linux, the BSDs and the web get none."""
+        configure = (REPO / "tools" / "configure.py").read_text()
+        body = configure[configure.index("def generate_icons("):]
+        body = body[:body.index("\ndef ", 1)]
+        for call in ("generate_ios_icon(", "generate_windows_icon(", '"raymob" / "app"'):
+            self.assertIn(call, body)
+        comment = self.toml_comment("icon")
+        self.assertNotRegex(comment, r"(?i)every platform")
+        self.assertIn("The app icon on Android, iOS and Windows", comment)
+        rmp_py = (REPO / "tools" / "rmp.py").read_text()
+        readme = rmp_py[rmp_py.index("def game_readme("):]
+        readme = readme[:readme.index("\ndef ", 1)]
+        self.assertNotIn("on every platform", readme)
+        self.assertIn("the app icon on Android, iOS and Windows", readme)
+
+    def test_the_seam_check_says_what_it_scans(self):
+        """Its first line said "a file under src/rmp/" while the scan has read
+        include/rmp/ too since the entry-point macros were found invisible to
+        it, and it called the UI's reads "phase 5's work", which phase 5 did
+        not take (the note under the list says why)."""
+        seam = (REPO / "tools" / "seam_check.sh").read_text()
+        scanned = re.findall(r"find (src/rmp include/rmp|src/rmp) ", seam)
+        self.assertTrue(scanned)
+        self.assertEqual(set(scanned), {"src/rmp include/rmp"})
+        header = re.sub(r"\s*\n#\s*", " ", seam[:seam.index("\nset -uo pipefail")])
+        start = header.index("Fail if")
+        first = header[start:header.index(".", start)]
+        self.assertIn("src/rmp/ or include/rmp/", first)
+        self.assertNotIn("phase 5", header)
+
 
 class ConfigureCombinationTest(unittest.TestCase):
     """Pairs of settings that are each valid and cannot both be honoured.
@@ -3857,6 +3910,41 @@ class LicenceGuardTest(unittest.TestCase):
                         self.assertIn(f"`{path.relative_to(owner).as_posix()}`", note)
                     self.assertIn("MODIFIED", note)
                     self.assertIn("|", note)  # a table of file/line/change/why
+
+    def test_a_comment_over_rows_names_every_modified_one_under_it(self):
+        """The comment over raylib's bundled libraries said none of them is
+        modified, three lines above rlsw's `yes`. A comment that heads a group
+        of rows and talks about modification names each modified row in it,
+        and says "none" only when none is."""
+        text = (REPO / "THIRD_PARTY_LICENSES.md").read_text()
+        block = text[text.index("```components"):]
+        block = block[:block.index("\n```\n", 1)]
+        groups, comment, after_rows = [], [], True
+        for line in block.splitlines()[1:]:
+            if line.lstrip().startswith("#"):
+                if line.split()[1:2] == ["name"] and "evidence" in line:
+                    continue  # the column header
+                if after_rows:
+                    groups.append((comment := [], rows := []))
+                    after_rows = False
+                comment.append(line.lstrip("# "))
+            elif line.strip():
+                after_rows = True
+                if groups:
+                    groups[-1][1].append(line.split())
+        checked = 0
+        for comment, rows in groups:
+            prose = " ".join(comment)
+            if "modified" not in prose:
+                continue
+            checked += 1
+            changed = [r[0] for r in rows if r[4] in ("yes", "subset")]
+            with self.subTest(comment=prose[:60]):
+                for name in changed:
+                    self.assertIn(name, prose)
+                if changed:
+                    self.assertNotRegex(prose, r"\bnone of them is modified\b")
+        self.assertGreater(checked, 0)
 
     def test_the_raylib_patch_sites_are_where_patches_md_says(self):
         # The mark is only a mark if it is true: every site PATCHES.md names
@@ -6548,6 +6636,20 @@ class OwnHeaderIncludeTest(unittest.TestCase):
         found = self.own_includes()
         self.assertNotIn("audio.h", found)
         self.assertNotIn("save.h", found)
+
+    def test_config_h_is_one_include_of_a_file_that_includes_nothing(self):
+        """What rmp/config.h and rmp/app.h say config.h costs: one include, of
+        the generated file of #defines, which includes nothing. They said "no
+        includes of its own", over the one include config.h has."""
+        text = (REPO / "include" / "rmp" / "config.h").read_text()
+        includes = re.findall(r"(?m)^\s*#\s*include\s*(\S+)", text)
+        self.assertEqual(includes, ["<rmp/generated/config.h>"])
+        with generated_header(base_config()) as header:
+            self.assertNotRegex(header, r"(?m)^\s*#\s*include")
+        for name in ("config.h", "app.h"):
+            with self.subTest(header=name):
+                prose = re.sub(r"\s*\n//\s*", " ", (REPO / "include" / "rmp" / name).read_text())
+                self.assertNotIn("no includes of its own", prose)
 
 
 
