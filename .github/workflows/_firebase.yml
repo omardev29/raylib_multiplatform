@@ -1,4 +1,6 @@
-# Run the Android build on a REAL device via Firebase Test Lab.
+# Run the Android build in Firebase Test Lab: by default on MediumPhone.arm, one
+# of Test Lab's Arm virtual devices (an emulator Google runs, with the GPU
+# accelerated); a physical model in [deploy.firebase] device runs it on a phone.
 #
 # Reusable (`workflow_call`) — called from ci.yml after the Android job.
 #
@@ -41,7 +43,7 @@ permissions:
 
 jobs:
   robo:
-    name: Real device — Android
+    name: Firebase Test Lab — Android
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # No job-level continue-on-error. "No GCP account must not turn the
@@ -77,7 +79,7 @@ jobs:
           name: android-debug-apk
           path: apk
 
-      - name: Robo test on a real device
+      - name: Robo test in Firebase Test Lab
         id: run
         if: steps.cfg.outputs.ok == 'true' && steps.dl.outcome == 'success'
         env:
@@ -121,7 +123,7 @@ jobs:
 
           # --type robo explores the app on its own with no test code. For a
           # game it will not discover much, but it does establish the thing that
-          # matters here: that it starts on real hardware without crashing.
+          # matters here: that it starts on the device without crashing.
           RC=0
           # shellcheck disable=SC2086
           gcloud firebase test android run \

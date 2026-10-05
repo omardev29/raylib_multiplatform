@@ -557,7 +557,9 @@ user = ""
 game = ""
 
 [deploy.firebase]
-# Runs the debug APK on real hardware. Needs the GCP_SA_KEY secret and a Blaze
-# billing account. Empty = skip.
+# Runs the debug APK in Firebase Test Lab. The default device, MediumPhone.arm, is
+# one of Test Lab's Arm virtual devices; a physical model (gcloud firebase test
+# android models list --filter=physical) runs it on a phone. Needs the GCP_SA_KEY
+# secret and a Blaze billing account. Empty = skip.
 project_id = ""
 device     = "model=MediumPhone.arm,version=33,locale=en,orientation=portrait"

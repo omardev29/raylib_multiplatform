@@ -294,7 +294,7 @@ void after_ready() {
     // whose profile path once made every save throw, is tested at all. It runs
     // on every target CI boots: the desktops, the BSDs and the web. iOS
     // (the hosted simulator does not boot) and Android (Firebase's Robo test
-    // only proves it starts on real hardware, with no log to read) are not
+    // only proves it starts in Test Lab, with no log to read) are not
     // booted with it -- see "What is tested" in TECHNICAL.md's rmp::save chapter.
     // RAY_TEST_SAVE=1 asks for it without a frame budget: it is how the web
     // boot test gets it (cmake/web/rmp_web.js sets it from the page's URL).

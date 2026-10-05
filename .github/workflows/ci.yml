@@ -746,7 +746,7 @@ jobs:
       project_name: ${{ needs.config.outputs.project_name }}
       matrix: ${{ needs.config.outputs.bsd_matrix }}
 
-  # Optional: runs the debug APK on real hardware. Skips with a warning when
+  # Optional: runs the debug APK in Firebase Test Lab. Skips with a warning when
   # vars.FIREBASE_PROJECT / secrets.GCP_SA_KEY are absent, which is the default.
   firebase:
     needs: [config, android]

@@ -702,7 +702,7 @@ does it: Windows (with `%APPDATA%` set to a folder called "José Müller"), macO
 musl and DRM, the three BSDs, every example, and the web, whose boot test opens the page with
 `?ray_test_save=1` and requires the save to have gone through IndexedDB. **Two families are not
 covered at run time:** iOS, because the hosted simulator does not boot and the job only builds;
-and Android, because the Firebase job is a Robo crawl on real hardware that proves the app starts
+and Android, because the Firebase job is a Robo crawl in Test Lab that proves the app starts
 and does not crash, with no log to read a marker from. Their folder code (Application Support,
 internal storage) is only reviewed, not run. Nor does any job check that a web save survives a
 real page reload.
@@ -1165,7 +1165,7 @@ is listed, with the reason, in `tools/sanitize_ignore.txt`.
 
 > **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
 > format-checked but never run — there is no runner or emulator for them here. Android is built
-> and can optionally be smoke-run on real hardware via Firebase Test Lab (below). iOS is built
+> and can optionally be smoke-run in Firebase Test Lab (below). iOS is built
 > and statically verified (the app bundle must contain a readable `CFBundleIdentifier` and its
 > `resources/` folder) but not executed, because the hosted simulator does not boot reliably.
 > **Test your actual game on each platform you ship.**
@@ -1206,11 +1206,12 @@ Two details that are easy to get wrong and are handled for you:
   would be untagged downloads on a storefront with no BSD audience. They are still attached to
   the GitHub Release.
 
-### Firebase Test Lab (real Android hardware)
+### Firebase Test Lab
 
 An emulator inside an unaccelerated runner is slow and fails for reasons unrelated to your
-game. Test Lab runs the actual APK on actual hardware, which is the one thing CI cannot
-otherwise check.
+game. Test Lab runs the actual APK on one of Google's devices -- by default MediumPhone.arm, an
+Arm virtual device with GPU acceleration; a physical model in `[deploy.firebase] device` puts it on
+a phone -- which is the one thing CI cannot otherwise check.
 
 | Key | Where |
 |---|---|
