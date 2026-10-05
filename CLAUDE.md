@@ -181,7 +181,9 @@ here so that nobody "fixes" one back.
   147, `<string_view>` 77).
 - **`rmp/config.h` is in every public header, and the user never types it.**
   It is the one exception to the rule above, and it earns it by measurement:
-  twenty `#define`s (the generated config grows with the `.toml`), no includes of its own, 27 ms against an empty file's 28. `tools/header_check.sh` compiles every
+  one include -- `rmp/generated/config.h`, the `#define`s the `.toml` hands the
+  code, which includes nothing -- and 27 ms against an empty file's 28.
+  `tools/header_check.sh` compiles every
   `include/rmp/*.h` on its own against `RMP_WINDOW_WIDTH`, so a new header that
   forgets it fails the build instead of handing somebody an undefined macro.
 - **An invalid `.toml` has to fail in `configure.py`, in second one, and say
@@ -208,7 +210,9 @@ here so that nobody "fixes" one back.
     leaves out. Renaming is cheap while nobody has scripts pinned to the old
     ones, and it stops being cheap later.
   - **The CI jobs carry the same names**, minus the `linux-` that the workflow
-    file already says: `x64`, `arm64`, `musl-x64`, `riscv64`, `drm`. A job
+    file already says: `x64`, `arm64`, `musl-x64`, `riscv64`, `drm-x64`,
+    `drm-arm64`, and `-run` after the ones a second job boots in a container
+    (`musl-x64-run`, `drm-x64-run`). A job
     called `musl` when the target is `linux-x64-musl` is a name that has to be
     translated every time somebody reads a red run, and the arch it leaves out
     is the one thing you want to know when a second musl target appears. The
