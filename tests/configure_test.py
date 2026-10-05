@@ -2985,11 +2985,13 @@ class ConfigureGlibcFloorTest(unittest.TestCase):
         toolchain against Ubuntu 24.04's glibc, never through
         tools/linux_build.sh, and nothing looked at the floor it ended up with
         -- while the .toml said the floor was every Linux binary's. Each glibc
-        job now either gates the floor or prints the one it has."""
+        job now gates a floor -- [linux] glibc's, or riscv64's own -- or prints
+        the one it has."""
         jobs = self.linux_jobs()
         gated = {"x64", "arm64"}
-        reported = {"riscv64", "drm-x64", "drm-arm64"}
-        for job in gated | reported:
+        own_floor = {"riscv64"}
+        reported = {"drm-x64", "drm-arm64"}
+        for job in gated | own_floor | reported:
             with self.subTest(job=job):
                 self.assertIn(job, jobs)
                 body = jobs[job]
@@ -2997,8 +2999,27 @@ class ConfigureGlibcFloorTest(unittest.TestCase):
                 if job in gated:
                     self.assertIn("tools/linux_build.sh", body)
                     self.assertNotRegex(body, r"glibc_check\.sh [^\n]* report")
+                elif job in own_floor:
+                    self.assertRegex(body, r"glibc_check\.sh [^\n]* \d+\.\d+\n")
                 else:
                     self.assertRegex(body, r"glibc_check\.sh [^\n]* report")
+
+    def test_the_toml_says_the_floor_riscv64_is_held_to(self):
+        """linux-riscv64-glibc is cross-compiled against Ubuntu 24.04's riscv64
+        glibc, so [linux] glibc does not reach it, and the .toml said only that
+        its floor is "the build machine's glibc" -- which is 2.39, while the
+        binary needs 2.38 (__isoc23_strtol). The job holds the binary to a
+        number, and that number is the one the .toml's note gives."""
+        body = self.linux_jobs()["riscv64"]
+        held = re.search(r"glibc_check\.sh build/\$\{\{ inputs\.project_name \}\} "
+                         r"(\d+\.\d+)\n", body)
+        self.assertIsNotNone(held, "the riscv64 job does not hold the binary to a floor")
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        linux = text[text.index("\n[linux]"):]
+        note = linux[linux.index("# glibc"):linux.index("\nglibc ")]
+        sentence = re.sub(r"\s*\n#\s*", " ", note)
+        self.assertRegex(sentence, rf"linux-riscv64-glibc is [^;]*\bneeds glibc "
+                                   rf"{re.escape(held[1])} or newer")
 
     def test_the_toml_says_which_targets_the_floor_reaches(self):
         text = (REPO / "raylib_multiplatform.toml").read_text()

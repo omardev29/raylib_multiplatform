@@ -288,10 +288,14 @@ wayland = false
 #
 #        It reaches linux-x64-glibc and linux-arm64-glibc: those are built by
 #        tools/linux_build.sh, and tools/glibc_check.sh fails the build if the
-#        binary asks for more. linux-riscv64-glibc is cross-compiled with the
-#        distribution's GNU toolchain, and the DRM targets link the
-#        distribution's libdrm, gbm and EGL directly; their floor is the build
-#        machine's glibc, and their jobs print it.
+#        binary asks for more. Two kinds of target it does not reach:
+#        linux-riscv64-glibc is cross-compiled with the distribution's GNU
+#        toolchain against Ubuntu 24.04's glibc, and needs glibc 2.38 or newer
+#        (Ubuntu 24.04, Debian 13 and Fedora 39 have it; Debian 12 and Ubuntu
+#        22.04 do not); its job fails if that grows.
+#        The DRM targets link the distribution's libdrm, gbm and EGL
+#        directly; their floor is the build machine's glibc, and their jobs
+#        print it.
 glibc   = "2.28"
 
 [windows]

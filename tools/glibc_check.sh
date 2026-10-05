@@ -17,15 +17,16 @@
 # a rewrite. See tools/linux_build.sh.
 #
 # WHAT IT GATES is linux-x64-glibc and linux-arm64-glibc, the two that
-# tools/linux_build.sh builds with zig against the floor. Two kinds of target
-# it reports on instead, with `report`, so the number is in every run's log:
+# tools/linux_build.sh builds with zig against the floor, and
+# linux-riscv64-glibc against a floor of its own:
 #
 # linux-riscv64-glibc is cross-compiled with the image's riscv64 GNU toolchain
 # against the distribution's riscv64 glibc -- Ubuntu 24.04's -- and not with
-# zig, so its floor is that glibc's. It has no runner to boot on either; the
-# report is all there is to see.
+# zig, so [linux] glibc does not reach it. What it needs is 2.38, and its job
+# passes that number in explicitly: the .toml's [linux] glibc note says it, and
+# tests/configure_test.py holds the note and the job to the same number.
 #
-# DRM cannot be gated at all. Every other Linux binary we ship
+# DRM cannot be gated at all; it is reported, with `report`. Every other Linux binary we ship
 # either dlopens its windowing system (GLFW resolves X11 at runtime, so nothing
 # X11 is on the link line) or has none, which is what lets zig link it against
 # an old glibc stub set. The DRM binary links libdrm, libgbm, libEGL and
@@ -53,9 +54,11 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BINARY="${1:?usage: glibc_check.sh <binary> [max-version]}"
 WANT="${2:-}"
 REPORT=0
+FROM="the floor this target is held to is"
 if [ "$WANT" = "report" ]; then REPORT=1; WANT=""; fi
 if [ "$REPORT" -eq 0 ] && [ -z "$WANT" ]; then
   WANT=$(python3 tools/configure.py --print-glibc 2>/dev/null || true)
+  FROM="[linux] glibc says"
 fi
 
 [ -f "$BINARY" ] || { echo "FAIL: $BINARY does not exist"; exit 1; }
@@ -83,7 +86,7 @@ if [ "$REPORT" -eq 1 ]; then
   echo "  info  this binary needs glibc $HIGHEST or newer"
   echo "        Not a gate: [linux] glibc does not reach this target, and its"
   echo "        floor is the build machine's. See the note at the top of"
-  echo "        tools/glibc_check.sh for why (riscv64, DRM)."
+  echo "        tools/glibc_check.sh for why (DRM)."
   exit 0
 fi
 
@@ -94,7 +97,7 @@ if [ "$NEWER" = "$WANT" ] || [ "$HIGHEST" = "$WANT" ]; then
   exit 0
 fi
 
-echo "  FAIL  $BINARY needs glibc $HIGHEST, and [linux] glibc says $WANT"
+echo "  FAIL  $BINARY needs glibc $HIGHEST, and $FROM $WANT"
 echo
 echo "        The symbols asking for it:"
 # Version-aware, not string-aware: "GLIBC_2.9" > "GLIBC_2.38" as strings, which
@@ -111,5 +114,10 @@ objdump -T "$BINARY" 2>/dev/null | grep "(GLIBC_" \
 echo
 echo "        This binary will not start on anything older, with"
 echo "        \"version GLIBC_$HIGHEST not found\" and nothing else."
-echo "        Build it with tools/linux_build.sh, or lower the floor."
+if [ "$FROM" = "[linux] glibc says" ]; then
+  echo "        Build it with tools/linux_build.sh, or lower the floor."
+else
+  echo "        The floor is the one the job passes in and the .toml's [linux]"
+  echo "        glibc note names: raise both, or find what asks for more."
+fi
 exit 1
