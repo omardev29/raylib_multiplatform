@@ -155,10 +155,10 @@ for path in sources:
 
 if fails:
     print()
-    print(f"FALLA: {fails} line(s). When A succeeds and B fails, C runs as well, so")
-    print("       the error branch fires on the success path. Write it as")
-    print("         if A; then B; else C; fi      or      A || { C; exit 1; }")
-    print(f"       If one is genuinely right, say so with a `# {ALLOW_MARKER} <why>` comment.")
+    print(f"FAIL: {fails} line(s). When A succeeds and B fails, C runs as well, so")
+    print("      the error branch fires on the success path. Write it as")
+    print("        if A; then B; else C; fi      or      A || { C; exit 1; }")
+    print(f"      If one is genuinely right, say so with a `# {ALLOW_MARKER} <why>` comment.")
     sys.exit(1)
 print(f"  ok    no `A && B || C` in {scanned} file(s)")
 PY

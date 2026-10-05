@@ -45,7 +45,7 @@ db = json.loads(pathlib.Path("build/lint/compile_commands.json").read_text())
 known = {str(pathlib.Path(e["directory"], e["file"]).resolve()) for e in db}
 missing = [f for f in sys.argv[1:] if str(pathlib.Path(f).resolve()) not in known]
 if missing:
-    print("FALLA: no compile command for these, so clang-tidy would guess their flags:")
+    print("FAIL: no compile command for these, so clang-tidy would guess their flags:")
     for f in missing:
         print(f"  {f}")
     sys.exit(1)
@@ -64,6 +64,6 @@ fi
 if printf '%s\n' "${files[@]}" | xargs -P "$jobs" -n 4 clang-tidy -p build/lint --quiet --warnings-as-errors='*'; then
     echo "  ok    no warnings"
 else
-    echo "FALLA: clang-tidy has warnings above"
+    echo "FAIL: clang-tidy has warnings above"
     exit 1
 fi

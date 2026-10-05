@@ -68,15 +68,15 @@ echo "  $expected examples with an entry point, $headers header-only"
 mkdir -p "$BUILD"
 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPRODUCTION_BUILD=OFF \
       -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON > "$BUILD.configure.log" 2>&1 \
-  || { cat "$BUILD.configure.log"; echo "FALLA: the examples did not configure"; exit 1; }
+  || { cat "$BUILD.configure.log"; echo "FAIL: the examples did not configure"; exit 1; }
 cmake --build "$BUILD" > "$BUILD.build.log" 2>&1 \
-  || { tail -60 "$BUILD.build.log"; echo "FALLA: an example did not build"; exit 1; }
+  || { tail -60 "$BUILD.build.log"; echo "FAIL: an example did not build"; exit 1; }
 
 targets=$(cat "$BUILD/example_targets.txt")
 made=$(printf '%s\n' "$targets" | grep -c . || true)
 if [ "$made" -ne $((expected + headers)) ]; then
-  echo "FALLA: $made example targets were configured for $expected + $headers example directories."
-  echo "       The glob in CMakeLists.txt (RMP_BUILD_EXAMPLES) no longer matches the tree."
+  echo "FAIL: $made example targets were configured for $expected + $headers example directories."
+  echo "      The glob in CMakeLists.txt (RMP_BUILD_EXAMPLES) no longer matches the tree."
   exit 1
 fi
 echo "  ok    $made targets built"
@@ -117,11 +117,11 @@ done
 
 # The header-only ones are the only ones not booted.
 if [ "$ran" -ne "$expected" ]; then
-  echo "FALLA: booted $ran examples, expected $expected. Something was skipped."
+  echo "FAIL: booted $ran examples, expected $expected. Something was skipped."
   exit 1
 fi
 if [ "$failed" -ne 0 ]; then
-  echo "FALLA: $failed example(s) did not boot, draw and exit. Screenshots of the ones that did: $SHOTS/"
+  echo "FAIL: $failed example(s) did not boot, draw and exit. Screenshots of the ones that did: $SHOTS/"
   exit 1
 fi
 echo "PASS: $ran examples booted, drew and exited; screenshots in $SHOTS/"
@@ -133,7 +133,7 @@ echo "PASS: $ran examples booted, drew and exited; screenshots in $SHOTS/"
 # file for why each one is there.
 echo "== examples: the platformer, played =="
 if [ ! -x "$BUILD/platformer_play" ]; then
-  echo "FALLA: $BUILD/platformer_play was not built (CMakeLists.txt, RMP_BUILD_EXAMPLES)"
+  echo "FAIL: $BUILD/platformer_play was not built (CMakeLists.txt, RMP_BUILD_EXAMPLES)"
   exit 1
 fi
 status=0
@@ -141,7 +141,7 @@ out=$($LIMIT "$BUILD/platformer_play" 2>&1) || status=$?
 printf '%s\n' "$out" | grep '^PLAY' | sed 's/^/  /'
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^PLAY PASS$'; then
   printf '%s\n' "$out" | tail -15 | sed 's/^/          /'
-  echo "FALLA: the platformer could not be played to the end (exit $status)"
+  echo "FAIL: the platformer could not be played to the end (exit $status)"
   exit 1
 fi
 echo "PASS: the platformer was won at 60 and 240 Hz, lost, and started again"
@@ -151,7 +151,7 @@ echo "PASS: the platformer was won at 60 and 240 Hz, lost, and started again"
 # (RMP_GAME). Each press has to be seen, and seen once. See tests/input_play.cpp.
 echo "== examples: the input, read both ways =="
 if [ ! -x "$BUILD/input_play" ]; then
-  echo "FALLA: $BUILD/input_play was not built (CMakeLists.txt, RMP_BUILD_EXAMPLES)"
+  echo "FAIL: $BUILD/input_play was not built (CMakeLists.txt, RMP_BUILD_EXAMPLES)"
   exit 1
 fi
 status=0
@@ -159,7 +159,7 @@ out=$($LIMIT "$BUILD/input_play" 2>&1) || status=$?
 printf '%s\n' "$out" | grep '^INPUT' | sed 's/^/  /'
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^INPUT PASS$'; then
   printf '%s\n' "$out" | tail -15 | sed 's/^/          /'
-  echo "FALLA: rmp::input missed a press, or saw one twice (exit $status)"
+  echo "FAIL: rmp::input missed a press, or saw one twice (exit $status)"
   exit 1
 fi
 echo "PASS: a press is seen once, by a game's own hook and by a scene"

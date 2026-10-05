@@ -49,9 +49,9 @@ cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON \
       -DRMP_DEV_TOOLCHAIN=OFF -DCMAKE_C_COMPILER="$CC_PICK" -DCMAKE_CXX_COMPILER="$CXX_PICK" \
       -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_CXX_FLAGS="$FLAGS" \
       -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" > "$BUILD.configure.log" 2>&1 \
-  || { tail -40 "$BUILD.configure.log"; echo "FALLA: the sanitized build did not configure"; exit 1; }
+  || { tail -40 "$BUILD.configure.log"; echo "FAIL: the sanitized build did not configure"; exit 1; }
 cmake --build "$BUILD" --target unit_test > "$BUILD.build.log" 2>&1 \
-  || { tail -60 "$BUILD.build.log"; echo "FALLA: the sanitized unit tests did not build"; exit 1; }
+  || { tail -60 "$BUILD.build.log"; echo "FAIL: the sanitized unit tests did not build"; exit 1; }
 
 # halt_on_error and -fno-sanitize-recover make the first report end the run
 # with a non-zero status; the summary line is checked as well, because a run
@@ -63,7 +63,7 @@ status=0
 out=$("$BUILD/unit_test" --test-suite-exclude="audio: device" 2>&1) || status=$?
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q 'Status: SUCCESS'; then
   printf '%s\n' "$out" | grep -E 'runtime error|ERROR: AddressSanitizer|ERROR: LeakSanitizer|SUMMARY|#[0-9]+ |Status|ERROR:' | head -60
-  echo "FALLA: the unit tests are not clean under ASan and UBSan (exit $status)"
+  echo "FAIL: the unit tests are not clean under ASan and UBSan (exit $status)"
   exit 1
 fi
 printf '%s\n' "$out" | grep -E '^\[doctest\] test cases' | sed 's/^/  /'

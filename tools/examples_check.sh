@@ -28,8 +28,8 @@ OPT_OUT="examples/plain_c/src/main.c"
 FAILED=0
 
 fail() {
-  echo "FALLA: $1"
-  echo "       $2"
+  echo "FAIL: $1"
+  echo "      $2"
   FAILED=1
 }
 

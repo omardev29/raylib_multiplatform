@@ -38,10 +38,10 @@ try:
     import yaml
 except ImportError:
     if IN_IMAGE:
-        print("FALLA: PyYAML is missing INSIDE the build image, so this check cannot run.")
-        print("       It is the only thing that catches a reusable workflow asking for a")
-        print("       permission its caller does not grant -- which GitHub answers with a")
-        print("       run that has zero jobs and no logs. Add python3-yaml to the image.")
+        print("FAIL: PyYAML is missing INSIDE the build image, so this check cannot run.")
+        print("      It is the only thing that catches a reusable workflow asking for a")
+        print("      permission its caller does not grant -- which GitHub answers with a")
+        print("      run that has zero jobs and no logs. Add python3-yaml to the image.")
         sys.exit(1)
     print("  skip  PyYAML not installed (install it, or run this inside the build image)")
     sys.exit(0)
@@ -158,8 +158,8 @@ for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
 
 if fails:
     print()
-    print(f"FALLA: {fails} problem(s), each one something GitHub reports late: a")
-    print("       startup failure has zero jobs and no logs to read afterwards.")
+    print(f"FAIL: {fails} problem(s), each one something GitHub reports late: a")
+    print("      startup failure has zero jobs and no logs to read afterwards.")
     sys.exit(1)
 print(f"  ok    {checked} reusable-workflow call(s): permissions, inputs and secrets agree")
 print(f"  ok    {pwsh_steps} pwsh step(s) that expect a failure end with exit 0")

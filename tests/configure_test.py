@@ -5771,7 +5771,7 @@ class ShellPatternCheckTest(unittest.TestCase):
     def test_the_guard_shape_is_allowed(self):
         """`cmd || { echo ...; exit 1; }` has no `&&`, which is the whole
         reason it is the shape to reach for."""
-        got = self.run_on('make_it || { echo "FALLA: no"; exit 1; }',
+        got = self.run_on('make_it || { echo "FAIL: no"; exit 1; }',
                           'if make_it; then echo ok; else echo no; exit 1; fi')
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
 
@@ -6139,7 +6139,7 @@ jobs:
         skip and a failure is the difference between a gate and a habit."""
         text = (REPO / "tools" / "workflow_check.sh").read_text()
         self.assertIn("/etc/raylib-build-image.json", text)
-        self.assertIn("FALLA: PyYAML is missing INSIDE the build image", text)
+        self.assertIn("FAIL: PyYAML is missing INSIDE the build image", text)
 
 
 class PwshStepEndsWithZeroTest(unittest.TestCase):

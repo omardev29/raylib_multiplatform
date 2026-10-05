@@ -168,9 +168,9 @@ done
 
 if [ "$fails" -ne 0 ]; then
   echo
-  echo "FALLA: $fails file(s). Time, input and randomness enter through a seam so that"
-  echo "       tests can replace them. Use the delta you were given, rmp::input, or"
-  echo "       rmp::random — see next_architecture/12-testing.md."
+  echo "FAIL: $fails file(s). Time, input and randomness enter through a seam so that"
+  echo "      tests can replace them. Use the delta you were given, rmp::input, or"
+  echo "      rmp::random — see next_architecture/12-testing.md."
   exit 1
 fi
 echo "  ok    the seam holds in $scanned file(s) (${#ALLOWED[@]} known exceptions, all still needed)"
@@ -203,9 +203,9 @@ done < <(grep -rnE "(^|[^:_[:alnum:]])($SHADOWED) +\*?[a-zA-Z_][a-zA-Z_0-9]*" \
 
 if [ "$shadow_fails" -ne 0 ]; then
   echo
-  echo "FALLA: inside rmp::, write ::Image, ::Font, ::Sound, ::Music or ::Shader when you"
-  echo "       mean raylib's. The unqualified name is ours, and which one a header means"
-  echo "       depends on what the .cpp including it happened to include first."
+  echo "FAIL: inside rmp::, write ::Image, ::Font, ::Sound, ::Music or ::Shader when you"
+  echo "      mean raylib's. The unqualified name is ours, and which one a header means"
+  echo "      depends on what the .cpp including it happened to include first."
   exit 1
 fi
 echo "  ok    no shadowed raylib type is written without ::"

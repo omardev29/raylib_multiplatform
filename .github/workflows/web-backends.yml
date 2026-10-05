@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -q "WEB BACKEND" configure.log || {
-            echo "FALLA: no WEB BACKEND line in the configure output"; exit 1; }
+            echo "FAIL: no WEB BACKEND line in the configure output"; exit 1; }
           grep "WEB BACKEND" configure.log
 
       - name: Build
@@ -113,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           DB=build/web/compile_commands.json
-          test -f "$DB" || { echo "FALLA: no $DB"; exit 1; }
+          test -f "$DB" || { echo "FAIL: no $DB"; exit 1; }
           CMD=$(python3 - "$DB" <<'PY'
           import json, sys
           db = json.load(open(sys.argv[1]))
@@ -127,15 +127,15 @@ jobs:
           )
           echo "$CMD" | tr ' ' '\n' | grep -E '^-D(PLATFORM|GRAPHICS)' | sort || true
           if ! echo "$CMD" | grep -q -- "-D${{ matrix.expect_define }}"; then
-            echo "FALLA: rcore.c was not compiled with -D${{ matrix.expect_define }}"
-            echo "       [web] backend = ${{ matrix.backend }} did not reach raylib."
+            echo "FAIL: rcore.c was not compiled with -D${{ matrix.expect_define }}"
+            echo "      [web] backend = ${{ matrix.backend }} did not reach raylib."
             exit 1
           fi
           # And that it is not compiled with a SECOND platform define, which is
           # how a stale cache announces itself.
           COUNT=$(echo "$CMD" | tr ' ' '\n' | grep -cE '^-DPLATFORM_(WEB|DESKTOP|DRM|ANDROID|MEMORY)' || true)
           if [ "$COUNT" -ne 1 ]; then
-            echo "FALLA: $COUNT platform defines on rcore.c, expected exactly 1"; exit 1
+            echo "FAIL: $COUNT platform defines on rcore.c, expected exactly 1"; exit 1
           fi
           echo "  ok    -D${{ matrix.expect_define }}, and it is the only one"
 
@@ -147,15 +147,15 @@ jobs:
           set -euo pipefail
           NAME=$(python3 tools/configure.py --print-name)
           JS="build/web/${NAME}.js"
-          test -s "$JS" || { echo "FALLA: no $JS"; exit 1; }
+          test -s "$JS" || { echo "FAIL: no $JS"; exit 1; }
           if grep -qE '_glfw|GLFW_' "$JS"; then FOUND=yes; else FOUND=no; fi
           echo "  GLFW symbols in the glue: $FOUND (expected ${{ matrix.expect_glfw }})"
           if [ "$FOUND" != "${{ matrix.expect_glfw }}" ]; then
-            echo "FALLA: expected the GLFW shim to be ${{ matrix.expect_glfw }}."
+            echo "FAIL: expected the GLFW shim to be ${{ matrix.expect_glfw }}."
             if [ "${{ matrix.expect_glfw }}" = "no" ]; then
-              echo "       backend = ${{ matrix.backend }} is supposed to talk to the"
-              echo "       browser without it, so linking it means -sUSE_GLFW=3 is"
-              echo "       still being passed — see RMP_WEB_GLFW_FLAG in CMakeLists.txt."
+              echo "      backend = ${{ matrix.backend }} is supposed to talk to the"
+              echo "      browser without it, so linking it means -sUSE_GLFW=3 is"
+              echo "      still being passed — see RMP_WEB_GLFW_FLAG in CMakeLists.txt."
             fi
             exit 1
           fi

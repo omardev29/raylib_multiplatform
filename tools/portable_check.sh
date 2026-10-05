@@ -231,9 +231,9 @@ fi
 
 if [ "$fails" -ne 0 ]; then
     echo
-    echo "FALLA: $fails rule(s). These scripts are what a new contributor runs first,"
-    echo "       and this framework ships for macOS and three BSDs — so they have to"
-    echo "       work there. CI will not tell you: the Linux jobs have GNU everything."
+    echo "FAIL: $fails rule(s). These scripts are what a new contributor runs first,"
+    echo "      and this framework ships for macOS and three BSDs — so they have to"
+    echo "      work there. CI will not tell you: the Linux jobs have GNU everything."
     exit 1
 fi
 echo "  ok    the scripts avoid $((9)) GNU-only and bash-4 constructs"

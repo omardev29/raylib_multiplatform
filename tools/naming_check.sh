@@ -328,8 +328,8 @@ if report:
     sys.exit(0)
 if fails:
     print()
-    print(f"FALLA: {fails} name(s) break the naming rules. CLAUDE.md, \"Naming\", says")
-    print("       what to write instead and why.")
+    print(f"FAIL: {fails} name(s) break the naming rules. CLAUDE.md, \"Naming\", says")
+    print("      what to write instead and why.")
     sys.exit(1)
 print(f"  ok    names follow the convention in {len(files)} file(s) "
       f"(rules: {' '.join(sorted(rules))})")

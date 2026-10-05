@@ -42,10 +42,10 @@ while IFS= read -r pat; do
   HITS=$(git ls-files | grep -E "$pat" || true)
   if [ -n "$HITS" ]; then
     if [ "$FOUND" -eq 0 ]; then
-      echo "FALLA: the repository tracks files that a build produces."
-      echo "       Take them out with \`git rm -r --cached <path>\` and add the"
-      echo "       name to .gitignore. If one of these is genuinely a source"
-      echo "       file, narrow the pattern in tools/repo_check.sh and say why."
+      echo "FAIL: the repository tracks files that a build produces."
+      echo "      Take them out with \`git rm -r --cached <path>\` and add the"
+      echo "      name to .gitignore. If one of these is genuinely a source"
+      echo "      file, narrow the pattern in tools/repo_check.sh and say why."
       echo
     fi
     echo "  pattern $pat"
@@ -64,9 +64,9 @@ EOF
 # the rule is wrong. Both need a person, and neither announces itself.
 IGNORED_BUT_TRACKED=$(git ls-files --cached --ignored --exclude-standard || true)
 if [ -n "$IGNORED_BUT_TRACKED" ]; then
-  echo "FALLA: these files are tracked AND matched by .gitignore."
-  echo "       Ignore rules do not apply to files git already tracks, so this"
-  echo "       is either a leftover \`git add\` or a wrong rule."
+  echo "FAIL: these files are tracked AND matched by .gitignore."
+  echo "      Ignore rules do not apply to files git already tracks, so this"
+  echo "      is either a leftover \`git add\` or a wrong rule."
   echo "$IGNORED_BUT_TRACKED" | sed 's/^/    /'
   exit 1
 fi

@@ -26,7 +26,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The generated header has to exist, or every header fails for a reason that
 # has nothing to do with this check.
 python3 tools/configure.py > /dev/null || {
-  echo "FALLA: tools/configure.py could not generate the config"; exit 1; }
+  echo "FAIL: tools/configure.py could not generate the config"; exit 1; }
 
 CXX="${CXX:-g++}"
 INCLUDES=(-Iinclude -Ithirdparty/raylib/src -Ithirdparty/rres -Ithirdparty/raymob
@@ -59,9 +59,9 @@ done
 
 if [ "$fails" -ne 0 ]; then
   echo
-  echo "FALLA: $fails header(s). Every public header must compile on its own AND"
-  echo "       include <rmp/config.h> — that include is the one exception to the"
-  echo "       rule in rmp/app.h, and it is what lets the user never type it."
+  echo "FAIL: $fails header(s). Every public header must compile on its own AND"
+  echo "      include <rmp/config.h> — that include is the one exception to the"
+  echo "      rule in rmp/app.h, and it is what lets the user never type it."
   exit 1
 fi
 echo "  ok    $checked public headers, each self-contained and carrying the config"

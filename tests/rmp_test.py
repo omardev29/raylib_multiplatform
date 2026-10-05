@@ -1317,21 +1317,34 @@ class ManifestTest(unittest.TestCase):
                                 f"{target} is not guarded by the file it is built from")
         self.assertEqual(found, 4)
 
-    def test_what_a_game_gets_speaks_english(self):
+    def test_every_tool_and_workflow_speaks_english(self):
         """Talk to Omar in Spanish; code, comments and messages are English --
         and a game's author reads these. `rmp`, render_check.sh and the
-        workflows a game runs printed "FALLA:"."""
-        scanned = 0
+        workflows a game runs printed the Spanish for "FAIL:", and once those
+        spoke English the framework's own gates and workflows still did:
+        header_check.sh, lint.sh, examples_build.sh, web-backends.yml and nine
+        more. Every tool and workflow is read, a game's and the framework's
+        alike, and the tests that run them -- a test expecting the old word
+        keeps it alive. The word is spelt in two halves here, so that this
+        test is not the one place left that says it."""
+        old = "FAL" + "LA"
+        scanned = game = 0
         for _, _, path in self.entries():
-            kind = rmp.classify(path)[0]
-            if kind not in ("include", "rename") or not path.startswith(("tools/", ".github/")):
+            if not path.startswith(("tools/", ".github/", "tests/")) and \
+                    path not in ("rmp", "rmp.ps1", "rmp.cmd"):
+                continue
+            if path.startswith("tests/fixtures/"):
                 continue
             scanned += 1
-            for lineno, line in enumerate((REPO / path).read_text(errors="replace").splitlines(), 1):
-                if re.search(r"\bFALLA\b", line):
+            if rmp.classify(path)[0] in ("include", "rename"):
+                game += 1
+            text = (REPO / path).read_text(errors="replace")
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if re.search(rf"\b{old}\b", line):
                     with self.subTest(at=f"{path}:{lineno}"):
-                        self.fail(f"{path}:{lineno} says FALLA: {line.strip()}")
-        self.assertGreater(scanned, 15)
+                        self.fail(f"{path}:{lineno} says {old}: {line.strip()}")
+        self.assertGreater(game, 15)
+        self.assertGreater(scanned, game + 40)
 
     def test_every_pattern_matches_something(self):
         used = {rmp.classify(p)[1] for _, _, p in self.entries()}
