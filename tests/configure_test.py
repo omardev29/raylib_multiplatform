@@ -771,6 +771,121 @@ class ProductionBuildEverywhereTest(unittest.TestCase):
                         self.fail(f"{where}:{lineno} defines {m.group(1)}: {line.strip()}")
 
 
+
+class ReleaseHardeningTest(unittest.TestCase):
+    """A Linux or BSD release is compiled and linked with the hardening in
+    CMakeLists.txt (RMP_RELEASE_HARDENING), read back out of a release tree
+    configured here: the compile commands of the framework, the game and
+    raylib, and the game's link line. What the linker made of it is read off
+    the shipped binary by `binary_check.py elf` in the Linux jobs."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        import subprocess
+        cls.skip = None
+        if not sys.platform.startswith("linux"):
+            cls.skip = "the flags are read on Linux, where CI builds the release"
+            return
+        if shutil.which("cmake") is None or shutil.which("ninja") is None:
+            if IN_BUILD_IMAGE:
+                raise AssertionError("the build image has cmake and ninja; this cannot skip there")
+            cls.skip = "cmake or ninja is not installed"
+            return
+        cls._tmp = tempfile.TemporaryDirectory()
+        # A copy of the checkout, configured there: CMake runs configure.py,
+        # and no test here may write the checkout's generated files (see
+        # GENERATED at the top). Without what is generated or built.
+        source = Path(cls._tmp.name) / "src"
+        shutil.copytree(REPO, source, symlinks=True, ignore=shutil.ignore_patterns(
+            ".git", "build", ".zig-*", "generated", "project.yml"))
+        cls.tree = Path(cls._tmp.name) / "build"
+        got = subprocess.run(["cmake", "-S", str(source), "-B", str(cls.tree), "-G", "Ninja",
+                              "-DCMAKE_BUILD_TYPE=Release", "-DPRODUCTION_BUILD=ON"],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        cls.configure = got.stdout + got.stderr
+        if got.returncode != 0:
+            raise AssertionError("the release tree did not configure:\n" + cls.configure[-3000:])
+        cls.commands = json.loads((cls.tree / "compile_commands.json").read_text())
+        cls.ninja = (cls.tree / "build.ninja").read_text()
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "_tmp", None) is not None:
+            cls._tmp.cleanup()
+
+    def setUp(self):
+        if self.skip:
+            self.skipTest(self.skip)
+
+    def command_for(self, suffix: str) -> str:
+        found = [e["command"] for e in self.commands if e["file"].endswith(suffix)]
+        self.assertTrue(found, f"no compile command for {suffix}")
+        return found[0]
+
+    def link_line(self, target: str) -> str:
+        at = self.ninja.index(f"build {target}: CXX_EXECUTABLE_LINKER")
+        block = self.ninja[at:self.ninja.index("\n\n", at)]
+        return block
+
+    def libc_is_glibc(self) -> bool:
+        import subprocess
+        got = subprocess.run(["sh", "-c", "printf '#include <features.h>\\n__GLIBC__\\n' | "
+                                          "cc -E -x c - 2>/dev/null | tail -1"],
+                             capture_output=True, text=True)
+        return got.stdout.strip().isdigit()
+
+    def test_every_part_of_the_binary_is_compiled_hardened(self):
+        for suffix in ("src/rmp/app.cpp", "src/rmp/scene.cpp", "src/main.cpp",
+                       "thirdparty/raylib/src/rcore.c"):
+            with self.subTest(file=suffix):
+                command = self.command_for(suffix)
+                self.assertIn("-fstack-protector-strong", command)
+                self.assertIn("-fstack-clash-protection", command)
+                if self.libc_is_glibc():
+                    self.assertRegex(command, r"-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=[23]\b")
+
+    def test_the_cxx_library_checks_its_bounds(self):
+        command = self.command_for("src/rmp/app.cpp")
+        self.assertIn("-D_GLIBCXX_ASSERTIONS", command)
+        self.assertIn("-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST", command)
+
+    def test_the_game_is_linked_hardened(self):
+        name = cfgmod.load_config()["project"]["name"]
+        line = self.link_line(name)
+        for flag in ("-Wl,-z,relro", "-Wl,-z,now", "-Wl,-z,noexecstack"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, line)
+
+    def test_pie_is_measured_and_left_off(self):
+        """+5.5% on linux-x64-glibc, over the 3% a release flag may cost: the
+        option exists, off, and the comment says the number."""
+        cmake = (REPO / "CMakeLists.txt").read_text()
+        self.assertRegex(cmake, r'option\(RMP_RELEASE_PIE "[^"]*\+5\.5%[^"]*" OFF\)')
+        self.assertNotIn("-pie", self.link_line(cfgmod.load_config()["project"]["name"]))
+
+    def test_the_configure_says_what_it_applied(self):
+        self.assertIn("=== RELEASE HARDENING:", self.configure)
+
+
+
+class LinuxJobsReadTheHardeningTest(unittest.TestCase):
+    """Every Linux release job reads the hardening off the binary it ships,
+    with tools/binary_check.py elf, before UPX packs it (a packed ELF has
+    UPX's headers, not the linker's)."""
+
+    JOBS = ("x64", "arm64", "musl-x64", "riscv64", "drm-x64", "drm-arm64")
+
+    def test_each_job_checks_its_binary_before_packing_it(self):
+        linux = REPO / ".github" / "workflows" / "_linux.yml"
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                text = job_block(linux, job)
+                self.assertIn("python3 tools/binary_check.py elf", text)
+                self.assertIn("RMP_RELEASE_PIE:BOOL=ON", text)
+                if "upx_pack.sh" in text:
+                    self.assertLess(text.index("binary_check.py elf"), text.index("upx_pack.sh"))
+
 class AndroidReleaseCheckTest(unittest.TestCase):
     """tools/android_release_check.py, the Android job's proof that the release
     variant was compiled as a release, seen red on the database the old

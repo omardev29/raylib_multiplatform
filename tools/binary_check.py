@@ -23,6 +23,16 @@ written in the file.
         first macOS that ran on Apple silicon, which the toolchain raises any
         lower target to.
 
+    binary_check.py elf BINARY... [--pie]
+        The hardening a Linux or BSD release is linked with, read out of the
+        program headers and the dynamic section: RELRO and BIND_NOW (the
+        relocations are read-only once it starts) and a stack that is not
+        executable. With --pie it must also be position-independent, so ASLR
+        can move it; without, that is said and not required -- it costs 5.5% on
+        linux-x64-glibc, and RMP_RELEASE_PIE in CMakeLists.txt is off. A flag a
+        toolchain silently ignores is a flag that was never there; this reads
+        what the linker wrote.
+
 Standard library only, so it runs on any runner and on a laptop, with no
 objdump, otool or lipo of the right flavour to find first.
 Exit: 0 = the binary is fine, 1 = it is not, 2 = not a binary this reads, or
@@ -415,6 +425,135 @@ def check_macos(path: str, min_os: str) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# ELF: what the release was hardened with
+# ---------------------------------------------------------------------------
+
+ET_EXEC, ET_DYN = 2, 3
+PT_DYNAMIC, PT_INTERP = 2, 3
+PT_GNU_STACK, PT_GNU_RELRO = 0x6474E551, 0x6474E552
+PF_X = 1
+DT_NULL, DT_BIND_NOW, DT_FLAGS, DT_FLAGS_1 = 0, 24, 30, 0x6FFFFFFB
+DF_BIND_NOW = 0x8
+DF_1_NOW, DF_1_PIE = 0x1, 0x08000000
+
+
+class Elf:
+    """The header, the program headers and the dynamic section of an ELF file,
+    32- or 64-bit, either byte order -- the targets are x86-64, arm64 and
+    riscv64, all little-endian, and nothing here assumes it."""
+
+    def __init__(self, data: bytes):
+        if data[:4] != b"\x7fELF":
+            raise NotReadable("not an ELF file")
+        if len(data) < 52 or data[4] not in (1, 2) or data[5] not in (1, 2):
+            raise NotReadable("an ELF header this does not read")
+        self.wide = data[4] == 2
+        order = "<" if data[5] == 1 else ">"
+        self.data, self.order = data, order
+
+        def field(fmt: str, at: int) -> int:
+            size = struct.calcsize(order + fmt)
+            if at < 0 or at + size > len(data):
+                raise NotReadable(f"truncated at offset {at:#x}")
+            return struct.unpack_from(order + fmt, data, at)[0]
+        self.field = field
+
+        self.type = field("H", 16)
+        if self.wide:
+            phoff, phentsize, phnum = field("Q", 32), field("H", 54), field("H", 56)
+        else:
+            phoff, phentsize, phnum = field("I", 28), field("H", 42), field("H", 44)
+        if phnum == 0:
+            raise NotReadable("no program headers: an object file, not a program")
+        # (type, flags, offset, size in the file) of each program header
+        self.segments = []
+        for i in range(phnum):
+            at = phoff + i * phentsize
+            if self.wide:
+                kind, flags, offset, filesz = (field("I", at), field("I", at + 4),
+                                               field("Q", at + 8), field("Q", at + 32))
+            else:
+                kind, offset, filesz, flags = (field("I", at), field("I", at + 4),
+                                               field("I", at + 16), field("I", at + 24))
+            self.segments.append((kind, flags, offset, filesz))
+
+    def segment(self, kind: int):
+        return next((s for s in self.segments if s[0] == kind), None)
+
+    def dynamic(self) -> dict[int, int]:
+        """tag -> value for every entry of the dynamic section, up to DT_NULL."""
+        seg = self.segment(PT_DYNAMIC)
+        if seg is None:
+            return {}
+        _kind, _flags, offset, filesz = seg
+        size, fmt = (16, "q") if self.wide else (8, "i")
+        out: dict[int, int] = {}
+        for at in range(offset, offset + filesz - size + 1, size):
+            tag = self.field(fmt, at) & ((1 << (size * 4)) - 1)
+            value = self.field(fmt.upper(), at + size // 2)
+            if tag == DT_NULL:
+                break
+            out[tag] = value
+        return out
+
+
+def elf_findings(elf: Elf) -> list[tuple[bool, str]]:
+    """(holds, sentence) for each property a release can have: PIE first."""
+    dynamic = elf.dynamic()
+    flags, flags_1 = dynamic.get(DT_FLAGS, 0), dynamic.get(DT_FLAGS_1, 0)
+    interp = elf.segment(PT_INTERP) is not None
+    stack = elf.segment(PT_GNU_STACK)
+    pie = elf.type == ET_DYN and (interp or bool(flags_1 & DF_1_PIE))
+    now = DT_BIND_NOW in dynamic or bool(flags & DF_BIND_NOW) or bool(flags_1 & DF_1_NOW)
+    return [
+        (pie, "position-independent (PIE): ASLR can load it anywhere" if pie else
+              ("ET_EXEC, not position-independent: it loads at the one address the "
+               "linker chose, and ASLR cannot move it -- link with -pie"
+               if elf.type == ET_EXEC else
+               "a shared library or an ELF of an unexpected type, not a program")),
+        (elf.segment(PT_GNU_RELRO) is not None,
+         "RELRO: the relocated data is read-only once the loader is done"
+         if elf.segment(PT_GNU_RELRO) is not None else
+         "no PT_GNU_RELRO segment: link with -Wl,-z,relro"),
+        (now, "BIND_NOW: every symbol is resolved at start, so the GOT can be read-only"
+              if now else "no BIND_NOW: link with -Wl,-z,now"),
+        (stack is not None and not stack[1] & PF_X,
+         "a stack that is not executable" if stack is not None and not stack[1] & PF_X else
+         ("an EXECUTABLE stack (PT_GNU_STACK has X): link with -Wl,-z,noexecstack"
+          if stack is not None else
+          "no PT_GNU_STACK segment, which many kernels read as an executable stack: "
+          "link with -Wl,-z,noexecstack")),
+    ]
+
+
+def check_elf(paths: list[str], pie: bool = False) -> int:
+    worst = 0
+    for path in paths:
+        try:
+            elf = Elf(Path(path).read_bytes())
+        except (OSError, NotReadable) as e:
+            print(f"FAIL: {path}: {e}")
+            worst = 2
+            continue
+        print(f"== {path} ({'64' if elf.wide else '32'}-bit ELF)")
+        failed = 0
+        for i, (holds, sentence) in enumerate(elf_findings(elf)):
+            if i == 0 and not pie and not holds:
+                print(f"  --    {sentence} (not required: no --pie)")
+                continue
+            print(f"  {'ok  ' if holds else 'FAIL'}  {sentence}")
+            failed += not holds
+        if failed:
+            worst = max(worst, 1)
+    if worst == 1:
+        print("FAIL: the release is not linked with the hardening CMakeLists.txt asks for. "
+              "See RMP_RELEASE_HARDENING there.")
+    elif worst == 0:
+        print("PASS: " + ("PIE, " if pie else "") + "RELRO, BIND_NOW and a non-executable stack")
+    return worst
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         prog="binary_check.py",
@@ -426,9 +565,15 @@ def main(argv: list[str]) -> int:
     mac = sub.add_parser("macos", help="the minimum macOS of every slice")
     mac.add_argument("binary")
     mac.add_argument("--min-os", required=True)
+    elf = sub.add_parser("elf", help="PIE, RELRO, BIND_NOW and a non-executable stack")
+    elf.add_argument("binary", nargs="+")
+    elf.add_argument("--pie", action="store_true",
+                     help="require a position-independent executable too")
     args = ap.parse_args(argv)
     if args.os == "windows":
         return check_windows(args.exe, args.require_icon)
+    if args.os == "elf":
+        return check_elf(args.binary, args.pie)
     return check_macos(args.binary, args.min_os)
 
 

@@ -252,7 +252,12 @@ function(rmp_apply_compile_flags target)
       # Emscripten/WebAssembly - skip LTO, use -Oz for size optimization
       target_compile_options(${target} PRIVATE -Oz)
     else() # Linux, macOS, MinGW
-      target_compile_options(${target} PRIVATE -O3)
+      target_compile_options(${target} PRIVATE -O3
+        "$<$<COMPILE_LANGUAGE:C>:${RMP_RELEASE_C_FLAGS}>"
+        "$<$<COMPILE_LANGUAGE:CXX>:${RMP_RELEASE_CXX_FLAGS}>")
+      if(RMP_RELEASE_PIE_APPLIED)
+        set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+      endif()
       if(NOT CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
         # NetBSD's linker does not process the GCC LTO bytecode stored in static
         # archives, leaving raylib symbols (TraceLog, LoadImage, ...) undefined
@@ -337,6 +342,155 @@ if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID)
   endif()
 endif()
 
+# --- release hardening --------------------------------------------------------
+# What the binary a player runs is compiled and linked with, so that a memory
+# bug in it is harder to turn into anything worse. Release builds only -- Debug
+# has the sanitizers instead, cmake/sanitize.cmake -- and every flag was
+# MEASURED before it went in, because a release is kept as small as it can be:
+# one costing more than 3% of the stripped binary is not here. Measured cost on
+# linux-x64-glibc as CI builds it (tools/linux_build.sh: zig cc, LTO, stripped;
+# 1 149 120 bytes before any of them, 352 524 after upx --best --lzma):
+#
+#   -D_FORTIFY_SOURCE=3            +3.6 KB  (+0.32%)  glibc only, see below
+#   -fstack-protector-strong      +20.2 KB  (+1.80%)
+#   -fstack-clash-protection       +0.3 KB  (+0.03%)
+#   -Wl,-z,relro -Wl,-z,now          +0 KB  zig's lld writes both already
+#   -Wl,-z,noexecstack               +0 KB  zig's lld writes it already
+#   _LIBCPP_HARDENING_MODE=FAST    +2.9 KB  (+0.25%)  zig's C++ library is libc++
+#   all of the above together     +22.7 KB  (+2.03%)  1 172 400 bytes, 357 056 packed
+#
+#   -pie                          +61.9 KB  (+5.52%)  NOT ADOPTED: over 3%. 58.5 KB
+#       of it is .rela.dyn, one relocation per pointer the loader has to fix.
+#       Their packed form (DT_RELR, -z pack-relative-relocs) needs glibc 2.36,
+#       and [linux] glibc is 2.28. RMP_RELEASE_PIE=ON turns it on.
+#
+# linux-x64-musl (zig, dynamic): +19.4 KB (+1.72%) together, the same flags
+# within 0.1% each, FORTIFY aside. The gcc-built targets (riscv64, the DRM
+# pair) get them from Ubuntu's gcc already, which defaults to every one of
+# these but the C++ checks: +0 bytes each, and _GLIBCXX_ASSERTIONS +8.0 KB
+# (+0.72%) on gcc 13.
+# _FORTIFY_SOURCE only where the C library is glibc: musl ignores it, and the
+# BSDs' libcs have their own and are not measured here. Level 3 where the
+# compiler has __builtin_dynamic_object_size, 2 otherwise; -U first, because
+# Ubuntu's gcc defines it already and a second -D would be a warning.
+#
+# The other platforms, said rather than assumed:
+#   macOS    -fstack-protector-strong and the libc++ check (the measurement
+#            above, made with the same clang; there is no Mac here). PIE and a
+#            non-executable stack are the platform's own and always on.
+#   Windows  MSVC: /GS, /DYNAMICBASE, /NXCOMPAT and /HIGHENTROPYVA are its
+#            defaults, and /guard:cf is not here -- it could not be measured.
+#            MinGW: --dynamicbase, --nxcompat and --high-entropy-va are
+#            binutils' defaults since 2.36, asked for anyway where the linker
+#            takes them; -fstack-protector-strong is not, because on MinGW it
+#            can mean shipping libssp-0.dll and nothing here could check that.
+#   Web      a wasm module has no executable stack and no loader to randomise.
+#   Android  the NDK compiles with -fstack-protector-strong and
+#            -D_FORTIFY_SOURCE=2 by itself (build/cmake/flags.cmake), and
+#            Android has required PIE since 5.0. raymob's CMakeLists builds it.
+#   iOS      PIE and the stack protector are Xcode's defaults.
+#
+# Checked, every one, like the strip above: a flag a toolchain does not take is
+# left out and said, never a broken build. What the linker made of them is read
+# off the shipped binary by `tools/binary_check.py elf` in the Linux jobs.
+set(RMP_RELEASE_C_FLAGS "")
+set(RMP_RELEASE_CXX_FLAGS "")
+set(RMP_RELEASE_LINK_FLAGS "")
+set(RMP_RELEASE_PIE_APPLIED OFF)
+option(RMP_RELEASE_PIE "Link a Linux or BSD release position-independent (+5.5% on linux-x64-glibc)" OFF)
+if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
+  include(CheckCCompilerFlag)
+  include(CheckCSourceCompiles)
+  include(CheckLinkerFlag)
+  set(CMAKE_REQUIRED_QUIET ON)
+  set(_said "")
+  # Each check answers afresh: a cached yes from another compiler is how a flag
+  # that went away would hide.
+  macro(_rmp_release_check kind flag var)
+    unset(${var} CACHE)
+    if("${kind}" STREQUAL "compile")
+      check_c_compiler_flag("${flag}" ${var})
+    else()
+      check_linker_flag(C "${flag}" ${var})
+    endif()
+  endmacro()
+
+  if(NOT WIN32)
+    _rmp_release_check(compile -fstack-protector-strong RMP_HAS_SSP_STRONG)
+    if(RMP_HAS_SSP_STRONG)
+      list(APPEND RMP_RELEASE_C_FLAGS -fstack-protector-strong)
+      list(APPEND _said stack-protector-strong)
+    endif()
+    # Bounds checks in the C++ library: libstdc++'s and libc++'s cheap ones.
+    # Each is a define the other library ignores.
+    list(APPEND RMP_RELEASE_CXX_FLAGS -D_GLIBCXX_ASSERTIONS
+         -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST)
+    list(APPEND _said "C++ library bounds checks")
+  endif()
+
+  if(WIN32)
+    foreach(_flag -Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va)
+      string(MAKE_C_IDENTIFIER "RMP_LD_TAKES${_flag}" _var)
+      _rmp_release_check(link ${_flag} ${_var})
+      if(${_var})
+        list(APPEND RMP_RELEASE_LINK_FLAGS ${_flag})
+        list(APPEND _said ${_flag})
+      endif()
+    endforeach()
+  elseif(NOT APPLE)
+    unset(RMP_LIBC_IS_GLIBC CACHE)
+    check_c_source_compiles("#include <features.h>
+      #if !defined(__GLIBC__)
+      #error not glibc
+      #endif
+      int main(void) { return 0; }" RMP_LIBC_IS_GLIBC)
+    if(RMP_LIBC_IS_GLIBC)
+      unset(RMP_HAS_DYNAMIC_OBJECT_SIZE CACHE)
+      check_c_source_compiles("#if !defined(__has_builtin)
+      #error no __has_builtin
+      #elif !__has_builtin(__builtin_dynamic_object_size)
+      #error no __builtin_dynamic_object_size
+      #endif
+      int main(void) { return 0; }" RMP_HAS_DYNAMIC_OBJECT_SIZE)
+      if(RMP_HAS_DYNAMIC_OBJECT_SIZE)
+        set(_level 3)
+      else()
+        set(_level 2)
+      endif()
+      list(APPEND RMP_RELEASE_C_FLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=${_level})
+      list(APPEND _said FORTIFY_SOURCE=${_level})
+    endif()
+    _rmp_release_check(compile -fstack-clash-protection RMP_HAS_STACK_CLASH)
+    if(RMP_HAS_STACK_CLASH)
+      list(APPEND RMP_RELEASE_C_FLAGS -fstack-clash-protection)
+      list(APPEND _said stack-clash-protection)
+    endif()
+    foreach(_flag -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
+      string(MAKE_C_IDENTIFIER "RMP_LD_TAKES${_flag}" _var)
+      _rmp_release_check(link ${_flag} ${_var})
+      if(${_var})
+        list(APPEND RMP_RELEASE_LINK_FLAGS ${_flag})
+        list(APPEND _said ${_flag})
+      endif()
+    endforeach()
+    if(RMP_RELEASE_PIE)
+      include(CheckPIESupported)
+      check_pie_supported(OUTPUT_VARIABLE _pie_why LANGUAGES C CXX)
+      if(CMAKE_C_LINK_PIE_SUPPORTED AND CMAKE_CXX_LINK_PIE_SUPPORTED)
+        set(RMP_RELEASE_PIE_APPLIED ON)
+        list(APPEND _said pie)
+      else()
+        message(WARNING "RMP_RELEASE_PIE is on and this toolchain cannot link a PIE: ${_pie_why}")
+      endif()
+    endif()
+  endif()
+  # The C flags are the C++ flags too.
+  list(PREPEND RMP_RELEASE_CXX_FLAGS ${RMP_RELEASE_C_FLAGS})
+  unset(CMAKE_REQUIRED_QUIET)
+  list(JOIN _said ", " _said)
+  message(STATUS "=== RELEASE HARDENING: ${_said} ===")
+endif()
+
 function(rmp_apply_link_flags target)
   # Dead-code stripping, the linker half.
   if(MSVC)
@@ -358,6 +512,9 @@ function(rmp_apply_link_flags target)
     endif()
     if(RMP_STRIP_FLAGS)
       target_link_options(${target} PRIVATE ${RMP_STRIP_FLAGS})
+    endif()
+    if(RMP_RELEASE_LINK_FLAGS)
+      target_link_options(${target} PRIVATE ${RMP_RELEASE_LINK_FLAGS})
     endif()
   endif()
 endfunction()

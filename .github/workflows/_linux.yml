@@ -71,6 +71,17 @@ jobs:
       - name: It runs on older distributions than this one
         run: bash tools/glibc_check.sh build/${{ inputs.project_name }}
 
+      # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
+      # the measured flags around it) read off the binary itself, before UPX
+      # packs it: RELRO, BIND_NOW, a stack that is not executable, and PIE
+      # where that option is on. A flag a toolchain ignores was never there.
+      - name: Linked hardened
+        run: |
+          set -euo pipefail
+          PIE=""
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
 
@@ -192,6 +203,17 @@ jobs:
       - name: It runs on older distributions than this one
         run: bash tools/glibc_check.sh build/${{ inputs.project_name }}
 
+      # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
+      # the measured flags around it) read off the binary itself, before UPX
+      # packs it: RELRO, BIND_NOW, a stack that is not executable, and PIE
+      # where that option is on. A flag a toolchain ignores was never there.
+      - name: Linked hardened
+        run: |
+          set -euo pipefail
+          PIE=""
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+
       - name: Pack resources (AES rres)
         run: cmake --build build --target pack_resources
 
@@ -303,6 +325,17 @@ jobs:
           set -euo pipefail
           RMP_LIBC=musl bash tools/linux_build.sh build
           RMP_LIBC=musl bash tools/linux_build.sh build/memory -DPLATFORM=Memory
+
+      # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
+      # the measured flags around it) read off the binary itself, before UPX
+      # packs it: RELRO, BIND_NOW, a stack that is not executable, and PIE
+      # where that option is on. A flag a toolchain ignores was never there.
+      - name: Linked hardened
+        run: |
+          set -euo pipefail
+          PIE=""
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
 
       - name: Test (static) — it is a musl binary and not a glibc one
         run: |
@@ -455,6 +488,17 @@ jobs:
       - name: The glibc it needs, against the floor the .toml gives it
         run: bash tools/glibc_check.sh build/${{ inputs.project_name }} 2.38
 
+      # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
+      # the measured flags around it) read off the binary itself, before UPX
+      # packs it: RELRO, BIND_NOW, a stack that is not executable, and PIE
+      # where that option is on. A flag a toolchain ignores was never there.
+      - name: Linked hardened
+        run: |
+          set -euo pipefail
+          PIE=""
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+
       - name: Test (static) — binary exists, is RISC-V ELF, executable
         run: |
           set -e
@@ -550,6 +594,17 @@ jobs:
         # number belongs in the log of every run rather than in a player's
         # error message.
         run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
+
+      # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
+      # the measured flags around it) read off the binary itself, before UPX
+      # packs it: RELRO, BIND_NOW, a stack that is not executable, and PIE
+      # where that option is on. A flag a toolchain ignores was never there.
+      - name: Linked hardened
+        run: |
+          set -euo pipefail
+          PIE=""
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
 
       - name: Test (static) — the DRM backend is really what got linked
         run: |
@@ -744,6 +799,17 @@ jobs:
         # number belongs in the log of every run rather than in a player's
         # error message.
         run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
+
+      # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
+      # the measured flags around it) read off the binary itself, before UPX
+      # packs it: RELRO, BIND_NOW, a stack that is not executable, and PIE
+      # where that option is on. A flag a toolchain ignores was never there.
+      - name: Linked hardened
+        run: |
+          set -euo pipefail
+          PIE=""
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
 
       - name: Test (static) — an aarch64 DRM binary is really what got linked
         run: |

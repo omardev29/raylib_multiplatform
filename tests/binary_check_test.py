@@ -456,5 +456,144 @@ class MacosTest(Files, unittest.TestCase):
                 self.assertTrue(out.startswith("FAIL: "), out)
 
 
+
+# ---------------------------------------------------------------------------
+# An ELF, built
+# ---------------------------------------------------------------------------
+
+def elf(etype=bc.ET_DYN, interp=True, relro=True, stack_flags=6, dynamic=None,
+        wide=True, big=False):
+    """An ELF executable's header, program headers and dynamic section --
+    what binary_check.py elf reads, and nothing it does not. stack_flags is
+    PT_GNU_STACK's p_flags (6 = RW, 7 = RWX), None for no such segment;
+    dynamic is {tag: value}, BIND_NOW and nothing else by default."""
+    o = ">" if big else "<"
+    dynamic = {bc.DT_FLAGS: bc.DF_BIND_NOW} if dynamic is None else dynamic
+    entries = list(dynamic.items()) + [(bc.DT_NULL, 0)]
+    dyn = b"".join(struct.pack(o + ("qQ" if wide else "iI"), tag, value)
+                   for tag, value in entries)
+    segments = []   # (type, flags, offset, size)
+    if interp:
+        segments.append((bc.PT_INTERP, 4, 0, 28))
+    segments.append((bc.PT_DYNAMIC, 6, 0, len(dyn)))   # offset patched below
+    if relro:
+        segments.append((bc.PT_GNU_RELRO, 4, 0, 0x100))
+    if stack_flags is not None:
+        segments.append((bc.PT_GNU_STACK, stack_flags, 0, 0))
+    ehsize, phentsize = (64, 56) if wide else (52, 32)
+    dyn_at = ehsize + phentsize * len(segments)
+    ident = b"\x7fELF" + bytes([2 if wide else 1, 2 if big else 1, 1]) + b"\0" * 9
+    if wide:
+        header = ident + struct.pack(o + "HHIQQQIHHHHHH", etype, 0x3E, 1, 0, ehsize, 0, 0,
+                                     ehsize, phentsize, len(segments), 64, 0, 0)
+    else:
+        header = ident + struct.pack(o + "HHIIIIIHHHHHH", etype, 3, 1, 0, ehsize, 0, 0,
+                                     ehsize, phentsize, len(segments), 40, 0, 0)
+    table = b""
+    for kind, flags, offset, size in segments:
+        if kind == bc.PT_DYNAMIC:
+            offset = dyn_at
+        if wide:
+            table += struct.pack(o + "IIQQQQQQ", kind, flags, offset, 0, 0, size, size, 8)
+        else:
+            table += struct.pack(o + "IIIIIIII", kind, offset, 0, 0, size, size, flags, 4)
+    return header + table + dyn
+
+
+# What linux_build.sh's zig wrote for linux-x64-glibc before the release
+# hardening: RELRO, BIND_NOW and a RW stack by lld's default, and ET_EXEC.
+ZIG_RELEASE = dict(etype=bc.ET_EXEC, dynamic={bc.DT_FLAGS: bc.DF_BIND_NOW,
+                                              bc.DT_FLAGS_1: bc.DF_1_NOW})
+
+
+class ElfTest(Files, unittest.TestCase):
+
+    def check(self, *datas, pie=True):
+        return self.run_main(["elf", *(["--pie"] if pie else []),
+                              *(self.file(d, f"game{i}") for i, d in enumerate(datas))])
+
+    def test_the_zig_release_is_not_pie_and_only_pie_asks_for_it(self):
+        """The linux-x64-glibc binary tools/linux_build.sh makes: ET_EXEC, and
+        RELRO, BIND_NOW and a RW stack by lld's own default. -pie costs 5.5%
+        there and is off, so without --pie that is said and passes."""
+        code, out = self.check(elf(**ZIG_RELEASE))
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  ET_EXEC, not position-independent", out)
+        self.assertEqual(out.count("FAIL  "), 1, out)
+        self.assertIn("ok    RELRO", out)
+        self.assertIn("ok    BIND_NOW", out)
+        code, out = self.check(elf(**ZIG_RELEASE), pie=False)
+        self.assertEqual(code, 0, out)
+        self.assertIn("--    ET_EXEC, not position-independent", out)
+        self.assertIn("(not required: no --pie)", out)
+        self.assertIn("PASS: RELRO, BIND_NOW and a non-executable stack", out)
+
+    def test_a_hardened_executable_passes(self):
+        code, out = self.check(elf())
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS: PIE, RELRO, BIND_NOW and a non-executable stack", out)
+        code, out = self.check(elf(), pie=False)
+        self.assertEqual(code, 0, out)
+        self.assertIn("ok    position-independent", out)
+
+    def test_without_pie_the_rest_is_still_required(self):
+        for data, says in ((elf(etype=bc.ET_EXEC, relro=False), "no PT_GNU_RELRO segment"),
+                           (elf(etype=bc.ET_EXEC, dynamic={}), "no BIND_NOW"),
+                           (elf(etype=bc.ET_EXEC, stack_flags=7), "an EXECUTABLE stack")):
+            with self.subTest(says=says):
+                code, out = self.check(data, pie=False)
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL  " + says, out)
+
+    def test_each_missing_property_is_named(self):
+        for what, data, says in (
+                ("no relro", elf(relro=False), "no PT_GNU_RELRO segment"),
+                ("lazy binding", elf(dynamic={}), "no BIND_NOW"),
+                ("an executable stack", elf(stack_flags=7), "an EXECUTABLE stack"),
+                ("no stack segment", elf(stack_flags=None), "no PT_GNU_STACK segment"),
+                ("a shared library", elf(interp=False), "a shared library"),
+        ):
+            with self.subTest(what=what):
+                code, out = self.check(data)
+                self.assertEqual(code, 1, out)
+                self.assertIn(says, out)
+                self.assertEqual(out.count("FAIL  "), 1, out)
+
+    def test_every_spelling_of_bind_now(self):
+        for dynamic in ({bc.DT_BIND_NOW: 0}, {bc.DT_FLAGS: bc.DF_BIND_NOW},
+                        {bc.DT_FLAGS_1: bc.DF_1_NOW}):
+            with self.subTest(dynamic=dynamic):
+                code, out = self.check(elf(dynamic=dynamic))
+                self.assertEqual(code, 0, out)
+
+    def test_a_static_pie_is_pie(self):
+        code, out = self.check(elf(interp=False, dynamic={bc.DT_FLAGS_1: bc.DF_1_PIE | bc.DF_1_NOW}))
+        self.assertEqual(code, 0, out)
+
+    def test_32_bit_and_big_endian(self):
+        for wide, big in ((False, False), (True, True), (False, True)):
+            with self.subTest(wide=wide, big=big):
+                code, out = self.check(elf(wide=wide, big=big))
+                self.assertEqual(code, 0, out)
+                code, out = self.check(elf(wide=wide, big=big, **ZIG_RELEASE))
+                self.assertEqual(code, 1, out)
+
+    def test_the_worst_of_several_decides(self):
+        code, out = self.check(elf(), elf(**ZIG_RELEASE))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("== "), 2)
+
+    def test_what_is_not_an_elf_program_exits_2(self):
+        whole = elf()
+        cases = {"a PE": b"MZ" + b"\0" * 100, "empty": b"", "cut short": whole[:30],
+                 # e_phnum, at 56 in a 64-bit header, set to 0
+                 "an object file": whole[:56] + struct.pack("<H", 0) + whole[58:],
+                 "program headers cut short": whole[:80]}
+        for what, data in cases.items():
+            with self.subTest(what=what):
+                code, out = self.check(data)
+                self.assertEqual(code, 2, out)
+                self.assertTrue(out.startswith("FAIL: "), out)
+
 if __name__ == "__main__":
     unittest.main()
