@@ -119,6 +119,13 @@ gl_version = "ES30"
 # This is NOT what puts the icon in the app drawer — that part is fixed and not
 # yours to set, because an app without it installs and then appears nowhere.
 category = "game"
+# Where CI's Android job gets Gradle and the libraries the app builds with.
+# true: from the build image, which carries them, and Gradle runs with
+# --offline -- the job downloads nothing, and a library the image lacks fails
+# the build at once, by name. false: Gradle downloads what the image lacks, and
+# the job says so in a warning; for a game that adds a Gradle dependency of its
+# own. Your machine is not affected: `rmp android` is never offline.
+gradle_offline = true
 
 [android.display]
 keep_on     = true    # never sleep while playing
@@ -534,6 +541,19 @@ max_elements = 512
 # Obfuscation, not security: the password ends up inside the binary. It exists
 # so casual unpacking of your assets is inconvenient, nothing more.
 rres_password = "raylib-template"
+
+[ci]
+# Whether CI runs on every push to main and on every pull request -- the fast
+# lane, on every commit. false runs it only when you ask: a tag v* still builds
+# every target and releases (that is what rmp deploy pushes), and
+# `gh workflow run ci.yml` runs the fast lane by hand. Pull requests stop too.
+#
+# It is the one part of .github/workflows/ci.yml that is yours to change, and
+# you change it here: tools/configure.py writes the push and pull_request
+# triggers from this line, between the BEGIN and END lines in ci.yml, on the
+# next build. Commit ci.yml with the .toml. A ci.yml that says otherwise is
+# refused here, at this line, and by CI's first step.
+on_push = true
 
 [deploy]
 # Ship a LICENSES.txt next to the binary, with the full notice of everything

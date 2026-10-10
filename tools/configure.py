@@ -33,6 +33,7 @@ Usage:
     tools/configure.py --print-matrix bsd  JSON matrix for one CI family
     tools/configure.py --print-config      the resolved config, as JSON
     tools/configure.py --print-pins        the frozen pins, as key=value
+    tools/configure.py --print-ci          [ci] on_push, as key=value
     tools/configure.py --make-default-icon write a placeholder at [icon] source
 """
 
@@ -427,6 +428,9 @@ DEFAULTS: dict = {
         # internet = false shipped an APK that asked for INTERNET anyway.
         "permissions": {"internet": False, "vibration": False},
         "features": {"gyroscope": False, "accelerometer": False},
+        # CI builds with Gradle's --offline, from the Gradle home the build
+        # image carries. See the comment above it in the .toml.
+        "gradle_offline": True,
         # Off: a game opts in. See the [android.admob] comment in the .toml.
         "admob": {"enabled": False,
                   "app_id": "ca-app-pub-3940256099942544~3347511713",
@@ -453,6 +457,9 @@ DEFAULTS: dict = {
                "firebase": {"project_id": "",
                             "device": "model=MediumPhone.arm,version=33,"
                                       "locale=en,orientation=portrait"}},
+    # Generates the push and pull_request triggers of .github/workflows/ci.yml:
+    # sync_ci_triggers() below.
+    "ci": {"on_push": True},
 }
 
 EXAMPLE_IDS = {"com.example.raytest", "com.raylib.raymob"}
@@ -905,6 +912,15 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if not isinstance(cfg["android"]["admob"]["enabled"], bool):
         raise ConfigError("[android.admob] enabled = "
                           f"{cfg['android']['admob']['enabled']!r} must be true or false.")
+    # Read by _android.yml through generated.properties, never by Gradle: the
+    # string "false" there would be a job that downloads while the .toml said it
+    # does not.
+    if not isinstance(cfg["android"]["gradle_offline"], bool):
+        raise ConfigError(
+            f"[android] gradle_offline = {cfg['android']['gradle_offline']!r} is a switch: "
+            "true or false.\n"
+            "true builds Android in CI from the Gradle the build image carries, with "
+            "--offline; false lets Gradle download what the image does not have.")
     # The three ids go into the manifest and into the SDK as they are written,
     # and the Google Mobile Ads SDK stops an app at startup over an app id it
     # cannot read. `app_id = 5` and `app_id = ""` both used to pass. The type is
@@ -1128,6 +1144,14 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "of them missing it skips and the release is never pushed.\n"
             f"Set {missing}, or clear both to turn itch.io deployment off.",
             ("deploy.itch", missing))
+
+    # [ci] on_push writes the triggers of ci.yml (sync_ci_triggers), and a
+    # string there would be truthy: "false" would keep every push running.
+    if not isinstance(cfg["ci"]["on_push"], bool):
+        raise ConfigError(
+            f"[ci] on_push = {cfg['ci']['on_push']!r} is a switch: true or false.\n"
+            "true runs CI on every push to main and on every pull request; false only "
+            "on a tag v* and by hand, with gh workflow run ci.yml.")
 
     dead = cfg["input"]["deadzone"]
     if isinstance(dead, bool) or not isinstance(dead, (int, float)):
@@ -1800,6 +1824,9 @@ def gen_gradle_properties(cfg: dict, targets: list[str]) -> None:
         "permissions.vibration": str(a["permissions"]["vibration"]).lower(),
         "requirements.gyroscope": str(a["features"]["gyroscope"]).lower(),
         "requirements.accelerometer": str(a["features"]["accelerometer"]).lower(),
+        # Not Gradle's: _android.yml reads it to decide whether Gradle runs with
+        # --offline. Here because this is the file that job already has.
+        "gradle.offline": str(a["gradle_offline"]).lower(),
     }
     # Java .properties treats a backslash as an escape, so an unescaped one in
     # a window title would silently mangle the Android app label.
@@ -2387,6 +2414,90 @@ def make_default_icon(dest: Path) -> None:
 # Stamp
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# [ci] on_push -- the triggers of .github/workflows/ci.yml
+# ---------------------------------------------------------------------------
+#
+# ci.yml is the framework's and every game's, the same file; what a game turns
+# off in it is one switch in the .toml, and the switch is applied by WRITING
+# the lines it decides, between two markers, rather than by an `if:` -- GitHub
+# reads `on:` before any expression runs, so a run that should not exist
+# cannot be skipped from inside it, only not started. Nothing else in the file
+# is generated, so a game that turns it off still differs from the framework
+# in those lines alone.
+
+CI_WORKFLOW = ".github/workflows/ci.yml"
+CI_BEGIN = "# BEGIN generated by tools/configure.py from [ci] on_push"
+CI_END = "# END generated from [ci] on_push"
+
+
+def ci_trigger_block(cfg: dict) -> str:
+    """The lines of ci.yml's `on:` that [ci] on_push decides, markers included."""
+    lines = [f"  {CI_BEGIN}: edit the .toml, not this block"]
+    if cfg["ci"]["on_push"]:
+        lines += ["  push:",
+                  "    branches: [main]",
+                  "    tags: ['v*']",
+                  "    paths-ignore: ['**.md', 'LICENSE']",
+                  "  pull_request:",
+                  "    paths-ignore: ['**.md', 'LICENSE']"]
+    else:
+        # Only `tags:` under push: GitHub then starts nothing for a push to a
+        # branch, and a tag still builds every target and releases.
+        lines += ["  # [ci] on_push = false: no run on a push to a branch, and none on a pull",
+                  "  # request. A tag v* still builds every target and releases, and",
+                  "  # `gh workflow run ci.yml` runs the fast lane by hand.",
+                  "  push:",
+                  "    tags: ['v*']"]
+    lines.append(f"  {CI_END}")
+    return "\n".join(lines) + "\n"
+
+
+def sync_ci_triggers(cfg: dict, write_it: bool) -> bool:
+    """Bring ci.yml's triggers in line with [ci] on_push, or refuse at its line.
+
+    `write_it` is generation on somebody's machine; everywhere else -- --check,
+    every --print-*, and any run inside GitHub Actions -- a ci.yml that says
+    something else is an error, because the run it starts is not the one the
+    .toml asks for. True when the file was rewritten. A project without a
+    ci.yml has deleted its CI and has nothing to keep in step.
+
+    Read and compared through write(), so a CRLF checkout (Windows: .gitattributes
+    says eol=native) reads the same as an LF one and is only rewritten when the
+    lines differ."""
+    path = REPO / CI_WORKFLOW
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    begins = [i for i, line in enumerate(lines) if line.strip().startswith(CI_BEGIN)]
+    ends = [i for i, line in enumerate(lines) if line.strip().startswith(CI_END)]
+    if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
+        found = (f"has {len(begins)} of the first and {len(ends)} of the second"
+                 if len(begins) != 1 or len(ends) != 1 else "has them the wrong way round")
+        raise ConfigError(
+            f"[ci] on_push writes the push and pull_request triggers of {CI_WORKFLOW} "
+            f"between two lines,\n  {CI_BEGIN} ...\n  {CI_END}\n"
+            f"and the file {found}. Put them back, once each, around the push: and "
+            "pull_request: entries under `on:` -- the framework's ci.yml shows where.",
+            ("ci", "on_push"))
+    want = ("".join(lines[:begins[0]]) + ci_trigger_block(cfg)
+            + "".join(lines[ends[0] + 1:]))
+    if want == text:
+        return False
+    if not write_it:
+        raise ConfigError(
+            f"[ci] on_push = {str(cfg['ci']['on_push']).lower()}, and the triggers in "
+            f"{CI_WORKFLOW} are not the ones it writes.\n"
+            "They come from this line: run any rmp build -- or python3 tools/configure.py "
+            f"-- and commit {CI_WORKFLOW} with the .toml.",
+            ("ci", "on_push"))
+    write(path, want)
+    print(f"configure: [ci] on_push = {str(cfg['ci']['on_push']).lower()}: rewrote the "
+          f"triggers of {CI_WORKFLOW}; commit it with the .toml")
+    return True
+
+
 def compute_stamp() -> str:
     """Content hash of every input CMake needs to decide whether to regenerate.
 
@@ -2568,6 +2679,8 @@ def main(argv: list[str]) -> int:
                     help="JSON: every target with its family, its name and its groups")
     ap.add_argument("--print-deploy", action="store_true",
                     help="[deploy] as key=value, for $GITHUB_OUTPUT")
+    ap.add_argument("--print-ci", action="store_true",
+                    help="[ci] as key=value: whether a push runs CI (rmp push asks)")
     ap.add_argument("--make-default-icon", action="store_true")
     ap.add_argument("--require-icons", action="store_true",
                     help="fail if the icons cannot be generated (Android/iOS jobs)")
@@ -2603,6 +2716,14 @@ def main(argv: list[str]) -> int:
 
     validate(cfg, strict_release=args.strict_release)
     targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
+
+    # ci.yml's triggers, before anything is printed: the CI config job reads
+    # --print-name first, so a run that disagrees with the .toml stops there.
+    # Written only when generating on a machine; never for --config, which
+    # reads somebody else's .toml against this project's files.
+    if args.config is None:
+        asked = args.check or any(v for k, v in vars(args).items() if k.startswith("print_"))
+        sync_ci_triggers(cfg, write_it=not asked and not os.environ.get("GITHUB_ACTIONS"))
 
     if args.print_defines:
         print(json.dumps(app_defines(cfg), indent=1, ensure_ascii=False))
@@ -2674,6 +2795,9 @@ def main(argv: list[str]) -> int:
                      ("firebase_project", dep["firebase"]["project_id"]),
                      ("firebase_device", dep["firebase"]["device"])):
             print(f"{k}={v}")
+        return 0
+    if args.print_ci:
+        print(f"on_push={str(cfg['ci']['on_push']).lower()}")
         return 0
     if args.print_stamp:
         print(compute_stamp())

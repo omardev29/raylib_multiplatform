@@ -4767,6 +4767,8 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         "[deploy] licenses":          ("deploy", ("licenses",), "yes"),
         "[dev] compiler":             ("dev", ("compiler",), "icc"),
         "[dev] strict":               ("dev", ("strict",), "yes"),
+        "[ci] on_push":               ("ci", ("on_push",), "false"),
+        "[android] gradle_offline":   ("android", ("gradle_offline",), "no"),
         "[linux] glibc":              ("linux", ("glibc",), 2.28),
         "[upx] max_size_mb":          ("upx", ("max_size_mb",), "big"),
         "cannot be compressed \u2014":  ("upx", ("enabled",), ["macos"]),
@@ -6715,6 +6717,311 @@ class ExampleSoundsExistTest(unittest.TestCase):
                    for src, name in self.calls()
                    if not any((self.resources_of(src) / c).is_file() for c in self.candidates(name))]
         self.assertEqual(missing, [])
+
+
+# ---------------------------------------------------------------------------
+# [ci] on_push: the triggers of ci.yml, generated
+# ---------------------------------------------------------------------------
+
+CI_YML = REPO / ".github" / "workflows" / "ci.yml"
+
+
+@contextlib.contextmanager
+def ci_project(on_push=None, ci_text=None, crlf=False):
+    """A scratch project for [ci] on_push: its .toml and its ci.yml, with
+    configure.py's REPO and TOML pointed at it. `on_push=None` leaves [ci] out
+    of the .toml; `ci_text=None` copies the framework's ci.yml, "" writes none.
+    Yields the ci.yml's path."""
+    original_toml = cfgmod.TOML
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        toml = root / "raylib_multiplatform.toml"
+        toml.write_text('[project]\nname = "demo"\n'
+                        + ("" if on_push is None else
+                           f"\n[ci]\n# a comment above\non_push = {str(on_push).lower()}\n"))
+        ci = root / ".github" / "workflows" / "ci.yml"
+        if ci_text != "":
+            ci.parent.mkdir(parents=True)
+            text = CI_YML.read_text() if ci_text is None else ci_text
+            ci.write_bytes(text.replace("\n", "\r\n" if crlf else "\n").encode())
+        cfgmod.TOML = toml
+        try:
+            with repo_at(root):
+                yield ci
+        finally:
+            cfgmod.TOML = original_toml
+
+
+def ci_config(on_push: bool) -> dict:
+    return base_config(ci={"on_push": on_push})
+
+
+def outside_the_block(text: str) -> list[str]:
+    """ci.yml's lines with the generated block taken out."""
+    lines = text.splitlines()
+    begin = next(i for i, line in enumerate(lines) if line.strip().startswith(cfgmod.CI_BEGIN))
+    end = next(i for i, line in enumerate(lines) if line.strip().startswith(cfgmod.CI_END))
+    return lines[:begin] + lines[end + 1:]
+
+
+@contextlib.contextmanager
+def environment(**values):
+    """os.environ with these set, and None meaning unset, for one block."""
+    saved = {k: os.environ.get(k) for k in values}
+    try:
+        for k, v in values.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+class CiOnPushTest(unittest.TestCase):
+    """[ci] on_push writes the push and pull_request triggers of ci.yml, and
+    nothing else in it. ci.yml is the framework's and every game's file; a
+    game that turns CI off on push differs from the framework between the two
+    markers and nowhere else, and a ci.yml that disagrees with the .toml is
+    refused at the .toml's line -- by --check, by every --print-* (the CI
+    config job's first call is one) and by any run inside GitHub Actions --
+    because the run it starts is not the one the .toml asks for."""
+
+    def test_the_framework_runs_ci_on_every_push(self):
+        cfg = cfgmod.load_config()
+        self.assertIs(cfg["ci"]["on_push"], True)
+        self.assertIn("\n[ci]\n", (REPO / "raylib_multiplatform.toml").read_text())
+        self.assertRegex(toml_section("ci"), r"(?m)^on_push = true$")
+        text = CI_YML.read_text()
+        self.assertEqual(text.count(cfgmod.ci_trigger_block(cfg)), 1)
+        with quiet():
+            self.assertFalse(cfgmod.sync_ci_triggers(cfg, write_it=False))
+
+    def triggers(self, on_push: bool) -> dict:
+        yaml = require_yaml(self)
+        text = CI_YML.read_text()
+        lines = text.splitlines(keepends=True)
+        begin = next(i for i, line in enumerate(lines) if cfgmod.CI_BEGIN in line)
+        end = next(i for i, line in enumerate(lines) if cfgmod.CI_END in line)
+        made = ("".join(lines[:begin]) + cfgmod.ci_trigger_block(ci_config(on_push))
+                + "".join(lines[end + 1:]))
+        data = yaml.safe_load(made)
+        return data.get("on", data.get(True))   # YAML 1.1 reads `on` as True
+
+    def test_both_variants_are_the_triggers_they_say(self):
+        on = self.triggers(True)
+        self.assertEqual(on["push"], {"branches": ["main"], "tags": ["v*"],
+                                      "paths-ignore": ["**.md", "LICENSE"]})
+        self.assertEqual(on["pull_request"], {"paths-ignore": ["**.md", "LICENSE"]})
+        off = self.triggers(False)
+        # Tags only: GitHub starts nothing for a push to a branch, and a tag
+        # still releases. No pull_request at all.
+        self.assertEqual(off["push"], {"tags": ["v*"]})
+        self.assertNotIn("pull_request", off)
+        self.assertNotIn("branches", off["push"])
+        # workflow_dispatch is hand-written, and the same either way.
+        self.assertEqual(off["workflow_dispatch"], on["workflow_dispatch"])
+        self.assertEqual(set(on), {"push", "pull_request", "workflow_dispatch"})
+        self.assertEqual(set(off), {"push", "workflow_dispatch"})
+
+    def test_the_header_line_the_docs_pin_is_still_there(self):
+        """rmp-docs' testing page greps for this line of ci.yml, byte for byte."""
+        self.assertEqual(CI_YML.read_text().splitlines()[2],
+                         "#   push / pull_request  ->  fast lane: Linux x64, Web, Android, "
+                         "Windows x64")
+        self.assertIn("[ci] on_push = false", CI_YML.read_text().splitlines()[3])
+
+    def test_generation_writes_once_and_only_the_block(self):
+        with ci_project(on_push=False) as ci, quiet(), contextlib.redirect_stdout(io.StringIO()):
+            before = ci.read_text()
+            self.assertTrue(cfgmod.sync_ci_triggers(ci_config(False), write_it=True))
+            after = ci.read_text()
+            self.assertIn(cfgmod.ci_trigger_block(ci_config(False)), after)
+            self.assertNotEqual(after, before)
+            self.assertEqual(outside_the_block(after), outside_the_block(before))
+            # A second run has nothing to do, and touches nothing.
+            stamp = ci.stat().st_mtime_ns
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(False), write_it=True))
+            self.assertEqual(ci.stat().st_mtime_ns, stamp)
+            # Comparing now agrees, and back to true is the framework's file again.
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(False), write_it=False))
+            self.assertTrue(cfgmod.sync_ci_triggers(ci_config(True), write_it=True))
+            self.assertEqual(ci.read_text(), CI_YML.read_text())
+
+    def test_a_ci_yml_that_disagrees_is_refused_at_the_line(self):
+        for on_push in (False, True):
+            text = CI_YML.read_text()
+            if on_push:   # the .toml says true; the file says false
+                text = text.replace(cfgmod.ci_trigger_block(ci_config(True)),
+                                    cfgmod.ci_trigger_block(ci_config(False)))
+            with self.subTest(on_push=on_push), ci_project(on_push=on_push, ci_text=text) as ci:
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    cfgmod.sync_ci_triggers(ci_config(on_push), write_it=False)
+                message = str(caught.exception)
+                self.assertIn(f"[ci] on_push = {str(on_push).lower()}", message)
+                self.assertIn(".github/workflows/ci.yml", message)
+                self.assertIn("commit", message)
+                self.assertEqual(cfgmod.locate_from(caught.exception),
+                                 (6, f"on_push = {str(on_push).lower()}"))
+                self.assertEqual(ci.read_text(), text, "a refusal wrote the file")
+
+    def test_check_every_print_and_ci_refuse_and_write_nothing(self):
+        """The CI config job calls --print-name first, and rmp deploy
+        --print-config: both stop. In GitHub Actions even a plain run only
+        compares, so every leaf job's configure step stops too."""
+        cases = [["--check"], ["--print-name"], ["--print-targets"], ["--print-ci"],
+                 ["--print-defines"], ["--print-pins"], ["--print-config"]]
+        with ci_project(on_push=False) as ci:
+            before = ci.read_bytes()
+            for argv in cases:
+                with self.subTest(argv=argv), environment(GITHUB_ACTIONS=None):
+                    _, caught = run_cli(*argv)
+                    self.assertIsInstance(caught, cfgmod.ConfigError)
+                    self.assertIn("[ci] on_push", str(caught))
+            with environment(GITHUB_ACTIONS="true"):
+                _, caught = run_cli()
+                self.assertIsInstance(caught, cfgmod.ConfigError)
+                self.assertIn("[ci] on_push", str(caught))
+            self.assertEqual(ci.read_bytes(), before)
+
+    def test_generating_on_a_machine_writes_it(self):
+        """The plain run outside CI: what `cmake --preset`, rmp build and rmp
+        run do. The other generators are stood in for -- the scratch project
+        has nothing for them to read -- so this is main()'s choice to write,
+        and NewTest's game is the run with every generator for real."""
+        stubs = {name: (lambda *a, **k: False) for name in (
+            "gen_cmake", "gen_app_config", "gen_licenses", "gen_gradle_properties",
+            "gen_android_manifest", "generate_icons", "gen_ios_project")}
+        saved = {name: getattr(cfgmod, name) for name in stubs}
+        saved_stamp = cfgmod.STAMP
+        with ci_project(on_push=False) as ci:
+            cfgmod.STAMP = ci.parent / "config.stamp"
+            for name, stub in stubs.items():
+                setattr(cfgmod, name, stub)
+            try:
+                with environment(GITHUB_ACTIONS=None):
+                    out, caught = run_cli()
+            finally:
+                for name, original in saved.items():
+                    setattr(cfgmod, name, original)
+                cfgmod.STAMP = saved_stamp
+            self.assertIsNone(caught)
+            self.assertIn("rewrote the triggers", out)
+            self.assertIn(cfgmod.ci_trigger_block(ci_config(False)), ci.read_text())
+
+    def test_the_markers_missing_doubled_or_reversed_are_refused(self):
+        text = CI_YML.read_text()
+        begin_line = next(line for line in text.splitlines(keepends=True)
+                          if cfgmod.CI_BEGIN in line)
+        end_line = next(line for line in text.splitlines(keepends=True)
+                        if cfgmod.CI_END in line)
+        broken = {
+            "no begin": text.replace(begin_line, ""),
+            "no end": text.replace(end_line, ""),
+            "neither": text.replace(begin_line, "").replace(end_line, ""),
+            "two begins": text.replace(begin_line, begin_line * 2),
+            "reversed": text.replace(begin_line, "@@").replace(end_line, begin_line)
+                            .replace("@@", end_line),
+        }
+        for label, variant in broken.items():
+            with self.subTest(label), ci_project(on_push=True, ci_text=variant) as ci:
+                for write_it in (False, True):
+                    with self.assertRaises(cfgmod.ConfigError) as caught:
+                        cfgmod.sync_ci_triggers(ci_config(True), write_it=write_it)
+                    self.assertIn(cfgmod.CI_BEGIN, str(caught.exception))
+                    self.assertEqual(caught.exception.where, ("ci", "on_push"))
+                self.assertEqual(ci.read_text(), variant)
+
+    def test_a_project_without_ci_yml_has_nothing_to_sync(self):
+        with ci_project(on_push=False, ci_text="") as ci:
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(False), write_it=False))
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(False), write_it=True))
+            self.assertFalse(ci.exists())
+
+    def test_a_crlf_checkout(self):
+        """Windows checks ci.yml out with CRLF (.gitattributes: eol=native). It
+        reads as the same file, is left alone when it agrees, and is fixed when
+        it does not."""
+        with ci_project(on_push=True, crlf=True) as ci, quiet(), \
+                contextlib.redirect_stdout(io.StringIO()):
+            raw = ci.read_bytes()
+            self.assertIn(b"\r\n", raw)
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(True), write_it=False))
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(True), write_it=True))
+            self.assertEqual(ci.read_bytes(), raw)
+            with self.assertRaises(cfgmod.ConfigError):
+                cfgmod.sync_ci_triggers(ci_config(False), write_it=False)
+            self.assertTrue(cfgmod.sync_ci_triggers(ci_config(False), write_it=True))
+            self.assertFalse(cfgmod.sync_ci_triggers(ci_config(False), write_it=False))
+            self.assertIn(cfgmod.ci_trigger_block(ci_config(False)), ci.read_text())
+
+    def test_config_reads_another_toml_and_never_syncs(self):
+        """The docs site checks the .toml blocks it shows against this
+        framework with --config, and one of them may say false."""
+        with tempfile.TemporaryDirectory() as tmp:
+            other = Path(tmp) / "x.toml"
+            other.write_text("[ci]\non_push = false\n")
+            before = CI_YML.read_bytes()
+            saved = cfgmod.TOML
+            try:
+                out, caught = run_cli("--check", "--config", str(other))
+                self.assertIsNone(caught, caught)
+                out, caught = run_cli("--print-ci", "--config", str(other))
+                self.assertIsNone(caught, caught)
+                self.assertEqual(out, "on_push=false\n")
+            finally:
+                cfgmod.TOML = saved
+            self.assertEqual(CI_YML.read_bytes(), before)
+
+    def test_print_ci_says_the_value(self):
+        out, caught = run_cli("--print-ci")
+        self.assertIsNone(caught)
+        self.assertEqual(out, "on_push=true\n")
+
+    def test_the_value_has_to_be_a_bool(self):
+        for bad in ("false", "true", 0, 1, None, [False], {"on": True}):
+            with self.subTest(value=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(ci_config(bad), False)
+                self.assertIn("[ci] on_push", str(caught.exception))
+
+
+class GradleOfflineTest(unittest.TestCase):
+    """[android] gradle_offline reaches _android.yml through
+    generated.properties, as the word true or false and nothing else."""
+
+    def properties(self, cfg) -> str:
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(str(path), content)
+        try:
+            cfgmod.gen_gradle_properties(cfg, ["android"])
+        finally:
+            cfgmod.write = original
+        (text,) = captured.values()
+        return text
+
+    def test_the_default_is_offline_and_false_says_so(self):
+        self.assertIs(cfgmod.DEFAULTS["android"]["gradle_offline"], True)
+        self.assertRegex(toml_section("android"), r"(?m)^gradle_offline = true$")
+        self.assertIn("\ngradle.offline=true\n", self.properties(base_config()))
+        cfg = base_config()
+        cfg["android"]["gradle_offline"] = False
+        self.assertIn("\ngradle.offline=false\n", self.properties(cfg))
+
+    def test_the_value_has_to_be_a_bool(self):
+        for bad in ("false", "true", 0, 1, None, ["x"]):
+            with self.subTest(value=bad):
+                cfg = base_config()
+                cfg["android"]["gradle_offline"] = bad
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn("[android] gradle_offline", str(caught.exception))
 
 
 if __name__ == "__main__":

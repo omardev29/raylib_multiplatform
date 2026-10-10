@@ -528,9 +528,34 @@ def live_runs(ctx) -> list[dict]:
     return [r for r in runs if r.get("status") != "completed"]
 
 
+def push_starts_a_run(ctx) -> bool:
+    """Whether the commit being pushed starts a CI run: [ci] on_push.
+
+    Asked of configure.py, which refuses an invalid .toml and a ci.yml whose
+    triggers disagree with it -- CI's first step would refuse that run too, so
+    the push stops here. And of git: the run follows the ci.yml that is
+    COMMITTED, so one rewritten for on_push = false and not committed yet still
+    runs, and is checked like any other."""
+    got = ctx.run([ctx.python, "tools/configure.py", "--print-ci"], check=False, capture=True)
+    if got.returncode != 0:
+        sys.stdout.write(got.stdout or "")
+        raise Refused("tools/configure.py refused the project, and CI's first step would too")
+    if "on_push=false" not in (got.stdout or "").splitlines():
+        return True
+    if git_out(ctx, "diff", "--quiet", "HEAD", "--", ".github/workflows/ci.yml").returncode != 0:
+        print("  note: .github/workflows/ci.yml has changes that are not committed, and the")
+        print("        commit being pushed may still run CI on a push: checking for a run")
+        return True
+    return False
+
+
 def cmd_push(ctx, args):
     force = one_of(args, ("force",), "") == "force"
-    if not force:
+    if not force and not push_starts_a_run(ctx):
+        # Nothing to cancel: concurrency cancels a run only by starting another.
+        print("  [ci] on_push = false: a push starts no CI run, so none is checked.")
+        print("  gh workflow run ci.yml     # runs the fast lane, when you want it")
+    elif not force:
         live = live_runs(ctx)
         if live:
             print("a CI run is in flight, and pushing cancels it:")
@@ -1105,7 +1130,8 @@ COMMANDS = {
     "push": Command(
         "push [force]", "git push, unless it would cancel a running CI",
         "Run git push -- refused while a CI run is in flight, because the push "
-        "would cancel it. The first push of a branch sets its upstream on origin.",
+        "would cancel it; with [ci] on_push = false a push starts no run, and "
+        "nothing is checked. The first push of a branch sets its upstream on origin.",
         [("rmp push", "push, or say which run it would kill"),
          ("rmp push force", "push anyway, and cancel the run")],
         cmd_push),

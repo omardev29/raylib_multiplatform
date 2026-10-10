@@ -426,6 +426,8 @@ class GitRepo:
             "'ref': os.environ.get('GITHUB_REF_NAME'), "
             "'type': os.environ.get('GITHUB_REF_TYPE')}) + '\\n')\n"
             "if '--print-name' in sys.argv: print('demo')\n"
+            "if '--print-ci' in sys.argv: "
+            "print('on_push=' + os.environ.get('FAKE_ON_PUSH', 'true'))\n"
             "sys.exit(int(os.environ.get('FAKE_CONFIGURE_EXIT', '0')))\n")
         (self.root / ".gitignore").write_text("tools/calls.json\n")
         self.git("add", "-A")
@@ -623,6 +625,47 @@ class PushTest(unittest.TestCase):
         got = self.push()
         self.assertEqual(got.returncode, 0)
         self.assertIn("warning", got.stdout)
+
+    def test_on_push_false_starts_no_run_so_it_asks_no_one(self):
+        """[ci] on_push = false: a push starts no run, and a run is only ever
+        cancelled by another one starting -- a run in flight is no reason to
+        refuse, and is not even looked for."""
+        log = self.fake_gh([{"databaseId": 42, "status": "in_progress", "event": "push"}])
+        got = self.repo.rmp("push", env={"PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                                         "FAKE_ON_PUSH": "false"})
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertTrue(self.pushed())
+        self.assertFalse(log.exists(), "gh was asked about runs a push cannot cancel")
+        self.assertIn("gh workflow run ci.yml", got.stdout)
+        self.assertIn("on_push = false", got.stdout)
+
+    def test_a_ci_yml_not_committed_yet_is_checked_anyway(self):
+        """The run follows the ci.yml that is committed: one rewritten for
+        on_push = false and not committed still runs on this push."""
+        ci = self.repo.root / ".github" / "workflows" / "ci.yml"
+        ci.parent.mkdir(parents=True)
+        ci.write_text("on: push\n")
+        self.repo.git("add", "-A")
+        self.repo.git("commit", "-q", "-m", "ci")
+        ci.write_text("on: workflow_dispatch\n")
+        log = self.fake_gh([{"databaseId": 42, "status": "in_progress", "event": "push"}])
+        got = self.repo.rmp("push", env={"PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                                         "FAKE_ON_PUSH": "false"})
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("not committed", got.stdout)
+        self.assertIn("--workflow ci.yml", log.read_text())
+        self.assertFalse(self.pushed())
+
+    def test_a_project_configure_refuses_is_not_pushed(self):
+        """CI's first step would stop the run: an invalid .toml, or a ci.yml
+        whose triggers are not the ones [ci] on_push writes."""
+        log = self.fake_gh([])
+        got = self.repo.rmp("push", env={"PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                                         "FAKE_CONFIGURE_EXIT": "1"})
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("configure.py refused", got.stdout)
+        self.assertFalse(self.pushed())
+        self.assertFalse(log.exists())
 
 
 class FirstPushTest(unittest.TestCase):
@@ -1598,6 +1641,134 @@ class NewRefusesTest(unittest.TestCase):
                         self.assertEqual(os.listdir(target), [])
                     else:
                         self.assertFalse(target.exists())
+
+
+class GameOnPushTest(unittest.TestCase):
+    """[ci] on_push = false in a game made with rmp new, end to end and with
+    nothing stood in for: the game's own configure.py writes ci.yml, the file
+    differs from the framework's between the markers and nowhere else, its
+    workflows still lint, --check refuses a ci.yml left behind, and its rmp
+    push starts no run and asks about none. The rmp_new CI job does the same
+    to the game it makes from every commit."""
+
+    @classmethod
+    def setUpClass(cls):
+        if shutil.which("git") is None:
+            raise unittest.SkipTest("git not installed")
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.parent = Path(cls._tmp.name)
+        made = subprocess.run([sys.executable, str(RMP_PY), "new", "quiet_game"], cwd=cls.parent,
+                              capture_output=True, text=True)
+        assert made.returncode == 0, made.stdout + made.stderr
+        cls.game = cls.parent / "quiet_game"
+        cls.env = dict(os.environ, RMP_NO_DELEGATE="1", GIT_TERMINAL_PROMPT="0",
+                       GIT_CONFIG_GLOBAL=str(cls.parent / "gitconfig"), GIT_CONFIG_NOSYSTEM="1",
+                       GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                       GIT_COMMITTER_EMAIL="t@t", GIT_ALLOW_PROTOCOL="file")
+        # Generating writes ci.yml on a machine; inside GitHub Actions every
+        # run only compares, and this suite runs there too.
+        cls.env.pop("GITHUB_ACTIONS", None)
+        toml = cls.game / rmp.TOML
+        text = toml.read_text()
+        assert text.count("\non_push = true\n") == 1
+        toml.write_text(text.replace("\non_push = true\n", "\non_push = false\n"))
+        cls.generated = cls.configure()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    @classmethod
+    def configure(cls, *argv):
+        return subprocess.run([sys.executable, "tools/configure.py", *argv], cwd=cls.game,
+                              capture_output=True, text=True, env=cls.env)
+
+    def git(self, *argv):
+        return subprocess.run(["git", "-c", "safe.directory=*", *argv], cwd=self.game,
+                              capture_output=True, text=True, env=self.env)
+
+    def ci(self) -> Path:
+        return self.game / ".github" / "workflows" / "ci.yml"
+
+    def test_generating_rewrote_ci_yml_and_said_so(self):
+        self.assertEqual(self.generated.returncode, 0,
+                         self.generated.stdout + self.generated.stderr)
+        self.assertIn("rewrote the triggers of .github/workflows/ci.yml", self.generated.stdout)
+        again = self.configure()
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("rewrote", again.stdout, "a second run rewrote it again")
+
+    def test_only_the_toml_and_ci_yml_changed(self):
+        changed = self.git("diff", "--name-only").stdout.split()
+        self.assertEqual(sorted(changed), [".github/workflows/ci.yml", rmp.TOML])
+
+    def test_ci_yml_is_the_frameworks_outside_the_markers(self):
+        mine = self.ci().read_text().splitlines()
+        theirs = (REPO / ".github" / "workflows" / "ci.yml").read_text().splitlines()
+        begin = next(i for i, line in enumerate(theirs) if "# BEGIN generated" in line)
+        end = next(i for i, line in enumerate(theirs) if "# END generated" in line)
+        my_end = next(i for i, line in enumerate(mine) if "# END generated" in line)
+        self.assertEqual(mine[:begin + 1], theirs[:begin + 1])
+        self.assertEqual(mine[my_end:], theirs[end:])
+        self.assertNotEqual(mine, theirs)
+        inside = "\n".join(mine[begin:my_end])
+        self.assertNotIn("branches:", inside)
+        self.assertNotIn("pull_request", inside)
+        self.assertIn("tags: ['v*']", inside)
+
+    def test_the_workflows_still_lint(self):
+        if shutil.which("actionlint") is None:
+            if IN_BUILD_IMAGE:
+                self.fail("actionlint is missing inside the build image")
+            self.skipTest("actionlint not installed (it ships in the build image)")
+        got = subprocess.run(["actionlint"], cwd=self.game, capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        got = subprocess.run([rmp.find_bash(), str(REPO / "tools" / "workflow_check.sh"),
+                              str(self.game)], capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_check_passes_and_a_ci_yml_left_behind_is_red(self):
+        got = self.configure("--check")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        mine = self.ci().read_bytes()
+        try:
+            self.ci().write_bytes((REPO / ".github" / "workflows" / "ci.yml").read_bytes())
+            got = self.configure("--check")
+            self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+            self.assertIn("on_push = false", got.stderr)   # the .toml line, quoted
+            self.assertIn(".github/workflows/ci.yml", got.stderr)
+            got = self.configure("--print-name")
+            self.assertEqual(got.returncode, 1)
+        finally:
+            self.ci().write_bytes(mine)
+
+    def test_its_push_starts_no_run_and_asks_about_none(self):
+        work = self.parent / "pushed"
+        if work.exists():
+            shutil.rmtree(work)
+        shutil.copytree(self.game, work, symlinks=True)
+        origin = self.parent / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, env=self.env)
+        for argv in (["add", "-A"], ["commit", "-q", "-m", "New game"],
+                     ["remote", "add", "origin", str(origin)]):
+            subprocess.run(["git", *argv], cwd=work, check=True, env=self.env,
+                           capture_output=True)
+        bin_dir = self.parent / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        log = bin_dir / "gh.log"
+        (bin_dir / "gh").write_text(f"#!/bin/sh\necho \"$@\" >> '{log}'\n"
+                                    "echo '[{\"databaseId\": 9, \"status\": \"queued\"}]'\n")
+        (bin_dir / "gh").chmod(0o755)
+        got = subprocess.run([sys.executable, "tools/rmp.py", "push"], cwd=work,
+                             capture_output=True, text=True,
+                             env=dict(self.env, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}"))
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertIn("gh workflow run ci.yml", got.stdout)
+        self.assertFalse(log.exists(), "gh was asked about runs this push cannot cancel")
+        remote = subprocess.run(["git", "--git-dir", str(origin), "rev-parse", "main"],
+                                capture_output=True, text=True).stdout.strip()
+        self.assertEqual(remote, subprocess.run(["git", "rev-parse", "HEAD"], cwd=work,
+                                                capture_output=True, text=True).stdout.strip())
 
 
 class SourceTest(unittest.TestCase):
