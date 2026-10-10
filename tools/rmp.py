@@ -243,6 +243,16 @@ def run_step(ctx: Ctx, step) -> None:
         got = ctx.run([ctx.exe(f"build/{name}")], env={"RAY_TEST_MAX_FRAMES": "10"},
                       check=False, capture=True)
         out = got.stdout or ""
+        # The report and the exit status first, and both are verdicts: the
+        # markers are printed before the process ends, and LeakSanitizer
+        # reports at exit, after them, with a status this used to ignore.
+        report = sanitizer_report(out)
+        if report:
+            sys.stdout.write(report)
+            raise Refused(f"a sanitizer reported the run above (exit {got.returncode})")
+        if got.returncode != 0:
+            sys.stdout.write(out[-4000:])
+            raise Refused(f"the game exited with status {got.returncode}")
         if "RAY_TEST_BOOT_OK assets_failed=0 " not in out:
             sys.stdout.write(out)
             raise Refused("the game did not boot, or an asset failed to load")
@@ -256,6 +266,19 @@ def run_step(ctx: Ctx, step) -> None:
         ctx.run(["sh", "tools/render_check.sh", "Ninja", "", ctx.name(), step[1]])
     else:  # pragma: no cover - a typo in STAGES
         raise AssertionError(f"unknown step {kind!r}")
+
+
+SANITIZER_MARKS = ("ERROR: AddressSanitizer", "ERROR: LeakSanitizer", "runtime error:")
+
+
+def sanitizer_report(out: str) -> str:
+    """The first sanitizer report in a run's output -- its first forty lines,
+    the error and the stack that got there -- or "" when there is none."""
+    lines = out.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if any(mark in line for mark in SANITIZER_MARKS):
+            return "".join(lines[i:i + 40])
+    return ""
 
 
 LOCALES_ENV = {"LOCPATH": "build/test-locales"}

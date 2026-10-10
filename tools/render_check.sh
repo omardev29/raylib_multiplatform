@@ -57,8 +57,26 @@ test -x "$BIN" || { echo "FAIL: $BIN was not built"; exit 1; }
 # stdin from /dev/null: in a BSD VM this script reaches the shell on stdin,
 # and the headless platform polls the keyboard there -- it would eat the
 # rest of the script (GameLaunchesReadNothingFromStdinTest).
-RAY_TEST_MAX_FRAMES=10 "./$BIN" > "$LOG" 2>&1 < /dev/null || true
+#
+# The exit status is kept, and it is a verdict. It used to be thrown away
+# (`|| true`), and the markers below are printed BEFORE the process ends: a
+# Debug build is instrumented by [dev] sanitize, and LeakSanitizer reports at
+# exit -- after RAY_TEST_DONE_FRAMES, with a non-zero status that nothing
+# read. So a game that leaked passed here.
+STATUS=0
+RAY_TEST_MAX_FRAMES=10 "./$BIN" > "$LOG" 2>&1 < /dev/null || STATUS=$?
 tail -25 "$LOG"
+
+# A sanitizer's report, whatever the status says: the first forty lines of
+# each, which is the error and the stack that got there. A report with exit 0
+# is one compiled to recover, and it is still a bug.
+if grep -qE 'ERROR: (AddressSanitizer|LeakSanitizer)|runtime error:' "$LOG"; then
+    echo "  -- the sanitizer's report --"
+    awk '/ERROR: (AddressSanitizer|LeakSanitizer)|runtime error:/ { n = 40 } n-- > 0' "$LOG"
+    echo "FAIL: a sanitizer reported the run above (exit $STATUS)"
+    exit 1
+fi
+test "$STATUS" -eq 0 || { echo "FAIL: the game exited with status $STATUS"; exit 1; }
 
 # Three assertions, not one. The third is the one that would have caught the
 # segfault-at-shutdown from phase 3: a process that dies on the way out never

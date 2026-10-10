@@ -347,6 +347,54 @@ class CommandSequenceTest(unittest.TestCase):
             self.assertEqual(self.run_cmd(["unpack"], cwd=game)[0], 0)
 
 
+
+class SmokeStepTest(unittest.TestCase):
+    """`rmp test smoke` boots the game and reads what it printed -- and, now,
+    how it ended. The markers come out before the process ends, and a Debug
+    build's LeakSanitizer reports at exit, after them, with a status the step
+    used to ignore: a game that leaked passed."""
+
+    BOOTED = ("INFO: RAY_TEST_BOOT_OK assets_failed=0 assets_requested=1\n"
+              "INFO: RAY_TEST_RENDER_OK frame=5 hash=1\nINFO: RAY_TEST_DONE_FRAMES rendered=10\n")
+
+    def smoke(self, code, out):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            answers = {"tools/configure.py --print-name": (0, "demo\n"),
+                       str(Path("build") / "demo"): (code, out)}
+            with windows(False), recording(answers), quiet() as printed:
+                code = rmp.main(["test", "smoke"], cwd=game)
+            return code, printed.getvalue()
+
+    def test_a_clean_run_passes(self):
+        code, out = self.smoke(0, self.BOOTED)
+        self.assertEqual(code, 0, out)
+        self.assertIn("booted and rendered", out)
+
+    def test_an_exit_status_is_a_failure_even_after_every_marker(self):
+        """Seen red with a game that exits 23 -- LeakSanitizer's own status."""
+        code, out = self.smoke(23, self.BOOTED)
+        self.assertEqual(code, 1, out)
+        self.assertIn("the game exited with status 23", out)
+
+    def test_a_sanitizer_report_is_a_failure_whatever_the_status(self):
+        for report in ("==7==ERROR: LeakSanitizer: detected memory leaks\n",
+                       "==7==ERROR: AddressSanitizer: heap-use-after-free on address\n",
+                       "src/rmp/x.cpp:3:5: runtime error: signed integer overflow\n"):
+            for status in (0, 1):
+                with self.subTest(report=report, status=status):
+                    code, out = self.smoke(status, self.BOOTED + report)
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("a sanitizer reported the run above", out)
+                    self.assertIn(report.strip(), out)
+
+    def test_the_report_is_what_gets_printed(self):
+        text = "a\nb\n==1==ERROR: AddressSanitizer: x\n" + "".join(f"#{i}\n" for i in range(60))
+        report = rmp.sanitizer_report(text)
+        self.assertTrue(report.startswith("==1==ERROR: AddressSanitizer: x"))
+        self.assertEqual(len(report.splitlines()), 40)
+        self.assertEqual(rmp.sanitizer_report(self.BOOTED), "")
+
 class ReconfigureTest(unittest.TestCase):
     def cache(self, root, line):
         (root / "build").mkdir(parents=True, exist_ok=True)

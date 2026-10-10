@@ -6262,6 +6262,74 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
                 self.assertRegex(code, r"<\s*/dev/null", f"{name}:{n} starts a game that can read the script's stdin")
 
 
+
+FAKE_CMAKE = r"""#!/bin/sh
+# Configures by writing the game the run is about, and builds by doing nothing.
+case " $* " in *" --build "*) exit 0 ;; esac
+mkdir -p build/memory
+cat > build/memory/game <<'GAME'
+#!/bin/sh
+echo "INFO: RAY_TEST_BOOT_OK assets_failed=0 assets_requested=1 vsync=1"
+echo "INFO: RAY_TEST_RENDER_OK frame=5 pixels=1 ratio=0.1 hash=0badf00d"
+echo "INFO: RAY_TEST_DONE_FRAMES rendered=10"
+printf '%b' "$STUB_EXTRA"
+exit "$STUB_STATUS"
+GAME
+chmod +x build/memory/game
+"""
+
+
+class RenderCheckReadsTheExitTest(unittest.TestCase):
+    """tools/render_check.sh ended its launch in `|| true` and judged the run
+    by the markers alone -- which are printed BEFORE the process ends. A Debug
+    build is instrumented by [dev] sanitize, and LeakSanitizer reports at exit,
+    after RAY_TEST_DONE_FRAMES, with a status nothing read. The script runs
+    here in a copy of the tree, against a cmake that writes a stand-in game."""
+
+    def run_check(self, status, extra=""):
+        import shutil
+        import subprocess
+        if sys.platform == "win32" or shutil.which("sh") is None:
+            self.skipTest("render_check.sh is POSIX sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            shutil.copy(REPO / "tools" / "render_check.sh", root / "tools")
+            (root / "include" / "rmp" / "generated").mkdir(parents=True)
+            (root / "include" / "rmp" / "generated" / "config.h").write_text(
+                "#define RMP_WINDOW_VSYNC 1\n")
+            fake = root / "fakebin"
+            fake.mkdir()
+            (fake / "cmake").write_text(FAKE_CMAKE)
+            (fake / "cmake").chmod(0o755)
+            env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}",
+                       STUB_STATUS=str(status), STUB_EXTRA=extra)
+            got = subprocess.run(["sh", "tools/render_check.sh", "Ninja", "", "game"], cwd=root,
+                                 env=env, capture_output=True, text=True,
+                                 stdin=subprocess.DEVNULL)
+            return got.returncode, got.stdout + got.stderr
+
+    def test_a_clean_run_passes(self):
+        code, out = self.run_check(0)
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS: booted, rendered and exited", out)
+
+    def test_an_exit_status_after_every_marker_fails(self):
+        code, out = self.run_check(23)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL: the game exited with status 23", out)
+
+    def test_a_sanitizer_report_fails_whatever_the_status(self):
+        for report in (r"==9==ERROR: LeakSanitizer: detected memory leaks\n",
+                       r"==9==ERROR: AddressSanitizer: stack-use-after-return\n",
+                       r"src/rmp/ui/x.cpp:1:2: runtime error: shift exponent 40\n"):
+            for status in (0, 1):
+                with self.subTest(report=report, status=status):
+                    code, out = self.run_check(status, report)
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("FAIL: a sanitizer reported the run above", out)
+                    self.assertIn("the sanitizer's report", out)
+
 class BsdInlineScriptSizeTest(unittest.TestCase):
     """The cpa.sh script has a size limit and nothing was measuring it.
 
