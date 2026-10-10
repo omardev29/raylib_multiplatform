@@ -97,57 +97,87 @@ class Case(unittest.TestCase):
 
 
 class TheBudgetHoldsTest(Case):
-    """Over its budget by one byte fails; at it passes. Under the least its
-    line allows by one byte fails; at it passes. For both columns."""
+    """Omar's rule of 2026-10-11, at every edge and for both columns: within
+    1.5 % of its line a binary passes in silence; one byte past that it passes
+    with a warning; up to 10 % it still passes; one byte past 10 % it fails.
+    The same under the line, where what goes stale is the line."""
 
     def test_within_passes_and_prints_the_line(self):
         code, out = self.check("linux-x64-glibc", *self.linux(100000, 40000))
         self.assertEqual(code, 0, out)
         self.assertIn("  ok    linux-x64-glibc", out)
+        self.assertNotIn("WARN:", out)
         self.assertIn("linux-x64-glibc        elf       100000     40000  # measured at aaaaaaa",
                       out.splitlines())
 
-    def test_one_byte_over_the_budget_fails(self):
-        low, high = sc.bounds(100000)
-        self.assertEqual((low, high), (98500, 101500))
-        code, out = self.check("linux-x64-glibc", *self.linux(high, 40000))
+    def test_the_edges_over_the_line(self):
+        self.assertEqual(sc.bounds(100000), (98500, 101500))
+        self.assertEqual(sc.bounds(100000, sc.FAIL_AT), (90000, 110000))
+        code, out = self.check("linux-x64-glibc", *self.linux(101500, 40000))
+        self.assertEqual((code, "WARN:" in out), (0, False), out)
+        code, out = self.check("linux-x64-glibc", *self.linux(101501, 40000))
         self.assertEqual(code, 0, out)
-        code, out = self.check("linux-x64-glibc", *self.linux(high + 1, 40000))
+        self.assertIn("WARN: linux-x64-glibc: unpacked 101501 bytes is +1.50% against its "
+                      "line's 100000", out)
+        self.assertNotIn("  ok    linux-x64-glibc", out)
+        code, out = self.check("linux-x64-glibc", *self.linux(110000, 40000))
+        self.assertEqual((code, "WARN:" in out), (0, True), out)
+        code, out = self.check("linux-x64-glibc", *self.linux(110001, 40000))
         self.assertEqual(code, 1, out)
-        self.assertIn("unpacked 101501 bytes is over its budget of 101500", out)
-        self.assertIn(f"linux-x64-glibc        elf       {high + 1}     40000  # measured at",
-                      out)
+        self.assertIn("unpacked 110001 bytes is over its budget of 110000", out)
+        self.assertIn("linux-x64-glibc        elf       110001     40000  # measured at", out)
 
-    def test_one_packed_byte_over_the_budget_fails(self):
-        _, high = sc.bounds(40000)
-        code, out = self.check("linux-x64-glibc", *self.linux(100000, high))
+    def test_the_edges_of_the_packed_column(self):
+        _, quiet = sc.bounds(40000)
+        _, high = sc.bounds(40000, sc.FAIL_AT)
+        code, out = self.check("linux-x64-glibc", *self.linux(100000, quiet))
+        self.assertEqual((code, "WARN:" in out), (0, False), out)
+        code, out = self.check("linux-x64-glibc", *self.linux(100000, quiet + 1))
         self.assertEqual(code, 0, out)
+        self.assertIn(f"WARN: linux-x64-glibc: packed {quiet + 1} bytes", out)
         code, out = self.check("linux-x64-glibc", *self.linux(100000, high + 1))
         self.assertEqual(code, 1, out)
         self.assertIn(f"packed {high + 1} bytes is over its budget of {high}", out)
 
-    def test_a_stale_line_fails(self):
+    def test_the_edges_under_the_line(self):
         """A binary much smaller than its line: the line would hide the next
-        growth, so it has to come down."""
-        low, _ = sc.bounds(100000)
-        code, out = self.check("linux-x64-glibc", *self.linux(low, 40000))
+        growth. Past 1.5 % it is said; past 10 % it fails."""
+        code, out = self.check("linux-x64-glibc", *self.linux(98500, 40000))
+        self.assertEqual((code, "WARN:" in out), (0, False), out)
+        code, out = self.check("linux-x64-glibc", *self.linux(98499, 40000))
         self.assertEqual(code, 0, out)
-        code, out = self.check("linux-x64-glibc", *self.linux(low - 1, 40000))
+        self.assertIn("The line is going stale", out)
+        code, out = self.check("linux-x64-glibc", *self.linux(90000, 40000))
+        self.assertEqual((code, "WARN:" in out), (0, True), out)
+        code, out = self.check("linux-x64-glibc", *self.linux(89999, 40000))
         self.assertEqual(code, 1, out)
-        self.assertIn("is under 98500, the least its line allows", out)
+        self.assertIn("is under 90000, the least its line allows", out)
         self.assertIn("The line is stale", out)
-        plow, _ = sc.bounds(40000)
+        plow, _ = sc.bounds(40000, sc.FAIL_AT)
         code, out = self.check("linux-x64-glibc", *self.linux(100000, plow - 1))
         self.assertEqual(code, 1, out)
         self.assertIn("The line is stale", out)
 
-    def test_the_band_is_the_one_the_header_states(self):
-        header = (REPO / "tools" / "size_budget.txt").read_text()
-        said = re.search(r"within (\d+(?:\.\d+)?)% of it, either way", " ".join(header.split()))
+    def test_a_warning_reaches_the_runs_summary_on_github(self):
+        """A passing job's log is never read; an annotation is on the run's page."""
+        with unittest.mock.patch.dict("os.environ", {"GITHUB_ACTIONS": "true"}):
+            code, out = self.check("linux-x64-glibc", *self.linux(103000, 40000))
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning title=Size budget::linux-x64-glibc: unpacked 103000 bytes", out)
+        with unittest.mock.patch.dict("os.environ", {"GITHUB_ACTIONS": ""}):
+            _, out = self.check("linux-x64-glibc", *self.linux(103000, 40000))
+        self.assertNotIn("::warning", out)
+
+    def test_the_rule_is_the_one_the_header_states(self):
+        text = (REPO / "tools" / "size_budget.txt").read_text()
+        header = " ".join(" ".join(line.lstrip("#").split()) for line in text.splitlines())
+        said = re.search(r"[Ww]ithin (\d+(?:\.\d+)?)% of it, either way, a binary passes in "
+                         r"silence", header)
+        fails = re.search(r"past (\d+)% it fails", header)
         self.assertIsNotNone(said, "the header no longer states the rule")
-        self.assertEqual(float(said.group(1)) / 100, float(sc.TOLERANCE))
-        self.assertIn(f"is {sc.TOLERANCE * 2:.0%}", " ".join(header.split()),
-                      "the header's most a binary can drift unseen is twice the band")
+        self.assertIsNotNone(fails, "the header no longer states where it fails")
+        self.assertEqual(float(said.group(1)) / 100, float(sc.WARN_AT))
+        self.assertEqual(float(fails.group(1)) / 100, float(sc.FAIL_AT))
 
     def test_a_target_with_no_line_fails_and_says_what_to_add(self):
         code, out = self.check("linux-x64-musl", *self.linux(100000, 40000))
@@ -356,8 +386,13 @@ class AndroidTest(Case):
         aab = self.bundle({"lib/arm64-v8a/libgame.so": self.so(30451),
                            "lib/x86_64/libgame.so": self.so(31000)})
         code, out = self.run_main("android", aab)
+        self.assertEqual(code, 0, out)
+        self.assertIn("WARN: android/arm64-v8a: unpacked 30451 bytes is +1.50%", out)
+        aab = self.bundle({"lib/arm64-v8a/libgame.so": self.so(33001),
+                           "lib/x86_64/libgame.so": self.so(31000)})
+        code, out = self.run_main("android", aab)
         self.assertEqual(code, 1, out)
-        self.assertIn("android/arm64-v8a: unpacked 30451 bytes is over its budget of 30450", out)
+        self.assertIn("android/arm64-v8a: unpacked 33001 bytes is over its budget of 33000", out)
 
     def test_an_apk_reads_the_same(self):
         apk = self.bundle({"lib/arm64-v8a/libgame.so": self.so(30000),

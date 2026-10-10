@@ -60,11 +60,14 @@ from typing import NamedTuple
 REPO = Path(__file__).resolve().parent.parent
 BUDGET = "tools/size_budget.txt"
 
-# The one rule, and the reason for the number is in the file's header: a
-# binary passes while it is within this share of its line, either way. A
-# fraction, so the edge is exact: 100000 * 1.015 is 101499.99999999999 in a
-# float, and "one byte over" has to mean one byte.
-TOLERANCE = Fraction(15, 1000)
+# The rule, and the reason for the two numbers is in the file's header
+# (Omar, 2026-10-11): within WARN_AT of its line, either way, a binary passes
+# and nothing is said; past it, and up to FAIL_AT, it passes with a warning
+# that names the new number; past FAIL_AT it fails. Fractions, so the edges are
+# exact: 100000 * 1.015 is 101499.99999999999 in a float, and "one byte over"
+# has to mean one byte.
+WARN_AT = Fraction(15, 1000)
+FAIL_AT = Fraction(10, 100)
 
 KINDS = ("elf", "pe", "macho", "wasm", "so")
 
@@ -176,9 +179,10 @@ def commit() -> str:
     return sha[:7] if re.fullmatch(r"[0-9a-f]{7,40}", sha) else ""
 
 
-def bounds(n: int) -> tuple[int, int]:
-    """The sizes a binary whose line says `n` may have: within TOLERANCE."""
-    return math.ceil(n * (1 - TOLERANCE)), math.floor(n * (1 + TOLERANCE))
+def bounds(n: int, share: Fraction = WARN_AT) -> tuple[int, int]:
+    """The sizes within `share` of `n`, either way: WARN_AT, the ones that
+    pass in silence; FAIL_AT, the ones that pass at all."""
+    return math.ceil(n * (1 - share)), math.floor(n * (1 + share))
 
 
 # ---------------------------------------------------------------------------
@@ -281,15 +285,18 @@ def measure_bundle(bundle: Path, problems: list[str]) -> list[Measured]:
 # Holding a measurement to its line
 # ---------------------------------------------------------------------------
 
-def judge(m: Measured, line: Line | None, budget: str) -> list[str]:
-    """What is wrong with `m` against its line; empty when it is within."""
+def judge(m: Measured, line: Line | None, budget: str) -> tuple[list[str], list[str]]:
+    """(what is wrong with `m` against its line, what is worth saying): both
+    empty when it is within WARN_AT."""
     if line is None:
         return [f"{m.key} has no line in {budget}. A binary that ships has a budget: add the "
-                "measured line below"]
-    out = []
+                "measured line below"], []
+    out, said = [], []
     if line.kind != m.kind:
         out.append(f"{m.key}: its line says {line.kind} and the file is {m.kind}")
-    out += held(m.key, "unpacked", m.unpacked, line.unpacked)
+    wrong, warned = held(m.key, "unpacked", m.unpacked, line.unpacked)
+    out += wrong
+    said += warned
     if line.packed == NOT_PACKED and m.packed != NOT_PACKED:
         out.append(f"{m.key}: the file that ships is packed by UPX, and its line says UPX does "
                    "not apply (-). Did [upx] enabled change? Then so does the line")
@@ -298,27 +305,38 @@ def judge(m: Measured, line: Line | None, budget: str) -> list[str]:
                    "Either [upx] changed and the line goes with it, or UPX declined -- its "
                    "own step says why")
     elif m.packed != NOT_PACKED:
-        out += held(m.key, "packed", m.packed, line.packed)
-    return out
+        wrong, warned = held(m.key, "packed", m.packed, line.packed)
+        out += wrong
+        said += warned
+    return out, said
 
 
-def held(key: str, column: str, got: int, want: int | None) -> list[str]:
+def held(key: str, column: str, got: int, want: int | None) -> tuple[list[str], list[str]]:
+    """(the failure, the warning) of one column against its line."""
     if want is None:
         return [f"{key}: {column} is ? -- nobody has measured it yet. This run has: "
-                "paste the measured line below over it"]
-    low, high = bounds(want)
+                "paste the measured line below over it"], []
+    quiet_low, quiet_high = bounds(want, WARN_AT)
+    low, high = bounds(want, FAIL_AT)
     pct = f"{(got - want) * 100 / want:+.2f}%"
-    band = f"{float(TOLERANCE):.1%}"
+    rule = f"{float(WARN_AT):.1%} is said, {float(FAIL_AT):.0%} fails"
     if got > high:
         return [f"{key}: {column} {got} bytes is over its budget of {high} ({pct} against its "
-                f"line's {want}, and {band} is allowed). Growing is allowed too: it is a "
-                "decision, and the line is where it is written down -- in the commit that "
-                "grows it"]
+                f"line's {want}; {rule}). Growing is allowed too: it is a decision, and the "
+                "line is where it is written down -- in the commit that grows it"], []
     if got < low:
         return [f"{key}: {column} {got} bytes is under {low}, the least its line allows ({pct} "
-                f"against {want}, and {band} is allowed). The line is stale, and a stale line "
-                "lets the next growth through without a word: write the smaller number down"]
-    return []
+                f"against {want}; {rule}). The line is stale, and a stale line lets the next "
+                "growth through without a word: write the smaller number down"], []
+    if got > quiet_high:
+        return [], [f"{key}: {column} {got} bytes is {pct} against its line's {want}, more "
+                    f"than {float(WARN_AT):.1%}; at {float(FAIL_AT):.0%} it fails. If the "
+                    "growth is meant, write the new number down in the commit that makes it"]
+    if got < quiet_low:
+        return [], [f"{key}: {column} {got} bytes is {pct} against its line's {want}, more "
+                    f"than {float(WARN_AT):.1%} under it. The line is going stale, and a stale "
+                    "line hides the next growth: write the smaller number down"]
+    return [], []
 
 
 def verdict(measured: list[Measured], problems: list[str], path: Path, mode: str,
@@ -340,17 +358,24 @@ def verdict(measured: list[Measured], problems: list[str], path: Path, mode: str
             lines = load(path)
         except BudgetError as e:
             problems.append(str(e))
+    warnings: list[str] = []
     if not problems:
         for m in measured:
-            wrong = judge(m, lines.get(m.key), budget)
+            wrong, warned = judge(m, lines.get(m.key), budget)
             problems += wrong
-            if not wrong:
+            warnings += warned
+            if not wrong and not warned:
                 print(f"  ok    {m.key}: {within(m, lines[m.key])}")
         if bundle:
             seen = {m.key for m in measured}
             problems += [f"{key}: the bundle carries no {key.split('/', 1)[1]} library, and "
                          f"{budget} has a line for one" for key in lines
                          if key.startswith("android/") and key not in seen]
+    for w in warnings:
+        print(f"WARN: {w}")
+        # On the run's summary page too, where a passing job's log is never read.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(f"::warning title=Size budget::{w}")
     for p in problems:
         print(f"FAIL: {p}")
     print_measured(measured, budget)

@@ -283,9 +283,11 @@ here so that nobody "fixes" one back.
   `tools/size_budget.txt` holds the size of each binary a release ships -- per
   target, one per ABI for Android, unpacked and after UPX -- with the commit it
   was measured on, and `tools/size_check.py` holds it there in a step of every
-  release job, right after the binary is final. Within 1.5 % of its line either
-  way passes: over is a growth nobody wrote down, under is a stale line that
-  would hide the next one, so nothing moves 3 % without the file changing.
+  release job, right after the binary is final. Within 1.5 % of its line,
+  either way, passes in silence; past that it passes with a warning -- in the
+  log and on the run's summary page -- that names the new number; past 10 % it
+  fails (Omar, 2026-10-11: failing at 1.5 % was too rigid). Over is a growth
+  nobody wrote down, under a stale line that would hide the next one.
   Every check prints its measured line in the file's own format, pass or fail;
   after a run, `gh run view <run> --log | python3 tools/size_check.py --update -`
   is the one commit. `?` is a size nobody has measured -- macOS and the BSDs

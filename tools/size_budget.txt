@@ -12,14 +12,13 @@
 #   packed    bytes of the copy that ships, after UPX, for a target [upx] packs;
 #             - where UPX does not apply
 #
-# THE ONE RULE. Each number is the size measured on the commit its comment
-# names, and a binary passes while it is within 1.5% of it, either way. Over
-# is a growth nobody wrote down. Under is a stale line, and a stale line hides
-# the next growth: a binary 1.5% under its number would have 3% to grow before
-# anything said a word. So the most any binary can change without this file
-# changing is 3% -- the share at which the hardening block in CMakeLists.txt
-# stops and asks before a flag goes in. Growing is allowed: it is a decision,
-# and this file is where it is written down, in the commit that makes it.
+# THE RULE (Omar, 2026-10-11). Each number is the size measured on the commit
+# its comment names. Within 1.5% of it, either way, a binary passes in
+# silence. Past that it still passes, with a warning that names the new
+# number -- on the run's summary page as well as in its log -- and past 10% it
+# fails. Over is a growth nobody wrote down; under is a stale line, which
+# hides the next growth. Growing is allowed: it is a decision, and this file
+# is where it is written down, in the commit that makes it.
 #
 # Every check prints the measured line in this file's own format, ending in
 # "# measured at <commit>", pass or fail, so one CI run's log is one commit:
