@@ -28,8 +28,9 @@ written in the file.
         program headers and the dynamic section: RELRO and BIND_NOW (the
         relocations are read-only once it starts) and a stack that is not
         executable. With --pie it must also be position-independent, so ASLR
-        can move it; without, that is said and not required -- it costs 5.5% on
-        linux-x64-glibc, and RMP_RELEASE_PIE in CMakeLists.txt is off. A flag a
+        can move it; without, that is said and not required. CI passes --pie
+        whenever the release was configured with RMP_RELEASE_PIE, which is on
+        by default (+5.5% on linux-x64-glibc, Omar's decision). A flag a
         toolchain silently ignores is a flag that was never there; this reads
         what the linker wrote.
 

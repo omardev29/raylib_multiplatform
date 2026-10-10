@@ -347,7 +347,8 @@ endif()
 # bug in it is harder to turn into anything worse. Release builds only -- Debug
 # has the sanitizers instead, cmake/sanitize.cmake -- and every flag was
 # MEASURED before it went in, because a release is kept as small as it can be:
-# one costing more than 3% of the stripped binary is not here. Measured cost on
+# one costing more than 3% of the stripped binary is not here -- PIE aside, by
+# Omar's decision, below. Measured cost on
 # linux-x64-glibc as CI builds it (tools/linux_build.sh: zig cc, LTO, stripped;
 # 1 149 120 bytes before any of them, 352 524 after upx --best --lzma):
 #
@@ -359,10 +360,13 @@ endif()
 #   _LIBCPP_HARDENING_MODE=FAST    +2.9 KB  (+0.25%)  zig's C++ library is libc++
 #   all of the above together     +22.7 KB  (+2.03%)  1 172 400 bytes, 357 056 packed
 #
-#   -pie                          +61.9 KB  (+5.52%)  NOT ADOPTED: over 3%. 58.5 KB
-#       of it is .rela.dyn, one relocation per pointer the loader has to fix.
-#       Their packed form (DT_RELR, -z pack-relative-relocs) needs glibc 2.36,
-#       and [linux] glibc is 2.28. RMP_RELEASE_PIE=ON turns it on.
+#   -pie                          +61.9 KB  (+5.52%)  ADOPTED over the 3% rule, by
+#       Omar's decision of 2026-10-10: without it the executable sits at the
+#       same address on every run, and ASLR moves everything but the code an
+#       exploit most wants to find. 58.5 KB of it is .rela.dyn, one relocation
+#       per pointer the loader has to fix; their packed form (DT_RELR, -z
+#       pack-relative-relocs) needs glibc 2.36, and [linux] glibc is 2.28, so
+#       that is the price until the floor moves. RMP_RELEASE_PIE=OFF, to measure.
 #
 # linux-x64-musl (zig, dynamic): +19.4 KB (+1.72%) together, the same flags
 # within 0.1% each, FORTIFY aside. The gcc-built targets (riscv64, the DRM
@@ -397,7 +401,7 @@ set(RMP_RELEASE_C_FLAGS "")
 set(RMP_RELEASE_CXX_FLAGS "")
 set(RMP_RELEASE_LINK_FLAGS "")
 set(RMP_RELEASE_PIE_APPLIED OFF)
-option(RMP_RELEASE_PIE "Link a Linux or BSD release position-independent (+5.5% on linux-x64-glibc)" OFF)
+option(RMP_RELEASE_PIE "Link a Linux or BSD release position-independent (+5.5% on linux-x64-glibc)" ON)
 if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
   include(CheckCCompilerFlag)
   include(CheckCSourceCompiles)

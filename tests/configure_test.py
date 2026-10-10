@@ -857,12 +857,22 @@ class ReleaseHardeningTest(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.assertIn(flag, line)
 
-    def test_pie_is_measured_and_left_off(self):
-        """+5.5% on linux-x64-glibc, over the 3% a release flag may cost: the
-        option exists, off, and the comment says the number."""
+    def test_pie_is_on_and_says_what_it_costs(self):
+        """+5.5% on linux-x64-glibc, over the 3% a release flag may cost, and on
+        all the same: Omar's decision of 2026-10-10, written next to the
+        number. The game is linked -pie and every object it is made of is
+        position-independent, or the link would refuse them: -fPIE for the
+        game's own files, -fPIC for the libraries it links (rmp, raylib),
+        which is what CMake gives a static library and is as good."""
         cmake = (REPO / "CMakeLists.txt").read_text()
-        self.assertRegex(cmake, r'option\(RMP_RELEASE_PIE "[^"]*\+5\.5%[^"]*" OFF\)')
-        self.assertNotIn("-pie", self.link_line(cfgmod.load_config()["project"]["name"]))
+        self.assertRegex(cmake, r'option\(RMP_RELEASE_PIE "[^"]*\+5\.5%[^"]*" ON\)')
+        self.assertIn("ADOPTED over the 3% rule, by\n#       Omar's decision", cmake)
+        self.assertIn("-pie", self.link_line(cfgmod.load_config()["project"]["name"]).split())
+        for unit, flag in (("src/main.cpp", "-fPIE"), ("src/rmp/app.cpp", "-fPIE"),
+                           ("src/rmp/scene.cpp", "-fPIC"),
+                           ("thirdparty/raylib/src/rcore.c", "-fPIC")):
+            with self.subTest(unit=unit):
+                self.assertIn(flag, self.command_for(unit).split())
 
     def test_the_configure_says_what_it_applied(self):
         self.assertIn("=== RELEASE HARDENING:", self.configure)

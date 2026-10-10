@@ -513,9 +513,10 @@ class ElfTest(Files, unittest.TestCase):
                               *(self.file(d, f"game{i}") for i, d in enumerate(datas))])
 
     def test_the_zig_release_is_not_pie_and_only_pie_asks_for_it(self):
-        """The linux-x64-glibc binary tools/linux_build.sh makes: ET_EXEC, and
-        RELRO, BIND_NOW and a RW stack by lld's own default. -pie costs 5.5%
-        there and is off, so without --pie that is said and passes."""
+        """The linux-x64-glibc binary tools/linux_build.sh made before
+        RMP_RELEASE_PIE was on: ET_EXEC, and RELRO, BIND_NOW and a RW stack by
+        lld's own default. With --pie that is a failure; without, it is said
+        and passes."""
         code, out = self.check(elf(**ZIG_RELEASE))
         self.assertEqual(code, 1, out)
         self.assertIn("FAIL  ET_EXEC, not position-independent", out)
