@@ -305,6 +305,25 @@ here so that nobody "fixes" one back.
   only shrinks. `rmp::Handle<T>` is what you keep across frames. `Callback<A...>` stays
   instead of `std::function` on purpose: `std::function` requires copyable
   callables, and a lambda that captures a `unique_ptr` would stop compiling.
+  And no raylib `Load*`/`Unload*` outside the six files that own what it makes
+  (`ownership_check.sh` O2, the names read live from `raylib.h` and
+  `rres-raylib.h`).
+- **The style guide is checked, and what the tree still owes it is written
+  down.** Omar's rules of 2026-10-10 are three things: checks in `.clang-tidy`
+  (two of them `CustomChecks`, which run only with
+  `--experimental-custom-checks` -- without the flag clang-tidy registers
+  nothing and says nothing); text rules in `tools/style_check.sh` (S1-S6, every
+  `#if` branch, `++i` included); and `tools/cppcheck_check.sh`. What clang-tidy
+  still finds is `tools/lint_debt.txt` (`check file count`): `rmp lint` fails a
+  warning nobody owes, a count that grew and a count above what is left; `bash
+  tools/lint.sh debt` lowers it, and nothing is ever added. A new warning is
+  fixed, or carries `NOLINT(check)` with its reason. cppcheck has zero findings
+  in `src/rmp`; every suppression is inline, `// cppcheck-suppress id ; why`,
+  and one that matches nothing fails. Two rules have no check, and are review
+  questions: `const` on a by-value parameter in a definition (clang-tidy 22
+  does not look at parameters), and `constexpr`/`consteval`/`constinit`
+  wherever possible. The game's own code is not held to any of it: a game gets
+  `.clang-format` and not this `.clang-tidy`.
 - **We are built on raylib, and the copy we ship is modified.** The zlib
   licence does not ask us to say "based on" instead of "uses"; what its
   clause 2 does require is that an altered copy be plainly marked, so
@@ -339,6 +358,23 @@ here so that nobody "fixes" one back.
   PSBs do.
 
 ## Caveats that have already cost time
+
+- **A CustomChecks query fails in silence.** Its regex takes no C escapes --
+  `"\\.h$"` matches nothing, write `[.]` -- and a query that does not parse is
+  one `warning: 1:1: Error parsing ...` line with exit 0, after which the check
+  never runs. `lint_debt.py` fails on that line, and `ClangTidyGuidelineTest`
+  shows each custom check firing on a probe.
+- **`misc-const-correctness --fix` writes `T const`, and is sometimes wrong.**
+  It produced `const char const *`, a `const Object *` that `push_back` could
+  not take, and a test's mutable `char` buffer turned const. Read every fix;
+  `rmp fmt` does not move the const back to the left either.
+- **`std::array<T, N>{...}` with too few initialisers fills the rest with
+  `T{}`** -- `nullptr` for a pointer, silently. A literal table lets the
+  compiler deduce its size (`std::array{...}`, or `std::to_array`).
+- **cppcheck 2.13 ignores `-isystem`**, so `tools/cppcheck_check.sh` hands it
+  the compile database with `-isystem` rewritten as `-I`; and without
+  `-D__cplusplus=202002L` it explores a configuration with no C++ at all and
+  takes raylib.h's C `bool` for ours.
 
 Each of these was a real bug, found by reproducing rather than by reading.
 
@@ -574,7 +610,8 @@ Each of these was a real bug, found by reproducing rather than by reading.
 
 `rmp fmt` and `rmp lint` (both clean is a condition, not an intention — see
 below), `rmp test` locally (format, config, the gates — seam, workflows,
-portable, shell patterns, ownership, headers, header cost, licences, repo —
+portable, shell patterns, naming, style, ownership, pointers, headers, header cost, licences,
+repo, and cppcheck where it is installed (CI requires it) —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
 real mixer for about a second, only in the first), headless layout, render
 and smoke), `rmp test examples` before touching the public API (it builds

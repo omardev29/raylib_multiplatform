@@ -164,6 +164,14 @@ strict` aborts on those, and must not abort a correct game on a CI runner. Say
 why in a comment on the line, or somebody will "fix" it. And a read never
 reports at all (see `rmp::Value::Ref`).
 
+**The style guide, checked.** `const` on every local that does not change, and
+on a by-value parameter in the definition only (that last part is not
+checked). `++i`. `std::array`, with `.data()` at the C call. `inline constexpr`
+for a header constant. `static_cast`. `enum class`. `int` and `<cstdint>`,
+never `long`. A class that writes a destructor says what its copy does. A
+macro only if `.clang-tidy`'s `macro-usage` AllowedRegexp lists it, with its
+reason. What the tree still owes is `tools/lint_debt.txt`, and it only shrinks.
+
 **No owning raw pointer.** `std::unique_ptr` and `make_unique` for what we own,
 `rmp::Handle<T>` for what we refer to across frames, `rmp::Ref<T>` for a
 reference that may be empty, `T &` for one that may not. No raw pointer and no

@@ -37,6 +37,11 @@ Follow them; a second way to spell the same thing ages badly.
 
 - **A plain call, then an overload taking options.** `button(label)` and
   `button(label, options)`. Never a pile of positional parameters.
+- **The style guide reaches the API.** A deliberate implicit conversion carries
+  `NOLINT(google-explicit-constructor)` with its reason. A public class with a
+  destructor states its copy and move. Public arrays are `std::array`. Header
+  constants are `inline constexpr`. A new public macro goes into
+  `.clang-tidy`'s `macro-usage` AllowedRegexp with its category.
 - **Options are an aggregate struct with defaults**, written with designated
   initialisers. `-1` means "whatever the theme says", `0` often means
   "automatic", `{0,0,0,0}` means "the theme's colour".
