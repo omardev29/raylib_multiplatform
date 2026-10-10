@@ -341,6 +341,8 @@ STAGES = [
           [("run", ["bash", "tools/shell_pattern_check.sh"])]),
     Stage("naming", "the names follow the convention, every #if branch",
           [("run", ["bash", "tools/naming_check.sh"])]),
+    Stage("style", "the style rules clang-tidy cannot see, every #if branch",
+          [("run", ["bash", "tools/style_check.sh"])]),
     Stage("ownership", "no owning raw pointer in the framework",
           [("run", ["bash", "tools/ownership_check.sh"])]),
     Stage("pointers", "no raw pointer and no C string a game can name",

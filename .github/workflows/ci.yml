@@ -375,6 +375,15 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: bash tools/naming_check.sh
 
+      # The style guide's rules that clang-tidy cannot see, over every #if
+      # branch as text: no C cast (one sat in the Android branch of an example,
+      # where no Linux lint run reaches), no NULL, no TODO, nothing newer than
+      # NetBSD's GCC 10.5 in what a game compiles, no user-defined literal, and
+      # `++i` where the old value is not read.
+      - name: Style holds where clang-tidy cannot see
+        if: needs.config.outputs.framework == 'true'
+        run: bash tools/style_check.sh
+
       # A `git add -A` once committed 78 files of a CMake build directory, and
       # they went unnoticed for sessions because .gitignore listed `build/` and
       # the directory was called `build-memory/`. Ignore rules do not apply to

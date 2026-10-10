@@ -55,8 +55,8 @@ static void apply(const Settings &s) {
     rmp::audio::set_volume(rmp::audio::Bus::MASTER, s.master);
     rmp::audio::set_volume(rmp::audio::Bus::MUSIC, s.music);
     const std::string quality(QUALITY[static_cast<std::size_t>(s.quality)]);
-    TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)", (double)s.master,
-             quality.c_str());
+    TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)",
+             static_cast<double>(s.master), quality.c_str());
 }
 
 // What is on disk, over what the struct says. Every field reads with its

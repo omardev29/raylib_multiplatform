@@ -6820,6 +6820,155 @@ class NamingCheckTest(unittest.TestCase):
         self.assertIn("naming_check.sh", lint)
 
 
+class StyleCheckTest(unittest.TestCase):
+    """tools/style_check.sh: the style rules clang-tidy cannot see.
+
+    clang-tidy reads one branch of every #if -- a C cast sat in the Android
+    branch of examples/platform/02_mobile_raymob, where no lint run on Linux
+    could see it -- and some rules (`++i`, no TODO) are no check at all.
+    Every rule is proven red here on a fixture of its own, and the right way
+    beside it green, the way NamingCheckTest does it."""
+
+    SCRIPT = REPO / "tools" / "style_check.sh"
+
+    def run_on(self, *lines, suffix=".cpp"):
+        import subprocess
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as fh:
+            fh.write("\n".join(lines) + "\n")
+            name = fh.name
+        try:
+            return subprocess.run(["bash", str(self.SCRIPT), name],
+                                  capture_output=True, text=True)
+        finally:
+            os.unlink(name)
+
+    def assert_red(self, rule, *lines, suffix=".cpp", count=None):
+        got = self.run_on(*lines, suffix=suffix)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn(f" {rule} ", got.stdout)
+        if count is not None:
+            self.assertEqual(got.stdout.count(f" {rule} "), count, got.stdout)
+
+    def assert_green(self, *lines, suffix=".cpp"):
+        got = self.run_on(*lines, suffix=suffix)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_s1_a_c_cast_to_an_arithmetic_type(self):
+        self.assert_red("S1", "int f(float v) { return (int)v; }")
+        self.assert_red("S1", "double d(float v) { return (double)(v * 2); }")
+        self.assert_red("S1", "auto n(long v) { return (std::size_t)v + (unsigned char)v; }",
+                        count=2)
+
+    def test_s1_sees_the_branch_clang_tidy_does_not(self):
+        """The Android branch of 02_mobile_raymob, where the last one sat."""
+        self.assert_red("S1", "#ifdef __ANDROID__", "int f(float v) { return (int)v; }",
+                        "#endif")
+
+    def test_s1_leaves_what_only_looks_like_a_cast(self):
+        self.assert_green("int f(float v) { return static_cast<int>(v); }",
+                          "constexpr auto SIZE = sizeof(int) + alignof(double);",
+                          "void declared(int);",
+                          "using Fn = void (*)(int);",
+                          "auto ignore = [](int) {};",
+                          "void g(int x) { (void)x; }")
+
+    def test_s2_null(self):
+        self.assert_red("S2", "int *p = NULL;")
+        self.assert_green("int *p = nullptr; // never NULL", 'const char *s = "NULL";')
+
+    def test_s3_a_comment_that_ages(self):
+        self.assert_red("S3", "int f(); // TODO: make it faster")
+        self.assert_red("S3", "/* FIXME */ int f();")
+        self.assert_red("S3", "// XXX this is wrong")
+        self.assert_green('const char *word = "TODO";', "// a TODOS list is a word")
+
+    def test_s4_newer_than_the_floor_compiler(self):
+        self.assert_red("S4", "#include <format>")
+        self.assert_red("S4", "#include <source_location>")
+        self.assert_red("S4", "int f(float v) { return std::bit_cast<int>(v); }")
+        self.assert_red("S4", "enum class Kind { A }; void f() { using enum Kind; }")
+        self.assert_red("S4", "#include <expected>")
+        self.assert_green("#include <span>", "#include <numbers>", "#include <bit>")
+
+    def test_s4_leaves_the_tests_alone(self):
+        """tests/ build on the image's compilers only, never on NetBSD's GCC 10.5."""
+        import subprocess
+        tmp = Path(tempfile.mkdtemp(prefix=".style-probe-", dir=REPO / "tests"))
+        try:
+            probe = tmp / "probe.cpp"
+            probe.write_text("#include <format>\n")
+            rel = probe.relative_to(REPO).as_posix()
+            got = subprocess.run(["bash", str(self.SCRIPT), rel], cwd=REPO,
+                                 capture_output=True, text=True)
+        finally:
+            import shutil
+            shutil.rmtree(tmp)
+        self.assertEqual(got.returncode, 0, got.stdout)
+
+    def test_s5_a_user_defined_literal(self):
+        self.assert_red("S5", 'long double operator"" _m(long double v);')
+        self.assert_red("S5", "using namespace std::string_view_literals;")
+        self.assert_red("S5", "using namespace std::literals;")
+        self.assert_red("S5", "using std::literals::chrono_literals::operator\"\"ms;")
+        self.assert_green('const char *s = "operator\\"\\" is not code here";',
+                          "// using namespace std::literals; in a comment")
+
+    def test_s6_postfix_where_the_value_is_not_read(self):
+        self.assert_red("S6", "void f(int i) { i++; }")
+        self.assert_red("S6", "void f(int n) { for (int i = 0; i < n; i++) {} }")
+        self.assert_red("S6", "void f(It it) { it++; }")
+        self.assert_red("S6", "void f(Box &b) { b.count--; }")
+        self.assert_red("S6", "void f() { rmp::global<Progress>().runs++; }")
+        self.assert_red("S6", "void f(bool hit, int &n) { if (hit) n++; }")
+        self.assert_red("S6", "void f(int n) { for (int i = 0, j = 0; i < n; i++, j++) {} }",
+                        count=2)
+        self.assert_red("S6", "void f(int n) {",
+                        "    // a comment between the brace and the statement",
+                        "    n--;", "}")
+
+    def test_s6_leaves_a_postfix_whose_value_is_used(self):
+        self.assert_green("void f(int i) { ++i; --i; }",
+                          "void f(int n) { for (int i = 0; i < n; ++i) {} }",
+                          "void f(int *out, int &n, int v) { out[n++] = v; }",
+                          "bool f(int &seen, int index) { return seen++ == index; }",
+                          "void f(int i) { int x = i++; g(i--, x); }",
+                          "void f(int n) { while (n--) {} }",
+                          "void f(std::vector<int> &v) { for (int x : v) {} }")
+
+    def test_c_is_c(self):
+        """tests/smoke_test.h and the .c files are compiled as C, where a cast,
+        NULL and `i++` are the language -- S1, S2 and S6 leave them alone."""
+        self.assert_green("int f(float v) { int *p = NULL; int i = 0; i++; return (int)v; }",
+                          suffix=".c")
+        self.assert_red("S3", "/* TODO */", suffix=".c")
+
+    def test_comments_and_strings_are_not_code(self):
+        self.assert_green("// (int)x, NULL and i++ are what this forbids",
+                          "/* i++;",
+                          "   (double)y */",
+                          'const char *s = "(int)x NULL i++;";',
+                          'const char *raw = R"x(i++; (int)v)x";')
+
+    def test_the_whole_tree_is_clean(self):
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT)], cwd=REPO,
+                             capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_naming_check_reads_with_the_same_scanner(self):
+        """One blank() for both scripts: tools/cpp_text.py. A copy that drifted
+        would let one of them read a comment as code."""
+        for script in ("naming_check.sh", "style_check.sh"):
+            text = (REPO / "tools" / script).read_text()
+            self.assertIn("from cpp_text import", text)
+            self.assertNotIn("def blank(", text)
+
+    def test_it_is_wired_into_rmp_test_and_the_lint_job(self):
+        self.assertIn('"tools/style_check.sh"', (REPO / "tools" / "rmp.py").read_text())
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("bash tools/style_check.sh", lint)
+
+
 class ClangTidyNamingTest(unittest.TestCase):
     """The naming rules in .clang-tidy, each seen red on a file of its own.
 

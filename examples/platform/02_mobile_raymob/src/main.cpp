@@ -60,7 +60,7 @@ static void on_frame(float) {
     DrawText(TextFormat("accel: %.2f %.2f %.2f", accel.x, accel.y, accel.z), 10, 40, 20,
              DARKGRAY);
     DrawText(TextFormat("last key: %c   orientation: %d", lastKey ? lastKey : '-',
-                        (int)orient),
+                        static_cast<int>(orient)),
              10, 80, 20, DARKGRAY);
 #else
     DrawText("raymob mobile features only run on Android", 10, 40, 20, GRAY);

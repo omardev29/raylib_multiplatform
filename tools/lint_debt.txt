@@ -16,7 +16,6 @@ custom-rmp-raw-pointer                      examples/games/06_tetris/src/main.cp
 modernize-avoid-c-arrays                    examples/games/06_tetris/src/main.cpp                 7
 custom-rmp-raw-pointer                      examples/games/07_platformer/include/objects.h        2
 custom-rmp-raw-pointer                      examples/games/07_platformer/src/objects/enemies.cpp  1
-modernize-avoid-c-style-cast                examples/ui/04_settings/src/main.cpp                  1
 custom-rmp-raw-pointer                      examples/ui/05_inventory/include/inventory.h          1
 modernize-avoid-c-arrays                    examples/ui/05_inventory/include/inventory.h          1
 misc-const-correctness                      examples/ui/05_inventory/src/panels/list.cpp          1
