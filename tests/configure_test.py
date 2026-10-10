@@ -6757,7 +6757,8 @@ class LintReadsTheCTest(unittest.TestCase):
         """What lint.sh's own `find` lines select, run here as written."""
         import subprocess
         text = (REPO / "tools" / "lint.sh").read_text()
-        finds = re.findall(r"^\s+(find [^\n]*\| sort)\)$", text, re.M)
+        finds = [" ".join(f.split()) for f in
+                 re.findall(r"^\s+(find [^\n]*(?:\n[^\n]*)??\| sort)\)$", text, re.M)]
         self.assertGreaterEqual(len(finds), 2, "lint.sh no longer has its two file lists")
         got = subprocess.run(["bash", "-c", "\n".join(finds)], cwd=REPO, capture_output=True,
                              text=True)
@@ -6768,7 +6769,8 @@ class LintReadsTheCTest(unittest.TestCase):
         import subprocess
         tracked = subprocess.run(["git", "-c", "safe.directory=*", "ls-files", "*.c"], cwd=REPO,
                                  capture_output=True, text=True).stdout.split()
-        ours = sorted(f for f in tracked if not f.startswith(("thirdparty/", "raymob/"))
+        ours = sorted(f for f in tracked
+                      if not f.startswith(("thirdparty/", "raymob/", "tests/fixtures/"))
                       and not f.endswith("_impl.c"))
         for must in ("tools/rres_pack.c", "tools/md5.c", "examples/plain_c/src/main.c"):
             self.assertIn(must, ours)

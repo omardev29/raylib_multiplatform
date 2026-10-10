@@ -42,9 +42,11 @@ while IFS= read -r f; do files+=("$f"); done < <(
 # The static analyzer had never read any of them, and tools/rres_pack.c had
 # NULL dereferences waiting for the first allocation that failed.
 # tools/.clang-tidy says what changes for the two tools. cjson_impl.c compiles
-# a vendored library, like the *_impl.cpp above.
+# a vendored library, like the *_impl.cpp above, and tests/fixtures/ holds
+# files that are data for a test, not programs.
 while IFS= read -r f; do files+=("$f"); done < <(
-    find src tests examples tools cmake -name '*.c' | grep -v _impl | grep -v generated | sort)
+    find src tests examples tools cmake -name '*.c' | grep -v _impl | grep -v generated |
+        grep -v '^tests/fixtures/' | sort)
 
 python3 - "${files[@]}" <<'PY'
 import json
