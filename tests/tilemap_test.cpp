@@ -25,6 +25,7 @@
 #include <rmp/scene.h>
 #include <rmp/tilemap.h>
 
+#include <array>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -290,11 +291,12 @@ TEST_CASE("base64 fails, and the message names the setting to change") {
 }
 
 TEST_CASE("rubbish is refused rather than half-read") {
-    const unsigned char junk[] = "{ this is not a map at all";
-    auto data = rmp::tilemap::detail::parse_map(junk, sizeof(junk), "junk");
+    const std::string text = "{ this is not a map at all";
+    const std::vector<unsigned char> junk(text.begin(), text.end());
+    auto data = rmp::tilemap::detail::parse_map(junk.data(), junk.size(), "junk");
     CHECK(data == nullptr);
     CHECK(rmp::tilemap::detail::parse_map(nullptr, 10, "null") == nullptr);
-    CHECK(rmp::tilemap::detail::parse_map(junk, 0, "empty") == nullptr);
+    CHECK(rmp::tilemap::detail::parse_map(junk.data(), 0, "empty") == nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -408,9 +410,9 @@ struct {
 } heard;
 
 void hear(int /*level*/, const char *text, va_list args) {
-    char line[512];
-    std::vsnprintf(line, sizeof(line), text, args);
-    heard.lines.emplace_back(line);
+    std::array<char, 512> line{};
+    std::vsnprintf(line.data(), line.size(), text, args);
+    heard.lines.emplace_back(line.data());
 }
 
 // The resources root is tests/fixtures/corrupt/ and the log is listened to,

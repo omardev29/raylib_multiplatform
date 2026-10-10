@@ -94,11 +94,11 @@ void expect_centred(float view_w, float view_h, const char *what) {
     const float top_gap = play.y;
     const float bottom_gap = view_h - (quit.y + quit.h);
 
-    char msg[160];
-    std::snprintf(msg, sizeof(msg), "%s: horizontally centred", what);
-    check_near(left_gap, right_gap, 1.5f, msg);
-    std::snprintf(msg, sizeof(msg), "%s: vertically centred", what);
-    check_near(top_gap, bottom_gap, 1.5f, msg);
+    std::array<char, 160> msg{};
+    std::snprintf(msg.data(), msg.size(), "%s: horizontally centred", what);
+    check_near(left_gap, right_gap, 1.5f, msg.data());
+    std::snprintf(msg.data(), msg.size(), "%s: vertically centred", what);
+    check_near(top_gap, bottom_gap, 1.5f, msg.data());
 }
 
 void run_at(float w, float h, const char *what) {
@@ -116,27 +116,28 @@ void run_at(float w, float h, const char *what) {
     const Box options = box_of("Options");
     const Box quit = box_of("Quit");
 
-    char msg[160];
-    std::snprintf(msg, sizeof(msg), "%s: Play is above Options with a gap", what);
-    check(play.y + play.h <= options.y, msg);
-    std::snprintf(msg, sizeof(msg), "%s: Options is above Quit with a gap", what);
-    check(options.y + options.h <= quit.y, msg);
+    std::array<char, 160> msg{};
+    std::snprintf(msg.data(), msg.size(), "%s: Play is above Options with a gap", what);
+    check(play.y + play.h <= options.y, msg.data());
+    std::snprintf(msg.data(), msg.size(), "%s: Options is above Quit with a gap", what);
+    check(options.y + options.h <= quit.y, msg.data());
 
     // The content column is FIT and the buttons GROW into it, which is what
     // stops a menu coming out as a ragged staircase.
-    std::snprintf(msg, sizeof(msg), "%s: all three buttons share a width", what);
+    std::snprintf(msg.data(), msg.size(), "%s: all three buttons share a width", what);
     check(std::fabs(play.w - options.w) < 0.5f && std::fabs(options.w - quit.w) < 0.5f,
-          msg);
+          msg.data());
 
     // min_touch_size, scaled. Below this a button is not reliably hittable with
     // a thumb, which is four of the fourteen targets.
     const float minimum = rmp::ui::current_theme().min_touch_size * rmp::ui::scale();
-    std::snprintf(msg, sizeof(msg), "%s: buttons are at least min_touch_size tall", what);
-    check(play.h >= minimum - 0.5f, msg);
+    std::snprintf(msg.data(), msg.size(), "%s: buttons are at least min_touch_size tall",
+                  what);
+    check(play.h >= minimum - 0.5f, msg.data());
 
-    std::snprintf(msg, sizeof(msg), "%s: the menu fits on screen", what);
+    std::snprintf(msg.data(), msg.size(), "%s: the menu fits on screen", what);
     check(play.x >= 0 && play.y >= 0 && play.x + play.w <= w && quit.y + quit.h <= h,
-          msg);
+          msg.data());
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +540,7 @@ void run_breakpoints() {
         rmp::ui::Breakpoint want;
         const char *what;
     };
-    const CaseRow cases[] = {
+    const std::array<CaseRow, 7> cases{ {
         { 1080, 2400, rmp::ui::Breakpoint::COMPACT, "a phone held upright is compact" },
         { 600, 800, rmp::ui::Breakpoint::COMPACT, "so is a narrow window" },
         { 1024, 768, rmp::ui::Breakpoint::MEDIUM, "4:3 is medium" },
@@ -548,7 +549,7 @@ void run_breakpoints() {
           "a phone on its side has room for a row" },
         { 1920, 1080, rmp::ui::Breakpoint::EXPANDED, "16:9 is expanded" },
         { 3440, 1440, rmp::ui::Breakpoint::EXPANDED, "and so is an ultrawide" },
-    };
+    } };
 
     for (const CaseRow &c : cases) {
         rmp::ui::detail::set_test_viewport(c.w, c.h);
@@ -763,10 +764,10 @@ void run_arena_overflow() {
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     rmp::ui::begin();
-    char filler[1024];
-    std::memset(filler, 'x', sizeof filler);
+    std::array<char, 1024> filler{};
+    std::memset(filler.data(), 'x', filler.size());
     for (int i = 0; i < 9; ++i) {
-        rmp::ui::detail::intern(std::string_view{ filler, sizeof filler });
+        rmp::ui::detail::intern(std::string_view{ filler.data(), filler.size() });
     }
     rmp::ui::button("PlayTheGame");
     rmp::ui::end();
@@ -787,9 +788,9 @@ void run_label_overflow() {
 
     rmp::ui::begin();
     for (int i = 0; i < 300; ++i) {
-        char label[16];
-        std::snprintf(label, sizeof label, "lbl%03d", i);
-        rmp::ui::detail::element_id(std::string_view{ label }, {});
+        std::array<char, 16> label{};
+        std::snprintf(label.data(), label.size(), "lbl%03d", i);
+        rmp::ui::detail::element_id(std::string_view{ label.data() }, {});
     }
     const Clay_ElementId a = rmp::ui::detail::element_id("Use", {});
     const Clay_ElementId b = rmp::ui::detail::element_id("Use", {});
@@ -2075,7 +2076,7 @@ void run_frame_grow() {
 // came out blurry. Baking needs a GL context, so the test hands the UI a font
 // that "bakes" without one and watches which sizes it is asked for.
 struct {
-    int sizes[32] = {};
+    std::array<int, 32> sizes{};
     int count = 0;
 } font_bakes;
 
@@ -2199,7 +2200,7 @@ void run_corner_radii() {
 
     // And the outline the renderer fills and outlines along follows each one.
     using rmp::ui::detail::CORNER_POINTS;
-    Vector2 edge[rmp::ui::detail::BOX_OUTLINE];
+    rmp::ui::detail::Outline edge{};
     rmp::ui::detail::box_outline(box, c, Clay_BorderWidth{}, edge);
     auto arc_radius = [&](int corner, Vector2 centre, float want) {
         bool all = true;
@@ -2220,7 +2221,7 @@ void run_corner_radii() {
     check(arc_radius(3, Vector2{ 100, 30 }, 10), "the top-right one at 10");
 
     // A border's inside: the same curves, pulled in by each side's width.
-    Vector2 inside[rmp::ui::detail::BOX_OUTLINE];
+    rmp::ui::detail::Outline inside{};
     rmp::ui::detail::box_outline(box, c, Clay_BorderWidth{ 4, 4, 4, 4, 0 }, inside);
     bool pulled_in = true;
     for (int i = 0; i < CORNER_POINTS; ++i) {

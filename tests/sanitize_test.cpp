@@ -15,6 +15,7 @@
 
 #include "doctest.h"
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -62,8 +63,10 @@ Run canary(const std::string &mode) {
     // NOLINTNEXTLINE(bugprone-command-processor): our own binary, by its build path
     FILE *pipe = popen(command.c_str(), "r");
     REQUIRE(pipe != nullptr);
-    char chunk[512];
-    while (std::fgets(chunk, sizeof(chunk), pipe) != nullptr) run.out += chunk;
+    std::array<char, 512> chunk{};
+    while (std::fgets(chunk.data(), static_cast<int>(chunk.size()), pipe) != nullptr) {
+        run.out += chunk.data();
+    }
     const int raw = pclose(pipe);
     run.status = WIFEXITED(raw) ? WEXITSTATUS(raw) : 128 + WTERMSIG(raw);
     return run;

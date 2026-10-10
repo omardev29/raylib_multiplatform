@@ -98,12 +98,12 @@ using rmp::detail::JsonText;
 // 9007199254740990 -- a save that does not return what was written. Called
 // under CNumbers, so the point is always '.'.
 std::string format_number(double n) {
-    char text[40];
+    std::array<char, 40> text{};
     for (int digits = 15; digits <= 17; ++digits) {
-        std::snprintf(text, sizeof text, "%.*g", digits, n);
-        if (std::strtod(text, nullptr) == n) break;
+        std::snprintf(text.data(), text.size(), "%.*g", digits, n);
+        if (std::strtod(text.data(), nullptr) == n) break;
     }
-    return text;
+    return text.data();
 }
 
 // Why a Value cannot be saved, or nullptr. Checked before anything is written,
@@ -340,11 +340,11 @@ bool encode(const Value &value, int version, bool sealed, Bytes *out) {
     }
 
     const std::string prefix = header_prefix(version, sealed, payload.size());
-    char crc[16];
-    std::snprintf(crc, sizeof crc, " %08x\n",
+    std::array<char, 16> crc{};
+    std::snprintf(crc.data(), crc.size(), " %08x\n",
                   static_cast<unsigned>(crc_of(prefix, payload.data(), payload.size())));
     out->assign(prefix.begin(), prefix.end());
-    out->insert(out->end(), crc, crc + std::strlen(crc));
+    out->insert(out->end(), crc.data(), crc.data() + std::strlen(crc.data()));
     out->insert(out->end(), payload.begin(), payload.end());
     return true;
 }
@@ -390,9 +390,10 @@ Status decode(const Bytes &file, Value *out, bool sealed_only) {
     // And exactly as our writer puts it: no leading zeros, no upper-case hex,
     // no version below 1. Then the CRC, computed over the canonical text,
     // covers the bytes on disk and not a re-rendering of them.
-    char hex[9];
-    std::snprintf(hex, sizeof hex, "%08x", static_cast<unsigned>(crc));
-    if (version < 1 || header != header_prefix(version, sealed, declared) + " " + hex) {
+    std::array<char, 9> hex{};
+    std::snprintf(hex.data(), hex.size(), "%08x", static_cast<unsigned>(crc));
+    if (version < 1 ||
+        header != header_prefix(version, sealed, declared) + " " + hex.data()) {
         return Status::UNREADABLE;
     }
     // A plain file where the game seals its saves is somebody's own file with

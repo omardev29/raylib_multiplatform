@@ -24,14 +24,14 @@
 #include <rmp/app.h>
 #include <rmp/ui.h>
 
+#include <array>
 #include <string>
 
 static int selected = 0;
 static bool show_grid = true;
 
-static constexpr const char *SECTIONS[] = { "World", "Bestiary", "Journal", "Crafting",
-                                            "Map" };
-static constexpr int SECTION_COUNT = sizeof(SECTIONS) / sizeof(SECTIONS[0]);
+static constexpr std::array SECTIONS{ "World", "Bestiary", "Journal", "Crafting", "Map" };
+static constexpr int SECTION_COUNT = static_cast<int>(SECTIONS.size());
 
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it

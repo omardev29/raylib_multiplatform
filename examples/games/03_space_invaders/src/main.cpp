@@ -22,6 +22,7 @@
 #include <rmp/ui.h>
 
 #include <algorithm>
+#include <array>
 
 namespace {
 
@@ -45,7 +46,7 @@ constexpr float ALIEN_SHOT_SPEED = 300;
 
 // One per row, and the row a picture would put the strange ones in is the one
 // at the top.
-constexpr Color ROW_COLORS[ROWS] = { VIOLET, PINK, ORANGE, GOLD };
+constexpr std::array<Color, ROWS> ROW_COLORS{ VIOLET, PINK, ORANGE, GOLD };
 
 // The end of a game, PUSHED on top of it: the board below freezes, stays on
 // screen and stops hearing the keyboard, which is what the scene stack does on
@@ -187,7 +188,7 @@ private:
     // in and no longer, and an alien is the thing most likely to die between
     // two of them.
     rmp::Handle<rmp::Object> _player;
-    rmp::Handle<rmp::Object> _aliens[ALIENS];
+    std::array<rmp::Handle<rmp::Object>, ALIENS> _aliens;
     int _alive = 0;
     float _march = 0; // how far the block has slid sideways from home
     float _march_speed = 40; // units per second, and its sign is the way it goes

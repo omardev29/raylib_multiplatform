@@ -21,6 +21,7 @@
 #include <rmp/input.h>
 #include <rmp/ui.h>
 
+#include <array>
 #include <cmath>
 
 namespace {
@@ -270,11 +271,12 @@ TEST_SUITE("input directions") {
 
     TEST_CASE("all four diagonals, and all four straights") {
         const Fixture fix;
-        const struct {
+        struct Pair {
             ::KeyboardKey a;
             ::KeyboardKey b;
-        } pairs[] = {
-            { KEY_W, KEY_A }, { KEY_W, KEY_D }, { KEY_S, KEY_A }, { KEY_S, KEY_D }
+        };
+        const std::array<Pair, 4> pairs{
+            { { KEY_W, KEY_A }, { KEY_W, KEY_D }, { KEY_S, KEY_A }, { KEY_S, KEY_D } }
         };
         for (const auto &pair : pairs) {
             fake.devices = rmp::input::detail::DeviceState{};

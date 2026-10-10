@@ -8,6 +8,7 @@
 
 #include "internal.h"
 #include "../internal.h"
+#include <array>
 
 namespace rmp::ui {
 
@@ -115,7 +116,7 @@ struct GridFrame {
 };
 constexpr int MAX_GRID_DEPTH = 4;
 struct {
-    GridFrame frames[MAX_GRID_DEPTH];
+    std::array<GridFrame, MAX_GRID_DEPTH> frames;
     int depth = 0;
     // Grids opened past the limit. They push no frame, so their close must not
     // pop one either: it used to, which meant the fifth grid's close consumed

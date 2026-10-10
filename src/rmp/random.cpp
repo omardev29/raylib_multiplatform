@@ -19,6 +19,7 @@
 
 #include <rmp/random.h>
 
+#include <array>
 #include <cmath>
 
 namespace rmp::random {
@@ -29,7 +30,7 @@ namespace {
 // directly from a small value leaves it with almost no set bits, and the first
 // few outputs come out visibly poor -- the author says to do this.
 struct State {
-    uint32_t word[4];
+    std::array<uint32_t, 4> word;
 };
 
 constexpr State expanded(uint64_t value) {
@@ -73,7 +74,7 @@ constinit struct {
 constexpr uint32_t rotl(uint32_t x, int k) { return (x << k) | (x >> (32 - k)); }
 
 uint32_t next_u32() {
-    uint32_t *s = generator.state.word;
+    std::array<uint32_t, 4> &s = generator.state.word;
     const uint32_t result = rotl(s[0] + s[3], 7) + s[0];
     const uint32_t t = s[1] << 9;
     s[2] ^= s[0];

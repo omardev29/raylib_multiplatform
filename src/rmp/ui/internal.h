@@ -13,6 +13,7 @@
 
 #include "clay.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -386,8 +387,9 @@ Corners corners_of(Clay_CornerRadius radius, Clay_BoundingBox box);
 // corners go top-left, bottom-left, bottom-right, top-right.
 inline constexpr int CORNER_POINTS = 9;
 inline constexpr int BOX_OUTLINE = 4 * CORNER_POINTS;
+using Outline = std::array<Vector2, BOX_OUTLINE>;
 void box_outline(Clay_BoundingBox box, Corners corners, Clay_BorderWidth inset,
-                 Vector2 *out);
+                 Outline &out);
 
 // Clay hands out string slices that are NOT null terminated. raylib's
 // DrawTextEx and MeasureTextEx both need one, so every slice has to be copied

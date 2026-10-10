@@ -24,6 +24,7 @@
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
+#include <array>
 #include <utility>
 
 namespace {
@@ -38,19 +39,20 @@ constexpr int EMPTY = -1; // a cell of the board with nothing in it
 
 // The seven pieces, as offsets from their pivot. Four rotations are worked out
 // rather than tabulated, because rotating a coordinate is two lines.
+using Cells = std::array<std::array<int, 2>, 4>; // (x, y) of each of the four
 struct Piece {
-    int cells[4][2];
+    Cells cells;
     Color color;
 };
-constexpr Piece PIECES[7] = {
-    { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 2, 0 } }, SKYBLUE }, // I
-    { { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }, GOLD }, // O
-    { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 } }, VIOLET }, // T
-    { { { -1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 } }, LIME }, // S
-    { { { -1, 0 }, { 0, 0 }, { 0, 1 }, { 1, 1 } }, RED }, // Z
-    { { { -1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } }, BLUE }, // J
-    { { { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } }, ORANGE }, // L
-};
+constexpr std::array<Piece, 7> PIECES{ {
+    { { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 2, 0 } } }, SKYBLUE }, // I
+    { { { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } }, GOLD }, // O
+    { { { { -1, 0 }, { 0, 0 }, { 1, 0 }, { 0, 1 } } }, VIOLET }, // T
+    { { { { -1, 1 }, { 0, 1 }, { 0, 0 }, { 1, 0 } } }, LIME }, // S
+    { { { { -1, 0 }, { 0, 0 }, { 0, 1 }, { 1, 1 } } }, RED }, // Z
+    { { { { -1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } } }, BLUE }, // J
+    { { { { 1, 0 }, { -1, 1 }, { 0, 1 }, { 1, 1 } } }, ORANGE }, // L
+} };
 
 // The end of a game, PUSHED on top of it: the board below freezes, stays on
 // screen and stops hearing the keyboard, which is what the scene stack does on
@@ -141,7 +143,7 @@ private:
                    ORIGIN.y + static_cast<float>(y) * CELL, color);
     }
 
-    bool fits(const int cells[4][2], int cx, int cy) const {
+    bool fits(const Cells &cells, int cx, int cy) const {
         for (int i = 0; i < 4; ++i) {
             const int x = cx + cells[i][0];
             const int y = cy + cells[i][1];
@@ -163,16 +165,13 @@ private:
         // would slide it one column. No Tetris turns it.
         if (_current == SQUARE) return;
         // A quarter turn about the pivot: (x, y) becomes (-y, x).
-        int turned[4][2];
+        Cells turned{};
         for (int i = 0; i < 4; ++i) {
             turned[i][0] = -_shape[i][1];
             turned[i][1] = _shape[i][0];
         }
         if (!fits(turned, _x, _y)) return;
-        for (int i = 0; i < 4; ++i) {
-            _shape[i][0] = turned[i][0];
-            _shape[i][1] = turned[i][1];
-        }
+        _shape = turned;
     }
 
     void lock_piece() {
@@ -235,10 +234,7 @@ private:
     void next_piece() {
         _current = _next;
         _next = from_bag();
-        for (int i = 0; i < 4; ++i) {
-            _shape[i][0] = PIECES[_current].cells[i][0];
-            _shape[i][1] = PIECES[_current].cells[i][1];
-        }
+        _shape = PIECES[_current].cells;
         _x = WIDE / 2;
         _y = 0;
         // The other way a Tetris ends: there is no room for what comes next.
@@ -257,13 +253,14 @@ private:
         rmp::Scene::push<OverScene>(record ? "New best!" : "Game over");
     }
 
-    int _board[TALL][WIDE] = {}; // EMPTY, or the index of the piece that left it
+    std::array<std::array<int, WIDE>, TALL>
+        _board{}; // EMPTY, or the index of the piece that left it
     int _current = 0; // which of PIECES is falling
-    int _shape[4][2] = {}; // its cells, as turned so far
+    Cells _shape{}; // its cells, as turned so far
     int _x = 0; // and where its pivot is on the board
     int _y = 0;
     int _next = 0;
-    int _bag[7] = {};
+    std::array<int, 7> _bag{};
     int _bag_left = 0;
     int _lines = 0;
     int _best = 0;

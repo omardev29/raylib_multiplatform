@@ -12,6 +12,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -49,9 +50,9 @@ void emit(const void *site, const char *key, const char *fmt, va_list args) {
     if (already(site, key)) return;
     reports.seen.push_back(Seen{ site, key });
 
-    char line[1024];
-    std::vsnprintf(line, sizeof line, fmt, args);
-    TraceLog(reports.strict ? LOG_ERROR : LOG_WARNING, "%s", line);
+    std::array<char, 1024> line{};
+    std::vsnprintf(line.data(), line.size(), fmt, args);
+    TraceLog(reports.strict ? LOG_ERROR : LOG_WARNING, "%s", line.data());
     if (reports.strict) {
         TraceLog(LOG_ERROR,
                  "[dev] strict = true: the diagnostic above is fatal in a debug build. "

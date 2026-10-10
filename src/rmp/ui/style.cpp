@@ -15,6 +15,7 @@
 
 #include "internal.h"
 
+#include <array>
 #include <cmath>
 
 namespace rmp::ui::detail {
@@ -37,7 +38,7 @@ struct Slot {
 };
 
 struct {
-    Slot slots[SLOTS];
+    std::array<Slot, SLOTS> slots;
     float delta = 0.0f; // this frame's, clamped
 } anim;
 

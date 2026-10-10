@@ -18,6 +18,7 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <new>
@@ -99,7 +100,7 @@ struct Minimal {
 
 // Bigger than any inline buffer would be, to prove the storage does not care.
 struct Fat {
-    double padding[64] = {};
+    std::array<double, 64> padding{};
     int updates = 0;
     void _update(rmp::Object &, float) { ++updates; }
 };
@@ -944,10 +945,16 @@ TEST_CASE_FIXTURE(Fixture, "the eight sectors map to the eight suffixes") {
         Vector2 facing;
         const char *suffix;
     };
-    const Case cases[] = {
-        { { 1, 0 }, "e" },  { { 1, -1 }, "ne" }, { { 0, -1 }, "n" }, { { -1, -1 }, "nw" },
-        { { -1, 0 }, "w" }, { { -1, 1 }, "sw" }, { { 0, 1 }, "s" },  { { 1, 1 }, "se" },
-    };
+    const std::array<Case, 8> cases{ {
+        { { 1, 0 }, "e" },
+        { { 1, -1 }, "ne" },
+        { { 0, -1 }, "n" },
+        { { -1, -1 }, "nw" },
+        { { -1, 0 }, "w" },
+        { { -1, 1 }, "sw" },
+        { { 0, 1 }, "s" },
+        { { 1, 1 }, "se" },
+    } };
     for (const Case &c : cases) {
         Loose object;
         auto &top = object.add<rmp::behavior::TopDown>();
@@ -1027,16 +1034,16 @@ TEST_CASE_FIXTURE(Fixture,
     // Placement new into one buffer rather than two heap objects and a hope:
     // the second object is AT the first one's address by construction, on every
     // allocator on all seventeen targets.
-    alignas(Loose) unsigned char storage[sizeof(Loose)];
+    alignas(Loose) std::array<unsigned char, sizeof(Loose)> storage{};
 
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new; nothing is allocated
-    auto *first = new (static_cast<void *>(storage)) Loose();
+    auto *first = new (static_cast<void *>(storage.data())) Loose();
     first->add<Tagged>({ .tag = 42 });
     REQUIRE(rmp::objects::detail::behavior_count(*first) == 1);
     first->~Loose();
 
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): placement new; nothing is allocated
-    auto *second = new (static_cast<void *>(storage)) Loose();
+    auto *second = new (static_cast<void *>(storage.data())) Loose();
     REQUIRE(static_cast<const void *>(second) == static_cast<const void *>(first));
     CHECK(rmp::objects::detail::behavior_count(*second) == 0);
     CHECK(second->get<Tagged>() == nullptr);

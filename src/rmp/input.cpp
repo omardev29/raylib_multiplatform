@@ -22,6 +22,7 @@
 #include <rmp/scene.h> // Scene::current().camera, for pointer() in world units
 #include <rmp/ui.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -35,7 +36,7 @@ constexpr int MAX_BINDINGS = 8;
 
 struct Action {
     std::string name;
-    detail::Binding bindings[MAX_BINDINGS];
+    std::array<detail::Binding, MAX_BINDINGS> bindings{};
     int count = 0;
 };
 

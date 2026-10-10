@@ -31,6 +31,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <clocale>
 #include <cstdarg>
@@ -95,9 +96,9 @@ struct {
 } heard;
 
 void hear(int /*level*/, const char *text, va_list args) {
-    char line[512];
-    std::vsnprintf(line, sizeof(line), text, args);
-    heard.lines.emplace_back(line);
+    std::array<char, 512> line{};
+    std::vsnprintf(line.data(), line.size(), text, args);
+    heard.lines.emplace_back(line.data());
 }
 
 // None of the art the samples name is here, and parsing every level of them
@@ -163,7 +164,7 @@ const char *str(const cJSON *o, const char *key) {
     return cJSON_IsString(item) ? item->valuestring : "";
 }
 
-constexpr const char *SAMPLES[] = {
+constexpr std::array SAMPLES{
     "Test_file_for_API_showing_all_features.ldtk",
     "Typical_2D_platformer_example.ldtk",
     "Typical_TopDown_example.ldtk",
@@ -527,7 +528,7 @@ TEST_SUITE("ldtk") {
         // A game with a German interface reads its levels like anyone else:
         // cJSON's strtod follows LC_NUMERIC, and without the guard the 0.5
         // opacity, the 1.5 speed and every 0.5 pivot read as 0.
-        const char *names[] = { "rmp_comma", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8",
+        const std::array names{ "rmp_comma", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8",
                                 "es_ES.UTF-8" };
         const std::string was = std::setlocale(LC_NUMERIC, nullptr);
         const char *found = nullptr;
@@ -548,9 +549,9 @@ TEST_SUITE("ldtk") {
             }
             return;
         }
-        char raw[16];
-        std::snprintf(raw, sizeof raw, "%g", 0.5);
-        const bool comma = std::string(raw) != "0.5"; // or this tests nothing
+        std::array<char, 16> raw{};
+        std::snprintf(raw.data(), raw.size(), "%g", 0.5);
+        const bool comma = std::string(raw.data()) != "0.5"; // or this tests nothing
         const Parsed p(text_of("minimal.ldtk"), "minimal.ldtk");
         const std::string during = std::setlocale(LC_NUMERIC, nullptr);
         std::setlocale(LC_NUMERIC, was.c_str());
@@ -569,7 +570,7 @@ TEST_SUITE("ldtk") {
 
     TEST_CASE("what is not a project is refused, and says so") {
         const Quiet quiet;
-        const char *bad[] = {
+        const std::array bad{
             "",
             "not json",
             "[]",
@@ -640,22 +641,31 @@ TEST_SUITE("ldtk") {
         walk(original.get(), root_path);
         REQUIRE(nodes.size() > 300);
 
-        enum Kind { STRING, ARRAY, NUL, OBJECT, HUGE_UP, HUGE_DOWN, INT_TOP, MINUS_ONE };
+        enum class Kind {
+            STRING,
+            ARRAY,
+            NUL,
+            OBJECT,
+            HUGE_UP,
+            HUGE_DOWN,
+            INT_TOP,
+            MINUS_ONE
+        };
         const auto hostile = [](Kind kind) -> cJSON * {
             switch (kind) {
-                case STRING:
+                case Kind::STRING:
                     return cJSON_CreateString("x");
-                case ARRAY:
+                case Kind::ARRAY:
                     return cJSON_CreateArray();
-                case NUL:
+                case Kind::NUL:
                     return cJSON_CreateNull();
-                case OBJECT:
+                case Kind::OBJECT:
                     return cJSON_CreateObject();
-                case HUGE_UP:
+                case Kind::HUGE_UP:
                     return cJSON_CreateNumber(1e300);
-                case HUGE_DOWN:
+                case Kind::HUGE_DOWN:
                     return cJSON_CreateNumber(-1e300);
-                case INT_TOP:
+                case Kind::INT_TOP:
                     return cJSON_CreateNumber(2147483647.0);
                 default:
                     return cJSON_CreateNumber(-1);
@@ -670,9 +680,11 @@ TEST_SUITE("ldtk") {
             const Node &node = nodes[n];
             std::vector<Kind> kinds;
             if (node.number) {
-                kinds = { HUGE_UP, HUGE_DOWN, INT_TOP, MINUS_ONE, STRING };
+                kinds = { Kind::HUGE_UP, Kind::HUGE_DOWN, Kind::INT_TOP, Kind::MINUS_ONE,
+                          Kind::STRING };
             } else {
-                const Kind general[] = { STRING, ARRAY, NUL, OBJECT, HUGE_UP };
+                const std::array general{ Kind::STRING, Kind::ARRAY, Kind::NUL,
+                                          Kind::OBJECT, Kind::HUGE_UP };
                 kinds = { general[n % 5], general[(n + 1) % 5] };
             }
             for (const Kind kind : kinds) {
@@ -990,9 +1002,8 @@ TEST_SUITE("ldtk") {
         const std::string text = text_of("Test_file_for_API_showing_all_features.ldtk");
         const Parsed p(text, "Test_file_for_API_showing_all_features.ldtk");
         REQUIRE(p.map.valid());
-        const char *const expected[] = { "Tiles", "IntGrid_with_rules",
-                                         "IntGrid_without_rules", "PureAutoLayer",
-                                         "IntGrid_8px_grid" };
+        const std::array expected{ "Tiles", "IntGrid_with_rules", "IntGrid_without_rules",
+                                   "PureAutoLayer", "IntGrid_8px_grid" };
         REQUIRE(p.data->layers.size() == 5);
         for (std::size_t i = 0; i < 5; ++i) CHECK(p.data->layers[i].name == expected[i]);
         CHECK(p.data->layers[4].cell_width == 8);

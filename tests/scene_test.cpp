@@ -27,6 +27,7 @@
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
+#include <array>
 #include <memory>
 #include <string>
 
@@ -49,14 +50,14 @@ void note(const char *name, const char *event) {
 // takes a type, so the test needs as many types as it has scenes.
 template <char Name> class Probe : public rmp::Scene {
 public:
-    static constexpr char NAME[2] = { Name, '\0' };
+    static constexpr std::array<char, 2> NAME{ Name, '\0' };
 
-    void _ready() override { note(NAME, "ready"); }
-    void _end() override { note(NAME, "end"); }
-    void _suspend() override { note(NAME, "suspend"); }
-    void _resume() override { note(NAME, "resume"); }
-    void _update(float /*delta*/) override { note(NAME, "update"); }
-    void _draw() override { note(NAME, "draw"); }
+    void _ready() override { note(NAME.data(), "ready"); }
+    void _end() override { note(NAME.data(), "end"); }
+    void _suspend() override { note(NAME.data(), "suspend"); }
+    void _resume() override { note(NAME.data(), "resume"); }
+    void _update(float /*delta*/) override { note(NAME.data(), "update"); }
+    void _draw() override { note(NAME.data(), "draw"); }
 };
 
 using A = Probe<'A'>;
@@ -143,11 +144,11 @@ struct HeadlessUi {
 template <char Name> class UiScene : public rmp::Scene {
 public:
     void _draw() override {
-        note(Probe<Name>::NAME, "draw");
+        note(Probe<Name>::NAME.data(), "draw");
         rmp::ui::begin();
         // The click goes in the transcript, so a pass that reacts when it must
         // not says so in the same string every other event is read from.
-        if (rmp::ui::button("Back")) note(Probe<Name>::NAME, "click");
+        if (rmp::ui::button("Back")) note(Probe<Name>::NAME.data(), "click");
         rmp::ui::end();
     }
 };
@@ -610,7 +611,7 @@ enum class From { SCENE_UPDATE, ON_CLICK, OBJECT_UPDATE, COLLISION };
 
 // How many times each newcomer has been updated, by where it came from.
 struct {
-    int updates[4] = {};
+    std::array<int, 4> updates{};
     rmp::input::detail::DeviceState devices;
 } spawned;
 

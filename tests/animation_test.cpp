@@ -22,6 +22,7 @@
 #include <rmp/assets.h>
 #include <rmp/object.h>
 
+#include <array>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -140,11 +141,11 @@ TEST_CASE("a tag is found by name, exactly, and nothing else is") {
 
 TEST_CASE("rubbish is refused rather than half-read") {
     rmp::SheetData sheet{};
-    const unsigned char junk[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
-    CHECK_FALSE(rmp::animation::detail::parse_sheet(junk, sizeof(junk), &sheet));
+    const std::array<unsigned char, 8> junk{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    CHECK_FALSE(rmp::animation::detail::parse_sheet(junk.data(), junk.size(), &sheet));
     CHECK_FALSE(rmp::animation::detail::parse_sheet(nullptr, 100, &sheet));
-    CHECK_FALSE(rmp::animation::detail::parse_sheet(junk, 0, &sheet));
-    CHECK_FALSE(rmp::animation::detail::parse_sheet(junk, sizeof(junk), nullptr));
+    CHECK_FALSE(rmp::animation::detail::parse_sheet(junk.data(), 0, &sheet));
+    CHECK_FALSE(rmp::animation::detail::parse_sheet(junk.data(), junk.size(), nullptr));
 }
 
 // ---------------------------------------------------------------------------

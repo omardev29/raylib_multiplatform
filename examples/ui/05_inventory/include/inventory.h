@@ -1,19 +1,29 @@
 #pragma once
 #include <rmp/assets.h>
 
+#include <array>
+
 struct Item {
     const char *name;
     int count;
     bool equipped;
 };
 
-inline Item items[] = {
-    { "Sword", 1, true }, { "Shield", 1, false }, { "Potion", 12, false },
-    { "Rope", 3, false }, { "Torch", 8, false },  { "Map", 1, false },
-    { "Key", 2, false },  { "Bread", 5, false },  { "Coin", 240, false },
-    { "Gem", 4, false },  { "Bow", 1, false },    { "Arrow", 60, false },
-};
 inline constexpr int ITEM_COUNT = 12;
+inline std::array<Item, ITEM_COUNT> items{ {
+    { "Sword", 1, true },
+    { "Shield", 1, false },
+    { "Potion", 12, false },
+    { "Rope", 3, false },
+    { "Torch", 8, false },
+    { "Map", 1, false },
+    { "Key", 2, false },
+    { "Bread", 5, false },
+    { "Coin", 240, false },
+    { "Gem", 4, false },
+    { "Bow", 1, false },
+    { "Arrow", 60, false },
+} };
 inline int selected = 0;
 
 // An rmp::Texture and not a Texture2D: the handle owns the texture, and it is

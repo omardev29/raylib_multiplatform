@@ -13,6 +13,7 @@
 
 #include "internal.h"
 
+#include <array>
 #include <cstring>
 
 namespace rmp::ui {
@@ -24,18 +25,22 @@ namespace {
 // for the same reason. This frame's order is not known until end().
 constexpr int MAX_FOCUSABLES = 128;
 
+// An element's name, NUL-terminated, cut to what fits: the one copy of a
+// label the focus keeps between frames.
+using Name = std::array<char, 48>;
+
 struct Entry {
     uint32_t id = 0;
-    char name[48] = { 0 };
+    Name name{};
 };
 
 // The file's state, one struct per concern: the dot at every use says "this
 // is file state", and a group cannot collide with focus(), focused() or a
 // parameter.
 struct {
-    Entry current[MAX_FOCUSABLES];
+    std::array<Entry, MAX_FOCUSABLES> current;
     int current_count = 0;
-    Entry previous[MAX_FOCUSABLES];
+    std::array<Entry, MAX_FOCUSABLES> previous;
     int previous_count = 0;
     // Where the pass being described starts in current. See end_pass_focus().
     int pass_first = 0;
@@ -50,7 +55,7 @@ struct {
 // for the same reason.
 struct {
     uint32_t id = 0;
-    char name[48] = { 0 };
+    Name name{};
     bool visible = false;
 } target;
 
@@ -62,7 +67,7 @@ struct {
 // frame that declares controls and none with the name lets it go.
 struct {
     bool waiting = false;
-    char name[48] = { 0 };
+    Name name{};
 } asked;
 
 // Keyboard and gamepad navigation, and held-key repeat, so holding down on a
@@ -109,11 +114,13 @@ struct {
 constexpr float REPEAT_DELAY = 0.45f;
 constexpr float REPEAT_INTERVAL = 0.09f;
 
-void copy_name(char *dst, std::string_view s) {
-    const size_t n = s.size() < 47 ? s.size() : 47;
-    std::memcpy(dst, s.data(), n);
+void copy_name(Name &dst, std::string_view s) {
+    const size_t n = s.size() < dst.size() - 1 ? s.size() : dst.size() - 1;
+    std::memcpy(dst.data(), s.data(), n);
     dst[n] = '\0';
 }
+
+std::string_view view(const Name &name) { return name.data(); }
 
 int index_of(uint32_t id) {
     for (int i = 0; i < lists.previous_count; ++i) {
@@ -144,7 +151,7 @@ void move_focus(int delta) {
         if (next < 0) next += count;
     }
     target.id = lists.previous[next].id;
-    copy_name(target.name, lists.previous[next].name);
+    copy_name(target.name, view(lists.previous[next].name));
     // The player moved it here, so a text field it lands on is the one they
     // are about to type into. Anything else holding this id never asks.
     capture.keyboard_id = target.id;
@@ -246,7 +253,7 @@ void end_focus_frame() {
     // thing that is, rather than leaving a controller with nowhere to go.
     if (target.id != 0 && index_of(target.id) < 0 && lists.previous_count > 0) {
         target.id = lists.previous[0].id;
-        copy_name(target.name, lists.previous[0].name);
+        copy_name(target.name, view(lists.previous[0].name));
     }
 }
 
@@ -265,7 +272,8 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     // The first control carrying a name focus() asked for between frames.
     // Matched by id and not by label, so an explicit .id works the same way
     // it does when focus() is called during a pass.
-    if (asked.waiting && id.id == peek_element_id(asked.name, 0, current_pass()).id) {
+    if (asked.waiting &&
+        id.id == peek_element_id(view(asked.name), 0, current_pass()).id) {
         asked.waiting = false;
         focus_by_id(id.id, name);
     }
@@ -305,7 +313,7 @@ void end_pass_focus() {
     // never walk up out of the scene below.
     if (index_of(target.id) >= 0) return;
     target.id = lists.current[lists.pass_first].id;
-    copy_name(target.name, lists.current[lists.pass_first].name);
+    copy_name(target.name, view(lists.current[lists.pass_first].name));
 }
 
 bool take_activate() {
@@ -378,7 +386,7 @@ void focus_by_id(uint32_t id, std::string_view name) {
 
 WidgetState *state_for(uint32_t id) {
     constexpr int SLOTS = 64;
-    static WidgetState slots[SLOTS];
+    static std::array<WidgetState, SLOTS> slots;
     static int next = 0;
     for (auto &slot : slots) {
         if (slot.id == id) return &slot;
@@ -430,7 +438,7 @@ void focus(std::string_view id) {
     detail::focus_by_id(detail::peek_element_id(id).id, id);
 }
 
-std::string_view focused() { return std::string_view{ target.name }; }
+std::string_view focused() { return view(target.name); }
 
 void set_navigation_enabled(bool on) { navigation.enabled = on; }
 bool navigation_enabled() { return navigation.enabled; }

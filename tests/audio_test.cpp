@@ -27,6 +27,7 @@
 
 #include <raylib.h>
 
+#include <array>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -63,9 +64,9 @@ struct {
 } heard;
 
 void hear(int /*level*/, const char *text, va_list args) {
-    char line[512];
-    std::vsnprintf(line, sizeof(line), text, args);
-    heard.lines.emplace_back(line);
+    std::array<char, 512> line{};
+    std::vsnprintf(line.data(), line.size(), text, args);
+    heard.lines.emplace_back(line.data());
 }
 
 } // namespace

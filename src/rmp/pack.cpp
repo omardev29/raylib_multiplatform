@@ -13,7 +13,7 @@
 #include "internal.h"
 #include <rmp/config.h> // RMP_RRES_PASSWORD
 
-#include <cstdio>
+#include <string>
 #include <utility>
 
 // The pack's password is RMP_RRES_PASSWORD, [resources] rres_password in the
@@ -33,7 +33,7 @@ namespace {
 struct {
     bool in_use = false;
     rresCentralDir directory = { 0, nullptr };
-    char path[2048] = { 0 };
+    std::string path;
 } pack;
 
 } // namespace
@@ -41,17 +41,16 @@ struct {
 bool open_pack() {
     if (pack.in_use) return true; // idempotent: the lifecycle macro already called it
 
-    std::snprintf(pack.path, sizeof(pack.path), "%s%s",
-                  rmp::assets::detail::resources_root(), "resources.rres");
+    pack.path = std::string(rmp::assets::detail::resources_root()) + "resources.rres";
 
-    if (!FileExists(pack.path)) {
+    if (!FileExists(pack.path.c_str())) {
         TraceLog(LOG_INFO, "ASSETS: No resource pack found, using loose files from %s",
                  rmp::assets::detail::resources_root());
         return false;
     }
 
     rresSetCipherPassword(RMP_RRES_PASSWORD);
-    pack.directory = rresLoadCentralDirectory(pack.path);
+    pack.directory = rresLoadCentralDirectory(pack.path.c_str());
     if (pack.directory.count <= 0) {
         // Given back, not dropped: rres allocates the entry array before it
         // knows the count is zero, and close_pack() returns early while no
@@ -62,12 +61,12 @@ bool open_pack() {
         pack.directory.count = 0;
         pack.directory.entries = nullptr;
         TraceLog(LOG_WARNING, "ASSETS: %s has no central directory, using loose files",
-                 pack.path);
+                 pack.path.c_str());
         return false;
     }
 
     pack.in_use = true;
-    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", pack.path,
+    TraceLog(LOG_INFO, "ASSETS: Using resource pack %s (%d entries)", pack.path.c_str(),
              pack.directory.count);
     return true;
 }
@@ -95,7 +94,7 @@ unsigned char *pack_read(const char *name, int *size) {
     const unsigned int id = rresGetResourceId(pack.directory, name);
     if (id == 0) return nullptr;
 
-    rresResourceChunk chunk = rresLoadResourceChunk(pack.path, id);
+    rresResourceChunk chunk = rresLoadResourceChunk(pack.path.c_str(), id);
     if (UnpackResourceChunk(&chunk) != 0) {
         rresUnloadResourceChunk(chunk);
         return nullptr;
@@ -132,7 +131,7 @@ unsigned char *pack_read(const char *name, int *size) {
         return img;
     }
 
-    const rresResourceMulti multi = rresLoadResourceMulti(pack.path, id);
+    const rresResourceMulti multi = rresLoadResourceMulti(pack.path.c_str(), id);
     if (multi.count > 0) {
         bool ok = true;
         for (int i = 0; std::cmp_less(i, multi.count); ++i) {

@@ -10,6 +10,7 @@
 
 #include <raylib.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 #include <rmp/assets.h>
@@ -20,8 +21,6 @@
 #include "tilemap_internal.h"
 #include "internal.h"
 
-#include <cstdio>
-
 namespace rmp::assets {
 
 // For the CI boot gate. `failed` is the number of rmp::assets:: requests that
@@ -31,18 +30,22 @@ namespace detail {
 LoadCounts loads;
 
 namespace {
-// The default is what this library was compiled with; see internal.h for why
-// it can be replaced at run time.
+// The default is what this library was compiled with, RMP_RESOURCES_PATH,
+// read from the macro until something is set: a std::string made at static
+// initialisation could throw where nothing can catch it. See internal.h for
+// why it can be replaced at run time.
 struct {
-    char root[2048] = RMP_RESOURCES_PATH;
+    std::optional<std::string> root;
 } resources;
 } // namespace
 
-const char *resources_root() { return resources.root; }
+const char *resources_root() {
+    return resources.root ? resources.root->c_str() : RMP_RESOURCES_PATH;
+}
 
 void set_resources_root(const char *root) {
     if (root == nullptr) root = "";
-    std::snprintf(resources.root, sizeof(resources.root), "%s", root);
+    resources.root = root;
 }
 } // namespace detail
 
@@ -61,9 +64,9 @@ namespace {
 // Returns whether the file is there. A loader that then cannot DECODE it counts
 // that too, with decode_failed(): a corrupt PNG left a blank texture and a
 // green boot, because only a name with nothing behind it was counted.
-bool fallback_path(const char *name, char *out, size_t n) {
-    std::snprintf(out, n, "%s%s", detail::resources_root(), name);
-    if (FileExists(out)) return true;
+bool fallback_path(const char *name, std::string &out) {
+    out = std::string(detail::resources_root()) + name;
+    if (FileExists(out.c_str())) return true;
     ++detail::loads.failed;
     return false;
 }
@@ -98,9 +101,8 @@ bool font_decoded(const ::Font &font) {
 bool detail::resource_exists(const char *name) {
     if (name == nullptr || name[0] == '\0') return false;
     if (detail::pack_has(name)) return true;
-    char path[2048];
-    std::snprintf(path, sizeof(path), "%s%s", detail::resources_root(), name);
-    return FileExists(path);
+    const std::string path = std::string(detail::resources_root()) + name;
+    return FileExists(path.c_str());
 }
 
 void init() {
@@ -134,9 +136,9 @@ namespace {
         if (img.data != nullptr) return img;
     }
 
-    char path[2048];
-    const bool there = fallback_path(name, path, sizeof(path));
-    ::Image img = ::LoadImage(path);
+    std::string path;
+    const bool there = fallback_path(name, path);
+    ::Image img = ::LoadImage(path.c_str());
     if (there && img.data == nullptr) decode_failed(name);
     return img;
 }
@@ -179,9 +181,9 @@ Texture2D load_texture_raw(const char *name) {
                  "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
-    char path[2048];
-    const bool there = fallback_path(name, path, sizeof(path));
-    ::Sound sound = ::LoadSound(path);
+    std::string path;
+    const bool there = fallback_path(name, path);
+    ::Sound sound = ::LoadSound(path.c_str());
     if (there && (sound.stream.buffer == nullptr || sound.frameCount == 0)) {
         UnloadSound(
             sound); // a no-op on an empty one, and not empty when it has no frames
@@ -214,10 +216,10 @@ Texture2D load_texture_raw(const char *name) {
                  "ASSETS: '%s' not usable from pack, falling back to loose file", name);
     }
 
-    char path[2048];
-    const bool there = fallback_path(name, path, sizeof(path));
+    std::string path;
+    const bool there = fallback_path(name, path);
     if (!there) return ::Font{};
-    ::Font font = ::LoadFontEx(path, font_size, nullptr, 0);
+    ::Font font = ::LoadFontEx(path.c_str(), font_size, nullptr, 0);
     if (!font_decoded(font)) {
         UnloadFont(font);
         decode_failed(name);
@@ -382,10 +384,10 @@ std::vector<unsigned char> load_data(std::string_view name_view) {
     }
 
     // Bytes have no format to fail to decode: the file is there or it is not.
-    char path[2048];
-    fallback_path(name, path, sizeof(path));
+    std::string path;
+    fallback_path(name, path);
     int size = 0;
-    unsigned char *data = LoadFileData(path, &size);
+    unsigned char *data = LoadFileData(path.c_str(), &size);
     return owned(data, size);
 }
 

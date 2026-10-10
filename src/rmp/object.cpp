@@ -36,6 +36,7 @@
 #include "tilemap_internal.h" // smallest_cell, for the steps through the map
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -623,7 +624,9 @@ bool in_map(const Tilemap &map, const Object &object) {
 void push_out(Object &object, const Tilemap &map, float cell) {
     const Rectangle box = object.world_collider();
     const float reach = cell + std::max(box.width, box.height);
-    const Vector2 directions[] = { { 0, -1 }, { -1, 0 }, { 1, 0 }, { 0, 1 } };
+    const std::array<Vector2, 4> directions{
+        { { 0, -1 }, { -1, 0 }, { 1, 0 }, { 0, 1 } }
+    };
     float best = 0;
     Vector2 best_direction{};
     const Vector2 start = object.position;

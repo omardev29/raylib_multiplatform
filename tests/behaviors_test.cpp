@@ -32,6 +32,7 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -533,12 +534,16 @@ TEST_CASE_FIXTURE(Fixture,
         float y;
     };
     // +Y is DOWN, matching raylib and rmp::Object::position.
-    const Case cases[] = {
-        { KEY_D, KEY_NULL, 1, 0 },           { KEY_A, KEY_NULL, -1, 0 },
-        { KEY_W, KEY_NULL, 0, -1 },          { KEY_S, KEY_NULL, 0, 1 },
-        { KEY_D, KEY_W, 0.7071f, -0.7071f }, { KEY_A, KEY_W, -0.7071f, -0.7071f },
-        { KEY_A, KEY_S, -0.7071f, 0.7071f }, { KEY_D, KEY_S, 0.7071f, 0.7071f },
-    };
+    const std::array<Case, 8> cases{ {
+        { KEY_D, KEY_NULL, 1, 0 },
+        { KEY_A, KEY_NULL, -1, 0 },
+        { KEY_W, KEY_NULL, 0, -1 },
+        { KEY_S, KEY_NULL, 0, 1 },
+        { KEY_D, KEY_W, 0.7071f, -0.7071f },
+        { KEY_A, KEY_W, -0.7071f, -0.7071f },
+        { KEY_A, KEY_S, -0.7071f, 0.7071f },
+        { KEY_D, KEY_S, 0.7071f, 0.7071f },
+    } };
 
     for (const Case &one : cases) {
         fake.devices = rmp::input::detail::DeviceState{};
@@ -597,12 +602,16 @@ TEST_CASE_FIXTURE(Fixture,
         ::KeyboardKey second;
         const char *tag;
     };
-    const Case cases[] = {
-        { KEY_D, KEY_NULL, "walk_e" }, { KEY_W, KEY_NULL, "walk_n" },
-        { KEY_A, KEY_NULL, "walk_w" }, { KEY_S, KEY_NULL, "walk_s" },
-        { KEY_D, KEY_W, "walk_ne" },   { KEY_A, KEY_W, "walk_nw" },
-        { KEY_A, KEY_S, "walk_sw" },   { KEY_D, KEY_S, "walk_se" },
-    };
+    const std::array<Case, 8> cases{ {
+        { KEY_D, KEY_NULL, "walk_e" },
+        { KEY_W, KEY_NULL, "walk_n" },
+        { KEY_A, KEY_NULL, "walk_w" },
+        { KEY_S, KEY_NULL, "walk_s" },
+        { KEY_D, KEY_W, "walk_ne" },
+        { KEY_A, KEY_W, "walk_nw" },
+        { KEY_A, KEY_S, "walk_sw" },
+        { KEY_D, KEY_S, "walk_se" },
+    } };
 
     for (const Case &one : cases) {
         fake.devices = rmp::input::detail::DeviceState{};

@@ -13,6 +13,7 @@
 
 #include "internal.h"
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <numbers>
@@ -26,7 +27,7 @@ namespace {
 // want a terminator, so every slice passes through here first.
 constexpr int SCRATCH = 1024;
 struct {
-    char text[SCRATCH];
+    std::array<char, SCRATCH> text;
 } scratch;
 
 Rectangle to_rect(Clay_BoundingBox b) { return Rectangle{ b.x, b.y, b.width, b.height }; }
@@ -65,7 +66,7 @@ void triangle(Vector2 a, Vector2 b, Vector2 c, Color color) {
 // outline. The outline is convex, so the triangles never overlap, and a
 // translucent fill comes out the same colour everywhere.
 void fill_box(Clay_BoundingBox b, Corners c, Color color) {
-    Vector2 edge[BOX_OUTLINE];
+    Outline edge{};
     box_outline(b, c, Clay_BorderWidth{}, edge);
     const Vector2 middle{ b.x + b.width * 0.5f, b.y + b.height * 0.5f };
     for (int i = 0; i < BOX_OUTLINE; ++i) {
@@ -76,8 +77,8 @@ void fill_box(Clay_BoundingBox b, Corners c, Color color) {
 // Its border: the band between the box's outline and the same outline inset
 // by each side's width, two triangles per pair of points.
 void stroke_box(Clay_BoundingBox b, Corners c, Clay_BorderWidth w, Color color) {
-    Vector2 outer[BOX_OUTLINE];
-    Vector2 inner[BOX_OUTLINE];
+    Outline outer{};
+    Outline inner{};
     box_outline(b, c, Clay_BorderWidth{}, outer);
     box_outline(b, c, w, inner);
     for (int i = 0; i < BOX_OUTLINE; ++i) {
@@ -102,7 +103,7 @@ Corners corners_of(Clay_CornerRadius r, Clay_BoundingBox b) {
                     clamp(r.bottomLeft) };
 }
 
-void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Vector2 *out) {
+void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Outline &out) {
     // A side wider than half the box would turn the inside out.
     auto side = [](uint16_t width, float span) {
         const auto w = static_cast<float>(width);
@@ -121,12 +122,12 @@ void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Vector2 
         float from; // the angle the arc starts at, in degrees
     };
     // Counter-clockwise on screen, each arc from one side to the next.
-    const Corner corners[4] = {
+    const std::array<Corner, 4> corners{ {
         { b.x, b.y, -1, -1, c.top_left, left, top, 270 },
         { b.x, b.y + b.height, -1, 1, c.bottom_left, left, bottom, 180 },
         { b.x + b.width, b.y + b.height, 1, 1, c.bottom_right, right, bottom, 90 },
         { b.x + b.width, b.y, 1, -1, c.top_right, right, top, 0 },
-    };
+    } };
     constexpr float DEGREES = std::numbers::pi_v<float> / 180.0f;
     int n = 0;
     for (const Corner &k : corners) {
@@ -148,9 +149,9 @@ void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Vector2 
 const char *cstr(Clay_StringSlice slice) {
     int len = slice.length;
     if (len >= SCRATCH) len = SCRATCH - 1;
-    if (len > 0) std::memcpy(scratch.text, slice.chars, static_cast<size_t>(len));
+    if (len > 0) std::memcpy(scratch.text.data(), slice.chars, static_cast<size_t>(len));
     scratch.text[len] = '\0';
-    return scratch.text;
+    return scratch.text.data();
 }
 
 void draw(Clay_RenderCommandArray commands) {

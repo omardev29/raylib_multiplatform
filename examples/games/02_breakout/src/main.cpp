@@ -16,6 +16,8 @@
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
+#include <array>
+
 namespace {
 
 constexpr int COLUMNS = 10;
@@ -27,7 +29,7 @@ constexpr float PADDLE_Y = 420;
 constexpr float PADDLE_SPEED = 520;
 
 // One per row, top to bottom. A wall of one colour is a wall; five is a game.
-constexpr Color ROW_COLORS[ROWS] = { MAROON, ORANGE, GOLD, LIME, SKYBLUE };
+constexpr std::array<Color, ROWS> ROW_COLORS{ MAROON, ORANGE, GOLD, LIME, SKYBLUE };
 
 // The end of a game, PUSHED on top of it: the wall below freezes, stays on
 // screen and stops hearing the keyboard, which is what the scene stack does on

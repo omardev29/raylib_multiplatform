@@ -21,6 +21,7 @@
 
 #include <rmp/save.h>
 
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <climits>
@@ -63,7 +64,10 @@ static_assert(!std::is_convertible_v<const float *, Value>);
 // push("forest"), which a plain Value(std::string_view) made two conversions
 // and refused. A raw `const char *` is not: it may be null, and is no longer
 // a Value at all rather than an empty one.
+// A string literal's own type, which is what these two are about.
+// NOLINTNEXTLINE(modernize-avoid-c-arrays)
 static_assert(std::is_constructible_v<Value, const char (&)[5]>);
+// NOLINTNEXTLINE(modernize-avoid-c-arrays)
 static_assert(std::is_convertible_v<const char (&)[5], Value>);
 static_assert(std::is_convertible_v<std::string, Value>);
 static_assert(std::is_convertible_v<std::string_view, Value>);
@@ -156,12 +160,12 @@ Bytes with_fixed_crc(Bytes file) {
     const std::string prefix = header.substr(0, space);
     std::string covered = prefix + "\n";
     covered.append(file.begin() + static_cast<std::ptrdiff_t>(nl) + 1, file.end());
-    char crc[9];
+    std::array<char, 9> crc{};
     std::snprintf(
-        crc, sizeof crc, "%08x",
+        crc.data(), crc.size(), "%08x",
         static_cast<unsigned>(rmp::save::detail::crc32(
             reinterpret_cast<const unsigned char *>(covered.data()), covered.size())));
-    std::memcpy(file.data() + space + 1, crc, 8);
+    std::memcpy(file.data() + space + 1, crc.data(), 8);
     return file;
 }
 
@@ -607,9 +611,9 @@ TEST_SUITE("save: format") {
             CAPTURE(locale);
             // Printing 0.5 under it really does not give "0.5" -- or this
             // case tests nothing.
-            char raw[16];
-            std::snprintf(raw, sizeof raw, "%g", 0.5);
-            CHECK(std::string(raw) != "0.5");
+            std::array<char, 16> raw{};
+            std::snprintf(raw.data(), raw.size(), "%g", 0.5);
+            CHECK(std::string(raw.data()) != "0.5");
 
             Value v;
             v["half"] = 0.5;

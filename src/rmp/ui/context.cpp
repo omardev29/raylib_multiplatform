@@ -13,11 +13,12 @@
 #include <rmp/assets.h>
 #include <rmp/config.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
+#include <vector>
 
 // Defaults, so this still compiles against a generated header from before the
 // [ui] section existed. tools/configure.py normally provides all four.
@@ -49,7 +50,7 @@ namespace {
 struct {
     bool started = false;
     bool frame_open = false;
-    std::unique_ptr<unsigned char[]> arena; // Clay's memory, ours to own
+    std::vector<unsigned char> arena; // Clay's memory, ours to own
 } context;
 
 struct {
@@ -76,7 +77,7 @@ struct FontFace {
     unsigned frame = 0; // the last frame it was asked for
 };
 struct {
-    FontFace faces[FONT_FACES];
+    std::array<FontFace, FONT_FACES> faces;
     unsigned frame = 0; // counted at every frame boundary, for FontFace::frame
     // A configured font that cannot be loaded is a one-time problem, not a
     // per-draw one. Without this we would go back to the filesystem and log the
@@ -94,7 +95,7 @@ void release_fonts() {
 // menu; if a UI ever needs more, the truncation below says so out loud.
 constexpr int ARENA_SIZE = 8 * 1024;
 struct {
-    char bytes[ARENA_SIZE];
+    std::array<char, ARENA_SIZE> bytes;
     int used = 0;
 } text_arena;
 
@@ -111,7 +112,7 @@ struct LabelCount {
     uint16_t count;
 };
 struct {
-    LabelCount table[MAX_LABELS];
+    std::array<LabelCount, MAX_LABELS> table;
     int count = 0;
     // Labels that did not fit. They take indices from the TOP of the pass block,
     // counting down, so two elements sharing an unrecorded label are still two
@@ -155,8 +156,8 @@ struct BoundsEntry {
     Clay_BoundingBox box;
 };
 struct {
-    BoundsEntry entries[2][MAX_BOUNDS];
-    int count[2] = { 0, 0 };
+    std::array<std::array<BoundsEntry, MAX_BOUNDS>, 2> entries;
+    std::array<int, 2> count{};
     int front = 0; // the one this frame writes; the other is last frame's
 } bounds;
 
@@ -172,8 +173,8 @@ struct Blocker {
     uint32_t id;
 };
 struct {
-    Blocker entries[2][MAX_BLOCKERS];
-    int count[2] = { 0, 0 };
+    std::array<std::array<Blocker, MAX_BLOCKERS>, 2> entries;
+    std::array<int, 2> count{};
 } blockers;
 
 struct PassId {
@@ -186,7 +187,7 @@ struct PassId {
 struct {
     int index = -1;
     bool input = true;
-    PassId ids[MAX_BOUNDS];
+    std::array<PassId, MAX_BOUNDS> ids;
     int id_count = 0;
     int16_t layer_z = 0;
 } this_pass;
@@ -196,7 +197,7 @@ struct {
 // cannot leak into the next one.
 constexpr int MAX_CLIP_DEPTH = 8;
 struct {
-    uint32_t stack[MAX_CLIP_DEPTH];
+    std::array<uint32_t, MAX_CLIP_DEPTH> stack;
     int depth = 0;
     int overflow = 0; // pushed past the limit, so the pops still pair up
 } clips;
@@ -327,10 +328,10 @@ bool ensure_started() {
     const uint32_t size = Clay_MinMemorySize();
     // new[] of char is aligned for anything Clay puts in it (the default new
     // alignment is 16 on every toolchain here); Clay itself only needs 8.
-    context.arena = std::make_unique<unsigned char[]>(size);
+    context.arena.assign(size, 0);
 
     const Clay_Arena arena =
-        Clay_CreateArenaWithCapacityAndMemory(size, context.arena.get());
+        Clay_CreateArenaWithCapacityAndMemory(size, context.arena.data());
     Clay_Initialize(arena, viewport(), Clay_ErrorHandler{ on_clay_error, nullptr });
     Clay_SetMeasureTextFunction(providers.measure, nullptr);
 
@@ -343,7 +344,7 @@ bool ensure_started() {
 void shutdown_context() {
     if (!context.started) return;
     release_fonts();
-    context.arena.reset();
+    context.arena = std::vector<unsigned char>{};
     // Clay's current context lived in that arena. Left pointing at it, the next
     // begin() -- which starts the UI again, there being no init() -- wrote the
     // element ceiling into freed memory before anything else. With none, Clay
@@ -413,8 +414,10 @@ void set_scale_override(float s) {
     FontFace *room = free_slot != nullptr ? free_slot : stale;
     // Every face was drawn this frame and none is this size: more sizes in one
     // frame than there are faces. The closest one, stretched, is a soft letter
-    // where the alternative is a texture pulled out from under the batch.
-    if (room == nullptr) return nearest->handle.raw();
+    // where the alternative is a texture pulled out from under the batch. (A
+    // full table with no nearest one would be a table of no faces at all.)
+    if (room == nullptr)
+        return nearest != nullptr ? nearest->handle.raw() : GetFontDefault();
 
     const rmp::Font baked = providers.font(configured_font(), wanted);
     if (baked.raw().glyphCount <= 0) {
@@ -442,7 +445,7 @@ void *frame_alloc(size_t bytes) {
     // cursor up to 8 is enough and costs a few bytes a frame.
     const int aligned = (text_arena.used + 7) & ~7;
     if (aligned + static_cast<int>(bytes) > ARENA_SIZE) return nullptr;
-    void *p = text_arena.bytes + aligned;
+    void *p = text_arena.bytes.data() + aligned;
     text_arena.used = aligned + static_cast<int>(bytes);
     return p;
 }
@@ -454,9 +457,9 @@ Clay_String intern(std::string_view s) {
         RMP_REPORT_ONCE("UI: text arena full (%d bytes); labels are being truncated",
                         ARENA_SIZE);
     }
-    if (len <= 0) return Clay_String{ false, 0, text_arena.bytes };
+    if (len <= 0) return Clay_String{ false, 0, text_arena.bytes.data() };
 
-    char *dst = text_arena.bytes + text_arena.used;
+    char *dst = text_arena.bytes.data() + text_arena.used;
     std::memcpy(dst, s.data(), static_cast<size_t>(len));
     text_arena.used += len;
     // isStaticallyAllocated stays false: this lives exactly one frame, which is
@@ -980,7 +983,7 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
     // The clip rectangles open at this point of the list, outermost first. A
     // row scrolled out of its list still has a box, and the pointer must not
     // find it there.
-    Clay_BoundingBox open_clips[MAX_CLIP_DEPTH];
+    std::array<Clay_BoundingBox, MAX_CLIP_DEPTH> open_clips{};
     int depth = 0;
     int overflow = 0;
     auto shown_under_pointer = [&](const Clay_BoundingBox &b) {

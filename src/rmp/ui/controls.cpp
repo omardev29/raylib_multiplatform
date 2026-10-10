@@ -13,6 +13,7 @@
 
 #include "internal.h"
 
+#include <array>
 #include <cstdio>
 #include <cmath>
 #include <string>
@@ -303,9 +304,9 @@ bool slider(std::string_view label, float &value, float min, float max,
         Clay__CloseElement();
 
         if (o.show_value) {
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "%.0f%%", fraction * 100.0f);
-            label_text(std::string_view{ buf }, t.text_muted, t.font_size_small);
+            std::array<char, 32> buf{};
+            std::snprintf(buf.data(), buf.size(), "%.0f%%", fraction * 100.0f);
+            label_text(std::string_view{ buf.data() }, t.text_muted, t.font_size_small);
         }
     }
     Clay__CloseElement();

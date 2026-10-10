@@ -46,6 +46,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <memory>
@@ -268,12 +269,13 @@ std::string where() {
     if (level == nullptr) return "(not in a level)";
     auto *p = first<game::Player>(*level);
     const std::string name(level->map.level());
-    char text[160];
-    std::snprintf(text, sizeof text, "in %s at (%.0f, %.0f), lives %d, coins %d, %.1f s",
-                  name.c_str(), p != nullptr ? p->position.x : -1.0f,
+    std::array<char, 160> text{};
+    std::snprintf(text.data(), text.size(),
+                  "in %s at (%.0f, %.0f), lives %d, coins %d, %.1f s", name.c_str(),
+                  p != nullptr ? p->position.x : -1.0f,
                   p != nullptr ? p->position.y : -1.0f, game::run().lives,
                   game::run().coins, game::run().seconds);
-    return text;
+    return text.data();
 }
 
 // Drives a level towards the flag (or, `fall`, straight into the first pit).
