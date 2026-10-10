@@ -33,6 +33,9 @@ TEST_CASE("the main menu finds every file it loads") {
     MainMenuScene menu;
     menu._ready();
 
-    CHECK(rmp::assets::requested_loads() > asked);
     CHECK(rmp::assets::failed_loads() == failed);
+    // A menu of yours that loads no file has nothing for this test to check:
+    // it says so, and passes. Test what your menu does instead.
+    WARN_MESSAGE(rmp::assets::requested_loads() > asked,
+                 "the main menu loaded no file, so this test checked nothing");
 }

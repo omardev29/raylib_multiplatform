@@ -19,7 +19,7 @@ struct Settings {
     std::string player; // "Player" until the player says otherwise: see on_ready()
 };
 
-// What the two dropdowns offer. An array the dropdown reads where it is, so
+// What the two dropdowns offer: a std::array the dropdown takes as a span, so
 // nobody has to tell it how long the list is.
 inline constexpr std::array<std::string_view, 4> QUALITY{ "Low", "Medium", "High",
                                                           "Ultra" };

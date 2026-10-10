@@ -36,24 +36,19 @@ yours.
 
 ## Quick start
 
-`rmp` is the one command: it builds, runs, tests and ships a game, and makes new ones. Get it
-once by cloning this repository into your home folder and putting it on your PATH:
+`rmp` is the one command: it builds, runs, tests and ships a game, and makes new ones. One line
+puts it on your PATH:
 
 ```bash
-cd ~
-git clone https://github.com/omardev29/raylib_multiplatform
+curl -fsSL https://omardev29.github.io/rmp-docs/install.sh | sh     # Linux, macOS
+irm https://omardev29.github.io/rmp-docs/install.ps1 | iex          # Windows, in PowerShell
 ```
 
-| Shell | Add to PATH (once) |
-| --- | --- |
-| bash on Linux | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.bashrc` |
-| bash on macOS | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.bash_profile` |
-| zsh | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.zshrc` |
-| ksh | `echo 'export PATH="$HOME/raylib_multiplatform:$PATH"' >> ~/.profile` |
-| PowerShell and cmd | `[Environment]::SetEnvironmentVariable("Path", "$HOME\raylib_multiplatform;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")` |
-
-On Windows, PowerShell also has to be allowed to run a local script, once:
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Open a new terminal, then:
+It clones the framework into `~/.local/share/rmp` (`%LOCALAPPDATA%\rmp` on Windows), puts `rmp`
+on your PATH without sudo, and lists what a build still needs. Run it again, or `rmp update`, to
+update. The BSDs, a clone of your own and uninstalling:
+[Install](https://omardev29.github.io/rmp-docs/getting-started/install.html). Open a new
+terminal, then:
 
 ```bash
 rmp new my_game       # a game of your own, with the framework and CI for every target
@@ -123,7 +118,7 @@ them changing a signature. On top of it this framework adds a few small namespac
 | **`rmp::assets`** | Loading from `resources/` by name, without caring whether the game is running from loose files or from a packed, encrypted `.rres`. Counted handles (`rmp::Texture`, `rmp::Font`, `rmp::Sound`, `rmp::SpriteSheet`) release what they own. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/assets.html) |
 | **`rmp::Tilemap`** | A level designed in [LDtk](https://ldtk.io) (or Tiled): the scene draws it, collides against its solid cells and spawns its entities through the factories you register. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/tilemaps.html) |
 | **`rmp::audio`** | `play("coin")` and `music("level1")` by name, whatever the format; three volume buses for a settings screen. A machine without a sound device simply runs silent. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/audio.html) |
-| **`rmp::save`** | `rmp::save::write("slot1", v)` and `read("slot1", &v)`, where `rmp::Value` holds a real structure. Every read has a default, so an update never breaks an old save; the right folder on every platform. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/saving.html) |
+| **`rmp::save`** | `rmp::save::write("slot1", v)` and `read("slot1", v)`, where `rmp::Value` holds a real structure. Every read has a default, so an update never breaks an old save; the right folder on every platform. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/saving.html) |
 | **`rmp::random`** | Seeded and reproducible: the number on a bug report reproduces the run. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/random.html) |
 | **`rmp::ads`** | Interstitial and rewarded ads. Real on Android, silently nothing everywhere else, so there are no `#ifdef`s in your game. Off until you turn it on. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/ads.html) |
 
