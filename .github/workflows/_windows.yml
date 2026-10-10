@@ -445,6 +445,71 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the new game's rmp test config exited $LASTEXITCODE" }
           Write-Host "PASS: a game made on Windows passes its own rmp test config"
 
+      # The one-liner a Windows user pastes, `irm .../install.ps1 | iex`, run the
+      # way iex runs it: inside the session it was typed in, where an `exit`
+      # would end that session -- so the marker after it must print. Under
+      # Windows PowerShell 5.1 and pwsh, each into a temporary LOCALAPPDATA,
+      # from this commit as a fresh one-commit repository (a blobless clone of
+      # the shallow checkout itself loops in git's promisor fetch). The User
+      # PATH it wrote is read back from the registry, type and all, and a cmd
+      # given that PATH finds the shim first. Then the User PATH is put back.
+      - name: install.ps1 under iex, then rmp from the User PATH
+        if: inputs.framework
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          $src = Join-Path $env:RUNNER_TEMP 'rmp-source'
+          $tar = Join-Path $env:RUNNER_TEMP 'rmp-source.tar'
+          New-Item -ItemType Directory -Force $src | Out-Null
+          & git archive -o $tar HEAD
+          if ($LASTEXITCODE -ne 0) { throw "git archive exited $LASTEXITCODE" }
+          # Windows' own bsdtar: a GNU tar reads C: as a host to connect to.
+          & "$env:SystemRoot\System32\tar.exe" -xf $tar -C $src
+          if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }
+          & git -C $src init -q -b main
+          & git -C $src add -A
+          & git -C $src -c user.name=ci -c user.email=ci@localhost commit -q -m source
+          if ($LASTEXITCODE -ne 0) { throw "the source commit exited $LASTEXITCODE" }
+          $env:RMP_INSTALL_SOURCE = $src
+          $script = Join-Path (Get-Location).Path 'tools\install.ps1'
+          $key = Get-Item 'HKCU:\Environment'
+          $had = $key.GetValueNames() -contains 'Path'
+          $before = ''
+          $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+          if ($had) {
+            $before = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+            $kind = $key.GetValueKind('Path')
+          }
+          $stepPath = $env:Path
+          foreach ($shell in 'powershell', 'pwsh') {
+            $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "local-$shell"
+            New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+            $out = @(& $shell -NoProfile -NonInteractive -Command "Get-Content -Raw '$script' | Invoke-Expression; 'RMP_AFTER_IEX'")
+            $out | ForEach-Object { Write-Host $_ }
+            if ($out -notcontains 'RMP_AFTER_IEX') { throw "install.ps1 under $shell never came back to the line after it" }
+            $shims = Join-Path $env:LOCALAPPDATA 'Programs\rmp'
+            $key = Get-Item 'HKCU:\Environment'
+            $user = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+            if (($user -split ';') -notcontains $shims) { throw "after ${shell}, the User PATH does not name ${shims}: $user" }
+            if ($key.GetValueKind('Path') -ne $kind) { throw "after ${shell}, the User PATH is $($key.GetValueKind('Path')), and it was $kind" }
+            $env:Path = $stepPath + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+            Push-Location $env:RUNNER_TEMP
+            try {
+              $where = @(& cmd /c where rmp)
+              $help = (& cmd /c rmp help) -join "`n"
+            } finally {
+              Pop-Location
+              $env:Path = $stepPath
+            }
+            if ($where[0] -ne (Join-Path $shims 'rmp.cmd')) { throw "cmd finds $($where[0]) first, not the shim in $shims" }
+            if (-not $help.StartsWith('usage: rmp')) { throw "rmp help through the shim printed: $help" }
+            $writable = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+            if ($had) { $writable.SetValue('Path', $before, $kind) } else { $writable.DeleteValue('Path') }
+            $writable.Close()
+            Write-Host "PASS: install.ps1 under $shell came back, and cmd finds rmp through the User PATH"
+          }
+          exit 0
+
   arm64:
     # Cross-compiled with MSVC. Static checks only: an ARM64 PE cannot run on
     # the x64 host, and there is no ARM64 Windows runner in the free tier.

@@ -2845,5 +2845,44 @@ class InstallCommandTest(unittest.TestCase):
                           rmp.shim_text(Path("/x/LocalOther/rmp")))
 
 
+class InstallerCiTest(unittest.TestCase):
+    """The installers run for real where they are meant to: install.ps1 under
+    iex in the Windows job, install.sh under /bin/sh and zsh on the Mac. Both
+    steps are the framework's: a game has no installer of its own."""
+
+    def step(self, workflow, job, needle):
+        steps = load_workflow(self, workflow)["jobs"][job]["steps"]
+        found = [s for s in steps if needle in str(s.get("run", ""))]
+        self.assertEqual(len(found), 1, f"{workflow}: {job} has no step running {needle}")
+        self.assertTrue(gated(found[0].get("if")), f"{workflow}: the {needle} step is not gated")
+        return code_lines(found[0]["run"])
+
+    def test_apple_is_told_which_it_is(self):
+        apple = load_workflow(self, "_apple.yml")
+        on = apple.get("on", apple.get(True))
+        spec = on["workflow_call"]["inputs"]["framework"]
+        self.assertEqual((spec["type"], spec["required"], "default" in spec),
+                         ("boolean", True, False))
+        ci = load_workflow(self, "ci.yml")["jobs"]["apple"]["with"]["framework"]
+        self.assertEqual(ci, "${{ needs.config.outputs.framework == 'true' }}")
+        canary = load_workflow(self, "canary.yml")["jobs"]["apple"]["with"]["framework"]
+        self.assertIs(canary, True)
+
+    def test_the_mac_runs_install_sh_under_sh_and_zsh_from_stdin(self):
+        run = self.step("_apple.yml", "macos", "tools/install.sh")
+        for needle in ("/bin/sh", "zsh", "RMP_INSTALL_TAIL", "RMP_INSTALL_SOURCE", "HOME=",
+                       "git archive", ".bash_profile", ".zshrc", "help"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, run)
+
+    def test_windows_runs_install_ps1_under_iex_in_both_powershells(self):
+        run = self.step("_windows.yml", "rmp", "install.ps1")
+        for needle in ("Invoke-Expression", "RMP_AFTER_IEX", "'powershell', 'pwsh'",
+                       "LOCALAPPDATA", "RMP_INSTALL_SOURCE", "git archive",
+                       "HKCU:\\Environment", "GetValueKind", "cmd /c rmp help", "where rmp"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, run)
+
+
 if __name__ == "__main__":
     unittest.main()

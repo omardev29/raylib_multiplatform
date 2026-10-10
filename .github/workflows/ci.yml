@@ -829,6 +829,7 @@ jobs:
     with:
       project_name: ${{ needs.config.outputs.project_name }}
       targets: ${{ needs.config.outputs.targets }}
+      framework: ${{ needs.config.outputs.framework == 'true' }}
       runner: ${{ needs.config.outputs.macos_runner }}
       xcode_version: ${{ needs.config.outputs.xcode }}
       ninja_version: ${{ needs.config.outputs.ninja_mac }}

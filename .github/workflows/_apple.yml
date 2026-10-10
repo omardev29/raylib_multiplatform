@@ -18,6 +18,12 @@ on:
         description: 'JSON array of enabled target ids (from [targets] in the config)'
         required: true
         type: string
+      # True in the framework's own repository, false in a game made with
+      # `rmp new`, which has no installer to try. Required, so no caller can
+      # forget to say which.
+      framework:
+        required: true
+        type: boolean
       # Everything below is a pin the weekly canary floats to find out what is
       # about to break. They are REQUIRED and have no defaults, and that is the
       # whole point: a `default:` here is a second copy of a number whose one
@@ -190,6 +196,64 @@ jobs:
           /bin/bash tools/versions_check.sh
           zsh ./rmp test config
           rm -f rmp-sh.txt rmp-zsh.txt
+
+      # The one-liner a Mac user pastes, `curl -fsSL .../install.sh | sh`, under
+      # both shells it meets here: /bin/sh (bash 3.2 in POSIX mode) and zsh,
+      # each into a temporary HOME. The script arrives on stdin, as it does
+      # through curl, with a line after it that must still print: a command in
+      # it that read stdin would have eaten that line. Run twice, the second
+      # run changes nothing. The source is this commit as a fresh one-commit
+      # repository: a blobless clone of the shallow checkout itself loops in
+      # git's promisor fetch and never finishes.
+      - name: install.sh under /bin/sh and zsh, into a temporary HOME
+        if: inputs.framework
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/rmp-source"
+          mkdir -p "$src"
+          git archive -o "$RUNNER_TEMP/rmp-source.tar" HEAD
+          tar -xf "$RUNNER_TEMP/rmp-source.tar" -C "$src"
+          git -C "$src" init -q -b main
+          git -C "$src" add -A
+          git -C "$src" -c user.name=ci -c user.email=ci@localhost commit -q -m source
+          out="$RUNNER_TEMP/install.txt"
+          check() {   # $1 the shell that reads the script, $2 $SHELL, $3 the file it gets
+            home=$(mktemp -d "$RUNNER_TEMP/home.XXXXXX")
+            for run in 1 2; do
+              if ! { cat tools/install.sh; echo 'echo RMP_INSTALL_TAIL'; } |
+                env -u ZDOTDIR HOME="$home" SHELL="$2" RMP_INSTALL_SOURCE="$src" "$1" -s > "$out"; then
+                cat "$out"
+                echo "FAIL: install.sh under $1 failed (run $run)"
+                exit 1
+              fi
+              cat "$out"
+              if [ "$(tail -n 1 "$out")" != RMP_INSTALL_TAIL ]; then
+                echo "FAIL: $1 never reached the line after install.sh: something read its stdin"
+                exit 1
+              fi
+              if [ "$run" = 1 ]; then cp "$home/$3" "$RUNNER_TEMP/rc-first"; fi
+            done
+            link="$home/.local/bin/rmp"
+            clone=$(cd "$home/.local/share/rmp" && pwd -P)
+            if [ "$(readlink "$link")" != "$clone/rmp" ]; then
+              echo "FAIL: $link points at $(readlink "$link"), not $clone/rmp"
+              exit 1
+            fi
+            help=$("$link" help)
+            case $help in
+              "usage: rmp"*) ;;
+              *) echo "FAIL: $link help printed: $help"; exit 1 ;;
+            esac
+            if [ "$(grep -c 'added by rmp install' "$home/$3")" != 1 ]; then
+              echo "FAIL: ~/$3 does not hold exactly one rmp block"
+              exit 1
+            fi
+            cmp "$home/$3" "$RUNNER_TEMP/rc-first" || { echo "FAIL: the second run changed ~/$3"; exit 1; }
+            grep -q 'up to date' "$out" || { echo "FAIL: the second run did not update the clone"; exit 1; }
+            echo "PASS: install.sh under $1 (SHELL=$2) linked rmp and wrote ~/$3 once"
+          }
+          check /bin/sh /bin/bash .bash_profile
+          check zsh /bin/zsh .zshrc
 
       - name: Package
         run: |
