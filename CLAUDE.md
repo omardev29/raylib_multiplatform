@@ -233,13 +233,24 @@ here so that nobody "fixes" one back.
   its libc++ cache already warm), upx, butler, actionlint **and shellcheck**
   (without it actionlint never reads a `run:` block and says green to
   everything; the hosted runners ship it, the image did not until 2026-09-23),
-  PyYAML, the X11/GL/Wayland and DRM headers. The digest lives in THREE
+  PyYAML, the X11/GL/Wayland and DRM headers; and since 2026-10 the test
+  toolchain -- LLVM 18 with compiler-rt (the sanitizer, libFuzzer and coverage
+  runtimes; the clang before it had none, so nothing sanitized could link),
+  cppcheck, Mull, Hypothesis/mutmut/pytest from a hash-locked file -- and a
+  Gradle home at `$GRADLE_USER_HOME` warmed for the wrapper, AGP and AdMob
+  SDK, so the Android job builds `--offline` (amd64 only; a step first proves
+  the wrapper's Gradle is in it, and `[android] gradle_offline = false` is a
+  game's way out). Each of those is a pin that `versions_check.sh` compares
+  with the running image's manifest. The digest lives in THREE
   places — `ci.yml`, `web-backends.yml`, `thirdparty/FROZEN_VERSIONS.md` —
   and `versions_check.sh` fails if any two disagree. Bumping it: push the
-  image repo, let its workflow publish and verify both architectures (it
-  runs the containers by tag, because `docker run --platform` against a
-  digest reference fails with "cannot overwrite digest"), read the digest
-  from its summary. A download at job time is a single point of failure that no
+  image repo's main (the PAT cannot open a pull request there; a dispatch on
+  a branch builds and verifies both architectures and publishes nothing), let
+  its workflow build each architecture on a runner of its own -- arm64 on
+  `ubuntu-24.04-arm`, not QEMU -- verify each natively, and publish the list
+  only once it holds exactly those two; read the list's digest from the
+  summary. Changing a Gradle dependency of the app means an image warmed for
+  it. A download at job time is a single point of failure that no
   amount of version pinning fixes: the sha256 can be right and the network still
   be wrong, and then twenty minutes of matrix die for a reason that has nothing
   to do with the code. Adding a tool means bumping the image and its digest in
