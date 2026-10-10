@@ -6869,14 +6869,317 @@ class ClangTidyNamingTest(unittest.TestCase):
         for line, said in self.BAD:
             with self.subTest(where=where, line=line):
                 self.assertIn(said, self.tidy_on(where, line))
+        # The names only: `#define RMP_GOOD 1` is a good NAME, and a macro the
+        # style guide's macro-usage check refuses -- ClangTidyGuidelineTest's.
         out = self.tidy_on(where, *self.GOOD)
-        self.assertNotIn("warning:", out, out)
+        self.assertNotIn("[readability-identifier-naming]", out, out)
+        self.assertNotIn("[clang-diagnostic-shadow]", out, out)
 
     def test_the_framework_rules(self):
         self.check("src")
 
     def test_examples_inherit_them(self):
         self.check("examples")
+
+
+class ClangTidyGuidelineTest(unittest.TestCase):
+    """The style guide of 2026-10-10 in .clang-tidy: every check it added, seen
+    red on the wrong way and quiet on the right way, in src/ and in examples/
+    (which inherit them). The CustomChecks are experimental in clang-tidy 22,
+    so this is also what says they still parse and still fire after a bump:
+    a query that does not parse is a one-line warning and a check that is
+    silently not run.
+
+    Every probe goes to clang-tidy with --experimental-custom-checks, as
+    tools/lint_debt.py does; without the flag the custom-* probes go quiet,
+    and these tests go red."""
+
+    # (name, the wrong way, the check that refuses it, the right way). A
+    # header, when the rule is about headers, is the dict's second form.
+    PROBES = (
+        ("const", "int f() { int x = 1; return x; }",
+         "misc-const-correctness", "int f() { const int x = 1; return x; }"),
+        ("array", "int f() { const int a[3] = { 1, 2, 3 }; return a[0]; }",
+         "modernize-avoid-c-arrays",
+         "#include <array>\nint f() { const std::array<int, 3> a{ 1, 2, 3 }; return a[0]; }"),
+        ("cast", "int f(float v) { return (int)v; }",
+         "modernize-avoid-c-style-cast", "int f(float v) { return static_cast<int>(v); }"),
+        ("enum", "enum Kind { SQUARE, CIRCLE };",
+         "cppcoreguidelines-use-enum-class", "enum class Kind { SQUARE, CIRCLE };"),
+        ("special members", "struct Guard { ~Guard() { release(); } static void release(); };",
+         "cppcoreguidelines-special-member-functions",
+         "struct Guard {\n    Guard() = default;\n    ~Guard() { release(); }\n"
+         "    Guard(const Guard &) = delete;\n    Guard &operator=(const Guard &) = delete;\n"
+         "    static void release();\n};\nstruct Plain { ~Plain() = default; };"),
+        ("macro", "#define RMP_TWICE(x) ((x) * 2)",
+         "cppcoreguidelines-macro-usage", "#define RMP_REPORT_ONCE(...) static_cast<void>(0)"),
+        ("explicit", "struct Meters { Meters(float v) : value(v) {} float value; };",
+         "google-explicit-constructor",
+         "struct Meters { explicit Meters(float v) : value(v) {} float value; };"),
+        ("int", "long long big() { return 1; }",
+         "google-runtime-int", "#include <cstdint>\nstd::int64_t big() { return 1; }"),
+        ("float", "long double wide() { return 1; }",
+         "google-runtime-float", "double wide() { return 1; }"),
+        ("using", "namespace a { inline int x = 0; }\nusing namespace a;",
+         "google-build-using-namespace",
+         "namespace a { inline int x = 0; }\nint f() { return a::x; }"),
+        ("default arguments", "struct B { virtual ~B() = default; virtual void f(int n = 0); };",
+         "google-default-arguments",
+         "struct B { virtual ~B() = default; virtual void f(int n); };"),
+        ("unary &", "struct P { int operator&() const; };",
+         "google-runtime-operator", "struct P { int address() const; };"),
+        ("make_pair", "#include <utility>\nauto p() { return std::make_pair<int, int>(1, 2); }",
+         "google-build-explicit-make-pair",
+         "#include <utility>\nauto p() { return std::make_pair(1, 2); }"),
+        ("raw pointer", "int f(int *p) { return *p; }",
+         "custom-rmp-raw-pointer", "int f(const int &p) { return p; }"),
+        ("anonymous namespace", {"probe.h": "#pragma once\nnamespace { inline int hidden = 0; }"},
+         "google-build-namespaces",
+         {"probe.h": "#pragma once\nnamespace rmp::detail { inline int shown = 0; }"}),
+        ("global using", {"probe.h": "#pragma once\n#include <string>\nusing std::string;"},
+         "google-global-names-in-headers",
+         {"probe.h": "#pragma once\n#include <string>\nnamespace rmp { using std::string; }"}),
+        ("header constant", {"probe.h": "#pragma once\nconstexpr int LIMIT = 3;"},
+         "custom-rmp-header-constant",
+         {"probe.h": "#pragma once\ninline constexpr int LIMIT = 3;\nextern const int OUTSIDE;"}),
+        ("static header constant", {"probe.h": "#pragma once\nstatic const int LIMIT = 3;"},
+         "custom-rmp-header-constant",
+         {"probe.h": "#pragma once\nnamespace rmp { inline constexpr int LIMIT = 3; }"}),
+    )
+
+    def setUp(self):
+        import shutil
+        self.tidy = shutil.which("clang-tidy")
+        if self.tidy is None:
+            if os.environ.get("RMP_REQUIRE_CLANG_TIDY") == "1":
+                self.fail("clang-tidy is required here (RMP_REQUIRE_CLANG_TIDY=1)")
+            self.skipTest("clang-tidy not installed")
+
+    def tidy_on(self, where, code, header_dir=None):
+        """clang-tidy's output for a probe written under `where`. `code` is a
+        .cpp's text, or {"probe.h": text}: a header, under `header_dir` (default:
+        where the .cpp is), that the .cpp includes. Written INSIDE the tree,
+        under dot-directories nothing globs, because clang-tidy finds its
+        configuration from the file's own directory and the header filter
+        reads the header's path."""
+        import shutil
+        import subprocess
+        made = []
+        try:
+            tmp = Path(tempfile.mkdtemp(prefix=".tidy-probe-", dir=REPO / where))
+            made.append(tmp)
+            source = code
+            if isinstance(code, dict):
+                hdir = Path(tempfile.mkdtemp(prefix=".tidy-probe-",
+                                             dir=REPO / (header_dir or where)))
+                made.append(hdir)
+                (hdir / "probe.h").write_text(code["probe.h"] + "\n")
+                source = f'#include "{hdir / "probe.h"}"\n'
+            (tmp / "probe.cpp").write_text(source + "\n")
+            got = subprocess.run([self.tidy, "--quiet", "--experimental-custom-checks",
+                                  str(tmp / "probe.cpp"), "--", "-std=c++20",
+                                  f"-I{REPO / 'thirdparty' / 'cJSON'}"],
+                                 capture_output=True, text=True)
+            return got.stdout + got.stderr
+        finally:
+            for d in made:
+                shutil.rmtree(d)
+
+    @staticmethod
+    def fired(out):
+        """The checks that warned, alias pairs split."""
+        names = set()
+        for line in out.splitlines():
+            m = re.search(r": warning: .* \[([\w.,-]+)\]$", line)
+            if m:
+                names.update(m.group(1).split(","))
+        return names
+
+    def run_all(self, where):
+        """[(name, check, wrong-way output, right-way output)], in parallel."""
+        from concurrent.futures import ThreadPoolExecutor
+        # src/'s header filter reads src/rmp/, not src/: the headers go there.
+        hdir = "src/rmp" if where == "src" else where
+        jobs = []
+        for name, wrong, check, right in self.PROBES:
+            jobs.append((name, check, wrong, right))
+        with ThreadPoolExecutor(max_workers=os.cpu_count() or 2) as pool:
+            wrongs = list(pool.map(lambda j: self.tidy_on(where, j[2], hdir), jobs))
+            rights = list(pool.map(lambda j: self.tidy_on(where, j[3], hdir), jobs))
+        return [(j[0], j[1], w, r) for j, w, r in zip(jobs, wrongs, rights)]
+
+    def check(self, where):
+        for name, check, wrong, right in self.run_all(where):
+            with self.subTest(where=where, rule=name):
+                self.assertNotIn("Error parsing", wrong + right)
+                self.assertIn(check, self.fired(wrong), wrong)
+                # The right way is lint-clean: no check at all has a word to say.
+                self.assertEqual(self.fired(right), set(), right)
+
+    def test_the_framework_refuses_each_wrong_way(self):
+        self.check("src")
+
+    def test_the_examples_inherit_every_one(self):
+        self.check("examples")
+
+    def test_the_pointer_boundary_is_quiet(self):
+        """What the rule allows, and nothing more: a pointer to a type of a C
+        library we speak to (cJSON here), an extern "C" function's parameters
+        (libFuzzer's ABI), and operator->."""
+        out = self.tidy_on("src", "#include <cstddef>\n#include <cJSON.h>\n"
+                                  'extern "C" int rmp_probe_entry(const unsigned char *data, '
+                                  "std::size_t size);\n"
+                                  "int count(const cJSON *json) { return cJSON_GetArraySize(json); }\n"
+                                  "struct Box {\n    int v;\n"
+                                  "    const Box *operator->() const { return this; }\n};")
+        self.assertNotIn("custom-rmp-raw-pointer", out, out)
+        # The ABI is the signature; the body of an extern "C" function is ours.
+        out = self.tidy_on("src", 'extern "C" int rmp_probe_entry(int n) {\n'
+                                  "    const int *p = &n;\n    return *p;\n}")
+        self.assertIn("custom-rmp-raw-pointer", self.fired(out), out)
+
+    def test_c_is_not_held_to_it(self):
+        """tools/rres_pack.c and the plain C example are C because they must be."""
+        import shutil
+        import subprocess
+        tmp = Path(tempfile.mkdtemp(prefix=".tidy-probe-", dir=REPO / "tools"))
+        try:
+            # A local: a C function's parameters are extern "C" anyway.
+            (tmp / "probe.c").write_text("int first(int n) {\n    const int x = n;\n"
+                                         "    const int *p = &x;\n    return *p;\n}\n")
+            got = subprocess.run([self.tidy, "--quiet", "--experimental-custom-checks",
+                                  str(tmp / "probe.c"), "--", "-std=c11"],
+                                 capture_output=True, text=True)
+        finally:
+            shutil.rmtree(tmp)
+        self.assertNotIn("custom-rmp-raw-pointer", got.stdout + got.stderr)
+
+    def test_a_char_pointer_is_a_raw_pointer(self):
+        """raylib is NOT on the boundary list: a C string is a pointer we chose."""
+        out = self.tidy_on("src", "const char *name() { return \"x\"; }")
+        self.assertIn("custom-rmp-raw-pointer", self.fired(out), out)
+
+    def test_a_public_declaration_is_pointer_checks_and_a_body_is_ours(self):
+        """include/rmp/'s declarations belong to tools/pointer_check.py, which
+        has its own ratchet; the bodies of its inline functions are read here.
+        The header goes under include/rmp/, where the query's path test bites."""
+        out = self.tidy_on("src", {"probe.h": "#pragma once\nint take(int *p);\n"
+                                              "inline int body() {\n    int x = 0;\n"
+                                              "    const int *p = &x;\n    return *p;\n}"},
+                           header_dir="include/rmp")
+        hits = [line for line in out.splitlines() if "[custom-rmp-raw-pointer]" in line]
+        self.assertEqual(len(hits), 1, out)
+        self.assertIn("probe.h:5:", hits[0])
+
+    def test_the_lint_passes_the_flag(self):
+        """Without --experimental-custom-checks the custom-* checks are not
+        registered and clang-tidy says nothing: both callers must pass it."""
+        self.assertIn("--experimental-custom-checks", (REPO / "tools" / "lint_debt.py").read_text())
+        self.assertIn("--experimental-custom-checks", (REPO / "tools" / "lint.sh").read_text())
+        import subprocess
+        tmp = Path(tempfile.mkdtemp(prefix=".tidy-probe-", dir=REPO / "src"))
+        try:
+            (tmp / "probe.cpp").write_text("int f(int *p) { return *p; }\n")
+            got = subprocess.run([self.tidy, "--quiet", str(tmp / "probe.cpp"), "--",
+                                  "-std=c++20"], capture_output=True, text=True)
+        finally:
+            import shutil
+            shutil.rmtree(tmp)
+        self.assertNotIn("custom-rmp-raw-pointer", got.stdout + got.stderr)
+
+
+class LintDebtTest(unittest.TestCase):
+    """tools/lint_debt.py, the ratchet behind `rmp lint`: what the tree still
+    owes the style guide is written down, and nothing else gets in. Each way
+    it must fail, seen failing on clang-tidy output written by hand."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("rmp_lint_debt",
+                                                      REPO / "tools" / "lint_debt.py")
+        cls.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.mod)
+
+    def out(self, *warnings):
+        return "\n".join(f"{REPO}/{w}" for w in warnings)
+
+    def verdict(self, output, debt_text):
+        found = self.mod.parse(output)
+        debt, problems = self.mod.read_debt(debt_text)
+        failures, lowered = self.mod.compare(found, debt)
+        return problems + failures, lowered
+
+    def test_a_warning_nobody_owes_fails(self):
+        got, _ = self.verdict(self.out("src/rmp/a.cpp:3:5: warning: m [misc-const-correctness]"), "")
+        self.assertEqual(len(got), 1)
+        self.assertIn("not owed", got[0])
+        self.assertIn("src/rmp/a.cpp:3:5", got[0])
+
+    def test_one_more_than_owed_fails(self):
+        out = self.out("src/rmp/a.cpp:3:5: warning: m [misc-const-correctness]",
+                       "src/rmp/a.cpp:9:5: warning: m [misc-const-correctness]")
+        got, _ = self.verdict(out, "misc-const-correctness src/rmp/a.cpp 1\n")
+        self.assertEqual(len(got), 1)
+        self.assertIn("1 owed", got[0])
+
+    def test_exactly_what_is_owed_passes(self):
+        out = self.out("src/rmp/a.cpp:3:5: warning: m [misc-const-correctness]")
+        got, lowered = self.verdict(out, "# a comment\nmisc-const-correctness  src/rmp/a.cpp  1\n")
+        self.assertEqual(got, [])
+        self.assertEqual(lowered, {("misc-const-correctness", "src/rmp/a.cpp"): 1})
+
+    def test_a_paid_debt_must_come_down(self):
+        got, lowered = self.verdict("", "misc-const-correctness src/rmp/a.cpp 2\n")
+        self.assertEqual(len(got), 1)
+        self.assertIn("lower the line", got[0])
+        self.assertEqual(lowered, {})
+        out = self.out("src/rmp/a.cpp:3:5: warning: m [misc-const-correctness]")
+        got, lowered = self.verdict(out, "misc-const-correctness src/rmp/a.cpp 2\n")
+        self.assertIn("1 are left", got[0])
+        self.assertEqual(lowered, {("misc-const-correctness", "src/rmp/a.cpp"): 1})
+
+    def test_a_header_two_files_reach_counts_once(self):
+        """The same warning from two translation units, one through a path
+        with `..` in it, is one warning."""
+        out = self.out("src/rmp/x.h:4:1: warning: m [custom-rmp-raw-pointer]",
+                       "tests/../src/rmp/x.h:4:1: warning: m [custom-rmp-raw-pointer]")
+        got, _ = self.verdict(out, "custom-rmp-raw-pointer src/rmp/x.h 1\n")
+        self.assertEqual(got, [])
+
+    def test_a_malformed_or_doubled_line_fails(self):
+        for text in ("misc-const-correctness src/rmp/a.cpp\n",
+                     "misc-const-correctness src/rmp/a.cpp many\n",
+                     "misc-const-correctness src/rmp/a.cpp 0\n",
+                     "misc-const-correctness src/rmp/a.cpp 1\nmisc-const-correctness src/rmp/a.cpp 1\n"):
+            with self.subTest(text=text):
+                _, problems = self.mod.read_debt(text)
+                self.assertEqual(len(problems), 1, problems)
+
+    def test_clang_tidy_talking_about_its_configuration_is_a_failure(self):
+        """A CustomChecks query that does not parse is this one line, exit 0,
+        and the check never runs."""
+        said = self.mod.config_problems(
+            "warning: 1:1: Error parsing argument 4 for matcher varDecl.\n"
+            f"{REPO}/src/rmp/a.cpp:3:5: warning: m [misc-const-correctness]\n"
+            "3 warnings generated.\n")
+        self.assertEqual(said, ["warning: 1:1: Error parsing argument 4 for matcher varDecl."])
+
+    def test_the_debt_file_is_well_formed_and_sorted(self):
+        text = (REPO / "tools" / "lint_debt.txt").read_text()
+        debt, problems = self.mod.read_debt(text)
+        self.assertEqual(problems, [])
+        self.assertGreater(len(debt), 0)
+        for check, file in debt:
+            with self.subTest(file=file):
+                self.assertTrue((REPO / file).is_file(), f"{file} is owed and does not exist")
+        lines = [line.split() for line in text.splitlines() if line and not line.startswith("#")]
+        self.assertEqual(lines, sorted(lines, key=lambda p: (p[1], p[0])),
+                         "tools/lint_debt.txt is in file, then check order -- `lower` writes it so")
+
+    def test_lint_sh_holds_clang_tidy_to_the_debt(self):
+        text = (REPO / "tools" / "lint.sh").read_text()
+        self.assertIn("tools/lint_debt.py check", text)
+        self.assertIn("tools/lint_debt.py lower", text)
 
 
 class LintWiringTest(unittest.TestCase):

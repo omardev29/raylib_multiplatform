@@ -1,10 +1,14 @@
-# examples/.clang-tidy -- the framework's NAMES, and every check that finds a
-# bug. Not the modernize/readability checks: they push a more elaborate spelling
-# of correct code at someone learning raylib, and an example is read before it
-# is anything else.
+# examples/.clang-tidy -- the framework's NAMES, its STYLE GUIDE, and every
+# check that finds a bug. Not the rest of modernize/readability: they push a
+# more elaborate spelling of correct code at someone learning raylib, and an
+# example is read before it is anything else.
 #
-# The naming rules and -Wshadow come from the root .clang-tidy, never copied:
-# InheritParentConfig appends this list to that one.
+# The naming rules, -Wshadow, the style guide's checks and its CustomChecks
+# come from the root .clang-tidy, never copied: InheritParentConfig appends
+# this list to that one. The modernize-* lines below are the style guide's own
+# -- std::array, static_cast, nullptr, no varargs, std::numbers, `using` --
+# taken back after the family goes: an example teaches the C++ a game should
+# write, and these are the rules that say what that is.
 InheritParentConfig: true
 Checks: >
   -modernize-*,
@@ -12,6 +16,12 @@ Checks: >
   readability-identifier-naming,
   readability-misleading-indentation,
   readability-misplaced-array-index,
+  modernize-avoid-c-arrays,
+  modernize-avoid-c-style-cast,
+  modernize-use-nullptr,
+  modernize-avoid-variadic-functions,
+  modernize-use-std-numbers,
+  modernize-use-using,
   -misc-unused-parameters,
 
 # misc-unused-parameters   a hook takes `float delta` whether this example's

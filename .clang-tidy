@@ -1,18 +1,27 @@
-# .clang-tidy — the checks that have caught something, and none of the ones that
-# only produce work.
+# .clang-tidy -- the checks that find bugs, the checks that hold the style
+# guide, and none of the ones that only produce work.
 #
 #   rmp lint            check src/, tests/ and examples/ (and the headers they reach)
 #   rmp lint fix        and apply the fixes it is sure about
 #
-# The selection rule is the same one the framework uses for features: a check
-# earns its place by catching a real bug, not by being enabled by default
-# somewhere. Every family below is here whole; every exclusion under it is a
-# check that fights a decision this repository has already made, and each one
-# says which.
+# THE BUG FINDERS. A check earns its place by catching a real bug, not by being
+# enabled by default somewhere. Every family below is here whole; every
+# exclusion under it is a check that fights a decision this repository has
+# already made, and each one says which.
+#
+# THE STYLE GUIDE. Omar's rules of 2026-10-10 are mandatory in the framework,
+# its tests and the examples: const on everything that does not change,
+# std::array, enum class, static_cast, no raw pointer, a macro only for what a
+# function cannot do, and Google's guide wherever ours says nothing. Every one
+# a compiler can see is a check here, named under "The style guide" below with
+# the rule it stands for; tools/style_check.sh says the ones only text can
+# (every #if branch, `++i`). What the tree still owes is tools/lint_debt.txt,
+# one line per check and file, and that list only shrinks.
 #
 # tools/lint.sh configures the `lint` preset (build/lint, configure only) for
-# the compile database it needs, and examples/.clang-tidy narrows this file for
-# the examples.
+# the compile database it needs and passes --experimental-custom-checks --
+# without it the CustomChecks below are not run, and nothing says so.
+# examples/.clang-tidy narrows this file for the examples.
 
 Checks: >
   -*,
@@ -27,10 +36,23 @@ Checks: >
   cppcoreguidelines-no-malloc,
   clang-diagnostic-shadow,
 
+  cppcoreguidelines-use-enum-class,
+  cppcoreguidelines-special-member-functions,
+  cppcoreguidelines-macro-usage,
+  google-explicit-constructor,
+  google-runtime-int,
+  google-runtime-float,
+  google-runtime-operator,
+  google-default-arguments,
+  google-build-using-namespace,
+  google-build-namespaces,
+  google-build-explicit-make-pair,
+  google-global-names-in-headers,
+  custom-*,
+
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
 
-  -misc-const-correctness,
   -misc-non-private-member-variables-in-classes,
   -misc-no-recursion,
   -misc-include-cleaner,
@@ -38,7 +60,6 @@ Checks: >
   -misc-use-internal-linkage,
 
   -modernize-use-trailing-return-type,
-  -modernize-avoid-c-arrays,
   -modernize-use-nodiscard,
   -modernize-macro-to-enum,
   -modernize-use-designated-initializers,
@@ -57,13 +78,63 @@ Checks: >
   -readability-avoid-nested-conditional-operator,
   -readability-math-missing-parentheses,
 
+# The style guide -- each check, and the rule it holds:
+#
+#   misc-const-correctness       const on every local that does not change,
+#                                and on what a pointer points to when nothing
+#                                writes through it. It was excluded for
+#                                "never finding a bug"; the rule is not about
+#                                bugs but about the reader, who learns at the
+#                                declaration that the value at the bottom of
+#                                the function is the one at the top. A
+#                                by-value parameter is the same rule, in the
+#                                definition only -- clang-tidy 22 does not
+#                                look at parameters, and
+#                                readability-avoid-const-params-in-decls keeps
+#                                the const out of the declaration.
+#   modernize-avoid-c-arrays     std::array, which knows its size and copies
+#                                like a value. raylib takes C arrays, and
+#                                std::array::data() at the call is the boundary.
+#   modernize-avoid-c-style-cast static_cast says which conversion was meant
+#                                (in modernize-*; tools/style_check.sh S1 reads
+#                                the #if branches this cannot).
+#   cppcoreguidelines-use-enum-class
+#                                enum class: its members neither leak into the
+#                                enclosing scope nor turn into int unasked.
+#   cppcoreguidelines-special-member-functions
+#                                a class that writes one of the five says what
+#                                becomes of the other four. A lone `= default`
+#                                destructor says nothing, and a class whose copy
+#                                is deleted is not asked for its moves.
+#   cppcoreguidelines-macro-usage
+#                                a macro only for what a function cannot do: the
+#                                call site, code generated at file scope, `#if`,
+#                                a value from the .toml. Each macro of ours that
+#                                is one is named in AllowedRegexp below; a new
+#                                one is a review question, not a fix.
+#   google-explicit-constructor  a one-argument constructor or a conversion is
+#                                explicit. The conversions the API makes on
+#                                purpose -- a Value from a number, a Sizing from
+#                                a float -- carry a NOLINT with the reason.
+#   google-runtime-int           int and <cstdint>'s fixed widths, never short,
+#                                long or long long, whose size the platform picks.
+#   google-runtime-float         float and double; never long double.
+#   google-runtime-operator      no overloaded unary `&`.
+#   google-default-arguments     no default argument on a virtual function.
+#   google-build-using-namespace no `using namespace`.
+#   google-build-namespaces      no anonymous namespace in a header.
+#   google-build-explicit-make-pair
+#                                std::make_pair deduces; spelt out, it breaks.
+#   google-global-names-in-headers
+#                                no using-declaration at global scope in a header.
+#   custom-rmp-raw-pointer       no raw pointer -- CustomChecks, below.
+#   custom-rmp-header-constant   a namespace-scope constant in a header is
+#                                `inline constexpr` -- CustomChecks, below.
+#
 # Why each exclusion above:
 #
 #   bugprone-easily-swappable-parameters   every (float x, float y) in a 2D
 #                                          framework, which is all of them.
-#   misc-const-correctness                 wants const on 80 locals. It has
-#                                          never found a bug here and the diff
-#                                          would be larger than most features.
 #   bugprone-narrowing-conversions         float/int mixing is what raylib's own
 #                                          API does; the analyzer catches the
 #                                          cases that actually lose data.
@@ -80,7 +151,6 @@ Checks: >
 #                                          has a plain-C twin in examples/, so
 #                                          the two stay the same shape.
 #   modernize-use-trailing-return-type     `auto f() -> int` is not the style.
-#   modernize-avoid-c-arrays               raylib takes C arrays.
 #   modernize-use-nodiscard                would decorate the whole API for the
 #                                          two call sites where it matters.
 #   modernize-macro-to-enum                the generated RMP_* values are macros
@@ -126,8 +196,9 @@ HeaderFilterRegex: '.*/(include/rmp|src/rmp|src/scenes|src/objects|tests)/.*'
 # modernize-* check has the opposite opinion.
 ExcludeHeaderFilterRegex: '.*/(thirdparty|generated|build)/.*|.*/smoke_test\.h'
 
-# Warnings are not errors locally — `rmp lint` prints them and you decide. CI
-# passes --warnings-as-errors so a push cannot add one silently.
+# Not errors to clang-tidy itself: tools/lint.sh counts every warning against
+# tools/lint_debt.txt, and one that is not owed there fails `rmp lint` and the
+# CI lint job alike -- as does a line there that owes more than is left.
 WarningsAsErrors: ''
 FormatStyle: file
 
@@ -136,6 +207,66 @@ FormatStyle: file
 # `pass`) hides it, and the code that meant the group either fails to compile
 # or, worse, compiles against the local.
 ExtraArgs: ['-Wshadow']
+
+# Two rules no clang-tidy check states, written as AST queries
+# (https://clang.llvm.org/extra/clang-tidy/QueryBasedCustomChecks.html). They
+# report as custom-<Name>. Experimental in clang-tidy 22: a bump of the pinned
+# clang-tidy re-runs ClangTidyGuidelineTest, which sees each one fire. A
+# regex in a query is read as written, with no C escaping: `"\\.h$"` is a
+# backslash and any character, and matches nothing. A dot is `[.]`.
+CustomChecks:
+  # No raw pointer anywhere -- Omar's rule of 2026-10-10. What is held is a
+  # value, a reference, std::span, std::optional, rmp::Ref or rmp::Handle; what
+  # is owned is a value or a unique_ptr. A pointer asks its reader whether it
+  # may be null, who owns it and how long it lives, and its type answers none.
+  # Where it is allowed, and nowhere else:
+  #   - a pointer to a type of the C libraries we speak to -- Clay, cJSON,
+  #     cute_tiled, cute_aseprite, rres -- is their API, not our choice;
+  #   - an `extern "C"` function's parameters: libFuzzer's ABI is a pointer;
+  #   - operator->, which the language requires to return one;
+  #   - a DECLARATION in include/rmp/, which tools/pointer_check.py reads (with
+  #     its own ratchet); the bodies of its inline functions are read here;
+  #   - C: tools/rres_pack.c, the plain C example and the sanitizer hooks are C
+  #     because they must be, and C has nothing else to offer.
+  # raylib is not on the list: its pointers are what our own code chooses to
+  # declare (a Vector2 *out), and a char * is a C string either way.
+  - Name: rmp-raw-pointer
+    Query: |
+      match declaratorDecl(
+          anyOf(hasType(pointerType()), functionDecl(returns(pointerType()))),
+          unless(isImplicit()),
+          unless(isExpansionInFileMatching("[.]c$")),
+          unless(cxxMethodDecl(hasOverloadedOperatorName("->"))),
+          unless(hasType(pointerType(pointee(hasUnqualifiedDesugaredType(recordType(
+              hasDeclaration(decl(isExpansionInFileMatching(
+                  "thirdparty/(clay|cJSON|cute_tiled|cute_aseprite|rres)/"))))))))),
+          unless(functionDecl(returns(pointerType(pointee(hasUnqualifiedDesugaredType(recordType(
+              hasDeclaration(decl(isExpansionInFileMatching(
+                  "thirdparty/(clay|cJSON|cute_tiled|cute_aseprite|rres)/")))))))))),
+          unless(parmVarDecl(hasDeclContext(functionDecl(isExternC())))),
+          unless(functionDecl(isExternC())),
+          unless(allOf(isExpansionInFileMatching("include/rmp/"),
+                       unless(hasAncestor(compoundStmt()))))).bind("pointer")
+    Diagnostic:
+      - BindName: pointer
+        Level: Warning
+        Message: "a raw pointer: a value, a reference, std::span, std::optional, std::string_view, rmp::Ref or rmp::Handle"
+
+  # A constant at namespace scope in a header is `inline constexpr`: one object
+  # for the whole program instead of a copy per translation unit (a `const` or
+  # `constexpr` there is internal linkage), and known when it compiles.
+  - Name: rmp-header-constant
+    Query: |
+      match varDecl(
+          hasDeclContext(anyOf(namespaceDecl(), translationUnitDecl())),
+          anyOf(isConstexpr(), hasType(isConstQualified())),
+          unless(isInline()),
+          isDefinition(),
+          isExpansionInFileMatching("[.](h|hpp)$")).bind("constant")
+    Diagnostic:
+      - BindName: constant
+        Level: Warning
+        Message: "a constant in a header is `inline constexpr`: one object for the program, known when it compiles"
 
 CheckOptions:
   # The naming rule, checked instead of remembered. CLAUDE.md, "Naming", has
@@ -241,3 +372,21 @@ CheckOptions:
     value: UPPER_CASE
   - key: readability-identifier-naming.MacroDefinitionPrefix
     value: 'RMP_'
+
+  # The style guide's options. A class whose copy is deleted is not asked for
+  # its moves (they are deleted with it), and a lone `= default` destructor is
+  # not a resource being managed.
+  - key: cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted
+    value: true
+  - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: true
+  # The macros that cannot be a function, by name, and why:
+  #   RMP_GAME, RMP_ENTRY_POINT        code generated at file scope: main(), or
+  #   RMP_DESKTOP_FUNCS, RMP_WEB_FUNCS the platform's entry points
+  #   RMP_IOS_FUNCS
+  #   RMP_REPORT_ONCE(_KEYED)          the call site: one static per expansion
+  #   RMP_COMPILER_ADDRESS,            `#if`: what the compiler says about its
+  #   RMP_COMPILER_UNDEFINED           own sanitizers (tests/sanitize_test.cpp)
+  # The .toml's values are -D or generated/config.h, which this never reads.
+  - key: cppcoreguidelines-macro-usage.AllowedRegexp
+    value: '^RMP_(GAME|ENTRY_POINT|DESKTOP_FUNCS|WEB_FUNCS|IOS_FUNCS|REPORT_ONCE|REPORT_ONCE_KEYED|COMPILER_ADDRESS|COMPILER_UNDEFINED)$'

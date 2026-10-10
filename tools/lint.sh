@@ -12,19 +12,27 @@
 # differently on a laptop and on the runner: green here, `clay.h file not found`
 # there. So a file with no entry is a failure, not a guess.
 #
-# examples/ has its own .clang-tidy: the framework's names and every check that
-# finds a bug, without the modernize/readability checks that would push a more
-# elaborate spelling of correct code at someone learning raylib.
+# examples/ has its own .clang-tidy: the framework's names, its style guide and
+# every check that finds a bug, without the modernize/readability checks that
+# would push a more elaborate spelling of correct code at someone learning
+# raylib.
 #
-# Usage: tools/lint.sh [check|fix]
+# What the tree still owes the style guide is tools/lint_debt.txt, and
+# tools/lint_debt.py holds every run to it: a warning not owed there fails, and
+# so does a line that owes more than is left -- the list only shrinks.
+#
+# Usage: tools/lint.sh [check|fix|debt]
+#   check   the gate: nothing that tools/lint_debt.txt does not owe
+#   fix     apply what clang-tidy is sure of, one file at a time
+#   debt    the gate, and tools/lint_debt.txt lowered to what is left
 
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 mode=${1:-check}
 case "$mode" in
-    check | fix) ;;
-    *) echo "unknown: $mode (check | fix)"; exit 1 ;;
+    check | fix | debt) ;;
+    *) echo "unknown: $mode (check | fix | debt)"; exit 1 ;;
 esac
 
 cmake --preset lint > /dev/null
@@ -64,18 +72,18 @@ if missing:
 print(f"  ok    {len(sys.argv) - 1} file(s), every one in build/lint/compile_commands.json")
 PY
 
-jobs=$(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 2)
 if [ "$mode" = fix ]; then
     # One process per file: two fixes landing in the same header from two
     # processes at once would corrupt it.
-    for f in "${files[@]}"; do clang-tidy -p build/lint --quiet --fix --fix-errors "$f"; done
+    for f in "${files[@]}"; do
+        clang-tidy -p build/lint --quiet --experimental-custom-checks --fix --fix-errors "$f"
+    done
     exit 0
 fi
 
-# xargs exits non-zero when any one invocation did, which is the whole verdict.
-if printf '%s\n' "${files[@]}" | xargs -P "$jobs" -n 4 clang-tidy -p build/lint --quiet --warnings-as-errors='*'; then
-    echo "  ok    no warnings"
-else
-    echo "FAIL: clang-tidy has warnings above"
-    exit 1
+# Every file in its own clang-tidy, in parallel, and the verdict is the
+# comparison with tools/lint_debt.txt.
+if [ "$mode" = debt ]; then
+    exec python3 tools/lint_debt.py lower "${files[@]}"
 fi
+exec python3 tools/lint_debt.py check "${files[@]}"
