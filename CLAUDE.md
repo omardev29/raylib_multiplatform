@@ -147,10 +147,20 @@ here so that nobody "fixes" one back.
   nothing else, so a new tracked file fails `ManifestTest` until it is
   classified -- `INCLUDE` when a game needs it, `FRAMEWORK_ONLY` with the
   reason when not -- and a file a game's CI names outside a framework-gated
-  step has to be included (`CiModeTest`). `ci.yml` is the same file in both;
-  what a game lacks is gated on `needs.config.outputs.framework`, never cut
-  out of a copy, and the `rmp_new` job makes a game from every commit and runs
-  its checks on it.
+  step has to be included (`CiModeTest`). `ci.yml` is the same file in both
+  but for the block between its `[ci] on_push` markers, which
+  `configure.py` writes from the `.toml` (push and pull_request, or tags
+  only) and `--check` compares; what a game lacks is gated on
+  `needs.config.outputs.framework`, never cut out of a copy, and the
+  `rmp_new` job makes a game from every commit and runs its checks on it --
+  `[ci] on_push = false` too, and the red of a `ci.yml` that disagrees.
+  A game gets `tests/game/` (doctest, built with its `src/` into
+  `game_test`, `rmp test unit`), and the framework runs the same folder
+  against the demo game, so doctest ships with every game.
+  **`new`, `install` and `update` are global commands** (`GLOBAL_COMMANDS`):
+  they act on the framework that ships the `rmp` being run and are never
+  handed to a game's copy, which refuses `install` and `update` -- a game
+  keeps the framework it was made with.
 - **Never put secrets in the TOML** — no keystores, no tokens, no passwords.
   Variables yes, secrets no. The PAT can write repo variables but not secrets.
 - **Commits are plain and in Omar's name.** No `Co-Authored-By`, no extra
@@ -432,7 +442,27 @@ Each of these was a real bug, found by reproducing rather than by reading.
   the note — so it is a gate now: **`rmp push`** refuses while a run is in
   flight and names the run it would have killed. `rmp push force` when killing
   it is what you meant. Three occurrences is where a written caveat stops being
-  worth writing and starts being worth checking.
+  worth writing and starts being worth checking. With `[ci] on_push = false`
+  a push starts no run, so `rmp push` checks nothing -- unless `ci.yml` has
+  changes that are not committed, because the run follows the committed one.
+- **The installers are read the way the user runs them.** `install.sh` IS the
+  shell's stdin under `curl ... | sh`: all of it is one `main()` called on the
+  last line, so a download cut short runs nothing, and every command it starts
+  reads `< /dev/null`, or it eats the rest of the script (the BSD caveat above,
+  again; `InstallTest` runs every tool through a stand-in that reads all of
+  its stdin, and dash's read-ahead hides the mistake, so bash is the one
+  required to go red). `install.ps1` runs inside the user's own session under
+  `irm ... | iex`: it never calls `exit`, which would close their window --
+  a failure is a `throw`.
+- **A blobless clone of a shallow repository never finishes.** `git clone
+  --filter=blob:none` from the shallow `actions/checkout` loops in git's
+  promisor fetch ("cannot exec '-c': Argument list too long"), so the CI steps
+  that try the installers clone from a one-commit repository made with
+  `git archive HEAD`.
+- **`Path.resolve()` raises on a symlink loop in Python 3.11 and 3.12**
+  (`RuntimeError`; 3.13 gives the path back). `rmp install` meets one where a
+  user's `~/.local/bin/rmp` or a PATH entry should be; `resolved()` in
+  `tools/rmp.py` is the spelling that survives it.
 - **iOS must not call `exit()`** — Apple QA1561: the app "will appear to the user
   to have crashed", and App Review rejects it. `rmp::app::quit()` logs and does
   nothing there; the process-ending path is `rmp::app::detail::exit_process()`,
