@@ -356,14 +356,22 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **Clay emits `RECTANGLE` in addition to `IMAGE`** for an element with a
   background colour, and the rectangle comes *after*. An image tint put there
   paints a flat square over the picture; ours travels via `userData`.
-- **The debug and release presets share `build/`, and a reconfigure does not
-  take the compiler back out of the cache.** `[dev] compiler` is written with
-  `FORCE`, so `rmp build release` after `rmp test` built with clang instead of the
-  platform default — not what CI ships. It surfaced as `libraylib.a: file
-  format not recognized`, because clang's `-flto=thin` leaves bitcode in the
-  archive where gcc's `-flto=auto` leaves ELF. Guarded now: a release configure
-  on a debug cache is a `FATAL_ERROR` that tells you to `rmp clean`. Splitting
-  the two binary directories is the real fix and is phase 15 debt.
+- **Debug and release each have a folder, and `build/` itself is never a
+  build.** They shared `build/`, and a reconfigure does not take the compiler
+  back out of the cache: `[dev] compiler` is written with `FORCE`, so `rmp build
+  release` after `rmp test` built with clang instead of the platform default --
+  not what CI ships. It surfaced as `libraylib.a: file format not recognized`,
+  because clang's `-flto=thin` leaves bitcode in the archive where gcc's
+  `-flto=auto` leaves ELF. Now the `debug` preset is `build/debug` and `release`
+  is `build/release` (and switching rebuilds nothing); `CMakeLists.txt` refuses
+  to configure `build/` itself, before anything else runs; and the first `rmp`
+  command that configures removes what an older checkout left at the top of
+  `build/`, once, saying so, keeping the other folders. `BUILD_DIRS` in
+  `tools/rmp.py` lists every folder anything writes under `build/`, and the
+  layout gate in `tests/rmp_test.py` fails on a workflow, a tool or a page that
+  names any other -- the game, `unit_test` or a `CMakeCache.txt` straight under
+  `build/` -- however the path is put together. The `[dev] compiler`
+  `FATAL_ERROR` stays, for a release configured by hand into a debug folder.
 - **CMake's IPO is per target.** A test target that links raylib in a release
   tree needs the same `INTERPROCEDURAL_OPTIMIZATION` or it cannot read the
   archive. `rmp build`/`rmp build release` also build only the game target now.
@@ -416,9 +424,10 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **A BSD job can go green having run almost none of its script.** The same
   syntax error that made FreeBSD and NetBSD exit non-zero made OpenBSD's `sh`
   exit **0**, so that job passed after printing one `echo` and stopping — a
-  green that proved nothing, which is worse than a red. The VM script now writes
-  `build-memory/.rmp-bsd-complete` as its last line and a following step checks
-  for it, because nothing inside a script can catch its own early exit.
+  green that proved nothing, which is worse than a red. The VM script's last
+  line, `tools/render_check.sh`, now writes `build/memory/.rmp-render-complete`
+  from inside itself, and a following step checks for it, because nothing
+  inside a script can catch its own early exit.
 - **The BSD jobs' inline script has a SIZE LIMIT.** `cross-platform-actions`
   carries it into the VM through `cpa.sh` and cuts it off somewhere between 4.8
   KB (worked) and 5.6 KB (did not). Both failures looked like something else:
