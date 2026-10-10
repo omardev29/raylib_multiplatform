@@ -2579,14 +2579,18 @@ class WarningsOnOurCodeTest(unittest.TestCase):
     headers are SYSTEM so their warnings are not reported as ours, and
     RMP_WERROR makes them errors where the framework checks itself."""
 
-    CMAKE = (REPO / "CMakeLists.txt").read_text()
+    # CMakeLists.txt and every file it includes from cmake/: game_test is
+    # made in cmake/game_tests.cmake, and a target there is ours all the same.
+    CMAKE = "\n".join(p.read_text() for p in
+                      [REPO / "CMakeLists.txt", *sorted((REPO / "cmake").glob("*.cmake"))])
 
     def test_every_target_of_ours_gets_the_warnings(self):
         made = re.findall(r"^\s*add_(?:executable|library)\((\$\{\w+\}|\w+)", self.CMAKE, re.M)
         self.assertGreaterEqual(len(made), 8, made)
         for target in sorted(set(made)):
             with self.subTest(target=target):
-                self.assertIn(f"rmp_apply_warnings({target})", self.CMAKE)
+                self.assertTrue(f"rmp_apply_warnings({target})" in self.CMAKE,
+                                f"{target} is built from our sources and has no rmp_apply_warnings()")
 
     def test_the_flags_and_what_they_leave_out(self):
         body = self.CMAKE[self.CMAKE.index("function(rmp_apply_warnings"):]

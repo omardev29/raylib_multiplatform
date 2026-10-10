@@ -49,4 +49,5 @@ extern \"C\" void rmp_entry_point_is_declared_exactly_once() {}
   target_compile_definitions(game_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   target_link_libraries(game_test PRIVATE rmp)
   rmp_apply_compile_flags(game_test)
+  rmp_apply_warnings(game_test)
 endif()
