@@ -284,7 +284,20 @@ class TheFileIsReadStrictlyTest(unittest.TestCase):
                 back = sc.parse(line)[m.key]
                 self.assertEqual((back.kind, back.unpacked, back.packed),
                                  (m.kind, m.unpacked, m.packed))
-                self.assertEqual(sc.measured_in("2026-10-11T00:00:00Z " + line)[m.key], m)
+                self.assertEqual(sc.measured_in("2026-10-11T00:00:00Z " + line),
+                                 ({m.key: m}, "cf7b676"))
+        here = sc.render(sc.Measured("web", "wasm", 5, "-"), "")
+        self.assertTrue(here.endswith("  # measured here"), here)
+        self.assertEqual(sc.measured_in(here)[1], "")
+
+
+class UsageTest(unittest.TestCase):
+    def test_what_it_does_not_take(self):
+        for argv in ([], ["--check-file", "extra"], ["--update"], ["web"],
+                     ["web", "a", "b", "c"], ["--bogus", "a"], ["android", "a", "b"]):
+            with self.subTest(argv=argv):
+                with self.assertRaises(sc.Usage):
+                    sc.main(argv)
 
 
 class NoBudgetTest(Case):

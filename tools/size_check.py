@@ -160,8 +160,10 @@ def load(path: Path) -> dict[str, Line]:
 
 
 def render(m: Measured, sha: str) -> str:
-    """A line in the file's own format, with where it was measured."""
-    return f"{m.key:<23}{m.kind:<6}{m.unpacked:>10}{m.packed:>10}  # measured at {sha}"
+    """A line in the file's own format, with the commit it was measured on --
+    or "measured here", in a checkout with no commit to name."""
+    where = f"measured at {sha}" if sha else "measured here"
+    return f"{m.key:<23}{m.kind:<6}{m.unpacked:>10}{m.packed:>10}  # {where}"
 
 
 def commit() -> str:
@@ -171,7 +173,7 @@ def commit() -> str:
         got = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"],
                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
         sha = got.stdout.strip() if got.returncode == 0 else ""
-    return sha[:7] if re.fullmatch(r"[0-9a-f]{7,40}", sha) else "here"
+    return sha[:7] if re.fullmatch(r"[0-9a-f]{7,40}", sha) else ""
 
 
 def bounds(n: int) -> tuple[int, int]:
@@ -349,9 +351,9 @@ def verdict(measured: list[Measured], problems: list[str], path: Path, mode: str
             problems += [f"{key}: the bundle carries no {key.split('/', 1)[1]} library, and "
                          f"{budget} has a line for one" for key in lines
                          if key.startswith("android/") and key not in seen]
-    print_measured(measured, budget)
     for p in problems:
         print(f"FAIL: {p}")
+    print_measured(measured, budget)
     return 1 if problems else 0
 
 
@@ -405,7 +407,7 @@ def check_file(lines: dict[str, Line], known: dict[str, str], enabled: list[str]
         if target in packed and line.packed == NOT_PACKED:
             problems.append(f"line {line.number}: [upx] packs {target}, and its line has no "
                             "packed size (-). A number, or ? until CI measures it")
-        if target not in packed and line.packed not in (NOT_PACKED,):
+        if target not in packed and line.packed != NOT_PACKED:
             problems.append(f"line {line.number}: {target} is not in [upx] enabled, and its "
                             "line has a packed size. - where UPX does not apply")
         if line.unpacked is None or line.packed is None:
@@ -462,16 +464,19 @@ def run_check_file(path: Path, mode: str) -> int:
 # Updating from a CI log
 # ---------------------------------------------------------------------------
 
+# A line render() wrote, anywhere in a log line: `gh run view --log` puts the
+# job, the step and a timestamp in front of it.
 MEASURED_RE = re.compile(
     r"(?:^|\s)(?P<key>[a-z0-9][a-z0-9_.-]*(?:/[a-z0-9_.-]+)?)\s+(?P<kind>" + "|".join(KINDS)
-    + r")\s+(?P<unpacked>[0-9]+)\s+(?P<packed>[0-9]+|-)\s+# measured at (?P<sha>[0-9a-f]{7}|here)"
-    r"\s*$")
+    + r")\s+(?P<unpacked>[0-9]+)\s+(?P<packed>[0-9]+|-)"
+    r"\s+# measured (?:at (?P<sha>[0-9a-f]{7})|here)\s*$")
 
 
-def measured_in(text: str) -> dict[str, Measured | str]:
-    """Every measured line in a log, by key; the sha as a separate entry."""
+def measured_in(text: str) -> tuple[dict[str, Measured], str]:
+    """Every measured line in a log, by key, and the commit they were measured
+    on ("" for a checkout with none)."""
     found: dict[str, Measured] = {}
-    shas = set()
+    shas: set[str] = set()
     for raw in text.splitlines():
         m = MEASURED_RE.search(raw.rstrip())
         if not m:
@@ -482,11 +487,12 @@ def measured_in(text: str) -> dict[str, Measured | str]:
             raise BudgetError(f"the log measured {m['key']} twice, differently: "
                               f"{found[m['key']]} and {got}")
         found[m["key"]] = got
-        shas.add(m["sha"])
+        shas.add(m["sha"] or "")
     if len(shas) > 1:
-        raise BudgetError(f"the log holds measurements of {len(shas)} commits "
-                          f"({', '.join(sorted(shas))}): one run, one commit")
-    return {**found, **({"": shas.pop()} if shas else {})}
+        named = ", ".join(sorted(sha or "here" for sha in shas))
+        raise BudgetError(f"the log holds measurements of {len(shas)} commits ({named}): "
+                          "one run, one commit")
+    return found, (shas.pop() if shas else "")
 
 
 def update(path: Path, logs: list[str]) -> int:
@@ -494,11 +500,10 @@ def update(path: Path, logs: list[str]) -> int:
         encoding="utf-8", errors="replace") for log in logs)
     try:
         lines = load(path)
-        found = measured_in(text)
+        found, sha = measured_in(text)
     except BudgetError as e:
         print(f"FAIL: {e}")
         return 1
-    sha = found.pop("", None)
     if not found:
         print("FAIL: no measured line in the log. Each one ends in \"# measured at <commit>\"")
         return 1
