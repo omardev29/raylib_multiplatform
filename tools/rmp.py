@@ -7,8 +7,9 @@ the root of a project only find a Python 3.11+ and hand it every argument.
 
 Inside a project, a framework `rmp` on PATH runs that project's OWN
 tools/rmp.py, so a game keeps the rmp it was made with when the framework moves
-on (RMP_NO_DELEGATE=1 turns that off). `rmp new` is the exception: it uses the
-framework that ships the rmp being run.
+on (RMP_NO_DELEGATE=1 turns that off). `rmp new`, `rmp install` and
+`rmp update` are the exceptions (GLOBAL_COMMANDS): they act on the framework
+that ships the rmp being run.
 
 The project is the nearest folder, from here upwards, holding
 raylib_multiplatform.toml. It is the framework itself when it also holds
@@ -710,6 +711,8 @@ FRAMEWORK_ONLY = {
     "examples/": "the framework's examples",
     "tests/": "the framework's tests",
     "tools/": "the framework's gates and generators",
+    "tools/install.sh": "the installer: rmp goes on PATH from the framework, never from a game",
+    "tools/install.ps1": "the installer for Windows; a game is never what gets installed",
 }
 
 
@@ -1067,6 +1070,308 @@ def secrets_token() -> str:
     return secrets.token_urlsafe(18)
 
 
+# ---------------------------------------------------------------------------
+# rmp install, rmp update: the rmp on your PATH
+# ---------------------------------------------------------------------------
+#
+# tools/install.sh and tools/install.ps1 clone the framework into
+# ~/.local/share/rmp (%LOCALAPPDATA%\rmp on Windows) and then run exactly these
+# two: `rmp update` when the clone is already there, `rmp install` after. The
+# installers are served from the docs site at FRAMEWORK_REF while the clone
+# tracks main, so what these two take and do is a contract (InstallTest pins
+# it). Both act on the framework that ships the rmp being run, never on a
+# game's copy, which is why neither is delegated (GLOBAL_COMMANDS).
+
+RC_BEGIN = "# added by rmp install: ~/.local/bin on PATH"
+RC_END = "# end of rmp install"
+
+# The one line each family of shells needs. $HOME is written, not the path it
+# has today, and the POSIX one adds the folder only once however often the
+# file is read (a shell started from a shell reads it again).
+RC_LINES = {
+    "sh": 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; '
+          '*) export PATH="$HOME/.local/bin:$PATH" ;; esac',
+    "fish": "contains -- $HOME/.local/bin $PATH; or set -gx PATH $HOME/.local/bin $PATH",
+    "csh": 'setenv PATH "${HOME}/.local/bin:${PATH}"',
+}
+
+KSH_NAMES = ("ksh", "ksh93", "mksh", "lksh", "oksh", "pdksh")
+
+
+def this_framework(command: str) -> Path:
+    """The framework this rmp.py belongs to; a game's copy refuses."""
+    framework = Path(__file__).resolve().parents[1]
+    if mode_of(framework) != "framework":
+        raise Refused(f"this rmp belongs to the game in {framework}, which keeps the framework "
+                      f"it was made with. Run {command} with the rmp on your PATH.")
+    return framework
+
+
+def tilde(path: Path) -> str:
+    """A path as a person reads it: ~ for the home folder."""
+    home = str(Path.home())
+    text = str(path)
+    if home not in ("", "/") and (text == home or text.startswith(home + os.sep)):
+        return "~" + text[len(home):]
+    return text
+
+
+def rc_file(home: Path, env, system: str) -> tuple[Path, str]:
+    """The startup file of the login shell ($SHELL) that will put ~/.local/bin
+    on PATH, and which family of syntax it reads."""
+    shell = Path(env.get("SHELL") or "sh").name
+    if shell == "zsh":
+        return Path(env.get("ZDOTDIR") or home) / ".zshrc", "sh"
+    if shell == "bash":
+        if system == "Darwin":
+            # Terminal opens a login shell, which reads the FIRST of these that
+            # exists and no other: a new ~/.bash_profile beside an existing
+            # ~/.profile would quietly stop the profile from being read.
+            for name in (".bash_profile", ".bash_login", ".profile"):
+                if (home / name).exists():
+                    return home / name, "sh"
+            return home / ".bash_profile", "sh"
+        return home / ".bashrc", "sh"
+    if shell == "fish":
+        config = env.get("XDG_CONFIG_HOME") or ""
+        base = Path(config) if config.startswith("/") else home / ".config"
+        return base / "fish" / "conf.d" / "rmp.fish", "fish"
+    if shell in ("csh", "tcsh"):
+        if shell == "tcsh" and (home / ".tcshrc").exists():
+            return home / ".tcshrc", "csh"   # tcsh reads it INSTEAD of .cshrc
+        return home / ".cshrc", "csh"
+    if shell in KSH_NAMES:
+        # An interactive ksh reads the file $ENV names; a login one, ~/.profile.
+        named = (env.get("ENV") or "").replace("${HOME}", str(home)).replace("$HOME", str(home))
+        if named.startswith("~/"):
+            named = str(home) + named[1:]
+        if named.startswith("/"):
+            return Path(named), "sh"
+    return home / ".profile", "sh"
+
+
+def add_rc_block(rc: Path, flavour: str) -> bool:
+    """Append the marked block once. False when the file already has it."""
+    try:
+        text = rc.read_text(encoding="utf-8", errors="replace") if rc.is_file() else ""
+        if RC_BEGIN in text:
+            return False
+        rc.parent.mkdir(parents=True, exist_ok=True)
+        lead = "" if not text else ("\n" if text.endswith("\n") else "\n\n")
+        # "a" follows a symlinked rc file (a dotfiles repository) instead of
+        # replacing the link with a file.
+        with open(rc, "a", encoding="utf-8", newline="\n") as out:
+            out.write(f"{lead}{RC_BEGIN}\n{RC_LINES[flavour]}\n{RC_END}\n")
+    except OSError as e:
+        raise Refused(f"could not add ~/.local/bin to PATH in {rc}: {e}")
+    return True
+
+
+def install_posix(framework: Path, force: bool) -> int:
+    home = Path.home()
+    bin_dir = home / ".local" / "bin"
+    link = bin_dir / "rmp"
+    target = framework / "rmp"
+    if link.is_symlink() or link.exists():
+        if link.resolve() == target.resolve():
+            print(f"  ok       {tilde(link)} is this framework's rmp")
+        elif not force:
+            what = f"a link to {os.readlink(link)}" if link.is_symlink() else "a file"
+            raise Refused(f"{link} is already there, and it is {what}, not this framework's "
+                          f"rmp.\n  {target} install force     # to replace it")
+        else:
+            try:
+                link.unlink()
+            except OSError as e:
+                raise Refused(f"could not remove {link}: {e}")
+    if not link.is_symlink():
+        try:
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target)
+        except OSError as e:
+            raise Refused(f"could not link {link} to {target}: {e}")
+        print(f"  linked   {tilde(link)} -> {tilde(target)}")
+
+    folder = bin_dir.resolve()
+    entries = [e for e in os.environ.get("PATH", "").split(os.pathsep) if e]
+    if any(Path(e).resolve() == folder for e in entries):
+        print(f"  ok       {tilde(bin_dir)} is on PATH")
+        found = shutil.which("rmp")
+        if found and Path(found).resolve() != target.resolve():
+            print(f"  note     another rmp comes first on PATH: {found}")
+        print("rmp is ready: rmp help")
+        return OK
+    rc, flavour = rc_file(home, os.environ, platform.system())
+    if add_rc_block(rc, flavour):
+        print(f"  added    {tilde(bin_dir)} to PATH, in {tilde(rc)}")
+    else:
+        print(f"  ok       {tilde(rc)} already adds {tilde(bin_dir)} to PATH")
+    print("open a new terminal, then: rmp help")
+    return OK
+
+
+# Windows: a .cmd shim in its own folder, and that folder on the User PATH.
+# Not the clone's folder on PATH: PowerShell would find rmp.ps1 there first,
+# and its default execution policy refuses to run a local script. The three
+# registry doors are module functions so that the tests can stand in for them.
+
+def windows_registry():
+    try:
+        import winreg
+    except ImportError:
+        raise Refused("this Python cannot reach the Windows registry -- it is MSYS2's or "
+                      "Cygwin's. Run rmp.cmd install from PowerShell or cmd, with a Windows "
+                      "Python (py -3).")
+    return winreg
+
+
+def user_path_read() -> tuple[str, int]:
+    """HKCU\\Environment's Path as stored -- %VARIABLES% unexpanded -- and its
+    registry type; REG_EXPAND_SZ when there is none yet."""
+    winreg = windows_registry()
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            try:
+                value, kind = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                return "", winreg.REG_EXPAND_SZ
+    except OSError as e:
+        raise Refused(f"could not read the user PATH from the registry: {e}")
+    return str(value), kind
+
+
+def user_path_write(value: str, kind: int) -> None:
+    winreg = windows_registry()
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0,
+                            winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "Path", 0, kind, value)
+    except OSError as e:
+        raise Refused(f"could not write the user PATH to the registry: {e}")
+
+
+def broadcast_environment() -> None:
+    """WM_SETTINGCHANGE "Environment": Explorer, and every terminal it opens
+    from now on, reads the new PATH without a log out."""
+    import ctypes
+    result = ctypes.c_size_t()
+    ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0x0002, 5000,
+                                             ctypes.byref(result))
+
+
+def same_folder(entry: str, folder: str) -> bool:
+    """Two PATH entries name one folder, the way Windows compares them: any
+    case, either slash, a trailing backslash or not, %VARIABLES% expanded."""
+    import re
+
+    def norm(path: str) -> str:
+        path = re.sub(r"%([^%]+)%", lambda m: os.environ.get(m.group(1), m.group(0)),
+                      path.strip().strip('"'))
+        return path.replace("/", "\\").rstrip("\\").lower()
+    return norm(entry) == norm(folder)
+
+
+def shim_text(framework: Path) -> str:
+    where = str(framework / "rmp.cmd")
+    # The folder by its variable when it is under one: cmd.exe reads a .cmd in
+    # the console's code page, and C:\Users\Jose with an accent is not ASCII.
+    for var in ("LOCALAPPDATA", "USERPROFILE"):
+        base = os.environ.get(var, "").rstrip("\\/")
+        if base and where.lower().startswith(base.lower()) and \
+                where[len(base):len(base) + 1] in ("\\", "/"):
+            where = f"%{var}%" + where[len(base):]
+            break
+    if not where.isascii():
+        raise Refused(f"{framework} is not an ASCII path, and a .cmd file cannot name it. "
+                      "Install it with install.ps1, into %LOCALAPPDATA%\\rmp.")
+    return f'@echo off\r\nrem Written by rmp install.\r\ncall "{where}" %*\r\nexit /b %ERRORLEVEL%\r\n'
+
+
+def install_windows(framework: Path, force: bool) -> int:
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        raise Refused("LOCALAPPDATA is not set, so there is no folder to put rmp in")
+    folder = Path(local) / "Programs" / "rmp"
+    shim = folder / "rmp.cmd"
+    text = shim_text(framework)
+    have = shim.read_bytes().decode("ascii", "replace") if shim.is_file() else None
+    if have == text:
+        print(f"  ok       {shim} runs this framework's rmp")
+    elif have is not None and not force:
+        raise Refused(f"{shim} is already there, and it does not run this framework's rmp.\n"
+                      f"  {framework / 'rmp.cmd'} install force     # to replace it")
+    else:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            shim.write_bytes(text.encode("ascii"))
+        except OSError as e:
+            raise Refused(f"could not write {shim}: {e}")
+        print(f"  wrote    {shim}")
+    value, kind = user_path_read()
+    if any(same_folder(entry, str(folder)) for entry in value.split(";") if entry.strip()):
+        print(f"  ok       {folder} is on your user PATH")
+    else:
+        user_path_write(value.rstrip(";") + (";" if value.strip(";") else "") + str(folder), kind)
+        broadcast_environment()
+        print(f"  added    {folder} to your user PATH")
+    print("open a new terminal, then: rmp help")
+    return OK
+
+
+def cmd_install(_ctx, args):
+    force = one_of(args, ("force",), "") == "force"
+    framework = this_framework("rmp install")
+    if on_windows():
+        return install_windows(framework, force)
+    return install_posix(framework, force)
+
+
+def cmd_update(_ctx, args):
+    no_args(args)
+    framework = this_framework("rmp update")
+    if shutil.which("git") is None:
+        raise Refused("rmp update needs git")
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+
+    def git(*argv):
+        return subprocess.run(["git", "-C", str(framework), *argv], capture_output=True,
+                              text=True, env=env, stdin=subprocess.DEVNULL)
+
+    top = git("rev-parse", "--show-toplevel")
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != framework:
+        raise Refused(f"{framework} is not a git clone, so there is nothing to update it "
+                      "from. Update it the way you got it.")
+    branch = git("symbolic-ref", "-q", "--short", "HEAD").stdout.strip()
+    if branch != "main":
+        raise Refused(f"{framework} is on {branch or 'a detached HEAD'}, and rmp update only "
+                      f"moves main:\n  git -C {framework} switch main")
+    if "origin" not in git("remote").stdout.split():
+        raise Refused(f"{framework} has no origin to update from:\n"
+                      f"  git -C {framework} remote add origin {FRAMEWORK_URL}")
+    changed = git("status", "--porcelain", "--untracked-files=no").stdout.rstrip()
+    if changed:
+        raise Refused(f"{framework} has changes of its own, and an update would have to mix "
+                      f"them in:\n{changed}\n  git -C {framework} stash     # to set them aside")
+    before = git("rev-parse", "--short", "HEAD").stdout.strip()
+    fetched = git("fetch", "--quiet", "origin", "main")
+    if fetched.returncode != 0:
+        raise Refused("could not fetch main from origin:\n" + fetched.stderr.strip())
+    if git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD").returncode != 0:
+        ahead = git("rev-list", "--count", "FETCH_HEAD..HEAD").stdout.strip()
+        raise Refused(f"main in {framework} has {ahead} commit(s) that origin's main does not, "
+                      "and rmp update never merges. Push them, or move them to a branch.")
+    merged = git("merge", "--ff-only", "--quiet", "FETCH_HEAD")
+    if merged.returncode != 0:
+        raise Refused("git merge --ff-only failed:\n" + (merged.stderr or merged.stdout).strip())
+    after = git("rev-parse", "--short", "HEAD").stdout.strip()
+    if before == after:
+        print(f"  ok       up to date at {after}  ({tilde(framework)})")
+    else:
+        count = git("rev-list", "--count", f"{before}..{after}").stdout.strip()
+        print(f"  updated  {before} -> {after}, {count} commit(s)  ({tilde(framework)})")
+    return OK
+
+
 def cmd_help(ctx_or_none, args):
     mode = ctx_or_none.mode if ctx_or_none else "game"
     if args == ["--json"]:
@@ -1197,6 +1502,26 @@ COMMANDS = {
          ("rmp new ~/games/space_rocks", "anywhere; the name is the folder's"),
          ("rmp new --list", "what a new game gets, without making one")],
         cmd_new, needs_project=False),
+    "install": Command(
+        "install [force]", "put this framework's rmp on your PATH",
+        "Put this framework's rmp on your PATH: a link in ~/.local/bin, and a line "
+        "in your shell's startup file only when that folder is not on PATH yet. On "
+        "Windows, a shim in %LOCALAPPDATA%\\Programs\\rmp and that folder on your "
+        "user PATH. Running it again changes nothing; force replaces another rmp "
+        "that is in the way. The installer runs it for you.",
+        [("rmp install", "link it, or say it already is"),
+         ("rmp install force", "replace a different rmp that is in the way"),
+         ("rmp help", "then, in a new terminal")],
+        cmd_install, needs_project=False),
+    "update": Command(
+        "update", "update the framework this rmp comes from",
+        "Update the framework that this rmp comes from: fetch origin and move main "
+        "forward to it. A clone with changes of its own, on another branch or with "
+        "commits origin does not have is refused, never merged. A game is not "
+        "touched: it keeps the framework it was made with.",
+        [("rmp update", "prints the commit before and after"),
+         ("rmp new my_game", "a new game gets the updated framework")],
+        cmd_update, needs_project=False),
     "help": Command(
         "help [command]", "this list, or one command in detail",
         "Show the commands, or one command in detail.",
@@ -1260,6 +1585,12 @@ def page(name: str, mode: str) -> str:
 
 HELP_FLAGS = ("-h", "--help")
 
+# Run by the rmp they are typed into, never handed to a game's copy: each acts
+# on the framework that ships this file -- a new game made from it, the link
+# that puts it on PATH, the clone that updates -- and a game's copy of the
+# framework is never updated (it keeps the one it was made with).
+GLOBAL_COMMANDS = ("new", "install", "update")
+
 
 def delegate(root: Path, argv: list[str]) -> int | None:
     """Run the project's own tools/rmp.py when it is not this file."""
@@ -1284,7 +1615,7 @@ def main(argv: list[str], cwd: Path | None = None) -> int:
 
     root = find_root(cwd)
     command = argv[0] if argv else "help"
-    if root is not None and command != "new":
+    if root is not None and command not in GLOBAL_COMMANDS:
         delegated = delegate(root, argv)
         if delegated is not None:
             return delegated

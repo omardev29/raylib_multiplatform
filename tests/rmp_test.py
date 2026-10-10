@@ -1933,5 +1933,917 @@ class ModeTest(unittest.TestCase):
             self.assertEqual(got.stdout, "game\n")
 
 
+# ---------------------------------------------------------------------------
+# The installers -- tools/install.sh, tools/install.ps1 -- and the two commands
+# they run, `rmp install` and `rmp update`.
+# ---------------------------------------------------------------------------
+
+INSTALL_SH = REPO / "tools" / "install.sh"
+INSTALL_PS1 = REPO / "tools" / "install.ps1"
+
+# What a framework is, as far as installing it goes: the launchers, rmp.py and
+# the installers AS THEY ARE IN THIS WORKING TREE (a clone of REPO would test
+# the last commit), plus the marker and a .toml.
+INSTALLED_FILES = ("rmp", "rmp.ps1", "rmp.cmd", "tools/rmp.py", "tools/install.sh",
+                   "tools/install.ps1")
+
+# install.sh may run these and nothing else: InstallTest's PATH is one folder
+# holding exactly them and a python3.
+INSTALL_TOOLS = ("git", "uname", "mkdir", "rmdir")
+
+
+def git_identity(tmp: Path) -> dict:
+    (tmp / "gitconfig").write_text("[init]\n\tdefaultBranch = main\n")
+    return {"GIT_CONFIG_GLOBAL": str(tmp / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_TERMINAL_PROMPT": "0", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+def git_in(where: Path, env: dict, *argv) -> str:
+    got = subprocess.run(["git", "-C", str(where), *argv], capture_output=True, text=True,
+                         env=dict(os.environ, **env))
+    if got.returncode != 0:
+        raise AssertionError(f"git {' '.join(argv)}: {got.stderr}")
+    return got.stdout.strip()
+
+
+def make_framework_source(src: Path, env: dict) -> Path:
+    for rel in INSTALLED_FILES:
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO / rel, src / rel)
+    (src / rmp.FRAMEWORK_MARKER).parent.mkdir(parents=True, exist_ok=True)
+    (src / rmp.FRAMEWORK_MARKER).write_text("")
+    (src / rmp.TOML).write_text('[project]\nname = "demo"\n')
+    git_in(src, env, "init", "-q", "-b", "main")
+    git_in(src, env, "add", "-A")
+    git_in(src, env, "commit", "-q", "-m", "framework")
+    return src
+
+
+def tool_folder(where: Path, drain=False, without=(), stubs=None, python=None) -> Path:
+    """One folder to be the whole PATH. `drain`: every tool is a stand-in that
+    reads ALL of its stdin before it does its job -- what raylib's headless
+    getchar() did to the BSD jobs' script. `stubs`: {name: sh script}."""
+    where.mkdir(parents=True)
+    real = {name: shutil.which(name) for name in INSTALL_TOOLS}
+    real["python3"] = python or sys.executable
+    cat = shutil.which("cat")
+    for name, target in real.items():
+        if name in without:
+            continue
+        if drain:
+            (where / name).write_text(f'#!/bin/sh\n"{cat}" > /dev/null\nexec "{target}" "$@"\n')
+            (where / name).chmod(0o755)
+        else:
+            (where / name).symlink_to(target)
+    for name, text in (stubs or {}).items():
+        (where / name).write_text(text)
+        (where / name).chmod(0o755)
+    return where
+
+
+def home_snapshot(home: Path) -> dict:
+    """Everything under HOME, except what any git fetch rewrites."""
+    out = {}
+    for path in sorted(home.rglob("*")):
+        rel = path.relative_to(home).as_posix()
+        if rel.startswith(".local/share/rmp/.git/") or "__pycache__" in rel:
+            continue
+        if path.is_symlink():
+            out[rel] = "-> " + os.readlink(path)
+        elif path.is_file():
+            out[rel] = path.read_bytes()
+        else:
+            out[rel] = "folder"
+    return out
+
+
+class InstallFixture(unittest.TestCase):
+    """A framework to install from, made once per class: a git repository on
+    main holding what installing needs, from this working tree."""
+
+    @classmethod
+    def setUpClass(cls):
+        if os.name == "nt":
+            raise unittest.SkipTest("install.sh is POSIX; the Windows job runs install.ps1")
+        if shutil.which("git") is None:
+            raise unittest.SkipTest("git not installed")
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+        cls.git_env = git_identity(cls.tmp)
+        cls.src = make_framework_source(cls.tmp / "src", cls.git_env)
+        cls.bin = tool_folder(cls.tmp / "bin")
+        cls.count = 0
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def fresh(self, name="home") -> Path:
+        type(self).count += 1
+        home = self.tmp / f"{name}{self.count}"
+        home.mkdir()
+        return home
+
+    def env_for(self, home: Path, path=None, **extra) -> dict:
+        env = dict(self.git_env, HOME=str(home), PATH=str(path or self.bin), SHELL="/bin/bash",
+                   LANG="C", RMP_INSTALL_SOURCE=str(self.src))
+        env.update({k: v for k, v in extra.items() if v is not None})
+        return env
+
+    def install(self, home: Path, shell="sh", path=None, script=None, piped=False, cwd=None,
+                **extra) -> subprocess.CompletedProcess:
+        """install.sh read from stdin: `sh -s < file`, or (piped) through a
+        pipe, which is what `curl | sh` hands the shell."""
+        data = (script or INSTALL_SH).read_bytes()
+        argv = [shutil.which(shell) or shell, "-s"]
+        env = self.env_for(home, path, **extra)
+        if piped:
+            return subprocess.run(argv, input=data, capture_output=True, env=env,
+                                  cwd=cwd or self.tmp, timeout=120)
+        with open(script or INSTALL_SH, "rb") as stdin:
+            return subprocess.run(argv, stdin=stdin, capture_output=True, env=env,
+                                  cwd=cwd or self.tmp, timeout=120)
+
+    @staticmethod
+    def said(got) -> str:
+        return got.stdout.decode(errors="replace") + got.stderr.decode(errors="replace")
+
+    def clone_of(self, home: Path) -> Path:
+        return home / ".local" / "share" / "rmp"
+
+
+class InstallTest(InstallFixture):
+    """`curl -fsSL .../install.sh | sh`, end to end, into a temporary HOME."""
+
+    shells = LauncherTest.shells
+
+    def test_it_clones_links_and_puts_it_on_path_under_every_shell(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                home = self.fresh()
+                got = self.install(home, shell=shell)
+                self.assertEqual(got.returncode, 0, self.said(got))
+                clone = self.clone_of(home)
+                self.assertEqual(git_in(clone, self.git_env, "rev-parse", "HEAD"),
+                                 git_in(self.src, self.git_env, "rev-parse", "HEAD"))
+                link = home / ".local" / "bin" / "rmp"
+                self.assertTrue(link.is_symlink())
+                self.assertEqual(Path(os.readlink(link)), clone.resolve() / "rmp")
+                ran = subprocess.run([str(link), "help"], cwd=home, capture_output=True,
+                                     text=True, env=dict(os.environ, HOME=str(home)))
+                self.assertTrue(ran.stdout.startswith("usage: rmp"), ran.stderr)
+                rc, _ = rmp.rc_file(home, {"SHELL": "/bin/bash"}, platform_system())
+                self.assertEqual(rc.read_text().count(rmp.RC_BEGIN), 1)
+                self.assertIn("linked", self.said(got))
+
+    def test_a_second_run_changes_nothing(self):
+        home = self.fresh()
+        self.assertEqual(self.install(home).returncode, 0)
+        before = home_snapshot(home)
+        again = self.install(home)
+        self.assertEqual(again.returncode, 0, self.said(again))
+        self.assertEqual(home_snapshot(home), before)
+        self.assertIn("up to date", self.said(again))
+        self.assertIn("already adds", self.said(again))
+
+    def test_with_local_bin_on_path_no_startup_file_is_touched(self):
+        home = self.fresh()
+        got = self.install(home, path=f"{home}/.local/bin{os.pathsep}{self.bin}")
+        self.assertEqual(got.returncode, 0, self.said(got))
+        self.assertEqual(sorted(p.name for p in home.iterdir()), [".local"])
+        self.assertIn("is on PATH", self.said(got))
+
+    def test_each_login_shell_gets_the_file_it_reads(self):
+        cases = [
+            ("/bin/bash", {}, None, ".bashrc" if platform_system() != "Darwin"
+             else ".bash_profile", "sh"),
+            ("/usr/bin/zsh", {}, None, ".zshrc", "sh"),
+            ("/usr/bin/zsh", {"ZDOTDIR": "{home}/zdot"}, None, "zdot/.zshrc", "sh"),
+            ("/usr/bin/fish", {}, None, ".config/fish/conf.d/rmp.fish", "fish"),
+            ("/usr/bin/fish", {"XDG_CONFIG_HOME": "{home}/cfg"}, None,
+             "cfg/fish/conf.d/rmp.fish", "fish"),
+            ("/bin/csh", {}, None, ".cshrc", "csh"),
+            ("/bin/tcsh", {}, None, ".cshrc", "csh"),
+            ("/bin/tcsh", {}, ".tcshrc", ".tcshrc", "csh"),
+            ("/bin/ksh", {}, None, ".profile", "sh"),
+            ("/bin/mksh", {"ENV": "$HOME/.mkshrc"}, None, ".mkshrc", "sh"),
+            ("/bin/dash", {}, None, ".profile", "sh"),
+            ("/bin/sh", {}, None, ".profile", "sh"),
+            (None, {}, None, ".profile", "sh"),
+        ]
+        for shell, extra, existing, want, flavour in cases:
+            with self.subTest(shell=shell, extra=extra, existing=existing):
+                home = self.fresh()
+                if existing:
+                    (home / existing).write_text("# mine\n")
+                extra = {k: v.replace("{home}", str(home)) for k, v in extra.items()}
+                env = dict(extra, SHELL=shell or "")
+                got = self.install(home, **env)
+                self.assertEqual(got.returncode, 0, self.said(got))
+                rc = home / want
+                text = rc.read_text()
+                self.assertEqual(text.count(rmp.RC_BEGIN), 1)
+                self.assertIn(f"{rmp.RC_BEGIN}\n{rmp.RC_LINES[flavour]}\n{rmp.RC_END}\n", text)
+                if existing:
+                    self.assertTrue(text.startswith("# mine\n"))
+                written = [p for p in home.rglob("*") if p.is_file()
+                           and ".local" not in p.relative_to(home).parts]
+                self.assertEqual(written, [rc])
+
+    def test_the_line_puts_rmp_on_path_once_however_often_it_is_read(self):
+        home = self.fresh()
+        self.assertEqual(self.install(home, SHELL="/bin/sh").returncode, 0)
+        rc = home / ".profile"
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                got = subprocess.run([shutil.which(shell), "-c",
+                                      '. "$1"; . "$1"; command -v rmp; echo "$PATH"', "sh",
+                                      str(rc)], capture_output=True, text=True,
+                                     env={"HOME": str(home), "PATH": str(self.bin)})
+                found, path = got.stdout.splitlines()
+                self.assertEqual(found, f"{home}/.local/bin/rmp")
+                self.assertEqual(path.split(":").count(f"{home}/.local/bin"), 1)
+        for shell, line in (("fish", rmp.RC_LINES["fish"]), ("tcsh", rmp.RC_LINES["csh"]),
+                            ("csh", rmp.RC_LINES["csh"])):
+            if shutil.which(shell) is None:
+                continue
+            with self.subTest(shell=shell):
+                got = subprocess.run([shutil.which(shell), "-c", f"{line}\necho $PATH"],
+                                     capture_output=True,
+                                     text=True, env={"HOME": str(home), "PATH": str(self.bin)})
+                self.assertTrue(got.stdout.startswith(f"{home}/.local/bin"), got.stdout)
+
+    def test_from_inside_a_game_it_installs_and_nothing_is_delegated(self):
+        home = self.fresh()
+        game = DelegationTest.game_with_recording_rmp(self, str(self.tmp / f"g{self.count}"))
+        got = self.install(home, cwd=game)
+        self.assertEqual(got.returncode, 0, self.said(got))
+        self.assertNotIn('"argv"', self.said(got))
+        again = subprocess.run([str(self.clone_of(home) / "rmp"), "install"], cwd=game,
+                               capture_output=True, text=True, env=self.env_for(home))
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn('"argv"', again.stdout)
+        self.assertIn("is this framework's rmp", again.stdout)
+
+    def assert_refused_and_nothing_installed(self, home, got, *says):
+        self.assertEqual(got.returncode, 1, self.said(got))
+        for text in says:
+            self.assertIn(text, self.said(got))
+        self.assertFalse(self.clone_of(home).exists(), "it cloned anyway")
+        self.assertEqual(list(home.iterdir()), [], "it wrote into HOME anyway")
+
+    def test_without_git_it_says_how_to_get_it_and_clones_nothing(self):
+        bare = tool_folder(self.tmp / f"nogit{self.count}", without=("git",))
+        home = self.fresh()
+        self.assert_refused_and_nothing_installed(home, self.install(home, path=bare),
+                                                  "rmp needs git")
+        apt = tool_folder(self.tmp / f"nogit-apt{self.count}", without=("git",),
+                          stubs={"apt-get": "#!/bin/sh\nexit 0\n", "sudo": "#!/bin/sh\nexit 0\n"})
+        home = self.fresh()
+        self.assert_refused_and_nothing_installed(home, self.install(home, path=apt),
+                                                  "  sudo apt install git\n")
+
+    def test_an_old_python_is_refused_by_name_and_nothing_is_cloned(self):
+        # The real Python, told it is 3.9: it answers whatever it is asked the
+        # way a 3.9 would, so a script that stopped asking would be let in.
+        old = ("#!/bin/sh\n"
+               'if [ "$1" = -c ]; then\n'
+               f'    exec "{sys.executable}" -c \'import sys; code = sys.argv.pop(1); '
+               'sys.version_info = (3, 9, 6, "final", 0); exec(code)\' "$2"\n'
+               "fi\n"
+               f'exec "{sys.executable}" "$@"\n')
+        folder = tool_folder(self.tmp / f"py39-{self.count}", without=("python3",),
+                             stubs={"python3": old, "dnf": "#!/bin/sh\nexit 0\n"})
+        home = self.fresh()
+        self.assert_refused_and_nothing_installed(
+            home, self.install(home, path=folder), "Python 3.11 or newer",
+            "python3 (3.9) is older", "Install it, as root, with:\n  dnf install python3.11\n")
+        nothing = tool_folder(self.tmp / f"nopy-{self.count}", without=("python3",))
+        home = self.fresh()
+        self.assert_refused_and_nothing_installed(home, self.install(home, path=nothing),
+                                                  "there is none on PATH")
+
+    def test_a_windows_shell_is_sent_to_install_ps1(self):
+        for system in ("MINGW64_NT-10.0-19045", "MSYS_NT-10.0-19045", "CYGWIN_NT-10.0"):
+            with self.subTest(system=system):
+                folder = tool_folder(self.tmp / f"win{self.count}", without=("uname",),
+                                     stubs={"uname": f"#!/bin/sh\necho {system}\n"})
+                home = self.fresh()
+                self.assert_refused_and_nothing_installed(
+                    home, self.install(home, path=folder),
+                    "irm https://omardev29.github.io/rmp-docs/install.ps1 | iex")
+
+    def strip_dev_null(self) -> Path:
+        text = INSTALL_SH.read_text()
+        stripped, count = re.subn(r"[ \t]*<[ \t]*/dev/null", "", text)
+        self.assertGreaterEqual(count, 8, "the script stopped redirecting its commands' stdin")
+        copy = self.tmp / f"stripped{self.count}.sh"
+        copy.write_text(stripped + "echo RMP_INSTALL_TAIL\n")
+        return copy
+
+    def test_a_line_after_the_script_still_runs(self):
+        """In `curl | sh` the script is the shell's stdin, and a command that
+        reads stdin eats the rest of it. Every tool here reads ALL of its
+        stdin, so the line appended after `main "$@"` prints only if each of
+        them was handed /dev/null. Seen red: the same script without its
+        redirections, under bash, which leaves the rest of a script on stdin
+        for whoever reads it next (dash reads ahead into its own buffer and
+        hides the mistake, which is why bash is the shell that must fail)."""
+        drained = tool_folder(self.tmp / f"drain{self.count}", drain=True)
+        copy = self.tmp / f"tail{self.count}.sh"
+        copy.write_text(INSTALL_SH.read_text() + "echo RMP_INSTALL_TAIL\n")
+        for shell in self.shells():
+            for piped in (False, True):
+                with self.subTest(shell=shell, piped=piped):
+                    home = self.fresh()
+                    got = self.install(home, shell=shell, path=drained, script=copy, piped=piped)
+                    self.assertEqual(got.returncode, 0, self.said(got))
+                    self.assertTrue(got.stdout.decode().endswith("RMP_INSTALL_TAIL\n"),
+                                    self.said(got))
+                    self.assertTrue((home / ".local" / "bin" / "rmp").is_symlink())
+        red = self.strip_dev_null()
+        for piped in (False, True):
+            with self.subTest(red="bash", piped=piped):
+                home = self.fresh()
+                got = self.install(home, shell="bash", path=drained, script=red, piped=piped)
+                self.assertNotIn("RMP_INSTALL_TAIL", self.said(got))
+
+    def test_an_existing_clone_is_updated_and_not_cloned_again(self):
+        home = self.fresh()
+        self.assertEqual(self.install(home).returncode, 0)
+        before = git_in(self.clone_of(home), self.git_env, "rev-parse", "--short", "HEAD")
+        (self.src / "NEWS").write_text("one more\n")
+        git_in(self.src, self.git_env, "add", "NEWS")
+        git_in(self.src, self.git_env, "commit", "-q", "-m", "news")
+        try:
+            got = self.install(home)
+            self.assertEqual(got.returncode, 0, self.said(got))
+            after = git_in(self.clone_of(home), self.git_env, "rev-parse", "--short", "HEAD")
+            self.assertEqual(git_in(self.clone_of(home), self.git_env, "rev-parse", "HEAD"),
+                             git_in(self.src, self.git_env, "rev-parse", "HEAD"))
+            self.assertIn(f"updated  {before} -> {after}, 1 commit(s)", self.said(got))
+            self.assertNotIn("cloning", self.said(got))
+        finally:
+            git_in(self.src, self.git_env, "reset", "-q", "--hard", "HEAD~1")
+
+    def test_a_folder_in_the_way_is_left_alone(self):
+        home = self.fresh()
+        dest = self.clone_of(home)
+        dest.mkdir(parents=True)
+        (dest / "mine.txt").write_text("keep me\n")
+        got = self.install(home)
+        self.assertEqual(got.returncode, 1, self.said(got))
+        self.assertIn("is not a clone of the framework", self.said(got))
+        self.assertEqual(os.listdir(dest), ["mine.txt"])
+        self.assertFalse((home / ".local" / "bin").exists())
+        (dest / "mine.txt").unlink()   # an empty folder is no obstacle
+        got = self.install(home)
+        self.assertEqual(got.returncode, 0, self.said(got))
+
+    def test_what_a_build_still_needs_is_named_with_this_systems_command(self):
+        yes, no = "#!/bin/sh\nexit 0\n", "#!/bin/sh\nexit 1\n"
+        cases = [
+            ({"apt-get": yes, "sudo": yes, "pkg-config": no},
+             "this machine still needs: CMake, Ninja, a C++ compiler, the X11 development "
+             "headers.\nInstall them with:\n  sudo apt install cmake ninja-build g++ libx11-dev "
+             "libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev\n"),
+            ({"pacman": yes, "doas": yes, "pkg-config": yes, "c++": yes},
+             "still needs: CMake, Ninja.\nInstall them with:\n  doas pacman -S --needed cmake "
+             "ninja\n"),
+            ({"zypper": yes, "cmake": yes, "ninja": yes, "g++": yes, "pkg-config": no},
+             "still needs: the X11 development headers.\nInstall them, as root, with:\n"
+             "  zypper install libX11-devel libXrandr-devel libXi-devel libXcursor-devel "
+             "libXinerama-devel Mesa-libGL-devel\n"),
+            ({"uname": "#!/bin/sh\necho FreeBSD\n", "pkg-config": no, "cmake": yes},
+             "still needs: Ninja, a C++ compiler, the X11 development headers.\nInstall them, "
+             "as root, with:\n  pkg install ninja libX11 libXrandr libXi libXcursor "
+             "libXinerama libglvnd mesa-libs\n"),
+            ({"pkg-config": no}, "still needs: CMake, Ninja, a C++ compiler, the X11 "
+             "development headers.\nInstall them with your system's package manager.\n"),
+            ({"cmake": yes, "ninja-build": yes, "clang++": yes, "pkg-config": yes},
+             "\nEverything a build needs is here: CMake, Ninja and a C++ compiler.\n"),
+        ]
+        for stubs, says in cases:
+            with self.subTest(stubs=sorted(stubs)):
+                folder = tool_folder(self.tmp / f"needs{self.count}",
+                                     without=("uname",) if "uname" in stubs else (), stubs=stubs)
+                type(self).count += 1
+                home = self.fresh()
+                got = self.install(home, path=folder)
+                self.assertEqual(got.returncode, 0, self.said(got))
+                self.assertTrue(got.stdout.decode().endswith(says), self.said(got))
+
+
+def platform_system() -> str:
+    import platform
+    return platform.system()
+
+
+class InstallerContractTest(unittest.TestCase):
+    """The installers are served from the docs site at FRAMEWORK_REF, and the
+    clone they make tracks main: what they ask of rmp has to keep working on
+    both sides of that gap. And what they say is checked like the launchers."""
+
+    def calls(self, pattern, text):
+        return {m.group(1) for m in re.finditer(pattern, text)}
+
+    def test_they_run_rmp_for_install_and_update_and_nothing_else(self):
+        sh = self.calls(r'"\$dest/rmp" ([a-z-]+)', INSTALL_SH.read_text())
+        ps1 = self.calls(r"& \$rmp ([a-z-]+)", INSTALL_PS1.read_text())
+        self.assertEqual(sh, {"install", "update"})
+        self.assertEqual(ps1, {"install", "update"})
+        for name in sh:
+            with self.subTest(command=name):
+                spec = rmp.COMMANDS[name]
+                self.assertFalse(spec.needs_project)
+                self.assertFalse(spec.framework_only)
+                self.assertTrue(all(w.startswith("[") for w in spec.usage.split()[1:]),
+                                f"`rmp {name}` grew a required argument the installers do "
+                                "not pass")
+                self.assertIn(name, rmp.GLOBAL_COMMANDS)
+
+    def test_the_default_source_is_the_frameworks_url_and_main(self):
+        sh = INSTALL_SH.read_text()
+        ps1 = INSTALL_PS1.read_text()
+        self.assertEqual(re.search(r"(?m)^    url=(\S+)$", sh).group(1), rmp.FRAMEWORK_URL)
+        self.assertIn("branch=${RMP_INSTALL_BRANCH:-main}", sh)
+        self.assertIn("source=${RMP_INSTALL_SOURCE:-$url}", sh)
+        self.assertEqual(re.search(r"\$url = '([^']+)'", ps1).group(1), rmp.FRAMEWORK_URL)
+        self.assertIn("else { 'main' }", ps1)
+
+    def test_they_look_for_python_like_the_launchers(self):
+        launcher = re.search(r"for py in ([^;]+);", (REPO / "rmp").read_text()).group(1)
+        self.assertEqual(re.search(r"for py in ([^;]+);", INSTALL_SH.read_text()).group(1),
+                         launcher)
+        pattern = r"foreach \(\$candidate in ([^)]+)\)"
+        self.assertEqual(re.search(pattern, INSTALL_PS1.read_text()).group(1),
+                         re.search(pattern, (REPO / "rmp.ps1").read_text()).group(1))
+
+    def test_install_sh_is_ascii_lf_posix_and_one_function(self):
+        data = INSTALL_SH.read_bytes()
+        self.assertTrue(data.isascii())
+        self.assertNotIn(b"\r", data)
+        self.assertTrue(data.startswith(b"#!/bin/sh\n"))
+        eol = subprocess.run(["git", "-c", "safe.directory=*", "check-attr", "eol", "--",
+                              "tools/install.sh"], cwd=REPO, capture_output=True, text=True)
+        self.assertIn("eol: lf", eol.stdout)
+        # Nothing runs before the last line has arrived: outside main() there
+        # are comments, and the one call at the very end.
+        lines = data.decode().splitlines()
+        start = lines.index("main() {")
+        end = lines.index("}", start)
+        outside = [line for line in lines[:start] + lines[end + 1:]
+                   if line.strip() and not line.startswith("#")]
+        self.assertEqual(outside, ['main "$@"'])
+        self.assertEqual(lines[-1], 'main "$@"')
+        self.assertTrue(all(line == "" or line.startswith("    ") for line in lines[start + 1:end]),
+                        "a line inside main() is not indented: is main() closed early?")
+
+    def test_every_shell_parses_install_sh(self):
+        for shell in LauncherTest.shells(self):
+            with self.subTest(shell=shell):
+                got = subprocess.run([shell, "-n", str(INSTALL_SH)], capture_output=True,
+                                     text=True)
+                self.assertEqual(got.returncode, 0, got.stderr)
+
+    def test_shellcheck_reads_install_sh_as_posix_sh(self):
+        if shutil.which("shellcheck") is None:
+            if IN_BUILD_IMAGE:
+                self.fail("shellcheck is missing inside the build image")
+            self.skipTest("shellcheck not installed")
+        got = subprocess.run(["shellcheck", "-s", "sh", str(INSTALL_SH)], capture_output=True,
+                             text=True)
+        self.assertEqual(got.returncode, 0, got.stdout)
+
+    def test_install_ps1_is_ascii_crlf_and_never_exits(self):
+        """Under `irm | iex` an exit closes the window the user typed into."""
+        data = INSTALL_PS1.read_bytes()
+        self.assertTrue(data.isascii())
+        self.assertFalse(data.startswith(b"\xef\xbb\xbf"))
+        eol = subprocess.run(["git", "-c", "safe.directory=*", "check-attr", "eol", "--",
+                              "tools/install.ps1"], cwd=REPO, capture_output=True, text=True)
+        self.assertIn("eol: crlf", eol.stdout)
+        if b"\r\n" in data:   # a checkout made with the attribute
+            self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
+        code = [line for line in data.decode().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+        # The statement, not Python's sys.exit( inside the probe's string.
+        exits = [line for line in code if re.search(r"(?i)(?<![\w.$-])exit\b(?!\s*\()", line)]
+        self.assertEqual(exits, [])
+        self.assertEqual((code[0].strip(), code[-1].strip()), ("& {", "}"),
+                         "all of it is one script block, so iex leaves no variable behind")
+        self.assertGreaterEqual(sum("throw " in line for line in code), 4)
+
+    def test_pwsh_parses_install_ps1_when_there(self):
+        pwsh = shutil.which("pwsh")
+        if pwsh is None:
+            self.skipTest("pwsh not installed; the Windows job runs it for real")
+        got = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command",
+                              "$t = $null; $e = $null; [void][System.Management.Automation."
+                              f"Language.Parser]::ParseFile('{INSTALL_PS1}', [ref]$t, [ref]$e); "
+                              "$e.Count"], capture_output=True, text=True)
+        self.assertEqual(got.stdout.strip(), "0", got.stdout + got.stderr)
+
+
+class InstallPs1UnderIexTest(InstallFixture):
+    """install.ps1 the way `irm | iex` runs it, where a pwsh is at hand. On
+    Linux a stand-in rmp.cmd (an executable sh script) records what it was
+    asked; the Windows job runs the real one, the registry and cmd.exe."""
+
+    @classmethod
+    def setUpClass(cls):
+        if shutil.which("pwsh") is None:
+            raise unittest.SkipTest("pwsh not installed; the Windows job runs install.ps1")
+        super().setUpClass()
+        fake = cls.src / "rmp.cmd"
+        fake.write_text('#!/bin/sh\necho "rmp.cmd $*" >> "$LOCALAPPDATA/calls.txt"\n')
+        fake.chmod(0o755)
+        git_in(cls.src, cls.git_env, "add", "-A")
+        git_in(cls.src, cls.git_env, "commit", "-q", "-m", "a stand-in rmp.cmd")
+
+    def iex(self, local: Path, path=None):
+        env = dict(os.environ, **self.git_env, LOCALAPPDATA=str(local),
+                   RMP_INSTALL_SOURCE=str(self.src))
+        if path:
+            env["PATH"] = path
+        return subprocess.run([shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-Command",
+                               f"Get-Content -Raw '{INSTALL_PS1}' | Invoke-Expression; "
+                               "'RMP_AFTER_IEX'"], capture_output=True, text=True, env=env,
+                              timeout=180)
+
+    def test_it_returns_to_its_caller_and_runs_install_then_update(self):
+        local = self.fresh("local")
+        got = self.iex(local)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertTrue(got.stdout.rstrip().endswith("RMP_AFTER_IEX"), got.stdout)
+        self.assertTrue((local / "rmp" / ".git").is_dir())
+        self.assertEqual((local / "calls.txt").read_text(), "rmp.cmd install\n")
+        again = self.iex(local)
+        self.assertTrue(again.stdout.rstrip().endswith("RMP_AFTER_IEX"), again.stdout)
+        self.assertEqual((local / "calls.txt").read_text(),
+                         "rmp.cmd install\nrmp.cmd update\nrmp.cmd install\n")
+
+    def test_without_git_it_throws_and_clones_nothing(self):
+        local = self.fresh("local")
+        folder = tool_folder(self.tmp / f"ps-nogit{self.count}", without=("git",))
+        got = self.iex(local, path=f"{folder}{os.pathsep}{Path(shutil.which('pwsh')).parent}")
+        self.assertNotEqual(got.returncode, 0)
+        self.assertNotIn("RMP_AFTER_IEX", got.stdout)
+        self.assertIn("winget install --id Git.Git -e", got.stdout)
+        self.assertFalse((local / "rmp").exists())
+
+
+class UpdateTest(unittest.TestCase):
+    """`rmp update`, on a clone made by git: main moves forward to origin's,
+    or nothing moves and it says why."""
+
+    def setUp(self):
+        if shutil.which("git") is None:
+            self.skipTest("git not installed")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.env = git_identity(self.tmp)
+        self.src = make_framework_source(self.tmp / "src", self.env)
+        git_in(self.tmp, self.env, "clone", "-q", str(self.src), "clone")
+        self.clone = self.tmp / "clone"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def update(self, clone=None):
+        return subprocess.run([sys.executable, str((clone or self.clone) / "tools" / "rmp.py"),
+                               "update"], cwd=self.tmp, capture_output=True, text=True,
+                              env=dict(os.environ, **self.env), stdin=subprocess.DEVNULL)
+
+    def head(self, where=None):
+        return git_in(where or self.clone, self.env, "rev-parse", "HEAD")
+
+    def commit_in(self, where, name="NEWS"):
+        (where / name).write_text("more\n")
+        git_in(where, self.env, "add", name)
+        git_in(where, self.env, "commit", "-q", "-m", name)
+
+    def refused(self, *says):
+        before = self.head()
+        got = self.update()
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        for text in says:
+            self.assertIn(text, got.stdout)
+        self.assertEqual(self.head(), before, "it moved anyway")
+
+    def test_up_to_date_says_so(self):
+        got = self.update()
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        short = git_in(self.clone, self.env, "rev-parse", "--short", "HEAD")
+        self.assertIn(f"up to date at {short}", got.stdout)
+
+    def test_a_new_commit_on_origin_is_a_fast_forward_and_says_from_what_to_what(self):
+        before = git_in(self.clone, self.env, "rev-parse", "--short", "HEAD")
+        self.commit_in(self.src)
+        self.commit_in(self.src, "MORE")
+        got = self.update()
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.head(), self.head(self.src))
+        after = git_in(self.clone, self.env, "rev-parse", "--short", "HEAD")
+        self.assertIn(f"updated  {before} -> {after}, 2 commit(s)", got.stdout)
+        self.assertEqual(len(git_in(self.clone, self.env, "log", "--merges", "--oneline")), 0)
+
+    def test_changes_of_its_own_are_refused(self):
+        self.commit_in(self.src)
+        (self.clone / "rmp.cmd").write_text("changed\n")
+        self.refused("changes of its own", "rmp.cmd", "stash")
+
+    def test_an_untracked_file_is_no_change(self):
+        self.commit_in(self.src)
+        (self.clone / "notes.txt").write_text("mine\n")
+        got = self.update()
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(self.head(), self.head(self.src))
+
+    def test_another_branch_or_no_branch_is_refused(self):
+        self.commit_in(self.src)
+        git_in(self.clone, self.env, "switch", "-q", "-c", "topic")
+        self.refused("is on topic", "only moves main", "switch main")
+        git_in(self.clone, self.env, "switch", "-q", "--detach", "main")
+        self.refused("a detached HEAD")
+
+    def test_no_origin_is_refused(self):
+        git_in(self.clone, self.env, "remote", "remove", "origin")
+        self.refused("no origin", f"remote add origin {rmp.FRAMEWORK_URL}")
+
+    def test_commits_origin_does_not_have_are_never_merged(self):
+        self.commit_in(self.clone, "LOCAL")
+        self.refused("1 commit(s) that origin's main does not", "never merges")
+        self.commit_in(self.src)    # diverged, not only ahead
+        self.refused("never merges")
+
+    def test_an_unreachable_origin_is_refused(self):
+        git_in(self.clone, self.env, "remote", "set-url", "origin", str(self.tmp / "gone"))
+        self.refused("could not fetch main from origin")
+
+    def test_a_copy_that_is_not_a_clone_is_refused(self):
+        copy = self.tmp / "copy"
+        shutil.copytree(self.clone, copy, ignore=shutil.ignore_patterns(".git"))
+        got = self.update(copy)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("is not a git clone", got.stdout)
+
+    def test_a_games_copy_refuses_install_and_update(self):
+        """A game keeps the framework it was made with: its own tools/rmp.py
+        never moves it, and never puts itself on PATH."""
+        game = fake_project(self.tmp / "game")
+        shutil.copy2(RMP_PY, game / "tools" / "rmp.py")
+        for command in ("update", "install"):
+            with self.subTest(command=command):
+                got = subprocess.run([sys.executable, str(game / "tools" / "rmp.py"), command],
+                                     cwd=game, capture_output=True, text=True,
+                                     env=dict(os.environ, HOME=str(self.tmp / "home")))
+                self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+                self.assertIn("belongs to the game", got.stdout)
+                self.assertFalse((self.tmp / "home").exists())
+
+
+class GlobalCommandsTest(unittest.TestCase):
+    """new, install and update are run by the rmp they are typed into, never
+    handed to the game's copy that a framework rmp hands everything else to."""
+
+    def test_they_are_three_and_need_no_project(self):
+        self.assertEqual(rmp.GLOBAL_COMMANDS, ("new", "install", "update"))
+        for name in rmp.GLOBAL_COMMANDS:
+            with self.subTest(command=name):
+                self.assertFalse(rmp.COMMANDS[name].needs_project)
+                self.assertFalse(rmp.COMMANDS[name].framework_only)
+
+    def test_none_of_them_is_delegated_inside_a_game(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = DelegationTest.game_with_recording_rmp(self, tmp)
+            for name in rmp.GLOBAL_COMMANDS:
+                with self.subTest(command=name):
+                    got = DelegationTest.run_in(self, game, name, "--help")
+                    self.assertNotIn('"argv"', got.stdout)
+                    self.assertTrue(got.stdout.startswith(f"rmp {rmp.COMMANDS[name].usage}"),
+                                    got.stdout + got.stderr)
+            got = DelegationTest.run_in(self, game, "build", "--help")
+            self.assertIn('"argv"', got.stdout, "and everything else still is")
+
+
+@contextlib.contextmanager
+def environment(**values):
+    """os.environ with these set (None: removed), for an in-process main()."""
+    saved = dict(os.environ)
+    try:
+        for key, value in values.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+class InstallCommandTest(unittest.TestCase):
+    """`rmp install` in-process, run by this framework: the POSIX link and the
+    rc file, and the Windows shim and User PATH with the registry stood in."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.link = self.home / ".local" / "bin" / "rmp"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_install(self, *args, path=None, shell="/bin/zsh"):
+        with environment(HOME=str(self.home), PATH=path or "/usr/bin:/bin", SHELL=shell,
+                         ZDOTDIR=None, ENV=None, XDG_CONFIG_HOME=None):
+            return call(["install", *args])
+
+    def test_it_links_this_frameworks_launcher(self):
+        code, out, err = self.run_install()
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(Path(os.readlink(self.link)), REPO / "rmp")
+        self.assertIn("linked   ~/.local/bin/rmp ->", out)
+        self.assertEqual((self.home / ".zshrc").read_text().count(rmp.RC_BEGIN), 1)
+        self.assertIn("open a new terminal", out)
+
+    def test_something_else_in_the_way_is_refused_and_force_replaces_it(self):
+        self.link.parent.mkdir(parents=True)
+        for kind in ("file", "link", "dangling"):
+            with self.subTest(kind=kind):
+                if self.link.is_symlink() or self.link.exists():
+                    self.link.unlink()
+                if kind == "file":
+                    self.link.write_text("#!/bin/sh\necho mine\n")
+                elif kind == "link":
+                    self.link.symlink_to(self.tmp / "other")
+                    (self.tmp / "other").write_text("x")
+                else:
+                    self.link.symlink_to(self.tmp / "gone")
+                code, out, _ = self.run_install()
+                self.assertEqual(code, 1, out)
+                self.assertIn("install force", out)
+                self.assertNotEqual(self.link.resolve(), (REPO / "rmp").resolve())
+                code, out, _ = self.run_install("force")
+                self.assertEqual(code, 0, out)
+                self.assertEqual(Path(os.readlink(self.link)), REPO / "rmp")
+
+    def test_a_link_that_ends_at_this_launcher_is_already_installed(self):
+        self.link.parent.mkdir(parents=True)
+        hop = self.tmp / "hop"
+        hop.symlink_to(REPO / "rmp")
+        self.link.symlink_to(hop)
+        code, out, _ = self.run_install()
+        self.assertEqual(code, 0, out)
+        self.assertIn("is this framework's rmp", out)
+        self.assertEqual(os.readlink(self.link), str(hop))
+
+    def test_on_path_already_it_writes_no_rc_file_and_names_a_shadowing_rmp(self):
+        other = self.tmp / "first"
+        other.mkdir()
+        (other / "rmp").write_text("#!/bin/sh\n")
+        (other / "rmp").chmod(0o755)
+        bin_dir = self.home / ".local" / "bin"
+        code, out, _ = self.run_install(path=f"{other}{os.pathsep}{bin_dir}/")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([p.name for p in self.home.iterdir()], [".local"])
+        self.assertIn(f"another rmp comes first on PATH: {other / 'rmp'}", out)
+        code, out, _ = self.run_install(path=str(bin_dir))
+        self.assertNotIn("another rmp", out)
+        self.assertIn("rmp is ready", out)
+
+    def test_the_rc_block_goes_in_once_and_after_what_is_there(self):
+        rc = self.tmp / "rc"
+        rc.write_text("alias x=y")     # no newline at the end
+        self.assertTrue(rmp.add_rc_block(rc, "sh"))
+        self.assertFalse(rmp.add_rc_block(rc, "sh"))
+        self.assertEqual(rc.read_text(), f"alias x=y\n\n{rmp.RC_BEGIN}\n{rmp.RC_LINES['sh']}\n"
+                                         f"{rmp.RC_END}\n")
+        real = self.tmp / "dotfiles" / "zshrc"
+        real.parent.mkdir()
+        real.write_text("# mine\n")
+        linked = self.tmp / ".zshrc"
+        linked.symlink_to(real)
+        self.assertTrue(rmp.add_rc_block(linked, "sh"))
+        self.assertTrue(linked.is_symlink(), "the dotfiles link was replaced by a file")
+        self.assertIn(rmp.RC_BEGIN, real.read_text())
+
+    def test_a_bash_on_a_mac_keeps_the_file_its_login_already_reads(self):
+        home = self.tmp / "mac"
+        home.mkdir()
+        self.assertEqual(rmp.rc_file(home, {"SHELL": "/bin/bash"}, "Darwin")[0],
+                         home / ".bash_profile")
+        for name in (".profile", ".bash_login", ".bash_profile"):
+            (home / name).write_text("")
+            with self.subTest(exists=name):
+                self.assertEqual(rmp.rc_file(home, {"SHELL": "/bin/bash"}, "Darwin")[0],
+                                 home / name)
+        self.assertEqual(rmp.rc_file(home, {"SHELL": "/usr/local/bin/bash"}, "Linux")[0],
+                         home / ".bashrc")
+        self.assertEqual(rmp.rc_file(home, {"SHELL": "/bin/ksh", "ENV": "relative"}, "OpenBSD"),
+                         (home / ".profile", "sh"))
+        self.assertEqual(rmp.rc_file(home, {"SHELL": "/bin/ksh", "ENV": "~/.kshrc"}, "OpenBSD"),
+                         (home / ".kshrc", "sh"))
+
+    @contextlib.contextmanager
+    def registry(self, value="", kind=2):
+        state = {"value": value, "kind": kind, "writes": [], "broadcasts": 0}
+        saved = (rmp.user_path_read, rmp.user_path_write, rmp.broadcast_environment,
+                 rmp.on_windows)
+
+        def write(new, new_kind):
+            state["writes"].append((new, new_kind))
+            state["value"], state["kind"] = new, new_kind
+
+        def broadcast():
+            state["broadcasts"] += 1
+        rmp.user_path_read = lambda: (state["value"], state["kind"])
+        rmp.user_path_write = write
+        rmp.broadcast_environment = broadcast
+        rmp.on_windows = lambda: True
+        try:
+            yield state
+        finally:
+            (rmp.user_path_read, rmp.user_path_write, rmp.broadcast_environment,
+             rmp.on_windows) = saved
+
+    def run_windows(self, *args, local=None):
+        local = local or str(self.tmp / "Local")
+        with environment(LOCALAPPDATA=local, HOME=str(self.home)):
+            return call(["install", *args])
+
+    def test_windows_writes_a_cmd_shim_and_appends_its_folder_to_the_user_path(self):
+        folder = self.tmp / "Local" / "Programs" / "rmp"
+        for kind in (2, 1):   # REG_EXPAND_SZ, REG_SZ: kept as they were
+            with self.subTest(kind=kind), self.registry(r"%USERPROFILE%\bin;C:\tools", kind) as reg:
+                code, out, _ = self.run_windows()
+                self.assertEqual(code, 0, out)
+                self.assertEqual(reg["writes"], [(rf"%USERPROFILE%\bin;C:\tools;{folder}", kind)])
+                self.assertEqual(reg["broadcasts"], 1)
+                shim = (folder / "rmp.cmd").read_bytes()
+                self.assertEqual(shim, rmp.shim_text(REPO).encode("ascii"))
+                self.assertIn(f'call "{REPO / "rmp.cmd"}" %*\r\n'.encode(), shim)
+                self.assertTrue(shim.endswith(b"exit /b %ERRORLEVEL%\r\n"))
+                self.assertNotIn(b"\n", shim.replace(b"\r\n", b""))
+                self.assertFalse(self.link.exists(), "the POSIX link on Windows")
+                code, out, _ = self.run_windows()
+                self.assertEqual(len(reg["writes"]), 1, "a second run wrote the PATH again")
+                self.assertEqual(reg["broadcasts"], 1)
+                self.assertIn("is on your user PATH", out)
+            (folder / "rmp.cmd").unlink()
+
+    def test_windows_knows_its_folder_however_the_path_spells_it(self):
+        local = str(self.tmp / "Local")
+        folder = f"{local}/Programs/rmp"
+        for spelling in (folder.upper(), folder + "\\", folder.replace("/", "\\"),
+                         "%LOCALAPPDATA%/Programs/rmp", f'"{folder}"'):
+            with self.subTest(spelling=spelling), self.registry(f"C:\\x;{spelling};") as reg:
+                code, out, _ = self.run_windows(local=local)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(reg["writes"], [])
+        with self.registry("") as reg:
+            self.run_windows(local=local)
+            self.assertEqual(reg["writes"], [(str(Path(folder)), 2)])
+
+    def test_windows_refuses_another_shim_without_force_and_a_missing_localappdata(self):
+        folder = self.tmp / "Local" / "Programs" / "rmp"
+        folder.mkdir(parents=True)
+        (folder / "rmp.cmd").write_text("@echo off\r\necho mine\r\n")
+        with self.registry() as reg:
+            code, out, _ = self.run_windows()
+            self.assertEqual(code, 1, out)
+            self.assertIn("install force", out)
+            self.assertEqual(reg["writes"], [])
+            code, out, _ = self.run_windows("force")
+            self.assertEqual(code, 0, out)
+            self.assertEqual((folder / "rmp.cmd").read_bytes().decode("ascii"),
+                             rmp.shim_text(REPO))
+        with self.registry() as reg, environment(LOCALAPPDATA=None):
+            code, out, _ = call(["install"])
+            self.assertEqual(code, 1)
+            self.assertIn("LOCALAPPDATA is not set", out)
+
+    def test_a_shim_names_its_folder_by_variable_and_refuses_what_cmd_cannot_read(self):
+        """cmd.exe reads a .cmd in the console's code page: an accented user
+        name has to reach it through %LOCALAPPDATA%, not spelled out."""
+        user = "/x/Jos\u00e9"
+        with environment(LOCALAPPDATA=f"{user}/Local", USERPROFILE=user):
+            text = rmp.shim_text(Path(f"{user}/Local/rmp"))
+            self.assertIn('call "%LOCALAPPDATA%/rmp/rmp.cmd" %*', text)
+            self.assertTrue(text.isascii())
+            self.assertIn('call "%USERPROFILE%/src/rmp/rmp.cmd" %*',
+                          rmp.shim_text(Path(f"{user}/src/rmp")))
+            with self.assertRaises(rmp.Refused):
+                rmp.shim_text(Path("/elsewhere/Jos\u00e9/rmp"))
+        with environment(LOCALAPPDATA="/x/Local", USERPROFILE=None):
+            # A name that only starts like the folder is another folder.
+            self.assertIn('call "/x/LocalOther/rmp/rmp.cmd" %*',
+                          rmp.shim_text(Path("/x/LocalOther/rmp")))
+
+
 if __name__ == "__main__":
     unittest.main()
