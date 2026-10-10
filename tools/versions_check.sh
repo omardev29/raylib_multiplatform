@@ -93,6 +93,8 @@ check "externalNativeBuild cmake" android_sdk_cmake \
     "$(awk '/externalNativeBuild/,/^    }/' $APP | sed -nE "s/^[[:space:]]*version[[:space:]]*'([^']+)'.*/\1/p" | head -1)"
 check "AGP" agp \
     "$(sed -nE "s/.*com\.android\.application' version '([^']+)'.*/\1/p" raymob/build.gradle | head -1)"
+check "play-services-ads" play_services_ads \
+    "$(sed -nE "s/.*com\.google\.android\.gms:play-services-ads:([0-9.]+)'.*/\1/p" $APP | head -1)"
 
 echo "== Gradle wrapper =="
 WRAP=raymob/gradle/wrapper/gradle-wrapper.properties
@@ -198,6 +200,29 @@ if [ -r "$IMAGE_MANIFEST" ]; then
         printf '  DRIFT %-26s [linux] glibc=%s, image warmed %s\n' \
                "image zig_warm_glibc" "$want_glibc" "$(m zig_warm_glibc)"
         fails=$((fails + 1))
+    fi
+
+    # The test toolchain: LLVM (coverage, the sanitizer and libFuzzer
+    # runtimes), cppcheck, Mull, and the Python test tools. On both
+    # architectures.
+    check "image llvm"                llvm                "$(m llvm)"
+    check "image cppcheck"            cppcheck            "$(m cppcheck)"
+    check "image mull"                mull                "$(m mull)"
+    check "image hypothesis"          hypothesis          "$(m hypothesis)"
+    check "image mutmut"              mutmut              "$(m mutmut)"
+    check "image pytest"              pytest              "$(m pytest)"
+
+    # The Gradle home the Android job builds --offline from, warmed for this
+    # wrapper, this AGP and this AdMob SDK -- amd64 only, where the Android
+    # job runs. A pin bumped here and not in the image is a build that would
+    # go to the network for it, and with --offline a build that fails.
+    if [ "$(m arch)" = amd64 ]; then
+        check "image gradle"              gradle              "$(m gradle)"
+        check "image agp"                 agp                 "$(m agp)"
+        check "image play_services_ads"   play_services_ads   "$(m play_services_ads)"
+    else
+        printf '  skip  %-26s the Gradle home is amd64-only; this image is %s\n' \
+               "image gradle/agp/ads" "$(m arch)"
     fi
 
     check "image android_platform"    android_platform    "$(m android_platform)"

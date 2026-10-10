@@ -24,6 +24,22 @@ android_min_sdk           24
 agp                       8.13.2
 gradle                    8.14.5
 gradle_sha256             6f74b601422d6d6fc4e1f9a1ab6522f642c2fdcbc15ae33ebd30ba3d7198e854
+# The one library the Android app links that is not ours: AdMob's SDK. The
+# build image's Gradle home is warmed with this version, so the Android job can
+# build --offline; another one here and in raymob/app/build.gradle needs an
+# image warmed for it.
+play_services_ads         24.9.0
+# The test toolchain in the build image, for coverage, sanitizers, fuzzing and
+# mutation testing: LLVM 18 with compiler-rt (Mull 0.34.1 ships for LLVM 18.1.3,
+# which is why it is not newer), cppcheck from the same apt snapshot, and the
+# Python test tools from a hash-locked requirements file. Compared with the
+# running image's manifest.
+llvm                      18.1.3
+cppcheck                  2.13.0
+mull                      0.34.1
+hypothesis                6.168.5
+mutmut                    3.8.0
+pytest                    9.1.1
 # Runner images and host toolchains. These live here rather than in the
 # workflow YAML for two reasons: the weekly canary overrides them with floating
 # values to find out what is about to break, and the autofix agent can only
