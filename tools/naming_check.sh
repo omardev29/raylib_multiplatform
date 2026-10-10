@@ -9,7 +9,7 @@
 # text, over every branch:
 #
 #   R1  no `g_` names            file state is a struct per concern: `frame.open`
-#   R2  no `kName` constants     constants are CONSTANT_CASE: `MAX_TAG_NAME`
+#   R2  no `kName` constants     constants are CONSTANT_CASE: `MAX_SPAWNED`
 #   R3  no `name_.x` / `name_->x`  an underscore never touches a dot or an arrow
 #   R4  no `x._name` / `x->_name`  except a call to one of the eight hooks
 #   R5  every #define we write starts with RMP_   (a vendored library's own

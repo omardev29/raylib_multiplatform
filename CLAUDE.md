@@ -63,7 +63,7 @@ here so that nobody "fixes" one back.
 |---|---|---|
 | Types: class, struct, enum, alias, template parameter | `PascalCase` | `rmp::ui::ButtonOptions` |
 | Enum members | `CONSTANT_CASE` | `rmp::ui::Align::TOP_LEFT` |
-| Constants: every `constexpr`; a `const` at namespace, class or `static` scope | `CONSTANT_CASE` | `MAX_TAG_NAME`, `DeviceState::KEYS` |
+| Constants: every `constexpr`; a `const` at namespace, class or `static` scope | `CONSTANT_CASE` | `MAX_SPAWNED`, `DeviceState::KEYS` |
 | Functions, methods, variables, parameters, public fields, namespaces | `snake_case` | `current_theme()`, `min_height` |
 | Private and protected data members | `_snake_case` | `_slot`, `_generation` |
 | The hooks we call on your type -- these eight, no other method | `_snake_case` | `_ready` `_update` `_late_update` `_draw` `_collision` `_end` `_suspend` `_resume` |
@@ -271,8 +271,14 @@ here so that nobody "fixes" one back.
 - **Ownership is RAII, everywhere, public headers included.** No owning raw
   pointer, no bare `new`/`delete`/`malloc`/`free` under `include/rmp/` or
   `src/rmp/`; `tools/ownership_check.sh` is the ratchet and its exception list
-  only shrinks. A `T *` in the API is non-owning and its comment says so.
-  `rmp::Handle<T>` is what you keep across frames. `Callback<A...>` stays
+  only shrinks. **No raw pointer and no C string in a declaration a game can
+  name**: a value, a `T &`, `std::span`, `std::optional`, two overloads, or
+  `rmp::Ref<T>` (`object.h`) for a reference that may be empty --
+  `if (auto h = obj.get<Health>()) h->hp -= 1;` -- and `std::string_view` in,
+  `std::string` out. `tools/pointer_check.py` (`rmp test pointers`) reads the
+  headers' AST and fails a public one; a pointer in `detail::` or a private
+  member goes in `tools/pointer_ratchet.txt` with its reason, and that list
+  only shrinks. `rmp::Handle<T>` is what you keep across frames. `Callback<A...>` stays
   instead of `std::function` on purpose: `std::function` requires copyable
   callables, and a lambda that captures a `unique_ptr` would stop compiling.
 - **We are built on raylib, and the copy we ship is modified.** The zlib

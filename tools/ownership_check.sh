@@ -3,7 +3,7 @@
 #
 # The rule (GUIDELINES.md, "Punteros y propiedad"): no bare new/delete, no
 # malloc/free, under include/rmp/ or src/rmp/. What we own is a unique_ptr or
-# a value; what we refer to is a Handle or a non-owning pointer that says so.
+# a value; what we refer to is a Handle, an rmp::Ref or a reference.
 # This is a ratchet, like seam_check.sh: the files below are allowed to keep
 # their calls, each with the reason, and the list only ever shrinks. Adding a
 # file to it is a review question, not a fix.
@@ -48,7 +48,7 @@ done < <(grep -rnE "$PATTERN" include/rmp src/rmp \
 
 if [ "$fails" -ne 0 ]; then
   echo "FAIL: $fails owning call(s) outside the allowed list. Own it with std::unique_ptr"
-  echo "      or a value; refer to it with rmp::Handle<T> or a non-owning pointer that says so."
+  echo "      or a value; refer to it with rmp::Handle<T>, rmp::Ref<T> or a reference."
   exit 1
 fi
 echo "  ok    no bare new/delete/malloc/free outside the ${#ALLOWED[@]} allowed files"

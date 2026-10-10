@@ -165,6 +165,9 @@ why in a comment on the line, or somebody will "fix" it. And a read never
 reports at all (see `rmp::Value::Ref`).
 
 **No owning raw pointer.** `std::unique_ptr` and `make_unique` for what we own,
-`rmp::Handle<T>` for what we refer to across frames, a plain `T *` only when
-it is non-owning and the comment says so. `tools/ownership_check.sh` greps for
+`rmp::Handle<T>` for what we refer to across frames, `rmp::Ref<T>` for a
+reference that may be empty, `T &` for one that may not. No raw pointer and no
+C string in a declaration a game can name (`tools/pointer_check.py`); one in
+`detail::` or a private member is listed in `tools/pointer_ratchet.txt` with
+its reason. `tools/ownership_check.sh` greps for
 `new`/`delete`/`malloc`/`free` under `include/rmp/` and `src/rmp/`.

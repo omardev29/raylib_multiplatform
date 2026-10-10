@@ -43,7 +43,7 @@ Follow them; a second way to spell the same thing ages badly.
 - **Containers take their body as a lambda.** No matching close call exists, so
   it cannot be forgotten. An RAII guard closes it even on an early return (the
   framework does not throw, so that is the case that matters).
-- **Controls take a pointer to the caller's variable** and write to it, and
+- **Controls take the caller's variable by reference** and write to it, and
   return `true` on the frame it changed. There is no state of ours to
   synchronise — that is the entire state model.
 - **Say what a thing MEANS, never what colour it is.** `Variant::DANGER`, not a
@@ -82,7 +82,7 @@ struct BoxOptions {
     float width = 0; // so that { .width = 240, .grow_y = true } is legal.
     bool grow_y = false; // Grouped by kind (grow_x, grow_y, width, height)
     float height = 0; // that ordinary sidebar would not compile.
-    const char *id = nullptr; // identity last: it is the rarest field
+    std::string_view id{}; // identity last: it is the rarest field
 };
 ```
 
