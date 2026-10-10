@@ -2892,10 +2892,14 @@ class InstallTest(InstallFixture):
             if shutil.which(shell) is None:
                 continue
             with self.subTest(shell=shell):
-                got = subprocess.run([shutil.which(shell), "-c", f"{line}\necho $PATH"],
+                # Read twice, as a shell started from a shell reads it again:
+                # the folder is on PATH once.
+                got = subprocess.run([shutil.which(shell), "-c", f"{line}\n{line}\necho $PATH"],
                                      capture_output=True,
                                      text=True, env={"HOME": str(home), "PATH": str(self.bin)})
                 self.assertTrue(got.stdout.startswith(f"{home}/.local/bin"), got.stdout)
+                self.assertEqual(got.stdout.strip().split(":").count(f"{home}/.local/bin"), 1,
+                                 got.stdout)
 
     def test_from_inside_a_game_it_installs_and_nothing_is_delegated(self):
         home = self.fresh()

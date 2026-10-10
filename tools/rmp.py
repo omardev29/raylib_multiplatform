@@ -1165,7 +1165,10 @@ RC_LINES = {
     "sh": 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; '
           '*) export PATH="$HOME/.local/bin:$PATH" ;; esac',
     "fish": "contains -- $HOME/.local/bin $PATH; or set -gx PATH $HOME/.local/bin $PATH",
-    "csh": 'setenv PATH "${HOME}/.local/bin:${PATH}"',
+    # csh and tcsh alike (OpenBSD's csh is the classic one, FreeBSD's is tcsh):
+    # a pattern match, so a second read adds nothing.
+    "csh": 'if ( ":${PATH}:" !~ *":${HOME}/.local/bin:"* ) '
+           'setenv PATH "${HOME}/.local/bin:${PATH}"',
 }
 
 KSH_NAMES = ("ksh", "ksh93", "mksh", "lksh", "oksh", "pdksh")
