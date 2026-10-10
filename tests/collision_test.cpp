@@ -48,6 +48,8 @@ struct Fixture {
         rmp::objects::detail::reset_for_tests();
         rmp::objects::detail::reset_pointer_for_tests();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() { rmp::objects::detail::reset_for_tests(); }
 };
 
@@ -1185,6 +1187,8 @@ struct Pointer {
         rmp::ui::detail::begin_capture_frame();
         rmp::input::detail::begin_frame(); // frame one has no edges
     }
+    Pointer(const Pointer &) = delete;
+    Pointer &operator=(const Pointer &) = delete;
     ~Pointer() {
         rmp::input::detail::reset();
         fake.devices = rmp::input::detail::DeviceState{};

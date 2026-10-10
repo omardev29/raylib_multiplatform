@@ -63,6 +63,8 @@ struct Fixture {
         rmp::input::detail::set_sample_provider(fake_sample);
         rmp::detail::reset_reports_for_tests();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::objects::detail::reset_behaviors_for_tests();

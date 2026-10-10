@@ -53,6 +53,8 @@ struct Fixture {
         rmp::audio::detail::reset_for_tests();
         device_opens.count = 0;
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() { rmp::audio::detail::reset_for_tests(); }
 };
 

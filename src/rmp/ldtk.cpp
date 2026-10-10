@@ -64,6 +64,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -83,8 +84,8 @@ using rmp::detail::Json;
 // 1.5 KB file of a dozen 4096 x 4096 layers take three quarters of a gigabyte.
 // 16M cells is all the layers of a 65 536 x 65 536 px level at 16 px; 4M tiles
 // is every tileset of a project, each a 32 768 px square of 16 px tiles.
-constexpr long long MAX_CELLS = 1LL << 24;
-constexpr long long MAX_TILES = 1LL << 22;
+constexpr std::int64_t MAX_CELLS = std::int64_t{ 1 } << 24;
+constexpr std::int64_t MAX_TILES = std::int64_t{ 1 } << 22;
 
 // A coordinate in cells, or false when it is not a finite number inside
 // 0..limit: a float past INT_MAX, an infinity or a NaN cast to int is
@@ -175,7 +176,7 @@ struct Project {
     const char *name = ""; // the file, for the messages
     std::vector<TilesetRef> tilesets;
     const cJSON *layer_defs = nullptr;
-    long long cells_left = MAX_CELLS; // what the level's layers may still allocate
+    std::int64_t cells_left = MAX_CELLS; // what the level's layers may still allocate
 };
 
 // Every tileset of the project gets a range of gids, used or not, so a gid
@@ -185,14 +186,14 @@ void read_tilesets(const cJSON *defs, Project *project, MapData *data) {
     // Gids start at 1 and never pass MAX_TILES + 1, so none of the sums below
     // can overflow an int whatever the file says.
     int next_gid = 1;
-    long long tiles_left = MAX_TILES;
+    std::int64_t tiles_left = MAX_TILES;
     const cJSON *set = nullptr;
     cJSON_ArrayForEach(set, array(defs, "tilesets")) {
         Tileset out;
         const int columns = integer(set, "__cWid", 0);
         const int rows = integer(set, "__cHei", 0);
-        const long long area =
-            columns > 0 && rows > 0 ? static_cast<long long>(columns) * rows : 0;
+        const std::int64_t area =
+            columns > 0 && rows > 0 ? static_cast<std::int64_t>(columns) * rows : 0;
         const int count = area <= tiles_left ? static_cast<int>(area) : 0;
         if (area > tiles_left) {
             TraceLog(LOG_WARNING,
@@ -436,7 +437,7 @@ void read_layer(const cJSON *layer, Project *project, MapData *data) {
     out.name = text(layer, "__identifier");
     out.width = std::max(0, integer(layer, "__cWid", 0));
     out.height = std::max(0, integer(layer, "__cHei", 0));
-    const long long area = static_cast<long long>(out.width) * out.height;
+    const std::int64_t area = static_cast<std::int64_t>(out.width) * out.height;
     if (area > project->cells_left) {
         TraceLog(LOG_WARNING,
                  "MAP: layer \"%s\" of [%s] is %d x %d cells, more than any real level "
@@ -592,8 +593,8 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
     // said once: most of it is the same, and saving it again fixes the rest.
     const char *version = text(root.get(), "jsonVersion");
     char *rest = nullptr;
-    const long major = std::strtol(version, &rest, 10);
-    const long minor =
+    const std::int64_t major = std::strtol(version, &rest, 10);
+    const std::int64_t minor =
         rest != version && *rest == '.' ? std::strtol(rest + 1, nullptr, 10) : 0;
     if (rest != version && (major < 1 || (major == 1 && minor < 5))) {
         RMP_REPORT_ONCE_KEYED(

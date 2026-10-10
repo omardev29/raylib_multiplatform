@@ -30,6 +30,8 @@ struct Fixture {
         strict.stops = 0;
         previous = rmp::detail::set_strict_handler(count_stop);
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::detail::set_strict(false);
         rmp::detail::set_strict_handler(previous);

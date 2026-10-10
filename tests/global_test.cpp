@@ -28,12 +28,16 @@ struct {
 // state between test cases.
 template <int N> struct Marker {
     Marker() { trace.log += "+"; }
+    Marker(const Marker &) = delete;
+    Marker &operator=(const Marker &) = delete;
     ~Marker() { trace.log += "-"; }
     int value = 0;
 };
 
 struct Named {
     explicit Named(const char *n = "?") : name(n) {}
+    Named(const Named &) = delete;
+    Named &operator=(const Named &) = delete;
     ~Named() { trace.log += name; }
     const char *name;
 };
@@ -54,6 +58,9 @@ struct Third : Named {
 // Reaches for another global from inside its own destructor, which is what
 // anything running during the teardown does without meaning to.
 struct Rebuilder {
+    Rebuilder() = default;
+    Rebuilder(const Rebuilder &) = delete;
+    Rebuilder &operator=(const Rebuilder &) = delete;
     ~Rebuilder() {
         trace.log += "R";
         rmp::global<Marker<6>>().value = 1;
@@ -65,6 +72,8 @@ struct Fixture {
         rmp::app::detail::shutdown_globals();
         trace.log.clear();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::app::detail::shutdown_globals();
         trace.log.clear();

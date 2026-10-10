@@ -70,6 +70,8 @@ struct Fixture {
         rmp::objects::detail::reset_for_tests();
         trace.log.clear();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() { rmp::objects::detail::reset_for_tests(); }
 };
 
@@ -457,6 +459,8 @@ struct Reports {
         previous = rmp::detail::set_strict_handler(count_stop);
         stops = 0;
     }
+    Reports(const Reports &) = delete;
+    Reports &operator=(const Reports &) = delete;
     ~Reports() {
         rmp::detail::set_strict(false);
         rmp::detail::set_strict_handler(previous);

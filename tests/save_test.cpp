@@ -53,6 +53,8 @@ static_assert(std::is_constructible_v<Value, bool>);
 static_assert(std::is_constructible_v<Value, int>);
 static_assert(std::is_constructible_v<Value, float>);
 static_assert(std::is_constructible_v<Value, double>);
+// Every arithmetic type a game might hold, the widest unsigned one among them.
+// NOLINTNEXTLINE(google-runtime-int)
 static_assert(std::is_constructible_v<Value, unsigned long long>);
 static_assert(std::is_constructible_v<Value, std::string>);
 static_assert(std::is_constructible_v<Value, std::string_view>);

@@ -43,6 +43,8 @@ struct Fixture {
         fake.devices = rmp::input::detail::DeviceState{};
         rmp::input::detail::set_sample_provider(fake_sample);
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::input::detail::reset();
         fake.devices = rmp::input::detail::DeviceState{};
@@ -613,6 +615,8 @@ TEST_SUITE("input consumption, against the real UI") {
             rmp::ui::detail::set_pointer_provider(ui_pointer);
             rmp::ui::detail::set_test_viewport(800, 450);
         }
+        HeadlessUi(const HeadlessUi &) = delete;
+        HeadlessUi &operator=(const HeadlessUi &) = delete;
         ~HeadlessUi() {
             rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
             rmp::ui::detail::set_pointer_provider(rmp::ui::detail::pointer_from_raylib);

@@ -85,6 +85,8 @@ struct Fixture {
         rmp::scenes::detail::shutdown();
         trace.log.clear();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::scenes::detail::shutdown();
         trace.log.clear();
@@ -130,6 +132,8 @@ struct HeadlessUi {
         rmp::ui::detail::set_pointer_provider(pointer_stub);
         rmp::ui::detail::set_test_viewport(1280, 720);
     }
+    HeadlessUi(const HeadlessUi &) = delete;
+    HeadlessUi &operator=(const HeadlessUi &) = delete;
     ~HeadlessUi() {
         fake_pointer.position = Clay_Vector2{ -1.0f, -1.0f };
         fake_pointer.down = false;

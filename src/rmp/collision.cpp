@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -537,15 +538,15 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     // budget proportional to what is actually in it, and the broad phase stays
     // a broad phase instead of falling back to the O(n^2) loop on exactly the
     // scenes that need it most.
-    const auto budget = static_cast<long long>(entries.size()) * 4 + 1024;
-    long long total_cells = 0;
+    const auto budget = static_cast<std::int64_t>(entries.size()) * 4 + 1024;
+    std::int64_t total_cells = 0;
     for (int step = 0; step < 64; ++step) {
         grid->min_x = cell_floor(x0, grid->cell);
         grid->min_y = cell_floor(y0, grid->cell);
         grid->cols = cell_floor(x1, grid->cell) - grid->min_x + 1;
         grid->rows = cell_floor(y1, grid->cell) - grid->min_y + 1;
         total_cells =
-            static_cast<long long>(grid->cols) * static_cast<long long>(grid->rows);
+            static_cast<std::int64_t>(grid->cols) * static_cast<std::int64_t>(grid->rows);
         if (total_cells <= budget) break;
         grid->cell *= 2;
     }
@@ -561,7 +562,7 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     // Counting sort, two passes. First how many entries each cell holds...
     const auto cells = static_cast<std::size_t>(total_cells);
     grid->starts.assign(cells + 1, 0);
-    long long total_items = 0;
+    std::int64_t total_items = 0;
     for (const Entry &e : entries) {
         const CellSpan s = span_of(e.swept, grid->cell);
         for (int cy = s.y0; cy <= s.y1; ++cy) {

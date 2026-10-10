@@ -21,6 +21,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <new>
 #include <string>
 #include <vector>
@@ -43,6 +44,8 @@ struct Fixture {
         rmp::objects::detail::reset_behaviors_for_tests();
         rmp::objects::detail::reset_pointer_for_tests();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::objects::detail::reset_behaviors_for_tests();
@@ -572,17 +575,19 @@ TEST_CASE_FIXTURE(Fixture, "by distance keeps the spacing even as the speed clim
     // And it does not drift: the second half averages the same as the first.
     const std::size_t half = d_gaps.size() / 2;
     const std::vector<float> first(d_gaps.begin(),
-                                   d_gaps.begin() + static_cast<long>(half));
-    const std::vector<float> second(d_gaps.begin() + static_cast<long>(half),
+                                   d_gaps.begin() + static_cast<std::ptrdiff_t>(half));
+    const std::vector<float> second(d_gaps.begin() + static_cast<std::ptrdiff_t>(half),
                                     d_gaps.end());
     CHECK(mean(second) == doctest::Approx(mean(first)).epsilon(0.1));
 
     // By time, with the same speed climbing, it drifts hard -- and that is the
     // whole reason this behavior has a distance mode at all.
-    CHECK(mean(std::vector<float>(t_gaps.begin() + static_cast<long>(t_gaps.size() / 2),
+    CHECK(mean(std::vector<float>(t_gaps.begin() +
+                                      static_cast<std::ptrdiff_t>(t_gaps.size() / 2),
                                   t_gaps.end())) >
-          mean(std::vector<float>(
-              t_gaps.begin(), t_gaps.begin() + static_cast<long>(t_gaps.size() / 2))) *
+          mean(std::vector<float>(t_gaps.begin(),
+                                  t_gaps.begin() +
+                                      static_cast<std::ptrdiff_t>(t_gaps.size() / 2))) *
               2);
 }
 

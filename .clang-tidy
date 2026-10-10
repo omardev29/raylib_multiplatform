@@ -374,11 +374,15 @@ CheckOptions:
     value: 'RMP_'
 
   # The style guide's options. A class whose copy is deleted is not asked for
-  # its moves (they are deleted with it), and a lone `= default` destructor is
-  # not a resource being managed.
+  # its moves (they are deleted with it); a lone `= default` destructor is not
+  # a resource being managed; and a class whose copy the language has already
+  # deleted -- a scene of a test, derived from rmp::Scene, which is not
+  # copyable -- would only repeat it.
   - key: cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted
     value: true
   - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: true
+  - key: cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove
     value: true
   # The macros that cannot be a function, by name, and why:
   #   RMP_GAME, RMP_ENTRY_POINT        code generated at file scope: main(), or

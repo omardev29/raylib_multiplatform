@@ -65,6 +65,8 @@ struct Fixture {
         REQUIRE(slot != nullptr);
         sprite.sheet = rmp::SpriteSheet{ slot };
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         sprite.sheet = rmp::SpriteSheet{};
         rmp::detail::release_all();

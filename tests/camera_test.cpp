@@ -52,6 +52,8 @@ struct Fixture {
         rmp::ui::detail::begin_capture_frame();
         rmp::input::detail::begin_frame();
     }
+    Fixture(const Fixture &) = delete;
+    Fixture &operator=(const Fixture &) = delete;
     ~Fixture() {
         rmp::objects::detail::reset_for_tests();
         rmp::input::detail::reset();
