@@ -39,14 +39,19 @@ static unsigned int md5_rol(unsigned int x, unsigned int c) {
 static void md5_block(unsigned int state[4], const unsigned char block[64]) {
     unsigned int m[16];
     for (int i = 0; i < 16; i++) {
-        m[i] = (unsigned int)block[i * 4]
-             | ((unsigned int)block[i * 4 + 1] << 8)
-             | ((unsigned int)block[i * 4 + 2] << 16)
-             | ((unsigned int)block[i * 4 + 3] << 24);
+        const unsigned char *word = block + (size_t)i * 4;
+        m[i] = (unsigned int)word[0]
+             | ((unsigned int)word[1] << 8)
+             | ((unsigned int)word[2] << 16)
+             | ((unsigned int)word[3] << 24);
     }
-    unsigned int a = state[0], b = state[1], c = state[2], d = state[3];
+    unsigned int a = state[0];
+    unsigned int b = state[1];
+    unsigned int c = state[2];
+    unsigned int d = state[3];
     for (int i = 0; i < 64; i++) {
-        unsigned int f, g;
+        unsigned int f;
+        unsigned int g;
         if (i < 16)      { f = (b & c) | (~b & d); g = i; }
         else if (i < 32) { f = (d & b) | (~d & c); g = (5 * i + 1) % 16; }
         else if (i < 48) { f = b ^ c ^ d;          g = (3 * i + 5) % 16; }

@@ -6260,6 +6260,66 @@ class LintWiringTest(unittest.TestCase):
         self.assertIn("RMP_REQUIRE_CLANG_TIDY", lint)
 
 
+class LintReadsTheCTest(unittest.TestCase):
+    """tools/lint.sh looked for *.cpp only, so the static analyzer had never
+    read a line of C here -- and tools/rres_pack.c, which every desktop release
+    runs, dereferenced the first allocation that failed. Every C file of ours
+    is linted now; tools/.clang-tidy keeps the analyzer and drops two checks
+    for the two tools, each with its reason."""
+
+    def listed(self) -> set[str]:
+        """What lint.sh's own `find` lines select, run here as written."""
+        import subprocess
+        text = (REPO / "tools" / "lint.sh").read_text()
+        finds = re.findall(r"^\s+(find [^\n]*\| sort)\)$", text, re.M)
+        self.assertGreaterEqual(len(finds), 2, "lint.sh no longer has its two file lists")
+        got = subprocess.run(["bash", "-c", "\n".join(finds)], cwd=REPO, capture_output=True,
+                             text=True)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        return set(got.stdout.split())
+
+    def test_every_c_file_of_ours_is_linted(self):
+        import subprocess
+        tracked = subprocess.run(["git", "-c", "safe.directory=*", "ls-files", "*.c"], cwd=REPO,
+                                 capture_output=True, text=True).stdout.split()
+        ours = sorted(f for f in tracked if not f.startswith(("thirdparty/", "raymob/"))
+                      and not f.endswith("_impl.c"))
+        for must in ("tools/rres_pack.c", "tools/md5.c", "examples/plain_c/src/main.c"):
+            self.assertIn(must, ours)
+        listed = self.listed()
+        for path in ours:
+            with self.subTest(path=path):
+                self.assertIn(path, listed)
+
+    def test_the_tools_keep_the_analyzer(self):
+        """tools/.clang-tidy inherits the root file and takes two checks off;
+        the analyzer is not one of them. Seen with a leak written in tools/."""
+        import shutil
+        import subprocess
+        tidy = shutil.which("clang-tidy")
+        if tidy is None:
+            if os.environ.get("RMP_REQUIRE_CLANG_TIDY") == "1":
+                self.fail("clang-tidy is required here (RMP_REQUIRE_CLANG_TIDY=1)")
+            self.skipTest("clang-tidy not installed")
+        tmp = Path(tempfile.mkdtemp(prefix=".tidy-probe-", dir=REPO / "tools"))
+        try:
+            probe = tmp / "probe.c"
+            probe.write_text("#include <stdlib.h>\n#include <string.h>\n"
+                             "int leaks(const char *s) {\n"
+                             "    char *copyOf = malloc(8);\n"
+                             "    if (!copyOf) return 0;\n"
+                             "    memcpy(copyOf, s, 8);\n"
+                             "    return copyOf[0];\n}\n")
+            got = subprocess.run([tidy, "--quiet", str(probe), "--", "-std=c11"],
+                                 capture_output=True, text=True)
+            said = got.stdout + got.stderr
+        finally:
+            shutil.rmtree(tmp)
+        self.assertIn("Potential leak of memory pointed to by 'copyOf'", said)
+        self.assertNotIn("readability-identifier-naming", said)
+        self.assertNotIn("DeprecatedOrUnsafeBufferHandling", said)
+
+
 class WorkflowSecretsInheritTest(unittest.TestCase):
     """A callee that reads `secrets.*` needs a caller that passes them.
 

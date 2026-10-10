@@ -1,0 +1,15 @@
+# tools/.clang-tidy -- tools/rres_pack.c and tools/md5.c, the two C programs
+# here, which tools/lint.sh lints with the root file's checks, the static
+# analyzer among them. Minus two, and each says why:
+#
+#   readability-identifier-naming   CLAUDE.md's naming table is for src/,
+#       tests/ and examples/. These write rres's format in rres's own style --
+#       camelCase locals, ComputeMD5 -- next to the rres.h they include.
+#   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+#       fires on every memcpy and fprintf in C11 code and asks for Annex K's
+#       memcpy_s, which glibc, musl, macOS and the BSDs do not implement. It
+#       never looks at C++, which is why the root file has never needed this.
+InheritParentConfig: true
+Checks: >
+  -readability-identifier-naming,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,

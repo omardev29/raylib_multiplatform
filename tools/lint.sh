@@ -36,6 +36,16 @@ files=()
 while IFS= read -r f; do files+=("$f"); done < <(
     find src tests examples -name '*.cpp' | grep -v _impl | grep -v 'tests/unit_test\.cpp' | sort)
 
+# And the C, which this skipped for as long as it only looked for .cpp: the
+# packer every desktop release runs (tools/rres_pack.c, tools/md5.c), the plain
+# C example, and the sanitizer defaults linked into every Debug executable.
+# The static analyzer had never read any of them, and tools/rres_pack.c had
+# NULL dereferences waiting for the first allocation that failed.
+# tools/.clang-tidy says what changes for the two tools. cjson_impl.c compiles
+# a vendored library, like the *_impl.cpp above.
+while IFS= read -r f; do files+=("$f"); done < <(
+    find src tests examples tools cmake -name '*.c' | grep -v _impl | grep -v generated | sort)
+
 python3 - "${files[@]}" <<'PY'
 import json
 import pathlib
