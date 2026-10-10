@@ -49,13 +49,3 @@
 #include <raylib-cpp/Vector2.hpp>
 #include <raylib-cpp/Vector3.hpp>
 #include <raylib-cpp/Vector4.hpp>
-
-// A couple of colours raylib does not ship. Add your own the same way — there
-// is nothing in the framework that depends on these. Constants and not macros,
-// like the rest of what we add: raylib's colours are macros because raylib is
-// C, and a macro of ours would share the preprocessor's one namespace with
-// raylib, the C library and your game.
-namespace rmp {
-inline constexpr Color ALICE_BLUE{ 0, 240, 248, 255 }; // a bright cyan blue
-inline constexpr Color GIORNO_GOLD{ 238, 207, 34, 255 }; // The Golden Experience
-} // namespace rmp
