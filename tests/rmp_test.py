@@ -1528,10 +1528,14 @@ class NewTest(unittest.TestCase):
         # ES 2.0 for a game; the framework compiles the ES 3.0 path in its CI.
         self.assertEqual(base["android"]["gl_version"], "ES30")
         self.assertEqual(mine["android"]["gl_version"], "ES20")
-        for table in ("project", "window", "android", "ios", "resources"):
+        # Sanitizers are the framework's always and a game's when it asks.
+        self.assertEqual(base["dev"]["sanitize"], ["address", "undefined"])
+        self.assertEqual(mine["dev"]["sanitize"], [])
+        for table in ("project", "window", "android", "ios", "resources", "dev"):
             mine[table] = dict(mine[table])
         mine["android"]["admob"] = dict(mine["android"]["admob"], enabled=True)
         mine["android"]["gl_version"] = base["android"]["gl_version"]
+        mine["dev"]["sanitize"] = base["dev"]["sanitize"]
         for key in ("name",):
             mine["project"][key] = base["project"][key]
         mine["window"]["title"] = base["window"]["title"]

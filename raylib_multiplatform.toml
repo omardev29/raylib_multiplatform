@@ -361,8 +361,10 @@ adaptive_background = "#3DDC84"
 disabled_modules = []
 
 [dev]
-# Local development only — the `debug` preset. CI builds `release`/`web` and is
-# unaffected by anything in this section.
+# Debug builds only, the ones that never ship: `rmp run`, `rmp test` and every
+# `debug` preset -- and the software-render check CI runs on every push (the
+# lint job, the BSD and macOS jobs), which is a Debug build too. The release
+# and web builds a player gets never read this section.
 # clang | gcc | mingw | msvc | default
 #
 # mingw looks for x86_64-w64-mingw32-gcc before plain `gcc`, which is what makes
@@ -371,6 +373,11 @@ disabled_modules = []
 compiler = "clang"
 linker   = "auto"    # auto | mold | lld | default
 strict   = false     # true: a framework warning aborts a DEBUG build
+# What a Debug build is instrumented with: address | undefined, or [] for none.
+# The framework lists both and `rmp new` writes [] for a game: turn them on
+# when you want the game's mistakes found where they happen instead of where
+# they crash. A compiler without the runtime builds without, and says so.
+sanitize = ["address", "undefined"]
 #
 # WHAT strict DOES: the framework warns once about the mistakes it can see --
 # an action nobody defined, a pop() with nothing underneath, an animation tag
@@ -379,7 +386,8 @@ strict   = false     # true: a framework warning aborts a DEBUG build
 # said it. Debug builds only: release presets define NDEBUG and the check is
 # compiled out, so nothing you ship can ever carry it.
 #
-# WHAT EACH ONE CAN ACTUALLY DO, because "faster linker" is not the whole story:
+# WHAT EACH linker CAN ACTUALLY DO, because "faster linker" is not the whole
+# story:
 #
 #   auto     try the fast ones, keep the first that LINKS, fall back to the
 #            system one. It never fails a build — it is a speed setting, and a
@@ -395,6 +403,25 @@ strict   = false     # true: a framework warning aborts a DEBUG build
 #            of trusting that the binary exists.
 #   default  whatever the platform uses. On macOS that is Apple's ld, which is
 #            already fast, so this is what `auto` settles on there.
+#
+# WHAT sanitize CATCHES, and what it costs. Each report stops the game at the
+# line that did it, with the stack that got there:
+#
+#   address    AddressSanitizer: a read or write past a buffer, a use after
+#              free or after return, and -- LeakSanitizer, part of it on Linux
+#              -- memory nobody freed, reported at exit. About twice as slow
+#              and three times the memory.
+#   undefined  UndefinedBehaviorSanitizer: a signed overflow, a shift past the
+#              width, a float cast to an int it does not fit, a misaligned or
+#              null access. Cheap.
+#
+# Debug only, on the desktop: release, web, Android and iOS never read it. MSVC
+# has address and not undefined, MinGW's GCC has neither, OpenBSD has no
+# address; configure.py refuses those. A missing runtime is the machine's, not
+# the .toml's: Linux clang needs compiler-rt (libclang-rt-<N>-dev on Debian and
+# Ubuntu), and without it the build goes on uninstrumented and warns.
+# thread, memory, leak, hwaddress, integer, implicit-conversion and fuzzer are
+# refused, each with its reason.
 
 [web]
 # How much memory the WebAssembly module is allowed.

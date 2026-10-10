@@ -450,7 +450,7 @@ DEFAULTS: dict = {
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
-    "dev": {"compiler": "clang", "linker": "auto", "strict": False},
+    "dev": {"compiler": "clang", "linker": "auto", "strict": False, "sanitize": []},
     "resources": {"rres_password": "raylib-template"},
     "deploy": {"licenses": True, "credits_note": "",
                "itch": {"user": "", "game": ""},
@@ -678,6 +678,31 @@ COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 ORIENTATIONS = {"landscape", "portrait", "unspecified"}
 GL_VERSIONS = {"ES20", "ES30"}
 LINKERS = {"auto", "mold", "lld", "default"}
+# [dev] sanitize: what a Debug build may be instrumented with. Two, because
+# they are the two that work on a game as it is -- the system's own libraries
+# uninstrumented, raylib and the game instrumented -- and together they catch
+# what a test cannot see: a read past a buffer, a use after free, a leak, a
+# signed overflow, a float cast past the range of its int.
+SANITIZERS = {"address", "undefined"}
+# Recognised, so the answer is the reason rather than "unknown sanitizer" to
+# somebody who read the compiler's manual and found a third one.
+SANITIZE_REFUSED = {
+    "thread": "ThreadSanitizer has to see every library the game runs, the system's audio "
+              "and GL drivers included, or it reports races that are not there -- and it "
+              "cannot be combined with address",
+    "memory": "MemorySanitizer needs every line instrumented down to the C++ standard "
+              "library, or it reports reads of memory that code it did not see initialised",
+    "leak": "LeakSanitizer is already part of address wherever the platform has it: list "
+            "\"address\"",
+    "hwaddress": "HWASan exists on AArch64 Linux and Android only, and Android never reads "
+                 "[dev]",
+    "integer": "it reports unsigned wrap-around, which is not undefined behaviour: Clay's "
+               "ids, the PCG random generator and md5 wrap on purpose",
+    "implicit-conversion": "it reports conversions that are defined behaviour, which "
+                           "raylib's float-and-int API makes on every call",
+    "fuzzer": "libFuzzer replaces main(): it is how the framework fuzzes its parsers, not a "
+              "way to build a game",
+}
 # android:appCategory: how the Play Store files the app.
 APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",
                   "maps", "productivity", "accessibility"}
@@ -766,8 +791,8 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if not isinstance(cfg["dev"]["strict"], bool):
         raise ConfigError(
             f"[dev] strict = {cfg['dev']['strict']!r} must be true or false.\n"
-            "true makes a framework warning fatal in a debug build; release builds and "
-            "CI never read it.")
+            "true makes a framework warning fatal in a debug build; release builds never "
+            "read it.")
 
     web_memory = cfg["web"]["memory"]
     if not isinstance(web_memory, int) or web_memory < 16 or web_memory > 4096:
@@ -1030,10 +1055,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # what tests/configure_test.py caught.
     one_of(cfg["dev"]["linker"], LINKERS, "[dev] linker")
 
-    # mingw and msvc are Windows toolchains, and [dev] is local development only
-    # — CI builds the release preset, which never reads this section. On Linux,
-    # asking for mingw finds the cross-compiler and quietly produces a .exe you
-    # cannot run; asking for msvc finds nothing and falls back.
+    # mingw and msvc are Windows toolchains, and [dev] is for this machine's
+    # Debug builds -- release builds never read it. On Linux, asking for mingw
+    # finds the cross-compiler and quietly produces a .exe you cannot run;
+    # asking for msvc finds nothing and falls back.
     #
     # CMake already refuses this, and that refusal stays as the backstop. It is
     # ALSO here because a configuration mistake is not allowed to cost a
@@ -1042,8 +1067,8 @@ def validate(cfg: dict, strict_release: bool) -> None:
         raise ConfigError(
             f"[dev] compiler = {cfg['dev']['compiler']!r} is a Windows toolchain, and this "
             f"is {platform.system()}.\n"
-            "It is for local development, and CI never reads this section — so it can only "
-            "mean this machine.\n"
+            "It is for this machine's Debug builds, and release builds never read it — so it "
+            "can only mean this machine.\n"
             "Use \"clang\", \"gcc\" or \"default\" here. Cross-compiling for Windows is what "
             "the windows-x64 target does, from [targets].")
 
@@ -1061,6 +1086,49 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"[dev] linker = \"mold\" cannot work on {where}. mold links ELF only — its own "
             "--help lists elf32-i386, elf64-x86-64 and friends, and no PE/COFF or Mach-O.\n"
             "Use \"lld\", or \"auto\" to let the build pick whatever actually links here.")
+
+    # [dev] sanitize: the names first, then what this compiler and this machine
+    # can do with them. A compiler that has no runtime for one is not a
+    # mistake in the .toml -- that is cmake/sanitize.cmake's probe, which runs
+    # a sanitized program and warns. What is refused here can never work.
+    sanitize = cfg["dev"]["sanitize"]
+    list_of_strings(sanitize, "[dev] sanitize", 'For example sanitize = ["address", "undefined"], '
+                    "or [] for none.")
+    for name in sanitize:
+        if name in SANITIZE_REFUSED:
+            raise ConfigError(
+                f"[dev] sanitize: {name!r} is refused -- {SANITIZE_REFUSED[name]}.\n"
+                'Use "address" and "undefined", or [] for none.')
+        if name not in SANITIZERS:
+            import difflib
+            if "," in name:
+                hint = " One name per string: [" + ", ".join(
+                    repr(n.strip()) for n in name.split(",")) + "]."
+            else:
+                near = difflib.get_close_matches(name, sorted(SANITIZERS | set(SANITIZE_REFUSED)),
+                                                 n=1)
+                hint = f" Did you mean {near[0]!r}?" if near else ""
+            raise ConfigError(
+                f"[dev] sanitize: unknown sanitizer {name!r}.{hint}\n"
+                "The ones a Debug build can have: address, undefined.")
+    if len(set(sanitize)) != len(sanitize):
+        raise ConfigError(f"[dev] sanitize = {sanitize!r} lists a sanitizer twice.")
+    if cfg["dev"]["compiler"] == "msvc" and "undefined" in sanitize:
+        raise ConfigError(
+            "[dev] sanitize lists \"undefined\", and [dev] compiler = \"msvc\" has no "
+            "UndefinedBehaviorSanitizer: MSVC's /fsanitize takes address and nothing else.\n"
+            'Use sanitize = ["address"] with msvc, or [dev] compiler = "clang" for both.')
+    if cfg["dev"]["compiler"] == "mingw" and sanitize:
+        raise ConfigError(
+            "[dev] sanitize cannot work with [dev] compiler = \"mingw\": MinGW-w64's GCC "
+            "ships no sanitizer runtime, so a sanitized program does not link.\n"
+            'Use sanitize = [], or [dev] compiler = "clang" from MSYS2\'s CLANG64 '
+            "environment, which has both.")
+    if platform.system() == "OpenBSD" and "address" in sanitize:
+        raise ConfigError(
+            "[dev] sanitize lists \"address\", and OpenBSD's clang has no AddressSanitizer: "
+            "the compiler refuses -fsanitize=address for an OpenBSD target.\n"
+            'Use sanitize = ["undefined"] or [] on OpenBSD.')
 
     # [icon] source had no check at all: `source = 5` passed and died in
     # generate_icons() with a TypeError, and "" named the repository itself.
@@ -1611,6 +1679,18 @@ set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
         ]
     write(REPO / "cmake" / "generated" / "dev_toolchain.cmake", "\n".join(dev) + "\n")
     gen_dev_linker(cfg)
+    gen_dev_sanitize(cfg)
+
+
+def gen_dev_sanitize(cfg: dict) -> None:
+    """[dev] sanitize, for cmake/sanitize.cmake: a CMake list. Which of them a
+    compiler can actually give is decided there, by running a program."""
+    names = ";".join(cfg["dev"]["sanitize"])
+    write(REPO / "cmake" / "generated" / "dev_sanitize.cmake",
+          f"# {GEN_HEADER}\n#\n"
+          "# [dev] sanitize. Debug builds on the desktop only; cmake/sanitize.cmake\n"
+          "# applies what the compiler can run and warns about the rest.\n"
+          f'set(RMP_DEV_SANITIZE "{names}")\n')
 
 
 # The linker is its own generated file, and its own include, for a reason that
@@ -2561,6 +2641,7 @@ ALLOWED_ITEMS = {
     "upx.enabled": lambda: sorted(set(UPX_GROUPS) | set(UPX_TARGETS)),
     "upx.disabled": lambda: sorted(set(UPX_GROUPS) | set(UPX_TARGETS)),
     "raylib.disabled_modules": lambda: sorted(OPTIONAL_MODULES),
+    "dev.sanitize": lambda: sorted(SANITIZERS),
 }
 
 

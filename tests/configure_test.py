@@ -1800,6 +1800,7 @@ class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
         ("upx", "enabled"): "no compression",
         ("upx", "disabled"): "nothing subtracted",
         ("raylib", "disabled_modules"): "every module",
+        ("dev", "sanitize"): "a Debug build with no sanitizer",
     }
     # A free-form passthrough: its keys are Xcode's, not ours.
     SKIP = {("ios", "settings")}
@@ -2706,6 +2707,158 @@ class ConfigureHostToolchainTest(unittest.TestCase):
             for system in ("Linux", "Windows", "Darwin"):
                 with self.subTest(compiler=compiler, system=system):
                     self.assertIsNone(self.check(compiler, system))
+
+
+class ConfigureSanitizeTest(unittest.TestCase):
+    """[dev] sanitize: which sanitizers a Debug build is instrumented with.
+
+    Every refusal here is something that can never work -- a sanitizer a game
+    cannot use, a compiler that has no runtime for it, a platform whose clang
+    refuses the flag. A compiler that merely lacks the runtime on THIS machine
+    is not refused: cmake/sanitize.cmake runs a sanitized program and warns.
+    Each refusal names the `[dev] sanitize` line, says why, and says what to
+    write instead."""
+
+    def outcome(self, sanitize, compiler="clang", system="Linux"):
+        cfg = base_config(dev={"compiler": compiler, "linker": "auto", "sanitize": sanitize})
+        original = cfgmod.platform.system
+        cfgmod.platform.system = lambda: system
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+            return None
+        except cfgmod.ConfigError as exc:
+            where = cfgmod.locate_from(exc)
+            self.assertIsNotNone(where, f"{exc} cannot be located")
+            self.assertRegex(where[1], r"^sanitize\s*=",
+                             f"{exc} is not located at the [dev] sanitize line")
+            return str(exc)
+        finally:
+            cfgmod.platform.system = original
+
+    VALID = ([], ["address"], ["undefined"], ["address", "undefined"], ["undefined", "address"])
+
+    def test_the_valid_lists_on_every_desktop(self):
+        for system in ("Linux", "Darwin", "FreeBSD", "NetBSD", "Windows"):
+            for sanitize in self.VALID:
+                with self.subTest(system=system, sanitize=sanitize):
+                    self.assertIsNone(self.outcome(sanitize, system=system))
+
+    # name -> the words of its reason, which is what makes it more than a no.
+    REFUSED = {
+        "thread": "cannot be combined with address",
+        "memory": "down to the C++ standard library",
+        "leak": "already part of address",
+        "hwaddress": "AArch64 Linux and Android only",
+        "integer": "not undefined behaviour",
+        "implicit-conversion": "defined behaviour",
+        "fuzzer": "replaces main()",
+    }
+
+    def test_every_refused_sanitizer_says_why(self):
+        self.assertEqual(set(self.REFUSED), set(cfgmod.SANITIZE_REFUSED))
+        for name, why in self.REFUSED.items():
+            with self.subTest(name=name):
+                message = self.outcome(["address", name])
+                self.assertIsNotNone(message, f"{name} accepted")
+                self.assertIn("[dev] sanitize", message)
+                self.assertIn(f"{name!r} is refused", message)
+                self.assertIn(why, message)
+                self.assertIn('Use "address" and "undefined"', message)
+
+    def test_an_unknown_name_gets_the_nearest_one(self):
+        for typo, near in (("adress", "address"), ("undefinded", "undefined"),
+                           ("Address", "address"), ("threads", "thread")):
+            with self.subTest(typo=typo):
+                message = self.outcome([typo])
+                self.assertIn(f"unknown sanitizer {typo!r}", message)
+                self.assertIn(f"Did you mean {near!r}?", message)
+                self.assertIn("address, undefined", message)
+
+    def test_a_comma_list_in_one_string_is_told_to_split(self):
+        """What -fsanitize= spells with commas, TOML spells as two strings."""
+        message = self.outcome(["address,undefined"])
+        self.assertIn("unknown sanitizer 'address,undefined'", message)
+        self.assertIn("One name per string: ['address', 'undefined']", message)
+
+    def test_nothing_near_is_not_guessed(self):
+        message = self.outcome(["xyzzy"])
+        self.assertIn("unknown sanitizer 'xyzzy'", message)
+        self.assertNotIn("Did you mean", message)
+        self.assertIn("unknown sanitizer ''", self.outcome([""]))
+
+    def test_twice_is_a_mistake(self):
+        self.assertIn("lists a sanitizer twice", self.outcome(["address", "address"]))
+
+    def test_the_wrong_types(self):
+        for value, said in (("address", "is a string, and this has to be a list"),
+                            (True, "has to be a list of strings"),
+                            (["address", 1], "has to be a list of strings"),
+                            ({"address": True}, "has to be a list of strings")):
+            with self.subTest(value=value):
+                message = self.outcome(value)
+                self.assertIn("[dev] sanitize", message)
+                self.assertIn(said, message)
+
+    def test_msvc_has_address_and_not_undefined(self):
+        self.assertIsNone(self.outcome(["address"], compiler="msvc", system="Windows"))
+        for sanitize in (["undefined"], ["address", "undefined"]):
+            with self.subTest(sanitize=sanitize):
+                message = self.outcome(sanitize, compiler="msvc", system="Windows")
+                self.assertIn("has no UndefinedBehaviorSanitizer", message)
+                self.assertIn('sanitize = ["address"]', message)
+
+    def test_mingw_has_none(self):
+        self.assertIsNone(self.outcome([], compiler="mingw", system="Windows"))
+        for sanitize in (["address"], ["undefined"], ["address", "undefined"]):
+            for system in ("Windows", "MINGW64_NT-10.0-26100"):
+                with self.subTest(sanitize=sanitize, system=system):
+                    message = self.outcome(sanitize, compiler="mingw", system=system)
+                    self.assertIn("ships no sanitizer runtime", message)
+                    self.assertIn("CLANG64", message)
+
+    def test_openbsd_has_no_address(self):
+        self.assertIsNone(self.outcome(["undefined"], system="OpenBSD"))
+        self.assertIsNone(self.outcome([], system="OpenBSD"))
+        message = self.outcome(["address", "undefined"], system="OpenBSD")
+        self.assertIn("OpenBSD's clang has no AddressSanitizer", message)
+        self.assertIn('sanitize = ["undefined"]', message)
+
+    def test_it_reaches_cmake_as_a_list(self):
+        for sanitize, line in ((["address", "undefined"], 'set(RMP_DEV_SANITIZE "address;undefined")'),
+                               ([], 'set(RMP_DEV_SANITIZE "")')):
+            captured = {}
+            original = cfgmod.write
+            cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+            try:
+                cfgmod.gen_dev_sanitize(base_config(dev={"sanitize": sanitize}))
+            finally:
+                cfgmod.write = original
+            with self.subTest(sanitize=sanitize):
+                self.assertIn(line, captured["dev_sanitize.cmake"])
+
+    def test_gen_cmake_writes_it(self):
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+        try:
+            with quiet():
+                cfgmod.gen_cmake(base_config())
+        finally:
+            cfgmod.write = original
+        self.assertIn("dev_sanitize.cmake", captured)
+
+    def test_the_schema_offers_the_two(self):
+        self.assertEqual(cfgmod.ALLOWED_ITEMS["dev.sanitize"](), ["address", "undefined"])
+
+    def test_the_toml_comment_names_what_validate_takes_and_refuses(self):
+        section = toml_section("dev")
+        self.assertIn("address | undefined, or [] for none", section)
+        for name in cfgmod.SANITIZE_REFUSED:
+            with self.subTest(refused=name):
+                self.assertRegex(section, rf"#[^\n]*\b{re.escape(name)}\b")
+        self.assertNotIn("CI builds `release`/`web` and is\n# unaffected", section,
+                         "the render check CI runs on every push is a Debug build")
 
 
 class ConfigureWebBackendTest(unittest.TestCase):
