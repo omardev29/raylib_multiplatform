@@ -230,7 +230,8 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     data->tile_width = raw->tilewidth;
     data->tile_height = raw->tileheight;
 
-    for (cute_tiled_tileset_t *set = raw->tilesets; set != nullptr; set = set->next) {
+    for (const cute_tiled_tileset_t *set = raw->tilesets; set != nullptr;
+         set = set->next) {
         // AN EXTERNAL TILESET. Tiled's New Tileset dialog does not embed by
         // default, so the map holds nothing but {"firstgid":1,"source":"x.tsj"}
         // and cute_tiled leaves every other field of it zero. That used to be
@@ -271,7 +272,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         out.solid.assign(
             static_cast<std::size_t>(from->tilecount > 0 ? from->tilecount : 0), false);
 
-        for (cute_tiled_tile_descriptor_t *tile = from->tiles; tile != nullptr;
+        for (const cute_tiled_tile_descriptor_t *tile = from->tiles; tile != nullptr;
              tile = tile->next) {
             for (int i = 0; i < tile->property_count; ++i) {
                 const cute_tiled_property_t &p = tile->properties[i];
@@ -292,7 +293,8 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         if (external != nullptr) cute_tiled_free_map(external);
     }
 
-    for (cute_tiled_layer_t *layer = raw->layers; layer != nullptr; layer = layer->next) {
+    for (const cute_tiled_layer_t *layer = raw->layers; layer != nullptr;
+         layer = layer->next) {
         const char *type = layer->type.ptr != nullptr ? layer->type.ptr : "";
         const char *klass = layer->class_.ptr != nullptr ? layer->class_.ptr : "";
 
@@ -305,7 +307,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
             // not, which is exactly the sort of asymmetry a test finds and
             // reading does not.
             const std::size_t before = data->objects.size();
-            for (cute_tiled_object_t *object = layer->objects; object != nullptr;
+            for (const cute_tiled_object_t *object = layer->objects; object != nullptr;
                  object = object->next) {
                 auto info = std::make_unique<ObjectInfo>();
                 info->name = object->name.ptr != nullptr ? object->name.ptr : "";

@@ -519,7 +519,7 @@ TEST_CASE_FIXTURE(Fixture, "by distance keeps the spacing even as the speed clim
     // THE reason this is not a Timer. With the speed rising, "every N seconds"
     // spaces the obstacles further and further apart and the game gets EASIER
     // the faster you go, which is the opposite of the intention.
-    World world;
+    const World world;
     std::vector<float> by_distance;
     std::vector<float> by_time;
 
@@ -563,7 +563,7 @@ TEST_CASE_FIXTURE(Fixture, "by distance keeps the spacing even as the speed clim
     // which is two halves of a correct 200 rather than a fault.
     auto mean = [](const std::vector<float> &v) {
         float total = 0;
-        for (float x : v) total += x;
+        for (const float x : v) total += x;
         return total / static_cast<float>(v.size());
     };
     CHECK(mean(d_gaps) == doctest::Approx(200).epsilon(0.02));

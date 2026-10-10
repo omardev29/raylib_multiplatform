@@ -373,7 +373,8 @@ void step() {
             break;
         case Phase::JUMP_MEASURE: {
             auto *level = top<game::LevelScene>();
-            game::Player *p = level != nullptr ? first<game::Player>(*level) : nullptr;
+            const game::Player *p =
+                level != nullptr ? first<game::Player>(*level) : nullptr;
             const game::Platform *platform =
                 level != nullptr ? first<game::Platform>(*level) : nullptr;
             if (p == nullptr || platform == nullptr) {

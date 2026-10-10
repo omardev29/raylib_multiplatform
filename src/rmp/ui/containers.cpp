@@ -178,7 +178,7 @@ void open_panel(const PanelOptions &o) {
                          o.box.padding < 0 ? t.panel_padding : o.box.padding);
     d.backgroundColor = to_clay(transparent(o.background) ? t.panel : o.background);
 
-    float r = px(o.radius < 0 ? t.corner_radius : o.radius);
+    const float r = px(o.radius < 0 ? t.corner_radius : o.radius);
     d.cornerRadius = Clay_CornerRadius{ r, r, r, r };
 
     if (!transparent(o.border)) {
@@ -272,14 +272,14 @@ void open_grid(const GridOptions &o) {
     // knowing how wide it was last frame: an unnamed one is "grid" counted by
     // its order in the pass, so it is measured just the same, and only a grid
     // that comes and goes before it can make it borrow another's width.
-    Clay_ElementId grid_id =
+    const Clay_ElementId grid_id =
         !o.id.empty() ? element_id(o.id, o.id) : element_id("grid", {});
 
     int columns = o.columns;
     if (columns <= 0) {
         Clay_BoundingBox box{};
         if (bounds_of_id(grid_id, &box) && box.width > 0) {
-            float cell = px(o.min_cell) + px(o.gap < 0 ? t.gap : o.gap);
+            const float cell = px(o.min_cell) + px(o.gap < 0 ? t.gap : o.gap);
             columns = static_cast<int>(box.width / (cell > 1 ? cell : 1));
         }
     }
@@ -369,7 +369,7 @@ void open_scroll(const ScrollOptions &o) {
     const Theme &t = current_theme();
     // Named or not, a scroll area gets an id: hit testing has to know where the
     // area is to decide whether what is inside it is on screen at all.
-    Clay_ElementId clip_id =
+    const Clay_ElementId clip_id =
         !o.id.empty() ? element_id(o.id, o.id) : element_id("scroll", {});
 
     Clay_ElementDeclaration d{};
@@ -445,8 +445,8 @@ void image(const Texture2D &texture, const ImageOptions &o) {
     } else {
         // Its own pixel Size by default, scaled like everything else, so an
         // icon does not shrink into nothing on a big screen.
-        float w = o.width > 0 ? o.width : static_cast<float>(texture.width);
-        float h = o.height > 0 ? o.height : static_cast<float>(texture.height);
+        const float w = o.width > 0 ? o.width : static_cast<float>(texture.width);
+        const float h = o.height > 0 ? o.height : static_cast<float>(texture.height);
         d.layout.sizing.width = axis(false, w);
         d.layout.sizing.height = axis(false, h);
     }
@@ -494,8 +494,8 @@ void progress(float fraction, const ProgressOptions &o) {
     if (fraction < 0.0f) fraction = 0.0f;
     if (fraction > 1.0f) fraction = 1.0f;
 
-    float h = o.height < 0 ? t.font_size * 0.6f : o.height;
-    float r = o.radius < 0 ? h * 0.5f : o.radius;
+    const float h = o.height < 0 ? t.font_size * 0.6f : o.height;
+    const float r = o.radius < 0 ? h * 0.5f : o.radius;
 
     Clay_ElementDeclaration track{};
     track.layout.sizing.width = axis(o.width <= 0, o.width);

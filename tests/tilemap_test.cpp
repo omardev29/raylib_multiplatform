@@ -240,7 +240,7 @@ TEST_CASE_FIXTURE(Fixture, "an unregistered class becomes a plain solid object")
     REQUIRE(world.object_count() == 2);
 
     const std::vector<rmp::Object *> all = rmp::objects::detail::live_objects(world);
-    for (rmp::Object *object : all) {
+    for (const rmp::Object *object : all) {
         CHECK(object->solid);
         CHECK(object->immovable);
         CHECK(object->world_collider().width > 0);
@@ -444,7 +444,7 @@ Parsed with_image(const char *image) {
     const std::string::size_type at = text.find("\"tiles.png\"");
     REQUIRE(at != std::string::npos);
     text.replace(at, std::strlen("\"tiles.png\""), std::string("\"") + image + "\"");
-    std::vector<unsigned char> edited(text.begin(), text.end());
+    const std::vector<unsigned char> edited(text.begin(), text.end());
     return { edited, "map_minimal.json" };
 }
 
@@ -567,10 +567,10 @@ TEST_CASE_FIXTURE(Fixture, "a point or a zero-size object is a marker, not a wal
         return nullptr;
     };
 
-    rmp::Object *chest = at({ 8, 8 }); // a 16x16 tile object, anchored bottom-left
-    rmp::Object *wall = at({ 56, 8 }); // a 16x16 rectangle
-    rmp::Object *point = at({ 32, 32 }); // a Tiled point: 0 by 0
-    rmp::Object *line = at({ 8, 48 }); // a polyline, which is also 0 by 0
+    const rmp::Object *chest = at({ 8, 8 }); // a 16x16 tile object, anchored bottom-left
+    const rmp::Object *wall = at({ 56, 8 }); // a 16x16 rectangle
+    const rmp::Object *point = at({ 32, 32 }); // a Tiled point: 0 by 0
+    const rmp::Object *line = at({ 8, 48 }); // a polyline, which is also 0 by 0
     REQUIRE(chest != nullptr);
     REQUIRE(wall != nullptr);
     REQUIRE(point != nullptr);

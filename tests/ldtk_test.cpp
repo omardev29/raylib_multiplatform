@@ -384,7 +384,7 @@ TEST_SUITE("ldtk") {
         p.map.spawn_objects(world);
         CHECK(doors == 1);
         CHECK(world.object_count() == 2); // the player and the enemy, plain
-        for (rmp::Object *o : rmp::objects::detail::live_objects(world)) {
+        for (const rmp::Object *o : rmp::objects::detail::live_objects(world)) {
             CHECK_FALSE(o->solid);
             CHECK(o->shape.size.x > 0); // they DO have an area
         }
@@ -675,7 +675,7 @@ TEST_SUITE("ldtk") {
                 const Kind general[] = { STRING, ARRAY, NUL, OBJECT, HUGE_UP };
                 kinds = { general[n % 5], general[(n + 1) % 5] };
             }
-            for (Kind kind : kinds) {
+            for (const Kind kind : kinds) {
                 const Json copy(cJSON_Duplicate(original.get(), 1));
                 cJSON *parent = copy.get();
                 for (std::size_t d = 0; d + 1 < node.path.size(); ++d) {
@@ -990,8 +990,9 @@ TEST_SUITE("ldtk") {
         const std::string text = text_of("Test_file_for_API_showing_all_features.ldtk");
         const Parsed p(text, "Test_file_for_API_showing_all_features.ldtk");
         REQUIRE(p.map.valid());
-        const char *expected[] = { "Tiles", "IntGrid_with_rules", "IntGrid_without_rules",
-                                   "PureAutoLayer", "IntGrid_8px_grid" };
+        const char *const expected[] = { "Tiles", "IntGrid_with_rules",
+                                         "IntGrid_without_rules", "PureAutoLayer",
+                                         "IntGrid_8px_grid" };
         REQUIRE(p.data->layers.size() == 5);
         for (std::size_t i = 0; i < 5; ++i) CHECK(p.data->layers[i].name == expected[i]);
         CHECK(p.data->layers[4].cell_width == 8);
@@ -1106,7 +1107,7 @@ TEST_SUITE("ldtk") {
         int goals = 0;
         int keys = 0;
         std::string level;
-        Parsed first(text, "world.ldtk");
+        const Parsed first(text, "world.ldtk");
         REQUIRE(first.map.valid());
         level = first.map.level();
         std::vector<std::string> visited;

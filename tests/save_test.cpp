@@ -313,8 +313,11 @@ TEST_SUITE("save: Value") {
         const Value v = "yes";
         CHECK(v.type() == Value::Type::STRING);
         CHECK(v.as_string() == "yes");
+        // A settings struct's char array: mutable, and a C array, because that
+        // is the thing this converts.
+        // NOLINTNEXTLINE(misc-const-correctness,modernize-avoid-c-arrays)
         char buffer[8] = "Player";
-        const Value from_buffer = buffer; // a char array in a settings struct
+        const Value from_buffer = buffer;
         CHECK(from_buffer.as_string() == "Player");
         CHECK(Value("x").type() == Value::Type::STRING);
         CHECK(Value("x").as_string() == "x");

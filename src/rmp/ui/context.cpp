@@ -300,7 +300,7 @@ void on_clay_error(Clay_ErrorData e) {
 
 uint32_t fnv1a(std::string_view s) {
     uint32_t h = 2166136261u;
-    for (char c : s) {
+    for (const char c : s) {
         h ^= static_cast<unsigned char>(c);
         h *= 16777619u;
     }
@@ -324,12 +324,13 @@ bool ensure_started() {
     // on a phone, and pure waste everywhere.
     Clay_SetMaxElementCount(RMP_UI_MAX_ELEMENTS);
 
-    uint32_t size = Clay_MinMemorySize();
+    const uint32_t size = Clay_MinMemorySize();
     // new[] of char is aligned for anything Clay puts in it (the default new
     // alignment is 16 on every toolchain here); Clay itself only needs 8.
     context.arena = std::make_unique<unsigned char[]>(size);
 
-    Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, context.arena.get());
+    const Clay_Arena arena =
+        Clay_CreateArenaWithCapacityAndMemory(size, context.arena.get());
     Clay_Initialize(arena, viewport(), Clay_ErrorHandler{ on_clay_error, nullptr });
     Clay_SetMeasureTextFunction(providers.measure, nullptr);
 
@@ -365,9 +366,9 @@ void update_scale() {
         // Against the design resolution declared in [window]. min(), not max():
         // a UI that does not fit is worse than one with room to spare, so the
         // tighter axis wins and everything stays on screen.
-        Clay_Dimensions v = viewport();
-        float sx = v.width / static_cast<float>(RMP_WINDOW_WIDTH);
-        float sy = v.height / static_cast<float>(RMP_WINDOW_HEIGHT);
+        const Clay_Dimensions v = viewport();
+        const float sx = v.width / static_cast<float>(RMP_WINDOW_WIDTH);
+        const float sy = v.height / static_cast<float>(RMP_WINDOW_HEIGHT);
         float s = sx < sy ? sx : sy;
         if (s < 0.5f) s = 0.5f;
         if (s > 4.0f) s = 4.0f;
@@ -393,7 +394,7 @@ void set_scale_override(float s) {
     // longest ago -- but not one used this frame.
     FontFace *free_slot = nullptr;
     FontFace *stale = nullptr;
-    FontFace *nearest = nullptr;
+    const FontFace *nearest = nullptr;
     for (FontFace &face : font.faces) {
         if (face.size == wanted) {
             face.frame = font.frame;
@@ -415,7 +416,7 @@ void set_scale_override(float s) {
     // where the alternative is a texture pulled out from under the batch.
     if (room == nullptr) return nearest->handle.raw();
 
-    rmp::Font baked = providers.font(configured_font(), wanted);
+    const rmp::Font baked = providers.font(configured_font(), wanted);
     if (baked.raw().glyphCount <= 0) {
         RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
                         configured_font());
@@ -439,7 +440,7 @@ void reset_frame_arena() { text_arena.used = 0; }
 void *frame_alloc(size_t bytes) {
     // Everything stored here is at most pointer-aligned, so rounding the
     // cursor up to 8 is enough and costs a few bytes a frame.
-    int aligned = (text_arena.used + 7) & ~7;
+    const int aligned = (text_arena.used + 7) & ~7;
     if (aligned + static_cast<int>(bytes) > ARENA_SIZE) return nullptr;
     void *p = text_arena.bytes + aligned;
     text_arena.used = aligned + static_cast<int>(bytes);
@@ -518,7 +519,7 @@ void capture_pass_bounds() {
         }
         Clay_ElementId key{};
         key.id = this_pass.ids[i].id;
-        Clay_ElementData d = Clay_GetElementData(key);
+        const Clay_ElementData d = Clay_GetElementData(key);
         if (!d.found) continue;
         bounds.entries[bounds.front][count++] =
             BoundsEntry{ this_pass.ids[i].id, this_pass.ids[i].clip, d.boundingBox };
@@ -607,7 +608,7 @@ void prepare_frame() {
     // click would scroll as many notches as there are scenes on the stack.
     // Drag scrolling is on because on a phone it is the only way to scroll
     // anything; the wheel is the desktop half of the same gesture.
-    Vector2 wheel = GetMouseWheelMoveV();
+    const Vector2 wheel = GetMouseWheelMoveV();
     Clay_UpdateScrollContainers(true, Clay_Vector2{ wheel.x * 30.0f, wheel.y * 30.0f },
                                 frame_time());
 
@@ -651,7 +652,7 @@ Clay_ElementId peek_element_id(std::string_view label, unsigned occurrence, int 
     // mean an element created one way could never be found the other way. That
     // is precisely how the headless test failed to see a panel that was on
     // screen.
-    Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
+    const Clay_String s{ false, static_cast<int32_t>(label.size()), label.data() };
     return Clay_GetElementIdWithIndex(
         s, static_cast<uint32_t>(pass) * INDICES_PER_PASS + occurrence);
 }
@@ -679,7 +680,7 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
     // else is on screen" — so it never counts as an occurrence of anything.
     if (!explicit_id.empty()) return finish_id(explicit_id, 0);
 
-    uint32_t h = fnv1a(label);
+    const uint32_t h = fnv1a(label);
     uint16_t occurrence = 0;
     int slot = -1;
     for (int i = 0; i < labels.count; ++i) {
@@ -725,13 +726,13 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void * /*unused*/) {
     auto size = static_cast<float>(config->fontSize);
-    ::Font f = ui_font(size);
-    Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
+    const ::Font f = ui_font(size);
+    const Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
     return Clay_Dimensions{ m.x, m.y };
 }
 
 void pointer_from_raylib(Clay_Vector2 *position, bool *down) {
-    Vector2 p = GetMousePosition();
+    const Vector2 p = GetMousePosition();
     *position = Clay_Vector2{ p.x, p.y };
     *down = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 }
@@ -757,10 +758,10 @@ void nav_from_raylib(NavState *out) {
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) y -= 1;
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) x += 1;
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) x -= 1;
-        float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+        const float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
         if (ly > 0.5f) y += 1;
         if (ly < -0.5f) y -= 1;
-        float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+        const float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
         if (lx > 0.5f) x += 1;
         if (lx < -0.5f) x -= 1;
         submit = submit || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
@@ -827,7 +828,8 @@ Clay_Dimensions viewport() {
 
 bool bounds_of(std::string_view label, unsigned occurrence, int pass,
                Clay_BoundingBox *out) {
-    Clay_ElementData data = Clay_GetElementData(peek_element_id(label, occurrence, pass));
+    const Clay_ElementData data =
+        Clay_GetElementData(peek_element_id(label, occurrence, pass));
     if (!data.found) return false;
     if (out != nullptr) *out = data.boundingBox;
     return true;
@@ -1098,7 +1100,7 @@ void set_scale(float s) { detail::set_scale_override(s); }
 // ---------------------------------------------------------------------------
 
 Breakpoint current_breakpoint() {
-    Clay_Dimensions v = detail::viewport();
+    const Clay_Dimensions v = detail::viewport();
     if (v.height <= 0.0f) return Breakpoint::MEDIUM;
     const float aspect = v.width / v.height;
     if (aspect < 1.0f) return Breakpoint::COMPACT; // taller than wide

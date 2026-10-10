@@ -75,7 +75,7 @@ struct Fixture {
 
 TEST_SUITE("globals") {
     TEST_CASE("it is built once and the same one comes back") {
-        Fixture fix;
+        const Fixture fix;
         rmp::global<Marker<1>>().value = 7;
         CHECK(trace.log == "+");
 
@@ -86,14 +86,14 @@ TEST_SUITE("globals") {
     }
 
     TEST_CASE("it is default-constructed, and only when first asked for") {
-        Fixture fix;
+        const Fixture fix;
         CHECK(trace.log.empty()); // nothing built yet
         CHECK(rmp::global<Marker<2>>().value == 0);
         CHECK(trace.log == "+");
     }
 
     TEST_CASE("one instance per type, and the type is the whole key") {
-        Fixture fix;
+        const Fixture fix;
         rmp::global<Marker<3>>().value = 3;
         rmp::global<Marker<4>>().value = 4;
 
@@ -104,7 +104,7 @@ TEST_SUITE("globals") {
     }
 
     TEST_CASE("shutdown destroys them, reverse of first use") {
-        Fixture fix;
+        const Fixture fix;
         rmp::global<First>();
         rmp::global<Second>();
         rmp::global<Third>();
@@ -118,7 +118,7 @@ TEST_SUITE("globals") {
     }
 
     TEST_CASE("asking again after shutdown builds a fresh one") {
-        Fixture fix;
+        const Fixture fix;
         rmp::global<Marker<5>>().value = 99;
         rmp::app::detail::shutdown_globals();
         trace.log.clear();
@@ -130,7 +130,7 @@ TEST_SUITE("globals") {
     }
 
     TEST_CASE("shutdown twice destroys nothing the second time") {
-        Fixture fix;
+        const Fixture fix;
         rmp::global<First>();
         trace.log.clear();
 
@@ -145,7 +145,7 @@ TEST_SUITE("globals") {
     }
 
     TEST_CASE("shutdown with nothing registered is a no-op") {
-        Fixture fix;
+        const Fixture fix;
         rmp::app::detail::shutdown_globals();
         CHECK(trace.log.empty());
     }
@@ -157,7 +157,7 @@ TEST_SUITE("globals") {
         // registry nobody drains again. The instance then outlives
         // CloseWindow(), which is the exact teardown order rmp/app.h documents
         // as having cost this project a segfault once.
-        Fixture fix;
+        const Fixture fix;
         rmp::detail::reset_reports_for_tests();
         rmp::global<Rebuilder>();
         trace.log.clear();

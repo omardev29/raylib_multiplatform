@@ -466,7 +466,7 @@ struct Closer {
 // Left to right.
 template <class Body> void row(const BoxOptions &o, Body &&body) {
     detail::open_row(o);
-    detail::Closer close;
+    const detail::Closer close;
     body();
 }
 template <class Body> void row(Body &&body) {
@@ -476,7 +476,7 @@ template <class Body> void row(Body &&body) {
 // Top to bottom.
 template <class Body> void column(const BoxOptions &o, Body &&body) {
     detail::open_column(o);
-    detail::Closer close;
+    const detail::Closer close;
     body();
 }
 template <class Body> void column(Body &&body) {
@@ -486,7 +486,7 @@ template <class Body> void column(Body &&body) {
 // A column with a background and padding: the thing you put a dialog in.
 template <class Body> void panel(const PanelOptions &o, Body &&body) {
     detail::open_panel(o);
-    detail::Closer close;
+    const detail::Closer close;
     body();
 }
 template <class Body> void panel(Body &&body) {
@@ -496,7 +496,7 @@ template <class Body> void panel(Body &&body) {
 // Takes all the space it is given and puts its contents in the middle of it.
 template <class Body> void center(Body &&body) {
     detail::open_center();
-    detail::Closer close;
+    const detail::Closer close;
     body();
 }
 
@@ -511,12 +511,12 @@ template <class Body> void center(Body &&body) {
 // things are supposed to overlap and which are ordinary children.
 template <class Body> void stack(Body &&body) {
     detail::open_stack();
-    detail::Closer close;
+    const detail::Closer close;
     body();
 }
 template <class Body> void layer(Body &&body) {
     detail::open_layer();
-    detail::Closer close;
+    const detail::Closer close;
     body();
 }
 
@@ -622,14 +622,14 @@ struct ScrollCloser {
 // rather than staying at the number someone typed on a desktop.
 template <class Body> void grid(const GridOptions &o, Body &&body) {
     detail::open_grid(o);
-    detail::GridCloser close;
+    const detail::GridCloser close;
     body();
 }
 
 // One item in a grid. Every child of a grid has to be one.
 template <class Body> void cell(Body &&body) {
     detail::open_cell();
-    detail::CellCloser close;
+    const detail::CellCloser close;
     body();
 }
 template <class Body> void grid(int columns, Body &&body) {
@@ -643,7 +643,7 @@ template <class Body> void grid(Body &&body) {
 // with a finger — the same gesture on a phone.
 template <class Body> void scroll(const ScrollOptions &o, Body &&body) {
     detail::open_scroll(o);
-    detail::ScrollCloser close;
+    const detail::ScrollCloser close;
     body();
 }
 template <class Body> void scroll(Body &&body) {

@@ -526,7 +526,7 @@ TEST_CASE("a stand-in is made again on every use, so it always reads as a new on
     CHECK(empty->position.x == doctest::Approx(0));
     CHECK(empty->gravity_scale == doctest::Approx(0));
     // And what was handed out is an Object, the type that was asked for.
-    rmp::Object &stand_in = *empty;
+    const rmp::Object &stand_in = *empty;
     CHECK(stand_in.alive());
 }
 

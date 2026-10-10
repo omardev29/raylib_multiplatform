@@ -133,8 +133,8 @@ void begin(const FrameOptions &o) {
     // The root. A centred column, because the case that has to be three
     // functions long is a main menu, and a plain top-left column would put it
     // in the corner.
-    float gap = (o.gap < 0) ? t.gap : o.gap;
-    float padding = (o.padding < 0) ? t.panel_padding : o.padding;
+    const float gap = (o.gap < 0) ? t.gap : o.gap;
+    const float padding = (o.padding < 0) ? t.panel_padding : o.padding;
 
     Clay_ElementDeclaration root{};
     root.layout.sizing.width = size_grow();
@@ -178,7 +178,7 @@ void end() {
     Clay__CloseElement(); // the content column
     Clay__CloseElement(); // the root
 
-    Clay_RenderCommandArray commands = Clay_EndLayout(detail::frame_time());
+    const Clay_RenderCommandArray commands = Clay_EndLayout(detail::frame_time());
 
     // AFTER the layout, not before it. Clay hit-tests against the tree it holds
     // at the time, and this is the only moment it holds THIS pass's: called
@@ -228,7 +228,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
     if (!detail::frame_open()) return false;
 
     const Theme &t = current_theme();
-    Clay_ElementId id = detail::element_id(label, o.id);
+    const Clay_ElementId id = detail::element_id(label, o.id);
 
     // Hit-testing uses the geometry this element had LAST frame — this one has
     // not been laid out yet. It is inherent to immediate mode: the first frame
@@ -253,7 +253,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
     // and why the transition is impossible for a new widget to forget.
     Color background = t.surface;
     Color foreground = t.text;
-    Color outline = t.border;
+    const Color outline = t.border;
     // 0 in the dark Theme, 1 in the light one. A light interface has no shadows
     // to separate a pale button from a pale page, so it needs the outline that
     // a dark one does not.
@@ -325,7 +325,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
     decl.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     decl.backgroundColor = to_clay(background);
-    float r = px(t.corner_radius);
+    const float r = px(t.corner_radius);
     decl.cornerRadius = Clay_CornerRadius{ r, r, r, r };
     if (has_focus && detail::focus_visible()) {
         // The focus ring is drawn by the framework, not by each widget, because

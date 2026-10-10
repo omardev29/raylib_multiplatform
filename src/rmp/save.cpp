@@ -272,7 +272,7 @@ std::string header_prefix(int version, bool sealed, std::size_t payload) {
 std::uint32_t crc_of(const std::string &prefix, const unsigned char *payload,
                      std::size_t size) {
     // The CRC covers "prefix\n" and the payload, as one run of bytes.
-    std::string head = prefix + "\n";
+    const std::string head = prefix + "\n";
     std::uint32_t c = 0xFFFFFFFFU;
     for (const char ch : head)
         c = CRC_TABLE[(c ^ static_cast<unsigned char>(ch)) & 0xFFU] ^ (c >> 8U);
@@ -675,7 +675,7 @@ std::string file_in(const std::string &folder, std::string_view slot) {
 // an older one, and the player's progress was gone without a word. So both
 // are looked in, and the newer file wins.
 fs::path find_slot(std::string_view slot) {
-    Folders &f = folders();
+    const Folders &f = folders();
     (void)resolve();
     std::vector<std::string> places{ f.chosen };
     if (!f.portable.empty()) places.push_back(f.chosen == f.user ? f.portable : f.user);

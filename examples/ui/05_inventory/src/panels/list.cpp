@@ -16,7 +16,7 @@ void item_list() {
                 // ids are made explicit. Identical labels in one frame are told
                 // apart automatically; this is for when you want the identity
                 // to survive the list being reordered.
-                std::string id = "item" + std::to_string(i);
+                const std::string id = "item" + std::to_string(i);
                 if (rmp::ui::button(items[i].name, { .id = id.c_str() })) {
                     selected = i;
                 }

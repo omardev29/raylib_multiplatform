@@ -92,7 +92,7 @@ unsigned char *pack_read(const char *name, int *size) {
     if (size != nullptr) *size = 0;
     if (!pack.in_use || name == nullptr) return nullptr;
 
-    unsigned int id = rresGetResourceId(pack.directory, name);
+    const unsigned int id = rresGetResourceId(pack.directory, name);
     if (id == 0) return nullptr;
 
     rresResourceChunk chunk = rresLoadResourceChunk(pack.path, id);
@@ -125,18 +125,18 @@ unsigned char *pack_read(const char *name, int *size) {
     ::Image img = { nullptr };
     if (!pack.in_use || name == nullptr) return img;
 
-    unsigned int id = rresGetResourceId(pack.directory, name);
+    const unsigned int id = rresGetResourceId(pack.directory, name);
     if (id == 0) {
         TraceLog(LOG_WARNING,
                  "ASSETS: '%s' not found in pack, falling back to loose file", name);
         return img;
     }
 
-    rresResourceMulti multi = rresLoadResourceMulti(pack.path, id);
+    const rresResourceMulti multi = rresLoadResourceMulti(pack.path, id);
     if (multi.count > 0) {
         bool ok = true;
         for (int i = 0; std::cmp_less(i, multi.count); ++i) {
-            int r = UnpackResourceChunk(&multi.chunks[i]);
+            const int r = UnpackResourceChunk(&multi.chunks[i]);
             if (r != 0) {
                 ok = false;
                 TraceLog(LOG_WARNING,

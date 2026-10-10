@@ -673,7 +673,7 @@ void Spawner::_update(Object &self, float delta) {
     std::ranges::sort(before);
     on_spawn(*scene, ruler.position);
 
-    for (Object *made : rmp::objects::detail::live_objects(*scene)) {
+    for (const Object *made : rmp::objects::detail::live_objects(*scene)) {
         if (std::ranges::binary_search(before, made)) continue;
         if (ours.made_count >= MAX_SPAWNED) break;
         ours.made[ours.made_count++] = made->handle();

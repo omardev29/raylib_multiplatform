@@ -64,7 +64,7 @@ float length(Vector2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
 TEST_SUITE("input actions") {
     TEST_CASE("an action answers to every binding it was given, and to nothing else") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("jump", KEY_SPACE, KEY_W, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
 
         frame();
@@ -91,7 +91,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("just_pressed is true for exactly one frame out of ten held") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("fire", KEY_F);
 
         frame(); // nothing held
@@ -107,7 +107,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("just_released is the other edge, and also exactly once") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("fire", KEY_F);
 
         hold(KEY_F);
@@ -125,7 +125,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("the very first frame has no edges, because there is no frame before it") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("fire", KEY_F);
         hold(KEY_F);
         frame();
@@ -136,7 +136,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("redefining an action replaces it and does not accumulate") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("fire", KEY_F);
         rmp::input::action("fire", KEY_G);
 
@@ -151,7 +151,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("defining the same action twenty times is what a scene _ready does") {
-        Fixture fix;
+        const Fixture fix;
         for (int i = 0; i < 20; ++i) rmp::input::action("fire", KEY_F);
         hold(KEY_F);
         frame();
@@ -159,7 +159,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("an action nobody defined reads as false rather than crashing") {
-        Fixture fix;
+        const Fixture fix;
         frame();
         CHECK(!rmp::input::pressed("nonexistent"));
         CHECK(!rmp::input::just_pressed("nonexistent"));
@@ -174,7 +174,7 @@ TEST_SUITE("input actions") {
         // axis("jmup", ...) did not, so a misspelt movement action gave a stick
         // that simply never moved and a console that never said why -- and
         // vector() asks for four names at a time.
-        Fixture fix;
+        const Fixture fix;
         frame();
         rmp::detail::reset_reports_for_tests();
 
@@ -193,7 +193,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("more bindings than the table holds is truncated, not overflowed") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("many", KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H,
                            KEY_I, KEY_J, KEY_K, KEY_L);
         hold(KEY_A);
@@ -208,7 +208,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("an empty name is a name, and behaves like any other unknown one") {
-        Fixture fix;
+        const Fixture fix;
         frame();
         CHECK(!rmp::input::pressed(""));
         rmp::input::action("", KEY_Z);
@@ -218,7 +218,7 @@ TEST_SUITE("input actions") {
     }
 
     TEST_CASE("reading by device is raw and never routed") {
-        Fixture fix;
+        const Fixture fix;
         hold(KEY_W);
         hold(MOUSE_BUTTON_LEFT);
         hold(GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
@@ -233,7 +233,7 @@ TEST_SUITE("input actions") {
 
 TEST_SUITE("input directions") {
     TEST_CASE("axis is exactly -1, 0 and +1, and both at once is 0") {
-        Fixture fix;
+        const Fixture fix;
         frame();
         CHECK(rmp::input::axis() == doctest::Approx(0.0f));
 
@@ -253,7 +253,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("a diagonal has length 1, not 1.41") {
-        Fixture fix;
+        const Fixture fix;
         hold(KEY_D);
         hold(KEY_S);
         frame();
@@ -269,7 +269,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("all four diagonals, and all four straights") {
-        Fixture fix;
+        const Fixture fix;
         const struct {
             ::KeyboardKey a;
             ::KeyboardKey b;
@@ -283,7 +283,7 @@ TEST_SUITE("input directions") {
             frame();
             CHECK(length(rmp::input::vector()) == doctest::Approx(1.0f).epsilon(0.001));
         }
-        for (::KeyboardKey key : { KEY_W, KEY_A, KEY_S, KEY_D }) {
+        for (const ::KeyboardKey key : { KEY_W, KEY_A, KEY_S, KEY_D }) {
             fake.devices = rmp::input::detail::DeviceState{};
             hold(key);
             frame();
@@ -292,7 +292,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("up is negative Y, which is what raylib and Object::position agree on") {
-        Fixture fix;
+        const Fixture fix;
         hold(KEY_W);
         frame();
         CHECK(rmp::input::vector().y < 0.0f);
@@ -304,7 +304,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("no direction at all is exactly zero, not a tiny drift") {
-        Fixture fix;
+        const Fixture fix;
         frame();
         const Vector2 v = rmp::input::vector();
         CHECK(v.x == 0.0f);
@@ -312,7 +312,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("opposite keys cancel in both axes at once") {
-        Fixture fix;
+        const Fixture fix;
         hold(KEY_W);
         hold(KEY_S);
         hold(KEY_A);
@@ -322,7 +322,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("a stick pushed halfway stays halfway") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.0f);
         push(GAMEPAD_AXIS_LEFT_X, 0.5f);
         frame();
@@ -333,7 +333,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("a stick pushed into a corner is still length 1") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.0f);
         push(GAMEPAD_AXIS_LEFT_X, 1.0f);
         push(GAMEPAD_AXIS_LEFT_Y, 1.0f);
@@ -342,7 +342,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("axis takes two action names, and they can be any actions") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("brake", KEY_Q);
         rmp::input::action("boost", KEY_E);
         hold(KEY_E);
@@ -354,7 +354,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("the factory actions exist before anybody defines anything") {
-        Fixture fix;
+        const Fixture fix;
         for (const char *name : { "move_left", "move_right", "move_up", "move_down",
                                   "ui_accept", "ui_cancel" }) {
             fake.devices = rmp::input::detail::DeviceState{};
@@ -371,7 +371,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("a factory action can be redefined like any other") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("move_left", KEY_H);
         hold(KEY_A); // the old binding
         frame();
@@ -383,7 +383,7 @@ TEST_SUITE("input directions") {
     }
 
     TEST_CASE("keyboard, d-pad and stick all reach the same action") {
-        Fixture fix;
+        const Fixture fix;
         for (int which = 0; which < 3; ++which) {
             fake.devices = rmp::input::detail::DeviceState{};
             rmp::input::set_deadzone(0.2f);
@@ -400,7 +400,7 @@ TEST_SUITE("input directions") {
 
 TEST_SUITE("input dead zone") {
     TEST_CASE("it clips the stick") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.5f);
         push(GAMEPAD_AXIS_LEFT_X, 0.4f);
         frame();
@@ -413,7 +413,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("and does NOT clip the keyboard") {
-        Fixture fix;
+        const Fixture fix;
         // A key has no travel to ignore. Applying the dead zone to it would make a
         // large one turn the keyboard off, which is a bug with a very confusing
         // symptom: the game works with a controller and not without one.
@@ -425,7 +425,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("just past the dead zone reads a little, not a jump") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.2f);
         push(GAMEPAD_AXIS_LEFT_X, 0.21f);
         frame();
@@ -437,7 +437,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("a fully pushed stick still reads 1 whatever the dead zone") {
-        Fixture fix;
+        const Fixture fix;
         for (float dz : { 0.0f, 0.2f, 0.5f, 0.9f }) {
             rmp::input::set_deadzone(dz);
             push(GAMEPAD_AXIS_LEFT_X, 1.0f);
@@ -448,7 +448,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("it is symmetric") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.3f);
         push(GAMEPAD_AXIS_LEFT_X, -1.0f);
         frame();
@@ -458,7 +458,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("a stick on the wrong half does not trigger the other direction") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.1f);
         push(GAMEPAD_AXIS_LEFT_X, -1.0f);
         frame();
@@ -466,7 +466,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("out-of-range dead zones are clamped rather than refused") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(-5.0f);
         CHECK(rmp::input::deadzone() == doctest::Approx(0.0f));
         rmp::input::set_deadzone(50.0f);
@@ -479,7 +479,7 @@ TEST_SUITE("input dead zone") {
     }
 
     TEST_CASE("stick() clamps its sign to one of two halves") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.0f);
         rmp::input::action("weird", rmp::input::stick(GAMEPAD_AXIS_RIGHT_X, 0));
         rmp::input::action("weirder", rmp::input::stick(GAMEPAD_AXIS_RIGHT_X, -7));
@@ -499,7 +499,7 @@ TEST_SUITE("input dead zone") {
 
 TEST_SUITE("input consumption") {
     TEST_CASE("a layer input cannot reach hears nothing by name, but raw still works") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::action("fire", KEY_F, MOUSE_BUTTON_LEFT);
         hold(KEY_F);
         hold(MOUSE_BUTTON_LEFT);
@@ -522,7 +522,7 @@ TEST_SUITE("input consumption") {
     }
 
     TEST_CASE("the frame boundary puts the layer back") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::detail::set_layer_input(false);
         frame();
         // Otherwise one scene setting it would silence the whole next frame, which
@@ -531,7 +531,7 @@ TEST_SUITE("input consumption") {
     }
 
     TEST_CASE("axis and vector go quiet too, not just pressed()") {
-        Fixture fix;
+        const Fixture fix;
         hold(KEY_D);
         frame();
         CHECK(rmp::input::axis() == doctest::Approx(1.0f));
@@ -544,7 +544,7 @@ TEST_SUITE("input consumption") {
 
 TEST_SUITE("input pointer") {
     TEST_CASE("the delta is zero on the first frame") {
-        Fixture fix;
+        const Fixture fix;
         fake.devices.pointer = Vector2{ 100, 100 };
         frame();
         // There is no previous position, and inventing one would report a jump from
@@ -554,7 +554,7 @@ TEST_SUITE("input pointer") {
     }
 
     TEST_CASE("and is the difference after that") {
-        Fixture fix;
+        const Fixture fix;
         fake.devices.pointer = Vector2{ 100, 100 };
         frame();
         fake.devices.pointer = Vector2{ 130, 90 };
@@ -565,7 +565,7 @@ TEST_SUITE("input pointer") {
     }
 
     TEST_CASE("down, pressed and released are the three edges of one button") {
-        Fixture fix;
+        const Fixture fix;
         frame();
         CHECK(!rmp::input::pointer_down());
 
@@ -633,8 +633,8 @@ TEST_SUITE("input consumption, against the real UI") {
     } // namespace
 
     TEST_CASE("a mouse action goes quiet under the pointer, and the key half does not") {
-        Fixture fix;
-        HeadlessUi headless;
+        const Fixture fix;
+        const HeadlessUi headless;
         rmp::input::action("fire", KEY_F, MOUSE_BUTTON_LEFT);
 
         // Away from the menu: the pointer is the game's.
@@ -670,8 +670,8 @@ TEST_SUITE("input consumption, against the real UI") {
     }
 
     TEST_CASE("a mouse-only action is silent over the UI and loud beside it") {
-        Fixture fix;
-        HeadlessUi headless;
+        const Fixture fix;
+        const HeadlessUi headless;
         rmp::input::action("shoot", MOUSE_BUTTON_LEFT);
         hold(MOUSE_BUTTON_LEFT);
 
@@ -699,7 +699,7 @@ TEST_SUITE("input, hostile values") {
               * doctest::skip()
 #endif
     ) {
-        Fixture fix;
+        const Fixture fix;
         frame();
         // Not something anyone types on purpose. It is something a cast, a saved
         // key-binding file or a newer raylib can produce, and the answer has to be
@@ -723,7 +723,7 @@ TEST_SUITE("input, hostile values") {
               * doctest::skip()
 #endif
     ) {
-        Fixture fix;
+        const Fixture fix;
         // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
         rmp::input::action("bad", static_cast<::KeyboardKey>(50000));
         frame();
@@ -732,7 +732,7 @@ TEST_SUITE("input, hostile values") {
     }
 
     TEST_CASE("axis and vector survive names that do not exist") {
-        Fixture fix;
+        const Fixture fix;
         frame();
         CHECK(rmp::input::axis("nope", "also_nope") == doctest::Approx(0.0f));
         const Vector2 v = rmp::input::vector("a", "b", "c", "d");
@@ -741,7 +741,7 @@ TEST_SUITE("input, hostile values") {
     }
 
     TEST_CASE("a stick value past its own range is still bounded") {
-        Fixture fix;
+        const Fixture fix;
         rmp::input::set_deadzone(0.2f);
         // A driver reporting outside -1..1 is not hypothetical; some do.
         push(GAMEPAD_AXIS_LEFT_X, 4.0f);
@@ -752,7 +752,7 @@ TEST_SUITE("input, hostile values") {
 
     TEST_CASE(
         "reading before any frame at all answers false rather than reading nothing") {
-        Fixture fix;
+        const Fixture fix;
         // No frame() call. Every accessor has to hold up against a state that has
         // never been sampled, because that is what the first line of a game's
         // _ready() sees.

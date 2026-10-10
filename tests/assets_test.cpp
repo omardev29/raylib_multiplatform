@@ -121,17 +121,17 @@ TEST_CASE("two long names that differ only at the end are two resources") {
     REQUIRE(first.size() == 119);
     REQUIRE(first != second);
 
-    ::Image zeroed{};
+    const ::Image zeroed{};
     auto *a = rmp::detail::adopt_named(ResourceKind::IMAGE, first, 0, zeroed);
     REQUIRE(a != nullptr);
-    rmp::Image held_a{ a };
+    const rmp::Image held_a{ a };
 
     // The whole point: the second name must NOT find the first slot.
     CHECK(rmp::detail::acquire_named(ResourceKind::IMAGE, second, 0) == nullptr);
 
     auto *b = rmp::detail::adopt_named(ResourceKind::IMAGE, second, 0, zeroed);
     REQUIRE(b != nullptr);
-    rmp::Image held_b{ b };
+    const rmp::Image held_b{ b };
 
     CHECK(rmp::detail::live_count() == 2);
     CHECK(rmp::detail::ref_count(first) == 1);

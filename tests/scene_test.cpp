@@ -166,7 +166,8 @@ public:
 // does it: the pass owns a block of 4096 indices, and the occurrence counts
 // within it. Hashing only — no interning, so this disturbs nothing.
 Clay_ElementId id_in_pass(const char *label, unsigned pass, unsigned occurrence) {
-    Clay_String s{ false, static_cast<int32_t>(std::string_view{ label }.size()), label };
+    const Clay_String s{ false, static_cast<int32_t>(std::string_view{ label }.size()),
+                         label };
     return Clay_GetElementIdWithIndex(s, pass * 4096 + occurrence);
 }
 
@@ -174,7 +175,7 @@ Clay_ElementId id_in_pass(const char *label, unsigned pass, unsigned occurrence)
 
 TEST_SUITE("scenes") {
     TEST_CASE("the first scene is ready before the first frame") {
-        Fixture fix;
+        const Fixture fix;
         auto owned = std::make_unique<A>();
         const A *first = owned.get(); // non-owning; the stack owns it from start()
         rmp::scenes::detail::start(std::move(owned));
@@ -194,7 +195,7 @@ TEST_SUITE("scenes") {
         // Two end conditions on the same frame -- the last alien dies as the
         // last hit point goes -- both push<GameOver>(); the stack used to end
         // up two overlays deep.
-        Fixture fix;
+        const Fixture fix;
         rmp::detail::reset_reports_for_tests();
         rmp::scenes::detail::start(std::make_unique<A>());
         rmp::Scene::push<B>();
@@ -211,7 +212,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("start with no scene at all leaves the app stopped") {
-        Fixture fix;
+        const Fixture fix;
         rmp::detail::reset_reports_for_tests();
 
         rmp::scenes::detail::start(nullptr);
@@ -235,14 +236,14 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("a frame is update then draw, and nothing else") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         run_frame();
         CHECK(trace.log == "A.update A.draw");
     }
 
     TEST_CASE("push suspends what is under it, pop resumes it") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
 
         rmp::Scene::push<B>();
@@ -265,7 +266,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("a transition asked for mid-frame happens after the frame") {
-        Fixture fix;
+        const Fixture fix;
 
         // The case the deferral exists for: a scene that changes away from itself
         // inside its own _draw, which is where `if (button("Play")) change<Game>()`
@@ -290,7 +291,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("change ends the whole stack, top down") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::push<B>();
         rmp::Scene::push<C>();
@@ -307,7 +308,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("replace touches only the top, and does not resume what is under it") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::push<B>();
         rmp::scenes::detail::apply_pending();
@@ -323,7 +324,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("popping the last scene is refused") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::pop();
         rmp::scenes::detail::apply_pending();
@@ -335,7 +336,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("several transitions in one frame apply in the order they were asked") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::push<B>();
         rmp::Scene::pop();
@@ -346,7 +347,7 @@ TEST_SUITE("scenes") {
     }
 
     TEST_CASE("a transition queued from _ready belongs to the next frame") {
-        Fixture fix;
+        const Fixture fix;
 
         class Eager : public rmp::Scene {
         public:
@@ -382,7 +383,7 @@ TEST_SUITE("scene policies") {
     };
 
     TEST_CASE("the defaults are a pause menu, with no policy written") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::push<B>(); // B takes every default
         rmp::scenes::detail::apply_pending();
@@ -398,7 +399,7 @@ TEST_SUITE("scene policies") {
     }
 
     TEST_CASE("updates_below lets the world below keep running") {
-        Fixture fix;
+        const Fixture fix;
         using Hud = Veil<'H', true, true>;
         start_clean<A>();
         rmp::Scene::push<Hud>();
@@ -410,7 +411,7 @@ TEST_SUITE("scene policies") {
     }
 
     TEST_CASE("draws_below false is a full-screen scene, and it is two words") {
-        Fixture fix;
+        const Fixture fix;
         using Loading = Veil<'L', false, false>;
         start_clean<A>();
         rmp::Scene::push<Loading>();
@@ -422,7 +423,7 @@ TEST_SUITE("scene policies") {
     }
 
     TEST_CASE("the policy is read from the whole stack, not just the top") {
-        Fixture fix;
+        const Fixture fix;
         using Pass = Veil<'P', true, true>;
         start_clean<A>();
         rmp::Scene::push<Pass>(); // lets A through
@@ -439,7 +440,7 @@ TEST_SUITE("scene policies") {
     }
 
     TEST_CASE("the clear colour comes from the lowest scene that is visible") {
-        Fixture fix;
+        const Fixture fix;
         using Opaque = Veil<'O', false, false>;
 
         class Blue : public rmp::Scene {
@@ -462,7 +463,7 @@ TEST_SUITE("scene policies") {
 
 TEST_SUITE("scene shutdown") {
     TEST_CASE("shutdown unwinds the whole stack, top down") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::push<B>();
         rmp::Scene::push<C>();
@@ -476,7 +477,7 @@ TEST_SUITE("scene shutdown") {
     }
 
     TEST_CASE("a transition queued as the app closes is dropped") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::Scene::push<B>();
 
@@ -489,7 +490,7 @@ TEST_SUITE("scene shutdown") {
     }
 
     TEST_CASE("a frame after shutdown does nothing rather than crashing") {
-        Fixture fix;
+        const Fixture fix;
         start_clean<A>();
         rmp::scenes::detail::shutdown();
 
@@ -502,8 +503,8 @@ TEST_SUITE("scene shutdown") {
 
 TEST_SUITE("scene ui passes") {
     TEST_CASE("two scenes drawing UI in one frame get an id space each") {
-        Fixture fix;
-        HeadlessUi headless;
+        const Fixture fix;
+        const HeadlessUi headless;
 
         start_clean<UiScene<'A'>>();
         rmp::Scene::push<UiScene<'B'>>();
@@ -536,8 +537,8 @@ TEST_SUITE("scene ui passes") {
     }
 
     TEST_CASE("a pass the input cannot reach lays out and draws, but does not react") {
-        Fixture fix;
-        HeadlessUi headless;
+        const Fixture fix;
+        const HeadlessUi headless;
 
         // B takes the default input_below = false, so A is drawn and inert.
         start_clean<UiScene<'A'>>();
@@ -560,8 +561,8 @@ TEST_SUITE("scene ui passes") {
         // there is and its button is hit-testable — which is what makes this a
         // test of the ROUTING and of nothing else. Run it both ways: the same
         // press on the same button, and input_below is the only difference.
-        Fixture fix;
-        HeadlessUi headless;
+        const Fixture fix;
+        const HeadlessUi headless;
 
         bool through = false;
         SUBCASE("a lid that keeps the input") { through = false; }

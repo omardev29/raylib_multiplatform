@@ -1205,7 +1205,7 @@ struct Pointer {
 
 TEST_CASE_FIXTURE(Fixture, "a press that hits nothing drops the capture") {
     World world;
-    Pointer pointer;
+    const Pointer pointer;
 
     int clicks = 0;
     auto &button = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 40, 40 }) });

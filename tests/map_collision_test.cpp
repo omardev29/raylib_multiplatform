@@ -69,7 +69,7 @@ std::string project_of(const std::vector<std::string> &rows, Vector2 origin = {}
     const int w = static_cast<int>(rows[0].size());
     std::string csv;
     for (const std::string &row : rows) {
-        for (char c : row) {
+        for (const char c : row) {
             if (!csv.empty()) csv += ',';
             csv += c == '#' ? "1" : (c == 'w' ? "2" : "0");
         }
@@ -158,7 +158,7 @@ TEST_SUITE("map collision") {
     TEST_CASE_FIXTURE(Fixture, "a solid object falls onto the floor and stays there") {
         World world;
         load(world, room());
-        rmp::Object &box = faller(world, { 80, 40 });
+        const rmp::Object &box = faller(world, { 80, 40 });
         for (int i = 0; i < 120; ++i) frame(world);
         CHECK(bottom_of(box) == doctest::Approx(112).epsilon(0.0001));
         CHECK(bottom_of(box) <= 112.0f); // on it, never in it
@@ -251,7 +251,7 @@ TEST_SUITE("map collision") {
         load(world,
              { "..........", "..........", "..........", "..........", "..........",
                "..........", "wwwwwwwwww", "##########" });
-        rmp::Object &box = faller(world, { 80, 40 });
+        const rmp::Object &box = faller(world, { 80, 40 });
         for (int i = 0; i < 120; ++i) frame(world);
         CHECK(bottom_of(box) ==
               doctest::Approx(112).epsilon(0.0001)); // through the water
@@ -349,7 +349,7 @@ TEST_SUITE("map collision") {
         load(world,
              { "##########", "##########", "##########", "##########", "##########",
                "##########", "##########", "##########" });
-        rmp::Object &box = faller(world, { 80, 64 });
+        const rmp::Object &box = faller(world, { 80, 64 });
         for (int i = 0; i < 120; ++i) frame(world);
         CHECK(box.position.x == doctest::Approx(80));
         CHECK(box.position.y == doctest::Approx(64));
@@ -378,7 +378,7 @@ TEST_SUITE("map collision") {
     TEST_CASE_FIXTURE(Fixture, "the map is where the level is in the world") {
         World world;
         load(world, room(), { 1000, -500 });
-        rmp::Object &box = faller(world, { 1080, -460 });
+        const rmp::Object &box = faller(world, { 1080, -460 });
         for (int i = 0; i < 120; ++i) frame(world);
         CHECK(bottom_of(box) == doctest::Approx(-388).epsilon(0.0001)); // -500 + 112
     }

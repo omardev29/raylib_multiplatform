@@ -641,7 +641,7 @@ TEST_SUITE("camera") {
 
     TEST_CASE_FIXTURE(Fixture, "nonsense shakes are ignored rather than stored") {
         World world;
-        for (float bad : { 0.0f, -5.0f, std::nanf("") }) {
+        for (const float bad : { 0.0f, -5.0f, std::nanf("") }) {
             world.camera.shake(bad, 0.5f);
             world.camera.shake(5, bad);
         }

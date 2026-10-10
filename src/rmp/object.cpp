@@ -433,7 +433,7 @@ int Scene::object_count() const {
     const std::vector<unsigned> *indices = indices_for(this);
     if (indices == nullptr) return 0;
     int n = 0;
-    for (unsigned index : *indices) {
+    for (const unsigned index : *indices) {
         Cell *slot = slot_at(index);
         if (slot != nullptr && slot->occupied && slot->object != nullptr &&
             slot->object->alive()) {
@@ -735,7 +735,7 @@ void update(Scene &scene, float delta) {
         if (indices == nullptr || i >= indices->size()) break;
         const unsigned index = (*indices)[i];
 
-        Cell *slot = slot_at(index);
+        const Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied || slot->object == nullptr) continue;
         Object *object = slot->object.get();
         if (!object->alive()) continue;
@@ -820,7 +820,7 @@ std::vector<Object *> live_objects(const Scene &scene) {
     const std::vector<unsigned> *indices = indices_for(&scene);
     if (indices == nullptr) return out;
     out.reserve(indices->size());
-    for (unsigned index : *indices) {
+    for (const unsigned index : *indices) {
         Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied || slot->object == nullptr) continue;
         if (slot->object->alive()) out.push_back(slot->object.get());
@@ -833,9 +833,12 @@ const std::vector<Object *> &draw_order(Scene &scene) {
     const std::vector<unsigned> *indices = indices_for(&scene);
     if (indices == nullptr) return pool.draw_order;
 
-    for (unsigned index : *indices) {
-        Cell *slot = slot_at(index);
+    for (const unsigned index : *indices) {
+        const Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied || slot->object == nullptr) continue;
+        // draw_order is a list of Object *, which push_back cannot make from a
+        // pointer to const; misc-const-correctness does not follow it there.
+        // NOLINTNEXTLINE(misc-const-correctness)
         Object *object = slot->object.get();
         if (object->alive() && object->visible) pool.draw_order.push_back(object);
     }
@@ -968,7 +971,7 @@ void draw_one(Object &object) {
 
 void collect() {
     if (pool.pending_free.empty()) return;
-    for (unsigned index : pool.pending_free) {
+    for (const unsigned index : pool.pending_free) {
         Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied) continue;
         // The generation goes up HERE and not on reuse, so that a handle taken
@@ -1005,7 +1008,7 @@ void release_scene(Scene &scene) {
     // A copy, because _end() is entitled to touch other objects and anything
     // it does can reach back into this list.
     const std::vector<unsigned> indices = *found;
-    for (unsigned index : indices) {
+    for (const unsigned index : indices) {
         Cell *slot = slot_at(index);
         if (slot == nullptr || !slot->occupied || slot->object == nullptr) continue;
         if (slot->object->alive()) slot->object->destroy();

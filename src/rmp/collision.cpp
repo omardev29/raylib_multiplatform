@@ -313,7 +313,7 @@ bool ray_circle(Vector2 from, Vector2 to, const Placed &circle, float *t,
 
     *t = hit;
     const Vector2 point{ from.x + d.x * hit, from.y + d.y * hit };
-    Vector2 n{ point.x - circle.centre.x, point.y - circle.centre.y };
+    const Vector2 n{ point.x - circle.centre.x, point.y - circle.centre.y };
     const float len = std::sqrt(n.x * n.x + n.y * n.y);
     *normal = len > NEAR_ZERO ? Vector2{ n.x / len, n.y / len } : Vector2{ 0, -1 };
     return true;
@@ -984,7 +984,7 @@ void pointer(Scene &scene) {
         // walking it backwards is exactly that.
         const std::vector<Object *> &order = draw_order(scene);
         for (std::size_t i = order.size(); i > 0; --i) {
-            Object *object = order[i - 1];
+            const Object *object = order[i - 1];
             if (!object->alive()) continue;
             if (!Storage::has_pointer_callback(*object)) continue;
             const Placed p = placed_of(*object);
@@ -1150,7 +1150,7 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
         int order = 0;
     };
     std::vector<Ordered> hits;
-    for (int i : candidates) {
+    for (const int i : candidates) {
         const Entry &e = entries[static_cast<std::size_t>(i)];
         const Object *object = e.object;
         if (object->handle() == query.ignore) continue;

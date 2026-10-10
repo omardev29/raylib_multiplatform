@@ -110,7 +110,7 @@ constexpr float REPEAT_DELAY = 0.45f;
 constexpr float REPEAT_INTERVAL = 0.09f;
 
 void copy_name(char *dst, std::string_view s) {
-    size_t n = s.size() < 47 ? s.size() : 47;
+    const size_t n = s.size() < 47 ? s.size() : 47;
     std::memcpy(dst, s.data(), n);
     dst[n] = '\0';
 }

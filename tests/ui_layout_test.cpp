@@ -40,7 +40,7 @@ void check(bool ok, const char *what) {
 }
 
 void check_near(float got, float want, float tolerance, const char *what) {
-    bool ok = std::fabs(got - want) <= tolerance;
+    const bool ok = std::fabs(got - want) <= tolerance;
     std::printf("%s  %s (got %.2f, want %.2f +/- %.2f)\n", ok ? "ok  " : "FAIL", what,
                 got, want, tolerance);
     if (!ok) ++results.failures;
@@ -86,13 +86,13 @@ Box box_of(const char *label) {
 
 // The menu is centred when the space left over on each side matches.
 void expect_centred(float view_w, float view_h, const char *what) {
-    Box play = box_of("Play");
-    Box quit = box_of("Quit");
+    const Box play = box_of("Play");
+    const Box quit = box_of("Quit");
 
-    float left_gap = play.x;
-    float right_gap = view_w - (play.x + play.w);
-    float top_gap = play.y;
-    float bottom_gap = view_h - (quit.y + quit.h);
+    const float left_gap = play.x;
+    const float right_gap = view_w - (play.x + play.w);
+    const float top_gap = play.y;
+    const float bottom_gap = view_h - (quit.y + quit.h);
 
     char msg[160];
     std::snprintf(msg, sizeof(msg), "%s: horizontally centred", what);
@@ -112,9 +112,9 @@ void run_at(float w, float h, const char *what) {
 
     expect_centred(w, h, what);
 
-    Box play = box_of("Play");
-    Box options = box_of("Options");
-    Box quit = box_of("Quit");
+    const Box play = box_of("Play");
+    const Box options = box_of("Options");
+    const Box quit = box_of("Quit");
 
     char msg[160];
     std::snprintf(msg, sizeof(msg), "%s: Play is above Options with a gap", what);
@@ -130,7 +130,7 @@ void run_at(float w, float h, const char *what) {
 
     // min_touch_size, scaled. Below this a button is not reliably hittable with
     // a thumb, which is four of the fourteen targets.
-    float minimum = rmp::ui::current_theme().min_touch_size * rmp::ui::scale();
+    const float minimum = rmp::ui::current_theme().min_touch_size * rmp::ui::scale();
     std::snprintf(msg, sizeof(msg), "%s: buttons are at least min_touch_size tall", what);
     check(play.h >= minimum - 0.5f, msg);
 
@@ -171,8 +171,8 @@ void run_containers(float w, float h) {
     draw_dialog();
     draw_dialog();
 
-    Box yes = box_of("Yes");
-    Box no = box_of("No");
+    const Box yes = box_of("Yes");
+    const Box no = box_of("No");
 
     // A row lays out left to right. This is the check that catches a container
     // silently falling back to the default vertical direction, which looks
@@ -182,26 +182,26 @@ void run_containers(float w, float h) {
 
     // grow_x on the row plus a spacer between them: they end up at opposite
     // ends. Without the spacer they would sit next to each other in the middle.
-    float left_gap = yes.x;
-    float right_gap = w - (no.x + no.w);
+    const float left_gap = yes.x;
+    const float right_gap = w - (no.x + no.w);
     check(std::fabs(left_gap - right_gap) < 40.0f,
           "row: the spacer pushed them to opposite ends");
 
     // The panel has to contain its children, padding and all. A panel that
     // sizes itself wrongly shows up here as a child hanging out of it.
-    Box panel = box_of("dialog");
+    const Box panel = box_of("dialog");
     check(inside(panel, yes) && inside(panel, no), "panel: it contains its children");
     check(panel.w > 0 && panel.h > 0, "panel: it has a Size at all");
 
     // Padding is real: the row inside is strictly narrower than the panel.
-    Box row = box_of("buttons");
+    const Box row = box_of("buttons");
     check(row.w < panel.w, "panel: padding leaves the row narrower than the panel");
 
     // Design units, not pixels: a 200-unit bar is 200 * scale on screen. This
     // is the assertion that catches someone "fixing" a size by writing a pixel
     // count, which looks right on one monitor and wrong on every other.
-    float scale = rmp::ui::scale();
-    Box bar = box_of("bar");
+    const float scale = rmp::ui::scale();
+    const Box bar = box_of("bar");
     check_near(bar.w, 200.0f * scale, 1.0f,
                "progress: the track is 200 design units wide");
     check(inside(panel, bar), "progress: the bar is inside the panel");
@@ -261,7 +261,7 @@ void run_interaction() {
     fake_pointer.down = false;
     frame();
 
-    Box btn = box_of("Apply");
+    const Box btn = box_of("Apply");
     check(btn.w > 0, "the button has a Box to aim at");
 
     // Press and release over the button.
@@ -284,7 +284,7 @@ void run_interaction() {
     check(clicks == 1, "dragging off before releasing does not click");
 
     // The checkbox writes to the caller's variable.
-    Box cb = box_of("Fullscreen");
+    const Box cb = box_of("Fullscreen");
     fake_pointer.position = Clay_Vector2{ cb.x + cb.w / 2, cb.y + cb.h / 2 };
     fake_pointer.down = true;
     frame();
@@ -306,10 +306,10 @@ void run_interaction() {
     // The id is built the way the widget builds it — first occurrence of the
     // label — rather than by calling element_id() again, which would hand back
     // occurrence 1 because the counters only reset at begin().
-    Clay_String vol_label{ false, 6, "Volume" };
-    Clay_ElementId vol_id = Clay_GetElementIdWithIndex(vol_label, 0);
+    const Clay_String vol_label{ false, 6, "Volume" };
+    const Clay_ElementId vol_id = Clay_GetElementIdWithIndex(vol_label, 0);
     Clay_BoundingBox rail{};
-    bool have_rail =
+    const bool have_rail =
         rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(vol_id, 0), &rail);
     check(have_rail && rail.width > 0, "the slider's rail has a Box to aim at");
 
@@ -370,7 +370,7 @@ void run_dropdown() {
     frame();
 
     // Open the first one.
-    Box q = box_of("Quality");
+    const Box q = box_of("Quality");
     fake_pointer.position = Clay_Vector2{ q.x + q.w * 0.8f, q.y + q.h / 2 };
     fake_pointer.down = true;
     frame();
@@ -380,16 +380,16 @@ void run_dropdown() {
 
     // Its items exist and the other dropdown's do not overlap them, which is
     // what the derived ids buy.
-    Clay_String ql{ false, 7, "Quality" };
-    Clay_String sl{ false, 7, "Shadows" };
-    Clay_ElementId qid = Clay_GetElementIdWithIndex(ql, 0);
-    Clay_ElementId sid = Clay_GetElementIdWithIndex(sl, 0);
+    const Clay_String ql{ false, 7, "Quality" };
+    const Clay_String sl{ false, 7, "Shadows" };
+    const Clay_ElementId qid = Clay_GetElementIdWithIndex(ql, 0);
+    const Clay_ElementId sid = Clay_GetElementIdWithIndex(sl, 0);
     check(qid.id != sid.id, "the two dropdowns are different elements");
     check(rmp::ui::detail::sub_id(qid, 1).id != rmp::ui::detail::sub_id(sid, 1).id,
           "and so are their identically named items");
 
     Clay_BoundingBox item{};
-    bool have_item =
+    const bool have_item =
         rmp::ui::detail::bounds_of_id(rmp::ui::detail::sub_id(qid, 2), &item);
     check(have_item, "the open list laid its items out");
 
@@ -428,10 +428,10 @@ void run_grid() {
     frame();
     frame();
 
-    Box a = box_of("item0");
-    Box b = box_of("item1");
-    Box c = box_of("item2");
-    Box d = box_of("item3");
+    const Box a = box_of("item0");
+    const Box b = box_of("item1");
+    const Box c = box_of("item2");
+    const Box d = box_of("item3");
 
     check_near(a.y, b.y, 1.0f, "three columns: the first three share a row");
     check_near(b.y, c.y, 1.0f, "…all three of them");
@@ -465,10 +465,10 @@ void run_sizes() {
     rmp::ui::button("G", { .style = rmp::ui::Variant::GHOST });
     rmp::ui::end();
 
-    Box small = box_of("S");
-    Box medium = box_of("M");
-    Box large = box_of("L");
-    Box ghost = box_of("G");
+    const Box small = box_of("S");
+    const Box medium = box_of("M");
+    const Box large = box_of("L");
+    const Box ghost = box_of("G");
 
     check(small.h < medium.h, "Size::SMALL is shorter than Size::MEDIUM");
     check(medium.h < large.h, "Size::LARGE is taller than Size::MEDIUM");
@@ -843,9 +843,9 @@ void run_nested_grids() {
     frame();
     frame();
 
-    Box a = box_of("a");
-    Box c = box_of("c");
-    Box d = box_of("d");
+    const Box a = box_of("a");
+    const Box c = box_of("c");
+    const Box d = box_of("d");
     check_near(c.y, d.y, 1.0f, "the two cells after a too-deep grid still share a row");
     check(c.y > a.y && std::fabs(c.x - a.x) < 1.0f,
           "and that row is the next one, under the first cell");
@@ -1090,7 +1090,7 @@ void run_idle_frame() {
     frame();
     frame();
 
-    Box pause = box_of("Pause");
+    const Box pause = box_of("Pause");
     fake_pointer.position = Clay_Vector2{ pause.x + pause.w / 2, pause.y + pause.h / 2 };
     frame();
     check(rmp::ui::wants_pointer(), "the pointer is over the menu");
@@ -1124,7 +1124,7 @@ void run_zero_area() {
     frame();
     frame();
 
-    Box empty = box_of("empty");
+    const Box empty = box_of("empty");
     check(empty.w == 0 && empty.h == 0, "an empty panel with no padding has no area");
 
     // Exactly on it. The box test alone would say yes — the corner of a zero
@@ -1163,7 +1163,7 @@ void run_dropdown_occlusion() {
     frame();
 
     // Open the list.
-    Box field = box_of("Quality");
+    const Box field = box_of("Quality");
     fake_pointer.position =
         Clay_Vector2{ field.x + field.w * 0.8f, field.y + field.h / 2 };
     fake_pointer.down = true;
@@ -1172,7 +1172,7 @@ void run_dropdown_occlusion() {
     frame();
     frame();
 
-    Box under = box_of("Underneath");
+    const Box under = box_of("Underneath");
     Clay_BoundingBox item{};
     const bool have_item = rmp::ui::detail::bounds_of_id(
         rmp::ui::detail::sub_id(rmp::ui::detail::peek_element_id("Quality", 0, 0), 2),
@@ -1215,12 +1215,12 @@ void run_scroll_moves() {
     fake_pointer.down = false;
     frame();
     frame();
-    Box list = box_of("moving");
-    Box before = box_of("item0");
+    const Box list = box_of("moving");
+    const Box before = box_of("item0");
     check(list.h > 0 && before.h > 0, "the area and its first row laid out");
 
     // Press inside the area and drag up, a few pixels a frame.
-    Clay_Vector2 at{ list.x + list.w / 2, list.y + list.h / 2 };
+    const Clay_Vector2 at{ list.x + list.w / 2, list.y + list.h / 2 };
     fake_pointer.position = at;
     fake_pointer.down = true;
     frame();
@@ -1233,11 +1233,11 @@ void run_scroll_moves() {
     frame();
     frame();
 
-    Box after = box_of("item0");
+    const Box after = box_of("item0");
     std::printf("  item0 y: %.1f before, %.1f after the drag\n", before.y, after.y);
     check(after.y < before.y - 20, "dragging up moves the rows up");
     check(box_of("moving").y == list.y, "and the area itself stays where it was");
-    Box last = box_of("item7");
+    const Box last = box_of("item7");
     std::printf("  item7 bottom %.1f, the area's bottom %.1f\n", last.y + last.h,
                 list.y + list.h);
     check(last.y + last.h >= list.y + list.h - 1,
@@ -1271,8 +1271,8 @@ void run_scroll_clip() {
     frame();
     frame();
 
-    Box list = box_of("list");
-    Box last = box_of("row7");
+    const Box list = box_of("list");
+    const Box last = box_of("row7");
     check(list.h > 0 && last.h > 0, "the list and its last row both laid out");
     check(last.y > list.y + list.h, "the last row sits below the bottom of the list");
 
@@ -1286,7 +1286,7 @@ void run_scroll_clip() {
 
     // The row that IS inside the box still works, or the check above would pass
     // for the wrong reason.
-    Box first = box_of("row0");
+    const Box first = box_of("row0");
     fake_pointer.position = Clay_Vector2{ first.x + first.w / 2, first.y + first.h / 2 };
     fake_pointer.down = true;
     frame();
@@ -1490,7 +1490,7 @@ void run_press_starts_on_control() {
     };
     // Pressed out in the open, dragged onto the control, let go there.
     auto drag_onto = [&](const char *label) {
-        Box b = box_of(label);
+        const Box b = box_of(label);
         fake_pointer.position = Clay_Vector2{ 4, 4 };
         fake_pointer.down = true;
         frame();
@@ -1501,7 +1501,7 @@ void run_press_starts_on_control() {
         frame();
     };
     auto click_on = [&](const char *label) {
-        Box b = box_of(label);
+        const Box b = box_of(label);
         fake_pointer.position = Clay_Vector2{ b.x + b.w * 0.8f, b.y + b.h / 2 };
         fake_pointer.down = true;
         frame();
@@ -1681,7 +1681,7 @@ void run_text_field_focus() {
     // focus, and a click still lets the player type.
     rmp::ui::set_navigation_enabled(false);
     field_first();
-    Box chat = box_of("Chat");
+    const Box chat = box_of("Chat");
     fake_pointer.position = Clay_Vector2{ chat.x + chat.w * 0.8f, chat.y + chat.h / 2 };
     fake_pointer.down = true;
     field_first();
@@ -2038,7 +2038,7 @@ void run_frame_grow() {
         }
         return box_of("filler");
     };
-    Box f = filled(rmp::ui::Align::CENTER);
+    const Box f = filled(rmp::ui::Align::CENTER);
     const float pad = 10.0f * rmp::ui::scale(); // the scale this viewport has
     check_near(f.x, pad, 0.5f, "grow: a growing row starts at the padding");
     check_near(f.w, 1280.0f - 2 * pad, 0.5f,
@@ -2053,7 +2053,7 @@ void run_frame_grow() {
         rmp::ui::column({ .width = 100, .height = 50, .id = "corner" }, [] {});
         rmp::ui::end();
     }
-    Box c = box_of("corner");
+    const Box c = box_of("corner");
     check_near(c.x + c.w, 1280.0f - pad, 0.5f,
                "a fitted child still goes where placement says");
     check_near(c.y + c.h, 720.0f - pad, 0.5f, "both ways");

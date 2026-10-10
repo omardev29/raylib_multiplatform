@@ -268,7 +268,7 @@ float music_time() {
 }
 
 void update() {
-    State &s = state();
+    const State &s = state();
     if (!s.ready || !s.track.loaded) return;
     UpdateMusicStream(s.track.music);
 }

@@ -184,7 +184,7 @@ TEST_CASE_FIXTURE(Fixture, "playing() is the sheet's own name, and a NUL follows
     CHECK(now.data() == sprite.sheet.raw().tag(2).name.data());
 
     SUBCASE("and so is the empty answer, when nothing plays") {
-        rmp::Sprite idle;
+        const rmp::Sprite idle;
         const std::string_view none = idle.playing();
         CHECK(none.empty());
         REQUIRE(none.data() != nullptr);

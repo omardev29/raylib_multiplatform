@@ -35,7 +35,7 @@ namespace {
 }
 
 [[gnu::noinline]] int overflow_on_purpose(int size) {
-    int *block = new int[static_cast<unsigned>(size)]{};
+    const int *block = new int[static_cast<unsigned>(size)]{};
     // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound): the overflow
     const int past = block[size]; // one past the end
     delete[] block;

@@ -143,7 +143,7 @@ namespace {
 
 Texture2D load_texture_raw(const char *name) {
     // Counts the request, and a file that is missing or does not decode.
-    ::Image img = load_image_raw(name);
+    const ::Image img = load_image_raw(name);
     if (img.data == nullptr) return Texture2D{};
     // A picture that decoded and then did not reach the GPU is not counted:
     // with no window there is no GPU, which is every headless test, and
@@ -166,7 +166,7 @@ Texture2D load_texture_raw(const char *name) {
             int size = 0;
             unsigned char *data = detail::pack_read(name, &size);
             if (data != nullptr) {
-                Wave wave = LoadWaveFromMemory(ext, data, size);
+                const Wave wave = LoadWaveFromMemory(ext, data, size);
                 UnloadFileData(data);
                 if (wave.data != nullptr) {
                     ::Sound snd = LoadSoundFromWave(wave);
@@ -242,7 +242,7 @@ rmp::Image load_image(std::string_view name_view) {
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::IMAGE, name, 0))
         return rmp::Image{ hit };
-    ::Image raw = load_image_raw(name);
+    const ::Image raw = load_image_raw(name);
     if (raw.data == nullptr) return rmp::Image{};
     auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, raw);
     if (slot == nullptr) {
@@ -258,7 +258,7 @@ rmp::Texture load_texture(std::string_view name_view) {
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::TEXTURE, name, 0))
         return rmp::Texture{ hit };
-    Texture2D raw = load_texture_raw(name);
+    const Texture2D raw = load_texture_raw(name);
     if (raw.id == 0) return rmp::Texture{};
     auto *slot = rmp::detail::adopt_named(ResourceKind::TEXTURE, name, 0, raw);
     if (slot == nullptr) {
@@ -281,7 +281,7 @@ rmp::Sound load_sound(std::string_view name_view) {
     using rmp::detail::ResourceKind;
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::SOUND, name, 0))
         return rmp::Sound{ hit };
-    ::Sound raw = load_sound_raw(name);
+    const ::Sound raw = load_sound_raw(name);
     if (raw.stream.buffer == nullptr) return rmp::Sound{};
     auto *slot = rmp::detail::adopt_named(ResourceKind::SOUND, name, 0, raw);
     if (slot == nullptr) {
@@ -299,7 +299,7 @@ rmp::Font load_font(std::string_view name_view, int font_size) {
     // baked atlases, so it has to be two resources.
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::FONT, name, font_size))
         return rmp::Font{ hit };
-    ::Font raw = load_font_raw(name, font_size);
+    const ::Font raw = load_font_raw(name, font_size);
     if (raw.texture.id == 0) return rmp::Font{};
     auto *slot = rmp::detail::adopt_named(ResourceKind::FONT, name, font_size, raw);
     if (slot == nullptr) {

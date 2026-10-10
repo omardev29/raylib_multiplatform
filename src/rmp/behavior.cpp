@@ -149,7 +149,7 @@ void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<voi
 }
 
 void *find_behavior(const Object &self, int type) {
-    Owner *owner = owner_of(&self);
+    const Owner *owner = owner_of(&self);
     if (owner == nullptr) return nullptr;
     for (const Attached &a : owner->list) {
         if (a.type == type && !a.dead) return a.data.get();
@@ -162,7 +162,7 @@ void detach(Object &self, int type) {
     if (owner == nullptr) return;
     for (std::size_t i = 0; i < owner->list.size(); ++i) {
         if (owner->list[i].type != type || owner->list[i].dead) continue;
-        Attached a = std::move(owner->list[i]); // this walk owns it until it goes
+        const Attached a = std::move(owner->list[i]); // this walk owns it until it goes
         // Out of the list BEFORE _end runs: the user's code is entitled to
         // remove the same behavior again from in there, and finding it gone is
         // better than freeing it twice.
@@ -269,7 +269,7 @@ void release_behaviors(Object &object) {
     // -- including asking this object for a behavior, or destroying it again --
     // finds nothing attached rather than a list being emptied underneath.
     Storage::set_behavior_slot(object, -1);
-    std::vector<Attached> taken = std::move(owner.list);
+    const std::vector<Attached> taken = std::move(owner.list);
     owner.list.clear();
     owner.object = nullptr;
     owner.walking = 0;

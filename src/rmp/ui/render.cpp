@@ -157,7 +157,7 @@ void draw(Clay_RenderCommandArray commands) {
     // Already sorted by z order, so drawing them in sequence is correct.
     for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
-        Rectangle rect = to_rect(cmd.boundingBox);
+        const Rectangle rect = to_rect(cmd.boundingBox);
 
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
@@ -170,7 +170,7 @@ void draw(Clay_RenderCommandArray commands) {
                     fill_box(cmd.boundingBox, corners, from_clay(r.backgroundColor));
                     break;
                 }
-                float rn = roundness(corners, cmd.boundingBox);
+                const float rn = roundness(corners, cmd.boundingBox);
                 if (rn > 0.0f) {
                     DrawRectangleRounded(rect, rn, 8, from_clay(r.backgroundColor));
                 } else {
@@ -188,7 +188,7 @@ void draw(Clay_RenderCommandArray commands) {
                     stroke_box(cmd.boundingBox, corners, b.width, from_clay(b.color));
                     break;
                 }
-                float rn = roundness(corners, cmd.boundingBox);
+                const float rn = roundness(corners, cmd.boundingBox);
                 auto w = static_cast<float>(b.width.left);
                 if (rn > 0.0f) {
                     DrawRectangleRoundedLinesEx(rect, rn, 8, w, from_clay(b.color));
@@ -201,7 +201,7 @@ void draw(Clay_RenderCommandArray commands) {
             case CLAY_RENDER_COMMAND_TYPE_TEXT: {
                 const auto &t = cmd.renderData.text;
                 auto size = static_cast<float>(t.fontSize);
-                ::Font f = ui_font(size); // baked at exactly this size: sharp
+                const ::Font f = ui_font(size); // baked at exactly this size: sharp
                 DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
                            size / 10.0f, from_clay(t.textColor));
                 break;
@@ -217,8 +217,8 @@ void draw(Clay_RenderCommandArray commands) {
                 const auto &img = cmd.renderData.image;
                 if (img.imageData == nullptr) break;
                 const auto *tex = static_cast<const Texture2D *>(img.imageData);
-                Rectangle src{ 0, 0, static_cast<float>(tex->width),
-                               static_cast<float>(tex->height) };
+                const Rectangle src{ 0, 0, static_cast<float>(tex->width),
+                                     static_cast<float>(tex->height) };
                 // The tint comes through userData as an optional Color*, not
                 // through backgroundColor: a background on an image element
                 // makes Clay emit a RECTANGLE as well, after the IMAGE, which
