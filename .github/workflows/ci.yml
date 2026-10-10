@@ -330,6 +330,20 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: bash tools/ownership_check.sh
 
+      # No raw pointer and no C string in a declaration a game can name: clang
+      # reads every public header's AST, and a `T *` or a `const char *` in a
+      # public return, parameter, field or alias fails with its file and line.
+      # detail and private ones are listed in tools/pointer_ratchet.txt with
+      # their reasons, and that list only shrinks. The image has clang, so a
+      # skip here would be a green that read nothing: RMP_REQUIRE_CLANG.
+      - name: The public API holds no raw pointer
+        if: needs.config.outputs.framework == 'true'
+        env:
+          RMP_REQUIRE_CLANG: "1"
+        run: |
+          python3 tools/pointer_check.py
+          python3 -m unittest discover -s tests -p 'pointer_check_test.py' -v
+
       # The Linux jobs have GNU everything, so they are exactly the wrong place
       # to notice that a script only works with GNU everything. `mapfile` was in
       # the tree and would have died on every Mac — bash 4 against macOS's 3.2 —

@@ -1,0 +1,46 @@
+# The raw pointers still in include/rmp/, each in a `detail` namespace or
+# behind private/protected, and why it is still there. tools/pointer_check.py
+# fails on a public one, on a detail or private one that is not listed here,
+# and on a line here that matches nothing any more: this list only shrinks.
+#
+# One line per declaration: `header  qualified-name  -- reason`. A line covers
+# every pointer that declaration has, its overloads included.
+
+app.h     rmp::app::detail::register_global      -- `forget` clears global<T>()'s cached instance, a capture-less lambda: a plain function, because std::function would cost <functional> in app.h
+
+assets.h  rmp::detail::acquire_named             -- Slot * is the resource table's handle: index plus generation is its redesign, not this phase
+assets.h  rmp::detail::adopt_owned               -- Slot *, as acquire_named
+assets.h  rmp::detail::adopt_named_owned         -- Slot *, as acquire_named
+assets.h  rmp::detail::adopt                     -- Slot *, as acquire_named
+assets.h  rmp::detail::adopt_named               -- Slot *, as acquire_named
+assets.h  rmp::detail::retain                    -- Slot *, as acquire_named
+assets.h  rmp::detail::release                   -- Slot *, as acquire_named
+assets.h  rmp::detail::payload                   -- Slot *, and the payload behind it erased to const void * until the handle names its type
+assets.h  rmp::detail::Resource::Resource        -- Slot *, as acquire_named: the loaders make a handle from the slot they counted
+assets.h  rmp::detail::Resource::slot            -- Slot *, as acquire_named
+assets.h  rmp::detail::Resource::trade           -- Slot *, as acquire_named
+assets.h  rmp::detail::Resource::_slot           -- Slot *, as acquire_named: the one thing a handle holds
+
+input.h   rmp::input::detail::SampleFn           -- the test seam's provider is a plain function, so a test hands one over without <functional>
+input.h   rmp::input::detail::set_sample_provider -- takes a SampleFn, as above
+
+object.h  rmp::Callback::Invoke                  -- Callback is the type erasure std::function would be, without <functional>: one function pointer to call the stored lambda
+object.h  rmp::Callback::take_invoke             -- the Invoke above, handed over on a move
+object.h  rmp::Callback::_invoke                 -- the Invoke above
+object.h  rmp::detail::BehaviorOps::update       -- a behavior's hooks, erased: a null entry is a hook the struct does not have, and costs nothing. A virtual base would make a behavior stop being an aggregate
+object.h  rmp::detail::BehaviorOps::late_update  -- as update
+object.h  rmp::detail::BehaviorOps::ready        -- as update
+object.h  rmp::detail::BehaviorOps::draw         -- as update
+object.h  rmp::detail::BehaviorOps::collision    -- as update
+object.h  rmp::detail::BehaviorOps::end          -- as update
+object.h  rmp::detail::attach                    -- the engine stores behaviors erased, as void *; add<B>() casts it back to the B it made
+object.h  rmp::detail::find_behavior             -- as attach: get<B>() casts it back and hands out an rmp::Ref
+
+save.h    rmp::Value::Ref::materialise           -- null for a path that cannot be made; save.h cannot reach rmp::Ref, which is object.h's
+save.h    rmp::Value::Ref::find                  -- as materialise
+
+tilemap.h rmp::tilemap::detail::free_map         -- the deleter of MapPtr: a plain function, so a file can drop a map without seeing MapData complete
+tilemap.h rmp::tilemap::detail::MapPtr           -- std::unique_ptr's deleter type for an incomplete MapData is a function pointer
+tilemap.h rmp::Tilemap::adopt                    -- takes a MapPtr, as above
+tilemap.h rmp::Tilemap::data                     -- the parsed map for the engine and the tests, null for an empty map; MapData is incomplete here
+tilemap.h rmp::Tilemap::_data                    -- a MapPtr, as above

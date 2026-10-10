@@ -1,0 +1,3 @@
+# The green fixture's ratchet.
+probe.h  rmp::detail::listed   -- a detail pointer, written down with its reason
+probe.h  rmp::Private::_listed -- a private one, likewise

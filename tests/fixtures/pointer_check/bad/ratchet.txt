@@ -1,0 +1,4 @@
+# The red fixture's ratchet: each line below is wrong in its own way.
+probe.h  rmp::detail::gone   -- matches nothing: a debt that was paid
+probe.h  rmp::take           -- public, and the ratchet is for detail and private only
+probe.h  rmp::detail::noreason
