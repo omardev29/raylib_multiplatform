@@ -116,7 +116,7 @@ void copy_name(char *dst, std::string_view s) {
 }
 
 int index_of(uint32_t id) {
-    for (int i = 0; i < lists.previous_count; i++) {
+    for (int i = 0; i < lists.previous_count; ++i) {
         if (lists.previous[i].id == id) return i;
     }
     return -1;
@@ -227,7 +227,7 @@ void end_focus_frame() {
     // instead of something three call sites each have to remember.
     int n = lists.current_count;
     if (n > MAX_FOCUSABLES) n = MAX_FOCUSABLES;
-    for (int i = 0; i < n; i++) lists.previous[i] = lists.current[i];
+    for (int i = 0; i < n; ++i) lists.previous[i] = lists.current[i];
     lists.previous_count = n;
 
     // A name asked for between frames that this frame's controls did not
@@ -260,7 +260,7 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     if (lists.current_count < MAX_FOCUSABLES) {
         lists.current[lists.current_count].id = id.id;
         copy_name(lists.current[lists.current_count].name, name);
-        lists.current_count++;
+        ++lists.current_count;
     }
     // The first control carrying a name focus() asked for between frames.
     // Matched by id and not by label, so an explicit .id works the same way
@@ -295,7 +295,7 @@ void begin_pass_focus() { lists.pass_first = lists.current_count; }
 void end_pass_focus() {
     if (!navigation.enabled) return;
     if (lists.current_count <= lists.pass_first) return; // nothing focusable in it
-    for (int i = 0; i < lists.current_count; i++) {
+    for (int i = 0; i < lists.current_count; ++i) {
         if (lists.current[i].id == target.id) return; // already somebody's
     }
     // On screen last frame: a pass still to come this frame declares it --

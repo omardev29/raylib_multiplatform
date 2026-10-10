@@ -84,9 +84,9 @@ void Bat::patrol(float delta) {
         if (_next + 1 >= route.size()) _step = -1;
         if (_next == 0) _step = 1;
         if (_step > 0)
-            _next++;
+            ++_next;
         else
-            _next--;
+            --_next;
         return;
     }
     position.x += to.x / distance * step;

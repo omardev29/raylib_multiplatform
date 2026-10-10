@@ -61,7 +61,7 @@ void capture(void *buffer, unsigned int frames) {
     const auto *samples = static_cast<const float *>(buffer);
     double l = 0;
     double r = 0;
-    for (unsigned int i = 0; i < frames; i++) {
+    for (unsigned int i = 0; i < frames; ++i) {
         const float left = samples[2 * static_cast<std::size_t>(i)];
         const float right = samples[2 * static_cast<std::size_t>(i) + 1];
         l += static_cast<double>(left) * left;
@@ -113,7 +113,7 @@ void write_tone(const fs::path &path, double seconds, double hz) {
     u16(16);
     f.write("data", 4);
     u32(frames * 2);
-    for (std::uint32_t i = 0; i < frames; i++) {
+    for (std::uint32_t i = 0; i < frames; ++i) {
         const double s = 0.5 * std::sin(2 * std::numbers::pi * hz * i / rate);
         u16(static_cast<std::uint16_t>(static_cast<std::int16_t>(s * 32767)));
     }

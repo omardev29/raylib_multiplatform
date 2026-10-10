@@ -170,7 +170,7 @@ TEST_CASE("the resource table has no cap: three hundred names are three hundred 
     rmp::detail::release_all();
     const ::Image zeroed{};
     std::vector<rmp::Image> held;
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 300; ++i) {
         const std::string name = "many_" + std::to_string(i) + ".png";
         auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, zeroed);
         REQUIRE(slot != nullptr);

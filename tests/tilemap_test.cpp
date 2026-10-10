@@ -219,7 +219,7 @@ TEST_CASE_FIXTURE(Fixture, "a registered class produces the user's type") {
     int made = 0;
     Vector2 where{};
     loaded.map.on_object("enemy", [&](rmp::Scene &scene, const rmp::MapObject &object) {
-        made++;
+        ++made;
         where = object.position;
         scene.spawn({ .position = object.position, .size = { 8, 8 } });
     });
@@ -253,9 +253,9 @@ TEST_CASE_FIXTURE(Fixture,
     Parsed loaded("map_minimal.json");
     int first = 0;
     int second = 0;
-    loaded.map.on_object("enemy", [&](rmp::Scene &, const rmp::MapObject &) { first++; });
+    loaded.map.on_object("enemy", [&](rmp::Scene &, const rmp::MapObject &) { ++first; });
     loaded.map.on_object("enemy",
-                         [&](rmp::Scene &, const rmp::MapObject &) { second++; });
+                         [&](rmp::Scene &, const rmp::MapObject &) { ++second; });
     loaded.map.spawn_objects(world);
     CHECK(first == 0);
     CHECK(second == 1);

@@ -56,8 +56,8 @@ class Counting : public rmp::Scene {
 public:
     void _ready() override { rmp::input::action("jump", KEY_SPACE); }
     void _update(float /*delta*/) override {
-        if (rmp::input::pressed("jump")) run.scene_held++;
-        if (rmp::input::just_pressed("jump")) run.scene_pressed++;
+        if (rmp::input::pressed("jump")) ++run.scene_held;
+        if (rmp::input::just_pressed("jump")) ++run.scene_pressed;
     }
 };
 
@@ -67,7 +67,7 @@ void expect(const char *what, int got, int want) {
         return;
     }
     std::printf("INPUT  %s: %d, expected %d\n", what, got, want);
-    run.failures++;
+    ++run.failures;
 }
 
 void ready() {
@@ -80,8 +80,8 @@ void ready() {
 
 void frame(float delta) {
     if (run.frame < SECOND_SHAPE) {
-        if (rmp::input::pressed("jump")) run.hook_held++;
-        if (rmp::input::just_pressed("jump")) run.hook_pressed++;
+        if (rmp::input::pressed("jump")) ++run.hook_held;
+        if (rmp::input::just_pressed("jump")) ++run.hook_pressed;
         BeginDrawing();
         ClearBackground(BLACK);
         EndDrawing();

@@ -236,7 +236,7 @@ void Platformer::_update(Object &self, float delta) {
         self.velocity.y = -jump;
         ours.since_jump_pressed = 1000;
         ours.since_grounded = 1000;
-        ours.jumps_used++;
+        ++ours.jumps_used;
         ours.grounded = false;
     }
 
@@ -277,7 +277,7 @@ void Runner::_update(Object &self, float delta) {
     if (pressed(or_default(jump_action, "ui_accept")) &&
         (ours.grounded || ours.jumps_used < air_jumps + 1)) {
         self.velocity.y = -jump;
-        ours.jumps_used++;
+        ++ours.jumps_used;
         ours.grounded = false;
     }
 
@@ -546,7 +546,7 @@ void Parallax::_draw(Object &self) {
     const detail::ParallaxTiling tiling =
         detail::parallax_tiling(shift, static_cast<float>(tex.width), view.width);
 
-    for (int i = 0; i < tiling.copies; i++) {
+    for (int i = 0; i < tiling.copies; ++i) {
         const float at = view.x + tiling.offset +
             static_cast<float>(i) * static_cast<float>(tex.width);
         DrawTextureV(tex, Vector2{ at, view.y + y }, tint);
@@ -657,7 +657,7 @@ void Spawner::_update(Object &self, float delta) {
     // whose object is gone is exactly what says so. A plain counter could only
     // ever go up: nothing tells a spawner that what it made has died.
     int kept = 0;
-    for (int i = 0; i < ours.made_count; i++) {
+    for (int i = 0; i < ours.made_count; ++i) {
         if (ours.made[i]) ours.made[kept++] = ours.made[i];
     }
     ours.made_count = kept;
@@ -682,8 +682,8 @@ void Spawner::_update(Object &self, float delta) {
 
 int Spawner::alive() const {
     int count = 0;
-    for (int i = 0; i < ours.made_count; i++) {
-        if (ours.made[i]) count++;
+    for (int i = 0; i < ours.made_count; ++i) {
+        if (ours.made[i]) ++count;
     }
     return count;
 }

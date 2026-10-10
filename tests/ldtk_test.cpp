@@ -124,7 +124,7 @@ struct Parsed {
 };
 
 const rmp::MapObject *object_of_type(const MapData *data, const char *type, int nth = 0) {
-    for (int i = 0; i < rmp::tilemap::detail::object_count(data); i++) {
+    for (int i = 0; i < rmp::tilemap::detail::object_count(data); ++i) {
         const rmp::MapObject *o = rmp::tilemap::detail::object_at(data, i);
         if (std::string(o->type) == type && nth-- == 0) return o;
     }
@@ -132,7 +132,7 @@ const rmp::MapObject *object_of_type(const MapData *data, const char *type, int 
 }
 
 const rmp::MapObject *object_by_iid(const MapData *data, std::string_view iid) {
-    for (int i = 0; i < rmp::tilemap::detail::object_count(data); i++) {
+    for (int i = 0; i < rmp::tilemap::detail::object_count(data); ++i) {
         const rmp::MapObject *o = rmp::tilemap::detail::object_at(data, i);
         if (o->iid == iid) return o;
     }
@@ -380,7 +380,7 @@ TEST_SUITE("ldtk") {
         World world;
         int doors = 0;
         p.map.on_object("Door",
-                        [&doors](rmp::Scene &, const rmp::MapObject &) { doors++; });
+                        [&doors](rmp::Scene &, const rmp::MapObject &) { ++doors; });
         p.map.spawn_objects(world);
         CHECK(doors == 1);
         CHECK(world.object_count() == 2); // the player and the enemy, plain
@@ -666,7 +666,7 @@ TEST_SUITE("ldtk") {
         int parsed = 0;
         int valid = 0;
         int keyed = 0;
-        for (std::size_t n = 0; n < nodes.size(); n++) {
+        for (std::size_t n = 0; n < nodes.size(); ++n) {
             const Node &node = nodes[n];
             std::vector<Kind> kinds;
             if (node.number) {
@@ -678,7 +678,7 @@ TEST_SUITE("ldtk") {
             for (Kind kind : kinds) {
                 const Json copy(cJSON_Duplicate(original.get(), 1));
                 cJSON *parent = copy.get();
-                for (std::size_t d = 0; d + 1 < node.path.size(); d++) {
+                for (std::size_t d = 0; d + 1 < node.path.size(); ++d) {
                     parent = cJSON_GetArrayItem(parent, node.path[d]);
                 }
                 REQUIRE(parent != nullptr);
@@ -691,7 +691,7 @@ TEST_SUITE("ldtk") {
                                                                    hostile(kind)));
                     REQUIRE(cJSON_GetObjectItemCaseSensitive(parent, key.c_str()) !=
                             nullptr);
-                    keyed++;
+                    ++keyed;
                 } else {
                     REQUIRE(cJSON_ReplaceItemInArray(parent, node.path.back(),
                                                      hostile(kind)));
@@ -701,14 +701,14 @@ TEST_SUITE("ldtk") {
                 const std::string text(printed);
                 cJSON_free(printed);
                 const Parsed p(text, "hostile.ldtk");
-                parsed++;
+                ++parsed;
                 if (p.map.valid()) {
-                    valid++;
+                    ++valid;
                     // Whatever was read can be asked about.
                     (void)p.map.solid_in(p.map.bounds());
                     (void)p.map.solid_at({ 1e20f, 1e20f });
                     (void)p.map.neighbour_at({ 70, 0 });
-                    for (int i = 0; i < p.map.object_count(); i++) {
+                    for (int i = 0; i < p.map.object_count(); ++i) {
                         const rmp::MapObject *o =
                             rmp::tilemap::detail::object_at(p.data, i);
                         (void)o->property_point("patrol", 1);
@@ -801,7 +801,7 @@ TEST_SUITE("ldtk") {
         // overflow the gid counter into negative numbers.
         const Quiet quiet;
         std::string layers;
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 6; ++i) {
             if (!layers.empty()) layers += ",";
             layers += R"({"__identifier":"L)" + std::to_string(i) +
                 R"(","__type":"IntGrid","__gridSize":16,"__cWid":2048,"__cHei":2048})";
@@ -815,7 +815,7 @@ TEST_SUITE("ldtk") {
         CHECK(many.map.layer_count() == 4); // 4 x 2048^2 is the whole budget, exactly
 
         std::string sets;
-        for (int i = 0; i < 600; i++) {
+        for (int i = 0; i < 600; ++i) {
             if (!sets.empty()) sets += ",";
             sets += R"({"uid":)" + std::to_string(i + 1) +
                 R"(,"__cWid":2048,"__cHei":2048,"tileGridSize":16})";
@@ -883,7 +883,7 @@ TEST_SUITE("ldtk") {
                 const cJSON *layers =
                     cJSON_GetObjectItemCaseSensitive(level, "layerInstances");
                 std::size_t index = 0;
-                for (int i = cJSON_GetArraySize(layers) - 1; i >= 0; i--) {
+                for (int i = cJSON_GetArraySize(layers) - 1; i >= 0; --i) {
                     const cJSON *li = cJSON_GetArrayItem(layers, i);
                     if (std::string(str(li, "__type")) == "Entities") {
                         const cJSON *e = nullptr;
@@ -902,7 +902,7 @@ TEST_SUITE("ldtk") {
                             CHECK(o->position.y ==
                                   doctest::Approx(num(e, "__worldY") +
                                                   (0.5 - pair(e, "__pivot", 1)) * h));
-                            entities++;
+                            ++entities;
                         }
                         continue;
                     }
@@ -925,7 +925,7 @@ TEST_SUITE("ldtk") {
                             CHECK(placed.flip_x == ((f & 1) != 0));
                             CHECK(placed.flip_y == ((f & 2) != 0));
                             CHECK(placed.alpha == doctest::Approx(num(t, "a")));
-                            tiles++;
+                            ++tiles;
                         }
                     }
                     CHECK(k == layer.placed.size());
@@ -993,7 +993,7 @@ TEST_SUITE("ldtk") {
         const char *expected[] = { "Tiles", "IntGrid_with_rules", "IntGrid_without_rules",
                                    "PureAutoLayer", "IntGrid_8px_grid" };
         REQUIRE(p.data->layers.size() == 5);
-        for (std::size_t i = 0; i < 5; i++) CHECK(p.data->layers[i].name == expected[i]);
+        for (std::size_t i = 0; i < 5; ++i) CHECK(p.data->layers[i].name == expected[i]);
         CHECK(p.data->layers[4].cell_width == 8);
         CHECK(p.data->layers[4].width == 85);
         // Cell (13, 7) of IntGrid_with_rules stacks tile 140 and then 105:
@@ -1118,14 +1118,14 @@ TEST_SUITE("ldtk") {
             const Rectangle b = p.map.bounds();
             CHECK(p.map.layer_count() > 0);
             CHECK(p.map.solid_in(b)); // there is ground to stand on
-            for (int i = 0; i < rmp::tilemap::detail::object_count(p.data); i++) {
+            for (int i = 0; i < rmp::tilemap::detail::object_count(p.data); ++i) {
                 const rmp::MapObject *o = rmp::tilemap::detail::object_at(p.data, i);
                 const std::string type(o->type);
                 CAPTURE(type);
-                if (type == "Player") players++;
-                if (type == "Goal") goals++;
+                if (type == "Player") ++players;
+                if (type == "Goal") ++goals;
                 if (type == "Key") {
-                    keys++;
+                    ++keys;
                     const rmp::MapObject *door =
                         object_by_iid(p.data, o->property_string("opens"));
                     REQUIRE_MESSAGE(door != nullptr,
@@ -1133,7 +1133,7 @@ TEST_SUITE("ldtk") {
                     CHECK(std::string(door->type) == "Door");
                 }
                 for (const char *route : { "patrol", "to" }) {
-                    for (int k = 0; k < o->property_count(route); k++) {
+                    for (int k = 0; k < o->property_count(route); ++k) {
                         const Vector2 at = o->property_point(route, k);
                         CHECK_MESSAGE(CheckCollisionPointRec(at, b),
                                       route << " leaves the level");
@@ -1144,7 +1144,7 @@ TEST_SUITE("ldtk") {
             // the ground there.
             std::string next;
             for (int step = 0; static_cast<float>(step * 9) < b.height && next.empty();
-                 step++) {
+                 ++step) {
                 next = p.map.neighbour_at(
                     { b.x + b.width + 1, b.y + static_cast<float>(step * 9) });
             }

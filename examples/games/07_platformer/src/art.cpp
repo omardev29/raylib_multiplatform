@@ -76,7 +76,7 @@ void draw_tile(int index, Vector2 at, Color tint, bool flip_x) {
 // narrower than the cell.
 void draw_number(int value, Vector2 at, float scale) {
     const std::string digits = std::to_string(std::max(0, value));
-    for (std::size_t i = 0; i < digits.size(); i++) {
+    for (std::size_t i = 0; i < digits.size(); ++i) {
         draw_scaled_tile(tiles::DIGIT_0 + (digits[i] - '0'),
                          { at.x + (static_cast<float>(i) * 11 * scale), at.y }, scale);
     }

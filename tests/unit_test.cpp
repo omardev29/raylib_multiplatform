@@ -71,13 +71,13 @@ TEST_SUITE("random") {
         // stops that, and this is the test that says so.
         rmp::random::seed(0);
         std::set<float> seen;
-        for (int i = 0; i < 64; i++) seen.insert(rmp::random::value());
+        for (int i = 0; i < 64; ++i) seen.insert(rmp::random::value());
         CHECK(seen.size() > 60);
     }
 
     TEST_CASE("value() stays inside [0, 1)") {
         rmp::random::seed(7);
-        for (int i = 0; i < 20000; i++) {
+        for (int i = 0; i < 20000; ++i) {
             const float v = rmp::random::value();
             REQUIRE(v >= 0.0f);
             REQUIRE(v < 1.0f);
@@ -88,7 +88,7 @@ TEST_SUITE("random") {
         rmp::random::seed(7);
         float lo = 1e9f;
         float hi = -1e9f;
-        for (int i = 0; i < 20000; i++) {
+        for (int i = 0; i < 20000; ++i) {
             const float v = rmp::random::range(-3.0f, 5.0f);
             REQUIRE(v >= -3.0f);
             REQUIRE(v <= 5.0f);
@@ -104,7 +104,7 @@ TEST_SUITE("random") {
         // an off-by-one there is a die that never rolls a 6.
         rmp::random::seed(3);
         std::set<int> seen;
-        for (int i = 0; i < 5000; i++) {
+        for (int i = 0; i < 5000; ++i) {
             const int v = rmp::random::range(1, 6);
             REQUIRE(v >= 1);
             REQUIRE(v <= 6);
@@ -120,7 +120,7 @@ TEST_SUITE("random") {
 
     TEST_CASE("chance(0) never and chance(1) always") {
         rmp::random::seed(11);
-        for (int i = 0; i < 2000; i++) {
+        for (int i = 0; i < 2000; ++i) {
             REQUIRE_FALSE(rmp::random::chance(0.0f));
             REQUIRE(rmp::random::chance(1.0f));
         }
@@ -129,7 +129,7 @@ TEST_SUITE("random") {
     TEST_CASE("chance(p) lands near p") {
         rmp::random::seed(11);
         int hits = 0;
-        for (int i = 0; i < 100000; i++) hits += rmp::random::chance(0.25f) ? 1 : 0;
+        for (int i = 0; i < 100000; ++i) hits += rmp::random::chance(0.25f) ? 1 : 0;
         CHECK(hits > 24000);
         CHECK(hits < 26000);
     }
@@ -140,12 +140,12 @@ TEST_SUITE("random") {
         rmp::random::seed(5);
         int outer_half = 0;
         const int samples = 20000;
-        for (int i = 0; i < samples; i++) {
+        for (int i = 0; i < samples; ++i) {
             const Vector2 p = rmp::random::in_circle(10.0f);
             const float d = std::sqrt(p.x * p.x + p.y * p.y);
             REQUIRE(d <= 10.0001f);
             // Half the AREA of a disc is outside r/sqrt(2) = 0.7071 r.
-            if (d > 7.071f) outer_half++;
+            if (d > 7.071f) ++outer_half;
         }
         CHECK(outer_half > samples * 0.45);
         CHECK(outer_half < samples * 0.55);
@@ -154,7 +154,7 @@ TEST_SUITE("random") {
     TEST_CASE("direction() is a unit vector, and points every way") {
         rmp::random::seed(5);
         bool quadrant[4] = { false, false, false, false };
-        for (int i = 0; i < 4000; i++) {
+        for (int i = 0; i < 4000; ++i) {
             const Vector2 d = rmp::random::direction();
             REQUIRE(std::sqrt(d.x * d.x + d.y * d.y) ==
                     doctest::Approx(1.0f).epsilon(0.001));
@@ -168,7 +168,7 @@ TEST_SUITE("random") {
         CHECK(rmp::random::index(0) == 0);
         CHECK(rmp::random::index(-4) == 0);
         std::set<int> seen;
-        for (int i = 0; i < 500; i++) {
+        for (int i = 0; i < 500; ++i) {
             const int v = rmp::random::index(3);
             REQUIRE(v >= 0);
             REQUIRE(v < 3);

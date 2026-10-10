@@ -271,7 +271,7 @@ const char *clay_error_name(Clay_ErrorType t) {
 }
 
 void on_clay_error(Clay_ErrorData e) {
-    clay.errors++;
+    ++clay.errors;
     if (clay.errors == 1) clay.first_error = e.errorType;
 
     // The ceiling, translated. Clay's own text says to call
@@ -493,7 +493,7 @@ bool frame_self_marked() { return frame.self_marked; }
 void set_frame_self_marked(bool self) { frame.self_marked = self; }
 
 void begin_pass() {
-    this_pass.index++;
+    ++this_pass.index;
     reset_id_counters();
     begin_pass_focus();
     // The first pass of the frame is where wants_pointer() and wants_keyboard()
@@ -508,7 +508,7 @@ bool pass_input() { return this_pass.input; }
 // finished, and write them where the next frame's matching pass will look.
 void capture_pass_bounds() {
     int &count = bounds.count[bounds.front];
-    for (int i = 0; i < this_pass.id_count; i++) {
+    for (int i = 0; i < this_pass.id_count; ++i) {
         if (count >= MAX_BOUNDS) {
             RMP_REPORT_ONCE("UI: more than %d elements in one frame; the extra ones lose "
                             "their remembered geometry, so a grid or slider among them "
@@ -533,7 +533,7 @@ void push_clip(Clay_ElementId id) {
     if (clips.depth < MAX_CLIP_DEPTH) {
         clips.stack[clips.depth++] = id.id;
     } else {
-        clips.overflow++;
+        ++clips.overflow;
         RMP_REPORT_ONCE("UI: scroll areas nested more than %d deep; the ones past that "
                         "do not clip what can be clicked inside them",
                         MAX_CLIP_DEPTH);
@@ -542,9 +542,9 @@ void push_clip(Clay_ElementId id) {
 
 void pop_clip() {
     if (clips.overflow > 0) {
-        clips.overflow--;
+        --clips.overflow;
     } else if (clips.depth > 0) {
-        clips.depth--;
+        --clips.depth;
     }
 }
 
@@ -593,7 +593,7 @@ void prepare_frame() {
     reset_frame_arena();
     update_scale();
     anim_begin_frame();
-    font.frame++; // what "drawn this frame" means to the font faces
+    ++font.frame; // what "drawn this frame" means to the font faces
 
     Clay_SetLayoutDimensions(viewport());
 
@@ -682,7 +682,7 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
     uint32_t h = fnv1a(label);
     uint16_t occurrence = 0;
     int slot = -1;
-    for (int i = 0; i < labels.count; i++) {
+    for (int i = 0; i < labels.count; ++i) {
         if (labels.table[i].hash == h) {
             slot = i;
             break;
@@ -705,7 +705,7 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
                         "that keep working but are numbered from the other end. Give "
                         "the repeated ones an explicit id if anything looks swapped.",
                         MAX_LABELS);
-        if (labels.overflow < static_cast<int>(INDICES_PER_PASS) / 2) labels.overflow++;
+        if (labels.overflow < static_cast<int>(INDICES_PER_PASS) / 2) ++labels.overflow;
         return finish_id(label,
                          static_cast<unsigned>(INDICES_PER_PASS) -
                              static_cast<unsigned>(labels.overflow));
@@ -881,7 +881,7 @@ namespace {
 // by the frame we are inside, and half of it does not exist yet.
 const BoundsEntry *entry_of(uint32_t id) {
     const int back = 1 - bounds.front;
-    for (int i = 0; i < bounds.count[back]; i++) {
+    for (int i = 0; i < bounds.count[back]; ++i) {
         if (bounds.entries[back][i].id == id) return &bounds.entries[back][i];
     }
     return nullptr;
@@ -897,7 +897,7 @@ bool inside_box(Clay_Vector2 p, const Clay_BoundingBox &b) {
 // of the list they live in, so "inside its box" would say they are not its.
 bool descends_from(const BoundsEntry *e, uint32_t ancestor) {
     uint32_t clip = e->clip;
-    for (int depth = 0; clip != 0 && depth <= MAX_CLIP_DEPTH; depth++) {
+    for (int depth = 0; clip != 0 && depth <= MAX_CLIP_DEPTH; ++depth) {
         if (clip == ancestor) return true;
         const BoundsEntry *c = entry_of(clip);
         if (c == nullptr) return false;
@@ -959,7 +959,7 @@ bool pointer_over(Clay_ElementId id, float slop_y) {
 
     // Something in front of it has the pointer.
     const int back = 1 - bounds.front;
-    for (int i = 0; i < blockers.count[back]; i++) {
+    for (int i = 0; i < blockers.count[back]; ++i) {
         const Blocker &b = blockers.entries[back][i];
         if (b.pass != current_pass() || b.id == id.id) continue;
         const BoundsEntry *front = entry_of(b.id);
@@ -984,13 +984,13 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
     auto shown_under_pointer = [&](const Clay_BoundingBox &b) {
         // No area, nothing to be over: see pointer_over().
         if (b.width <= 0.0f || b.height <= 0.0f || !inside_box(p, b)) return false;
-        for (int i = 0; i < depth; i++) {
+        for (int i = 0; i < depth; ++i) {
             if (!inside_box(p, open_clips[i])) return false;
         }
         return true;
     };
 
-    for (int32_t i = 0; i < commands.length; i++) {
+    for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE:
@@ -1012,14 +1012,14 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
                 if (depth < MAX_CLIP_DEPTH) {
                     open_clips[depth++] = cmd.boundingBox;
                 } else {
-                    overflow++;
+                    ++overflow;
                 }
                 break;
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END:
                 if (overflow > 0) {
-                    overflow--;
+                    --overflow;
                 } else if (depth > 0) {
-                    depth--;
+                    --depth;
                 }
                 break;
             case CLAY_RENDER_COMMAND_TYPE_TEXT: // over the game, text is not a wall

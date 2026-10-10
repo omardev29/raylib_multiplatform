@@ -36,14 +36,14 @@ struct {
 
 void check(bool ok, const char *what) {
     std::printf("%s  %s\n", ok ? "ok  " : "FAIL", what);
-    if (!ok) results.failures++;
+    if (!ok) ++results.failures;
 }
 
 void check_near(float got, float want, float tolerance, const char *what) {
     bool ok = std::fabs(got - want) <= tolerance;
     std::printf("%s  %s (got %.2f, want %.2f +/- %.2f)\n", ok ? "ok  " : "FAIL", what,
                 got, want, tolerance);
-    if (!ok) results.failures++;
+    if (!ok) ++results.failures;
 }
 
 // A stub that needs no font: every glyph is half the font Size wide, and a line
@@ -78,7 +78,7 @@ Box box_of(const char *label) {
     Clay_BoundingBox b{};
     if (!rmp::ui::detail::bounds_of(label, 0, 0, &b)) {
         std::printf("FAIL  '%s' produced no element at all\n", label);
-        results.failures++;
+        ++results.failures;
         return Box{ 0, 0, 0, 0 };
     }
     return Box{ b.x, b.y, b.width, b.height };
@@ -247,7 +247,7 @@ void run_interaction() {
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::panel([&] {
-            if (rmp::ui::button("Apply")) clicks++;
+            if (rmp::ui::button("Apply")) ++clicks;
             rmp::ui::checkbox("Fullscreen", checked);
             rmp::ui::slider("Volume", volume, 0.0f, 1.0f);
         });
@@ -419,7 +419,7 @@ void run_grid() {
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::grid(3, [&] {
-            for (int i = 0; i < 7; i++) {
+            for (int i = 0; i < 7; ++i) {
                 rmp::ui::cell([&] { rmp::ui::button(TextFormat("item%d", i)); });
             }
         });
@@ -653,7 +653,7 @@ void run_slider_nav() {
 
     // Pressed again, three times, which is two steps of travel and one of
     // nothing because it is already at the end.
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; ++i) {
         fake_nav.state.x = 0;
         frame();
         fake_nav.state.x = -1;
@@ -765,7 +765,7 @@ void run_arena_overflow() {
     rmp::ui::begin();
     char filler[1024];
     std::memset(filler, 'x', sizeof filler);
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 9; ++i) {
         rmp::ui::detail::intern(std::string_view{ filler, sizeof filler });
     }
     rmp::ui::button("PlayTheGame");
@@ -786,7 +786,7 @@ void run_label_overflow() {
     rmp::detail::reset_reports_for_tests();
 
     rmp::ui::begin();
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 300; ++i) {
         char label[16];
         std::snprintf(label, sizeof label, "lbl%03d", i);
         rmp::ui::detail::element_id(std::string_view{ label }, {});
@@ -867,7 +867,7 @@ void run_element_ceiling() {
     rmp::ui::detail::reset_clay_errors_for_tests();
 
     rmp::ui::begin();
-    for (int i = 0; i < 600; i++) rmp::ui::text("x");
+    for (int i = 0; i < 600; ++i) rmp::ui::text("x");
     rmp::ui::end();
 
     const Clay_ErrorType first = rmp::ui::detail::first_clay_error();
@@ -895,11 +895,11 @@ void run_two_passes() {
         rmp::ui::detail::begin_frame();
         rmp::ui::detail::set_pass_input(hud_reachable);
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
-        if (rmp::ui::button("Back")) hud_clicks++;
+        if (rmp::ui::button("Back")) ++hud_clicks;
         rmp::ui::end();
         rmp::ui::detail::set_pass_input(true);
         rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
-        if (rmp::ui::button("Back")) menu_clicks++;
+        if (rmp::ui::button("Back")) ++menu_clicks;
         rmp::ui::end();
         rmp::ui::detail::end_frame();
     };
@@ -1007,11 +1007,11 @@ void run_two_pass_clicks() {
         rmp::ui::detail::begin_frame();
         rmp::ui::detail::set_pass_input(hud_reachable);
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
-        if (rmp::ui::button("Hud")) hud_clicks++;
+        if (rmp::ui::button("Hud")) ++hud_clicks;
         rmp::ui::end();
         rmp::ui::detail::set_pass_input(true);
         rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
-        if (rmp::ui::button("Menu")) menu_clicks++;
+        if (rmp::ui::button("Menu")) ++menu_clicks;
         rmp::ui::end();
         rmp::ui::detail::end_frame();
     };
@@ -1152,7 +1152,7 @@ void run_dropdown_occlusion() {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             rmp::ui::dropdown("Quality", quality, { "Off", "Low", "High" });
-            if (rmp::ui::button("Underneath")) clicks++;
+            if (rmp::ui::button("Underneath")) ++clicks;
         });
         rmp::ui::end();
     };
@@ -1206,7 +1206,7 @@ void run_scroll_moves() {
     auto frame = [&] {
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::scroll({ .height = 80, .id = "moving" }, [&] {
-            for (int i = 0; i < 8; i++) rmp::ui::button(TextFormat("item%d", i));
+            for (int i = 0; i < 8; ++i) rmp::ui::button(TextFormat("item%d", i));
         });
         rmp::ui::end();
     };
@@ -1224,7 +1224,7 @@ void run_scroll_moves() {
     fake_pointer.position = at;
     fake_pointer.down = true;
     frame();
-    for (int step = 1; step <= 8; step++) {
+    for (int step = 1; step <= 8; ++step) {
         fake_pointer.position =
             Clay_Vector2{ at.x, at.y - 6.0f * static_cast<float>(step) };
         frame();
@@ -1259,8 +1259,8 @@ void run_scroll_clip() {
     auto frame = [&] {
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::scroll({ .height = 80, .id = "list" }, [&] {
-            for (int i = 0; i < 8; i++) {
-                if (rmp::ui::button(TextFormat("row%d", i))) clicks++;
+            for (int i = 0; i < 8; ++i) {
+                if (rmp::ui::button(TextFormat("row%d", i))) ++clicks;
             }
         });
         rmp::ui::end();
@@ -1415,8 +1415,8 @@ void run_activate() {
     int quit = 0;
     auto frame = [&] {
         rmp::ui::begin();
-        if (rmp::ui::button("Play again")) played++;
-        if (rmp::ui::button("Quit")) quit++;
+        if (rmp::ui::button("Play again")) ++played;
+        if (rmp::ui::button("Quit")) ++quit;
         rmp::ui::end();
     };
 
@@ -1446,7 +1446,7 @@ void run_activate() {
     rmp::ui::detail::set_pass_input(false);
     fake_nav.state.activate = true;
     rmp::ui::begin();
-    if (rmp::ui::button("Play again")) played++;
+    if (rmp::ui::button("Play again")) ++played;
     rmp::ui::end();
     rmp::ui::detail::end_frame();
     fake_nav.state.activate = false;
@@ -1611,7 +1611,7 @@ void run_text_field_focus() {
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::panel([&] {
-            if (rmp::ui::button("Before")) before++;
+            if (rmp::ui::button("Before")) ++before;
             rmp::ui::text_input("Name", name);
             rmp::ui::button("After");
         });
@@ -1779,7 +1779,7 @@ void run_dropdown_nav() {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             rmp::ui::button("Before");
-            if (rmp::ui::dropdown("Quality", quality, ITEMS)) changes++;
+            if (rmp::ui::dropdown("Quality", quality, ITEMS)) ++changes;
             rmp::ui::button("After");
         });
         rmp::ui::end();
@@ -1817,7 +1817,7 @@ void run_dropdown_nav() {
 
     // The highlight starts at the value, and stops at the ends of the list.
     press_nav(frame, NAV_ENTER);
-    for (int i = 0; i < 6; i++) press_nav(frame, NAV_DOWN);
+    for (int i = 0; i < 6; ++i) press_nav(frame, NAV_DOWN);
     press_nav(frame, NAV_ENTER);
     check(quality == 3, "it stops at the last item rather than running past it");
 
@@ -1922,7 +1922,7 @@ void run_grid_fit() {
             rmp::ui::grid({ .columns = 0 }, [] {
                 // Boxes smaller than any cell, so nothing in them can make
                 // the grid wider than the column it is in.
-                for (int i = 0; i < 4; i++) {
+                for (int i = 0; i < 4; ++i) {
                     rmp::ui::cell([&] {
                         rmp::ui::column(
                             { .width = 8, .height = 8, .id = TextFormat("fit%d", i) },
@@ -2030,7 +2030,7 @@ void run_frame_grow() {
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     auto filled = [&](rmp::ui::Align placement) {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2; ++i) {
             rmp::ui::begin({ .placement = placement, .padding = 10, .grow = true });
             rmp::ui::row({ .grow_x = true, .grow_y = true, .id = "filler" },
                          [] { rmp::ui::text("x"); });
@@ -2047,7 +2047,7 @@ void run_frame_grow() {
     check_near(f.h, 720.0f - 2 * pad, 0.5f, "to the bottom");
 
     // What does not grow is placed where `placement` says, as it always was.
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; ++i) {
         rmp::ui::begin(
             { .placement = rmp::ui::Align::BOTTOM_RIGHT, .padding = 10, .grow = true });
         rmp::ui::column({ .width = 100, .height = 50, .id = "corner" }, [] {});
@@ -2060,7 +2060,7 @@ void run_frame_grow() {
 
     // And without it, nothing moved: the same row fits the column, which is
     // what keeps the menu a centred column of equal buttons.
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; ++i) {
         rmp::ui::begin({ .padding = 10 });
         rmp::ui::row({ .grow_x = true, .grow_y = true, .id = "filler" },
                      [] { rmp::ui::text("x"); });
@@ -2093,7 +2093,7 @@ rmp::Font fake_bake(const char *name, int pixel_size) {
 
 bool baked(int pixel_size) {
     int times = 0;
-    for (int i = 0; i < font_bakes.count; i++) times += font_bakes.sizes[i] == pixel_size;
+    for (int i = 0; i < font_bakes.count; ++i) times += font_bakes.sizes[i] == pixel_size;
     return times == 1;
 }
 
@@ -2119,7 +2119,7 @@ void run_font_sizes() {
         return static_cast<int>(static_cast<uint16_t>(units * rmp::ui::scale()));
     };
     std::printf("  baked %d face(s):", font_bakes.count);
-    for (int i = 0; i < font_bakes.count; i++) std::printf(" %d", font_bakes.sizes[i]);
+    for (int i = 0; i < font_bakes.count; ++i) std::printf(" %d", font_bakes.sizes[i]);
     std::printf("\n");
     check(baked(pixels(t.font_size_small)), "SMALL is baked at the size it is drawn at");
     check(baked(pixels(t.font_size)), "so is MEDIUM");
@@ -2139,7 +2139,7 @@ void run_font_sizes() {
     // frame makes room by letting go of the one used longest ago.
     const int before = font_bakes.count;
     rmp::ui::detail::begin_frame();
-    for (int px = 60; px < 70; px++) rmp::ui::detail::ui_font(static_cast<float>(px));
+    for (int px = 60; px < 70; ++px) rmp::ui::detail::ui_font(static_cast<float>(px));
     rmp::ui::detail::end_frame();
     check(font_bakes.count - before == 8,
           "eight faces at most, however many sizes a frame asks for");
@@ -2203,7 +2203,7 @@ void run_corner_radii() {
     rmp::ui::detail::box_outline(box, c, Clay_BorderWidth{}, edge);
     auto arc_radius = [&](int corner, Vector2 centre, float want) {
         bool all = true;
-        for (int i = 0; i < CORNER_POINTS; i++) {
+        for (int i = 0; i < CORNER_POINTS; ++i) {
             const Vector2 p = edge[corner * CORNER_POINTS + i];
             const float d = std::hypot(p.x - centre.x, p.y - centre.y);
             all = all && std::fabs(d - want) < 0.01f;
@@ -2211,7 +2211,7 @@ void run_corner_radii() {
         return all;
     };
     bool square = true;
-    for (int i = 0; i < CORNER_POINTS; i++) {
+    for (int i = 0; i < CORNER_POINTS; ++i) {
         square = square && edge[i].x == 10 && edge[i].y == 20;
     }
     check(square, "a corner with no radius is the corner of the box");
@@ -2223,7 +2223,7 @@ void run_corner_radii() {
     Vector2 inside[rmp::ui::detail::BOX_OUTLINE];
     rmp::ui::detail::box_outline(box, c, Clay_BorderWidth{ 4, 4, 4, 4, 0 }, inside);
     bool pulled_in = true;
-    for (int i = 0; i < CORNER_POINTS; i++) {
+    for (int i = 0; i < CORNER_POINTS; ++i) {
         const Vector2 p = inside[2 * CORNER_POINTS + i];
         pulled_in = pulled_in && std::fabs(std::hypot(p.x - 80, p.y - 50) - 26) < 0.01f;
     }

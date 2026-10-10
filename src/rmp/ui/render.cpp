@@ -68,7 +68,7 @@ void fill_box(Clay_BoundingBox b, Corners c, Color color) {
     Vector2 edge[BOX_OUTLINE];
     box_outline(b, c, Clay_BorderWidth{}, edge);
     const Vector2 middle{ b.x + b.width * 0.5f, b.y + b.height * 0.5f };
-    for (int i = 0; i < BOX_OUTLINE; i++) {
+    for (int i = 0; i < BOX_OUTLINE; ++i) {
         triangle(middle, edge[i], edge[(i + 1) % BOX_OUTLINE], color);
     }
 }
@@ -80,7 +80,7 @@ void stroke_box(Clay_BoundingBox b, Corners c, Clay_BorderWidth w, Color color) 
     Vector2 inner[BOX_OUTLINE];
     box_outline(b, c, Clay_BorderWidth{}, outer);
     box_outline(b, c, w, inner);
-    for (int i = 0; i < BOX_OUTLINE; i++) {
+    for (int i = 0; i < BOX_OUTLINE; ++i) {
         const int next = (i + 1) % BOX_OUTLINE;
         triangle(outer[i], outer[next], inner[next], color);
         triangle(outer[i], inner[next], inner[i], color);
@@ -137,7 +137,7 @@ void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Vector2 
         const float ry = k.radius > k.down ? k.radius - k.down : 0.0f;
         const float cx = k.x - k.sx * (k.radius > k.across ? k.radius : k.across);
         const float cy = k.y - k.sy * (k.radius > k.down ? k.radius : k.down);
-        for (int i = 0; i < CORNER_POINTS; i++) {
+        for (int i = 0; i < CORNER_POINTS; ++i) {
             const float angle =
                 (k.from - 90.0f * static_cast<float>(i) / (CORNER_POINTS - 1)) * DEGREES;
             out[n++] = Vector2{ cx + rx * std::cos(angle), cy + ry * std::sin(angle) };
@@ -155,7 +155,7 @@ const char *cstr(Clay_StringSlice slice) {
 
 void draw(Clay_RenderCommandArray commands) {
     // Already sorted by z order, so drawing them in sequence is correct.
-    for (int32_t i = 0; i < commands.length; i++) {
+    for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
         Rectangle rect = to_rect(cmd.boundingBox);
 

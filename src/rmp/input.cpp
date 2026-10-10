@@ -146,7 +146,7 @@ bool action_state(std::string_view name, Edge edge) {
         return false;
     }
 
-    for (int i = 0; i < action->count; i++) {
+    for (int i = 0; i < action->count; ++i) {
         const detail::Binding &binding = action->bindings[i];
         if (consumed(binding)) continue;
         const bool now = binding_down(binding, frames.now);
@@ -184,7 +184,7 @@ float action_amount(std::string_view name) {
         return 0.0f;
     }
     float best = 0.0f;
-    for (int i = 0; i < action->count; i++) {
+    for (int i = 0; i < action->count; ++i) {
         const detail::Binding &binding = action->bindings[i];
         if (consumed(binding)) continue;
         const float amount = binding_amount(binding, frames.now);
@@ -264,20 +264,20 @@ void define(std::string_view name, std::initializer_list<Binding> bindings) {
 }
 
 void sample_with_raylib(DeviceState &out) {
-    for (int key = 0; key < DeviceState::KEYS; key++) {
+    for (int key = 0; key < DeviceState::KEYS; ++key) {
         out.keys[key] = IsKeyDown(key);
     }
-    for (int button = 0; button < DeviceState::MOUSE_BUTTONS; button++) {
+    for (int button = 0; button < DeviceState::MOUSE_BUTTONS; ++button) {
         out.mouse[button] = IsMouseButtonDown(button);
     }
     // Gamepad 0 only, deliberately: local multiplayer is a real feature and a
     // bigger one than a second index, so it waits for a game that needs it
     // rather than being half-there.
     const bool pad = IsGamepadAvailable(0);
-    for (int button = 0; button < DeviceState::PAD_BUTTONS; button++) {
+    for (int button = 0; button < DeviceState::PAD_BUTTONS; ++button) {
         out.pad[button] = pad && IsGamepadButtonDown(0, button);
     }
-    for (int axis = 0; axis < DeviceState::AXES; axis++) {
+    for (int axis = 0; axis < DeviceState::AXES; ++axis) {
         out.axes[axis] = pad ? GetGamepadAxisMovement(0, axis) : 0.0f;
     }
     // Touch and mouse are the same pointer, which is what lets the same code

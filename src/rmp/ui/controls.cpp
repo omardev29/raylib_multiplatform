@@ -356,7 +356,7 @@ bool dropdown(std::string_view label, int &selected,
     // wrong list entirely.
     bool over_any_item = false;
     if (st->flag && detail::pointer_present()) {
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < count; ++i) {
             if (detail::pointer_over(
                     detail::peek_sub_id(id, static_cast<uint32_t>(i) + 1))) {
                 over_any_item = true;
@@ -460,7 +460,7 @@ bool dropdown(std::string_view label, int &selected,
                 // Everything in the list belongs to the list, which is what
                 // makes the items themselves exempt from the block above.
                 detail::push_clip(menu_id);
-                for (int i = 0; i < count; i++) {
+                for (int i = 0; i < count; ++i) {
                     Clay_ElementId item_id =
                         detail::sub_id(id, static_cast<uint32_t>(i) + 1);
                     const bool item_over = detail::pointer_over(item_id);
@@ -626,7 +626,7 @@ bool continues(char c) { return (static_cast<unsigned char>(c) & 0xC0U) == 0x80U
 int utf8_length(std::string_view text) {
     int n = 0;
     for (const char c : text) {
-        if (!continues(c)) n++;
+        if (!continues(c)) ++n;
     }
     return n;
 }
@@ -670,13 +670,13 @@ bool utf8_pop(std::string &text) {
 bool utf8_truncate(std::string &text, int max_length) {
     if (max_length <= 0) return false;
     int seen = 0;
-    for (std::size_t i = 0; i < text.size(); i++) {
+    for (std::size_t i = 0; i < text.size(); ++i) {
         if (continues(text[i])) continue;
         if (seen == max_length) {
             text.resize(i); // i starts a character: nothing is cut inside one
             return true;
         }
-        seen++;
+        ++seen;
     }
     return false;
 }

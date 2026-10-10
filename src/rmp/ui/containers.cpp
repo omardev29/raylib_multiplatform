@@ -293,9 +293,9 @@ void open_grid(const GridOptions &o) {
     if (grids.depth < MAX_GRID_DEPTH) {
         grids.frames[grids.depth] =
             GridFrame{ columns, 0, false, o.gap < 0 ? t.gap : o.gap };
-        grids.depth++;
+        ++grids.depth;
     } else {
-        grids.overflow++;
+        ++grids.overflow;
         RMP_REPORT_ONCE("UI: grids nested more than %d deep; the ones past that lay "
                         "their cells out as plain boxes in a column",
                         MAX_GRID_DEPTH);
@@ -309,13 +309,13 @@ void close_grid() {
     if (grids.overflow > 0) {
         // This one never pushed a frame, so it pops nothing. Grids nest, so the
         // overflowing ones are always the innermost and this is exact LIFO.
-        grids.overflow--;
+        --grids.overflow;
     } else if (grids.depth > 0) {
         // A grid whose last row is not full still has that row open. Closing it
         // here is why a grid of five items with four columns does not corrupt
         // everything after it.
         if (grids.frames[grids.depth - 1].row_open) Clay__CloseElement();
-        grids.depth--;
+        --grids.depth;
     }
     Clay__CloseElement();
 }
@@ -356,7 +356,7 @@ void open_cell() {
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
-    g.index++;
+    ++g.index;
 }
 
 void close_cell() {

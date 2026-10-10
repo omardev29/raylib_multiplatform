@@ -62,7 +62,7 @@ static void sidebar() {
     const bool narrow = rmp::ui::compact();
 
     auto items = [] {
-        for (int i = 0; i < SECTION_COUNT; i++) {
+        for (int i = 0; i < SECTION_COUNT; ++i) {
             const bool active = (i == selected);
             if (rmp::ui::button(SECTIONS[i],
                                 { .style = active ? rmp::ui::Variant::PRIMARY
@@ -103,7 +103,7 @@ static void content() {
             // why there is no wrap flag on row().
             rmp::ui::scroll([] {
                 rmp::ui::grid({ .columns = 0, .min_cell = 110, .id = "tiles" }, [] {
-                    for (int i = 0; i < 24; i++) {
+                    for (int i = 0; i < 24; ++i) {
                         rmp::ui::cell([&] {
                             rmp::ui::panel({ .box = { .padding = 10 } }, [&] {
                                 rmp::ui::text("Item " + std::to_string(i + 1),

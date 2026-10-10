@@ -39,11 +39,11 @@ struct {
     int count = 0;
 } device_opens;
 bool no_device() {
-    device_opens.count++;
+    ++device_opens.count;
     return false;
 }
 bool fake_device() {
-    device_opens.count++;
+    ++device_opens.count;
     return true;
 }
 
@@ -233,7 +233,7 @@ TEST_SUITE("audio") {
         // A CI runner, a server, a laptop with its sound off. A footstep every
         // frame must not pay for a failing InitAudioDevice() every frame.
         rmp::audio::detail::set_device_opener(no_device);
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 100; ++i) {
             rmp::audio::play("step");
             rmp::audio::play("coin", { .volume = 0.5f, .pitch = 2.0f });
             rmp::audio::music("level1");
@@ -258,7 +258,7 @@ TEST_SUITE("audio") {
         rmp::detail::reset_reports_for_tests();
         const bool was_strict = rmp::detail::strict();
         const rmp::detail::StrictHandler previous =
-            rmp::detail::set_strict_handler([] { stops++; });
+            rmp::detail::set_strict_handler([] { ++stops; });
         rmp::detail::set_strict(true);
         rmp::audio::detail::set_device_opener(no_device);
         rmp::audio::play("step");

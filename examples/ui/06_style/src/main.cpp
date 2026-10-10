@@ -59,14 +59,14 @@ static void variants() {
 
         rmp::ui::row({ .grow_x = true }, [] {
             if (rmp::ui::button("Start game", { .style = rmp::ui::Variant::PRIMARY }))
-                pressed_count++;
-            if (rmp::ui::button("Load")) pressed_count++;
+                ++pressed_count;
+            if (rmp::ui::button("Load")) ++pressed_count;
             if (rmp::ui::button("Settings", { .style = rmp::ui::Variant::OUTLINE }))
-                pressed_count++;
+                ++pressed_count;
             if (rmp::ui::button("Back", { .style = rmp::ui::Variant::GHOST }))
-                pressed_count++;
+                ++pressed_count;
             if (rmp::ui::button("Delete", { .style = rmp::ui::Variant::DANGER }))
-                pressed_count++;
+                ++pressed_count;
         });
 
         // Disabled is a state, not a variant: it can happen to any of them, so

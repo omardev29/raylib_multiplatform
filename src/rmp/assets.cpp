@@ -64,7 +64,7 @@ namespace {
 bool fallback_path(const char *name, char *out, size_t n) {
     std::snprintf(out, n, "%s%s", detail::resources_root(), name);
     if (FileExists(out)) return true;
-    detail::loads.failed++;
+    ++detail::loads.failed;
     return false;
 }
 
@@ -72,7 +72,7 @@ bool fallback_path(const char *name, char *out, size_t n) {
 // Said once per name: a failed load is not cached, so a game that asks for it
 // every frame would otherwise say it every frame.
 void decode_failed(const char *name) {
-    detail::loads.failed++;
+    ++detail::loads.failed;
     RMP_REPORT_ONCE_KEYED(name, "ASSETS: '%s' is in %s but could not be decoded", name,
                           detail::resources_root());
 }
@@ -128,7 +128,7 @@ int failed_loads() { return detail::loads.failed; }
 namespace {
 
 ::Image load_image_raw(const char *name) {
-    detail::loads.requested++;
+    ++detail::loads.requested;
     if (detail::pack_is_open()) {
         ::Image img = detail::pack_read_image(name);
         if (img.data != nullptr) return img;
@@ -155,7 +155,7 @@ Texture2D load_texture_raw(const char *name) {
 }
 
 ::Sound load_sound_raw(const char *name) {
-    detail::loads.requested++;
+    ++detail::loads.requested;
     if (detail::pack_is_open()) {
         // The extension names the decoder, exactly as rres itself does for a
         // raw chunk (rres-raylib.h reads it back out of props and calls
@@ -192,7 +192,7 @@ Texture2D load_texture_raw(const char *name) {
 }
 
 ::Font load_font_raw(const char *name, int font_size) {
-    detail::loads.requested++;
+    ++detail::loads.requested;
     if (detail::pack_is_open()) {
         // The extension has to come from the name: rres stores the file verbatim
         // and LoadFontFromMemory needs to know what it is. An extensionless name
@@ -326,7 +326,7 @@ rmp::SpriteSheet load_sheet(std::string_view name_view) {
     const bool parsed = rmp::animation::detail::parse_sheet(bytes.data(), size, &sheet);
     if (!parsed) {
         TraceLog(LOG_WARNING, "SHEET: [%s] is not an .aseprite file this can read", name);
-        detail::loads.failed++;
+        ++detail::loads.failed;
         return rmp::SpriteSheet{};
     }
 
@@ -352,7 +352,7 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level_view) {
     if (bytes.empty()) return map;
     auto parsed = rmp::tilemap::detail::parse_map(
         bytes.data(), static_cast<int>(bytes.size()), key.c_str(), level.c_str());
-    if (parsed == nullptr) detail::loads.failed++;
+    if (parsed == nullptr) ++detail::loads.failed;
     // Owned by the map from here. A map is not a cached resource the way a
     // texture is: one scene owns one map, the factories on it are that
     // scene's, and sharing it would share those too.
@@ -363,7 +363,7 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level_view) {
 std::vector<unsigned char> load_data(std::string_view name_view) {
     const std::string key(name_view);
     const char *name = key.c_str();
-    detail::loads.requested++;
+    ++detail::loads.requested;
     // Copied out of raylib's buffer and into a vector that frees itself: the
     // one place the framework touches raylib's C loader contract on the way
     // in, so nobody downstream has to remember UnloadFileData.

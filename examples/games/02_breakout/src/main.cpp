@@ -67,8 +67,8 @@ public:
         _ball = ball.handle();
         serve();
 
-        for (int row = 0; row < ROWS; row++) {
-            for (int column = 0; column < COLUMNS; column++) {
+        for (int row = 0; row < ROWS; ++row) {
+            for (int column = 0; column < COLUMNS; ++column) {
                 add_brick(row, column);
             }
         }
@@ -80,7 +80,7 @@ public:
         // The two rules the framework has no opinion about: the ball is lost,
         // and the wall is gone.
         if (_ball->position.y > RMP_WINDOW_HEIGHT + 20) {
-            _lives--;
+            --_lives;
             if (_lives <= 0) {
                 rmp::Scene::push<OverScene>("Game over");
                 return;
@@ -114,12 +114,12 @@ private:
         brick.solid = true;
         brick.immovable = true;
         brick.shape.color = ROW_COLORS[row];
-        _bricks++;
+        ++_bricks;
         // The whole of "a brick breaks". No behavior, no subclass.
         brick.on_collision([this](rmp::Object &self, rmp::Object &other) {
             if (other.handle() != _ball) return;
             self.destroy();
-            _bricks--;
+            --_bricks;
         });
     }
 

@@ -620,7 +620,7 @@ void fake_devices(rmp::input::detail::DeviceState &out) { out = spawned.devices;
 class Newcomer : public rmp::Object {
 public:
     From from = From::SCENE_UPDATE;
-    void _update(float /*delta*/) override { spawned.updates[static_cast<int>(from)]++; }
+    void _update(float /*delta*/) override { ++spawned.updates[static_cast<int>(from)]; }
 };
 
 void spawn_newcomer(rmp::Scene &scene, From from) { scene.spawn<Newcomer>().from = from; }

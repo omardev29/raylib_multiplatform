@@ -112,7 +112,7 @@ namespace {
 // index into scene_stack.items; the stack is never empty when this is called.
 template <class Policy> int lowest_participant(Policy lets_through) {
     int i = static_cast<int>(scene_stack.items.size()) - 1;
-    while (i > 0 && lets_through(*scene_stack.items[static_cast<size_t>(i)])) i--;
+    while (i > 0 && lets_through(*scene_stack.items[static_cast<size_t>(i)])) --i;
     return i;
 }
 
@@ -121,7 +121,7 @@ template <class Policy> int lowest_participant(Policy lets_through) {
 // deep answers correctly without anything having to be kept in step.
 bool reachable_by_input(int index) {
     const int top = static_cast<int>(scene_stack.items.size()) - 1;
-    for (int above = index + 1; above <= top; above++) {
+    for (int above = index + 1; above <= top; ++above) {
         if (!scene_stack.items[static_cast<size_t>(above)]->input_below) return false;
     }
     return true;
@@ -169,7 +169,7 @@ void update(float delta) {
     const int top = static_cast<int>(scene_stack.items.size()) - 1;
     // Bottom upwards: the world moves before whatever is layered on top of it
     // reacts to where the world ended up.
-    for (int i = lowest; i <= top; i++) {
+    for (int i = lowest; i <= top; ++i) {
         // The other half of Scene::input_below, and the half that matters for
         // gameplay: a scene that is still running under a HUD that took the
         // input reads every action as false, so `if (just_pressed("fire"))`
@@ -215,7 +215,7 @@ void draw() {
     const int lowest = lowest_participant([](const Scene &s) { return s.draws_below; });
     const int top = static_cast<int>(scene_stack.items.size()) - 1;
 
-    for (int i = lowest; i <= top; i++) {
+    for (int i = lowest; i <= top; ++i) {
         // Input belongs to the top scene unless it says otherwise, and this is
         // where that becomes true rather than a comment: a UI pass with the
         // pointer suppressed lays out and draws exactly as it would, and no

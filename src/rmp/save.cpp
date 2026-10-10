@@ -77,9 +77,9 @@ using detail::MAX_DEPTH;
 
 constexpr std::array<std::uint32_t, 256> make_crc_table() {
     std::array<std::uint32_t, 256> table{};
-    for (std::uint32_t i = 0; i < 256; i++) {
+    for (std::uint32_t i = 0; i < 256; ++i) {
         std::uint32_t c = i;
-        for (int k = 0; k < 8; k++) c = (c & 1U) != 0 ? 0xEDB88320U ^ (c >> 1U) : c >> 1U;
+        for (int k = 0; k < 8; ++k) c = (c & 1U) != 0 ? 0xEDB88320U ^ (c >> 1U) : c >> 1U;
         table[i] = c;
     }
     return table;
@@ -99,7 +99,7 @@ using rmp::detail::JsonText;
 // under CNumbers, so the point is always '.'.
 std::string format_number(double n) {
     char text[40];
-    for (int digits = 15; digits <= 17; digits++) {
+    for (int digits = 15; digits <= 17; ++digits) {
         std::snprintf(text, sizeof text, "%.*g", digits, n);
         if (std::strtod(text, nullptr) == n) break;
     }
@@ -119,7 +119,7 @@ const char *unsavable(const Value &v, int depth) {
         // it was given, without a word.
         return "a string in it contains a NUL character";
     }
-    for (int i = 0; i < v.size(); i++) {
+    for (int i = 0; i < v.size(); ++i) {
         if (v.type() == Value::Type::OBJECT) {
             if (v.key(i).find('\0') != std::string_view::npos) {
                 return "a key in it contains a NUL character";
@@ -156,7 +156,7 @@ Json to_cjson(const Value &v) {
         case Value::Type::LIST: {
             Json list(cJSON_CreateArray());
             if (!list) return nullptr;
-            for (int i = 0; i < v.size(); i++) {
+            for (int i = 0; i < v.size(); ++i) {
                 Json item = to_cjson(v[i]);
                 if (!item) return nullptr;
                 cJSON_AddItemToArray(list.get(), item.release());
@@ -166,7 +166,7 @@ Json to_cjson(const Value &v) {
         case Value::Type::OBJECT: {
             Json object(cJSON_CreateObject());
             if (!object) return nullptr;
-            for (int i = 0; i < v.size(); i++) {
+            for (int i = 0; i < v.size(); ++i) {
                 const std::string_view key = v.key(i);
                 const Value &item = v[key];
                 if (item.type() == Value::Type::NONE) continue;
@@ -233,7 +233,7 @@ const std::array<std::uint8_t, 32> &seal_key() {
 std::array<std::uint8_t, NONCE> make_nonce() {
     std::array<std::uint8_t, NONCE> nonce{};
     static std::uint64_t counter = 0;
-    counter++;
+    ++counter;
     try {
         std::random_device device;
         for (std::size_t i = 0; i < NONCE; i += 4) {
@@ -247,7 +247,7 @@ std::array<std::uint8_t, NONCE> make_nonce() {
     }
     // The counter is mixed in either way, so two writes in the same tick with
     // a broken device still differ.
-    for (std::size_t i = 0; i < sizeof counter; i++) {
+    for (std::size_t i = 0; i < sizeof counter; ++i) {
         nonce[NONCE - 1 - i] ^= static_cast<std::uint8_t>(counter >> (8 * i));
     }
     return nonce;
@@ -276,7 +276,7 @@ std::uint32_t crc_of(const std::string &prefix, const unsigned char *payload,
     std::uint32_t c = 0xFFFFFFFFU;
     for (const char ch : head)
         c = CRC_TABLE[(c ^ static_cast<unsigned char>(ch)) & 0xFFU] ^ (c >> 8U);
-    for (std::size_t i = 0; i < size; i++)
+    for (std::size_t i = 0; i < size; ++i)
         c = CRC_TABLE[(c ^ payload[i]) & 0xFFU] ^ (c >> 8U);
     return c ^ 0xFFFFFFFFU;
 }
@@ -291,7 +291,7 @@ namespace detail {
 
 std::uint32_t crc32(const unsigned char *data, std::size_t size) {
     std::uint32_t c = 0xFFFFFFFFU;
-    for (std::size_t i = 0; i < size; i++)
+    for (std::size_t i = 0; i < size; ++i)
         c = CRC_TABLE[(c ^ data[i]) & 0xFFU] ^ (c >> 8U);
     return c ^ 0xFFFFFFFFU;
 }
@@ -358,7 +358,7 @@ Status decode(const Bytes &file, Value *out, bool sealed_only) {
         return Status::UNREADABLE;
     }
     std::size_t newline = 0;
-    while (newline < file.size() && newline < 128 && file[newline] != '\n') newline++;
+    while (newline < file.size() && newline < 128 && file[newline] != '\n') ++newline;
     if (newline >= file.size()) return Status::TRUNCATED;
     if (file[newline] != '\n')
         return Status::UNREADABLE; // a header longer than any we write
@@ -632,7 +632,7 @@ bool writable(const std::string &folder) {
 }
 
 void give_up_on_portable(Folders &f) {
-    f.fallbacks++;
+    ++f.fallbacks;
     // A plain log and not RMP_REPORT_ONCE: a read-only install folder is the
     // machine, not a mistake in the game, and [dev] strict must not abort it.
     // Once, because `chosen` is the user's folder from here on.

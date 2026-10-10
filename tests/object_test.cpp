@@ -52,15 +52,15 @@ public:
     void _ready() override { note(name + ".ready"); }
     void _update(float delta) override {
         (void)delta;
-        updates++;
+        ++updates;
         note(name + ".update");
     }
     void _draw() override {
-        draws++;
+        ++draws;
         note(name + ".draw");
     }
     void _end() override {
-        ends++;
+        ++ends;
         note(name + ".end");
     }
 };
@@ -284,7 +284,7 @@ class SelfDestruct : public rmp::Object {
 public:
     void _update(float delta) override {
         (void)delta;
-        counts.self_destruct_updates++;
+        ++counts.self_destruct_updates;
         destroy();
     }
 };
@@ -309,7 +309,7 @@ public:
         (void)delta;
         if (made < 3) {
             scene().spawn();
-            made++;
+            ++made;
         }
     }
 };
@@ -399,7 +399,7 @@ TEST_CASE_FIXTURE(Fixture,
     World world;
     std::vector<rmp::Handle<rmp::Object>> dead;
 
-    for (int round = 0; round < 50; round++) {
+    for (int round = 0; round < 50; ++round) {
         auto &object = world.spawn();
         dead.push_back(object.handle());
         object.destroy();
@@ -462,7 +462,7 @@ struct Reports {
         rmp::detail::set_strict_handler(previous);
         rmp::detail::reset_reports_for_tests();
     }
-    static void count_stop() { stops++; }
+    static void count_stop() { ++stops; }
     static inline int stops = 0;
 };
 } // namespace
@@ -513,7 +513,7 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(second.velocity.x == doctest::Approx(0));
     // Said once, for however many times it happened.
     CHECK(rmp::detail::report_count() == 1);
-    for (int i = 0; i < 60; i++) stale->rotation += 1;
+    for (int i = 0; i < 60; ++i) stale->rotation += 1;
     CHECK(rmp::detail::report_count() == 1);
     CHECK(Reports::stops == 0);
 }
@@ -904,7 +904,7 @@ TEST_CASE_FIXTURE(Fixture, "Edge::BOUNCE flips the velocity on the axis that hit
                                 .velocity = { 60, 0 },
                                 .edges = rmp::Edge::BOUNCE,
                                 .bounds = area });
-        for (int i = 0; i < 20; i++) rmp::objects::detail::update(world, 1.0f);
+        for (int i = 0; i < 20; ++i) rmp::objects::detail::update(world, 1.0f);
         // It never left, whatever else it did.
         const Rectangle b = o.world_bounds();
         CHECK(b.x >= -TOLERANCE);
@@ -955,7 +955,7 @@ TEST_CASE_FIXTURE(Fixture, "Edge::WRAP only fires once the object is COMPLETELY 
                                 .bounds = area });
         // Six laps at 30 a frame. The object must still be a sane distance
         // from the world, whatever it did in between.
-        for (int i = 0; i < 120; i++) {
+        for (int i = 0; i < 120; ++i) {
             rmp::objects::detail::update(world, 1.0f);
             const Rectangle b = o.world_bounds();
             CHECK(b.x + b.width >= 0 - TOLERANCE);
@@ -1150,7 +1150,7 @@ TEST_CASE_FIXTURE(Fixture, "a scene with no objects has an empty draw order") {
 
 TEST_CASE_FIXTURE(Fixture, "freed slots are reused instead of growing the storage") {
     World world;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 10; ++i) {
         auto &o = world.spawn();
         o.destroy();
         rmp::objects::detail::collect();
@@ -1162,7 +1162,7 @@ TEST_CASE_FIXTURE(Fixture, "freed slots are reused instead of growing the storag
 TEST_CASE_FIXTURE(Fixture, "a wave of objects dying together leaves nothing behind") {
     World world;
     std::vector<rmp::Handle<rmp::Object>> handles;
-    for (int i = 0; i < 200; i++) {
+    for (int i = 0; i < 200; ++i) {
         auto &o = world.spawn();
         handles.push_back(o.handle());
     }
@@ -1179,7 +1179,7 @@ TEST_CASE_FIXTURE(Fixture, "a wave of objects dying together leaves nothing behi
     }
 
     // And the slots all come back.
-    for (int i = 0; i < 200; i++) world.spawn();
+    for (int i = 0; i < 200; ++i) world.spawn();
     CHECK(rmp::objects::detail::slot_count() == 200);
 }
 

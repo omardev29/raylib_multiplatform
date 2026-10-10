@@ -90,8 +90,8 @@ public:
     }
 
 private:
-    void jump() { _jumps++; }
-    void shoot() { _shots++; }
+    void jump() { ++_jumps; }
+    void shoot() { ++_shots; }
 
     Vector2 _position{ 400, 225 };
     float _speed = 200.0f;

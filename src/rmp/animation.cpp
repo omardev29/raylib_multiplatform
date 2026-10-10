@@ -82,7 +82,7 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
 
     out->frames.resize(
         static_cast<std::size_t>(ase->frame_count > 0 ? ase->frame_count : 0));
-    for (int i = 0; i < out->frame_count(); i++) {
+    for (int i = 0; i < out->frame_count(); ++i) {
         SheetFrame &frame = out->frames[static_cast<std::size_t>(i)];
         // Laid out in one row, so the source rectangle is just an offset.
         frame.source =
@@ -97,7 +97,7 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     }
 
     out->tags.resize(static_cast<std::size_t>(ase->tag_count > 0 ? ase->tag_count : 0));
-    for (int i = 0; i < out->tag_count(); i++) {
+    for (int i = 0; i < out->tag_count(); ++i) {
         const ase_tag_t &tag = ase->tags[i];
         SheetTag &ours = out->tags[static_cast<std::size_t>(i)];
         // All of it, whatever its length; a tag the file left unnamed is "".
@@ -125,7 +125,7 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
 
     const int total_w = sheet.width * sheet.frame_count();
     ::Image atlas = GenImageColor(total_w, sheet.height, BLANK);
-    for (int i = 0; i < sheet.frame_count(); i++) {
+    for (int i = 0; i < sheet.frame_count(); ++i) {
         ::Image one{};
         one.data = ase->frames[i].pixels;
         one.width = ase->w;
@@ -149,7 +149,7 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
 
 int tag_index(const SheetData &sheet, std::string_view name) {
     if (name.empty()) return -1;
-    for (int i = 0; i < sheet.tag_count(); i++) {
+    for (int i = 0; i < sheet.tag_count(); ++i) {
         if (sheet.tag(i).name == name) return i;
     }
     return -1;
@@ -187,7 +187,7 @@ void advance(Sprite &sprite, float delta) {
     // A while loop, because a frame can be shorter than the delta -- a 20 ms
     // frame at 30 fps owes two steps, and dropping them makes the animation run
     // slow on a slow machine rather than skipping, which is worse.
-    for (int guard = 0; guard < sheet.frame_count() * 4 + 4; guard++) {
+    for (int guard = 0; guard < sheet.frame_count() * 4 + 4; ++guard) {
         const int index = sprite.ours.frame < 0
             ? first
             : (sprite.ours.frame >= sheet.frame_count() ? last : sprite.ours.frame);

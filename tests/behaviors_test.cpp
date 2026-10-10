@@ -115,7 +115,7 @@ rmp::SpriteSheet sheet_with(const std::vector<std::string> &names) {
     data.frames.resize(1);
     data.frames[0].seconds = 0.1f;
     data.tags.resize(names.size());
-    for (std::size_t i = 0; i < names.size(); i++) {
+    for (std::size_t i = 0; i < names.size(); ++i) {
         data.tags[i].name = names[i];
     }
 
@@ -167,7 +167,7 @@ TEST_CASE_FIXTURE(Fixture, "Platformer: gravity accumulates with nothing underne
         world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 20 }) });
     auto &platformer = player.add<rmp::behavior::Platformer>({ .gravity = 1200 });
 
-    for (int i = 0; i < 60; i++) tick(player, 1.0f / 60);
+    for (int i = 0; i < 60; ++i) tick(player, 1.0f / 60);
     CHECK_FALSE(platformer.grounded());
     CHECK(player.velocity.y == doctest::Approx(1200).epsilon(0.001));
 }
@@ -178,7 +178,7 @@ TEST_CASE_FIXTURE(Fixture, "Platformer: a solid floor under the feet is ground")
     rmp::Object &player = stander(world);
     auto &platformer = player.add<rmp::behavior::Platformer>({ .gravity = 1200 });
 
-    for (int i = 0; i < 60; i++) tick(player, 1.0f / 60);
+    for (int i = 0; i < 60; ++i) tick(player, 1.0f / 60);
     CHECK(platformer.grounded());
     // And gravity does NOT accumulate while standing, which is the symptom the
     // ground check exists to prevent.
@@ -327,7 +327,7 @@ TEST_CASE_FIXTURE(Fixture,
         rmp::objects::detail::collect(); // the ledge is gone
 
         const auto steps = static_cast<int>(wait_seconds * 60);
-        for (int i = 0; i < steps; i++) tick(player, 1.0f / 60);
+        for (int i = 0; i < steps; ++i) tick(player, 1.0f / 60);
         hold(KEY_SPACE);
         tick(player, 1.0f / 60);
         hold(KEY_SPACE, false);
@@ -374,7 +374,7 @@ TEST_CASE_FIXTURE(Fixture,
     hold(KEY_SPACE);
     tick(player, 1.0f / 60);
     hold(KEY_SPACE, false);
-    for (int i = 0; i < 30; i++) tick(player, 1.0f / 60); // half a second
+    for (int i = 0; i < 30; ++i) tick(player, 1.0f / 60); // half a second
 
     player.position.y = 80;
     tick(player, 1.0f / 60);
@@ -421,7 +421,7 @@ TEST_CASE_FIXTURE(Fixture, "Parallax: the first copy's offset never leaves [-wid
     // positive offset is a gap down the left-hand side of the screen.
     // An integer counter with the shift derived from it: a float loop counter
     // accumulates the very error this behavior exists to keep out of the seam.
-    for (int step = -200; step <= 200; step++) {
+    for (int step = -200; step <= 200; ++step) {
         const float shift = static_cast<float>(step) * 7.5f;
         const rmp::behavior::detail::ParallaxTiling tiling =
             rmp::behavior::detail::parallax_tiling(shift, 100, 800);
@@ -434,7 +434,7 @@ TEST_CASE_FIXTURE(Fixture, "Parallax: the offset repeats every texture width, ex
     // The seam this behavior exists to remove is a third of a pixel between two
     // copies, so "about equal" is not the assertion.
     using rmp::behavior::detail::parallax_tiling;
-    for (int step = -20; step <= 20; step++) {
+    for (int step = -20; step <= 20; ++step) {
         const float shift = static_cast<float>(step) * 12.5f;
         const float here = parallax_tiling(shift, 100, 800).offset;
         const float wrapped = parallax_tiling(shift + 100, 100, 800).offset;
@@ -445,7 +445,7 @@ TEST_CASE_FIXTURE(Fixture, "Parallax: the offset repeats every texture width, ex
 TEST_CASE_FIXTURE(Fixture,
                   "Parallax: enough copies to cover the screen, whatever the offset") {
     using rmp::behavior::detail::parallax_tiling;
-    for (int step = -167; step <= 167; step++) {
+    for (int step = -167; step <= 167; ++step) {
         const float shift = static_cast<float>(step) * 3.0f;
         const rmp::behavior::detail::ParallaxTiling tiling =
             parallax_tiling(shift, 100, 800);
@@ -500,7 +500,7 @@ TEST_CASE_FIXTURE(Fixture,
     rmp::Object &sky = world.spawn();
     auto &parallax = sky.add<rmp::behavior::Parallax>({ .factor = 0, .speed = 30 });
 
-    for (int i = 0; i < 60; i++) tick(sky, 1.0f / 60);
+    for (int i = 0; i < 60; ++i) tick(sky, 1.0f / 60);
     CHECK(parallax.ours.scroll == doctest::Approx(30).epsilon(0.001));
 }
 
@@ -739,7 +739,7 @@ TEST_CASE_FIXTURE(Fixture,
     rmp::Object &player = world.spawn();
     player.add<rmp::behavior::TopDown>({ .speed = 100 });
     hold(KEY_D);
-    for (int i = 0; i < 60; i++) tick(player, 1.0f / 60);
+    for (int i = 0; i < 60; ++i) tick(player, 1.0f / 60);
     CHECK(player.velocity.x == doctest::Approx(100));
     CHECK(rmp::detail::report_count() == 0);
 }
@@ -764,11 +764,11 @@ TEST_CASE_FIXTURE(Fixture,
         .on_spawn =
             [&](rmp::Scene &scene, Vector2 where) {
                 children.push_back(scene.spawn({ .position = where }).handle());
-                made++;
+                ++made;
             },
     });
 
-    for (int i = 0; i < 300; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 300; ++i) frame(world, 1.0f / 60);
     CHECK(made == 3);
     CHECK(spawner.alive() == 3);
 
@@ -779,7 +779,7 @@ TEST_CASE_FIXTURE(Fixture,
     rmp::objects::detail::collect();
     CHECK(spawner.alive() == 2);
 
-    for (int i = 0; i < 30; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 30; ++i) frame(world, 1.0f / 60);
     CHECK(made == 4);
     CHECK(spawner.alive() == 3);
 }
@@ -797,11 +797,11 @@ TEST_CASE_FIXTURE(Fixture, "Spawner: objects that live briefly never stop it") {
             [&](rmp::Scene &scene, Vector2 where) {
                 rmp::Object &one = scene.spawn({ .position = where });
                 one.add<rmp::behavior::Lifespan>({ .seconds = 0.05f });
-                made++;
+                ++made;
             },
     });
 
-    for (int i = 0; i < 600; i++) frame(world, 1.0f / 60); // ten seconds
+    for (int i = 0; i < 600; ++i) frame(world, 1.0f / 60); // ten seconds
     CHECK(made > 80); // about one every 0.1 s, and not three ever
     CHECK(spawner.alive() <= 3);
 }
@@ -814,11 +814,11 @@ TEST_CASE_FIXTURE(Fixture, "Spawner: a call that makes five counts five") {
         .max_alive = 4,
         .on_spawn =
             [](rmp::Scene &scene, Vector2 where) {
-                for (int i = 0; i < 5; i++) scene.spawn({ .position = where });
+                for (int i = 0; i < 5; ++i) scene.spawn({ .position = where });
             },
     });
 
-    for (int i = 0; i < 120; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 120; ++i) frame(world, 1.0f / 60);
     // A wave spawner makes five, and the cap has to count them all or it is not
     // a cap: one wave and then nothing, because five is already over four.
     CHECK(spawner.alive() == 5);
@@ -832,10 +832,10 @@ TEST_CASE_FIXTURE(Fixture,
     auto &spawner = source.add<rmp::behavior::Spawner>({
         .every_seconds = 0.1f,
         .max_alive = 2,
-        .on_spawn = [&](rmp::Scene &, Vector2) { calls++; },
+        .on_spawn = [&](rmp::Scene &, Vector2) { ++calls; },
     });
 
-    for (int i = 0; i < 600; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 600; ++i) frame(world, 1.0f / 60);
     CHECK(calls > 80);
     CHECK(spawner.alive() == 0);
 }
@@ -851,11 +851,11 @@ TEST_CASE_FIXTURE(
         .on_spawn =
             [&](rmp::Scene &scene, Vector2 where) {
                 scene.spawn({ .position = where });
-                made++;
+                ++made;
             },
     });
 
-    for (int i = 0; i < 600; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 600; ++i) frame(world, 1.0f / 60);
     CHECK(made == rmp::behavior::MAX_SPAWNED);
     CHECK(spawner.alive() == rmp::behavior::MAX_SPAWNED);
     // Once, not once per frame: a warning printed sixty times a second is the
@@ -910,7 +910,7 @@ TEST_CASE_FIXTURE(Fixture, "Health: hurt_by = 0 is never, which is the default")
 
     toucher(world, ENEMY_LAYER);
     toucher(world, COIN_LAYER);
-    for (int i = 0; i < 10; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 10; ++i) frame(world, 1.0f / 60);
     CHECK(health.hp == 5);
 }
 
@@ -925,7 +925,7 @@ TEST_CASE_FIXTURE(Fixture,
         { .hp = 5, .max_hp = 5, .invulnerable_for = 0.5f, .hurt_by = ENEMY_LAYER });
 
     toucher(world, ENEMY_LAYER);
-    for (int i = 0; i < 12; i++) frame(world, 1.0f / 60); // a fifth of a second
+    for (int i = 0; i < 12; ++i) frame(world, 1.0f / 60); // a fifth of a second
     CHECK(health.hp == 4);
 }
 
@@ -942,13 +942,13 @@ TEST_CASE_FIXTURE(
         .max_hp = 1,
         .invulnerable_for = 0,
         .destroy_on_death = false,
-        .on_death = [&](rmp::Object &) { deaths++; },
+        .on_death = [&](rmp::Object &) { ++deaths; },
         .on_damage = [&](rmp::Object &, int amount) { landed += amount; },
         .hurt_by = ENEMY_LAYER,
     });
 
     toucher(world, ENEMY_LAYER);
-    for (int i = 0; i < 10; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 10; ++i) frame(world, 1.0f / 60);
     CHECK(landed == 1);
     CHECK(deaths == 1); // once, however many frames the contact lasts
 }
@@ -1008,13 +1008,13 @@ TEST_CASE_FIXTURE(Fixture, "a projectile that dies on contact still counts as a 
         world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 40, 40 }) });
     alien.add<rmp::behavior::Health>(
         { .hp = 2, .invulnerable_for = 0, .hurt_by = BULLETS });
-    alien.on_collision([&hits](rmp::Object &, rmp::Object &) { hits++; });
+    alien.on_collision([&hits](rmp::Object &, rmp::Object &) { ++hits; });
     // Asked through handles: frame() collects the dead, so after it a
     // reference to one is a reference to freed memory -- which is what this
     // test did, unnoticed until the sanitized build (tools/sanitize_check.sh).
     const rmp::Handle<rmp::Object> alien_handle = alien.handle();
 
-    for (int order = 0; order < 2; order++) {
+    for (int order = 0; order < 2; ++order) {
         // Both orders of the pair, because that was the coin.
         rmp::Object &bullet =
             world.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 4, 4 }) });

@@ -140,7 +140,7 @@ Status decode(const Bytes &file, Value *out = nullptr) {
 std::string text_of(const Bytes &bytes) { return { bytes.begin(), bytes.end() }; }
 
 std::size_t header_end(const Bytes &file) {
-    for (std::size_t i = 0; i < file.size(); i++) {
+    for (std::size_t i = 0; i < file.size(); ++i) {
         if (file[i] == '\n') return i;
     }
     return file.size();
@@ -415,7 +415,7 @@ TEST_SUITE("save: Value") {
         Value v;
         v["first"] = 0;
         auto first = v["first"];
-        for (int i = 0; i < 200; i++) v["k" + std::to_string(i)] = i;
+        for (int i = 0; i < 200; ++i) v["k" + std::to_string(i)] = i;
         first = 5;
         CHECK(v["first"].as_int() == 5);
         CHECK(v["k199"].as_int() == 199);
@@ -546,7 +546,7 @@ TEST_SUITE("save: format") {
         Value back;
         REQUIRE(rmp::save::detail::from_json(rmp::save::detail::to_json(v), &back));
         REQUIRE(back["n"].size() == static_cast<int>(numbers.size()));
-        for (int i = 0; i < back["n"].size(); i++) {
+        for (int i = 0; i < back["n"].size(); ++i) {
             CAPTURE(i);
             CHECK(rmp::detail::ValueAccess::number(back["n"][i]) ==
                   numbers[static_cast<std::size_t>(i)]);
@@ -661,7 +661,7 @@ TEST_SUITE("save: format") {
         v[std::string("key with \"quotes\" and \xc3\xb1")] = "value";
         Value back;
         REQUIRE(decode(encoded(v, false), &back) == Status::OK);
-        for (std::size_t i = 0; i < strings.size(); i++) {
+        for (std::size_t i = 0; i < strings.size(); ++i) {
             CAPTURE(i);
             CHECK(back["s"][static_cast<int>(i)].as_string() == strings[i]);
         }
@@ -696,7 +696,7 @@ TEST_SUITE("save: format") {
         constexpr int LIMIT = rmp::save::detail::MAX_DEPTH;
         const auto nested = [](int depth) {
             Value inner = 1;
-            for (int i = 0; i < depth; i++) {
+            for (int i = 0; i < depth; ++i) {
                 Value outer;
                 outer["d"] = std::move(inner);
                 inner = std::move(outer);
@@ -704,7 +704,7 @@ TEST_SUITE("save: format") {
             return inner;
         };
         int deepest_ok = 0;
-        for (int depth = LIMIT - 3; depth <= LIMIT + 3; depth++) {
+        for (int depth = LIMIT - 3; depth <= LIMIT + 3; ++depth) {
             Bytes out;
             const bool wrote = rmp::save::detail::encode(nested(depth), 1, false, &out);
             if (!wrote) continue;
@@ -802,7 +802,7 @@ TEST_SUITE("save: format") {
     TEST_CASE("cut at every byte: TRUNCATED, and never OK") {
         for (const bool sealed : { false, true }) {
             const Bytes full = encoded(sample(), sealed);
-            for (std::size_t cut = 1; cut < full.size(); cut++) {
+            for (std::size_t cut = 1; cut < full.size(); ++cut) {
                 const Bytes part(full.begin(),
                                  full.begin() + static_cast<std::ptrdiff_t>(cut));
                 const Status s = decode(part);
@@ -821,7 +821,7 @@ TEST_SUITE("save: format") {
         for (const bool sealed : { false, true }) {
             const Bytes full = encoded(sample(), sealed);
             const std::size_t start = header_end(full) + 1;
-            for (std::size_t i = start; i < full.size(); i++) {
+            for (std::size_t i = start; i < full.size(); ++i) {
                 for (const unsigned char mask : { 0x01, 0x80, 0xFF }) {
                     Bytes bad = full;
                     bad[i] ^= mask;
@@ -843,7 +843,7 @@ TEST_SUITE("save: format") {
         // not ours at all. What none of them may ever be is OK.
         for (const bool sealed : { false, true }) {
             const Bytes full = encoded(sample(), sealed);
-            for (std::size_t i = 0; i < header_end(full); i++) {
+            for (std::size_t i = 0; i < header_end(full); ++i) {
                 Bytes bad = full;
                 bad[i] ^= 0x01;
                 if (decode(bad) == Status::OK) {
@@ -901,7 +901,7 @@ TEST_SUITE("save: format") {
         // format can fix the CRC, and cannot forge the tag.
         const Bytes full = encoded(sample(), true);
         const std::size_t start = header_end(full) + 1;
-        for (std::size_t i = start; i < full.size(); i++) {
+        for (std::size_t i = start; i < full.size(); ++i) {
             Bytes bad = full;
             bad[i] ^= 0x04;
             const Status s = decode(with_fixed_crc(bad));
@@ -942,7 +942,7 @@ TEST_SUITE("save: format") {
 
     TEST_CASE("a sealed payload too short to hold its nonce and tag is MODIFIED") {
         const auto bytes = [](const std::string &s) { return Bytes(s.begin(), s.end()); };
-        for (int length = 0; length < 40; length++) {
+        for (int length = 0; length < 40; ++length) {
             CAPTURE(length);
             const std::string head =
                 "rmp-save 1 1 sealed " + std::to_string(length) + " 00000000\n";
@@ -1001,7 +1001,7 @@ TEST_SUITE("save: format") {
         // The right CRC, in upper case -- with_fixed_crc() writes lower case.
         Bytes upper = with_fixed_crc(bytes("rmp-save 1 1 plain 2 00000000\n{}"));
         REQUIRE(decode(upper) == Status::OK);
-        for (std::size_t i = header_end(upper) - 8; i < header_end(upper); i++) {
+        for (std::size_t i = header_end(upper) - 8; i < header_end(upper); ++i) {
             upper[i] = static_cast<unsigned char>(std::toupper(upper[i]));
         }
         REQUIRE(text_of(upper).find("F27F7A6A") != std::string::npos); // it has letters
@@ -1092,7 +1092,7 @@ TEST_SUITE("save: files") {
         for (const auto &entry : fs::directory_iterator(dir.path)) {
             CAPTURE(entry.path().filename().string());
             CHECK(entry.path().extension() == ".save");
-            files++;
+            ++files;
         }
         CHECK(files == 1);
     }
@@ -1161,7 +1161,7 @@ TEST_SUITE("save: files") {
         const std::uintmax_t size = std::uintmax_t{ 64 } * 1024 * 1024 + 1;
         std::string head;
         std::uintmax_t payload = size;
-        for (int pass = 0; pass < 3; pass++) { // the length's digits are in the header
+        for (int pass = 0; pass < 3; ++pass) { // the length's digits are in the header
             head = "rmp-save 1 1 plain " + std::to_string(payload) + " 00000000\n";
             payload = size - head.size();
         }
@@ -1321,7 +1321,7 @@ TEST_SUITE("save: portable") {
         strict.stops = 0;
         const bool was = rmp::detail::strict();
         const rmp::detail::StrictHandler previous =
-            rmp::detail::set_strict_handler([] { strict.stops++; });
+            rmp::detail::set_strict_handler([] { ++strict.stops; });
         rmp::detail::set_strict(true);
 
         Value v;

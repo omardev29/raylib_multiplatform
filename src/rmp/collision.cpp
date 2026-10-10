@@ -255,7 +255,7 @@ bool ray_rect(Vector2 from, Vector2 to, const Placed &box, float *t, Vector2 *no
     // x, then y, written out rather than looped: a Vector2 has named members
     // and indexing one through a cast is exactly the sort of cleverness that
     // stops compiling on a target nobody is looking at.
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; ++i) {
         const float origin = i == 0 ? from.x : from.y;
         const float dir = i == 0 ? d.x : d.y;
         const float lo = i == 0 ? min_x : min_y;
@@ -539,7 +539,7 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     // scenes that need it most.
     const auto budget = static_cast<long long>(entries.size()) * 4 + 1024;
     long long total_cells = 0;
-    for (int step = 0; step < 64; step++) {
+    for (int step = 0; step < 64; ++step) {
         grid->min_x = cell_floor(x0, grid->cell);
         grid->min_y = cell_floor(y0, grid->cell);
         grid->cols = cell_floor(x1, grid->cell) - grid->min_x + 1;
@@ -564,24 +564,24 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     long long total_items = 0;
     for (const Entry &e : entries) {
         const CellSpan s = span_of(e.swept, grid->cell);
-        for (int cy = s.y0; cy <= s.y1; cy++) {
-            for (int cx = s.x0; cx <= s.x1; cx++) {
-                grid->starts[static_cast<std::size_t>(grid->index_of(cx, cy)) + 1]++;
-                total_items++;
+        for (int cy = s.y0; cy <= s.y1; ++cy) {
+            for (int cx = s.x0; cx <= s.x1; ++cx) {
+                ++grid->starts[static_cast<std::size_t>(grid->index_of(cx, cy)) + 1];
+                ++total_items;
             }
         }
     }
     // ...then where each cell's run begins, and then the entries themselves.
-    for (std::size_t c = 0; c < cells; c++) grid->starts[c + 1] += grid->starts[c];
+    for (std::size_t c = 0; c < cells; ++c) grid->starts[c + 1] += grid->starts[c];
     grid->items.assign(static_cast<std::size_t>(total_items), 0);
     *cursor = grid->starts;
-    for (std::size_t i = 0; i < entries.size(); i++) {
+    for (std::size_t i = 0; i < entries.size(); ++i) {
         const CellSpan s = span_of(entries[i].swept, grid->cell);
-        for (int cy = s.y0; cy <= s.y1; cy++) {
-            for (int cx = s.x0; cx <= s.x1; cx++) {
+        for (int cy = s.y0; cy <= s.y1; ++cy) {
+            for (int cx = s.x0; cx <= s.x1; ++cx) {
                 const auto c = static_cast<std::size_t>(grid->index_of(cx, cy));
                 grid->items[static_cast<std::size_t>((*cursor)[c])] = static_cast<int>(i);
-                (*cursor)[c]++;
+                ++(*cursor)[c];
             }
         }
     }
@@ -602,18 +602,18 @@ void candidate_pairs(const std::vector<Entry> &entries, const Grid &grid,
         // No grid: either nothing to do, or a world the cells could not
         // describe. Every pair, which is correct and is what the grid is an
         // optimisation of.
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) out->push_back(Pair{ i, j });
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) out->push_back(Pair{ i, j });
         }
     } else {
         const int cells = grid.cell_count();
-        for (int c = 0; c < cells; c++) {
+        for (int c = 0; c < cells; ++c) {
             const auto from =
                 static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c)]);
             const auto to =
                 static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c) + 1]);
-            for (std::size_t i = from; i < to; i++) {
-                for (std::size_t j = i + 1; j < to; j++) {
+            for (std::size_t i = from; i < to; ++i) {
+                for (std::size_t j = i + 1; j < to; ++j) {
                     const int a =
                         grid.items[i] < grid.items[j] ? grid.items[i] : grid.items[j];
                     const int b =
@@ -714,8 +714,8 @@ std::vector<Touch> detect(const Scene &scene, bool use_grid) {
         candidate_pairs(entries, broad.index.grid, &pairs);
     } else {
         const int n = static_cast<int>(entries.size());
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) pairs.push_back(Pair{ i, j });
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) pairs.push_back(Pair{ i, j });
         }
     }
 
@@ -940,7 +940,7 @@ int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, in
         const auto slot = static_cast<std::size_t>(written) * 2;
         out[slot] = touch.a;
         out[slot + 1] = touch.b;
-        written++;
+        ++written;
     }
     return written;
 }
@@ -983,7 +983,7 @@ void pointer(Scene &scene) {
         // is the order a player sees. draw_order() is layer then creation, so
         // walking it backwards is exactly that.
         const std::vector<Object *> &order = draw_order(scene);
-        for (std::size_t i = order.size(); i > 0; i--) {
+        for (std::size_t i = order.size(); i > 0; --i) {
             Object *object = order[i - 1];
             if (!object->alive()) continue;
             if (!Storage::has_pointer_callback(*object)) continue;
@@ -1071,7 +1071,7 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
     candidates.clear();
     if (grid.empty()) {
         candidates.reserve(entries.size());
-        for (std::size_t i = 0; i < entries.size(); i++) {
+        for (std::size_t i = 0; i < entries.size(); ++i) {
             candidates.push_back(static_cast<int>(i));
         }
     } else {
@@ -1113,7 +1113,7 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
         const int span_x = cx_end > cx ? cx_end - cx : cx - cx_end;
         const int span_y = cy_end > cy ? cy_end - cy : cy - cy_end;
         const int limit = span_x + span_y + 2;
-        for (int step = 0; step <= limit; step++) {
+        for (int step = 0; step <= limit; ++step) {
             if (cx >= grid.min_x && cy >= grid.min_y && cx < grid.min_x + grid.cols &&
                 cy < grid.min_y + grid.rows) {
                 const auto c = static_cast<std::size_t>(grid.index_of(cx, cy));
@@ -1180,7 +1180,7 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
     });
 
     const std::size_t count = hits.size() < out.size() ? hits.size() : out.size();
-    for (std::size_t i = 0; i < count; i++) out[i] = hits[i].hit;
+    for (std::size_t i = 0; i < count; ++i) out[i] = hits[i].hit;
     return static_cast<int>(count);
 }
 

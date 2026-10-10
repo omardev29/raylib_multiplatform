@@ -252,7 +252,7 @@ struct {
 
 void fail(const std::string &why) {
     std::printf("PLAY FAIL %s\n", why.c_str());
-    run.failures++;
+    ++run.failures;
 }
 
 void next(Phase p) {
@@ -292,7 +292,7 @@ void play(bool fall) {
 }
 
 void step() {
-    run.frames++;
+    ++run.frames;
     switch (run.phase) {
         case Phase::TITLE:
             press_button(run.frames - 30, 0); // Play

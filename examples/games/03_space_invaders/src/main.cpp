@@ -81,7 +81,7 @@ public:
         });
         _player = player.handle();
 
-        for (int i = 0; i < ALIENS; i++) add_alien(i);
+        for (int i = 0; i < ALIENS; ++i) add_alien(i);
     }
 
     void _update(float delta) override {
@@ -100,7 +100,7 @@ public:
         }
 
         float lowest = 0;
-        for (int i = 0; i < ALIENS; i++) {
+        for (int i = 0; i < ALIENS; ++i) {
             auto alien = _aliens[i].get();
             if (!alien) continue; // shot down: the handle says so
             alien->position = { home(i).x + _march, home(i).y + _drop };
@@ -148,7 +148,7 @@ private:
         alien.collision_mask = layer::PLAYER_SHOT;
         alien.on_collision([this](rmp::Object &self, rmp::Object &) {
             self.destroy();
-            _alive--;
+            --_alive;
         });
         // Shooting is a Timer and a callback. Each alien gets a period of its
         // own from rmp::random: forty-four timers started on the same frame with
@@ -158,7 +158,7 @@ private:
             .on_timeout = [this, index](rmp::Object &self) { alien_shoot(self, index); },
         });
         _aliens[index] = alien.handle();
-        _alive++;
+        ++_alive;
     }
 
     void shoot() {

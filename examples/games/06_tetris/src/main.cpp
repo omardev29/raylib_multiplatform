@@ -105,8 +105,8 @@ public:
             Rectangle{ well.x - 4, well.y - 4, well.width + 8, well.height + 8 }, 4,
             rmp::ui::current_theme().border);
 
-        for (int y = 0; y < TALL; y++) {
-            for (int x = 0; x < WIDE; x++) {
+        for (int y = 0; y < TALL; ++y) {
+            for (int x = 0; x < WIDE; ++x) {
                 if (_board[y][x] == EMPTY) continue;
                 draw_cell(x, y, PIECES[_board[y][x]].color);
             }
@@ -142,7 +142,7 @@ private:
     }
 
     bool fits(const int cells[4][2], int cx, int cy) const {
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 4; ++i) {
             const int x = cx + cells[i][0];
             const int y = cy + cells[i][1];
             if (x < 0 || x >= WIDE || y >= TALL) return false;
@@ -164,12 +164,12 @@ private:
         if (_current == SQUARE) return;
         // A quarter turn about the pivot: (x, y) becomes (-y, x).
         int turned[4][2];
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 4; ++i) {
             turned[i][0] = -_shape[i][1];
             turned[i][1] = _shape[i][0];
         }
         if (!fits(turned, _x, _y)) return;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 4; ++i) {
             _shape[i][0] = turned[i][0];
             _shape[i][1] = turned[i][1];
         }
@@ -195,27 +195,27 @@ private:
         int y = TALL - 1;
         while (y >= 0) {
             if (!row_full(y)) {
-                y--;
+                --y;
                 continue;
             }
             remove_row(y);
-            _lines++;
+            ++_lines;
             if (_seconds_per_row > 0.12f) _seconds_per_row -= 0.01f; // faster, to a limit
         }
     }
 
     bool row_full(int y) const {
-        for (int x = 0; x < WIDE; x++) {
+        for (int x = 0; x < WIDE; ++x) {
             if (_board[y][x] == EMPTY) return false;
         }
         return true;
     }
 
     void remove_row(int y) {
-        for (int row = y; row > 0; row--) {
-            for (int x = 0; x < WIDE; x++) _board[row][x] = _board[row - 1][x];
+        for (int row = y; row > 0; --row) {
+            for (int x = 0; x < WIDE; ++x) _board[row][x] = _board[row - 1][x];
         }
-        for (int x = 0; x < WIDE; x++) _board[0][x] = EMPTY;
+        for (int x = 0; x < WIDE; ++x) _board[0][x] = EMPTY;
     }
 
     // A 7-bag: every seven pieces are the seven pieces, in a shuffled order.
@@ -223,19 +223,19 @@ private:
     // unfair. Shuffled with rmp::random, so the same seed is the same game.
     int from_bag() {
         if (_bag_left == 0) {
-            for (int i = 0; i < 7; i++) _bag[i] = i;
-            for (int i = 6; i > 0; i--)
+            for (int i = 0; i < 7; ++i) _bag[i] = i;
+            for (int i = 6; i > 0; --i)
                 std::swap(_bag[i], _bag[rmp::random::index(i + 1)]);
             _bag_left = 7;
         }
-        _bag_left--;
+        --_bag_left;
         return _bag[_bag_left];
     }
 
     void next_piece() {
         _current = _next;
         _next = from_bag();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 4; ++i) {
             _shape[i][0] = PIECES[_current].cells[i][0];
             _shape[i][1] = PIECES[_current].cells[i][1];
         }

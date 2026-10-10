@@ -247,7 +247,7 @@ TEST_SUITE("camera") {
         rmp::detail::set_strict(true);
         strictness.stops = 0;
         const rmp::detail::StrictHandler previous =
-            rmp::detail::set_strict_handler([] { strictness.stops++; });
+            rmp::detail::set_strict_handler([] { ++strictness.stops; });
         fake.devices.pointer = Vector2{ 123, 45 };
         rmp::input::detail::begin_frame();
         CHECK(near(rmp::input::pointer(), Vector2{ 123, 45 }));
@@ -264,7 +264,7 @@ TEST_SUITE("camera") {
         int clicks = 0;
         rmp::Object &button =
             world.spawn({ .position = { 1000, 600 }, .shape = rmp::rect({ 40, 40 }) });
-        button.on_click([&clicks](rmp::Object &) { clicks++; });
+        button.on_click([&clicks](rmp::Object &) { ++clicks; });
 
         // The object is at the centre of the VIEW, which is the centre of the
         // screen. A press there, in pixels, has to land on it.
@@ -303,7 +303,7 @@ TEST_SUITE("camera") {
             fake.devices.pointer = from;
             fake.devices.mouse[MOUSE_BUTTON_LEFT] = true;
             frame(world);
-            for (int i = 1; i <= steps; i++) {
+            for (int i = 1; i <= steps; ++i) {
                 const float t = static_cast<float>(i) / static_cast<float>(steps);
                 fake.devices.pointer = Vector2{ from.x + by.x * t, from.y + by.y * t };
                 frame(world);
@@ -370,7 +370,7 @@ TEST_SUITE("camera") {
             world.camera.smoothing = 7.5f;
             world.camera.detail_settle(0.0f); // acquire
             target.position = { 640, -320 };
-            for (int i = 0; i < steps; i++) {
+            for (int i = 0; i < steps; ++i) {
                 world.camera.detail_settle(total / static_cast<float>(steps));
             }
             return world.camera.position;
@@ -395,7 +395,7 @@ TEST_SUITE("camera") {
         world.camera.detail_settle(0.0f);
         target.position = { 500, 200 };
         float last = 0;
-        for (int i = 0; i < 600; i++) {
+        for (int i = 0; i < 600; ++i) {
             world.camera.detail_settle(1.0f / 60);
             // Monotonic: exponential approach never passes the target.
             CHECK(world.camera.position.x >= last - 1e-4f);
@@ -447,7 +447,7 @@ TEST_SUITE("camera") {
         world.camera.limits = { 0, 0, SCREEN_WIDTH * 2, SCREEN_HEIGHT };
         world.camera.detail_settle(0.0f);
         target.position = { -5000, SCREEN_HEIGHT / 2 };
-        for (int i = 0; i < 300; i++) {
+        for (int i = 0; i < 300; ++i) {
             world.camera.detail_settle(1.0f / 60);
             CHECK(world.camera.view().x >= -1e-3f); // never the void on the left
         }
@@ -481,7 +481,7 @@ TEST_SUITE("camera") {
         world.camera.shake(30, 0.5f);
 
         bool moved = false;
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 20; ++i) {
             world.camera.detail_settle(1.0f / 60);
             CHECK(near(world.camera.position, before));
             CHECK(world.camera.view().x == doctest::Approx(view_before.x));
@@ -508,7 +508,7 @@ TEST_SUITE("camera") {
         world.camera.detail_settle(0.0f);
         world.camera.shake(30, 0.5f);
         bool inward = false;
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 30; ++i) {
             world.camera.detail_settle(1.0f / 60);
             for (const Vector2 corner :
                  { Vector2{ 0, 0 }, Vector2{ SCREEN_WIDTH, SCREEN_HEIGHT } }) {
@@ -527,7 +527,7 @@ TEST_SUITE("camera") {
             World pinned;
             pinned.camera.limits = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
             pinned.camera.shake(30, 0.5f);
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 10; ++i) {
                 pinned.camera.detail_settle(1.0f / 60);
                 CHECK(pinned.camera.raylib().target.x ==
                       doctest::Approx(SCREEN_WIDTH / 2));
@@ -543,7 +543,7 @@ TEST_SUITE("camera") {
         world.camera.shake(12, 0.25f);
         float peak = 0;
         // 0.25 s of 1/100 s frames is 25 steps; run past the end.
-        for (int i = 0; i < 40; i++) {
+        for (int i = 0; i < 40; ++i) {
             world.camera.detail_settle(0.01f);
             const Vector2 off = world.camera.shake_offset();
             const float len = std::sqrt(off.x * off.x + off.y * off.y);
@@ -560,8 +560,8 @@ TEST_SUITE("camera") {
     TEST_CASE_FIXTURE(Fixture,
                       "a burst of hits keeps the stronger shake instead of adding up") {
         World world;
-        for (int i = 0; i < 50; i++) world.camera.shake(10, 0.5f);
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 50; ++i) world.camera.shake(10, 0.5f);
+        for (int i = 0; i < 30; ++i) {
             world.camera.detail_settle(1.0f / 60);
             const Vector2 off = world.camera.shake_offset();
             CHECK(std::sqrt(off.x * off.x + off.y * off.y) <= 10 * 1.0001f + 1e-4f);
@@ -572,10 +572,10 @@ TEST_SUITE("camera") {
             w.camera.shake(40, 1.0f);
             w.camera.detail_settle(0.1f);
             w.camera.shake(1, 0.05f);
-            for (int i = 0; i < 10; i++) w.camera.detail_settle(0.01f);
+            for (int i = 0; i < 10; ++i) w.camera.detail_settle(0.01f);
             // 0.2 s into a 1 s shake of 40: still well above what 1 could do.
             float biggest = 0;
-            for (int i = 0; i < 20; i++) {
+            for (int i = 0; i < 20; ++i) {
                 w.camera.detail_settle(0.01f);
                 const Vector2 off = w.camera.shake_offset();
                 const float len = std::sqrt(off.x * off.x + off.y * off.y);
@@ -593,10 +593,10 @@ TEST_SUITE("camera") {
         // it was thrown away.
         World world;
         world.camera.shake(40, 1.0f);
-        for (int i = 0; i < 50; i++) world.camera.detail_settle(0.01f);
+        for (int i = 0; i < 50; ++i) world.camera.detail_settle(0.01f);
         world.camera.shake(15, 0.3f);
         float peak = 0;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; ++i) {
             world.camera.detail_settle(0.01f);
             const Vector2 off = world.camera.shake_offset();
             peak = std::max(peak, std::sqrt(off.x * off.x + off.y * off.y));
@@ -609,9 +609,9 @@ TEST_SUITE("camera") {
         world.camera.shake(10, 2.0f);
         world.camera.detail_settle(0.1f);
         world.camera.shake(10.5f, 0.05f); // a hair stronger, a blink long
-        for (int i = 0; i < 50; i++) world.camera.detail_settle(0.01f); // 0.5 s later
+        for (int i = 0; i < 50; ++i) world.camera.detail_settle(0.01f); // 0.5 s later
         float seen = 0;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; ++i) {
             world.camera.detail_settle(0.01f);
             const Vector2 off = world.camera.shake_offset();
             seen = std::max(seen, std::sqrt(off.x * off.x + off.y * off.y));
@@ -656,7 +656,7 @@ TEST_SUITE("camera") {
             World world;
             world.camera.shake(20, 0.4f);
             std::vector<Vector2> offsets;
-            for (int i = 0; i < 24; i++) {
+            for (int i = 0; i < 24; ++i) {
                 world.camera.detail_settle(1.0f / 60);
                 offsets.push_back(world.camera.shake_offset());
             }
@@ -665,7 +665,7 @@ TEST_SUITE("camera") {
         const auto a = run();
         const auto b = run();
         REQUIRE(a.size() == b.size());
-        for (std::size_t i = 0; i < a.size(); i++) {
+        for (std::size_t i = 0; i < a.size(); ++i) {
             CHECK(a[i].x == b[i].x);
             CHECK(a[i].y == b[i].y);
         }
@@ -676,7 +676,7 @@ TEST_SUITE("camera") {
         // drew the frame the player is aiming at.
         World world;
         world.camera.shake(25, 0.5f);
-        for (int i = 0; i < 5; i++) world.camera.detail_settle(1.0f / 60);
+        for (int i = 0; i < 5; ++i) world.camera.detail_settle(1.0f / 60);
         const Vector2 off = world.camera.shake_offset();
         REQUIRE((off.x != 0 || off.y != 0));
 

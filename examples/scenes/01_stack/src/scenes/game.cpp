@@ -8,7 +8,7 @@
 
 #include <string>
 
-void GameScene::_ready() { rmp::global<Progress>().runs++; }
+void GameScene::_ready() { ++rmp::global<Progress>().runs; }
 
 void GameScene::_update(float delta) {
     // No pause check. When PauseScene is on top, this is not called at all.

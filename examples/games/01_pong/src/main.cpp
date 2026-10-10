@@ -142,7 +142,7 @@ private:
     }
 
     void point(int &counter, const char *winner, float towards) {
-        counter++;
+        ++counter;
         serve(towards);
         if (counter >= WINNING_SCORE) {
             rmp::audio::play("win");

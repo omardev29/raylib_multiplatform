@@ -81,7 +81,7 @@ struct Chatty {
     int updates = 0;
     void _ready(rmp::Object &) { note(std::string(name) + ".ready"); }
     void _update(rmp::Object &, float) {
-        updates++;
+        ++updates;
         note(std::string(name) + ".update");
     }
     void _draw(rmp::Object &) { note(std::string(name) + ".draw"); }
@@ -94,14 +94,14 @@ struct Chatty {
 // Only the required hook. Everything else must cost nothing and not be called.
 struct Minimal {
     int updates = 0;
-    void _update(rmp::Object &, float) { updates++; }
+    void _update(rmp::Object &, float) { ++updates; }
 };
 
 // Bigger than any inline buffer would be, to prove the storage does not care.
 struct Fat {
     double padding[64] = {};
     int updates = 0;
-    void _update(rmp::Object &, float) { updates++; }
+    void _update(rmp::Object &, float) { ++updates; }
 };
 
 constexpr float TOLERANCE = 0.001f;
@@ -291,7 +291,7 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(ball.edges == rmp::Edge::BOUNCE); // _ready set it
     CHECK_FALSE(ball.solid);
 
-    for (int i = 0; i < 10; i++) rmp::objects::detail::update_behaviors(ball, 1.0f / 60);
+    for (int i = 0; i < 10; ++i) rmp::objects::detail::update_behaviors(ball, 1.0f / 60);
     CHECK(ball.velocity.x == doctest::Approx(0));
     CHECK(ball.velocity.y == doctest::Approx(0));
 }
@@ -332,7 +332,7 @@ TEST_CASE_FIXTURE(Fixture, "stopping a ball between points is one assignment") {
     ball.add<rmp::behavior::Ball>({ .speed = 200 });
     ball.velocity = { 200, 0 };
     ball.velocity = {};
-    for (int i = 0; i < 5; i++) rmp::objects::detail::update_behaviors(ball, 1.0f / 60);
+    for (int i = 0; i < 5; ++i) rmp::objects::detail::update_behaviors(ball, 1.0f / 60);
     CHECK(ball.velocity.x == doctest::Approx(0));
 }
 
@@ -381,7 +381,7 @@ TEST_CASE_FIXTURE(Fixture, "two bounces in a corner do not leave it stuck") {
     ball.add<rmp::behavior::Ball>({ .speed = 400 });
     ball.velocity = { -400, -400 };
 
-    for (int i = 0; i < 120; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 120; ++i) frame(world, 1.0f / 60);
     // It is still inside, still moving, and still at its pace.
     const Rectangle box = ball.world_collider();
     CHECK(box.x >= -TOLERANCE);
@@ -409,7 +409,7 @@ TEST_CASE_FIXTURE(Fixture, "lifespan destroys on the frame it says and not befor
     // a fault in the behavior -- asking a test to prove "the exact frame" with
     // a step that cannot sum exactly is asking it to prove something false.
     // 0.25 is exact in binary, so this really is the frame it says.
-    for (int i = 0; i < 3; i++) frame(world, 0.25f);
+    for (int i = 0; i < 3; ++i) frame(world, 0.25f);
     CHECK(static_cast<bool>(alive)); // 0.75
     frame(world, 0.25f);
     CHECK_FALSE(static_cast<bool>(alive)); // exactly 1.0
@@ -422,9 +422,9 @@ TEST_CASE_FIXTURE(Fixture, "lifespan destroys on the frame it says and not befor
         auto &particle = other.spawn();
         particle.add<rmp::behavior::Lifespan>({ .seconds = 1.0f });
         const rmp::Handle<rmp::Object> live = particle.handle();
-        for (int i = 0; i < 59; i++) frame(other, 1.0f / 60);
+        for (int i = 0; i < 59; ++i) frame(other, 1.0f / 60);
         CHECK(static_cast<bool>(live));
-        for (int i = 0; i < 2; i++) frame(other, 1.0f / 60);
+        for (int i = 0; i < 2; ++i) frame(other, 1.0f / 60);
         CHECK_FALSE(static_cast<bool>(live));
     }
 }
@@ -434,15 +434,15 @@ TEST_CASE_FIXTURE(Fixture, "a timer fires on the exact frame, and repeats") {
     int fired = 0;
     object.add<rmp::behavior::Timer>({ .seconds = 0.25f,
                                        .repeat = true,
-                                       .on_timeout = [&](rmp::Object &) { fired++; } });
+                                       .on_timeout = [&](rmp::Object &) { ++fired; } });
 
-    for (int i = 0; i < 14; i++)
+    for (int i = 0; i < 14; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(fired == 0); // 0.2333
     rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(fired == 1); // 0.25 exactly
 
-    for (int i = 0; i < 15; i++)
+    for (int i = 0; i < 15; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(fired == 2);
 }
@@ -452,8 +452,8 @@ TEST_CASE_FIXTURE(Fixture, "a timer that does not repeat fires once, ever") {
     int fired = 0;
     object.add<rmp::behavior::Timer>({ .seconds = 0.1f,
                                        .repeat = false,
-                                       .on_timeout = [&](rmp::Object &) { fired++; } });
-    for (int i = 0; i < 100; i++)
+                                       .on_timeout = [&](rmp::Object &) { ++fired; } });
+    for (int i = 0; i < 100; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(fired == 1);
 }
@@ -465,7 +465,7 @@ TEST_CASE_FIXTURE(Fixture, "one long frame owes several ticks, and pays them") {
     Loose object;
     int fired = 0;
     object.add<rmp::behavior::Timer>(
-        { .seconds = 0.1f, .on_timeout = [&](rmp::Object &) { fired++; } });
+        { .seconds = 0.1f, .on_timeout = [&](rmp::Object &) { ++fired; } });
     rmp::objects::detail::update_behaviors(object, 0.55f);
     CHECK(fired == 5);
 }
@@ -478,7 +478,7 @@ TEST_CASE_FIXTURE(Fixture, "speed climbs by exactly accelerate per second") {
     Loose object;
     auto &runner = object.add<rmp::behavior::Runner>(
         { .speed = 300, .accelerate = 60, .max_speed = 900 });
-    for (int i = 0; i < 60; i++)
+    for (int i = 0; i < 60; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(runner.speed == doctest::Approx(360).epsilon(0.001));
 }
@@ -487,7 +487,7 @@ TEST_CASE_FIXTURE(Fixture, "and stops at max_speed") {
     Loose object;
     auto &runner = object.add<rmp::behavior::Runner>(
         { .speed = 300, .accelerate = 1000, .max_speed = 500 });
-    for (int i = 0; i < 120; i++)
+    for (int i = 0; i < 120; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(runner.speed == doctest::Approx(500));
 }
@@ -495,14 +495,14 @@ TEST_CASE_FIXTURE(Fixture, "and stops at max_speed") {
 TEST_CASE_FIXTURE(Fixture, "distance is the integral of the speed, not the frame count") {
     Loose object;
     auto &runner = object.add<rmp::behavior::Runner>({ .speed = 100, .accelerate = 0 });
-    for (int i = 0; i < 60; i++)
+    for (int i = 0; i < 60; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(runner.distance() == doctest::Approx(100).epsilon(0.001));
 
     SUBCASE("and with acceleration it is the area under the ramp") {
         Loose other;
         auto &ramp = other.add<rmp::behavior::Runner>({ .speed = 0, .accelerate = 100 });
-        for (int i = 0; i < 60; i++) {
+        for (int i = 0; i < 60; ++i) {
             rmp::objects::detail::update_behaviors(other, 1.0f / 60);
         }
         // v goes 0 -> 100 over a second, so the distance is about 50, not 100
@@ -535,7 +535,7 @@ TEST_CASE_FIXTURE(Fixture, "by distance keeps the spacing even as the speed clim
         });
         (void)spawner;
         float speed = 100;
-        for (int i = 0; i < 600; i++) {
+        for (int i = 0; i < 600; ++i) {
             speed += 200 * (1.0f / 60); // the runner accelerating
             mover.position.x += speed * (1.0f / 60);
             rmp::objects::detail::update(local, 1.0f / 60);
@@ -549,7 +549,7 @@ TEST_CASE_FIXTURE(Fixture, "by distance keeps the spacing even as the speed clim
 
     auto gaps = [](const std::vector<float> &at) {
         std::vector<float> out;
-        for (std::size_t i = 1; i < at.size(); i++) out.push_back(at[i] - at[i - 1]);
+        for (std::size_t i = 1; i < at.size(); ++i) out.push_back(at[i] - at[i - 1]);
         return out;
     };
     const std::vector<float> d_gaps = gaps(by_distance);
@@ -595,10 +595,10 @@ TEST_CASE_FIXTURE(Fixture, "max_alive stops while the ones it made are still ali
         .on_spawn =
             [&](rmp::Scene &scene, Vector2 where) {
                 scene.spawn({ .position = where });
-                made++;
+                ++made;
             },
     });
-    for (int i = 0; i < 300; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 300; ++i) frame(world, 1.0f / 60);
     CHECK(made == 3);
 }
 
@@ -613,12 +613,12 @@ TEST_CASE_FIXTURE(Fixture, "jitter stays inside its range") {
         .track = mover.handle(),
         .on_spawn = [&](rmp::Scene &, Vector2 where) { at.push_back(where.x); },
     });
-    for (int i = 0; i < 2000; i++) {
+    for (int i = 0; i < 2000; ++i) {
         mover.position.x += 5;
         rmp::objects::detail::update(world, 1.0f / 60);
     }
     REQUIRE(at.size() > 10);
-    for (std::size_t i = 2; i < at.size(); i++) {
+    for (std::size_t i = 2; i < at.size(); ++i) {
         const float gap = at[i] - at[i - 1];
         CHECK(gap >= 100 - 20 - 6); // the jitter, plus one step of granularity
         CHECK(gap <= 100 + 20 + 6);
@@ -659,7 +659,7 @@ TEST_CASE_FIXTURE(Fixture, "a finished tween stays finished") {
                                            .to = 90,
                                            .seconds = 0.5f,
                                            .ease = rmp::behavior::Ease::LINEAR });
-    for (int i = 0; i < 100; i++) rmp::objects::detail::update_behaviors(object, 0.1f);
+    for (int i = 0; i < 100; ++i) rmp::objects::detail::update_behaviors(object, 0.1f);
     CHECK(tween.finished());
     CHECK(object.rotation == doctest::Approx(90));
 }
@@ -803,7 +803,7 @@ TEST_CASE_FIXTURE(Fixture, "and the window lasts exactly as long as it says") {
         { .hp = 3, .invulnerable_for = 0.5f, .destroy_on_death = false });
     health.damage(object);
 
-    for (int i = 0; i < 29; i++)
+    for (int i = 0; i < 29; ++i)
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
     CHECK(health.invulnerable()); // 0.483
     CHECK_FALSE(health.damage(object));
@@ -821,7 +821,7 @@ TEST_CASE_FIXTURE(Fixture, "on_death runs once even if two lethal hits land toge
         { .hp = 1,
           .invulnerable_for = 0,
           .destroy_on_death = false,
-          .on_death = [&](rmp::Object &) { deaths++; } });
+          .on_death = [&](rmp::Object &) { ++deaths; } });
 
     CHECK(health.damage(object, 5));
     CHECK_FALSE(health.damage(object, 5));
@@ -850,7 +850,7 @@ TEST_CASE_FIXTURE(Fixture, "the blink leaves the object visible when the window 
     health.damage(object);
 
     bool ever_hidden = false;
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 20; ++i) {
         rmp::objects::detail::update_behaviors(object, 1.0f / 60);
         if (!object.visible) ever_hidden = true;
     }
@@ -1080,9 +1080,9 @@ namespace {
 // what is timed is the engine and not the spawning.
 double pass_micros(int count, int passes) {
     World world;
-    for (int i = 0; i < count; i++) world.spawn().add<Tagged>({ .tag = i });
+    for (int i = 0; i < count; ++i) world.spawn().add<Tagged>({ .tag = i });
     const auto started = std::chrono::steady_clock::now();
-    for (int i = 0; i < passes; i++) rmp::objects::detail::update(world, 1.0f / 60);
+    for (int i = 0; i < passes; ++i) rmp::objects::detail::update(world, 1.0f / 60);
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - started);
     return static_cast<double>(elapsed.count()) / passes;

@@ -16,7 +16,7 @@ namespace {
 struct {
     int stops = 0;
 } strict;
-void count_stop() { strict.stops++; }
+void count_stop() { ++strict.stops; }
 
 // A site that reports through the macro, the way every module does.
 void warn_from_one_site(int n) { RMP_REPORT_ONCE("test: warning number %d", n); }
@@ -41,7 +41,7 @@ struct Fixture {
 
 TEST_SUITE("report_once") {
     TEST_CASE_FIXTURE(Fixture, "a site reports once however often it is hit") {
-        for (int i = 0; i < 60; i++) warn_from_one_site(i);
+        for (int i = 0; i < 60; ++i) warn_from_one_site(i);
         CHECK(rmp::detail::report_count() == 1);
     }
 

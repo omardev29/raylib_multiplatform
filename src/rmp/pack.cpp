@@ -135,7 +135,7 @@ unsigned char *pack_read(const char *name, int *size) {
     rresResourceMulti multi = rresLoadResourceMulti(pack.path, id);
     if (multi.count > 0) {
         bool ok = true;
-        for (int i = 0; std::cmp_less(i, multi.count); i++) {
+        for (int i = 0; std::cmp_less(i, multi.count); ++i) {
             int r = UnpackResourceChunk(&multi.chunks[i]);
             if (r != 0) {
                 ok = false;

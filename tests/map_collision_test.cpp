@@ -159,7 +159,7 @@ TEST_SUITE("map collision") {
         World world;
         load(world, room());
         rmp::Object &box = faller(world, { 80, 40 });
-        for (int i = 0; i < 120; i++) frame(world);
+        for (int i = 0; i < 120; ++i) frame(world);
         CHECK(bottom_of(box) == doctest::Approx(112).epsilon(0.0001));
         CHECK(bottom_of(box) <= 112.0f); // on it, never in it
         CHECK(box.velocity.y == doctest::Approx(0));
@@ -176,7 +176,7 @@ TEST_SUITE("map collision") {
         rmp::Object &box = faller(world, { 80, 10 });
         box.gravity_scale = 0;
         box.velocity = { 0, 3000 };
-        for (int i = 0; i < 10; i++) frame(world);
+        for (int i = 0; i < 10; ++i) frame(world);
         CHECK(bottom_of(box) == doctest::Approx(96).epsilon(0.0001));
         CHECK(box.velocity.y == doctest::Approx(0));
     }
@@ -189,10 +189,10 @@ TEST_SUITE("map collision") {
         World world;
         load(world, room());
         rmp::Object &box = faller(world, { 24, 101.99f });
-        for (int i = 0; i < 10; i++) frame(world); // settle
+        for (int i = 0; i < 10; ++i) frame(world); // settle
         box.velocity.x = 300;
         const float start = box.position.x;
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 20; ++i) {
             box.velocity.x = 300;
             frame(world);
             CHECK(box.velocity.x == doctest::Approx(300));
@@ -209,7 +209,7 @@ TEST_SUITE("map collision") {
         rmp::Object &box = faller(world, { 120, 40 });
         box.gravity_scale = 0;
         box.velocity = { 600, 60 };
-        for (int i = 0; i < 10; i++) frame(world);
+        for (int i = 0; i < 10; ++i) frame(world);
         // The right wall's left face is at x = 144; the box is 10 wide.
         CHECK(box.position.x == doctest::Approx(139).epsilon(0.0001));
         CHECK(box.velocity.x == doctest::Approx(0));
@@ -223,7 +223,7 @@ TEST_SUITE("map collision") {
         rmp::Object &box = faller(world, { 80, 60 });
         box.gravity_scale = 0;
         box.velocity = { 0, -900 };
-        for (int i = 0; i < 10; i++) frame(world);
+        for (int i = 0; i < 10; ++i) frame(world);
         // The ceiling's underside is at y = 16; the box is 20 tall.
         CHECK(box.position.y == doctest::Approx(26).epsilon(0.0001));
         CHECK(box.velocity.y == doctest::Approx(0));
@@ -241,7 +241,7 @@ TEST_SUITE("map collision") {
         platform.solid = true;
         platform.immovable = true; // the game moves it; the map does not stop it
         platform.velocity = { 0, 600 };
-        for (int i = 0; i < 60; i++) frame(world);
+        for (int i = 0; i < 60; ++i) frame(world);
         CHECK(coin.position.y > 128);
         CHECK(platform.position.y > 128);
     }
@@ -252,7 +252,7 @@ TEST_SUITE("map collision") {
              { "..........", "..........", "..........", "..........", "..........",
                "..........", "wwwwwwwwww", "##########" });
         rmp::Object &box = faller(world, { 80, 40 });
-        for (int i = 0; i < 120; i++) frame(world);
+        for (int i = 0; i < 120; ++i) frame(world);
         CHECK(bottom_of(box) ==
               doctest::Approx(112).epsilon(0.0001)); // through the water
     }
@@ -332,7 +332,7 @@ TEST_SUITE("map collision") {
         pusher.immovable = true;
         pusher.velocity = { 180, 0 }; // 3 px a frame, into the box and the wall
         float furthest = 0;
-        for (int i = 0; i < 40; i++) {
+        for (int i = 0; i < 40; ++i) {
             frame(world);
             furthest = std::max(furthest, box.position.x);
         }
@@ -350,7 +350,7 @@ TEST_SUITE("map collision") {
              { "##########", "##########", "##########", "##########", "##########",
                "##########", "##########", "##########" });
         rmp::Object &box = faller(world, { 80, 64 });
-        for (int i = 0; i < 120; i++) frame(world);
+        for (int i = 0; i < 120; ++i) frame(world);
         CHECK(box.position.x == doctest::Approx(80));
         CHECK(box.position.y == doctest::Approx(64));
         CHECK(box.velocity.y == doctest::Approx(0));
@@ -379,7 +379,7 @@ TEST_SUITE("map collision") {
         World world;
         load(world, room(), { 1000, -500 });
         rmp::Object &box = faller(world, { 1080, -460 });
-        for (int i = 0; i < 120; i++) frame(world);
+        for (int i = 0; i < 120; ++i) frame(world);
         CHECK(bottom_of(box) == doctest::Approx(-388).epsilon(0.0001)); // -500 + 112
     }
 
@@ -393,7 +393,7 @@ TEST_SUITE("map collision") {
             world.spawn({ .position = { 120, 60 }, .shape = rmp::rect({ 10, 20 }) });
         auto &platformer =
             player.add<rmp::behavior::Platformer>({ .gravity = 1500, .jump = 400 });
-        for (int i = 0; i < 90; i++) frame(world);
+        for (int i = 0; i < 90; ++i) frame(world);
         CHECK(bottom_of(player) == doctest::Approx(96).epsilon(0.0001));
         CHECK(platformer.grounded());
         CHECK(player.velocity.y == doctest::Approx(0));
@@ -402,9 +402,9 @@ TEST_SUITE("map collision") {
         frame(world);
         fake.devices.keys[KEY_SPACE] = false;
         CHECK_FALSE(platformer.grounded());
-        for (int i = 0; i < 4; i++) frame(world);
+        for (int i = 0; i < 4; ++i) frame(world);
         CHECK(bottom_of(player) < 90); // in the air
-        for (int i = 0; i < 90; i++) frame(world);
+        for (int i = 0; i < 90; ++i) frame(world);
         CHECK(platformer.grounded()); // and back down
 
         // Half over the ledge at x = 64: the centre is over the gap, the
@@ -416,7 +416,7 @@ TEST_SUITE("map collision") {
         CHECK(platformer.grounded());
         // Past the ledge, it falls.
         player.position.x = 50;
-        for (int i = 0; i < 30; i++) frame(world);
+        for (int i = 0; i < 30; ++i) frame(world);
         CHECK(bottom_of(player) > 100);
         CHECK_FALSE(platformer.grounded());
     }

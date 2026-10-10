@@ -96,7 +96,7 @@ std::string_view Value::key(int index) const {
     // and a default one has no characters at all, not even that.
     if (_type != Type::OBJECT || index < 0) return "";
     int seen = 0;
-    for (std::size_t i = 0; i < _keys.size(); i++) {
+    for (std::size_t i = 0; i < _keys.size(); ++i) {
         if (_items[i].type() == Type::NONE) continue;
         if (seen++ == index) return _keys[i];
     }
@@ -105,7 +105,7 @@ std::string_view Value::key(int index) const {
 
 const Value &Value::operator[](std::string_view key) const {
     if (_type != Type::OBJECT) return none();
-    for (std::size_t i = 0; i < _keys.size(); i++) {
+    for (std::size_t i = 0; i < _keys.size(); ++i) {
         if (_keys[i] == key) return _items[i];
     }
     return none();
@@ -132,7 +132,7 @@ void Value::push(Value value) {
 
 bool Value::erase(std::string_view key) {
     if (_type != Type::OBJECT) return false;
-    for (std::size_t i = 0; i < _keys.size(); i++) {
+    for (std::size_t i = 0; i < _keys.size(); ++i) {
         if (_keys[i] == key) {
             // A member holding nothing was not there, so erasing it is
             // "false" -- and it goes all the same.
@@ -164,7 +164,7 @@ bool operator==(const Value &a, const Value &b) {
             // however they were built -- and a member holding nothing is not
             // there.
             if (a.size() != b.size()) return false;
-            for (std::size_t i = 0; i < a.keys().size(); i++) {
+            for (std::size_t i = 0; i < a.keys().size(); ++i) {
                 if (a.items()[i].type() == Type::NONE) continue;
                 if (!(a.items()[i] == b[a.keys()[i]])) return false;
             }
@@ -214,7 +214,7 @@ Value *Value::Ref::find() {
     for (const Step &step : _path) {
         Value *next = nullptr;
         if (step.is_key && at->type() == Type::OBJECT) {
-            for (std::size_t i = 0; i < at->keys().size(); i++) {
+            for (std::size_t i = 0; i < at->keys().size(); ++i) {
                 if (at->keys()[i] == step.key) next = &at->items()[i];
             }
         } else if (!step.is_key && at->type() == Type::LIST && step.index >= 0 &&
@@ -249,7 +249,7 @@ Value *Value::Ref::materialise() {
             }
             const Value *next = nullptr;
             if (type == Type::OBJECT) {
-                for (std::size_t i = 0; i < at->keys().size(); i++) {
+                for (std::size_t i = 0; i < at->keys().size(); ++i) {
                     if (at->keys()[i] == step.key) next = &at->items()[i];
                 }
             }
@@ -277,7 +277,7 @@ Value *Value::Ref::materialise() {
         if (step.is_key) {
             if (here->type() == Type::NONE) *here = Value::object();
             Value *found = nullptr;
-            for (std::size_t i = 0; i < here->keys().size(); i++) {
+            for (std::size_t i = 0; i < here->keys().size(); ++i) {
                 if (here->keys()[i] == step.key) found = &here->items()[i];
             }
             if (found == nullptr) {

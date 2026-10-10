@@ -61,7 +61,7 @@ void LevelScene::_ready() {
         // The route is drawn in LDtk as Points; a walker keeps to its floor
         // and only needs to know where to turn.
         walker.left = walker.right = o.position.x;
-        for (int i = 0; i < o.property_count("patrol"); i++) {
+        for (int i = 0; i < o.property_count("patrol"); ++i) {
             const float x = o.property_point("patrol", i).x;
             walker.left = std::min(walker.left, x);
             walker.right = std::max(walker.right, x);
@@ -72,7 +72,7 @@ void LevelScene::_ready() {
         auto &bat = s.spawn<Bat>({ .position = o.position, .layer = 2 });
         bat.iid = o.iid;
         bat.speed = o.property_float("speed", 50);
-        for (int i = 0; i < o.property_count("patrol"); i++) {
+        for (int i = 0; i < o.property_count("patrol"); ++i) {
             bat.route.push_back(o.property_point("patrol", i));
         }
         if (bat.route.empty()) bat.route.push_back(o.position);
@@ -154,7 +154,7 @@ void LevelScene::_update(float delta) {
 void LevelScene::lose_life() {
     if (_over) return;
     Run &r = run();
-    r.lives--;
+    --r.lives;
     camera.shake(5, 0.35f);
     rmp::audio::play("hurt");
     if (r.lives > 0) return;
@@ -182,7 +182,7 @@ void LevelScene::win() {
 void LevelScene::_draw() {
     const float scale =
         std::max(1.0f, static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; ++i) {
         const int heart = i < run().lives ? tiles::HEART : tiles::HEART_EMPTY;
         draw_icon(heart, { (6 + (static_cast<float>(i) * 17)) * scale, 4 * scale },
                   scale);

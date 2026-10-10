@@ -145,7 +145,7 @@ void Door::_ready() {
 void Door::_draw() {
     const Vector2 at = corner(*this);
     // One tile per row the door is tall.
-    for (int row = 0; static_cast<float>(row) * TILE + 1 < world_collider().height; row++)
+    for (int row = 0; static_cast<float>(row) * TILE + 1 < world_collider().height; ++row)
         draw_tile(tiles::DOOR, { at.x, at.y + static_cast<float>(row) * TILE });
 }
 
@@ -168,7 +168,7 @@ void Spikes::_draw() {
     // the cells, so it is drawn from the cells' corner.
     const float width = world_collider().width + 4;
     const Vector2 at{ position.x - (width / 2), position.y - (TILE / 2) };
-    for (int column = 0; static_cast<float>(column) * TILE + 1 < width; column++)
+    for (int column = 0; static_cast<float>(column) * TILE + 1 < width; ++column)
         draw_tile(tiles::SPIKES, { at.x + static_cast<float>(column) * TILE, at.y });
 }
 

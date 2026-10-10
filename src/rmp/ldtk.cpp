@@ -153,7 +153,7 @@ double pair_at(const cJSON *object, const char *key, int i, double fallback) {
 }
 
 bool same_word(const char *a, const char *b) {
-    for (; *a != '\0' && *b != '\0'; a++, b++) {
+    for (; *a != '\0' && *b != '\0'; ++a, ++b) {
         if (std::tolower(static_cast<unsigned char>(*a)) !=
             std::tolower(static_cast<unsigned char>(*b))) {
             return false;
@@ -468,7 +468,7 @@ void read_layer(const cJSON *layer, Project *project, MapData *data) {
                 solid[static_cast<std::size_t>(v)]) {
                 out.solid_cells[at] = true;
             }
-            at++;
+            ++at;
         }
     }
 
@@ -508,7 +508,7 @@ std::vector<LevelRef> every_level(const cJSON *root) {
         cJSON_ArrayForEach(level, array(world, "levels")) {
             out.push_back({ level, text(world, "worldLayout"), index });
         }
-        index++;
+        ++index;
     }
     return out;
 }
@@ -652,7 +652,7 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
         return { nullptr, &free_map };
     }
     // Top first in the file; bottom first here.
-    for (int i = cJSON_GetArraySize(layers) - 1; i >= 0; i--) {
+    for (int i = cJSON_GetArraySize(layers) - 1; i >= 0; --i) {
         read_layer(cJSON_GetArrayItem(layers, i), &project, data.get());
     }
 

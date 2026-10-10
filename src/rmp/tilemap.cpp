@@ -256,7 +256,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                     name != nullptr ? name : "", source);
                 // Counted, so the CI boot gate sees it: a game shipped with a
                 // tileset it cannot read comes back red rather than empty.
-                rmp::assets::detail::loads.failed++;
+                ++rmp::assets::detail::loads.failed;
             }
         }
 
@@ -273,7 +273,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
 
         for (cute_tiled_tile_descriptor_t *tile = from->tiles; tile != nullptr;
              tile = tile->next) {
-            for (int i = 0; i < tile->property_count; i++) {
+            for (int i = 0; i < tile->property_count; ++i) {
                 const cute_tiled_property_t &p = tile->properties[i];
                 if (p.name.ptr == nullptr) continue;
                 if (std::strcmp(p.name.ptr, "solid") != 0) continue;
@@ -310,7 +310,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                 auto info = std::make_unique<ObjectInfo>();
                 info->name = object->name.ptr != nullptr ? object->name.ptr : "";
                 info->type = object->type.ptr != nullptr ? object->type.ptr : "";
-                for (int i = 0; i < object->property_count; i++) {
+                for (int i = 0; i < object->property_count; ++i) {
                     const cute_tiled_property_t &tp = object->properties[i];
                     if (tp.name.ptr == nullptr) continue;
                     Property prop;
@@ -376,7 +376,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         out.width = layer->width;
         out.height = layer->height;
         out.gids.reserve(static_cast<std::size_t>(layer->data_count));
-        for (int i = 0; i < layer->data_count; i++) {
+        for (int i = 0; i < layer->data_count; ++i) {
             // The top three bits are Tiled's flip flags, not part of the id.
             out.gids.push_back(
                 static_cast<int>(static_cast<unsigned>(layer->data[i]) & ~FLIP_MASK));
@@ -410,7 +410,7 @@ MapPtr parse_map(const void *bytes, int size, const char *name, const char *leve
 const char *file_name_of(const char *path) {
     if (path == nullptr) return "";
     const char *last = path;
-    for (const char *p = path; *p != '\0'; p++) {
+    for (const char *p = path; *p != '\0'; ++p) {
         if (*p == '/' || *p == '\\') last = p + 1;
     }
     return last;
@@ -687,8 +687,8 @@ bool Tilemap::solid_in(Rectangle world_rect) const {
         const int first_row = static_cast<int>(std::max(first_y, 0.0f));
         const int last_col = static_cast<int>(std::min(last_x, cells_x - 1));
         const int last_row = static_cast<int>(std::min(last_y, cells_y - 1));
-        for (int row = first_row; row <= last_row; row++) {
-            for (int column = first_col; column <= last_col; column++) {
+        for (int row = first_row; row <= last_row; ++row) {
+            for (int column = first_col; column <= last_col; ++column) {
                 if (solid_cell(*data, layer, column, row)) return true;
             }
         }
@@ -777,8 +777,8 @@ void Tilemap::draw() const {
         }
 
         const Color tint{ 255, 255, 255, alpha(1.0f) };
-        for (int row = 0; row < layer.height; row++) {
-            for (int column = 0; column < layer.width; column++) {
+        for (int row = 0; row < layer.height; ++row) {
+            for (int column = 0; column < layer.width; ++column) {
                 const int gid = gid_at(layer, column, row);
                 if (gid == 0) continue;
                 const Tileset *set = tileset_for(*data, gid);

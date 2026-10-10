@@ -128,7 +128,7 @@ SlotData *free_slot() {
 
 Slot *acquire_named(ResourceKind kind, std::string_view name, int font_size) {
     if (SlotData *hit = find_named(kind, name, font_size)) {
-        hit->refs++;
+        ++hit->refs;
         return reinterpret_cast<Slot *>(hit);
     }
     return nullptr; // the caller loads it and calls adopt_named()
@@ -158,7 +158,7 @@ Slot *adopt_named_owned(ResourceKind kind, std::string_view name, int font_size,
 }
 
 void retain(Slot *slot) {
-    if (slot != nullptr) reinterpret_cast<SlotData *>(slot)->refs++;
+    if (slot != nullptr) ++reinterpret_cast<SlotData *>(slot)->refs;
 }
 
 void release(Slot *slot) {
@@ -176,7 +176,7 @@ const void *payload(const Slot *slot) {
 int live_count() {
     int n = 0;
     for (const auto &s : table.slots) {
-        if (s->refs > 0) n++;
+        if (s->refs > 0) ++n;
     }
     return n;
 }

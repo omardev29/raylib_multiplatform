@@ -66,7 +66,7 @@ public:
     bool die_on_hit = false;
 
     void _collision(rmp::Object &other) override {
-        hits++;
+        ++hits;
         last = &other;
         if (die_on_hit) destroy();
     }
@@ -96,7 +96,7 @@ PairList pairs_of(const rmp::Scene &scene, bool use_grid) {
         scene, use_grid, raw.data(), static_cast<int>(CAPACITY));
     PairList out;
     out.reserve(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; ++i) {
         rmp::Object *a = raw[static_cast<std::size_t>(i) * 2];
         rmp::Object *b = raw[static_cast<std::size_t>(i) * 2 + 1];
         out.emplace_back(a < b ? a : b, a < b ? b : a);
@@ -298,7 +298,7 @@ TEST_CASE_FIXTURE(Fixture, "on_collision runs alongside _collision, not instead 
     auto &b =
         world.spawn<Probe>({ .position = { 5, 0 }, .shape = rmp::rect({ 10, 10 }) });
     a.on_collision([&](rmp::Object &self, rmp::Object &other) {
-        called++;
+        ++called;
         saw = &other;
         CHECK(&self == &a);
     });
@@ -315,8 +315,8 @@ TEST_CASE_FIXTURE(Fixture, "setting a callback twice replaces it") {
     int second = 0;
     auto &a = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
     world.spawn({ .position = { 5, 0 }, .shape = rmp::rect({ 10, 10 }) });
-    a.on_collision([&](rmp::Object &, rmp::Object &) { first++; });
-    a.on_collision([&](rmp::Object &, rmp::Object &) { second++; });
+    a.on_collision([&](rmp::Object &, rmp::Object &) { ++first; });
+    a.on_collision([&](rmp::Object &, rmp::Object &) { ++second; });
     frame(world);
     CHECK(first == 0);
     CHECK(second == 1);
@@ -563,7 +563,7 @@ TEST_CASE_FIXTURE(Fixture, "a player falling onto the floor comes to rest on it"
     player.solid = true;
     player.gravity_scale = 1;
 
-    for (int i = 0; i < 30; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 30; ++i) frame(world, 1.0f / 60);
     // Standing on the floor: floor top is 90, the player is 20 tall.
     CHECK(player.position.y == doctest::Approx(80).epsilon(0.05));
 }
@@ -585,7 +585,7 @@ TEST_CASE_FIXTURE(Fixture, "a box resting on another does not keep its fall") {
     box.gravity_scale = 1;
 
     const float delta = 1.0f / 60;
-    for (int i = 0; i < 600; i++) frame(world, delta);
+    for (int i = 0; i < 600; ++i) frame(world, delta);
     CHECK(box.position.y == doctest::Approx(80).epsilon(0.01));
     // What one frame of gravity adds is all it can carry between two pushes.
     CHECK(box.velocity.y == doctest::Approx(0));
@@ -689,7 +689,7 @@ TEST_CASE_FIXTURE(Fixture, "a bullet at 2000 u/s hits a wall 4 units thick at 1/
     auto &bullet = world.spawn<Probe>(
         { .position = { 0, 0 }, .shape = rmp::rect({ 2, 2 }), .velocity = { 2000, 0 } });
     bullet.solid = true;
-    for (int i = 0; i < 10 && bullet.hits == 0; i++) frame(world, 1.0f / 30);
+    for (int i = 0; i < 10 && bullet.hits == 0; ++i) frame(world, 1.0f / 30);
 
     CHECK(bullet.hits == 1);
     CHECK(wall.hits == 1);
@@ -704,7 +704,7 @@ TEST_CASE_FIXTURE(Fixture, "the same bullet, as a circle, against a circle") {
         world.spawn<Probe>({ .position = { 300, 0 }, .shape = rmp::circle(3) });
     auto &bullet = world.spawn<Probe>(
         { .position = { 0, 0 }, .shape = rmp::circle(1), .velocity = { 2000, 0 } });
-    for (int i = 0; i < 10 && bullet.hits == 0; i++) frame(world, 1.0f / 30);
+    for (int i = 0; i < 10 && bullet.hits == 0; ++i) frame(world, 1.0f / 30);
     CHECK(bullet.hits == 1);
     CHECK(target.hits == 1);
 }
@@ -749,7 +749,7 @@ TEST_CASE_FIXTURE(Fixture,
                   "the grid and the O(n^2) loop agree, over a thousand objects") {
     World world;
     Rng rng;
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 1000; ++i) {
         const bool round = (rng.next() % 2) == 0;
         const Vector2 at{ rng.range(-500, 500), rng.range(-500, 500) };
         if (round) {
@@ -777,7 +777,7 @@ TEST_CASE_FIXTURE(Fixture, "they agree when everything is piled in one place") {
     // the brute-force loop with extra steps. It still has to be right.
     World world;
     Rng rng;
-    for (int i = 0; i < 200; i++) {
+    for (int i = 0; i < 200; ++i) {
         world.spawn({ .position = { rng.range(-5, 5), rng.range(-5, 5) },
                       .shape = rmp::rect({ 10, 10 }) });
     }
@@ -789,7 +789,7 @@ TEST_CASE_FIXTURE(Fixture, "they agree when everything is far apart") {
     // grid is tempted to allocate millions of buckets and where the fallback
     // to the brute-force loop lives.
     World world;
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 100; ++i) {
         world.spawn({ .position = { static_cast<float>(i) * 100000.0f, 0 },
                       .shape = rmp::rect({ 10, 10 }) });
     }
@@ -804,7 +804,7 @@ TEST_CASE_FIXTURE(Fixture, "they agree with objects of wildly different sizes") 
     World world;
     Rng rng;
     world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 4000, 4000 }) });
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 300; ++i) {
         world.spawn({ .position = { rng.range(-2000, 2000), rng.range(-2000, 2000) },
                       .shape = rmp::circle(rng.range(1, 3)) });
     }
@@ -815,7 +815,7 @@ TEST_CASE_FIXTURE(Fixture,
                   "and they agree with fast movers, where the swept boxes join in") {
     World world;
     Rng rng;
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 300; ++i) {
         auto &o =
             world.spawn({ .position = { rng.range(-300, 300), rng.range(-300, 300) },
                           .shape = rmp::rect({ 6, 6 }) });
@@ -966,7 +966,7 @@ TEST_CASE_FIXTURE(
     World world;
     Rng rng;
     std::vector<rmp::Object *> all;
-    for (int i = 0; i < 400; i++) {
+    for (int i = 0; i < 400; ++i) {
         auto &o =
             world.spawn({ .position = { rng.range(-400, 400), rng.range(-400, 400) },
                           .shape = (rng.next() % 2) == 0
@@ -977,7 +977,7 @@ TEST_CASE_FIXTURE(
 
     int checked = 0;
     int found = 0;
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 1000; ++i) {
         const Vector2 from{ rng.range(-600, 600), rng.range(-600, 600) };
         const Vector2 to{ rng.range(-600, 600), rng.range(-600, 600) };
         const rmp::RayHit grid = world.raycast(from, to);
@@ -1017,7 +1017,7 @@ TEST_CASE_FIXTURE(
                 float near = 0;
                 float far = 1;
                 bool ok = true;
-                for (int axis = 0; axis < 2 && ok; axis++) {
+                for (int axis = 0; axis < 2 && ok; ++axis) {
                     const float o0 = axis == 0 ? from.x : from.y;
                     const float dd = axis == 0 ? d.x : d.y;
                     const float lo = axis == 0 ? box.x : box.y;
@@ -1041,8 +1041,8 @@ TEST_CASE_FIXTURE(
             }
         }
 
-        checked++;
-        if (best != nullptr) found++;
+        ++checked;
+        if (best != nullptr) ++found;
         if (target_of(grid) != best) {
             MESSAGE("ray " << i << " from (" << from.x << "," << from.y << ") to ("
                            << to.x << "," << to.y << ")");
@@ -1107,7 +1107,7 @@ TEST_CASE_FIXTURE(Fixture, "an object that starts inside a wall gets out of it")
 
     frame(world, 1.0f / 60);
     CHECK(escaping.position.x > 40);
-    for (int i = 0; i < 4; i++) frame(world, 1.0f / 60);
+    for (int i = 0; i < 4; ++i) frame(world, 1.0f / 60);
     CHECK(escaping.position.x == doctest::Approx(250));
 }
 
@@ -1209,7 +1209,7 @@ TEST_CASE_FIXTURE(Fixture, "a press that hits nothing drops the capture") {
 
     int clicks = 0;
     auto &button = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 40, 40 }) });
-    button.on_click([&clicks](rmp::Object &) { clicks++; });
+    button.on_click([&clicks](rmp::Object &) { ++clicks; });
 
     SUBCASE("the ordinary press and release still clicks") {
         Pointer::step(world, Vector2{ 0, 0 }, true);
@@ -1238,7 +1238,7 @@ TEST_CASE_FIXTURE(Fixture, "a press that hits nothing drops the capture") {
 TEST_CASE_FIXTURE(Fixture, "a hundred raycasts over two thousand objects are cheap") {
     World world;
     Rng rng;
-    for (int i = 0; i < 2000; i++) {
+    for (int i = 0; i < 2000; ++i) {
         world.spawn({ .position = { rng.range(-2000, 2000), rng.range(-2000, 2000) },
                       .shape = rmp::rect({ 4, 4 }) });
     }
@@ -1246,10 +1246,10 @@ TEST_CASE_FIXTURE(Fixture, "a hundred raycasts over two thousand objects are che
 
     const auto started = std::chrono::steady_clock::now();
     int hits = 0;
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 100; ++i) {
         const Vector2 from{ rng.range(-2000, 2000), rng.range(-2000, 2000) };
         const Vector2 to{ rng.range(-2000, 2000), rng.range(-2000, 2000) };
-        if (world.raycast(from, to)) hits++;
+        if (world.raycast(from, to)) ++hits;
     }
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - started);

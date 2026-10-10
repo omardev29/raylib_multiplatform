@@ -437,7 +437,7 @@ int Scene::object_count() const {
         Cell *slot = slot_at(index);
         if (slot != nullptr && slot->occupied && slot->object != nullptr &&
             slot->object->alive()) {
-            n++;
+            ++n;
         }
     }
     return n;
@@ -460,7 +460,7 @@ void mark_for_release(unsigned index) {
 
 unsigned world_version() { return pool.world_version; }
 
-void bump_world_version() { pool.world_version++; }
+void bump_world_version() { ++pool.world_version; }
 
 namespace {
 
@@ -631,7 +631,7 @@ void push_out(Object &object, const Tilemap &map, float cell) {
         // Out along d, in steps of a pixel, then bisected back to the edge.
         float out = 0;
         const int pixels = static_cast<int>(std::min(reach, 4096.0f));
-        for (int px = 1; px <= pixels; px++) {
+        for (int px = 1; px <= pixels; ++px) {
             const auto step = static_cast<float>(px);
             object.position = Vector2{ start.x + (d.x * step), start.y + (d.y * step) };
             if (!in_map(map, object)) {
@@ -642,7 +642,7 @@ void push_out(Object &object, const Tilemap &map, float cell) {
         if (out == 0) continue;
         float lo = out - 1;
         float hi = out;
-        for (int i = 0; i < CONTACT_BISECTIONS; i++) {
+        for (int i = 0; i < CONTACT_BISECTIONS; ++i) {
             const float mid = (lo + hi) / 2;
             object.position = Vector2{ start.x + d.x * mid, start.y + d.y * mid };
             if (in_map(map, object))
@@ -682,7 +682,7 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
     }
     const float limit = std::max(1.0f, std::min({ cell, box.width, box.height }) / 2);
 
-    for (int axis = 0; axis < 2; axis++) {
+    for (int axis = 0; axis < 2; ++axis) {
         const float travel = axis == 0 ? step.x : step.y;
         if (travel == 0 || !std::isfinite(travel)) continue;
         float &coordinate = axis == 0 ? object.position.x : object.position.y;
@@ -690,14 +690,14 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
         const float wanted = std::ceil(std::fabs(travel) / limit);
         const int steps = static_cast<int>(std::min(wanted, MAX_STEPS));
         const float increment = travel / static_cast<float>(steps);
-        for (int i = 0; i < steps; i++) {
+        for (int i = 0; i < steps; ++i) {
             const float from = coordinate;
             coordinate = from + increment;
             if (!in_map(map, object)) continue;
             // This increment ends inside: find the contact within it.
             float lo = 0;
             float hi = 1;
-            for (int k = 0; k < CONTACT_BISECTIONS; k++) {
+            for (int k = 0; k < CONTACT_BISECTIONS; ++k) {
                 const float mid = (lo + hi) / 2;
                 coordinate = from + (increment * mid);
                 if (in_map(map, object))
@@ -725,7 +725,7 @@ void update(Scene &scene, float delta) {
     // A snapshot of the size, so an object spawned during this pass gets its
     // _ready() now and its first _update() next frame.
     const std::size_t count = start->size();
-    for (std::size_t i = 0; i < count; i++) {
+    for (std::size_t i = 0; i < count; ++i) {
         // Looked up again every iteration, and this is not caution for its own
         // sake: _update() is the user's code, it may spawn, and a spawn can
         // grow BOTH vectors underneath -- the list of scenes and the list of
@@ -1031,7 +1031,7 @@ void reset_for_tests() {
 int live_count() {
     int n = 0;
     for (const Cell &slot : pool.slots) {
-        if (slot.occupied && slot.object != nullptr && slot.object->alive()) n++;
+        if (slot.occupied && slot.object != nullptr && slot.object->alive()) ++n;
     }
     return n;
 }

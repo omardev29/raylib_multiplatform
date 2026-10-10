@@ -106,12 +106,12 @@ bool in_resources_dir(const char *path) {
     // been answered with the shipped copy on every load. With no directory to
     // compare, "inside resources/" means "a bare file name".
     if (root[0] == '\0') {
-        for (const char *c = p; *c != '\0'; c++) {
+        for (const char *c = p; *c != '\0'; ++c) {
             if (*c == '/' || *c == '\\') return false;
         }
         return true;
     }
-    for (size_t i = 0; root[i] != '\0'; i++) {
+    for (size_t i = 0; root[i] != '\0'; ++i) {
         char a = p[i];
         char b = root[i];
         if (a == '\\') a = '/';

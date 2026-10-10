@@ -81,7 +81,7 @@ static void on_frame(float) {
                             .bottomLeft = 0,
                             .bottomRight = 0 },
           .border = { .color = { 88, 120, 245, 255 }, .width = { .bottom = 3 } } }) {
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 4; ++i) {
             // CLAY_IDI gives each slot in a loop its own identity without
             // building a string per element.
             CLAY(CLAY_IDI("slot", i),

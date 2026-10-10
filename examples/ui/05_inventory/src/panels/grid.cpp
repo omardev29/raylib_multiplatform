@@ -15,7 +15,7 @@ void inventory_grid() {
         // keeps it the same grid whatever else comes and goes on screen, where
         // an unnamed one is told apart by its order among the unnamed grids.
         rmp::ui::grid({ .columns = 0, .min_cell = 88, .id = "inv" }, [&] {
-            for (int i = 0; i < ITEM_COUNT; i++) {
+            for (int i = 0; i < ITEM_COUNT; ++i) {
                 rmp::ui::cell([&] {
                     rmp::ui::panel(
                         { .box = { .padding = 6 },

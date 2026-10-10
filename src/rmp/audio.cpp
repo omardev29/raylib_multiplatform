@@ -157,7 +157,7 @@ Effect *find_effect(std::string_view name) {
 // than rotating: a rotation that skips voices that happened to be free cuts
 // a voice that started a moment ago while an older one plays on.
 Voice &pick_voice(Effect &e) {
-    for (int i = 0; i < e.voice_count; i++) {
+    for (int i = 0; i < e.voice_count; ++i) {
         Voice &v = e.voices[static_cast<std::size_t>(i)];
         if (!IsSoundPlaying(v.sound)) return v;
     }
@@ -240,7 +240,7 @@ bool ensure_device() {
     if (s.ready) return true;
     if (s.attempted) return false; // once, and a failure is remembered
     s.attempted = true;
-    s.attempts++;
+    ++s.attempts;
     const DeviceOpener open = s.opener != nullptr ? s.opener : open_for_real;
     s.ready = open();
     if (!s.ready) {
@@ -277,7 +277,7 @@ void shutdown() {
     State &s = state();
     if (s.ready) {
         for (Effect &e : s.effects) {
-            for (int i = 0; i < e.voice_count; i++) {
+            for (int i = 0; i < e.voice_count; ++i) {
                 UnloadSoundAlias(e.voices[static_cast<std::size_t>(i)].sound);
             }
             e.voice_count = 0;
@@ -415,7 +415,7 @@ void music(std::string_view name, bool loop) {
         // The bytes were there and did not stream: a failed load, the way a
         // missing file is one, so the CI boot gate sees a corrupt song.
         // load_data() has already counted an empty read itself.
-        if (!next.bytes.empty()) rmp::assets::detail::loads.failed++;
+        if (!next.bytes.empty()) ++rmp::assets::detail::loads.failed;
         s.missing_music.emplace_back(name);
         RMP_REPORT_ONCE_KEYED(file.c_str(),
                               "AUDIO: \"%s\" is in resources/ but could not be streamed "
@@ -453,7 +453,7 @@ void set_volume(Bus bus, float volume) {
         // Every voice keeps the volume its own play asked for, so a slider
         // moved while effects ring out scales them instead of flattening them.
         for (Effect &e : s.effects) {
-            for (int i = 0; i < e.voice_count; i++) {
+            for (int i = 0; i < e.voice_count; ++i) {
                 const Voice &v = e.voices[static_cast<std::size_t>(i)];
                 if (IsSoundPlaying(v.sound)) {
                     SetSoundVolume(v.sound, detail::effect_volume(v.volume, s.sfx));

@@ -70,7 +70,7 @@ TEST_SUITE("input actions") {
         frame();
         CHECK(!rmp::input::pressed("jump"));
 
-        for (int which = 0; which < 3; which++) {
+        for (int which = 0; which < 3; ++which) {
             fake.devices = rmp::input::detail::DeviceState{};
             if (which == 0) hold(KEY_SPACE);
             if (which == 1) hold(KEY_W);
@@ -98,9 +98,9 @@ TEST_SUITE("input actions") {
         hold(KEY_F);
 
         int edges = 0;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; ++i) {
             frame();
-            if (rmp::input::just_pressed("fire")) edges++;
+            if (rmp::input::just_pressed("fire")) ++edges;
             CHECK(rmp::input::pressed("fire")); // held, all ten
         }
         CHECK(edges == 1);
@@ -117,9 +117,9 @@ TEST_SUITE("input actions") {
 
         hold(KEY_F, false);
         int edges = 0;
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 5; ++i) {
             frame();
-            if (rmp::input::just_released("fire")) edges++;
+            if (rmp::input::just_released("fire")) ++edges;
         }
         CHECK(edges == 1);
     }
@@ -152,7 +152,7 @@ TEST_SUITE("input actions") {
 
     TEST_CASE("defining the same action twenty times is what a scene _ready does") {
         Fixture fix;
-        for (int i = 0; i < 20; i++) rmp::input::action("fire", KEY_F);
+        for (int i = 0; i < 20; ++i) rmp::input::action("fire", KEY_F);
         hold(KEY_F);
         frame();
         CHECK(rmp::input::pressed("fire"));
@@ -184,7 +184,7 @@ TEST_SUITE("input actions") {
 
         // And then not again, however many frames go past. Sixty lines a second
         // is the same as no warning at all.
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; ++i) {
             frame();
             CHECK(rmp::input::axis("nobody_defined_me", "nor_me") == doctest::Approx(0));
         }
@@ -384,7 +384,7 @@ TEST_SUITE("input directions") {
 
     TEST_CASE("keyboard, d-pad and stick all reach the same action") {
         Fixture fix;
-        for (int which = 0; which < 3; which++) {
+        for (int which = 0; which < 3; ++which) {
             fake.devices = rmp::input::detail::DeviceState{};
             rmp::input::set_deadzone(0.2f);
             if (which == 0) hold(KEY_D);

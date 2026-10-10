@@ -73,7 +73,7 @@ void shutdown_globals() {
     // 10.1 ships GCC 10.5, whose <ranges> is incomplete, and that toolchain has
     // already cost this project one patch to Clay. A backwards for loop
     // compiles the same everywhere and reads no worse.
-    for (std::size_t i = registry.globals.size(); i > 0; i--) {
+    for (std::size_t i = registry.globals.size(); i > 0; --i) {
         Global &g = registry.globals[i - 1];
         g.forget();
         g.instance.reset();

@@ -81,7 +81,7 @@ public:
         });
         _player = player.handle();
 
-        for (int i = 0; i < ENEMIES; i++) add_enemy(560 + static_cast<float>(i) * 30);
+        for (int i = 0; i < ENEMIES; ++i) add_enemy(560 + static_cast<float>(i) * 30);
     }
 
     void _update(float) override {
@@ -136,10 +136,10 @@ private:
         enemy.add<rmp::behavior::Health>({
             .hp = 2,
             .invulnerable_for = 0.1f,
-            .on_death = [this](rmp::Object &) { _enemies--; },
+            .on_death = [this](rmp::Object &) { --_enemies; },
             .hurt_by = layer::BULLET,
         });
-        _enemies++;
+        ++_enemies;
     }
 
     void shoot() {

@@ -95,7 +95,7 @@ TEST_CASE("the frames, their sizes and their durations come from the file") {
     CHECK(sheet.frame(3).seconds == doctest::Approx(0.050));
 
     SUBCASE("and they are packed side by side in one row") {
-        for (int i = 0; i < sheet.frame_count(); i++) {
+        for (int i = 0; i < sheet.frame_count(); ++i) {
             CAPTURE(i);
             CHECK(sheet.frame(i).source.x == doctest::Approx(i * 4));
             CHECK(sheet.frame(i).source.y == doctest::Approx(0));
@@ -223,7 +223,7 @@ TEST_CASE_FIXTURE(Fixture, "one long step crosses as many frames as it owes") {
 
 TEST_CASE_FIXTURE(Fixture, "a looping tag comes back to its first frame") {
     sprite.play("walk", true);
-    for (int i = 0; i < 10; i++) step(sprite, 0.100f);
+    for (int i = 0; i < 10; ++i) step(sprite, 0.100f);
     CHECK_FALSE(sprite.finished());
     // Still inside the tag, wherever in it.
     CHECK(sprite.frame_index() >= 0);
@@ -243,7 +243,7 @@ TEST_CASE_FIXTURE(Fixture, "a tag that does not loop stops ON the last frame") {
     CHECK(sprite.finished());
 
     SUBCASE("and it stays there however long you wait") {
-        for (int i = 0; i < 100; i++) step(sprite, 0.100f);
+        for (int i = 0; i < 100; ++i) step(sprite, 0.100f);
         CHECK(sprite.frame_index() == 1);
         CHECK(sprite.finished());
     }
@@ -274,7 +274,7 @@ TEST_CASE_FIXTURE(Fixture, "speed scales the clock, and zero freezes it") {
     SUBCASE("zero is frozen, and not slow") {
         sprite.play("walk");
         sprite.speed = 0;
-        for (int i = 0; i < 100; i++) step(sprite, 0.100f);
+        for (int i = 0; i < 100; ++i) step(sprite, 0.100f);
         CHECK(sprite.frame_index() == 0);
     }
     SUBCASE("and one is the file's own timing") {
@@ -360,7 +360,7 @@ struct ThreeFrames {
         data.width = 4;
         data.height = 4;
         data.frames.resize(3);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 3; ++i) {
             data.frames[static_cast<std::size_t>(i)].source =
                 Rectangle{ static_cast<float>(i * 4), 0, 4, 4 };
             data.frames[static_cast<std::size_t>(i)].seconds = 0.100f;
@@ -436,7 +436,7 @@ TEST_CASE("backwards and not looping finishes ON the first frame") {
     CHECK(sprite.finished());
 
     SUBCASE("and it stays there however long you wait") {
-        for (int i = 0; i < 100; i++) step(sprite, 0.100f);
+        for (int i = 0; i < 100; ++i) step(sprite, 0.100f);
         CHECK(sprite.frame_index() == 0);
         CHECK(sprite.finished());
     }

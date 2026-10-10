@@ -127,7 +127,7 @@ void compact(Owner &owner) {
 void end_walk(const Object &object) {
     Owner *owner = owner_of(&object);
     if (owner == nullptr) return;
-    if (owner->walking > 0) owner->walking--;
+    if (owner->walking > 0) --owner->walking;
     if (owner->walking == 0) compact(*owner);
 }
 
@@ -160,7 +160,7 @@ void *find_behavior(const Object &self, int type) {
 void detach(Object &self, int type) {
     Owner *owner = owner_of(&self);
     if (owner == nullptr) return;
-    for (std::size_t i = 0; i < owner->list.size(); i++) {
+    for (std::size_t i = 0; i < owner->list.size(); ++i) {
         if (owner->list[i].type != type || owner->list[i].dead) continue;
         Attached a = std::move(owner->list[i]); // this walk owns it until it goes
         // Out of the list BEFORE _end runs: the user's code is entitled to
@@ -197,8 +197,8 @@ void update_behaviors(Object &object, float delta) {
     // walked is the classic way to invalidate an iterator, and deferring it is
     // cheaper than explaining when what happens.
     const std::size_t count = owner->list.size();
-    owner->walking++;
-    for (std::size_t i = 0; i < count; i++) {
+    ++owner->walking;
+    for (std::size_t i = 0; i < count; ++i) {
         // Looked up again every iteration: _update is the user's code, it can
         // add or remove behaviors and it can spawn objects, and any of those
         // moves the vectors underneath.
@@ -216,8 +216,8 @@ void late_update_behaviors(Object &object, float delta) {
     Owner *owner = owner_of(&object);
     if (owner == nullptr) return;
     const std::size_t count = owner->list.size();
-    owner->walking++;
-    for (std::size_t i = 0; i < count; i++) {
+    ++owner->walking;
+    for (std::size_t i = 0; i < count; ++i) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
@@ -233,8 +233,8 @@ void draw_behaviors(Object &object) {
     Owner *owner = owner_of(&object);
     if (owner == nullptr) return;
     const std::size_t count = owner->list.size();
-    owner->walking++;
-    for (std::size_t i = 0; i < count; i++) {
+    ++owner->walking;
+    for (std::size_t i = 0; i < count; ++i) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
@@ -248,8 +248,8 @@ void collide_behaviors(Object &object, Object &other) {
     Owner *owner = owner_of(&object);
     if (owner == nullptr) return;
     const std::size_t count = owner->list.size();
-    owner->walking++;
-    for (std::size_t i = 0; i < count; i++) {
+    ++owner->walking;
+    for (std::size_t i = 0; i < count; ++i) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
@@ -287,7 +287,7 @@ int behavior_count(const Object &object) {
     if (owner == nullptr) return 0;
     int n = 0;
     for (const Attached &a : owner->list) {
-        if (!a.dead) n++;
+        if (!a.dead) ++n;
     }
     return n;
 }
