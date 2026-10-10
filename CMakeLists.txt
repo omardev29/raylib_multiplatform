@@ -733,7 +733,16 @@ endif()
 
 # --- rres resource packing --------------------------------------------------
 # Open packing tool (alternative to the paid rrespacker). Standalone C, no raylib.
-add_executable(rres_pack tools/rres_pack.c tools/md5.c)
+# tiny-AES-c and monocypher are its translation units too, not #included .c
+# files, so the analyzer reads them as declarations: tests/configure_test.py
+# (RresPackTest) builds exactly this list. Vendored, so compiled quietly, like
+# raylib above.
+set(_rres_pack_vendored
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres/external/aes.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres/external/monocypher.c")
+add_executable(rres_pack tools/rres_pack.c tools/md5.c ${_rres_pack_vendored})
+set_source_files_properties(${_rres_pack_vendored} PROPERTIES
+  COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 target_include_directories(rres_pack PRIVATE tools "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
 
 # Pack every loose resource into resources.rres (AES-encrypted).

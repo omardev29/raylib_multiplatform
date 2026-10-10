@@ -4629,8 +4629,200 @@ class ZeroEntryPackFixtureTest(unittest.TestCase):
         self.assertEqual(entries, 0, "the whole point: a directory holding nothing")
 
 
-# ---------------------------------------------------------------------------
-# validate(): the rejections that had no test, and the gate that counts them
+# A C file linked into the packer by the allocation test below: every
+# malloc/calloc in tools/rres_pack.c is renamed to one of these, and the Nth
+# call -- N from RMP_FAIL_ALLOC -- returns NULL, the way a machine out of memory
+# answers.
+FAULT_SHIM = r"""
+#include <stdlib.h>
+static long rmp_calls = 0;
+static int rmp_fails_now(void) {
+    const char *at = getenv("RMP_FAIL_ALLOC");
+    return at != NULL && ++rmp_calls == atol(at);
+}
+void *rmp_fault_malloc(size_t size) { return rmp_fails_now() ? NULL : malloc(size); }
+void *rmp_fault_calloc(size_t count, size_t size) {
+    return rmp_fails_now() ? NULL : calloc(count, size);
+}
+"""
+
+
+class RresPackTest(unittest.TestCase):
+    """tools/rres_pack.c, the packer `pack_resources` runs for every desktop
+    release, built from the sources CMakeLists.txt gives it and run here.
+
+    It had no test. gcc's analyzer found two allocations used without a check
+    -- the entry table and each chunk's plaintext, a NULL dereference the day
+    a pack is bigger than the memory left -- and every other allocation in it
+    was unchecked as well. So each one is made to fail in turn, and the packer
+    has to say so and exit 1: never a crash, never a pack."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        cls.cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    @staticmethod
+    def sources() -> list[Path]:
+        """What CMakeLists.txt compiles into rres_pack, read from it, a list
+        variable expanded where it names one."""
+        text = (REPO / "CMakeLists.txt").read_text()
+        found = re.search(r"add_executable\(rres_pack\s+([^)]*)\)", text)
+        out = []
+        for word in found.group(1).split():
+            named = re.fullmatch(r"\$\{(\w+)\}", word)
+            if named:
+                listed = re.search(rf"set\({named.group(1)}\s+([^)]*)\)", text)
+                out += listed.group(1).split()
+            else:
+                out.append(word)
+        return [REPO / s.strip('"').replace("${CMAKE_CURRENT_SOURCE_DIR}/", "") for s in out]
+
+    def build(self, name: str, fault: bool = False) -> Path:
+        import subprocess
+        if self.cc is None or sys.platform == "win32":
+            if IN_BUILD_IMAGE:
+                self.fail("the build image has a C compiler; this test cannot skip there")
+            self.skipTest("no C compiler here")
+        out = self.tmp / name
+        if out.exists():
+            return out
+        flags = ["-O0", "-g", f"-I{REPO / 'tools'}", f"-I{REPO / 'thirdparty' / 'rres'}"]
+        objects = []
+        for i, source in enumerate(self.sources()):
+            extra = []
+            if fault and source.name == "rres_pack.c":
+                extra = ["-Dmalloc=rmp_fault_malloc", "-Dcalloc=rmp_fault_calloc"]
+            obj = self.tmp / f"{name}_{i}.o"
+            got = subprocess.run([self.cc, *flags, *extra, "-c", str(source), "-o", str(obj)],
+                                 capture_output=True, text=True)
+            self.assertEqual(got.returncode, 0, got.stderr[-2000:])
+            objects.append(obj)
+        if fault:
+            shim = self.tmp / "fault_shim.c"
+            shim.write_text(FAULT_SHIM)
+            objects.append(shim)
+        got = subprocess.run([self.cc, *map(str, objects), "-o", str(out)],
+                             capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stderr[-2000:])
+        return out
+
+    def inputs(self) -> list[Path]:
+        folder = self.tmp / "in"
+        folder.mkdir(exist_ok=True)
+        empty, text = folder / "empty.txt", folder / "hello.json"
+        empty.write_bytes(b"")
+        text.write_bytes(b'{"hello": "world"}\n')
+        return [empty, text]
+
+    def pack(self, binary: Path, password: str, env=None):
+        import subprocess
+        out = self.tmp / "out.rres"
+        if out.exists():
+            out.unlink()
+        got = subprocess.run([str(binary), str(out), password, *map(str, self.inputs())],
+                             capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+        return got, out
+
+    @staticmethod
+    def plaintext(source: Path) -> bytes:
+        """A raw chunk before encryption: propCount 4, the size, the extension
+        in two big-endian words, a reserved 0, then the bytes."""
+        import struct
+        raw, ext = source.read_bytes(), source.suffix.encode()
+
+        def word(start):
+            value = 0
+            for i in range(start, start + 4):
+                value = (value << 8) | (ext[i] if i < len(ext) else 0)
+            return value
+        return struct.pack("<IIIII", 4, len(raw), word(0), word(4), 0) + raw
+
+    def chunks(self, data: bytes) -> list[dict]:
+        import struct
+        import zlib
+        self.assertEqual(data[:4], b"rres")
+        count = struct.unpack_from("<H", data, 6)[0]
+        at, found = 16, []
+        for _ in range(count):
+            kind = data[at:at + 4]
+            cipher = data[at + 9]
+            packed_size, base_size = struct.unpack_from("<II", data, at + 12)
+            crc = struct.unpack_from("<I", data, at + 28)[0]
+            packed = data[at + 32:at + 32 + packed_size]
+            self.assertEqual(zlib.crc32(packed), crc, f"the CRC of chunk {len(found)}")
+            found.append({"kind": kind, "cipher": cipher, "packed": packed,
+                          "base_size": base_size})
+            at += 32 + packed_size
+        self.assertEqual(at, len(data), "the chunks account for the whole file")
+        return found
+
+    def test_it_packs_an_empty_file_and_a_small_one(self):
+        """The empty file is the path gcc's analyzer could not follow: read_file()
+        hands back a one-byte buffer and a size of 0."""
+        got, out = self.pack(self.build("rres_pack"), "-")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        chunks = self.chunks(out.read_bytes())
+        self.assertEqual([c["kind"] for c in chunks], [b"RAWD", b"RAWD", b"CDIR"])
+        for chunk, source in zip(chunks, self.inputs()):
+            with self.subTest(file=source.name):
+                self.assertEqual(chunk["cipher"], 0, "RRES_CIPHER_NONE")
+                self.assertEqual(chunk["packed"], self.plaintext(source))
+
+    def test_an_encrypted_chunk_ends_in_the_md5_of_its_plaintext(self):
+        import hashlib as md5_lib
+        got, out = self.pack(self.build("rres_pack"), "a password")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        chunks = self.chunks(out.read_bytes())
+        for chunk, source in zip(chunks, self.inputs()):
+            with self.subTest(file=source.name):
+                plain = self.plaintext(source)
+                self.assertEqual(chunk["cipher"], 30, "RRES_CIPHER_AES")
+                self.assertEqual(chunk["base_size"], len(plain))
+                self.assertEqual(len(chunk["packed"]), len(plain) + 32)
+                self.assertNotEqual(chunk["packed"][:len(plain)], plain, "not encrypted")
+                self.assertEqual(chunk["packed"][-16:], md5_lib.md5(plain).digest(),
+                                 "tools/md5.c is not MD5")
+
+    def test_a_full_disk_is_an_error_and_not_a_pack(self):
+        """The writes were never checked, and a buffered stream only finds the
+        disk full at fclose(): the packer said "Packed" and exited 0 with the
+        pack cut short. /dev/full is that disk, on Linux."""
+        import subprocess
+        if not Path("/dev/full").exists():
+            self.skipTest("no /dev/full here")
+        got = subprocess.run([str(self.build("rres_pack")), "/dev/full", "-",
+                              *map(str, self.inputs())],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("cannot write", got.stderr)
+        self.assertNotIn("Packed", got.stdout)
+
+    def test_every_allocation_that_fails_is_an_error_and_never_a_crash(self):
+        binary = self.build("rres_pack_fault", fault=True)
+        for password in ("-", "a password"):
+            failed = 0
+            for n in range(1, 64):
+                env = dict(os.environ, RMP_FAIL_ALLOC=str(n))
+                got, out = self.pack(binary, password, env=env)
+                if got.returncode == 0 and "Packed" in got.stdout:
+                    break  # the Nth allocation never happened: all were tried
+                failed += 1
+                with self.subTest(password=password, failing_allocation=n):
+                    self.assertEqual(got.returncode, 1,
+                                     f"allocation {n} failing ended in "
+                                     f"{got.returncode}, not exit 1:\n{got.stderr[-500:]}")
+                    self.assertIn("out of memory", got.stderr)
+                    self.assertFalse(out.exists(), "a pack was written anyway")
+            else:
+                self.fail("more than 63 allocations, or the packer never finished")
+            self.assertGreaterEqual(failed, 4, f"only {failed} allocations with {password!r}")
 # ---------------------------------------------------------------------------
 
 
