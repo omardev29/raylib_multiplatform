@@ -26,7 +26,7 @@
 # The runtimes' defaults -- every report fatal, the stack printed -- are in
 # cmake/sanitizer_hooks.c, linked into the test binary like into every other.
 #
-# Its own build directory, so it never disturbs build/.
+# Its own build directory, so it never disturbs build/debug.
 #
 #   bash tools/sanitize_check.sh        or   rmp test sanitize
 #

@@ -107,7 +107,7 @@ jobs:
       - name: Record the compiler
         run: |
           $ErrorActionPreference = "Stop"
-          $cxx = (Select-String -Path build/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
+          $cxx = (Select-String -Path build/release/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
           Write-Host "compiler: $cxx"
           & $cxx --version | Select-Object -First 1
 
@@ -170,12 +170,12 @@ jobs:
           Write-Host "PASS: $($files.Count) example sources compile with MSVC"
 
       - name: Pack resources (AES rres)
-        run: cmake --build build --target pack_resources
+        run: cmake --build --preset release --target pack_resources
 
       - name: Test (static) — .exe exists and is a PE executable
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = "build/${{ inputs.project_name }}.exe"
+          $exe = "build/release/${{ inputs.project_name }}.exe"
           if (-not (Test-Path $exe)) { Write-Host "FAIL: $exe not found"; exit 1 }
           if ((Get-Item $exe).Length -eq 0) { Write-Host "FAIL: $exe is empty"; exit 1 }
           $head = [System.IO.File]::ReadAllBytes($exe)[0..1]
@@ -192,7 +192,7 @@ jobs:
         run: |
           # With an app_icon.rc, CMake compiled it in, so the .exe must carry
           # the icon too; the Pillow step makes sure the .rc is there.
-          $check = @("tools/binary_check.py", "windows", "build/${{ inputs.project_name }}.exe")
+          $check = @("tools/binary_check.py", "windows", "build/release/${{ inputs.project_name }}.exe")
           if (Test-Path cmake/generated/app_icon.rc) { $check += "--require-icon" }
           python @check
 
@@ -223,13 +223,13 @@ jobs:
           # Windows resolves DLLs from the application directory first, so
           # dropping these next to the .exe overrides the system opengl32.
           # They are deleted again before packaging: they must never ship.
-          Copy-Item mesa/x64/opengl32.dll,mesa/x64/libgallium_wgl.dll,mesa/x64/dxil.dll build/
+          Copy-Item mesa/x64/opengl32.dll,mesa/x64/libgallium_wgl.dll,mesa/x64/dxil.dll build/release/
           Write-Host "Mesa $ver staged next to the executable"
 
       - name: Test (runtime) — boot, render frames, verify pixels
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Resolve-Path "build/${{ inputs.project_name }}.exe"
+          $exe = Resolve-Path "build/release/${{ inputs.project_name }}.exe"
 
           # The boot saves a file and reads it back (after_ready() in
           # src/rmp/app.cpp), into %APPDATA% -- set here to a folder named
@@ -246,7 +246,7 @@ jobs:
           # else. Out goes the directory of the compiler that built it, and
           # every directory holding a MinGW runtime DLL (Git and Strawberry
           # Perl ship some too); the game inherits this PATH.
-          $cxx = (Select-String -Path build/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
+          $cxx = (Select-String -Path build/release/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
           $compilerDir = (Resolve-Path (Split-Path $cxx)).Path.TrimEnd('\')
           $runtime = @("libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")
           $kept = @(); $dropped = @()
@@ -270,9 +270,9 @@ jobs:
           # and loaded nothing for a player.
           # What the zip ships, by the rule of tools/ship_resources.sh: the
           # pack, or the loose files for a game in plain C.
-          New-Item -ItemType Directory -Force -Path build/resources | Out-Null
-          if (Test-Path src/rmp) { Copy-Item resources/resources.rres build/resources/ }
-          else { Copy-Item resources/* build/resources/ -Recurse -Exclude *.rres }
+          New-Item -ItemType Directory -Force -Path build/release/resources | Out-Null
+          if (Test-Path src/rmp) { Copy-Item resources/resources.rres build/release/resources/ }
+          else { Copy-Item resources/* build/release/resources/ -Recurse -Exclude *.rres }
           $elsewhere = Join-Path $env:RUNNER_TEMP "elsewhere"
           New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
           $out = Join-Path $elsewhere "out.txt"
@@ -323,7 +323,7 @@ jobs:
       - name: Remove Mesa from the build directory
         if: always()
         run: |
-          Remove-Item build/opengl32.dll,build/libgallium_wgl.dll,build/dxil.dll -ErrorAction SilentlyContinue
+          Remove-Item build/release/opengl32.dll,build/release/libgallium_wgl.dll,build/release/dxil.dll -ErrorAction SilentlyContinue
           Remove-Item mesa.7z -ErrorAction SilentlyContinue
           Remove-Item mesa -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -331,7 +331,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path package/resources | Out-Null
-          Copy-Item build/${{ inputs.project_name }}.exe package/
+          Copy-Item build/release/${{ inputs.project_name }}.exe package/
           # tools/ship_resources.sh, in PowerShell: the pack, or for a game in
           # plain C -- whose raw raylib cannot read one -- the loose files and a
           # note saying why.
@@ -569,7 +569,7 @@ jobs:
       - name: Test (static) — .exe exists, is a PE, targets ARM64
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = "build/${{ inputs.project_name }}.exe"
+          $exe = "build/release/${{ inputs.project_name }}.exe"
           if (-not (Test-Path $exe)) { Write-Host "FAIL: $exe not found"; exit 1 }
           if ((Get-Item $exe).Length -eq 0) { Write-Host "FAIL: $exe is empty"; exit 1 }
           $b = [System.IO.File]::ReadAllBytes($exe)
@@ -587,7 +587,7 @@ jobs:
         run: |
           # With an app_icon.rc, CMake compiled it in, so the .exe must carry
           # the icon too; the Pillow step makes sure the .rc is there.
-          $check = @("tools/binary_check.py", "windows", "build/${{ inputs.project_name }}.exe")
+          $check = @("tools/binary_check.py", "windows", "build/release/${{ inputs.project_name }}.exe")
           if (Test-Path cmake/generated/app_icon.rc) { $check += "--require-icon" }
           python @check
 
@@ -599,7 +599,7 @@ jobs:
       - name: Package
         run: |
           New-Item -ItemType Directory -Force -Path package | Out-Null
-          Copy-Item build/${{ inputs.project_name }}.exe package/
+          Copy-Item build/release/${{ inputs.project_name }}.exe package/
           Copy-Item resources package/ -Recurse
           @(
             "resources.rres was NOT built for this archive.",

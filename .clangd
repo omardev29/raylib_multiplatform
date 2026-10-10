@@ -1,9 +1,9 @@
 # clangd configuration — DEFAULT (host / desktop).
 #
 # This makes clangd use the compile commands produced by a normal host build
-# (build/compile_commands.json), so the project resolves WITHOUT the Android
-# NDK. With no Android target forced, __ANDROID__ is not defined, <raymob.h>
-# is never pulled in, and no NDK headers are needed.
+# (build/debug/compile_commands.json, from the debug preset), so the project
+# resolves WITHOUT the Android NDK. With no Android target forced, __ANDROID__
+# is not defined, <raymob.h> is never pulled in, and no NDK headers are needed.
 #
 #   Prereq: configure once so the compile database exists:  cmake --preset debug
 #
@@ -13,7 +13,7 @@
 # To come back to this host config:  git checkout -- .clangd
 
 CompileFlags:
-  CompilationDatabase: build
+  CompilationDatabase: build/debug
   Remove:
     - "-fmodules-ts"
     - "-fmodule-mapper=*"

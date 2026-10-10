@@ -209,19 +209,26 @@ the binary (`tools/binary_check.py macos`) and fails on one above that.
 | `release` | `1` | `"./resources/"` | LTO, ship `resources/` next to the exe |
 | `web` | `1` | `"./resources/"` | Emscripten toolchain |
 
+Each preset configures a folder of its own under `build/`: `build/debug`, `build/release`,
+`build/web`, `build/memory` and `build/lint` (`BUILD_DIRS` in `tools/rmp.py` lists every folder
+anything writes there). `build/` itself is never a build -- `CMakeLists.txt` refuses to configure
+it -- so a release never inherits the `[dev] compiler` a debug configure wrote into its cache, and
+switching between the two rebuilds nothing. A `CMakeCache.txt` left at the top of `build/` by an
+older checkout is removed, once and with a message, by the first `rmp` command that builds.
+
 **LTO** (`CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE`) is enabled for release on GCC/Clang and
 MSVC. It yields smaller/faster binaries at the cost of longer link times. On NetBSD LTO is
 disabled (its linker can't process LTO bytecode in static archives).
 
-**Assembler view:** `cmake --build build --target assembler` emits `build/main.s` for the
-game sources (GCC/Clang) — handy for inspecting codegen.
+**Assembler view:** `cmake --build --preset debug --target assembler` emits `build/debug/main.s`
+for the game sources (GCC/Clang) — handy for inspecting codegen.
 
 ---
 
 ## Editor / clangd (LSP)
 
 The committed `.clangd` points clangd at the **host** compile database
-(`build/compile_commands.json`), so the project resolves with **no Android NDK**. Because no
+(`build/debug/compile_commands.json`), so the project resolves with **no Android NDK**. Because no
 Android target is forced, `__ANDROID__` is not defined, `<raymob.h>` is never processed, and no
 NDK headers are needed. Configure once (`cmake --preset debug`) so the database exists.
 
@@ -355,7 +362,7 @@ desktop release (Windows, macOS, Linux and DRM, the BSDs) moves into the executa
 it opens anything, when there is a `resources/` there. So a game started from a file manager, a
 shortcut or another terminal folder finds its files, and so does a plain raylib
 `LoadTexture(RMP_RESOURCES_PATH "x.png")`, pack or no pack. A release run from the source tree --
-executable in `build/`, `resources/` at the root -- finds none next to itself and keeps the working
+executable in `build/release/`, `resources/` at the root -- finds none next to itself and keeps the working
 directory, as it always did. iOS moves into its bundle the same way; the web reads a virtual file
 system and Android its APK, so neither moves. NetBSD and OpenBSD cannot say where an executable is
 (raylib's `GetApplicationDirectory()` has no answer there): a release reads `resources/` from the
@@ -369,8 +376,8 @@ chunks, and a central directory mapping names to chunk ids. This framework ships
 `tools/rres_pack.c`, built as a CMake target:
 
 ```bash
-cmake --build build --target pack_resources    # resources/ -> resources/resources.rres
-cmake --build build --target unpack_resources  # delete the pack, go back to loose files
+rmp pack      # cmake --build --preset debug --target pack_resources: resources/ -> resources.rres
+rmp unpack    # delete the pack, go back to loose files
 ```
 
 **You do not need [rrespacker](https://raylibtech.itch.io/rrespacker).** That is raysan's paid GUI
@@ -664,7 +671,7 @@ pointer and the viewport injected. No window, no GL context, no display:
 
 ```bash
 cmake --preset debug -DBUILD_UI_TESTS=ON
-cmake --build build --target ui_layout_test && ./build/ui_layout_test
+cmake --build --preset debug --target ui_layout_test && ./build/debug/ui_layout_test
 ```
 
 It checks the menu is centred at four resolutions, that buttons do not overlap and share a width,
@@ -908,8 +915,8 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
   X11/GL multiarch libraries.
 - **FreeBSD / OpenBSD / NetBSD**: built inside QEMU VMs via
   [`cross-platform-actions/action`](https://github.com/cross-platform-actions/action)
-  (pinned by SHA). The action syncs the workspace into the VM, builds there, and syncs `build/`
-  back so the artifact can be uploaded.
+  (pinned by SHA). The action syncs the workspace into the VM, builds there into
+  `build/release/`, and syncs `build/` back so the artifact can be uploaded.
   - NetBSD uses `pkg_add` with `PKG_PATH` pointed at the pkgsrc binary packages and builds with
     GNU make (`Unix Makefiles`), because pkgsrc's `ninja` package is an IRC client, not the build
     tool. NetBSD **arm64** is excluded (unresolvable pkgsrc/base version conflicts).
@@ -1319,20 +1326,22 @@ The target name is whatever the library's own `CMakeLists.txt` defines.
 ## FAQ & troubleshooting
 
 **Q: I changed `PRODUCTION_BUILD` and the build is wrong.**
-A: Delete `build/` and reconfigure — CMake caches the value and VS doesn't always notice the change.
+A: Use the preset that says it -- `debug` or `release`, each in its own folder -- rather than
+flipping the option in one: CMake caches the value and VS doesn't always notice the change. `rmp
+clean` deletes every build when one goes strange.
 
 **Q: Do I need to ship DLLs?**
 A: No. raylib and the C and C++ runtimes are linked into the `.exe` (MinGW `-static`, MSVC
 `/MT`), and CI reads the import table to prove it: `python tools/binary_check.py windows
-build/<name>.exe` lists every DLL it needs and fails on one Windows 10 does not have.
+build/release/<name>.exe` lists every DLL it needs and fails on one Windows 10 does not have.
 
 **Q: `file` / arch checks fail in CI?**
 A: The static tests use `od` to read the ELF magic + `e_machine` (no `file` dependency in the
 build image), so they're portable.
 
 **Q: Why is there no `resources.rres` in my dev build?**
-A: It's only produced when you run `cmake --build build --target pack_resources`. In dev the game
-loads loose files by default.
+A: It's only produced when you run `rmp pack` (`cmake --build --preset debug --target
+pack_resources`). In dev the game loads loose files by default.
 
 **Q: The game shows no texture / "Failed to open file".**
 A: Check `RMP_RESOURCES_PATH` — in dev it's an absolute path; in production the `resources/` folder

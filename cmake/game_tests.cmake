@@ -7,8 +7,8 @@
 # same folder and builds the same target, so the copy every game starts from
 # is tested on every `rmp test`.
 #
-#   cmake --preset debug -DBUILD_TESTS=ON && cmake --build build --target game_test
-#   ./build/game_test -tc="*menu*"
+#   cmake --preset debug -DBUILD_TESTS=ON && cmake --build --preset debug --target game_test
+#   ./build/debug/game_test -tc="*menu*"
 #
 # main.cpp stays out because RMP_GAME there is the game's main(). main() here
 # is doctest's, written below, so a file in tests/game/ holds TEST_CASEs and

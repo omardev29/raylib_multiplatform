@@ -63,13 +63,13 @@ jobs:
       # set and it is zig cc targeting that glibc, so the binary runs on
       # distributions older than this runner. See tools/linux_build.sh.
       - name: Configure + build (game + rres packer)
-        run: bash tools/linux_build.sh build
+        run: bash tools/linux_build.sh build/release
 
       # The floor is a claim about every machine that is NOT this one, so it has
       # to be checked here rather than discovered by a player. The failure it
       # prevents is "version GLIBC_2.39 not found" and nothing else.
       - name: It runs on older distributions than this one
-        run: bash tools/glibc_check.sh build/${{ inputs.project_name }}
+        run: bash tools/glibc_check.sh build/release/${{ inputs.project_name }}
 
       # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
       # the measured flags around it) read off the binary itself, before UPX
@@ -79,16 +79,19 @@ jobs:
         run: |
           set -euo pipefail
           PIE=""
-          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+          CACHE=build/release/CMakeCache.txt
+          # A cache that is not there would read as "PIE off", and pass.
+          grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
 
       - name: Pack resources (AES rres)
-        run: cmake --build build --target pack_resources
+        run: cmake --build build/release --target pack_resources
 
       - name: Test (static) — binary exists, is x86-64 ELF, executable
         run: |
           set -e
-          BIN=build/${{ inputs.project_name }}
+          BIN=build/release/${{ inputs.project_name }}
           test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
           test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
           test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
@@ -119,7 +122,7 @@ jobs:
           # Explicit 24-bit screen: the render read-back needs a real colour
           # depth, and xvfb-run's default has changed across versions.
           RAY_TEST_MAX_FRAMES=30 xvfb-run -a -s "-screen 0 1280x720x24" \
-            timeout 180 ./build/${{ inputs.project_name }} >"$OUT" 2>&1 \
+            timeout 180 ./build/release/${{ inputs.project_name }} >"$OUT" 2>&1 \
             || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
           echo "--- captured output ---"; cat "$OUT"
           # Non-zero texture dimensions, not just the marker: a missing asset
@@ -143,8 +146,8 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-x64-glibc "build/${{ inputs.project_name }}"
-          cp build/${{ inputs.project_name }} package/
+          bash tools/upx_pack.sh linux-x64-glibc "build/release/${{ inputs.project_name }}"
+          cp build/release/${{ inputs.project_name }} package/
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-build.zip .
 
@@ -198,10 +201,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Configure + build
-        run: bash tools/linux_build.sh build
+        run: bash tools/linux_build.sh build/release
 
       - name: It runs on older distributions than this one
-        run: bash tools/glibc_check.sh build/${{ inputs.project_name }}
+        run: bash tools/glibc_check.sh build/release/${{ inputs.project_name }}
 
       # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
       # the measured flags around it) read off the binary itself, before UPX
@@ -211,16 +214,19 @@ jobs:
         run: |
           set -euo pipefail
           PIE=""
-          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+          CACHE=build/release/CMakeCache.txt
+          # A cache that is not there would read as "PIE off", and pass.
+          grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
 
       - name: Pack resources (AES rres)
-        run: cmake --build build --target pack_resources
+        run: cmake --build build/release --target pack_resources
 
       - name: Test (static) — binary exists, is aarch64 ELF, executable
         run: |
           set -e
-          BIN=build/${{ inputs.project_name }}
+          BIN=build/release/${{ inputs.project_name }}
           test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
           test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
           test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
@@ -236,7 +242,7 @@ jobs:
           set -e
           OUT=/tmp/ray_test_out.txt
           RAY_TEST_MAX_FRAMES=30 xvfb-run -a -s "-screen 0 1280x720x24" \
-            timeout 180 ./build/${{ inputs.project_name }} >"$OUT" 2>&1 \
+            timeout 180 ./build/release/${{ inputs.project_name }} >"$OUT" 2>&1 \
             || { echo "FAIL: game exited non-zero"; cat "$OUT"; exit 1; }
           echo "--- captured output ---"; cat "$OUT"
           # Non-zero texture dimensions, not just the marker: a missing asset
@@ -258,8 +264,8 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-arm64-glibc "build/${{ inputs.project_name }}"
-          cp build/${{ inputs.project_name }} package/
+          bash tools/upx_pack.sh linux-arm64-glibc "build/release/${{ inputs.project_name }}"
+          cp build/release/${{ inputs.project_name }} package/
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-build.zip .
 
@@ -323,7 +329,7 @@ jobs:
       - name: Build (musl)
         run: |
           set -euo pipefail
-          RMP_LIBC=musl bash tools/linux_build.sh build
+          RMP_LIBC=musl bash tools/linux_build.sh build/release
           RMP_LIBC=musl bash tools/linux_build.sh build/memory -DPLATFORM=Memory
 
       # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
@@ -334,13 +340,16 @@ jobs:
         run: |
           set -euo pipefail
           PIE=""
-          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+          CACHE=build/release/CMakeCache.txt
+          # A cache that is not there would read as "PIE off", and pass.
+          grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
 
       - name: Test (static) — it is a musl binary and not a glibc one
         run: |
           set -euo pipefail
-          BIN=build/${{ inputs.project_name }}
+          BIN=build/release/${{ inputs.project_name }}
           test -x "$BIN" || { echo "FAIL: $BIN not built"; exit 1; }
           # The distinguishing fact, and the one worth asserting: a musl binary
           # asks for musl's libc.so and names no versioned GLIBC_ symbol at all.
@@ -363,7 +372,7 @@ jobs:
           set -euo pipefail
           mkdir -p package/resources
           if [ -f cmake/generated/LICENSES.txt ]; then cp cmake/generated/LICENSES.txt package/; fi
-          cp build/${{ inputs.project_name }} package/
+          cp build/release/${{ inputs.project_name }} package/
           # LOOSE RESOURCES, and the zip says so rather than leaving the reader
           # to compare archives. zig builds rres_pack for the musl target too,
           # and a musl-linked packer cannot run in this glibc image -- there is
@@ -471,12 +480,12 @@ jobs:
 
       - name: Configure (riscv64 toolchain)
         run: >
-          cmake -B build -G Ninja
+          cmake -B build/release -G Ninja
           -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON
           -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-riscv64-linux.cmake
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build build/release
 
       # Held to its OWN floor, not [linux] glibc's. This target is
       # cross-compiled with the image's riscv64 GNU toolchain against Ubuntu
@@ -486,7 +495,7 @@ jobs:
       # minimum is looked for. A test holds the two to each other: a binary
       # that grows past it fails here, and the note changes with this line.
       - name: The glibc it needs, against the floor the .toml gives it
-        run: bash tools/glibc_check.sh build/${{ inputs.project_name }} 2.38
+        run: bash tools/glibc_check.sh build/release/${{ inputs.project_name }} 2.38
 
       # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
       # the measured flags around it) read off the binary itself, before UPX
@@ -496,13 +505,16 @@ jobs:
         run: |
           set -euo pipefail
           PIE=""
-          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+          CACHE=build/release/CMakeCache.txt
+          # A cache that is not there would read as "PIE off", and pass.
+          grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
 
       - name: Test (static) — binary exists, is RISC-V ELF, executable
         run: |
           set -e
-          BIN=build/${{ inputs.project_name }}
+          BIN=build/release/${{ inputs.project_name }}
           test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
           test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
           test -s "$BIN" || { echo "FAIL: $BIN empty"; exit 1; }
@@ -524,8 +536,8 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-riscv64-glibc "build/${{ inputs.project_name }}"
-          cp build/${{ inputs.project_name }} package/
+          bash tools/upx_pack.sh linux-riscv64-glibc "build/release/${{ inputs.project_name }}"
+          cp build/release/${{ inputs.project_name }} package/
           # LOOSE RESOURCES, said out loud in the zip. rres_pack is built for
           # riscv64 here and cannot run on the amd64 host, so there is no pack
           # to ship. The game reads loose files when there is none.
@@ -587,13 +599,13 @@ jobs:
         run: cmake --preset release -DRMP_TARGET_DRM=ON
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build build/release
 
       - name: The floor this one actually has
         # `report`, not a gate: see the DRM note in tools/glibc_check.sh. The
         # number belongs in the log of every run rather than in a player's
         # error message.
-        run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
+        run: bash tools/glibc_check.sh build/release/${{ inputs.project_name }} report
 
       # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
       # the measured flags around it) read off the binary itself, before UPX
@@ -603,13 +615,16 @@ jobs:
         run: |
           set -euo pipefail
           PIE=""
-          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+          CACHE=build/release/CMakeCache.txt
+          # A cache that is not there would read as "PIE off", and pass.
+          grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
 
       - name: Test (static) — the DRM backend is really what got linked
         run: |
           set -euo pipefail
-          BIN="build/${{ inputs.project_name }}"
+          BIN="build/release/${{ inputs.project_name }}"
           [ -x "$BIN" ] || { echo "FAIL: no binary"; exit 1; }
           # The point of the job. Without this the build could quietly fall back
           # to the desktop backend and the job would pass while proving nothing.
@@ -634,7 +649,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: linux-x64-glibc-drm-headless
-          path: build/${{ inputs.project_name }}
+          path: build/release/${{ inputs.project_name }}
           retention-days: 1
 
       # The DRM jobs build NATIVELY (`cmake --preset release -DRMP_TARGET_DRM=ON`,
@@ -643,7 +658,7 @@ jobs:
       # `cp -r resources` for no stated reason while x64 and arm64 next door
       # packed -- two archive shapes from one pipeline.
       - name: Pack resources
-        run: cmake --build build --target pack_resources
+        run: cmake --build build/release --target pack_resources
 
       - name: Package
         run: |
@@ -654,8 +669,8 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-x64-glibc-drm "build/${{ inputs.project_name }}"
-          cp build/${{ inputs.project_name }} package/
+          bash tools/upx_pack.sh linux-x64-glibc-drm "build/release/${{ inputs.project_name }}"
+          cp build/release/${{ inputs.project_name }} package/
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-drm-build.zip .
 
@@ -792,13 +807,13 @@ jobs:
         run: cmake --preset release -DRMP_TARGET_DRM=ON
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build build/release
 
       - name: The floor this one actually has
         # `report`, not a gate: see the DRM note in tools/glibc_check.sh. The
         # number belongs in the log of every run rather than in a player's
         # error message.
-        run: bash tools/glibc_check.sh build/${{ inputs.project_name }} report
+        run: bash tools/glibc_check.sh build/release/${{ inputs.project_name }} report
 
       # The hardening CMakeLists.txt links a release with (RMP_RELEASE_PIE and
       # the measured flags around it) read off the binary itself, before UPX
@@ -808,13 +823,16 @@ jobs:
         run: |
           set -euo pipefail
           PIE=""
-          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' build/CMakeCache.txt; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/${{ inputs.project_name }}"
+          CACHE=build/release/CMakeCache.txt
+          # A cache that is not there would read as "PIE off", and pass.
+          grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+          if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
 
       - name: Test (static) — an aarch64 DRM binary is really what got linked
         run: |
           set -euo pipefail
-          BIN="build/${{ inputs.project_name }}"
+          BIN="build/release/${{ inputs.project_name }}"
           # e_machine at offset 0x12: aarch64 is 0x00B7 -> "b700" little-endian.
           # Cheap, and it is the one thing a cross-build can get wrong silently.
           MACHINE=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
@@ -840,7 +858,7 @@ jobs:
       # Native aarch64 build on an arm64 runner, so the packer runs. Same
       # archive shape as every other native target.
       - name: Pack resources
-        run: cmake --build build --target pack_resources
+        run: cmake --build build/release --target pack_resources
 
       - name: Package
         run: |
@@ -851,8 +869,8 @@ jobs:
           fi
           # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
           # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-arm64-glibc-drm "build/${{ inputs.project_name }}"
-          cp build/${{ inputs.project_name }} package/
+          bash tools/upx_pack.sh linux-arm64-glibc-drm "build/release/${{ inputs.project_name }}"
+          cp build/release/${{ inputs.project_name }} package/
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-drm-build.zip .
 

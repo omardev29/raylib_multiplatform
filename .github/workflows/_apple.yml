@@ -124,12 +124,12 @@ jobs:
         run: cmake --build --preset release
 
       - name: Pack resources (AES rres)
-        run: cmake --build build --target pack_resources
+        run: cmake --build --preset release --target pack_resources
 
       - name: Test (static) — binary is a universal Mach-O with both slices
         run: |
           set -e
-          BIN=build/${{ inputs.project_name }}
+          BIN=build/release/${{ inputs.project_name }}
           test -f "$BIN" || { echo "FAIL: $BIN not found"; exit 1; }
           test -x "$BIN" || { echo "FAIL: $BIN not executable"; exit 1; }
           file "$BIN"
@@ -148,8 +148,8 @@ jobs:
       - name: Test (static) -- every slice runs on the macOS the build declares
         run: |
           set -euo pipefail
-          TARGET=$(sed -n 's/^CMAKE_OSX_DEPLOYMENT_TARGET:[A-Z]*=//p' build/CMakeCache.txt)
-          python3 tools/binary_check.py macos "build/${{ inputs.project_name }}" --min-os "$TARGET"
+          TARGET=$(sed -n 's/^CMAKE_OSX_DEPLOYMENT_TARGET:[A-Z]*=//p' build/release/CMakeCache.txt)
+          python3 tools/binary_check.py macos "build/release/${{ inputs.project_name }}" --min-os "$TARGET"
 
       # macOS shipped for years proving only that it COMPILES, which is the
       # weaker half of what CI is for: the segfault-at-shutdown from phase 3
@@ -264,7 +264,7 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          cp build/${{ inputs.project_name }} package/
+          cp build/release/${{ inputs.project_name }} package/
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../macos-build.zip .
 

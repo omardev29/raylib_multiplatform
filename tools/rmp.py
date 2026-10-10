@@ -48,10 +48,39 @@ FRAMEWORK_URL = "https://github.com/omardev29/raylib_multiplatform"
 
 OK, FAILED, USAGE, INTERRUPTED = 0, 1, 2, 130
 
-# What `rmp clean` deletes: build output and everything generated from the
+# Where the builds go. build/ holds one folder per build and is never a build
+# itself -- CMakeLists.txt refuses to configure there. Debug and release used
+# to share it, and a reconfigure does not take the compiler back out of the
+# cache ([dev] compiler is written with FORCE), so `rmp build release` after
+# `rmp test` built with clang instead of the platform default; and switching
+# rebuilt everything. CMakePresets.json says the same two folders, and
+# tests/rmp_test.py holds it to these.
+BUILD_ROOT = "build"
+DEBUG_DIR = "build/debug"
+RELEASE_DIR = "build/release"
+
+# Every folder anything here writes under build/, and what writes it. The
+# layout gate in tests/rmp_test.py fails on a workflow, a tool or a page that
+# names any other folder of build/: the game, the test binaries and the
+# CMakeCache.txt straight under it are where the old layout put them.
+BUILD_DIRS = {
+    "debug": "the debug preset: rmp build, rmp run, rmp test",
+    "release": "the release preset: rmp build release, and every release CI ships",
+    "web": "the web preset: rmp web",
+    "memory": "the memory preset, tools/render_check.sh, the musl job's headless build",
+    "lint": "the lint preset: the compile database clang-tidy reads",
+    "sanitize": "tools/sanitize_check.sh: the unit tests under gcc's ASan and UBSan",
+    "examples": "rmp example",
+    "examples-check": "tools/examples_build.sh: every example, built and booted",
+    "memory-release": "tools/shipped_check.sh: a release, started from another folder",
+    "test-locales": "tools/test_locales.sh: the locales the unit tests read",
+    "ksh": "the OpenBSD job: what `ksh ./rmp help` printed in the VM",
+}
+
+# What `rmp clean` deletes: every build, and everything generated from the
 # .toml. tests/rmp_test.py checks this against the generated block of
 # .gitignore. The icons stay: making them again needs Pillow.
-CLEAN_PATHS = ("build", "raymob/app/generated", "raymob/generated.properties",
+CLEAN_PATHS = (BUILD_ROOT, "raymob/app/generated", "raymob/generated.properties",
                "cmake/generated", "include/rmp/generated", "ios/project.yml")
 
 # What `rmp fmt` formats. A game formats its own code and not the framework's:
@@ -159,33 +188,42 @@ def find_bash() -> str:
 # Building
 # ---------------------------------------------------------------------------
 
-def reconfigure(ctx: Ctx, want: str) -> None:
-    """Delete build/ when it was configured as another build type.
+def retire_old_build(ctx: Ctx) -> None:
+    """Remove the build an older checkout left at the top of build/.
 
-    The debug and release presets share build/, and switching presets there
-    keeps the compiler [dev] wrote into the cache with FORCE -- the release
-    build would quietly use your [dev] compiler. build/ is the only place the
-    stale answer lives, and switching build type rebuilds everything anyway."""
-    cache = ctx.root / "build" / "CMakeCache.txt"
-    if not cache.is_file():
+    build/ was the debug and the release build at once, before each had a
+    folder of its own. What that left straight under build/ -- a
+    CMakeCache.txt, the game, the test binaries -- is read by nothing now, and
+    CMakeLists.txt refuses to configure there; the game left there is an old
+    game somebody runs by mistake. It goes once, saying so, and the folders of
+    BUILD_DIRS, each a build of its own, stay."""
+    root = ctx.root / BUILD_ROOT
+    if not (root / "CMakeCache.txt").is_file():
         return
-    have = ""
-    for line in cache.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("CMAKE_BUILD_TYPE:"):
-            have = line.split("=", 1)[1] if "=" in line else ""
-            break
-    if have == want:
-        return
-    print(f"  build/ was configured as {have or 'unknown'}, and this is {want}.")
-    print("  removing build/ -- the compiler is cached and would carry over.")
-    remove_tree(ctx.root / "build")
+    print("  build/ is a build from before debug and release had folders of their own")
+    print("  (a CMakeCache.txt at its top), and nothing reads it now: removing it. The")
+    print("  builds in build/debug, build/release and the other folders stay.")
+    for entry in sorted(root.iterdir()):
+        if entry.is_symlink() or not (entry.is_dir() and entry.name in BUILD_DIRS):
+            remove_tree(entry)
+
+
+def configure(ctx: Ctx, preset: str, *extra: str, capture: bool = False) -> None:
+    """`cmake --preset`, the one way rmp configures: the preset says the
+    folder, and CMakePresets.json says the same ones as DEBUG_DIR and
+    RELEASE_DIR."""
+    retire_old_build(ctx)
+    ctx.run(["cmake", "--preset", preset, *extra], capture=capture)
 
 
 def remove_tree(path: Path) -> None:
     def make_writable(func, target, _info):
         os.chmod(target, 0o700)
         func(target)
-    if path.is_dir():
+    if path.is_symlink():
+        # The link, never what it points at: rmtree refuses a link anyway.
+        path.unlink()
+    elif path.is_dir():
         if sys.version_info >= (3, 12):
             shutil.rmtree(path, onexc=make_writable)
         else:
@@ -195,15 +233,17 @@ def remove_tree(path: Path) -> None:
 
 
 def build(ctx: Ctx, release: bool = False) -> str:
-    kind = "Release" if release else "Debug"
+    """Configure and build the game: debug in DEBUG_DIR, release in
+    RELEASE_DIR. Neither ever configures the other's folder, so a release
+    never inherits the [dev] compiler a debug configure FORCEd into its cache,
+    and switching between them rebuilds nothing."""
     preset = "release" if release else "debug"
-    reconfigure(ctx, kind)
-    ctx.run(["cmake", "--preset", preset])
+    configure(ctx, preset)
     name = ctx.name()
     # --target is not a detail: without it this builds whatever else the
-    # directory has configured, and a test binary in a release tree cannot
-    # read raylib's LTO archive.
-    ctx.run(["cmake", "--build", "build", "--target", name])
+    # directory has configured -- the tests `rmp test` asked for -- and a test
+    # binary in a release tree cannot read raylib's LTO archive.
+    ctx.run(["cmake", "--build", "--preset", preset, "--target", name])
     return name
 
 
@@ -228,19 +268,19 @@ def run_step(ctx: Ctx, step) -> None:
     if kind == "run":
         argv = [ctx.python if a == "{python}" else ctx.bash() if a == "bash" else a
                 for a in step[1]]
-        argv = [str(ctx.exe(a)) if isinstance(a, str) and a.startswith("build/") else a
+        # A program the debug build made: .exe on Windows.
+        argv = [str(ctx.exe(a)) if isinstance(a, str) and a.startswith(DEBUG_DIR + "/") else a
                 for a in argv]
         env = step[2] if len(step) > 2 else None
         ctx.run(argv, env=env)
     elif kind == "configure":
-        reconfigure(ctx, "Debug")
-        ctx.run(["cmake", "--preset", "debug", *step[1]], capture=True)
+        configure(ctx, "debug", *step[1], capture=True)
     elif kind == "build":
-        ctx.run(["cmake", "--build", "build", *(["--target", step[1]] if step[1] else [])],
-                capture=True)
+        ctx.run(["cmake", "--build", "--preset", "debug",
+                 *(["--target", step[1]] if step[1] else [])], capture=True)
     elif kind == "smoke":
         name = ctx.name()
-        got = ctx.run([ctx.exe(f"build/{name}")], env={"RAY_TEST_MAX_FRAMES": "10"},
+        got = ctx.run([ctx.exe(f"{DEBUG_DIR}/{name}")], env={"RAY_TEST_MAX_FRAMES": "10"},
                       check=False, capture=True)
         out = got.stdout or ""
         # The report and the exit status first, and both are verdicts: the
@@ -324,20 +364,20 @@ STAGES = [
           [("configure", ["-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"]),
            ("build", "unit_test"),
            ("run", ["bash", "tools/test_locales.sh", "build/test-locales"]),
-           ("run", ["build/unit_test"], LOCALES_ENV),
-           ("run", ["build/unit_test", "--order-by=rand", "--rand-seed=1337",
+           ("run", ["build/debug/unit_test"], LOCALES_ENV),
+           ("run", ["build/debug/unit_test", "--order-by=rand", "--rand-seed=1337",
                     "--test-suite-exclude=audio: device"], LOCALES_ENV),
            # The demo game's tests: the copy every game starts from.
            ("build", "game_test"),
-           ("run", ["build/game_test"])]),
+           ("run", ["build/debug/game_test"])]),
     Stage("unit", "your tests in tests/game/, with no window",
           [("configure", ["-DBUILD_TESTS=ON"]),
            ("build", "game_test"),
-           ("run", ["build/game_test"])], scope="game", when="tests/game/*.cpp"),
+           ("run", ["build/debug/game_test"])], scope="game", when="tests/game/*.cpp"),
     Stage("layout", "the UI layout at four resolutions, headless",
           [("configure", ["-DBUILD_UI_TESTS=ON"]),
            ("build", "ui_layout_test"),
-           ("run", ["build/ui_layout_test"])]),
+           ("run", ["build/debug/ui_layout_test"])]),
     Stage("render", "draw a frame in software and check it",
           [("render", "check")], scope="both"),
     Stage("smoke", "build the game, boot it, see it draw",
@@ -382,13 +422,14 @@ def cmd_run(ctx, args):
     no_args(args)
     name = build(ctx)
     # The game's own exit code is rmp's: a crash is not a success.
-    return ctx.run([ctx.exe(f"build/{name}")], check=False).returncode
+    return ctx.run([ctx.exe(f"{DEBUG_DIR}/{name}")], check=False).returncode
 
 
 def cmd_build(ctx, args):
     release = one_of(args, ("release",), "debug") == "release"
     name = build(ctx, release)
-    print(f"  built  {ctx.exe(f'build/{name}').relative_to(ctx.root)}")
+    folder = RELEASE_DIR if release else DEBUG_DIR
+    print(f"  built  {ctx.exe(f'{folder}/{name}').relative_to(ctx.root)}")
     return OK
 
 
@@ -398,7 +439,7 @@ def cmd_web(ctx, args):
     if not emsdk or not Path(emsdk).is_dir():
         raise Refused("the web build needs the emsdk: activate it first (source "
                       "emsdk_env.sh, or emsdk_env.ps1 on Windows), so that EMSDK is set")
-    ctx.run(["cmake", "--preset", "web"])
+    configure(ctx, "web")
     ctx.run(["cmake", "--build", "--preset", "web"])
     name = ctx.name()
     print(f"build/web/{name}.html -- serve it, do not open the file directly:")
@@ -428,9 +469,8 @@ def cmd_android(ctx, args):
 
 def cmd_pack(ctx, args):
     no_args(args)
-    reconfigure(ctx, "Debug")
-    ctx.run(["cmake", "--preset", "debug"])
-    ctx.run(["cmake", "--build", "build", "--target", "pack_resources"])
+    configure(ctx, "debug")
+    ctx.run(["cmake", "--build", "--preset", "debug", "--target", "pack_resources"])
     return OK
 
 
@@ -541,6 +581,7 @@ def cmd_example(ctx, args):
         raise Refused(f"no single example called {args[0]!r}. These exist:\n  "
                       + "\n  ".join(every))
     target = "example_" + matches[0].replace("/", "_")
+    retire_old_build(ctx)
     ctx.run(["cmake", "-S", ".", "-B", "build/examples", "-G", "Ninja",
              "-DCMAKE_BUILD_TYPE=Debug", "-DPRODUCTION_BUILD=OFF", "-DRMP_BUILD_EXAMPLES=ON"],
             capture=True)
@@ -1463,12 +1504,13 @@ COMMANDS = {
         cmd_run),
     "build": Command(
         "build [release]", "compile the game: debug, or release",
-        "Compile the game without running it: debug by default, or release "
-        "(optimised, reading ./resources/: the one next to the executable when "
-        "there is one, as in a shipped package, and the working directory's "
-        "otherwise -- so run build/<name> from the project folder).",
-        [("rmp build", "writes build/<name>"),
-         ("rmp build release", "the release build, as CI ships it")],
+        "Compile the game without running it: debug into build/debug/ by default, "
+        "or release into build/release/ (optimised, reading ./resources/: the one "
+        "next to the executable when there is one, as in a shipped package, and the "
+        "working directory's otherwise -- so run it from the project folder). Each "
+        "has its folder: switching between them rebuilds nothing.",
+        [("rmp build", "writes build/debug/<name>"),
+         ("rmp build release", "writes build/release/<name>, as CI ships it")],
         cmd_build),
     "web": Command(
         "web", "build for the browser (needs the emsdk)",
@@ -1513,9 +1555,10 @@ COMMANDS = {
          ("rmp pack", "bundle them again")],
         cmd_unpack),
     "clean": Command(
-        "clean", "delete build/ and everything generated from the .toml",
-        "Delete build/ and every file generated from raylib_multiplatform.toml; "
-        "the next build makes them again.",
+        "clean", "delete every build and everything generated from the .toml",
+        "Delete build/ -- every build in it: debug, release, web and the rest -- "
+        "and every file generated from raylib_multiplatform.toml; the next build "
+        "makes them again.",
         [("rmp clean", "everything, gone"),
          ("rmp run", "rebuild from nothing, and play")],
         cmd_clean),

@@ -32,9 +32,9 @@ Individually:
 ```bash
 python3 tools/configure.py --check     # the .toml is valid
 bash tools/versions_check.sh           # the pinned versions still agree
-cmake --preset debug -DBUILD_UI_TESTS=ON && cmake --build build --target ui_layout_test
-./build/ui_layout_test                 # layout at four resolutions, no window, no GPU
-RAY_TEST_MAX_FRAMES=10 ./build/ray_test    # expects RAY_TEST_SAVE_OK, RAY_TEST_BOOT_OK, RAY_TEST_RENDER_OK
+cmake --preset debug -DBUILD_UI_TESTS=ON && cmake --build --preset debug --target ui_layout_test
+./build/debug/ui_layout_test           # layout at four resolutions, no window, no GPU
+RAY_TEST_MAX_FRAMES=10 ./build/debug/ray_test    # expects RAY_TEST_SAVE_OK, RAY_TEST_BOOT_OK, RAY_TEST_RENDER_OK
 ```
 
 Things that are easy to get wrong here, each learnt the hard way:

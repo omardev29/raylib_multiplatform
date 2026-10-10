@@ -11,7 +11,7 @@
 # Package steps do, and starts it from a folder with no resources/ in it. And,
 # first, from the project folder where it was built, with no resources/ next to
 # it: there it has to stay put and read the root's, which is what `rmp build
-# release` and then build/<name> does.
+# release` and then build/release/<name> does.
 #
 #     sh tools/shipped_check.sh Ninja "" ray_test
 #
@@ -55,7 +55,7 @@ sh tools/ship_resources.sh "$SHIP"
 if [ "$MADE_PACK" -eq 1 ]; then rm -f resources/resources.rres; fi
 
 # First, the release where it was built, started from the project folder --
-# what `rmp build release` leaves, and what running build/<name> from here
+# what `rmp build release` leaves, and what build/release/<name> run from here
 # does. There is no resources/ next to the executable, so it must stay where it
 # was started and read the root's: only a resources/ beside the binary may move
 # it. The framework's entry point checks before it moves, and so does the

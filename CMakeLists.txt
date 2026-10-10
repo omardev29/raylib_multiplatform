@@ -1,5 +1,32 @@
 cmake_minimum_required(VERSION 3.30)
 
+# --- build/ holds the builds, and is not one ---------------------------------
+# One folder per build: build/debug and build/release (the presets of those
+# names), build/web, build/memory, build/lint, and the ones tools/ makes --
+# BUILD_DIRS in tools/rmp.py lists them all. Debug and release shared build/
+# itself once, and a reconfigure does not take the compiler back out of the
+# cache ([dev] compiler is written with FORCE), so `rmp build release` after
+# `rmp test` built with clang instead of the platform default.
+#
+# What arrives here is a CMakeCache.txt at the top of build/, from a checkout
+# older than the split -- building that folder reconfigures it in place -- or
+# build/ itself configured by hand, where an IDE may also default to. Refused
+# first thing, before configure.py runs and before project() picks a compiler.
+file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/build" _rmp_build_root)
+file(REAL_PATH "${CMAKE_CURRENT_BINARY_DIR}" _rmp_binary_dir)
+if(_rmp_binary_dir STREQUAL _rmp_build_root)
+  message(FATAL_ERROR
+    "build/ holds one folder per build and is not a build itself:\n"
+    "    cmake --preset debug      ->  build/debug     (rmp build, rmp run, rmp test)\n"
+    "    cmake --preset release    ->  build/release   (rmp build release)\n"
+    "  A CMakeCache.txt at the top of build/ is left from a checkout older than\n"
+    "  that, or from configuring build/ itself by hand, and nothing reads it now.\n"
+    "  `rmp clean` deletes it with the rest of build/, and so does any rmp\n"
+    "  command that builds.")
+endif()
+unset(_rmp_build_root)
+unset(_rmp_binary_dir)
+
 # --- Project configuration --------------------------------------------------
 # raylib_multiplatform.toml is the single source of truth for the project's
 # identity. tools/configure.py turns it into the files below plus the Gradle
@@ -45,26 +72,31 @@ option(RMP_DEV_TOOLCHAIN "Apply [dev] compiler from raylib_multiplatform.toml to
 if(NOT PRODUCTION_BUILD AND RMP_DEV_TOOLCHAIN)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_toolchain.cmake" OPTIONAL)
 elseif(DEFINED RMP_DEV_COMPILER)
-  # The debug and release presets share ${sourceDir}/build, so `cmake --preset
-  # release` can land on a cache that `cmake --preset debug` already filled in.
-  # The build type and PRODUCTION_BUILD are overwritten by the new preset. The
-  # COMPILER IS NOT: dev_toolchain.cmake wrote it with FORCE, and skipping the
-  # include here does not take it back out of the cache.
+  # A configure that must not use [dev] compiler -- a release, or
+  # RMP_DEV_TOOLCHAIN=OFF -- landing on a build directory where it was applied.
+  # The presets cannot do that any more: debug and release have folders of
+  # their own (the guard at the top of this file). A directory configured by
+  # hand still can: `cmake --preset debug`, then the same build/debug again
+  # with -DPRODUCTION_BUILD=ON. The build type and PRODUCTION_BUILD are
+  # overwritten. The COMPILER IS NOT: dev_toolchain.cmake wrote it with FORCE,
+  # and skipping the include here does not take it back out of the cache.
   #
-  # So the release build would quietly use your [dev] compiler instead of the
-  # one CI ships with — and when the two disagree about LTO, as clang's
-  # -flto=thin and GCC's -flto=auto do, you get "file format not recognized"
-  # from the linker with nothing on screen to connect it to a preset you ran
-  # ten minutes ago. That cost an afternoon once.
+  # So the release would quietly use your [dev] compiler instead of the one CI
+  # ships with -- and when the two disagree about LTO, as clang's -flto=thin
+  # and GCC's -flto=auto do, the linker says "file format not recognized" with
+  # nothing on screen to connect it to a configure ten minutes ago. That cost
+  # an afternoon once, when the two presets shared one folder.
   #
   # Refusing is the honest answer: a release build you cannot trust to be the
   # release build is worth less than no release build at all.
   message(FATAL_ERROR
-    "This build directory was configured by the DEBUG preset, which pinned "
-    "the compiler to ${RMP_DEV_COMPILER} from [dev] in "
-    "raylib_multiplatform.toml. A release build must not inherit it — CI "
-    "builds with the platform default, and this one would not match.\n"
-    "  Run `rmp clean` (or delete build/) and configure again.")
+    "This build directory was configured with [dev] compiler "
+    "(${RMP_DEV_COMPILER}, from raylib_multiplatform.toml), and the compiler "
+    "stays in its cache. A release build must not inherit it, nor one with "
+    "RMP_DEV_TOOLCHAIN=OFF: CI builds with the platform default.\n"
+    "  A release has a folder of its own: `cmake --preset release` "
+    "(build/release), or `rmp build release`. To reuse this folder for it, "
+    "delete the folder first.")
 endif()
 
 # The oldest macOS the game opens on. Left unset, the toolchain writes the SDK's
@@ -390,7 +422,7 @@ endif()
 #            can mean shipping libssp-0.dll and nothing here could check that.
 #   Web      a wasm module has no executable stack and no loader to randomise.
 #   Android  the NDK compiles with -fstack-protector-strong and
-#            -D_FORTIFY_SOURCE=2 by itself (build/cmake/flags.cmake), and
+#            -D_FORTIFY_SOURCE=2 by itself ($ANDROID_NDK/build/cmake/flags.cmake), and
 #            Android has required PIE since 5.0. raymob's CMakeLists builds it.
 #   iOS      PIE and the stack protector are Xcode's defaults.
 #
@@ -1002,8 +1034,8 @@ endif()
 # framework comes from the `rmp` library, so a new framework file needs none
 # either. (That list used to be seventeen paths written by hand.)
 #
-#   cmake --preset debug -DBUILD_TESTS=ON && cmake --build build --target unit_test
-#   ./build/unit_test -ts=random
+#   cmake --preset debug -DBUILD_TESTS=ON && cmake --build --preset debug --target unit_test
+#   ./build/debug/unit_test -ts=random
 option(BUILD_TESTS "Build the doctest unit tests" OFF)
 if(BUILD_TESTS)
   # CONFIGURE_DEPENDS, and it is not a nicety: without it a NEW test file is
@@ -1067,7 +1099,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/game_tests.cmake")
 # in a container.
 #
 #   cmake --preset debug -DBUILD_UI_TESTS=ON
-#   cmake --build build --target ui_layout_test && ./build/ui_layout_test
+#   cmake --build --preset debug --target ui_layout_test && ./build/debug/ui_layout_test
 option(BUILD_UI_TESTS "Build the headless UI layout test" OFF)
 if(BUILD_UI_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
   add_executable(ui_layout_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")

@@ -96,7 +96,7 @@ computation, so the whole thing runs with no GPU, no window and no display.
 
 ```
 cmake --preset debug -DBUILD_UI_TESTS=ON
-cmake --build build --target ui_layout_test && ./build/ui_layout_test
+cmake --build --preset debug --target ui_layout_test && ./build/debug/ui_layout_test
 ```
 
 Two traps that produced false failures, both in the test rather than the code:

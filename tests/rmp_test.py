@@ -21,7 +21,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tokenize
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -289,29 +291,91 @@ class CommandSequenceTest(unittest.TestCase):
             code = rmp.main(argv, cwd=cwd)
         return code, [c for c, _ in rec.calls if "--print-name" not in " ".join(c)]
 
-    def test_build_and_release(self):
+    def test_build_and_release_each_in_its_own_folder(self):
+        """Seen red when both went to build/: the release configured over the
+        debug tree and inherited its [dev] compiler."""
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")
-            code, calls = self.run_cmd(["build"], cwd=game)
+            with windows(False), recording(self.NAME) as rec, quiet() as out:
+                code = rmp.main(["build"], cwd=game)
             self.assertEqual(code, 0)
-            self.assertEqual(calls, [["cmake", "--preset", "debug"],
-                                     ["cmake", "--build", "build", "--target", "demo"]])
-            _, calls = self.run_cmd(["build", "release"], cwd=game)
-            self.assertEqual(calls[0], ["cmake", "--preset", "release"])
+            self.assertEqual([c for c, _ in rec.calls if "--print-name" not in " ".join(c)],
+                             [["cmake", "--preset", "debug"],
+                              ["cmake", "--build", "--preset", "debug", "--target", "demo"]])
+            self.assertIn("built  build/debug/demo", out.getvalue())
+            with windows(False), recording(self.NAME) as rec, quiet() as out:
+                rmp.main(["build", "release"], cwd=game)
+            self.assertEqual([c for c, _ in rec.calls if "--print-name" not in " ".join(c)],
+                             [["cmake", "--preset", "release"],
+                              ["cmake", "--build", "--preset", "release", "--target", "demo"]])
+            self.assertIn("built  build/release/demo", out.getvalue())
 
-    def test_run_builds_first_and_runs_the_exe_on_windows(self):
+    def test_run_builds_debug_and_runs_it_and_the_exe_on_windows(self):
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")
             _, calls = self.run_cmd(["run"], cwd=game)
-            self.assertEqual(calls[-1], [str(game.resolve() / "build" / "demo")])
+            self.assertEqual(calls, [["cmake", "--preset", "debug"],
+                                     ["cmake", "--build", "--preset", "debug", "--target", "demo"],
+                                     [str(game.resolve() / "build" / "debug" / "demo")]])
             _, calls = self.run_cmd(["run"], win=True, cwd=game)
-            self.assertEqual(calls[-1], [str(game.resolve() / "build" / "demo.exe")])
+            self.assertEqual(calls[-1], [str(game.resolve() / "build" / "debug" / "demo.exe")])
 
-    def test_pack_and_the_rest(self):
+    def test_pack_builds_the_packer_in_the_debug_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")
             _, calls = self.run_cmd(["pack"], cwd=game)
-            self.assertEqual(calls[-1], ["cmake", "--build", "build", "--target", "pack_resources"])
+            self.assertEqual(calls, [["cmake", "--preset", "debug"],
+                                     ["cmake", "--build", "--preset", "debug", "--target",
+                                      "pack_resources"]])
+
+    def test_web_configures_and_builds_its_preset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            saved = os.environ.get("EMSDK")
+            os.environ["EMSDK"] = tmp
+            try:
+                with windows(False), recording(self.NAME) as rec, quiet() as out:
+                    code = rmp.main(["web"], cwd=game)
+            finally:
+                if saved is None:
+                    os.environ.pop("EMSDK", None)
+                else:
+                    os.environ["EMSDK"] = saved
+            self.assertEqual(code, 0)
+            self.assertEqual([c for c, _ in rec.calls if "--print-name" not in " ".join(c)],
+                             [["cmake", "--preset", "web"], ["cmake", "--build", "--preset", "web"]])
+            self.assertIn("build/web/demo.html", out.getvalue())
+
+    def test_example_builds_in_its_own_folder(self):
+        _, calls = self.run_cmd(["example", "games/01_pong"])
+        self.assertEqual(calls[0][:5], ["cmake", "-S", ".", "-B", "build/examples"])
+        self.assertEqual(calls[1], ["cmake", "--build", "build/examples", "--target",
+                                    "example_games_01_pong"])
+        self.assertEqual(calls[2], [str(REPO / "build" / "examples" / "example_games_01_pong")])
+
+    def test_the_test_stages_build_and_run_in_the_debug_folder(self):
+        debug = REPO / "build" / "debug"
+        for stage, want in (
+                ("unit", [["cmake", "--preset", "debug", "-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"],
+                          ["cmake", "--build", "--preset", "debug", "--target", "unit_test"],
+                          ["bash", "tools/test_locales.sh", "build/test-locales"],
+                          [str(debug / "unit_test")],
+                          [str(debug / "unit_test"), "--order-by=rand", "--rand-seed=1337",
+                           "--test-suite-exclude=audio: device"],
+                          ["cmake", "--build", "--preset", "debug", "--target", "game_test"],
+                          [str(debug / "game_test")]]),
+                ("layout", [["cmake", "--preset", "debug", "-DBUILD_UI_TESTS=ON"],
+                            ["cmake", "--build", "--preset", "debug", "--target",
+                             "ui_layout_test"],
+                            [str(debug / "ui_layout_test")]])):
+            with self.subTest(stage=stage):
+                with windows(False), recording(self.NAME) as rec, quiet(), \
+                        unittest.mock.patch.object(rmp, "find_bash", lambda: "bash"):
+                    self.assertEqual(rmp.main(["test", stage], cwd=REPO), 0)
+                self.assertEqual([c for c, _ in rec.calls], want)
+                envs = [e for c, e in rec.calls if c[0].endswith("unit_test")]
+                for env in envs:
+                    self.assertEqual(env, {"LOCPATH": "build/test-locales"})
 
     def test_web_refuses_without_the_emsdk_before_running_anything(self):
         env = dict(os.environ)
@@ -361,7 +425,7 @@ class SmokeStepTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")
             answers = {"tools/configure.py --print-name": (0, "demo\n"),
-                       str(Path("build") / "demo"): (code, out)}
+                       str(Path("build") / "debug" / "demo"): (code, out)}
             with windows(False), recording(answers), quiet() as printed:
                 code = rmp.main(["test", "smoke"], cwd=game)
             return code, printed.getvalue()
@@ -395,36 +459,286 @@ class SmokeStepTest(unittest.TestCase):
         self.assertEqual(len(report.splitlines()), 40)
         self.assertEqual(rmp.sanitizer_report(self.BOOTED), "")
 
-class ReconfigureTest(unittest.TestCase):
-    def cache(self, root, line):
-        (root / "build").mkdir(parents=True, exist_ok=True)
-        (root / "build" / "CMakeCache.txt").write_text(line + "\n")
+class RetireOldBuildTest(unittest.TestCase):
+    """build/ was the debug and the release build at once before each had a
+    folder. What a checkout from then left at the top of build/ -- a
+    CMakeCache.txt, the game, the test binaries -- is read by nothing now, and
+    CMakeLists.txt refuses to configure there. The first rmp command that
+    configures removes it, says so once, and keeps every folder that is a build
+    of its own. It replaced reconfigure(), which deleted all of build/ whenever
+    debug and release took turns in it."""
 
-    def test_another_build_type_clears_build(self):
+    OLD = ("CMakeCache.txt", "CMakeFiles/cmake.check_cache", "build.ninja", ".ninja_log",
+           "demo", "unit_test", "compile_commands.json", "thirdparty/raylib/libraylib.a",
+           "sanitize.build.log", "mystuff/notes.txt")
+    KEPT = ("debug/CMakeCache.txt", "release/demo", "web/demo.html", "lint/CMakeCache.txt",
+            "examples-check/screenshots/a.png", "test-locales/de_DE/LC_NUMERIC", "memory/demo")
+
+    def old_tree(self, root):
+        for rel in self.OLD + self.KEPT:
+            path = root / "build" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x")
+        os.chmod(root / "build" / "unit_test", 0o400)
+
+    def run_cmd(self, argv, cwd, answers=None):
+        """What ran, and whether the old cache was still there when each
+        command started -- so `removed before the first configure` is seen."""
+        rec_answers = {"--print-name": (0, "demo\n"), **(answers or {})}
+        seen = []
+        with windows(False), recording(rec_answers) as rec, quiet() as out:
+            original = rec.__call__
+
+            def spy(ctx, argv, **kw):
+                seen.append((ctx.root / "build" / "CMakeCache.txt").exists())
+                return original(ctx, argv, **kw)
+            rmp.Ctx.run = lambda self, *a, **k: spy(self, *a, **k)
+            code = rmp.main(argv, cwd=cwd)
+        return code, [c for c, _ in rec.calls], seen, out.getvalue()
+
+    def test_the_old_tree_goes_once_and_says_so(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = fake_project(Path(tmp) / "g")
-            self.cache(root, "CMAKE_BUILD_TYPE:STRING=Release")
-            (root / "build" / "readonly").write_text("x")
-            os.chmod(root / "build" / "readonly", 0o400)
-            with quiet():
-                rmp.reconfigure(rmp.Ctx(root), "Debug")
+            self.old_tree(root)
+            code, calls, seen, out = self.run_cmd(["build"], root)
+            self.assertEqual(code, 0)
+            self.assertEqual(calls[0], ["cmake", "--preset", "debug"])
+            self.assertEqual(set(seen), {False}, "a command ran with the old cache still there")
+            self.assertIn("build/ is a build from before debug and release", out)
+            for rel in self.OLD:
+                self.assertFalse((root / "build" / rel).exists(), rel)
+            for rel in self.KEPT:
+                self.assertTrue((root / "build" / rel).exists(), rel)
+            _, _, _, again = self.run_cmd(["build"], root)
+            self.assertNotIn("build/ is a build from", again)
+
+    def test_every_command_that_configures_retires_it_first(self):
+        emsdk = os.environ.get("EMSDK")
+        for argv, cwd_framework in ((["build"], False), (["build", "release"], False),
+                                    (["run"], False), (["pack"], False),
+                                    (["test", "unit"], False), (["test", "smoke"], False),
+                                    (["web"], False), (["example", "games/01_pong"], True)):
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as tmp:
+                if cwd_framework:
+                    # rmp example lists the framework's own examples: a copy of
+                    # the tree is too much, so the old build is put in the
+                    # checkout's build/ and the recorder runs nothing.
+                    root = Path(tmp) / "fw"
+                    shutil.copytree(REPO / "examples", root / "examples")
+                    fake_project(root, framework=True)
+                else:
+                    root = fake_project(Path(tmp) / "g")
+                    (root / "tests" / "game").mkdir(parents=True)
+                    (root / "tests" / "game" / "a_test.cpp").write_text("")
+                self.old_tree(root)
+                os.environ["EMSDK"] = tmp
+                try:
+                    _, calls, seen, out = self.run_cmd(
+                        argv, root, {str(Path("build") / "debug" / "demo"): (0, SmokeStepTest.BOOTED)})
+                finally:
+                    if emsdk is None:
+                        os.environ.pop("EMSDK", None)
+                    else:
+                        os.environ["EMSDK"] = emsdk
+                self.assertTrue(calls, "nothing ran")
+                self.assertEqual(set(seen), {False})
+                self.assertIn("build/ is a build from before debug and release", out)
+                self.assertFalse((root / "build" / "CMakeCache.txt").exists())
+                self.assertTrue((root / "build" / "debug" / "CMakeCache.txt").exists())
+
+    def test_without_one_nothing_is_said_or_touched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = fake_project(Path(tmp) / "g")
+            _, _, _, out = self.run_cmd(["build"], root)
+            self.assertNotIn("build/ is a build from", out)
             self.assertFalse((root / "build").exists())
+            for rel in self.KEPT + ("stray.log",):
+                (root / "build" / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / "build" / rel).write_text("x")
+            _, _, _, out = self.run_cmd(["build", "release"], root)
+            self.assertNotIn("build/ is a build from", out)
+            for rel in self.KEPT + ("stray.log",):
+                self.assertTrue((root / "build" / rel).exists(), rel)
 
-    def test_the_same_type_keeps_it_and_no_cache_does_nothing(self):
+    def test_a_cache_in_a_folder_of_its_own_is_not_the_old_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = fake_project(Path(tmp) / "g")
-            rmp.reconfigure(rmp.Ctx(root), "Debug")
-            self.cache(root, "CMAKE_BUILD_TYPE:STRING=Debug")
-            rmp.reconfigure(rmp.Ctx(root), "Debug")
-            self.assertTrue((root / "build").exists())
+            (root / "build" / "release").mkdir(parents=True)
+            (root / "build" / "release" / "CMakeCache.txt").write_text("x")
+            (root / "build" / "game_notes.txt").write_text("x")
+            _, _, _, out = self.run_cmd(["run"], root)
+            self.assertNotIn("build/ is a build from", out)
+            self.assertTrue((root / "build" / "game_notes.txt").exists())
 
-    def test_a_cache_with_no_build_type_is_cleared(self):
+    def test_a_symlink_in_the_old_tree_is_removed_and_not_followed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = fake_project(Path(tmp) / "g")
-            self.cache(root, "OTHER:STRING=1")
-            with quiet():
-                rmp.reconfigure(rmp.Ctx(root), "Debug")
-            self.assertFalse((root / "build").exists())
+            self.old_tree(root)
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            (outside / "keep.txt").write_text("x")
+            (root / "build" / "linked").symlink_to(outside, target_is_directory=True)
+            self.run_cmd(["build"], root)
+            self.assertFalse((root / "build" / "linked").exists())
+            self.assertTrue((outside / "keep.txt").exists())
+
+
+class PresetsTest(unittest.TestCase):
+    """CMakePresets.json says where each build goes, and rmp runs what it
+    built from the same folders. debug and release shared build/ until the
+    release configure inherited the debug one's [dev] compiler."""
+
+    def presets(self):
+        return json.loads((REPO / "CMakePresets.json").read_text())
+
+    def test_debug_and_release_are_rmps_folders(self):
+        """Seen red with both at ${sourceDir}/build."""
+        dirs = {p["name"]: p.get("binaryDir") for p in self.presets()["configurePresets"]}
+        self.assertEqual(dirs["debug"], "${sourceDir}/" + rmp.DEBUG_DIR)
+        self.assertEqual(dirs["release"], "${sourceDir}/" + rmp.RELEASE_DIR)
+        self.assertEqual(rmp.DEBUG_DIR, f"{rmp.BUILD_ROOT}/debug")
+        self.assertEqual(rmp.RELEASE_DIR, f"{rmp.BUILD_ROOT}/release")
+
+    def test_every_preset_has_a_folder_of_its_own_inside_build(self):
+        seen = {}
+        for preset in self.presets()["configurePresets"]:
+            if preset.get("hidden"):
+                self.assertNotIn("binaryDir", preset, "a hidden preset hands its folder down")
+                continue
+            folder = preset.get("binaryDir", "")
+            with self.subTest(preset=preset["name"]):
+                self.assertRegex(folder, r"^\$\{sourceDir\}/build/[\w-]+$")
+                self.assertIn(folder.rsplit("/", 1)[1], rmp.BUILD_DIRS)
+                self.assertNotIn(folder, seen, f"{preset['name']} shares {folder} with "
+                                 f"{seen.get(folder)}")
+                seen[folder] = preset["name"]
+
+    def test_the_build_presets_name_their_configure_preset(self):
+        configure = {p["name"] for p in self.presets()["configurePresets"]}
+        build = {p["name"]: p["configurePreset"] for p in self.presets()["buildPresets"]}
+        for name in ("debug", "release", "web"):
+            self.assertEqual(build.get(name), name, "rmp builds with --build --preset " + name)
+        self.assertLessEqual(set(build.values()), configure)
+
+    def test_rmp_clean_removes_the_root_and_git_ignores_it(self):
+        self.assertIn(rmp.BUILD_ROOT, rmp.CLEAN_PATHS)
+        self.assertRegex((REPO / ".gitignore").read_text(), r"(?m)^/?build/$")
+
+
+class BuildFoldersInCMakeTest(unittest.TestCase):
+    """The layout, configured for real in a copy of the tree: build/ itself is
+    refused before anything else runs, a CMakeCache.txt left at its top is
+    never reused, and a release configured after a debug one gets the platform
+    default compiler while the debug tree keeps [dev] compiler. Each half was
+    seen red: build/ configured without a word before the guard, and the
+    release preset configured over the debug cache when both were build/."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skip = None
+        if shutil.which("cmake") is None or shutil.which("ninja") is None:
+            if IN_BUILD_IMAGE:
+                raise AssertionError("the build image has cmake and ninja; this cannot skip there")
+            cls.skip = "cmake or ninja is not installed"
+            return
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.src = Path(cls._tmp.name) / "src"
+        # Not .claude/: on a laptop it holds the agents' worktrees, whole checkouts.
+        shutil.copytree(REPO, cls.src, symlinks=True, ignore=shutil.ignore_patterns(
+            ".git", ".claude", "build", ".zig-*", "generated", "project.yml", "__pycache__"))
+        # What a checkout from before the split leaves: a configured build/.
+        # Made by configuring it while the guard is not there yet.
+        lists = cls.src / "CMakeLists.txt"
+        guarded = lists.read_text()
+        top, end = guarded.find("file(REAL_PATH"), guarded.find("unset(_rmp_binary_dir)\n")
+        unguarded = guarded[:top] + guarded[end + 23:] if 0 <= top < end else guarded
+        lists.write_text(unguarded)
+        cls.old = cls.cmake("-S", ".", "-B", "build", "-G", "Ninja")
+        lists.write_text(guarded)
+        cls.again = cls.cmake("-S", ".", "-B", "build")
+        cls.fresh = cls.cmake("-S", ".", "-B", "fresh")  # control: not build/, configures
+        # The refused configure writes the cache too; from here nothing may.
+        cls.old_cache = (cls.src / "build" / "CMakeCache.txt").read_bytes()
+        cls.debug = cls.cmake("--preset", "debug")
+        cls.release = cls.cmake("--preset", "release")
+        cls.debug_cache = cls.cache("debug")
+        cls.release_cache = cls.cache("release")
+        # And by hand: a release configured into the debug folder.
+        cls.by_hand = cls.cmake("-S", ".", "-B", "build/debug", "-DCMAKE_BUILD_TYPE=Release",
+                                "-DPRODUCTION_BUILD=ON")
+
+    @classmethod
+    def cmake(cls, *argv):
+        # Not the CI step's sanitizer requirement: this is about folders, and
+        # the image's clang has no sanitizer runtime.
+        env = {k: v for k, v in os.environ.items() if k != "RMP_REQUIRE_SANITIZERS"}
+        got = subprocess.run(["cmake", *argv], cwd=cls.src, capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env)
+        return got.returncode, got.stdout + got.stderr
+
+    @classmethod
+    def cache(cls, folder):
+        path = cls.src / "build" / folder / "CMakeCache.txt"
+        if not path.is_file():
+            return {}
+        out = {}
+        for line in path.read_text().splitlines():
+            m = re.match(r"^([\w-]+):[A-Z]+=(.*)$", line)
+            if m:
+                out[m.group(1)] = m.group(2)
+        return out
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "_tmp", None) is not None:
+            cls._tmp.cleanup()
+
+    def setUp(self):
+        if self.skip:
+            self.skipTest(self.skip)
+
+    def test_the_copy_was_a_build_before_the_guard(self):
+        self.assertEqual(self.old[0], 0, self.old[1][-2000:])
+        self.assertEqual(self.fresh[0], 0, self.fresh[1][-2000:])
+
+    def test_build_itself_is_refused_before_anything_runs(self):
+        code, out = self.again
+        self.assertNotEqual(code, 0)
+        self.assertIn("build/ holds one folder per build and is not a build itself", out)
+        self.assertIn("cmake --preset release    ->  build/release", out)
+        self.assertNotIn("-- configure:", out, "configure.py ran before the refusal")
+        self.assertNotIn("compiler identification", out, "project() ran before the refusal")
+
+    def test_the_old_cache_is_not_reused(self):
+        self.assertEqual(self.debug[0], 0, self.debug[1][-2000:])
+        self.assertEqual((self.src / "build" / "CMakeCache.txt").read_bytes(), self.old_cache)
+        self.assertEqual(self.debug_cache.get("CMAKE_CACHEFILE_DIR"),
+                         (self.src / "build" / "debug").as_posix())
+
+    def test_release_after_debug_gets_the_platform_default(self):
+        """The bug the split exists for: `rmp test`, then `rmp build release`."""
+        self.assertEqual(self.release[0], 0, self.release[1][-2000:])
+        self.assertEqual(self.release_cache.get("CMAKE_CACHEFILE_DIR"),
+                         (self.src / "build" / "release").as_posix())
+        self.assertEqual(self.release_cache.get("CMAKE_BUILD_TYPE"), "Release")
+        self.assertEqual(self.release_cache.get("PRODUCTION_BUILD"), "ON")
+        self.assertNotIn("RMP_DEV_COMPILER", self.release_cache)
+        # The debug tree is whole, and still the debug tree.
+        self.assertEqual(self.debug_cache.get("CMAKE_BUILD_TYPE"), "Debug")
+        if "requested but not found" not in self.debug[1] and "RMP_DEV_COMPILER" in \
+                self.debug_cache:
+            dev = self.debug_cache["RMP_DEV_COMPILER"]
+            self.assertEqual(self.debug_cache["CMAKE_C_COMPILER"], dev)
+            self.assertNotEqual(self.release_cache.get("CMAKE_C_COMPILER"), dev,
+                                "the release took the [dev] compiler")
+
+    def test_a_release_configured_by_hand_into_the_debug_folder_is_refused(self):
+        if "RMP_DEV_COMPILER" not in self.debug_cache:
+            self.skipTest("[dev] compiler was not found here, so nothing was pinned")
+        code, out = self.by_hand
+        self.assertNotEqual(code, 0)
+        self.assertIn("was configured with [dev] compiler", out)
+        self.assertIn("`cmake --preset release`", out)
 
 
 class CleanTest(unittest.TestCase):
@@ -447,6 +761,359 @@ class CleanTest(unittest.TestCase):
         for rel in rmp.CLEAN_PATHS:
             with self.subTest(path=rel):
                 self.assertRegex(text, rf"(?m)^/?{re.escape(rel)}/?$")
+
+
+# ---------------------------------------------------------------------------
+# build/ holds one folder per build, and is never a build itself
+# ---------------------------------------------------------------------------
+#
+# The debug and release presets shared build/, and both wrote the game, the
+# tests and the cache straight into it: build/<name>, build/unit_test,
+# build/CMakeCache.txt. Each has a folder of its own now, and a workflow, a
+# tool or a page still naming the old spot runs a binary that is not there --
+# or, worse, a stale one that is. The gate reads everything that runs a build
+# or says how to.
+#
+# Why a grep cannot be fooled by a path assembled in pieces: a path is either
+# spelled whole, build/<folder>, and then its first folder has to be one of
+# rmp.BUILD_DIRS; or it is assembled from the root on its own -- `build`,
+# `"build"`, `$ROOT/build`, a Python constant "build", `{}/build` from an
+# f-string, `cmake --build build` -- and the root on its own is refused
+# everywhere but the two places that act on it whole (ALLOWED_ROOTS). In
+# tools/rmp.py the one constant that names it, BUILD_ROOT, may be read only
+# where those two places say. What is left is spelling the word itself in
+# pieces, "bu" + "ild", which is not a mistake anybody makes.
+
+_ROOT_PREFIX = (r"(?:\.[/\\]|\$\w+[/\\]|\$\{[^{}\s]+\}[/\\]|\$\{\{[^}]*\}\}[/\\]"
+                r"|\$\([^()]*\)[/\\]|\{\}[/\\])?")
+# The root on its own, as a word in code: what follows must not continue the
+# word or the path, and what precedes must not be a longer word or a path.
+# Group 1 is a prefix (./, $ROOT/) and group 2 a trailing separator: with
+# either it is a path wherever it stands; without both it is also a verb --
+# `rmp build`, `gradle build` -- and is a path only when assigned or quoted.
+BARE_ROOT = re.compile(r"(?<![\w./\\$}{-])(" + _ROOT_PREFIX + r")build([/\\]?)(?![\w./\\$<{*-])")
+# The root handed to something that takes a build directory -- in a comment or
+# a page as much as in code: a usage line in a comment is copied and run.
+ROOT_AS_DIR = re.compile(r"(?:^|\s)(?:-B|--build|(?<!mkdir )-p|--test-dir|--directory|-C|cd"
+                         r"|pushd|Set-Location|CompilationDatabase:)\s+[\"']?(" + _ROOT_PREFIX
+                         + r")build[/\\]?[\"']?(?=$|[\s;)&|`])")
+# build/<first folder>. After a word character or a dash it is another name
+# (ninja-build/, linux-x64-glibc-build/); a backslash is a separator only
+# before a name ("build\.ninja" is a regex).
+IN_ROOT = re.compile(r"(?<![\w-])build(?:/|\\(?=[\w$<{]))")
+SEGMENT = re.compile(r"[^\s/\\\"'`)\],;:|]*")
+
+# The root on its own is allowed exactly this often, where it is acted on
+# whole: rmp clean and the old tree's retirement read BUILD_ROOT, and
+# CMakeLists.txt refuses to configure in it.
+ALLOWED_ROOTS = {"tools/rmp.py": 1, "CMakeLists.txt": 1}
+# Where tools/rmp.py may read BUILD_ROOT: the top-level statement each use is in.
+BUILD_ROOT_READERS = {"CLEAN_PATHS", "retire_old_build"}
+
+
+def _ours(text: str, at: int) -> bool:
+    """Whether the build/ at `at` is this project's: at the start of a path,
+    after ./, or after a variable. raymob/app/build/ is Gradle's and
+    $ANDROID_NDK/build/ the NDK's."""
+    before = text[:at]
+    if not before or before[-1] not in "/\\":
+        return True
+    head = re.search(r"[^\s\"'`=(,\[]*$", before[:-1]).group(0)
+    if "ndk" in head.lower():
+        return False
+    return head in ("", ".") or bool(
+        re.fullmatch(r"\$\w+|\$\{[^{}]*\}|.*\}\}|\$\([^()]*\)|%\w+%|\{\}", head))
+
+
+def _misplaced(text: str):
+    """(offset, finding) for every build/<x> whose x is not a folder of
+    rmp.BUILD_DIRS, and every root handed over as a build directory."""
+    for m in IN_ROOT.finditer(text):
+        if not _ours(text, m.start()):
+            continue
+        seg = SEGMENT.match(text, m.end()).group(0).rstrip(".")
+        if seg and seg not in rmp.BUILD_DIRS:
+            yield m.start(), f"build/{seg}: not a folder of rmp.BUILD_DIRS"
+    for m in ROOT_AS_DIR.finditer(text):
+        if "ndk" not in m.group(1).lower():
+            yield m.start(), f"{m.group(0).strip()!r}: build/ itself as a build directory"
+
+
+def _open_quote(line: str, at: int) -> str:
+    quote, i = "", 0
+    while i < at:
+        c = line[i]
+        if c == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote and c == quote:
+            quote = ""
+        elif not quote and c in "\"'":
+            quote = c
+        i += 1
+    return quote
+
+
+def _bare_roots(line: str):
+    """The root on its own in a line of code. Inside quotes only when it is
+    all of the quoted string: "the build failed" is a sentence."""
+    for m in BARE_ROOT.finditer(line):
+        if "ndk" in m.group(1).lower():
+            continue
+        quote = _open_quote(line, m.start())
+        whole = bool(quote) and line[m.start() - 1:m.start()] == quote == line[m.end():m.end() + 1]
+        if quote and not whole:
+            continue
+        if not (m.group(1) or m.group(2) or whole or line[:m.start()].endswith("=")):
+            continue
+        yield m.start(), f"{m.group(0)!r}: the root on its own"
+
+
+def _strip_comment(line: str) -> str:
+    """A line without its # comment: sh, PowerShell, CMake, YAML and TOML."""
+    if line.lstrip().startswith("#"):
+        return ""
+    for i, c in enumerate(line):
+        if c == "#" and i and line[i - 1] in " \t" and not _open_quote(line, i):
+            return line[:i]
+    return line
+
+
+def _yaml_code(text: str):
+    """The lines of a workflow that are commands: run: blocks, and the values of
+    path: and working-directory:. A step's name is prose."""
+    block = None
+    for n, line in enumerate(text.splitlines(), 1):
+        indent = len(line) - len(line.lstrip())
+        if block is not None:
+            if not line.strip() or indent > block:
+                yield n, _strip_comment(line)
+                continue
+            block = None
+        m = re.match(r"^(\s*)(?:- )?(run|path|working-directory):\s*(.*)$", line)
+        if m:
+            if m.group(3).strip() in ("|", ">", "|-", ">-"):
+                block = len(m.group(1))
+            else:
+                yield n, _strip_comment(m.group(3))
+
+
+def _markdown_code(text: str):
+    fenced = False
+    for n, line in enumerate(text.splitlines(), 1):
+        if re.fullmatch(r"\s*```[\w+-]*\s*", line):
+            fenced = not fenced
+        elif fenced:
+            yield n, _strip_comment(line)
+        else:
+            # A span with a space in it is a command; `build/` alone is a name.
+            for span in re.findall(r"`([^`]+)`", line):
+                if re.search(r"\s", span.strip()):
+                    yield n, span
+
+
+# A Python string "build" is the root where it is used as a path: joined,
+# added, passed, assigned, or handed to a flag that takes a directory. As a
+# step's kind, a command's name or in a comparison it is the verb.
+DIR_FLAGS = ("-B", "--build", "-p", "--test-dir", "--directory", "-C")
+
+
+def _python_path_use(node, parent) -> bool:
+    if isinstance(parent, (ast.BinOp, ast.Call, ast.Assign, ast.AnnAssign, ast.keyword)):
+        return True
+    if isinstance(parent, (ast.List, ast.Tuple)):
+        at = next(i for i, e in enumerate(parent.elts) if e is node)
+        before = parent.elts[at - 1] if at else None
+        return isinstance(before, ast.Constant) and before.value in DIR_FLAGS
+    return False
+
+
+def _python(rel: str, text: str):
+    tree = ast.parse(text)
+    parts = {id(v) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr) for v in n.values}
+    parents = {id(c): n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            s = "".join(v.value if isinstance(v, ast.Constant) else "{}" for v in node.values)
+        elif (isinstance(node, ast.Constant) and isinstance(node.value, str)
+              and id(node) not in parts):
+            s = node.value
+        else:
+            continue
+        for off, what in _misplaced(s):
+            yield node.lineno + s[:off].count("\n"), what
+        if re.fullmatch(r"(?:\.?[/\\]|\{\}[/\\]|\$\w+[/\\]|\$\{[^{}]*\}[/\\])?build[/\\]?", s) and (
+                s != "build" or _python_path_use(node, parents.get(id(node)))):
+            yield node.lineno, f"{s!r}: the root on its own"
+    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+        if tok.type == tokenize.COMMENT:
+            for _, what in _misplaced(tok.string):
+                yield tok.start[0], what
+    if rel == "tools/rmp.py":
+        for stmt in tree.body:
+            owner = getattr(stmt, "name", None) or next(
+                (t.id for t in getattr(stmt, "targets", []) if isinstance(t, ast.Name)), None)
+            for n in ast.walk(stmt):
+                if (isinstance(n, ast.Name) and n.id == "BUILD_ROOT"
+                        and isinstance(n.ctx, ast.Load) and owner not in BUILD_ROOT_READERS):
+                    yield n.lineno, f"BUILD_ROOT read in {owner}, not in {sorted(BUILD_ROOT_READERS)}"
+
+
+def layout_findings(rel: str, text: str) -> list[tuple[int, str]]:
+    """Every (line, finding) of the layout gate in one file. `rel` decides how
+    it is read: its suffix, or its name."""
+    name = rel.rsplit("/", 1)[-1]
+    suffix = name.rsplit(".", 1)[-1] if "." in name.lstrip(".") else ""
+    if suffix == "py":
+        return sorted(set(_python(rel, text)))
+    found = set()
+    for n, line in enumerate(text.splitlines(), 1):
+        for _, what in _misplaced(line):
+            found.add((n, what))
+    if suffix in ("yml", "yaml"):
+        code = _yaml_code(text)
+    elif suffix == "md":
+        code = _markdown_code(text)
+    elif suffix == "cmd":
+        code = ((n, "" if re.match(r"\s*(?i:rem\b|::)", line) else line)
+                for n, line in enumerate(text.splitlines(), 1))
+    elif suffix == "json":
+        code = enumerate(text.splitlines(), 1)
+    elif suffix in ("sh", "ps1", "cmake", "toml") or name in ("rmp", "CMakeLists.txt", ".clangd"):
+        code = ((n, _strip_comment(line)) for n, line in enumerate(text.splitlines(), 1))
+    else:
+        code = ()
+    for n, line in code:
+        for _, what in _bare_roots(line):
+            found.add((n, what))
+    return sorted(found)
+
+
+def layout_sources():
+    """What the gate reads: everything that runs a build or says how to. Not
+    tests/, whose fixtures name the old layout on purpose."""
+    for top in (".github", "tools", "cmake", ".claude"):
+        for folder, dirs, files in os.walk(REPO / top):
+            # .claude/worktrees/ holds the agents' checkouts, not this one.
+            dirs[:] = sorted(d for d in dirs if d != "__pycache__" and
+                             not (Path(folder) == REPO / ".claude" and d == "worktrees"))
+            for name in sorted(files):
+                if not name.endswith((".png", ".pyc")):
+                    yield Path(folder) / name
+    for path in sorted(REPO.iterdir()):
+        if path.is_file() and path.name not in ("LICENSE", "package-lock.json"):
+            yield path
+
+
+class BuildLayoutGateTest(unittest.TestCase):
+    """No workflow, tool or page names a build where the old layout put it."""
+
+    def found(self, rel, text):
+        return [what for _, what in layout_findings(rel, text)]
+
+    FOUND = [
+        ("x.sh", "./build/unit_test"),
+        ("x.sh", 'BIN="build/$NAME"'),
+        ("x.sh", 'export LOCPATH="$PWD/build/test-locale"'),
+        ("x.sh", "cmake --build build --target unit_test"),
+        ("x.sh", 'cmake -S . -B "build" -G Ninja'),
+        ("x.sh", "B=build"),
+        ("x.sh", "cd build && ./game"),
+        ("x.sh", 'rm -rf "${ROOT}/build"'),
+        ("x.sh", "test -f build/CMakeCache.txt"),
+        ("x.yml", "    steps:\n      - run: ./build/game_test\n"),
+        ("x.yml", "      - run: |\n          cmake -B build -G Ninja\n"),
+        ("x.yml", "        with:\n          path: build/${{ inputs.project_name }}\n"),
+        ("x.yml", "      - run: ${{ github.workspace }}/build/game\n"),
+        ("x.ps1", "Copy-Item mesa/x64/opengl32.dll build/"),
+        ("x.ps1", '$exe = "build\\game.exe"'),
+        ("x.ps1", "Join-Path $root 'build'"),
+        ("x.py", 'exe = ctx.root / "build" / name\n'),
+        ("x.py", 'exe = f"build/{name}"\n'),
+        ("x.py", 'exe = os.path.join("build", "game")\n'),
+        ("x.py", 'exe = str(root) + "/build"\n'),
+        ("x.py", 'argv = "cmake --build build".split()\n'),
+        ("x.py", 'def f():\n    """Run build/<name> from the project folder."""\n'),
+        ("x.py", "x = 1  # then ./build/ray_test\n"),
+        ("x.md", "Then `cmake --build build` builds it."),
+        ("x.md", "```sh\n./build/ray_test\n```\n"),
+        ("x.md", "run build/<name> from the project folder"),
+        ("CMakePresets.json", '{"binaryDir": "${sourceDir}/build",\n'),
+        ("x.cmake", "#   cmake --build build --target unit_test\n"),
+        ("CMakeLists.txt", "#   ./build/unit_test -ts=random\n"),
+        (".clangd", "CompileFlags:\n  CompilationDatabase: build\n"),
+        ("x.cmd", 'set "EXE=build\\game.exe"\n'),
+    ]
+
+    NOT_FOUND = [
+        ("x.yml", "          path: raymob/app/build/outputs/apk/debug/*.apk\n"),
+        ("x.sh", '-D CMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake"'),
+        ("x.ps1", '-D CMAKE_TOOLCHAIN_FILE="$AndroidNdk\\build\\cmake\\android.toolchain.cmake"'),
+        ("x.json", '"toolchainFile": "${env.ANDROID_NDK}/build/cmake/android.ninja.cmake"'),
+        ("x.py", 'URL = "https://github.com/ninja-build/ninja/releases"\n'),
+        ("x.yml", "            linux-x64-glibc-build/linux-x64-glibc-build.zip\n"),
+        ("x.sh", "./build/debug/unit_test"),
+        ("x.sh", 'cmake --build build/release --target pack_resources'),
+        ("x.yml", "      - run: ./build/release/${{ inputs.project_name }}\n"),
+        ("x.sh", "cmake --build --preset release"),
+        ("x.sh", 'echo "FAIL: the build failed"'),
+        ("x.yml", "      - name: Configure + build\n        run: cmake --preset release\n"),
+        ("x.sh", "(^|/)build\\.ninja$"),
+        ("x.sh", "# build-memory/ was an older name"),
+        ("x.md", "Delete build/ and every file generated from the .toml."),
+        ("x.md", "`rmp clean` deletes build/ and starts again"),
+        ("x.sh", 'cmake --build "$BUILD" --target unit_test'),
+        ("x.sh", "build_image: x"),
+        ("x.sh", "export LOCPATH=\"$PWD/build/test-locales\""),
+        ("CMakePresets.json", '{"binaryDir": "${sourceDir}/build/debug",\n'),
+        ("x.py", 'DEBUG_DIR = "build/debug"\n'),
+        ("x.py", 'page = f"build/web/{name}.html"\n'),
+    ]
+
+    def test_it_finds_every_spelling_of_the_old_layout(self):
+        """Seen red, each of them, before the rules that find them existed."""
+        for rel, text in self.FOUND:
+            with self.subTest(rel=rel, text=text):
+                self.assertTrue(self.found(rel, text), "the gate missed it")
+
+    def test_it_leaves_other_peoples_build_folders_and_the_new_layout_alone(self):
+        for rel, text in self.NOT_FOUND:
+            with self.subTest(rel=rel, text=text):
+                self.assertEqual(self.found(rel, text), [])
+
+    def test_build_root_is_read_only_where_the_root_is_acted_on_whole(self):
+        text = 'BUILD_ROOT = "build"\nCLEAN_PATHS = (BUILD_ROOT,)\n' \
+               'def retire_old_build(ctx):\n    return ctx.root / BUILD_ROOT\n'
+        self.assertEqual(self.found("tools/rmp.py", text), ["'build': the root on its own"])
+        sneaky = text + 'def run(ctx):\n    return ctx.root / BUILD_ROOT / "game"\n'
+        self.assertIn("BUILD_ROOT read in run, not in ['CLEAN_PATHS', 'retire_old_build']",
+                      self.found("tools/rmp.py", sneaky))
+
+    def test_no_workflow_tool_or_page_names_the_old_layout(self):
+        files = refs = 0
+        bad = []
+        roots = {}
+        for path in layout_sources():
+            rel = path.relative_to(REPO).as_posix()
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            files += 1
+            refs += len(IN_ROOT.findall(text))
+            for line, what in layout_findings(rel, text):
+                if what.endswith("the root on its own") and rel in ALLOWED_ROOTS:
+                    roots.setdefault(rel, []).append(f"{rel}:{line}: {what}")
+                else:
+                    bad.append(f"{rel}:{line}: {what}")
+        for rel, allowed in ALLOWED_ROOTS.items():
+            got = roots.get(rel, [])
+            if len(got) != allowed:
+                bad += got or [f"{rel}: the root on its own {allowed} time(s), found none"]
+        self.assertEqual(bad, [], "\n" + "\n".join(bad))
+        # A scan that reads nothing passes everything.
+        self.assertGreater(files, 60, "the layout gate read almost no files")
+        self.assertGreater(refs, 60, "the layout gate saw almost no build/ paths")
 
 
 class GitRepo:
@@ -851,7 +1518,10 @@ class StagesAgreeWithLintTest(unittest.TestCase):
             if step[0] == "run":
                 for a in step[1]:
                     if a.startswith(("tools/", "build/")) or a.endswith("_test.py"):
-                        out.append(a.removeprefix("build/"))
+                        # Whole: the lint job has to run build/debug/unit_test from
+                        # that folder, not merely build a target of that name --
+                        # which is all a bare `unit_test` asked of it.
+                        out.append(a)
             elif step[0] == "build" and step[1]:
                 out.append(step[1])
             elif step[0] in self.COVERED_BY:
@@ -1788,8 +2458,9 @@ class GameUnitStageTest(unittest.TestCase):
             code, calls, _ = self.run_cmd(["test", "unit"], game)
             self.assertEqual(code, 0)
             self.assertEqual(calls, [["cmake", "--preset", "debug", "-DBUILD_TESTS=ON"],
-                                     ["cmake", "--build", "build", "--target", "game_test"],
-                                     [str(game.resolve() / "build" / "game_test")]])
+                                     ["cmake", "--build", "--preset", "debug", "--target",
+                                      "game_test"],
+                                     [str(game.resolve() / "build" / "debug" / "game_test")]])
 
     def test_without_one_it_says_so_and_runs_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1804,7 +2475,7 @@ class GameUnitStageTest(unittest.TestCase):
     def test_the_framework_runs_the_demo_games_copy(self):
         stage = next(s for s in rmp.stages_for("framework") if s.name == "unit")
         self.assertIn(("build", "game_test"), stage.steps)
-        self.assertIn(("run", ["build/game_test"]), stage.steps)
+        self.assertIn(("run", ["build/debug/game_test"]), stage.steps)
         self.assertIsNone(stage.when)
         self.assertTrue(any((REPO / "tests" / "game").glob("*.cpp")))
         names = [s.name for s in rmp.stages_for("game")]

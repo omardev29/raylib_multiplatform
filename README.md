@@ -77,7 +77,7 @@ The commands you will type every day:
 ```bash
 rmp run               # build (debug) and play
 rmp test              # the .toml, the pins, the licences, a frame drawn, a boot
-rmp build release     # the release build
+rmp build release     # the release build, in build/release (debug is build/debug)
 rmp web               # or: rmp android
 rmp help              # every command; rmp help <command> explains one, with examples
 ```
@@ -85,7 +85,7 @@ rmp help              # every command; rmp help <command> explains one, with exa
 Inside a game, `rmp` is the game's own copy (`tools/rmp.py`), so a game keeps working the way
 it did when the framework on your PATH moves on. Without `rmp`, it is plain CMake:
 `cmake --preset debug` configures and generates everything from the `.toml`, and
-`cmake --build build` builds it.
+`cmake --build --preset debug` builds it into `build/debug/` (`release` is `build/release/`).
 
 ---
 

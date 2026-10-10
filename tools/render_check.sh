@@ -111,8 +111,8 @@ GOT=$(grep -o "hash=[0-9a-f]*" "$LOG" | head -1 | cut -d= -f2)
 # not there. See the note at the bottom for why the marker is written in here
 # and not by the caller.
 mark_complete() {
-    mkdir -p build
-    echo "reached-the-end" > build/.rmp-render-complete
+    mkdir -p build/memory
+    echo "reached-the-end" > build/memory/.rmp-render-complete
 }
 
 if [ "$MODE" = "update" ]; then

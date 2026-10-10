@@ -1,12 +1,14 @@
 /out
 bin/
+# One folder per build -- build/debug, build/release, build/web, ... -- and
+# never a build itself (BUILD_DIRS in tools/rmp.py).
 build/
 /.vs
 .idea/
 Makefile
 /.cache
 compile_commands.json
-# Generated resource pack (created by `cmake --build build --target pack_resources` or CI)
+# Generated resource pack (created by `rmp pack`, or CI)
 /resources/resources.rres
 /temp_apk
 /raymob/app/src/main/assets/*

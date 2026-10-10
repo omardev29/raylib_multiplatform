@@ -12,7 +12,7 @@
 # exits 0, and the tests skip -- unless RMP_REQUIRE_TEST_LOCALES=1, which the
 # CI lint job sets, turns the skip into a failure.
 #
-# Usage:  tools/test_locales.sh <dir>        then  LOCPATH=<dir> ./build/unit_test
+# Usage:  tools/test_locales.sh <dir>        then  LOCPATH=<dir> ./build/debug/unit_test
 
 set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

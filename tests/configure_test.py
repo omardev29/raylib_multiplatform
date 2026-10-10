@@ -896,6 +896,55 @@ class LinuxJobsReadTheHardeningTest(unittest.TestCase):
                 if "upx_pack.sh" in text:
                     self.assertLess(text.index("binary_check.py elf"), text.index("upx_pack.sh"))
 
+    def run_step(self, job, cache):
+        """The job's `Linked hardened` step, run in a folder holding `cache` as
+        build/release/CMakeCache.txt (None: no cache), with a python3 that
+        writes down what it was asked."""
+        import subprocess
+        import textwrap
+        step = step_block(job_block(REPO / ".github" / "workflows" / "_linux.yml", job),
+                          "Linked hardened")
+        self.assertIn("        run: |\n", step)
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        script = script.replace("${{ inputs.project_name }}", "demo")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            stub = root / "bin" / "python3"
+            stub.write_text('#!/bin/sh\necho "$*" > "$(dirname "$0")/asked"\n')
+            stub.chmod(0o755)
+            if cache is not None:
+                (root / "build" / "release").mkdir(parents=True)
+                (root / "build" / "release" / "CMakeCache.txt").write_text(cache)
+            got = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True,
+                                 text=True, env=dict(os.environ, PATH=f"{root / 'bin'}:"
+                                                     f"{os.environ['PATH']}"))
+            asked = (root / "bin" / "asked").read_text() if (root / "bin" / "asked").exists() \
+                else None
+        return got.returncode, asked, got.stdout + got.stderr
+
+    def test_the_step_reads_the_release_cache_and_a_missing_one_fails_it(self):
+        """`if grep -q ... build/CMakeCache.txt` read a cache that was not
+        there as "PIE off", and the check ran without --pie and passed: what
+        the step did the day the release moved to build/release. Seen red on
+        that step -- exit 0 with no cache, and no --pie with one."""
+        if sys.platform == "win32":
+            self.skipTest("the step is bash")
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                code, asked, out = self.run_step(job, None)
+                self.assertNotEqual(code, 0, out)
+                self.assertIsNone(asked, "the check ran without the cache")
+                self.assertIn("says nothing of RMP_RELEASE_PIE", out)
+                code, asked, out = self.run_step(job, "RMP_RELEASE_PIE:BOOL=ON\n")
+                self.assertEqual(code, 0, out)
+                self.assertEqual(asked.split(), ["tools/binary_check.py", "elf", "--pie",
+                                                 "build/release/demo"])
+                code, asked, out = self.run_step(job, "RMP_RELEASE_PIE:BOOL=OFF\n")
+                self.assertEqual(code, 0, out)
+                self.assertEqual(asked.split(), ["tools/binary_check.py", "elf",
+                                                 "build/release/demo"])
+
 class AndroidReleaseCheckTest(unittest.TestCase):
     """tools/android_release_check.py, the Android job's proof that the release
     variant was compiled as a release, seen red on the database the old
@@ -1690,7 +1739,7 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
 
     def test_windows_starts_the_exe_from_another_folder_next_to_its_pack(self):
         text = (self.WORKFLOWS / "_windows.yml").read_text()
-        self.assertIn("Copy-Item resources/resources.rres build/resources/", text)
+        self.assertIn("Copy-Item resources/resources.rres build/release/resources/", text)
         self.assertIn("Start-Process -FilePath $exe -WorkingDirectory $elsewhere", text)
 
     def test_macos_and_the_bsds_run_the_shipped_check(self):
@@ -1707,8 +1756,8 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
         self.assertIn("-DPRODUCTION_BUILD=ON", script)
 
     def test_the_check_starts_it_from_the_project_folder_too(self):
-        """Where `rmp build release` leaves it: build/<name>, resources/ at the
-        root, started from the root. It must not move. examples/plain_c moved
+        """Where `rmp build release` leaves it: build/release/<name>, resources/
+        at the root, started from the root. It must not move. examples/plain_c moved
         into build/ in every desktop release and loaded nothing from there
         (assets_failed=1); this case is the one that said so."""
         script = (REPO / "tools" / "shipped_check.sh").read_text()
@@ -2515,8 +2564,8 @@ class PlainCGameTest(unittest.TestCase):
     def test_its_release_moves_only_when_resources_is_next_to_it(self):
         """The framework's entry point moves into the executable's folder only
         when resources/ is there (enter_executable_folder()). The example moved
-        always, so a release run from the project folder read build/resources/,
-        which does not exist. The rmp_new job runs the shipped check on the
+        always, so a release run from the project folder read
+        build/release/resources/, which does not exist. The rmp_new job runs the shipped check on the
         plain C game, which starts it from the project folder too."""
         code = "\n".join(line for line in self.EXAMPLE.read_text().splitlines()
                          if not line.lstrip().startswith("//"))
@@ -3573,7 +3622,7 @@ class ConfigureGlibcFloorTest(unittest.TestCase):
         binary needs 2.38 (__isoc23_strtol). The job holds the binary to a
         number, and that number is the one the .toml's note gives."""
         body = self.linux_jobs()["riscv64"]
-        held = re.search(r"glibc_check\.sh build/\$\{\{ inputs\.project_name \}\} "
+        held = re.search(r"glibc_check\.sh build/release/\$\{\{ inputs\.project_name \}\} "
                          r"(\d+\.\d+)\n", body)
         self.assertIsNotNone(held, "the riscv64 job does not hold the binary to a floor")
         text = (REPO / "raylib_multiplatform.toml").read_text()
@@ -6225,7 +6274,7 @@ class LintJobTest(unittest.TestCase):
         step's configure."""
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
         self.assertIn("--target ui_layout_test", lint)
-        self.assertIn("./build/ui_layout_test", lint)
+        self.assertIn("./build/debug/ui_layout_test", lint)
 
     def test_actionlint_asserts_shellcheck_is_there(self):
         """actionlint shellchecks every `run:` block IF shellcheck is on PATH,
