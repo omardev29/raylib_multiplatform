@@ -279,6 +279,25 @@ here so that nobody "fixes" one back.
   and it went red on those two the day it existed. Two disagreeing checks on
   `[dev] compiler` would have made `mingw` unusable, and the configure tests
   found it the day they existed. A context window ends; a gate does not.
+- **Every release binary has a size budget, and growing it is a decision.**
+  `tools/size_budget.txt` holds the size of each binary a release ships -- per
+  target, one per ABI for Android, unpacked and after UPX -- with the commit it
+  was measured on, and `tools/size_check.py` holds it there in a step of every
+  release job, right after the binary is final. Within 1.5 % of its line either
+  way passes: over is a growth nobody wrote down, under is a stale line that
+  would hide the next one, so nothing moves 3 % without the file changing.
+  Every check prints its measured line in the file's own format, pass or fail;
+  after a run, `gh run view <run> --log | python3 tools/size_check.py --update -`
+  is the one commit. `?` is a size nobody has measured -- macOS and the BSDs
+  build only in CI -- and fails its job until it is filled. UPX packs the copy
+  in `package/`, never `build/release/<name>`, which stays the binary the linker
+  wrote. A game starts without a budget (`rmp new` does not copy the file): its
+  jobs print the lines and say so, and the day it commits one it is held to it.
+- **`[upx] enabled`'s default is exactly the targets whose packed binary CI
+  starts**: linux-x64-glibc, linux-arm64-glibc, linux-x64-musl (on Alpine,
+  under Xvfb) and linux-x64-glibc-drm (on vkms). Each of those jobs unzips the
+  archive it ships and starts what is in it; `UpxDefaultIsWhatCiStartsTest`
+  holds the default to the workflows, both ways.
 - **Debug is sanitized, Release is hardened, and both are measured.** Every
   framework Debug build -- the library, the examples, every test binary -- runs
   under ASan and UBSan (LeakSanitizer too, on Linux) because the framework's
@@ -454,6 +473,13 @@ Each of these was a real bug, found by reproducing rather than by reading.
   nothing said so. Gated in `tests/configure_test.py`: every directory under
   `thirdparty/` holding a header, and the bare root, must appear in all four,
   and `ci.yml`/`tools/rmp.py` may not grow their own `-I` list again.
+- **`xvfb-run` must not be a container's PID 1.** `sh -c 'a && b'` execs `b`, so
+  in `docker run alpine sh -c 'apk add ... && xvfb-run game'` xvfb-run was PID 1
+  and hung: Xvfb came up and the game never started (xvfb-run waits for Xvfb's
+  SIGUSR1), and `timeout` could not end it, because busybox's execs what it runs
+  and PID 1 ignores a SIGTERM it has no handler for. `docker run --init` puts an
+  init there: five seconds instead of a job timeout. Found by running the
+  workflow step itself under podman; `RunJobsStartTheShippedBinaryTest` keeps it.
 - **A boot gate that ignores the exit status passes a leak.** LeakSanitizer
   reports when the process exits -- after the game has printed
   `RAY_TEST_DONE_FRAMES` and every marker a gate greps for -- and a sanitizer
@@ -524,7 +550,9 @@ Each of these was a real bug, found by reproducing rather than by reading.
   a connector and no hardware behind them. Two things it needs, and both were
   found the hard way: the runners' Azure kernel does **not** ship the module
   (`modprobe: FATAL: Module vkms not found`), so `linux-modules-extra-$(uname -r)`
-  has to be installed -- the one place a Linux job is allowed to download,
+  has to be installed -- one of the two places a Linux job is allowed to download
+  (the other is `musl-x64-run`, which installs Alpine's X server and Mesa to
+  start the shipped musl binary),
   because nothing depends on that job and the binary is already built and
   uploaded when it starts; and Mesa needs **`LIBGL_ALWAYS_SOFTWARE=1`**, not
   `MESA_LOADER_DRIVER_OVERRIDE=kms_swrast`, which left EGL saying only "Failed
@@ -622,7 +650,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
 `rmp fmt` and `rmp lint` (both clean is a condition, not an intention — see
 below), `rmp test` locally (format, config, the gates — seam, workflows,
 portable, shell patterns, naming, style, ownership, pointers, headers, header cost, licences,
-repo, and cppcheck where it is installed (CI requires it) —
+repo, size budget, and cppcheck where it is installed (CI requires it) —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
 real mixer for about a second, only in the first), headless layout, render
 and smoke), `rmp test examples` before touching the public API (it builds
