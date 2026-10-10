@@ -182,7 +182,10 @@ jobs:
   lint:
     needs: config
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # 15, not 10: the unit tests, the layout test and the render check are
+    # instrumented by ASan and UBSan now (several times slower), and the gcc
+    # build of the unit tests follows them. It took 5m25s before that.
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -394,8 +397,15 @@ jobs:
       # leaks between cases, and this caught one -- a raycast that broke
       # distance ties by object pointer, so the winner depended on where malloc
       # had put things, which depended on what had run before it.
+      #
+      # Under ASan and UBSan, like every Debug build of the framework, and
+      # RMP_REQUIRE_SANITIZERS makes a configure that could not instrument it
+      # fail instead of warning: a gate that quietly stopped instrumenting is
+      # a gate that passes by not looking.
       - name: Unit tests
         if: needs.config.outputs.framework == 'true'
+        env:
+          RMP_REQUIRE_SANITIZERS: "1"
         run: |
           set -euo pipefail
           # RMP_WERROR: a warning in the framework or its tests is an error
@@ -418,8 +428,8 @@ jobs:
       # Sanitizer, every report fatal. A test asserts what it can see, and UB
       # is what it cannot: the LDtk reader reached its first review with a
       # signed overflow, float casts past INT_MAX and a read off the end of a
-      # vector, every one under a passing test. gcc here -- the image's clang
-      # has no sanitizer runtime -- which the script picks by itself.
+      # vector, every one under a passing test. The step above is that, with
+      # clang; this is the second compiler, gcc, which the script pins.
       - name: Unit tests under ASan and UBSan
         if: needs.config.outputs.framework == 'true'
         run: |
@@ -437,6 +447,8 @@ jobs:
       # stops a stage of `rmp test` existing in one place and not the other.
       - name: UI layout tests (headless)
         if: needs.config.outputs.framework == 'true'
+        env:
+          RMP_REQUIRE_SANITIZERS: "1"
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_UI_TESTS=ON > /dev/null
@@ -485,7 +497,14 @@ jobs:
       # RENDER_OK and the hash but not RAY_TEST_BOOT_OK and not
       # RAY_TEST_DONE_FRAMES, so a process that died on its way out passed here
       # and failed on FreeBSD. One assertion, one place.
+      #
+      # A Debug build, so the framework's is instrumented, and a LeakSanitizer
+      # report at exit fails it. In a game it is whatever [dev] sanitize says,
+      # [] unless the game asked: RMP_REQUIRE_SANITIZERS requires what the
+      # .toml lists, and nothing more.
       - name: Render (software, no GPU)
+        env:
+          RMP_REQUIRE_SANITIZERS: "1"
         run: |
           set -euo pipefail
           sh tools/render_check.sh Ninja "" "$(python3 tools/configure.py --print-name)"
@@ -534,7 +553,11 @@ jobs:
     needs: config
     if: needs.config.outputs.framework == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 25, not 15: every example is a Debug build of the framework, so every
+    # boot runs under ASan and UBSan, and the desktop smoke below builds raylib
+    # once more with GLFW. It took 2m22s uninstrumented; locally the
+    # instrumented `rmp test examples` takes about three times as long.
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: read
@@ -543,6 +566,11 @@ jobs:
     defaults:
       run:
         shell: bash
+    # Every build in this job is a Debug build of the framework, instrumented
+    # by [dev] sanitize; one that could not be is a failure here, not a
+    # warning in a log.
+    env:
+      RMP_REQUIRE_SANITIZERS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -556,6 +584,14 @@ jobs:
       # matching cannot look like a folder where everything passes.
       - name: Build and boot every example (software renderer)
         run: bash tools/examples_build.sh
+
+      # The game on a real window system: GLFW over X11 on Xvfb, Mesa's
+      # llvmpipe for GL -- the libraries LeakSanitizer would report if they
+      # kept memory at exit, which is where a suppression in
+      # cmake/sanitizer_hooks.c would have to be proven. Every other boot in
+      # CI is raylib's software renderer, which links none of them.
+      - name: Smoke on X11 and Mesa (xvfb)
+        run: xvfb-run -a ./rmp test smoke
 
       - name: Screenshots
         if: always()

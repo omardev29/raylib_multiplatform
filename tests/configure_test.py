@@ -6106,6 +6106,44 @@ class LintJobTest(unittest.TestCase):
         self.assertIn("command -v shellcheck", lint)
 
 
+
+def step_block(job: str, name: str) -> str:
+    """The text of one step of a job_block(), by its `- name:`."""
+    at = job.index(f"      - name: {name}\n")
+    end = job.find("\n      - ", at + 1)
+    return job[at:] if end < 0 else job[at:end]
+
+
+class CiRequiresSanitizersTest(unittest.TestCase):
+    """Where CI builds the framework in Debug, a configure that could not
+    instrument it has to fail -- cmake/sanitize.cmake warns and goes on
+    everywhere else, which on a runner would be a gate that passes by not
+    looking. RMP_REQUIRE_SANITIZERS=1 is what makes it fail, set on exactly
+    the steps whose builds are gates."""
+
+    CI = REPO / ".github" / "workflows" / "ci.yml"
+
+    def test_the_lint_jobs_debug_steps_require_them(self):
+        lint = job_block(self.CI, "lint")
+        for name in ("Unit tests", "UI layout tests (headless)", "Render (software, no GPU)"):
+            with self.subTest(step=name):
+                self.assertIn('RMP_REQUIRE_SANITIZERS: "1"', step_block(lint, name))
+
+    def test_the_examples_job_requires_them_and_boots_on_x11(self):
+        examples = job_block(self.CI, "examples")
+        head = examples[:examples.index("    steps:")]
+        self.assertIn('RMP_REQUIRE_SANITIZERS: "1"', head)
+        smoke = step_block(examples, "Smoke on X11 and Mesa (xvfb)")
+        self.assertIn("xvfb-run -a ./rmp test smoke", smoke)
+
+    def test_the_gcc_run_requires_them_itself(self):
+        script = (REPO / "tools" / "sanitize_check.sh").read_text()
+        self.assertIn("RMP_REQUIRE_SANITIZERS=1 cmake", script)
+        self.assertIn("-DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++", script)
+        self.assertNotIn("clang++", script.split("set -euo pipefail", 1)[1],
+                         "the always-on Debug build is the clang run; this one is gcc's")
+        self.assertIn("=== SANITIZERS: address, undefined ===", script)
+
 class PackagingShipsOneArchiveShapeTest(unittest.TestCase):
     """Every release archive has the same contents, or says why not.
 
