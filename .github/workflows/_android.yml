@@ -58,21 +58,89 @@ jobs:
       - name: Check pinned versions agree
         run: bash tools/versions_check.sh
 
-      - name: Cache Gradle
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('raymob/**/*.gradle*', 'raymob/**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-
+      # Gradle and every library the app builds with come from the build image,
+      # which carries a Gradle home warmed for this framework's wrapper, at
+      # $GRADLE_USER_HOME, and Gradle runs --offline from it: the job downloads
+      # nothing, and a library the image lacks fails the build at once, by name.
+      # --offline does not reach the WRAPPER, which would still fetch its
+      # distribution, so this asks first whether the one it wants is there --
+      # by the wrapper's own rule, read out of gradle-wrapper.jar: the folder it
+      # names after a hash of distributionUrl, the .ok marker it leaves after
+      # unpacking, and in it one Gradle with one launcher jar.
+      # [android] gradle_offline = false, for a game that adds a dependency of
+      # its own, drops --offline and says the job downloads.
+      #
+      # It replaces a cache step that never once hit: that saved ~/.gradle,
+      # which is /github/home in a container, and Gradle wrote to /root/.gradle.
+      - name: Gradle, from the image
+        id: gradle
+        run: |
+          set -euo pipefail
+          OFFLINE=$(sed -n 's/^gradle\.offline=//p' raymob/generated.properties)
+          case "$OFFLINE" in
+            true) ;;
+            false)
+              echo "::warning title=Gradle downloads::[android] gradle_offline = false: Gradle downloads what the build image does not carry, so this job needs the network."
+              echo "offline=" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+            *)
+              echo "FAIL: raymob/generated.properties says gradle.offline=[$OFFLINE]; tools/configure.py writes true or false there."
+              exit 1 ;;
+          esac
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import re
+          import sys
+          import urllib.parse
+          from pathlib import Path
+
+          home = os.environ.get("GRADLE_USER_HOME", "")
+          if not home:
+              sys.exit("FAIL: GRADLE_USER_HOME is not set, so this build image carries no warmed "
+                       "Gradle home. Build with one that does, or set [android] gradle_offline = false.")
+          props = {}
+          for line in Path("raymob/gradle/wrapper/gradle-wrapper.properties").read_text().splitlines():
+              key, sep, value = line.partition("=")
+              if sep and not line.lstrip().startswith("#"):
+                  props[key.strip()] = re.sub(r"\\(.)", r"\1", value.strip())
+          for key in ("distributionBase", "zipStoreBase"):
+              if props.get(key) != "GRADLE_USER_HOME":
+                  sys.exit(f"FAIL: gradle-wrapper.properties has {key}={props.get(key)}; the "
+                           "image's Gradle is under GRADLE_USER_HOME, so the wrapper would not look there.")
+          # Download.safeUri and PathAssembler, in gradle-wrapper.jar: the URL
+          # without its user info, its MD5 in base 36, under the zip's name.
+          url = urllib.parse.urlsplit(props["distributionUrl"])
+          safe = url._replace(netloc=url.netloc.rpartition("@")[2]).geturl()
+          number = int(hashlib.md5(safe.encode()).hexdigest(), 16)
+          digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+          hashed = ""
+          while number:
+              number, rest = divmod(number, 36)
+              hashed = digits[rest] + hashed
+          zip_name = url.path.rpartition("/")[2]
+          folder = f"{zip_name.rpartition('.')[0]}/{hashed}"
+          dist = Path(home) / props["distributionPath"] / folder
+          marker = Path(home) / props["zipStorePath"] / folder / (zip_name + ".ok")
+          homes = sorted(p for p in dist.iterdir() if p.is_dir()) if dist.is_dir() else []
+          jars = [j for h in homes for j in (h / "lib").glob("gradle-launcher-*.jar")]
+          if not marker.is_file() or len(homes) != 1 or len(jars) != 1:
+              sys.exit(f"FAIL: the image does not carry the Gradle the wrapper asks for, {safe}.\n"
+                       f"  The wrapper looks in {dist} and wants {marker.name} there, one "
+                       f"folder in it and one lib/gradle-launcher-*.jar in that; it found "
+                       f"{'the marker' if marker.is_file() else 'no marker'}, {len(homes)} "
+                       f"folder(s) and {len(jars)} launcher jar(s), so it would download.\n"
+                       "  Bump the build image to one warmed for this wrapper, or set "
+                       "[android] gradle_offline = false.")
+          print(f"ok    {safe}\n      is in the image, at {homes[0]}")
+          PY
+          echo "offline=--offline" >> "$GITHUB_OUTPUT"
 
       - name: Build debug APK
         working-directory: raymob
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon ${{ steps.gradle.outputs.offline }}
 
       - name: Test (static) — APK exists, is a valid zip with manifest + native lib
         run: |
@@ -136,7 +204,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'ci-throwaway' }}
         run: |
           chmod +x ./gradlew
-          ./gradlew bundleRelease --no-daemon
+          ./gradlew bundleRelease --no-daemon ${{ steps.gradle.outputs.offline }}
 
       # Gradle never passed PRODUCTION_BUILD, so raymob's CMake took its debug
       # branch for the release variant too: every release APK and AAB was

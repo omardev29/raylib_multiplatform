@@ -8619,5 +8619,195 @@ class GradleOfflineTest(unittest.TestCase):
                 self.assertIn("[android] gradle_offline", str(caught.exception))
 
 
+class AndroidBuildsOfflineTest(unittest.TestCase):
+    """The Android job builds from the Gradle home the build image carries,
+    with --offline, and downloads nothing. The cache step it had never hit
+    once -- it saved ~/.gradle, which is /github/home in a container, while
+    Gradle wrote to /root/.gradle -- so every run fetched Gradle and every
+    library. Now every gradlew carries the flag the job's "gradle" step
+    decides; nothing caches .gradle or moves GRADLE_USER_HOME away from the
+    image's; and the step that decides is run here, against Gradle homes laid
+    out the way the wrapper reads them."""
+
+    # What gradle-wrapper.jar itself answers for this URL: PathAssembler
+    # .getDistribution() with GRADLE_USER_HOME=/opt/gradle-home, and Install
+    # .createDist() with a downloader that throws, run against the jar in
+    # raymob/gradle/wrapper/ on 2026-10-10. It accepts a home only with the
+    # .ok marker, exactly one folder in this one, and exactly one
+    # lib/gradle-launcher-*.jar in that (bin/gradle it does not look at).
+    URL = "https://services.gradle.org/distributions/gradle-8.14.5-bin.zip"
+    WRAPPER_FOLDER = "wrapper/dists/gradle-8.14.5-bin/690y85m0j9nfaub7xoiayko8a"
+    PROPERTIES = ("distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\n"
+                  "distributionUrl=https\\://services.gradle.org/distributions/"
+                  "gradle-8.14.5-bin.zip\nzipStoreBase=GRADLE_USER_HOME\n"
+                  "zipStorePath=wrapper/dists\n")
+
+    def workflows(self):
+        yaml = require_yaml(self)
+        out = {}
+        for path in WORKFLOWS:
+            out[path.name] = yaml.safe_load(path.read_text())
+        self.assertIn("_android.yml", out)
+        return out
+
+    def test_every_gradlew_runs_with_the_flag_the_gradle_step_decides(self):
+        found = 0
+        for name, data in self.workflows().items():
+            for job_name, job in (data.get("jobs") or {}).items():
+                ids = []
+                for step in job.get("steps") or []:
+                    for line in str(step.get("run", "")).splitlines():
+                        # A command that runs it: `./gradlew task`, not a path
+                        # that names the file (`git ls-files raymob/gradlew`).
+                        code = line.split("#", 1)[0]
+                        if not re.search(r"(?:^|[\s;&|(])(?:\./)?gradlew(?:\.bat)?\s+[A-Za-z:]",
+                                         code):
+                            continue
+                        found += 1
+                        with self.subTest(workflow=name, job=job_name, line=line.strip()):
+                            self.assertIn("${{ steps.gradle.outputs.offline }}", code)
+                            self.assertIn("gradle", ids, "the gradle step has to run before it")
+                    if step.get("id"):
+                        ids.append(step["id"])
+        self.assertGreaterEqual(found, 2, "the scan found no gradlew at all")
+
+    def test_nothing_caches_gradle(self):
+        for name, data in self.workflows().items():
+            for job_name, job in (data.get("jobs") or {}).items():
+                for step in job.get("steps") or []:
+                    if not str(step.get("uses", "")).startswith("actions/cache"):
+                        continue
+                    with self.subTest(workflow=name, job=job_name):
+                        self.assertNotIn(".gradle", json.dumps(step.get("with") or {}))
+
+    def test_no_workflow_moves_the_gradle_home(self):
+        """GRADLE_USER_HOME is the image's (/opt/gradle-home). Set anywhere
+        else, Gradle starts from an empty home and --offline fails on the
+        first library -- or, without it, downloads them all again."""
+        def envs(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "env" and isinstance(value, dict):
+                        yield value
+                    yield from envs(value)
+            elif isinstance(node, list):
+                for item in node:
+                    yield from envs(item)
+        for name, data in self.workflows().items():
+            for env in envs(data):
+                with self.subTest(workflow=name):
+                    self.assertNotIn("GRADLE_USER_HOME", env)
+            text = (REPO / ".github" / "workflows" / name).read_text()
+            with self.subTest(workflow=name, where="run"):
+                self.assertNotRegex(text, r"GRADLE_USER_HOME=|--gradle-user-home|gradlew[^\n]* -g ")
+
+    # ---- the "gradle" step, run --------------------------------------------
+
+    def run_gradle_step(self, offline="true", home=None, properties=None, layout=None):
+        """Runs the step's script in a scratch project. `layout` builds the
+        Gradle home under `home`; returns (exit code, output, GITHUB_OUTPUT)."""
+        import subprocess
+        yaml = require_yaml(self)
+        job = yaml.safe_load((REPO / ".github" / "workflows" / "_android.yml").read_text())
+        steps = [s for s in job["jobs"]["build"]["steps"] if s.get("id") == "gradle"]
+        self.assertEqual(len(steps), 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "raymob" / "gradle" / "wrapper").mkdir(parents=True)
+            if offline is not None:
+                (root / "raymob" / "generated.properties").write_text(
+                    f"# generated\napp.name=x\ngradle.offline={offline}\n")
+            else:
+                (root / "raymob" / "generated.properties").write_text("app.name=x\n")
+            (root / "raymob" / "gradle" / "wrapper" / "gradle-wrapper.properties").write_text(
+                properties or self.PROPERTIES)
+            gradle_home = root / "gradle-home"
+            gradle_home.mkdir()
+            if layout:
+                layout(gradle_home)
+            out = root / "github_output"
+            out.write_text("")
+            env = {k: v for k, v in os.environ.items() if k != "GRADLE_USER_HOME"}
+            env["GITHUB_OUTPUT"] = str(out)
+            if home != "unset":
+                env["GRADLE_USER_HOME"] = str(gradle_home)
+            got = subprocess.run(["bash", "-c", steps[0]["run"]], cwd=root, env=env,
+                                 capture_output=True, text=True)
+            return got.returncode, got.stdout + got.stderr, out.read_text()
+
+    def install(self, folder=None, marker=True, homes=1, jars=1):
+        def lay(root: Path):
+            dist = root / (folder or self.WRAPPER_FOLDER)
+            dist.mkdir(parents=True)
+            if marker:
+                (dist / "gradle-8.14.5-bin.zip.ok").write_text("")
+            for n in range(homes):
+                lib = dist / f"gradle-8.14.5{'' if n == 0 else f'-{n}'}" / "lib"
+                lib.mkdir(parents=True)
+                for j in range(jars):
+                    (lib / f"gradle-launcher-8.14.5{'' if j == 0 else f'-{j}'}.jar").write_text("")
+        return lay
+
+    def test_the_image_carries_the_wrappers_gradle(self):
+        code, said, output = self.run_gradle_step(layout=self.install())
+        self.assertEqual(code, 0, said)
+        self.assertEqual(output, "offline=--offline\n")
+        self.assertIn(self.URL, said)
+
+    def test_anything_the_wrapper_would_download_over_fails(self):
+        cases = {
+            "another URL's folder": self.install(
+                folder="wrapper/dists/gradle-8.14.5-bin/0000000000000000000000000"),
+            "no .ok marker": self.install(marker=False),
+            "two folders": self.install(homes=2),
+            "no launcher jar": self.install(jars=0),
+            "two launcher jars": self.install(jars=2),
+            "an empty home": None,
+        }
+        for label, layout in cases.items():
+            with self.subTest(label):
+                code, said, output = self.run_gradle_step(layout=layout)
+                self.assertEqual(code, 1, said)
+                self.assertIn("does not carry the Gradle the wrapper asks for", said)
+                self.assertIn(self.WRAPPER_FOLDER, said)
+                self.assertNotIn("offline=", output)
+
+    def test_no_gradle_home_in_the_image_fails(self):
+        code, said, output = self.run_gradle_step(home="unset", layout=self.install())
+        self.assertEqual(code, 1, said)
+        self.assertIn("GRADLE_USER_HOME is not set", said)
+        self.assertNotIn("offline=", output)
+
+    def test_a_wrapper_that_looks_elsewhere_fails(self):
+        props = self.PROPERTIES.replace("distributionBase=GRADLE_USER_HOME",
+                                        "distributionBase=PROJECT")
+        code, said, _ = self.run_gradle_step(properties=props, layout=self.install())
+        self.assertEqual(code, 1, said)
+        self.assertIn("distributionBase=PROJECT", said)
+
+    def test_gradle_offline_false_downloads_and_says_so(self):
+        code, said, output = self.run_gradle_step(offline="false")
+        self.assertEqual(code, 0, said)
+        self.assertEqual(output, "offline=\n")
+        self.assertIn("::warning", said)
+        self.assertIn("gradle_offline = false", said)
+
+    def test_a_generated_properties_without_the_line_fails(self):
+        for offline in (None, "yes", ""):
+            with self.subTest(offline=offline):
+                code, said, output = self.run_gradle_step(offline=offline, layout=self.install())
+                self.assertEqual(code, 1, said)
+                self.assertIn("gradle.offline", said)
+                self.assertEqual(output, "")
+
+    def test_the_wrappers_own_properties_are_the_shape_the_step_reads(self):
+        text = (REPO / "raymob" / "gradle" / "wrapper" / "gradle-wrapper.properties").read_text()
+        for line in ("distributionBase=GRADLE_USER_HOME", "distributionPath=wrapper/dists",
+                     "zipStoreBase=GRADLE_USER_HOME", "zipStorePath=wrapper/dists"):
+            self.assertIn(line + "\n", text)
+        self.assertRegex(text, r"(?m)^distributionUrl=https\\://services\.gradle\.org/"
+                               r"distributions/gradle-[0-9.]+-bin\.zip$")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
