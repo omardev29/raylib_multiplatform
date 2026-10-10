@@ -7092,6 +7092,105 @@ class CppcheckCheckTest(unittest.TestCase):
         self.assertIn('RMP_REQUIRE_CPPCHECK: "1"', lint)
 
 
+class OwnershipCheckTest(unittest.TestCase):
+    """tools/ownership_check.sh: nothing owned by hand. O1, no bare new, delete,
+    malloc or free in the framework; O2, no raylib Load*/Unload* outside the
+    files that own what it makes -- GUIDELINES.md stated that rule and nothing
+    checked it. Each seen red on a probe, and the files of the tree that may
+    keep their calls seen green by path."""
+
+    SCRIPT = REPO / "tools" / "ownership_check.sh"
+
+    def run_on(self, *lines):
+        import subprocess
+        with tempfile.NamedTemporaryFile("w", suffix=".cpp", delete=False) as fh:
+            fh.write("\n".join(lines) + "\n")
+            name = fh.name
+        try:
+            return subprocess.run(["bash", str(self.SCRIPT), name],
+                                  capture_output=True, text=True)
+        finally:
+            os.unlink(name)
+
+    def assert_red(self, rule, *lines, count=None):
+        got = self.run_on(*lines)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn(f" {rule} ", got.stdout)
+        if count is not None:
+            self.assertEqual(got.stdout.count(f" {rule} "), count, got.stdout)
+
+    def assert_green(self, *lines):
+        got = self.run_on(*lines)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_o1_new_and_delete(self):
+        self.assert_red("O1", "void f() {", "    int *p = new int(3);", "    delete p;", "}",
+                        count=2)
+
+    def test_o1_the_c_allocator(self):
+        self.assert_red("O1", "void f() {", "    void *p = malloc(4);", "    free(p);", "}",
+                        count=2)
+
+    def test_o1_leaves_a_deleted_function_and_a_comment(self):
+        self.assert_green("struct S {", "    S(const S &) = delete;",
+                          "    S &operator=(const S &) = delete;", "};",
+                          "// new and delete are what this forbids",
+                          'const char *word = "delete";',
+                          "auto p = std::make_unique<int>(3);")
+
+    def test_o2_a_raylib_resource_made_by_hand(self):
+        self.assert_red("O2", "void f() {", '    Texture2D t = LoadTexture("x.png");',
+                        "    UnloadTexture(t);", "}", count=2)
+
+    def test_o2_reads_rres_raylib_too(self):
+        self.assert_red("O2", "void f(rresResourceChunk c) {", "    unsigned int n = 0;",
+                        "    void *d = LoadDataFromResource(c, &n);", "}")
+
+    def test_o2_leaves_the_handle_and_a_comment(self):
+        self.assert_green('rmp::Texture t = rmp::assets::texture("x.png");',
+                          "// LoadTexture() goes inside an rmp::Texture",
+                          'const char *how = "UnloadTexture(t)";',
+                          "void f(Sprite &s) { s.LoadTexture(); }")
+
+    def test_c_keeps_its_load_and_unload(self):
+        """The plain C example has no destructor to put an Unload in."""
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT), "examples/plain_c/src/main.c"],
+                             cwd=REPO, capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_the_owners_may_keep_their_calls(self):
+        """By path, which is how the tree run allows them."""
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT), "src/rmp/assets.cpp",
+                              "src/rmp/resource.cpp", "src/rmp/loader_hook.cpp"],
+                             cwd=REPO, capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_the_raylib_names_are_read(self):
+        """O2's list is read from raylib.h and rres-raylib.h, live. If that
+        parse broke, every Load* would quietly be allowed again."""
+        text = self.SCRIPT.read_text()
+        self.assertIn("thirdparty/raylib/src/raylib.h", text)
+        got = self.run_on("void f() { UnloadFileData(nullptr); LoadImage(\"a\"); }")
+        self.assertIn(" O2 UnloadFileData ", got.stdout)
+        self.assertIn(" O2 LoadImage ", got.stdout)
+
+    def test_the_whole_tree_is_clean(self):
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT)], cwd=REPO, capture_output=True,
+                             text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        m = re.search(r"raylib's (\d+) Load\*/Unload\*", got.stdout)
+        self.assertIsNotNone(m, got.stdout)
+        self.assertGreater(int(m.group(1)), 60)
+
+    def test_it_is_wired_into_rmp_test_and_the_lint_job(self):
+        self.assertIn('"tools/ownership_check.sh"', (REPO / "tools" / "rmp.py").read_text())
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("ownership_check.sh", lint)
+
+
 class ClangTidyNamingTest(unittest.TestCase):
     """The naming rules in .clang-tidy, each seen red on a file of its own.
 

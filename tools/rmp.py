@@ -343,7 +343,7 @@ STAGES = [
           [("run", ["bash", "tools/naming_check.sh"])]),
     Stage("style", "the style rules clang-tidy cannot see, every #if branch",
           [("run", ["bash", "tools/style_check.sh"])]),
-    Stage("ownership", "no owning raw pointer in the framework",
+    Stage("ownership", "nothing owned by hand: new/delete, raylib's Load*/Unload*",
           [("run", ["bash", "tools/ownership_check.sh"])]),
     Stage("pointers", "no raw pointer and no C string a game can name",
           [("run", ["{python}", "tools/pointer_check.py"]),

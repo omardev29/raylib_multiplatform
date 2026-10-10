@@ -329,7 +329,10 @@ jobs:
 
       # No owning raw pointer under include/rmp/ or src/rmp/: new, delete,
       # malloc and free are allowed in exactly two files, both speaking
-      # raylib's C loader contract, and the list only shrinks.
+      # raylib's C loader contract. And no raylib Load*/Unload* outside the six
+      # files that own what it makes, in the framework and the examples: a
+      # LoadTexture goes inside the rmp::Texture that frees it. Both lists only
+      # shrink.
       - name: The framework owns nothing by hand
         if: needs.config.outputs.framework == 'true'
         run: bash tools/ownership_check.sh
