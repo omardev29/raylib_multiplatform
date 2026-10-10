@@ -268,6 +268,30 @@ here so that nobody "fixes" one back.
   and it went red on those two the day it existed. Two disagreeing checks on
   `[dev] compiler` would have made `mingw` unusable, and the configure tests
   found it the day they existed. A context window ends; a gate does not.
+- **Debug is sanitized, Release is hardened, and both are measured.** Every
+  framework Debug build -- the library, the examples, every test binary -- runs
+  under ASan and UBSan (LeakSanitizer too, on Linux) because the framework's
+  `[dev] sanitize` says `["address", "undefined"]`; `cmake/sanitize.cmake`
+  probes that the runtime really runs before it trusts it, and
+  `-DRMP_SANITIZE=OFF` turns it off only to measure. A game gets `sanitize =
+  []`: off, its choice. CI sets `RMP_REQUIRE_SANITIZERS=1`, so a runner that
+  cannot run them fails at configure instead of testing nothing in silence. A
+  timing check needs an `RMP_SANITIZE` allowance, because ASan is 3-4x slower.
+  LSan suppressions (`cmake/sanitizer_hooks.c`) name only system `lib*.so`
+  files seen leaking in a real run -- never our code -- and today there are
+  none. Every target built from our sources gets `rmp_apply_warnings`
+  (`-Wall -Wextra`; `WarningsOnOurCodeTest` finds one that does not), every
+  vendored include is `SYSTEM`, and the framework's own checks build with
+  `RMP_WERROR`. clang-tidy reads our `.c` too. Release flags are adopted only
+  when they cost 3 % or less of the unpacked binary, measured on the shipped
+  build: FORTIFY_SOURCE, the stack protector, stack-clash protection and the
+  library assertions went in at +2.0 % together. **PIE is the one exception**,
+  on by Omar's decision (2026-10-10) at +5.5 %: without it ASLR moves
+  everything but the executable. Most of the cost is `.rela.dyn`, which DT_RELR
+  would pack but only from glibc 2.36, and the floor is 2.28;
+  `-DRMP_RELEASE_PIE=OFF` only to measure.
+  `binary_check.py elf` reads RELRO, BIND_NOW and the NX stack off every Linux
+  binary before UPX.
 - **Ownership is RAII, everywhere, public headers included.** No owning raw
   pointer, no bare `new`/`delete`/`malloc`/`free` under `include/rmp/` or
   `src/rmp/`; `tools/ownership_check.sh` is the ratchet and its exception list
@@ -375,6 +399,13 @@ Each of these was a real bug, found by reproducing rather than by reading.
   nothing said so. Gated in `tests/configure_test.py`: every directory under
   `thirdparty/` holding a header, and the bare root, must appear in all four,
   and `ci.yml`/`tools/rmp.py` may not grow their own `-I` list again.
+- **A boot gate that ignores the exit status passes a leak.** LeakSanitizer
+  reports when the process exits -- after the game has printed
+  `RAY_TEST_DONE_FRAMES` and every marker a gate greps for -- and a sanitizer
+  that stops the program does it with a non-zero status and a report on
+  stderr. `render_check.sh` and the smoke step keep the exit status and fail on
+  `ERROR: AddressSanitizer`, `ERROR: LeakSanitizer` and `runtime error:`;
+  `|| true` after a game launch is the bug.
 - **A marker that only ever prints is not a gate.** `SmokeTest_ReportBoot()`
   logged `RAY_TEST_BOOT_OK` unconditionally, so on the DRM job it printed it
   straight after raylib printed `Failed to initialize EGL device` and `Failed to
@@ -539,9 +570,11 @@ the configure tests, the unit tests in two orders (the `audio: device` suite, wh
 real mixer for about a second, only in the first), headless layout, render
 and smoke), `rmp test examples` before touching the public API (it builds
 and boots all of them with a screenshot each, and plays the platformer to the flag at 60 and
-240 Hz), `rmp test sanitize` after touching anything that parses, casts or frees (the unit tests
-under ASan and UBSan -- it found UB the tests passed over, and three tests reading freed memory,
-on its first run), and a screenshot when the
+240 Hz), `rmp test sanitize` after touching anything that parses, casts or frees (`rmp test`
+already runs the unit tests under ASan and UBSan with the default compiler, because every
+framework Debug build is sanitized; `sanitize` is the same under gcc, with `RMP_WERROR` -- the
+first run found UB the tests passed over and three tests reading freed memory), and a screenshot
+when the
 change is visual — looking at pixels is how most of the bugs above were
 found. Every stage of `rmp test` has a step in the `lint` job -- one a game's
 CI runs too, for the stages a game has -- and `StagesAgreeWithLintTest` says
