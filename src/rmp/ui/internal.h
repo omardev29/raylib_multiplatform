@@ -384,8 +384,8 @@ Corners corners_of(Clay_CornerRadius radius, Clay_BoundingBox box);
 // per corner, a corner with no radius being that many copies of one point, so
 // the outline of a box and of its border's inside pair up point for point. The
 // corners go top-left, bottom-left, bottom-right, top-right.
-constexpr int CORNER_POINTS = 9;
-constexpr int BOX_OUTLINE = 4 * CORNER_POINTS;
+inline constexpr int CORNER_POINTS = 9;
+inline constexpr int BOX_OUTLINE = 4 * CORNER_POINTS;
 void box_outline(Clay_BoundingBox box, Corners corners, Clay_BorderWidth inset,
                  Vector2 *out);
 

@@ -28,7 +28,7 @@
 namespace rmp::tilemap::detail {
 
 // Tiled's three flip bits, masked off every gid it writes.
-constexpr unsigned FLIP_MASK = 0xE0000000U;
+inline constexpr unsigned FLIP_MASK = 0xE0000000U;
 
 // A tileset, with its tiles numbered first_gid..last_gid in the MAP's
 // numbering. Tiled hands those numbers out itself; LDtk does not number tiles

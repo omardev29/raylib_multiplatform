@@ -14,43 +14,43 @@
 
 namespace game {
 
-constexpr float TILE = 18; // the grid of tiles.png and of every level
+inline constexpr float TILE = 18; // the grid of tiles.png and of every level
 
 // How much of the world is on screen: twelve and a half rows of tiles, whatever
 // the window's height. The camera zooms to fit it.
-constexpr float VIEW_HEIGHT = 225;
+inline constexpr float VIEW_HEIGHT = 225;
 
 // The tiles of tiles.png this game draws by hand, by index (20 to a row).
 namespace tiles {
-constexpr int KEY = 27;
-constexpr int DOOR = 28;
-constexpr int HEART = 44;
-constexpr int HEART_EMPTY = 46;
-constexpr int PLATFORM_LEFT = 48;
-constexpr int PLATFORM_MIDDLE = 49;
-constexpr int PLATFORM_RIGHT = 50;
-constexpr int SPIKES = 68;
-constexpr int SIGN = 86;
-constexpr int SIGN_LEFT = 87;
-constexpr int SIGN_RIGHT = 88;
-constexpr int FLAG = 111; // and 112, the other half of its wave
-constexpr int POLE = 131;
-constexpr int COIN = 151;
-constexpr int POINT = 157; // the decimal point
-constexpr int TIMES = 158; // the x in "x 12"
-constexpr int DIGIT_0 = 160; // to 169
+inline constexpr int KEY = 27;
+inline constexpr int DOOR = 28;
+inline constexpr int HEART = 44;
+inline constexpr int HEART_EMPTY = 46;
+inline constexpr int PLATFORM_LEFT = 48;
+inline constexpr int PLATFORM_MIDDLE = 49;
+inline constexpr int PLATFORM_RIGHT = 50;
+inline constexpr int SPIKES = 68;
+inline constexpr int SIGN = 86;
+inline constexpr int SIGN_LEFT = 87;
+inline constexpr int SIGN_RIGHT = 88;
+inline constexpr int FLAG = 111; // and 112, the other half of its wave
+inline constexpr int POLE = 131;
+inline constexpr int COIN = 151;
+inline constexpr int POINT = 157; // the decimal point
+inline constexpr int TIMES = 158; // the x in "x 12"
+inline constexpr int DIGIT_0 = 160; // to 169
 } // namespace tiles
 
 // Who notices whom. The player is on its own layer and everything that can
 // touch it looks at that layer; nothing else needs to know about anything else.
 namespace layer {
-constexpr unsigned PLAYER = 1u << 0;
-constexpr unsigned ENEMY = 1u << 1;
-constexpr unsigned PICKUP = 1u << 2; // coins and keys
-constexpr unsigned HAZARD = 1u << 3; // spikes
-constexpr unsigned SOLID = 1u << 4; // moving platforms and doors
-constexpr unsigned GOAL = 1u << 5;
-constexpr unsigned SIGN = 1u << 6;
+inline constexpr unsigned PLAYER = 1u << 0;
+inline constexpr unsigned ENEMY = 1u << 1;
+inline constexpr unsigned PICKUP = 1u << 2; // coins and keys
+inline constexpr unsigned HAZARD = 1u << 3; // spikes
+inline constexpr unsigned SOLID = 1u << 4; // moving platforms and doors
+inline constexpr unsigned GOAL = 1u << 5;
+inline constexpr unsigned SIGN = 1u << 6;
 } // namespace layer
 
 // THE RUN: what survives walking from one level into the next, and dying.

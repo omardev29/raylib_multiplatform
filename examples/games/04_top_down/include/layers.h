@@ -9,9 +9,9 @@
 // ---------------------------------------------------------------------------
 
 namespace layer {
-constexpr unsigned PLAYER = 1u << 0;
-constexpr unsigned ENEMY = 1u << 1;
-constexpr unsigned BULLET = 1u << 2;
-constexpr unsigned WORLD = 1u << 3;
-constexpr unsigned TRIGGER = 1u << 4; // the door: it sees the player, nothing else
+inline constexpr unsigned PLAYER = 1u << 0;
+inline constexpr unsigned ENEMY = 1u << 1;
+inline constexpr unsigned BULLET = 1u << 2;
+inline constexpr unsigned WORLD = 1u << 3;
+inline constexpr unsigned TRIGGER = 1u << 4; // the door: it sees the player, nothing else
 } // namespace layer
