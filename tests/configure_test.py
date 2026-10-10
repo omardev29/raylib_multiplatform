@@ -1037,6 +1037,113 @@ class ReleaseJobsHoldTheirSizeTest(unittest.TestCase):
         self.assertIn("        shell: bash\n", step)
 
 
+class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
+    """[upx] enabled's default is EXACTLY the targets whose packed binary a CI
+    job starts -- the .toml says so, and this holds it to the workflows: a
+    job that unzips <target>-build.zip and starts what is in it."""
+
+    def started_from_the_archive(self, text: str) -> set[str]:
+        started = set()
+        for target in cfgmod.UPX_TARGETS:
+            if re.search(rf"unzip -q \S*{re.escape(target)}-build\.zip -d", text):
+                started.add(target)
+        return started
+
+    def test_the_default_packs_musl_and_drm_too(self):
+        self.assertEqual(cfgmod.DEFAULTS["upx"]["enabled"],
+                         ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl",
+                          "linux-x64-glibc-drm"])
+        toml = toml_section("upx")
+        enabled = re.search(r"^enabled\s*=\s*(\[.*\])$", toml, re.M).group(1)
+        self.assertEqual(json.loads(enabled), cfgmod.DEFAULTS["upx"]["enabled"])
+
+    def test_the_default_is_what_ci_starts(self):
+        text = (WORKFLOW_DIR / "_linux.yml").read_text()
+        self.assertEqual(self.started_from_the_archive(text),
+                         set(cfgmod.DEFAULTS["upx"]["enabled"]))
+
+    def test_the_toml_says_where_each_one_starts(self):
+        """And the measurement it quotes names its target and its commit: it
+        said "847 KB down to 215 KB" for a binary nobody could find any more."""
+        section = toml_section("upx")
+        para = " ".join(section[section.index("THE DEFAULT IS EXACTLY"):
+                                section.index("\nenabled")].replace("#", " ").split())
+        for target in cfgmod.DEFAULTS["upx"]["enabled"]:
+            with self.subTest(target=target):
+                self.assertRegex(para, rf"{re.escape(target)} on (every push|a full run)")
+        for where in (section, (REPO / "tools" / "upx_pack.sh").read_text()):
+            self.assertNotIn("847 KB", where)
+            self.assertRegex(" ".join(where.replace("#", " ").split()),
+                             r"Measured on linux-x64-glibc at (commit )?[0-9a-f]{7}")
+
+
+class RunJobsStartTheShippedBinaryTest(unittest.TestCase):
+    """musl-x64-run and drm-x64-run start the binary in the archive their
+    build job ships -- packed, where [upx] packs it -- and not a copy taken
+    before UPX ran. Both started an unpacked binary until the day UPX was
+    turned on for them, which is what made turning it on unobservable."""
+
+    JOBS = {"musl-x64-run": "linux-x64-musl", "drm-x64-run": "linux-x64-glibc-drm"}
+
+    def started(self, text: str, job: str, target: str) -> list[str]:
+        """What is wrong with `job` in the workflow `text`."""
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "_linux.yml"
+            path.write_text(text)
+            block = job_block(path, job)
+        wrong = []
+        if f"name: {target}-build\n" not in block:
+            wrong.append(f"{job} does not download {target}-build, the archive that ships")
+        unzipped = re.search(rf"unzip -q (\S+)/{re.escape(target)}-build\.zip -d (\S+)\n", block)
+        if not unzipped:
+            wrong.append(f"{job} does not unzip {target}-build.zip")
+            return wrong
+        folder = unzipped.group(2)
+        if f'-v "$PWD/{folder}:/app:ro"' not in block:
+            wrong.append(f"{job} does not mount the unzipped archive ({folder}) as /app")
+        runs = re.findall(r'-v "\$PWD/([\w-]+):/app:ro"', block)
+        # The one that boots the binary that ships; a headless golden-frame run
+        # beside it may mount its own folder, never the archive's.
+        if folder not in runs:
+            wrong.append(f"{job} starts nothing from {folder}")
+        if job == "drm-x64-run" and "-headless" in block:
+            wrong.append(f"{job} still downloads an unpacked copy")
+        return wrong
+
+    def test_both_start_the_archive(self):
+        text = (WORKFLOW_DIR / "_linux.yml").read_text()
+        for job, target in self.JOBS.items():
+            with self.subTest(job=job):
+                self.assertEqual(self.started(text, job, target), [])
+
+    def test_musl_installs_a_desktop_and_starts_it_under_xvfb(self):
+        block = job_block(WORKFLOW_DIR / "_linux.yml", "musl-x64-run")
+        step = step_block(block, "The archive it ships starts on Alpine")
+        self.assertIn("timeout 180 xvfb-run", step)
+        self.assertIn("apk add --no-cache", step)
+        # Without an init, xvfb-run is PID 1 and waits for ever: see the step.
+        self.assertIn("docker run --rm --init", step)
+        self.assertIn('then RC=0; else RC=$?; fi', step)
+        # The headless golden frame stays, with nothing installed.
+        nothing = step_block(block, "Boot and render, inside Alpine, with nothing installed")
+        self.assertNotIn("apk", nothing.replace("# ", ""))
+
+    def test_the_old_jobs_fail_it(self):
+        """Seen red: the jobs as they were, started from copies uploaded before
+        UPX ran -- linux-x64-musl-headless and linux-x64-glibc-drm-headless."""
+        old_musl = ("  musl-x64-run:\n    steps:\n"
+                    "      - uses: actions/download-artifact@x\n        with:\n"
+                    "          name: linux-x64-musl-headless\n          path: musl-bin\n"
+                    '          OUT=$(docker run --rm -v "$PWD/musl-bin:/app:ro" alpine '
+                    '"/app/x")\n')
+        old_drm = old_musl.replace("musl-x64-run", "drm-x64-run").replace(
+            "linux-x64-musl-headless", "linux-x64-glibc-drm-headless").replace("musl-bin",
+                                                                               "drm-bin")
+        self.assertNotEqual(self.started(old_musl, "musl-x64-run", "linux-x64-musl"), [])
+        self.assertNotEqual(self.started(old_drm, "drm-x64-run", "linux-x64-glibc-drm"), [])
+
+
 class AndroidReleaseCheckTest(unittest.TestCase):
     """tools/android_release_check.py, the Android job's proof that the release
     variant was compiled as a release, seen red on the database the old
@@ -1826,8 +1933,10 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
     def test_the_containers_start_the_release_from_the_root(self):
         text = (self.WORKFLOWS / "_linux.yml").read_text()
         self.assertNotIn("-w /app", text)
-        self.assertEqual(text.count("            -w / -e RAY_TEST_MAX_FRAMES=10"), 2)
-        self.assertEqual(text.count('"/app/${{ inputs.project_name }}" 2>&1'), 2)
+        # Three: musl's headless build and its shipped archive on Alpine, and
+        # the DRM archive on vkms.
+        self.assertEqual(text.count("            -w / -e RAY_TEST_MAX_FRAMES=10"), 3)
+        self.assertEqual(text.count('"/app/${{ inputs.project_name }}" 2>&1'), 3)
 
     def test_windows_starts_the_exe_from_another_folder_next_to_its_pack(self):
         text = (self.WORKFLOWS / "_windows.yml").read_text()

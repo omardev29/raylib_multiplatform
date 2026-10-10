@@ -35,8 +35,8 @@
 linux-x64-glibc        elf      1234656    365836  # measured at cf7b676
 linux-arm64-glibc      elf      1173513    352446  # estimate: run 38089107324 (ce0beac) x linux-x64-glibc's growth since
 linux-riscv64-glibc    elf       960648         -  # measured at cf7b676
-linux-x64-musl         elf      1232872         -  # measured at cf7b676
-linux-x64-glibc-drm    elf       748616         -  # measured at cf7b676
+linux-x64-musl         elf      1232872    365196  # measured at cf7b676
+linux-x64-glibc-drm    elf       748616    310540  # measured at cf7b676
 linux-arm64-glibc-drm  elf       666213         -  # estimate: run 38089107324 (ce0beac) x linux-x64-glibc-drm's growth since
 windows-x64            pe       2205184         -  # estimate: run 38089107324 (ce0beac); B1 adds nothing to a MinGW build
 windows-arm64          pe       1312768         -  # estimate: run 38089107324 (ce0beac); B1 adds nothing to an MSVC build

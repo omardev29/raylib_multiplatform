@@ -445,7 +445,9 @@ DEFAULTS: dict = {
     "audio": {"master": 1.0, "music": 0.8, "sfx": 1.0},
     "save": {"portable": False, "encrypt": False, "version": 1},
     "windows": {"backend": "glfw"},
-    "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc"], "disabled": [],
+    # Exactly the targets whose packed binary CI starts -- see the .toml.
+    "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl",
+                        "linux-x64-glibc-drm"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,

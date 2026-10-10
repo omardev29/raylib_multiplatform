@@ -4,12 +4,19 @@
 #
 #   tools/upx_pack.sh <target> <path-to-binary>
 #
-# Doing nothing is the normal outcome and is not a failure: the default only
-# compresses linux-x64-glibc and linux-arm64-glibc, so every other job calls this and exits.
+# Doing nothing is the normal outcome and is not a failure: the default
+# compresses the four Linux targets whose packed binary CI starts --
+# linux-x64-glibc, linux-arm64-glibc, linux-x64-musl and linux-x64-glibc-drm --
+# so every other job calls this and exits.
 #
-# Measured on this project: 847 KB -> 215 KB, a 74 % cut, and the compressed
-# binary still passes the render gate. What it costs is a few milliseconds of
-# decompression at launch and, on Windows, the risk in the .toml's comment.
+# The binary given is the copy in package/, the one the archive is made from:
+# build/release/<name> stays the file the linker wrote, which is what
+# tools/size_check.py reads the unpacked size from.
+#
+# Measured on linux-x64-glibc at cf7b676: 1 234 656 -> 365 836 bytes, a 70 %
+# cut, and the packed binary passes the same boot and render gate. What it
+# costs is a few milliseconds of decompression at launch and, on Windows, the
+# risk in the .toml's comment.
 #
 # UPX is downloaded at a pinned version with a checked sha256, the same way
 # ninja, XcodeGen and butler are. Not apt: the version an image happens to carry

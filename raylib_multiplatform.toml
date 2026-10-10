@@ -171,8 +171,12 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # not ship one. See "AdMob" in TECHNICAL.md before you publish with ads on.
 
 [upx]
-# Compress the shipped binary with UPX. Measured on this project: 847 KB down to
-# 215 KB, a 74 % cut, and the compressed binary still passes the render gate.
+# Compress the shipped binary with UPX. Measured on linux-x64-glibc at commit
+# cf7b676, built the way CI builds it -- hardened, PIE, stripped: 1 234 656 bytes
+# down to 365 836, a 70 % cut. linux-x64-musl the same, 1 232 872 to 365 196;
+# linux-x64-glibc-drm, which links its graphics libraries instead of carrying
+# them, 748 616 to 310 540, 58 %. Every packed binary passes the same boot and
+# render gate the unpacked one does.
 #
 # Groups expand and deduplicate exactly like [targets], and `disabled` is
 # subtracted afterwards, so there is no precedence to reason about.
@@ -198,18 +202,18 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # alone: upx publishes no FreeBSD/OpenBSD/NetBSD build, so the VMs would have to
 # install it from ports.
 #
-# THE DEFAULT IS EXACTLY THE TARGETS WHOSE PACKED BINARY CI STARTS. The
-# linux-x64-glibc job unzips the archive it ships — UPX-packed — and starts it
-# and checks it puts pixels on the screen on every push; the linux-arm64-glibc
-# job does the same on a full run, on a runner of its own architecture. So if
-# UPX ever produced a stub that does not launch, CI finds out. Every other
-# Linux target is either never executed (linux-riscv64-glibc and
-# linux-arm64-glibc-drm: built and checked statically) or executed from a
-# binary UPX has not touched (linux-x64-glibc-drm on a vkms display,
-# linux-x64-musl on Alpine), so turning UPX on there would ship a packed binary
+# THE DEFAULT IS EXACTLY THE TARGETS WHOSE PACKED BINARY CI STARTS. Each of
+# these four jobs unzips the archive it ships — UPX-packed — starts what is in
+# it, and checks it puts pixels on the screen: linux-x64-glibc on every push,
+# under a virtual X server; linux-arm64-glibc on a full run, on a runner of its
+# own architecture; linux-x64-musl on a full run, on Alpine under Xvfb; and
+# linux-x64-glibc-drm on a full run, on a vkms display. So if UPX ever produced
+# a stub that does not launch, CI finds out. The other two Linux targets are
+# never executed (linux-riscv64-glibc and linux-arm64-glibc-drm: built and
+# checked statically), so turning UPX on there would ship a packed binary
 # whose launch nobody has observed. UPX supports them; what is missing is the
 # evidence.
-enabled  = ["linux-x64-glibc", "linux-arm64-glibc"]
+enabled  = ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl", "linux-x64-glibc-drm"]
 disabled = []
 
 # Skip compression when the binary is bigger than this, in megabytes.
