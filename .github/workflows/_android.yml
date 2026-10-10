@@ -206,6 +206,16 @@ jobs:
           chmod +x ./gradlew
           ./gradlew bundleRelease --no-daemon ${{ steps.gradle.outputs.offline }}
 
+      # Every native library in the release bundle, one per ABI, as it sits
+      # there -- what a device of that ABI installs -- each within 1.5% of
+      # its android/<abi> line in tools/size_budget.txt. The measured lines
+      # are printed either way, so this log is all it takes to update them.
+      - name: Within its size budget
+        run: |
+          set -euo pipefail
+          BUNDLE=$(find raymob/app/build/outputs/bundle/release -name '*.aab' | head -1)
+          python3 tools/size_check.py android "$BUNDLE"
+
       # Gradle never passed PRODUCTION_BUILD, so raymob's CMake took its debug
       # branch for the release variant too: every release APK and AAB was
       # compiled at -O0 with _DEBUG. The build type decides now; this reads

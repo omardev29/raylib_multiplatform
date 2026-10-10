@@ -144,12 +144,20 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
-          # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-x64-glibc "build/release/${{ inputs.project_name }}"
           cp build/release/${{ inputs.project_name }} package/
+          # UPX, if [upx] in the .toml asked for this target, on the copy that
+          # ships: build/release/ keeps the binary the linker wrote, and the
+          # size budget reads the unpacked size from it. A no-op where [upx]
+          # does not apply.
+          bash tools/upx_pack.sh linux-x64-glibc "package/${{ inputs.project_name }}"
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-build.zip .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py linux-x64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       # THE ARCHIVE, unzipped, started from a folder with no resources/ in it --
       # the way a player starts it from a file manager or a shortcut. Every boot
@@ -262,12 +270,20 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
-          # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-arm64-glibc "build/release/${{ inputs.project_name }}"
           cp build/release/${{ inputs.project_name }} package/
+          # UPX, if [upx] in the .toml asked for this target, on the copy that
+          # ships: build/release/ keeps the binary the linker wrote, and the
+          # size budget reads the unpacked size from it. A no-op where [upx]
+          # does not apply.
+          bash tools/upx_pack.sh linux-arm64-glibc "package/${{ inputs.project_name }}"
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-build.zip .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py linux-arm64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       # THE ARCHIVE, unzipped, started from a folder with no resources/ in it --
       # the way a player starts it from a file manager or a shortcut. Every boot
@@ -389,6 +405,12 @@ jobs:
             > package/resources/PACK_SKIPPED.txt
           bash tools/upx_pack.sh linux-x64-musl "package/${{ inputs.project_name }}"
           cd package && zip -r ../linux-x64-musl-build.zip .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py linux-x64-musl "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -534,10 +556,12 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
-          # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-riscv64-glibc "build/release/${{ inputs.project_name }}"
           cp build/release/${{ inputs.project_name }} package/
+          # UPX, if [upx] in the .toml asked for this target, on the copy that
+          # ships: build/release/ keeps the binary the linker wrote, and the
+          # size budget reads the unpacked size from it. A no-op where [upx]
+          # does not apply.
+          bash tools/upx_pack.sh linux-riscv64-glibc "package/${{ inputs.project_name }}"
           # LOOSE RESOURCES, said out loud in the zip. rres_pack is built for
           # riscv64 here and cannot run on the amd64 host, so there is no pack
           # to ship. The game reads loose files when there is none.
@@ -550,6 +574,12 @@ jobs:
             "there is no pack. See .github/workflows/_linux.yml." \
             > package/resources/PACK_SKIPPED.txt
           cd package && zip -r ../linux-riscv64-glibc-build.zip .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py linux-riscv64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -667,12 +697,20 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
-          # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-x64-glibc-drm "build/release/${{ inputs.project_name }}"
           cp build/release/${{ inputs.project_name }} package/
+          # UPX, if [upx] in the .toml asked for this target, on the copy that
+          # ships: build/release/ keeps the binary the linker wrote, and the
+          # size budget reads the unpacked size from it. A no-op where [upx]
+          # does not apply.
+          bash tools/upx_pack.sh linux-x64-glibc-drm "package/${{ inputs.project_name }}"
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-drm-build.zip .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py linux-x64-glibc-drm "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -867,12 +905,20 @@ jobs:
           if [ -f cmake/generated/LICENSES.txt ]; then
             cp cmake/generated/LICENSES.txt package/
           fi
-          # UPX, if [upx] in the .toml asked for this target. A no-op otherwise,
-          # which is the normal case: the default compresses linux only.
-          bash tools/upx_pack.sh linux-arm64-glibc-drm "build/release/${{ inputs.project_name }}"
           cp build/release/${{ inputs.project_name }} package/
+          # UPX, if [upx] in the .toml asked for this target, on the copy that
+          # ships: build/release/ keeps the binary the linker wrote, and the
+          # size budget reads the unpacked size from it. A no-op where [upx]
+          # does not apply.
+          bash tools/upx_pack.sh linux-arm64-glibc-drm "package/${{ inputs.project_name }}"
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-drm-build.zip .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py linux-arm64-glibc-drm "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:

@@ -268,6 +268,12 @@ jobs:
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../macos-build.zip .
 
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt. The measured line is printed either
+      # way, so this log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py macos "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: macos-build

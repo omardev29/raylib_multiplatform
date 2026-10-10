@@ -299,6 +299,20 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: python3 -m unittest discover -s tests -p 'binary_check_test.py' -v
 
+      # tools/size_budget.txt, on every push: well-formed, a line for every
+      # binary an enabled target ships, the packed column exactly where [upx]
+      # packs. Every release job holds its binary to its line; this notices a
+      # missing line before the full matrix does. A game has no budget until
+      # it commits one, and this says so instead of failing.
+      - name: Every shipped binary has a size budget
+        run: python3 tools/size_check.py --check-file
+
+      # The reader behind those steps, against files made here: a byte over
+      # the budget, a stale line, a missing one, a malformed one, a CI log.
+      - name: The size budget's reader
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'size_check_test.py' -v
+
       # Time, input and randomness enter through a seam so that headless tests
       # can replace them. One stray GetFrameTime() in the wrong file is enough
       # to make a test flaky, and a flaky test teaches everyone to ignore red.

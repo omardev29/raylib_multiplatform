@@ -375,6 +375,13 @@ jobs:
           if ($names -match 'opengl32\.dll|libgallium_wgl\.dll') { Write-Host "FAIL: Mesa leaked into the release zip"; exit 1 }
           Write-Host "PASS: package clean ($($names.Count) entries)"
 
+      # The .exe as linked and the copy that ships -- packed, if [upx] packs
+      # it -- each within 1.5% of its line in tools/size_budget.txt. The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
+      - name: Within its size budget
+        run: python tools/size_check.py windows-x64 "build/release/${{ inputs.project_name }}.exe" "package/${{ inputs.project_name }}.exe"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: windows-x64-build
@@ -633,6 +640,13 @@ jobs:
             Write-Host "  upx: windows-arm64 is not in [upx] enabled — leaving the binary alone"
           }
           Compress-Archive -Path package/* -DestinationPath windows-arm64-build.zip
+
+      # The .exe as linked and the copy that ships -- packed, if [upx] packs
+      # it -- each within 1.5% of its line in tools/size_budget.txt. The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
+      - name: Within its size budget
+        run: python tools/size_check.py windows-arm64 "build/release/${{ inputs.project_name }}.exe" "package/${{ inputs.project_name }}.exe"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:

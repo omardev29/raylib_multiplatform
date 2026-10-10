@@ -364,6 +364,10 @@ STAGES = [
     Stage("binaries", "the readers that judge a shipped .exe and Mac binary",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "binary_check_test.py"])]),
+    Stage("size", "every shipped binary has a size budget, and its reader works",
+          [("run", ["{python}", "tools/size_check.py", "--check-file"]),
+           ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "size_check_test.py"])]),
     Stage("unit", "the unit tests in two orders, and tests/game/",
           [("configure", ["-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"]),
            ("build", "unit_test"),
@@ -760,7 +764,8 @@ INCLUDE = (
     "tools/render_check.sh", "tools/shipped_check.sh", "tools/ship_resources.sh",
     "tools/versions_check.sh",
     "tools/dev_shell.sh",
-    "tools/android_release_check.py", "tools/binary_check.py", "tools/rmp.py",
+    "tools/android_release_check.py", "tools/binary_check.py", "tools/size_check.py",
+    "tools/rmp.py",
     "rmp", "rmp.ps1", "rmp.cmd",
 )
 
@@ -784,6 +789,8 @@ FRAMEWORK_ONLY = {
     "examples/": "the framework's examples",
     "tests/": "the framework's tests",
     "tools/": "the framework's gates and generators",
+    "tools/size_budget.txt": "the demo game's sizes; a game measures its own, and its CI "
+                             "prints the lines that would start a budget",
     "tools/install.sh": "the installer: rmp goes on PATH from the framework, never from a game",
     "tools/install.ps1": "the installer for Windows; a game is never what gets installed",
 }

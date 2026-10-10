@@ -78,6 +78,13 @@ jobs:
           if [ -f LICENSES.txt ]; then FILES+=(LICENSES.txt); fi
           zip -r ../../web-build.zip "${FILES[@]}"
 
+      # The .wasm, within 1.5% of its line in tools/size_budget.txt. It is
+      # what the browser downloads and compiles, so it is the number that
+      # matters on the web. The measured line is printed either way, so this
+      # log is all it takes to update the file.
+      - name: Within its size budget
+        run: python3 tools/size_check.py web "build/web/${{ inputs.project_name }}.wasm"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: web-build

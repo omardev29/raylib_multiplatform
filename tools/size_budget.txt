@@ -1,0 +1,53 @@
+# The size of every binary a release ships, and the budget it is held to.
+# tools/size_check.py reads it in a step of every release job, right after the
+# binary is final -- after UPX, where UPX applies -- and the lint job checks the
+# file itself on every push.
+#
+#   binary    a target of tools/configure.py, or android/<abi>: one line for
+#             each native library the Android bundle carries
+#   kind      what the file is, read off its first bytes: elf, pe, macho, wasm,
+#             or so for an Android library
+#   unpacked  bytes as the linker wrote it: build/release/<name>, the .wasm,
+#             the .so as it sits in the .aab
+#   packed    bytes of the copy that ships, after UPX, for a target [upx] packs;
+#             - where UPX does not apply
+#
+# THE ONE RULE. Each number is the size measured on the commit its comment
+# names, and a binary passes while it is within 1.5% of it, either way. Over
+# is a growth nobody wrote down. Under is a stale line, and a stale line hides
+# the next growth: a binary 1.5% under its number would have 3% to grow before
+# anything said a word. So the most any binary can change without this file
+# changing is 3% -- the share at which the hardening block in CMakeLists.txt
+# stops and asks before a flag goes in. Growing is allowed: it is a decision,
+# and this file is where it is written down, in the commit that makes it.
+#
+# Every check prints the measured line in this file's own format, ending in
+# "# measured at <commit>", pass or fail, so one CI run's log is one commit:
+#     gh run view <run> --log | python3 tools/size_check.py --update -
+#
+# ? is a size nobody has measured yet: the job that builds it fails and prints
+# the line to paste. macOS and the BSDs build only in CI, and only on a full
+# run. A comment that says "estimate" is a size worked out from an older
+# measurement, not read off this build; it is held to the same rule until a
+# run's log replaces it.
+#
+# binary               kind    unpacked    packed
+linux-x64-glibc        elf      1234656    365836  # measured at cf7b676
+linux-arm64-glibc      elf      1173513    352446  # estimate: run 38089107324 (ce0beac) x linux-x64-glibc's growth since
+linux-riscv64-glibc    elf       960648         -  # measured at cf7b676
+linux-x64-musl         elf      1232872         -  # measured at cf7b676
+linux-x64-glibc-drm    elf       748616         -  # measured at cf7b676
+linux-arm64-glibc-drm  elf       666213         -  # estimate: run 38089107324 (ce0beac) x linux-x64-glibc-drm's growth since
+windows-x64            pe       2205184         -  # estimate: run 38089107324 (ce0beac); B1 adds nothing to a MinGW build
+windows-arm64          pe       1312768         -  # estimate: run 38089107324 (ce0beac); B1 adds nothing to an MSVC build
+macos                  macho          ?         -  # 1696040 at ce0beac, before B1's stack protector and libc++ checks
+freebsd-x64            elf            ?         -  # 762152 at ce0beac, before B1
+freebsd-arm64          elf            ?         -  # 680976 at ce0beac, before B1
+openbsd-x64            elf            ?         -  # 844128 at ce0beac, before B1
+openbsd-arm64          elf            ?         -  # 840656 at ce0beac, before B1
+netbsd-x64             elf            ?         -  # 922104 at ce0beac, before B1
+web                    wasm      477389         -  # measured at cf7b676
+android/arm64-v8a      so       2324912         -  # measured at ce0beac, run 38089107324
+android/armeabi-v7a    so       1727196         -  # measured at ce0beac, run 38089107324
+android/x86            so       2617548         -  # measured at ce0beac, run 38089107324
+android/x86_64         so       2554992         -  # measured at ce0beac, run 38089107324

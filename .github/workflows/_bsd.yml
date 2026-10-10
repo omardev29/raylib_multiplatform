@@ -238,20 +238,23 @@ jobs:
           # it is not here, the workspace did not sync back, and the script
           # fails on that rather than quietly shipping a different archive.
           sh tools/ship_resources.sh package
-          # UPX BEFORE the copy. It was the other way round for the whole life
-          # of this job: upx rewrote build/release/<name> and the zip had
-          # already been given the uncompressed copy, so [upx] did nothing at
-          # all here while reporting a percentage. Every other job packs first.
+          # UPX packs the copy that ships, after it is in package/. For the
+          # whole early life of this job upx rewrote build/release/<name> after
+          # the zip had been given the uncompressed copy, so [upx] did nothing
+          # at all here while reporting a percentage. Packing the copy cannot
+          # miss the zip, and leaves build/release/ the binary the linker
+          # wrote, which the size budget below reads.
           #
           # And no `|| true`. upx_pack.sh already exits 0 when the target is not
           # in [upx] and when there is no published upx for this architecture --
           # which is the normal case on the BSDs. The only things `|| true`
           # could ever hide were a checksum mismatch and a failed `upx -t`.
-          BEFORE=$(wc -c < "$BIN")
-          UPX_OUT=$(bash tools/upx_pack.sh "${{ matrix.target }}" "$BIN")
-          printf '%s\n' "$UPX_OUT"
-          AFTER=$(wc -c < "$BIN")
           cp "$BIN" package/
+          SHIP="package/${{ inputs.project_name }}"
+          BEFORE=$(wc -c < "$SHIP")
+          UPX_OUT=$(bash tools/upx_pack.sh "${{ matrix.target }}" "package/${{ inputs.project_name }}")
+          printf '%s\n' "$UPX_OUT"
+          AFTER=$(wc -c < "$SHIP")
           # The gate the reported percentage was standing in for. Applicability
           # comes from the script's own report rather than from a second copy of
           # the rule here: it declines for three reasons (not in [upx] enabled,
@@ -272,6 +275,14 @@ jobs:
             echo "  ok    upx packed the binary that goes in the zip ($BEFORE -> $AFTER)"
           fi
           cd package && zip -r "../bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip" .
+
+      # The binary as linked and the copy that ships, each within 1.5% of its
+      # line in tools/size_budget.txt -- on the runner, out of the VM's script
+      # and its size limit. The measured line is printed either way, so this
+      # log is all it takes to update the file.
+      - name: Within its size budget
+        shell: bash
+        run: python3 tools/size_check.py "${{ matrix.target }}" "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:

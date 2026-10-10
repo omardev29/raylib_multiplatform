@@ -945,6 +945,98 @@ class LinuxJobsReadTheHardeningTest(unittest.TestCase):
                 self.assertEqual(asked.split(), ["tools/binary_check.py", "elf",
                                                  "build/release/demo"])
 
+
+WORKFLOW_DIR = REPO / ".github" / "workflows"
+
+# Every job that builds a release binary, the target it builds, and where the
+# binary is as linked and as shipped. tools/size_check.py holds both to the
+# target's line in tools/size_budget.txt.
+SIZE_STEPS = {
+    ("_linux.yml", "x64"): "linux-x64-glibc",
+    ("_linux.yml", "arm64"): "linux-arm64-glibc",
+    ("_linux.yml", "musl-x64"): "linux-x64-musl",
+    ("_linux.yml", "riscv64"): "linux-riscv64-glibc",
+    ("_linux.yml", "drm-x64"): "linux-x64-glibc-drm",
+    ("_linux.yml", "drm-arm64"): "linux-arm64-glibc-drm",
+    ("_windows.yml", "x64"): "windows-x64",
+    ("_windows.yml", "arm64"): "windows-arm64",
+    ("_apple.yml", "macos"): "macos",
+    ("_bsd.yml", "build"): "${{ matrix.target }}",
+    ("_web.yml", "build"): "web",
+    ("_android.yml", "build"): "android",
+}
+
+
+class ReleaseJobsHoldTheirSizeTest(unittest.TestCase):
+    """Every job that builds a release binary holds it to tools/size_budget.txt,
+    in a step after the binary is final: after the Package step, where UPX
+    packs the copy that ships, reading the size as linked from build/release/
+    and the size as shipped from package/."""
+
+    def step(self, wf: str, job: str) -> str:
+        text = job_block(WORKFLOW_DIR / wf, job)
+        self.assertIn("      - name: Within its size budget\n", text,
+                      f"{wf} {job} has no size step")
+        return step_block(text, "Within its size budget")
+
+    def test_each_release_job_has_the_step_for_its_target(self):
+        for (wf, job), target in SIZE_STEPS.items():
+            with self.subTest(workflow=wf, job=job):
+                text = job_block(WORKFLOW_DIR / wf, job)
+                step = self.step(wf, job)
+                self.assertIn("tools/size_check.py", step)
+                called = re.search(r"python3? tools/size_check\.py (\"[^\"]+\"|\S+) (.*)", step)
+                self.assertIsNotNone(called, step)
+                self.assertEqual(called.group(1).strip('"'), target)
+                after = "- name: Build release AAB" if wf == "_android.yml" else "- name: Package"
+                self.assertLess(text.index(after), text.index("- name: Within its size budget"),
+                                "the size is read before the binary is final")
+                if "upx_pack.sh" in text:
+                    self.assertLess(text.index("upx_pack.sh"), text.index("tools/size_check.py"))
+                    self.assertEqual(called.group(2).split(), [
+                        '"build/release/${{', 'inputs.project_name', '}}"',
+                        '"package/${{', 'inputs.project_name', '}}"']
+                        if wf != "_windows.yml" else [
+                        '"build/release/${{', 'inputs.project_name', '}}.exe"',
+                        '"package/${{', 'inputs.project_name', '}}.exe"'])
+
+    def test_no_job_ships_an_archive_without_it(self):
+        """A release job added later without the step is the gate's hole: any
+        job that zips a -build archive or bundles a release AAB has it."""
+        found = set()
+        for wf in sorted(WORKFLOW_DIR.glob("_*.yml")):
+            jobs = re.findall(r"^  ([a-z0-9_-]+):\s*$", wf.read_text(), re.M)
+            for job in jobs:
+                text = job_block(wf, job)
+                if re.search(r"zip -r [^\n]*-build\.zip|-DestinationPath \S*-build\.zip|"
+                             r"bundleRelease", text):
+                    found.add((wf.name, job))
+                    with self.subTest(workflow=wf.name, job=job):
+                        self.assertIn("tools/size_check.py", text)
+        self.assertEqual(found, set(SIZE_STEPS), "a release job is missing from SIZE_STEPS")
+
+    def test_upx_packs_the_copy_that_ships(self):
+        """build/release/<name> stays the binary the linker wrote: the size step
+        reads the unpacked size there. Packing it in place, as every Linux job
+        and the BSDs did, leaves nothing unpacked to measure after Package."""
+        calls = []
+        for wf in sorted(WORKFLOW_DIR.glob("*.yml")):
+            for line in wf.read_text().splitlines():
+                if "upx_pack.sh" in line and not line.lstrip().startswith("#"):
+                    calls.append((wf.name, line.strip()))
+        self.assertGreaterEqual(len(calls), 7, calls)
+        for wf, line in calls:
+            with self.subTest(workflow=wf, call=line):
+                self.assertRegex(line, r'upx_pack\.sh ("[^"]+"|\S+) '
+                                       r'"package/\$\{\{ inputs\.project_name \}\}"\)?$')
+
+    def test_the_bsd_step_runs_on_the_runner(self):
+        """Not in the VM's script: that one has a size limit and must be ASCII.
+        On the runner, after the workspace synced back."""
+        step = self.step("_bsd.yml", "build")
+        self.assertIn("        shell: bash\n", step)
+
+
 class AndroidReleaseCheckTest(unittest.TestCase):
     """tools/android_release_check.py, the Android job's proof that the release
     variant was compiled as a release, seen red on the database the old
