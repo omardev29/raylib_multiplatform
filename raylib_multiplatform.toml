@@ -175,8 +175,8 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # cf7b676, built the way CI builds it -- hardened, PIE, stripped: 1 234 656 bytes
 # down to 365 836, a 70 % cut. linux-x64-musl the same, 1 232 872 to 365 196;
 # linux-x64-glibc-drm, which links its graphics libraries instead of carrying
-# them, 748 616 to 310 540, 58 %. Every packed binary passes the same boot and
-# render gate the unpacked one does.
+# them, 748 616 to 310 540, 58 %. CI holds every packed binary to the same boot
+# and render gate as an unpacked one -- see the last paragraph.
 #
 # Groups expand and deduplicate exactly like [targets], and `disabled` is
 # subtracted afterwards, so there is no precedence to reason about.
