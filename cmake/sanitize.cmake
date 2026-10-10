@@ -119,6 +119,23 @@ function(_rmp_sanitize_probe names result why)
         PARENT_SCOPE)
     return()
   endif()
+  list(JOIN _compile " " _flags)
+  # A probe that RAN is remembered against everything it depended on, and a
+  # configure with the same compilers, flags and hooks skips it: it costs a
+  # second and a half, and `rmp test` configures four times. A probe that
+  # FAILED is never remembered, so installing the runtime is seen by the next
+  # configure. A remembered yes cannot hide a runtime that went away: the
+  # first link of the build fails, loudly, naming it.
+  file(SHA256 "${RMP_SANITIZER_HOOKS}" _hooks_hash)
+  string(CONCAT _key "${CMAKE_C_COMPILER}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_CXX_COMPILER}|"
+         "${CMAKE_CXX_COMPILER_VERSION}|${_flags}|${_link}|${_hooks_hash}|${CMAKE_C_FLAGS}|"
+         "${CMAKE_CXX_FLAGS}|${CMAKE_EXE_LINKER_FLAGS}|${CMAKE_CROSSCOMPILING}")
+  string(SHA256 _key "${_key}")
+  string(MAKE_C_IDENTIFIER "RMP_SANITIZE_RAN_${names}" _remembered)
+  if("${${_remembered}}" STREQUAL "${_key}")
+    set(${result} TRUE PARENT_SCOPE)
+    return()
+  endif()
   set(_dir "${CMAKE_BINARY_DIR}/CMakeFiles/rmp_sanitize_probe")
   file(WRITE "${_dir}/probe.cpp" [=[
 #include <cstdio>
@@ -168,17 +185,18 @@ int main(void) {
       list(SUBLIST _errors 0 3 _errors)
       list(JOIN _errors "\n      " _errors)
       set(${result} FALSE PARENT_SCOPE)
-      set(${why} "a ${_lang} program with ${_compile} does not build:\n      ${_errors}" PARENT_SCOPE)
+      set(${why} "a ${_lang} program with ${_flags} does not build:\n      ${_errors}" PARENT_SCOPE)
       return()
     endif()
     if(NOT _ran EQUAL 0)
       string(STRIP "${_run_out}" _run_out)
       set(${result} FALSE PARENT_SCOPE)
-      set(${why} "a ${_lang} program with ${_compile} builds and does not run (exit ${_ran}):\n      ${_run_out}"
+      set(${why} "a ${_lang} program with ${_flags} builds and does not run (exit ${_ran}):\n      ${_run_out}"
           PARENT_SCOPE)
       return()
     endif()
   endforeach()
+  set(${_remembered} "${_key}" CACHE INTERNAL "what the sanitizer probe for ${names} ran with")
   set(${result} TRUE PARENT_SCOPE)
 endfunction()
 
@@ -212,20 +230,21 @@ if(RMP_SANITIZE_WANTED)
   endif()
   if(_missing)
     list(JOIN _missing ", " _missing_text)
-    set(_message
+    # string(CONCAT), not a list: a ; in the text or in a probe's output
+    # would split the message into pieces and print them run together.
+    string(CONCAT _message
       "[dev] sanitize asks for ${_missing_text}, and ${CMAKE_CXX_COMPILER_ID} "
       "${CMAKE_CXX_COMPILER_VERSION} (${CMAKE_CXX_COMPILER}) cannot run it here:\n"
       "      ${_reasons}\n"
       "  This Debug build goes on without it. To get it: on Linux with clang, install "
       "compiler-rt (libclang-rt-<N>-dev on Debian and Ubuntu, compiler-rt on Arch and "
-      "Fedora); or use [dev] compiler = \"gcc\", whose libasan and libubsan most "
-      "distributions ship; or set [dev] sanitize = [] to stop being told.")
+      "Fedora), or use [dev] compiler = \"gcc\", whose libasan and libubsan most "
+      "distributions ship, or set [dev] sanitize = [] to stop being told.")
     if("$ENV{RMP_REQUIRE_SANITIZERS}" STREQUAL "1")
-      message(FATAL_ERROR ${_message}
-        "\n  RMP_REQUIRE_SANITIZERS=1 is set, so a build without them is refused: CI "
-        "sets it where the build is a gate.")
+      message(FATAL_ERROR "${_message}\n  RMP_REQUIRE_SANITIZERS=1 is set, so a build "
+        "without them is refused: CI sets it where the build is a gate.")
     else()
-      message(WARNING ${_message})
+      message(WARNING "${_message}")
     endif()
   endif()
   if(RMP_SANITIZE_APPLIED)
