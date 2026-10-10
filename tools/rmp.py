@@ -1116,6 +1116,15 @@ def tilde(path: Path) -> str:
     return text
 
 
+def resolved(path: Path) -> Path:
+    """path.resolve(), or the path as it is when a symlink loop leaves nothing
+    to resolve it to: 3.11 and 3.12 raise there, 3.13 gives the path back."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
+
+
 def rc_file(home: Path, env, system: str) -> tuple[Path, str]:
     """The startup file of the login shell ($SHELL) that will put ~/.local/bin
     on PATH, and which family of syntax it reads."""
@@ -1173,7 +1182,7 @@ def install_posix(framework: Path, force: bool) -> int:
     link = bin_dir / "rmp"
     target = framework / "rmp"
     if link.is_symlink() or link.exists():
-        if link.resolve() == target.resolve():
+        if resolved(link) == resolved(target):
             print(f"  ok       {tilde(link)} is this framework's rmp")
         elif not force:
             what = f"a link to {os.readlink(link)}" if link.is_symlink() else "a file"
@@ -1192,12 +1201,12 @@ def install_posix(framework: Path, force: bool) -> int:
             raise Refused(f"could not link {link} to {target}: {e}")
         print(f"  linked   {tilde(link)} -> {tilde(target)}")
 
-    folder = bin_dir.resolve()
+    folder = resolved(bin_dir)
     entries = [e for e in os.environ.get("PATH", "").split(os.pathsep) if e]
-    if any(Path(e).resolve() == folder for e in entries):
+    if any(resolved(Path(e)) == folder for e in entries):
         print(f"  ok       {tilde(bin_dir)} is on PATH")
         found = shutil.which("rmp")
-        if found and Path(found).resolve() != target.resolve():
+        if found and resolved(Path(found)) != resolved(target):
             print(f"  note     another rmp comes first on PATH: {found}")
         print("rmp is ready: rmp help")
         return OK

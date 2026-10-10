@@ -2673,7 +2673,7 @@ class InstallCommandTest(unittest.TestCase):
 
     def test_something_else_in_the_way_is_refused_and_force_replaces_it(self):
         self.link.parent.mkdir(parents=True)
-        for kind in ("file", "link", "dangling"):
+        for kind in ("file", "link", "dangling", "loop"):
             with self.subTest(kind=kind):
                 if self.link.is_symlink() or self.link.exists():
                     self.link.unlink()
@@ -2682,12 +2682,16 @@ class InstallCommandTest(unittest.TestCase):
                 elif kind == "link":
                     self.link.symlink_to(self.tmp / "other")
                     (self.tmp / "other").write_text("x")
-                else:
+                elif kind == "dangling":
                     self.link.symlink_to(self.tmp / "gone")
+                else:   # Python 3.12's resolve() raises on it
+                    self.link.symlink_to(self.tmp / "loop")
+                    (self.tmp / "loop").symlink_to(self.link)
                 code, out, _ = self.run_install()
                 self.assertEqual(code, 1, out)
                 self.assertIn("install force", out)
-                self.assertNotEqual(self.link.resolve(), (REPO / "rmp").resolve())
+                self.assertNotEqual(os.readlink(self.link) if self.link.is_symlink() else "",
+                                    str(REPO / "rmp"))
                 code, out, _ = self.run_install("force")
                 self.assertEqual(code, 0, out)
                 self.assertEqual(Path(os.readlink(self.link)), REPO / "rmp")
@@ -2708,7 +2712,9 @@ class InstallCommandTest(unittest.TestCase):
         (other / "rmp").write_text("#!/bin/sh\n")
         (other / "rmp").chmod(0o755)
         bin_dir = self.home / ".local" / "bin"
-        code, out, _ = self.run_install(path=f"{other}{os.pathsep}{bin_dir}/")
+        loop = self.tmp / "loop"    # a PATH entry Python 3.12 cannot resolve
+        loop.symlink_to(loop)
+        code, out, _ = self.run_install(path=f"{loop}{os.pathsep}{other}{os.pathsep}{bin_dir}/")
         self.assertEqual(code, 0, out)
         self.assertEqual([p.name for p in self.home.iterdir()], [".local"])
         self.assertIn(f"another rmp comes first on PATH: {other / 'rmp'}", out)
