@@ -342,41 +342,21 @@ rmp::SpriteSheet load_sheet(std::string_view name_view) {
     return rmp::SpriteSheet{ slot };
 }
 
-namespace {
-void load_map_level(std::string_view name_view, std::string_view level_view,
-                    rmp::Tilemap *into) {
-    if (into == nullptr) return;
-    const std::string key(name_view);
+rmp::Tilemap load_map(std::string_view name) { return load_map(name, ""); }
+
+rmp::Tilemap load_map(std::string_view name, std::string_view level_view) {
+    rmp::Tilemap map;
+    const std::string key(name);
     const std::string level(level_view);
-    const std::vector<unsigned char> bytes = load_data(name_view);
-    if (bytes.empty()) {
-        into->adopt(
-            rmp::tilemap::detail::MapPtr(nullptr, &rmp::tilemap::detail::free_map));
-        return;
-    }
+    const std::vector<unsigned char> bytes = load_data(name);
+    if (bytes.empty()) return map;
     auto parsed = rmp::tilemap::detail::parse_map(
         bytes.data(), static_cast<int>(bytes.size()), key.c_str(), level.c_str());
     if (parsed == nullptr) detail::loads.failed++;
-    // Owned by the map from here, and whatever was there goes. A map is not a
-    // cached resource the way a texture is: one scene owns one map, the
-    // factories on it are that scene's, and sharing it would share those too.
-    into->adopt(std::move(parsed));
-}
-} // namespace
-
-void load_map(std::string_view name, rmp::Tilemap *into) {
-    load_map_level(name, "", into);
-}
-
-rmp::Tilemap load_map(std::string_view name) {
-    rmp::Tilemap map;
-    load_map(name, &map);
-    return map;
-}
-
-rmp::Tilemap load_map(std::string_view name, std::string_view level) {
-    rmp::Tilemap map;
-    load_map_level(name, level, &map);
+    // Owned by the map from here. A map is not a cached resource the way a
+    // texture is: one scene owns one map, the factories on it are that
+    // scene's, and sharing it would share those too.
+    rmp::tilemap::detail::Access::adopt(map, std::move(parsed));
     return map;
 }
 

@@ -110,7 +110,7 @@ void Camera::detail_settle(float delta) {
     // smoothing backwards.
     const float dt = delta > 0 ? delta : 0.0f;
 
-    if (const Object *target = follow.get()) {
+    if (const Ref<Object> target = follow.get()) {
         const bool new_target = !(follow == _followed);
         // An infinite rate is a snap, and must not become -inf * 0 = NaN on a
         // frame with no time in it.

@@ -4,14 +4,14 @@
 # this by more than 20%, or shrinks under it by as much.
 ads.h            11
 app.h            38096
-assets.h         41063
+assets.h         41061
 audio.h          13082
-behavior.h       42124
-input.h          15180
-math.h           32575
-object.h         41376
+behavior.h       42518
+input.h          15178
+math.h           32571
+object.h         41415
 random.h         2076
-save.h           25624
-scene.h          41611
-tilemap.h        41432
-ui.h             15265
+save.h           25625
+scene.h          42324
+tilemap.h        41478
+ui.h             24616

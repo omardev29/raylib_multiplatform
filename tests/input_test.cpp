@@ -32,7 +32,7 @@ struct {
     rmp::input::detail::DeviceState devices;
 } fake;
 
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
+void fake_sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
 // Every test starts from nothing: no actions, no history, the factory set
 // reinstalled on first use, and the fake provider in place.

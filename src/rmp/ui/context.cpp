@@ -674,10 +674,10 @@ Clay_ElementId finish_id(std::string_view label, unsigned occurrence) {
     return id;
 }
 
-Clay_ElementId element_id(std::string_view label, const char *explicit_id) {
+Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) {
     // An explicit id is the escape hatch, and it says "this element, whatever
     // else is on screen" — so it never counts as an occurrence of anything.
-    if (explicit_id != nullptr) return finish_id(std::string_view{ explicit_id }, 0);
+    if (!explicit_id.empty()) return finish_id(explicit_id, 0);
 
     uint32_t h = fnv1a(label);
     uint16_t occurrence = 0;

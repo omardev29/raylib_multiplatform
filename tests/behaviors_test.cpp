@@ -32,7 +32,6 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
-#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -51,7 +50,7 @@ struct {
     rmp::input::detail::DeviceState devices;
 } fake;
 
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
+void fake_sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
 struct Fixture {
     Fixture() {
@@ -109,7 +108,7 @@ rmp::Object &stander(World &world) {
 // A sheet with the given tags and nothing else: one 1x1 frame, no texture, no
 // file. The resource slot owns the tables from the moment it adopts them and
 // frees them with delete[], which is what the new[] here is for.
-rmp::SpriteSheet sheet_with(const std::vector<const char *> &names) {
+rmp::SpriteSheet sheet_with(const std::vector<std::string> &names) {
     rmp::SheetData data{};
     data.width = 16;
     data.height = 16;
@@ -117,7 +116,7 @@ rmp::SpriteSheet sheet_with(const std::vector<const char *> &names) {
     data.frames[0].seconds = 0.1f;
     data.tags.resize(names.size());
     for (std::size_t i = 0; i < names.size(); i++) {
-        std::snprintf(data.tags[i].name, sizeof(data.tags[i].name), "%s", names[i]);
+        data.tags[i].name = names[i];
     }
 
     auto *slot = rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, std::move(data));
@@ -126,8 +125,7 @@ rmp::SpriteSheet sheet_with(const std::vector<const char *> &names) {
 }
 
 std::string playing(const rmp::Object &object) {
-    const char *tag = object.sprite.playing();
-    return tag == nullptr ? std::string() : std::string(tag);
+    return std::string(object.sprite.playing());
 }
 
 } // namespace
@@ -708,24 +706,31 @@ TEST_CASE_FIXTURE(
 }
 
 TEST_CASE_FIXTURE(Fixture,
-                  "TopDown: a tag name too long for the buffer falls back instead of "
-                  "truncating into a stranger") {
-    // The tag is built into a fixed char[MAX_TAG_NAME * 2] from two strings the
-    // user supplied. A name that does not fit has to come back as "not in the
-    // sheet", not as some other tag's name by accident.
+                  "TopDown: a tag name of any length is matched whole, never by its "
+                  "beginning") {
+    // Tag names were a fixed char[32], cut at 31 characters, and the tag
+    // TopDown asks for was built in a char[64]. They are std::strings now: a
+    // long name is found as itself, and a name that only BEGINS like another
+    // is not taken for it.
     World world;
     rmp::Object &player = world.spawn();
-    const char *long_base = "a_very_long_animation_tag_name_that_fills_the_buffer_"
-                            "and_then_some_more_for_good_measure";
-    player.sprite.sheet = sheet_with({ "idle", long_base });
+    const std::string long_base = "a_very_long_animation_tag_name_that_fills_the_buffer_"
+                                  "and_then_some_more_for_good_measure";
+    player.sprite.sheet = sheet_with({ "idle", long_base, long_base + "_e" });
     player.add<rmp::behavior::TopDown>({ .speed = 100, .walk = long_base });
 
     hold(KEY_D);
     tick(player, 1.0f / 60);
-    // The sheet's tag names are 32 bytes, so the long one is not in it either;
-    // what matters is that nothing wrote past the buffer and the answer is the
-    // base name being asked for.
-    CHECK(rmp::animation::detail::tag_index(player.sprite.sheet.raw(), long_base) < 0);
+    CHECK(playing(player) == long_base + "_e");
+
+    World other;
+    rmp::Object &cut = other.spawn();
+    const std::string first_31 = long_base.substr(0, 31);
+    cut.sprite.sheet = sheet_with({ "idle", first_31 });
+    cut.add<rmp::behavior::TopDown>({ .speed = 100, .walk = long_base });
+    tick(cut, 1.0f / 60);
+    CHECK(playing(cut) != first_31);
+    CHECK(rmp::animation::detail::tag_index(cut.sprite.sheet.raw(), long_base) < 0);
 }
 
 TEST_CASE_FIXTURE(Fixture,

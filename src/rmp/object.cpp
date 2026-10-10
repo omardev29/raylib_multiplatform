@@ -38,7 +38,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace rmp {
@@ -138,17 +140,40 @@ Shape circle(float radius) {
 
 namespace detail {
 
-Object *resolve(unsigned index, unsigned generation) {
-    if (generation == 0) return nullptr;
+Ref<Object> resolve(unsigned index, unsigned generation) {
+    if (generation == 0) return {};
     Cell *slot = slot_at(index);
-    if (slot == nullptr || !slot->occupied) return nullptr;
-    if (slot->generation != generation) return nullptr;
+    if (slot == nullptr || !slot->occupied) return {};
+    if (slot->generation != generation) return {};
     // A handle goes false the moment destroy() is called, not when the memory
     // is finally released at the end of the frame. Anything else would let
     // `if (target)` pass and then hand back an object that has already had its
     // _end() run and is not being updated or drawn.
-    if (slot->object == nullptr || !slot->object->alive()) return nullptr;
-    return slot->object.get();
+    if (slot->object == nullptr || !slot->object->alive()) return {};
+    return Ref<Object>(*slot->object);
+}
+
+// One counter for every type_id<T>() in the program. An int, and it starts at
+// 1, so a 0 in a record means "no type" without anyone having to say so.
+int next_type_id() {
+    static int last = 0;
+    return ++last;
+}
+
+void report_empty_ref(int type) {
+    RMP_REPORT_ONCE_KEYED(std::to_string(type).c_str(),
+                          "OBJECT: an empty rmp::Ref was reached through * or -> -- a "
+                          "get<B>() on an object with no B, or a Handle whose object is "
+                          "gone. Nothing happened: it went to a stand-in. Ask first: "
+                          "`if (auto b = object.get<B>())`, `if (handle)`.");
+}
+
+void no_stand_in(int type) {
+    report_empty_ref(type);
+    TraceLog(LOG_ERROR,
+             "OBJECT: and its type has no default constructor, so there is "
+             "no stand-in to give: the program ends here.");
+    std::abort();
 }
 
 } // namespace detail
@@ -156,6 +181,8 @@ Object *resolve(unsigned index, unsigned generation) {
 // Storage is declared in object_internal.h, so that src/rmp/collision.cpp can
 // reach the same private half without Object having to befriend every internal
 // function by name.
+Ref<Scene> Storage::spawned_in(const Object &object) { return object.spawned_in(); }
+
 Vector2 Storage::take_force(Object &object) { return object.take_force(); }
 
 Vector2 Storage::previous_position(const Object &object) {
@@ -191,8 +218,8 @@ void Storage::set_behavior_slot(Object &object, int slot) {
 // Object's private half, which Storage above forwards to
 // ---------------------------------------------------------------------------
 
-void Object::attach(Scene *scene, unsigned index, unsigned generation, Vector2 at) {
-    _scene = scene;
+void Object::attach(Scene &scene, unsigned index, unsigned generation, Vector2 at) {
+    _scene = Ref<Scene>(scene);
     _index = index;
     _generation = generation;
     _alive = true;
@@ -312,6 +339,16 @@ Object::~Object() {
     objects::detail::release_behaviors(*this);
 }
 
+Scene &Object::scene() const {
+    if (_scene) return *_scene;
+    // A member, a local, a test's object: nothing spawned it. A reference has
+    // to refer to something, and the scene on top is the nearest thing to
+    // what was meant -- and with no app running, Scene::current() says so too.
+    RMP_REPORT_ONCE("OBJECT: scene() on an object no scene spawned; answering "
+                    "Scene::current(). Make it with spawn() to give it one.");
+    return Scene::current();
+}
+
 void Object::destroy() {
     if (!_alive) return; // twice is harmless, and happens
     _alive = false;
@@ -355,7 +392,7 @@ void Scene::detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &opt
     if (slot.generation == 0) slot.generation = 1;
     slot.object = std::move(owned);
 
-    made->attach(this, index, slot.generation, options.position);
+    made->attach(*this, index, slot.generation, options.position);
     made->position = options.position;
     made->velocity = options.velocity;
     made->scale = options.scale;
@@ -385,7 +422,7 @@ void Scene::destroy(Object &object) {
     // scene's object through this one is a real mistake with a confusing
     // symptom: the object does go away, and the count that did not move is on
     // the scene the caller was looking at.
-    if (object.scene() != this) {
+    if (Storage::spawned_in(object) != Ref<Scene>(*this)) {
         RMP_REPORT_ONCE("SCENE: destroy() was given an object that belongs to "
                         "another scene. Destroying it anyway; call object.destroy().");
     }
@@ -452,12 +489,9 @@ bool apply_edges(Object &object) {
     // view and not the window, because a camera that has moved to x = 5000
     // makes "the window" a rectangle nothing on screen is inside.
     Rectangle area = object.bounds;
-    if (empty_rect(area) && object.scene() != nullptr && object.scene()->map.valid()) {
-        area = object.scene()->map.bounds();
-    }
-    if (empty_rect(area)) {
-        area = object.scene() != nullptr ? object.scene()->camera.view() : view_rect();
-    }
+    const Ref<Scene> scene = Storage::spawned_in(object);
+    if (empty_rect(area) && scene && scene->map.valid()) area = scene->map.bounds();
+    if (empty_rect(area)) area = scene ? scene->camera.view() : view_rect();
     const Rectangle box = object.world_bounds();
 
     const float left = area.x;
@@ -629,7 +663,7 @@ void push_out(Object &object, const Tilemap &map, float cell) {
 }
 
 void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
-    const float cell = tilemap::detail::smallest_cell(map.detail_data());
+    const float cell = tilemap::detail::smallest_cell(tilemap::detail::Access::data(map));
     const Rectangle box = object.world_collider();
     if (cell <= 0 || box.width <= 0 || box.height <= 0) {
         object.position.x += step.x;

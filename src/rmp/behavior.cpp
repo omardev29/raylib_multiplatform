@@ -18,7 +18,7 @@
 // allocation happens once per object that has one.
 //
 // What the architecture was really protecting is the CONTRACT, and that is
-// kept exactly: add<B>() returns B&, get<B>() returns B*, and both stay valid
+// kept exactly: add<B>() returns B&, get<B>() an rmp::Ref, and both stay valid
 // for as long as the behavior is attached -- the data is heap-allocated and
 // never moves, so growing the slot list cannot invalidate a reference the way
 // an inline arena in a vector would. If a real game ever measures a reason, the
@@ -42,7 +42,7 @@ namespace rmp {
 namespace {
 
 struct Attached {
-    const void *type = nullptr;
+    int type = 0; // detail::type_id<B>()
     std::shared_ptr<void> data; // owns the behavior; its deleter is B's
     const detail::BehaviorOps *ops = nullptr;
     // Removed while the list was being walked. The entry stays where it is
@@ -135,8 +135,7 @@ void end_walk(const Object &object) {
 
 namespace detail {
 
-void *attach(Object &self, const void *type, const BehaviorOps &ops,
-             std::shared_ptr<void> data) {
+void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<void> data) {
     // Adding the same behavior twice replaces it rather than stacking two,
     // because two of the same is never what anybody means and the second
     // get<B>() could only return one of them anyway.
@@ -149,7 +148,7 @@ void *attach(Object &self, const void *type, const BehaviorOps &ops,
     return raw;
 }
 
-void *find_behavior(const Object &self, const void *type) {
+void *find_behavior(const Object &self, int type) {
     Owner *owner = owner_of(&self);
     if (owner == nullptr) return nullptr;
     for (const Attached &a : owner->list) {
@@ -158,7 +157,7 @@ void *find_behavior(const Object &self, const void *type) {
     return nullptr;
 }
 
-void detach(Object &self, const void *type) {
+void detach(Object &self, int type) {
     Owner *owner = owner_of(&self);
     if (owner == nullptr) return;
     for (std::size_t i = 0; i < owner->list.size(); i++) {
@@ -175,7 +174,7 @@ void detach(Object &self, const void *type) {
         // step IS, silently cost its neighbour a frame.
         if (owner->walking > 0) {
             owner->list[i].dead = true;
-            owner->list[i].type = nullptr;
+            owner->list[i].type = 0;
             owner->list[i].data.reset();
         } else {
             owner->list.erase(owner->list.begin() + static_cast<std::ptrdiff_t>(i));

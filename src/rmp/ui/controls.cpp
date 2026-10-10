@@ -1,7 +1,7 @@
 // ===========================================================================
 // Controls that own a value: checkbox, slider, dropdown, text input.
 //
-// Each one takes a pointer to the caller's variable. That is the entire state
+// Each one takes the caller's variable by reference. That is the entire state
 // model — there is nothing of ours to keep in sync, and what is on screen is
 // what is in their struct because it was read this frame.
 //
@@ -15,7 +15,7 @@
 
 #include <cstdio>
 #include <cmath>
-#include <cstring>
+#include <string>
 
 namespace rmp::ui {
 
@@ -100,12 +100,12 @@ Clay_ElementDeclaration control_row(bool has_focus) {
 // checkbox
 // ---------------------------------------------------------------------------
 
-bool checkbox(std::string_view label, bool *value) {
+bool checkbox(std::string_view label, bool &value) {
     return checkbox(label, value, CheckboxOptions{});
 }
 
-bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
-    if (!detail::frame_open() || value == nullptr) return false;
+bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
+    if (!detail::frame_open()) return false;
     const Theme &t = current_theme();
 
     Clay_ElementId id = detail::element_id(label, o.id);
@@ -115,7 +115,7 @@ bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
     const bool has_focus = o.enabled && detail::focusable(id, label);
     bool toggled = clicked(id, over);
     if (has_focus && detail::take_activate()) toggled = true;
-    if (toggled) *value = !*value;
+    if (toggled) value = !value;
 
     Clay_ElementDeclaration row = control_row(has_focus);
     // The row is transparent at rest, so it fades in from surface_hover with
@@ -137,18 +137,18 @@ bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
         // The fill follows the value rather than the pointer, so ticking a box
         // reads as the box filling in instead of swapping colour between two
         // frames. Its own sub-id, so it does not share a slot with the row.
-        const float on = detail::anim_value(detail::peek_sub_id(id, 7), 0, *value);
+        const float on = detail::anim_value(detail::peek_sub_id(id, 7), 0, value);
         box.backgroundColor = to_clay(
             !o.enabled ? t.disabled : detail::mix_color(t.surface, t.primary, on));
         float r = px(t.corner_radius * 0.5f);
         box.cornerRadius = Clay_CornerRadius{ r, r, r, r };
         auto bw = static_cast<uint16_t>(px(1.5f));
-        box.border.color = to_clay(*value ? t.primary : t.border);
+        box.border.color = to_clay(value ? t.primary : t.border);
         box.border.width = Clay_BorderWidth{ bw, bw, bw, bw, 0 };
 
         Clay__OpenElement();
         Clay__ConfigureOpenElement(box);
-        if (*value) {
+        if (value) {
             Clay_ElementDeclaration dot{};
             dot.layout.sizing.width = fixed(t.control_size * 0.4f);
             dot.layout.sizing.height = fixed(t.control_size * 0.4f);
@@ -172,13 +172,13 @@ bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o) {
 // slider
 // ---------------------------------------------------------------------------
 
-bool slider(std::string_view label, float *value, float min, float max) {
+bool slider(std::string_view label, float &value, float min, float max) {
     return slider(label, value, min, max, SliderOptions{});
 }
 
-bool slider(std::string_view label, float *value, float min, float max,
+bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o) {
-    if (!detail::frame_open() || value == nullptr || max <= min) return false;
+    if (!detail::frame_open() || max <= min) return false;
     const Theme &t = current_theme();
 
     Clay_ElementId id = detail::element_id(label, o.id);
@@ -186,7 +186,7 @@ bool slider(std::string_view label, float *value, float min, float max,
 
     const bool has_focus = o.enabled && detail::focusable(id, label);
     const float span = max - min;
-    const float before = *value;
+    const float before = value;
 
     // Dragging. The track's box comes from last frame, which is the same
     // tolerance every other interaction here has, and at 60 fps it is invisible
@@ -209,7 +209,7 @@ bool slider(std::string_view label, float *value, float min, float max,
             float fraction = box.width > 0 ? (p.x - box.x) / box.width : 0.0f;
             if (fraction < 0) fraction = 0;
             if (fraction > 1) fraction = 1;
-            *value = min + fraction * span;
+            value = min + fraction * span;
         }
     } else {
         st->flag = false;
@@ -222,7 +222,7 @@ bool slider(std::string_view label, float *value, float min, float max,
     // ONE STEP PER PRESS, then a repeat while it is held. It used to be a
     // continuous nudge of step * dt * 12, which for a slider with a step is a
     // fifth of one at 60 fps — less than the half a step the snap below needs,
-    // and the remainder was thrown away with the rest of *value. A stepped
+    // and the remainder was thrown away with the rest of the value. A stepped
     // slider could not be moved by keyboard or gamepad at all, at any frame
     // rate above about 42, which reads as "the controller does not work on this
     // one" and leaves a TV build with no way to change it.
@@ -237,14 +237,14 @@ bool slider(std::string_view label, float *value, float min, float max,
             // Negative, so the second step does not follow the first
             // immediately: a quarter of a second at the 12-a-second rate below.
             st->f = -3.0f;
-            *value += static_cast<float>(nav) * step;
+            value += static_cast<float>(nav) * step;
         } else {
             // Held. Whole steps only, and the fraction left over is kept rather
             // than rounded away — that discarded remainder was the bug.
             st->f += detail::frame_time() * 12.0f;
             while (st->f >= 1.0f) {
                 st->f -= 1.0f;
-                *value += static_cast<float>(nav) * step;
+                value += static_cast<float>(nav) * step;
             }
         }
     }
@@ -253,13 +253,13 @@ bool slider(std::string_view label, float *value, float min, float max,
         // std::lround, not (int)(x + 0.5f): the second rounds the wrong way for
         // negative values, and a slider whose range crosses zero has them. The
         // clamps below still put the result back inside [min, max].
-        float steps = (*value - min) / o.step;
-        *value = min + static_cast<float>(std::lround(steps)) * o.step;
+        float steps = (value - min) / o.step;
+        value = min + static_cast<float>(std::lround(steps)) * o.step;
     }
-    if (*value < min) *value = min;
-    if (*value > max) *value = max;
+    if (value < min) value = min;
+    if (value > max) value = max;
 
-    const float fraction = (*value - min) / span;
+    const float fraction = (value - min) / span;
 
     Clay_ElementDeclaration row = control_row(has_focus);
     Clay__OpenElementWithId(id);
@@ -310,26 +310,38 @@ bool slider(std::string_view label, float *value, float min, float max,
     }
     Clay__CloseElement();
 
-    return *value != before;
+    return value != before;
 }
 
 // ---------------------------------------------------------------------------
 // dropdown
 // ---------------------------------------------------------------------------
 
-bool dropdown(std::string_view label, int *selected, const char *const *items,
-              int count) {
-    return dropdown(label, selected, items, count, DropdownOptions{});
+bool dropdown(std::string_view label, int &selected,
+              std::span<const std::string_view> items) {
+    return dropdown(label, selected, items, DropdownOptions{});
 }
 
-bool dropdown(std::string_view label, int *selected, const char *const *items, int count,
-              const DropdownOptions &o) {
-    if (!detail::frame_open() || selected == nullptr || items == nullptr || count <= 0) {
-        return false;
-    }
+bool dropdown(std::string_view label, int &selected,
+              std::initializer_list<std::string_view> items) {
+    return dropdown(label, selected, std::span(items.begin(), items.size()),
+                    DropdownOptions{});
+}
+
+bool dropdown(std::string_view label, int &selected,
+              std::initializer_list<std::string_view> items, const DropdownOptions &o) {
+    return dropdown(label, selected, std::span(items.begin(), items.size()), o);
+}
+
+bool dropdown(std::string_view label, int &selected,
+              std::span<const std::string_view> items, const DropdownOptions &o) {
+    if (!detail::frame_open() || items.empty()) return false;
     const Theme &t = current_theme();
-    if (*selected < 0) *selected = 0;
-    if (*selected >= count) *selected = count - 1;
+    // An int, because that is what a game keeps; a list longer than an int
+    // counts is not a dropdown anyone can use.
+    const int count = static_cast<int>(items.size());
+    if (selected < 0) selected = 0;
+    if (selected >= count) selected = count - 1;
 
     Clay_ElementId id = detail::element_id(label, o.id);
     detail::WidgetState *st = detail::state_for(id.id);
@@ -361,16 +373,16 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
     const bool cancelled = st->flag && has_focus && detail::take_cancel();
     if (field_clicked && !cancelled) {
         st->flag = !st->flag;
-        st->i = *selected;
+        st->i = selected;
     } else if (!cancelled && has_focus && detail::take_activate()) {
         if (st->flag) {
             // Accept picks what the list was walked to, as a click would.
-            if (*selected != st->i) changed = true;
-            *selected = st->i;
+            if (selected != st->i) changed = true;
+            selected = st->i;
             st->flag = false;
         } else {
             st->flag = true;
-            st->i = *selected;
+            st->i = selected;
         }
     } else if (cancelled || (st->flag && detail::pointer_released() && !over_any_item)) {
         // Or released somewhere else entirely. An open list that will not go
@@ -414,7 +426,7 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
         Clay__OpenElement();
         Clay__ConfigureOpenElement(field);
         {
-            label_text(std::string_view{ items[*selected] },
+            label_text(items[static_cast<std::size_t>(selected)],
                        o.enabled ? t.text : t.disabled_text, t.font_size);
 
             // The open list floats: it has to overlap whatever is underneath
@@ -457,8 +469,8 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                     // pointer whether or not this particular item is under it.
                     detail::set_pointer_over_ui();
                     if (clicked(item_id, item_over)) {
-                        if (*selected != i) changed = true;
-                        *selected = i;
+                        if (selected != i) changed = true;
+                        selected = i;
                         st->flag = false;
                     }
 
@@ -474,13 +486,13 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
                     const bool lit =
                         item_over || (walking && detail::focus_visible() && i == st->i);
                     item.backgroundColor = to_clay(detail::state_color(
-                        item_id, (i == *selected) ? t.surface : t.panel, t.surface_hover,
+                        item_id, (i == selected) ? t.surface : t.panel, t.surface_hover,
                         t.surface_press, lit, item_over && detail::pointer_down()));
                     item.cornerRadius =
                         Clay_CornerRadius{ r * 0.5f, r * 0.5f, r * 0.5f, r * 0.5f };
                     Clay__OpenElementWithId(item_id);
                     Clay__ConfigureOpenElement(item);
-                    label_text(std::string_view{ items[i] }, t.text, t.font_size);
+                    label_text(items[static_cast<std::size_t>(i)], t.text, t.font_size);
                     Clay__CloseElement();
                 }
                 detail::pop_clip();
@@ -498,13 +510,12 @@ bool dropdown(std::string_view label, int *selected, const char *const *items, i
 // text input
 // ---------------------------------------------------------------------------
 
-bool text_input(std::string_view label, char *buffer, int capacity) {
-    return text_input(label, buffer, capacity, TextInputOptions{});
+bool text_input(std::string_view label, std::string &value) {
+    return text_input(label, value, TextInputOptions{});
 }
 
-bool text_input(std::string_view label, char *buffer, int capacity,
-                const TextInputOptions &o) {
-    if (!detail::frame_open() || buffer == nullptr || capacity < 2) return false;
+bool text_input(std::string_view label, std::string &value, const TextInputOptions &o) {
+    if (!detail::frame_open()) return false;
     const Theme &t = current_theme();
 
     Clay_ElementId id = detail::element_id(label, o.id);
@@ -535,8 +546,10 @@ bool text_input(std::string_view label, char *buffer, int capacity,
         typing = took = true;
     }
 
-    bool changed = false;
-    int len = static_cast<int>(std::strlen(buffer));
+    // A value longer than the field may hold -- handed in that way, or a
+    // max_length that came down -- is cut to it here, at the end of a
+    // character, and that is a change like any other.
+    bool changed = detail::utf8_truncate(value, o.max_length);
 
     if (typing) {
         // The game is told to keep its hands off via wants_keyboard().
@@ -545,19 +558,12 @@ bool text_input(std::string_view label, char *buffer, int capacity,
     // Not on the frame it took the keyboard: the Space that took it is in the
     // character queue too.
     if (typing && !took) {
-        int c;
+        int c = 0;
         while ((c = GetCharPressed()) != 0) {
-            if (c >= 32 && c < 127 && len < capacity - 1) {
-                buffer[len++] = static_cast<char>(c);
-                buffer[len] = '\0';
-                changed = true;
-            }
+            if (detail::utf8_append(value, c, o.max_length)) changed = true;
         }
         if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
-            if (len > 0) {
-                buffer[--len] = '\0';
-                changed = true;
-            }
+            if (detail::utf8_pop(value)) changed = true;
         }
     }
 
@@ -586,24 +592,14 @@ bool text_input(std::string_view label, char *buffer, int capacity,
         Clay__OpenElement();
         Clay__ConfigureOpenElement(field);
         {
-            if (len == 0 && !o.placeholder.empty() && !typing) {
+            if (value.empty() && !o.placeholder.empty() && !typing) {
                 label_text(o.placeholder, t.text_muted, t.font_size);
             } else {
                 // The caret is a character rather than a drawn rectangle: it
                 // costs no render command, and it blinks by not being appended
                 // half the time.
-                char shown[512];
-                // Clamped in both directions rather than just the top. len is
-                // never negative today, but nothing here enforces that, and a
-                // negative n turns the memcpy below into a very large one.
-                int n = len;
-                if (n < 0) n = 0;
-                if (n > 500) n = 500;
-                std::memcpy(shown, buffer, static_cast<size_t>(n));
                 bool caret_on = typing && (static_cast<int>(GetTime() * 2.0) % 2) == 0;
-                if (caret_on) shown[n++] = '_';
-                shown[n] = '\0';
-                label_text(std::string_view{ shown, static_cast<size_t>(n) },
+                label_text(caret_on ? value + "_" : value,
                            o.enabled ? t.text : t.disabled_text, t.font_size);
             }
         }
@@ -613,5 +609,78 @@ bool text_input(std::string_view label, char *buffer, int capacity,
 
     return changed;
 }
+
+// ---------------------------------------------------------------------------
+// UTF-8, for the text field
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+namespace {
+
+// A byte that continues a character rather than starting one: 10xxxxxx.
+bool continues(char c) { return (static_cast<unsigned char>(c) & 0xC0U) == 0x80U; }
+
+} // namespace
+
+int utf8_length(std::string_view text) {
+    int n = 0;
+    for (const char c : text) {
+        if (!continues(c)) n++;
+    }
+    return n;
+}
+
+bool utf8_append(std::string &text, int codepoint, int max_length) {
+    // What a player types: no control characters (C0, DEL, C1), no half of
+    // a surrogate pair, nothing past the last codepoint there is.
+    const bool control = codepoint < 0x20 || (codepoint >= 0x7F && codepoint < 0xA0);
+    const bool surrogate = codepoint >= 0xD800 && codepoint <= 0xDFFF;
+    if (control || surrogate || codepoint > 0x10FFFF) return false;
+    if (max_length > 0 && utf8_length(text) >= max_length) return false;
+
+    const auto cp = static_cast<unsigned>(codepoint);
+    const auto byte = [](unsigned bits) { return static_cast<char>(bits); };
+    if (cp < 0x80U) {
+        text += byte(cp);
+    } else if (cp < 0x800U) {
+        text += byte(0xC0U | (cp >> 6U));
+        text += byte(0x80U | (cp & 0x3FU));
+    } else if (cp < 0x10000U) {
+        text += byte(0xE0U | (cp >> 12U));
+        text += byte(0x80U | ((cp >> 6U) & 0x3FU));
+        text += byte(0x80U | (cp & 0x3FU));
+    } else {
+        text += byte(0xF0U | (cp >> 18U));
+        text += byte(0x80U | ((cp >> 12U) & 0x3FU));
+        text += byte(0x80U | ((cp >> 6U) & 0x3FU));
+        text += byte(0x80U | (cp & 0x3FU));
+    }
+    return true;
+}
+
+bool utf8_pop(std::string &text) {
+    if (text.empty()) return false;
+    // Back over the bytes that continue the last character, then its first.
+    while (!text.empty() && continues(text.back())) text.pop_back();
+    if (!text.empty()) text.pop_back();
+    return true;
+}
+
+bool utf8_truncate(std::string &text, int max_length) {
+    if (max_length <= 0) return false;
+    int seen = 0;
+    for (std::size_t i = 0; i < text.size(); i++) {
+        if (continues(text[i])) continue;
+        if (seen == max_length) {
+            text.resize(i); // i starts a character: nothing is cut inside one
+            return true;
+        }
+        seen++;
+    }
+    return false;
+}
+
+} // namespace detail
 
 } // namespace rmp::ui

@@ -41,13 +41,13 @@ Run &run() { return rmp::global<Run>(); }
 
 void new_run() { rmp::global<Run>() = Run{}; }
 
-bool contains(const std::vector<std::string> &list, const char *iid) {
+bool contains(const std::vector<std::string> &list, std::string_view iid) {
     return std::find(list.begin(), list.end(), iid) != list.end();
 }
 
 Best best() {
     rmp::Value saved;
-    rmp::save::read("platformer", &saved);
+    rmp::save::read("platformer", saved);
     return Best{ saved["coins"].as_int(-1), saved["seconds"].as_float(0) };
 }
 

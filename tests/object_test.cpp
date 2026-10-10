@@ -13,6 +13,7 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/object_internal.h"
 
 #include <rmp/object.h>
@@ -135,7 +136,7 @@ TEST_CASE_FIXTURE(Fixture, "spawn puts an object in the scene and runs _ready") 
     CHECK(probe.position.x == doctest::Approx(10));
     CHECK(probe.position.y == doctest::Approx(20));
     CHECK(probe.alive());
-    CHECK(probe.scene() == &world);
+    CHECK(&probe.scene() == &world);
     // _ready() ran before spawn returned, so it ran before the name was set.
     CHECK(trace.log == "?.ready");
 }
@@ -307,7 +308,7 @@ public:
     void _update(float delta) override {
         (void)delta;
         if (made < 3) {
-            scene()->spawn();
+            scene().spawn();
             made++;
         }
     }
@@ -345,7 +346,7 @@ TEST_CASE_FIXTURE(Fixture, "a handle to a live object resolves to it") {
     const rmp::Handle<rmp::Object> handle = object.handle();
 
     REQUIRE(static_cast<bool>(handle));
-    CHECK(handle.get() == &object);
+    CHECK(&*handle.get() == &object);
     CHECK(&*handle == &object);
     object.position = { 5, 6 };
     CHECK(handle->position.x == doctest::Approx(5));
@@ -434,12 +435,122 @@ TEST_CASE_FIXTURE(Fixture, "a handle to a typed object comes back typed") {
     const rmp::Handle<Probe> typed = probe.handle<Probe>();
     REQUIRE(static_cast<bool>(typed));
     CHECK(typed->name == "p");
-    CHECK(typed.get() == &probe);
+    CHECK(&*typed.get() == &probe);
 
     SUBCASE("and it dies with the object, like any other") {
         probe.destroy();
         CHECK_FALSE(static_cast<bool>(typed));
     }
+}
+
+// ---------------------------------------------------------------------------
+// rmp::Ref, and reaching through a handle whose object is gone
+// ---------------------------------------------------------------------------
+
+namespace {
+// What [dev] strict would do, counted instead of aborting, and the report
+// table emptied either side so a count means this test's reports.
+struct Reports {
+    rmp::detail::StrictHandler previous;
+    Reports() {
+        rmp::detail::reset_reports_for_tests();
+        previous = rmp::detail::set_strict_handler(count_stop);
+        stops = 0;
+    }
+    ~Reports() {
+        rmp::detail::set_strict(false);
+        rmp::detail::set_strict_handler(previous);
+        rmp::detail::reset_reports_for_tests();
+    }
+    static void count_stop() { stops++; }
+    static inline int stops = 0;
+};
+} // namespace
+
+TEST_CASE("an empty Ref is false, and equal to nullptr and to every empty one") {
+    const rmp::Ref<rmp::Object> empty;
+    CHECK_FALSE(static_cast<bool>(empty));
+    CHECK(empty == nullptr);
+    CHECK(nullptr == empty);
+    CHECK(empty == rmp::Ref<rmp::Object>{});
+}
+
+TEST_CASE("a Ref refers to what it was made from, and compares by what it refers to") {
+    rmp::Object a;
+    rmp::Object b;
+    const rmp::Ref<rmp::Object> to_a(a);
+    REQUIRE(static_cast<bool>(to_a));
+    CHECK(to_a != nullptr);
+    CHECK(&*to_a == &a);
+    CHECK(&to_a->position == &a.position);
+    to_a->position = { 3, 4 };
+    CHECK(a.position.x == doctest::Approx(3));
+    CHECK(to_a == rmp::Ref<rmp::Object>(a));
+    CHECK(to_a != rmp::Ref<rmp::Object>(b));
+    CHECK(to_a != rmp::Ref<rmp::Object>{});
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "-> and * on a dead handle reach a stand-in, and say so once") {
+    // Undefined behaviour before rmp::Ref: get() was nullptr and * dereferenced
+    // it. Now the forgetful line lands on a stand-in, the game goes on, and
+    // the mistake is one line in the log.
+    const Reports reports;
+    World world;
+    auto &first = world.spawn({ .position = { 1, 1 } });
+    const rmp::Handle<rmp::Object> stale = first.handle();
+    first.destroy();
+    rmp::objects::detail::collect();
+    REQUIRE_FALSE(static_cast<bool>(stale));
+
+    // Its slot goes to somebody else, who must not feel any of it.
+    auto &second = world.spawn({ .position = { 2, 2 } });
+    REQUIRE(rmp::objects::detail::slot_count() == 1);
+
+    stale->position = { 99, 99 };
+    (*stale).velocity = { 5, 5 };
+    CHECK(second.position.x == doctest::Approx(2));
+    CHECK(second.velocity.x == doctest::Approx(0));
+    // Said once, for however many times it happened.
+    CHECK(rmp::detail::report_count() == 1);
+    for (int i = 0; i < 60; i++) stale->rotation += 1;
+    CHECK(rmp::detail::report_count() == 1);
+    CHECK(Reports::stops == 0);
+}
+
+TEST_CASE("a stand-in is made again on every use, so it always reads as a new one") {
+    const Reports reports;
+    const rmp::Ref<rmp::Object> empty;
+    empty->position = { 7, 7 };
+    empty->gravity_scale = 3;
+    CHECK(empty->position.x == doctest::Approx(0));
+    CHECK(empty->gravity_scale == doctest::Approx(0));
+    // And what was handed out is an Object, the type that was asked for.
+    rmp::Object &stand_in = *empty;
+    CHECK(stand_in.alive());
+}
+
+TEST_CASE("under [dev] strict, reaching into an empty Ref stops a debug build") {
+    const Reports reports;
+    rmp::detail::set_strict(true);
+    const rmp::Ref<rmp::Object> empty;
+    empty->position.x = 1;
+    CHECK(Reports::stops == 1);
+}
+
+TEST_CASE("each type has one number of its own, the same wherever it is asked for") {
+    const int object = rmp::detail::type_id<rmp::Object>();
+    CHECK(object > 0);
+    CHECK(rmp::detail::type_id<rmp::Object>() == object);
+    CHECK(rmp::detail::type_id<Probe>() != object);
+    CHECK(rmp::detail::type_id<Probe>() == rmp::detail::type_id<Probe>());
+}
+
+TEST_CASE("scene() on an object no scene spawned says so, and answers current()") {
+    const Reports reports;
+    const rmp::Object loose; // a member, a local, a test's object
+    CHECK(&loose.scene() == &rmp::Scene::current());
+    CHECK(rmp::detail::report_count() >= 1);
 }
 
 TEST_CASE_FIXTURE(Fixture, "every handle into a scene dies with the scene") {
@@ -1108,7 +1219,7 @@ TEST_CASE_FIXTURE(Fixture, "destroying an object that was never spawned frees no
 
     CHECK(rmp::objects::detail::live_count() == 1);
     CHECK(world.object_count() == 1);
-    CHECK(handle.get() == &spawned);
+    CHECK(&*handle.get() == &spawned);
 }
 
 // ---------------------------------------------------------------------------
@@ -1129,7 +1240,7 @@ TEST_CASE_FIXTURE(Fixture, "a generation that wraps past the end skips zero") {
     REQUIRE(rmp::objects::detail::slot_count() == 1); // the same slot, reused
 
     const rmp::Handle<rmp::Object> handle = second.handle();
-    CHECK(handle.get() == &second);
+    CHECK(&*handle.get() == &second);
     CHECK(static_cast<bool>(handle));
 }
 
@@ -1142,7 +1253,7 @@ TEST_CASE_FIXTURE(Fixture,
     World world;
     auto &first = world.spawn();
     const rmp::Handle<rmp::Object> stale = first.handle();
-    REQUIRE(stale.get() == &first);
+    REQUIRE(&*stale.get() == &first);
 
     rmp::objects::detail::set_generation_for_tests(0, 0xFFFFFFFFu);
     first.destroy();
@@ -1150,8 +1261,9 @@ TEST_CASE_FIXTURE(Fixture,
 
     auto &second = world.spawn();
     REQUIRE(rmp::objects::detail::slot_count() == 1);
-    CHECK(stale.get() != &second);
+    // Empty, which is the whole of "not the new object".
     CHECK(stale.get() == nullptr);
+    CHECK_FALSE(stale == second.handle());
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@
 #include <rmp/config.h>
 
 #include <memory> // std::shared_ptr: what owns a resource slot's payload
+#include <string> // a sheet tag's name
 #include <string_view> // names on the way in
 #include <vector> // the sheet tables, and load_data()'s bytes
 
@@ -84,20 +85,20 @@ enum class ResourceKind {
 // which is what lets two handles to the same name share one GPU object.
 struct Slot;
 
-Slot *acquire_named(ResourceKind kind, const char *name, int font_size);
+Slot *acquire_named(ResourceKind kind, std::string_view name, int font_size);
 
 // The slot OWNS the payload: a std::shared_ptr<void> because it carries T's
 // destructor with it, so a sheet's tables are freed by the language and the
 // table never learns what a T is. The raylib Unload* for the kind is called
 // first, by the table, which is the one place in the framework it happens.
 Slot *adopt_owned(ResourceKind kind, std::shared_ptr<void> payload);
-Slot *adopt_named_owned(ResourceKind kind, const char *name, int font_size,
+Slot *adopt_named_owned(ResourceKind kind, std::string_view name, int font_size,
                         std::shared_ptr<void> payload);
 template <class T> Slot *adopt(ResourceKind kind, T payload) {
     return adopt_owned(kind, std::make_shared<T>(std::move(payload)));
 }
 template <class T>
-Slot *adopt_named(ResourceKind kind, const char *name, int font_size, T payload) {
+Slot *adopt_named(ResourceKind kind, std::string_view name, int font_size, T payload) {
     return adopt_named_owned(kind, name, font_size,
                              std::make_shared<T>(std::move(payload)));
 }
@@ -109,7 +110,7 @@ const void *payload(const Slot *slot);
 // For tests, and for a debug overlay. How many distinct resources are loaded,
 // and how many references exist to a given name.
 int live_count();
-int ref_count(const char *name);
+int ref_count(std::string_view name);
 
 // The RAII half, written once for every handle type. Copy shares, move steals,
 // and the last handle to a resource going away is what unloads it.
@@ -187,14 +188,9 @@ private:
 // animation. And the duration comes from the file per frame, so it plays at the
 // speed you drew it at.
 //
-// Vectors, and a char buffer for the tag name: <vector> is paid by this header
-// (measured, see tools/header_cost.py), and the name stays a fixed buffer
-// because it is compared per frame and never grows.
+// Vectors and strings, which this header pays for and tools/header_cost.py
+// measures: a tag's name is what Aseprite wrote, all of it.
 // ---------------------------------------------------------------------------
-
-// The size of a SheetTag's name, terminator included. A tag whose name is
-// longer keeps its first MAX_TAG_NAME - 1 characters.
-constexpr int MAX_TAG_NAME = 32;
 
 // One frame of a sheet: where it is in the packed texture, and how long it shows.
 struct SheetFrame {
@@ -205,7 +201,7 @@ struct SheetFrame {
 // One tag of the .aseprite: a named run of frames, and the direction Aseprite
 // plays it in. Its name is what `sprite.play("walk")` looks for.
 struct SheetTag {
-    char name[MAX_TAG_NAME] = {}; // the tag's name in Aseprite, NUL-terminated
+    std::string name; // the tag's name in Aseprite
     int from = 0; // the first frame, an index into SheetData::frames
     int to = 0; // inclusive, the way Aseprite counts
     bool ping_pong = false; // Aseprite's "Ping-pong" direction: forwards, then back
@@ -316,9 +312,8 @@ rmp::SpriteSheet load_sheet(std::string_view name);
 // `level` picks an LDtk level by its identifier; without it, the first level.
 // Tiled maps have one level and ignore it.
 //
-// Returns an empty map and says why if it cannot be read.
-void load_map(std::string_view name, rmp::Tilemap *into);
-// The same, by value: `map = rmp::assets::load_map("world.ldtk");`
+// Returns an empty map and says why if it cannot be read:
+// `map = rmp::assets::load_map("world.ldtk");`
 rmp::Tilemap load_map(std::string_view name);
 // An LDtk level by name: `map = rmp::assets::load_map("world.ldtk", "Level_2");`
 rmp::Tilemap load_map(std::string_view name, std::string_view level);

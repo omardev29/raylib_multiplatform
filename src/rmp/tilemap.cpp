@@ -120,9 +120,8 @@ Vector2 origin_in(const MapData &data, const Tileset *set, int column, int row) 
                     static_cast<float>(row * data.tile_height - overhang) };
 }
 
-const Property *find_property(const void *raw_object, const char *key) {
-    if (raw_object == nullptr || key == nullptr) return nullptr;
-    const auto *info = static_cast<const ObjectInfo *>(raw_object);
+const Property *find_property(Ref<const ObjectInfo> info, std::string_view key) {
+    if (!info) return nullptr;
     for (const Property &p : info->properties) {
         if (p.key == key) return &p;
     }
@@ -135,14 +134,17 @@ const Property *find_property(const void *raw_object, const char *key) {
 // MapObject
 // ---------------------------------------------------------------------------
 
-bool MapObject::property_bool(const char *key, bool fallback) const {
-    const Property *p = find_property(raw, key);
+MapObject::MapObject(const ObjectInfo &parsed)
+    : name(parsed.name), type(parsed.type), iid(parsed.iid), _info(parsed) {}
+
+bool MapObject::property_bool(std::string_view key, bool fallback) const {
+    const Property *p = find_property(info(), key);
     if (p == nullptr || p->kind != Property::Kind::BOOL) return fallback;
     return p->boolean;
 }
 
-int MapObject::property_int(const char *key, int fallback) const {
-    const Property *p = find_property(raw, key);
+int MapObject::property_int(std::string_view key, int fallback) const {
+    const Property *p = find_property(info(), key);
     if (p == nullptr) return fallback;
     if (p->kind == Property::Kind::INT) return p->integer;
     // A float where an int was asked for is cut towards zero, not a failure:
@@ -151,26 +153,28 @@ int MapObject::property_int(const char *key, int fallback) const {
     return fallback;
 }
 
-float MapObject::property_float(const char *key, float fallback) const {
-    const Property *p = find_property(raw, key);
+float MapObject::property_float(std::string_view key, float fallback) const {
+    const Property *p = find_property(info(), key);
     if (p == nullptr) return fallback;
     if (p->kind == Property::Kind::FLOAT) return p->floating;
     if (p->kind == Property::Kind::INT) return static_cast<float>(p->integer);
     return fallback;
 }
 
-const char *MapObject::property_string(const char *key, const char *fallback) const {
-    const Property *p = find_property(raw, key);
+std::string_view MapObject::property_string(std::string_view key,
+                                            std::string_view fallback) const {
+    const Property *p = find_property(info(), key);
     if (p == nullptr || p->kind != Property::Kind::STRING) return fallback;
-    return p->text.c_str();
+    return p->text;
 }
 
-Vector2 MapObject::property_point(const char *key, Vector2 fallback) const {
+Vector2 MapObject::property_point(std::string_view key, Vector2 fallback) const {
     return property_point(key, 0, fallback);
 }
 
-Vector2 MapObject::property_point(const char *key, int index, Vector2 fallback) const {
-    const Property *p = find_property(raw, key);
+Vector2 MapObject::property_point(std::string_view key, int index,
+                                  Vector2 fallback) const {
+    const Property *p = find_property(info(), key);
     if (p == nullptr || p->kind != Property::Kind::POINT || index < 0 ||
         static_cast<std::size_t>(index) >= p->points.size()) {
         return fallback;
@@ -178,8 +182,8 @@ Vector2 MapObject::property_point(const char *key, int index, Vector2 fallback) 
     return p->points[static_cast<std::size_t>(index)];
 }
 
-int MapObject::property_count(const char *key) const {
-    const Property *p = find_property(raw, key);
+int MapObject::property_count(std::string_view key) const {
+    const Property *p = find_property(info(), key);
     if (p == nullptr) return 0;
     return p->kind == Property::Kind::POINT ? static_cast<int>(p->points.size()) : 1;
 }
@@ -436,13 +440,8 @@ void report_tileset_image(const char *image, const char *map) {
 // The MapObject the readers hand out: its strings and its properties live in
 // `info`, which the map keeps alive and which never moves.
 MapObject &tilemap::detail::MapData::add_object(std::unique_ptr<ObjectInfo> info) {
-    MapObject out;
-    out.name = info->name.c_str();
-    out.type = info->type.c_str();
-    out.iid = info->iid.c_str();
-    out.raw = info.get();
+    objects.push_back(MapObject(*info));
     infos.push_back(std::move(info));
-    objects.push_back(out);
     return objects.back();
 }
 
@@ -593,9 +592,14 @@ int Tilemap::layer_count() const {
 
 int Tilemap::object_count() const { return tilemap::detail::object_count(_data.get()); }
 
-const char *Tilemap::level() const { return valid() ? _data.get()->level.c_str() : ""; }
+std::string_view Tilemap::level() const {
+    // Not `valid() ? level : ""`: that conditional is a std::string, a copy,
+    // and the view would outlive it by the end of the line.
+    if (!valid()) return "";
+    return _data.get()->level;
+}
 
-const char *Tilemap::neighbour_at(Vector2 world_position) const {
+std::string_view Tilemap::neighbour_at(Vector2 world_position) const {
     if (!valid()) return "";
     const MapData *data = _data.get();
     // Still inside this level is no neighbour -- which is what makes "walked
@@ -611,7 +615,7 @@ const char *Tilemap::neighbour_at(Vector2 world_position) const {
         const Rectangle r = level.world;
         if (world_position.x >= r.x && world_position.y >= r.y &&
             world_position.x < r.x + r.width && world_position.y < r.y + r.height) {
-            return level.name.c_str();
+            return level.name;
         }
     }
     return "";
@@ -692,8 +696,9 @@ bool Tilemap::solid_in(Rectangle world_rect) const {
     return false;
 }
 
-void Tilemap::on_object(const char *type, Callback<Scene &, const MapObject &> factory) {
-    if (!valid() || type == nullptr) return;
+void Tilemap::on_object(std::string_view type,
+                        Callback<Scene &, const MapObject &> factory) {
+    if (!valid()) return;
     MapData *data = _data.get();
     const std::string key(type);
     for (auto &entry : data->factories) {
@@ -731,8 +736,8 @@ void Tilemap::spawn_objects(Scene &into) {
         // invisible collider exactly where the designer meant a label.
         const bool has_area = object.size.x > 0 && object.size.y > 0;
         // And an LDtk entity is a thing, never a shape: walls there are IntGrid.
-        const auto *info = static_cast<const ObjectInfo *>(object.raw);
-        const bool shape = info == nullptr || info->solid_area;
+        const Ref<const ObjectInfo> info = object.info();
+        const bool shape = !info || info->solid_area;
         auto &plain = into.spawn({ .position = object.position, .size = object.size });
         plain.rotation = object.rotation;
         plain.solid = has_area && shape;

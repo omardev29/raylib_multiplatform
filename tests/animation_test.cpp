@@ -24,6 +24,7 @@
 
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -131,7 +132,10 @@ TEST_CASE("a tag is found by name, exactly, and nothing else is") {
     CHECK(rmp::animation::detail::tag_index(sheet, "Walk") == -1);
     CHECK(rmp::animation::detail::tag_index(sheet, "wal") == -1);
     CHECK(rmp::animation::detail::tag_index(sheet, "") == -1);
-    CHECK(rmp::animation::detail::tag_index(sheet, nullptr) == -1);
+    // A view, not a C string: what is asked for is exactly its characters,
+    // with or without a NUL after them.
+    CHECK(rmp::animation::detail::tag_index(sheet, std::string_view("walking", 4)) == 0);
+    CHECK(rmp::animation::detail::tag_index(sheet, std::string_view("walk\0", 5)) == -1);
 }
 
 TEST_CASE("rubbish is refused rather than half-read") {
@@ -157,6 +161,34 @@ TEST_CASE_FIXTURE(Fixture, "play starts on the tag's first frame") {
         sprite.play("idle");
         CHECK(sprite.frame_index() == 2);
         CHECK(std::string(sprite.playing()) == "idle");
+    }
+}
+
+TEST_CASE_FIXTURE(Fixture, "play takes a view: the tag is its characters and no more") {
+    // Not NUL-terminated on purpose: "walk" out of the middle of a longer
+    // string. A strcmp() under the API would read on into "ing" and miss.
+    const std::string source = "walking";
+    sprite.play(std::string_view(source).substr(0, 4));
+    CHECK(sprite.playing() == "walk");
+    sprite.play(std::string("idle"));
+    CHECK(sprite.playing() == "idle");
+}
+
+TEST_CASE_FIXTURE(Fixture, "playing() is the sheet's own name, and a NUL follows it") {
+    // The contract every string_view the framework returns keeps: it views a
+    // string the framework holds, so the character after it is a terminator.
+    sprite.play("swing");
+    const std::string_view now = sprite.playing();
+    REQUIRE(now == "swing");
+    CHECK(std::string_view(now.data(), now.size() + 1).back() == '\0');
+    CHECK(now.data() == sprite.sheet.raw().tag(2).name.data());
+
+    SUBCASE("and so is the empty answer, when nothing plays") {
+        rmp::Sprite idle;
+        const std::string_view none = idle.playing();
+        CHECK(none.empty());
+        REQUIRE(none.data() != nullptr);
+        CHECK(std::string_view(none.data(), none.size() + 1).back() == '\0');
     }
 }
 
@@ -334,10 +366,7 @@ struct ThreeFrames {
             data.frames[static_cast<std::size_t>(i)].seconds = 0.100f;
         }
         data.tags.resize(1);
-        const std::string name = "run";
-        for (std::size_t i = 0; i < name.size(); i++) {
-            data.tags[0].name[i] = name[i];
-        }
+        data.tags[0].name = "run";
         data.tags[0].from = 0;
         data.tags[0].to = 2;
         data.tags[0].ping_pong = ping_pong;

@@ -47,9 +47,9 @@ struct {
     int failures = 0;
 } run;
 
-void sample(rmp::input::detail::DeviceState *out) {
-    *out = rmp::input::detail::DeviceState{};
-    out->keys[KEY_SPACE] = run.space;
+void sample(rmp::input::detail::DeviceState &out) {
+    out = rmp::input::detail::DeviceState{};
+    out.keys[KEY_SPACE] = run.space;
 }
 
 class Counting : public rmp::Scene {

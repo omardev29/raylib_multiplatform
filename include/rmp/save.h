@@ -9,7 +9,7 @@
 //     rmp::save::write("slot1", v);
 //
 //     rmp::Value v;
-//     if (rmp::save::read("slot1", &v)) {
+//     if (rmp::save::read("slot1", v)) {
 //         int level = v["level"].as_int(1); // 1 when the key is not there
 //     }
 //
@@ -27,7 +27,7 @@
 // cut short" (the power went during a write) and "the file has been changed"
 // are three different messages to show a player:
 //
-//     const rmp::save::Result r = rmp::save::read("slot1", &v);
+//     const rmp::save::Result r = rmp::save::read("slot1", v);
 //     if (r.status == rmp::save::Status::MODIFIED) show("this save was edited");
 //
 // WHERE IT GOES. The user's data folder, or next to the executable with [save]
@@ -80,12 +80,17 @@ public:
     template <class N>
         requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool>)
     Value(N n) : _type(Type::NUMBER), _number(static_cast<double>(n)) {}
-    // A string, copied in.
-    Value(std::string_view s) : _type(Type::STRING), _string(s) {}
-    Value(std::string s) : _type(Type::STRING), _string(std::move(s)) {}
-    // Without this a string literal would become a bool, which is what C++
-    // does with a pointer when it is given the choice.
-    Value(const char *s) : _type(Type::STRING), _string(s != nullptr ? s : "") {}
+    // Text, copied in: a literal, a std::string, a std::string_view -- the one
+    // constructor for every spelling of it. A template, and not a plain
+    // Value(std::string_view), because `v["name"] = "Omar"` would then be TWO
+    // conversions, literal to view and view to Value, and C++ makes an
+    // assignment or an argument out of one; it compiled only as Value("Omar").
+    // A raw `const char *` is not text here -- it may be null -- and does not
+    // compile, any more than it becomes the bool above.
+    template <class S>
+        requires(std::is_convertible_v<const S &, std::string_view> &&
+                 !std::is_pointer_v<S> && !std::is_null_pointer_v<S>)
+    Value(const S &text) : _type(Type::STRING), _string(std::string_view(text)) {}
 
     // An empty list or object, for when "nothing yet" has to be one of them:
     // v["inventory"] = rmp::Value::list();
@@ -233,7 +238,7 @@ private:
         int index = 0; // when not
         bool is_key = true;
     };
-    Ref(Value *root, Step first);
+    Ref(Value &root, Step first);
     // One more key or index on the path; operator[] builds a deeper Ref so.
     void extend(Step step) { _path.push_back(std::move(step)); }
     // The Value to write into, created on the way; nullptr (said once) when
@@ -241,16 +246,16 @@ private:
     Value *materialise();
     Value *find();
 
-    Value *_root;
+    Value &_root; // the Value it started from, which the path must not outlive
     std::vector<Step> _path;
 };
 
 namespace save {
 
-// Why read() did or did not fill the Value. A slot name read() refuses, or a
-// null `out`, is UNREADABLE too.
+// Why read() did or did not fill the Value. A slot name read() refuses is
+// UNREADABLE too.
 enum class Status {
-    OK, // read, checked, and *out filled
+    OK, // read, checked, and `out` filled
     MISSING, // nothing saved in that slot yet: the first run
     TRUNCATED, // cut short, as a write the power went out on would be
     MODIFIED, // the checksum or the seal does not match: edited, or damaged
@@ -289,9 +294,9 @@ struct ReadOptions {
 // deeper than 64 levels, or with a NUL character in a string or a key.
 bool write(std::string_view slot, const Value &value, const WriteOptions &options = {});
 
-// Fills *out and says so. On anything but OK, *out is left exactly as it was,
+// Fills `out` and says so. On anything but OK, `out` is left exactly as it was,
 // so a game can fill it with defaults first and read over them.
-Result read(std::string_view slot, Value *out, const ReadOptions &options = {});
+Result read(std::string_view slot, Value &out, const ReadOptions &options = {});
 
 // Whether there is a save in that slot, in any folder read() looks in. It does
 // not open it, so a file that would read as TRUNCATED or MODIFIED exists too.

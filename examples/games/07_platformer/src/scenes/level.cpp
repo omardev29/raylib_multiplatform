@@ -17,7 +17,7 @@ namespace game {
 
 namespace {
 // A sign's picture: plain, or with the arrow LDtk's `arrow` Enum asks for.
-int sign_tile(const std::string &arrow) {
+int sign_tile(std::string_view arrow) {
     if (arrow == "Left") return tiles::SIGN_LEFT;
     if (arrow == "Right") return tiles::SIGN_RIGHT;
     return tiles::SIGN;
@@ -126,15 +126,15 @@ void LevelScene::_update(float delta) {
     if (_over) return;
     run().seconds += delta;
 
-    Player *player = static_cast<Player *>(_player.get());
-    if (player == nullptr) return;
+    const auto player = _player.get();
+    if (!player) return;
 
     // THE NEXT LEVEL. Out of this one and into another of the world: change
     // to it, and arrive at the same world position going the same way.
-    const char *next = map.neighbour_at(player->position);
-    if (next[0] != '\0') {
+    const std::string_view next = map.neighbour_at(player->position);
+    if (!next.empty()) {
         _over = true;
-        rmp::Scene::change<LevelScene>(next,
+        rmp::Scene::change<LevelScene>(std::string(next),
                                        Entry{ true, player->position, player->velocity });
         return;
     }
@@ -164,7 +164,7 @@ void LevelScene::lose_life() {
 }
 
 void LevelScene::respawn() {
-    if (Player *player = static_cast<Player *>(_player.get())) {
+    if (const auto player = _player.get()) {
         player->position = _start;
         player->velocity = Vector2{};
     }

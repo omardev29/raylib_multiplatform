@@ -40,7 +40,7 @@ public:
 struct {
     rmp::input::detail::DeviceState devices;
 } fake;
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
+void fake_sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
 struct Fixture {
     Fixture() {

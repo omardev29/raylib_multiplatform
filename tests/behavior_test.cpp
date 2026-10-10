@@ -156,7 +156,7 @@ TEST_CASE_FIXTURE(Fixture,
     object.add<Fat>();
     first.degrees_per_second = 99;
     CHECK(object.get<Spin>()->degrees_per_second == doctest::Approx(99));
-    CHECK(&first == object.get<Spin>());
+    CHECK(&first == &*object.get<Spin>());
 }
 
 TEST_CASE_FIXTURE(Fixture,
@@ -166,7 +166,7 @@ TEST_CASE_FIXTURE(Fixture,
     rmp::objects::detail::update_behaviors(object, 0.1f);
     rmp::objects::detail::update_behaviors(object, 0.1f);
     CHECK(fat.updates == 2);
-    CHECK(object.get<Fat>() == &fat);
+    CHECK(&*object.get<Fat>() == &fat);
 }
 
 TEST_CASE_FIXTURE(Fixture, "they run in the order they were added") {

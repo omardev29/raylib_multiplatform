@@ -117,7 +117,7 @@ private:
         _bricks++;
         // The whole of "a brick breaks". No behavior, no subclass.
         brick.on_collision([this](rmp::Object &self, rmp::Object &other) {
-            if (&other != _ball.get()) return;
+            if (other.handle() != _ball) return;
             self.destroy();
             _bricks--;
         });

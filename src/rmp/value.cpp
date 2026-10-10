@@ -92,13 +92,15 @@ bool Value::contains(std::string_view key) const {
 }
 
 std::string_view Value::key(int index) const {
-    if (_type != Type::OBJECT || index < 0) return {};
+    // "" and not {}: a view the framework returns always has a NUL after it,
+    // and a default one has no characters at all, not even that.
+    if (_type != Type::OBJECT || index < 0) return "";
     int seen = 0;
     for (std::size_t i = 0; i < _keys.size(); i++) {
         if (_items[i].type() == Type::NONE) continue;
         if (seen++ == index) return _keys[i];
     }
-    return {};
+    return "";
 }
 
 const Value &Value::operator[](std::string_view key) const {
@@ -176,14 +178,14 @@ bool operator==(const Value &a, const Value &b) {
 // ---------------------------------------------------------------------------
 
 Value::Ref Value::operator[](std::string_view key) {
-    return Ref(this, Ref::Step{ .key = std::string(key), .index = 0, .is_key = true });
+    return Ref(*this, Ref::Step{ .key = std::string(key), .index = 0, .is_key = true });
 }
 
 Value::Ref Value::operator[](int index) {
-    return Ref(this, Ref::Step{ .key = {}, .index = index, .is_key = false });
+    return Ref(*this, Ref::Step{ .key = {}, .index = index, .is_key = false });
 }
 
-Value::Ref::Ref(Value *root, Step first) : _root(root) {
+Value::Ref::Ref(Value &root, Step first) : _root(root) {
     _path.push_back(std::move(first));
 }
 
@@ -200,7 +202,7 @@ Value::Ref Value::Ref::operator[](int index) const {
 }
 
 const Value &Value::Ref::get() const {
-    const Value *at = _root;
+    const Value *at = &_root;
     for (const Step &step : _path) {
         at = step.is_key ? &(*at)[std::string_view(step.key)] : &(*at)[step.index];
     }
@@ -208,7 +210,7 @@ const Value &Value::Ref::get() const {
 }
 
 Value *Value::Ref::find() {
-    Value *at = _root;
+    Value *at = &_root;
     for (const Step &step : _path) {
         Value *next = nullptr;
         if (step.is_key && at->type() == Type::OBJECT) {
@@ -232,7 +234,7 @@ Value *Value::Ref::materialise() {
     // on an empty Value -- had already turned "a" and "b" into an object and
     // an empty list, which then went into the file while the log said
     // nothing was written.
-    const Value *at = _root; // nullptr once the path leaves what exists
+    const Value *at = &_root; // nullptr once the path leaves what exists
     for (const Step &step : _path) {
         const Type type = at != nullptr ? at->type() : Type::NONE;
         if (step.is_key) {
@@ -270,7 +272,7 @@ Value *Value::Ref::materialise() {
         }
     }
 
-    Value *here = _root;
+    Value *here = &_root;
     for (const Step &step : _path) {
         if (step.is_key) {
             if (here->type() == Type::NONE) *here = Value::object();

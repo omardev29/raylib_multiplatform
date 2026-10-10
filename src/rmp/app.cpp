@@ -175,7 +175,7 @@ bool smoke_save_round_trip() {
     sent["name"] = "Jos\xc3\xa9 M\xc3\xbcller";
     rmp::Value back;
     const bool wrote = rmp::save::write(SLOT, sent);
-    const rmp::save::Result read = rmp::save::read(SLOT, &back);
+    const rmp::save::Result read = rmp::save::read(SLOT, back);
     const bool same = read && back == sent;
     const bool removed = rmp::save::remove(SLOT);
     if (wrote && same && removed) {

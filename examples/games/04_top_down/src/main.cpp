@@ -89,7 +89,7 @@ public:
     }
 
     void _draw() override {
-        auto *health = _player->get<rmp::behavior::Health>();
+        auto health = _player->get<rmp::behavior::Health>();
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
         rmp::ui::row({ .gap = 16 }, [&] {
             rmp::ui::progress(static_cast<float>(health->hp) / PLAYER_HP,

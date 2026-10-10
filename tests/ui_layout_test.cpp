@@ -21,9 +21,12 @@
 
 #include <rmp/ui.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <string_view>
 
 namespace {
 
@@ -245,8 +248,8 @@ void run_interaction() {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             if (rmp::ui::button("Apply")) clicks++;
-            rmp::ui::checkbox("Fullscreen", &checked);
-            rmp::ui::slider("Volume", &volume, 0.0f, 1.0f);
+            rmp::ui::checkbox("Fullscreen", checked);
+            rmp::ui::slider("Volume", volume, 0.0f, 1.0f);
         });
         rmp::ui::end();
     };
@@ -347,16 +350,17 @@ void run_dropdown() {
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
-    static const char *a[] = { "Off", "Low", "High" };
-    static const char *b[] = { "Off", "Low", "High" };
+    // Two lists with the same words in them, one an array and one written in
+    // place: the items of each take their ids from their own dropdown.
+    static constexpr std::array<std::string_view, 3> QUALITIES{ "Off", "Low", "High" };
     int quality = 0;
     int shadows = 0;
 
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::panel([&] {
-            rmp::ui::dropdown("Quality", &quality, a, 3);
-            rmp::ui::dropdown("Shadows", &shadows, b, 3);
+            rmp::ui::dropdown("Quality", quality, QUALITIES);
+            rmp::ui::dropdown("Shadows", shadows, { "Off", "Low", "High" });
         });
         rmp::ui::end();
     };
@@ -588,6 +592,9 @@ void run_focus_by_name() {
     draw_menu();
     check(rmp::ui::focused() == "Options",
           "focus(name) reaches the widget that carries the name");
+    const std::string_view named = rmp::ui::focused();
+    check(std::string_view(named.data(), named.size() + 1).back() == '\0',
+          "and focused() is a view with a NUL after it, like every one we return");
 
     // And it must renumber nothing: two controls sharing a label are still two
     // elements when a focus() call sits between them.
@@ -616,7 +623,7 @@ void run_slider_nav() {
     float quality = 2.0f;
     auto frame = [&] {
         rmp::ui::begin();
-        rmp::ui::slider("Quality", &quality, 0.0f, 4.0f, { .step = 1.0f });
+        rmp::ui::slider("Quality", quality, 0.0f, 4.0f, { .step = 1.0f });
         rmp::ui::end();
     };
 
@@ -673,8 +680,8 @@ void run_two_sliders() {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             if (sliders_on_screen) {
-                rmp::ui::slider("Music", &music, 0.0f, 1.0f, { .width = 200 });
-                rmp::ui::slider("SFX", &sfx, 0.0f, 1.0f, { .width = 200 });
+                rmp::ui::slider("Music", music, 0.0f, 1.0f, { .width = 200 });
+                rmp::ui::slider("SFX", sfx, 0.0f, 1.0f, { .width = 200 });
             } else {
                 rmp::ui::text("the menu closed");
             }
@@ -729,13 +736,13 @@ void run_keyboard_capture() {
     std::printf("\n--- wants_keyboard() ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
-    char name[32] = "Omar";
+    std::string name = "Omar";
     rmp::ui::begin(); // an empty pass, so the counters carry nothing in
     rmp::ui::end();
     rmp::ui::focus("Name");
 
     rmp::ui::begin();
-    rmp::ui::text_input("Name", name, sizeof name);
+    rmp::ui::text_input("Name", name);
     rmp::ui::end();
     check(rmp::ui::wants_keyboard(),
           "wants_keyboard() still answers after end(), which is where a game asks");
@@ -782,10 +789,10 @@ void run_label_overflow() {
     for (int i = 0; i < 300; i++) {
         char label[16];
         std::snprintf(label, sizeof label, "lbl%03d", i);
-        rmp::ui::detail::element_id(std::string_view{ label }, nullptr);
+        rmp::ui::detail::element_id(std::string_view{ label }, {});
     }
-    const Clay_ElementId a = rmp::ui::detail::element_id("Use", nullptr);
-    const Clay_ElementId b = rmp::ui::detail::element_id("Use", nullptr);
+    const Clay_ElementId a = rmp::ui::detail::element_id("Use", {});
+    const Clay_ElementId b = rmp::ui::detail::element_id("Use", {});
     rmp::ui::end();
 
     check(a.id != b.id, "past the table, two controls sharing a label are still two");
@@ -1139,13 +1146,12 @@ void run_dropdown_occlusion() {
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
-    static const char *items[] = { "Off", "Low", "High" };
     int quality = 0;
     int clicks = 0;
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::panel([&] {
-            rmp::ui::dropdown("Quality", &quality, items, 3);
+            rmp::ui::dropdown("Quality", quality, { "Off", "Low", "High" });
             if (rmp::ui::button("Underneath")) clicks++;
         });
         rmp::ui::end();
@@ -1457,10 +1463,9 @@ void run_press_starts_on_control() {
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
-    static const char *items[] = { "Off", "Low", "High" };
     bool ticked = false;
     int quality = 0;
-    char name[16] = "";
+    std::string name;
     // One control at a time, so what one of them does wrong cannot hide or
     // fake what the next one does.
     int showing = 0;
@@ -1468,9 +1473,10 @@ void run_press_starts_on_control() {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             rmp::ui::button("First");
-            if (showing == 0) rmp::ui::checkbox("Tick", &ticked);
-            if (showing == 1) rmp::ui::dropdown("Pick", &quality, items, 3);
-            if (showing == 2) rmp::ui::text_input("Field", name, sizeof name);
+            if (showing == 0) rmp::ui::checkbox("Tick", ticked);
+            if (showing == 1)
+                rmp::ui::dropdown("Pick", quality, { "Off", "Low", "High" });
+            if (showing == 2) rmp::ui::text_input("Field", name);
         });
         rmp::ui::end();
     };
@@ -1600,13 +1606,13 @@ void run_text_field_focus() {
     fake_pointer.down = false;
     fake_nav.state = rmp::ui::detail::NavState{};
 
-    char name[16] = "";
+    std::string name;
     int before = 0;
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             if (rmp::ui::button("Before")) before++;
-            rmp::ui::text_input("Name", name, sizeof name);
+            rmp::ui::text_input("Name", name);
             rmp::ui::button("After");
         });
         rmp::ui::end();
@@ -1662,7 +1668,7 @@ void run_text_field_focus() {
     // chat box would otherwise silence the game from its first frame.
     auto field_first = [&] {
         rmp::ui::begin();
-        rmp::ui::text_input("Chat", name, sizeof name);
+        rmp::ui::text_input("Chat", name);
         rmp::ui::end();
     };
     rmp::ui::focus("");
@@ -1697,19 +1703,83 @@ void run_text_field_focus() {
 // and close it and nothing else: the items listened to the pointer only, and
 // up or down while it was open walked the focus off the control, so a
 // controller could open a list and never pick from it.
+// text_input() edits a std::string in UTF-8, and max_length counts characters
+// the way the player does. The helpers are the whole of the editing, kept apart
+// so that this can hold them to the one promise: a character is never cut.
+void run_text_utf8() {
+    std::printf("\n--- the text field: UTF-8 and max_length ---\n");
+    using rmp::ui::detail::utf8_append;
+    using rmp::ui::detail::utf8_length;
+    using rmp::ui::detail::utf8_pop;
+    using rmp::ui::detail::utf8_truncate;
+
+    std::string typed;
+    check(utf8_append(typed, 'A', 0) && typed == "A", "ASCII goes on as itself");
+    check(utf8_append(typed, 0xE9, 0) && typed == "A\xC3\xA9", "an e acute is two bytes");
+    check(utf8_append(typed, 0x20AC, 0) && typed == "A\xC3\xA9\xE2\x82\xAC",
+          "a euro sign is three");
+    check(utf8_append(typed, 0x1F600, 0) && typed.size() == 10, "an emoji is four");
+    check(utf8_length(typed) == 4, "and the four of them are four characters");
+    const bool refused = !utf8_append(typed, 0x7F, 0) && !utf8_append(typed, '\n', 0) &&
+        !utf8_append(typed, 0x85, 0) && !utf8_append(typed, 0xD800, 0) &&
+        !utf8_append(typed, 0x110000, 0) && !utf8_append(typed, -1, 0);
+    check(refused && utf8_length(typed) == 4,
+          "control characters, a lone surrogate and past U+10FFFF are not typed");
+
+    std::string capped = "\xC3\xA9\xC3\xA9"; // two characters, four bytes
+    check(utf8_append(capped, 'x', 3) && utf8_length(capped) == 3,
+          "max_length counts characters: a third fits under 3");
+    check(!utf8_append(capped, 0xE9, 3) && !utf8_append(capped, 'y', 3) &&
+              capped == "\xC3\xA9\xC3\xA9x",
+          "and a fourth does not, whatever its size");
+
+    std::string popped = "a\xE2\x82\xAC";
+    check(utf8_pop(popped) && popped == "a", "Backspace takes all three bytes of a euro");
+    check(utf8_pop(popped) && popped.empty() && !utf8_pop(popped),
+          "then the a, and then there is nothing to take");
+
+    std::string cut = "\xC3\xA9t\xC3\xA9"; // three characters, five bytes
+    check(utf8_truncate(cut, 2) && cut == "\xC3\xA9t",
+          "cut to two characters ends after the t, not inside the last one");
+    check(!utf8_truncate(cut, 2) && !utf8_truncate(cut, 0),
+          "a value short enough, or no limit, is left alone");
+    std::string faces = "\xF0\x9F\x98\x80\xF0\x9F\x98\x80";
+    check(utf8_truncate(faces, 1) && faces == "\xF0\x9F\x98\x80",
+          "a four-byte character is kept whole");
+    std::string stray = "\x80\x80\x80";
+    check(utf8_length(stray) == 0 && !utf8_truncate(stray, 1),
+          "bytes that start no character count as none");
+    check(utf8_pop(stray) && stray.empty(), "and Backspace clears them in one go");
+
+    // The field itself: a longer value is cut on the frame it is drawn, and
+    // that is a change; the frame after has nothing left to change.
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    std::string name = "Ga\xC3\xABl M\xC3\xBCller";
+    rmp::ui::begin();
+    const bool changed = rmp::ui::text_input("Name", name, { .max_length = 4 });
+    rmp::ui::end();
+    check(changed && name == "Ga\xC3\xABl",
+          "a value longer than max_length is cut to it, and the field says so");
+    rmp::ui::begin();
+    const bool again = rmp::ui::text_input("Name", name, { .max_length = 4 });
+    rmp::ui::end();
+    check(!again, "and the next frame there is nothing to change");
+}
+
 void run_dropdown_nav() {
     std::printf("\n--- a dropdown from the keyboard and the gamepad ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     fake_nav.state = rmp::ui::detail::NavState{};
 
-    static const char *items[] = { "Off", "Low", "High", "Ultra" };
+    static constexpr std::array<std::string_view, 4> ITEMS{ "Off", "Low", "High",
+                                                            "Ultra" };
     int quality = 0;
     int changes = 0;
     auto frame = [&] {
         rmp::ui::begin();
         rmp::ui::panel([&] {
             rmp::ui::button("Before");
-            if (rmp::ui::dropdown("Quality", &quality, items, 4)) changes++;
+            if (rmp::ui::dropdown("Quality", quality, ITEMS)) changes++;
             rmp::ui::button("After");
         });
         rmp::ui::end();
@@ -2205,6 +2275,7 @@ int main() {
     run_press_starts_on_control();
     run_text_field_focus();
     run_dropdown_nav();
+    run_text_utf8();
     run_focus_between_frames();
     run_pointer_over_interface();
     run_scroll_clip();

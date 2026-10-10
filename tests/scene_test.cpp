@@ -615,7 +615,7 @@ struct {
 
 int updates_of(From from) { return spawned.updates[static_cast<int>(from)]; }
 
-void fake_devices(rmp::input::detail::DeviceState *out) { *out = spawned.devices; }
+void fake_devices(rmp::input::detail::DeviceState &out) { out = spawned.devices; }
 
 class Newcomer : public rmp::Object {
 public:
@@ -632,7 +632,7 @@ public:
     void _update(float /*delta*/) override {
         if (done) return;
         done = true;
-        spawn_newcomer(*scene(), From::OBJECT_UPDATE);
+        spawn_newcomer(scene(), From::OBJECT_UPDATE);
     }
 };
 
@@ -643,7 +643,7 @@ public:
     void _collision(rmp::Object & /*other*/) override {
         if (done) return;
         done = true;
-        spawn_newcomer(*scene(), From::COLLISION);
+        spawn_newcomer(scene(), From::COLLISION);
     }
 };
 

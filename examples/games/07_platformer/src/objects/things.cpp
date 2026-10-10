@@ -62,8 +62,8 @@ void Platform::_update(float delta) {
 // player on top would stay where it was, and the platform would slide out from
 // under its feet.
 void Platform::carry_rider(Vector2 before) {
-    rmp::Object *player = rider.get();
-    if (player == nullptr) return;
+    const auto player = rider.get();
+    if (!player) return;
     const Rectangle me = world_collider();
     const Rectangle them = player->world_collider();
     const float feet = them.y + them.height;
@@ -79,8 +79,8 @@ void Platform::carry_rider(Vector2 before) {
     // the ledge.
     const bool jumping = player->velocity.y < 0;
     const bool going_down = position.y > before.y;
-    const bool on_a_ledge = scene() != nullptr &&
-        scene()->map.solid_in(Rectangle{ them.x, feet, them.width, 1 });
+    const bool on_a_ledge =
+        scene().map.solid_in(Rectangle{ them.x, feet, them.width, 1 });
     if (!on_top || jumping || (going_down && on_a_ledge)) return;
 
     // Across by as much as it moved, and up or down to stand exactly on its top.
@@ -150,7 +150,7 @@ void Door::_draw() {
 }
 
 void Door::_collision(rmp::Object &other) {
-    if (!alive() || !is_player(other) || !contains(run().keys, iid.c_str())) return;
+    if (!alive() || !is_player(other) || !contains(run().keys, iid)) return;
     run().gone.push_back(iid);
     rmp::audio::play("door");
     destroy();
@@ -217,7 +217,7 @@ void Goal::_draw() {
 }
 
 void Goal::_collision(rmp::Object &other) {
-    if (is_player(other)) static_cast<LevelScene *>(scene())->win();
+    if (is_player(other)) static_cast<LevelScene &>(scene()).win();
 }
 
 } // namespace game

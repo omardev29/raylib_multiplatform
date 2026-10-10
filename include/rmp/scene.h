@@ -38,6 +38,7 @@
 // already brings it in. <utility> for std::forward, which passes the
 // constructor arguments of change(), push() and replace() through.
 #include <memory> // std::unique_ptr: what spawn() and the transitions hand over
+#include <span> // raycast_all() writes into the caller's array
 #include <utility>
 
 // <type_traits> for the two static_asserts that make spawn<T>() say something
@@ -293,15 +294,18 @@ public:
     //
     //     if (auto hit = raycast(muzzle, muzzle + aim * 400)) { ... }
     //     auto hit = raycast({ .from = muzzle, .to = target,
-    //                          .mask = layer::ENEMY, .ignore = &self });
+    //                          .mask = layer::ENEMY, .ignore = self.handle() });
     // -----------------------------------------------------------------------
     [[nodiscard]] RayHit raycast(Vector2 from, Vector2 to) const;
     [[nodiscard]] RayHit raycast(const RayQuery &query) const;
 
-    // Every hit along the ray, nearest first, up to `max`. Returns how many
-    // were written. Everything the ray passes through, for a piercing shot or a
-    // line of sight that has to know what is in the way.
-    int raycast_all(const RayQuery &query, RayHit *out, int max) const;
+    // Every hit along the ray, nearest first, as many as `out` holds. Returns
+    // how many were written. Everything the ray passes through, for a piercing
+    // shot or a line of sight that has to know what is in the way:
+    //
+    //     std::array<rmp::RayHit, 8> hits;
+    //     const int n = raycast_all({ .from = a, .to = b }, hits);
+    int raycast_all(const RayQuery &query, std::span<RayHit> out) const;
 
     // -----------------------------------------------------------------------
     // Navigation. All of it is DEFERRED: these record what to do and return,
@@ -327,19 +331,22 @@ public:
 
     // Clear the stack and go. Everything on it gets _end(), top down.
     template <class T, class... A> static void change(A &&...args) {
-        detail_change(std::make_unique<T>(std::forward<A>(args)...), scene_type<T>());
+        detail_change(std::make_unique<T>(std::forward<A>(args)...),
+                      rmp::detail::type_id<T>());
     }
 
     // Put one on top. What was there is suspended, not ended.
     template <class T, class... A> static void push(A &&...args) {
-        detail_push(std::make_unique<T>(std::forward<A>(args)...), scene_type<T>());
+        detail_push(std::make_unique<T>(std::forward<A>(args)...),
+                    rmp::detail::type_id<T>());
     }
 
     // Swap the top one only. What is underneath is untouched and stays
     // suspended — this is level 3 becoming level 4 without disturbing the
     // pause menu that put you there.
     template <class T, class... A> static void replace(A &&...args) {
-        detail_replace(std::make_unique<T>(std::forward<A>(args)...), scene_type<T>());
+        detail_replace(std::make_unique<T>(std::forward<A>(args)...),
+                       rmp::detail::type_id<T>());
     }
 
     // Take the top one off and resume what was under it. Popping the last
@@ -363,14 +370,11 @@ private:
     // holds it.
     // The type tag is what lets the same scene asked for twice in one frame --
     // two end conditions firing together, which Invaders did -- be pushed
-    // once. An address of a static per T, no RTTI, like behavior_type().
-    template <class T> static const void *scene_type() {
-        static const char TAG = 0;
-        return &TAG;
-    }
-    static void detail_change(std::unique_ptr<Scene> next, const void *type);
-    static void detail_push(std::unique_ptr<Scene> next, const void *type);
-    static void detail_replace(std::unique_ptr<Scene> next, const void *type);
+    // once: detail::type_id<T>(), a number per type with no RTTI, the same one
+    // that tells behaviors apart.
+    static void detail_change(std::unique_ptr<Scene> next, int type);
+    static void detail_push(std::unique_ptr<Scene> next, int type);
+    static void detail_replace(std::unique_ptr<Scene> next, int type);
 
     // The non-template half of spawn(). TAKES OWNERSHIP of `owned`.
     void detail_spawn(std::unique_ptr<Object> owned, const ObjectOptions &options);

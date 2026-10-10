@@ -158,8 +158,8 @@ static void on_frame(float) {
             rmp::ui::spacer();
             // Both of these rebuild the theme and hand it back. Nothing else in
             // the file knows or cares which one is active.
-            if (rmp::ui::checkbox("Light Theme", &light)) apply_style();
-            if (rmp::ui::checkbox("Reduce motion", &reduce)) apply_style();
+            if (rmp::ui::checkbox("Light Theme", light)) apply_style();
+            if (rmp::ui::checkbox("Reduce motion", reduce)) apply_style();
         });
     });
 
@@ -171,7 +171,7 @@ static void on_frame(float) {
     // is always exactly where it was drawn, so an animation can never make you
     // miss what you were aiming at. Drag this and watch the fill keep up.
     rmp::ui::panel({ .box = { .grow_x = true } }, [] {
-        rmp::ui::slider("Excitement", &excitement, 0.0f, 1.0f);
+        rmp::ui::slider("Excitement", excitement, 0.0f, 1.0f);
         rmp::ui::progress(excitement);
         rmp::ui::text(
             "Buttons pressed: " + std::to_string(pressed_count),

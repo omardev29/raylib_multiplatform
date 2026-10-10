@@ -127,9 +127,9 @@ struct {
 
 // Named containers get a stable id, the same whatever else is on screen;
 // unnamed ones stay anonymous, which is what most of them should be.
-void open_with_id(const char *id, const Clay_ElementDeclaration &d) {
-    if (id != nullptr)
-        Clay__OpenElementWithId(detail::element_id(std::string_view{ id }, id));
+void open_with_id(std::string_view id, const Clay_ElementDeclaration &d) {
+    if (!id.empty())
+        Clay__OpenElementWithId(detail::element_id(id, id));
     else
         Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
@@ -272,9 +272,8 @@ void open_grid(const GridOptions &o) {
     // knowing how wide it was last frame: an unnamed one is "grid" counted by
     // its order in the pass, so it is measured just the same, and only a grid
     // that comes and goes before it can make it borrow another's width.
-    Clay_ElementId grid_id = o.id != nullptr
-        ? element_id(std::string_view{ o.id }, o.id)
-        : element_id(std::string_view{ "grid" }, nullptr);
+    Clay_ElementId grid_id =
+        !o.id.empty() ? element_id(o.id, o.id) : element_id("grid", {});
 
     int columns = o.columns;
     if (columns <= 0) {
@@ -370,9 +369,8 @@ void open_scroll(const ScrollOptions &o) {
     const Theme &t = current_theme();
     // Named or not, a scroll area gets an id: hit testing has to know where the
     // area is to decide whether what is inside it is on screen at all.
-    Clay_ElementId clip_id = o.id != nullptr
-        ? element_id(std::string_view{ o.id }, o.id)
-        : element_id(std::string_view{ "scroll" }, nullptr);
+    Clay_ElementId clip_id =
+        !o.id.empty() ? element_id(o.id, o.id) : element_id("scroll", {});
 
     Clay_ElementDeclaration d{};
     d.layout.sizing.width = axis(o.grow_x, o.width);

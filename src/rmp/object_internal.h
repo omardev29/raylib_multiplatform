@@ -20,6 +20,7 @@ namespace rmp {
 
 class Object;
 class Scene;
+template <class T> class Ref;
 
 // The one key into Object's private half, and the reason it is a struct rather
 // than friend declarations naming each function: the public header would
@@ -27,6 +28,9 @@ class Scene;
 // befriend, which puts the whole of src/rmp/ in front of anyone who includes
 // rmp/object.h. One friend, declared here, defined in object.cpp.
 struct Storage {
+    // The scene that spawned it, or empty -- what Object::scene() answers
+    // without saying anything about an object no scene spawned.
+    static Ref<Scene> spawned_in(const Object &object);
     static Vector2 take_force(Object &object);
     static Vector2 previous_position(const Object &object);
     static void remember_position(Object &object);

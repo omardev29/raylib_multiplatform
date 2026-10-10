@@ -152,7 +152,7 @@ private:
         }
     }
 
-    // Between frames, a handle. A raw pointer to an object is good for the
+    // Between frames, a handle. A reference to an object is good for the
     // frame it was got in and no longer -- see rmp/object.h.
     rmp::Handle<Paddle> _left;
     rmp::Handle<Paddle> _right;

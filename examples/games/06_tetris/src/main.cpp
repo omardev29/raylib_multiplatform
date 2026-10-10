@@ -76,7 +76,7 @@ public:
         next_piece();
 
         rmp::Value saved;
-        rmp::save::read("tetris", &saved);
+        rmp::save::read("tetris", saved);
         _best = saved["best_lines"].as_int(0);
     }
 

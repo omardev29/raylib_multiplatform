@@ -53,12 +53,23 @@ static_assert(std::is_constructible_v<Value, int>);
 static_assert(std::is_constructible_v<Value, float>);
 static_assert(std::is_constructible_v<Value, double>);
 static_assert(std::is_constructible_v<Value, unsigned long long>);
-static_assert(std::is_constructible_v<Value, const char *>);
 static_assert(std::is_constructible_v<Value, std::string>);
 static_assert(std::is_constructible_v<Value, std::string_view>);
 static_assert(!std::is_constructible_v<Value, const int *>);
 static_assert(!std::is_constructible_v<Value, void *>);
 static_assert(!std::is_convertible_v<const float *, Value>);
+// Text is one constructor for every spelling of it, and a literal is one of
+// them -- in an assignment and an argument too, `v["name"] = "Omar"` and
+// push("forest"), which a plain Value(std::string_view) made two conversions
+// and refused. A raw `const char *` is not: it may be null, and is no longer
+// a Value at all rather than an empty one.
+static_assert(std::is_constructible_v<Value, const char (&)[5]>);
+static_assert(std::is_convertible_v<const char (&)[5], Value>);
+static_assert(std::is_convertible_v<std::string, Value>);
+static_assert(std::is_convertible_v<std::string_view, Value>);
+static_assert(!std::is_constructible_v<Value, const char *>);
+static_assert(!std::is_constructible_v<Value, char *>);
+static_assert(!std::is_constructible_v<Value, std::nullptr_t>);
 
 namespace {
 
@@ -241,6 +252,26 @@ TEST_SUITE("save: Value") {
         CHECK_FALSE(v == before);
     }
 
+    TEST_CASE("every string a Value hands back is a view with a NUL after it") {
+        // The contract of every std::string_view the framework returns: it
+        // views a string the Value keeps, so the character after it is a NUL
+        // -- the out-of-range key and the default fallback included, which a
+        // default-constructed view would not be.
+        const auto terminated = [](std::string_view v) {
+            return v.data() != nullptr &&
+                std::string_view(v.data(), v.size() + 1).back() == '\0';
+        };
+        Value v;
+        v["name"] = "Omar";
+        REQUIRE(v["name"].as_string() == "Omar");
+        CHECK(terminated(v["name"].as_string()));
+        CHECK(terminated(v["missing"].as_string()));
+        CHECK(terminated(v.key(0)));
+        CHECK(terminated(v.key(7)));
+        CHECK(terminated(v.key(-1)));
+        CHECK(terminated(Value(3).key(0)));
+    }
+
     TEST_CASE("a key of the wrong type reads as the default too") {
         Value v;
         v["n"] = 7;
@@ -285,8 +316,8 @@ TEST_SUITE("save: Value") {
         char buffer[8] = "Player";
         const Value from_buffer = buffer; // a char array in a settings struct
         CHECK(from_buffer.as_string() == "Player");
-        const char *null_text = nullptr;
-        CHECK(Value(null_text).as_string("fallback").empty());
+        CHECK(Value("x").type() == Value::Type::STRING);
+        CHECK(Value("x").as_string() == "x");
         CHECK(Value::list().type() == Value::Type::LIST);
         CHECK(Value::object().type() == Value::Type::OBJECT);
     }
@@ -990,7 +1021,7 @@ TEST_SUITE("save: files") {
                       "write, read back, and the slot's file is where directory() says") {
         REQUIRE(rmp::save::write("slot1", sample()));
         Value back;
-        const rmp::save::Result r = rmp::save::read("slot1", &back);
+        const rmp::save::Result r = rmp::save::read("slot1", back);
         CHECK(static_cast<bool>(r));
         CHECK(r.status == Status::OK);
         CHECK(back == sample());
@@ -1019,7 +1050,7 @@ TEST_SUITE("save: files") {
     TEST_CASE_FIXTURE(Fixture, "no save yet is MISSING, and the defaults stay put") {
         Value v;
         v["level"] = 1;
-        const rmp::save::Result r = rmp::save::read("never_written", &v);
+        const rmp::save::Result r = rmp::save::read("never_written", v);
         CHECK_FALSE(static_cast<bool>(r));
         CHECK(r.status == Status::MISSING);
         CHECK(v["level"].as_int() == 1);
@@ -1032,7 +1063,7 @@ TEST_SUITE("save: files") {
         fs::resize_file(file, fs::file_size(file) - 4);
         Value v;
         v["level"] = 1;
-        CHECK(rmp::save::read("slot", &v).status == Status::TRUNCATED);
+        CHECK(rmp::save::read("slot", v).status == Status::TRUNCATED);
         CHECK(v["level"].as_int() == 1);
     }
 
@@ -1045,7 +1076,7 @@ TEST_SUITE("save: files") {
         REQUIRE(rmp::save::write("slot", first));
         REQUIRE(rmp::save::write("slot", second));
         Value back;
-        REQUIRE(rmp::save::read("slot", &back));
+        REQUIRE(rmp::save::read("slot", back));
         CHECK(back["n"].as_int() == 2);
         int files = 0;
         for (const auto &entry : fs::directory_iterator(dir.path)) {
@@ -1061,8 +1092,8 @@ TEST_SUITE("save: files") {
         REQUIRE(rmp::save::write("sealed", sample(), { .encrypted = true }));
         Value a;
         Value b;
-        CHECK(rmp::save::read("plain", &a));
-        CHECK(rmp::save::read("sealed", &b));
+        CHECK(rmp::save::read("plain", a));
+        CHECK(rmp::save::read("sealed", b));
         CHECK(a == sample());
         CHECK(b == sample());
         CHECK(file_text(dir.path / "sealed.save").find("coins") == std::string::npos);
@@ -1094,7 +1125,7 @@ TEST_SUITE("save: files") {
             CHECK_FALSE(rmp::save::detail::valid_slot(bad));
             CHECK_FALSE(rmp::save::write(bad, sample()));
             Value v;
-            CHECK(rmp::save::read(bad, &v).status == Status::UNREADABLE);
+            CHECK(rmp::save::read(bad, v).status == Status::UNREADABLE);
             CHECK_FALSE(rmp::save::exists(bad));
             CHECK_FALSE(rmp::save::remove(bad));
         }
@@ -1128,12 +1159,7 @@ TEST_SUITE("save: files") {
         std::ofstream(file, std::ios::binary) << head;
         fs::resize_file(file, size);
         Value v;
-        CHECK(rmp::save::read("huge", &v).status == Status::UNREADABLE);
-    }
-
-    TEST_CASE_FIXTURE(Fixture, "read into nullptr is refused, not a crash") {
-        REQUIRE(rmp::save::write("slot", sample()));
-        CHECK(rmp::save::read("slot", nullptr).status == Status::UNREADABLE);
+        CHECK(rmp::save::read("huge", v).status == Status::UNREADABLE);
     }
 
     TEST_CASE_FIXTURE(
@@ -1145,7 +1171,7 @@ TEST_SUITE("save: files") {
         rmp::save::detail::set_folders_for_tests("", (blocker / "saves").string());
         CHECK_FALSE(rmp::save::write("slot", sample()));
         Value v;
-        CHECK(rmp::save::read("slot", &v).status == Status::MISSING);
+        CHECK(rmp::save::read("slot", v).status == Status::MISSING);
     }
 }
 
@@ -1171,7 +1197,7 @@ TEST_SUITE("save: portable") {
         rmp::save::detail::set_folders_for_tests(moved.string(), user.str());
         CHECK(fs::equivalent(fs::path(rmp::save::directory()), moved)); // writable again
         Value back;
-        REQUIRE(rmp::save::read("slot", &back));
+        REQUIRE(rmp::save::read("slot", back));
         CHECK(back["level"].as_int() == 9);
         CHECK(rmp::save::exists("slot"));
         rmp::save::detail::reset_for_tests();
@@ -1200,10 +1226,10 @@ TEST_SUITE("save: portable") {
         fs::last_write_time(portable.path / "slot.save", now - std::chrono::hours(2));
         fs::last_write_time(user.path / "slot.save", now - std::chrono::hours(1));
         Value back;
-        REQUIRE(rmp::save::read("slot", &back));
+        REQUIRE(rmp::save::read("slot", back));
         CHECK(back["level"].as_int() == 2);
         fs::last_write_time(portable.path / "slot.save", now); // and the other way round
-        REQUIRE(rmp::save::read("slot", &back));
+        REQUIRE(rmp::save::read("slot", back));
         CHECK(back["level"].as_int() == 1);
 
         CHECK(rmp::save::remove("slot"));
@@ -1262,7 +1288,7 @@ TEST_SUITE("save: portable") {
         REQUIRE(rmp::save::write("slot", sample()));
         REQUIRE(rmp::save::write("slot", sample()));
         Value back;
-        REQUIRE(rmp::save::read("slot", &back));
+        REQUIRE(rmp::save::read("slot", back));
         CHECK(back == sample());
         CHECK(fs::exists(user.path / "slot.save"));
         CHECK(rmp::save::detail::fallbacks() == 1);
@@ -1289,7 +1315,7 @@ TEST_SUITE("save: portable") {
         rmp::detail::set_strict(true);
 
         Value v;
-        CHECK(rmp::save::read("slot", &v).status == Status::MISSING);
+        CHECK(rmp::save::read("slot", v).status == Status::MISSING);
         CHECK(v["missing"]["deeper"].as_int(3) == 3);
         CHECK(v["list"][42].as_int(4) == 4);
         CHECK(rmp::save::write("slot", sample()));

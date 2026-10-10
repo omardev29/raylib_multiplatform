@@ -101,8 +101,8 @@ public:
 
         float lowest = 0;
         for (int i = 0; i < ALIENS; i++) {
-            rmp::Object *alien = _aliens[i].get();
-            if (alien == nullptr) continue; // shot down: the handle says so
+            auto alien = _aliens[i].get();
+            if (!alien) continue; // shot down: the handle says so
             alien->position = { home(i).x + _march, home(i).y + _drop };
             lowest = std::max(lowest, alien->position.y);
         }

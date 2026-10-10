@@ -82,9 +82,11 @@ struct Parsed {
     const rmp::tilemap::detail::MapData *data = nullptr;
     explicit Parsed(const char *file) : Parsed(bytes_of(file), file) {}
     Parsed(const std::vector<unsigned char> &raw, const char *name) {
-        map.adopt(rmp::tilemap::detail::parse_map(raw.data(),
-                                                  static_cast<int>(raw.size()), name));
-        data = map.detail_data();
+        rmp::tilemap::detail::Access::adopt(
+            map,
+            rmp::tilemap::detail::parse_map(raw.data(), static_cast<int>(raw.size()),
+                                            name));
+        data = rmp::tilemap::detail::Access::data(map);
     }
 };
 

@@ -10,6 +10,8 @@
 
 #include <raylib.h> // Texture2D
 
+#include <string_view>
+
 namespace rmp {
 struct SheetData;
 struct Sprite;
@@ -24,7 +26,7 @@ bool parse_sheet(const void *bytes, int size, SheetData *out);
 
 // The index of a tag by name, or -1. Case sensitive, because the tag names are
 // the user's and we do not get to decide that "Walk" and "walk" are the same.
-int tag_index(const SheetData &sheet, const char *name);
+int tag_index(const SheetData &sheet, std::string_view name);
 
 // The frames into one texture, side by side. Needs a GL context; without one
 // raylib refuses politely and this comes back with id 0, which is a hole in the

@@ -31,7 +31,7 @@ enum class Op { CHANGE, PUSH, REPLACE, POP };
 struct Pending {
     Op op;
     std::unique_ptr<Scene> next; // null for POP
-    const void *type = nullptr; // Scene::scene_type<T>(); null for POP
+    int type = 0; // detail::type_id<T>(); 0 for POP
 };
 
 // The scene stack. The dot at every use says "file state" (not `scenes`,
@@ -48,13 +48,13 @@ struct {
 
 // Owning from the template in rmp/scene.h all the way down: nothing between
 // make_unique and the stack ever holds a raw pointer.
-void record(Op op, std::unique_ptr<Scene> next, const void *type = nullptr) {
+void record(Op op, std::unique_ptr<Scene> next, int type = 0) {
     // The same scene type asked for twice in one frame is asked for once. Two
     // end conditions that fire on the same frame -- the last alien dies on the
     // frame the last hit point goes -- each push<GameOver>(), and the stack
     // ended up two overlays deep. Nobody means that; the second is dropped and
     // said once.
-    if (type != nullptr) {
+    if (type != 0) {
         for (const Pending &p : scene_stack.pending) {
             if (p.op == op && p.type == type) {
                 RMP_REPORT_ONCE("SCENE: the same scene was asked for twice in one frame; "
@@ -73,13 +73,13 @@ void record(Op op, std::unique_ptr<Scene> next, const void *type = nullptr) {
 // the comment in rmp/scene.h for why doing the work here would be a bug.
 // ---------------------------------------------------------------------------
 
-void Scene::detail_change(std::unique_ptr<Scene> next, const void *type) {
+void Scene::detail_change(std::unique_ptr<Scene> next, int type) {
     record(Op::CHANGE, std::move(next), type);
 }
-void Scene::detail_push(std::unique_ptr<Scene> next, const void *type) {
+void Scene::detail_push(std::unique_ptr<Scene> next, int type) {
     record(Op::PUSH, std::move(next), type);
 }
-void Scene::detail_replace(std::unique_ptr<Scene> next, const void *type) {
+void Scene::detail_replace(std::unique_ptr<Scene> next, int type) {
     record(Op::REPLACE, std::move(next), type);
 }
 void Scene::pop() { record(Op::POP, nullptr); }

@@ -33,6 +33,7 @@
 #include <rmp/config.h>
 
 #include <cstdint>
+#include <initializer_list>
 #include <string_view>
 
 namespace rmp::input {
@@ -68,7 +69,7 @@ constexpr Binding to_binding(::GamepadButton button) {
 constexpr Binding to_binding(Binding binding) { return binding; }
 
 // Compiled once, in src/rmp/input.cpp.
-void define(std::string_view name, const Binding *bindings, int count);
+void define(std::string_view name, std::initializer_list<Binding> bindings);
 
 } // namespace detail
 
@@ -92,9 +93,7 @@ constexpr detail::Binding stick(::GamepadAxis axis, int sign) {
 // that scene twenty times, which is where they naturally get written.
 template <class First, class... Rest>
 void action(std::string_view name, First first, Rest... rest) {
-    const detail::Binding bindings[] = { detail::to_binding(first),
-                                         detail::to_binding(rest)... };
-    detail::define(name, bindings, 1 + static_cast<int>(sizeof...(rest)));
+    detail::define(name, { detail::to_binding(first), detail::to_binding(rest)... });
 }
 
 // ---------------------------------------------------------------------------
@@ -234,9 +233,9 @@ struct DeviceState {
 
 // The provider. Replace it and there is no raylib underneath any more, which is
 // what makes tests/input_test.cpp possible with no window and no devices.
-using SampleFn = void (*)(DeviceState *out);
+using SampleFn = void (*)(DeviceState &out);
 void set_sample_provider(SampleFn fn);
-void sample_with_raylib(DeviceState *out);
+void sample_with_raylib(DeviceState &out);
 
 // Forget every action and every device reading. Tests use it between cases; the
 // framework uses it on the way out.

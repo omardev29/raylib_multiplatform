@@ -106,7 +106,7 @@ void empty(SlotData &slot) {
     slot.refs = 0;
 }
 
-SlotData *find_named(ResourceKind kind, const char *name, int font_size) {
+SlotData *find_named(ResourceKind kind, std::string_view name, int font_size) {
     for (const auto &s : table.slots) {
         if (s->refs > 0 && s->named && s->kind == kind && s->font_size == font_size &&
             s->name == name) {
@@ -126,8 +126,7 @@ SlotData *free_slot() {
 
 } // namespace
 
-Slot *acquire_named(ResourceKind kind, const char *name, int font_size) {
-    if (name == nullptr) return nullptr;
+Slot *acquire_named(ResourceKind kind, std::string_view name, int font_size) {
     if (SlotData *hit = find_named(kind, name, font_size)) {
         hit->refs++;
         return reinterpret_cast<Slot *>(hit);
@@ -147,9 +146,8 @@ Slot *adopt_owned(ResourceKind kind, std::shared_ptr<void> payload) {
     return reinterpret_cast<Slot *>(slot);
 }
 
-Slot *adopt_named_owned(ResourceKind kind, const char *name, int font_size,
+Slot *adopt_named_owned(ResourceKind kind, std::string_view name, int font_size,
                         std::shared_ptr<void> payload) {
-    if (name == nullptr) return nullptr;
     Slot *slot = adopt_owned(kind, std::move(payload));
     if (slot == nullptr) return nullptr;
     auto *data = reinterpret_cast<SlotData *>(slot);
@@ -183,8 +181,7 @@ int live_count() {
     return n;
 }
 
-int ref_count(const char *name) {
-    if (name == nullptr) return 0;
+int ref_count(std::string_view name) {
     int n = 0;
     for (const auto &s : table.slots) {
         if (s->refs > 0 && s->named && s->name == name) n += s->refs;

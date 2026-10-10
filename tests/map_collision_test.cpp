@@ -40,7 +40,7 @@ public:
 struct {
     rmp::input::detail::DeviceState devices;
 } fake;
-void fake_sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
+void fake_sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
 struct Fixture {
     Fixture() {
@@ -90,8 +90,10 @@ std::string project_of(const std::vector<std::string> &rows, Vector2 origin = {}
 
 void load(World &world, const std::vector<std::string> &rows, Vector2 origin = {}) {
     const std::string text = project_of(rows, origin);
-    world.map.adopt(rmp::tilemap::detail::parse_map(
-        text.data(), static_cast<int>(text.size()), "test.ldtk"));
+    rmp::tilemap::detail::Access::adopt(
+        world.map,
+        rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
+                                        "test.ldtk"));
     REQUIRE(world.map.valid());
 }
 

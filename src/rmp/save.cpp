@@ -185,7 +185,8 @@ Value from_cjson(const cJSON *node) {
     if (cJSON_IsBool(node)) return { cJSON_IsTrue(node) != 0 };
     if (cJSON_IsNumber(node)) return { node->valuedouble };
     if (cJSON_IsString(node)) {
-        return { node->valuestring != nullptr ? node->valuestring : "" };
+        return { std::string_view(node->valuestring != nullptr ? node->valuestring
+                                                               : "") };
     }
     if (cJSON_IsArray(node)) {
         Value list = Value::list();
@@ -827,9 +828,9 @@ bool write(std::string_view slot, const Value &value, const WriteOptions &option
     return false;
 }
 
-Result read(std::string_view slot, Value *out, const ReadOptions &options) {
+Result read(std::string_view slot, Value &out, const ReadOptions &options) {
     Result result;
-    if (out == nullptr || !check_slot(slot)) {
+    if (!check_slot(slot)) {
         result.status = Status::UNREADABLE;
         return result;
     }
@@ -843,7 +844,7 @@ Result read(std::string_view slot, Value *out, const ReadOptions &options) {
         result.status = Status::UNREADABLE;
         return result;
     }
-    result.status = detail::decode(bytes, out, options.sealed_only);
+    result.status = detail::decode(bytes, &out, options.sealed_only);
     return result;
 }
 

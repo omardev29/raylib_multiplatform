@@ -40,6 +40,7 @@
 #include <fstream>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -114,9 +115,11 @@ struct Parsed {
     rmp::Tilemap map;
     const MapData *data = nullptr;
     Parsed(const std::string &text, const char *name, const char *level = "") {
-        map.adopt(rmp::tilemap::detail::parse_map(
-            text.data(), static_cast<int>(text.size()), name, level));
-        data = map.detail_data();
+        rmp::tilemap::detail::Access::adopt(
+            map,
+            rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
+                                            name, level));
+        data = rmp::tilemap::detail::Access::data(map);
     }
 };
 
@@ -128,10 +131,10 @@ const rmp::MapObject *object_of_type(const MapData *data, const char *type, int 
     return nullptr;
 }
 
-const rmp::MapObject *object_by_iid(const MapData *data, const char *iid) {
+const rmp::MapObject *object_by_iid(const MapData *data, std::string_view iid) {
     for (int i = 0; i < rmp::tilemap::detail::object_count(data); i++) {
         const rmp::MapObject *o = rmp::tilemap::detail::object_at(data, i);
-        if (std::string(o->iid) == iid) return o;
+        if (o->iid == iid) return o;
     }
     return nullptr;
 }
@@ -433,6 +436,45 @@ TEST_SUITE("ldtk") {
         const rmp::Tilemap empty;
         CHECK(std::string(empty.neighbour_at({ 0, 0 })).empty());
         CHECK(std::string(empty.level()).empty());
+    }
+
+    TEST_CASE("every name the map hands back is a view with a NUL after it") {
+        // The contract of every std::string_view the framework returns: it
+        // views a string the map keeps, so the character after it is a NUL.
+        const auto terminated = [](std::string_view v) {
+            return v.data() != nullptr &&
+                std::string_view(v.data(), v.size() + 1).back() == '\0';
+        };
+        const Parsed start(text_of("minimal.ldtk"), "minimal.ldtk");
+        REQUIRE(start.map.level() == "Start");
+        CHECK(terminated(start.map.level()));
+        REQUIRE(start.map.neighbour_at({ 70, 0 }) == "Next");
+        CHECK(terminated(start.map.neighbour_at({ 70, 0 })));
+        CHECK(terminated(start.map.neighbour_at({ 10, 10 }))); // "", in the level
+        const rmp::Tilemap empty;
+        CHECK(terminated(empty.level()));
+        CHECK(terminated(empty.neighbour_at({ 0, 0 })));
+
+        const rmp::MapObject *e = object_of_type(start.data, "Enemy");
+        REQUIRE(e != nullptr);
+        CHECK(terminated(e->type));
+        CHECK(terminated(e->name));
+        CHECK(terminated(e->iid));
+        REQUIRE(e->property_string("name") == "Bob");
+        CHECK(terminated(e->property_string("name")));
+        CHECK(terminated(e->property_string("missing"))); // the default fallback
+    }
+
+    TEST_CASE("a key is its characters: a view into a longer string finds the field") {
+        // The keys were `const char *`, looked up with ==, so a view cut out of
+        // the middle of something longer could not even be asked with.
+        const Parsed p(text_of("minimal.ldtk"), "minimal.ldtk");
+        const rmp::MapObject *e = object_of_type(p.data, "Enemy");
+        REQUIRE(e != nullptr);
+        const std::string_view hp = std::string_view("hpx").substr(0, 2);
+        CHECK(e->property_int(hp) == 3);
+        CHECK(e->property_int(std::string("hp")) == 3);
+        CHECK(e->property_int(std::string_view("hp\0", 3), -1) == -1);
     }
 
     TEST_CASE("a project of several worlds: neighbours stay in their own world") {
@@ -1078,7 +1120,7 @@ TEST_SUITE("ldtk") {
             CHECK(p.map.solid_in(b)); // there is ground to stand on
             for (int i = 0; i < rmp::tilemap::detail::object_count(p.data); i++) {
                 const rmp::MapObject *o = rmp::tilemap::detail::object_at(p.data, i);
-                const std::string type = o->type;
+                const std::string type(o->type);
                 CAPTURE(type);
                 if (type == "Player") players++;
                 if (type == "Goal") goals++;

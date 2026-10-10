@@ -92,8 +92,8 @@ bool pressed(std::string_view action) { return rmp::input::just_pressed(action);
 // the ray skips them inside cast() (RayQuery::solid_only). Both Platformer and
 // Runner come through here.
 bool standing_on_something(Object &self, float reach) {
-    Scene *scene = self.scene();
-    if (scene == nullptr) return false;
+    const Ref<Scene> scene = Storage::spawned_in(self);
+    if (!scene) return false;
     const Rectangle box = self.world_collider();
     if (box.height <= 0) return false;
     const Vector2 feet{ box.x + box.width / 2, box.y + box.height };
@@ -108,7 +108,7 @@ bool standing_on_something(Object &self, float reach) {
     const RayQuery query{ .from = Vector2{ feet.x, feet.y - 1 },
                           .to = Vector2{ feet.x, feet.y + reach },
                           .mask = self.collision_mask,
-                          .ignore = &self,
+                          .ignore = self.handle(),
                           .solid_only = true };
     return static_cast<bool>(scene->raycast(query));
 }
@@ -170,21 +170,8 @@ void TopDown::_update(Object &self, float delta) {
     if (base.empty()) return;
 
     if (moving) {
-        char tag[MAX_TAG_NAME * 2];
         const std::string &suffix = suffixes[static_cast<std::size_t>(sector())];
-        int at = 0;
-        for (std::size_t i = 0; i < base.size() && at + 1 < static_cast<int>(sizeof(tag));
-             i++) {
-            tag[at++] = base[i];
-        }
-        if (!suffix.empty() && at + 1 < static_cast<int>(sizeof(tag))) {
-            tag[at++] = '_';
-            for (std::size_t i = 0;
-                 i < suffix.size() && at + 1 < static_cast<int>(sizeof(tag)); i++) {
-                tag[at++] = suffix[i];
-            }
-        }
-        tag[at] = '\0';
+        const std::string tag = suffix.empty() ? base : base + "_" + suffix;
         if (rmp::animation::detail::tag_index(self.sprite.sheet.raw(), tag) >= 0) {
             // "walk_w" is drawn facing west; mirroring it would face it east.
             self.flip_x = false;
@@ -192,7 +179,7 @@ void TopDown::_update(Object &self, float delta) {
             return;
         }
     }
-    self.sprite.play(base.c_str());
+    self.sprite.play(base);
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +191,7 @@ void Platformer::_ready(Object &self) {
     // because this behavior integrates its OWN gravity -- the `gravity` field
     // above, applied only while off the ground -- so that `jump` reaches the
     // same height whatever the scene's gravity is. Heavier is
-    // `get<Platformer>()->gravity = 3000`; setting gravity_scale afterwards
+    // `get<Platformer>()->gravity = 3000`, after an `if`; setting gravity_scale afterwards
     // adds the scene's gravity on top of this one, twice the fall.
     self.solid = true;
     self.gravity_scale = 0;
@@ -396,8 +383,8 @@ void Projectile::_update(Object &self, float delta) {
 // ---------------------------------------------------------------------------
 
 void Follow::_update(Object &self, float delta) {
-    Object *goal = target.get();
-    if (goal == nullptr) {
+    const Ref<Object> goal = target.get();
+    if (!goal) {
         // The target died. Coasting is the right answer rather than stopping
         // dead: a homing missile whose target explodes keeps flying.
         return;
@@ -544,10 +531,10 @@ void Parallax::_draw(Object &self) {
     // placed relative to the view: a layer with factor 0 is pinned to the
     // screen because it moves exactly as much as the view does, and factor 1
     // stands still in the world. The object's own x shifts it on top of that.
-    const Rectangle view = self.scene() != nullptr
-        ? self.scene()->camera.view()
-        : Rectangle{ 0, 0, static_cast<float>(RMP_WINDOW_WIDTH),
-                     static_cast<float>(RMP_WINDOW_HEIGHT) };
+    const Ref<Scene> scene = Storage::spawned_in(self);
+    const Rectangle view = scene ? scene->camera.view()
+                                 : Rectangle{ 0, 0, static_cast<float>(RMP_WINDOW_WIDTH),
+                                              static_cast<float>(RMP_WINDOW_HEIGHT) };
     // The arithmetic is next door, in detail::parallax_shift and
     // detail::parallax_tiling, and these calls are the only thing between it
     // and the GPU. That is not tidiness: everything below this line needs a
@@ -616,25 +603,27 @@ int spawner_cap(int max_alive) {
 } // namespace
 
 void Spawner::_update(Object &self, float delta) {
-    Scene *scene = self.scene();
-    if (scene == nullptr || !on_spawn) return;
+    const Ref<Scene> scene = Storage::spawned_in(self);
+    if (!scene || !on_spawn) return;
 
-    Object *ruler = track ? track.get() : &self;
-    if (ruler == nullptr) ruler = &self;
+    // What the distance is measured on: the tracked object while it lives,
+    // and the spawner itself otherwise.
+    const Ref<Object> tracked = track.get();
+    const Object &ruler = tracked ? *tracked : self;
 
     if (!ours.started) {
         ours.started = true;
-        ours.last_at = ruler->position;
+        ours.last_at = ruler.position;
         ours.countdown = every_seconds;
         ours.next_at = every_distance;
         ours.travelled = 0;
     }
 
     const float moved = std::sqrt(
-        (ruler->position.x - ours.last_at.x) * (ruler->position.x - ours.last_at.x) +
-        (ruler->position.y - ours.last_at.y) * (ruler->position.y - ours.last_at.y));
+        (ruler.position.x - ours.last_at.x) * (ruler.position.x - ours.last_at.x) +
+        (ruler.position.y - ours.last_at.y) * (ruler.position.y - ours.last_at.y));
     ours.travelled += moved;
-    ours.last_at = ruler->position;
+    ours.last_at = ruler.position;
 
     bool due = false;
     if (every_distance > 0) {
@@ -682,7 +671,7 @@ void Spawner::_update(Object &self, float delta) {
     // what says which they are.
     std::vector<Object *> before = rmp::objects::detail::live_objects(*scene);
     std::ranges::sort(before);
-    on_spawn(*scene, ruler->position);
+    on_spawn(*scene, ruler.position);
 
     for (Object *made : rmp::objects::detail::live_objects(*scene)) {
         if (std::ranges::binary_search(before, made)) continue;

@@ -94,7 +94,7 @@ static void sidebar() {
 static void content() {
     rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [] {
         rmp::ui::text(SECTIONS[selected], { .size = rmp::ui::Size::LARGE });
-        rmp::ui::checkbox("Show the grid", &show_grid);
+        rmp::ui::checkbox("Show the grid", show_grid);
 
         if (show_grid) {
             // Nothing responsive to write here: columns = 0 works out how many

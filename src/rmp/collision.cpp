@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <span>
 #include <vector>
 
 namespace rmp {
@@ -1002,8 +1003,8 @@ void pointer(Scene &scene) {
         return;
     }
 
-    Object *captured = press.captured.get();
-    if (captured == nullptr) return;
+    const Ref<Object> captured = press.captured.get();
+    if (!captured) return;
 
     if (rmp::input::pointer_down()) {
         // In WORLD units, like `at`, because what a drag is for is
@@ -1050,8 +1051,8 @@ namespace {
 
 // Everything the ray hits, nearest first. The grid is walked with a DDA so only
 // the cells the line crosses are looked at.
-int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
-    if (max <= 0) return 0;
+int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
+    if (out.empty()) return 0;
 
     // The shared index, built at most once per world version -- not a private
     // copy of the world rebuilt per ray, which is what this used to do and what
@@ -1152,7 +1153,7 @@ int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
     for (int i : candidates) {
         const Entry &e = entries[static_cast<std::size_t>(i)];
         const Object *object = e.object;
-        if (object == query.ignore) continue;
+        if (object->handle() == query.ignore) continue;
         if ((query.mask & object->collision_layer) == 0) continue;
         // solid_only is dropped here rather than after the hit: the caller
         // wants the nearest SOLID thing, so a trigger in front of the floor
@@ -1178,8 +1179,7 @@ int cast(const Scene &scene, const RayQuery &query, RayHit *out, int max) {
         return x.order < y.order; // creation order, which is stable
     });
 
-    const auto room = static_cast<std::size_t>(max);
-    const std::size_t count = hits.size() < room ? hits.size() : room;
+    const std::size_t count = hits.size() < out.size() ? hits.size() : out.size();
     for (std::size_t i = 0; i < count; i++) out[i] = hits[i].hit;
     return static_cast<int>(count);
 }
@@ -1192,13 +1192,12 @@ RayHit Scene::raycast(Vector2 from, Vector2 to) const {
 
 RayHit Scene::raycast(const RayQuery &query) const {
     RayHit hit;
-    cast(*this, query, &hit, 1);
+    cast(*this, query, std::span<RayHit>(&hit, 1));
     return hit;
 }
 
-int Scene::raycast_all(const RayQuery &query, RayHit *out, int max) const {
-    if (out == nullptr) return 0;
-    return cast(*this, query, out, max);
+int Scene::raycast_all(const RayQuery &query, std::span<RayHit> out) const {
+    return cast(*this, query, out);
 }
 
 } // namespace rmp

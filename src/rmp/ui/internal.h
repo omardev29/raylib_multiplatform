@@ -14,6 +14,7 @@
 #include "clay.h"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace rmp::ui::detail {
@@ -174,8 +175,8 @@ int16_t next_layer_z();
 // Element identity. Hashing the label alone would make two "Back" buttons in
 // two different screens the same element, so they would highlight together.
 // The occurrence counter disambiguates the common case; an explicit id is the
-// escape hatch when the UI is conditional.
-Clay_ElementId element_id(std::string_view label, const char *explicit_id);
+// escape hatch when the UI is conditional. An empty explicit_id is none.
+Clay_ElementId element_id(std::string_view label, std::string_view explicit_id);
 
 // The same id, WITHOUT allocating any of it: no occurrence bump, no interning,
 // nothing remembered. It answers "what id does the `occurrence`-th widget
@@ -468,5 +469,24 @@ inline Color from_clay(Clay_Color c) {
 
 // Design units -> pixels.
 inline float px(float design_units) { return design_units * ui_scale(); }
+
+// --- controls.cpp: UTF-8, as text_input() edits it --------------------------
+//
+// Apart from the field so that a test can hold them to the promise the field
+// makes: a character is never cut in half, whatever it is cut for. Counting is
+// by the bytes that START a character, so a string that is not valid UTF-8 is
+// still counted and cut without reading past its end.
+
+// How many characters `text` holds.
+int utf8_length(std::string_view text);
+// `codepoint` onto the end of `text`, as UTF-8, if it is a character a player
+// types (not a control character, not a surrogate, not past U+10FFFF) and the
+// text has room for it under `max_length` characters (0 = no limit).
+bool utf8_append(std::string &text, int codepoint, int max_length);
+// The last character off the end of `text`. False when there was none.
+bool utf8_pop(std::string &text);
+// `text` cut to `max_length` characters (0 = no limit), at the end of one.
+// True when it was longer.
+bool utf8_truncate(std::string &text, int max_length);
 
 } // namespace rmp::ui::detail

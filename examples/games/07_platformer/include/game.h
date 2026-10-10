@@ -9,6 +9,7 @@
 #include <raylib.h>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace game {
@@ -67,7 +68,7 @@ struct Run {
 };
 Run &run();
 void new_run();
-bool contains(const std::vector<std::string> &list, const char *iid);
+bool contains(const std::vector<std::string> &list, std::string_view iid);
 
 // The best run, as rmp::save keeps it: the most coins, and on a tie the
 // faster time. Returns true when this one is a new best (and keeps it).

@@ -35,6 +35,12 @@
 // [ui] rather than a number baked into this header.
 #include <rmp/config.h>
 
+// The standard library this header pays for, measured in tools/header_budget.txt:
+// <string_view> for every label, <string> for the text a text_input() edits,
+// <span> and <initializer_list> for a dropdown's items.
+#include <initializer_list>
+#include <span>
+#include <string>
 #include <string_view>
 
 #ifndef RMP_UI_FONT_SIZE
@@ -217,7 +223,7 @@ void set_theme(const Theme &t);
 // raylib_multiplatform.toml; these let you switch at runtime, which is what an
 // in-game "appearance" setting does:
 //
-//     if (rmp::ui::checkbox("Light Theme", &light))
+//     if (rmp::ui::checkbox("Light Theme", light))
 //         rmp::ui::set_theme(light ? rmp::ui::theme_light() : rmp::ui::theme_dark());
 //
 // They return a copy, so the usual copy-modify-set still applies on top.
@@ -330,7 +336,8 @@ struct ButtonOptions {
     bool enabled = true; // false = the theme's disabled colours; no press, no focus
     // Only needed when two buttons share a label AND the UI is conditional.
     // Identical labels in one frame are already told apart automatically.
-    const char *id = nullptr;
+    // Empty means none. It is hashed on the spot, so a temporary is fine.
+    std::string_view id{};
 };
 
 // How text() paints a string: its colour, its size, and whether it wraps.
@@ -397,7 +404,7 @@ struct BoxOptions {
     // whatever else is on screen. Nothing in rmp::ui needs it -- it is for a
     // test that finds an element by name, as tests/ui_layout_test.cpp does.
     // Unnamed containers are anonymous, which is what almost all of them want.
-    const char *id = nullptr;
+    std::string_view id{};
 };
 
 // A panel is a box with a background, which is what makes it visible.
@@ -434,7 +441,7 @@ struct ProgressOptions {
     float radius = -1; // -1 = half the height, for round ends
     Color fill = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's primary
     Color track = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's surface
-    const char *id = nullptr; // names the bar, as BoxOptions::id names a container
+    std::string_view id{}; // names the bar, as BoxOptions::id names a container
 };
 
 namespace detail {
@@ -557,7 +564,7 @@ struct GridOptions {
     // A name for the grid. columns = 0 reads the width the grid had last frame
     // and finds it by this name; without one, by its order among the unnamed
     // grids of the pass, which a grid that comes and goes before it changes.
-    const char *id = nullptr;
+    std::string_view id{};
 };
 
 // How scroll() clips its contents, spaces them, and how much room it takes.
@@ -576,7 +583,7 @@ struct ScrollOptions {
     // A name for the area. Without one it is told apart by its order among the
     // unnamed scroll areas of the pass, so an area that comes and goes before
     // it changes which one it is.
-    const char *id = nullptr;
+    std::string_view id{};
 };
 
 namespace detail {
@@ -646,20 +653,21 @@ template <class Body> void scroll(Body &&body) {
 // ---------------------------------------------------------------------------
 // Controls that own a value
 //
-// Each one takes a pointer to YOUR variable and writes to it. That is the whole
-// state model: there is nothing of ours to keep in sync, and the value on
-// screen is the value in your struct because it was read this frame.
+// Each one takes YOUR variable, by reference, and writes to it. That is the
+// whole state model: there is nothing of ours to keep in sync, and the value on
+// screen is the value in your struct because it was read this frame. Nothing
+// of it is kept past the call.
 //
 // They return true on the frame the value changed, so this reads the way it
 // looks:
 //
-//     if (rmp::ui::checkbox("Fullscreen", &settings.fullscreen)) apply();
+//     if (rmp::ui::checkbox("Fullscreen", settings.fullscreen)) apply();
 // ---------------------------------------------------------------------------
 
 // Whether a checkbox() can be toggled, and the name that tells it apart.
 struct CheckboxOptions {
     bool enabled = true; // false = the theme's disabled colours; no toggle, no focus
-    const char *id = nullptr; // as ButtonOptions::id: for a shared label
+    std::string_view id{}; // as ButtonOptions::id: for a shared label
 };
 
 // How a slider() is sized, stepped and shown. Sizes are in design units.
@@ -668,62 +676,78 @@ struct SliderOptions {
     float step = 0; // 0 = continuous; otherwise snap to multiples
     bool enabled = true; // false = the theme's disabled colours; no drag, no focus
     bool show_value = true; // draw the position, as a percentage, after the bar
-    const char *id = nullptr; // as ButtonOptions::id: for a shared label
+    std::string_view id{}; // as ButtonOptions::id: for a shared label
 };
 
 // How a dropdown() is sized, and whether it can be opened.
 struct DropdownOptions {
     float width = 0; // of the field, in design units; 0 = fill the space available
     bool enabled = true; // false = the disabled text colour; no opening, no focus
-    const char *id = nullptr; // as ButtonOptions::id: for a shared label
+    std::string_view id{}; // as ButtonOptions::id: for a shared label
 };
 
-// How a text_input() is sized, and what it shows while it is empty.
+// How a text_input() is sized, what it shows while it is empty, and how much
+// it takes.
 struct TextInputOptions {
     float width = 0; // of the field, in design units; 0 = fill the space available
     bool enabled = true; // false = the theme's disabled colours; no typing, no focus
     // Shown in the theme's text_muted while the field is empty and does not have
     // the focus. It is copied, so a temporary is fine.
     std::string_view placeholder{};
-    const char *id = nullptr; // as ButtonOptions::id: for a shared label
+    std::string_view id{}; // as ButtonOptions::id: for a shared label
+    // The most CHARACTERS it holds -- what the player counts, so an "é" is one
+    // and not the two bytes it takes. 0 = no limit. Typing stops at it, and a
+    // longer value you hand in is cut to it on the frame the field is drawn,
+    // never inside a character.
+    int max_length = 0;
 };
 
-// A box that flips *value when it is clicked, or activated from the keyboard or
-// a gamepad while it has the focus. True on the frame it flipped. The pointer is
-// yours and is not kept past the call; a null one draws nothing.
-bool checkbox(std::string_view label, bool *value);
-bool checkbox(std::string_view label, bool *value, const CheckboxOptions &o);
+// A box that flips `value` when it is clicked, or activated from the keyboard or
+// a gamepad while it has the focus. True on the frame it flipped.
+bool checkbox(std::string_view label, bool &value);
+bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o);
 
-// A bar that sets *value between min and max: dragged, or moved with left and
+// A bar that sets `value` between min and max: dragged, or moved with left and
 // right while it has the focus, one `step` (or 5% of the range) per press, then
-// twelve a second while held. *value is clamped to the range, and snapped to
+// twelve a second while held. `value` is clamped to the range, and snapped to
 // `step` when there is one, on every call; true on any frame that changed it.
-// The pointer is yours and is not kept past the call. Nothing is drawn when it
-// is null or max <= min.
-bool slider(std::string_view label, float *value, float min, float max);
-bool slider(std::string_view label, float *value, float min, float max,
+// Nothing is drawn when max <= min.
+bool slider(std::string_view label, float &value, float min, float max);
+bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o);
 
-// `items` is an array of `count` C strings; *selected is the index into it.
+// `selected` is the index into `items`, and is kept inside it.
+//
+//     rmp::ui::dropdown("Quality", quality, { "Low", "Medium", "High" });
+//
+// A list written in place, as above, or any array of string_views you keep --
+// std::array, std::vector, a C array -- they are copied on the way in.
 // A click, or Enter or the A button while it has the focus, opens the list.
 // Open and focused, up and down walk its items instead of moving the focus,
 // Enter or A picks the one they are on, and Escape or B closes it without
-// changing anything. True on the frame *selected changed.
-bool dropdown(std::string_view label, int *selected, const char *const *items, int count);
-bool dropdown(std::string_view label, int *selected, const char *const *items, int count,
-              const DropdownOptions &o);
+// changing anything. True on the frame `selected` changed. Nothing is drawn
+// for an empty list.
+bool dropdown(std::string_view label, int &selected,
+              std::span<const std::string_view> items);
+bool dropdown(std::string_view label, int &selected,
+              std::span<const std::string_view> items, const DropdownOptions &o);
+bool dropdown(std::string_view label, int &selected,
+              std::initializer_list<std::string_view> items);
+bool dropdown(std::string_view label, int &selected,
+              std::initializer_list<std::string_view> items, const DropdownOptions &o);
 
-// Writes into your buffer, NUL-terminated, never past capacity - 1, and only
-// while the field has the keyboard. It takes it when it is clicked, when the
-// focus is moved onto it (Tab, the arrows, the d-pad, focus()), or when Enter,
+// Edits your string, in UTF-8 -- what the player types goes on the end, and
+// Backspace takes off the last character, never half of one -- and only while
+// the field has the keyboard; TextInputOptions::max_length caps it. True on the
+// frame it changed. It takes the keyboard when it is clicked, when the focus
+// is moved onto it (Tab, the arrows, the d-pad, focus()), or when Enter,
 // Space or the A button is pressed while it has the focus -- but not from the
 // focus a screen gives its first control by itself. It gives it back on Enter
 // or the A button (Space is typed), on Escape or the B button, and on a click
 // anywhere else; the focus stays on it. Tab, up and down move the focus on from
 // a field as from any other control, and take the keyboard with them.
-bool text_input(std::string_view label, char *buffer, int capacity);
-bool text_input(std::string_view label, char *buffer, int capacity,
-                const TextInputOptions &o);
+bool text_input(std::string_view label, std::string &value);
+bool text_input(std::string_view label, std::string &value, const TextInputOptions &o);
 
 // ---------------------------------------------------------------------------
 // Input, and who gets it

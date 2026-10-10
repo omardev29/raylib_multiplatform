@@ -40,7 +40,9 @@
 // handle or behavior into a sentence instead of a page of template errors.
 // There is no <functional>: Callback below does the part of std::function that
 // is needed, and also takes a move-only lambda, which std::function cannot.
+#include <cstddef> // std::nullptr_t, for `ref == nullptr`
 #include <memory> // std::shared_ptr: what owns a callback's state and a behavior
+#include <string_view> // a sprite's tag names
 #include <type_traits>
 
 namespace rmp {
@@ -108,18 +110,18 @@ struct Sprite {
     //     player.sprite.sheet = rmp::assets::load_sheet("player.aseprite");
     //     player.sprite.play("walk");     // "walk" is a tag of YOURS
     //
-    // `const char *`, and playing() hands one back: a tag is compared with
-    // the sheet's own names, which are NUL-terminated strings, and given back
-    // as one of them, so it goes straight into raylib's DrawText(). Tags are
-    // string literals in practice; a std::string caller writes .c_str().
+    // A literal, a std::string or a std::string_view, as it comes. playing()
+    // hands back the sheet's own name for the tag, or "" when nothing plays:
+    // valid for as long as the sheet is loaded, and the characters after it
+    // are a NUL, which tests/animation_test.cpp holds it to.
     //
     // A tag that is not in the sheet WARNS ONCE and does nothing -- it does not
     // land on a blank frame, and it does not fill the console sixty times a
     // second saying so.
-    void play(const char *tag, bool loop = true);
+    void play(std::string_view tag, bool loop = true);
     void stop();
     [[nodiscard]] bool finished() const;
-    [[nodiscard]] const char *playing() const;
+    [[nodiscard]] std::string_view playing() const;
 
     // The escape hatch: drive the frames yourself.
     [[nodiscard]] int frame_index() const { return ours.frame; }
@@ -258,6 +260,100 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// The type tags and the stand-in behind rmp::Ref, below. Not for you.
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+// A number per type, without RTTI: the first time type_id<T>() is asked for,
+// T gets the next one, and keeps it -- the static lives in an inline function
+// template, so it is one per program, whichever file asks. What tells one
+// behavior, and one scene, from another. The counter is in src/rmp/object.cpp.
+int next_type_id();
+template <class T> int type_id() {
+    static const int ID = next_type_id();
+    return ID;
+}
+
+// Said once per type, the first time an empty Ref is reached through * or ->;
+// and, for a type there is no stand-in for (one with no default constructor,
+// or an abstract one), the end of the program. Both in src/rmp/object.cpp.
+void report_empty_ref(int type);
+[[noreturn]] void no_stand_in(int type);
+
+// What * and -> reach on an empty Ref: a T made for the purpose, fresh on every
+// use, so a read through it gives a default T and a write lands nowhere. It is
+// never destroyed by the language -- a stand-in Object would otherwise go after
+// the engine it has to tell it is going -- which is what the union is for.
+template <class T> T &stand_in() {
+    using Plain = std::remove_const_t<T>;
+    report_empty_ref(type_id<Plain>());
+    if constexpr (std::is_default_constructible_v<Plain>) {
+        union Holder {
+            Plain value;
+            Holder() : value() {}
+            ~Holder() {}
+            Holder(const Holder &) = delete;
+            Holder &operator=(const Holder &) = delete;
+        };
+        static Holder holder;
+        std::destroy_at(&holder.value);
+        std::construct_at(&holder.value);
+        return holder.value;
+    } else {
+        no_stand_in(type_id<Plain>());
+    }
+}
+
+} // namespace detail
+
+// ---------------------------------------------------------------------------
+// An optional reference: something that may not be there, and is not yours.
+//
+//     if (auto health = player.get<Health>()) health->hp -= 1;
+//
+// What Object::get<B>() and Handle::get() hand back. It is empty, or it refers
+// to something; it owns nothing, and asking it is the `if` above -- true when
+// there is something, and then -> and * reach it. Keep it within the frame,
+// like the reference spawn() returns; across frames, keep the Handle.
+//
+// Not a `T *`: a pointer cannot say whether it may be null or whose it is, and
+// this type says both. Not std::optional<std::reference_wrapper<T>> either,
+// which says the same for the price of <functional> in every file with an
+// object in it, and reads as `health->get().hp`.
+//
+// REACHING INTO AN EMPTY ONE is a mistake in the game, and is said once, per
+// type: * and -> then reach a stand-in, a default T made for the purpose and
+// made again on every use, so the line that forgot the `if` writes to nothing
+// instead of taking the player's game down with it. ([dev] strict stops a
+// debug build there instead.) A type with no default constructor has no
+// stand-in, and that one mistake ends the program -- with the same message.
+// ---------------------------------------------------------------------------
+template <class T> class Ref {
+public:
+    // Empty: refers to nothing, and is false.
+    Ref() = default;
+    // Refers to `target`, which stays whoever's it was.
+    explicit Ref(T &target) : _target(&target) {}
+
+    // True when it refers to something.
+    explicit operator bool() const { return _target != nullptr; }
+    // What it refers to -- or, empty, the stand-in above, and a line in the log.
+    T &operator*() const {
+        return _target != nullptr ? *_target : rmp::detail::stand_in<T>();
+    }
+    T *operator->() const { return &**this; }
+
+    // The same thing, or both empty. And `ref == nullptr` asks "empty?" in
+    // the spelling everybody already reads.
+    friend bool operator==(const Ref &, const Ref &) = default;
+    friend bool operator==(const Ref &ref, std::nullptr_t) { return !ref; }
+
+private:
+    T *_target = nullptr;
+};
+
+// ---------------------------------------------------------------------------
 // A handle: index plus generation, and the answer to "I want to remember this
 // object between frames".
 //
@@ -274,11 +370,11 @@ private:
 
 namespace detail {
 // Defined in src/rmp/object.cpp, where the storage lives.
-Object *resolve(unsigned index, unsigned generation);
+Ref<Object> resolve(unsigned index, unsigned generation);
 } // namespace detail
 
 // A reference to an object that is safe to keep across frames. It gives the
-// object back while it is alive, and nullptr from the moment destroy() is
+// object back while it is alive, and nothing from the moment destroy() is
 // called on it, even once its slot holds another object. Object::handle() makes
 // one; T is the type get() hands back.
 template <class T = Object> class Handle {
@@ -298,14 +394,20 @@ public:
 
     Handle() = default;
 
-    // Null until it points at something, and false the moment that something
-    // stops existing. A default-constructed handle has generation 0, which no
-    // live slot ever has.
-    [[nodiscard]] T *get() const {
-        return static_cast<T *>(rmp::detail::resolve(_index, _generation));
+    // Empty until it points at something, and empty again the moment that
+    // something stops existing. A default-constructed handle has generation 0,
+    // which no live slot ever has.
+    //
+    // -> and * on a handle whose object is gone are the empty Ref's: said
+    // once, and a stand-in instead of a crash. Ask first:
+    //
+    //     if (target) target->hp -= 1;
+    [[nodiscard]] Ref<T> get() const {
+        const Ref<Object> found = rmp::detail::resolve(_index, _generation);
+        return found ? Ref<T>(static_cast<T &>(*found)) : Ref<T>{};
     }
-    explicit operator bool() const { return get() != nullptr; }
-    T *operator->() const { return get(); }
+    explicit operator bool() const { return static_cast<bool>(get()); }
+    T *operator->() const { return get().operator->(); }
     T &operator*() const { return *get(); }
 
     // The same slot and the same generation: the same object, or the same
@@ -330,14 +432,6 @@ public:
 // ---------------------------------------------------------------------------
 
 namespace detail {
-
-// A type identifier without RTTI: the address of a static that exists once per
-// B. Works with -fno-rtti, costs nothing, and is stable across translation
-// units because the static lives in an inline function template.
-template <class B> const void *behavior_type() {
-    static const char TAG = 0;
-    return &TAG;
-}
 
 // The hooks a behavior may have, erased. A null entry means the struct did not
 // declare that one, and the engine skips it -- which is how an optional hook
@@ -391,11 +485,10 @@ template <class B> const BehaviorOps &ops_for() {
 
 // Takes the behavior -- a shared_ptr<void> because that is what carries B's
 // deleter without a `delete` of ours -- and returns a non-owning pointer to
-// it. Defined in src/rmp/behavior.cpp.
-void *attach(Object &self, const void *type, const BehaviorOps &ops,
-             std::shared_ptr<void> data);
-void *find_behavior(const Object &self, const void *type);
-void detach(Object &self, const void *type);
+// it. `type` is type_id<B>(). Defined in src/rmp/behavior.cpp.
+void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<void> data);
+void *find_behavior(const Object &self, int type);
+void detach(Object &self, int type);
 
 } // namespace detail
 
@@ -405,7 +498,7 @@ void detach(Object &self, const void *type);
 // is not acceptable for something every game with a gun, a line of sight or a
 // ground check needs.
 //
-//     if (auto hit = scene()->raycast(muzzle, muzzle + aim * 400)) {
+//     if (auto hit = scene().raycast(muzzle, muzzle + aim * 400)) {
 //         spawn_spark(hit.point, hit.normal);
 //     }
 //
@@ -432,29 +525,10 @@ void detach(Object &self, const void *type);
 //   start of the current pass, which is what a stepped physics world does. The
 //   ray's own origin is whatever you pass in, so a character asking about the
 //   ground under itself is never the stale half.
+//
+// The query and the hit, RayQuery and RayHit, are declared below Object: both
+// hold a Handle, and a Handle needs Object complete.
 // ---------------------------------------------------------------------------
-
-// What Scene::raycast() and Scene::raycast_all() test: the segment from `from`
-// to `to`, against the scene's objects. The map's tiles are not hit; ask
-// Tilemap::solid_at() about those.
-struct RayQuery {
-    Vector2 from{}; // where the ray starts, in world units
-    Vector2 to{}; // where it ends; nothing beyond it is hit
-    unsigned mask = 0xFFFFFFFFu; // the same layers as the collision pass
-    Object *ignore = nullptr; // normally whoever is shooting
-
-    // Only objects that are `solid`. A ground check wants the floor and not the
-    // coin lying on it, and a mask cannot say that: layers are about who
-    // collides with whom, and solid is about whether the contact resolves.
-    // Without this the nearest hit under a character is whatever trigger
-    // happens to be there, and the character walks through the floor.
-    //
-    // Last in the struct, because added before the others it would shift a
-    // POSITIONAL initialiser -- `RayQuery{ a, b, mask, &self }` -- onto the
-    // wrong fields. A designated one does not mind: it names its fields, in
-    // the order they are declared, and a new one in between is simply left out.
-    bool solid_only = false;
-};
 
 // ---------------------------------------------------------------------------
 // What spawn() takes. The order is the order it gets written in.
@@ -633,7 +707,10 @@ public:
     // every later read into `get<TopDown>()->opts.speed`. Without inheritance
     // the fields ARE the configuration, hot:
     //
-    //     player.get<rmp::behavior::TopDown>()->speed = 400;   // a power-up
+    //     if (auto move = player.get<rmp::behavior::TopDown>()) move->speed = 400;
+    //
+    // get<B>() is an rmp::Ref: empty when the object has no B, and the `if` is
+    // how you ask.
     //
     // And the part that was not aimed for and turns out to be the best of it:
     // one of yours and one of ours are literally the same thing. There is no
@@ -658,8 +735,10 @@ public:
     // leave a puzzle piece square with the grid, and rounding the position the
     // object had before it moved would round the wrong number.
     template <class B> B &add(B value = {});
-    template <class B> [[nodiscard]] B *get() const;
-    template <class B> [[nodiscard]] bool has() const { return get<B>() != nullptr; }
+    template <class B> [[nodiscard]] Ref<B> get() const;
+    template <class B> [[nodiscard]] bool has() const {
+        return static_cast<bool>(get<B>());
+    }
     template <class B> void remove();
 
     // ---- callbacks, for when a subclass is more than you want --------------
@@ -699,7 +778,10 @@ public:
     template <class T = Object> [[nodiscard]] Handle<T> handle() const {
         return Handle<T>(_index, _generation);
     }
-    [[nodiscard]] Scene *scene() const { return _scene; }
+    // The scene that spawned it. An object no scene spawned -- a member, a
+    // local, a test's -- has none: asking is said once, and answers
+    // Scene::current().
+    [[nodiscard]] Scene &scene() const;
 
     // The axis-aligned box this object occupies right now, from the sprite or
     // the shape. Empty when it has neither, which is what an invisible logic
@@ -728,7 +810,8 @@ private:
     // The private half the engine reaches, through Storage in
     // src/rmp/object_internal.h and Scene's spawn. Each says what it takes or
     // sets, so no other object ever names these fields. Defined in object.cpp.
-    void attach(Scene *scene, unsigned index, unsigned generation, Vector2 at);
+    void attach(Scene &scene, unsigned index, unsigned generation, Vector2 at);
+    [[nodiscard]] Ref<Scene> spawned_in() const { return _scene; }
     Vector2 take_force();
     [[nodiscard]] Vector2 previous_position() const;
     void remember_position();
@@ -745,7 +828,7 @@ private:
     Callback<Object &, Vector2> _drag_handler;
     Callback<Object &, Object &> _collision_handler;
 
-    Scene *_scene = nullptr;
+    Ref<Scene> _scene; // empty until a scene spawns it
     unsigned _index = 0;
     unsigned _generation = 0;
     // Which record in the behavior engine is this object's, or -1 for "none".
@@ -764,8 +847,33 @@ private:
     Vector2 _previous_position{};
 };
 
-// RayHit lives below Object, and not with RayQuery above, because its handle
+// What Scene::raycast() and Scene::raycast_all() test: the segment from `from`
+// to `to`, against the scene's objects. The map's tiles are not hit; ask
+// Tilemap::solid_at() about those. Down here, below Object, and not with the
+// block about raycasting above, because `ignore` is a handle and a handle
 // needs Object complete.
+struct RayQuery {
+    Vector2 from{}; // where the ray starts, in world units
+    Vector2 to{}; // where it ends; nothing beyond it is hit
+    unsigned mask = 0xFFFFFFFFu; // the same layers as the collision pass
+    // Normally whoever is shooting: `.ignore = self.handle()`. Empty ignores
+    // nothing, and so does the handle of an object that is gone.
+    Handle<Object> ignore{};
+
+    // Only objects that are `solid`. A ground check wants the floor and not the
+    // coin lying on it, and a mask cannot say that: layers are about who
+    // collides with whom, and solid is about whether the contact resolves.
+    // Without this the nearest hit under a character is whatever trigger
+    // happens to be there, and the character walks through the floor.
+    //
+    // Last in the struct, because added before the others it would shift a
+    // POSITIONAL initialiser -- `RayQuery{ a, b, mask, self.handle() }` -- onto
+    // the wrong fields. A designated one does not mind: it names its fields, in
+    // the order they are declared, and a new one in between is simply left out.
+    bool solid_only = false;
+};
+
+// RayHit lives below Object too, for the same reason.
 struct RayHit {
     Handle<Object> object; // what was hit; a handle, so it is safe to keep across frames
     Vector2 point{}; // where, in world coordinates
@@ -797,18 +905,18 @@ template <class B> B &Object::add(B value) {
     // Owned from the first line: the engine takes the shared_ptr, and what
     // the caller gets back is a reference into it.
     std::shared_ptr<B> made = std::make_shared<B>(static_cast<B &&>(value));
-    void *stored = rmp::detail::attach(*this, rmp::detail::behavior_type<B>(),
+    void *stored = rmp::detail::attach(*this, rmp::detail::type_id<B>(),
                                        rmp::detail::ops_for<B>(), std::move(made));
     return *static_cast<B *>(stored);
 }
 
-template <class B> B *Object::get() const {
-    return static_cast<B *>(
-        rmp::detail::find_behavior(*this, rmp::detail::behavior_type<B>()));
+template <class B> Ref<B> Object::get() const {
+    void *found = rmp::detail::find_behavior(*this, rmp::detail::type_id<B>());
+    return found != nullptr ? Ref<B>(*static_cast<B *>(found)) : Ref<B>{};
 }
 
 template <class B> void Object::remove() {
-    rmp::detail::detach(*this, rmp::detail::behavior_type<B>());
+    rmp::detail::detach(*this, rmp::detail::type_id<B>());
 }
 
 } // namespace rmp

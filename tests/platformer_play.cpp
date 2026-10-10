@@ -63,7 +63,7 @@ struct {
 } fake;
 
 // The seams' signatures, which write through `out`.
-void sample(rmp::input::detail::DeviceState *out) { *out = fake.devices; }
+void sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
 void navigate(rmp::ui::detail::NavState *out) {
     out->x = 0;
@@ -267,9 +267,10 @@ std::string where() {
     auto *level = top<game::LevelScene>();
     if (level == nullptr) return "(not in a level)";
     auto *p = first<game::Player>(*level);
+    const std::string name(level->map.level());
     char text[160];
     std::snprintf(text, sizeof text, "in %s at (%.0f, %.0f), lives %d, coins %d, %.1f s",
-                  level->map.level(), p != nullptr ? p->position.x : -1.0f,
+                  name.c_str(), p != nullptr ? p->position.x : -1.0f,
                   p != nullptr ? p->position.y : -1.0f, game::run().lives,
                   game::run().coins, game::run().seconds);
     return text;
@@ -281,7 +282,7 @@ void play(bool fall) {
     if (level == nullptr) return;
     auto *p = first<game::Player>(*level);
     if (p == nullptr) return;
-    const std::string name = level->map.level();
+    const std::string name(level->map.level());
     if (name != run.level_seen) {
         std::printf("PLAY  %s\n", where().c_str());
         run.level_seen = name;

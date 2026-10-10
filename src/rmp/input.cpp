@@ -239,8 +239,9 @@ void ensure_factory() {
 
 namespace detail {
 
-void define(std::string_view name, const Binding *bindings, int count) {
+void define(std::string_view name, std::initializer_list<Binding> bindings) {
     ensure_factory();
+    int count = static_cast<int>(bindings.size());
     if (count > MAX_BINDINGS) {
         TraceLog(LOG_WARNING,
                  "INPUT: \"%.*s\" was given %d bindings and the limit is %d; the extra "
@@ -255,30 +256,34 @@ void define(std::string_view name, const Binding *bindings, int count) {
     Action &slot = existing != nullptr ? *existing : registry.actions.emplace_back();
     slot.name.assign(name);
     slot.count = count;
-    for (int i = 0; i < count; i++) slot.bindings[i] = bindings[i];
+    int i = 0;
+    for (const Binding &binding : bindings) {
+        if (i == count) break;
+        slot.bindings[i++] = binding;
+    }
 }
 
-void sample_with_raylib(DeviceState *out) {
+void sample_with_raylib(DeviceState &out) {
     for (int key = 0; key < DeviceState::KEYS; key++) {
-        out->keys[key] = IsKeyDown(key);
+        out.keys[key] = IsKeyDown(key);
     }
     for (int button = 0; button < DeviceState::MOUSE_BUTTONS; button++) {
-        out->mouse[button] = IsMouseButtonDown(button);
+        out.mouse[button] = IsMouseButtonDown(button);
     }
     // Gamepad 0 only, deliberately: local multiplayer is a real feature and a
     // bigger one than a second index, so it waits for a game that needs it
     // rather than being half-there.
     const bool pad = IsGamepadAvailable(0);
     for (int button = 0; button < DeviceState::PAD_BUTTONS; button++) {
-        out->pad[button] = pad && IsGamepadButtonDown(0, button);
+        out.pad[button] = pad && IsGamepadButtonDown(0, button);
     }
     for (int axis = 0; axis < DeviceState::AXES; axis++) {
-        out->axes[axis] = pad ? GetGamepadAxisMovement(0, axis) : 0.0f;
+        out.axes[axis] = pad ? GetGamepadAxisMovement(0, axis) : 0.0f;
     }
     // Touch and mouse are the same pointer, which is what lets the same code
     // work on all seventeen targets with no #ifdef. raylib already maps the
     // first touch onto the mouse, so this is one call and not two.
-    out->pointer = GetMousePosition();
+    out.pointer = GetMousePosition();
 }
 
 void set_sample_provider(SampleFn fn) {
@@ -290,7 +295,7 @@ void begin_frame() {
     const bool first = !frames.have_previous;
     frames.before = frames.now;
     reading.layer_input = true;
-    frames.sample(&frames.now);
+    frames.sample(frames.now);
 
     // THE FIRST FRAME HAS NO EDGES, and it takes a line to say so. Without it
     // the previous frame is a zeroed struct, so anything already held when the

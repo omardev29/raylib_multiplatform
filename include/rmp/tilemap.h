@@ -51,9 +51,10 @@
 
 #include <raylib.h>
 #include <rmp/config.h>
-#include <rmp/object.h> // rmp::Callback, rmp::Object
+#include <rmp/object.h> // rmp::Callback, rmp::Object, rmp::Ref
 
 #include <memory> // std::unique_ptr: the parsed map, behind a forward declaration
+#include <string_view> // names and property keys
 
 namespace rmp {
 
@@ -65,6 +66,11 @@ namespace tilemap::detail {
 struct MapData;
 void free_map(MapData *map);
 using MapPtr = std::unique_ptr<MapData, void (*)(MapData *)>;
+// One parsed object of the map: its strings and its properties.
+struct ObjectInfo;
+// How the loader hands a Tilemap what it parsed, and how the engine and the
+// tests read it back. src/rmp/tilemap_internal.h defines it.
+struct Access;
 } // namespace tilemap::detail
 
 class Scene;
@@ -72,20 +78,18 @@ class Scene;
 // ---------------------------------------------------------------------------
 // One object of the map: an LDtk entity, or an object from a Tiled object layer.
 //
-// `const char *` rather than std::string_view for the names and the property
-// keys. The names point into the parsed map, where they are NUL-terminated
-// strings already, so they go straight into raylib's C functions -- DrawText()
-// takes a `const char *`, and a string_view promises no terminator. The keys
-// are looked up among those same strings, and are literals in practice; a
-// std::string caller writes .c_str().
+// Its names, and the text a property holds, are views of the parsed map: valid
+// while the map is loaded, which is all of spawn_objects() -- keep a
+// std::string of one to hold it longer. Each one is followed by a NUL, so what
+// the map wrote reaches raylib unchanged.
 // ---------------------------------------------------------------------------
 
 // One object placed in the map, as spawn_objects() hands it to the factory
 // registered for its `type`: where it is, how big, and its properties.
 struct MapObject {
-    const char *name = ""; // the Tiled object's name; "" for an LDtk entity
-    const char *type = ""; // the LDtk entity; Tiled's `class`
-    const char *iid = ""; // LDtk's unique id, what an EntityRef field holds
+    std::string_view name; // the Tiled object's name; "" for an LDtk entity
+    std::string_view type; // the LDtk entity; Tiled's `class`
+    std::string_view iid; // LDtk's unique id, what an EntityRef field holds
     Vector2 position{}; // THE CENTRE, like rmp::Object; the editors give a corner
     Vector2 size{}; // width and height in world units; {0,0} for a Tiled point
     float rotation = 0; // Tiled's, in degrees clockwise; 0 for an LDtk entity
@@ -95,11 +99,12 @@ struct MapObject {
     // `fallback` when the object has none by that name or it holds another
     // kind. property_int() also reads a float, cut towards zero, and
     // property_float() also reads an int.
-    [[nodiscard]] bool property_bool(const char *key, bool fallback = false) const;
-    [[nodiscard]] int property_int(const char *key, int fallback = 0) const;
-    [[nodiscard]] float property_float(const char *key, float fallback = 0) const;
-    [[nodiscard]] const char *property_string(const char *key,
-                                              const char *fallback = "") const;
+    [[nodiscard]] bool property_bool(std::string_view key, bool fallback = false) const;
+    [[nodiscard]] int property_int(std::string_view key, int fallback = 0) const;
+    [[nodiscard]] float property_float(std::string_view key, float fallback = 0) const;
+    // The map's text, or `fallback` as it was given: its lifetime is yours.
+    [[nodiscard]] std::string_view property_string(std::string_view key,
+                                                   std::string_view fallback = "") const;
 
     // An LDtk Point field, as the WORLD position of the centre of the cell it
     // names -- the same units as `position`, so a patrol route or a platform's
@@ -107,14 +112,21 @@ struct MapObject {
     // by index; property_count() is how many there are, and 1 for any other
     // field that exists. Enums read as text, colours as "#rrggbb", and an
     // EntityRef as the iid of the entity it points at.
-    [[nodiscard]] Vector2 property_point(const char *key, Vector2 fallback = {}) const;
-    [[nodiscard]] Vector2 property_point(const char *key, int index,
+    [[nodiscard]] Vector2 property_point(std::string_view key,
                                          Vector2 fallback = {}) const;
-    [[nodiscard]] int property_count(const char *key) const;
+    [[nodiscard]] Vector2 property_point(std::string_view key, int index,
+                                         Vector2 fallback = {}) const;
+    [[nodiscard]] int property_count(std::string_view key) const;
 
-    // The parsed object this came from. Ours; it is what the property lookups
-    // read, and it is only public because MapObject has to stay an aggregate.
-    const void *raw = nullptr;
+private:
+    // Made by the map, from what it parsed, and by nothing else.
+    friend struct tilemap::detail::MapData;
+    friend class Tilemap; // spawn_objects() asks the parsed object about its shape
+    explicit MapObject(const tilemap::detail::ObjectInfo &parsed);
+    [[nodiscard]] Ref<const tilemap::detail::ObjectInfo> info() const { return _info; }
+
+    // The parsed object this came from: what the property lookups read.
+    Ref<const tilemap::detail::ObjectInfo> _info;
 };
 
 // ---------------------------------------------------------------------------
@@ -154,14 +166,15 @@ public:
     // "" while the point is still in this one, or in none. So walking into
     // the next level is
     //
-    //     const char *next = map.neighbour_at(player.position);
-    //     if (next[0] != '\0') rmp::Scene::change<Level>(next, player.position);
+    //     const std::string_view next = map.neighbour_at(player.position);
+    //     if (!next.empty()) rmp::Scene::change<Level>(std::string(next), player.position);
     //
     // and the new scene loads that level and puts the player back where it
     // was: the coordinates are the world's, so they still mean the same place.
     // Tiled maps and LDtk's linear layouts have no world, and always say "".
-    [[nodiscard]] const char *level() const;
-    [[nodiscard]] const char *neighbour_at(Vector2 world_position) const;
+    // Views of the parsed map, each followed by a NUL: valid while it is loaded.
+    [[nodiscard]] std::string_view level() const;
+    [[nodiscard]] std::string_view neighbour_at(Vector2 world_position) const;
 
     // ---- object layers -> objects in the scene -----------------------------
     //
@@ -174,7 +187,7 @@ public:
     //
     // Registering the same class twice REPLACES, because two factories for one
     // class is never what anybody means.
-    void on_object(const char *type, Callback<Scene &, const MapObject &> factory);
+    void on_object(std::string_view type, Callback<Scene &, const MapObject &> factory);
     void spawn_objects(Scene &into);
 
     // ---- queries, for whatever you want to do yourself ---------------------
@@ -195,15 +208,14 @@ public:
     // the map somewhere else in its own order can call it.
     void draw() const;
 
-    // Ours. Set by rmp::assets::load_map, which hands over what it parsed;
-    // null empties the map. And the parsed map itself, for the detail entry
-    // points that take it rather than the class (tests, mostly).
-    void adopt(tilemap::detail::MapPtr data);
-    [[nodiscard]] const tilemap::detail::MapData *detail_data() const {
-        return _data.get();
-    }
-
 private:
+    // rmp::assets::load_map hands over what it parsed, through
+    // tilemap::detail::Access; null empties the map. And the parsed map
+    // itself, for the detail entry points that take it rather than the class.
+    friend struct tilemap::detail::Access;
+    void adopt(tilemap::detail::MapPtr data);
+    [[nodiscard]] const tilemap::detail::MapData *data() const { return _data.get(); }
+
     tilemap::detail::MapPtr _data{ nullptr, &tilemap::detail::free_map };
 };
 

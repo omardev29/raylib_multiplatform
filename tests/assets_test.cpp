@@ -122,23 +122,23 @@ TEST_CASE("two long names that differ only at the end are two resources") {
     REQUIRE(first != second);
 
     ::Image zeroed{};
-    auto *a = rmp::detail::adopt_named(ResourceKind::IMAGE, first.c_str(), 0, zeroed);
+    auto *a = rmp::detail::adopt_named(ResourceKind::IMAGE, first, 0, zeroed);
     REQUIRE(a != nullptr);
     rmp::Image held_a{ a };
 
     // The whole point: the second name must NOT find the first slot.
-    CHECK(rmp::detail::acquire_named(ResourceKind::IMAGE, second.c_str(), 0) == nullptr);
+    CHECK(rmp::detail::acquire_named(ResourceKind::IMAGE, second, 0) == nullptr);
 
-    auto *b = rmp::detail::adopt_named(ResourceKind::IMAGE, second.c_str(), 0, zeroed);
+    auto *b = rmp::detail::adopt_named(ResourceKind::IMAGE, second, 0, zeroed);
     REQUIRE(b != nullptr);
     rmp::Image held_b{ b };
 
     CHECK(rmp::detail::live_count() == 2);
-    CHECK(rmp::detail::ref_count(first.c_str()) == 1);
-    CHECK(rmp::detail::ref_count(second.c_str()) == 1);
+    CHECK(rmp::detail::ref_count(first) == 1);
+    CHECK(rmp::detail::ref_count(second) == 1);
 
     SUBCASE("and the full name still finds its own slot") {
-        auto *again = rmp::detail::acquire_named(ResourceKind::IMAGE, first.c_str(), 0);
+        auto *again = rmp::detail::acquire_named(ResourceKind::IMAGE, first, 0);
         CHECK(again == a);
         rmp::detail::release(again);
     }
@@ -172,8 +172,7 @@ TEST_CASE("the resource table has no cap: three hundred names are three hundred 
     std::vector<rmp::Image> held;
     for (int i = 0; i < 300; i++) {
         const std::string name = "many_" + std::to_string(i) + ".png";
-        auto *slot =
-            rmp::detail::adopt_named(ResourceKind::IMAGE, name.c_str(), 0, zeroed);
+        auto *slot = rmp::detail::adopt_named(ResourceKind::IMAGE, name, 0, zeroed);
         REQUIRE(slot != nullptr);
         held.emplace_back(slot);
     }

@@ -26,28 +26,9 @@
 
 #include <cute_aseprite.h>
 
-#include <cstring>
+#include <string>
 
 namespace rmp {
-
-namespace {
-
-// A tag's name into the fixed buffer SheetTag keeps it in: at most
-// MAX_TAG_NAME - 1 characters, the rest cut, always terminated. Every tag of the
-// sheet is kept -- `tags` is sized to the file's count.
-void copy_name(char *into, const char *from) {
-    if (from == nullptr) {
-        into[0] = '\0';
-        return;
-    }
-    std::size_t i = 0;
-    for (; from[i] != '\0' && i + 1 < static_cast<std::size_t>(MAX_TAG_NAME); i++) {
-        into[i] = from[i];
-    }
-    into[i] = '\0';
-}
-
-} // namespace
 
 namespace animation::detail {
 
@@ -119,7 +100,8 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     for (int i = 0; i < out->tag_count(); i++) {
         const ase_tag_t &tag = ase->tags[i];
         SheetTag &ours = out->tags[static_cast<std::size_t>(i)];
-        copy_name(ours.name, tag.name);
+        // All of it, whatever its length; a tag the file left unnamed is "".
+        ours.name = tag.name != nullptr ? tag.name : "";
         ours.from = tag.from_frame;
         ours.to = tag.to_frame;
         ours.ping_pong = tag.loop_animation_direction == ASE_ANIMATION_DIRECTION_PINGPONG;
@@ -165,10 +147,10 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     return texture;
 }
 
-int tag_index(const SheetData &sheet, const char *name) {
-    if (name == nullptr || name[0] == '\0') return -1;
+int tag_index(const SheetData &sheet, std::string_view name) {
+    if (name.empty()) return -1;
     for (int i = 0; i < sheet.tag_count(); i++) {
-        if (std::strcmp(sheet.tag(i).name, name) == 0) return i;
+        if (sheet.tag(i).name == name) return i;
     }
     return -1;
 }
@@ -243,10 +225,11 @@ void advance(Sprite &sprite, float delta) {
 // The public half
 // ---------------------------------------------------------------------------
 
-void Sprite::play(const char *tag, bool loop) {
+void Sprite::play(std::string_view tag, bool loop) {
     if (!sheet.valid()) {
-        RMP_REPORT_ONCE_KEYED(tag, "SPRITE: play(\"%s\") with no sheet loaded",
-                              tag != nullptr ? tag : "");
+        const std::string named(tag); // %s wants the NUL a view does not promise
+        RMP_REPORT_ONCE_KEYED(named.c_str(), "SPRITE: play(\"%s\") with no sheet loaded",
+                              named.c_str());
         return;
     }
     const SheetData &data = sheet.raw();
@@ -255,10 +238,11 @@ void Sprite::play(const char *tag, bool loop) {
         // Once per tag name. Sixty warnings a second about the same typo
         // buries whatever else the log was going to say, and the frame that
         // was already showing is a better answer than a blank one.
-        RMP_REPORT_ONCE_KEYED(tag,
+        const std::string named(tag);
+        RMP_REPORT_ONCE_KEYED(named.c_str(),
                               "SPRITE: no animation tag \"%s\" in this sheet. It has %d: "
                               "the names are the tags in your .aseprite.",
-                              tag != nullptr ? tag : "", data.tag_count());
+                              named.c_str(), data.tag_count());
         return;
     }
     if (found == ours.tag && !ours.done) return; // already playing it
@@ -278,7 +262,7 @@ void Sprite::stop() {
 
 bool Sprite::finished() const { return ours.done; }
 
-const char *Sprite::playing() const {
+std::string_view Sprite::playing() const {
     if (!sheet.valid() || ours.tag < 0) return "";
     const SheetData &data = sheet.raw();
     if (ours.tag >= data.tag_count()) return "";

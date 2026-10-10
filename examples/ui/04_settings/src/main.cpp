@@ -5,7 +5,7 @@
 // that makes all four playable on a TV with a controller, which is focus.
 //
 // THE STATE MODEL, because it is the part that surprises people coming from a
-// retained-mode toolkit: every control takes a pointer to YOUR variable and
+// retained-mode toolkit: every control takes YOUR variable, by reference, and
 // writes to it. There is no widget object holding a copy, nothing to
 // synchronise, no setter to remember. What is on screen is what is in your
 // struct, because it was read this frame. Delete this file and your settings
@@ -14,7 +14,7 @@
 // Each one returns true on the frame it changed, so "apply when something
 // changes" reads exactly like that:
 //
-//     if (rmp::ui::checkbox("Fullscreen", &cfg.fullscreen)) apply(cfg);
+//     if (rmp::ui::checkbox("Fullscreen", cfg.fullscreen)) apply(cfg);
 //
 // And they are kept: load() reads them through rmp::save when the screen
 // opens, store() writes them on Apply. The Settings struct stays plain data;
@@ -31,7 +31,6 @@
 #include "settings.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <string>
 
 static Settings cfg;
@@ -55,8 +54,9 @@ static void apply(const Settings &s) {
     // a sound, and what is already playing changes at once.
     rmp::audio::set_volume(rmp::audio::Bus::MASTER, s.master);
     rmp::audio::set_volume(rmp::audio::Bus::MUSIC, s.music);
+    const std::string quality(QUALITY[static_cast<std::size_t>(s.quality)]);
     TraceLog(LOG_INFO, "SETTINGS: applied (master %.2f, quality %s)", (double)s.master,
-             QUALITY[s.quality]);
+             quality.c_str());
 }
 
 // What is on disk, over what the struct says. Every field reads with its
@@ -68,7 +68,7 @@ static void load(Settings &s) {
     // When the read fails, `v` stays empty and every field keeps its default
     // -- that is the whole of "the first run". Only a damaged file is worth
     // telling the player about; a missing one is simply the first time.
-    const rmp::save::Result read = rmp::save::read("settings", &v);
+    const rmp::save::Result read = rmp::save::read("settings", v);
     damaged = read.status == rmp::save::Status::MODIFIED ||
         read.status == rmp::save::Status::TRUNCATED;
     s.fullscreen = v["fullscreen"].as_bool(s.fullscreen);
@@ -78,10 +78,11 @@ static void load(Settings &s) {
     s.sensitivity = v["sensitivity"].as_float(s.sensitivity);
     // An index from a file is clamped before it indexes anything: a save can
     // be edited, or come from a version with a longer list.
-    s.quality = std::clamp(v["quality"].as_int(s.quality), 0, 3);
-    s.language = std::clamp(v["language"].as_int(s.language), 0, 2);
-    const std::string name(v["player"].as_string(s.player));
-    std::snprintf(s.player, sizeof(s.player), "%s", name.c_str());
+    s.quality = std::clamp(v["quality"].as_int(s.quality), 0,
+                           static_cast<int>(QUALITY.size()) - 1);
+    s.language = std::clamp(v["language"].as_int(s.language), 0,
+                            static_cast<int>(LANGUAGE.size()) - 1);
+    s.player = std::string(v["player"].as_string(s.player));
 }
 
 static void store(const Settings &s) {
@@ -103,6 +104,9 @@ static void on_ready() {
     // The controls start where the game does -- [window] vsync and [audio] in
     // the .toml -- and then whatever the player saved last time wins.
     cfg.vsync = RMP_WINDOW_VSYNC != 0;
+    // Here and not in the struct: a std::string with something in it, in a
+    // static, would be built before main(), where nothing can catch a throw.
+    cfg.player = "Player";
     cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);
     cfg.music = rmp::audio::volume(rmp::audio::Bus::MUSIC);
     load(cfg);
@@ -125,39 +129,39 @@ static void on_frame(float delta) {
         rmp::ui::text("Settings");
 
         // --- toggles ------------------------------------------------------
-        if (rmp::ui::checkbox("Fullscreen", &cfg.fullscreen)) dirty = true;
+        if (rmp::ui::checkbox("Fullscreen", cfg.fullscreen)) dirty = true;
 #if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__)
         // Not on the web, where there is no such switch at all. That is not
         // the same as the Subtitles box below: a control that is unavailable
         // RIGHT NOW is disabled, one that cannot exist here is not shown.
-        if (rmp::ui::checkbox("VSync", &cfg.vsync)) dirty = true;
+        if (rmp::ui::checkbox("VSync", cfg.vsync)) dirty = true;
 #endif
 
         // A control that is not available right now is disabled, not missing.
         // A menu whose items appear and disappear is a menu nobody can learn.
-        rmp::ui::checkbox("Subtitles", &cfg.subtitles, { .enabled = false });
+        rmp::ui::checkbox("Subtitles", cfg.subtitles, { .enabled = false });
 
         // --- sliders ------------------------------------------------------
         // Continuous: drag it anywhere, or hold left/right on a controller.
-        if (rmp::ui::slider("Master volume", &cfg.master, 0.0f, 1.0f)) dirty = true;
-        if (rmp::ui::slider("Music", &cfg.music, 0.0f, 1.0f)) dirty = true;
+        if (rmp::ui::slider("Master volume", cfg.master, 0.0f, 1.0f)) dirty = true;
+        if (rmp::ui::slider("Music", cfg.music, 0.0f, 1.0f)) dirty = true;
 
         // step snaps to multiples, which is what you want for a value the
         // player will want to describe to someone else ("I play on 40").
-        if (rmp::ui::slider("Sensitivity", &cfg.sensitivity, 0.0f, 1.0f,
+        if (rmp::ui::slider("Sensitivity", cfg.sensitivity, 0.0f, 1.0f,
                             { .step = 0.05f }))
             dirty = true;
 
         // --- pick one of a list -------------------------------------------
         // The dropdown owns nothing but the open/closed flag, and that is ours,
-        // not yours: *selected is an index into the array you passed.
-        if (rmp::ui::dropdown("Quality", &cfg.quality, QUALITY, 4)) dirty = true;
-        if (rmp::ui::dropdown("Language", &cfg.language, LANGUAGE, 3)) dirty = true;
+        // not yours: the int is an index into the list you passed.
+        if (rmp::ui::dropdown("Quality", cfg.quality, QUALITY)) dirty = true;
+        if (rmp::ui::dropdown("Language", cfg.language, LANGUAGE)) dirty = true;
 
         // --- typing -------------------------------------------------------
-        // Writes into your buffer, NUL-terminated, never past capacity.
-        if (rmp::ui::text_input("Name", cfg.player, sizeof(cfg.player),
-                                { .placeholder = "your name" })) {
+        // Edits your std::string, up to 20 characters as the player counts them.
+        if (rmp::ui::text_input("Name", cfg.player,
+                                { .placeholder = "your name", .max_length = 20 })) {
             dirty = true;
         }
 

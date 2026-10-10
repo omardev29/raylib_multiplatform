@@ -56,7 +56,7 @@ void Player::_update(float delta) {
 
     // The jump sound. Platformer counts the jumps it makes, so when the count
     // goes up a jump has just happened -- a buffered or a coyote jump too.
-    const auto *platformer = get<rmp::behavior::Platformer>();
+    const auto platformer = get<rmp::behavior::Platformer>();
     if (platformer->ours.jumps_used > _jumps_heard)
         rmp::audio::play("jump", { .volume = 0.6f });
     _jumps_heard = platformer->ours.jumps_used;
@@ -82,7 +82,7 @@ void Player::hurt(float from_x) {
     _knocked = KNOCK_SECONDS;
     velocity = { position.x < from_x ? -KNOCK_SPEED : KNOCK_SPEED, -240 };
     // The player only ever lives in a LevelScene.
-    static_cast<LevelScene *>(scene())->lose_life();
+    static_cast<LevelScene &>(scene()).lose_life();
 }
 
 void Player::bounce() { velocity.y = -260; }

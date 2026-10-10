@@ -88,8 +88,8 @@ struct Property {
     std::vector<Vector2> points; // POINT: one, or a list (LDtk's Array<Point>)
 };
 
-// What a MapObject's const char * point into, and what its property lookups
-// read. Owned through a unique_ptr so the strings never move.
+// What a MapObject's names view, and what its property lookups read. Owned
+// through a unique_ptr so the strings never move.
 struct ObjectInfo {
     std::string name;
     std::string type;
@@ -132,6 +132,15 @@ struct rmp::tilemap::detail::MapData {
 };
 
 namespace rmp::tilemap::detail {
+
+// What a Tilemap keeps private, reached by the loader that fills it, by the
+// engine that collides with it and by the tests that read it back.
+struct Access {
+    // Owned by the map from here, and whatever was there goes; null empties it.
+    static void adopt(Tilemap &map, MapPtr data) { map.adopt(std::move(data)); }
+    // The parsed map, or null for an empty one.
+    static const MapData *data(const Tilemap &map) { return map.data(); }
+};
 
 // The bytes of a map file into a MapData: an LDtk project when `name` ends in
 // .ldtk, a Tiled JSON map otherwise. `level` picks the LDtk level by name, and
