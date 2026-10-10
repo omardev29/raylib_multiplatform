@@ -33,7 +33,7 @@ static void on_ready() {
     rmp::ads::request_rewarded();
 }
 
-static void on_frame(float delta) {
+static void on_frame(float /*delta*/) {
     // THE POLL. take_reward_earned() is true exactly once per reward earned and
     // clears itself, so this can live in the frame loop with no bookkeeping. It
     // fires only if the player watched enough of the ad — if they closed it

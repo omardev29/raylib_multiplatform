@@ -120,7 +120,7 @@ static void on_ready() {
     rmp::ui::focus("Fullscreen");
 }
 
-static void on_frame(float delta) {
+static void on_frame(float /*delta*/) {
     BeginDrawing();
     ClearBackground(rmp::ui::current_theme().background);
 

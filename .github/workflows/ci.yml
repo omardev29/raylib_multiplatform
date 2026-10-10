@@ -398,7 +398,9 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: |
           set -euo pipefail
-          cmake --preset debug -DBUILD_TESTS=ON > /dev/null
+          # RMP_WERROR: a warning in the framework or its tests is an error
+          # here, as it is in `rmp test unit`.
+          cmake --preset debug -DBUILD_TESTS=ON -DRMP_WERROR=ON > /dev/null
           cmake --build build --target unit_test > /dev/null
           # The locale tests and the audio device tests skip where they cannot
           # run -- on a laptop that is honest, here it would be a gate that

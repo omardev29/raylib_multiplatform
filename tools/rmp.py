@@ -298,7 +298,7 @@ STAGES = [
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "binary_check_test.py"])]),
     Stage("unit", "the unit tests in two orders, and tests/game/",
-          [("configure", ["-DBUILD_TESTS=ON"]),
+          [("configure", ["-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"]),
            ("build", "unit_test"),
            ("run", ["bash", "tools/test_locales.sh", "build/test-locales"]),
            ("run", ["build/unit_test"], LOCALES_ENV),

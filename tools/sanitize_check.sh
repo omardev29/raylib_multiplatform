@@ -47,6 +47,7 @@ echo "== sanitize =="
 mkdir -p "$BUILD"
 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON \
       -DRMP_DEV_TOOLCHAIN=OFF -DCMAKE_C_COMPILER="$CC_PICK" -DCMAKE_CXX_COMPILER="$CXX_PICK" \
+      -DRMP_WERROR=ON \
       -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_CXX_FLAGS="$FLAGS" \
       -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" > "$BUILD.configure.log" 2>&1 \
   || { tail -40 "$BUILD.configure.log"; echo "FAIL: the sanitized build did not configure"; exit 1; }

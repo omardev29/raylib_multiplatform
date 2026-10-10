@@ -2456,6 +2456,62 @@ class IosRefusesOutOfOrderInitialisersTest(unittest.TestCase):
         self.assertIn("$(inherited) -Werror=reorder-init-list -DMY_GAME=1", text)
 
 
+class WarningsOnOurCodeTest(unittest.TestCase):
+    """Our code compiled with no warning flag at all: the only one was
+    -Werror=reorder-init-list, and -Wshadow reached it through clang-tidy.
+    -Wall -Wextra go on every target built from our sources, the vendored
+    headers are SYSTEM so their warnings are not reported as ours, and
+    RMP_WERROR makes them errors where the framework checks itself."""
+
+    CMAKE = (REPO / "CMakeLists.txt").read_text()
+
+    def test_every_target_of_ours_gets_the_warnings(self):
+        made = re.findall(r"^\s*add_(?:executable|library)\((\$\{\w+\}|\w+)", self.CMAKE, re.M)
+        self.assertGreaterEqual(len(made), 8, made)
+        for target in sorted(set(made)):
+            with self.subTest(target=target):
+                self.assertIn(f"rmp_apply_warnings({target})", self.CMAKE)
+
+    def test_the_flags_and_what_they_leave_out(self):
+        body = self.CMAKE[self.CMAKE.index("function(rmp_apply_warnings"):]
+        body = body[:body.index("endfunction()")]
+        self.assertIn("-Wall -Wextra -Wno-missing-field-initializers", body)
+        self.assertIn("if(RMP_WERROR)", body)
+        self.assertIn("-Werror", body)
+        # raylib keeps -w, and its headers reach our files as SYSTEM.
+        self.assertNotIn("rmp_apply_warnings(raylib)", self.CMAKE)
+        self.assertIn("set_property(TARGET raylib PROPERTY SYSTEM TRUE)", self.CMAKE)
+
+    def test_no_vendored_directory_is_a_plain_include(self):
+        """With thirdparty/ as plain -I, gcc printed 1293 warnings that were
+        not ours. Every target_include_directories naming thirdparty/ is
+        SYSTEM."""
+        calls = re.findall(r"target_include_directories\(([^)]*)\)", self.CMAKE)
+        vendored = [c for c in calls if "thirdparty" in c]
+        self.assertGreaterEqual(len(vendored), 3)
+        for call in vendored:
+            with self.subTest(call=" ".join(call.split())[:80]):
+                self.assertRegex(call, r"^\S+\s+SYSTEM\s")
+
+    def test_the_framework_checks_itself_with_werror(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rmp_cli_werror", REPO / "tools" / "rmp.py")
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        unit = next(s for s in cli.STAGES if s.name == "unit")
+        configure = next(step for step in unit.steps if step[0] == "configure")
+        self.assertIn("-DRMP_WERROR=ON", configure[1])
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("cmake --preset debug -DBUILD_TESTS=ON -DRMP_WERROR=ON", lint)
+        self.assertIn("-DRMP_WERROR=ON", (REPO / "tools" / "sanitize_check.sh").read_text())
+
+    def test_a_game_is_never_made_to(self):
+        """A newer compiler on a game author's machine must not stop a build
+        that was fine yesterday: the option is OFF unless asked for."""
+        self.assertIn('option(RMP_WERROR "Make a compiler warning in our own code an error" OFF)',
+                      self.CMAKE)
+
+
 class SmallTruthsTest(unittest.TestCase):
     """Sentences that were false about the code next to them."""
 

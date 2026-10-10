@@ -63,7 +63,7 @@ static void on_ready() {
     // with overlapping voices and no handle to keep.
 }
 
-static void on_frame(float delta) {
+static void on_frame(float /*delta*/) {
     if (IsKeyPressed(KEY_SPACE)) PlaySound(jump);
     if (IsKeyPressed(KEY_ENTER)) rmp::audio::play("jump");
 

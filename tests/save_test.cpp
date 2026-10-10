@@ -427,7 +427,17 @@ TEST_SUITE("save: Value") {
         v["inventory"].push("shield");
         CHECK(v["inventory"].size() == 2);
         v["player"]["hp"] = 3;
+        // gcc's -Wdangling-reference sees a reference bound through a
+        // temporary Ref and cannot know that the Ref's conversion returns the
+        // Value inside `v`, which outlives it. That binding is what this tests.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdangling-reference"
+#endif
         const Value &player = v["player"]; // the Value itself, to read
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
         CHECK(player["hp"].as_int() == 3);
         CHECK(v["player"].erase("hp"));
         CHECK_FALSE(v["player"].erase("hp"));

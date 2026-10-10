@@ -105,8 +105,6 @@ PairList pairs_of(const rmp::Scene &scene, bool use_grid) {
     return out;
 }
 
-constexpr float TOLERANCE = 0.001f;
-
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -1256,6 +1254,6 @@ TEST_CASE_FIXTURE(Fixture, "a hundred raycasts over two thousand objects are che
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - started);
     const double ms = static_cast<double>(elapsed.count()) / 1000.0;
-    MESSAGE("100 raycasts over 2000 objects: " << ms << " ms");
+    MESSAGE("100 raycasts over 2000 objects, " << hits << " hit: " << ms << " ms");
     CHECK(ms < 20.0);
 }

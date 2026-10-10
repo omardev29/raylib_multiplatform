@@ -354,6 +354,35 @@ function(rmp_apply_link_flags target)
 endfunction()
 
 rmp_apply_compile_flags(raylib)
+# raylib's headers are not ours either: a consumer reaches them as SYSTEM, so
+# -Wall -Wextra below speaks about our code and not about raylib.h's.
+set_property(TARGET raylib PROPERTY SYSTEM TRUE)
+
+# --- warnings, on our code only ---------------------------------------------
+# Every target built from OUR sources -- the framework, the game, every
+# example, the tests, the packer -- and never raylib or thirdparty/, which stay
+# quiet for the reasons above. Our code used to compile with no warning flag at
+# all; -Wshadow reached it only through clang-tidy.
+#
+#   -Wno-missing-field-initializers  `{ .width = 8 }` leaves the other fields
+#       at their defaults ON PURPOSE: it is how every options struct of the API
+#       is written, and clang warns on each one.
+#
+# RMP_WERROR turns them into errors. The framework's unit stage and the CI
+# lint job pass it, and so does tools/sanitize_check.sh, whose gcc is the
+# second compiler; a game is never made to, because a newer compiler on its
+# author's machine must not stop a build that was fine yesterday. MSVC keeps
+# its default level: /W4 has not been measured on this code.
+option(RMP_WERROR "Make a compiler warning in our own code an error" OFF)
+function(rmp_apply_warnings target)
+  if(MSVC)
+    return()
+  endif()
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  if(RMP_WERROR)
+    target_compile_options(${target} PRIVATE -Werror)
+  endif()
+endfunction()
 
 # --- RESOURCES_PATH ----------------------------------------------------------
 # Where the game reads its loose files from. Production: relative to the
@@ -406,6 +435,11 @@ add_library(rmp STATIC ${RMP_SOURCES} ${RAYLIB_STUB_SOURCES})
 set_property(TARGET rmp PROPERTY CXX_STANDARD 20)
 target_include_directories(rmp PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+)
+# SYSTEM, so the warnings of a vendored header are not reported in every file
+# of ours that includes it: with these as plain -I, gcc printed 1293 of them.
+target_include_directories(rmp SYSTEM PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_aseprite"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cute_tiled"
@@ -413,7 +447,6 @@ target_include_directories(rmp PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/clay"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/cJSON"
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty"
-  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 # The library's RMP_RESOURCES_PATH is the game's, and it is only a DEFAULT: the
 # entry point in each executable overrides it at run time, because an example
@@ -434,6 +467,7 @@ if(NOT PRODUCTION_BUILD)
   target_link_libraries(rmp PUBLIC raymoblib)
 endif()
 rmp_apply_compile_flags(rmp)
+rmp_apply_warnings(rmp)
 else()
   message(STATUS "=== NO src/rmp/: no framework library, a plain C game ===")
 endif()
@@ -545,7 +579,8 @@ function(rmp_add_game NAME DIR)
     # gets them from the framework library's include list; a plain C one has
     # none.
     target_include_directories(${NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
-                               "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+                               "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    target_include_directories(${NAME} SYSTEM PRIVATE
                                "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob")
     # A C++ executable gets libm through libstdc++; a C one has to ask.
     if(NOT MSVC)
@@ -579,6 +614,7 @@ function(rmp_add_game NAME DIR)
 
   rmp_apply_compile_flags(${NAME})
   rmp_apply_link_flags(${NAME})
+  rmp_apply_warnings(${NAME})
 
   if(EMSCRIPTEN)
     # -sUSE_GLFW=3 is NOT set here. raylib adds it itself, PUBLIC, and now only
@@ -671,6 +707,8 @@ if(RMP_BUILD_EXAMPLES)
     add_library(${_target} OBJECT ${_srcs})
     set_property(TARGET ${_target} PROPERTY CXX_STANDARD 20)
     target_link_libraries(${_target} PRIVATE rmp)
+    rmp_apply_compile_flags(${_target})
+    rmp_apply_warnings(${_target})
     if(EXISTS "${_dir}/include")
       target_include_directories(${_target} PRIVATE "${_dir}/include")
     endif()
@@ -710,6 +748,7 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
   target_compile_definitions(platformer_play PRIVATE RMP_RESOURCES_PATH="${_platformer}/resources/")
   rmp_apply_compile_flags(platformer_play)
   rmp_apply_link_flags(platformer_play)
+  rmp_apply_warnings(platformer_play)
 endif()
 
 # --- rmp::input, through the real runner ---------------------------------------
@@ -729,6 +768,7 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/t
   target_compile_definitions(input_play PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   rmp_apply_compile_flags(input_play)
   rmp_apply_link_flags(input_play)
+  rmp_apply_warnings(input_play)
 endif()
 
 # --- rres resource packing --------------------------------------------------
@@ -743,7 +783,9 @@ set(_rres_pack_vendored
 add_executable(rres_pack tools/rres_pack.c tools/md5.c ${_rres_pack_vendored})
 set_source_files_properties(${_rres_pack_vendored} PROPERTIES
   COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
-target_include_directories(rres_pack PRIVATE tools "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
+target_include_directories(rres_pack PRIVATE tools)
+target_include_directories(rres_pack SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
+rmp_apply_warnings(rres_pack)
 
 # Pack every loose resource into resources.rres (AES-encrypted).
 #
@@ -826,6 +868,7 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
   # guards on id > 0. That is what makes reference counting a unit test.
   target_link_libraries(unit_test PRIVATE rmp)
   rmp_apply_compile_flags(unit_test)
+  rmp_apply_warnings(unit_test)
 endif()
 
 # The game's own tests, tests/game/ into game_test, in a game and here alike.
@@ -848,6 +891,7 @@ if(BUILD_UI_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.c
   # drawing calls are all behind the injected seams.
   target_link_libraries(ui_layout_test PRIVATE rmp)
   rmp_apply_compile_flags(ui_layout_test)
+  rmp_apply_warnings(ui_layout_test)
 endif()
 
 # Remove the generated pack (e.g. to fall back to loose files in dev).
