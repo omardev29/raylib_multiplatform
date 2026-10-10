@@ -39,7 +39,7 @@ if command -v clang++ >/dev/null 2>&1 &&
   # Third-party code only, each line with its reason: see the file. gcc has
   # no ignorelist, and does not instrument that idiom anyway: it folds the
   # null-pointer offset into a constant.
-  FLAGS="$FLAGS -fsanitize-ignorelist=$PWD/tools/sanitize_ignore.txt"
+  FLAGS="$FLAGS -fsanitize-ignorelist=$PWD/cmake/sanitize_ignore.txt"
 fi
 echo "  compiler: $CXX_PICK"
 

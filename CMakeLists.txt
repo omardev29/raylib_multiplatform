@@ -114,8 +114,16 @@ endif()
 # choosing a linker means checking that it links, and checking that means
 # compiling something, which needs project() to have run. See gen_dev_linker()
 # in tools/configure.py for what the check is and why guessing was not enough.
+#
+# And [dev] sanitize, for the same reason: deciding whether a sanitizer can be
+# had means building and running a program. cmake/sanitize.cmake says what a
+# Debug build is checked with -- the hardening every Debug build gets, and the
+# sanitizers -- and provides rmp_apply_debug_checks(), which
+# rmp_apply_compile_flags() below calls for every Debug target.
 if(NOT PRODUCTION_BUILD)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_linker.cmake" OPTIONAL)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_sanitize.cmake" OPTIONAL)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sanitize.cmake")
 endif()
 
 # --- raylib -----------------------------------------------------------------
@@ -258,6 +266,7 @@ function(rmp_apply_compile_flags target)
     else()
       target_compile_options(${target} PRIVATE -O0)
     endif()
+    rmp_apply_debug_checks(${target})
   endif()
   # Dead-code stripping needs every function in its own section; the linker
   # half is in rmp_apply_link_flags. Not on MSVC (/OPT:REF does not need it)
@@ -869,6 +878,22 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
   target_link_libraries(unit_test PRIVATE rmp)
   rmp_apply_compile_flags(unit_test)
   rmp_apply_warnings(unit_test)
+
+  # The proof that the sanitizers report what they are there for: a program
+  # that leaks, overflows a buffer and overflows an int on request, which
+  # tests/sanitize_test.cpp runs and reads. The leak is in OUR frame, so a
+  # suppression that swallowed our own code would turn it silent -- and the
+  # test red. Built with the same flags as everything else, and before the
+  # tests, which find it through RMP_SANITIZER_CANARY.
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/sanitizer_canary.cpp")
+    add_executable(sanitizer_canary "${CMAKE_CURRENT_SOURCE_DIR}/tests/sanitizer_canary.cpp")
+    set_property(TARGET sanitizer_canary PROPERTY CXX_STANDARD 20)
+    rmp_apply_compile_flags(sanitizer_canary)
+    rmp_apply_warnings(sanitizer_canary)
+    add_dependencies(unit_test sanitizer_canary)
+    target_compile_definitions(unit_test PRIVATE
+      RMP_SANITIZER_CANARY="$<TARGET_FILE:sanitizer_canary>")
+  endif()
 endif()
 
 # The game's own tests, tests/game/ into game_test, in a game and here alike.

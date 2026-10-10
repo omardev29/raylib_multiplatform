@@ -1095,7 +1095,11 @@ TEST_CASE_FIXTURE(Fixture,
                   "of a frame") {
     const double micros = pass_micros(2000, 5);
     MESSAGE("2000 objects, one behavior each: " << micros / 1000.0 << " ms per pass");
+#if defined(RMP_SANITIZE)
+    CHECK(micros < 200000.0); // ASan and UBSan cost several times the time
+#else
     CHECK(micros < 20000.0); // 20 ms, which is generous for a debug build
+#endif
 }
 
 TEST_CASE_FIXTURE(Fixture, "and four times the objects cost about four times as much") {

@@ -2861,6 +2861,177 @@ class ConfigureSanitizeTest(unittest.TestCase):
                          "the render check CI runs on every push is a Debug build")
 
 
+
+def lsan_suppressions(source: str) -> list[str]:
+    """The lines __lsan_default_suppressions() returns, from the C source:
+    its adjacent string literals joined, the way the compiler joins them."""
+    body = source[source.index("__lsan_default_suppressions(void) {"):]
+    body = body[:body.index("\n}")]
+    literal = "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', body))
+    return [line for line in literal.encode().decode("unicode_escape").split("\n") if line]
+
+
+def our_paths() -> list[str]:
+    import subprocess
+    tracked = subprocess.run(["git", "-c", "safe.directory=*", "ls-files"], cwd=REPO,
+                             capture_output=True, text=True).stdout.split()
+    return [f for f in tracked if f.startswith(("src/", "include/", "tests/", "examples/",
+                                                "cmake/", "tools/"))]
+
+
+def suppression_problems(lines: list[str], paths: list[str], names: list[str]) -> list[str]:
+    """What is wrong with a list of LeakSanitizer suppressions: each has to
+    name a shared library by its file name, and none may match a file or a
+    name of ours. LSan matches the pattern, `*` a wildcard and ^/$ anchors,
+    anywhere in a frame's function, file or module."""
+    problems = []
+    for line in lines:
+        kind, _, pattern = line.partition(":")
+        if kind != "leak" or not pattern:
+            problems.append(f"{line!r} is not a leak:<library> line")
+            continue
+        if not re.fullmatch(r"\^?lib[A-Za-z0-9_+.-]*\*?", pattern) or ".so" not in pattern \
+                and not pattern.endswith("*"):
+            problems.append(f"{line!r} does not name a shared library (lib<name>.so)")
+        literal = re.compile(".*".join(re.escape(part) for part in
+                                       pattern.strip("^$").split("*")))
+        for candidate in paths + names:
+            if literal.search(candidate):
+                problems.append(f"{line!r} matches {candidate}, which is ours")
+                break
+    return problems
+
+
+class SanitizerSuppressionsTest(unittest.TestCase):
+    """cmake/sanitizer_hooks.c carries the LeakSanitizer suppressions for the
+    system's libraries, and cmake/sanitize_ignore.txt what clang's UBSan does
+    not instrument. Both are decisions about code that is NOT ours, and a line
+    broad enough to reach ours would silence the very reports the sanitizers
+    are there for -- the leak canary in tests/sanitize_test.cpp is the proof
+    that runs, this is the one that reads."""
+
+    HOOKS = (REPO / "cmake" / "sanitizer_hooks.c").read_text()
+    OUR_NAMES = ["rmp", "librmp.a", "ray_test", "unit_test", "ui_layout_test", "sanitizer_canary",
+                 "platformer_play", "input_play", "example_games_07_platformer",
+                 "leak_on_purpose", "_ZN3rmp"]
+
+    def test_no_suppression_reaches_our_code(self):
+        lines = lsan_suppressions(self.HOOKS)
+        self.assertEqual(suppression_problems(lines, our_paths(), self.OUR_NAMES), [])
+
+    def test_the_check_sees_each_kind_of_mistake(self):
+        paths = ["src/rmp/app.cpp", "tests/sanitizer_canary.cpp"]
+        for line, said in (("leak:rmp", "not name a shared library"),
+                           ("leak:*", "matches"),
+                           ("leak:app", "matches src/rmp/app.cpp"),
+                           ("leak:librmp*", "matches librmp.a"),
+                           ("fun:libX11.so", "not a leak:"),
+                           ("leak:", "not a leak:")):
+            with self.subTest(line=line):
+                found = "\n".join(suppression_problems([line], paths, self.OUR_NAMES))
+                self.assertIn(said, found)
+        self.assertEqual(suppression_problems(["leak:libX11.so", "leak:libdbus-1.so*"],
+                                              paths, self.OUR_NAMES), [])
+
+    def test_the_reader_reads_the_c(self):
+        source = ('const char *__lsan_default_suppressions(void) {\n'
+                  '    return "leak:libX11.so\\n"   /* run A */\n'
+                  '           "leak:libGLX_mesa.so\\n";\n}\n')
+        self.assertEqual(lsan_suppressions(source), ["leak:libX11.so", "leak:libGLX_mesa.so"])
+
+    def test_every_suppression_says_which_run_found_it(self):
+        body = self.HOOKS[self.HOOKS.index("__lsan_default_suppressions(void) {"):]
+        for line in lsan_suppressions(self.HOOKS):
+            with self.subTest(line=line):
+                at = body.index(line)
+                self.assertRegex(body[at:body.index("\n", at)], r"/\*.+\*/",
+                                 "each suppression carries the run that reported it")
+
+    def test_the_ignorelist_names_vendored_code_only(self):
+        """Clang's -fsanitize-ignorelist: a src: line must be under thirdparty/,
+        and a fun: line must not match a function we define."""
+        text = (REPO / "cmake" / "sanitize_ignore.txt").read_text()
+        entries = [line.strip() for line in text.splitlines()
+                   if line.strip() and not line.startswith("#")]
+        self.assertGreater(len(entries), 0)
+        ours = "\n".join((REPO / p).read_text(errors="replace") for p in our_paths()
+                         if p.endswith((".c", ".cpp", ".h")) and p.startswith(("src/", "include/")))
+        for entry in entries:
+            kind, _, pattern = entry.partition(":")
+            with self.subTest(entry=entry):
+                self.assertIn(kind, ("fun", "src"))
+                if kind == "src":
+                    self.assertIn("thirdparty/", pattern)
+                    continue
+                literal = pattern.strip("*")
+                self.assertTrue(literal)
+                defined = re.findall(rf"\b\w*{re.escape(literal)}\w*\s*\([^;{{}}]*\)\s*\{{", ours)
+                self.assertEqual(defined, [], f"{entry} matches a function of ours")
+
+    def test_it_reaches_the_build_from_cmake_and_not_from_tools(self):
+        """It sat under tools/, which rmp new does not copy, so a game built
+        with clang's UBSan had no ignorelist and stopped in cute_tiled."""
+        self.assertFalse((REPO / "tools" / "sanitize_ignore.txt").exists())
+        sanitize = (REPO / "cmake" / "sanitize.cmake").read_text()
+        self.assertIn('"${CMAKE_CURRENT_LIST_DIR}/sanitize_ignore.txt"', sanitize)
+        self.assertIn("-fsanitize-ignorelist=${RMP_SANITIZE_IGNORELIST}", sanitize)
+
+
+class FrameworkDebugIsSanitizedTest(unittest.TestCase):
+    """The framework's Debug builds ALWAYS run under ASan and UBSan, and
+    "always" is a set of things that can each be undone by an edit nobody
+    notices: the .toml losing a name, the include moving out of its branch,
+    the per-target call going missing, the canary no longer built. Each is
+    held here."""
+
+    CMAKE = (REPO / "CMakeLists.txt").read_text()
+    SANITIZE = (REPO / "cmake" / "sanitize.cmake").read_text()
+
+    def test_the_frameworks_toml_lists_both(self):
+        import tomllib
+        cfg = tomllib.loads((REPO / "raylib_multiplatform.toml").read_text())
+        self.assertEqual(sorted(cfg["dev"]["sanitize"]), ["address", "undefined"])
+
+    def test_cmake_reads_it_in_development_builds_only(self):
+        block = self.CMAKE[self.CMAKE.index("if(NOT PRODUCTION_BUILD)\n  include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_linker.cmake\""):]
+        block = block[:block.index("endif()")]
+        self.assertIn('include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/generated/dev_sanitize.cmake" OPTIONAL)', block)
+        self.assertIn('include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sanitize.cmake")', block)
+        self.assertEqual(self.CMAKE.count("cmake/sanitize.cmake\")"), 1)
+
+    def test_every_debug_target_goes_through_the_checks(self):
+        body = self.CMAKE[self.CMAKE.index("function(rmp_apply_compile_flags target)"):]
+        body = body[:body.index("endfunction()")]
+        debug = body[body.index("  else()\n    if(MSVC)"):]
+        self.assertIn("rmp_apply_debug_checks(${target})", debug)
+        self.assertNotIn("rmp_apply_debug_checks", body[:body.index("  else()\n    if(MSVC)")])
+
+    def test_the_probe_runs_a_program_and_ci_can_require_it(self):
+        self.assertIn("try_run(", self.SANITIZE)
+        self.assertIn('"$ENV{RMP_REQUIRE_SANITIZERS}" STREQUAL "1"', self.SANITIZE)
+        self.assertIn("message(FATAL_ERROR", self.SANITIZE)
+        self.assertIn("message(WARNING", self.SANITIZE)
+        self.assertIn('option(RMP_SANITIZE "', self.SANITIZE)
+
+    def test_the_hardening_is_in_every_debug_build(self):
+        for flag in ("_GLIBCXX_ASSERTIONS",
+                     "_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE",
+                     "-ftrivial-auto-var-init=pattern"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, self.SANITIZE)
+
+    def test_the_canary_is_built_before_the_tests_that_read_it(self):
+        self.assertIn("add_executable(sanitizer_canary", self.CMAKE)
+        self.assertIn("add_dependencies(unit_test sanitizer_canary)", self.CMAKE)
+        self.assertIn('RMP_SANITIZER_CANARY="$<TARGET_FILE:sanitizer_canary>"', self.CMAKE)
+        self.assertTrue((REPO / "tests" / "sanitize_test.cpp").is_file())
+
+    def test_the_host_tool_is_left_alone(self):
+        """rmp pack runs rres_pack: it must not stop a pack over a leak in a
+        process that is about to exit."""
+        self.assertNotIn("rmp_apply_compile_flags(rres_pack)", self.CMAKE)
+
+
 class ConfigureWebBackendTest(unittest.TestCase):
     """[web] backend — which of raylib 6.0's three web paths gets built.
 

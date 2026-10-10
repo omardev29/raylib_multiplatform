@@ -1156,12 +1156,15 @@ to finish?", and it found three bugs a boot never would: a lift that turned roun
 arrived (nobody could step off), a rider that kept a pixel of overlap (the ledge's corner), and a
 platform that undid every jump from it above ~127 FPS.
 
-**Sanitized** — the unit tests are built a second time with AddressSanitizer and
-UndefinedBehaviorSanitizer, every report fatal (`tools/sanitize_check.sh`, `rmp test sanitize`, a
-step of the `lint` job). A test asserts what it can see; an int overflow that wraps somewhere
-harmless or a float cast that lands in range is what it cannot. The first run found the LDtk
-reader's casts and three tests reading objects already freed. Third-party code it must not report
-is listed, with the reason, in `tools/sanitize_ignore.txt`.
+**Sanitized** — every Debug build of the framework runs under AddressSanitizer (with
+LeakSanitizer on Linux) and UndefinedBehaviorSanitizer, every report fatal: `[dev] sanitize` in
+the `.toml`, applied by `cmake/sanitize.cmake` where a probe can run a sanitized program, so the
+unit tests, the layout test, the smoke and render checks and every example are all instrumented
+(a game turns it on; `rmp new` writes `[]`). `tools/sanitize_check.sh` (`rmp test sanitize`, a step
+of the `lint` job) builds the unit tests a second time with gcc. A test asserts what it can see; an
+int overflow that wraps somewhere harmless or a float cast that lands in range is what it cannot.
+The first run found the LDtk reader's casts and three tests reading objects already freed.
+Third-party code it must not report is listed, with the reason, in `cmake/sanitize_ignore.txt`.
 
 > **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
 > format-checked but never run — there is no runner or emulator for them here. Android is built

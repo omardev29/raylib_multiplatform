@@ -476,7 +476,7 @@ EXAMPLE_ID_PREFIX = "com.example."
 RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
     "ui_layout_test", "platformer_play", "input_play", "assembler", "pack_resources",
-    "unpack_resources", "game_test",
+    "unpack_resources", "game_test", "sanitizer_canary",
 }
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                    *(f"lpt{i}" for i in range(1, 10))}

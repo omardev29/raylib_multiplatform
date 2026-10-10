@@ -1255,5 +1255,9 @@ TEST_CASE_FIXTURE(Fixture, "a hundred raycasts over two thousand objects are che
         std::chrono::steady_clock::now() - started);
     const double ms = static_cast<double>(elapsed.count()) / 1000.0;
     MESSAGE("100 raycasts over 2000 objects, " << hits << " hit: " << ms << " ms");
+#if defined(RMP_SANITIZE)
+    CHECK(ms < 200.0); // ASan and UBSan cost several times the time
+#else
     CHECK(ms < 20.0);
+#endif
 }
