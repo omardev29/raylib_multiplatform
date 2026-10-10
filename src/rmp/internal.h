@@ -85,6 +85,30 @@ void set_resources_root(const char *root);
 
 } // namespace rmp::assets::detail
 
+// A printf format the compiler checks: RMP_PRINTF_FORMAT(2, 3) says argument 2
+// is the format and the values start at 3. A report_once() whose `%s` was
+// handed an int prints garbage, or reads a pointer that is not one, and only
+// on the frame the mistake happens -- which in a diagnostic is the one frame
+// nobody is watching. GCC and clang check it; elsewhere the attribute is
+// nothing, and those builds compile the same calls the checked ones refused.
+// mingw-w64 names its own archetype, because its printf is not glibc's.
+#if defined(__MINGW32__) && defined(__MINGW_PRINTF_FORMAT)
+#define RMP_PRINTF_FORMAT(string_index, first_to_check) \
+    __attribute__((format(__MINGW_PRINTF_FORMAT, string_index, first_to_check)))
+#elif defined(__GNUC__) || defined(__clang__)
+#define RMP_PRINTF_FORMAT(string_index, first_to_check) \
+    __attribute__((format(printf, string_index, first_to_check)))
+#else
+#define RMP_PRINTF_FORMAT(string_index, first_to_check)
+#endif
+
+// And the check is an error, not a warning, in every file that reports,
+// whatever flags its target was built with: gcc only warns about a format
+// under -Wall, and a warning a build does not turn on is not a check.
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic error "-Wformat"
+#endif
+
 namespace rmp::detail {
 
 // --- report.cpp ------------------------------------------------------------
@@ -99,13 +123,16 @@ namespace rmp::detail {
 // makes it once per site AND value: "no action called \"jump\"" and "no action
 // called \"fire\"" are two different mistakes and each one deserves its line.
 //
-// Printf-style, because the callers pass raylib types and this feeds TraceLog.
+// Printf-style, because the callers pass raylib types and this feeds TraceLog
+// -- the one variadic function of ours, and its formats are checked: see
+// RMP_PRINTF_FORMAT above.
 // Under [dev] strict = true (debug builds only, see set_strict()) the first
 // report aborts, so a warning cannot scroll past in a log nobody reads.
 // NOLINTNEXTLINE(modernize-avoid-variadic-functions)
-void report_once(const void *site, const char *fmt, ...);
+void report_once(const void *site, const char *fmt, ...) RMP_PRINTF_FORMAT(2, 3);
 // NOLINTNEXTLINE(modernize-avoid-variadic-functions)
-void report_once_keyed(const void *site, const char *key, const char *fmt, ...);
+void report_once_keyed(const void *site, const char *key, const char *fmt, ...)
+    RMP_PRINTF_FORMAT(3, 4);
 
 // [dev] strict. Off unless the entry point turns it on from RMP_DEV_STRICT,
 // which the unit tests never do -- they exercise the warnings on purpose.
