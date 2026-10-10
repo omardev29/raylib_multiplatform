@@ -2413,7 +2413,7 @@ class PlainCGameTest(unittest.TestCase):
 
     def test_the_recipe_is_where_ci_reads_it(self):
         recipe = re.findall(r"^//     (rm src/main\.cpp .*)$", self.EXAMPLE.read_text(), re.M)
-        self.assertEqual(recipe, ["rm src/main.cpp && rm -r src/rmp/ src/scenes/"])
+        self.assertEqual(recipe, ["rm src/main.cpp && rm -r src/rmp/ src/scenes/ tests/game/"])
         ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
         self.assertIn("- name: A game in plain C, made the way examples/plain_c says", ci)
         self.assertIn('sh -c "$RECIPE"', ci)
@@ -5146,10 +5146,13 @@ class ConfigureProjectNameTest(unittest.TestCase):
 
     def test_the_reserved_set_is_every_target_the_cmake_files_define(self):
         """Read back out of the files, so a new target in CMakeLists.txt that a
-        game could collide with fails here until it is in the set."""
+        game could collide with fails here until it is in the set -- and in
+        cmake/*.cmake, which CMakeLists.txt includes: game_test is defined in
+        cmake/game_tests.cmake, where the first version of this did not look."""
         defined = set()
         for path in (REPO / "CMakeLists.txt", REPO / "thirdparty" / "raylib" / "src" / "CMakeLists.txt",
-                     REPO / "thirdparty" / "raymob" / "CMakeLists.txt"):
+                     REPO / "thirdparty" / "raymob" / "CMakeLists.txt",
+                     *sorted((REPO / "cmake").glob("*.cmake"))):
             for m in re.finditer(r"\b(?:add_executable|add_library|add_custom_target)\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
                                  path.read_text()):
                 defined.add(m.group(1))

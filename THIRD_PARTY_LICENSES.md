@@ -174,7 +174,8 @@ changing fails the build.
 - **Clay** (Nic Barker, zlib) is the layout engine behind `rmp::ui`.
 - **raylib-cpp** (Rob Loach, zlib): the math subset only, header-only, behind
   `rmp/math.h`.
-- **doctest** (Viktor Kirilov, MIT) is compiled into `unit_test`, which is never
+- **doctest** (Viktor Kirilov, MIT) is compiled into `unit_test` and into
+  `game_test`, a game's own tests in `tests/game/`, neither of which is ever
   shipped; it is in no release artefact and in no `LICENSES.txt`.
 - **raylib's bundled dependencies** (`thirdparty/raylib/src/external/`): the
   audio decoders (miniaudio, dr_flac, dr_mp3, dr_wav, stb_vorbis, qoa, jar_mod,

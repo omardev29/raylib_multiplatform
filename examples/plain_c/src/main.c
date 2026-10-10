@@ -9,7 +9,7 @@
 //
 // To use it, in a game made with `rmp new`, from the game's folder:
 //
-//     rm src/main.cpp && rm -r src/rmp/ src/scenes/
+//     rm src/main.cpp && rm -r src/rmp/ src/scenes/ tests/game/
 //     cp <the framework>/examples/plain_c/src/main.c src/
 //     rmp run
 //
@@ -20,7 +20,8 @@
 // with no C++ in it gets an executable linked to raylib alone -- so kept, it
 // is the whole C++ framework compiled for nothing on the desktop, and
 // compiled into the game on Android and iOS, whose builds take everything
-// under src/. With it gone there is no framework library at all. Keep
+// under src/. With it gone there is no framework library at all. tests/game/
+// goes with src/scenes/: it tests the main menu, through the framework. Keep
 // include/rmp/: this file reads [window] from <rmp/config.h>, the one header
 // of ours that is plain #defines. The rmp new CI job follows the first two
 // lines in a fresh game and boots what they make.

@@ -56,8 +56,8 @@ CLEAN_PATHS = ("build", "raymob/app/generated", "raymob/generated.properties",
 # What `rmp fmt` formats. A game formats its own code and not the framework's:
 # a different clang-format would rewrite src/rmp/ for no reason of its own.
 FMT_ROOTS = {"framework": ("include", "src", "tests", "examples"),
-             "game": ("include", "src")}
-FMT_SKIP = ("src/rmp/", "include/rmp/")
+             "game": ("include", "src", "tests")}
+FMT_SKIP = ("src/rmp/", "include/rmp/", "tests/smoke_test.h")
 
 
 class Usage(Exception):
@@ -211,12 +211,15 @@ def build(ctx: Ctx, release: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 class Stage:
-    def __init__(self, name, summary, steps, scope="framework", in_all=True):
+    def __init__(self, name, summary, steps, scope="framework", in_all=True, when=None):
         self.name = name
         self.summary = summary
         self.steps = steps
         self.scope = scope  # "framework", "game" or "both"
         self.in_all = in_all
+        # A glob under the project: with nothing matching, the stage has
+        # nothing to check and says so instead of failing.
+        self.when = when
 
 
 def run_step(ctx: Ctx, step) -> None:
@@ -289,13 +292,20 @@ STAGES = [
     Stage("binaries", "the readers that judge a shipped .exe and Mac binary",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "binary_check_test.py"])]),
-    Stage("unit", "the unit tests, in two orders",
+    Stage("unit", "the unit tests in two orders, and tests/game/",
           [("configure", ["-DBUILD_TESTS=ON"]),
            ("build", "unit_test"),
            ("run", ["bash", "tools/test_locales.sh", "build/test-locales"]),
            ("run", ["build/unit_test"], LOCALES_ENV),
            ("run", ["build/unit_test", "--order-by=rand", "--rand-seed=1337",
-                    "--test-suite-exclude=audio: device"], LOCALES_ENV)]),
+                    "--test-suite-exclude=audio: device"], LOCALES_ENV),
+           # The demo game's tests: the copy every game starts from.
+           ("build", "game_test"),
+           ("run", ["build/game_test"])]),
+    Stage("unit", "your tests in tests/game/, with no window",
+          [("configure", ["-DBUILD_TESTS=ON"]),
+           ("build", "game_test"),
+           ("run", ["build/game_test"])], scope="game", when="tests/game/*.cpp"),
     Stage("layout", "the UI layout at four resolutions, headless",
           [("configure", ["-DBUILD_UI_TESTS=ON"]),
            ("build", "ui_layout_test"),
@@ -472,6 +482,9 @@ def cmd_test(ctx, args):
     chosen = all_stages(ctx.mode) if not args else [stages[args[0]]]
     for stage in chosen:
         print(f"== {stage.name} ==")
+        if stage.when and not any(ctx.root.glob(stage.when)):
+            print(f"  skip  nothing matches {stage.when}")
+            continue
         for step in stage.steps:
             run_step(ctx, step)
     print("PASS")
@@ -661,13 +674,13 @@ INCLUDE = (
     ".github/workflows/_web.yml", ".github/workflows/_windows.yml",
     "CMakeLists.txt", "CMakePresets.json", "THIRD_PARTY_LICENSES.md", TOML,
     "branding/", "cmake/configure_hook.cmake", "cmake/find_python.cmake",
-    "cmake/game_resources.cmake",
+    "cmake/game_resources.cmake", "cmake/game_tests.cmake",
     "cmake/toolchain-riscv64-linux.cmake", "cmake/web/",
     "generate_android_commands.ps1", "generate_android_commands.sh",
     "update_clangd.ps1", "update_clangd.sh",
     "include/", "ios/ANGLE-LICENSE.txt", "ios/README.md",
     "package.json", "package-lock.json", "raymob/", "resources/", "src/",
-    "tests/smoke_test.h", "thirdparty/",
+    "tests/smoke_test.h", "tests/game/", "thirdparty/",
     "tools/configure.py", "tools/license_db.py", "tools/rres_pack.c", "tools/md5.c",
     "tools/md5.h", "tools/linux_build.sh", "tools/glibc_check.sh", "tools/upx_pack.sh",
     "tools/render_check.sh", "tools/shipped_check.sh", "tools/ship_resources.sh",
@@ -696,7 +709,6 @@ FRAMEWORK_ONLY = {
     ".github/workflows/": "the framework's canary, autofix and web-backends workflows",
     "examples/": "the framework's examples",
     "tests/": "the framework's tests",
-    "thirdparty/doctest/": "the framework's unit-test library",
     "tools/": "the framework's gates and generators",
 }
 
@@ -789,6 +801,7 @@ What is yours:
     src/scenes/      the game: a scene per screen, starting with the main menu
     include/         your headers, when the game has some
     resources/       the art, sounds, fonts and levels the game loads
+    tests/game/      your tests, with no window: rmp test unit
     branding/icon.png  the app icon on Android, iOS and Windows
     {TOML}  the name, the app ids, the platforms
 
@@ -797,6 +810,10 @@ What is yours:
 Every .cpp under `src/` is built. The rest is `include/` for your headers,
 `resources/`, `branding/icon.png` and `{TOML}`. `src/rmp/` and
 `include/rmp/` are the framework: you include its headers and never edit it.
+
+`tests/game/` holds the game's own tests, doctest cases built with `src/` and
+run with no window by `rmp test unit` and by CI; it starts with one for the
+main menu. Delete the folder and nothing asks for them.
 """
 
 
@@ -967,16 +984,11 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         (setting_in("android", "gl_version"), assign("ES20")),
     ])
     edit_lines(target / "THIRD_PARTY_LICENSES.md", [
-        (lambda line: line.startswith("doctest "), lambda line: None),
         (lambda line: line.startswith("raylib_multiplatform "),
          lambda line: line.replace("LICENSE                     ",
                                    "thirdparty/raylib_multiplatform", 1)),
     ])
-    drop_bullet(target / "THIRD_PARTY_LICENSES.md", "- **doctest**")
-    edit_lines(target / "thirdparty" / "FROZEN_VERSIONS.md", [
-        (lambda line: line.startswith("sha256_doctest "), lambda line: None),
-        (lambda line: line.startswith("| doctest |"), lambda line: None),
-    ])
+    strip_components(target, framework_only_components())
     (target / "README.md").write_text(game_readme(name), encoding="utf-8")
     # The submodule's folder, empty, as a clone without --recursive has it:
     # without it, `git add -A` would stage the gitlink's deletion.
@@ -1014,6 +1026,40 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
                              text=True)
         if got.returncode != 0:
             raise Refused(f"the new game failed {' '.join(check)}:\n{got.stdout}{got.stderr}")
+
+
+def framework_only_components() -> list[str]:
+    """The vendored components a game does not get: FRAMEWORK_ONLY's entries
+    under thirdparty/, which INCLUDE takes whole. None today -- doctest ships,
+    so a game's tests/game/ builds -- and the next test-only library is one
+    line in FRAMEWORK_ONLY, with its record taken out below."""
+    return [p.rstrip("/") for p in FRAMEWORK_ONLY
+            if p.startswith("thirdparty/") and p.endswith("/")]
+
+
+def strip_components(target: Path, paths) -> None:
+    """Take a component the game does not get out of its licence record: its
+    row and its paragraph in THIRD_PARTY_LICENSES.md, its pin and its row in
+    FROZEN_VERSIONS.md. The game's license_db.py --check fails on a row whose
+    files are not there and on a pin with no row, so a component left half in
+    is a game that does not pass its own checks. Each piece has to be there
+    exactly once: a record that drifted is a bug to report."""
+    licences = target / "THIRD_PARTY_LICENSES.md"
+    for path in paths:
+        rows = [line.split()[0] for line in licences.read_text(encoding="utf-8").splitlines()
+                if len(line.split()) > 1 and line.split()[1] == path]
+        if len(rows) != 1:
+            raise Refused(f"rmp new: expected one row for {path} in THIRD_PARTY_LICENSES.md, "
+                          f"found {len(rows)}. This is a bug in the framework.")
+        name = rows[0]
+        pin = "sha256_" + "".join(c if c.isalnum() else "_" for c in name.lower())
+        edit_lines(licences, [(lambda line, p=path: len(line.split()) > 1
+                               and line.split()[1] == p, lambda line: None)])
+        drop_bullet(licences, f"- **{name}**")
+        edit_lines(target / "thirdparty" / "FROZEN_VERSIONS.md", [
+            (lambda line, k=pin: line.split()[:1] == [k], lambda line: None),
+            (lambda line, n=name: line.startswith(f"| {n} |"), lambda line: None),
+        ])
 
 
 def secrets_token() -> str:

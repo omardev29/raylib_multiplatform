@@ -136,8 +136,8 @@ There is no umbrella header: you include what you use, and each one is a module 
 
 [`examples/plain_c/src/main.c`](examples/plain_c/src/main.c) is a complete entry point with your
 own `main()` and no `rmp::` anything. Its first lines are the recipe -- in a game made with
-`rmp new`, `rm src/main.cpp && rm -r src/rmp/ src/scenes/` and copy the file into `src/` -- and
-CI follows them in a fresh game on every commit. See
+`rmp new`, `rm src/main.cpp && rm -r src/rmp/ src/scenes/ tests/game/` and copy the file into
+`src/` -- and CI follows them in a fresh game on every commit. See
 [Plain C](https://omardev29.github.io/rmp-docs/manual/raylib/plain-c.html) for what you keep and
 what you give up.
 

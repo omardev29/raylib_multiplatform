@@ -1476,16 +1476,34 @@ class NewTest(unittest.TestCase):
     def test_none_of_the_framework_comes_along(self):
         have = self.git("ls-files")
         for forbidden in ("CLAUDE.md", ".claude/", "examples/", "TECHNICAL.md", ".clang-tidy",
-                          "thirdparty/doctest", "tests/configure_test.py", "tests/rmp_test.py",
+                          "tests/configure_test.py", "tests/rmp_test.py", "tests/unit_test.cpp",
                           "tests/fixtures", "canary.yml", "autofix.yml",
                           "tools/naming_check.sh"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, have)
         self.assertFalse((self.game / "LICENSE").exists(), "a root LICENSE makes GitHub call it MIT")
         self.assertTrue((self.game / "tests" / "smoke_test.h").is_file())
+        # Of tests/, the CI hook and the game's own tests, and nothing else.
+        self.assertEqual(sorted(p for p in have.split() if p.startswith("tests/")),
+                         ["tests/game/main_menu_test.cpp", "tests/smoke_test.h"])
+
+    def test_it_brings_its_own_tests_and_what_builds_them(self):
+        """tests/game/ is the game's: doctest comes with it, and the CMake
+        that builds it into game_test."""
+        have = self.git("ls-files").split()
+        for needed in ("tests/game/main_menu_test.cpp", "thirdparty/doctest/doctest.h",
+                       "thirdparty/doctest/LICENSE", "cmake/game_tests.cmake"):
+            with self.subTest(needed=needed):
+                self.assertIn(needed, have)
+        self.assertIn('include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/game_tests.cmake")',
+                      (self.game / "CMakeLists.txt").read_text())
+        got = subprocess.run([sys.executable, "tools/rmp.py", "help", "test"], cwd=self.game,
+                             capture_output=True, text=True,
+                             env=dict(os.environ, RMP_NO_DELEGATE="1"))
+        self.assertRegex(got.stdout, r"(?m)^  unit +your tests in tests/game/")
 
     def test_untransformed_files_are_byte_for_byte_the_frameworks(self):
-        changed = {rmp.TOML, "THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"}
+        changed = {rmp.TOML, "THIRD_PARTY_LICENSES.md"}
         for _, _, path in rmp.tracked(REPO):
             kind = rmp.classify(path)[0]
             if kind not in ("include", "rename") or path in changed:
@@ -1555,12 +1573,16 @@ class NewTest(unittest.TestCase):
         self.assertNotEqual(got.returncode, 0)
         self.assertIn("placeholder identifiers", got.stdout + got.stderr)
 
-    def test_the_licences_credit_the_framework_and_not_doctest(self):
+    def test_the_licences_credit_the_framework_and_keep_doctest_unshipped(self):
+        """doctest is the game's now -- tests/game/ is built with it -- so its
+        row and its pin stay, and it is linked into nothing that ships."""
         lic = (self.game / "THIRD_PARTY_LICENSES.md").read_text()
-        self.assertNotIn("doctest", lic)
         self.assertRegex(lic, r"(?m)^raylib_multiplatform +thirdparty/raylib_multiplatform +MIT")
         self.assertTrue((self.game / "thirdparty" / "raylib_multiplatform" / "LICENSE").is_file())
-        self.assertNotIn("doctest", (self.game / "thirdparty" / "FROZEN_VERSIONS.md").read_text())
+        self.assertRegex(lic, r"(?m)^doctest +thirdparty/doctest +MIT +- +no +none +file$")
+        self.assertIn("- **doctest**", lic)
+        frozen = (self.game / "thirdparty" / "FROZEN_VERSIONS.md").read_text()
+        self.assertRegex(frozen, r"(?m)^sha256_doctest +[0-9a-f]{64}$")
 
     def test_the_gitlink_and_the_exec_bits(self):
         pin = next(s for m, s, p in rmp.tracked(REPO) if p == "thirdparty/raylib-ios")
@@ -1641,6 +1663,112 @@ class NewRefusesTest(unittest.TestCase):
                         self.assertEqual(os.listdir(target), [])
                     else:
                         self.assertFalse(target.exists())
+
+
+class StripComponentsTest(unittest.TestCase):
+    """What FRAMEWORK_ONLY keeps under thirdparty/ leaves no record in a game:
+    a licence row whose files are not there, or a pin with no row, fails the
+    game's own license_db.py --check. Nothing is kept back today -- doctest
+    ships, for tests/game/ -- so the strip is run here on a copy, with doctest
+    standing in for the next test-only library."""
+
+    def copy(self, root: Path) -> Path:
+        (root / "thirdparty").mkdir(parents=True)
+        shutil.copy(REPO / "THIRD_PARTY_LICENSES.md", root / "THIRD_PARTY_LICENSES.md")
+        shutil.copy(REPO / "thirdparty" / "FROZEN_VERSIONS.md",
+                    root / "thirdparty" / "FROZEN_VERSIONS.md")
+        return root
+
+    def test_every_trace_goes_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.copy(Path(tmp))
+            rmp.strip_components(root, ["thirdparty/doctest"])
+            for rel in ("THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"):
+                with self.subTest(file=rel):
+                    after = (root / rel).read_text().splitlines()
+                    before = (REPO / rel).read_text().splitlines()
+                    self.assertNotIn("doctest", "\n".join(after))
+                    # Lines taken out, none changed or added.
+                    gone = [line for line in before if line not in after]
+                    self.assertEqual(len(before) - len(after), len(gone))
+                    self.assertTrue(all("doctest" in line or line.startswith("  ")
+                                        for line in gone), gone)
+
+    def test_a_record_that_is_not_there_is_a_bug_said_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.copy(Path(tmp))
+            with self.assertRaises(rmp.Refused) as caught:
+                rmp.strip_components(root, ["thirdparty/nothing_here"])
+            self.assertIn("bug in the framework", str(caught.exception))
+            rmp.strip_components(root, ["thirdparty/doctest"])
+            with self.assertRaises(rmp.Refused):
+                rmp.strip_components(root, ["thirdparty/doctest"])
+
+    def test_the_components_are_read_from_framework_only(self):
+        self.assertEqual(rmp.framework_only_components(), [])
+        saved = dict(rmp.FRAMEWORK_ONLY)
+        try:
+            rmp.FRAMEWORK_ONLY["thirdparty/rapidcheck/"] = "a test-only library"
+            self.assertEqual(rmp.framework_only_components(), ["thirdparty/rapidcheck"])
+        finally:
+            rmp.FRAMEWORK_ONLY.clear()
+            rmp.FRAMEWORK_ONLY.update(saved)
+
+
+class GameUnitStageTest(unittest.TestCase):
+    """`rmp test unit` in a game builds tests/game/ into game_test and runs it;
+    with no test there it says so and runs nothing. In the framework the unit
+    stage runs the demo game's copy too, so the scaffold every game gets is
+    tested on every `rmp test`."""
+
+    def run_cmd(self, argv, cwd):
+        out = io.StringIO()
+        with recording({"--print-name": (0, "demo\n")}) as rec, \
+                contextlib.redirect_stdout(out):
+            code = rmp.main(argv, cwd=cwd)
+        return code, [c for c, _ in rec.calls], out.getvalue()
+
+    def test_with_a_test_it_builds_and_runs_game_test(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            (game / "tests" / "game").mkdir(parents=True)
+            (game / "tests" / "game" / "rules_test.cpp").write_text("")
+            code, calls, _ = self.run_cmd(["test", "unit"], game)
+            self.assertEqual(code, 0)
+            self.assertEqual(calls, [["cmake", "--preset", "debug", "-DBUILD_TESTS=ON"],
+                                     ["cmake", "--build", "build", "--target", "game_test"],
+                                     [str(game.resolve() / "build" / "game_test")]])
+
+    def test_without_one_it_says_so_and_runs_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            (game / "tests" / "game").mkdir(parents=True)
+            (game / "tests" / "game" / "notes.txt").write_text("")
+            code, calls, out = self.run_cmd(["test", "unit"], game)
+            self.assertEqual(code, 0)
+            self.assertEqual(calls, [])
+            self.assertIn("skip  nothing matches tests/game/*.cpp", out)
+
+    def test_the_framework_runs_the_demo_games_copy(self):
+        stage = next(s for s in rmp.stages_for("framework") if s.name == "unit")
+        self.assertIn(("build", "game_test"), stage.steps)
+        self.assertIn(("run", ["build/game_test"]), stage.steps)
+        self.assertIsNone(stage.when)
+        self.assertTrue(any((REPO / "tests" / "game").glob("*.cpp")))
+        names = [s.name for s in rmp.stages_for("game")]
+        self.assertEqual(len(names), len(set(names)), "two stages of one name in a game")
+        names = [s.name for s in rmp.stages_for("framework")]
+        self.assertEqual(len(names), len(set(names)), "two stages of one name here")
+
+    def test_a_game_formats_its_tests_and_not_the_frameworks_hook(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            for rel in ("tests/game/rules_test.cpp", "tests/smoke_test.h", "src/main.cpp",
+                        "src/rmp/app.cpp"):
+                (game / rel).parent.mkdir(parents=True, exist_ok=True)
+                (game / rel).write_text("")
+            got = sorted(p.relative_to(game).as_posix() for p in rmp.our_sources(rmp.Ctx(game)))
+            self.assertEqual(got, ["src/main.cpp", "tests/game/rules_test.cpp"])
 
 
 class GameOnPushTest(unittest.TestCase):

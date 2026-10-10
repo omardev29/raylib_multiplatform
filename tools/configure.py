@@ -469,14 +469,14 @@ EXAMPLE_IDS = {"com.example.raytest", "com.raylib.raymob"}
 EXAMPLE_ID_PREFIX = "com.example."
 
 # Project names that pass NAME_RE and still cannot build. The name becomes a
-# CMake target, and these are the targets CMakeLists.txt, raylib and raymob
-# already define (tests/configure_test.py reads them back out of the three
-# files); and Windows will not create a file whose name is a device, with any
-# extension.
+# CMake target, and these are the targets CMakeLists.txt, cmake/*.cmake, raylib
+# and raymob already define (tests/configure_test.py reads them back out of
+# those files); and Windows will not create a file whose name is a device, with
+# any extension.
 RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
     "ui_layout_test", "platformer_play", "input_play", "assembler", "pack_resources",
-    "unpack_resources",
+    "unpack_resources", "game_test",
 }
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                    *(f"lpt{i}" for i in range(1, 10))}

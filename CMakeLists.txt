@@ -819,6 +819,9 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
   rmp_apply_compile_flags(unit_test)
 endif()
 
+# The game's own tests, tests/game/ into game_test, in a game and here alike.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/game_tests.cmake")
+
 # --- Headless UI layout test ------------------------------------------------
 # Off by default: it is a developer tool, not part of a game build. The layout
 # runs with the text measurement, the pointer and the viewport all injected, so

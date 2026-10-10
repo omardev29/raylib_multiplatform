@@ -427,6 +427,26 @@ jobs:
           cmake --build build --target ui_layout_test > /dev/null
           ./build/ui_layout_test
 
+      # A game's own tests: tests/game/, built with its src/ into game_test and
+      # run with no window -- `rmp test unit` in a game. `rmp new` writes one,
+      # for the main menu; a game that deletes the folder has none, and this
+      # says so instead of failing. The framework always has it: it is the copy
+      # every game starts from, run here against the demo game in src/.
+      - name: The game's own tests (tests/game/)
+        run: |
+          set -euo pipefail
+          if ! compgen -G 'tests/game/*.cpp' > /dev/null; then
+            if [ "$(python3 tools/rmp.py --mode)" = framework ]; then
+              echo "FAIL: tests/game/ has no test, and every game is made from it"
+              exit 1
+            fi
+            echo "  skip  no tests/game/*.cpp: this game has no tests of its own"
+            exit 0
+          fi
+          cmake --preset debug -DBUILD_TESTS=ON > /dev/null
+          cmake --build build --target game_test > /dev/null
+          ./build/game_test
+
       # raylib's SOFTWARE renderer: no GPU, no window, no display server, and
       # therefore the same pixels on every operating system — there is no
       # driver in between to differ. That is what turns the frame hash from a
@@ -603,6 +623,41 @@ jobs:
             echo "FAIL: the game compared a golden frame it should not have"; exit 1; }
           xvfb-run -a -s "-screen 0 1280x720x24" ./rmp test smoke
 
+      # The game's own tests, both ways. The one rmp new writes builds with
+      # the game's src/ and passes -- under `rmp test unit` and under the step
+      # of the game's own CI that runs it, read out of the game's ci.yml. With
+      # tests/game/ deleted both have nothing to run and say so, and the lint
+      # preset still configures.
+      - name: The game's own tests, with tests/game/ and without
+        working-directory: ${{ env.GAME }}
+        run: |
+          set -euo pipefail
+          STEP=$(python3 - <<'PY'
+          import yaml
+          lint = yaml.safe_load(open(".github/workflows/ci.yml"))["jobs"]["lint"]
+          (step,) = [s for s in lint["steps"] if s.get("name") == "The game's own tests (tests/game/)"]
+          print(step["run"])
+          PY
+          )
+          RAN='^\[doctest\] test cases: *[1-9][0-9]* \| *[1-9][0-9]* passed \| *0 failed'
+          OUT=$(./rmp test unit 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
+          printf '%s\n' "$OUT" | grep -Eq "$RAN" || {
+            printf '%s\n' "$OUT"; echo "FAIL: rmp test unit ran no test of the game"; exit 1; }
+          OUT=$(bash -c "$STEP" 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
+          printf '%s\n' "$OUT" | grep -Eq "$RAN" || {
+            printf '%s\n' "$OUT"; echo "FAIL: the game's CI ran no test of the game"; exit 1; }
+          echo "  ok    tests/game/ runs, under rmp test unit and in the game's CI"
+          mv tests/game /tmp/ci_game_tests
+          OUT=$(./rmp test unit 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
+          printf '%s\n' "$OUT" | grep -q 'skip  nothing matches tests/game/' || {
+            printf '%s\n' "$OUT"; echo "FAIL: rmp test unit did not say there was nothing"; exit 1; }
+          OUT=$(bash -c "$STEP" 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
+          printf '%s\n' "$OUT" | grep -q 'skip  no tests/game' || {
+            printf '%s\n' "$OUT"; echo "FAIL: the game's CI did not say there was nothing"; exit 1; }
+          cmake --preset lint > /dev/null
+          mv /tmp/ci_game_tests tests/game
+          echo "PASS: a game's tests run when it has them, and nothing asks when it has none"
+
       # The way out of the framework, followed as documented: the recipe at the
       # top of examples/plain_c/src/main.c, read out of that file and run in a
       # copy of the game, then the game's own render check -- built, booted,
@@ -619,6 +674,8 @@ jobs:
           echo "  $RECIPE"
           sh -c "$RECIPE"
           cp "$EXAMPLE" src/
+          # The recipe takes tests/game/ with the scenes it tests.
+          test ! -e tests/game || { echo "FAIL: the recipe left tests/game/ behind"; exit 1; }
           OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
           printf '%s\n' "$OUT" | tail -5
           # And its release: the example's main() moves into the executable's
