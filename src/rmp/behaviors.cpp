@@ -91,7 +91,7 @@ bool pressed(std::string_view action) { return rmp::input::just_pressed(action);
 // decoration on the floor are the ordinary contents of a platformer level, so
 // the ray skips them inside cast() (RayQuery::solid_only). Both Platformer and
 // Runner come through here.
-bool standing_on_something(Object &self, float reach) {
+bool standing_on_something(const Object &self, float reach) {
     const Ref<Scene> scene = Storage::spawned_in(self);
     if (!scene) return false;
     const Rectangle box = self.world_collider();
@@ -301,6 +301,7 @@ void Ball::_ready(Object &self) {
     self.solid = false;
 }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Ball::_collision(Object &self, Object &other) {
     const Rectangle mine = self.world_collider();
     const Rectangle theirs = other.world_collider();
@@ -364,6 +365,7 @@ void Ball::_update(Object &self, float delta) {
 
 void Projectile::_ready(Object &self) { self.edges = Edge::DESTROY; }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Projectile::_collision(Object &self, Object &other) {
     (void)other;
     if (destroy_on_hit) self.destroy();
@@ -509,11 +511,13 @@ void GridSnap::_late_update(Object &self, float delta) {
 // Parallax
 // ---------------------------------------------------------------------------
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Parallax::_ready(Object &self) {
     (void)self;
     if (!texture.empty()) ours.art = rmp::assets::load_texture(texture);
 }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Parallax::_update(Object &self, float delta) {
     (void)self;
     // Only its own drift. Where the CAMERA is gets read at draw time and
@@ -522,6 +526,7 @@ void Parallax::_update(Object &self, float delta) {
     ours.scroll += speed * delta;
 }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Parallax::_draw(Object &self) {
     if (!ours.art.valid()) return;
     const Texture2D &tex = ours.art;
@@ -602,6 +607,7 @@ int spawner_cap(int max_alive) {
 
 } // namespace
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Spawner::_update(Object &self, float delta) {
     const Ref<Scene> scene = Storage::spawned_in(self);
     if (!scene || !on_spawn) return;
@@ -727,6 +733,7 @@ void Lifespan::_update(Object &self, float delta) {
 // Health
 // ---------------------------------------------------------------------------
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Health::_ready(Object &self) {
     (void)self;
     // `{ .hp = 5 }` alone used to leave max_hp at 3, so a progress bar drawn
@@ -783,6 +790,7 @@ void Health::_update(Object &self, float delta) {
     }
 }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Health::_collision(Object &self, Object &other) {
     // `hurt_by` is a mask over the OTHER object's layer, the same numbers
     // Object::collision_mask uses. 0 is "nothing hurts", which is why a Health

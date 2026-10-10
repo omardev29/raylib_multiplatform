@@ -446,13 +446,13 @@ void set_volume(Bus bus, float volume) {
     // do it: a settings screen in a game that has made no sound yet stays
     // silent and costs nothing.
     if (!real_device()) return;
-    State &s = state();
+    const State &s = state();
     if (bus == Bus::MASTER) SetMasterVolume(s.master);
     if (bus == Bus::MUSIC && s.track.loaded) SetMusicVolume(s.track.music, s.music);
     if (bus == Bus::SFX) {
         // Every voice keeps the volume its own play asked for, so a slider
         // moved while effects ring out scales them instead of flattening them.
-        for (Effect &e : s.effects) {
+        for (const Effect &e : s.effects) {
             for (int i = 0; i < e.voice_count; ++i) {
                 const Voice &v = e.voices[static_cast<std::size_t>(i)];
                 if (IsSoundPlaying(v.sound)) {

@@ -278,9 +278,10 @@ jobs:
         # discover, not the file directly: running the file executes
         # unittest.main() at whatever line it happens to be on, so anything
         # defined after it is silently not collected. The image carries
-        # clang-tidy, so the tests of its naming rules may not skip here.
+        # clang-tidy and cppcheck, so the tests of their rules may not skip here.
         env:
           RMP_REQUIRE_CLANG_TIDY: "1"
+          RMP_REQUIRE_CPPCHECK: "1"
         run: python3 -m unittest discover -s tests -p 'configure_test.py' -v
 
       # `rmp` itself: every command's page, the push and deploy refusals
@@ -543,6 +544,18 @@ jobs:
       - name: clang-tidy
         if: needs.config.outputs.framework == 'true'
         run: bash tools/lint.sh
+
+      # The second static analyser: cppcheck reads src/rmp with its own value
+      # flow, not clang's, and found what clang-tidy had let through -- a
+      # struct nothing used, an unsigned count tested for `<= 0`. Zero
+      # findings; what is not a bug is suppressed inline with its reason, and
+      # a suppression that matches nothing fails too. It ships in the image,
+      # so a missing cppcheck here is a failure, not a skip.
+      - name: cppcheck
+        if: needs.config.outputs.framework == 'true'
+        env:
+          RMP_REQUIRE_CPPCHECK: "1"
+        run: bash tools/cppcheck_check.sh
 
   # examples/ is documentation with code in it, and documentation rots quietly.
   # It already has, twice: the header unification removed the `inlining` macro

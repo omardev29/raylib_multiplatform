@@ -465,16 +465,6 @@ void bump_world_version() { ++pool.world_version; }
 
 namespace {
 
-// One axis of the edge rules, run twice. Written once because a bug fixed on x
-// and not on y is the single most likely mistake in this whole file, and the
-// tests check both axes for exactly that reason.
-struct Axis {
-    float lo; // the object's low edge
-    float size; // its extent
-    float area_lo; // the world's low edge
-    float area_hi; // the world's high edge
-};
-
 // Returns whether the object was TELEPORTED -- moved somewhere it did not
 // travel to. Only WRAP does that; CLAMP and BOUNCE shift it by the depth it had
 // gone past the wall, which is a correction and not a jump. The caller uses it
@@ -689,7 +679,6 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
         const float travel = axis == 0 ? step.x : step.y;
         if (travel == 0 || !std::isfinite(travel)) continue;
         float &coordinate = axis == 0 ? object.position.x : object.position.y;
-        float &speed = axis == 0 ? object.velocity.x : object.velocity.y;
         const float wanted = std::ceil(std::fabs(travel) / limit);
         const int steps = static_cast<int>(std::min(wanted, MAX_STEPS));
         const float increment = travel / static_cast<float>(steps);
@@ -703,12 +692,16 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
             for (int k = 0; k < CONTACT_BISECTIONS; ++k) {
                 const float mid = (lo + hi) / 2;
                 coordinate = from + (increment * mid);
+                // `coordinate` is a reference into object.position: every step moves
+                // what in_map() reads, and cppcheck does not follow the alias.
+                // cppcheck-suppress knownConditionTrueFalse ; it changes with coordinate
                 if (in_map(map, object))
                     hi = mid;
                 else
                     lo = mid;
             }
             coordinate = from + (increment * lo);
+            float &speed = axis == 0 ? object.velocity.x : object.velocity.y;
             speed = 0;
             break;
         }
@@ -717,7 +710,7 @@ void move_through_map(Object &object, const Tilemap &map, Vector2 step) {
 
 } // namespace
 
-void update(Scene &scene, float delta) {
+void update(const Scene &scene, float delta) {
     const std::vector<unsigned> *start = indices_for(&scene);
     if (start == nullptr) return;
 
@@ -831,7 +824,7 @@ std::vector<Object *> live_objects(const Scene &scene) {
     return out;
 }
 
-const std::vector<Object *> &draw_order(Scene &scene) {
+const std::vector<Object *> &draw_order(const Scene &scene) {
     pool.draw_order.clear();
     const std::vector<unsigned> *indices = indices_for(&scene);
     if (indices == nullptr) return pool.draw_order;
@@ -855,7 +848,7 @@ const std::vector<Object *> &draw_order(Scene &scene) {
     return pool.draw_order;
 }
 
-void draw(Scene &scene) {
+void draw(const Scene &scene) {
     // A copy, because _draw() is the user's code and may spawn or destroy,
     // and either one writes to the scratch vector underneath.
     const std::vector<Object *> order = draw_order(scene);
@@ -891,7 +884,7 @@ Rectangle sprite_source(const Sprite &sprite) {
     return Rectangle{};
 }
 
-void draw_one(Object &object) {
+void draw_one(const Object &object) {
     if (object.sprite.sheet.valid()) {
         const SheetData &data = object.sprite.sheet.raw();
         Rectangle source = sprite_source(object.sprite);

@@ -904,10 +904,14 @@ void collide(Scene &scene) {
         const bool a_was = a.alive();
         const bool b_was = b.alive();
         if (!a_was && !b_was) continue;
-        if (a_was) a._collision(b);
-        if (a_was) collide_behaviors(a, b);
-        if (b_was) b._collision(a);
-        if (b_was) collide_behaviors(b, a);
+        if (a_was) {
+            a._collision(b);
+            collide_behaviors(a, b);
+        }
+        if (b_was) {
+            b._collision(a);
+            collide_behaviors(b, a);
+        }
         if (a_was) Storage::notify_collision(a, b);
         if (b_was) Storage::notify_collision(b, a);
     }

@@ -1144,7 +1144,7 @@ TEST_CASE_FIXTURE(Fixture, "changing the layer changes the order next frame") {
 }
 
 TEST_CASE_FIXTURE(Fixture, "a scene with no objects has an empty draw order") {
-    World world;
+    const World world;
     CHECK(rmp::objects::detail::draw_order(world).empty());
 }
 
@@ -1196,7 +1196,7 @@ TEST_CASE_FIXTURE(Fixture, "collect on a frame with nothing to collect is not an
 }
 
 TEST_CASE_FIXTURE(Fixture, "updating a scene that has no objects is not an error") {
-    World world;
+    const World world;
     rmp::objects::detail::update(world, 1.0f);
     CHECK(world.object_count() == 0);
 }

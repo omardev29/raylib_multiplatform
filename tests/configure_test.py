@@ -6969,6 +6969,129 @@ class StyleCheckTest(unittest.TestCase):
         self.assertIn("bash tools/style_check.sh", lint)
 
 
+class CppcheckCheckTest(unittest.TestCase):
+    """tools/cppcheck_check.sh: cppcheck over src/rmp, zero findings, and every
+    suppression inline with its reason. Each way it must fail, seen failing on
+    a probe of its own; the ones that need cppcheck run where it is installed,
+    and the lint job sets RMP_REQUIRE_CPPCHECK=1 so that they cannot skip
+    there."""
+
+    SCRIPT = REPO / "tools" / "cppcheck_check.sh"
+
+    def run_on(self, *lines, env=None):
+        import subprocess
+        with tempfile.NamedTemporaryFile("w", suffix=".cpp", delete=False) as fh:
+            fh.write("\n".join(lines) + "\n")
+            name = fh.name
+        import shutil
+        try:
+            return subprocess.run([shutil.which("bash"), str(self.SCRIPT), name],
+                                  capture_output=True, text=True, env=env)
+        finally:
+            os.unlink(name)
+
+    def need_cppcheck(self):
+        import shutil
+        if shutil.which("cppcheck") is None:
+            if os.environ.get("RMP_REQUIRE_CPPCHECK") == "1":
+                self.fail("cppcheck is required here (RMP_REQUIRE_CPPCHECK=1)")
+            self.skipTest("cppcheck not installed")
+
+    OUT_OF_BOUNDS = ("int last() {", "    const int a[2] = { 1, 2 };", "    return a[2];", "}")
+
+    def test_a_suppression_without_its_reason_fails(self):
+        """Text, so it holds with no cppcheck at all."""
+        got = self.run_on("// cppcheck-suppress arrayIndexOutOfBounds", "int x;")
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("says why after a `;`", got.stdout)
+        got = self.run_on("// cppcheck-suppress arrayIndexOutOfBounds ; ok", "int x;")
+        self.assertEqual(got.returncode, 1, "a one-word reason is not a reason")
+
+    def test_a_reason_is_accepted(self):
+        got = self.run_on("// cppcheck-suppress arrayIndexOutOfBounds ; the probe says why",
+                          "int x;")
+        self.assertNotIn("says why", got.stdout)
+
+    def test_missing_cppcheck_is_a_failure_where_it_is_required(self):
+        """Where cppcheck is missing, a laptop is told and goes on; CI fails."""
+        import shutil
+        bin_dir = Path(tempfile.mkdtemp(prefix="no-cppcheck-"))
+        try:
+            for tool in ("dirname", "grep"):
+                (bin_dir / tool).symlink_to(shutil.which(tool))
+            env = {"PATH": str(bin_dir)}
+            got = self.run_on("int x;", env=env)
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            self.assertIn("skip  cppcheck is not installed", got.stdout)
+            got = self.run_on("int x;", env=dict(env, RMP_REQUIRE_CPPCHECK="1"))
+            self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+            self.assertIn("FAIL: cppcheck is not on PATH", got.stdout)
+        finally:
+            shutil.rmtree(bin_dir)
+
+    def test_a_finding_fails(self):
+        self.need_cppcheck()
+        got = self.run_on(*self.OUT_OF_BOUNDS)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("[arrayIndexOutOfBounds]", got.stdout)
+
+    def test_an_inline_suppression_with_its_reason_passes(self):
+        self.need_cppcheck()
+        got = self.run_on("int last() {", "    const int a[2] = { 1, 2 };",
+                          "    // cppcheck-suppress arrayIndexOutOfBounds ; the probe means it",
+                          "    return a[2];", "}")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_a_suppression_that_matches_nothing_fails(self):
+        """An excuse cannot outlive what it excused."""
+        self.need_cppcheck()
+        got = self.run_on("int first() {", "    const int a[2] = { 1, 2 };",
+                          "    // cppcheck-suppress arrayIndexOutOfBounds ; nothing is out here",
+                          "    return a[0];", "}")
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("[unmatchedSuppression]", got.stdout)
+
+    def test_an_opinion_decided_the_other_way_is_quiet(self):
+        """useStlAlgorithm is suppressed everywhere, with its reason: a raw loop
+        that says what it does is the style here."""
+        self.need_cppcheck()
+        got = self.run_on("#include <vector>",
+                          "bool any_negative(const std::vector<int> &v) {",
+                          "    for (const int x : v) {", "        if (x < 0) return true;",
+                          "    }", "    return false;", "}")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
+    def test_the_whole_tree_is_clean(self):
+        self.need_cppcheck()
+        import shutil
+        import subprocess
+        if shutil.which("cmake") is None:
+            self.skipTest("the tree run configures the lint preset, and cmake is not here")
+        got = subprocess.run(["bash", str(self.SCRIPT)], cwd=REPO, capture_output=True,
+                             text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertIn("no finding", got.stdout)
+
+    def test_every_global_suppression_says_why(self):
+        """The list in the script: each entry under a comment."""
+        text = self.SCRIPT.read_text()
+        block = re.search(r"^SUPPRESS=\(\n(.*?)^\)", text, re.S | re.M).group(1)
+        lines = block.splitlines()
+        for i, line in enumerate(lines):
+            if line.strip().startswith('"'):
+                with self.subTest(entry=line.strip()):
+                    before = [l for l in lines[:i] if l.strip()]
+                    self.assertTrue(before and (before[-1].strip().startswith("#")
+                                                or before[-1].strip().startswith('"')),
+                                    "a suppression with no reason above it")
+
+    def test_it_is_wired_into_rmp_test_and_the_lint_job(self):
+        self.assertIn('"tools/cppcheck_check.sh"', (REPO / "tools" / "rmp.py").read_text())
+        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        self.assertIn("bash tools/cppcheck_check.sh", lint)
+        self.assertIn('RMP_REQUIRE_CPPCHECK: "1"', lint)
+
+
 class ClangTidyNamingTest(unittest.TestCase):
     """The naming rules in .clang-tidy, each seen red on a file of its own.
 

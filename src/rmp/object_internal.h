@@ -75,23 +75,23 @@ namespace rmp::objects::detail {
 // `bounds` used to mean on its own; the camera's view is built from it.
 Rectangle view_rect();
 
-void update(Scene &scene, float delta);
+void update(const Scene &scene, float delta);
 
 // One scene's objects, by layer and then by creation order. Calls the sprite or
 // shape first and the object's own _draw() after, so an override adds to what
 // is already there instead of replacing it.
-void draw(Scene &scene);
+void draw(const Scene &scene);
 
 // The draw pass minus the drawing: which objects take part, in which order.
 // Split out so the ordering can be tested without a GL context -- raylib's
 // DrawRectanglePro() reaches into a render batch that InitWindow() creates, and
 // calling it before there is one is a segfault, not a failed assertion. This is
 // the same seam rmp::ui has for the same reason.
-const std::vector<Object *> &draw_order(Scene &scene);
+const std::vector<Object *> &draw_order(const Scene &scene);
 
 // What one object looks like. Split out of draw() so a scene that wants to
 // place a single object by hand can, and so the draw pass reads as a loop.
-void draw_one(Object &object);
+void draw_one(const Object &object);
 
 // Every live object of one scene, in creation order. By value, because the
 // caller may destroy objects while walking it and a raycast can be issued from

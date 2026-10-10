@@ -349,6 +349,8 @@ STAGES = [
           [("run", ["{python}", "tools/pointer_check.py"]),
            ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "pointer_check_test.py"])]),
+    Stage("cppcheck", "cppcheck over src/rmp: no finding, each suppression says why",
+          [("run", ["bash", "tools/cppcheck_check.sh"])]),
     Stage("headers", "every public header stands alone",
           [("run", ["bash", "tools/header_check.sh"])]),
     Stage("cost", "what each public header costs to include",

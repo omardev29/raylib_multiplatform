@@ -90,7 +90,7 @@ void unload_payload(SlotData &slot) {
         case ResourceKind::SHEET: {
             // The texture is raylib's to unload; the frame and tag tables are
             // vectors and go with the SheetData when the shared_ptr lets go.
-            auto *sheet = static_cast<rmp::SheetData *>(p);
+            const auto *sheet = static_cast<const rmp::SheetData *>(p);
             if (sheet->texture.id != 0) UnloadTexture(sheet->texture);
             break;
         }

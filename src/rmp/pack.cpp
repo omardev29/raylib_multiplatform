@@ -51,7 +51,7 @@ bool open_pack() {
 
     rresSetCipherPassword(RMP_RRES_PASSWORD);
     pack.directory = rresLoadCentralDirectory(pack.path.c_str());
-    if (pack.directory.count <= 0) {
+    if (pack.directory.count == 0) {
         // Given back, not dropped: rres allocates the entry array before it
         // knows the count is zero, and close_pack() returns early while no
         // pack is open, so nothing else would ever free it. Zeroed as well,

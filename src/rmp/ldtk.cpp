@@ -234,6 +234,9 @@ void read_tilesets(const cJSON *defs, Project *project, MapData *data) {
     }
 }
 
+// What it finds is written through (TilesetRef::used), so the project it
+// lives in cannot be const.
+// cppcheck-suppress constParameterPointer ; the result is written through
 TilesetRef *tileset_by_uid(Project *project, int uid) {
     for (TilesetRef &ref : project->tilesets) {
         if (ref.uid == uid) return &ref;
