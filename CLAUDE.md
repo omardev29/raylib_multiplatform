@@ -582,7 +582,7 @@ here so that nobody "fixes" one back.
   default, `android` or `ios` added only when the bug is there. `-f targets`
   takes a comma-separated list of targets and groups (`configure.py --only`,
   every wrong item refused with its position), builds exactly those, and runs
-  every framework job beside them (`lint`, `tidy`, `examples`, `e2e`,
+  every framework job beside them (`lint`, `tidy`, `examples`, `e2e`, `deep`,
   `coverage`, `docs`, `rmp_new`). The full 17-target matrix (~20 minutes) runs
   once, when the plan is done. The BSDs are best effort: a failure there after
   a green fast lane is a **PSB** — a platform-specific bug — and the history of
@@ -1051,8 +1051,9 @@ portable, shell patterns, naming, style, ownership, pointers, headers, header co
 repo, size budget, and cppcheck where it is installed (CI requires it) —
 each of those gates seen red on a planted copy of the tree (`gates`: `tests/gates_red_test.py`,
 whose `GATES` names every `tools/*_check.sh` and fails on a new one until it is planted) —
-the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
-real mixer for about a second, only in the first), headless layout, the properties (the
+the configure tests, `rmp` itself, the API-change gate (`api`), the binary readers, the unit
+tests in two orders (the `audio: device` suite, which listens to the real mixer for about a
+second, only in the first), headless layout, the properties (the
 campaign's gates, RapidCheck at its seed, Hypothesis derandomized), the UI on a real GPU
 (`ui-render`: a hidden window, the backdrop's blur read back -- under `xvfb-run` in CI),
 render and smoke), `rmp test examples` before touching the public API (it builds
@@ -1073,9 +1074,10 @@ for the stages a game has), or in the job of its own that `StagesAgreeWithLintTe
 `xvfb-run -a ./rmp test` as CI's lint job does: with no display the desktop smoke dies in
 `CloseWindow` under ASan instead of failing with a message. The image-dependent gates (header budget, PyYAML, versions
 against the manifest) run for real only inside the pinned image: `podman run
---rm -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@sha256:<digest>
+--rm --init -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@sha256:<digest>
 bash tools/<x>_check.sh` is how to see what CI sees.
-CI: a push runs the fast set, `gh workflow run ci.yml -f full=true` runs all 17
+CI: a push to `main` and a pull request run the fast set (a pull request the `api` job
+too), `gh workflow run ci.yml -f full=true` runs all 17
 targets, and `-f targets=linux-x64-glibc,windows-x64,macos` the debug lane: those
 targets and the framework's jobs. The `docs` job checks `omardev29/rmp-docs` (main) against the commit:
 every page's gates and every code block compiled against these headers. It only
@@ -1141,10 +1143,11 @@ not — is a backgrounded command with an `until` loop instead, which notifies
 once and exits.
 
 **Formatting is enforced.** `.clang-format` and `.clang-tidy` are committed and
-pinned to clang 22.1.8 in `thirdparty/FROZEN_VERSIONS.md`; the CI `lint` job runs
-both, and `versions_check.sh` tells you if your local clang-format is a different
-version (it would reformat files that were already correct). Do not hand-format,
-and do not reformat a file you are not otherwise changing.
+pinned to clang 22.1.8 in `thirdparty/FROZEN_VERSIONS.md`; CI runs clang-format in
+the `lint` job and clang-tidy in the `tidy` job, and `versions_check.sh` tells you
+if your local clang-format is a different version (it would reformat files that
+were already correct). Do not hand-format, and do not reformat a file you are not
+otherwise changing.
 
 Skills in `.claude/skills/` carry the detail: code style, API design, the
 verified Clay facts, and the verification ladder.

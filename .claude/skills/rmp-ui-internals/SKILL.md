@@ -33,9 +33,9 @@ is why they all feel the same and why a new widget cannot forget the transition)
 
 ## Clay 0.14 — verified, not assumed
 
-Vendored at `thirdparty/clay/clay.h`, zlib, 5077 lines, frozen, and MODIFIED by
-one line (see `thirdparty/clay/PATCHES.md`). Every line below was confirmed by
-reproducing it.
+Vendored at `thirdparty/clay/clay.h`, zlib, frozen, and MODIFIED in two places
+(see `thirdparty/clay/PATCHES.md`, and the last entry below). Every line below
+was confirmed by reproducing it.
 
 - `Clay__OpenElement`, `Clay__OpenElementWithId`, `Clay__ConfigureOpenElement`,
   `Clay__CloseElement` and `Clay__OpenTextElement` are **public**
@@ -81,9 +81,13 @@ reproducing it.
   inner one replaces the outer clip and its end switches clipping off.
 - SIMD includes: `<emmintrin.h>` on x86_64, `<arm_neon.h>` on aarch64, nothing on
   riscv64 or wasm.
-- **One line of clay.h is patched**: the C++ version guard accepts `201709L`,
-  because NetBSD 10.1's GCC 10.5 reports that under `-std=c++20`. Documented at
-  the patch site and in `thirdparty/FROZEN_VERSIONS.md`.
+- **Two places in clay.h are patched**, each marked `PATCHED FOR THIS
+  TEMPLATE` and listed in `thirdparty/clay/PATCHES.md`: the C++ version guard
+  accepts `201709L`, because NetBSD 10.1's GCC 10.5 reports that under
+  `-std=c++20`; and both sizing loops of `Clay__SizeContainersAlongAxis` stop
+  after a pass that moved nothing -- from hundreds of thousands of pixels a
+  step is below what a float can take away, and an image too tall for any
+  window froze the layout (`tests/ui_layout_test.cpp` holds it).
 
 ## Our own decisions worth not reopening
 
