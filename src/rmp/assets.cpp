@@ -9,7 +9,7 @@
 // ===========================================================================
 
 #include <raylib.h>
-#include <rlgl.h> // rlGetShaderIdDefault(): what a shader that failed comes back as
+#include <rlgl.h> // rlGetShaderIdDefault(), rlFramebufferComplete(): what raylib does not say
 
 #include <optional>
 #include <string>
@@ -60,8 +60,10 @@ rmp::RenderTexture make_render_texture(const int width, const int height) {
     // RMP_COVERAGE_OFF(on the GPU: the unit tests have no window; tests/ui_render_test.cpp makes one)
     const RenderTexture2D raw = LoadRenderTexture(width, height);
     // A framebuffer the driver would not complete is as good as none, and
-    // raylib only says so in the log.
-    if (!IsRenderTextureValid(raw)) {
+    // raylib only says so in the log: its ids are there all the same, which
+    // is all IsRenderTextureValid() looks at. Past the GPU's largest texture
+    // is one way to get it.
+    if (!IsRenderTextureValid(raw) || !rlFramebufferComplete(raw.id)) {
         UnloadRenderTexture(raw);
         return rmp::RenderTexture{};
     }

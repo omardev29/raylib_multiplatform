@@ -557,6 +557,14 @@ void what_assets_makes() {
     check(texture.valid() && texture.raw().id != 0 && texture.raw().texture.width == 16 &&
               texture.raw().texture.height == 8,
           "make_render_texture(16, 8): a framebuffer 16 x 8");
+    // Wider than any GPU takes a texture: raylib still hands back ids, of a
+    // framebuffer the driver will not complete -- one that draws nothing.
+    const rmp::RenderTexture refused =
+        rmp::assets::detail::make_render_texture(1 << 17, 1);
+    check(!refused.valid(),
+          "make_render_texture(131072, 1), past every GPU's limit: empty, not a "
+          "framebuffer "
+          "that draws nothing");
     const rmp::ui::detail::ShaderSource source =
         rmp::ui::detail::blur_shader_source(rmp::ui::detail::Glsl::CORE_330);
     const rmp::Shader shader =
