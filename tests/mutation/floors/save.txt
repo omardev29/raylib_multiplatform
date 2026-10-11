@@ -2,8 +2,53 @@
 # program is killed: save_test's named cases, and the save properties --
 # round trips plain and sealed, every refusal, a changed or cut file, the
 # slots on disk.
+#
+# Measured in the image on 2026-10-11 (Mull 0.34.1, clang 18.1.3): 273 mutants,
+# 233 detected, 36 below equivalent or out of every test's reach = 98.31%. Four
+# survive and count: two out-of-bounds writes no test in Mull's build can see
+# (the nonce's fill loop at `<= NONCE`, the counter's shift at `<= 8`; the
+# sanitized unit tests report both), create_directories() failing on a folder
+# that exists (664:16), and the other folder's name when there is no portable
+# one (723:21: "" -- a slot's file in the working directory). Mull puts 42 in
+# place of a scalar call: a bool reads it as false, a size as 42.
 kind     cxx
 sources  src/rmp/save.cpp
 tests    unit_test -sf=*save_test.cpp
 tests    property_test -sf=*save_prop.cpp
-floor    -
+floor    95
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:104:41 snprintf's size as 42, past the 40-byte buffer, and "%.17g" never prints more than 24 characters: the same text
+equivalent cxx_remove_void_call:src/rmp/save.cpp:222:13 the variant that runs keeps push() and removes ~Value() of the moved-from temporary (seen in the binary)
+equivalent cxx_remove_void_call:src/rmp/save.cpp:240:17 as at 222: ~Value() of the temporary moved into push_back(), never push_back() itself -- without it every object read would lose its members
+equivalent cxx_pre_inc_to_pre_dec:src/rmp/save.cpp:277:5 the counter only has to differ from one nonce to the next, counting down does too, and it only decides anything when std::random_device throws
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:286:13 the clock stands in only when std::random_device throws, which it does on no machine a test runs on
+equivalent cxx_init_const:src/rmp/save.cpp:291:22 the counter's loop not run leaves 24 random bytes: no test can tell a nonce without the counter mixed in
+equivalent cxx_lt_to_ge:src/rmp/save.cpp:291:31 the counter's loop not run leaves 24 random bytes: no test can tell a nonce without the counter mixed in
+equivalent cxx_pre_inc_to_pre_dec:src/rmp/save.cpp:291:49 one byte of the counter mixed instead of eight, into random bytes: no test can tell
+equivalent cxx_xor_assign_to_or_assign:src/rmp/save.cpp:292:30 the counter or-ed instead of xor-ed into random bytes: no test can tell
+equivalent cxx_rshift_to_lshift:src/rmp/save.cpp:292:67 the counter's bytes taken the other way round, into random bytes: no test can tell
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:301:14 empty() as false: from_chars refuses an empty field all the same
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:303:57 the field's end moved 42 bytes on: from_chars stops at the space after it, or at the header's terminating NUL, where it stopped before
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:385:35 snprintf's size as 42, past the 16-byte buffer, and " %08x\n" is 10 characters: the same text
+equivalent cxx_lt_to_le:src/rmp/save.cpp:397:43 when the file is as long as the magic, both branches give that length
+equivalent cxx_le_to_lt:src/rmp/save.cpp:413:33 the fields differ only for a header that ends in a space, which the comparison with the canonical header refuses either way
+equivalent cxx_init_const:src/rmp/save.cpp:418:9 whole_number() writes it before it is read, and when it cannot, decode() has already returned
+equivalent cxx_init_const:src/rmp/save.cpp:419:9 whole_number() writes it before it is read, and when it cannot, decode() has already returned
+equivalent cxx_init_const:src/rmp/save.cpp:420:17 whole_number() writes it before it is read, and when it cannot, decode() has already returned
+equivalent cxx_init_const:src/rmp/save.cpp:421:19 whole_number() writes it before it is read, and when it cannot, decode() has already returned
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:435:35 snprintf's size as 42, past the 9-byte buffer, and "%08x" is 8 characters: the same text
+equivalent cxx_lt_to_le:src/rmp/save.cpp:454:18 a sealed payload of exactly nonce and tag holds no JSON, which no writer seals: its tag fails either way, MODIFIED
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:645:43 fclose() not called: the save was flushed and synced before, and on POSIX a file renamed or read while open is the same file -- a descriptor leaks
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:650:14 empty() as false: fopen() of an empty path fails, nullptr either way
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:664:9 the error as false: a folder create_directories() could not make fails the probe file opened next, false either way
+equivalent cxx_init_const:src/rmp/save.cpp:666:10 42 as a bool is false, its initial value
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:729:18 empty() as false: is_regular_file() of an empty path is false, skipped either way
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:731:13 the error as false: last_write_time() fails only for a file that vanished since is_regular_file() saw it, a race no test can arrange
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:762:9 the error as false: file_size() reports one as uintmax_t(-1), past the cap, refused either way
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:766:14 empty() as false: fread() of no bytes returns 0, which is the size, true either way
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:775:14 empty() as false: to_path() of a non-empty string is never empty on POSIX, where Mull runs
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:793:13 the temporary removed after a write or a sync that failed -- a full disk, which no test can arrange
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:824:27 empty() as false: with_separator() of an empty path is empty
+equivalent cxx_remove_void_call:src/rmp/save.cpp:869:5 the variant that runs keeps TraceLog() and removes the destructor of file_in()'s temporary (seen in the binary): a leak only
+equivalent cxx_init_const:src/rmp/save.cpp:900:10 42 as a bool is false, its initial value
+equivalent cxx_replace_scalar_call:src/rmp/save.cpp:901:49 empty() as false: the loop runs once with an empty path, fs::remove() of it fails and breaks, and removed stays false
+equivalent cxx_remove_void_call:src/rmp/save.cpp:906:18 persist() does nothing but on the web
