@@ -158,7 +158,12 @@ def main(argv: list[str]) -> int:
         print("usage: lint_debt.py check|lower FILE...")
         return 1
     mode, files = argv[0], argv[1:]
-    jobs = os.cpu_count() or 2
+    # One clang-tidy per processor -- or as many as the build may compile at
+    # once, when CMAKE_BUILD_PARALLEL_LEVEL says so: several checkouts linted on
+    # one machine at a time lower it, and each clang-tidy is a compiler's worth
+    # of memory.
+    level = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "")
+    jobs = int(level) if level.isdigit() and int(level) > 0 else (os.cpu_count() or 2)
     output = []
     broken = []
     with ThreadPoolExecutor(max_workers=jobs) as pool:
