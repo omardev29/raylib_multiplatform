@@ -97,32 +97,47 @@ struct QuietLog {
     QuietLog &operator=(const QuietLog &) = delete;
 };
 
+// One of 0..count-1, every one as likely at any size of the run: RapidCheck's
+// inRange() narrows its range with the size, and the first half of a run
+// asked only for the first member -- an erase() that looked at one key only
+// survived it (Mull, value.cpp's erase loop counting down).
+int pick(int count) {
+    return *rc::gen::resize(rmp::test::gen::NOMINAL_SIZE, rc::gen::inRange(0, count));
+}
+
 // A key a game might use, one that is already there when there is one, or
 // any string at all -- a NUL inside, bytes that are not UTF-8.
 std::string draw_key(const Value &at) {
-    if (at.type() == Type::OBJECT && at.size() > 0 && *rc::gen::arbitrary<bool>())
-        return std::string(at.key(*rc::gen::inRange(0, at.size())));
+    if (at.type() == Type::OBJECT && at.size() > 0 && pick(3) > 0)
+        return std::string(at.key(pick(at.size())));
     return *rc::gen::weightedOneOf<std::string>(
         { { 2, rc::gen::element<std::string>("k", "a", "") },
           { 1, rmp::test::gen::hostile_string() } });
 }
 
-// An index around the ends of a list, or anywhere an int can be.
+// An index that is there, one around the ends of a list, or anywhere an int
+// can be.
 int draw_index(const Value &at) {
+    if (at.type() == Type::LIST && at.size() > 0 && pick(2) > 0) return pick(at.size());
     return *rc::gen::weightedOneOf<int>(
-        { { 3, rc::gen::inRange(-1, at.size() + 2) },
+        { { 3,
+            rc::gen::resize(rmp::test::gen::NOMINAL_SIZE,
+                            rc::gen::inRange(-1, at.size() + 2)) },
           { 1, rc::gen::element(INT_MIN, INT_MIN + 1, -2, INT_MAX - 1, INT_MAX) } });
 }
 
-// A path down `v` as a game would write one, `least` steps or more, each step
-// often leading somewhere that exists and sometimes nowhere at all.
+// A path down `v` as a game would write one, `least` steps or more: a key of
+// an object or an index of a list that is there, mostly, and now and then a
+// step to nowhere -- through a number, past a list's end, a key nobody wrote.
 model::Path draw_path(const Value &v, int least) {
-    const int steps = *rc::gen::inRange(least, 6);
+    const int steps = least + pick(6 - least);
     model::Path path;
     for (int i = 0; i < steps; ++i) {
         const Value &at = model::read_at(v, path);
         model::Step step;
-        step.is_key = *rc::gen::arbitrary<bool>();
+        step.is_key = at.type() == Type::OBJECT ? pick(4) > 0
+            : at.type() == Type::LIST           ? pick(4) == 0
+                                                : pick(2) == 0;
         if (step.is_key) {
             step.key = draw_key(at);
         } else {
@@ -131,6 +146,39 @@ model::Path draw_path(const Value &v, int least) {
         path.push_back(std::move(step));
     }
     return path;
+}
+
+// A tree made to be walked: objects of several keys -- one now and then
+// holding nothing -- and lists of them, `levels` deep, its leaves gen.h's.
+// gen::value() draws at RapidCheck's size, and in the first half of a run its
+// trees are mostly leaves and objects of one key.
+Value walkable(int levels) {
+    const int kind = levels == 0 ? 0 : pick(4);
+    if (kind == 0)
+        return *rc::gen::resize(rmp::test::gen::NOMINAL_SIZE,
+                                rmp::test::gen::detail::leaf());
+    const bool list = kind == 1;
+    Value node = list ? Value::list() : Value::object();
+    const int count = 1 + pick(5);
+    for (int i = 0; i < count; ++i) {
+        Value child = pick(6) == 0 ? Value() : walkable(levels - 1);
+        if (list) {
+            node.push(std::move(child));
+        } else {
+            const std::string key =
+                pick(4) > 0 ? "k" + std::to_string(i) : *rmp::test::gen::hostile_string();
+            node[key] = std::move(child);
+        }
+    }
+    return node;
+}
+
+// A Value of either kind: gen.h's -- spines past what a save holds, NaN,
+// NUL -- or one made to be walked.
+rc::Gen<Value> any_value() {
+    return rc::gen::weightedOneOf<Value>(
+        { { 1, rc::gen::arbitrary<Value>() },
+          { 1, rc::gen::exec([] { return walkable(3); }) } });
 }
 
 // A Value close to `v`: rebuilt member by member -- an object's keys in
@@ -227,8 +275,8 @@ Value any_type(double n, const std::string &s, bool b) {
 TEST_SUITE("property: value") {
     TEST_CASE("== is a true equality") {
         rmp::test::check(
-            "a Value equals itself and every copy of it, NaN anywhere included",
-            [](const Value &v) {
+            "a Value equals itself and every copy of it, NaN anywhere included", [] {
+                const Value v = *any_value();
                 RC_ASSERT(v == v);
                 // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
                 const Value copy = v; // a copy is what is compared
@@ -240,8 +288,8 @@ TEST_SUITE("property: value") {
                 RC_ASSERT(v == root["x"]);
             });
         rmp::test::check(
-            "== says yes exactly when the canonical texts agree, both ways round",
-            [](const Value &v) {
+            "== says yes exactly when the canonical texts agree, both ways round", [] {
+                const Value v = *any_value();
                 const bool alter = *rc::gen::arbitrary<bool>();
                 const Value near = perturbed(v, alter);
                 if (!alter) RC_ASSERT(model::canonical(v) == model::canonical(near));
@@ -256,7 +304,8 @@ TEST_SUITE("property: value") {
     TEST_CASE("a read changes nothing, says nothing, and reads the same through a Ref") {
         rmp::test::check("every read of every node, const and through Refs, agrees and "
                          "leaves no trace",
-                         [](Value v) {
+                         [] {
+                             Value v = *any_value();
                              const std::string before = model::exact(v);
                              rmp::detail::reset_reports_for_tests();
                              const Value &as_const = v;
@@ -270,7 +319,8 @@ TEST_SUITE("property: value") {
                          });
         rmp::test::check("a Ref down any path names the Value the const path reads, and "
                          "creates nothing",
-                         [](Value v) {
+                         [] {
+                             Value v = *any_value();
                              const std::string before = model::exact(v);
                              const model::Path path = draw_path(v, 1);
                              rmp::detail::reset_reports_for_tests();
@@ -345,7 +395,8 @@ TEST_SUITE("property: value") {
     TEST_CASE("key, size, contains and erase agree with each other") {
         rmp::test::check(
             "key(i) names each member that holds something once, in order, and no more",
-            [](const Value &v) {
+            [] {
+                const Value v = *any_value();
                 const int size = v.size();
                 RC_ASSERT(size >= 0);
                 RC_ASSERT(v.key(-1).empty());
@@ -374,7 +425,8 @@ TEST_SUITE("property: value") {
             });
         rmp::test::check(
             "erase takes exactly that member away and says whether it held something",
-            [](const Value &drawn) {
+            [] {
+                const Value drawn = *any_value();
                 const std::string key = draw_key(drawn);
                 // Sometimes the key holds nothing -- assigned NONE, a member
                 // that is not there -- which erase() takes away and says false.
@@ -399,7 +451,8 @@ TEST_SUITE("property: value") {
             });
         rmp::test::check("erase through a Ref erases from the Value the path names, and "
                          "creates nothing",
-                         [](const Value &v) {
+                         [] {
+                             const Value v = *any_value();
                              Value after = v;
                              const model::Path path = draw_path(v, 1);
                              const Value &target = model::read_at(v, path);
@@ -425,7 +478,8 @@ TEST_SUITE("property: value") {
         const QuietLog quiet;
         rmp::test::check(
             "v[path] = x leaves what the model says, or v as it was and one report",
-            [](const Value &v, const Value &x) {
+            [](const Value &x) {
+                const Value v = *any_value();
                 const model::Path path = draw_path(v, 1);
                 const std::optional<Value> expected = model::written(v, path, x);
                 rmp::detail::reset_reports_for_tests();
@@ -442,7 +496,8 @@ TEST_SUITE("property: value") {
             });
         rmp::test::check("a Value assigned into its own subtree is copied first, never "
                          "read half-written",
-                         [](const Value &v) {
+                         [] {
+                             const Value v = *any_value();
                              const model::Path path = draw_path(v, 1);
                              const std::optional<Value> expected =
                                  model::written(v, path, v);
@@ -458,7 +513,8 @@ TEST_SUITE("property: value") {
                          });
         rmp::test::check("a Ref assigned from a Ref copies the value, never the path, "
                          "lvalue or temporary",
-                         [](const Value &v) {
+                         [] {
+                             const Value v = *any_value();
                              const model::Path to = draw_path(v, 1);
                              const model::Path from = draw_path(v, 1);
                              const std::optional<Value> expected =
@@ -481,7 +537,8 @@ TEST_SUITE("property: value") {
                              RC_ASSERT(rmp::detail::report_count() == (expected ? 0 : 1));
                          });
         rmp::test::check("a Ref assigned to itself changes nothing, wherever it points",
-                         [](const Value &v) {
+                         [] {
+                             const Value v = *any_value();
                              const model::Path path = draw_path(v, 1);
                              rmp::detail::reset_reports_for_tests();
                              Value after = v;
@@ -493,7 +550,8 @@ TEST_SUITE("property: value") {
                          });
         rmp::test::check("push appends to a list and makes a list of nothing; anything "
                          "else is said once",
-                         [](const Value &v, const Value &x) {
+                         [](const Value &x) {
+                             const Value v = *any_value();
                              const model::Path path = draw_path(v, 0);
                              const Value &target = model::read_at(v, path);
                              std::optional<Value> pushed;
