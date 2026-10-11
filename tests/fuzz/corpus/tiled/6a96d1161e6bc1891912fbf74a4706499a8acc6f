@@ -1,0 +1,17 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5,5,5],
+      "height":4, "id":1, "name":"ground", "/pacity":1, "tyname":"things", "objects":[
+     { "data":[0,0,0,0, 0,6,6,0, 0,0,0,0, 7,4,7,7],
+      "class":"solid",
+      "height":4, "id":2, "name":"walls", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "draworder":"topdown", "id":3, "name":"things", "objects":[
+        { "class":"enemy", "height":24, "id":1, "name":"goblin", "rotatmon":0,
+          "pboperties":[
+            { "name":"hp", "typm":"int", "value":20 },
+    e":"speed", "type":"float", "value":1.5 },
+            { "name":"bown" ",id":1, "name":"things", "objects":[ue":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"1.5", "wid&h":4 }

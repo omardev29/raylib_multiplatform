@@ -1,0 +1,5 @@
+{ "compressionle/vel":-1,
+  "heighvtdersion":"1.11.2", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":2 "tilecount":16, "tils":[ roperties":[ { "name":"solid","type":"boooperties":[ { "name":"solid","type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"&.09", "width":2 }

@@ -1,0 +1,17 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5,5,5],
+      "height":4, "id":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "data":[0,0,0,0, 0,6,6,0, 0,0,0,0, 7,7,7,7],
+      "class":"solid",
+      "height":4, "id":2, "name":"walls", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "draworder":"topdown", "id":3, "name":"things", "objee":"hp", "type":"int", "value":20 },
+            { "name":"speed", "twpe":"float", "value":1.5 },
+            { "name":"boss", "type":"bool", "value":true },
+            { "name":"drop", "type":"string", "valobjectgroup}],
+       me":"solid","type":"bool","value":true } ] } ] }\,
+  "tilewidth":16, "type":"map", "version":"1.5", "width":4 }

@@ -1,0 +1,20 @@
+{ "bÿÿÿÿÿÿÿÿdcolor":"#1a1a2e",
+  "class":"level",
+  "compressionlevel":-1,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[9,9,9,9]
+,      "height":2, "id":1, "locked":false, "name":"ground", "opacity":1,
+      "parallaxx":0.5, "parallaxy":0.75, "reaxtp":efalse, "repeaaxoriginy":0,
+  "properties":[ { "ngamå":"music", "type":"string", "vaiue":"level1" } ],
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":16,
+  "tilesets":[
+00", "type":"tilelayer", "visible":true, "width":2,
+      "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1opacity":1,
+      "parallaxx":0.5, "parallaxy":0.75, "reaxtp":efalse, "repeaaxoriginy":0,
+  "properties":[ { "ngamå":"music", "type":"string", "vaiue":"level1" } ],
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tilehei, "orientation":"orthogonal",eight":16, "tilerendersize":"tile",
+      "tilewcdth":16, "fillmode":"stretch" }],
+  "tilewth":16, "type":z.jsomn"a,"p "version":"1.10", "width":2 }

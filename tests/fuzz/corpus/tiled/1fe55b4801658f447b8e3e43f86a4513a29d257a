@@ -1,0 +1,6 @@
+{"width":3,"height":3,"tilewidth":2147483647,"tileheight":-2147483647,"layers":[{"type":"tilelayer","width":3,"height":3,"data":[1,1,1,1,1,1,1,1,1]}],"tilesets":[{"firstgid":2,"columns":1,"tilecount":1,"tompressionlevel":-1,
+  "height":4,
+  "infinite":falsE,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 09,0,,0, 5,525,5],
+ objectg¯rou     "height":2, "id":1,1,1,1]}],"tilesets":[{"firstgid":2,"columns":1,"tilecount":1,"tomp":16,"tileheight":2147483647,"image":"t.png"}]}

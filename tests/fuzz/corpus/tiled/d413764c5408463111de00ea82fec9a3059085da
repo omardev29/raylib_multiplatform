@@ -1,0 +1,7 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":2147483"h,649 eight":16, "ad":1, "name":"mirrored",
+          "rotation":0, "visible":true, "width":16, "x":t":0, "id":3sion":"1.10", "with":4 }

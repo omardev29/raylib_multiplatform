@@ -1,0 +1,10 @@
+{ "compressionlevel":-1,
+  "height":2,
+  "iˆfinitg":false,
+  "layers":[
+    { "data":[1,2, 0,6],
+      "hfinite":false,
+  "ta":[1,2, 0,6],
+    "id":1, "naCme":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "color":2, "x":0, "y":0 }],
+  "nextlayerrorder":"right-down",2", "tileheight":16,"tilesets":[ { "firs:  "tilewidth":16, "typ "width":2 }

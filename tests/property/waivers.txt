@@ -44,8 +44,6 @@ rmp::assets::init()
 rmp::assets::load_data(std::string_view)
 rmp::assets::load_font(std::string_view, int)
 rmp::assets::load_image(std::string_view)
-rmp::assets::load_map(std::string_view)
-rmp::assets::load_map(std::string_view, std::string_view)
 rmp::assets::load_sheet(std::string_view)
 rmp::assets::load_sound(std::string_view)
 rmp::assets::load_texture(std::string_view)
@@ -218,33 +216,6 @@ rmp::Scene::raycast(const RayQuery &) const
 rmp::Scene::raycast_all(const RayQuery &, std::span<RayHit>) const
 rmp::Scene::replace [template]
 rmp::Scene::spawn [template]
-
-# include/rmp/tilemap.h: P2
-rmp::MapObject::property_bool(std::string_view, bool) const
-rmp::MapObject::property_count(std::string_view) const
-rmp::MapObject::property_float(std::string_view, float) const
-rmp::MapObject::property_int(std::string_view, int) const
-rmp::MapObject::property_point(std::string_view, Vector2) const
-rmp::MapObject::property_point(std::string_view, int, Vector2) const
-rmp::MapObject::property_string(std::string_view, std::string_view) const
-rmp::Tilemap::Tilemap()
-rmp::Tilemap::Tilemap(Tilemap &&)
-rmp::Tilemap::bounds() const
-rmp::Tilemap::draw() const
-rmp::Tilemap::layer_count() const
-rmp::Tilemap::level() const
-rmp::Tilemap::neighbour_at(Vector2) const
-rmp::Tilemap::object_count() const
-rmp::Tilemap::on_object(std::string_view, Callback<Scene &, const MapObject &>)
-rmp::Tilemap::operator bool() const
-rmp::Tilemap::operator=(Tilemap &&)
-rmp::Tilemap::solid_at(Vector2) const
-rmp::Tilemap::solid_in(Rectangle) const
-rmp::Tilemap::spawn_objects(Scene &)
-rmp::Tilemap::tile_at(int, int, int) const
-rmp::Tilemap::tile_size() const
-rmp::Tilemap::valid() const
-rmp::Tilemap::~Tilemap()
 
 # include/rmp/ui.h: P7, after Stage D
 rmp::ui::at [template]

@@ -1,0 +1,8 @@
+{ "compressionlevel":-1,
+   "nextlayerid":2, "nextobj@ectid":1, "orientation":"orthogonal",
+  "renderorder":"right-down", "til{edversion":"1.11.2", "tileheight":16,
+  "tilesets":[ { "firstgi/":1, "source":"tileset_external.jsx" } ],
+  "tilewidtcompressionlevileheight":16,
+  "tilesets":[ { "firstgid":2, "source":"tileset_external.tsx" } ],
+  "tilewidth":17, "type":"map", "=ersion":"1.10", "width":2 }
+h":17"type":"ma":2 }

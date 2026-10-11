@@ -26,11 +26,21 @@
 #include <rmp/tilemap.h>
 
 #include <array>
+#include <clocale>
+#include <cmath>
 #include <cstdarg>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <initializer_list>
+#include <limits>
+#include <memory>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -142,6 +152,10 @@ TEST_CASE("a layer whose class is `solid` makes all of its tiles solid") {
     CHECK(loaded.map.solid_at({ 24, 24 })); // inside column 1, row 1
     CHECK(loaded.map.solid_at({ 40, 24 })); // column 2, row 1
     CHECK_FALSE(loaded.map.solid_at({ 8, 24 })); // column 0, row 1: empty there
+    // Row 3 of that layer is gid 7, which the tileset does NOT mark: solid only
+    // because of the layer's class. Rows 1 and 2 above hold gid 6, which is
+    // marked, so they could not tell the two conventions apart.
+    CHECK(loaded.map.solid_at({ 8, 56 }));
 }
 
 TEST_CASE("a tile with a boolean `solid` property is solid wherever it is") {
@@ -292,6 +306,47 @@ TEST_CASE("base64 fails, and the message names the setting to change") {
     CHECK(loaded.map.object_count() == 0);
 }
 
+TEST_CASE("a map reads the same under a locale with a decimal comma") {
+    // cute_tiled reads every number with strtod, which follows LC_NUMERIC: a
+    // game that sets a German locale for its interface read "1.5" as 1 and
+    // stopped at the '.', and since every map says "version":"1.5" and
+    // cute_tiled reads that as a number too, NO map loaded at all. The LDtk
+    // reader had the guard (tests/ldtk_test.cpp); this reader did not.
+    const std::array<std::string, 5> names{ "rmp_comma", "de_DE.UTF-8", "de_DE.utf8",
+                                            "fr_FR.UTF-8", "es_ES.UTF-8" };
+    const std::string was = std::setlocale(LC_NUMERIC, nullptr);
+    std::string found;
+    for (const std::string &name : names) {
+        if (std::setlocale(LC_NUMERIC, name.c_str()) != nullptr) {
+            found = name;
+            break;
+        }
+    }
+    if (found.empty()) {
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): getenv's answer, read on the next line
+        const char *must = std::getenv("RMP_REQUIRE_TEST_LOCALES");
+        if (must != nullptr && std::string_view(must) == "1") {
+            FAIL_CHECK("no locale with a decimal comma: run tools/test_locales.sh and "
+                       "set LOCPATH");
+        } else {
+            MESSAGE("no locale with a decimal comma here: skipped");
+        }
+        return;
+    }
+    std::array<char, 16> raw{};
+    std::snprintf(raw.data(), raw.size(), "%g", 0.5);
+    const bool comma = std::string(raw.data()) != "0.5"; // or this tests nothing
+    const Parsed p("map_minimal.json");
+    const std::string during = std::setlocale(LC_NUMERIC, nullptr);
+    std::setlocale(LC_NUMERIC, was.c_str());
+    CHECK(comma);
+    REQUIRE(p.map.valid());
+    REQUIRE(p.map.object_count() == 2);
+    const rmp::MapObject &goblin = p.data->objects.front(); // the first in the file
+    CHECK(goblin.property_float("speed") == doctest::Approx(1.5));
+    CHECK(during.find(found) != std::string::npos); // the game's locale, given back
+}
+
 TEST_CASE("rubbish is refused rather than half-read") {
     const std::string text = "{ this is not a map at all";
     const std::vector<unsigned char> junk(text.begin(), text.end());
@@ -350,6 +405,18 @@ TEST_CASE_FIXTURE(Fixture, "a map moves, and moving it does not free it twice") 
     }
     CHECK(world.map.valid());
     CHECK(world.map.layer_count() == 2);
+}
+
+TEST_CASE("a map moved into a new one is that map, and `if (map)` says which is which") {
+    Parsed loaded("map_minimal.json");
+    REQUIRE(loaded.map);
+    const rmp::Tilemap moved(std::move(loaded.map));
+    CHECK(static_cast<bool>(moved));
+    CHECK(moved.layer_count() == 2);
+    CHECK(moved.object_count() == 2);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move): the promise
+    CHECK_FALSE(static_cast<bool>(loaded.map));
+    CHECK_FALSE(rmp::Tilemap());
 }
 
 // ---------------------------------------------------------------------------
@@ -653,4 +720,411 @@ TEST_CASE("a tileset taller than the grid reaches up out of its cell") {
         CHECK(rmp::tilemap::detail::tile_origin(nullptr, 1, 1, 1).x ==
               doctest::Approx(0));
     }
+}
+
+// ---------------------------------------------------------------------------
+// What fuzz_tiled found (tests/fuzz/regressions/tiled/ has each input). Every
+// one of these crashed, leaked or did undefined behaviour before
+// thirdparty/cute_tiled/PATCHES.md's hardening and the readers' number checks.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::vector<unsigned char> bytes_from(const std::string &text) {
+    return { text.begin(), text.end() };
+}
+
+// A map of `layers` and `tilesets`, the rest a plain 2 x 2 grid of 16 px.
+std::string tiled_map(const std::string &layers, const std::string &tilesets = "[]",
+                      const std::string &size = R"("width":2,"height":2,)"
+                                                R"("tilewidth":16,"tileheight":16)") {
+    return "{" + size + R"(,"layers":)" + layers + R"(,"tilesets":)" + tilesets + "}";
+}
+
+} // namespace
+
+TEST_CASE("a map cut short anywhere is refused, and nothing past it is read") {
+    // A download that failed half way, a disk that filled up. cute_tiled read
+    // past the end of the bytes -- a game's bytes have no NUL after them, and
+    // strtod, its whitespace loop and its look-ahead scans ran on -- and
+    // trapped (__builtin_trap) when it asked for a character at the end.
+    // Every prefix of a real map, each in an allocation of exactly its size
+    // so ASan sees a read one past it.
+    SetTraceLogLevel(LOG_NONE);
+    const std::vector<unsigned char> whole = bytes_of("map_minimal.json");
+    std::size_t last_brace = whole.size();
+    while (last_brace > 0 && whole[last_brace - 1] != '}') --last_brace;
+    for (std::size_t size = 1; size + 1 < last_brace; ++size) {
+        CAPTURE(size);
+        const std::vector<unsigned char> cut(
+            whole.begin(), whole.begin() + static_cast<std::ptrdiff_t>(size));
+        CHECK(rmp::tilemap::detail::parse_map(cut.data(), static_cast<int>(cut.size()),
+                                              "cut.json") == nullptr);
+    }
+    CHECK(Parsed(whole, "whole.json").map.valid());
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a map that fails half way frees what it had read") {
+    // cute_tiled malloc'ed the CSV tiles, the vertices and the properties one
+    // by one and freed them only with a map that loaded, so every refusal
+    // after them leaked -- and a key given twice leaked its first array.
+    // LeakSanitizer reads this test at exit.
+    SetTraceLogLevel(LOG_NONE);
+    for (
+        const std::string &text :
+        { std::string(R"({"layers":[{"type":"tilelayer","width":2,"height":1,)"
+                      R"("data":[1,2],"opacity":}]})"),
+          std::string(R"({"layers":[{"type":"objectgroup","objects":[{"polygon":)"
+                      R"([{"x":1,"y":2}],"properties":[{"name":"a","type":"int",)"
+                      R"("value":1}],"x":}]}]})"),
+          tiled_map(
+              R"([{"type":"tilelayer","width":1,"height":1,"data":[1],"data":[2]}])") }) {
+        CAPTURE(text);
+        const std::vector<unsigned char> raw = bytes_from(text);
+        static_cast<void>(Parsed(raw, "half.json"));
+    }
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("group layers nested past 32 deep are refused, not recursed into") {
+    // The parser recursed once a group, and so did the pass that freed the
+    // map: a file of groups inside groups ran the stack out.
+    SetTraceLogLevel(LOG_NONE);
+    const auto nested = [](int depth) {
+        std::string text =
+            R"({"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[)";
+        for (int i = 0; i < depth; ++i) text += R"({"type":"group","layers":[)";
+        for (int i = 0; i < depth; ++i) text += "]}";
+        return text + "]}";
+    };
+    CHECK(Parsed(bytes_from(nested(31)), "groups.json").map.valid());
+    CHECK_FALSE(Parsed(bytes_from(nested(33)), "groups.json").map.valid());
+    CHECK_FALSE(Parsed(bytes_from(nested(100000)), "groups.json").map.valid());
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("an object's numbers come out finite and its size never negative") {
+    // cute_tiled reads a number with strtod, which takes "nan" and "inf" and
+    // a 1e39 no float holds; and a corner plus half a size, each a float, can
+    // sum past float's range. Each came out as the object's position.
+    SetTraceLogLevel(LOG_NONE);
+    for (const std::string_view object :
+         { R"({"x":nan,"y":-inf,"width":16,"height":16})",
+           R"({"x":1e39,"y":0,"width":16,"height":16})",
+           R"({"x":3e38,"y":0,"width":3e38,"height":16,"rotation":inf})",
+           R"({"x":0,"y":0,"width":-16,"height":-1})" }) {
+        CAPTURE(object);
+        const Parsed p(
+            bytes_from(tiled_map(std::string(R"([{"type":"objectgroup","objects":[)") +
+                                 std::string(object) + "]}]")),
+            "numbers.json");
+        REQUIRE(p.map.object_count() == 1);
+        const rmp::MapObject &o = p.data->objects[0];
+        CHECK(std::isfinite(o.position.x));
+        CHECK(std::isfinite(o.position.y));
+        CHECK(std::isfinite(o.rotation));
+        CHECK(o.size.x >= 0);
+        CHECK(o.size.y >= 0);
+    }
+    // NaN is 0, and the rest of the object is what it says.
+    const Parsed p(
+        bytes_from(tiled_map(
+            R"([{"type":"objectgroup","objects":[{"x":nan,"y":8,"width":16,"height":16}]}])")),
+        "nan.json");
+    REQUIRE(p.map.object_count() == 1);
+    const rmp::MapObject &o = p.data->objects[0];
+    CHECK(o.position.x == doctest::Approx(8));
+    CHECK(o.position.y == doctest::Approx(16));
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a float property past int's range reads as the nearest int") {
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed p(
+        bytes_from(tiled_map(
+            R"([{"type":"objectgroup","objects":[{"x":0,"y":0,"width":1,"height":1,)"
+            R"("properties":[{"name":"up","type":"float","value":1e30},)"
+            R"({"name":"nan","type":"float","value":nan},)"
+            R"({"name":"down","type":"float","value":-1e39}]}]}])")),
+        "props.json");
+    REQUIRE(p.map.object_count() == 1);
+    const rmp::MapObject &o = p.data->objects[0];
+    CHECK(o.property_int("up") == std::numeric_limits<int>::max());
+    CHECK(o.property_int("down") == std::numeric_limits<int>::min());
+    CHECK(o.property_int("nan", 7) == 0); // NaN is never kept: it is 0
+    CHECK(std::isfinite(o.property_float("down")));
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("sizes and gids past int's range are finite, and never negative") {
+    // A map 100 000 tiles of 100 000 px wide, a tileset whose firstgid plus
+    // its tile count passes INT_MAX, a tile size plus a spacing past it: each
+    // was an int sum or product, undefined behaviour, and UBSan said so.
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed wide(bytes_from(tiled_map("[]", "[]",
+                                           R"("width":100000,"height":100000,)"
+                                           R"("tilewidth":100000,"tileheight":100000)")),
+                      "wide.json");
+    REQUIRE(wide.map.valid());
+    CHECK(wide.map.bounds().width == doctest::Approx(1e10));
+    const Parsed negative(bytes_from(tiled_map("[]", "[]",
+                                               R"("width":-2,"height":2,)"
+                                               R"("tilewidth":16,"tileheight":-16)")),
+                          "negative.json");
+    CHECK(negative.map.bounds().width == doctest::Approx(0));
+    CHECK(negative.map.bounds().height == doctest::Approx(0));
+    CHECK(negative.map.tile_size().y == doctest::Approx(0));
+
+    const Parsed last(
+        bytes_from(tiled_map(
+            R"([{"type":"tilelayer","width":1,"height":1,"data":[2147483647]}])",
+            R"([{"firstgid":2147483646,"columns":1,"tilecount":4,)"
+            R"("tilewidth":16,"tileheight":16}])")),
+        "last.json");
+    REQUIRE(last.data->tilesets.size() == 1);
+    CHECK(last.data->tilesets[0].last_gid == std::numeric_limits<int>::max());
+    CHECK(rmp::tilemap::detail::tile_source(last.data, 2147483647).y ==
+          doctest::Approx(16));
+
+    const Parsed spaced(
+        bytes_from(tiled_map(
+            R"([{"type":"tilelayer","width":2,"height":1,"data":[1,2]}])",
+            R"([{"firstgid":1,"columns":2,"tilecount":2,"tilewidth":2147483647,)"
+            R"("tileheight":16,"spacing":2147483647}])")),
+        "spaced.json");
+    const Rectangle second = rmp::tilemap::detail::tile_source(spaced.data, 2);
+    CHECK(std::isfinite(second.x));
+    CHECK(second.x == doctest::Approx(4294967294.0));
+    const Vector2 far =
+        rmp::tilemap::detail::tile_origin(wide.data, 0, 2147483647, 2147483647);
+    CHECK(std::isfinite(far.x));
+    CHECK(std::isfinite(far.y));
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a tileset that says it holds two billion tiles allocates nothing for them") {
+    // tilecount is a number in the file; the solid flags were a vector of
+    // that many. LDtk's budget (MAX_TILES) holds the Tiled reader too.
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed p(bytes_from(tiled_map("[]",
+                                        R"([{"firstgid":1,"columns":1,)"
+                                        R"("tilecount":2147483647,"tilewidth":16,)"
+                                        R"("tileheight":16}])")),
+                   "many.json");
+    REQUIRE(p.map.valid());
+    REQUIRE(p.data->tilesets.size() == 1);
+    CHECK(p.data->tilesets[0].solid.empty());
+    CHECK(p.data->tilesets[0].last_gid < p.data->tilesets[0].first_gid); // holds none
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE(
+    "tile layers past the cell budget are left out, and the rest of the map loads") {
+    // A layer's width and height are two numbers in the file, whatever data it
+    // holds, and draw() and solid_in() walk it cell by cell: 150 bytes saying
+    // 100 000 x 100 000 were ten billion cells, and fuzz_tiled's walk timed
+    // out on them (regressions/tiled/a_layer_past_the_cell_budget). LDtk's
+    // budget, MAX_CELLS, is the whole file's here too.
+    SetTraceLogLevel(LOG_NONE);
+    const std::int64_t budget = rmp::tilemap::detail::MAX_CELLS;
+    const auto side = static_cast<std::int64_t>(std::sqrt(static_cast<double>(budget)));
+    REQUIRE(side * side == budget);
+    const auto layer = [](std::int64_t width, std::int64_t height) {
+        return R"({"type":"tilelayer","width":)" + std::to_string(width) +
+            R"(,"height":)" + std::to_string(height) + R"(,"data":[1]})";
+    };
+    const auto widths = [](const std::string &layers) {
+        const Parsed loaded(bytes_from(tiled_map(layers)), "cells.json");
+        REQUIRE(loaded.map.valid());
+        std::vector<int> out;
+        out.reserve(loaded.data->layers.size());
+        for (const rmp::tilemap::detail::Layer &l : loaded.data->layers)
+            out.push_back(l.width);
+        return out;
+    };
+    // Exactly the budget, in one layer: kept.
+    CHECK(widths("[" + layer(side, side) + "]") ==
+          std::vector<int>{ static_cast<int>(side) });
+    // Past it in one: left out, and the small one after it kept.
+    CHECK(widths("[" + layer(100000, 100000) + "," + layer(2, 2) + "]") ==
+          std::vector<int>{ 2 });
+    // The budget is the whole file's: a layer that fits, then one that does
+    // not fit what is left.
+    CHECK(widths("[" + layer(side, side - 1) + "," + layer(side, 2) + "," + layer(1, 1) +
+                 "]") == std::vector<int>{ static_cast<int>(side), 1 });
+    SetTraceLogLevel(LOG_INFO);
+}
+
+// ---------------------------------------------------------------------------
+// What Mull found no test holding (tests/mutation/floors/tilemap.txt): each
+// case below kills mutants that survived every test before it.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A map of layers with these cells (0 = the map's tile size), for the
+// arithmetic that needs no reader.
+rmp::Tilemap map_of_cells(std::initializer_list<std::pair<int, int>> cells,
+                          int tile = 10) {
+    auto data = std::make_unique<rmp::tilemap::detail::MapData>();
+    data->tile_width = tile;
+    data->tile_height = tile;
+    for (const auto &[w, h] : cells) {
+        rmp::tilemap::detail::Layer layer;
+        layer.width = 1;
+        layer.height = 1;
+        layer.cell_width = w;
+        layer.cell_height = h;
+        layer.gids = { 0 };
+        data->layers.push_back(std::move(layer));
+    }
+    rmp::Tilemap map;
+    rmp::tilemap::detail::Access::adopt(
+        map,
+        rmp::tilemap::detail::MapPtr(data.release(), &rmp::tilemap::detail::free_map));
+    return map;
+}
+
+float smallest(const rmp::Tilemap &map) {
+    return rmp::tilemap::detail::smallest_cell(rmp::tilemap::detail::Access::data(map));
+}
+
+} // namespace
+
+TEST_CASE("the smallest cell is the least side of any layer's grid, the map's for one "
+          "with none") {
+    // How far a moving object may step before the collision pass looks at the
+    // map again (src/rmp/object.cpp): too big and it steps through a wall.
+    CHECK(rmp::tilemap::detail::smallest_cell(nullptr) == doctest::Approx(0));
+    CHECK(smallest(map_of_cells({})) == doctest::Approx(0));
+    CHECK(smallest(map_of_cells({ { 24, 24 }, { 12, 16 }, { 16, 16 } })) ==
+          doctest::Approx(12));
+    CHECK(smallest(map_of_cells({ { 16, 8 } })) == doctest::Approx(8));
+    CHECK(smallest(map_of_cells({ { 32, 32 }, { 0, 0 } }, 10)) == doctest::Approx(10));
+    CHECK(smallest(map_of_cells({ { 0, 6 } }, 10)) == doctest::Approx(6));
+    CHECK(smallest(map_of_cells({ { 4, 4 }, { 0, 0 } }, 10)) == doctest::Approx(4));
+    // A map whose tiles have no size has no cell to step by.
+    CHECK(smallest(map_of_cells({ { 0, 0 } }, 0)) == doctest::Approx(0));
+}
+
+TEST_CASE("object_at answers every index below object_count and nothing past it") {
+    const Parsed loaded("map_minimal.json");
+    REQUIRE(loaded.map.object_count() == 2);
+    CHECK(rmp::tilemap::detail::object_at(loaded.data, 1) != nullptr);
+    CHECK(rmp::tilemap::detail::object_at(loaded.data, 2) == nullptr);
+    CHECK(rmp::tilemap::detail::object_at(loaded.data, -1) == nullptr);
+    CHECK(rmp::tilemap::detail::object_at(nullptr, 0) == nullptr);
+    CHECK(rmp::tilemap::detail::object_count(nullptr) == 0);
+}
+
+TEST_CASE("a tile layer holds exactly its cells, and knows its own height") {
+    const Parsed loaded("map_minimal.json");
+    REQUIRE(loaded.map.layer_count() == 2);
+    for (const rmp::tilemap::detail::Layer &layer : loaded.data->layers) {
+        CHECK(layer.width == 4);
+        CHECK(layer.height == 4);
+        CHECK(layer.gids.size() == 16U);
+    }
+}
+
+TEST_CASE_FIXTURE(
+    Fixture,
+    "a Tiled object's rotation reaches the object, which the map draws instead") {
+    SetTraceLogLevel(LOG_NONE);
+    const std::string text = tiled_map(
+        R"([{"type":"objectgroup","objects":[{"x":0,"y":0,"width":16,"height":16,)"
+        R"("rotation":30},{"x":32,"y":0,"width":0,"height":16},)"
+        R"({"x":64,"y":0,"width":16,"height":0}]}])");
+    Parsed loaded(bytes_from(text), "rotated.json");
+    REQUIRE(loaded.map.object_count() == 3);
+    CHECK(loaded.data->objects[0].rotation == doctest::Approx(30));
+    World world;
+    loaded.map.spawn_objects(world);
+    REQUIRE(world.object_count() == 3);
+    for (const auto &object : rmp::objects::detail::live_objects(world)) {
+        CHECK_FALSE(object->visible); // the tiles are the picture
+        // A line -- no width, or no height -- is a marker, like a point.
+        const bool box = object->position.x == doctest::Approx(8);
+        CHECK(object->solid == box);
+        if (box) CHECK(object->rotation == doctest::Approx(30));
+    }
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("the first and the last tile of a tileset can be marked solid") {
+    SetTraceLogLevel(LOG_NONE);
+    const auto solid_with = [](int gid) {
+        const std::string text = tiled_map(
+            R"([{"type":"tilelayer","width":1,"height":1,"data":[)" +
+                std::to_string(gid) + "]}]",
+            R"([{"firstgid":3,"columns":2,"tilecount":4,"tilewidth":16,"tileheight":16,)"
+            R"("tiles":[{"id":0,"properties":[{"name":"solid","type":"bool","value":true}]},)"
+            R"({"id":3,"properties":[{"name":"solid","type":"bool","value":true}]}]}])");
+        const Parsed loaded(bytes_from(text), "ends.json");
+        REQUIRE(loaded.map.valid());
+        return loaded.map.solid_at({ 8, 8 });
+    };
+    CHECK(solid_with(3)); // the first, firstgid itself
+    CHECK_FALSE(solid_with(4));
+    CHECK(solid_with(6)); // the last, firstgid + tilecount - 1
+    CHECK_FALSE(solid_with(7)); // past it: no tileset's
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a NaN float property is the fallback to property_int, never an int") {
+    // The readers never keep one (finite_float); property_int does not
+    // trust them to.
+    auto data = std::make_unique<rmp::tilemap::detail::MapData>();
+    auto info = std::make_unique<rmp::tilemap::detail::ObjectInfo>();
+    rmp::tilemap::detail::Property nan;
+    nan.key = "speed";
+    nan.kind = rmp::tilemap::detail::Property::Kind::FLOAT;
+    nan.floating = std::numeric_limits<float>::quiet_NaN();
+    info->properties.push_back(nan);
+    const rmp::MapObject &object = data->add_object(std::move(info));
+    CHECK(object.property_int("speed", 7) == 7);
+    CHECK(object.property_int("speed", -7) == -7);
+}
+
+TEST_CASE(
+    "the tile budget is the whole map's: a set that fits it whole, and none after") {
+    SetTraceLogLevel(LOG_NONE);
+    const std::int64_t budget = rmp::tilemap::detail::MAX_TILES;
+    const std::string all = std::to_string(budget);
+    const std::string half = std::to_string((budget / 2) + 1);
+    const auto counts_of = [](const std::string &tilesets) {
+        const Parsed loaded(bytes_from(tiled_map("[]", tilesets)), "budget.json");
+        REQUIRE(loaded.map.valid());
+        std::vector<std::size_t> out;
+        out.reserve(loaded.data->tilesets.size());
+        for (const rmp::tilemap::detail::Tileset &set : loaded.data->tilesets)
+            out.push_back(set.solid.size());
+        return out;
+    };
+    // Exactly the budget: every tile of it.
+    CHECK(counts_of(R"([{"firstgid":1,"columns":2048,"tilecount":)" + all +
+                    R"(,"tilewidth":1,"tileheight":1}])") ==
+          std::vector<std::size_t>{ static_cast<std::size_t>(budget) });
+    // Two halves and a tile more: the second does not fit what is left.
+    CHECK(counts_of(R"([{"firstgid":1,"columns":1,"tilecount":)" + half +
+                    R"(,"tilewidth":1,"tileheight":1},{"firstgid":5000000,"columns":1,)"
+                    R"("tilecount":)" +
+                    half + R"(,"tilewidth":1,"tileheight":1}])") ==
+          std::vector<std::size_t>{ static_cast<std::size_t>((budget / 2) + 1), 0U });
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a Tiled tileset of no columns is one column") {
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed loaded(
+        bytes_from(tiled_map(R"([{"type":"tilelayer","width":1,"height":1,"data":[3]}])",
+                             R"([{"firstgid":1,"columns":0,"tilecount":4,"tilewidth":16,)"
+                             R"("tileheight":16}])")),
+        "columns.json");
+    REQUIRE(loaded.map.valid());
+    const Rectangle third = rmp::tilemap::detail::tile_source(loaded.data, 3);
+    CHECK(third.x == doctest::Approx(0));
+    CHECK(third.y == doctest::Approx(32));
+    SetTraceLogLevel(LOG_INFO);
 }

@@ -1346,6 +1346,7 @@ const char* cute_tiled_error_file = NULL; 	// The filepath of the file being par
 #endif
 
 #include <stdlib.h>
+#include <math.h> /* rmp patch: HUGE_VAL, in cute_tiled_read_float_internal */
 
 #if !defined(CUTE_TILED_STRTOLL)
 	#define CUTE_TILED_STRTOLL strtoll
@@ -1374,6 +1375,8 @@ struct cute_tiled_map_internal_t
 {
 	char* in;
 	char* end;
+	char* rmp_input; /* rmp patch: the input, copied and followed by a NUL */
+	int rmp_depth; /* rmp patch: how deep in group layers the parser is */
 	cute_tiled_map_t map;
 	strpool_embedded_t strpool;
 	void* mem_ctx;
@@ -1401,6 +1404,32 @@ void* cute_tiled_alloc(cute_tiled_map_internal_t* m, int size)
 	data = ((char*)m->pages->data) + (m->page_size - m->bytes_left_on_page);
 	m->bytes_left_on_page -= size;
 	return data;
+}
+
+/* rmp patch: an allocation owned by the map being parsed, freed with its
+ * pages by cute_tiled_free_map_internal and by nothing else. Every array the
+ * parser grows (CSV tiles, vertices, properties, animation frames) comes from
+ * here: upstream malloc'ed them one by one and freed them only on success, so
+ * every map that failed half way leaked what it had read so far -- and a key
+ * given twice leaked the first array. Linked BEHIND the current page, whose
+ * bytes_left_on_page cute_tiled_alloc keeps using. */
+static void* cute_tiled_rmp_owned(cute_tiled_map_internal_t* m, size_t size)
+{
+	cute_tiled_page_t* block = (cute_tiled_page_t*)CUTE_TILED_ALLOC(sizeof(cute_tiled_page_t) + size, m->mem_ctx);
+	if (!block) return 0;
+	block->data = block + 1;
+	block->next = m->pages->next;
+	m->pages->next = block;
+	return block->data;
+}
+
+/* rmp patch: the next capacity of a growing array, or 0 when doubling it would
+ * pass what an int counts or a size_t holds. */
+static int cute_tiled_rmp_grow(int capacity, size_t element)
+{
+	if (capacity > 0x3FFFFFFF / 2) return 0;
+	if ((size_t)capacity * 2 > ((size_t)-1) / 2 / element) return 0;
+	return capacity * 2;
 }
 
 CUTE_TILED_U64 cute_tiled_FNV1a(const void* buf, int len)
@@ -1472,10 +1501,15 @@ static int cute_tiled_isspace(char c)
 		(c == '\r');
 }
 
+/* rmp patch: peak, next, string_next and try stop at the end of the input
+ * and say 0 there. Upstream read past it -- peak and the whitespace loop of
+ * next had no bound at all -- and trapped (__builtin_trap) when next was asked
+ * for a character at the end: a map cut short by a failed download crashed
+ * the game. Every caller already fails on an unexpected 0. */
 static char cute_tiled_peak(cute_tiled_map_internal_t* m)
 {
-	while (cute_tiled_isspace(*m->in)) m->in++;
-	return *m->in;
+	while (m->in < m->end && cute_tiled_isspace(*m->in)) m->in++;
+	return m->in < m->end ? *m->in : 0;
 }
 
 #ifdef __clang__
@@ -1487,23 +1521,24 @@ static char cute_tiled_peak(cute_tiled_map_internal_t* m)
 static char cute_tiled_next(cute_tiled_map_internal_t* m)
 {
 	char c;
-	if (m->in == m->end) CUTE_TILED_CRASH();
-	while (cute_tiled_isspace(c = *m->in++));
-	return c;
+	while (m->in < m->end)
+	{
+		c = *m->in++;
+		if (!cute_tiled_isspace(c)) return c;
+	}
+	return 0;
 }
 
 static char cute_tiled_string_next(cute_tiled_map_internal_t* m)
 {
-	char c;
-	if (m->in == m->end) CUTE_TILED_CRASH();
-	c = *m->in++;
-	return c;
+	if (m->in >= m->end) return 0;
+	return *m->in++;
 }
 
 static int cute_tiled_try(cute_tiled_map_internal_t* m, char expect)
 {
-	if (m->in == m->end) CUTE_TILED_CRASH();
-	if (cute_tiled_peak(m) == expect)
+	if (m->in >= m->end) return 0;
+	if (cute_tiled_peak(m) == expect && m->in < m->end)
 	{
 		m->in++;
 		return 1;
@@ -1541,7 +1576,7 @@ static int cute_tiled_skip_object_internal(cute_tiled_map_internal_t* m)
 
 	while (depth) {
 		char c;
-		CUTE_TILED_CHECK(m->in <= m->end, "Attempted to read passed input buffer (is this a valid JSON file?).");
+		CUTE_TILED_CHECK(m->in < m->end, "Attempted to read passed input buffer (is this a valid JSON file?)."); /* rmp patch: <, or it spun at the end */
 
 		c = cute_tiled_next(m);
 
@@ -1579,7 +1614,7 @@ static int cute_tiled_skip_array_internal(cute_tiled_map_internal_t* m)
 	while (depth)
 	{
 		char c;
-		CUTE_TILED_CHECK(m->in <= m->end, "Attempted to read passed input buffer (is this a valid JSON file?).");
+		CUTE_TILED_CHECK(m->in < m->end, "Attempted to read passed input buffer (is this a valid JSON file?)."); /* rmp patch: <, or it spun at the end */
 
 		c = cute_tiled_next(m);
 
@@ -1619,6 +1654,7 @@ static int cute_tiled_read_string_internal(cute_tiled_map_internal_t* m)
 	{
 		char c;
 		CUTE_TILED_CHECK(count < CUTE_TILED_INTERNAL_BUFFER_MAX, "String exceeded max length of CUTE_TILED_INTERNAL_BUFFER_MAX.");
+		CUTE_TILED_CHECK(m->in < m->end, "Unterminated string (is this a valid JSON file?)."); /* rmp patch */
 		c = cute_tiled_string_next(m);
 
 		switch (c)
@@ -1722,7 +1758,14 @@ cute_tiled_err:
 static int cute_tiled_read_float_internal(cute_tiled_map_internal_t* m, float* out)
 {
 	char* end;
-	float val = (float)strtod(m->in, &end);
+	/* rmp patch: a double past float's range converted to float is undefined
+	 * behaviour in C++, whatever IEEE says; it is the infinity IEEE would give.
+	 * NaN and the infinities (strtod reads "nan" and "inf") pass as they are. */
+	double wide = strtod(m->in, &end);
+	float val;
+	if (wide > 3.40282346638528859812e+38) val = (float)HUGE_VAL;
+	else if (wide < -3.40282346638528859812e+38) val = -(float)HUGE_VAL;
+	else val = (float)wide;
 	CUTE_TILED_CHECK(m->in != end, "Invalid integer found during parse.");
 	m->in = end;
 	*out = val;
@@ -1802,12 +1845,14 @@ static int cute_tiled_read_bool_internal(cute_tiled_map_internal_t* m, int* out)
 {
 	if ((cute_tiled_peak(m) == 't') | (cute_tiled_peak(m) == 'T'))
 	{
+		CUTE_TILED_CHECK(m->end - m->in >= 4, "Attempted to read passed input buffer (is this a valid JSON file?)."); /* rmp patch */
 		m->in += 4;
 		*out = 1;
 	}
 
 	else if ((cute_tiled_peak(m) == 'f') | (cute_tiled_peak(m) == 'F'))
 	{
+		CUTE_TILED_CHECK(m->end - m->in >= 5, "Attempted to read passed input buffer (is this a valid JSON file?)."); /* rmp patch */
 		m->in += 5;
 		*out = 0;
 	}
@@ -1830,9 +1875,10 @@ int cute_tiled_read_csv_integers_internal(cute_tiled_map_internal_t* m, int* cou
 {
 	int count = 0;
 	int capacity = 1024;
-	int* integers = (int*)CUTE_TILED_ALLOC(capacity * sizeof(int), m->mem_ctx);
+	int* integers = (int*)cute_tiled_rmp_owned(m, capacity * sizeof(int)); /* rmp patch: owned */
 
 	char c;
+	CUTE_TILED_CHECK(integers, "Out of memory."); /* rmp patch */
 	do
 	{
 		int val;
@@ -1840,10 +1886,11 @@ int cute_tiled_read_csv_integers_internal(cute_tiled_map_internal_t* m, int* cou
 		if (count == capacity)
 		{
 			int* new_integers;
-			capacity *= 2;
-			new_integers = (int*)CUTE_TILED_ALLOC(capacity * sizeof(int), m->mem_ctx);
+			capacity = cute_tiled_rmp_grow(capacity, sizeof(int)); /* rmp patch */
+			CUTE_TILED_CHECK(capacity, "Too many integers."); /* rmp patch */
+			new_integers = (int*)cute_tiled_rmp_owned(m, capacity * sizeof(int)); /* rmp patch: owned */
+			CUTE_TILED_CHECK(new_integers, "Out of memory."); /* rmp patch */
 			CUTE_TILED_MEMCPY(new_integers, integers, sizeof(int) * count);
-			CUTE_TILED_FREE(integers, m->mem_ctx);
 			integers = new_integers;
 		}
 		integers[count++] = val;
@@ -1898,7 +1945,8 @@ int cute_tiled_read_vertex_array_internal(cute_tiled_map_internal_t* m, int* out
 	float *verts;
 	cute_tiled_expect(m, '[');
 
-	verts = (float*)CUTE_TILED_ALLOC(sizeof(float) * capacity * 2, m->mem_ctx);
+	verts = (float*)cute_tiled_rmp_owned(m, sizeof(float) * capacity * 2); /* rmp patch: owned */
+	CUTE_TILED_CHECK(verts, "Out of memory."); /* rmp patch */
 
 	while (cute_tiled_peak(m) != ']')
 	{
@@ -1924,10 +1972,11 @@ int cute_tiled_read_vertex_array_internal(cute_tiled_map_internal_t* m, int* out
 		if (vert_count == capacity)
 		{
 			float* new_verts;
-			capacity *= 2;
-			new_verts = (float*)CUTE_TILED_ALLOC(sizeof(float) * capacity * 2, m->mem_ctx);
+			capacity = cute_tiled_rmp_grow(capacity, sizeof(float) * 2); /* rmp patch */
+			CUTE_TILED_CHECK(capacity, "Too many vertices."); /* rmp patch */
+			new_verts = (float*)cute_tiled_rmp_owned(m, sizeof(float) * capacity * 2); /* rmp patch: owned */
+			CUTE_TILED_CHECK(new_verts, "Out of memory."); /* rmp patch */
 			CUTE_TILED_MEMCPY(new_verts, verts, sizeof(float) * 2 * vert_count);
-			CUTE_TILED_FREE(verts, m->mem_ctx);
 			verts = new_verts;
 		}
 
@@ -1953,7 +2002,7 @@ cute_tiled_err:
 
 int cute_tiled_skip_until_after_internal(cute_tiled_map_internal_t* m, char c)
 {
-	while (*m->in != c) {
+	while (m->in < m->end && *m->in != c) { /* rmp patch: bounded */
 		cute_tiled_error_line += *m->in == '\n';
 		m->in++;
 	}
@@ -1973,8 +2022,9 @@ int cute_tiled_read_properties_internal(cute_tiled_map_internal_t* m, cute_tiled
 {
 	int count = 0;
 	int capacity = 32;
-	cute_tiled_property_t* props = (cute_tiled_property_t*)CUTE_TILED_ALLOC(capacity * sizeof(cute_tiled_property_t), m->mem_ctx);
+	cute_tiled_property_t* props = (cute_tiled_property_t*)cute_tiled_rmp_owned(m, capacity * sizeof(cute_tiled_property_t)); /* rmp patch: owned */
 
+	CUTE_TILED_CHECK(props, "Out of memory."); /* rmp patch */
 	cute_tiled_expect(m, '[');
 
 	while (cute_tiled_peak(m) != ']')
@@ -2023,10 +2073,7 @@ int cute_tiled_read_properties_internal(cute_tiled_map_internal_t* m, cute_tiled
 					case 'e': case 'f': case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
 						break;
 
-					case '\\':
-						++s;
-						break;
-
+					case '\\': /* rmp patch: no colour has an escape, and skipping one could step over the input's NUL */
 					default:
 						is_hex_color = 0;
 						break;
@@ -2055,7 +2102,11 @@ int cute_tiled_read_properties_internal(cute_tiled_map_internal_t* m, cute_tiled
 		{
 			char* s = m->in;
 			int is_float = 0;
-			while ((c = *s++) != ',')
+			/* rmp patch: the scan for a '.' stops at the end of this value -- the
+			 * end of the input, or of the property -- and not only at a comma:
+			 * the last property of a list ran on into the next ones, and the last
+			 * of the file past the end of the input. */
+			while (s < m->end && (c = *s++) != ',' && c != '}' && c != ']')
 			{
 				if (c == '.')
 				{
@@ -2080,10 +2131,11 @@ int cute_tiled_read_properties_internal(cute_tiled_map_internal_t* m, cute_tiled
 		if (count == capacity)
 		{
 			cute_tiled_property_t* new_props;
-			capacity *= 2;
-			new_props = (cute_tiled_property_t*)CUTE_TILED_ALLOC(capacity * sizeof(cute_tiled_property_t), m->mem_ctx);
+			capacity = cute_tiled_rmp_grow(capacity, sizeof(cute_tiled_property_t)); /* rmp patch */
+			CUTE_TILED_CHECK(capacity, "Too many properties."); /* rmp patch */
+			new_props = (cute_tiled_property_t*)cute_tiled_rmp_owned(m, capacity * sizeof(cute_tiled_property_t)); /* rmp patch: owned */
+			CUTE_TILED_CHECK(new_props, "Out of memory."); /* rmp patch */
 			CUTE_TILED_MEMCPY(new_props, props, sizeof(cute_tiled_property_t) * count);
-			CUTE_TILED_FREE(props, m->mem_ctx);
 			props = new_props;
 		}
 		props[count++] = prop;
@@ -2095,8 +2147,7 @@ int cute_tiled_read_properties_internal(cute_tiled_map_internal_t* m, cute_tiled
 	cute_tiled_expect(m, ']');
 	cute_tiled_try(m, ',');
 
-	*out_properties = count ? props : NULL;
-        if (!count) CUTE_TILED_FREE(props, m->mem_ctx);
+	*out_properties = count ? props : NULL; /* rmp patch: props is the map's, not freed here */
 	*out_count = count;
 
 	return 1;
@@ -2169,7 +2220,8 @@ cute_tiled_object_t* cute_tiled_read_object(cute_tiled_map_internal_t* m)
 
 		case 7758770083360183834U: // text
 			CUTE_TILED_WARNING("Text field of Tiled objects is not yet supported. Ignoring field.");
-			while (cute_tiled_peak(m) != ',' && cute_tiled_peak(m) != '}') cute_tiled_next(m);
+			while (cute_tiled_peak(m) != ',' && cute_tiled_peak(m) != '}' && cute_tiled_peak(m) != 0) cute_tiled_next(m); /* rmp patch: 0 */
+			CUTE_TILED_CHECK(cute_tiled_peak(m) != 0, "Attempted to read passed input buffer (is this a valid JSON file?)."); /* rmp patch */
 			if (cute_tiled_peak(m) == '}')	continue;
 			break;
 
@@ -2216,7 +2268,7 @@ cute_tiled_err:
 cute_tiled_chunk_t* cute_tiled_chunks(cute_tiled_map_internal_t* m) {
 	cute_tiled_chunk_t* chunk = (cute_tiled_chunk_t*)cute_tiled_alloc(m, sizeof(cute_tiled_chunk_t));
 
-	CUTE_TILED_MEMSET(chunk, 0, sizeof(cute_tiled_layer_t));
+	CUTE_TILED_MEMSET(chunk, 0, sizeof(cute_tiled_chunk_t)); /* rmp patch: was sizeof(cute_tiled_layer_t), past the chunk */
 
 	cute_tiled_expect(m, '{');
 
@@ -2262,7 +2314,29 @@ cute_tiled_err:
 	return 0;
 }
 
+/* rmp patch: how deep group layers (and a tile's objectgroup) may nest. The
+ * parser, and the pass that patches the strings after it, recurse once a
+ * level: a file of nested groups ran the stack out. Tiled's own groups are a
+ * handful deep. */
+#define CUTE_TILED_RMP_MAX_DEPTH 32
+
+static cute_tiled_layer_t* cute_tiled_layers_internal(cute_tiled_map_internal_t* m);
+
 cute_tiled_layer_t* cute_tiled_layers(cute_tiled_map_internal_t* m)
+{
+	cute_tiled_layer_t* layer;
+	if (m->rmp_depth >= CUTE_TILED_RMP_MAX_DEPTH)
+	{
+		cute_tiled_error_reason = "Group layers nest too deep.";
+		return 0;
+	}
+	++m->rmp_depth;
+	layer = cute_tiled_layers_internal(m);
+	--m->rmp_depth;
+	return layer;
+}
+
+static cute_tiled_layer_t* cute_tiled_layers_internal(cute_tiled_map_internal_t* m)
 {
 	cute_tiled_layer_t* layer = (cute_tiled_layer_t*)cute_tiled_alloc(m, sizeof(cute_tiled_layer_t));
 	CUTE_TILED_MEMSET(layer, 0, sizeof(cute_tiled_layer_t));
@@ -2472,8 +2546,9 @@ int cute_tiled_read_animation_frames_internal(cute_tiled_map_internal_t* m, cute
 {
 	int count = 0;
 	int capacity = 32;
-	cute_tiled_frame_t* frames = (cute_tiled_frame_t*)CUTE_TILED_ALLOC(capacity * sizeof(cute_tiled_frame_t), m->mem_ctx);
+	cute_tiled_frame_t* frames = (cute_tiled_frame_t*)cute_tiled_rmp_owned(m, capacity * sizeof(cute_tiled_frame_t)); /* rmp patch: owned */
 
+	CUTE_TILED_CHECK(frames, "Out of memory."); /* rmp patch */
 	cute_tiled_expect(m, '[');
 
 	while (cute_tiled_peak(m) != ']')
@@ -2491,10 +2566,11 @@ int cute_tiled_read_animation_frames_internal(cute_tiled_map_internal_t* m, cute
 		if (count == capacity)
 		{
 			cute_tiled_frame_t* new_frames;
-			capacity *= 2;
-			new_frames = (cute_tiled_frame_t*)CUTE_TILED_ALLOC(capacity * sizeof(cute_tiled_frame_t), m->mem_ctx);
+			capacity = cute_tiled_rmp_grow(capacity, sizeof(cute_tiled_frame_t)); /* rmp patch */
+			CUTE_TILED_CHECK(capacity, "Too many frames."); /* rmp patch */
+			new_frames = (cute_tiled_frame_t*)cute_tiled_rmp_owned(m, capacity * sizeof(cute_tiled_frame_t)); /* rmp patch: owned */
+			CUTE_TILED_CHECK(new_frames, "Out of memory."); /* rmp patch */
 			CUTE_TILED_MEMCPY(new_frames, frames, sizeof(cute_tiled_frame_t) * count);
-			CUTE_TILED_FREE(frames, m->mem_ctx);
 			frames = new_frames;
 		}
 		frames[count++] = frame;
@@ -2645,6 +2721,7 @@ static CUTE_TILED_INLINE int cute_tiled_skip_curly_braces_internal(cute_tiled_ma
 	while (count)
 	{
 		char c = cute_tiled_next(m);
+		CUTE_TILED_CHECK(c != 0, "Attempted to read passed input buffer (is this a valid JSON file?)."); /* rmp patch */
 		if (c == '}') --count;
 		else if (c == '{') ++count;
 	}
@@ -3039,72 +3116,15 @@ static void cute_tiled_patch_interned_strings(cute_tiled_map_internal_t* m)
 	cute_tiled_deintern_layer(m, layer);
 }
 
-static void cute_tiled_free_objects(cute_tiled_object_t* objects, void* mem_ctx)
-{
-	cute_tiled_object_t* object = objects;
-	CUTE_TILED_UNUSED(mem_ctx);
-	while (object)
-	{
-		if (object->properties) CUTE_TILED_FREE(object->properties, mem_ctx);
-		if (object->vertices) CUTE_TILED_FREE(object->vertices, mem_ctx);
-		object = object->next;
-	}
-}
-
-static void cute_tiled_free_chunks(cute_tiled_chunk_t* chunks, void* mem_ctx)
-{
-	cute_tiled_chunk_t* chunk = chunks;
-	CUTE_TILED_UNUSED(mem_ctx);
-	while (chunk)
-	{
-		if (chunk->data) CUTE_TILED_FREE(chunk->data, mem_ctx);
-		chunk = chunk->next;
-	}
-}
-
-static void cute_tiled_free_layers(cute_tiled_layer_t* layers, void* mem_ctx)
-{
-	cute_tiled_layer_t* layer = layers;
-	CUTE_TILED_UNUSED(mem_ctx);
-	while (layer)
-	{
-		if (layer->data) CUTE_TILED_FREE(layer->data, mem_ctx);
-		if (layer->properties) CUTE_TILED_FREE(layer->properties, mem_ctx);
-		cute_tiled_free_layers(layer->layers, mem_ctx);
-		cute_tiled_free_chunks(layer->chunks, mem_ctx);
-		cute_tiled_free_objects(layer->objects, mem_ctx);
-		layer = layer->next;
-	}
-}
-
 static void cute_tiled_free_map_internal(cute_tiled_map_internal_t* m)
 {
-	cute_tiled_tileset_t* tileset;
 	cute_tiled_page_t* page;
 	strpool_embedded_term(&m->strpool);
 
-	cute_tiled_free_layers(m->map.layers, m->mem_ctx);
-	if (m->map.properties) CUTE_TILED_FREE(m->map.properties, m->mem_ctx);
-
-	tileset = m->map.tilesets;
-	while (tileset)
-	{
-		cute_tiled_tile_descriptor_t* desc;
-		if (tileset->properties) CUTE_TILED_FREE(tileset->properties, m->mem_ctx);
-		desc = tileset->tiles;
-		while (desc)
-		{
-			if (desc->properties) CUTE_TILED_FREE(desc->properties, m->mem_ctx);
-			if (desc->animation) CUTE_TILED_FREE(desc->animation, m->mem_ctx);
-			cute_tiled_free_layers(desc->objectgroup, m->mem_ctx);
-			desc = desc->next;
-		}
-		tileset = tileset->next;
-	}
-
-	// cute_tiled_read_csv_integers
-	// cute_tiled_read_vertex_array
-	// cute_tiled_read_properties
+	/* rmp patch: the CSV tiles, vertices, properties and animation frames are
+	 * pages of the map (cute_tiled_rmp_owned), freed with the rest below; the
+	 * walk that freed them one by one, recursing into group layers, is gone. */
+	if (m->rmp_input) CUTE_TILED_FREE(m->rmp_input, m->mem_ctx);
 
 	page = m->pages;
 	while (page)
@@ -3139,7 +3159,19 @@ static cute_tiled_map_internal_t* cute_tiled_map_internal_alloc_internal(void* m
 	strpool_embedded_config_t config;
 	cute_tiled_map_internal_t* m = (cute_tiled_map_internal_t*)CUTE_TILED_ALLOC(sizeof(cute_tiled_map_internal_t), mem_ctx);
 	CUTE_TILED_MEMSET(m, 0, sizeof(cute_tiled_map_internal_t));
-	m->in = (char*)memory;
+	/* rmp patch: a copy of the input with a NUL after it. strtod, strtoll and
+	 * strtoull read until the number ends, and a map's bytes as a game loads
+	 * them have nothing after them: a file that ended in a digit was read past
+	 * its end. A negative size is no input. */
+	if (size_in_bytes < 0) size_in_bytes = 0;
+	m->rmp_input = (char*)CUTE_TILED_ALLOC((size_t)size_in_bytes + 1, mem_ctx);
+	if (m->rmp_input)
+	{
+		if (size_in_bytes) CUTE_TILED_MEMCPY(m->rmp_input, memory, (size_t)size_in_bytes);
+		m->rmp_input[size_in_bytes] = 0;
+	}
+	else size_in_bytes = 0;
+	m->in = m->rmp_input ? m->rmp_input : (char*)"";
 	m->end = m->in + size_in_bytes;
 	m->mem_ctx = mem_ctx;
 	m->page_size = 1024 * 10;
@@ -3164,7 +3196,8 @@ cute_tiled_map_t* cute_tiled_load_map_from_memory(const void* memory, int size_i
 		// Make sure your map file was correctly found and loaded.
 		// If you called `cute_tiled_load_map_from_file` make sure your path was correct, and check
 		// your printf warnings.
-		CUTE_TILED_CRASH();
+		cute_tiled_error_reason = "No map to load."; /* rmp patch: a refusal, not a trap */
+		return 0;
 	}
 
 	m = cute_tiled_map_internal_alloc_internal((void*)memory, size_in_bytes, mem_ctx);
@@ -3204,7 +3237,10 @@ cute_tiled_err:
 
 void cute_tiled_free_map(cute_tiled_map_t* map)
 {
-	cute_tiled_map_internal_t* m = (cute_tiled_map_internal_t*)(((char*)map) - (size_t)(&((cute_tiled_map_internal_t*)0)->map));
+	/* rmp patch: offsetof, not the classic `&((T *)0)->member`, which is a
+	 * member access through a null pointer -- undefined, and what UBSan
+	 * reported here once cmake/sanitize_ignore.txt stopped hiding cute_tiled. */
+	cute_tiled_map_internal_t* m = (cute_tiled_map_internal_t*)(((char*)map) - offsetof(cute_tiled_map_internal_t, map));
 	cute_tiled_free_map_internal(m);
 }
 

@@ -1,0 +1,19 @@
+{ "compressionlevel":-1,
+  "heiinite":false,
+  "layers":[
+    { "daa":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5,5,5],
+      "height":4, "id":1, "name":"ground", "/pacity":1, "type":"objgroupr",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "dáta":[0,0,0,0, 0,6,6,0, 0,0,0,0, 7,4,7,7],
+      "class":"solid",
+      "height":4, "id":2, "name":"walls", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "draworder":"topdown", "id":3, "name":"things", "objects":[
+        { "class":"enemy", "height":2"imagewidth":ame":"goblin", "rotation":0,
+          "pboperties":[
+            { "name":"hp", "type":"int", "value":20 height":64,WWWWWW
+      "imagewidt49, "height":16, "ad":1, "name":"mirrored",
+  , "rotation":0,
+     "type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"map", "v":[ { "name":"solid","type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"1.5", "width":4 }

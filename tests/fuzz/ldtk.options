@@ -1,0 +1,6 @@
+# libFuzzer flags for fuzz_ldtk, one a line: tools/fuzz.sh run and merge pass them.
+# The seeds are small projects written for one part of the reader each (fields,
+# tiles, IntGrid, worlds, a level in its own file) plus minimal.ldtk and two
+# samples cut to one level: 8 KB holds every one whole, and keeps the merged
+# corpus small (tests/campaign_test.py holds the whole corpus under 2 MB).
+-max_len=8192

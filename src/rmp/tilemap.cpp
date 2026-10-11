@@ -29,18 +29,24 @@
 #include <rmp/scene.h>
 
 #include "internal.h" // RMP_REPORT_ONCE_KEYED, loads.failed
+#include "json_internal.h" // CNumbers
 #include "tilemap_internal.h"
 
 #include <cute_tiled.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rmp {
 
+using tilemap::detail::finite_float;
 using tilemap::detail::Layer;
 using tilemap::detail::MapData;
 using tilemap::detail::ObjectInfo;
@@ -101,11 +107,14 @@ Rectangle source_in(const Tileset &set, int gid) {
     // said out loud.
     const int tile_column = local % set.columns;
     const int tile_row = local / set.columns;
-    return Rectangle{
-        static_cast<float>(set.margin + tile_column * (set.tile_width + set.spacing)),
-        static_cast<float>(set.margin + tile_row * (set.tile_height + set.spacing)),
-        static_cast<float>(set.tile_width), static_cast<float>(set.tile_height)
-    };
+    // The rest in double: a tile size and a spacing each inside int's range
+    // summed past it, which is undefined behaviour, and no image is that big.
+    const double stride_x = static_cast<double>(set.tile_width) + set.spacing;
+    const double stride_y = static_cast<double>(set.tile_height) + set.spacing;
+    return Rectangle{ finite_float(set.margin + (tile_column * stride_x)),
+                      finite_float(set.margin + (tile_row * stride_y)),
+                      static_cast<float>(set.tile_width),
+                      static_cast<float>(set.tile_height) };
 }
 
 // Where that tile's top-left corner goes in the world, which is NOT simply the
@@ -115,9 +124,13 @@ Rectangle source_in(const Tileset &set, int gid) {
 // it. Drawn from the cell's corner instead, the whole layer sits one tile too
 // low and the tops are cut off.
 Vector2 origin_in(const MapData &data, const Tileset *set, int column, int row) {
-    const int overhang = set == nullptr ? 0 : set->tile_height - data.tile_height;
-    return Vector2{ static_cast<float>(column * data.tile_width),
-                    static_cast<float>(row * data.tile_height - overhang) };
+    // In double, for the same reason as source_in(): a cell of a wide map
+    // times a wide tile is past int's range.
+    const double overhang =
+        set == nullptr ? 0.0 : static_cast<double>(set->tile_height) - data.tile_height;
+    return Vector2{ finite_float(static_cast<double>(column) * data.tile_width),
+                    finite_float((static_cast<double>(row) * data.tile_height) -
+                                 overhang) };
 }
 
 const Property *find_property(Ref<const ObjectInfo> info, std::string_view key) {
@@ -148,8 +161,16 @@ int MapObject::property_int(std::string_view key, int fallback) const {
     if (p == nullptr) return fallback;
     if (p->kind == Property::Kind::INT) return p->integer;
     // A float where an int was asked for is cut towards zero, not a failure:
-    // Tiled will happily save 3 as 3.0 and nobody means anything by it.
-    if (p->kind == Property::Kind::FLOAT) return static_cast<int>(p->floating);
+    // Tiled will happily save 3 as 3.0 and nobody means anything by it. Past
+    // int's range it is the nearest int -- a float of 1e30 cast to int is
+    // undefined behaviour -- and the readers never keep a NaN.
+    if (p->kind == Property::Kind::FLOAT) {
+        constexpr double LOWEST = std::numeric_limits<int>::min();
+        constexpr double HIGHEST = std::numeric_limits<int>::max();
+        const double value = p->floating;
+        if (std::isnan(value)) return fallback;
+        return static_cast<int>(std::clamp(std::trunc(value), LOWEST, HIGHEST));
+    }
     return fallback;
 }
 
@@ -197,6 +218,11 @@ namespace tilemap::detail {
 MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     if (bytes == nullptr || size <= 0) return { nullptr, &free_map };
 
+    // Every number of the map -- and of an external tileset, read below -- in
+    // the "C" locale: cute_tiled reads them with strtod, which follows
+    // LC_NUMERIC, so under a German interface "1.5" was 1 and a '.' it could
+    // not place, and since every map says "version":"1.5", no map loaded.
+    const rmp::detail::CNumbers c_numbers;
     cute_tiled_map_t *raw = cute_tiled_load_map_from_memory(bytes, size, nullptr);
     if (raw == nullptr) {
         const char *why =
@@ -225,10 +251,21 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     const std::unique_ptr<cute_tiled_map_t, void (*)(cute_tiled_map_t *)> tree(
         raw, &cute_tiled_free_map);
     auto data = std::make_unique<MapData>();
-    data->width = raw->width;
-    data->height = raw->height;
-    data->tile_width = raw->tilewidth;
-    data->tile_height = raw->tileheight;
+    // Sizes are never negative, whatever the file says; every number that
+    // reaches the map goes through tilemap_internal.h's helpers like this.
+    data->width = size_int(raw->width);
+    data->height = size_int(raw->height);
+    data->tile_width = size_int(raw->tilewidth);
+    data->tile_height = size_int(raw->tileheight);
+    // The tilesets' tiles are LDtk's budget too (MAX_TILES): a tileset that
+    // says it holds two billion tiles is a number, and would be a quarter of
+    // a gigabyte of solid flags.
+    std::int64_t tiles_left = tilemap::detail::MAX_TILES;
+    // And so are the cells of its tile layers (MAX_CELLS), all of them
+    // together: a layer's size is two numbers in the file, whatever data it
+    // holds, and draw() and solid_in() walk it cell by cell -- a map of 150
+    // bytes with a layer of 100 000 x 100 000 was ten billion cells a frame.
+    std::int64_t cells_left = tilemap::detail::MAX_CELLS;
 
     for (const cute_tiled_tileset_t *set = raw->tilesets; set != nullptr;
          set = set->next) {
@@ -261,16 +298,29 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
             }
         }
 
+        // The tiles it holds, within what is left of the budget; a gid is at
+        // least 1 (0 is "no tile"), and the last one never past INT_MAX --
+        // first_gid + count overflowed an int for a firstgid near it.
+        const std::int64_t wanted = std::max(0, from->tilecount);
+        const std::int64_t count = wanted <= tiles_left ? wanted : 0;
+        if (wanted > tiles_left) {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: [%s] has tilesets of more tiles than any real map; one of %" PRId64
+                " tiles draws nothing.",
+                name != nullptr ? name : "", wanted);
+        }
+        tiles_left -= count;
         Tileset out;
-        out.first_gid = set->firstgid; // the MAP's, never the tileset file's
-        out.last_gid = set->firstgid + from->tilecount - 1;
+        out.first_gid = std::max(1, set->firstgid); // the MAP's, never the tileset file's
+        out.last_gid = static_cast<int>(std::min<std::int64_t>(
+            std::numeric_limits<int>::max(), out.first_gid + count - 1));
         out.columns = from->columns > 0 ? from->columns : 1;
-        out.tile_width = from->tilewidth;
-        out.tile_height = from->tileheight;
-        out.margin = from->margin;
-        out.spacing = from->spacing;
-        out.solid.assign(
-            static_cast<std::size_t>(from->tilecount > 0 ? from->tilecount : 0), false);
+        out.tile_width = size_int(from->tilewidth);
+        out.tile_height = size_int(from->tileheight);
+        out.margin = size_int(from->margin);
+        out.spacing = size_int(from->spacing);
+        out.solid.assign(static_cast<std::size_t>(count), false);
 
         for (const cute_tiled_tile_descriptor_t *tile = from->tiles; tile != nullptr;
              tile = tile->next) {
@@ -327,8 +377,10 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                             prop.integer = tp.data.integer;
                             break;
                         case CUTE_TILED_PROPERTY_FLOAT:
+                            // cute_tiled reads with strtod, which takes "nan"
+                            // and "inf": never kept.
                             prop.kind = Property::Kind::FLOAT;
-                            prop.floating = tp.data.floating;
+                            prop.floating = finite_float(tp.data.floating);
                             break;
                         case CUTE_TILED_PROPERTY_STRING:
                         case CUTE_TILED_PROPERTY_FILE:
@@ -342,7 +394,11 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                     info->properties.push_back(std::move(prop));
                 }
                 MapObject &out = data->add_object(std::move(info));
-                out.size = Vector2{ object->width, object->height };
+                // Never NaN, never infinite, never negative: cute_tiled reads
+                // a number with strtod, which takes "nan" and "inf" as well.
+                const float width = size_float(object->width);
+                const float height = size_float(object->height);
+                out.size = Vector2{ width, height };
                 // The top three bits are Tiled's flip flags and not part of
                 // the id, exactly as in the tile-layer loop below. Press X in
                 // the editor and a gid of 1 comes back as 0x80000001, which
@@ -360,10 +416,14 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
                 // where the cursor was when you placed it. Reading y as the
                 // top for both put every stamped chest, torch and door exactly
                 // one tile into the floor.
-                const float top = out.gid != 0 ? object->y - object->height : object->y;
-                out.position =
-                    Vector2{ object->x + object->width / 2, top + object->height / 2 };
-                out.rotation = object->rotation;
+                // In double, made a float once: a corner and a size each
+                // inside float's range summed past it.
+                const double x = finite_float(object->x);
+                const double y = finite_float(object->y);
+                const double top = out.gid != 0 ? y - height : y;
+                out.position = Vector2{ finite_float(x + (width / 2.0)),
+                                        finite_float(top + (height / 2.0)) };
+                out.rotation = finite_float(object->rotation);
             }
             std::reverse(data->objects.begin() + static_cast<std::ptrdiff_t>(before),
                          data->objects.end());
@@ -375,8 +435,18 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         Layer out;
         out.name = layer->name.ptr != nullptr ? layer->name.ptr : "";
         out.solid_layer = std::strcmp(klass, "solid") == 0;
-        out.width = layer->width;
-        out.height = layer->height;
+        out.width = size_int(layer->width);
+        out.height = size_int(layer->height);
+        const std::int64_t area = static_cast<std::int64_t>(out.width) * out.height;
+        if (area > cells_left) {
+            TraceLog(LOG_WARNING,
+                     "MAP: layer \"%s\" of [%s] is %d x %d cells, more than any real "
+                     "map has in all its layers; it is left out.",
+                     out.name.c_str(), name != nullptr ? name : "", out.width,
+                     out.height);
+            continue;
+        }
+        cells_left -= area;
         out.gids.reserve(static_cast<std::size_t>(layer->data_count));
         for (int i = 0; i < layer->data_count; ++i) {
             // The top three bits are Tiled's flip flags, not part of the id.
@@ -389,7 +459,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     return { data.release(), &free_map };
 }
 
-MapPtr parse_map(const void *bytes, int size, const char *name, const char *level) {
+MapPtr parse_map(const void *bytes, int size, const char *name, std::string_view level) {
     const std::string file = name != nullptr ? name : "";
     // A level file on its own is half a project: its tilesets and layer
     // definitions live in the .ldtk.
@@ -403,8 +473,8 @@ MapPtr parse_map(const void *bytes, int size, const char *name, const char *leve
         return { nullptr, &free_map };
     }
     const bool ldtk = file.ends_with(".ldtk");
-    MapPtr out = ldtk ? parse_ldtk(bytes, size, name, level != nullptr ? level : "")
-                      : parse_tiled(bytes, size, name);
+    MapPtr out =
+        ldtk ? parse_ldtk(bytes, size, name, level) : parse_tiled(bytes, size, name);
     if (out != nullptr) out->source = file;
     return out;
 }
@@ -514,21 +584,35 @@ int cell_h(const MapData &data, const Layer &layer) {
     return layer.cell_height > 0 ? layer.cell_height : data.tile_height;
 }
 
+// Where a world coordinate is in a layer's grid, in cells: the layer's (0,0)
+// is the map's origin plus the layer's offset. In double: a float division by
+// a cell that is not a power of two rounds, and the sum of two rounded
+// quotients -- solid_in() made its far edge as left + width / cell -- landed
+// past a cell boundary the edge only touched: a box resting on a floor of 12
+// px cells was IN the floor. A float is exact in a double, and so is the sum
+// of a level's coordinate and a size: one division rounds, once, and never
+// across a boundary an edge only touches.
+double cell_coordinate(double world, double origin, double offset, int cell) {
+    return (world - origin - offset) / cell;
+}
+
 // The cell of `layer` under a world position, or false when it is outside.
 bool cell_under(const MapData &data, const Layer &layer, Vector2 world, int *column,
                 int *row) {
     const int w = cell_w(data, layer);
     const int h = cell_h(data, layer);
     if (w <= 0 || h <= 0) return false;
-    // Divided and compared as floats, and only cast once it is known to be a
+    // Divided and compared in double, and only cast once it is known to be a
     // cell of the layer: a position of 1e20, an infinity or a NaN cast to int
-    // straight away is undefined behaviour, and a NaN passed `x < 0`.
-    const float x =
-        std::floor((world.x - data.origin.x - layer.offset.x) / static_cast<float>(w));
-    const float y =
-        std::floor((world.y - data.origin.y - layer.offset.y) / static_cast<float>(h));
-    if (std::isnan(x) || std::isnan(y) || x < 0 || y < 0 ||
-        x >= static_cast<float>(layer.width) || y >= static_cast<float>(layer.height)) {
+    // straight away is undefined behaviour, and a NaN passed `x < 0`. Double,
+    // and the same arithmetic as solid_in()'s, so that a point and the
+    // rectangle with no area there name the same cell.
+    const double x =
+        std::floor(cell_coordinate(world.x, data.origin.x, layer.offset.x, w));
+    const double y =
+        std::floor(cell_coordinate(world.y, data.origin.y, layer.offset.y, h));
+    if (std::isnan(x) || std::isnan(y) || x < 0 || y < 0 || x >= layer.width ||
+        y >= layer.height) {
         return false;
     }
     *column = static_cast<int>(x);
@@ -574,10 +658,11 @@ bool solid_cell(const MapData &data, const Layer &layer, int column, int row) {
 Rectangle Tilemap::bounds() const {
     if (!valid()) return Rectangle{};
     const MapData *data = _data.get();
+    // The product in double: a wide map of wide tiles is past int's range.
     const Vector2 size = data->size_px.x > 0
         ? data->size_px
-        : Vector2{ static_cast<float>(data->width * data->tile_width),
-                   static_cast<float>(data->height * data->tile_height) };
+        : Vector2{ finite_float(static_cast<double>(data->width) * data->tile_width),
+                   finite_float(static_cast<double>(data->height) * data->tile_height) };
     return Rectangle{ data->origin.x, data->origin.y, size.x, size.y };
 }
 
@@ -614,6 +699,12 @@ std::string_view Tilemap::neighbour_at(Vector2 world_position) const {
         return "";
     }
     for (const tilemap::detail::LevelInfo &level : data->levels) {
+        // Never this level, by name: its own rectangle in the world is the
+        // file's number and bounds() the size the grid was cut to, so a level
+        // 10.5 px wide named itself in the half pixel between them -- and a
+        // game that changes level on a name kept loading the one it was in.
+        // Two levels the file names alike are the same level to load_map().
+        if (level.name == data->level) continue;
         const Rectangle r = level.world;
         if (world_position.x >= r.x && world_position.y >= r.y &&
             world_position.x < r.x + r.width && world_position.y < r.y + r.height) {
@@ -667,26 +758,33 @@ bool Tilemap::solid_in(Rectangle world_rect) const {
         const int w = cell_w(*data, layer);
         const int h = cell_h(*data, layer);
         if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) continue;
-        const float left =
-            (world_rect.x - data->origin.x - layer.offset.x) / static_cast<float>(w);
-        const float top =
-            (world_rect.y - data->origin.y - layer.offset.y) / static_cast<float>(h);
-        const float right = left + (world_rect.width / static_cast<float>(w));
-        const float bottom = top + (world_rect.height / static_cast<float>(h));
+        // Each edge from its own coordinate -- the far one from x + width,
+        // summed in double -- never the near edge plus the size in cells:
+        // two roundings there put an edge that only touches a cell inside it.
+        const double left =
+            cell_coordinate(world_rect.x, data->origin.x, layer.offset.x, w);
+        const double top =
+            cell_coordinate(world_rect.y, data->origin.y, layer.offset.y, h);
+        const double right =
+            cell_coordinate(static_cast<double>(world_rect.x) + world_rect.width,
+                            data->origin.x, layer.offset.x, w);
+        const double bottom =
+            cell_coordinate(static_cast<double>(world_rect.y) + world_rect.height,
+                            data->origin.y, layer.offset.y, h);
         if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) ||
             !std::isfinite(bottom)) {
             continue;
         }
-        const auto cells_x = static_cast<float>(layer.width);
-        const auto cells_y = static_cast<float>(layer.height);
-        const float first_x = std::floor(left);
-        const float first_y = std::floor(top);
-        const float last_x = std::max(first_x, std::ceil(right) - 1);
-        const float last_y = std::max(first_y, std::ceil(bottom) - 1);
+        const auto cells_x = static_cast<double>(layer.width);
+        const auto cells_y = static_cast<double>(layer.height);
+        const double first_x = std::floor(left);
+        const double first_y = std::floor(top);
+        const double last_x = std::max(first_x, std::ceil(right) - 1);
+        const double last_y = std::max(first_y, std::ceil(bottom) - 1);
         if (last_x < 0 || last_y < 0 || first_x >= cells_x || first_y >= cells_y)
             continue;
-        const int first_col = static_cast<int>(std::max(first_x, 0.0f));
-        const int first_row = static_cast<int>(std::max(first_y, 0.0f));
+        const int first_col = static_cast<int>(std::max(first_x, 0.0));
+        const int first_row = static_cast<int>(std::max(first_y, 0.0));
         const int last_col = static_cast<int>(std::min(last_x, cells_x - 1));
         const int last_row = static_cast<int>(std::min(last_y, cells_y - 1));
         for (int row = first_row; row <= last_row; ++row) {

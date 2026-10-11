@@ -1,0 +1,22 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":2147483649, "height":16, "id":1, "name":"mirrored",
+          "rotation":0, "visible":true, "width":16, "x":0, "y":16 },
+        { "class":"player_start", "height":0, "id":2, "name":"start", "point":true,
+          "rotation":0, "visible":true, "width":0, "x":32, "y":32 },
+        { "class":"path", "height":0, "id":3, "name":"line",
+          "polyline":[ { "x":0, "y":0 }, { "x":16, "y":0 } ],
+          "rotation":0, "visible":true, "width":0, "x":8, "y":48 },
+        { "class":"wall", "height":16, "id":4, "name":"block", "rotation":0,
+          "visible":true, "width":16, "x":48, "y":0 }],
+      "opacity":1, "type":"objectgroup", "visible":true, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":5, "orientation":"orthogonal",
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":1, "image":"tiles.png", "imageheight":64,
+      "imagewidth":64, "margin":0, "name":"tiles", "spacing":0,
+      "tilecount":16, "tileheight":16, "tilewidth":16 }],
+  "tilewidth":16, "type":"map", "version":"1.10", "width":4 }

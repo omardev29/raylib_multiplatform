@@ -1,0 +1,18 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5.5,5],
+      "height":4, "id":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "data":[0,0,0,0, 0,6,6,0, 0,0,0,0, 7,7,7,7],
+      "class":"solid",
+      "height":4, "id":2, "name":"wÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿalls", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":40 "x":0, "y":5 },
+    { "draworder":"topdown", "id":3, "name":"things", "objects":[
+        { "class":"enemy", "height":24, "id":1, "name":"goblin", "rotation":0,
+          "compressionproperties":[
+            { "name":"hp", "type":"int", "value":20 },
+            { "name":"speed", "type":"float", "value":1.5 },
+            { "name":"boss", "type"alue":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"1.5", "width":4 }

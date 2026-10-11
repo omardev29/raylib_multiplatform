@@ -1,5 +1,14 @@
-# The LDtk reader (package P2).
+# The LDtk reader (package P2). Killed by the reader's own cases, by the map
+# collision cases (every one parses an LDtk project) and by the properties of
+# both readers (tests/property/ldtk_prop.cpp). Measured 2026-10-11 in the
+# image (Mull 0.34.1, cxx_all): 197 of 244 (80.74%), 72.54% before the cases
+# the first run asked for. The survivors are log lines (say_levels, a level
+# file that is not there), defaults a later check makes equivalent (int
+# column = 0, a columns > 0 that no area of 0 tiles reaches), cJSON calls
+# whose wrong answer the next lookup refuses anyway, and the map's own
+# width/height, which bounds() reads only for a level of no pixel size.
 kind     cxx
 sources  src/rmp/ldtk.cpp
-tests    unit_test -sf=*ldtk_test.cpp
-floor    -
+tests    unit_test -sf=*ldtk_test.cpp,*map_collision_test.cpp
+tests    property_test -ts=*ldtk
+floor    80

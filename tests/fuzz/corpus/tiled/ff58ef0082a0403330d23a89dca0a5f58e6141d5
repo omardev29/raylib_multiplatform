@@ -1,0 +1,8 @@
+{ "compressionlevel":-1,
+   "n}extlayerid":2, "nextobjectid":1, "orientation":"orthogonal",
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":16,
+  "tilesets":[ { "firstgid":1, "source":"tileset_external.tsx" } ], "nextobjectid":1, "orientation":"orthogonal",
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":16,
+  "tilesets":[ { "firstgid":1, "source":"tileset_external.tsx" } ],
+  "tilewidtcompressionlevel":h":18, "type":"map", "version":"1.10", "width":2 }
+h":17, "type":"map", "version":"1.10", "width":2 }

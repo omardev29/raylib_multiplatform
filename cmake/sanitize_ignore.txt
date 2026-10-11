@@ -4,10 +4,10 @@
 # never reads it.
 # A line is a decision about code that is NOT ours; nothing under src/ or
 # include/ may ever be listed. Clang's -fsanitize-ignorelist format.
-
-# cute_tiled finds a struct from a pointer to its member with the classic
-# OFFSET_OF macro, `&((T *)0)->member`: a member access through a null pointer,
-# undefined by the letter of the standard and what every C compiler has always
-# done in practice. Vendored, and frozen with Tiled (see rmp/tilemap.h).
-# C++ names are matched mangled (_Z19cute_tiled_free_map...), hence the stars.
-fun:*cute_tiled_*
+#
+# Empty, and that is the aim. It held `fun:*cute_tiled_*` -- every sanitizer
+# off for all of cute_tiled, for one null-pointer member access in its
+# OFFSET_OF -- and that hid a parser that read past the end of a map cut short,
+# leaked on every refusal and overflowed a memset. cute_tiled is patched
+# instead (thirdparty/cute_tiled/PATCHES.md), and tests/fuzz/tiled.cpp fuzzes
+# it under ASan and UBSan like our own code.

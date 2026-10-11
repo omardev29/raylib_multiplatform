@@ -1,0 +1,12 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":1, "height":16, "id":1, "name":"stamped",
+          "rotation":0, "visible":true, "width":16, "x":32, "y":48 },
+        { "class":"zone", "height":16, "id":2, "name":"drawn", "rotation":0,
+          "visible":true, "width":16, "x":32, "y":48 }],
+      "opae":"things", "objects":[
+        { "class":"chest", "gid":1, "hass":"chest", "gid":1, "height":16, "id":1, "n ? "tilecount":16, "tileheight":16, "tilewidth":16 }],
+  "tilewidth":16, "type":"map", "version":"1.10", "width":4 }

@@ -1,0 +1,8 @@
+{ "backgroundcolor":"#1a1a2e",
+  "class":"level",
+  "co1mpressionlevel":-e,
+  "layers":[
+    { "data":[9,9,9,9],
+      "height":2, "id":1, "locked":false, "name":"ground", "opacity":1,
+      "parallaxx":0.5, "starty":"parallaxy-":0.75, "rlse, "repyae"t:false,
+      "tintcolor":"#ffcc0":2 }

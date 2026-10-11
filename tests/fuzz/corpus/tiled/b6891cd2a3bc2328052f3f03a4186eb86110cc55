@@ -1,0 +1,6 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest","height":0, "id":3, "name": lin"p}
