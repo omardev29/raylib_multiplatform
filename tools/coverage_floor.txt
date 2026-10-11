@@ -5,12 +5,13 @@
 # lines to what it measured; lowering one is an edit somebody has to explain.
 src/rmp/ads.cpp                  0
 src/rmp/animation.cpp            84
-src/rmp/app.cpp                  78
+src/rmp/app.cpp                  77
 src/rmp/assets.cpp               55
 src/rmp/audio.cpp                97
 src/rmp/behavior.cpp             100
 src/rmp/behaviors.cpp            91
 src/rmp/camera.cpp               100
+src/rmp/clock.cpp                95
 src/rmp/collision.cpp            96
 src/rmp/global.cpp               100
 src/rmp/input.cpp                85
@@ -33,7 +34,7 @@ src/rmp/ui/containers.cpp        72
 src/rmp/ui/context.cpp           86
 src/rmp/ui/controls.cpp          97
 src/rmp/ui/focus.cpp             93
-src/rmp/ui/internal.h            60
+src/rmp/ui/internal.h            86
 src/rmp/ui/render.cpp            31
 src/rmp/ui/style.cpp             79
 src/rmp/ui/theme.cpp             100
