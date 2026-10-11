@@ -816,6 +816,26 @@ TEST_SUITE("save: format") {
         CHECK(rmp::save::detail::to_json(v) == R"({"zebra":1,"apple":2,"mango":3})");
     }
 
+    TEST_CASE("a key twice in a file keeps its first place and takes its last value") {
+        // What object[key] = ... gave each member when the reader added them
+        // one by one. The reader adds them in one pass now and finds a key it
+        // has seen through a table of places; every repeated key written at
+        // place 0 survived the hundred-thousand-key case, whose repeated key
+        // IS at place 0 (review of P1, hand mutation). A null is nothing, and
+        // replaces nothing, as before.
+        Value v;
+        REQUIRE(rmp::save::detail::from_json(
+            R"({"a":1,"b":2,"c":3,"b":-2,"a":null,"c":{"d":4}})", &v));
+        CHECK(v.size() == 3);
+        CHECK(v.key(0) == "a");
+        CHECK(v.key(1) == "b");
+        CHECK(v.key(2) == "c");
+        CHECK(v["a"].as_int() == 1);
+        CHECK(v["b"].as_int() == -2);
+        CHECK(v["c"]["d"].as_int() == 4);
+        CHECK(rmp::save::detail::to_json(v) == R"({"a":1,"b":-2,"c":{"d":4}})");
+    }
+
     TEST_CASE("the JSON has to be one value and nothing after it") {
         Value v;
         CHECK(rmp::save::detail::from_json(R"({"a":1})", &v));
