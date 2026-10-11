@@ -281,10 +281,10 @@ jobs:
           fi
           cd package && zip -r "../bsd-${{ matrix.os }}-${{ matrix.arch }}-build.zip" .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt -- on the runner, out of the VM's script
-      # and its size limit. The measured line is printed either way, so this
-      # log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure) -- on
+      # the runner, out of the VM's script and its size limit. The measured line
+      # is printed either way, so this log is all it takes to update the file.
       - name: Within its size budget
         shell: bash
         run: python3 tools/size_check.py "${{ matrix.target }}" "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"

@@ -375,10 +375,10 @@ jobs:
           if ($names -match 'opengl32\.dll|libgallium_wgl\.dll') { Write-Host "FAIL: Mesa leaked into the release zip"; exit 1 }
           Write-Host "PASS: package clean ($($names.Count) entries)"
 
-      # The .exe as linked and the copy that ships -- packed, if [upx] packs
-      # it -- each within 1.5% of its line in tools/size_budget.txt. The
-      # measured line is printed either way, so this log is all it takes to
-      # update the file.
+      # The .exe as linked and the copy that ships -- packed, if [upx] packs it
+      # -- each held to its line in tools/size_budget.txt (past 1.5% a warning,
+      # past 10% a failure). The measured line is printed either way, so this
+      # log is all it takes to update the file.
       - name: Within its size budget
         run: python tools/size_check.py windows-x64 "build/release/${{ inputs.project_name }}.exe" "package/${{ inputs.project_name }}.exe"
 
@@ -641,10 +641,10 @@ jobs:
           }
           Compress-Archive -Path package/* -DestinationPath windows-arm64-build.zip
 
-      # The .exe as linked and the copy that ships -- packed, if [upx] packs
-      # it -- each within 1.5% of its line in tools/size_budget.txt. The
-      # measured line is printed either way, so this log is all it takes to
-      # update the file.
+      # The .exe as linked and the copy that ships -- packed, if [upx] packs it
+      # -- each held to its line in tools/size_budget.txt (past 1.5% a warning,
+      # past 10% a failure). The measured line is printed either way, so this
+      # log is all it takes to update the file.
       - name: Within its size budget
         run: python tools/size_check.py windows-arm64 "build/release/${{ inputs.project_name }}.exe" "package/${{ inputs.project_name }}.exe"
 

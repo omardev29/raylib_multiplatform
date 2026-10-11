@@ -1,4 +1,7 @@
-# What tools/sanitize_check.sh does not report, and why each line is here.
+# What clang's sanitizers do not report in the framework's Debug builds, and why
+# each line is here: cmake/sanitize.cmake passes it as -fsanitize-ignorelist, on
+# clang only -- gcc has no such list, so tools/sanitize_check.sh (the gcc run)
+# never reads it.
 # A line is a decision about code that is NOT ours; nothing under src/ or
 # include/ may ever be listed. Clang's -fsanitize-ignorelist format.
 
