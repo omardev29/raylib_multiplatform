@@ -1,12 +1,55 @@
 # tools/configure.py (package P8). mutmut 3 writes a whole copy of a function
-# for every mutant of it, and validate() is 614 lines: the mutated file was
-# 64.5 MB -- 4637 mutants, 1398 of them in validate() -- and mutmut did not get
-# past generating it: 25 minutes the first time, and 13 more with only these
-# tests and resolve_version selected (WP0's pilot, 2026-10-11). P8 splits
-# validate() and the other long functions first. Until then this file is that
-# pilot: resolve_version() and the two test classes that call it.
+# for every mutant of it, and Python's parser is superlinear on a file of
+# f-strings: with validate() at 614 lines the mutated file was 1.1M lines and
+# its generation never finished. Split a table a function (main, gen_cmake and
+# generate_icons too), it is 218k lines, 18 s to generate and 106 s to parse.
+#
+# The tests are what reaches configure.py in-process: the properties, and the
+# classes of configure_test.py that call it rather than start it as a program
+# (which would compile the 11 MB mutated file on every start) or read its text
+# as a gate (ConfigureRejectionCoverageTest parses validate(), a trampoline in
+# mutmut's copy). The selected mutants are the functions those reach; left
+# out, each with its reason: main(), argument_parser(), answer(), generate(),
+# report(), compute_stamp() and _print_matrix() run only as a program;
+# write() is the one function every test replaces; schema() is ConfigTablesTest's,
+# which starts the program too; the icons need Pillow and draw pixels nobody
+# compares; warn() and the two __init__ are a line each.
+# ToolsReadBackTest starts a compiler, CMake or a JVM for each example: it is
+# what vouches for the readers BuildFilesTest uses, which kill the same mutants.
+#
+# Measured in the image on 2026-10-11, mutmut 3.8.0: 3577 selected mutants,
+# 2520 detected, 1057 survived, none without a test = 70.45%, 94 min with 3
+# children (82 s of it generating). The most survivors: gen_dev_linker (138 of
+# 157) and gen_dev_toolchain (86 of 111), CMake written as string literals that
+# only a configure with a real compiler judges; then gen_ios_project's template
+# (47), validate_deploy's messages (46), narrow_to's (34).
 kind     py
 sources  tools/configure.py
+tests    tests/configure_property_test.py::TotalTest tests/configure_property_test.py::TakenTest
+tests    tests/configure_property_test.py::BuildFilesTest tests/configure_property_test.py::EncodersTest
+tests    tests/configure_property_test.py::VersionTest tests/configure_property_test.py::ReadersTest
+tests    tests/configure_property_test.py::TargetsTest tests/configure_property_test.py::RepoFilesTest
+tests    tests/configure_property_test.py::CommentsTest tests/configure_property_test.py::GeneratedTest
 tests    tests/configure_test.py::ConfigureVersionTest tests/configure_test.py::ConfigureVersionCodeCeilingTest
-select   tools.configure.x_resolve_version*
-floor    -
+tests    tests/configure_test.py::ConfigureTargetsTest tests/configure_test.py::ConfigureUpxTest
+tests    tests/configure_test.py::ConfigureUpxSizeCapTest tests/configure_test.py::ConfigureValidateTest
+tests    tests/configure_test.py::ConfigureHelpersTest tests/configure_test.py::ConfigureGeneratorsTest
+tests    tests/configure_test.py::ConfigureLocateTest tests/configure_test.py::ConfigureErrorLocationTest
+tests    tests/configure_test.py::ConfigureWindowPacingTest tests/configure_test.py::ConfigureAdmobIdsTest
+tests    tests/configure_test.py::EveryOptionRefusesTheWrongTypeTest tests/configure_test.py::ConfigureCombinationTest
+tests    tests/configure_test.py::ConfigureHostToolchainTest tests/configure_test.py::ConfigureSanitizeTest
+tests    tests/configure_test.py::ConfigureWebBackendTest tests/configure_test.py::ConfigureMembershipTest
+tests    tests/configure_test.py::ConfigurePlatformTest tests/configure_test.py::ConfigureMaxDeltaTest
+tests    tests/configure_test.py::ConfigureNotANumberTest tests/configure_test.py::ConfigureWholeValueTest
+tests    tests/configure_test.py::ConfigureReadBackTest tests/configure_test.py::ConfigureEveryRejectionFiresTest
+tests    tests/configure_test.py::ConfigureProjectNameTest tests/configure_test.py::ConfigureListValueTest
+tests    tests/configure_test.py::ConfigureStringValueTest tests/configure_test.py::ConfigureRresPasswordTest
+tests    tests/configure_test.py::ConfigureAudioTest tests/configure_test.py::ConfigureTableShapeTest
+tests    tests/configure_test.py::ConfigureSaveTest tests/configure_test.py::WebSavesLinkTest
+tests    tests/configure_test.py::CiOnPushTest tests/configure_test.py::GradleOfflineTest
+tests    tests/configure_test.py::IosRefusesOutOfOrderInitialisersTest tests/configure_test.py::ConfigureRaylibFlagsTest
+tests    tests/configure_test.py::ConfigureFrozenVersionsTest tests/configure_test.py::ConfigureLicencesTest
+tests    tests/configure_test.py::ConfigureGlibcFloorTest tests/configure_test.py::ConfigureUnreadableTomlTest
+tests    tests/configure_test.py::ConfigureLineTest
+select   tools.configure.x_validate* tools.configure.x_deep_merge* tools.configure.x_load_config* tools.configure.x_list_of_strings* tools.configure.x_a_string* tools.configure.x_one_of* tools.configure.x_on_windows* tools.configure.x_on_macos* tools.configure.x_admob_on* tools.configure.x_expand_* tools.configure.x_narrow_to* tools.configure.x_resolve_version* tools.configure.x_locate* tools.configure.x__key_of* tools.configure.x__header_of* tools.configure.x__names* tools.configure.x_toml_comments* tools.configure.x__comment_start* tools.configure.x_frozen_versions* tools.configure.x_parse_raylib_config* tools.configure.x_raylib_defs* tools.configure.x_gen_* tools.configure.x_cmake_escape* tools.configure.x__c_* tools.configure.x_setting* tools.configure.x_app_defines* tools.configure.x__java_property* tools.configure.x_yaml_scalar* tools.configure.x_ci_trigger_block* tools.configure.x_sync_ci_triggers* tools.configure.x_licenses_text*
+floor    70

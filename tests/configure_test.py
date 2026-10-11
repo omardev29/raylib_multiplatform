@@ -283,6 +283,38 @@ class ConfigureVersionTest(unittest.TestCase):
         with quiet():
             self.assertEqual(self.at_tag("1.2.3"), ("0.0.0-dev", 1))
 
+    def test_digits_are_ascii(self):
+        """`\\d` is any Unicode digit: v١.٢.٣ (Arabic-Indic) was version
+        '١.٢.٣' with code 1002003 -- a release name no store shows, and the
+        code of v1.2.3 (defect 2 of the phase 16 design)."""
+        for tag in ("v١.٢.٣", "v1.2.٣", "v１.2.3"):
+            with self.subTest(tag=tag):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.at_tag(tag)
+                self.assertIn("ASCII", str(caught.exception))
+
+    def test_a_leading_zero_is_refused_and_says_whose_code_it_would_take(self):
+        """v01.2.3 and v1.2.3 were two release names with one versionCode,
+        1002003 -- the collision the anchored pattern exists to prevent.
+        Semantic versioning has no leading zero either."""
+        for tag, twin in (("v01.2.3", "v1.2.3"), ("v1.02.3", "v1.2.3"), ("v1.2.03", "v1.2.3"),
+                          ("v00.0.1", "v0.0.1")):
+            with self.subTest(tag=tag):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.at_tag(tag)
+                self.assertIn("leading zero", str(caught.exception))
+                self.assertIn(twin, str(caught.exception))
+        self.assertEqual(self.at_tag("v0.10.100"), ("0.10.100", 10_100))
+
+    def test_v0_0_0_is_refused_because_its_code_is_0(self):
+        """Android's versionCode is a positive integer, and 0.0.0 packs to 0
+        -- a pre-release of it as well."""
+        for tag in ("v0.0.0", "v0.0.0-rc1", "v0.0.0+build"):
+            with self.subTest(tag=tag):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.at_tag(tag)
+                self.assertIn("versionCode 0", str(caught.exception))
+
 
 class ConfigureTargetsTest(unittest.TestCase):
     """expand_targets(): groups overlap on purpose, and must not double up."""
@@ -1863,7 +1895,10 @@ class ConfigureHelpersTest(unittest.TestCase):
         self.assertEqual(cfgmod.yaml_scalar(True), "YES")
         self.assertEqual(cfgmod.yaml_scalar(False), "NO")
         self.assertEqual(cfgmod.yaml_scalar(15), "15")
-        self.assertEqual(cfgmod.yaml_scalar("plain"), "plain")
+        # Every string is quoted: plain, YAML reads one by its type, and "true",
+        # "1.5" and "*x" needed quotes that no character in them asked for
+        # (ConfigureReadBackTest).
+        self.assertEqual(cfgmod.yaml_scalar("plain"), '"plain"')
         for needs_quotes in ("", "a: b", "#hash", "[list]", "with, comma", " padded "):
             with self.subTest(value=needs_quotes):
                 self.assertTrue(cfgmod.yaml_scalar(needs_quotes).startswith('"'))
@@ -5825,6 +5860,494 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         self.assertNotIn("float step_delta()", (REPO / "src" / "rmp" / "app.cpp").read_text())
 
 
+class ConfigureNotANumberTest(unittest.TestCase):
+    """TOML has nan, and every comparison with it is false: `[app] max_delta =
+    nan` passed `md < 0`, `md > 1` and `0 < md < 1/240` alike, `[ui] scale =
+    nan` passed `< 0` and `> 8`, and _c_float() wrote `nanf` into
+    rmp/config.h, which does not compile (defect 1 of the phase 16 design;
+    found again by tests/configure_property_test.py). And what config.h holds
+    is a C literal of exactly the value, whatever the value is."""
+
+    NAN, INF = float("nan"), float("inf")
+
+    def test_nan_is_refused_where_a_number_of_seconds_goes(self):
+        cfg = base_config(app={"max_delta": self.NAN})
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("[app] max_delta = nan is not a number", str(caught.exception))
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_nan_is_refused_where_a_scale_goes(self):
+        cfg = base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]), scale=self.NAN))
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("[ui] scale = nan must be a number between 0 and 8", str(caught.exception))
+
+    def test_no_number_the_header_takes_can_be_nan_or_infinite(self):
+        """Every float the header carries, each of the three that are not a
+        number C can write."""
+        floats = [key for entry in cfgmod.APP_DEFINES if not isinstance(entry, str)
+                  and entry[2] is cfgmod._c_float for key in [entry[1]]]
+        self.assertEqual(len(floats), 6)
+        for key in floats:
+            section, name = key.split(".")
+            for bad in (self.NAN, self.INF, -self.INF):
+                with self.subTest(key=key, value=bad):
+                    cfg = base_config(**{section: dict(copy.deepcopy(cfgmod.DEFAULTS[section]),
+                                                       **{name: bad})})
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(cfg, False)
+
+    def test_a_float_c_cannot_write_is_refused_by_the_writer_too(self):
+        for bad in (self.NAN, self.INF, -self.INF):
+            with self.subTest(value=bad), self.assertRaises(cfgmod.ConfigError):
+                cfgmod._c_float(bad)
+        self.assertEqual(cfgmod._c_float(0.05), "0.05f")
+        self.assertEqual(cfgmod._c_float(1), "1.0f")
+
+    def test_a_control_character_is_an_escape_in_the_literal(self):
+        """`rres_password = "a\\nb"` passed validate() and wrote a raw newline
+        into the middle of a C string literal: a header that does not
+        compile. Three octal digits, always: `\\0` or `\\x` would run into a
+        digit after them."""
+        self.assertEqual(cfgmod._c_string("a\nb"), '"a\\012b"')
+        self.assertEqual(cfgmod._c_string("\x00" + "7"), '"\\0007"')
+        self.assertEqual(cfgmod._c_string("tab\there\x7f"), '"tab\\011here\\177"')
+        self.assertEqual(cfgmod._c_string('say "hi" \\ é'), '"say \\"hi\\" \\\\ é"')
+        # [ui] font, a string nothing refuses a control character in: the
+        # password does now (ConfigureRresPasswordTest).
+        cfg = base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]), font="line one\nline two"))
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+                cfgmod.gen_app_config(cfg)
+        finally:
+            cfgmod.write = original
+        self.assertIn('#define RMP_UI_FONT         "line one\\012line two"\n', captured["config.h"])
+
+    def test_a_trigraph_is_broken_in_the_literal(self):
+        """`title = "??/"` was `"??/"` in config.h: in a C that reads
+        trigraphs, a backslash that escaped the closing quote; in one that
+        does not, gcc's -Wtrigraphs, an error under -Werror. Found by
+        tests/configure_property_test.py at the nightly profile."""
+        self.assertEqual(cfgmod._c_string("??/"), '"?\\?/"')
+        self.assertEqual(cfgmod._c_string("???=x?"), '"?\\?\\?=x?"')
+        self.assertEqual(cfgmod._c_string("? ?"), '"? ?"')
+        cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="Why??!"))
+        with generated_header(cfg) as text:
+            self.assertIn('#define RMP_WINDOW_TITLE    "Why?\\?!"\n', text)
+
+    TOO_CLOSE = "is too close to 0 for a C float, which holds it as 0 --"
+
+    def test_a_number_a_float_holds_as_0_is_refused_at_its_line(self):
+        """`[ui] scale = 1e-50` passed 0 <= scale <= 8 and reached config.h as
+        `1e-50f`: C's float holds that as 0 -- automatic, for a scale -- and
+        clang (-Wliteral-range) and gcc (-Woverflow) warn about the literal,
+        an error under -Werror. Found by tests/configure_property_test.py,
+        ToolsReadBackTest, once every define was read by the compiler."""
+        then = {"scale": "Use 0 for that, or a scale the eye can see, like 0.5.",
+                "deadzone": "Use 0 to turn it off, or a fraction a stick can feel, like 0.1.",
+                "audio": "Use 0 for silent."}
+        for section, key, means in (("ui", "scale", "derive it from the window"),
+                                    ("input", "deadzone", "no deadzone"),
+                                    ("audio", "master", "silent"), ("audio", "music", "silent"),
+                                    ("audio", "sfx", "silent")):
+            for tiny in (1e-50, 5e-324, 7e-46):
+                with self.subTest(key=f"{section}.{key}", value=tiny):
+                    cfg = base_config(**{section: dict(copy.deepcopy(cfgmod.DEFAULTS[section]),
+                                                       **{key: tiny})})
+                    with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                        cfgmod.validate(cfg, False)
+                    self.assertEqual(str(caught.exception),
+                                     f"[{section}] {key} = {tiny!r} {self.TOO_CLOSE} {means} -- "
+                                     "and the compiler warns about it.\n"
+                                     + then.get(key, then["audio"]))
+                    self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+        # The smallest a float holds, and 0, are what they say.
+        for value in (1e-40, 7.1e-46, 0, 0.0):
+            with self.subTest(value=value), quiet():
+                cfgmod.validate(base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]),
+                                                    scale=value)), False)
+
+    def test_the_writer_refuses_a_number_a_float_does_not_hold(self):
+        for bad in (1e-50, 7e-46, 1e39, -1e39, 10**400):
+            with self.subTest(value=bad), self.assertRaises(cfgmod.ConfigError) as caught:
+                cfgmod._c_float(bad)
+            self.assertEqual(str(caught.exception),
+                             f"{bad!r} is not a number rmp/config.h can hold: C has no literal "
+                             "for nan or an infinity, and a float holds neither a number past "
+                             "its range nor one this close to 0.")
+        self.assertEqual(cfgmod._c_float(1e-40), "1e-40f")
+        self.assertEqual(cfgmod._c_float(3.4e38), "3.4e+38f")
+        self.assertEqual(cfgmod._c_float(-0.0), "-0.0f")
+
+
+class ConfigureWholeValueTest(unittest.TestCase):
+    """A pattern validate() checks a value with is the whole value. Every one
+    of them was `^...$`, and Python's `$` matches before a final newline too:
+    `name = "game\\n"` was taken, and became a CMake target, a file name and
+    an Android library name with a newline in it. Found by
+    tests/configure_property_test.py, TakenTest."""
+
+    # (key path, a value it takes)
+    SHAPED = [(("project", "name"), "game"),
+              (("android", "application_id"), "com.real.game"),
+              (("ios", "bundle_id"), "com.real.game"),
+              (("linux", "glibc"), "2.28"),
+              (("ios", "deployment_target"), "15.6"),
+              (("icon", "adaptive_background"), "#3DDC84"),
+              (("deploy", "itch", "user"), "me"),
+              (("deploy", "itch", "game"), "game"),
+              (("deploy", "firebase", "project_id"), "my-project"),
+              (("deploy", "firebase", "device"), "model=MediumPhone.arm,version=33")]
+
+    def config(self, path, value):
+        cfg = base_config()
+        cfg["deploy"]["itch"].update(user="me", game="game")   # a pair, or neither
+        node = cfg
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+        return cfg
+
+    def test_each_takes_its_value(self):
+        for path, good in self.SHAPED:
+            with self.subTest(key=path), quiet():
+                cfgmod.validate(self.config(path, good), False)
+
+    def test_a_trailing_newline_is_not_part_of_it(self):
+        for path, good in self.SHAPED:
+            with self.subTest(key=path):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.config(path, good + "\n"), False)
+                self.assertIn(f"{path[-1]} = ", str(caught.exception))
+
+    def test_the_names_rmp_new_checks_are_whole_too(self):
+        """tools/rmp.py reads NAME_RE, APPID_RE and BUNDLE_RE with .match()."""
+        for pattern, good in ((cfgmod.NAME_RE, "game"), (cfgmod.APPID_RE, "com.real.game"),
+                              (cfgmod.BUNDLE_RE, "com.real.game")):
+            with self.subTest(pattern=pattern.pattern):
+                self.assertTrue(pattern.match(good))
+                self.assertIsNone(pattern.match(good + "\n"))
+
+    def test_the_deployment_target_is_in_ascii_digits(self):
+        """`\\d` took ١٥.٦ (Arabic-Indic), int() read it as 15, and Xcode got
+        IPHONEOS_DEPLOYMENT_TARGET "١٥.٦"."""
+        for bad in ("١٥.٦", "1٥.6", "15.６"):
+            with self.subTest(target=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.config(("ios", "deployment_target"), bad), False)
+                self.assertIn("[ios] deployment_target", str(caught.exception))
+
+    def test_an_unknown_name_above_every_section_is_found_on_its_line(self):
+        """`zzz = 1` above every section was refused as unknown with where
+        ("zzz", None) -- a [zzz] header nobody wrote -- so it pointed nowhere."""
+        import tempfile
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfgmod.TOML = Path(tmp) / "raylib_multiplatform.toml"
+            for text, line in (("# top\nzzz = 1\n[window]\nwidth = 800\n", (2, "zzz = 1")),
+                               ("[zzz]\nx = 1\n", (1, "[zzz]"))):
+                with self.subTest(text=text):
+                    cfgmod.TOML.write_text(text)
+                    with self.assertRaises(cfgmod.ConfigError) as caught:
+                        cfgmod.load_config()
+                    self.assertIn("unknown key [zzz]", str(caught.exception))
+                    self.assertEqual(cfgmod.locate_from(caught.exception), line)
+
+    def test_a_quoted_key_is_found_on_its_line(self):
+        """An Xcode setting with a condition has to be quoted in TOML --
+        `"OTHER_LDFLAGS[sdk=iphoneos*]" = ...` -- and locate() compared the
+        text before the first `=` with the name: the quotes kept it from ever
+        matching, and that `=` is inside them. Found by
+        tests/configure_property_test.py, TotalTest."""
+        import tempfile
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfgmod.TOML = Path(tmp) / "raylib_multiplatform.toml"
+            cfgmod.TOML.write_text('[ios.settings]\nA = "x"\n"OTHER_LDFLAGS[sdk=iphoneos*]" = {}\n'
+                                   "'lit:eral' = 1\n\"esc\\\"aped\" = 2\n")
+            self.assertEqual(cfgmod.locate("ios.settings", "OTHER_LDFLAGS[sdk=iphoneos*]"),
+                             (3, '"OTHER_LDFLAGS[sdk=iphoneos*]" = {}'))
+            self.assertEqual(cfgmod.locate("ios.settings", "lit:eral"), (4, "'lit:eral' = 1"))
+            self.assertEqual(cfgmod.locate("ios.settings", 'esc"aped'), (5, '"esc\\"aped" = 2'))
+            self.assertEqual(cfgmod.locate("ios.settings", "A"), (2, 'A = "x"'))
+            with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                cfgmod.validate(cfgmod.load_config(), False)
+            self.assertEqual(cfgmod.locate_from(caught.exception)[0], 3)
+
+
+class ConfigureReadBackTest(unittest.TestCase):
+    """What a build system reads back is what the .toml said. Found by
+    tests/configure_property_test.py, each one seen red there and here."""
+
+    def generated(self, cfg) -> dict:
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+                cfgmod.gen_cmake(cfg)
+                cfgmod.gen_gradle_properties(cfg, ["android"])
+                cfgmod.gen_ios_project(cfg)
+        finally:
+            cfgmod.write = original
+        return captured
+
+    def test_gradle_reads_a_title_in_any_language(self):
+        """raymob/settings.gradle reads generated.properties with
+        Properties.load(InputStream), which is ISO-8859-1, and only the
+        backslash was escaped: `title = "Café"` was the Android app "CafÃ©".
+        A leading blank is skipped by load() unless it is escaped."""
+        for value, written in (("Café", "Caf\\u00E9"), ("日本", "\\u65E5\\u672C"),
+                               ("😀", "\\uD83D\\uDE00"), (" lead", "\\ lead"),
+                               ("\ttab", "\\ttab"), ("a\\b", "a\\\\b"), ("plain = 1: #!", "plain = 1: #!"),
+                               ("a\nb\rc\fd", "a\\nb\\rc\\fd"), ("bell\x07", "bell\\u0007")):
+            with self.subTest(value=value):
+                self.assertEqual(cfgmod._java_property(value), written)
+        cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="Café"))
+        self.assertIn("\napp.name=Caf\\u00E9\n", self.generated(cfg)["generated.properties"])
+
+    def test_an_id_nobody_reads_cannot_switch_admob_on(self):
+        """With AdMob off only an id's type is checked, and a newline in one
+        started a line of its own: `app_id = "x\\nadmob.enabled=true"` gave
+        Gradle a second admob.enabled, and Properties.load() keeps the last
+        (run on the JVM before the fix: admob.enabled=true)."""
+        cfg = base_config()
+        cfg["android"]["admob"]["app_id"] = "x\nadmob.enabled=true"
+        lines = self.generated(cfg)["generated.properties"].splitlines()
+        self.assertEqual([line for line in lines if line.startswith("admob.enabled=")],
+                         ["admob.enabled=false"])
+        self.assertIn("admob.app_id=x\\nadmob.enabled=true", lines)
+
+    def test_cmake_reads_a_password_with_a_dollar_as_written(self):
+        """`set(X "pa${x}ss")` expands ${x}: the pack was sealed with "pass"
+        and the game, reading RMP_RRES_PASSWORD, tried "pa${x}ss"."""
+        self.assertEqual(cfgmod.cmake_escape("pa${x}ss"), "pa\\${x}ss")
+        self.assertEqual(cfgmod.cmake_escape('$ENV{HOME} "\\'), '\\$ENV{HOME} \\"\\\\')
+        cfg = base_config(resources={"rres_password": "pa${x}ss"})
+        self.assertIn('set(TEMPLATE_RRES_PASSWORD "pa\\${x}ss")',
+                      self.generated(cfg)["project.cmake"])
+
+    def test_xcodegen_reads_a_title_as_a_string(self):
+        """A plain YAML scalar is read by type: a title "true" was a boolean,
+        "1.5" a number, "*x" an alias of nothing, and a control character
+        inside quotes is not YAML at all."""
+        for value, written in (("true", '"true"'), ("1.5", '"1.5"'), ("*x", '"*x"'),
+                               ("a\x07b", '"a\\x07b"'), ("line sep", '"line\\u2028sep"'),
+                               ('say "hi"\\', '"say \\"hi\\"\\\\"'), ("日本", '"日本"')):
+            with self.subTest(value=value):
+                self.assertEqual(cfgmod.yaml_scalar(value), written)
+        self.assertEqual(cfgmod.yaml_scalar(True), "YES")
+        self.assertEqual(cfgmod.yaml_scalar(["-ObjC", "-lz"]), '["-ObjC", "-lz"]')
+        yaml = require_yaml(self)
+        cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="true"))
+        cfg["ios"]["settings"] = {"OTHER_LDFLAGS": ["-ObjC", "-lz"], "A B: c": "x",
+                                  "OTHER_CPLUSPLUSFLAGS": ["-DONE", "-DTWO"]}
+        spec = yaml.safe_load(self.generated(cfg)["project.yml"])
+        base = spec["targets"][cfg["project"]["name"]]["settings"]["base"]
+        self.assertEqual(base["INFOPLIST_KEY_CFBundleDisplayName"], "true")
+        self.assertEqual(base["OTHER_LDFLAGS"], ["-ObjC", "-lz"])
+        self.assertEqual(base["A B: c"], "x")
+        self.assertEqual(base["OTHER_CPLUSPLUSFLAGS"],
+                         f"$(inherited) {cfgmod.IOS_STRICT_CXX_FLAGS} -DONE -DTWO")
+
+    def test_xcodegen_reads_the_project_name_and_ids_as_strings(self):
+        """`name: NULL` was YAML's null and `bundleIdPrefix: yes` its true:
+        a project name NAME_RE takes and a bundle id BUNDLE_RE takes, written
+        plain into project.yml. Found by tests/configure_property_test.py at
+        the nightly profile."""
+        yaml = require_yaml(self)
+        for name, bundle in (("NULL", "com.real.game"), ("yes", "yes.game"), ("On", "off.on.no")):
+            with self.subTest(name=name, bundle=bundle):
+                cfg = base_config(project={"name": name})
+                cfg["ios"]["bundle_id"] = bundle
+                spec = yaml.safe_load(self.generated(cfg)["project.yml"])
+                self.assertEqual(spec["name"], name)
+                self.assertEqual(list(spec["targets"]), [name])
+                self.assertEqual(spec["options"]["bundleIdPrefix"], bundle.rsplit(".", 1)[0])
+                base = spec["targets"][name]["settings"]["base"]
+                self.assertEqual(base["PRODUCT_NAME"], name)
+                self.assertEqual(base["PRODUCT_BUNDLE_IDENTIFIER"], bundle)
+
+    def test_an_xcode_setting_holds_a_string_a_number_a_switch_or_a_list(self):
+        """A table, a date or a list of lists is no build setting: refused,
+        where it used to reach Xcode as the text of a Python dict."""
+        for value in ({"a": 1}, [["x"]], [{"a": 1}]):
+            with self.subTest(value=value):
+                cfg = base_config()
+                cfg["ios"]["settings"] = {"OTHER_LDFLAGS": value}
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn("is not something an Xcode build setting holds", str(caught.exception))
+                self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+        import datetime
+        cfg = base_config()
+        cfg["ios"]["settings"] = {"WHEN": datetime.date(2026, 10, 11)}
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(cfg, False)
+        cfg["ios"]["settings"] = {"A": "x", "B": 2, "C": 1.5, "D": True, "E": ["x", 1, False]}
+        with quiet():
+            cfgmod.validate(cfg, False)
+
+
+class ConfigureUnreadableTomlTest(unittest.TestCase):
+    """A .toml tomllib cannot even read is a ConfigError too, never a
+    traceback (R7 of the phase 16 design). Found by
+    tests/configure_property_test.py, TotalTest.test_any_bytes_are_refused_or_read."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        cfgmod.TOML = Path(self._tmp.name) / "raylib_multiplatform.toml"
+
+    def refusal(self, data: bytes) -> str:
+        cfgmod.TOML.write_bytes(data)
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            cfgmod.load_config()
+        with quiet():
+            cfgmod.report(caught.exception)   # it reads the file again
+        return str(caught.exception)
+
+    def test_a_file_that_is_not_utf8_says_which_byte_on_which_line(self):
+        """An editor that saved it as Latin-1: UnicodeDecodeError from inside
+        tomllib, and a traceback."""
+        message = self.refusal('# ok\n[window]\ntitle = "Café"\n'.encode("latin-1"))
+        self.assertEqual(message, "raylib_multiplatform.toml is not UTF-8: byte 0xe9 on line 3 "
+                                  "is not a character in it.\nTOML files are UTF-8. Save the "
+                                  "file as UTF-8 -- most editors have it under \"Save with "
+                                  "encoding\".")
+        self.assertIsNone(cfgmod.locate("window", "title"), "no line in a file it cannot read")
+
+    def test_a_toml_that_cannot_be_opened_says_why(self):
+        """A folder called raylib_multiplatform.toml: IsADirectoryError (a
+        PermissionError on Windows), a traceback."""
+        cfgmod.TOML.mkdir()
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            cfgmod.load_config()
+        self.assertRegex(str(caught.exception),
+                         r"\Araylib_multiplatform\.toml cannot be read: \S.*\.\Z")
+
+    def test_nesting_deeper_than_tomllib_reads_is_refused(self):
+        """tomllib recurses into a nested array or inline table, and a few
+        hundred levels were a RecursionError."""
+        for data in (b"[window]\ntitle = " + b"[" * 2000 + b"]" * 2000 + b"\n",
+                     b"a = " + b"{b = " * 1500 + b"1" + b"}" * 1500 + b"\n"):
+            with self.subTest(data=data[:24]):
+                self.assertEqual(self.refusal(data),
+                                 "raylib_multiplatform.toml nests arrays or inline tables deeper "
+                                 "than it can be read.\nNo setting nests them more than a level "
+                                 "or two; look for a long run of [ or {.")
+
+
+class ConfigureLineTest(unittest.TestCase):
+    """The line an error points at is the line that says it, however TOML
+    lets it be written. Each was found by tests/configure_property_test.py,
+    TotalTest or ReadersTest, once the test's writer wrote tables each way
+    TOML has and its lines were counted as TOML counts them."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        cfgmod.TOML = Path(self._tmp.name) / "raylib_multiplatform.toml"
+
+    def pointed(self, text: str) -> tuple[int, str] | None:
+        cfgmod.TOML.write_bytes(text.encode("utf-8"))
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfgmod.load_config(), False)
+        return cfgmod.locate_from(caught.exception)
+
+    def test_a_table_nobody_has_is_found_on_its_own_header(self):
+        """[window.zzz] pointed at [window], and at nothing with no [window]
+        in the file; [android.admob.zzz] at nothing."""
+        for text, line in (('[project]\nname = "game"\n\n[window.zzz]\na = 1\n', 4),
+                           ('[window]\ntitle = "x"\n[window.zzz]\na = 1\n', 3),
+                           ("[android.admob.zzz]\na = 1\n", 1),
+                           ("[ios]\n[ios.settings]\n[ios.settings.\":\"]\n", 3)):
+            with self.subTest(text=text):
+                self.assertEqual(self.pointed(text)[0], line)
+
+    def test_a_dotted_key_is_found_on_its_line(self):
+        """`zzz.a = 1` above every section pointed nowhere, and `title.x = 1`
+        at [window]: the name was the text before the `=`, dots and all."""
+        self.assertEqual(self.pointed("# c\nzzz.a = 1\n"), (2, "zzz.a = 1"))
+        self.assertEqual(self.pointed("[window]\n# c\ntitle.x = 1\n"), (3, "title.x = 1"))
+        self.assertEqual(self.pointed('[window]\ntitle . "x" = 1\n'), (2, 'title . "x" = 1'))
+
+    def test_a_table_the_schema_has_is_found_however_it_is_written(self):
+        """`window.title = 5` and `window = {title = 5}` above every section,
+        `admob.app_id = 5` in [android] and `admob = {app_id = 5}` there: each
+        pointed nowhere, since a key was looked for only under the [header] of
+        its own table."""
+        for text, spot in (("# c\nwindow.title = 5\n", (2, "window.title = 5")),
+                           ("# c\nwindow = {title = 5}\n", (2, "window = {title = 5}")),
+                           ("[android]\nadmob.app_id = 5\n", (2, "admob.app_id = 5")),
+                           ("[android]\n# c\nadmob = {app_id = 5}\n", (3, "admob = {app_id = 5}")),
+                           ('[android]\n"admob" . "app_id" = 5\n', (2, '"admob" . "app_id" = 5'))):
+            with self.subTest(text=text):
+                self.assertEqual(self.pointed(text), spot)
+
+    def test_a_table_with_no_header_is_found_on_the_line_that_writes_it(self):
+        """`targets.enabled = []` has no [targets] to point at, and "[targets]:
+        nothing left to build" names the table: no line at all. Found by
+        tests/configure_property_test.py at the nightly profile. A key nobody
+        wrote in such a table is on that line too, as it would be on its
+        header; a table nobody wrote is nowhere."""
+        for text, spot in (("# c\ntargets.enabled = []\n", (2, "targets.enabled = []")),
+                           ("# c\ntargets = {enabled = []}\n", (2, "targets = {enabled = []}"))):
+            with self.subTest(text=text):
+                self.assertEqual(self.pointed(text), spot)
+                self.assertEqual(cfgmod.locate("targets", "disabled"), spot)
+        cfgmod.TOML.write_text("[deploy]\nitch.user = \"me\"\n")
+        self.assertEqual(cfgmod.locate("deploy.itch", "game"), (2, 'itch.user = "me"'))
+        self.assertIsNone(cfgmod.locate("deploy.firebase", "device"), "[deploy] is not where it is")
+        self.assertEqual(cfgmod.locate("deploy", "firebase"), (1, "[deploy]"))
+        self.assertIsNone(cfgmod.locate("deploy", "firebase", fallback=False))
+        self.assertIsNone(cfgmod.locate("ui", "scale"), "no [ui], and nothing writes it")
+
+    def test_a_key_inside_a_table_of_its_own_is_not_the_table(self):
+        """[android.admob] has app_id under it; asked where admob is, that is
+        the header, not the first key inside it."""
+        cfgmod.TOML.write_text("[android]\nx = 1\n[android.admob]\napp_id = \"a\"\n")
+        self.assertEqual(cfgmod.locate("android", "admob"), (3, "[android.admob]"))
+        self.assertEqual(cfgmod.locate("android.admob", "app_id"), (4, 'app_id = "a"'))
+        self.assertEqual(cfgmod.locate("android", "y"), (1, "[android]"))
+        self.assertEqual(cfgmod._key_of('a."b.c" . d = 1'), ("a", "b.c", "d"))
+        self.assertIsNone(cfgmod._key_of("= 1"))
+
+    def test_lines_are_counted_as_toml_counts_them(self):
+        """splitlines() breaks at U+2028, U+2029 and U+0085, which a TOML
+        comment or string holds as they are, and every line under one was
+        reported a line too far down; read_text() takes a lone CR for a line."""
+        for odd in ("\u2028", "\u2029", "\u0085"):
+            with self.subTest(character=odd):
+                self.assertEqual(self.pointed(f"[window]\n# a{odd}b\ntitle = 'x{odd}'\nwidth = 1\n"),
+                                 (4, "width = 1"))
+        cfgmod.TOML.write_bytes(b"[window]\r\n# a\rb\r\nwidth = 1\r\n")
+        self.assertEqual(cfgmod.locate("window", "width"), (3, "width = 1"))
+
+    def test_a_header_is_read_as_toml_reads_it(self):
+        """Quoted, spaced and doubled headers name their table; `[1, 2]` on a
+        line of its own is an array, not a section."""
+        cfgmod.TOML.write_text('[ deploy . "itch" ] # c\nuser = "a"\n[window]\nx = [\n[1, 2]\n]\n'
+                               "width = 1\n[[arr]]\nwidth = 2\n")
+        self.assertEqual(cfgmod.locate("deploy.itch", "user"), (2, 'user = "a"'))
+        self.assertEqual(cfgmod.locate("window", "width"), (7, "width = 1"))
+        self.assertEqual(cfgmod.locate("arr", None), (8, "[[arr]]"))
+        self.assertEqual(cfgmod._header_of('[ios.settings."A.B"]'), ("ios", "settings", "A.B"))
+        for line in ("[1, 2]", "[", "title = 1", "[window] x = 1"):
+            with self.subTest(line=line):
+                self.assertIsNone(cfgmod._header_of(line))
+
+
 def load_license_db():
     """tools/license_db.py, by path, the same way configure.py is loaded."""
     spec = importlib.util.spec_from_file_location("tools.license_db",
@@ -7095,7 +7618,9 @@ class RresPackTest(unittest.TestCase):
 
 
 def validate_rejections(source: str) -> list[tuple[int, str]]:
-    """(line, key phrase) for every `raise ConfigError` lexically in validate().
+    """(line, key phrase) for every `raise ConfigError` lexically in validate()
+    or in a validate_<table>() it calls -- one function a table, so that
+    mutmut can mutate it (tools/mutation.sh).
 
     Parsed, not grepped, so a `raise` inside a nested `if` or a loop counts the
     same as one at the top, and a ConfigError raised from somewhere else in the
@@ -7104,8 +7629,12 @@ def validate_rejections(source: str) -> list[tuple[int, str]]:
     as in `f"[android.{table}] {k} = ..."` -- the first literal sentence long
     enough to be distinctive.
     """
-    fn = next(n for n in ast.parse(source).body
-              if isinstance(n, ast.FunctionDef) and n.name == "validate")
+    functions = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+    called = [node.func.id for node in ast.walk(functions["validate"])
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+              and node.func.id.startswith("validate_") and node.func.id in functions]
+    fn = ast.Module(body=[functions["validate"], *(functions[name] for name in called)],
+                    type_ignores=[])
     hole = "\x00"
 
     def literal(node):
@@ -7717,6 +8246,29 @@ class ConfigureRresPasswordTest(unittest.TestCase):
     def test_the_default_password_reaches_the_generated_header(self):
         with generated_header(base_config()) as text:
             self.assertIn("RMP_RRES_PASSWORD", text)
+
+    def test_a_control_character_is_refused_at_its_line(self):
+        """The packer takes the password on the command line CMake writes for
+        it. `rres_password = "a\u0000b"` did not survive CMake (a parse error
+        on the host's, the NUL dropped in the image's), and a newline ended
+        the command where it stood: Unix Makefiles failed the build, Ninja
+        sealed the pack with "nlx" while the game opened it with "nl\nx".
+        Found by tests/configure_property_test.py, ToolsReadBackTest."""
+        for bad in ("a\x00b", "nl\nx", "cr\rx", "tab\tx", "del\x7f", "\x1b[0m"):
+            with self.subTest(password=bad):
+                cfg = base_config(resources={"rres_password": bad})
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertEqual(str(caught.exception),
+                                 f"[resources] rres_password = {bad!r} holds a control "
+                                 "character. The packer takes the password on a command line, "
+                                 "which cannot carry one: the pack would be sealed with another "
+                                 "password than the game opens it with.\nUse printable "
+                                 "characters only.")
+                self.assertEqual(caught.exception.where, ("resources", "rres_password"))
+        for good in ("pa${x}ss", "two words", "é日😀", "semi;colon", "\u0085 and \u2028"):
+            with self.subTest(password=good), quiet():
+                cfgmod.validate(base_config(resources={"rres_password": good}), False)
 
 
 class ConfigureVersionCodeCeilingTest(unittest.TestCase):

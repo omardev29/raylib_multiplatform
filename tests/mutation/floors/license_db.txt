@@ -1,11 +1,19 @@
-# tools/license_db.py (package P8). The tests are LicenceGuardTest, the class
-# of configure_test.py that calls it in-process: the whole file under mutmut
-# stopped at its first test that needs what mutmut's copy does not have (a
-# clang-tidy run against build/lint), "failed to collect stats", and no
-# mutant got a verdict. Measured in the image on 2026-10-11, mutmut 3.8.0:
-# 1020 mutants, 460 detected, 300 survived, 260 with no test = 45.10%, 101 s.
-# P8 sets the floor.
+# tools/license_db.py (package P8). The tests are its properties and
+# LicenceGuardTest, the class of configure_test.py that calls it in-process:
+# with all of configure_test.py, mutmut's stats run stopped at a test that
+# needs a build/lint its copy does not have, and no mutant got a verdict.
+# notice_text() and _comment_lines() are reached through configure.py too,
+# which imports the module as `license_db` -- a name mutmut records nothing
+# under -- so their properties are here.
+#
+# Measured in the image on 2026-10-11, mutmut 3.8.0: 1089 mutants, 867
+# detected, 222 survived, none without a test = 79.61%, 13 min with 3
+# children. WP0's pilot, LicenceGuardTest alone and check() one 174-line
+# function, was 45.10%; the most survivors now are _check_text's (56 of 130)
+# and _check_marks' (36 of 120) failure messages past their first words.
+# Again after review added the one-lie property (each rule of check() fails
+# its row alone): 870 detected = 79.89%, 21 min on a loaded machine.
 kind     py
 sources  tools/license_db.py
-tests    tests/configure_test.py::LicenceGuardTest
-floor    -
+tests    tests/license_db_property_test.py tests/configure_test.py::LicenceGuardTest
+floor    75

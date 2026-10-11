@@ -434,6 +434,17 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
     fails: list[str] = []
     submodules = submodule_paths(repo)
 
+    _check_inventory(rows, root, repo, fails)
+    # (2)-(5) per row.
+    for row in rows:
+        _check_row(row, rows, pins, repo, top, submodules, ok, fails)
+    _check_pins(rows, pins, fails)
+    _check_packaging(families, repo, ok, fails)
+    return ok, fails
+
+
+def _check_inventory(rows: list[Row], root: Path, repo: Path, fails: list[str]) -> None:
+    """(1): the tree and the record name the same components, each once."""
     # as_posix(): the block is written with slashes, and on Windows a path
     # prints with backslashes -- every component read as missing there.
     on_disk = inventory(root, repo)
@@ -459,121 +470,140 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
         fails.append(f"{row['path']}: in the components block, but not on disk. "
                      "Remove the row, or fix the path.")
 
-    # (2)-(5) per row.
-    for row in rows:
-        path = repo / row["path"]
-        label = row["name"]
-        elected = row.elected
 
-        if elected in REFUSED:
-            fails.append(f"{label}: {elected} -- {REFUSED[elected]}. Take the dependency "
-                         "out. If you believe the classification is wrong, fix the row and "
-                         "the fingerprint; a licence you had to argue about is a licence "
-                         "to walk away from.")
-            continue
+def _check_row(row: Row, rows: list[Row], pins: dict[str, str], repo: Path, top: Path,
+               submodules: set[str], ok: list[str], fails: list[str]) -> None:
+    """(2)-(5) for one row: its licence, its text, and the mark or pin it owes."""
+    path = repo / row["path"]
+    label = row["name"]
+    elected = row.elected
 
-        is_submodule = row["path"] in submodules
-        if is_submodule and path.is_dir() and not any(path.iterdir()):
-            ok.append(f"{label:24} submodule not checked out; nothing to read")
-            continue
+    if elected in REFUSED:
+        fails.append(f"{label}: {elected} -- {REFUSED[elected]}. Take the dependency "
+                     "out. If you believe the classification is wrong, fix the row and "
+                     "the fingerprint; a licence you had to argue about is a licence "
+                     "to walk away from.")
+        return
 
-        # The text on disk, and what it says.
-        evidence = row["evidence"]
-        if evidence.startswith("part-of:"):
-            parent = evidence[len("part-of:"):]
-            owner = next((r for r in rows if r["name"] == parent), None)
-            if owner is None:
-                fails.append(f"{label}: evidence names {parent!r}, which is not a row")
-            elif owner.elected != elected:
-                fails.append(f"{label}: is part of {parent} ({owner.elected}) but claims "
-                             f"{elected}")
-            else:
-                ok.append(f"{label:24} {elected:12} part of {parent}")
-        elif evidence.startswith("upstream:"):
-            if elected not in NO_NOTICE_OWED:
-                fails.append(f"{label}: no licence text on disk, only a URL, and {elected} "
-                             "requires the notice to travel with the code. Vendor the "
-                             "notice (file:<name>) or take the dependency out.")
-            else:
-                ok.append(f"{label:24} {elected:12} no notice owed; upstream recorded")
-        elif evidence == "file" or evidence.startswith("file:") or evidence == "header":
-            if not path.exists():
-                fails.append(f"{label}: {row['path']} does not exist")
-                continue
-            if evidence == "header":
-                source = path if path.is_file() else next(iter(sorted(path.glob("*.h"))), None)
-                text = "\n".join(l for _, l in _region(source)) if source else ""
-            else:
-                found = licence_file_for(path, evidence)
-                text = found.read_text(encoding="utf-8", errors="replace") if found else ""
-            if not text:
-                fails.append(f"{label}: no licence text found ({evidence}) at {row['path']}. "
-                             "Every component needs one: a LICENSE file, or a block in the "
-                             f"first {HEAD_LINES} / last {TAIL_LINES} lines of the source.")
-                continue
-            seen = classify(text)
-            missing = [f for f in row.families if f not in seen]
-            if missing:
-                fails.append(f"{label}: the row says {row['licences']} but the text at "
-                             f"{row['path']} reads as {','.join(seen) or 'UNKNOWN'}; "
-                             f"{','.join(missing)} not found in it")
-                continue
-            refused_seen = [f for f in seen if f in REFUSED and f not in row.families]
-            if refused_seen and elected not in NO_NOTICE_OWED and len(seen) == 1:
-                fails.append(f"{label}: the text at {row['path']} reads as "
-                             f"{','.join(refused_seen)}")
-                continue
-            ok.append(f"{label:24} {elected:12} {evidence}")
+    is_submodule = row["path"] in submodules
+    if is_submodule and path.is_dir() and not any(path.iterdir()):
+        ok.append(f"{label:24} submodule not checked out; nothing to read")
+        return
+
+    if not _check_text(row, rows, path, label, elected, ok, fails):
+        return
+    _check_marks(row, pins, repo, top, path, label, elected, is_submodule, fails)
+
+
+def _check_text(row: Row, rows: list[Row], path: Path, label: str, elected: str,
+                ok: list[str], fails: list[str]) -> bool:
+    """The text on disk says what the row says. False when that failed, and
+    the row has nothing more to be checked for."""
+    # The text on disk, and what it says.
+    evidence = row["evidence"]
+    if evidence.startswith("part-of:"):
+        parent = evidence[len("part-of:"):]
+        owner = next((r for r in rows if r["name"] == parent), None)
+        if owner is None:
+            fails.append(f"{label}: evidence names {parent!r}, which is not a row")
+        elif owner.elected != elected:
+            fails.append(f"{label}: is part of {parent} ({owner.elected}) but claims "
+                         f"{elected}")
         else:
-            fails.append(f"{label}: evidence = {evidence!r}; use file, file:<name>, header, "
-                         "part-of:<name> or upstream:<url>")
-            continue
+            ok.append(f"{label:24} {elected:12} part of {parent}")
+    elif evidence.startswith("upstream:"):
+        if elected not in NO_NOTICE_OWED:
+            fails.append(f"{label}: no licence text on disk, only a URL, and {elected} "
+                         "requires the notice to travel with the code. Vendor the "
+                         "notice (file:<name>) or take the dependency out.")
+        else:
+            ok.append(f"{label:24} {elected:12} no notice owed; upstream recorded")
+    elif evidence == "file" or evidence.startswith("file:") or evidence == "header":
+        if not path.exists():
+            fails.append(f"{label}: {row['path']} does not exist")
+            return False
+        if evidence == "header":
+            source = path if path.is_file() else next(iter(sorted(path.glob("*.h"))), None)
+            text = "\n".join(l for _, l in _region(source)) if source else ""
+        else:
+            found = licence_file_for(path, evidence)
+            text = found.read_text(encoding="utf-8", errors="replace") if found else ""
+        if not text:
+            fails.append(f"{label}: no licence text found ({evidence}) at {row['path']}. "
+                         "Every component needs one: a LICENSE file, or a block in the "
+                         f"first {HEAD_LINES} / last {TAIL_LINES} lines of the source.")
+            return False
+        seen = classify(text)
+        missing = [f for f in row.families if f not in seen]
+        if missing:
+            fails.append(f"{label}: the row says {row['licences']} but the text at "
+                         f"{row['path']} reads as {','.join(seen) or 'UNKNOWN'}; "
+                         f"{','.join(missing)} not found in it")
+            return False
+        refused_seen = [f for f in seen if f in REFUSED and f not in row.families]
+        if refused_seen and elected not in NO_NOTICE_OWED and len(seen) == 1:
+            fails.append(f"{label}: the text at {row['path']} reads as "
+                         f"{','.join(refused_seen)}")
+            return False
+        ok.append(f"{label:24} {elected:12} {evidence}")
+    else:
+        fails.append(f"{label}: evidence = {evidence!r}; use file, file:<name>, header, "
+                     "part-of:<name> or upstream:<url>")
+        return False
+    return True
 
-        # Modifications. A top-level component is marked by its own
-        # PATCHES.md; a file it bundles (raylib's src/external/, rres's
-        # external/) says so on its own row, and the change is in the
-        # bundling component's PATCHES.md, which has to name the file.
-        top_level = Path(row["path"]).parent == top
-        if row["modified"] in ("yes", "subset"):
-            if not top_level:
-                # A bundled file we changed says so on its own row, and the
-                # change is recorded where the component that bundles it keeps
-                # its mark: the nearest PATCHES.md above it, naming the file.
-                owner = next((d for d in path.parents if (d / "PATCHES.md").is_file()
-                              and repo in d.parents), None)
-                rel = path.relative_to(owner).as_posix() if owner else ""
-                if owner is None or rel not in owner.joinpath("PATCHES.md").read_text(encoding="utf-8"):
-                    fails.append(f"{label}: a bundled file marked modified needs its change in the "
-                                 "PATCHES.md of the component that bundles it, naming "
-                                 f"{rel or row['path']}")
-                continue
-            patches = path / "PATCHES.md" if path.is_dir() else path.parent / "PATCHES.md"
-            note = patches.read_text(encoding="utf-8") if patches.is_file() else ""
-            if "MODIFIED" not in note:
-                fails.append(f"{label}: marked modified, but {patches.relative_to(repo)} is "
-                             "missing or does not say MODIFIED. The zlib licence's clause 2 "
-                             "requires altered source to be plainly marked; that file is "
-                             "the mark.")
-        elif top_level and not is_submodule and pinned_sources(path):
-            # An unmodified component is pinned by content, so "unmodified" is
-            # a fact the guard recomputes and not a claim. It used to be only
-            # the single-file ones: rres (two headers) and cJSON (a .c and a
-            # .h) were unmodified on trust. A submodule is pinned by its commit.
-            key = "sha256_" + re.sub(r"[^a-z0-9]+", "_", label.lower())
-            want = pins.get(key)
-            have = pin_of(pinned_sources(path), path if path.is_dir() else None)
-            if want is None:
-                fails.append(f"{label}: unmodified component with no pin. Add "
-                             f"`{key} {have}` to the versions block of FROZEN_VERSIONS.md, "
-                             "or mark it modified with a PATCHES.md.")
-            elif want != have:
-                fails.append(f"{label}: sha256 {have[:16]}... does not match the pin "
-                             f"{want[:16]}... in FROZEN_VERSIONS.md. Either the file changed "
-                             "-- then mark it modified and write PATCHES.md -- or the pin is "
-                             "stale.")
-        elif elected in MARK_CHANGES and top_level and is_submodule:
-            pass  # pinned by the submodule commit itself
 
+def _check_marks(row: Row, pins: dict[str, str], repo: Path, top: Path, path: Path,
+                 label: str, elected: str, is_submodule: bool, fails: list[str]) -> None:
+    """A modified component is marked; an unmodified one is pinned by content."""
+    # Modifications. A top-level component is marked by its own
+    # PATCHES.md; a file it bundles (raylib's src/external/, rres's
+    # external/) says so on its own row, and the change is in the
+    # bundling component's PATCHES.md, which has to name the file.
+    top_level = Path(row["path"]).parent == top
+    if row["modified"] in ("yes", "subset"):
+        if not top_level:
+            # A bundled file we changed says so on its own row, and the
+            # change is recorded where the component that bundles it keeps
+            # its mark: the nearest PATCHES.md above it, naming the file.
+            owner = next((d for d in path.parents if (d / "PATCHES.md").is_file()
+                          and repo in d.parents), None)
+            rel = path.relative_to(owner).as_posix() if owner else ""
+            if owner is None or rel not in owner.joinpath("PATCHES.md").read_text(encoding="utf-8"):
+                fails.append(f"{label}: a bundled file marked modified needs its change in the "
+                             "PATCHES.md of the component that bundles it, naming "
+                             f"{rel or row['path']}")
+            return
+        patches = path / "PATCHES.md" if path.is_dir() else path.parent / "PATCHES.md"
+        note = patches.read_text(encoding="utf-8") if patches.is_file() else ""
+        if "MODIFIED" not in note:
+            fails.append(f"{label}: marked modified, but {patches.relative_to(repo)} is "
+                         "missing or does not say MODIFIED. The zlib licence's clause 2 "
+                         "requires altered source to be plainly marked; that file is "
+                         "the mark.")
+    elif top_level and not is_submodule and pinned_sources(path):
+        # An unmodified component is pinned by content, so "unmodified" is
+        # a fact the guard recomputes and not a claim. It used to be only
+        # the single-file ones: rres (two headers) and cJSON (a .c and a
+        # .h) were unmodified on trust. A submodule is pinned by its commit.
+        key = "sha256_" + re.sub(r"[^a-z0-9]+", "_", label.lower())
+        want = pins.get(key)
+        have = pin_of(pinned_sources(path), path if path.is_dir() else None)
+        if want is None:
+            fails.append(f"{label}: unmodified component with no pin. Add "
+                         f"`{key} {have}` to the versions block of FROZEN_VERSIONS.md, "
+                         "or mark it modified with a PATCHES.md.")
+        elif want != have:
+            fails.append(f"{label}: sha256 {have[:16]}... does not match the pin "
+                         f"{want[:16]}... in FROZEN_VERSIONS.md. Either the file changed "
+                         "-- then mark it modified and write PATCHES.md -- or the pin is "
+                         "stale.")
+    elif elected in MARK_CHANGES and top_level and is_submodule:
+        pass  # pinned by the submodule commit itself
+
+
+def _check_pins(rows: list[Row], pins: dict[str, str], fails: list[str]) -> None:
+    """(6): every content pin belongs to a row."""
     # (6) every content pin belongs to a row. A component taken out leaves its
     # sha256 behind in FROZEN_VERSIONS.md, pinning nothing, and a game made
     # from this framework without doctest would carry exactly that.
@@ -583,6 +613,9 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
             fails.append(f"{key}: a pin in FROZEN_VERSIONS.md for a component with no row "
                          "in the components block. Remove the pin, or the row is missing.")
 
+
+def _check_packaging(families, repo: Path, ok: list[str], fails: list[str]) -> None:
+    """(7): every family that ships names LICENSES.txt."""
     # (7) packaging: every family that ships names LICENSES.txt.
     for family in sorted(families):
         rel = FAMILY_FILES.get(family)
@@ -595,7 +628,6 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
                          "LICENSES.txt, so that family ships no third-party notice")
         else:
             ok.append(f"{'packaging':24} {family:12} {rel}")
-    return ok, fails
 
 
 def rows_for(rows: list[Row], family: str) -> list[Row]:
