@@ -7753,6 +7753,56 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
             for m in re.finditer(r"RAY_TEST_MAX_FRAMES=[^\n]*(?:\n[^\n]*){0,8}?\)\s*\|\|\s*true", text):
                 with self.subTest(at=f"{wf.name}:{text[:m.start()].count(chr(10)) + 1}"):
                     self.fail(f"{wf.name} starts a game and ignores how it exited")
+            for n, why in self.workflow_launches_that_ignore_the_exit(text):
+                with self.subTest(at=f"{wf.name}:{n}"):
+                    self.fail(f"{wf.name}:{n} {why}")
+
+    @staticmethod
+    def workflow_launches_that_ignore_the_exit(text: str) -> list[tuple[int, str]]:
+        """(line, why) for each start of a game in a workflow `text` that throws
+        its exit status away: a launch -- one command, its backslash lines
+        joined -- that ends in `|| true` with no `$( )` around it, which the
+        pattern above cannot see; or one that keeps it in RC and never reads
+        RC in the rest of its step."""
+        out = []
+        code = without_comments(text)
+        lines = code.splitlines()
+        for n, line in logical_lines(code):
+            if "RAY_TEST_MAX_FRAMES=" not in line:
+                continue
+            if re.search(r"\|\|\s*true\b", line):
+                out.append((n, "starts a game and ignores how it exited"))
+            if re.search(r"\bRC=\$\?", line):
+                rest = []
+                for later in lines[n:]:
+                    if re.match(r"^\s*- (name|uses):", later):
+                        break
+                    rest.append(later)
+                if not re.search(r'"\$RC"\s+-(eq|ne)\s+0', "\n".join(rest)):
+                    out.append((n, "keeps the game's exit status in RC and never reads it"))
+        return out
+
+    def test_a_workflow_launch_that_ignores_the_exit_is_found(self):
+        """Seen red: the forms the pattern above cannot see. A plain `|| true`
+        after the launch, and an RC nobody reads."""
+        plain = ("      - name: Boot\n        run: |\n"
+                 '          RAY_TEST_MAX_FRAMES=10 xvfb-run -a \\\n'
+                 '            timeout 120 qemu-riscv64-static -L / "$SHIP/x" \\\n'
+                 '            >"$OUT" 2>&1 < /dev/null || true\n')
+        kept = plain.replace(" || true\n", "; then RC=0; else RC=$?; fi\n").replace(
+            "          RAY_TEST_MAX_FRAMES", "          if RAY_TEST_MAX_FRAMES")
+        read = kept + '          test "$RC" -eq 0 || { echo "FAIL: status $RC"; exit 1; }\n'
+        read_late = kept + "      - name: Next\n        run: |\n" \
+                           '          test "$RC" -eq 0 || exit 1\n'
+        find = self.workflow_launches_that_ignore_the_exit
+        self.assertEqual(find(plain), [(3, "starts a game and ignores how it exited")])
+        self.assertEqual(find(kept),
+                         [(3, "keeps the game's exit status in RC and never reads it")])
+        self.assertEqual(find(read), [])
+        self.assertEqual(find(read_late),
+                         [(3, "keeps the game's exit status in RC and never reads it")])
+        # A comment that says `|| true` is not a launch.
+        self.assertEqual(find("          # RAY_TEST_MAX_FRAMES=10 game || true\n"), [])
 
     def test_every_launch_reads_dev_null(self):
         found = list(self.launches())
