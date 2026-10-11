@@ -191,18 +191,26 @@ def report(folder: Path) -> int:
     gh("label", "create", LABEL, "--color", "B60205", "--force",
        "--description", "Found by the deep runs: take these first")
     for f in findings:
-        listed = json.loads(gh("issue", "list", "--label", LABEL, "--state", "open",
+        # Open and closed: an open one is commented on, a closed one is named
+        # by the new issue -- the fix that closed it did not hold.
+        listed = json.loads(gh("issue", "list", "--label", LABEL, "--state", "all",
                                "--search", f"{f['signature']} in:title", "--json",
-                               "number,title", "--limit", "20"))
+                               "number,title,state", "--limit", "20"))
         mine = [i for i in listed if f"[{f['signature']}]" in i["title"]]
-        if mine:
-            gh("issue", "comment", str(mine[0]["number"]), "--body-file", "-",
+        still_open = [i for i in mine if str(i.get("state", "")).upper() == "OPEN"]
+        if still_open:
+            gh("issue", "comment", str(still_open[0]["number"]), "--body-file", "-",
                stdin=f"Found again: {os.environ.get('RUN_URL', 'this run')}")
-            print(f"  again  #{mine[0]['number']} {f['title']}")
-        else:
-            url = gh("issue", "create", "--title", f["title"], "--label", LABEL,
-                     "--body-file", "-", stdin=f["body"]).strip()
-            print(f"  new    {url} {f['title']}")
+            print(f"  again  #{still_open[0]['number']} {f['title']}")
+            continue
+        body = f["body"]
+        if mine:
+            closed = ", ".join(f"#{i['number']}" for i in mine)
+            body = (f"**It came back.** The same signature was closed before: {closed}. "
+                    "Whatever fixed it did not hold.\n\n" + body)
+        url = gh("issue", "create", "--title", f["title"], "--label", LABEL,
+                 "--body-file", "-", stdin=body).strip()
+        print(f"  {'back' if mine else 'new'}   {url} {f['title']}")
     # The jobs that found them are red already; this one did its job.
     return 0
 

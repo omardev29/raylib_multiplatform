@@ -932,7 +932,9 @@ class FindingTest(unittest.TestCase):
 
     def test_one_issue_per_signature(self):
         """`report` against a stand-in gh: a new signature is an issue, one
-        that is open already is a comment on it."""
+        that is open already is a comment on it, and one that was closed is a
+        new issue that names the closed one -- the docstring said so from the
+        start, and the first version asked gh for open issues only."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             found = root / "findings"
@@ -943,6 +945,7 @@ class FindingTest(unittest.TestCase):
             calls = root / "calls"
             gh = root / "gh"
             listed = root / "listed.json"
+            created = root / "created.md"
 
             def report(issues):
                 listed.write_text(json.dumps(issues))
@@ -950,11 +953,12 @@ class FindingTest(unittest.TestCase):
                               f'echo "$*" >> "{calls}"\n'
                               'case "$1 $2" in\n'
                               f'  "issue list") cat "{listed}" ;;\n'
-                              '  "issue create") cat > /dev/null; echo https://issue/7 ;;\n'
+                              f'  "issue create") cat > "{created}"; echo https://issue/7 ;;\n'
                               '  "issue comment") cat > /dev/null ;;\n'
                               'esac\n')
                 gh.chmod(0o755)
                 calls.write_text("")
+                created.write_text("")
                 got = subprocess.run([sys.executable, str(TOOLS / "finding.py"), "report",
                                       str(found)], capture_output=True, text=True,
                                      env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}"})
@@ -963,11 +967,26 @@ class FindingTest(unittest.TestCase):
 
             self.assertEqual(report([]), [["label", "create"], ["issue", "list"],
                                           ["issue", "create"]])
-            self.assertEqual(report([{"number": 7, "title": record["title"]}]),
+            self.assertNotIn("came back", created.read_text())
+            self.assertIn("--state all", calls.read_text())
+            self.assertEqual(report([{"number": 7, "title": record["title"], "state": "OPEN"}]),
                              [["label", "create"], ["issue", "list"], ["issue", "comment"]])
             # A title that only mentions the signature elsewhere is not its issue.
-            self.assertEqual(report([{"number": 8, "title": "about " + record["signature"]}]),
+            self.assertEqual(report([{"number": 8, "title": "about " + record["signature"],
+                                      "state": "OPEN"}]),
                              [["label", "create"], ["issue", "list"], ["issue", "create"]])
+            self.assertNotIn("came back", created.read_text())
+            # Closed: not reopened, and not forgotten either.
+            self.assertEqual(report([{"number": 5, "title": record["title"], "state": "CLOSED"}]),
+                             [["label", "create"], ["issue", "list"], ["issue", "create"]])
+            self.assertIn("It came back.** The same signature was closed before: #5.",
+                          created.read_text())
+            self.assertIn("bash tools/fuzz.sh replay", created.read_text())
+            # Closed once and open again: the open one is the issue.
+            self.assertEqual(report([{"number": 5, "title": record["title"], "state": "CLOSED"},
+                                     {"number": 9, "title": record["title"], "state": "OPEN"}]),
+                             [["label", "create"], ["issue", "list"], ["issue", "comment"]])
+            self.assertIn("issue comment 9 ", calls.read_text())
         self.assertIn(f"[{record['signature']}]", record["title"])
         self.assertTrue(record["title"].startswith("nightly-finding: fuzz save_decode: "))
         self.assertIn("bash tools/fuzz.sh replay", record["body"])
