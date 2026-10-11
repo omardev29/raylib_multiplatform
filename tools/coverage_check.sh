@@ -166,6 +166,30 @@ run unit_test 'Status: SUCCESS'
 run ui_layout_test '^PASS$'
 run input_play '^INPUT PASS$'
 
+# input_play once more, as the CI smoke test starts a game: under
+# RAY_TEST_MAX_FRAMES, its window at a size of RAY_TEST_WINDOW's. That is
+# app.cpp's smoke path -- the save round trip before RAY_TEST_BOOT_OK, the
+# window it opens, the count RAY_TEST_REPORTS prints on the last frame -- which
+# a run that is not the smoke test never reaches. Its own profile name, so it
+# is a program that has to have written one.
+smoke_status=0
+smoke=$(RAY_TEST_MAX_FRAMES=40 RAY_TEST_WINDOW=640x360 \
+        LLVM_PROFILE_FILE="$PWD/$PROF/input_play_smoke-%p.profraw" "$BUILD/input_play" \
+        2>&1 < /dev/null) || smoke_status=$?
+for marker in '^INPUT PASS$' 'RAY_TEST_WINDOW 640x360' 'RAY_TEST_SAVE_OK' 'RAY_TEST_BOOT_OK' \
+              'RAY_TEST_REPORTS=0$'; do
+  if [ "$smoke_status" -ne 0 ] || ! printf '%s\n' "$smoke" | grep -q "$marker"; then
+    printf '%s\n' "$smoke" | tail -30 | sed 's/^/      /'
+    echo "FAIL: input_play under the smoke test did not say $marker (exit $smoke_status)"
+    exit 1
+  fi
+done
+if ! ls "$PROF"/input_play_smoke-*.profraw >/dev/null 2>&1; then
+  echo "FAIL: input_play under the smoke test passed and wrote no profile to $PROF/"
+  exit 1
+fi
+echo "  ok    input_play, under the smoke test"
+
 # --- merge and report ------------------------------------------------------------
 echo "== coverage: report =="
 "$PROFDATA" merge -sparse -o "$BUILD/coverage.profdata" "$PROF"/*.profraw
