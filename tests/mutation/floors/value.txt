@@ -1,5 +1,9 @@
 # rmp::Value: the tree, its reads that create nothing, ==, Ref (package P1).
+# Killed by either program is killed: save_test's Value suite, and the value
+# properties -- == against a canonical form, every read through const and
+# through Refs, writes against a model of where they land.
 kind     cxx
 sources  src/rmp/value.cpp
 tests    unit_test -sf=*save_test.cpp
+tests    property_test -sf=*value_prop.cpp
 floor    -

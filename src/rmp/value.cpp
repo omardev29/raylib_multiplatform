@@ -17,6 +17,7 @@
 #include "internal.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <climits>
 #include <cmath>
 #include <string>
@@ -70,7 +71,13 @@ int Value::as_int(int fallback) const {
 
 float Value::as_float(float fallback) const {
     if (_type != Type::NUMBER || std::isnan(_number)) return fallback;
-    return static_cast<float>(_number);
+    // Clamped to float's range, as as_int is to int's: a double past FLT_MAX
+    // -- 1e300 in an edited save, which reads fine -- cast to float is an
+    // infinity, and a finite number in the file must not become a speed or a
+    // position that is not. An infinity a game put in itself reads as itself.
+    if (std::isinf(_number)) return static_cast<float>(_number);
+    return static_cast<float>(
+        std::clamp(_number, -static_cast<double>(FLT_MAX), static_cast<double>(FLT_MAX)));
 }
 
 std::string_view Value::as_string(std::string_view fallback) const {
@@ -154,7 +161,11 @@ bool operator==(const Value &a, const Value &b) {
         case Type::BOOL:
             return a.as_bool() == b.as_bool();
         case Type::NUMBER:
-            return a.number() == b.number();
+            // A true equality, so a NaN equals a NaN: with IEEE's ==, a Value
+            // holding one anywhere was not equal to itself, and no copy of it
+            // compared equal either (Omar, 2026-10-10). 0 and -0 stay equal.
+            return a.number() == b.number() ||
+                (std::isnan(a.number()) && std::isnan(b.number()));
         case Type::STRING:
             return a.as_string() == b.as_string();
         case Type::LIST:

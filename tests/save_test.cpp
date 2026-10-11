@@ -491,6 +491,21 @@ TEST_SUITE("save: Value") {
         CHECK_FALSE(v.erase("cleared")); // nothing was there
     }
 
+    TEST_CASE("a Ref walks the keys of the object it names, and creates nothing") {
+        Value v;
+        v["player"]["hp"] = 3;
+        v["player"]["name"] = "Omar";
+        v["player"]["gone"] = Value{};
+        CHECK(v["player"].key(0) == "hp");
+        CHECK(v["player"].key(1) == "name");
+        CHECK(v["player"].key(2).empty()); // a member holding nothing is not there
+        CHECK(v["player"].key(-1).empty());
+        CHECK(v["player"]["hp"].key(0).empty()); // a number has no keys
+        CHECK(v["missing"]["deeper"].key(0).empty());
+        CHECK_FALSE(v.contains("missing"));
+        CHECK(v.size() == 1);
+    }
+
     TEST_CASE("equality: same type and contents, keys in any order, version ignored") {
         Value a;
         a["x"] = 1;
@@ -515,6 +530,40 @@ TEST_SUITE("save: Value") {
         CHECK(sample() == sample());
         CHECK(a["x"] == Value(1)); // through a Ref, both ways
         CHECK(Value(1) == a["x"]);
+    }
+
+    TEST_CASE("== is a true equality: a NaN equals a NaN, anywhere in the tree") {
+        // IEEE's == made a Value holding a NaN unequal to itself and to every
+        // copy of it (defect 8 of the deep campaign; Omar, 2026-10-10: NaN ==
+        // NaN). Found by tests/property/value_prop.cpp.
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const Value alone = nan;
+        CHECK(alone == alone);
+        CHECK(Value(nan) == Value(-nan)); // whatever its sign or payload
+        Value tree;
+        tree["list"].push(1);
+        tree["list"].push(nan);
+        const Value copy = tree; // NOLINT(performance-unnecessary-copy-initialization)
+        CHECK(tree == copy);
+        CHECK(copy == tree);
+        CHECK_FALSE(Value(nan) == Value(0.0)); // and still only a NaN
+        CHECK_FALSE(Value(0.0) == Value(nan));
+        CHECK(Value(0.0) == Value(-0.0)); // the two zeros stay equal
+    }
+
+    TEST_CASE("as_float clamps to float's range, as as_int does to int's") {
+        // 1e300 in a save reads fine, and a plain cast to float made it an
+        // infinity: a finite number in the file became a speed that was not.
+        // Found by tests/property/value_prop.cpp.
+        constexpr double DOUBLE_MAX = std::numeric_limits<double>::max();
+        CHECK(Value(1e300).as_float() == std::numeric_limits<float>::max());
+        CHECK(Value(-DOUBLE_MAX).as_float() == -std::numeric_limits<float>::max());
+        CHECK(Value(3.5e38).as_float() == std::numeric_limits<float>::max());
+        CHECK(Value(0.1).as_float() == 0.1F);
+        CHECK(Value(5e-324).as_float() == 0.0F);
+        // An infinity a game put there itself is what it reads.
+        CHECK(std::isinf(Value(std::numeric_limits<double>::infinity()).as_float()));
+        CHECK(Value(std::nan("")).as_float(4.0F) == 4.0F);
     }
 
     TEST_CASE("a Value made in code is of this build's version") {

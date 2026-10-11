@@ -104,7 +104,8 @@ public:
 
     // The fallback when this is not of that type -- a missing key is NONE.
     // Types are not converted: a number is not a bool and "7" is not 7.
-    // as_int truncates towards zero and clamps to int's range.
+    // as_int truncates towards zero and clamps to int's range; as_float clamps
+    // to float's, so a number in a save never reads as an infinity.
     [[nodiscard]] bool as_bool(bool fallback = false) const;
     [[nodiscard]] int as_int(int fallback = 0) const;
     [[nodiscard]] float as_float(float fallback = 0) const;
@@ -153,7 +154,8 @@ public:
     // Value made in code is of this build's version. Not compared by ==.
     [[nodiscard]] int version() const { return _version; }
 
-    // Same type and same contents, keys in any order.
+    // Same type and same contents, keys in any order. A true equality: a NaN
+    // equals a NaN, so a Value always equals itself and every copy of it.
     friend bool operator==(const Value &a, const Value &b);
 
 private:
