@@ -17,10 +17,12 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 // Defaults, so this still compiles against a generated header from before the
@@ -1149,14 +1151,15 @@ Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float fo
     const float scale = font_size / static_cast<float>(f.baseSize);
     const float spacing = letter_spacing(font_size);
 
-    const char *const s = cstr(text);
-    if (s[0] == '\0') return Clay_Dimensions{ 0, 0 }; // what MeasureTextEx() said
+    // The bytes up to a NUL -- terminated, so raylib's decoding stops there.
+    const std::string_view s(cstr(text));
+    if (s.empty()) return Clay_Dimensions{ 0, 0 }; // what MeasureTextEx() said
     float width = 0;
     int letters = 0;
-    for (int i = 0; s[i] != '\0';) {
+    for (std::size_t i = 0; i < s.size();) {
         int bytes = 0;
-        const int codepoint = GetCodepointNext(&s[i], &bytes);
-        i += bytes;
+        const int codepoint = GetCodepointNext(s.data() + i, &bytes);
+        i += static_cast<std::size_t>(bytes);
         if (codepoint == '\n') continue; // a line ends there: not Clay's to ask
         const int index = GetGlyphIndex(f, codepoint);
         const int advance = f.glyphs[index].advanceX;
@@ -1170,9 +1173,9 @@ Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float fo
     // The spacing before it. A space: always. A word: when a letter is before
     // it on its line, spaces between them.
     const bool space = text.length == 1 && text.chars[0] == ' ';
-    const char *before = text.chars;
-    while (before > text.baseChars && before[-1] == ' ') --before;
-    if (space || (before > text.baseChars && before[-1] != '\n')) width += spacing;
+    std::ptrdiff_t before = text.chars - text.baseChars; // where it starts in its text
+    while (before > 0 && text.baseChars[before - 1] == ' ') --before;
+    if (space || (before > 0 && text.baseChars[before - 1] != '\n')) width += spacing;
 
     // Up to the next 64th of a pixel, which a float holds exactly: Clay adds
     // the pieces up, adds a padding and takes it off again, and with widths

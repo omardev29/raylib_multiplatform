@@ -97,17 +97,22 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <climits>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <initializer_list>
 #include <limits>
+#include <mutex>
 #include <ostream>
-#include <set>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -224,6 +229,7 @@ rc::Gen<std::vector<Op>> ops(int depth) {
     return rc::gen::exec([depth] {
         const int count = *rc::gen::inRange(0, depth == 0 ? 7 : 4);
         std::vector<Op> out;
+        out.reserve(static_cast<std::size_t>(count));
         for (int n = 0; n < count; ++n) out.push_back(*op(depth));
         return out;
     });
@@ -715,6 +721,42 @@ void still_works() {
 
 // --- the headless interface ----------------------------------------------------------
 
+// A case either finishes, or the program says so and ends: a layout that goes
+// round forever is otherwise a run that never reports. (Clay's sizing did, for
+// an image a quarter of a million pixels tall: tests/ui_layout_test.cpp's "an
+// image too tall for any window lays out" and thirdparty/clay/PATCHES.md.)
+class Watchdog {
+public:
+    explicit Watchdog(std::chrono::seconds limit)
+        : _thread([this, limit] { watch(limit); }) {}
+    ~Watchdog() {
+        {
+            const std::lock_guard<std::mutex> lock(_mutex);
+            _done = true;
+        }
+        _woken.notify_one();
+        _thread.join();
+    }
+    Watchdog(const Watchdog &) = delete;
+    Watchdog &operator=(const Watchdog &) = delete;
+
+private:
+    void watch(std::chrono::seconds limit) {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_woken.wait_for(lock, limit, [this] { return _done; })) return;
+        std::fprintf(stderr,
+                     "FAIL  a program of the ui property did not finish in %lld s: the "
+                     "interface went round without end\n",
+                     static_cast<long long>(limit.count()));
+        std::fflush(stderr);
+        std::_Exit(1);
+    }
+    std::mutex _mutex;
+    std::condition_variable _woken;
+    bool _done = false;
+    std::thread _thread;
+};
+
 // NOLINTBEGIN(custom-rmp-raw-pointer): Clay's signature, not ours to choose
 Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *config,
                              void * /*user*/) {
@@ -876,6 +918,7 @@ TEST_SUITE("property: ui") {
             "ui: any calls with any input lay out somewhere, keep the game's values and "
             "go on",
             [] {
+                const Watchdog watchdog(std::chrono::seconds(60));
                 const Frame how = *some_frame();
                 std::vector<Op> before = *ops(1); // outside any frame
                 std::vector<Op> program = *ops(0);
@@ -1053,10 +1096,11 @@ TEST_SUITE("property: ui") {
                 std::string text = before;
                 const bool typed = rmp::ui::detail::utf8_append(text, codepoint, most);
                 const int length = rmp::ui::detail::utf8_length(before);
+                // Not a control character (C0, DEL, C1), not half of a
+                // surrogate pair, not past the last codepoint there is.
                 const bool typeable = codepoint >= 0x20 &&
-                    !(codepoint >= 0x7F && codepoint < 0xA0) &&
-                    !(codepoint >= 0xD800 && codepoint <= 0xDFFF) &&
-                    codepoint <= 0x10FFFF;
+                    (codepoint < 0x7F || codepoint >= 0xA0) &&
+                    (codepoint < 0xD800 || codepoint > 0xDFFF) && codepoint <= 0x10FFFF;
                 RC_ASSERT(typed == (typeable && (most <= 0 || length < most)));
                 if (!typed) {
                     RC_ASSERT(text == before);

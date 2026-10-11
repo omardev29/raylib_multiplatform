@@ -86,6 +86,7 @@
 #include <string_view>
 #include <system_error>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -197,7 +198,7 @@ void reported(int line) {
              "the framework reported a mistake of the game's during the run: " + heard);
     }
     // Said where the log could not be heard: the count is the proof.
-    if (count > static_cast<int>(said.lines.size())) {
+    if (std::cmp_greater(count, said.lines.size())) {
         fail(line,
              "the framework reported " +
                  std::to_string(count - static_cast<int>(said.lines.size())) +
