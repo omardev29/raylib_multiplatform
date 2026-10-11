@@ -492,7 +492,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_UI_TESTS=ON > /dev/null
-          cmake --build --preset debug --target ui_render_test > /dev/null
+          cmake --build --preset debug --target ui_render_test
           xvfb-run -a ./build/debug/ui_render_test
 
       # A game's own tests: tests/game/, built with its src/ into game_test and
