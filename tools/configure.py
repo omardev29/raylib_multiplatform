@@ -121,11 +121,28 @@ def locate(section: str, key: str | None) -> tuple[int, str] | None:
             continue
         if here != section or key is None or not line or line.startswith("#"):
             continue
-        # `key = value`, with the name on its own before the equals sign.
-        name, sep, _ = line.partition("=")
-        if sep and name.strip() == key:
+        if _key_of(line) == key:
             return (i, raw)
     return header_at
+
+
+# `key =` as TOML writes it: bare, "basic" or 'literal'. A quoted one is how an
+# Xcode setting with a condition has to be written -- the name was the text
+# before the first `=`, so its quotes never matched, and `[sdk=...]` cut it.
+_KEY_RE = re.compile(r"""\s*([A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')\s*=""")
+
+
+def _key_of(line: str) -> str | None:
+    """The name a `key = value` line gives, unquoted; None for any other line."""
+    m = _KEY_RE.match(line)
+    if m is None:
+        return None
+    if m.group(1)[0] not in "\"'":
+        return m.group(1)
+    try:
+        return next(iter(tomllib.loads(f"{m.group(1)} = 0")))
+    except tomllib.TOMLDecodeError:
+        return None
 
 
 def locate_from(exc: ConfigError) -> tuple[int, str] | None:

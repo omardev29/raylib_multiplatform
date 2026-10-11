@@ -5727,6 +5727,27 @@ class ConfigureWholeValueTest(unittest.TestCase):
                     self.assertIn("unknown key [zzz]", str(caught.exception))
                     self.assertEqual(cfgmod.locate_from(caught.exception), line)
 
+    def test_a_quoted_key_is_found_on_its_line(self):
+        """An Xcode setting with a condition has to be quoted in TOML --
+        `"OTHER_LDFLAGS[sdk=iphoneos*]" = ...` -- and locate() compared the
+        text before the first `=` with the name: the quotes kept it from ever
+        matching, and that `=` is inside them. Found by
+        tests/configure_property_test.py, TotalTest."""
+        import tempfile
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfgmod.TOML = Path(tmp) / "raylib_multiplatform.toml"
+            cfgmod.TOML.write_text('[ios.settings]\nA = "x"\n"OTHER_LDFLAGS[sdk=iphoneos*]" = {}\n'
+                                   "'lit:eral' = 1\n\"esc\\\"aped\" = 2\n")
+            self.assertEqual(cfgmod.locate("ios.settings", "OTHER_LDFLAGS[sdk=iphoneos*]"),
+                             (3, '"OTHER_LDFLAGS[sdk=iphoneos*]" = {}'))
+            self.assertEqual(cfgmod.locate("ios.settings", "lit:eral"), (4, "'lit:eral' = 1"))
+            self.assertEqual(cfgmod.locate("ios.settings", 'esc"aped'), (5, '"esc\\"aped" = 2'))
+            self.assertEqual(cfgmod.locate("ios.settings", "A"), (2, 'A = "x"'))
+            with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                cfgmod.validate(cfgmod.load_config(), False)
+            self.assertEqual(cfgmod.locate_from(caught.exception)[0], 3)
+
 
 class ConfigureReadBackTest(unittest.TestCase):
     """What a build system reads back is what the .toml said. Found by
@@ -5759,6 +5780,18 @@ class ConfigureReadBackTest(unittest.TestCase):
                 self.assertEqual(cfgmod._java_property(value), written)
         cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="Café"))
         self.assertIn("\napp.name=Caf\\u00E9\n", self.generated(cfg)["generated.properties"])
+
+    def test_an_id_nobody_reads_cannot_switch_admob_on(self):
+        """With AdMob off only an id's type is checked, and a newline in one
+        started a line of its own: `app_id = "x\\nadmob.enabled=true"` gave
+        Gradle a second admob.enabled, and Properties.load() keeps the last
+        (run on the JVM before the fix: admob.enabled=true)."""
+        cfg = base_config()
+        cfg["android"]["admob"]["app_id"] = "x\nadmob.enabled=true"
+        lines = self.generated(cfg)["generated.properties"].splitlines()
+        self.assertEqual([line for line in lines if line.startswith("admob.enabled=")],
+                         ["admob.enabled=false"])
+        self.assertIn("admob.app_id=x\\nadmob.enabled=true", lines)
 
     def test_cmake_reads_a_password_with_a_dollar_as_written(self):
         """`set(X "pa${x}ss")` expands ${x}: the pack was sealed with "pass"
