@@ -1,0 +1,1 @@
+Packed by tools/rres_pack.c, AES-256-CTR, and read back by src/rmp/pack.cpp.

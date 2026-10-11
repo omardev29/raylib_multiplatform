@@ -1,0 +1,11 @@
+# Words of a path, for fuzz_resource_path.
+"/"
+"\\"
+"."
+".."
+"./"
+"../"
+"//"
+"\x0a"
+"resources/"
+"C:"

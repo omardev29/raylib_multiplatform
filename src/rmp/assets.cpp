@@ -112,9 +112,13 @@ namespace {
 // Returns whether the file is there. A loader that then cannot DECODE it counts
 // that too, with decode_failed(): a corrupt PNG left a blank texture and a
 // green boot, because only a name with nothing behind it was counted.
+//
+// A folder is not a file: load_data("") asked for resources/ itself, which
+// exists, so every loader called it "there" and then "could not be decoded"
+// -- a report for a name that names nothing (tests/property/assets_prop.cpp).
 bool fallback_path(const char *name, std::string &out) {
     out = std::string(detail::resources_root()) + name;
-    if (FileExists(out.c_str())) return true;
+    if (FileExists(out.c_str()) && !DirectoryExists(out.c_str())) return true;
     ++detail::loads.failed;
     return false;
 }
@@ -150,7 +154,7 @@ bool detail::resource_exists(const char *name) {
     if (name == nullptr || name[0] == '\0') return false;
     if (detail::pack_has(name)) return true;
     const std::string path = std::string(detail::resources_root()) + name;
-    return FileExists(path.c_str());
+    return FileExists(path.c_str()) && !DirectoryExists(path.c_str());
 }
 
 void init() {
@@ -185,9 +189,9 @@ namespace {
     }
 
     std::string path;
-    const bool there = fallback_path(name, path);
+    if (!fallback_path(name, path)) return ::Image{};
     ::Image img = ::LoadImage(path.c_str());
-    if (there && img.data == nullptr) decode_failed(name);
+    if (img.data == nullptr) decode_failed(name);
     return img;
 }
 
@@ -230,9 +234,9 @@ Texture2D load_texture_raw(const char *name) {
     }
 
     std::string path;
-    const bool there = fallback_path(name, path);
+    if (!fallback_path(name, path)) return ::Sound{};
     ::Sound sound = ::LoadSound(path.c_str());
-    if (there && (sound.stream.buffer == nullptr || sound.frameCount == 0)) {
+    if (sound.stream.buffer == nullptr || sound.frameCount == 0) {
         UnloadSound(
             sound); // a no-op on an empty one, and not empty when it has no frames
         decode_failed(name);
@@ -277,6 +281,10 @@ Texture2D load_texture_raw(const char *name) {
 }
 
 } // namespace
+
+// The largest font size load_font() bakes: a 1024-pixel face is already an
+// atlas of 16384 by 16384.
+constexpr int MAX_FONT_SIZE = 1024;
 
 // The counted loaders. Each one is the same three steps: ask the table for a
 // resource already loaded under this name, load it if there is not one, and
@@ -345,12 +353,36 @@ rmp::Font load_font(std::string_view name_view, int font_size) {
     const std::string key(name_view);
     const char *name = key.c_str();
     using rmp::detail::ResourceKind;
+    // A size that is not one never reaches the font. stb_truetype asserts on
+    // a negative one -- load_font("ui.ttf", -1) aborted the game, and read out
+    // of bounds where asserts are off -- and the atlas of a huge one is past
+    // what an int can count. The game's mistake: an empty font, counted as a
+    // failed load, and said once.
+    if (font_size < 1 || font_size > MAX_FONT_SIZE) {
+        ++detail::loads.requested;
+        ++detail::loads.failed;
+        RMP_REPORT_ONCE_KEYED(name,
+                              "ASSETS: load_font(\"%s\", %d): a font size is 1 to %d",
+                              name, font_size, MAX_FONT_SIZE);
+        return rmp::Font{};
+    }
     // font_size is part of the key: the same face at 16 and at 32 is two
     // baked atlases, so it has to be two resources.
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::FONT, name, font_size))
         return rmp::Font{ hit };
     const ::Font raw = load_font_raw(name, font_size);
-    if (raw.texture.id == 0) return rmp::Font{};
+    if (raw.texture.id == 0) {
+        // Decoded, and no GPU to go to -- before the window, or headless.
+        // raylib's UnloadFont() tells its default font apart by the texture
+        // id, which with no window is 0 for both, so it frees nothing: every
+        // such load kept its glyph tables (97 allocations for 95 glyphs,
+        // LeakSanitizer said). They are let go here, the default's never.
+        if (font_decoded(raw)) {
+            UnloadFontData(raw.glyphs, raw.glyphCount);
+            MemFree(raw.recs);
+        }
+        return rmp::Font{};
+    }
     auto *slot = rmp::detail::adopt_named(ResourceKind::FONT, name, font_size, raw);
     if (slot == nullptr) {
         UnloadFont(raw);
@@ -433,7 +465,7 @@ std::vector<unsigned char> load_data(std::string_view name_view) {
 
     // Bytes have no format to fail to decode: the file is there or it is not.
     std::string path;
-    fallback_path(name, path);
+    if (!fallback_path(name, path)) return {};
     int size = 0;
     unsigned char *data = LoadFileData(path.c_str(), &size);
     return owned(data, size);

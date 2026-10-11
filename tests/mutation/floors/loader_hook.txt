@@ -1,5 +1,13 @@
-# raylib's file loader, routed through the resources folder and the pack (package P4).
+# raylib's file loader, routed through the resources folder and the pack
+# (package P4): the hook's suite in assets_test.cpp, and the property of the
+# paths it answers for.
+# Measured 2026-10-11 in the image (Mull 0.34.1, cxx_all): 23 of 30 detected,
+# 76.67%. Alive: two sizes pack_read() sets before anything reads them, the
+# installed flag and the unhooking in remove_loader_hook() -- a hook left in
+# place after the pack closes answers from the disk, which is what no hook
+# does -- and the log line.
 kind     cxx
 sources  src/rmp/loader_hook.cpp
-tests    unit_test -tse=*device*
-floor    -
+tests    unit_test -ts=assets:?loader?hook
+tests    property_test -tc=which?paths*
+floor    75

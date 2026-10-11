@@ -11,8 +11,6 @@ rmp::ads::reward_amount()
 rmp::ads::show_interstitial()
 rmp::ads::show_rewarded()
 rmp::ads::take_reward_earned()
-rmp::assets::load_sheet(std::string_view)
-rmp::assets::using_pack()
 rmp::behavior::Runner::ducking() const
 rmp::behavior::Tween::restart()
 rmp::ui::dropdown(std::string_view, int &, std::initializer_list<std::string_view>, const DropdownOptions &)

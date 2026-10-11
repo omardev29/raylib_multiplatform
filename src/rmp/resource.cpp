@@ -23,6 +23,14 @@
 // (a global rmp::Texture, say) still points at a slot that exists and reads
 // refs == 0, so its destructor is a no-op instead of a use after free.
 //
+// AND A SLOT release_all() TOOK FROM UNDER A HANDLE IS NEVER HANDED OUT
+// AGAIN. It was: the next load reused it, and the old handle -- still
+// pointing at it -- read the new resource, and its destructor counted the new
+// one down and unloaded it while the handle that loaded it still held it.
+// tests/property/assets_prop.cpp found it, playing handles against a model.
+// Such a slot is `stale`: retain() and release() pass it by, and it costs one
+// small struct for the rest of the run.
+//
 // The seam for tests: a resource is loaded through the function pointers in
 // assets.cpp, so a headless test can install one that fabricates payloads and
 // never touches the GPU. That is what makes the counting testable without a
@@ -51,6 +59,7 @@ struct SlotData {
     int font_size = 0;
     int refs = 0;
     bool named = false; // false = adopted, never matched by name
+    bool stale = false; // emptied by release_all() with handles still on it
     std::shared_ptr<void> payload;
 };
 
@@ -97,19 +106,18 @@ void unload_payload(SlotData &slot) {
     }
 }
 
+// A slot as new: unloaded, unnamed, no references. Every slot free_slot()
+// hands out is one of these or a fresh one, so adopt_owned() sets only what
+// it brings.
 void empty(SlotData &slot) {
     unload_payload(slot);
-    slot.payload.reset();
-    slot.name.clear();
-    slot.named = false;
-    slot.font_size = 0;
-    slot.refs = 0;
+    slot = SlotData{};
 }
 
 SlotData *find_named(ResourceKind kind, std::string_view name, int font_size) {
     for (const auto &s : table.slots) {
-        if (s->refs > 0 && s->named && s->kind == kind && s->font_size == font_size &&
-            s->name == name) {
+        // Named means held: empty() takes the name away with the last reference.
+        if (s->named && s->kind == kind && s->font_size == font_size && s->name == name) {
             return s.get();
         }
     }
@@ -118,7 +126,7 @@ SlotData *find_named(ResourceKind kind, std::string_view name, int font_size) {
 
 SlotData *free_slot() {
     for (const auto &s : table.slots) {
-        if (s->refs == 0) return s.get();
+        if (s->refs == 0 && !s->stale) return s.get();
     }
     table.slots.push_back(std::make_unique<SlotData>());
     return table.slots.back().get();
@@ -139,9 +147,6 @@ Slot *adopt_owned(ResourceKind kind, std::shared_ptr<void> payload) {
     SlotData *slot = free_slot();
     slot->kind = kind;
     slot->refs = 1;
-    slot->named = false;
-    slot->font_size = 0;
-    slot->name.clear();
     slot->payload = std::move(payload);
     return reinterpret_cast<Slot *>(slot);
 }
@@ -158,14 +163,16 @@ Slot *adopt_named_owned(ResourceKind kind, std::string_view name, int font_size,
 }
 
 void retain(Slot *slot) {
-    if (slot != nullptr) ++reinterpret_cast<SlotData *>(slot)->refs;
+    if (slot == nullptr) return;
+    SlotData &data = *reinterpret_cast<SlotData *>(slot);
+    if (!data.stale) ++data.refs;
 }
 
 void release(Slot *slot) {
     if (slot == nullptr) return;
-    auto *data = reinterpret_cast<SlotData *>(slot);
-    if (data->refs <= 0) return;
-    if (--data->refs == 0) empty(*data);
+    SlotData &data = *reinterpret_cast<SlotData *>(slot);
+    if (data.stale || data.refs <= 0) return;
+    if (--data.refs == 0) empty(data);
 }
 
 const void *payload(const Slot *slot) {
@@ -184,7 +191,7 @@ int live_count() {
 int ref_count(std::string_view name) {
     int n = 0;
     for (const auto &s : table.slots) {
-        if (s->refs > 0 && s->named && s->name == name) n += s->refs;
+        if (s->named && s->name == name) n += s->refs;
     }
     return n;
 }
@@ -195,7 +202,10 @@ void release_all() {
     // GL context that no longer exists. The slots stay allocated: see the note
     // at the top about handles that outlive this.
     for (const auto &s : table.slots) {
-        if (s->refs > 0) empty(*s);
+        if (s->refs > 0) {
+            empty(*s);
+            s->stale = true; // its handles are still out there
+        }
     }
 }
 

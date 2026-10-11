@@ -30,12 +30,12 @@ custom-rmp-raw-pointer  src/rmp/input.cpp                                     4
 custom-rmp-raw-pointer  src/rmp/internal.h                                    14
 custom-rmp-raw-pointer  src/rmp/json_internal.h                               3
 custom-rmp-raw-pointer  src/rmp/ldtk.cpp                                      36
-custom-rmp-raw-pointer  src/rmp/loader_hook.cpp                               16
+custom-rmp-raw-pointer  src/rmp/loader_hook.cpp                               11
 custom-rmp-raw-pointer  src/rmp/object.cpp                                    27
 custom-rmp-raw-pointer  src/rmp/object_internal.h                             1
-custom-rmp-raw-pointer  src/rmp/pack.cpp                                      6
+custom-rmp-raw-pointer  src/rmp/pack.cpp                                      5
 custom-rmp-raw-pointer  src/rmp/report.cpp                                    11
-custom-rmp-raw-pointer  src/rmp/resource.cpp                                  16
+custom-rmp-raw-pointer  src/rmp/resource.cpp                                  15
 custom-rmp-raw-pointer  src/rmp/save.cpp                                      16
 custom-rmp-raw-pointer  src/rmp/save_internal.h                               4
 custom-rmp-raw-pointer  src/rmp/tilemap.cpp                                   46
@@ -48,7 +48,7 @@ custom-rmp-raw-pointer  src/rmp/ui/internal.h                                 8
 custom-rmp-raw-pointer  src/rmp/ui/render.cpp                                 2
 custom-rmp-raw-pointer  src/rmp/value.cpp                                     13
 custom-rmp-raw-pointer  tests/animation_test.cpp                              2
-custom-rmp-raw-pointer  tests/assets_test.cpp                                 7
+custom-rmp-raw-pointer  tests/assets_test.cpp                                 3
 custom-rmp-raw-pointer  tests/audio_device_test.cpp                           4
 custom-rmp-raw-pointer  tests/audio_test.cpp                                  3
 custom-rmp-raw-pointer  tests/behavior_test.cpp                               6
