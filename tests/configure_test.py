@@ -7487,6 +7487,37 @@ class PackagingShipsOneArchiveShapeTest(unittest.TestCase):
                 self.assertIn("LICENSES.txt", body)
 
 
+class ActionsArePinnedByShaTest(unittest.TestCase):
+    """Every action a workflow uses is pinned to a commit, with the version
+    it is in a comment: a tag can be moved to other code, a commit cannot.
+    They all were; nothing failed the one that would not be."""
+
+    USES = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)(.*)$")
+
+    def uses(self, text):
+        for n, line in enumerate(text.splitlines(), 1):
+            m = self.USES.match(line)
+            if m and not m.group(1).startswith("./"):
+                yield n, m.group(1), m.group(2)
+
+    def test_every_action_is_a_commit_with_its_version_said(self):
+        found = 0
+        for wf in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+            for n, ref, rest in self.uses(wf.read_text()):
+                found += 1
+                with self.subTest(at=f"{wf.name}:{n}", uses=ref):
+                    self.assertRegex(ref, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$",
+                                     f"{wf.name}:{n} uses {ref}: pin it to a commit")
+                    self.assertRegex(rest, r"#\s*v?\d", f"{wf.name}:{n} does not say which version")
+        self.assertGreaterEqual(found, 20)
+
+    def test_a_tag_is_refused(self):
+        text = "steps:\n  - uses: actions/checkout@v4\n  - uses: actions/cache@0123456789abcdef0123456789abcdef01234567  # v4\n"
+        refs = [r for _, r, _ in self.uses(text)]
+        self.assertEqual(refs, ["actions/checkout@v4", "actions/cache@0123456789abcdef0123456789abcdef01234567"])
+        self.assertNotRegex(refs[0], r"@[0-9a-f]{40}$")
+
+
 class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
     """A game a script starts reads nothing from the script's stdin.
 
