@@ -304,6 +304,16 @@ TEST_SUITE("ui: overlay") {
                              [] { rmp::ui::button("Resume"); });
         }
         CHECK(takes_the_pointer_all_over());
+        // And the layer an overlay inside an open frame becomes, the same.
+        for (const float dim : { 0.45f, 1.0f, 0.0f }) {
+            CAPTURE(dim);
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::overlay({ .dim = dim }, [] { rmp::ui::button("Resume"); });
+                rmp::ui::end();
+            }
+            CHECK(takes_the_pointer_all_over());
+        }
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
