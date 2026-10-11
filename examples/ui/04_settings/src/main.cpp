@@ -125,70 +125,94 @@ static void on_frame(float /*delta*/) {
     ClearBackground(rmp::ui::current_theme().background);
 
     rmp::ui::begin();
-    rmp::ui::panel({ .box = { .width = 420 } }, [&] {
+    rmp::ui::panel({ .box = { .width = 760 } }, [&] {
         rmp::ui::text("Settings");
 
-        // --- toggles ------------------------------------------------------
-        if (rmp::ui::checkbox("Fullscreen", cfg.fullscreen)) dirty = true;
+        // Two columns, so that the whole screen fits the window it opens in --
+        // [window] in the .toml, 800x450. In one column Apply was below the
+        // bottom edge, where a mouse could not reach it. Focus still goes
+        // down the first column and then the second: it follows the order the
+        // controls are written in, not where they land.
+        rmp::ui::row(
+            { .gap = 24, .items = rmp::ui::Align::TOP_CENTER, .grow_x = true }, [&] {
+                rmp::ui::column({ .grow_x = true }, [&] {
+                    // --- toggles ----------------------------------------------
+                    if (rmp::ui::checkbox("Fullscreen", cfg.fullscreen)) dirty = true;
 #if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__)
-        // Not on the web, where there is no such switch at all. That is not
-        // the same as the Subtitles box below: a control that is unavailable
-        // RIGHT NOW is disabled, one that cannot exist here is not shown.
-        if (rmp::ui::checkbox("VSync", cfg.vsync)) dirty = true;
+                    // Not on the web, where there is no such switch at all. That
+                    // is not the same as the Subtitles box below: a control that
+                    // is unavailable RIGHT NOW is disabled, one that cannot exist
+                    // here is not shown.
+                    if (rmp::ui::checkbox("VSync", cfg.vsync)) dirty = true;
 #endif
 
-        // A control that is not available right now is disabled, not missing.
-        // A menu whose items appear and disappear is a menu nobody can learn.
-        rmp::ui::checkbox("Subtitles", cfg.subtitles, { .enabled = false });
+                    // A control that is not available right now is disabled, not
+                    // missing. A menu whose items appear and disappear is a menu
+                    // nobody can learn.
+                    rmp::ui::checkbox("Subtitles", cfg.subtitles, { .enabled = false });
 
-        // --- sliders ------------------------------------------------------
-        // Continuous: drag it anywhere, or hold left/right on a controller.
-        if (rmp::ui::slider("Master volume", cfg.master, 0.0f, 1.0f)) dirty = true;
-        if (rmp::ui::slider("Music", cfg.music, 0.0f, 1.0f)) dirty = true;
+                    // --- sliders ----------------------------------------------
+                    // Continuous: drag it anywhere, or hold left/right on a
+                    // controller.
+                    if (rmp::ui::slider("Master volume", cfg.master, 0.0f, 1.0f))
+                        dirty = true;
+                    if (rmp::ui::slider("Music", cfg.music, 0.0f, 1.0f)) dirty = true;
 
-        // step snaps to multiples, which is what you want for a value the
-        // player will want to describe to someone else ("I play on 40").
-        if (rmp::ui::slider("Sensitivity", cfg.sensitivity, 0.0f, 1.0f,
-                            { .step = 0.05f }))
-            dirty = true;
+                    // step snaps to multiples, which is what you want for a value
+                    // the player will want to describe to someone else ("I play on
+                    // 40").
+                    if (rmp::ui::slider("Sensitivity", cfg.sensitivity, 0.0f, 1.0f,
+                                        { .step = 0.05f }))
+                        dirty = true;
+                });
 
-        // --- pick one of a list -------------------------------------------
-        // The dropdown owns nothing but the open/closed flag, and that is ours,
-        // not yours: the int is an index into the list you passed.
-        if (rmp::ui::dropdown("Quality", cfg.quality, QUALITY)) dirty = true;
-        if (rmp::ui::dropdown("Language", cfg.language, LANGUAGE)) dirty = true;
+                rmp::ui::column({ .grow_x = true }, [&] {
+                    // --- pick one of a list -----------------------------------
+                    // The dropdown owns nothing but the open/closed flag, and that
+                    // is ours, not yours: the int is an index into the list you
+                    // passed.
+                    if (rmp::ui::dropdown("Quality", cfg.quality, QUALITY)) dirty = true;
+                    if (rmp::ui::dropdown("Language", cfg.language, LANGUAGE))
+                        dirty = true;
 
-        // --- typing -------------------------------------------------------
-        // Edits your std::string, up to 20 characters as the player counts them.
-        if (rmp::ui::text_input("Name", cfg.player,
-                                { .placeholder = "your name", .max_length = 20 })) {
-            dirty = true;
-        }
+                    // --- typing -----------------------------------------------
+                    // Edits your std::string, up to 20 characters as the player
+                    // counts them.
+                    if (rmp::ui::text_input(
+                            "Name", cfg.player,
+                            { .placeholder = "your name", .max_length = 20 })) {
+                        dirty = true;
+                    }
 
-        // --- actions ------------------------------------------------------
-        rmp::ui::row({ .grow_x = true }, [&] {
-            if (rmp::ui::button("Revert", { .enabled = dirty })) {
-                cfg = saved;
-                dirty = false;
-            }
-            rmp::ui::spacer();
-            if (rmp::ui::button(
-                    "Apply", { .style = rmp::ui::Variant::PRIMARY, .enabled = dirty })) {
-                apply(cfg);
-                store(cfg);
-                saved = cfg;
-                dirty = false;
-            }
-        });
+                    // --- actions ----------------------------------------------
+                    rmp::ui::row({ .grow_x = true }, [&] {
+                        if (rmp::ui::button("Revert", { .enabled = dirty })) {
+                            cfg = saved;
+                            dirty = false;
+                        }
+                        rmp::ui::spacer();
+                        if (rmp::ui::button("Apply",
+                                            { .style = rmp::ui::Variant::PRIMARY,
+                                              .enabled = dirty })) {
+                            apply(cfg);
+                            store(cfg);
+                            saved = cfg;
+                            dirty = false;
+                        }
+                    });
 
-        if (dirty) {
-            rmp::ui::text("unsaved changes",
-                          { .color = rmp::ui::ColorRole::DANGER, .size = 14 });
-        }
-        if (damaged) {
-            rmp::ui::text("the saved settings were damaged; these are the defaults",
-                          { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
-        }
+                    if (dirty) {
+                        rmp::ui::text(
+                            "unsaved changes",
+                            { .color = rmp::ui::ColorRole::DANGER, .size = 14 });
+                    }
+                    if (damaged) {
+                        rmp::ui::text(
+                            "the saved settings were damaged; these are the defaults",
+                            { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
+                    }
+                });
+            });
     });
     rmp::ui::end();
 

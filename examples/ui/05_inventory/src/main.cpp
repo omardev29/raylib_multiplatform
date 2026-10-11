@@ -18,6 +18,7 @@
 
 #include <rmp/app.h>
 #include <rmp/assets.h>
+#include <rmp/input.h>
 #include <rmp/ui.h>
 
 #include "inventory.h"
@@ -26,12 +27,16 @@ static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
     icon = rmp::assets::load_texture("rabbit.png");
+    // What a click means to the game, by name.
+    rmp::input::action("use", MOUSE_BUTTON_LEFT);
 }
 
 static void on_frame(float) {
     // The UI is reading the pointer, so the game must not act on the same
-    // click. Without this, picking an item also swings the sword.
-    if (!rmp::ui::wants_pointer() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    // click: picking an item must not also swing the sword. An action asked
+    // for by name already knows -- it is quiet while the UI wants the pointer
+    // -- so there is no `if (!rmp::ui::wants_pointer())` to remember here.
+    if (rmp::input::just_pressed("use")) {
         TraceLog(LOG_INFO, "GAME: click in the world");
     }
 

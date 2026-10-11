@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
+#include <rmp/input.h>
 #include <rmp/ui.h>
 
 #include "screens.h"
@@ -25,7 +26,10 @@ static void on_ready() {
 static void on_frame(float) {
     if (game.screen == Screen::PLAYING) {
         game.score += 1;
-        if (IsKeyPressed(KEY_ESCAPE)) game.screen = Screen::MENU;
+        // "ui_cancel" is one of the actions that come defined: Escape, or the
+        // gamepad's right face button. Through rmp::input rather than
+        // IsKeyPressed(KEY_ESCAPE), so a controller can go back too.
+        if (rmp::input::just_pressed("ui_cancel")) game.screen = Screen::MENU;
     }
 
     BeginDrawing();

@@ -76,6 +76,10 @@ static void variants() {
                             { .style = rmp::ui::Variant::PRIMARY, .enabled = false });
             rmp::ui::button("No save file yet", { .enabled = false });
         });
+
+        rmp::ui::text(
+            "Buttons pressed: " + std::to_string(pressed_count),
+            { .color = rmp::ui::ColorRole::MUTED, .size = rmp::ui::Size::SMALL });
     });
 }
 
@@ -163,19 +167,22 @@ static void on_frame(float) {
         });
     });
 
-    variants();
-    sizes();
-    custom_theme_demo();
+    // The rest is taller than the window, so it scrolls: the wheel, a finger,
+    // or the keyboard and the gamepad -- moving the focus to a control the
+    // area has clipped away brings it into view.
+    rmp::ui::scroll({ .id = "page" }, [] {
+        variants();
+        sizes();
+        custom_theme_demo();
 
-    // The transition is on colour only — never on position or size. A control
-    // is always exactly where it was drawn, so an animation can never make you
-    // miss what you were aiming at. Drag this and watch the fill keep up.
-    rmp::ui::panel({ .box = { .grow_x = true } }, [] {
-        rmp::ui::slider("Excitement", excitement, 0.0f, 1.0f);
-        rmp::ui::progress(excitement);
-        rmp::ui::text(
-            "Buttons pressed: " + std::to_string(pressed_count),
-            { .color = rmp::ui::ColorRole::MUTED, .size = rmp::ui::Size::SMALL });
+        // The transition is on colour only — never on position or size. A
+        // control is always exactly where it was drawn, so an animation can
+        // never make you miss what you were aiming at. Drag the slider and
+        // watch the fill above it keep up.
+        rmp::ui::panel({ .box = { .grow_x = true } }, [] {
+            rmp::ui::progress(excitement);
+            rmp::ui::slider("Excitement", excitement, 0.0f, 1.0f);
+        });
     });
 
     rmp::ui::end();
