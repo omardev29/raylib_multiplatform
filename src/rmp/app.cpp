@@ -100,6 +100,15 @@ struct {
     bool refused = false;
 } test_window;
 
+// A boot that logged RAY_TEST_BOOT_FAIL -- no window (a DRM game with no
+// card), a save that did not come back, a RAY_TEST_WINDOW start() could not
+// read -- and the status the run ends with, in end_stop(). It ended with 0,
+// so a boot step that read the status and not the log passed a game that
+// never opened.
+struct {
+    bool failed = false;
+} boot;
+
 #if RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
     !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(PLATFORM_IOS)
 // Where the executable is, or an empty path where the system will not say.
@@ -319,11 +328,15 @@ void after_ready() {
     const char *asked = std::getenv("RAY_TEST_SAVE");
     const bool save_test =
         SmokeTest_maxFrames > 0 || (asked != nullptr && asked[0] == '1');
+    // Failed until the boot is reported with a window, at the end: each way
+    // out before it has said RAY_TEST_BOOT_FAIL, and the status will say it too.
+    boot.failed = true;
     if (save_test && !smoke_save_round_trip()) return;
     // A RAY_TEST_WINDOW start() could not read: no boot. read_test_window()
     // said why, with RAY_TEST_BOOT_FAIL.
     if (test_window.refused) return;
     SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
+    boot.failed = !IsWindowReady();
 }
 
 // Three ways a run ends, and they are checked in one place so that the three
@@ -436,6 +449,20 @@ void end_stop() {
     rmp::assets::shutdown();
     // The UI is gone: a warning from here on is said in the log only.
     rmp::detail::set_report_sink({});
+    if (!boot.failed) return;
+    // A boot that failed is a run that failed, and its exit status says so:
+    // the runner's main() ends with `return 0` after this, and that is what a
+    // DRM game with no card returned. Everything above has run, so this is
+    // the exit main() would make, with another status. Not on iOS (QA1561),
+    // Android (the Activity ends the process) or the web (the page stays),
+    // where nothing reads a status.
+#if !defined(PLATFORM_IOS) && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__)
+    TraceLog(LOG_ERROR, "APP: the boot failed (RAY_TEST_BOOT_FAIL above): exit status 1");
+    std::exit(EXIT_FAILURE);
+#else
+    TraceLog(LOG_ERROR, "APP: the boot failed (RAY_TEST_BOOT_FAIL above)");
+#endif
 }
 
 // ---------------------------------------------------------------------------

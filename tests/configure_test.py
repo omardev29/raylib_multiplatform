@@ -2554,6 +2554,88 @@ class TestWindowOnlyUnderTheSmokeTest(unittest.TestCase):
                 self.assertNotEqual(self.problems(app.replace(old, new, 1)), [])
 
 
+class AFailedBootFailsTheRunTest(unittest.TestCase):
+    """A boot that logged RAY_TEST_BOOT_FAIL -- no window (a DRM game with no
+    card), a save that did not come back, a RAY_TEST_WINDOW start() could not
+    read -- ended with status 0, and a boot step that read the status passed
+    it. after_ready() holds the boot failed until SmokeTest_ReportBoot() has
+    found the window, and end_stop() ends such a run with EXIT_FAILURE where a
+    status is read: not iOS, Android or the web. Seen red in the build image,
+    the DRM debug build started with no card: RAY_TEST_BOOT_FAIL, status 0;
+    and the headless one with RAY_TEST_WINDOW=bogus, the same. drm-x64-run
+    starts the shipped DRM binary with no card and requires 1."""
+
+    GUARD = ("#if !defined(PLATFORM_IOS) && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && "
+             "\\\n    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__)")
+
+    @staticmethod
+    def body(text, signature):
+        start = text.index(signature)
+        return text[start:text.index("\n}\n", start)]
+
+    @classmethod
+    def problems(cls, app: str, linux: str) -> list[str]:
+        out = []
+        ready = cls.body(app, "void after_ready() {")
+        marked = ready.find("boot.failed = true;")
+        if marked < 0 or marked > ready.find("smoke_save_round_trip()"):
+            out.append("after_ready() does not hold the boot failed before its first way out")
+        found = ready.find("boot.failed = !IsWindowReady();")
+        if found < 0 or found < ready.find("SmokeTest_ReportBoot("):
+            out.append("after_ready() does not take the window's word after the boot is reported")
+        stop = cls.body(app, "void end_stop() {")
+        leave = stop.find("if (!boot.failed) return;")
+        exit_at = stop.find("std::exit(EXIT_FAILURE);")
+        guard = stop.find(cls.GUARD)
+        if leave < 0 or exit_at < 0 or not 0 <= leave < guard < exit_at:
+            out.append("end_stop() does not end a failed boot with EXIT_FAILURE on the desktop "
+                       "runner")
+        elif "#else" not in stop[exit_at:] or stop.find("#endif", exit_at) < stop.find("#else",
+                                                                                        exit_at):
+            out.append("a failed boot is not said where no status is read")
+        step = linux[linux.index("- name: Boot and render through DRM/KMS"):]
+        step = step[:step.index("\n      - ", 1)]
+        nocard = step.find("NOCARD=$(docker run")
+        if nocard < 0:
+            out.append("drm-x64-run does not start the binary with no card")
+        else:
+            command = step[nocard:step.index("2>&1); then RC=0", nocard)]
+            if "--device" in command or "RAY_TEST_MAX_FRAMES" not in command:
+                out.append("the no-card start is handed a card, or no frame budget")
+            for wanted in ('grep -q "RAY_TEST_BOOT_FAIL no window" <<< "$NOCARD"',
+                           'test "$RC" -eq 1'):
+                if wanted not in step[nocard:]:
+                    out.append(f"the no-card start does not require: {wanted}")
+        return out
+
+    def sources(self):
+        return ((REPO / "src" / "rmp" / "app.cpp").read_text(),
+                (WORKFLOW_DIR / "_linux.yml").read_text())
+
+    def test_a_failed_boot_ends_the_run_with_a_failing_status(self):
+        self.assertEqual(self.problems(*self.sources()), [])
+
+    def test_the_check_goes_red_on_each_mistake(self):
+        app, linux = self.sources()
+        for old, new in (("boot.failed = true;", ""),
+                         ("boot.failed = !IsWindowReady();", "boot.failed = false;"),
+                         ("if (!boot.failed) return;", ""),
+                         ("std::exit(EXIT_FAILURE);", "std::exit(EXIT_SUCCESS);"),
+                         ("#else\n    TraceLog(LOG_ERROR, \"APP: the boot failed", "#endif\n#if 0\n    TraceLog(LOG_ERROR, \"APP: the boot failed")):
+            with self.subTest(app=old):
+                self.assertIn(old, app)
+                self.assertNotEqual(self.problems(app.replace(old, new, 1), linux), [])
+        for old, new in (("NOCARD=$(docker run", "NOCARD=$(true"),
+                         ('-v "$PWD/drm-bin:/app:ro" -w / -e RAY_TEST_MAX_FRAMES=10 \\\n'
+                          '              "${{ inputs.build_image }}"',
+                          '-v "$PWD/drm-bin:/app:ro" -w / -e RAY_TEST_MAX_FRAMES=10 \\\n'
+                          '              --device /dev/dri "${{ inputs.build_image }}"'),
+                         ('test "$RC" -eq 1', 'test "$RC" -ne 0')):
+            with self.subTest(linux=old):
+                self.assertIn(old, linux)
+                self.assertNotEqual(self.problems(app, linux.replace(old, new, 1)), [])
+
+
 class StretchModesAgreeTest(unittest.TestCase):
     """RMP_WINDOW_STRETCH is a number, and stretch.cpp casts it to
     rmp::app::Stretch: the generator's order IS the enum's. A mode added to one

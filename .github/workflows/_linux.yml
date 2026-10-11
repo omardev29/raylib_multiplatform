@@ -1032,6 +1032,21 @@ jobs:
             grep -E 'WARNING|RAY_TEST_REPORTS' <<< "$OUT" || true
             echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
           fi
+          # And with no card to draw on, the same binary fails its boot, and its
+          # exit status says so: it logged RAY_TEST_BOOT_FAIL and exited 0, and
+          # a step that read the status alone passed it (end_stop() in
+          # src/rmp/app.cpp). 1, not any failure: a crash on the way out is
+          # another bug. A game in plain C ends where its own main() says.
+          if [ -d src/rmp ]; then
+            if NOCARD=$(docker run --rm --init --network none \
+              -v "$PWD/drm-bin:/app:ro" -w / -e RAY_TEST_MAX_FRAMES=10 \
+              "${{ inputs.build_image }}" \
+              "/app/${{ inputs.project_name }}" 2>&1); then RC=0; else RC=$?; fi
+            tail -5 <<< "$NOCARD"
+            grep -q "RAY_TEST_BOOT_FAIL no window" <<< "$NOCARD" \
+              || { echo "FAIL: with no card, it did not say RAY_TEST_BOOT_FAIL"; exit 1; }
+            test "$RC" -eq 1 || { echo "FAIL: with no card, its boot failed and it exited with $RC, not 1"; exit 1; }
+          fi
           echo "PASS: booted and rendered through DRM/KMS"
 
       # rmp itself, the way somebody at a Linux console with no desktop runs it
