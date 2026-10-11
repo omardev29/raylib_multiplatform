@@ -24,8 +24,8 @@
 // compares), and tests/fixtures/pack_aes/resources.rres, written by
 // tools/rres_pack.c itself:
 //
-//   build/debug/rres_pack tests/fixtures/pack_aes/resources.rres \
-//       fixture-password tests/fixtures/pack_aes/hello.txt
+//   cd tests/fixtures/pack_aes
+//   ../../../build/debug/rres_pack resources.rres fixture-password hello.txt
 //
 // -- its salt is random, so it cannot be written twice the same, and it is
 // the one test that pays for Argon2i (two seconds under ASan at -O0).
