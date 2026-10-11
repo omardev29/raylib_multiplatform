@@ -1,8 +1,8 @@
 # tools/rmp.py (package P9): the one command. mutmut follows calls in-process,
 # so these are the classes of rmp_test.py that call rmp.py's functions -- not
 # the ones that start it as a program against a real git (deploy, push,
-# install, update: they count for nothing here, and the install tests copy
-# rmp.py somewhere a Python without mutmut runs it, and fail), not the ones
+# install, update, a console in CI: they count for nothing here, and some
+# copy rmp.py somewhere a Python without mutmut runs it, and fail), not the ones
 # that need a git checkout, which mutmut's copy of the tree is not (the
 # manifest read from the index, `rmp new`, the launchers, CiModeTest, DocsTest),
 # and not the ones that read rmp.py's text, which in the copy holds every
@@ -22,5 +22,4 @@ tests    tests/rmp_test.py::GlobalCommandsTest tests/rmp_test.py::InstallCommand
 tests    tests/rmp_test.py::SessionTest tests/rmp_test.py::TerminalNameTest
 tests    tests/rmp_test.py::ConsoleFoldersTest tests/rmp_test.py::ConsoleDevicesTest
 tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTest
-tests    tests/rmp_test.py::ConsoleInCiTest
 floor    -
