@@ -57,6 +57,12 @@
 #include <raylib.h>
 #include <rlgl.h>
 
+// An OpenGL ES 2.0 build: what bound_framebuffer() asks GL itself, below.
+#if defined(GRAPHICS_API_OPENGL_ES2) && !defined(GRAPHICS_API_OPENGL_ES3) && \
+    (defined(__EMSCRIPTEN__) || defined(__ANDROID__) || defined(PLATFORM_DRM))
+#include <GLES2/gl2.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -249,13 +255,41 @@ float ease_towards(bool on) {
     return t * t * (3.0f - 2.0f * t);
 }
 
+// The framebuffer bound right now, or nullopt where nobody can say.
+//
+// rlgl's rlGetActiveFramebuffer() asks GL for GL_DRAW_FRAMEBUFFER_BINDING,
+// which OpenGL ES 2.0 does not have, so under ES 2.0 it answers 0 whatever
+// is bound. ES 2.0's own name for it is GL_FRAMEBUFFER_BINDING, and an ES
+// 2.0 build -- WebGL 1, Android at [android] gl_version "ES20", DRM -- asks
+// for it here: the framework's one direct GL call, through the
+// <GLES2/gl2.h> rlgl itself was built against. Without it a scene drawing
+// through its own render texture under a blur, the pixel-art pattern, sent
+// the rest of its frame to the screen unseen, and the blur showed the
+// clear colour alone. A desktop build for ES 2.0 loads GL through rlgl's
+// glad, which nothing outside rlgl can call, and stays unable to tell.
+//
+// tests/ui_render_test.cpp proves what is done with the answer, on the
+// desktop's GL, where the answer is rlgl's. The ES 2.0 call itself is only
+// compiled and linked, by the web, Android and DRM builds of the full
+// matrix: no job draws a blur on an ES 2.0 context.
+std::optional<unsigned int> bound_framebuffer() {
+    if (rlGetVersion() != RL_OPENGL_ES_20) return rlGetActiveFramebuffer();
+#if defined(GRAPHICS_API_OPENGL_ES2) && !defined(GRAPHICS_API_OPENGL_ES3) && \
+    (defined(__EMSCRIPTEN__) || defined(__ANDROID__) || defined(PLATFORM_DRM))
+    GLint bound = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &bound);
+    return static_cast<unsigned int>(bound);
+#else
+    return std::nullopt;
+#endif
+}
+
 // A scene that drew through a BeginTextureMode() of its own has ended it,
 // and raylib went back to the screen: the rest of the frame is there, not in
-// gpu.scene. Only where rlgl can say which framebuffer is bound -- its
-// rlGetActiveFramebuffer() answers 0 under OpenGL ES 2.0 whatever is bound.
+// gpu.scene. Only where the bound framebuffer can be known.
 bool escaped() {
-    if (rlGetVersion() == RL_OPENGL_ES_20) return false;
-    return rlGetActiveFramebuffer() != gpu.scene.raw().id;
+    const std::optional<unsigned int> bound = bound_framebuffer();
+    return bound.has_value() && *bound != gpu.scene.raw().id;
 }
 
 void report_escape() {
