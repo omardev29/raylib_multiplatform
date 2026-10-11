@@ -1,0 +1,9 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infi…………………………………………………………………………………………………………………………………………………………………………………nite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "ble":true, "wihdth":0, "x":32, "y":32 },
+        { "class":"path", "height":0, "id":3, "name":"line",
+    "text":polyl,
+    "text":polyline":[ { "

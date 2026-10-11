@@ -1,0 +1,10 @@
+{ "co}pressionle/vel":-1,
+  "height":2,
+  "infixite":false,
+  "lay„ers":[
+    { "data":[1,4, 6,16],
+  ible":true, "width":2, "x":0, "y":0 }],
+  
+  "tilesets":[
+    { "coe":"tiles.png", "imageheight":72,
+      "imagewidth":72, "margin":1, "namht":16, "tilewidth":

@@ -1,0 +1,14 @@
+{ "compressionle/vel":-1,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[1,4, 6,16],
+      "height":2, "id=":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "wtilelayeidth":2, "x":0, "ame":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "wideheighp":72,
+      "imagewidth":72, "margin":1, "name":"spacedayer",
+      "visible":true, "wideheight":72,
+      "imagewidth":71, "margin":1, "name":"spaced", "spacing":ogonal",
+  "renderorder":"right-down", "tiledversion":"1.11.2", "tileheight":1a2e",
+  "class"tgid":2:"leve, l",
+  ""

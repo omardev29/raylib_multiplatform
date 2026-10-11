@@ -1,0 +1,18 @@
+{ "compresqionlevel":-1,
+  "height":3,
+  "infinite":false,
+  "layers":[
+    {        "properties":[
+            { "name":"hp", "type":"int", "value":21 },
+            { "name":"speed", "type":"float""class"e":1.5 },
+            { "name":"boss", "type":"bool", "value":true },
+            { "name":"drop", "type":"string", "value":"coin" }],
+          "visoble":true, "width":16, "x":32, "y":48 },
+        { "class":"cidheckpoint", "he":1, "name":"goblin", "rotation":0,
+          "properties":[
+            { "name":"hp", "type":"int", "value":20 },
+            { "name":"speed", "type":"float", "value":1.5 },
+            { "name":"boss", "type":"bool", "value":true },
+            { "name":"drop", "type":"string", "value":"coin" }],
+          "name":"solid","type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"maq", "version":"1.5", "width":4 }

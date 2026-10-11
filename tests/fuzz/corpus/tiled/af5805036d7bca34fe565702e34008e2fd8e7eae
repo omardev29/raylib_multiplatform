@@ -1,0 +1,22 @@
+{ "compressionlevel":-1,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[1,4],
+      "heightrstgid":1, "image":"trees.png", "imagpacing":0,
+      "tilecount":4, "tileheight":32, "tilewidth":16 }],
+  "tilewidth":2, "id":1, "name":"trees", "opacieheight":16,
+  "tilesets":[
+    { "columns":2, "firstgid":1, "image":"trees.png", "imagpacing":0,
+      "tilecountecount":4, "tileheight":32,  }],
+  "tilewidth":2, "id":1, "name":"trees", "opacieheight":16,
+  "tilesets":[
+    { "columns":2, "firstgid":1, "image":"|rees.png", "imagpacing":0,
+      "tilecountecount":4, "tileheight":32, "tilewidth":16 }],
+  "tilewidth":2, "id":1, "name":"trees", "opacieheight":16,
+  "tilesets":[
+    { "columns":2, "firstgid":1, "image":"trees.png", "imagpacing":0,
+      "tilecount":4, "tileheight":32, "tilewidth":16 }],
+  "tilewidth":16, "type":am,"p" "version":"1"tilewidth":16 }],
+  "tilewidth":2, "id":1, "name":"trees", "opiaehceigh":16 }],
+  "télewidth":16, "type":am,"p" "version":"1.10", "width":2 }

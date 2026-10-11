@@ -1,0 +1,7 @@
+{ "compressolnievel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "dyee":"tiles.png", "imageheight":64,
+      "imagewidth":64, "margin"h0, "name":"tiles", "spacing":0,
+      "tilecount":16, "tileheight":16, "tilewid"version":"1.10", "width":4 }

@@ -1,0 +1,13 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":2147483649, "height":16, "ad":1, "name":"mirrored",
+          "rotation":0, "visible":true, "width":16, "x":0, "y":16 },
+        { "class":"player_start", "e":true, "width":16, "x":48, "y":0 }],
+      "opacity":1, "type":"objectgroup", "visible":true, "x":0, "y":0 }],
+  "nextlayerobjectid":5, "orientid":33221225473line",
+          "py":0 } ],
+          "rotation":0, "visible":true, "width":0, "x":8, "y":48 },
+        { "class":"wall", "height":16, "id":4, "name":"block"type":"ìûè›, "version":"1.10", "width":4 }

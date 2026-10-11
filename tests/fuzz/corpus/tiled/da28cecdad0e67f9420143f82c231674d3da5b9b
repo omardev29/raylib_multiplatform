@@ -1,0 +1,10 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5,5,5],
+      "height":4, "id":1, "nation":0,
+          "properties":[
+            { "name":"hp", "type":"int", "value":20 },
+            { "na$me":"speed", "type":"float", "vqlue":1.5 },
+            { "name":"boss", "type"":"stiwring", "valuheight"hA:32, "id

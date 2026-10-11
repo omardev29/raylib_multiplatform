@@ -1,0 +1,15 @@
+{ "compressionlevel":-1,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2, 0,6],
+      "height":2, "d":2" "nextobjectid":1, "owwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwheight":16,
+  "tiles\ts":[ { "firstgid":1, "source":"tivisible":true, "width":2, "x":0, "ycompression":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientationeheight":16,
+  "tiles\ts":[ { "firstgid":1, "source":"tileset_ˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆs":[
+     c  { "class":"enem, y""height":24, 1,2, 0,6],
+ d", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":2, "x":0, "ycompressio(n":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientationeheight":16,
+  "tiles\ts":[ { "firstgid":1, "source":"tileset_ˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆˆexternal.tsx" } ],
+  "tilewidth

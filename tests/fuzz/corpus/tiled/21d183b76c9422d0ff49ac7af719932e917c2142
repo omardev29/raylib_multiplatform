@@ -1,0 +1,10 @@
+{ "compressionlevel":-1,
+  "height":3,
+  "idversion":"1.75.2", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":1, "image":"tiles.png", "imageheight":72,
+      "imagewidth;":72, "margin":1, "name":"spaced", "spacing":2,
+      "tilecount":16, "tileheight":16, "tilewidth":16,
+      "tiles":[ { "id":2, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientation":"orthogonal",
+  "renderorder":"right-dowion":"1.10", "width":2 }

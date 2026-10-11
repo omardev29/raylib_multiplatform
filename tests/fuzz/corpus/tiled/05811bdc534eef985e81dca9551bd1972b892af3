@@ -1,0 +1,10 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "dattype":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "drawor$der":"topdown", "id":3, "name":"things", "objects":[
+        { "class":"enemy", "height":24, "id":1, "name":"goblin", "rotation":0,
+          "properties":[
+            { "name":Ùhp"dth":2 }

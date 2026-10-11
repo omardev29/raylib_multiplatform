@@ -1,0 +1,12 @@
+{ "compressionlevel":-1,
+  "height":2,
+  "infinite":f],
+  "tilewidth":2, "id":1, "name":"trees", "opacieheight":16,
+  "tilesets":[
+    { "columns":2, "firstgid":1, "image":"trees.png", "imagpacing":0,
+      "tilecountecount":4, "tileheight":32, "tilewidth":16 }],
+  "tilewidth":2, "id":1, "name":"trees", "opacieheight":16,
+  "tilesets":[
+    { "columns":2, "firstgid":1, "image":"trees.png", "imagpacing":0,
+      "tilecount":4, "tileheight":acing":0,
+      "tilecount":4, "pe":am,"p" "version":"1.10", "width":2 }

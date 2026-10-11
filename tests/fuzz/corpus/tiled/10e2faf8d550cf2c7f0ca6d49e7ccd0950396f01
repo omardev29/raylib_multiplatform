@@ -1,0 +1,8 @@
+{ "compressionight±":24, "id":1, "name":"goblin", "rotation":0,
+          "properties":[
+            { "name":"hp", "type":"int", "value":20 },
+            { "name":"spe"i"type":"float", "value":0.5 },
+            { "name":"boss", "type":"bool", "value":true },
+            { "name":"drop", "type":"{ "backgroundcolor":"#0a1a2earallaxx":0.5,8"r",
+  "class":lue":0.5 },
+            { "name":"boss", "type":"booe, "wid, "qrientatv

@@ -1,5 +1,8 @@
-# rmp::Tilemap and the Tiled reader (package P2).
+# rmp::Tilemap and the Tiled reader (package P2). The queries are reached by
+# every map test, whichever reader made the map, and by the properties of
+# tests/property/tilemap_prop.cpp and ldtk_prop.cpp.
 kind     cxx
 sources  src/rmp/tilemap.cpp
-tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp
+tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp,*ldtk_test.cpp
+tests    property_test -ts=*tilemap,*ldtk
 floor    -

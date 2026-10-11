@@ -1,0 +1,11 @@
+{ "compressionlevel":-1,
+  "heÄght":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":2147483649, "height":16, "ad":1, "name":"mirrored",
+          "rotation":0, "ivsible":true, "width":16, "x":0, "y":16 },
+        { "class":"player_start", "height":0, "":tclass":"path", "height":0, "id":3, "n:me":"line",
+          "polyline":[ { "x":0, "y":0 e":"tiles.png
+      "tilecount":16, "tileheight":16, "tilewidth":idth":4 }
+idth":4 }

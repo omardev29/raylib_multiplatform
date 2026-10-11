@@ -1,0 +1,9 @@
+{ "compressionlevel":-1,
+  "height":2,
+  "iinnfite":false,
+  "layers":[
+    { "data":[1,2, 3,4],
+      "heightrstgid":1, "image":"trees.png", "imagpacing":0,
+      "irstgid":1, "image":"trees.png", "imagpacing":0,
+       }],
+  "tilewidth":16, "type":am,"p" "version":"1.10", "width":2 }

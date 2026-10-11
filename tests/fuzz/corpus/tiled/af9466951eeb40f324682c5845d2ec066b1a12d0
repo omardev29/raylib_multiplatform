@@ -1,0 +1,11 @@
+{ "compressionle/vel":-1,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿdata":[1,4, 6,16],
+      "height":2, "id=":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":2, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orheight":16,
+  "tilesets":[
+    { "columns":4, "firstgi~~~~~~~d":2, "imafinite":f":[ { "id":5, "properties":[ { "name":"solid","type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"1.10", "width":2 }

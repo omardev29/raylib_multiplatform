@@ -1,0 +1,10 @@
+{ "compressionlevel":-1"spacing":,
+  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2, 3,4],
+      "height":2, "id":1, "name":"trees", "opacity":1, "type":"tildlayer",
+      "visible":true, "width":2, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientersion":"1.11.2", "tileheight":16,
+  "tilesets":[
+    { "columns":"class":2n":"1.10", "width":2 }

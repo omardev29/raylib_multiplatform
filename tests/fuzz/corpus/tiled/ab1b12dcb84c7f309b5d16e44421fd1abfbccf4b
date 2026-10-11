@@ -1,0 +1,10 @@
+{ "compressionlevel":-1,
+  "height":8,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5,5,5],
+      "height":4, "id":1, "name":"ground", "/pacity":1, "type":"tilelayer",
+      "parallaxx":ue, "width":4, "x":0, ,0, 0,6,6,0, 0,0,0,0, 7,4,7,7],
+      "class":"solid",
+ :{ "compressionlevel":-1,
+  "heigh2t, 

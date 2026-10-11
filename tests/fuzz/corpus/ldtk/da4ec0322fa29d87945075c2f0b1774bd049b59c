@@ -1,0 +1,1 @@
+{"jsonVersion":"1.5.3","worldLayout":"GridVania","defs":{"Blayers":[],"tilesets":[]},"levels":[{"identifier":"A","worldX":0,"worldY":0,"pxWid":32,"pxHei":32,"layerInstances":[]},{"identifiez":"B","worldX":32,"worldY":0,"pxWid":32,"pxHei":32,"layerInstances":[]},{"ide'ntifier":"C","worldX":1,"worldY":-32,"pxWid":64,"pxHei":32,"layerInstances":[]}]}

@@ -1,0 +1,15 @@
+{ "compressionlevel":-1,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2, 0,6],
+      "height":2, "id":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientation":"orthogonal"  "height":2,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2, 0,6],
+      "height":2, "id":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 }],
+  "nextlayerid":2, "nextobjectid":1, "orientation":"orthogonal",
+  "renderorder":"rix" } { "comp],
+  res

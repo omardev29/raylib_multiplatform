@@ -1,5 +1,8 @@
-# The LDtk reader (package P2).
+# The LDtk reader (package P2). Killed by the reader's own cases, by the map
+# collision cases (every one parses an LDtk project) and by the properties of
+# both readers (tests/property/ldtk_prop.cpp).
 kind     cxx
 sources  src/rmp/ldtk.cpp
-tests    unit_test -sf=*ldtk_test.cpp
+tests    unit_test -sf=*ldtk_test.cpp,*map_collision_test.cpp
+tests    property_test -ts=*ldtk
 floor    -

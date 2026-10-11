@@ -1,0 +1,18 @@
+{"tilesets":[{"tileproperties":{"0compr~~~~~~~~~~~~~~~~~~~~~~~~~~~~~{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0"x":0, "y":0 },
+    { "dr"name":"goblin", "rotation":0,
+          "":{propenties":[
+            {bool "name":"hp", "type":"int", "value":20 },
+            { "name":"speed", "type":"float", "value":1.5 },
+            {lue":true },
+            { "na"de:"mrop", "type":"string", "value":"coin" }],
+          "visible":true, "width":16, "x":32, "y":48 },
+        { "class":"cheble":true, "width":32, "x":0, "y":0 }],
+      "opacity":1, "ty•e":"objectgroup", "visible":true, "x":0, "y":0 }],
+  "nextlayerid":4, "nextobjectid":3, "orientation":"orthogonal",
+  "renderorder":"right-down$, "tiÿÿ|\ŸÂëon":"1.5.0", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":1, "image":"tiles.png", "i

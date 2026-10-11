@@ -1,0 +1,6 @@
+{ "compressionlevel":-1,
+  "offsety":,
+  "infinite":false,
+  "layers":[
+    { "d":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"chest", "gid":(, "height":16, "idtilewidth":0", "width":4 }

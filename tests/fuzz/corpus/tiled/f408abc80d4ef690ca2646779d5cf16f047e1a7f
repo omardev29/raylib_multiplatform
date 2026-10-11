@@ -1,0 +1,9 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "!objects":[
+        { "class":"ch•Œ‹ÝÓßÝ˜id":2147483649, "height":16,* "id":1, "name":"mirtilelayer         "rotation":0, "visible":true, "width":16, "x":0, "y":16 },
+        { "class":"player_start", "height":0, "id":2, "name":"start", "point":true,
+          "rotation":0, "visibl     "visible":true, "width":16, "x":48, "y":0 }],
+    sion":"1.10", "width":4 }

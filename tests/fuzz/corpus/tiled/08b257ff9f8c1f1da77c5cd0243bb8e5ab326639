@@ -1,0 +1,10 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "draworder":"topdown", "id":1, "name":"things", "objects":[
+        { "class":"Compression11111111111111111111111111111111111111111111111111111111111111111111111111111path", "height":0, "id":3, "name":"line",
+          "polyline":[ { "x":0, "y":0 }, { "x":16, "y":0 } ],
+         "ellipse":":0, "visible":true, "width":":16, "id":4, "repeaty":ock", "rfalseon":0,
+          "visible":tru
+  "til=ewidth":16, "type":"map", "version":"1.10", "width":4 }
