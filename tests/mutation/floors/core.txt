@@ -2,4 +2,5 @@
 kind     cxx
 sources  src/rmp/global.cpp src/rmp/report.cpp src/rmp/ads.cpp
 tests    unit_test -tse=*device*
+tests    property_test -sf=*core_prop.cpp
 floor    -

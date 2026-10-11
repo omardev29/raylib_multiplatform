@@ -17,22 +17,11 @@
 # by hand at its merge, into the blocks of the packages that take their headers
 # after Stage D: none of them had a property yet, as no function of theirs did.
 
-# include/rmp/ads.h: P6 (stub cases)
-rmp::ads::is_interstitial_loaded()
-rmp::ads::is_rewarded_loaded()
-rmp::ads::request_interstitial()
-rmp::ads::request_rewarded()
-rmp::ads::reward_amount()
-rmp::ads::show_interstitial()
-rmp::ads::show_rewarded()
-rmp::ads::take_reward_earned()
-
 # include/rmp/app.h: P6, after Stage D
 rmp::app::quit()
 rmp::app::quit_requested()
 rmp::app::set_stretch(Stretch)
 rmp::app::stretch()
-rmp::global [template]
 
 # include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's
 rmp::SheetData::frame(int) const
