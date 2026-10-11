@@ -667,8 +667,9 @@ Each of these was a real bug, found by reproducing rather than by reading.
   and scales that to the display itself (`SetupFramebuffer()` in
   `rcore_android.c` and `rcore_drm.c`), so the framework never sees a window of
   another shape there: EXPAND does not expand, and NONE is letterboxed too. The
-  desktop and the web follow the mode. Written down, not changed, until Omar
-  decides. And raylib has one scissor: an object's own
+  desktop and the web follow the mode. Left as raylib does it by Omar's
+  decision (2026-10-11): changed only when a real game needs EXPAND on a
+  phone. And raylib has one scissor: an object's own
   `BeginScissorMode()`/`EndScissorMode()` in its `_draw()` ends LETTERBOX's cut
   (`world_clip()`, `src/rmp/scene.cpp`) for the rest of that scene's world.
 - **`rlGetActiveFramebuffer()` answers 0 under OpenGL ES 2.0, whatever is
