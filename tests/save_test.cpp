@@ -1461,6 +1461,26 @@ TEST_SUITE("save: files") {
         CHECK(rmp::save::read("huge", v).status == Status::UNREADABLE);
     }
 
+    TEST_CASE_FIXTURE(Fixture,
+                      "a file of exactly 64 MB is still read: the cap is past it") {
+        // The other side of the cap: read whole, its CRC does not match, so
+        // MODIFIED -- refused for its size, it would say UNREADABLE (Mull: the
+        // `size > MAX_FILE`, mutated to `>=`, survived).
+        const std::uintmax_t size = std::uintmax_t{ 64 } * 1024 * 1024;
+        std::string head;
+        std::uintmax_t payload = size;
+        for (int pass = 0; pass < 3; ++pass) {
+            head = "rmp-save 1 1 plain " + std::to_string(payload) + " 00000000\n";
+            payload = size - head.size();
+        }
+        const fs::path file = dir.path / "edge.save";
+        std::ofstream(file, std::ios::binary) << head;
+        fs::resize_file(file, size);
+        Value v = 3;
+        CHECK(rmp::save::read("edge", v).status == Status::MODIFIED);
+        CHECK(v == Value(3));
+    }
+
     TEST_CASE_FIXTURE(
         Fixture, "a folder that cannot be written: write says false, nothing crashes") {
         // Under a regular FILE, so creating the folder fails even for root --
@@ -1600,6 +1620,33 @@ TEST_SUITE("save: portable") {
         rmp::save::detail::reset_for_tests();
     }
 
+    TEST_CASE(
+        "a save next to the game is still read after its folder stops taking writes") {
+        // The game moved somewhere read-only -- Program Files -- with its saves
+        // next to it: this session writes to the user's folder, and the save
+        // the player already has is in the portable one. Looking in the chosen
+        // folder twice, it was not found (Mull: `f.chosen == f.user` replaced,
+        // survived). A folder in the probe file's place refuses the probe even
+        // for root, which is what CI runs as.
+        const TempDir portable;
+        const TempDir user;
+        Value progress;
+        progress["level"] = 12;
+        Bytes bytes;
+        REQUIRE(rmp::save::detail::encode(progress, 1, false, &bytes));
+        std::ofstream(portable.path / "slot.save", std::ios::binary)
+            .write(reinterpret_cast<const char *>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
+        fs::create_directories(portable.path / ".rmp-write-test" / "in_the_way");
+        rmp::save::detail::set_folders_for_tests(portable.str(), user.str());
+        REQUIRE(fs::equivalent(fs::path(rmp::save::directory()), user.path));
+        Value back;
+        REQUIRE(rmp::save::read("slot", back));
+        CHECK(back["level"].as_int() == 12);
+        CHECK(rmp::save::exists("slot"));
+        rmp::save::detail::reset_for_tests();
+    }
+
     TEST_CASE("an unwritable portable folder falls back to the user's, says so ONCE, and "
               "directory() tells the truth") {
         // The Program Files case: a portable build somewhere it cannot write.
@@ -1676,6 +1723,13 @@ TEST_SUITE("save: where, on this platform") {
         unsetenv("XDG_DATA_HOME");
         CHECK(rmp::save::detail::user_folder() ==
               "/home/player/.local/share/" RMP_PROJECT_NAME "/");
+        // No home at all -- a service, a stripped environment: relative to
+        // where the game runs, and no crash on an empty path (Mull: the
+        // empty() check in with_separator(), mutated, survived).
+        unsetenv("HOME");
+        CHECK(rmp::save::detail::user_folder() == ".local/share/" RMP_PROJECT_NAME "/");
+        setenv("HOME", "", 1);
+        CHECK(rmp::save::detail::user_folder() == ".local/share/" RMP_PROJECT_NAME "/");
 
         if (old_xdg != nullptr) {
             setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);
