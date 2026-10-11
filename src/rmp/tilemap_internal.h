@@ -6,6 +6,10 @@
 
 #include <raylib.h> // Rectangle, Vector2
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +33,38 @@ namespace rmp::tilemap::detail {
 
 // Tiled's three flip bits, masked off every gid it writes.
 inline constexpr unsigned FLIP_MASK = 0xE0000000U;
+
+// ---- numbers out of a file -------------------------------------------------
+//
+// Both readers take every number through these on its way into the map, so
+// nothing after parsing meets a NaN, an infinity, a negative size or a tile
+// count it would allocate gigabytes for -- whatever the file says.
+
+// Bigger than any level or project an editor makes, and small enough that a
+// broken or hostile file cannot make a reader allocate gigabytes. BUDGETS FOR
+// THE WHOLE FILE, not limits per layer or per tileset: a limit per layer let a
+// 1.5 KB file of a dozen 4096 x 4096 layers take three quarters of a gigabyte.
+// 16M cells is all the layers of a 65 536 x 65 536 px level at 16 px; 4M tiles
+// is every tileset of a project, each a 32 768 px square of 16 px tiles.
+inline constexpr std::int64_t MAX_CELLS = std::int64_t{ 1 } << 24;
+inline constexpr std::int64_t MAX_TILES = std::int64_t{ 1 } << 22;
+
+// A float out of a double: NaN as 0, and clamped to what a float holds. A
+// double past FLT_MAX converted to float is undefined behaviour in C++, IEEE
+// or not, and a position of infinity collides nowhere and draws nowhere --
+// and, added to another, is the NaN that a comparison lets through. Sums are
+// made in double and come through here once, at the end.
+inline float finite_float(double value) {
+    if (std::isnan(value)) return 0;
+    constexpr double HIGHEST = std::numeric_limits<float>::max();
+    return static_cast<float>(std::clamp(value, -HIGHEST, HIGHEST));
+}
+
+// A size: what finite_float() makes of it, and never below 0.
+inline float size_float(double value) { return std::max(0.0f, finite_float(value)); }
+
+// An int a file gives as a size, a margin or a spacing: never below 0.
+inline int size_int(int value) { return std::max(0, value); }
 
 // A tileset, with its tiles numbered first_gid..last_gid in the MAP's
 // numbering. Tiled hands those numbers out itself; LDtk does not number tiles

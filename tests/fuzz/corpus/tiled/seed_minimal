@@ -1,0 +1,30 @@
+{ "compressionlevel":-1,
+  "height":4,
+  "infinite":false,
+  "layers":[
+    { "data":[1,2,3,4, 0,0,0,0, 0,0,0,0, 5,5,5,5],
+      "height":4, "id":1, "name":"ground", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "data":[0,0,0,0, 0,6,6,0, 0,0,0,0, 7,7,7,7],
+      "class":"solid",
+      "height":4, "id":2, "name":"walls", "opacity":1, "type":"tilelayer",
+      "visible":true, "width":4, "x":0, "y":0 },
+    { "draworder":"topdown", "id":3, "name":"things", "objects":[
+        { "class":"enemy", "height":24, "id":1, "name":"goblin", "rotation":0,
+          "properties":[
+            { "name":"hp", "type":"int", "value":20 },
+            { "name":"speed", "type":"float", "value":1.5 },
+            { "name":"boss", "type":"bool", "value":true },
+            { "name":"drop", "type":"string", "value":"coin" }],
+          "visible":true, "width":16, "x":32, "y":48 },
+        { "class":"checkpoint", "height":32, "id":2, "name":"start", "rotation":0,
+          "visible":true, "width":32, "x":0, "y":0 }],
+      "opacity":1, "type":"objectgroup", "visible":true, "x":0, "y":0 }],
+  "nextlayerid":4, "nextobjectid":3, "orientation":"orthogonal",
+  "renderorder":"right-down", "tiledversion":"1.5.0", "tileheight":16,
+  "tilesets":[
+    { "columns":4, "firstgid":1, "image":"tiles.png", "imageheight":64,
+      "imagewidth":64, "margin":0, "name":"tiles", "spacing":0,
+      "tilecount":16, "tileheight":16, "tilewidth":16,
+      "tiles":[ { "id":5, "properties":[ { "name":"solid","type":"bool","value":true } ] } ] }],
+  "tilewidth":16, "type":"map", "version":"1.5", "width":4 }

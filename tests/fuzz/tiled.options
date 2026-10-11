@@ -1,0 +1,5 @@
+# libFuzzer flags for fuzz_tiled, one a line: tools/fuzz.sh run and merge pass them.
+# The Tiled fixtures are under 2 KB each; 4 KB holds a map of every kind of
+# layer and object, and keeps the merged corpus small (tests/campaign_test.py
+# holds the whole corpus under 2 MB).
+-max_len=4096

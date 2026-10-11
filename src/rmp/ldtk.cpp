@@ -78,14 +78,8 @@ namespace {
 using rmp::detail::CNumbers;
 using rmp::detail::Json;
 
-// Bigger than any level or project an editor makes, and small enough that a
-// broken or hostile file cannot make the reader allocate gigabytes. BUDGETS FOR
-// THE WHOLE FILE, not limits per layer or per tileset: a limit per layer let a
-// 1.5 KB file of a dozen 4096 x 4096 layers take three quarters of a gigabyte.
-// 16M cells is all the layers of a 65 536 x 65 536 px level at 16 px; 4M tiles
-// is every tileset of a project, each a 32 768 px square of 16 px tiles.
-constexpr std::int64_t MAX_CELLS = std::int64_t{ 1 } << 24;
-constexpr std::int64_t MAX_TILES = std::int64_t{ 1 } << 22;
+// MAX_CELLS and MAX_TILES, the budgets of a whole file, and finite_float(),
+// are tilemap_internal.h's: the Tiled reader keeps to them too.
 
 // A coordinate in cells, or false when it is not a finite number inside
 // 0..limit: a float past INT_MAX, an infinity or a NaN cast to int is
@@ -120,14 +114,6 @@ int as_int(double value) {
     constexpr double HIGHEST = 2147483647.0;
     constexpr double LOWEST = -2147483648.0;
     return static_cast<int>(std::clamp(value, LOWEST, HIGHEST));
-}
-
-// A float out of a double, clamped and with NaN as 0: a double past FLT_MAX
-// converted to float is undefined behaviour in C++, IEEE or not.
-float as_float(double value) {
-    if (std::isnan(value)) return 0;
-    constexpr double HIGHEST = 3.4e38;
-    return static_cast<float>(std::clamp(value, -HIGHEST, HIGHEST));
 }
 
 int integer(const cJSON *object, const char *key, int fallback) {
@@ -206,10 +192,10 @@ void read_tilesets(const cJSON *defs, Project *project, MapData *data) {
         out.last_gid = next_gid + count - 1;
         next_gid += count;
         out.columns = columns > 0 ? columns : 1;
-        out.tile_width = integer(set, "tileGridSize", 0);
+        out.tile_width = size_int(integer(set, "tileGridSize", 0));
         out.tile_height = out.tile_width;
-        out.margin = integer(set, "padding", 0);
-        out.spacing = integer(set, "spacing", 0);
+        out.margin = size_int(integer(set, "padding", 0));
+        out.spacing = size_int(integer(set, "spacing", 0));
         out.solid.assign(static_cast<std::size_t>(count), false);
 
         // The tiles tagged `solid` with the tileset's enum.
@@ -297,12 +283,12 @@ void read_tiles(const cJSON *tiles, const Tileset &set, Layer *layer) {
         if (id < 0 || id > set.last_gid - set.first_gid) continue;
         PlacedTile placed;
         placed.gid = set.first_gid + id;
-        placed.at = Vector2{ as_float(pair_at(tile, "px", 0, 0)),
-                             as_float(pair_at(tile, "px", 1, 0)) };
+        placed.at = Vector2{ finite_float(pair_at(tile, "px", 0, 0)),
+                             finite_float(pair_at(tile, "px", 1, 0)) };
         const int flips = integer(tile, "f", 0);
         placed.flip_x = (flips & 1) != 0;
         placed.flip_y = (flips & 2) != 0;
-        placed.alpha = as_float(number(tile, "a", 1.0));
+        placed.alpha = finite_float(number(tile, "a", 1.0));
         layer->placed.push_back(placed);
 
         // The grid view of the same tiles: the top one of each cell, for
@@ -327,19 +313,22 @@ void read_tiles(const cJSON *tiles, const Tileset &set, Layer *layer) {
 
 // A field of an entity into a Property, or false when it is null or of a kind
 // that is not read.
-bool read_field(const cJSON *field, Vector2 cell_origin, float grid, Property *out) {
+bool read_field(const cJSON *field, double origin_x, double origin_y, double grid,
+                Property *out) {
     const char *type = text(field, "__type");
     const cJSON *value = member(field, "__value");
     if (value == nullptr || cJSON_IsNull(value)) return false;
     out->key = text(field, "__identifier");
     const std::string kind(type);
 
-    // The centre of cell {cx, cy} of the entity's layer, in the world.
+    // The centre of cell {cx, cy} of the entity's layer, in the world. Summed
+    // in double and made a float once: a cell past float's range made an
+    // infinite point, and a game walking towards it walked forever.
     const auto point = [&](const cJSON *p, Vector2 *at) {
         if (!cJSON_IsNumber(member(p, "cx")) || !cJSON_IsNumber(member(p, "cy")))
             return false;
-        *at = Vector2{ cell_origin.x + (as_float(number(p, "cx", 0)) + 0.5f) * grid,
-                       cell_origin.y + (as_float(number(p, "cy", 0)) + 0.5f) * grid };
+        *at = Vector2{ finite_float(origin_x + ((number(p, "cx", 0) + 0.5) * grid)),
+                       finite_float(origin_y + ((number(p, "cy", 0) + 0.5) * grid)) };
         return true;
     };
 
@@ -350,7 +339,7 @@ bool read_field(const cJSON *field, Vector2 cell_origin, float grid, Property *o
     }
     if (kind == "Float" && cJSON_IsNumber(value)) {
         out->kind = Property::Kind::FLOAT;
-        out->floating = as_float(value->valuedouble);
+        out->floating = finite_float(value->valuedouble);
         return true;
     }
     if (kind == "Bool" && cJSON_IsBool(value)) {
@@ -392,7 +381,9 @@ bool read_field(const cJSON *field, Vector2 cell_origin, float grid, Property *o
     return false;
 }
 
-void read_entities(const cJSON *layer, Vector2 base, float grid, MapData *data) {
+// `base_x` and `base_y`: where the layer's (0,0) is in the world.
+void read_entities(const cJSON *layer, double base_x, double base_y, double grid,
+                   MapData *data) {
     const cJSON *entity = nullptr;
     cJSON_ArrayForEach(entity, array(layer, "entityInstances")) {
         auto info = std::make_unique<ObjectInfo>();
@@ -402,36 +393,40 @@ void read_entities(const cJSON *layer, Vector2 base, float grid, MapData *data) 
         const cJSON *field = nullptr;
         cJSON_ArrayForEach(field, array(entity, "fieldInstances")) {
             Property prop;
-            if (read_field(field, base, grid, &prop))
+            if (read_field(field, base_x, base_y, grid, &prop))
                 info->properties.push_back(std::move(prop));
         }
-        const auto w = as_float(number(entity, "width", 0));
-        const auto h = as_float(number(entity, "height", 0));
+        // Never negative: a size is a size, and a negative one is a box the
+        // collision pass would read inside out.
+        const float w = size_float(number(entity, "width", 0));
+        const float h = size_float(number(entity, "height", 0));
         // `px` is where the PIVOT is, and the pivot is a fraction of the
         // size: 0.5,1 (the default) is the middle of the bottom edge.
-        const auto pivot_x = as_float(pair_at(entity, "__pivot", 0, 0.5));
-        const auto pivot_y = as_float(pair_at(entity, "__pivot", 1, 1.0));
-        const auto px = as_float(pair_at(entity, "px", 0, 0));
-        const auto py = as_float(pair_at(entity, "px", 1, 0));
+        const double pivot_x = pair_at(entity, "__pivot", 0, 0.5);
+        const double pivot_y = pair_at(entity, "__pivot", 1, 1.0);
+        const double px = pair_at(entity, "px", 0, 0);
+        const double py = pair_at(entity, "px", 1, 0);
 
         MapObject &out = data->add_object(std::move(info));
         out.size = Vector2{ w, h };
-        out.position = Vector2{ base.x + px - (pivot_x * w) + (w / 2),
-                                base.y + py - (pivot_y * h) + (h / 2) };
+        // In double, made a float once: a pivot and a size each inside
+        // float's range multiplied past it, and the centre came out infinite.
+        out.position = Vector2{ finite_float(base_x + px - (pivot_x * w) + (w / 2.0)),
+                                finite_float(base_y + py - (pivot_y * h) + (h / 2.0)) };
     }
 }
 
 void read_layer(const cJSON *layer, Project *project, MapData *data) {
     const std::string type = text(layer, "__type");
     const int grid = integer(layer, "__gridSize", 0);
-    const Vector2 offset{ as_float(number(layer, "__pxTotalOffsetX", 0)),
-                          as_float(number(layer, "__pxTotalOffsetY", 0)) };
+    const Vector2 offset{ finite_float(number(layer, "__pxTotalOffsetX", 0)),
+                          finite_float(number(layer, "__pxTotalOffsetY", 0)) };
     if (grid <= 0) return;
 
     if (type == "Entities") {
-        read_entities(layer,
-                      Vector2{ data->origin.x + offset.x, data->origin.y + offset.y },
-                      static_cast<float>(grid), data);
+        read_entities(layer, static_cast<double>(data->origin.x) + offset.x,
+                      static_cast<double>(data->origin.y) + offset.y,
+                      static_cast<double>(grid), data);
         return;
     }
     if (type != "IntGrid" && type != "Tiles" && type != "AutoLayer") return;
@@ -452,7 +447,7 @@ void read_layer(const cJSON *layer, Project *project, MapData *data) {
     out.cell_width = grid;
     out.cell_height = grid;
     out.offset = offset;
-    out.opacity = as_float(number(layer, "__opacity", 1.0));
+    out.opacity = finite_float(number(layer, "__opacity", 1.0));
     const cJSON *visible = member(layer, "visible");
     out.visible = !cJSON_IsBool(visible) || cJSON_IsTrue(visible) != 0;
     const std::size_t cells =
@@ -631,16 +626,16 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
     data->size_px = Vector2{ static_cast<float>(std::max(0, integer(lv, "pxWid", 0))),
                              static_cast<float>(std::max(0, integer(lv, "pxHei", 0))) };
     if (world) {
-        data->origin = Vector2{ as_float(number(lv, "worldX", 0)),
-                                as_float(number(lv, "worldY", 0)) };
+        data->origin = Vector2{ finite_float(number(lv, "worldX", 0)),
+                                finite_float(number(lv, "worldY", 0)) };
         for (const LevelRef &ref : levels) {
             if (ref.world != chosen->world) continue;
             LevelInfo info;
             info.name = text(ref.level, "identifier");
-            info.world = Rectangle{ as_float(number(ref.level, "worldX", 0)),
-                                    as_float(number(ref.level, "worldY", 0)),
-                                    as_float(number(ref.level, "pxWid", 0)),
-                                    as_float(number(ref.level, "pxHei", 0)) };
+            info.world = Rectangle{ finite_float(number(ref.level, "worldX", 0)),
+                                    finite_float(number(ref.level, "worldY", 0)),
+                                    finite_float(number(ref.level, "pxWid", 0)),
+                                    finite_float(number(ref.level, "pxHei", 0)) };
             data->levels.push_back(std::move(info));
         }
     }

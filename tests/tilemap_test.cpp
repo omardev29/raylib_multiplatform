@@ -26,11 +26,15 @@
 #include <rmp/tilemap.h>
 
 #include <array>
+#include <cmath>
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -653,4 +657,201 @@ TEST_CASE("a tileset taller than the grid reaches up out of its cell") {
         CHECK(rmp::tilemap::detail::tile_origin(nullptr, 1, 1, 1).x ==
               doctest::Approx(0));
     }
+}
+
+// ---------------------------------------------------------------------------
+// What fuzz_tiled found (tests/fuzz/regressions/tiled/ has each input). Every
+// one of these crashed, leaked or did undefined behaviour before
+// thirdparty/cute_tiled/PATCHES.md's hardening and the readers' number checks.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::vector<unsigned char> bytes_from(const std::string &text) {
+    return { text.begin(), text.end() };
+}
+
+// A map of `layers` and `tilesets`, the rest a plain 2 x 2 grid of 16 px.
+std::string tiled_map(const std::string &layers, const std::string &tilesets = "[]",
+                      const std::string &size = R"("width":2,"height":2,)"
+                                                R"("tilewidth":16,"tileheight":16)") {
+    return "{" + size + R"(,"layers":)" + layers + R"(,"tilesets":)" + tilesets + "}";
+}
+
+} // namespace
+
+TEST_CASE("a map cut short anywhere is refused, and nothing past it is read") {
+    // A download that failed half way, a disk that filled up. cute_tiled read
+    // past the end of the bytes -- a game's bytes have no NUL after them, and
+    // strtod, its whitespace loop and its look-ahead scans ran on -- and
+    // trapped (__builtin_trap) when it asked for a character at the end.
+    // Every prefix of a real map, each in an allocation of exactly its size
+    // so ASan sees a read one past it.
+    SetTraceLogLevel(LOG_NONE);
+    const std::vector<unsigned char> whole = bytes_of("map_minimal.json");
+    std::size_t last_brace = whole.size();
+    while (last_brace > 0 && whole[last_brace - 1] != '}') --last_brace;
+    for (std::size_t size = 1; size + 1 < last_brace; ++size) {
+        CAPTURE(size);
+        const std::vector<unsigned char> cut(
+            whole.begin(), whole.begin() + static_cast<std::ptrdiff_t>(size));
+        CHECK(rmp::tilemap::detail::parse_map(cut.data(), static_cast<int>(cut.size()),
+                                              "cut.json") == nullptr);
+    }
+    CHECK(Parsed(whole, "whole.json").map.valid());
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a map that fails half way frees what it had read") {
+    // cute_tiled malloc'ed the CSV tiles, the vertices and the properties one
+    // by one and freed them only with a map that loaded, so every refusal
+    // after them leaked -- and a key given twice leaked its first array.
+    // LeakSanitizer reads this test at exit.
+    SetTraceLogLevel(LOG_NONE);
+    for (
+        const std::string &text :
+        { std::string(R"({"layers":[{"type":"tilelayer","width":2,"height":1,)"
+                      R"("data":[1,2],"opacity":}]})"),
+          std::string(R"({"layers":[{"type":"objectgroup","objects":[{"polygon":)"
+                      R"([{"x":1,"y":2}],"properties":[{"name":"a","type":"int",)"
+                      R"("value":1}],"x":}]}]})"),
+          tiled_map(
+              R"([{"type":"tilelayer","width":1,"height":1,"data":[1],"data":[2]}])") }) {
+        CAPTURE(text);
+        const std::vector<unsigned char> raw = bytes_from(text);
+        static_cast<void>(Parsed(raw, "half.json"));
+    }
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("group layers nested past 32 deep are refused, not recursed into") {
+    // The parser recursed once a group, and so did the pass that freed the
+    // map: a file of groups inside groups ran the stack out.
+    SetTraceLogLevel(LOG_NONE);
+    const auto nested = [](int depth) {
+        std::string text =
+            R"({"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[)";
+        for (int i = 0; i < depth; ++i) text += R"({"type":"group","layers":[)";
+        for (int i = 0; i < depth; ++i) text += "]}";
+        return text + "]}";
+    };
+    CHECK(Parsed(bytes_from(nested(31)), "groups.json").map.valid());
+    CHECK_FALSE(Parsed(bytes_from(nested(33)), "groups.json").map.valid());
+    CHECK_FALSE(Parsed(bytes_from(nested(100000)), "groups.json").map.valid());
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("an object's numbers come out finite and its size never negative") {
+    // cute_tiled reads a number with strtod, which takes "nan" and "inf" and
+    // a 1e39 no float holds; and a corner plus half a size, each a float, can
+    // sum past float's range. Each came out as the object's position.
+    SetTraceLogLevel(LOG_NONE);
+    for (const std::string_view object :
+         { R"({"x":nan,"y":-inf,"width":16,"height":16})",
+           R"({"x":1e39,"y":0,"width":16,"height":16})",
+           R"({"x":3e38,"y":0,"width":3e38,"height":16,"rotation":inf})",
+           R"({"x":0,"y":0,"width":-16,"height":-1})" }) {
+        CAPTURE(object);
+        const Parsed p(
+            bytes_from(tiled_map(std::string(R"([{"type":"objectgroup","objects":[)") +
+                                 std::string(object) + "]}]")),
+            "numbers.json");
+        REQUIRE(p.map.object_count() == 1);
+        const rmp::MapObject &o = p.data->objects[0];
+        CHECK(std::isfinite(o.position.x));
+        CHECK(std::isfinite(o.position.y));
+        CHECK(std::isfinite(o.rotation));
+        CHECK(o.size.x >= 0);
+        CHECK(o.size.y >= 0);
+    }
+    // NaN is 0, and the rest of the object is what it says.
+    const Parsed p(
+        bytes_from(tiled_map(
+            R"([{"type":"objectgroup","objects":[{"x":nan,"y":8,"width":16,"height":16}]}])")),
+        "nan.json");
+    REQUIRE(p.map.object_count() == 1);
+    const rmp::MapObject &o = p.data->objects[0];
+    CHECK(o.position.x == doctest::Approx(8));
+    CHECK(o.position.y == doctest::Approx(16));
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a float property past int's range reads as the nearest int") {
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed p(
+        bytes_from(tiled_map(
+            R"([{"type":"objectgroup","objects":[{"x":0,"y":0,"width":1,"height":1,)"
+            R"("properties":[{"name":"up","type":"float","value":1e30},)"
+            R"({"name":"nan","type":"float","value":nan},)"
+            R"({"name":"down","type":"float","value":-1e39}]}]}])")),
+        "props.json");
+    REQUIRE(p.map.object_count() == 1);
+    const rmp::MapObject &o = p.data->objects[0];
+    CHECK(o.property_int("up") == std::numeric_limits<int>::max());
+    CHECK(o.property_int("down") == std::numeric_limits<int>::min());
+    CHECK(o.property_int("nan", 7) == 0); // NaN is never kept: it is 0
+    CHECK(std::isfinite(o.property_float("down")));
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("sizes and gids past int's range are finite, and never negative") {
+    // A map 100 000 tiles of 100 000 px wide, a tileset whose firstgid plus
+    // its tile count passes INT_MAX, a tile size plus a spacing past it: each
+    // was an int sum or product, undefined behaviour, and UBSan said so.
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed wide(bytes_from(tiled_map("[]", "[]",
+                                           R"("width":100000,"height":100000,)"
+                                           R"("tilewidth":100000,"tileheight":100000)")),
+                      "wide.json");
+    REQUIRE(wide.map.valid());
+    CHECK(wide.map.bounds().width == doctest::Approx(1e10));
+    const Parsed negative(bytes_from(tiled_map("[]", "[]",
+                                               R"("width":-2,"height":2,)"
+                                               R"("tilewidth":16,"tileheight":-16)")),
+                          "negative.json");
+    CHECK(negative.map.bounds().width == doctest::Approx(0));
+    CHECK(negative.map.bounds().height == doctest::Approx(0));
+    CHECK(negative.map.tile_size().y == doctest::Approx(0));
+
+    const Parsed last(
+        bytes_from(tiled_map(
+            R"([{"type":"tilelayer","width":1,"height":1,"data":[2147483647]}])",
+            R"([{"firstgid":2147483646,"columns":1,"tilecount":4,)"
+            R"("tilewidth":16,"tileheight":16}])")),
+        "last.json");
+    REQUIRE(last.data->tilesets.size() == 1);
+    CHECK(last.data->tilesets[0].last_gid == std::numeric_limits<int>::max());
+    CHECK(rmp::tilemap::detail::tile_source(last.data, 2147483647).y ==
+          doctest::Approx(16));
+
+    const Parsed spaced(
+        bytes_from(tiled_map(
+            R"([{"type":"tilelayer","width":2,"height":1,"data":[1,2]}])",
+            R"([{"firstgid":1,"columns":2,"tilecount":2,"tilewidth":2147483647,)"
+            R"("tileheight":16,"spacing":2147483647}])")),
+        "spaced.json");
+    const Rectangle second = rmp::tilemap::detail::tile_source(spaced.data, 2);
+    CHECK(std::isfinite(second.x));
+    CHECK(second.x == doctest::Approx(4294967294.0));
+    const Vector2 far =
+        rmp::tilemap::detail::tile_origin(wide.data, 0, 2147483647, 2147483647);
+    CHECK(std::isfinite(far.x));
+    CHECK(std::isfinite(far.y));
+    SetTraceLogLevel(LOG_INFO);
+}
+
+TEST_CASE("a tileset that says it holds two billion tiles allocates nothing for them") {
+    // tilecount is a number in the file; the solid flags were a vector of
+    // that many. LDtk's budget (MAX_TILES) holds the Tiled reader too.
+    SetTraceLogLevel(LOG_NONE);
+    const Parsed p(bytes_from(tiled_map("[]",
+                                        R"([{"firstgid":1,"columns":1,)"
+                                        R"("tilecount":2147483647,"tilewidth":16,)"
+                                        R"("tileheight":16}])")),
+                   "many.json");
+    REQUIRE(p.map.valid());
+    REQUIRE(p.data->tilesets.size() == 1);
+    CHECK(p.data->tilesets[0].solid.empty());
+    CHECK(p.data->tilesets[0].last_gid < p.data->tilesets[0].first_gid); // holds none
+    SetTraceLogLevel(LOG_INFO);
 }

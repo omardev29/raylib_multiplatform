@@ -40,6 +40,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -138,6 +139,14 @@ const rmp::MapObject *object_by_iid(const MapData *data, std::string_view iid) {
         if (o->iid == iid) return o;
     }
     return nullptr;
+}
+
+// The first object of a type; the test stops there when there is none.
+const rmp::MapObject &the_object(const MapData &data, std::string_view type) {
+    const auto found = std::ranges::find_if(
+        data.objects, [&](const rmp::MapObject &o) { return o.type == type; });
+    REQUIRE_MESSAGE(found != data.objects.end(), "no object of type " << type);
+    return *found;
 }
 
 const Layer *layer_named(const MapData *data, const char *name) {
@@ -1220,5 +1229,123 @@ TEST_SUITE("ldtk") {
         CHECK(std::string(as_ldtk.map.level()) == "Start");
         CHECK(as_ldtk.map.object_count() == 3);
         CHECK(Parsed(text, "dir/minimal.ldtk").map.valid());
+    }
+
+    // -----------------------------------------------------------------------
+    // What fuzz_ldtk found (tests/fuzz/regressions/ldtk/ has each input):
+    // numbers each inside their own range that met in a sum or a product and
+    // left it, and a level that named itself.
+    // -----------------------------------------------------------------------
+
+    TEST_CASE("an entity whose pivot times its size is past float's range is finite") {
+        // A pivot of -3e38 and a width of 3e38 are each a float; their product
+        // is not, and the centre came out infinite -- an object that collides
+        // nowhere and that a camera following it loses.
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":32,"pxHei":32,)"
+            R"("layerInstances":[{"__type":"Entities","__gridSize":16,"entityInstances":[)"
+            R"({"__identifier":"Thing","width":3e38,"height":16,"__pivot":[-3e38,1],)"
+            R"("px":[3e38,0]},)"
+            R"({"__identifier":"Small","width":-16,"height":-1e400,"px":[8,16]}]}]}]})";
+        const Parsed p(doc, "far_entity.ldtk");
+        REQUIRE(p.map.object_count() == 2);
+        for (const std::string_view type : { "Thing", "Small" }) {
+            CAPTURE(type);
+            const rmp::MapObject &o = the_object(*p.data, type);
+            CHECK(std::isfinite(o.position.x));
+            CHECK(std::isfinite(o.position.y));
+            CHECK(o.size.x >= 0); // and a size is never negative
+            CHECK(o.size.y >= 0);
+        }
+        // The ordinary case is what it was: the pivot at the bottom middle.
+        const rmp::MapObject &small = the_object(*p.data, "Small");
+        CHECK(small.position.x == doctest::Approx(8));
+        CHECK(small.position.y == doctest::Approx(16));
+    }
+
+    TEST_CASE("a Point field past float's range is a finite point") {
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":32,"pxHei":32,)"
+            R"("layerInstances":[{"__type":"Entities","__gridSize":16,"entityInstances":[)"
+            R"({"__identifier":"Thing","width":16,"height":16,"fieldInstances":[)"
+            R"({"__identifier":"to","__type":"Point","__value":{"cx":3e38,"cy":0}},)"
+            R"({"__identifier":"path","__type":"Array<Point>","__value":[{"cx":0,"cy":1e400},)"
+            R"({"cx":1,"cy":2}]}]}]}]}]})";
+        const Parsed p(doc, "far_point.ldtk");
+        const rmp::MapObject &o = the_object(*p.data, "Thing");
+        const Vector2 to = o.property_point("to");
+        CHECK(std::isfinite(to.x));
+        CHECK(to.y == doctest::Approx(8));
+        REQUIRE(o.property_count("path") == 2);
+        CHECK(std::isfinite(o.property_point("path", 0).y));
+        CHECK(o.property_point("path", 1).x == doctest::Approx(24));
+        CHECK(o.property_point("path", 1).y == doctest::Approx(40));
+    }
+
+    TEST_CASE("a Float field past int's range reads as the nearest int") {
+        // property_int() of a float cast it straight to int: 1e30 is undefined
+        // behaviour, and UBSan said so.
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":32,"pxHei":32,)"
+            R"("layerInstances":[{"__type":"Entities","__gridSize":16,"entityInstances":[)"
+            R"({"__identifier":"Thing","width":16,"height":16,"fieldInstances":[)"
+            R"({"__identifier":"up","__type":"Float","__value":1e30},)"
+            R"({"__identifier":"down","__type":"Float","__value":-1e400},)"
+            R"({"__identifier":"cut","__type":"Float","__value":-2.75}]}]}]}]})";
+        const Parsed p(doc, "far_float.ldtk");
+        const rmp::MapObject &o = the_object(*p.data, "Thing");
+        CHECK(o.property_int("up") == std::numeric_limits<int>::max());
+        CHECK(o.property_int("down") == std::numeric_limits<int>::min());
+        CHECK(o.property_int("cut") == -2); // towards zero, as it always was
+        CHECK(std::isfinite(o.property_float("up")));
+        CHECK(std::isfinite(o.property_float("down")));
+    }
+
+    TEST_CASE(
+        "a tileset whose tile size and spacing pass INT_MAX together draws safely") {
+        // tile_source() added the tile size to the spacing as ints: two values
+        // a file may well hold summed past INT_MAX, and UBSan said so.
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[{"uid":1,"__cWid":2,"__cHei":1,)"
+            R"("tileGridSize":2147483647,"spacing":2147483647,"padding":-5}]},)"
+            R"("levels":[{"identifier":"L","pxWid":32,"pxHei":32,"layerInstances":[)"
+            R"({"__type":"Tiles","__gridSize":16,"__cWid":2,"__cHei":2,)"
+            R"("__tilesetDefUid":1,"gridTiles":[{"px":[0,0],"t":1}]}]}]})";
+        const Parsed p(doc, "wide_tiles.ldtk");
+        REQUIRE(p.map.tile_at(0, 0, 0) != 0);
+        const Rectangle src =
+            rmp::tilemap::detail::tile_source(p.data, p.map.tile_at(0, 0, 0));
+        CHECK(std::isfinite(src.x));
+        CHECK(src.x > 0);
+        CHECK(src.y == doctest::Approx(0)); // a padding below 0 is 0
+        CHECK(src.width == doctest::Approx(2147483647.0));
+    }
+
+    TEST_CASE("neighbour_at never names the level the map is") {
+        // A level 10.5 px wide: bounds() is the grid it was cut to, 10 px, and
+        // the level's own rectangle in the world is the file's 10.5 -- so in
+        // the half pixel between them the level was its own neighbour, and a
+        // game that changes level on that name reloaded the one it was in.
+        const Quiet quiet;
+        const std::string half =
+            R"({"worldLayout":"GridVania","defs":{"tilesets":[]},"levels":[)"
+            R"({"identifier":"A","worldX":0,"worldY":0,"pxWid":10.5,"pxHei":16,"layerInstances":[]},)"
+            R"({"identifier":"B","worldX":100,"worldY":0,"pxWid":16,"pxHei":16,"layerInstances":[]}]})";
+        const Parsed a(half, "half.ldtk");
+        REQUIRE(a.map.valid());
+        CHECK(std::string(a.map.neighbour_at({ 10.2f, 8 })).empty());
+        CHECK(std::string(a.map.neighbour_at({ 108, 8 })) == "B");
+        // Two levels the file names alike are the same level to load_map().
+        const std::string twice =
+            R"({"worldLayout":"Free","defs":{"tilesets":[]},"levels":[)"
+            R"({"identifier":"A","worldX":0,"worldY":0,"pxWid":16,"pxHei":16,"layerInstances":[]},)"
+            R"({"identifier":"A","worldX":16,"worldY":0,"pxWid":16,"pxHei":16,"layerInstances":[]}]})";
+        const Parsed b(twice, "twice.ldtk");
+        REQUIRE(b.map.valid());
+        CHECK(std::string(b.map.neighbour_at({ 20, 8 })).empty());
     }
 }
