@@ -21,6 +21,10 @@
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // BEFORE InitWindow, or it is ignored
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
+    // A menu fills whatever window it is given. The examples' .toml letterboxes
+    // the game's area to the design's shape ([window] stretch); NONE gives the
+    // interface the whole window, resized or not. See scenes/02_stretch.
+    rmp::app::set_stretch(rmp::app::Stretch::NONE);
 }
 
 static void on_frame(float) {

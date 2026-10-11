@@ -1,5 +1,6 @@
 // The list. scroll() clips its contents; the wheel and a dragging finger both
-// move it, and neither needs a line of code here.
+// move it, and neither needs a line of code here. Each item says what it is
+// with tooltip().
 #include "inventory.h"
 
 #include <rmp/ui.h>
@@ -17,9 +18,15 @@ void item_list() {
                 // apart automatically; this is for when you want the identity
                 // to survive the list being reordered.
                 const std::string id = "item" + std::to_string(i);
-                if (rmp::ui::button(items[i].name, { .id = id.c_str() })) {
+                if (rmp::ui::button(items[i].name, { .id = id })) {
                     selected = i;
                 }
+                // About the button just above, and only that: shown when the
+                // pointer rests on it for half a second, or at once when the
+                // keyboard or a gamepad walks onto it. To the left, over the
+                // grid, where it hides no other item of the list.
+                rmp::ui::tooltip(items[i].description,
+                                 { .side = rmp::ui::Align::CENTER_LEFT });
             }
         });
 

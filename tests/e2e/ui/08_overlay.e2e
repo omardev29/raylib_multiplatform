@@ -1,0 +1,48 @@
+# examples/ui/08_overlay, played: the pause, pushed and blurred, and "Really
+# quit?", drawn by the game scene itself -- each one's veil taking the clicks
+# meant for what is under it, and its first button the focus. raylib's
+# software renderer has no shaders, so the pause shows its veil and no blur
+# here. See tests/e2e/script.h for the grammar.
+
+# --- the pause: a scene of its own -----------------------------------------
+
+# The balls bounce from the first frame. The HUD is in the top right corner.
+20 shot playing
+
+# Pause, with the mouse: down on 21, up on 22, and PauseScene is pushed at
+# the end of 22.
+21 click 730 42
+22 expect scene PauseScene
+
+# Under the veil nothing takes a click: not the HUD's Quit, not the veil
+# itself. And the balls have stopped, because a pushed scene freezes what is
+# under it.
+24 click 730 98
+26 click 100 400
+32 expect scene PauseScene
+32 shot paused
+
+# Resume has the focus: Enter alone.
+33 tap KEY_ENTER
+33 expect scene GameScene
+
+# --- the dialog: an overlay and a panel, in the game scene ------------------
+
+# Quit asks first. Nothing is pushed, so nothing stops: twenty frames on, the
+# balls have moved behind the question.
+35 click 730 98
+46 shot really_quit
+66 expect scene GameScene
+66 shot the_game_goes_on
+
+# A click on the veil, outside the panel, answers nothing. Stay has the
+# focus, so Enter is the answer that loses nothing.
+67 click 100 400
+69 tap KEY_ENTER
+80 shot stayed
+
+# Asked again, and down to Quit: Enter ends the game, on the last frame.
+81 click 730 98
+83 tap KEY_DOWN
+85 tap KEY_ENTER
+85 end

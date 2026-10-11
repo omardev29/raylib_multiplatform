@@ -36,6 +36,10 @@ static constexpr int SECTION_COUNT = static_cast<int>(SECTIONS.size());
 static void on_ready() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
     InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
+    // And the whole window, whatever its shape. The examples' .toml letterboxes
+    // the game's area to the design's 16:9 ([window] stretch), and in that
+    // area the breakpoint never changes -- which is this example's point.
+    rmp::app::set_stretch(rmp::app::Stretch::NONE);
 }
 
 static const char *breakpoint_name() {

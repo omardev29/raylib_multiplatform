@@ -1,7 +1,7 @@
 # examples/ui/04_settings, played: every kind of control from the keyboard,
-# the gamepad and the mouse, applied and then reverted; a value at its
-# limit, a disabled box, a list closed without a choice. Everything but
-# typing: the field reads raylib's character queue (phase 14).
+# the gamepad and the mouse, a name typed and corrected, applied -- and said
+# so at the bottom of the screen -- and then reverted; a value at its limit,
+# a disabled box, a list closed without a choice.
 #
 # The focus starts on Fullscreen, asked for by name, so the ring shows from
 # the first frame. A change that animates (a box filling, a colour) takes
@@ -41,14 +41,19 @@
 37 tap KEY_DOWN
 39 tap KEY_ESCAPE
 
-# The name field takes the keyboard when the focus arrives on it, and its
-# caret blinks twice a second on the game's clock: shown for the first half
-# of each second, hidden for the second.
+# The name field takes the keyboard when the focus arrives on it: " Onf"
+# goes on the end, Backspace takes the typo off, and "e" finishes it -- Player
+# One. Its caret blinks twice a second on the game's clock: shown for the
+# first half of each second, hidden for the second.
 41 tap KEY_DOWN
+43 type " Onf"
+45 tap KEY_BACKSPACE
+47 type "e"
 52 shot name_caret_shown
 82 shot name_caret_hidden
 
-# Down past it to Revert, to Apply, and Enter: kept, and nothing is unsaved.
+# Down past it to Revert, to Apply, and Enter: kept, nothing is unsaved, and
+# "Saved" at the bottom says so for three seconds.
 83 tap KEY_DOWN
 85 tap KEY_DOWN
 87 tap KEY_ENTER

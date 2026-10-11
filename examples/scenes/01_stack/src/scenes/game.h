@@ -1,4 +1,5 @@
 #pragma once
+#include <rmp/object.h>
 #include <rmp/scene.h>
 
 class GameScene : public rmp::Scene {
@@ -17,4 +18,5 @@ private:
     int _level = 1;
     int _score = 0;
     float _elapsed = 0.0f;
+    rmp::Handle<rmp::Object> _player;
 };

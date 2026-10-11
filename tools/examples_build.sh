@@ -21,15 +21,20 @@
 #      matching looks exactly like a folder where everything passes.
 #   3. Every example that has an entry point boots, draws pixels and exits
 #      within its frame budget (RAY_TEST_BOOT_OK with assets_failed=0,
-#      RAY_TEST_RENDER_OK, RAY_TEST_DONE_FRAMES), and wrote its screenshot.
-#   4. The platformer is played to the end (tests/platformer_play.cpp), and
+#      RAY_TEST_RENDER_OK, RAY_TEST_DONE_FRAMES), wrote its screenshot, and
+#      made no mistake the framework reports (RAY_TEST_REPORTS=0) -- but the
+#      plain C one, which has no framework to report anything.
+#   4. scenes/02_stretch, booted again in a window of another shape than the
+#      design's -- a phone held upright and a strip wider than 16:9 -- is
+#      letterboxed: bars of its clear colour, the court centred between them.
+#   5. The platformer is played to the end (tests/platformer_play.cpp), and
 #      rmp::input is read both ways a game is written (tests/input_play.cpp).
-#   5. Every example with a script in tests/e2e/ is PLAYED from it, frame by
+#   6. Every example with a script in tests/e2e/ is PLAYED from it, frame by
 #      frame, and every shot compared with its golden PNG: exactly, inside the
 #      pinned build image; reported and not enforced anywhere else. As many
 #      scripts as e2e targets as runs. See tests/e2e/driver.cpp.
 #
-# 1-4 are `boot` and 5 is `e2e`, and with no argument it is both, one after
+# 1-5 are `boot` and 6 is `e2e`, and with no argument it is both, one after
 # the other -- `rmp test examples`. CI runs the two halves in two jobs side by
 # side (`examples` and `e2e` in ci.yml), each building what it runs: the e2e
 # targets are out of the build's `all` (CMakeLists.txt, rmp_add_e2e), so the
@@ -51,11 +56,12 @@
 # from the entry point -- it used to be skipped for having no frame budget,
 # which meant the one file people copy to leave the framework was never run.
 #
-# Usage: tools/examples_build.sh                 (from the repo root) 1-5
+# Usage: tools/examples_build.sh                 (from the repo root) 1-6
 #        RMP_EXAMPLE_FRAMES=60 tools/examples_build.sh
-#        tools/examples_build.sh boot            1-4: shape, build, boot, the
-#                                                 platformer and the input
-#        tools/examples_build.sh e2e             5. alone: builds the e2e
+#        tools/examples_build.sh boot            1-5: shape, build, boot, the
+#                                                 stretch, the platformer and
+#                                                 the input
+#        tools/examples_build.sh e2e             6. alone: builds the e2e
 #                                                 targets and plays them
 #        RMP_E2E_UPDATE=1 tools/examples_build.sh e2e
 #                                                 records the goldens, inside
@@ -144,7 +150,7 @@ play_one() {
   echo "$status" > "$logs/$t.status"
 }
 
-# 5. Booting proves an example draws; the platformer's bot proves one game can
+# 6. Booting proves an example draws; the platformer's bot proves one game can
 # be won. This plays examples from a SCRIPT -- what a player presses, frame by
 # frame, at exactly 1/60 s with rmp::random at seed 1 -- and compares what they
 # draw with tests/e2e/golden/, pixel for pixel. See tests/e2e/driver.cpp.
@@ -294,6 +300,11 @@ echo "  ok    $made targets built"
 
 echo "== examples: boot =="
 mkdir -p "$SHOTS"
+# The examples in plain C, as targets: examples/plain_c/src/main.c is
+# example_plain_c (CMakeLists.txt). They have their own main() and none of
+# the framework, so nothing in them counts a report.
+plain_c=$(find examples -path '*/src/main.c' \
+            | sed 's|^examples/||; s|/src/main\.c$||; s|/|_|g; s|^|example_|')
 ran=0
 failed=0
 for t in $targets; do
@@ -317,11 +328,24 @@ for t in $targets; do
   echo "$out" | grep -q "RAY_TEST_RENDER_OK" || ok=0
   echo "$out" | grep -q "RAY_TEST_DONE_FRAMES" || ok=0
   [ -s "$shot" ] || ok=0
-  if [ "$ok" -eq 1 ] && [ "$status" -eq 0 ]; then
+  # Every mistake of the example's that the framework said once
+  # (RMP_REPORT_ONCE: a widget outside begin()/end(), an action nobody
+  # defined...) is counted, and the count printed after the last frame. An
+  # example is what people copy: it makes none. A report is a WARNING line
+  # of the log, and in a debug build a line on the screen too.
+  reported=0
+  if ! printf '%s\n' "$plain_c" | grep -qx "$t"; then
+    echo "$out" | grep -q 'RAY_TEST_REPORTS=0$' || reported=1
+  fi
+  if [ "$ok" -eq 1 ] && [ "$reported" -eq 0 ] && [ "$status" -eq 0 ]; then
     echo "  ok    $t  $(echo "$out" | grep -o 'pixels=[0-9]* ratio=[0-9.]*' | head -1)"
   else
     failed=$((failed + 1))
     echo "  FAIL  $t  (exit $status)"
+    if [ "$reported" -eq 1 ]; then
+      echo "        the framework reported a mistake in it, and an example makes none:"
+      echo "$out" | grep -E 'WARNING|RAY_TEST_REPORTS' | sed 's/^/          /'
+    fi
     echo "$out" | tail -25 | sed 's/^/          /'
   fi
 done
@@ -332,10 +356,163 @@ if [ "$ran" -ne "$expected" ]; then
   exit 1
 fi
 if [ "$failed" -ne 0 ]; then
-  echo "FAIL: $failed example(s) did not boot, draw and exit. Screenshots of the ones that did: $SHOTS/"
+  echo "FAIL: $failed example(s) did not boot, draw and exit cleanly, or made a mistake the"
+  echo "      framework reported. Screenshots of the ones that drew: $SHOTS/"
   exit 1
 fi
 echo "PASS: $ran examples booted, drew and exited; screenshots in $SHOTS/"
+
+# At the design size every [window] stretch draws the same picture, so the
+# boot above says nothing about one. scenes/02_stretch is booted twice more
+# in a window of another shape -- a phone held upright, and a strip wider
+# than 16:9 -- which RAY_TEST_WINDOW opens under the smoke test and nowhere
+# else; and its last frame is read back. Under LETTERBOX, the framework's
+# .toml's: everything outside the design's area, scaled to fit and centred,
+# is the scene's clear colour; the world reaches every edge of that area; and
+# the court's white lines are where a mirror puts them, about the window's
+# middle row and column. A world drawn over the bars, an interface outside
+# the area or a camera off centre each fails one of the three.
+echo "== examples: scenes/02_stretch, letterboxed in two other shapes =="
+STRETCH=example_scenes_02_stretch
+# CourtScene's `background`, in examples/scenes/02_stretch/src/main.cpp.
+STRETCH_CLEAR=8,8,12
+for size in 450x800 1280x450; do
+  shot="$SHOTS/$STRETCH-$size.png"
+  rm -f "$shot"
+  status=0
+  out=$(RAY_TEST_MAX_FRAMES="$FRAMES" RAY_TEST_WINDOW="$size" RAY_TEST_SCREENSHOT="$shot" $LIMIT "$BUILD/$STRETCH" 2>&1 < /dev/null) || status=$?
+  ok=1
+  for marker in "RAY_TEST_WINDOW $size\$" 'RAY_TEST_BOOT_OK assets_failed=0 ' \
+                RAY_TEST_RENDER_OK 'RAY_TEST_REPORTS=0$'; do
+    printf '%s\n' "$out" | grep -q "$marker" || ok=0
+  done
+  if [ "$ok" -ne 1 ] || [ "$status" -ne 0 ] || [ ! -s "$shot" ]; then
+    printf '%s\n' "$out" | tail -25 | sed 's/^/          /'
+    echo "FAIL: $STRETCH did not boot, draw and exit cleanly in a $size window (exit $status)"
+    exit 1
+  fi
+  python3 - "$shot" include/rmp/generated/config.h "$STRETCH_CLEAR" <<'PY' || exit 1
+import re
+import struct
+import sys
+import zlib
+
+shot, header, clear = sys.argv[1], sys.argv[2], tuple(int(c) for c in sys.argv[3].split(","))
+
+
+def fail(why):
+    print(f"FAIL: {shot}: {why}")
+    sys.exit(1)
+
+
+config = open(header).read()
+
+
+def define(name):
+    found = re.search(rf"^#define {name}\s+(\d+)$", config, re.M)
+    if not found:
+        fail(f"{header} defines no {name}: python3 tools/configure.py")
+    return int(found.group(1))
+
+
+design_w, design_h = define("RMP_WINDOW_WIDTH"), define("RMP_WINDOW_HEIGHT")
+if define("RMP_WINDOW_STRETCH") != 1:
+    fail("[window] stretch is not \"letterbox\" in raylib_multiplatform.toml, and this "
+         "is what a letterbox looks like")
+
+
+def read_png(path):
+    """(width, height, rows of (r, g, b)) -- an 8-bit RGB or RGBA PNG, not
+    interlaced, which is what raylib writes. The standard library and nothing
+    else."""
+    data = open(path, "rb").read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        fail("not a PNG")
+    at, chunks, head = 8, [], None
+    while at + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[at:at + 8])
+        if kind == b"IHDR":
+            head = struct.unpack(">IIBBBBB", data[at + 8:at + 8 + length])
+        elif kind == b"IDAT":
+            chunks.append(data[at + 8:at + 8 + length])
+        at += 12 + length
+    width, height, depth, color_type, _, _, interlace = head
+    channels = {2: 3, 6: 4}.get(color_type)
+    if depth != 8 or channels is None or interlace != 0:
+        fail(f"a PNG this does not read: depth {depth}, colour type {color_type}, "
+             f"interlace {interlace}")
+    raw = zlib.decompress(b"".join(chunks))
+    stride = width * channels
+    rows, above, at = [], bytearray(stride), 0
+    for _ in range(height):
+        kind, line = raw[at], bytearray(raw[at + 1:at + 1 + stride])
+        at += 1 + stride
+        for i in range(stride if kind else 0):
+            a = line[i - channels] if i >= channels else 0
+            b = above[i]
+            c = above[i - channels] if i >= channels else 0
+            if kind == 1:
+                line[i] = (line[i] + a) & 255
+            elif kind == 2:
+                line[i] = (line[i] + b) & 255
+            elif kind == 3:
+                line[i] = (line[i] + (a + b) // 2) & 255
+            elif kind == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append([tuple(line[x * channels:x * channels + 3]) for x in range(width)])
+        above = line
+    return width, height, rows
+
+
+width, height, px = read_png(shot)
+scale = min(width / design_w, height / design_h)
+left, top = (width - design_w * scale) / 2, (height - design_h * scale) / 2
+right, bottom = width - left, height - top
+if max(left, top) < 8:
+    fail(f"a {width}x{height} window has no bars to look at")
+
+# The bars. A pixel on the area's edge may be either: the edge need not fall
+# on a whole pixel.
+wrong = [(x, y) for y in range(height) for x in range(width)
+         if (x < left - 1 or x >= right + 1 or y < top - 1 or y >= bottom + 1)
+         and px[y][x] != clear]
+if wrong:
+    x, y = wrong[0]
+    fail(f"{len(wrong)} pixel(s) outside the {right - left:g}x{bottom - top:g} area are "
+         f"not the clear colour {clear}: the first, ({x}, {y}), is {px[y][x]}")
+
+# The world, to every edge of the area: two pixels in, nothing is the clear
+# colour.
+x0, x1, y0, y1 = int(left) + 2, int(right) - 3, int(top) + 2, int(bottom) - 3
+edge = [(x, y) for x in range(x0, x1 + 1) for y in (y0, y1)] + \
+       [(x, y) for y in range(y0, y1 + 1) for x in (x0, x1)]
+gaps = [(x, y) for x, y in edge if px[y][x] == clear]
+if gaps:
+    fail(f"{len(gaps)} pixel(s) just inside the area are the clear colour: the world "
+         f"stops short of its edge, first at {gaps[0]}")
+
+
+# The court: its white lines on the middle row (the sidelines, the centre
+# circle, the halfway line) and the middle column (the halfway line, from
+# one end line to the other) are where a mirror puts them, to a pixel.
+def unmirrored(line, length):
+    white = [i for i, colour in enumerate(line) if colour == (255, 255, 255)]
+    return white, [i for i in white if not any(abs(length - 1 - i - j) <= 1 for j in white)]
+
+
+row, off_row = unmirrored(px[height // 2], width)
+column, off_column = unmirrored([px[y][width // 2] for y in range(height)], height)
+if not row or not column:
+    fail("no court line crosses the middle of the window")
+if off_row or off_column:
+    fail(f"the court is not centred: white at x {off_row[:5]} on the middle row and "
+         f"y {off_column[:5]} on the middle column has no mirror image")
+print(f"  ok    {shot}: a {right - left:g}x{bottom - top:g} area, the bars "
+      f"{clear}, the court centred")
+PY
+done
 
 # Booting a game for thirty frames proves its title screen draws, and nothing
 # else. tests/platformer_play.cpp PLAYS the platformer through its real loop:

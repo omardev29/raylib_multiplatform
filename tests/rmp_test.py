@@ -421,16 +421,53 @@ class SmokeStepTest(unittest.TestCase):
     used to ignore: a game that leaked passed."""
 
     BOOTED = ("INFO: RAY_TEST_BOOT_OK assets_failed=0 assets_requested=1\n"
-              "INFO: RAY_TEST_RENDER_OK frame=5 hash=1\nINFO: RAY_TEST_DONE_FRAMES rendered=10\n")
+              "INFO: RAY_TEST_RENDER_OK frame=5 hash=1\nINFO: RAY_TEST_DONE_FRAMES rendered=10\n"
+              "INFO: RAY_TEST_REPORTS=0\n")
 
-    def smoke(self, code, out):
+    def smoke(self, code, out, plain_c=False):
+        """A game on the framework -- its sources in src/rmp/, as `rmp new`
+        copies them -- or, with plain_c, one that followed examples/plain_c's
+        recipe and has none."""
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")
+            if not plain_c:
+                (game / "src" / "rmp").mkdir(parents=True)
             answers = {"tools/configure.py --print-name": (0, "demo\n"),
                        str(Path("build") / "debug" / "demo"): (code, out)}
             with windows(False), recording(answers), quiet() as printed:
                 code = rmp.main(["test", "smoke"], cwd=game)
             return code, printed.getvalue()
+
+    def test_a_mistake_the_framework_reported_fails_the_smoke(self):
+        """RAY_TEST_REPORTS=<n> is how many of the game's mistakes the
+        framework said once (RMP_REPORT_ONCE), printed after the last frame.
+        In a game as in the framework, 0 or a failure (Omar, 2026-10-11) --
+        and a run that printed no count proves nothing, so it fails too."""
+        clean = self.BOOTED.replace("INFO: RAY_TEST_REPORTS=0\n", "")
+        warning = 'WARNING: UI: rmp::ui::button("Pause") outside begin()/end()\n'
+        for count in ("1", "10", "2 "):
+            with self.subTest(count=count):
+                code, out = self.smoke(0, clean + warning + f"INFO: RAY_TEST_REPORTS={count}\n")
+                self.assertEqual(code, 1, out)
+                self.assertIn("the framework reported a mistake in the game", out)
+                self.assertIn(warning.strip(), out)
+        code, out = self.smoke(0, clean)
+        self.assertEqual(code, 1, out)
+        self.assertIn("no RAY_TEST_REPORTS line", out)
+        code, out = self.smoke(0, clean + "INFO: RAY_TEST_REPORTS=0\n")
+        self.assertEqual(code, 0, out)
+        self.assertIn("the framework reported no mistake in it", out)
+
+    def test_a_game_in_plain_c_has_no_count_to_print(self):
+        """examples/plain_c's recipe takes src/rmp/ away: no framework, so no
+        report and no line saying how many -- and still booted and drawn."""
+        clean = self.BOOTED.replace("INFO: RAY_TEST_REPORTS=0\n", "")
+        code, out = self.smoke(0, clean, plain_c=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("plain C: no framework to report a mistake", out)
+        code, out = self.smoke(0, clean.replace("RAY_TEST_RENDER_OK", "RAY_TEST_RENDER_FAIL"),
+                               plain_c=True)
+        self.assertEqual(code, 1, out)
 
     def test_a_clean_run_passes(self):
         code, out = self.smoke(0, self.BOOTED)
