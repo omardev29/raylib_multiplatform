@@ -66,7 +66,8 @@ struct {
 // And whether the interface has the KEYS. A focus in a HUD over a game being
 // played is one the player chose -- Tab walked into it -- or the game did,
 // with focus(); either way the keyboard is the interface's until Escape, the B
-// button or a click elsewhere gives it back (wants_keyboard()). A focus nobody
+// button or a click elsewhere gives it back (wants_keyboard()), and the ring
+// shows while it is, a click on the control itself included. A focus nobody
 // chose never rests in such a HUD: its pass gives none by itself, and one it
 // had before the game started being played is dropped.
 enum class Choice : uint8_t {
@@ -399,6 +400,9 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     }
     if (target.choice == Choice::CHOSEN && press.pressed && pointer_over(id)) {
         target.pressed_on = true;
+        // The click hid the ring, and the keys stay the HUD's: shown again,
+        // or the game's keys go dead with nothing on screen to say why.
+        target.visible = true;
     }
     return navigation.enabled;
 }

@@ -515,6 +515,9 @@ TEST_SUITE("ui: HUD focus") {
         CHECK(game.map == 1); // the click pressed it
         CHECK(rmp::ui::focused() == "Map");
         CHECK(rmp::ui::wants_keyboard());
+        // And the ring stays: a click hides it, but these keys are still the
+        // HUD's, and a player whose W moves nothing has to see where they went.
+        CHECK(rmp::ui::detail::focus_visible());
 
         // A click on it keeps the keys for that click only: the next one
         // elsewhere still gives them back.
