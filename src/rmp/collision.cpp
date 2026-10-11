@@ -35,12 +35,15 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include "internal.h"
 #include "object_internal.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -51,6 +54,15 @@ namespace {
 constexpr float NEAR_ZERO = 0.0001f;
 
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+// A box whose four edges are numbers: x, y, its size, and where it ends.
+bool finite_box(const Rectangle &r) {
+    return std::isfinite(r.x) && std::isfinite(r.y) && std::isfinite(r.width) &&
+        std::isfinite(r.height) && std::isfinite(r.x + r.width) &&
+        std::isfinite(r.y + r.height);
+}
 
 // A shape placed in the world. The collision pass works with this and not with
 // the AABB, which is what makes a circle collide as a circle -- the difference
@@ -63,6 +75,20 @@ struct Placed {
     float radius = 0; // CIRCLE
 };
 
+Rectangle aabb_of(const Placed &p);
+
+// A shape somewhere no float can say -- a NaN or an infinity in the position,
+// the size or the scale, or a box whose edges are past FLT_MAX -- is nowhere,
+// and collides with nothing. Left in, a NaN centre overlapped every rectangle
+// (each comparison with it is false, and "not outside" read as inside), an
+// infinite one pushed whatever it touched to infinity, and its cell in the
+// grid was a float-to-int cast of NaN: undefined behaviour, and then a write
+// past the grid's arrays.
+Placed checked(Placed p) {
+    if (p.kind != ShapeKind::NONE && !finite_box(aabb_of(p))) p.kind = ShapeKind::NONE;
+    return p;
+}
+
 Placed placed_of(const Object &object) {
     Placed p;
     const Shape &shape =
@@ -73,19 +99,24 @@ Placed placed_of(const Object &object) {
         // One axis, because a circle scaled unevenly is an ellipse and this
         // layer does not have ellipses. circle_scale() is that one axis, and it
         // lives in object_internal.h because the drawing and world_bounds() ask
-        // the same question and all three have to give the same answer.
-        p.radius = shape.radius * circle_scale(object.scale);
+        // the same question and all three have to give the same answer. A
+        // negative radius is a disc that size, as a mirrored scale is.
+        p.radius = std::fabs(shape.radius) * circle_scale(object.scale);
         p.centre = Vector2{ object.position.x + shape.offset.x,
                             object.position.y + shape.offset.y };
-        return p;
+        return checked(p);
     }
     if (shape.kind == ShapeKind::RECTANGLE) {
         p.kind = ShapeKind::RECTANGLE;
-        p.half = Vector2{ shape.size.x * object.scale.x / 2,
-                          shape.size.y * object.scale.y / 2 };
+        // A mirrored scale, or a negative size, is still a size: the same box.
+        // Signed, a half-width of -10 made the box overlap nothing, and its
+        // AABB ran backwards -- in no cell of the grid, and in the O(n^2)
+        // loop's answer all the same.
+        p.half = Vector2{ std::fabs(shape.size.x * object.scale.x) / 2,
+                          std::fabs(shape.size.y * object.scale.y) / 2 };
         p.centre = Vector2{ object.position.x + shape.offset.x,
                             object.position.y + shape.offset.y };
-        return p;
+        return checked(p);
     }
 
     // No shape and no collider: fall back to the sprite's frame, which is what
@@ -93,11 +124,14 @@ Placed placed_of(const Object &object) {
     // a point collides with nothing -- it has no area, and saying it collides
     // with whatever it is inside would make every logic object a trigger.
     const Rectangle box = object.world_bounds();
-    if (box.width <= 0 || box.height <= 0) return p; // kind stays NONE
+    // Said as what it must be and not as what it must not: a NaN size is
+    // neither <= 0 nor > 0, and the box made from it would be NaN.
+    const bool has_area = box.width > 0 && box.height > 0;
+    if (!has_area) return p; // kind stays NONE
     p.kind = ShapeKind::RECTANGLE;
     p.half = Vector2{ box.width / 2, box.height / 2 };
     p.centre = Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
-    return p;
+    return checked(p);
 }
 
 Rectangle aabb_of(const Placed &p) {
@@ -306,7 +340,11 @@ bool ray_circle(Vector2 from, Vector2 to, const Placed &circle, float *t,
     const float c = m.x * m.x + m.y * m.y - circle.radius * circle.radius;
 
     const float disc = b * b - 4 * a * c;
-    if (disc < 0) return false;
+    // Written so a NaN fails it: a circle on the far side of the floats from
+    // the ray's origin squares to infinity, b * b - 4 * a * c is then inf -
+    // inf, and `disc < 0` is false for the NaN -- which came back as a hit at
+    // t = NaN.
+    if (!(disc >= 0)) return false;
     const float root = std::sqrt(disc);
     float hit = (-b - root) / (2 * a);
     if (hit < 0) hit = (-b + root) / (2 * a); // the origin is inside
@@ -418,6 +456,14 @@ struct Pair {
     int b = 0;
 };
 
+// Which cells a box covers, first to last on each axis.
+struct CellSpan {
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+};
+
 // FLAT, and that is the whole of what changed here: it used to be a
 // vector-of-vectors, `assign`ed to as many empty vectors as there were cells
 // every time it was built -- up to a million of them -- with a heap allocation
@@ -439,6 +485,7 @@ struct Grid {
     int rows = 1;
     std::vector<int> starts;
     std::vector<int> items;
+    std::vector<CellSpan> spans; // each entry's, while the grid is built
 
     int index_of(int cx, int cy) const { return (cy - min_y) * cols + (cx - min_x); }
     int cell_count() const { return cols * rows; }
@@ -451,7 +498,19 @@ struct Grid {
     }
 };
 
-int cell_floor(float v, float cell) { return static_cast<int>(std::floor(v / cell)); }
+// floor(v / cell) as an int -- or nothing, when it is not one: a NaN, an
+// infinity, or a cell past int's range. Casting any of those to int is
+// undefined behaviour (UBSan's float-cast-overflow), and the grid did it with
+// whatever position an object had: a NaN among finite objects came back as
+// INT_MIN on x86, and the cell index made from it wrote outside the grid.
+std::optional<int> cell_floor(float v, float cell) {
+    const float f = std::floor(v / cell);
+    // 2^31 is a float and INT_MAX is not: [-2^31, 2^31) is int's range exactly.
+    constexpr float END = 2147483648.0f;
+    const bool in_range = f >= -END && f < END; // false for a NaN, too
+    if (!in_range) return std::nullopt;
+    return static_cast<int>(f);
+}
 
 // THE broad-phase index: every object of one scene that has a shape, placed,
 // with the grid over them. One per world version, shared by the collision pass
@@ -491,18 +550,18 @@ struct {
     std::vector<int> candidates;
 } broad;
 
-// Which cells an entry's box covers.
-struct CellSpan {
-    int x0 = 0;
-    int y0 = 0;
-    int x1 = 0;
-    int y1 = 0;
-};
+std::optional<CellSpan> span_of(float left, float top, float right, float bottom,
+                                float cell) {
+    const std::optional<int> x0 = cell_floor(left, cell);
+    const std::optional<int> y0 = cell_floor(top, cell);
+    const std::optional<int> x1 = cell_floor(right, cell);
+    const std::optional<int> y1 = cell_floor(bottom, cell);
+    if (!x0 || !y0 || !x1 || !y1) return std::nullopt;
+    return CellSpan{ *x0, *y0, *x1, *y1 };
+}
 
-CellSpan span_of(const Rectangle &box, float cell) {
-    return CellSpan{ cell_floor(box.x, cell), cell_floor(box.y, cell),
-                     cell_floor(box.x + box.width, cell),
-                     cell_floor(box.y + box.height, cell) };
+std::optional<CellSpan> span_of(const Rectangle &box, float cell) {
+    return span_of(box.x, box.y, box.x + box.width, box.y + box.height, cell);
 }
 
 void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> *cursor) {
@@ -538,33 +597,60 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     // budget proportional to what is actually in it, and the broad phase stays
     // a broad phase instead of falling back to the O(n^2) loop on exactly the
     // scenes that need it most.
+    // Every entry's shape is a finite box (index_for leaves out the rest);
+    // a swept one can still run past FLT_MAX, from a previous position near
+    // it. That, and a world spread past what an int counts in cells even at
+    // the largest cell, are what the grid cannot describe.
     const auto budget = static_cast<std::int64_t>(entries.size()) * 4 + 1024;
-    std::int64_t total_cells = 0;
-    for (int step = 0; step < 64; ++step) {
-        grid->min_x = cell_floor(x0, grid->cell);
-        grid->min_y = cell_floor(y0, grid->cell);
-        grid->cols = cell_floor(x1, grid->cell) - grid->min_x + 1;
-        grid->rows = cell_floor(y1, grid->cell) - grid->min_y + 1;
-        total_cells =
-            static_cast<std::int64_t>(grid->cols) * static_cast<std::int64_t>(grid->rows);
-        if (total_cells <= budget) break;
+    bool fits = false;
+    for (int step = 0; step < 64 && !fits; ++step) {
+        const std::optional<CellSpan> all = span_of(x0, y0, x1, y1, grid->cell);
+        if (all) {
+            const std::int64_t cols = std::int64_t{ all->x1 } - all->x0 + 1;
+            const std::int64_t rows = std::int64_t{ all->y1 } - all->y0 + 1;
+            // Divided, not multiplied: two counts near 2^32 overflow 64 bits.
+            if (cols > 0 && rows > 0 && cols <= budget && rows <= budget / cols) {
+                grid->min_x = all->x0;
+                grid->min_y = all->y0;
+                grid->cols = static_cast<int>(cols);
+                grid->rows = static_cast<int>(rows);
+                fits = true;
+                break;
+            }
+        }
         grid->cell *= 2;
     }
 
-    // A NaN or an infinity in a position would survive every doubling above.
-    // The grid says so by staying empty and the caller falls back to the loop
-    // it is an optimisation of, which is correct however strange the input is.
-    if (total_cells <= 0 || total_cells > budget) {
+    // Nothing the doublings could bring within budget: the grid says so by
+    // staying empty, and the caller falls back to the loop it is an
+    // optimisation of, which is correct however strange the input is.
+    if (!fits) {
         grid->clear();
         return;
+    }
+    const auto total_cells = static_cast<std::int64_t>(grid->cols) * grid->rows;
+    // Each entry's cells, worked out once, the same for both passes below. A
+    // box inside [x0, x1] has its cells inside the grid's, since floor() of a
+    // division by a positive cell never goes down as its argument goes up --
+    // and checked all the same, because a cell outside is a write outside.
+    std::vector<CellSpan> &spans = grid->spans;
+    spans.clear();
+    for (const Entry &e : entries) {
+        const std::optional<CellSpan> s = span_of(e.swept, grid->cell);
+        if (!s || s->x0 < grid->min_x || s->y0 < grid->min_y ||
+            s->x1 >= std::int64_t{ grid->min_x } + grid->cols ||
+            s->y1 >= std::int64_t{ grid->min_y } + grid->rows) {
+            grid->clear();
+            return;
+        }
+        spans.push_back(*s);
     }
 
     // Counting sort, two passes. First how many entries each cell holds...
     const auto cells = static_cast<std::size_t>(total_cells);
     grid->starts.assign(cells + 1, 0);
     std::int64_t total_items = 0;
-    for (const Entry &e : entries) {
-        const CellSpan s = span_of(e.swept, grid->cell);
+    for (const CellSpan &s : spans) {
         for (int cy = s.y0; cy <= s.y1; ++cy) {
             for (int cx = s.x0; cx <= s.x1; ++cx) {
                 ++grid->starts[static_cast<std::size_t>(grid->index_of(cx, cy)) + 1];
@@ -577,7 +663,7 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     grid->items.assign(static_cast<std::size_t>(total_items), 0);
     *cursor = grid->starts;
     for (std::size_t i = 0; i < entries.size(); ++i) {
-        const CellSpan s = span_of(entries[i].swept, grid->cell);
+        const CellSpan &s = spans[i];
         for (int cy = s.y0; cy <= s.y1; ++cy) {
             for (int cx = s.x0; cx <= s.x1; ++cx) {
                 const auto c = static_cast<std::size_t>(grid->index_of(cx, cy));
@@ -678,6 +764,9 @@ const Index &index_for(const Scene &scene) {
         const Vector2 was = Storage::previous_position(*object);
         e.from = Vector2{ e.shape.centre.x - (object->position.x - was.x),
                           e.shape.centre.y - (object->position.y - was.y) };
+        // From somewhere no float can say -- a NaN position the game has
+        // since written over -- is a teleport, and a teleport is not a sweep.
+        if (!finite(e.from)) e.from = e.shape.centre;
         const Rectangle now = aabb_of(e.shape);
 
         // "Fast" is more than half its own smaller dimension in one step, which
@@ -853,22 +942,34 @@ void collide(Scene &scene) {
         if (!a.solid || !b.solid) continue;
         const float depth =
             std::sqrt(touch.mtv.x * touch.mtv.x + touch.mtv.y * touch.mtv.y);
-        const Vector2 n =
-            depth > 0 ? Vector2{ touch.mtv.x / depth, touch.mtv.y / depth } : Vector2{};
+        // A push too long to square has no direction a float can give: no
+        // velocity is taken away for it, below.
+        const Vector2 n = depth > 0 && std::isfinite(depth)
+            ? Vector2{ touch.mtv.x / depth, touch.mtv.y / depth }
+            : Vector2{};
+        // And a push that ends where no float can say is not made: two shapes
+        // the size of the world, overlapping near FLT_MAX, threw each other to
+        // infinity -- and from there every sum is a NaN. Finite in, finite
+        // out; the pair is still told it touched, below.
         if (!a.immovable && !b.immovable) {
-            a.position.x += touch.mtv.x / 2;
-            a.position.y += touch.mtv.y / 2;
-            b.position.x -= touch.mtv.x / 2;
-            b.position.y -= touch.mtv.y / 2;
+            const Vector2 to_a{ a.position.x + touch.mtv.x / 2,
+                                a.position.y + touch.mtv.y / 2 };
+            const Vector2 to_b{ b.position.x - touch.mtv.x / 2,
+                                b.position.y - touch.mtv.y / 2 };
+            if (!finite(to_a) || !finite(to_b)) continue;
+            a.position = to_a;
+            b.position = to_b;
             pushed.push_back({ &a, n });
             pushed.push_back({ &b, Vector2{ -n.x, -n.y } });
         } else if (!a.immovable) {
-            a.position.x += touch.mtv.x;
-            a.position.y += touch.mtv.y;
+            const Vector2 to{ a.position.x + touch.mtv.x, a.position.y + touch.mtv.y };
+            if (!finite(to)) continue;
+            a.position = to;
             pushed.push_back({ &a, n });
         } else if (!b.immovable) {
-            b.position.x -= touch.mtv.x;
-            b.position.y -= touch.mtv.y;
+            const Vector2 to{ b.position.x - touch.mtv.x, b.position.y - touch.mtv.y };
+            if (!finite(to)) continue;
+            b.position = to;
             pushed.push_back({ &b, Vector2{ -n.x, -n.y } });
         }
         // Two immovable objects overlapping is a mistake in the level, not
@@ -930,7 +1031,9 @@ void collide(Scene &scene) {
     for (const Pushed &p : pushed) {
         Object &o = *p.object;
         const float into = o.velocity.x * p.out.x + o.velocity.y * p.out.y;
-        if (into < 0) {
+        // `into < 0` is false for a NaN, and for an overflow to -inf the
+        // product below would be one: only a number takes anything away.
+        if (into < 0 && std::isfinite(into)) {
             o.velocity.x -= p.out.x * into;
             o.velocity.y -= p.out.y * into;
         }
@@ -1056,8 +1159,25 @@ namespace {
 
 // Everything the ray hits, nearest first. The grid is walked with a DDA so only
 // the cells the line crosses are looked at.
-int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
+int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out,
+         bool use_grid = true) {
     if (out.empty()) return 0;
+
+    // A ray from or to somewhere no float can say, or longer than a float can
+    // square, hits nothing. Let through, a NaN end hit the first box it was
+    // tested against at t = 0 with a NaN normal, a circle came back at t = NaN,
+    // and its cell in the grid was a float-to-int cast of NaN.
+    const Vector2 d{ query.to.x - query.from.x, query.to.y - query.from.y };
+    if (!finite(query.from) || !finite(query.to) ||
+        !std::isfinite((d.x * d.x) + (d.y * d.y))) {
+        RMP_REPORT_ONCE("SCENE: a raycast from (%g, %g) to (%g, %g) hits nothing: an end "
+                        "is not a number, or the ray is longer than a float can square. "
+                        "A NaN here is usually a division by zero.",
+                        static_cast<double>(query.from.x),
+                        static_cast<double>(query.from.y),
+                        static_cast<double>(query.to.x), static_cast<double>(query.to.y));
+        return 0;
+    }
 
     // The shared index, built at most once per world version -- not a private
     // copy of the world rebuilt per ray, which is what this used to do and what
@@ -1072,9 +1192,25 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
     if (entries.empty()) return 0;
     const Grid &grid = index.grid;
 
+    // The cells the ray starts and ends in, when there is a grid to walk and
+    // an int can count them. A ray across more cells than the grid has rows
+    // and columns crosses all of it: every object costs what that walk would,
+    // and the walk's count of steps is what would overflow. Every object is
+    // what the walk is an optimisation of, so the answer is the same.
+    std::optional<CellSpan> ends;
+    if (!grid.empty() && use_grid) {
+        ends = span_of(query.from.x, query.from.y, query.to.x, query.to.y, grid.cell);
+    }
+    if (ends &&
+        std::abs(std::int64_t{ ends->x1 } - ends->x0) +
+                std::abs(std::int64_t{ ends->y1 } - ends->y0) >
+            std::int64_t{ grid.cols } + grid.rows) {
+        ends.reset();
+    }
+
     std::vector<int> &candidates = broad.candidates;
     candidates.clear();
-    if (grid.empty()) {
+    if (!ends) {
         candidates.reserve(entries.size());
         for (std::size_t i = 0; i < entries.size(); ++i) {
             candidates.push_back(static_cast<int>(i));
@@ -1082,12 +1218,13 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
     } else {
         // Amanatides-Woo: step cell by cell along the line, taking whichever
         // axis boundary comes first. Only the cells the ray actually crosses.
+        // In 64 bits: a walk that overshoots one axis goes on to its limit,
+        // and a cell next to INT_MAX plus one is signed overflow.
         const float cell = grid.cell;
-        const Vector2 d{ query.to.x - query.from.x, query.to.y - query.from.y };
-        int cx = cell_floor(query.from.x, cell);
-        int cy = cell_floor(query.from.y, cell);
-        const int cx_end = cell_floor(query.to.x, cell);
-        const int cy_end = cell_floor(query.to.y, cell);
+        std::int64_t cx = ends->x0;
+        std::int64_t cy = ends->y0;
+        const std::int64_t cx_end = ends->x1;
+        const std::int64_t cy_end = ends->y1;
         const int step_x = d.x > 0 ? 1 : (d.x < 0 ? -1 : 0);
         const int step_y = d.y > 0 ? 1 : (d.y < 0 ? -1 : 0);
 
@@ -1115,13 +1252,13 @@ int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out) {
         // reaching it: a shot from the origin at a target twenty units wide two
         // hundred units away got six steps to cross nine cells, and came back
         // as a miss. Two raycast tests and the differential caught it.
-        const int span_x = cx_end > cx ? cx_end - cx : cx - cx_end;
-        const int span_y = cy_end > cy ? cy_end - cy : cy - cy_end;
-        const int limit = span_x + span_y + 2;
-        for (int step = 0; step <= limit; ++step) {
-            if (cx >= grid.min_x && cy >= grid.min_y && cx < grid.min_x + grid.cols &&
-                cy < grid.min_y + grid.rows) {
-                const auto c = static_cast<std::size_t>(grid.index_of(cx, cy));
+        const std::int64_t limit = std::abs(cx_end - cx) + std::abs(cy_end - cy) + 2;
+        for (std::int64_t step = 0; step <= limit; ++step) {
+            if (cx >= grid.min_x && cy >= grid.min_y &&
+                cx < std::int64_t{ grid.min_x } + grid.cols &&
+                cy < std::int64_t{ grid.min_y } + grid.rows) {
+                const auto c = static_cast<std::size_t>(
+                    grid.index_of(static_cast<int>(cx), static_cast<int>(cy)));
                 candidates.insert(
                     candidates.end(),
                     grid.items.begin() + static_cast<std::ptrdiff_t>(grid.starts[c]),
@@ -1203,6 +1340,11 @@ RayHit Scene::raycast(const RayQuery &query) const {
 
 int Scene::raycast_all(const RayQuery &query, std::span<RayHit> out) const {
     return cast(*this, query, out);
+}
+
+int objects::detail::raycast_for_tests(const Scene &scene, const RayQuery &query,
+                                       bool use_grid, std::span<RayHit> out) {
+    return cast(scene, query, out, use_grid);
 }
 
 } // namespace rmp
