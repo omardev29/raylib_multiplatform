@@ -40,6 +40,7 @@ Standard library only; the resilience list reads the headers with clang++
 from __future__ import annotations
 
 import fnmatch
+import functools
 import importlib.util
 import json
 import os
@@ -449,30 +450,57 @@ def framework_sources(root: Path) -> list[str]:
                   if p.suffix in (".cpp", ".c") and p.is_file())
 
 
+# Where a checkout is, as doctest sees a test's file: the whole path the
+# compiler was given (CMake hands it an absolute one), whose start a floor file
+# cannot know -- so a -sf choice that holds in every checkout begins with `*`.
+CHECKOUT = "/any/checkout/"
+# A test case's name: TEST_CASE("...") or TEST_CASE_FIXTURE(Fixture, "..."),
+# adjacent literals joined as the compiler joins them.
+CASE = re.compile(r'\bTEST_CASE(?:_FIXTURE\s*\(\s*[\w:]+\s*,|\s*\()\s*((?:"(?:[^"\\\n]|\\.)*"\s*)+)')
+
+
+@functools.cache
+def doctest_names(root: Path) -> tuple[list[str], list[str], list[str]]:
+    """What a doctest filter can select under root/tests/, lower case: the
+    sources' whole paths, the suites and the cases."""
+    sources = {path: path.read_text(encoding="utf-8", errors="replace")
+               for path in (root / "tests").rglob("*.cpp")}
+    files = sorted(CHECKOUT + path.relative_to(root).as_posix().lower() for path in sources)
+    suites = {suite.lower() for text in sources.values()
+              for suite in re.findall(r'TEST_SUITE(?:_BEGIN)?\(\s*"([^"]*)"', text)}
+    cases = {"".join(re.findall(r'"((?:[^"\\\n]|\\.)*)"', m.group(1))).lower()
+             for text in sources.values() for m in CASE.finditer(text)}
+    return files, sorted(suites), sorted(cases)
+
+
 def doctest_filter_problems(name: str, program: list[str], root: Path) -> list[str]:
     """A doctest filter of a floor's test program that selects nothing: the
     program runs no test, passes, and every mutant survives -- read as a
     module nobody tested rather than as a filter that names a file renamed
-    away. doctest matches -sf against the source path and -ts against the
-    suite names, with wildcards and without case, a comma between choices."""
-    tests = root / "tests"
-    files = [path.relative_to(root).as_posix().lower() for path in tests.rglob("*.cpp")]
-    suites = {suite.lower() for path in tests.rglob("*.cpp")
-              for suite in re.findall(r'TEST_SUITE(?:_BEGIN)?\(\s*"([^"]*)"',
-                                      path.read_text(encoding="utf-8", errors="replace"))}
+    away. doctest matches -sf against the source's whole path, -ts against
+    the suite names and -tc against the case names, with wildcards and
+    without case, a comma between choices."""
+    files, suites, cases = doctest_names(root)
     out = []
     for arg in program[1:]:
         flag, _, value = arg.partition("=")
         if flag in ("-sf", "--source-file"):
             what, names = "source file", files
         elif flag in ("-ts", "--test-suite"):
-            what, names = "TEST_SUITE", sorted(suites)
+            what, names = "TEST_SUITE", suites
+        elif flag in ("-tc", "--test-case"):
+            what, names = "TEST_CASE", cases
         else:
             continue
         for choice in value.split(","):
-            if not any(fnmatch.fnmatchcase(n, choice.lower()) for n in names):
+            # doctest's wildcards are * and ? alone: a [ is itself.
+            pattern = choice.lower().replace("[", "[[]")
+            if not any(fnmatch.fnmatchcase(n, pattern) for n in names):
+                hint = (" (doctest reads the whole path, which starts where the checkout is: "
+                        "begin it with *)" if what == "source file" and not choice.startswith("*")
+                        else "")
                 out.append(f"{name}: tests {program[0]} {flag}={choice} matches no {what} under "
-                           "tests/: the program would run nothing and every mutant survive")
+                           f"tests/{hint}: the program would run nothing and every mutant survive")
     return out
 
 
@@ -544,6 +572,15 @@ class FloorsTest(unittest.TestCase):
             ("a suite filter that matches no suite",
              lambda f: f["random"].tests.append(["unit_test", "-ts=randon"]),
              "random: tests unit_test -ts=randon matches no TEST_SUITE"),
+            # doctest matches -sf against the whole path the compiler was
+            # given, and that starts wherever the checkout is: this one ran
+            # 0 of 571 cases, "Status: SUCCESS!".
+            ("a source filter without the path's start",
+             lambda f: f["random"].tests.append(["unit_test", "-sf=tests/save_test.cpp"]),
+             "-sf=tests/save_test.cpp matches no source file"),
+            ("a test-case filter that matches no case",
+             lambda f: f["random"].tests.append(["unit_test", "--test-case=*no such case*"]),
+             "--test-case=*no such case* matches no TEST_CASE"),
         ]
         for what, break_it, says in cases:
             with self.subTest(what):
@@ -554,6 +591,18 @@ class FloorsTest(unittest.TestCase):
         found = floor_problems(floors, [*sources, "src/rmp/new.cpp"], REPO)
         self.assertEqual(found, ["src/rmp/new.cpp is in no floor file under tests/mutation/floors/: "
                                  "add it to its module's sources, or write the module's file"])
+
+    def test_filters_that_select_something_pass(self):
+        """A test case is found by its whole name -- adjacent literals joined,
+        a fixture's too -- and a source filter by its last components."""
+        for program in (["unit_test", "-sf=*/tests/save_test.cpp"],
+                        ["unit_test", "-sf=*SAVE_test.cpp,*audio_test.cpp"],
+                        # Across the two literals the name is written in.
+                        ["property_test", "-tc=*NaN and the infinities by name"],
+                        ["unit_test", "-tc=the buses start at the values in the .toml"],
+                        ["unit_test", "-tse=*nothing*", "-sce=*nothing*"]):
+            with self.subTest(program=program):
+                self.assertEqual(doctest_filter_problems("x", program, REPO), [])
 
     def test_the_measured_floor_is_the_pilots(self):
         """random was measured in the image on 2026-10-11: 51 of 62 (82.26%)."""
