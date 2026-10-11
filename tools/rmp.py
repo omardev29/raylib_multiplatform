@@ -2297,7 +2297,7 @@ COMMANDS = {
         cmd_help, needs_project=False),
     "lint": Command(
         "lint [fix]", "clang-tidy over src/, tests/ and examples/",
-        "Run clang-tidy over src/, tests/ and examples/; every warning is an error.",
+        "Run clang-tidy over src/, tests/ and examples/; a warning tools/lint_debt.txt does not owe fails.",
         [("rmp lint", "report"),
          ("rmp lint fix", "apply what clang-tidy is sure of, then format")],
         cmd_lint, framework_only=True),

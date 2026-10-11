@@ -773,14 +773,10 @@ TEST_SUITE("property: animation") {
                     RC_ASSERT(sprite.ours.elapsed == before.elapsed);
                     RC_ASSERT(sprite.playing() == playing);
                 }
-                // Keyed by the name as a C string: two names that differ only
-                // after a NUL are one warning.
-                std::vector<std::string> keys;
-                for (const std::string &name : unknown) {
-                    const std::string key = name.substr(0, name.find('\0'));
-                    if (std::ranges::find(keys, key) == keys.end()) keys.push_back(key);
-                }
-                RC_ASSERT(rmp::detail::report_count() == static_cast<int>(keys.size()));
+                // Keyed by every byte of the name: two names that differ only
+                // after a NUL are two warnings.
+                RC_ASSERT(rmp::detail::report_count() ==
+                          static_cast<int>(unknown.size()));
             });
         SetTraceLogLevel(LOG_INFO);
     }

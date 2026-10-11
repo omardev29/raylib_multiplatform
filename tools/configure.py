@@ -2909,8 +2909,10 @@ def ci_trigger_block(cfg: dict) -> str:
                   "    branches: [main]",
                   "    tags: ['v*']",
                   "    paths-ignore: ['**.md', 'LICENSE']",
-                  "  pull_request:",
-                  "    paths-ignore: ['**.md', 'LICENSE']"]
+                  # Every pull request runs, a Markdown one too: its required
+                  # checks have to report, or it waits for ever and only an
+                  # admin's bypass merges it.
+                  "  pull_request:"]
     else:
         # Only `tags:` under push: GitHub then starts nothing for a push to a
         # branch, and a tag still builds every target and releases.

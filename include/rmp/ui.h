@@ -905,8 +905,10 @@ struct AtCloser {
 //
 // What it paints does not take the pointer: a click on the enemy under its
 // health bar still reaches the enemy. A control inside it is a control like
-// any other -- it can be clicked and focused where it is drawn. Without
-// scenes there is no camera, and the world is the screen.
+// any other -- it can be clicked and focused where it is drawn. While the
+// point is off the screen the box is not drawn at all, and nothing in it takes
+// the pointer, the focus or the keys. Without scenes there is no camera, and
+// the world is the screen.
 template <class Body> void at(Vector2 world, const AtOptions &o, Body &&body) {
     detail::open_at(world, o);
     const detail::AtCloser close;

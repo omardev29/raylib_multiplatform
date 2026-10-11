@@ -40,7 +40,6 @@ on:
     tags: ['v*']
     paths-ignore: ['**.md', 'LICENSE']
   pull_request:
-    paths-ignore: ['**.md', 'LICENSE']
   # END generated from [ci] on_push
   workflow_dispatch:
     inputs:
@@ -76,9 +75,10 @@ jobs:
       # from raylib_multiplatform.toml, so there is no second place to rename.
       project_name: ${{ steps.o.outputs.project_name }}
       # 'true' in the framework's own repository, 'false' in a game made with
-      # `rmp new`. This file is the same in both, byte for byte; what a game
-      # does not have -- the framework's tests, examples and lint gates -- is
-      # skipped by this, never by an edit to a copy.
+      # `rmp new`. This file is the same in both but for the block between its
+      # [ci] on_push markers, which configure.py writes from the .toml; what a
+      # game does not have -- the framework's tests, examples and lint gates --
+      # is skipped by this, never by an edit to a copy.
       framework: ${{ steps.o.outputs.framework }}
       targets: ${{ steps.o.outputs.targets }}
       families: ${{ steps.o.outputs.families }}
@@ -371,8 +371,8 @@ jobs:
         run: bash tools/header_cost_check.sh
 
       # No owning raw pointer under include/rmp/ or src/rmp/: new, delete,
-      # malloc and free are allowed in exactly two files, both speaking
-      # raylib's C loader contract. And no raylib Load*/Unload* outside the six
+      # malloc and free are allowed in exactly one file, src/rmp/loader_hook.cpp,
+      # which speaks raylib's C loader contract. And no raylib Load*/Unload* outside the six
       # files that own what it makes, in the framework and the examples: a
       # LoadTexture goes inside the rmp::Texture that frees it. Both lists only
       # shrink.

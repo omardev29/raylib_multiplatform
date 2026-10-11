@@ -34,7 +34,7 @@ fi
 
 # --user keeps generated files owned by you rather than by root, which
 # otherwise leaves a working tree you cannot clean without sudo.
-exec docker run --rm -it \
+exec docker run --rm -it --init \
     --user "$(id -u):$(id -g)" \
     -v "$ROOT:/work" \
     -w /work \

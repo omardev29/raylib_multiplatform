@@ -30,8 +30,6 @@ AccessModifierOffset: -4
 # the public headers.
 ColumnLimit: 90
 
-# Aligning a column of related fields is part of how the theme struct and the
-# options structs are readable at a glance. LLVM leaves them ragged.
 # NO alignment. Not one kind of it.
 #
 # A column of `=` signs lined up with a ruler looks tidy in the file it was

@@ -191,7 +191,7 @@ Checks: >
 HeaderFilterRegex: '.*/(include/rmp|src/rmp|src/scenes|src/objects|tests)/.*'
 #
 # smoke_test.h is excluded on top of that, and not because it is exempt from
-# review: it is compiled as C99 by examples/plain_c/main.c, so `(void)`
+# review: it is compiled as C99 by examples/plain_c/src/main.c, so `(void)`
 # parameter lists, C-style casts and NULL are REQUIRED there, and every
 # modernize-* check has the opposite opinion.
 ExcludeHeaderFilterRegex: '.*/(thirdparty|generated|build)/.*|.*/smoke_test\.h'

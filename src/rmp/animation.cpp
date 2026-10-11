@@ -294,7 +294,7 @@ void advance(Sprite &sprite, float delta) {
 void Sprite::play(std::string_view tag, bool loop) {
     if (!sheet.valid()) {
         const std::string named(tag); // %s wants the NUL a view does not promise
-        RMP_REPORT_ONCE_KEYED(named.c_str(), "SPRITE: play(\"%s\") with no sheet loaded",
+        RMP_REPORT_ONCE_KEYED(tag, "SPRITE: play(\"%s\") with no sheet loaded",
                               named.c_str());
         return;
     }
@@ -305,7 +305,7 @@ void Sprite::play(std::string_view tag, bool loop) {
         // buries whatever else the log was going to say, and the frame that
         // was already showing is a better answer than a blank one.
         const std::string named(tag);
-        RMP_REPORT_ONCE_KEYED(named.c_str(),
+        RMP_REPORT_ONCE_KEYED(tag,
                               "SPRITE: no animation tag \"%s\" in this sheet. It has %d: "
                               "the names are the tags in your .aseprite.",
                               named.c_str(), data.tag_count());

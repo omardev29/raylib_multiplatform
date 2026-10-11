@@ -191,6 +191,28 @@ if ! ls "$PROF"/input_play_smoke-*.profraw >/dev/null 2>&1; then
 fi
 echo "  ok    input_play, under the smoke test"
 
+# And once with a RAY_TEST_WINDOW it cannot read: the boot fails, says
+# RAY_TEST_BOOT_FAIL, and the run ends with status 1 (end_stop() in
+# src/rmp/app.cpp). A failed boot ended with 0, and a boot step that read the
+# status passed a game that never opened -- a DRM game with no card.
+failed_status=0
+export LLVM_PROFILE_FILE="$PWD/$PROF/input_play_boot_fail-%p.profraw"
+failed=$(RAY_TEST_MAX_FRAMES=5 RAY_TEST_WINDOW=nope "$BUILD/input_play" < /dev/null 2>&1) \
+  || failed_status=$?
+unset LLVM_PROFILE_FILE
+for marker in 'RAY_TEST_BOOT_FAIL RAY_TEST_WINDOW="nope"' 'APP: the boot failed'; do
+  if [ "$failed_status" -ne 1 ] || ! printf '%s\n' "$failed" | grep -q "$marker"; then
+    printf '%s\n' "$failed" | tail -30 | sed 's/^/      /'
+    echo "FAIL: input_play with RAY_TEST_WINDOW=nope did not say $marker and exit 1 (exit $failed_status)"
+    exit 1
+  fi
+done
+if ! ls "$PROF"/input_play_boot_fail-*.profraw >/dev/null 2>&1; then
+  echo "FAIL: input_play's failed boot wrote no profile to $PROF/"
+  exit 1
+fi
+echo "  ok    input_play, a boot that fails ends the run with status 1"
+
 # --- merge and report ------------------------------------------------------------
 echo "== coverage: report =="
 "$PROFDATA" merge -sparse -o "$BUILD/coverage.profdata" "$PROF"/*.profraw

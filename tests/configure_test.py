@@ -12087,7 +12087,9 @@ class CiOnPushTest(unittest.TestCase):
         on = self.triggers(True)
         self.assertEqual(on["push"], {"branches": ["main"], "tags": ["v*"],
                                       "paths-ignore": ["**.md", "LICENSE"]})
-        self.assertEqual(on["pull_request"], {"paths-ignore": ["**.md", "LICENSE"]})
+        # No paths-ignore on a pull request: one that changes only Markdown
+        # still reports the required checks, or it could never merge.
+        self.assertIsNone(on["pull_request"])
         off = self.triggers(False)
         # Tags only: GitHub starts nothing for a push to a branch, and a tag
         # still releases. No pull_request at all.

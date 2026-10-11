@@ -217,7 +217,9 @@ here so that nobody "fixes" one back.
   `ads/`, `assets/`, `platform/` and `plain_c/` are `NOT_PLAYED` with the reason
   in the test, and a new area is one or the other. On every frame the driver
   fails a control the example laid out outside its window and in no scroll area
-  (`controls_out_of_reach()`), and a mistake of the game's that the framework
+  (`controls_out_of_reach()`; an `rmp::ui::at()` box whose point is off the
+  screen draws nothing and takes nothing, so it is not one), and a mistake of
+  the game's that the framework
   reports during a run (`RMP_REPORT_ONCE`) fails the script at `end`, a line
   each, in the log's words. Every shot has a golden, every golden a shot, and
   CMake refuses a script that plays no example. A script that cannot win a game
@@ -467,8 +469,11 @@ here so that nobody "fixes" one back.
   `-DRMP_SANITIZE=OFF` turns it off only to measure. A game gets `sanitize =
   []`: off, its choice. CI sets `RMP_REQUIRE_SANITIZERS=1`, so a runner that
   cannot run them fails at configure instead of testing nothing in silence. A
-  timing check needs an `RMP_SANITIZE` allowance: ASan makes the unit tests
-  3.4 times slower (5.5 s, then 18.6 s). All of this is the desktop: Android
+  timing check needs an `RMP_SANITIZE` allowance: ASan makes the unit tests 3.4 times slower (5.5 s, then 18.6 s). A ratio of
+  two timings reads the time the thread ran (`CLOCK_THREAD_CPUTIME_ID`), the
+  fastest of each size's passes, with the sizes measured in turn: on the wall
+  clock, a load that came between the two measurements set the ratio, and
+  `tests/behavior_test.cpp` failed 4 runs of 16 with busy neighbours on its core. All of this is the desktop: Android
   and iOS build through their own projects, and get none of it.
   LSan suppressions (`cmake/sanitizer_hooks.c`) name only system `lib*.so`
   files seen leaking in a real run -- never our code -- and today there are
@@ -500,12 +505,15 @@ here so that nobody "fixes" one back.
   callables, and a lambda that captures a `unique_ptr` would stop compiling.
   And no raylib `Load*`/`Unload*` outside the six files that own what it makes
   (`ownership_check.sh` O2, the names read live from `raylib.h` and
-  `rres-raylib.h`).
+  `rres-raylib.h`). And cute_aseprite's two loads only in
+  `src/rmp/animation.cpp`, whose `load()` hands it what `prepare_aseprite()`
+  walked (O3; the two tests that read its pictures back are listed with their
+  reasons).
 - **The style guide is checked, and what the tree still owes it is written
   down.** Omar's rules of 2026-10-10 are three things: checks in `.clang-tidy`
   (two of them `CustomChecks`, which run only with
   `--experimental-custom-checks` -- without the flag clang-tidy registers
-  nothing and says nothing); text rules in `tools/style_check.sh` (S1-S8, every
+  nothing and says nothing); text rules in `tools/style_check.sh` (S1-S9, every
   `#if` branch, `++i` included); and `tools/cppcheck_check.sh`. What clang-tidy
   still finds is `tools/lint_debt.txt` (`check file count`): `rmp lint` fails a
   warning nobody owes, a count that grew and a count above what is left; `bash
@@ -538,8 +546,12 @@ here so that nobody "fixes" one back.
   `warned` flag. `[dev] strict = true` makes the first one abort a debug build.
   A debug build also draws each one on screen as a `rmp::ui::notify()` (the
   report sink `begin_run()` installs) -- in an e2e shot too -- and a boot that
-  reported one fails: `rmp test smoke`, a game's included, and every boot in
-  `examples_build.sh` require `RAY_TEST_REPORTS=0`.
+  reported one fails: `rmp test smoke`, a game's included, every boot in
+  `examples_build.sh`, `render_check.sh`, `shipped_check.sh` and every boot step
+  CI runs under a frame budget (`_linux.yml`, `_windows.yml`, the iOS
+  simulator's) require `RAY_TEST_REPORTS=0` -- a game in plain C, with no
+  `src/rmp/`, prints no count and is spared (`EveryBootRequiresNoReportTest`).
+  The web boots with no frame budget and prints none.
   **That is for mistakes in the GAME.** A condition of the MACHINE -- no sound
   device, a portable build in a read-only folder, a disk that refused a write --
   is a plain `TraceLog`, said once by the state that remembers it (`attempted`,
@@ -549,14 +561,15 @@ here so that nobody "fixes" one back.
   reports at all -- `rmp::Value` reads through a path that creates nothing.
 - **On a Linux console with no desktop, rmp builds for DRM/KMS** (Omar,
   2026-10-11). `session_of()` in `tools/rmp.py` decides, in this order:
-  `RMP_DRM=1` or `0` (anything else refused by value); not Linux, the desktop;
+  `RMP_DRM=1` or `0` (anything else refused by value, by rmp and by `install.sh` before it clones); not Linux, the desktop;
   `DISPLAY` or `WAYLAND_DISPLAY`, the desktop; SSH, the desktop and it says so;
   `XDG_SESSION_TYPE=tty`, DRM; a virtual console (`/dev/ttyN`) as the terminal,
   DRM. Debug and release go to `build/debug-drm` and `build/release-drm` (presets
   of their own, never a desktop cache), X11 is never asked for -- not by CMake,
   not by `install.sh`, which lists libdrm, gbm, EGL and GLES instead -- and Debug
-  stays sanitized. `rmp run` asks `/dev/dri` and `/dev/input` before it starts the
-  game and, refused, gives the two ways out: sudo this once, or the `video` and
+  stays sanitized. `rmp run` asks `/dev/dri` and `/dev/input` before it starts the game -- the
+  cards raylib tries, in its order, taking the first it can open that answers
+  `drmModeGetResources()`, and says which -- and, refused, gives the two ways out: sudo this once, or the `video` and
   `input` groups and a new login. **rmp never runs sudo unless `sudo` was typed**
   (`rmp run sudo`: the build as you, `sudo -- GAME` said and run -- and still
   refused, before sudo asks for a password, when there is no card or something
@@ -673,6 +686,9 @@ here so that nobody "fixes" one back.
   one `warning: 1:1: Error parsing ...` line with exit 0, after which the check
   never runs. `lint_debt.py` fails on that line, and `ClangTidyGuidelineTest`
   shows each custom check firing on a probe.
+- **A `//` comment that ends in a backslash takes the next line with it.** gcc
+  says `-Wcomment`; clang and clang-tidy never do, so a lint run and a clang
+  build are clean over a lost line. `tools/style_check.sh` S9.
 - **`misc-const-correctness --fix` writes `T const`, and is sometimes wrong.**
   It produced `const char const *`, a `const Object *` that `push_back` could
   not take, and a test's mutable `char` buffer turned const. Read every fix;
@@ -854,7 +870,10 @@ Each of these was a real bug, found by reproducing rather than by reading.
   initialize platform`. There was no window at all, and the string every CI job
   greps for said the game had booted. It checks `IsWindowReady()` now. All
   seventeen targets go through that function, so the gate was blind everywhere and
-  was found by the one platform that could not start.
+  was found by the one platform that could not start. And a boot that said
+  `RAY_TEST_BOOT_FAIL` still ended with status 0, so a step that read the status
+  passed it: `end_stop()` ends such a run with 1 where a status is read, and
+  `drm-x64-run` starts the DRM archive with no card and requires both.
 - **A BSD job can go green having run almost none of its script.** The same
   syntax error that made FreeBSD and NetBSD exit non-zero made OpenBSD's `sh`
   exit **0**, so that job passed after printing one `echo` and stopping — a
@@ -903,10 +922,19 @@ Each of these was a real bug, found by reproducing rather than by reading.
   static libc++. The size budget caught it twenty minutes into CI; C's stdio
   in a `unique_ptr` reads the pack now, and `tools/style_check.sh` S8 refuses
   an iostream header in `src/rmp` and `include/rmp` in a second.
+- **A name is a `std::string_view` all the way, and a NUL in it names
+  nothing.** Everything that opens a file reads a C string:
+  `load_sheet("a.aseprite\0x")` loaded `a.aseprite` and cached it under the
+  name cut short, and two action names that differed past a NUL shared one
+  report. Every `rmp::assets` loader refuses such a name first (`refused()`,
+  `src/rmp/assets.cpp`: empty, one failed load, said once), and a report keyed
+  by a name takes `report_once_keyed()`'s `std::string_view` overload, never a
+  `.c_str()`.
 - **cute_aseprite trusts the file.** It asserts on a broken one, leaks on some
   real ones and loops on linked cels that link in a circle;
   `src/rmp/aseprite.cpp`'s `prepare_aseprite()` walks every chunk first, and
-  nothing hands cute_aseprite bytes that did not go through it.
+  nothing hands cute_aseprite bytes that did not go through it
+  (`ownership_check.sh` O3 refuses a load anywhere but `src/rmp/animation.cpp`).
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`

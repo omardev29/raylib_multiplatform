@@ -114,6 +114,12 @@ ALLOWED=(
                              # its transitions headless. This is the call the
                              # RAY_TEST_BOOT_OK gate was missing, not one to
                              # route away.
+  "src/rmp/app.cpp"           # the boot's verdict: after_ready() asks once,
+                             # after SmokeTest_ReportBoot() has said it, whether
+                             # InitWindow() opened anything, and end_stop() ends
+                             # a run with no window -- a DRM game with no card --
+                             # with status 1. The same question as scene.cpp's,
+                             # for the exit status the boot steps read.
 )
 
 # src/rmp/random.cpp was on this list for naming GetRandomValue in a COMMENT.

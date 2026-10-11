@@ -1324,7 +1324,7 @@ class RepoFilesTest(Scratch):
         ignore = ["**.md", "LICENSE"]
         self.assertEqual(triggers, {"push": {"branches": ["main"], "tags": ["v*"],
                                              "paths-ignore": ignore},
-                                    "pull_request": {"paths-ignore": ignore}} if on_push
+                                    "pull_request": None} if on_push
                          else {"push": {"tags": ["v*"]}})
 
 
