@@ -21,7 +21,9 @@
 //     (context.cpp) which render commands came from inside an at(). Its
 //     controls take the pointer as controls do, by their own hover and by
 //     the claims focus.cpp records for them -- a button over an NPC's head
-//     is clicked and focused where it is drawn.
+//     is clicked and focused where it is drawn, even when the at() is
+//     described inside a scroll area: the box is not clipped by it, and
+//     neither is what is in the box.
 //   - A point the camera cannot show, or that is no number at all -- or an
 //     offset that is none -- is kept far off the screen: Clay culls the box,
 //     and nothing downstream ever converts a NaN or a 1e30 into an int.
@@ -236,6 +238,11 @@ void open_at(Vector2 world, const AtOptions &o) {
         Clay__OpenElement();
     }
     Clay__ConfigureOpenElement(d);
+    // Out of the scroll area it may be described in, as the box itself is
+    // (CLAY_CLIP_TO_NONE, attached to the root): 0 is "in none", so a button
+    // over an NPC is hovered where it is drawn and not only where the list
+    // around the at() happens to be.
+    push_clip(Clay_ElementId{});
     push(Open{ .opened = true, .first_layer = first_layer });
 }
 
@@ -249,6 +256,7 @@ void close_at() {
     if (!o.opened) return;
     // One more z marks where the inside ended; nobody else is handed it.
     remember_layers(o.first_layer, next_layer_z());
+    pop_clip();
     close_element();
 }
 

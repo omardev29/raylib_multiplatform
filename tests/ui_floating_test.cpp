@@ -284,6 +284,10 @@ Clay_Vector2 centre_of(const Clay_BoundingBox &b) {
     return Clay_Vector2{ b.x + b.width / 2, b.y + b.height / 2 };
 }
 
+bool inside(Clay_Vector2 p, const Clay_BoundingBox &b) {
+    return p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
+}
+
 bool near(float a, float b) { return std::fabs(a - b) <= 0.5f; }
 
 bool same_color(Color a, Color b) {
@@ -558,6 +562,47 @@ TEST_SUITE("ui: floating") {
         plain();
         plain();
         CHECK(rmp::ui::wants_pointer());
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a control over the world is clicked where it is drawn, even when "
+                      "it is described inside a scroll area") {
+        bool clicked = false;
+        auto frame = [&] {
+            rmp::ui::begin({ .placement = Align::TOP_LEFT });
+            rmp::ui::scroll({ .width = 200, .height = 100, .id = "list" }, [&] {
+                rmp::ui::text("row");
+                // Far from the list: the box is not clipped by it.
+                rmp::ui::at(Vector2{ 900, 500 }, [&] {
+                    if (rmp::ui::button("Far")) clicked = true;
+                });
+                // Rows enough to put the next one below what the list shows.
+                for (int row = 0; row < 8; ++row) rmp::ui::text("row");
+                rmp::ui::button("Scrolled away");
+            });
+            rmp::ui::end();
+        };
+        frame();
+        const Clay_BoundingBox far = box_of("Far");
+        const Clay_BoundingBox list = box_of("list");
+        REQUIRE_FALSE(inside(centre_of(far), list));
+        finger.at = centre_of(far);
+        frame();
+        frame();
+        CHECK(rmp::ui::wants_pointer());
+        finger.down = true;
+        frame();
+        finger.down = false;
+        frame();
+        CHECK(clicked);
+        // And what comes after the at() in the list is clipped by it again:
+        // a row below what the list shows is not there to be hovered.
+        const Clay_BoundingBox away = box_of("Scrolled away");
+        REQUIRE(away.y > list.y + list.height);
+        finger.at = centre_of(away);
+        frame();
+        frame();
+        CHECK_FALSE(rmp::ui::wants_pointer());
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
