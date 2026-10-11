@@ -1,5 +1,6 @@
 # examples/games/07_platformer, played: the world to the flag and a best run
-# kept, then three falls, game over, and the title showing the best run.
+# kept, then three falls, game over, and the title showing the best run. On
+# the way, the pause: the HUD's button, Enter, and Escape both ways.
 #
 # Right and left run (the arrows), Space jumps. The levels are three in a row
 # in one LDtk world, and walking off the right edge of one is a change to the
@@ -20,6 +21,10 @@
 # The Meadow: right, and over what is in the way.
 6 press KEY_RIGHT
 84 tap KEY_SPACE
+# Space jumps, and does not press the HUD's Pause button, as it would the
+# focused button of a menu: the player reads Space, so the level is being
+# played, and a HUD over a game being played takes no focus by itself.
+84 expect scene LevelScene
 170 tap KEY_SPACE
 222 tap KEY_SPACE
 # Off its right edge and into the Desert, a scene of its own.
@@ -59,19 +64,38 @@
 1555 tap KEY_ENTER
 1555 expect scene LevelScene
 
+# --- the pause -------------------------------------------------------------------
+
+# The HUD's Pause button, for a finger, which is the one way a phone has. A
+# button fires on the way up, the frame after the click. The level freezes
+# behind the menu, clock and all: blurred where there is a GPU, and only dimmed
+# here, under raylib's software renderer.
+1560 click 730 42
+1560 expect scene LevelScene
+1561 expect scene PauseScene
+1564 shot paused
+# Resume has the focus, whatever the pointer did: Enter resumes.
+1566 tap KEY_ENTER
+1566 expect scene LevelScene
+# Escape pauses, and Escape resumes.
+1569 tap KEY_ESCAPE
+1569 expect scene PauseScene
+1572 tap KEY_ESCAPE
+1572 expect scene LevelScene
+
 # --- the failure path: three falls ------------------------------------------------
 
 # Straight into the Meadow's first pit, three times: a life lost each, and
 # back to the start.
-1556 press KEY_RIGHT
-1888 expect scene LevelScene
-1889 expect scene EndScene
-1892 shot game_over
+1574 press KEY_RIGHT
+1906 expect scene LevelScene
+1907 expect scene EndScene
+1910 shot game_over
 
 # Menu, the second button: down, then Enter. The title reads the best run back.
-1895 release KEY_RIGHT
-1897 tap KEY_DOWN
-1900 tap KEY_ENTER
-1900 expect scene TitleScene
-1903 shot title_with_best
-1903 end
+1913 release KEY_RIGHT
+1915 tap KEY_DOWN
+1918 tap KEY_ENTER
+1918 expect scene TitleScene
+1921 shot title_with_best
+1921 end

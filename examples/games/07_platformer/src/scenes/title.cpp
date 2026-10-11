@@ -13,17 +13,21 @@
 namespace game {
 
 void TitleScene::_ready() {
+    // A window of another shape than the [window] size shows more of the
+    // world rather than bars or a cut: a level that scrolls anyway can show
+    // further. The first scene says it, for the whole game (rmp/app.h).
+    rmp::app::set_stretch(rmp::app::Stretch::EXPAND);
+
     // The map with no factories: the level is drawn and nothing in it is
     // built. A map costs a scene nothing it does not ask for.
     map = rmp::assets::load_map("world.ldtk");
     camera.limits = map.bounds();
+    camera.zoom = ZOOM;
     rmp::audio::music("music");
     _best = best();
 }
 
 void TitleScene::_update(float delta) {
-    if (GetScreenHeight() > 0)
-        camera.zoom = static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT;
     _clock += delta;
     const Rectangle b = map.bounds();
     // Slowly from one end of the level to the other and back; `limits` keeps

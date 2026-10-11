@@ -1,7 +1,7 @@
 #pragma once
 // ---------------------------------------------------------------------------
 // What every file of the platformer shares: the collision layers, the run
-// that outlives a level, the three scenes, and two helpers for the art.
+// that outlives a level, the four scenes, and two helpers for the art.
 // ---------------------------------------------------------------------------
 
 #include <rmp/scene.h>
@@ -16,9 +16,14 @@ namespace game {
 
 inline constexpr float TILE = 18; // the grid of tiles.png and of every level
 
-// How much of the world is on screen: twelve and a half rows of tiles, whatever
-// the window's height. The camera zooms to fit it.
+// How much of the world is on screen: twelve and a half rows of tiles at the
+// [window] size, each pixel of the art two of the screen's. A window of another
+// shape is rmp::app::Stretch::EXPAND's (TitleScene::_ready()): the view scaled
+// to fit it, and MORE of the world showing the way the window is longer --
+// never fewer rows than these. So the zoom is a constant, and nothing here
+// reads the window's size.
 inline constexpr float VIEW_HEIGHT = 225;
+inline constexpr float ZOOM = RMP_WINDOW_HEIGHT / VIEW_HEIGHT;
 
 // The tiles of tiles.png this game draws by hand, by index (20 to a row).
 namespace tiles {
@@ -131,6 +136,14 @@ private:
     Vector2 _start{}; // where a lost life puts the player back
     rmp::Handle<rmp::Object> _player;
     bool _over = false;
+};
+
+// Pushed on top of the level by the HUD's Pause button, Escape, P or a
+// gamepad's Start: the level stays on screen, frozen and blurred, under it.
+class PauseScene : public rmp::Scene {
+public:
+    void _update(float delta) override;
+    void _draw() override;
 };
 
 // Pushed on top of the level when it ends: the level stays on screen, frozen,
