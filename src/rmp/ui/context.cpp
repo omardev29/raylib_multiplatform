@@ -507,11 +507,17 @@ bool frame_ready(std::string_view what, std::string_view label) {
     // reaches.
     const bool says = what == "text" || what == "tooltip";
     const std::array<char, 24> name = name_of(what);
+    // Where the pair goes, for the game this is: a scene's _draw() with the
+    // stack running, and the frame hook's drawing otherwise -- a game with no
+    // scenes has no _draw() to look for.
+    const std::string_view where = rmp::scenes::detail::running()
+        ? "in a scene's _draw()"
+        : "the two of them between BeginDrawing() and EndDrawing()";
     RMP_REPORT_ONCE_KEYED(says ? name.data() : call.data(),
                           "UI: rmp::ui::%s with no frame open, so it did nothing. The "
                           "interface is described between rmp::ui::begin() and "
-                          "rmp::ui::end(), in a scene's _draw().",
-                          call.data());
+                          "rmp::ui::end(), %.*s.",
+                          call.data(), static_cast<int>(where.size()), where.data());
     return false;
 }
 
@@ -1336,9 +1342,10 @@ void claim_control(uint32_t id) {
 
 bool pointer_claimed_now() {
     // Before the first begin() of a frame the pointer the UI sampled is last
-    // frame's, or there is none yet: RMP_ENTRY_POINT marks the frame in the
-    // first begin(), after the game's own code has asked. Then it is read
-    // here, the same way update_pointer() reads it.
+    // frame's, or there is none yet: the frame is prepared -- the pointer
+    // sampled -- by the first begin(), after the game's own code has asked,
+    // even where the runner marked it before the hook (RMP_ENTRY_POINT). Then
+    // it is read here, the same way update_pointer() reads it.
     Clay_Vector2 p = pointer.position;
     bool down = pointer.down;
     if (!frame.prepared) read_pointer(p, down);

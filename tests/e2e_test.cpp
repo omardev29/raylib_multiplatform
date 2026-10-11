@@ -316,7 +316,11 @@ TEST_SUITE("e2e: the script") {
         refuses("1 type \"Ana\n", 1, "type takes one quoted run of characters");
         refuses("1 type \"Ana\" \"Bo\"\n", 1, "a `\"` cannot be typed");
         refuses("1 type \"\"\n", 1, "types nothing");
-        refuses("1 type \"a#b\"\n", 1, "type takes one quoted run");
+        refuses("1 type \"a#b\"\n", 1, "a `#` cannot be typed: it starts a comment");
+        refuses("1 type \"Ana # the quote is never closed\n", 1,
+                "type takes one quoted run of characters");
+        refuses("1 type Ana # \"quoted\" in the comment\n", 1,
+                "type takes one quoted run of characters");
         refuses("1 type \"\xC3\"\n", 1, "is not UTF-8");
         refuses("1 type \"\x80\"\n", 1, "is not UTF-8");
         refuses("1 type \"\xC0\xAF\"\n", 1, "is not UTF-8"); // an overlong '/'

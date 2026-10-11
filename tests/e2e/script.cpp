@@ -547,7 +547,17 @@ bool Parser::line(int number_of_line, std::string_view text) {
         const std::string_view code = text.substr(0, hash);
         const auto after =
             static_cast<std::size_t>(verb.data() + verb.size() - text.data());
-        return type(code.substr(after < code.size() ? after : code.size()));
+        const std::string_view rest =
+            code.substr(after < code.size() ? after : code.size());
+        // A `#` starts a comment wherever it is, between the quotes too: one
+        // there leaves a quote open before it and the closing one after it.
+        // Say that, and not that the quotes are wrong.
+        if (hash != std::string_view::npos && std::ranges::count(rest, '"') % 2 == 1 &&
+            text.substr(hash).find('"') != std::string_view::npos) {
+            return fail(
+                "a `#` cannot be typed: it starts a comment, between the quotes too");
+        }
+        return type(rest);
     }
     if (verb == "shot") return shot(args);
     if (verb == "expect") return expect(args);

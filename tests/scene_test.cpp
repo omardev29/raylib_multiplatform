@@ -27,9 +27,12 @@
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 
@@ -199,6 +202,12 @@ public:
     }
 };
 
+// A widget in the scene's own _draw(), but before begin().
+class Loose : public rmp::Scene {
+public:
+    void _draw() override { rmp::ui::button("Loose"); }
+};
+
 // A health bar described in an object's _draw(), under the camera: what
 // rmp::ui::at() is for.
 class BarObject : public rmp::Object {
@@ -211,16 +220,35 @@ public:
     void _ready() override { spawn<BarObject>(); }
 };
 
+// What was said, word for word: a count of one passes for the wrong line too
+// (a widget under the camera with the phase lost still says one thing -- the
+// wrong one).
+struct {
+    std::vector<std::string> lines;
+} heard;
+
+bool heard_line_with(std::string_view part) {
+    return std::ranges::any_of(heard.lines, [part](const std::string &line) {
+        return line.find(part) != std::string::npos;
+    });
+}
+
 // From nothing, and back to nothing: the reports are one table for the whole
 // binary, and Clay's error count one counter.
 struct Misuse {
     Misuse() {
         rmp::detail::reset_reports_for_tests();
         rmp::ui::detail::reset_clay_errors_for_tests();
+        heard.lines.clear();
+        rmp::detail::set_report_sink(
+            [](std::string_view line) { heard.lines.emplace_back(line); });
     }
     Misuse(const Misuse &) = delete;
     Misuse &operator=(const Misuse &) = delete;
-    ~Misuse() { rmp::detail::reset_reports_for_tests(); }
+    ~Misuse() {
+        rmp::detail::set_report_sink({});
+        rmp::detail::reset_reports_for_tests();
+    }
 };
 
 } // namespace
@@ -561,6 +589,7 @@ TEST_SUITE("scene ui: the wrong place") {
         start_clean<UiInUpdate>();
         for (int i = 0; i < 60; ++i) run_frame();
         CHECK(rmp::detail::report_count() == 1);
+        CHECK(heard_line_with("rmp::ui::begin() in _update()"));
         CHECK_FALSE(rmp::ui::detail::frame_open());
         CHECK(rmp::ui::detail::clay_error_count() == 0);
     }
@@ -572,6 +601,7 @@ TEST_SUITE("scene ui: the wrong place") {
         start_clean<LeftOpen>();
         for (int i = 0; i < 60; ++i) run_frame();
         CHECK(rmp::detail::report_count() == 1);
+        CHECK(heard_line_with("scene 1 of 1 on the stack"));
         CHECK_FALSE(rmp::ui::detail::frame_open());
         CHECK(rmp::ui::detail::clay_error_count() == 0);
         // Closed as end() closes one: laid out, and there to be clicked.
@@ -587,7 +617,47 @@ TEST_SUITE("scene ui: the wrong place") {
         start_clean<WithBar>();
         for (int i = 0; i < 60; ++i) run_frame();
         CHECK(rmp::detail::report_count() == 1);
+        // Said as the camera's, which names at(): the scene stack set the
+        // phase around the objects' _draw().
+        CHECK(heard_line_with("rmp::ui::button() in an object's _draw()"));
+        CHECK(heard_line_with("rmp::ui::at()"));
         CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == 0);
+    }
+
+    TEST_CASE(
+        "the scene above one that left its frame open still has a pass of its own") {
+        // What closing it is for: without it the next scene's begin() went
+        // inside the frame left open, and that frame ended with the wrong
+        // scene -- or never, nesting one frame deeper each turn.
+        const Fixture fix;
+        const HeadlessUi headless;
+        const Misuse misuse;
+        start_clean<LeftOpen>();
+        rmp::Scene::push<UiScene<'B'>>();
+        rmp::scenes::detail::apply_pending();
+        for (int i = 0; i < 60; ++i) run_frame();
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK(heard_line_with("scene 1 of 2 on the stack"));
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == 0);
+        Clay_BoundingBox box{};
+        CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Open", 0, 0), &box));
+        CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Back", 1, 0), &box));
+        CHECK(box.width > 0);
+    }
+
+    TEST_CASE(
+        "a widget before begin() in a scene's _draw() names the call and the pair") {
+        const Fixture fix;
+        const HeadlessUi headless;
+        const Misuse misuse;
+        start_clean<Loose>();
+        for (int i = 0; i < 60; ++i) run_frame();
+        CHECK(rmp::detail::report_count() == 1);
+        // With the stack running, where the pair goes is a scene's _draw().
+        CHECK(heard_line_with("rmp::ui::button(\"Loose\") with no frame open"));
+        CHECK(heard_line_with("in a scene's _draw()"));
         CHECK(rmp::ui::detail::clay_error_count() == 0);
     }
 

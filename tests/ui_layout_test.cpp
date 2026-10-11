@@ -2684,6 +2684,9 @@ void run_misuse() {
               "and once, however many frames it goes on");
         check(said_line_with("rmp::ui::button(\"Play\")") && said_line_with("begin()"),
               "naming the call and where it goes");
+        check(said_line_with("between BeginDrawing() and EndDrawing()") &&
+                  !said_line_with("_draw()"),
+              "which, with no scene stack, is no scene's _draw()");
         check(rmp::ui::detail::clay_error_count() == 0,
               "with nothing half-built in Clay");
         draw_menu();

@@ -37,9 +37,10 @@
 //     it went down, or pressed again in the frame it is released or the
 //     frame after its tap -- it would never come up, so the second press
 //     would be no press at all; the same for a click after a click;
-//   - a `type` with no quotes, nothing between them, a `"` inside, a byte
-//     that is not UTF-8, a control character, more than 16 characters (a
-//     frame's queue holds 16) or a second one in the same frame;
+//   - a `type` with no quotes, nothing between them, a `"` or a `#` inside
+//     (a `#` starts a comment wherever it is), a byte that is not UTF-8, a
+//     control character, more than 16 characters (a frame's queue holds 16)
+//     or a second one in the same frame;
 //   - a shot name that is not lower case, digits and `_` (it is a file
 //     name), or that is used twice;
 //   - no `end`, anything after it, or a script that checks nothing (no
