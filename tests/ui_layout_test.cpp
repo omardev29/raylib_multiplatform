@@ -3474,9 +3474,8 @@ private:
 // can take away: nothing changed, and it went round again -- here an image
 // 62500 design units tall, at the scale of a 3300x2206 window, in a column
 // beside a stack. thirdparty/clay/clay.h stops a pass that moves nothing
-// (PATCHES.md); until that patch is in, this hangs, and is skipped. With it
-// the layout is laid out at once.
-TEST_CASE("an image too tall for any window lays out" * doctest::skip()) {
+// (PATCHES.md), and the layout is laid out at once.
+TEST_CASE("an image too tall for any window lays out") {
     const Watchdog watchdog(std::chrono::seconds(20),
                             "the layout of an image 250000 pixels tall");
     rmp::ui::detail::set_test_viewport(3300, 2206);

@@ -91,6 +91,7 @@ VENDOR_KNOBS = {
     "src/rmp/ui/clay_impl.cpp": {"CLAY_IMPLEMENTATION"},
     "tests/unit_test.cpp": {"DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN"},
     "tests/property/main.cpp": {"DOCTEST_CONFIG_IMPLEMENT"},
+    "tests/ui_layout_test.cpp": {"DOCTEST_CONFIG_IMPLEMENT"},
     "tests/rlsw_sample.c": {"SWAPI", "RLSW_IMPLEMENTATION", "swGetIntegerv",
                             "swTexStorage2D"},
 }

@@ -1363,7 +1363,7 @@ would force software rendering on every player.
 The gate is the **ratio** on every target, because llvmpipe, ANGLE-on-Metal, SwiftShader and
 mobile GPUs disagree about text antialiasing and texture filtering. The hash is asserted **too**,
 but only where it is deterministic: the targets that render through raylib's own software
-rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `e2ffc15d`, and
+rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `a5819fdd`, and
 `tools/render_check.sh` fails on anything else. DRM renders through OpenGL ES on llvmpipe and
 gives a different hash with the same pixel count and ratio; that one is compared against its
 own golden and must not be "fixed" by copying one over the other.

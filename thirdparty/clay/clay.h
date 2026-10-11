@@ -2428,6 +2428,9 @@ void Clay__SizeContainersAlongAxis(bool xAxis, float deltaTime, Clay__int32_tArr
                     }
                     // Scrolling containers preferentially compress before others
                     while (sizeToDistribute < -CLAY__EPSILON && resizableContainerBuffer.length > 0) {
+                        // PATCHED FOR THIS TEMPLATE: stop when a pass moved nothing (see below).
+                        const float distributeBefore = sizeToDistribute;
+                        const int32_t resizableBefore = resizableContainerBuffer.length;
                         float largest = 0;
                         float secondLargest = 0;
                         float widthToAdd = sizeToDistribute;
@@ -2461,6 +2464,8 @@ void Clay__SizeContainersAlongAxis(bool xAxis, float deltaTime, Clay__int32_tArr
                                 sizeToDistribute -= (*childSize - previousWidth);
                             }
                         }
+                        // PATCHED FOR THIS TEMPLATE: from a box hundreds of thousands of pixels tall a step smaller than a float can take away changes nothing, and the loop went round forever (tests/ui_layout_test.cpp, "an image too tall for any window lays out").
+                        if (sizeToDistribute == distributeBefore && resizableContainerBuffer.length == resizableBefore) break;
                     }
                 // The content is too small, allow SIZING_GROW containers to expand
                 } else if (sizeToDistribute > 0 && growContainerCount > 0) {
@@ -2472,6 +2477,9 @@ void Clay__SizeContainersAlongAxis(bool xAxis, float deltaTime, Clay__int32_tArr
                         }
                     }
                     while (sizeToDistribute > CLAY__EPSILON && resizableContainerBuffer.length > 0) {
+                        // PATCHED FOR THIS TEMPLATE: stop when a pass moved nothing (see below).
+                        const float distributeBefore = sizeToDistribute;
+                        const int32_t resizableBefore = resizableContainerBuffer.length;
                         float smallest = CLAY__MAXFLOAT;
                         float secondSmallest = CLAY__MAXFLOAT;
                         float widthToAdd = sizeToDistribute;
@@ -2506,6 +2514,8 @@ void Clay__SizeContainersAlongAxis(bool xAxis, float deltaTime, Clay__int32_tArr
                                 sizeToDistribute -= (*childSize - previousWidth);
                             }
                         }
+                        // PATCHED FOR THIS TEMPLATE: as above, growing.
+                        if (sizeToDistribute == distributeBefore && resizableContainerBuffer.length == resizableBefore) break;
                     }
                 }
             // Sizing along the non layout axis ("off axis")

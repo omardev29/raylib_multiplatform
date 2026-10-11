@@ -168,7 +168,9 @@ here so that nobody "fixes" one back.
   `ads/`, `assets/`, `platform/` and `plain_c/` are `NOT_PLAYED` with the reason
   in the test, and a new area is one or the other. On every frame the driver
   fails a control the example laid out outside its window and in no scroll area
-  (`controls_out_of_reach()`). Every shot has a golden, every golden a shot, and
+  (`controls_out_of_reach()`), and a mistake of the game's that the framework
+  reports during a run (`RMP_REPORT_ONCE`) fails the script at `end`, a line
+  each, in the log's words. Every shot has a golden, every golden a shot, and
   CMake refuses a script that plays no example. A script that cannot win a game
   is news about the game: Breakout's ball outran the paddle and Invaders' last
   alien landed before a ship could reach it, and both were fixed in the game.
@@ -640,6 +642,17 @@ Each of these was a real bug, found by reproducing rather than by reading.
   true, .width = 8 }` does not compile. This has bitten twice. Option structs are
   ordered the way they will be written — sizing interleaved by axis
   (`grow_x, width, grow_y, height`), then appearance, then identity.
+- **Clay measures a text a word at a time, and a space alone.** It adds the
+  pieces up; `DrawTextEx()` puts a letter spacing between every two letters of
+  the line, the spaces' included, and raylib's `MeasureTextEx()` counts it only
+  inside what it is given -- so every space lost two spacings and a two-word
+  menu line ran past its buttons. `measure_text()` (`src/rmp/ui/context.cpp`)
+  gives each letter the spacing before it but the first of its line, and
+  rounds each piece up to a 64th of a pixel so Clay's sums are exact (a padding
+  added and taken off again made 222.6 into 222.59999, and the line wrapped);
+  `tests/property/ui_text_prop.cpp` holds it to `DrawTextEx()`. And Clay emits
+  a line of length -1 for a word too wide for its box followed by `" \n"`:
+  `render.cpp` draws nothing for it.
 - **Clay does not copy strings.** It keeps the pointer and reads it during
   `Clay_EndLayout`. Every string that goes in is interned into a frame arena on
   the way through, so `text(std::to_string(score))` is safe.
@@ -848,12 +861,13 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
-  gives `01a90f7a` where every other target gives `e2ffc15d`, because it
-  rasterises through OpenGL ES on llvmpipe and the golden hash comes from
+  gives a hash of its own where every other target gives `a5819fdd`, because
+  it rasterises through OpenGL ES on llvmpipe and the golden hash comes from
   raylib's own software renderer. The pixel count and the coverage ratio are
-  identical (`pixels=92432 ratio=0.25676`), which is what says the geometry is
+  identical (`pixels=94608 ratio=0.26280`), which is what says the geometry is
   the same and only the shading differs. Do not "fix" it by copying one hash
-  over the other.
+  over the other. (The text is measured the way it is drawn since Stage E's
+  P7, which moved both hashes; `drm-x64-run` prints DRM's.)
 - **CI can run DRM, on a kernel display that does not exist.** `vkms` is
   mainline Virtual Kernel Mode Setting: a DRM device with a CRTC, an encoder and
   a connector and no hardware behind them. Two things it needs, and both were

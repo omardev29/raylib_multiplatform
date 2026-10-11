@@ -225,6 +225,9 @@ struct Theme {
 // current_theme() returns sees every later set_theme(), and a widget drawn
 // after the call already uses the new one. Both work at any time, before the
 // window exists too; until the first set_theme() it is the one [ui] theme names.
+// A metric set_theme() is handed that is NaN, below 0 or past 4096 design units
+// (transition: 60 seconds) is the game's mistake: said once by its name, and
+// theme_dark()'s is kept in its place.
 const Theme &current_theme();
 void set_theme(const Theme &t);
 
@@ -252,13 +255,16 @@ Theme theme_light();
 //     scale = clamp(min(w / RMP_WINDOW_WIDTH, h / RMP_WINDOW_HEIGHT), 0.5, 4)
 //
 // min() and not max(): what does not fit is worse than what is left over.
+// A size in design units that is not a number is none, no length is past a
+// million pixels and no font past 1024 -- each said once.
 // ---------------------------------------------------------------------------
 
 // The factor in use right now.
 float scale();
 
-// Pin it. 0 goes back to automatic. This is how you would implement an
-// "interface size" accessibility option.
+// Pin it, above 0 and at most 16. 0 goes back to automatic; NaN or below 0 is
+// a mistake, said once, and automatic too, and past 16 is 16, said once. This
+// is how you would implement an "interface size" accessibility option.
 void set_scale(float s);
 
 // ---------------------------------------------------------------------------
@@ -638,7 +644,8 @@ void spacer(float fixed);
 void image(const Texture2D &texture);
 void image(const Texture2D &texture, const ImageOptions &o);
 
-// A bar. `fraction` is 0..1 and is clamped.
+// A bar. `fraction` is 0..1 and is clamped; NaN -- hp / max_hp with no
+// max_hp -- is an empty bar, said once.
 void progress(float fraction);
 void progress(float fraction, const ProgressOptions &o);
 
@@ -815,7 +822,9 @@ bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o);
 // right while it has the focus, one `step` (or 5% of the range) per press, then
 // twelve a second while held. `value` is clamped to the range, and snapped to
 // `step` when there is one, on every call; true on any frame that changed it.
-// Nothing is drawn when max <= min.
+// Nothing is drawn when max <= min -- nor when an end is NaN or an infinity,
+// which is said once. A value that is NaN is set to min, and a step that is not
+// a positive number is none, each said once.
 bool slider(std::string_view label, float &value, float min, float max);
 bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o);
