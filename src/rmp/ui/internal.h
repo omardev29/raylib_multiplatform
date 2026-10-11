@@ -560,8 +560,9 @@ void box_outline(Clay_BoundingBox box, Corners corners, Clay_BorderWidth inset,
                  Outline &out);
 
 // Clay hands out string slices that are NOT null terminated. raylib's
-// DrawTextEx and MeasureTextEx both need one, so every slice has to be copied
-// into a scratch buffer with a terminator first.
+// DrawTextEx needs one, and measure_text() reads the same bytes it does, so
+// every slice is copied into a scratch buffer with a terminator first -- the
+// first 1023 bytes of it; one of no length, or less, is "".
 const char *cstr(Clay_StringSlice slice);
 
 // The scissor rectangles open while a pass is drawn, innermost last. raylib
@@ -744,8 +745,27 @@ inline Color from_clay(Clay_Color c) {
                   static_cast<unsigned char>(c.b), static_cast<unsigned char>(c.a) };
 }
 
-// Design units -> pixels.
-inline float px(float design_units) { return design_units * ui_scale(); }
+// The most pixels any length in the interface is, either way: a million, past
+// any screen, and two thousand of them still inside what an int holds -- what
+// raylib's scissor is handed a box in.
+inline constexpr float MAX_PIXELS = 1.0e6f;
+
+// Design units -> pixels. A length that is not a number is none, and none is
+// past MAX_PIXELS either way: a game's mistake -- an option, a size -- said once.
+float px(float design_units);
+
+// Pixels as Clay keeps a padding, a gap, the width of a border and a font
+// size: whole, 0 to 65535. Outside that is a mistake too, said once, and the
+// nearest end is used.
+uint16_t whole_pixels(float pixels);
+// Design units the same way: whole_pixels(px(design_units)).
+uint16_t px16(float design_units);
+
+// A font size, in whole pixels: px16(), and no more than MAX_FONT_PIXELS -- a
+// [ui] font is baked at the size it is drawn at, and a glyph atlas for a size
+// nobody can read is memory nobody has.
+inline constexpr float MAX_FONT_PIXELS = 1024.0f;
+uint16_t font_px(float design_units);
 
 // --- controls.cpp: UTF-8, as text_input() edits it --------------------------
 //

@@ -544,8 +544,60 @@ void update_scale() {
 
 float ui_scale() { return sizing.scale; }
 
+float px(float design_units) {
+    const float pixels = design_units * ui_scale();
+    if (std::isfinite(pixels) && std::fabs(pixels) <= MAX_PIXELS) return pixels;
+    // A game's mistake, and its every frame: once. The value the option or
+    // the theme held is in the line.
+    RMP_REPORT_ONCE(
+        "UI: a size of %g design units is %g pixels, which is not a length "
+        "the interface can have; %g is used. An option or the theme is wrong.",
+        static_cast<double>(design_units), static_cast<double>(pixels),
+        std::isnan(pixels) ? 0.0 : std::copysign(MAX_PIXELS, pixels));
+    if (std::isnan(pixels)) return 0.0f;
+    return std::copysign(MAX_PIXELS, pixels);
+}
+
+namespace {
+uint16_t whole_pixels_up_to(float pixels, float most) {
+    if (pixels >= 0.0f && pixels <= most) return static_cast<uint16_t>(pixels);
+    RMP_REPORT_ONCE("UI: a padding, a gap, a border or a font size of %g pixels; it can "
+                    "be 0 to %g, and that is used",
+                    static_cast<double>(pixels), static_cast<double>(most));
+    return pixels > most ? static_cast<uint16_t>(most) : 0;
+}
+} // namespace
+
+uint16_t whole_pixels(float pixels) { return whole_pixels_up_to(pixels, 65535.0f); }
+
+uint16_t px16(float design_units) { return whole_pixels(px(design_units)); }
+
+uint16_t font_px(float design_units) {
+    return whole_pixels_up_to(px(design_units), MAX_FONT_PIXELS);
+}
+
+// The most a pinned scale can be: four times the automatic one's ceiling, an
+// "interface size" setting turned past anything readable.
+constexpr float MOST_SCALE = 16.0f;
+
 void set_scale_override(float s) {
-    sizing.scale_override = (s > 0.0f) ? s : 0.0f;
+    if (s > 0.0f && s <= MOST_SCALE) {
+        sizing.scale_override = s;
+    } else {
+        // 0 is automatic, and asked for; anything else here is the game's
+        // mistake -- NaN, below 0, an infinity -- said once: automatic, or
+        // the most a pin can be.
+        const float used = s > MOST_SCALE ? MOST_SCALE : 0.0f;
+        if (s != 0.0f) {
+            // Once for each way of getting it wrong.
+            RMP_REPORT_ONCE_KEYED(std::isnan(s) ? "nan" : (s < 0.0f ? "below" : "above"),
+                                  "UI: rmp::ui::set_scale(%g): a scale is above 0 and at "
+                                  "most %g; %s is used",
+                                  static_cast<double>(s), static_cast<double>(MOST_SCALE),
+                                  used > 0.0f ? "the most" : "the automatic one");
+        }
+        sizing.scale_override = used;
+    }
     if (context.started) update_scale();
 }
 

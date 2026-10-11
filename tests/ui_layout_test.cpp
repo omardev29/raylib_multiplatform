@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -3320,6 +3321,93 @@ TEST_CASE("a word too wide for its box, a space and a newline") {
     check(std::string_view(rmp::ui::detail::cstr(Clay_StringSlice{ -1, word, word }))
               .empty(),
           "a slice of length -1 is \"\"");
+}
+
+// What tests/property/ui_prop.cpp found a game can hand the interface, each
+// with what it does now. The first two were undefined: a size cast to the
+// whole pixels Clay keeps a padding in, past 65535 or below 0 -- begin()'s
+// padding of 1e30 and a theme's gap of -2 (UBSan: float-cast-overflow in
+// widgets.cpp). Every one of them is the game's mistake, and said once.
+TEST_CASE("a game's numbers that are no lengths") {
+    const Listening listening;
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    const rmp::ui::Theme before = rmp::ui::current_theme();
+
+    for (int frame = 0; frame < 2; ++frame) {
+        rmp::ui::begin({ .padding = 1.0e30f });
+        rmp::ui::button("Far in");
+        rmp::ui::end();
+    }
+    Clay_BoundingBox b{};
+    check(rmp::ui::detail::bounds_of("Far in", 0, 0, &b) && std::isfinite(b.x) &&
+              std::isfinite(b.width),
+          "a padding past any screen is laid out somewhere");
+    check(said_line_with("design units"), "and said");
+
+    rmp::ui::Theme broken = before;
+    broken.gap = -2;
+    broken.font_size = std::numeric_limits<float>::quiet_NaN();
+    broken.corner_radius = std::numeric_limits<float>::infinity();
+    rmp::ui::set_theme(broken);
+    const rmp::ui::Theme &kept = rmp::ui::current_theme();
+    check(kept.gap == rmp::ui::theme_dark().gap &&
+              kept.font_size == rmp::ui::theme_dark().font_size &&
+              kept.corner_radius == rmp::ui::theme_dark().corner_radius,
+          "a theme's metrics that are not lengths are the dark theme's");
+    check(said_line_with("gap = -2") && said_line_with("font_size = nan") &&
+              said_line_with("corner_radius = inf"),
+          "each said by its name");
+    draw_menu();
+    draw_menu();
+    check(box_of("Play").w > 0, "and the menu is laid out with it");
+    rmp::ui::set_theme(before);
+
+    rmp::ui::set_scale(std::numeric_limits<float>::infinity());
+    draw_menu();
+    check_near(rmp::ui::scale(), 16, 0.001f,
+               "set_scale(inf) is the most a pin can be: 16");
+    rmp::ui::set_scale(std::numeric_limits<float>::quiet_NaN());
+    draw_menu();
+    check(rmp::ui::scale() >= 0.5f && rmp::ui::scale() <= 4.0f,
+          "set_scale(NaN) is the automatic scale");
+    rmp::ui::set_scale(-1);
+    draw_menu();
+    check(rmp::ui::scale() >= 0.5f && rmp::ui::scale() <= 4.0f,
+          "set_scale(-1) is the automatic scale");
+    check(said_line_with("set_scale(inf)") && said_line_with("set_scale(nan)"),
+          "and said");
+    rmp::ui::set_scale(0);
+
+    float nan_value = std::numeric_limits<float>::quiet_NaN();
+    float stepped = 5;
+    float untouched = 3;
+    for (int frame = 0; frame < 2; ++frame) {
+        rmp::ui::begin();
+        rmp::ui::slider("Not a number", nan_value, 2, 10);
+        rmp::ui::slider("Infinite steps", stepped, 0, 10,
+                        { .step = std::numeric_limits<float>::infinity() });
+        rmp::ui::slider("No range", untouched, std::numeric_limits<float>::quiet_NaN(),
+                        10);
+        rmp::ui::progress(std::numeric_limits<float>::quiet_NaN(), { .id = "Empty" });
+        rmp::ui::text("Huge", { .size = 1.0e9f });
+        rmp::ui::end();
+    }
+    check(nan_value == 2, "a slider handed NaN sets it to the start of its range");
+    check(stepped == 5, "an infinite step is no step: the value stays where it was");
+    check(untouched == 3, "a range that is no range draws no slider and writes nothing");
+    check(said_line_with("slider(\"Not a number\")") && said_line_with("a step of inf") &&
+              said_line_with("slider(\"No range\")"),
+          "each said");
+    check(said_line_with("progress()"), "a NaN progress() is said, and drawn empty");
+    int largest_font = 0;
+    const Clay_RenderCommandArray commands = rmp::ui::detail::last_pass_commands();
+    for (int32_t i = 0; i < commands.length; ++i) {
+        const Clay_RenderCommand &cmd = commands.internalArray[i];
+        if (cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT)
+            largest_font = std::max<int>(largest_font, cmd.renderData.text.fontSize);
+    }
+    check(largest_font == 1024,
+          "a font size of a billion is the largest one baked: 1024");
 }
 
 TEST_CASE("scale limits") {

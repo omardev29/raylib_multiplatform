@@ -29,7 +29,9 @@ namespace rmp::ui {
 
 namespace {
 
+using detail::font_px;
 using detail::px;
+using detail::px16;
 using detail::to_clay;
 
 // In front of everything else in its pass: a stack()'s layers count up from
@@ -340,15 +342,15 @@ void tooltip(std::string_view text, const TooltipOptions &o) {
     d.layout.sizing.width.size.minMax = Clay_SizingMinMax{ 0, px(MAX_WIDTH) };
     d.layout.sizing.height.type = CLAY__SIZING_TYPE_FIT;
     d.layout.sizing.height.size.minMax = Clay_SizingMinMax{ 0, 0 };
-    const auto pad_x = static_cast<uint16_t>(px(t.padding_x / 2));
-    const auto pad_y = static_cast<uint16_t>(px(t.padding_y / 2));
+    const auto pad_x = px16(t.padding_x / 2);
+    const auto pad_y = px16(t.padding_y / 2);
     d.layout.padding = Clay_Padding{ pad_x, pad_x, pad_y, pad_y };
     d.backgroundColor = to_clay(t.surface);
     const float r = px(t.corner_radius / 2);
     d.cornerRadius = Clay_CornerRadius{ r, r, r, r };
     // An outline in either theme: it floats over whatever is there, and has
     // to be told apart from it.
-    auto w = static_cast<uint16_t>(px(1));
+    auto w = px16(1);
     if (w < 1) w = 1;
     d.border.color = to_clay(t.border);
     d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
@@ -368,7 +370,7 @@ void tooltip(std::string_view text, const TooltipOptions &o) {
     {
         Clay_TextElementConfig tc{};
         tc.textColor = to_clay(t.text);
-        tc.fontSize = static_cast<uint16_t>(px(t.font_size_small));
+        tc.fontSize = font_px(t.font_size_small);
         tc.wrapMode = CLAY_TEXT_WRAP_WORDS;
         // Copied: the caller's string may be a temporary.
         Clay__OpenTextElement(detail::intern(text), tc);

@@ -213,7 +213,7 @@ void open_at(Vector2 world, const AtOptions &o) {
     d.layout.sizing.height.type = CLAY__SIZING_TYPE_FIT;
     d.layout.sizing.height.size.minMax = Clay_SizingMinMax{ 0, 0 };
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-    d.layout.childGap = static_cast<uint16_t>(px(t.gap));
+    d.layout.childGap = px16(t.gap);
     d.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     // Attached to the root of the layout, whose corner is the screen's: its
@@ -221,9 +221,12 @@ void open_at(Vector2 world, const AtOptions &o) {
     d.floating.attachTo = CLAY_ATTACH_TO_ROOT;
     d.floating.attachPoints =
         Clay_FloatingAttachPoints{ attach_point(o.anchor), CLAY_ATTACH_POINT_LEFT_TOP };
-    // Kept again after it: an offset can be no number too.
+    // Kept again after it: an offset can be no number too -- and one that is
+    // none goes far away with the box, not px()'s 0, which would put the box
+    // on the point as if nothing were wrong.
+    const float scale = ui_scale();
     d.floating.offset =
-        Clay_Vector2{ kept(at.x + px(o.offset.x)), kept(at.y + px(o.offset.y)) };
+        Clay_Vector2{ kept(at.x + o.offset.x * scale), kept(at.y + o.offset.y * scale) };
     d.floating.zIndex = box_z(given.boxes);
     given.last_z = d.floating.zIndex;
     // Clay's own hit test is not ours (see pointer_over()); this says the same

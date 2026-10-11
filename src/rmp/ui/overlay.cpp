@@ -150,7 +150,7 @@ void open_layer_over_viewport(const Color veil, const Align placement,
     content.layout.sizing.width = fit();
     content.layout.sizing.height = fit();
     content.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-    content.layout.childGap = static_cast<uint16_t>(px(t.gap));
+    content.layout.childGap = px16(t.gap);
     content.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     Clay__OpenElement();
