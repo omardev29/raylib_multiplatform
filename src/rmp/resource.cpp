@@ -106,19 +106,18 @@ void unload_payload(SlotData &slot) {
     }
 }
 
+// A slot as new: unloaded, unnamed, no references. Every slot free_slot()
+// hands out is one of these or a fresh one, so adopt_owned() sets only what
+// it brings.
 void empty(SlotData &slot) {
     unload_payload(slot);
-    slot.payload.reset();
-    slot.name.clear();
-    slot.named = false;
-    slot.font_size = 0;
-    slot.refs = 0;
+    slot = SlotData{};
 }
 
 SlotData *find_named(ResourceKind kind, std::string_view name, int font_size) {
     for (const auto &s : table.slots) {
-        if (s->refs > 0 && s->named && s->kind == kind && s->font_size == font_size &&
-            s->name == name) {
+        // Named means held: empty() takes the name away with the last reference.
+        if (s->named && s->kind == kind && s->font_size == font_size && s->name == name) {
             return s.get();
         }
     }
@@ -148,9 +147,6 @@ Slot *adopt_owned(ResourceKind kind, std::shared_ptr<void> payload) {
     SlotData *slot = free_slot();
     slot->kind = kind;
     slot->refs = 1;
-    slot->named = false;
-    slot->font_size = 0;
-    slot->name.clear();
     slot->payload = std::move(payload);
     return reinterpret_cast<Slot *>(slot);
 }
@@ -195,7 +191,7 @@ int live_count() {
 int ref_count(std::string_view name) {
     int n = 0;
     for (const auto &s : table.slots) {
-        if (s->refs > 0 && s->named && s->name == name) n += s->refs;
+        if (s->named && s->name == name) n += s->refs;
     }
     return n;
 }

@@ -926,6 +926,36 @@ TEST_SUITE("resources: table") {
         rmp::detail::release_all();
     }
 
+    TEST_CASE(
+        "a slot let go is the next one handed out, and nobody's under its old name") {
+        // The table keeps its slots and hands an emptied one out again: a game
+        // that loads and lets go for an hour has the slots of its busiest
+        // moment, not of the hour. Letting a slot go that nobody holds is
+        // nothing -- not a count below zero that keeps it from coming back --
+        // and release_all() takes from under no handle a slot nobody held.
+        using rmp::detail::ResourceKind;
+        rmp::detail::release_all();
+        const ::Image zeroed{};
+        std::vector<rmp::detail::Slot *> handed{ rmp::detail::adopt_named(
+            ResourceKind::IMAGE, "old.png", 0, zeroed) };
+        rmp::detail::release(handed[0]);
+        rmp::detail::release(handed[0]);
+        rmp::detail::release_all();
+        CHECK(rmp::detail::live_count() == 0);
+        handed.push_back(rmp::detail::adopt(ResourceKind::IMAGE, zeroed));
+        CHECK(handed[1] == handed[0]);
+        CHECK(rmp::detail::live_count() == 1);
+        CHECK(rmp::detail::acquire_named(ResourceKind::IMAGE, "old.png", 0) == nullptr);
+        CHECK(rmp::detail::ref_count("old.png") == 0);
+        rmp::detail::release(handed[1]);
+        CHECK(rmp::detail::live_count() == 0);
+        // And nothing at all is no resource.
+        CHECK(rmp::detail::adopt_owned(ResourceKind::IMAGE, nullptr) == nullptr);
+        CHECK(rmp::detail::adopt_named_owned(ResourceKind::IMAGE, "n.png", 0, nullptr) ==
+              nullptr);
+        CHECK(rmp::detail::live_count() == 0);
+    }
+
     TEST_CASE("every kind the table holds is let go with its last handle, empty or not") {
         // The kinds no loader of rmp::assets hands out yet -- music, shaders,
         // render textures -- and a sheet with no texture: a zeroed payload of
