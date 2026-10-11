@@ -461,8 +461,14 @@ def push_answers(argv):
         # gh answering, mostly, with runs.
         return st.tuples(st.sampled_from([0, 0, 0, 1]),
                          st.lists(RUN, max_size=3).map(json.dumps) | GH_LIST)
+    if "--print-ci" in argv:
+        return st.tuples(st.sampled_from([0, 0, 0, 1]),
+                         st.sampled_from(["on_push=true\n", "on_push=false\n", "x\non_push=false\n",
+                                          "on_push=false \n", ""]))
     if argv[0] != "git":
         return None
+    if argv[1:3] == ["diff", "--quiet"]:
+        return st.tuples(st.sampled_from([0, 1]), st.just(""))
     if "symbolic-ref" in words:
         return st.tuples(st.just(0), st.sampled_from(["main\n", "main\n", "feature\n", ""]))
     if argv[1:2] == ["config"]:
@@ -482,12 +488,28 @@ class PushTest(unittest.TestCase):
 
     @given(st.sampled_from([["push"], ["push"], ["push", "force"]]), machines(), st.data())
     def test_no_push_over_a_live_run(self, argv, spec, data):
-        spec["where"] = "game"
-        spec["installed"] |= {"git", "gh"}
+        spec.update(where="game", euid=1000)   # not under sudo: SudoRulesTest's
+        spec["env"].pop("SUDO_USER", None)
+        spec["installed"] |= {"git"}
         machine = Machine(data, spec, answers=push_answers)
         code, out, err = run_main(machine, argv)
         pushes = [a for a, _c, _o in machine.calls if a[:2] == ["git", "push"]]
         self.assertLessEqual(len(pushes), 1, pushes)
+        # Whether gh is asked at all: a push that starts a CI run -- [ci]
+        # on_push, or a ci.yml whose changes are not committed yet -- unless
+        # forced; and configure refusing the project is no push.
+        ci = answered(machine, "tools/configure.py", "--print-ci")
+        if argv == ["push"]:
+            self.assertIsNotNone(ci)
+            if ci[0] != 0:
+                self.assertEqual((code, pushes), (rmp.FAILED, []), out)
+                return
+            starts = "on_push=false" not in ci[1].splitlines() or \
+                answered(machine, "diff", "--quiet", "HEAD")[0] != 0
+            self.assertEqual(ran(machine, "gh", "run", "list") or "gh is not installed" in out,
+                             starts, out)
+        else:
+            self.assertIsNone(ci)
         if pushes:
             branch = answered(machine, "symbolic-ref", "-q", "--short", "HEAD")[1].strip()
             config = answered(machine, "config", f"branch.{branch}.merge") if branch else None
@@ -799,6 +821,60 @@ class TomlLineTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # rmp install: the startup file
 # ---------------------------------------------------------------------------
+
+def expected_rc(home: Path, env: dict, system: str, existing: set) -> tuple[Path, str]:
+    """rc_file()'s docstring and its comments, as a table: the startup file
+    the login shell ($SHELL) reads, and which syntax."""
+    shell = Path(env.get("SHELL") or "sh").name
+    if shell == "zsh":
+        return Path(env.get("ZDOTDIR") or home) / ".zshrc", "sh"
+    if shell == "bash":
+        if system == "Darwin":
+            first = next((n for n in (".bash_profile", ".bash_login", ".profile")
+                          if n in existing), ".bash_profile")
+            return home / first, "sh"
+        return home / ".bashrc", "sh"
+    if shell == "fish":
+        config = env.get("XDG_CONFIG_HOME") or ""
+        base = Path(config) if config.startswith("/") else home / ".config"
+        return base / "fish" / "conf.d" / "rmp.fish", "fish"
+    if shell == "tcsh" and ".tcshrc" in existing:
+        return home / ".tcshrc", "csh"
+    if shell in ("csh", "tcsh"):
+        return home / ".cshrc", "csh"
+    if shell in rmp.KSH_NAMES:
+        named = (env.get("ENV") or "").replace("${HOME}", str(home)).replace("$HOME", str(home))
+        if named.startswith("~/"):
+            named = str(home) + named[1:]
+        if named.startswith("/"):
+            return Path(named), "sh"
+    return home / ".profile", "sh"
+
+
+class RcFileTest(unittest.TestCase):
+    """The startup file `rmp install` writes its line into is the one the
+    person's login shell reads -- zsh's ZDOTDIR, a Mac's bash reading the
+    first of three that exists, fish's conf.d, tcsh reading .tcshrc INSTEAD
+    of .cshrc, a ksh's $ENV -- for any shell, system and home."""
+
+    @given(st.sampled_from(SHELLS + ["/bin/oksh", "/usr/local/bin/ksh93", "/opt/pdksh",
+                                     "/usr/bin/lksh"]),
+           st.sampled_from(["Linux", "Darwin", "FreeBSD", "OpenBSD"]),
+           st.sets(st.sampled_from([".bash_profile", ".bash_login", ".profile", ".tcshrc",
+                                    ".cshrc"])),
+           st.fixed_dictionaries({}, optional={
+               "ZDOTDIR": st.sampled_from(["", "/z/dot"]),
+               "XDG_CONFIG_HOME": st.sampled_from(["", "/x/config", "relative/config"]),
+               "ENV": st.sampled_from(["", "~/.kshrc", "$HOME/.mkshrc", "${HOME}/k/rc",
+                                       "/etc/kshrc", "relative/rc", "~user/rc"])}))
+    def test_the_file_the_login_shell_reads(self, shell, system, existing, env):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            for name in existing:
+                (home / name).write_text("")
+            env = dict(env, SHELL=shell)
+            self.assertEqual(rmp.rc_file(home, env, system),
+                             expected_rc(home, env, system, existing))
 
 class StartupFileTest(unittest.TestCase):
     """The block that puts ~/.local/bin on PATH goes in once, after what is
