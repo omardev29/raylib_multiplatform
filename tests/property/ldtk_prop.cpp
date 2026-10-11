@@ -607,7 +607,14 @@ TEST_SUITE("property: ldtk") {
                 const std::string text = to_json(world);
                 const Resources resources;
                 resources.write("world.ldtk", text);
-                const std::string level = as_read(world.levels.back().name);
+                // A level it has, the same with something after a NUL -- no
+                // level is called that, and a C string on the way would load
+                // the one before the NUL -- or anything.
+                const std::string named = as_read(world.levels.back().name);
+                const std::string level =
+                    *rc::gen::oneOf(rc::gen::just(named),
+                                    rc::gen::just(named + std::string(1, '\0') + "x"),
+                                    rmp::test::gen::hostile_string());
                 RC_ASSERT(
                     same_map(rmp::assets::load_map("world.ldtk"), Parsed(text).map));
                 RC_ASSERT(same_map(rmp::assets::load_map("world.ldtk", level),
