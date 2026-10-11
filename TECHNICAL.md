@@ -136,6 +136,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   │   └── pending.txt       #   the examples with no script yet -- a list that only shrinks
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
 │   ├── rmp_test.py           # rmp itself: every command, the launchers, rmp new, CI's game mode
+│   ├── api_change_test.py    # the API-change gate: scratch repositories, a stand-in gh, the api job's step
 │   ├── deep.cmake            # the deep tests' targets: property_test and fuzz_<name> (included OPTIONAL)
 │   ├── property/             # RapidCheck: *_prop.cpp, gen.h (hostile floats, Value trees), check.h, waivers.txt
 │   ├── fuzz/                 # libFuzzer: <name>.cpp, harness.h, replay_main.cpp, corpus/<name>/, regressions/<name>/
@@ -156,6 +157,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── fuzz.sh               # the fuzz targets: build, replay (every input, or fail), run, merge
 │   ├── mutation.sh           # Mull and mutmut, one module at a time; mutation_report.py holds the floors
 │   ├── finding.py            # what the nightly runs found, as one nightly-finding issue per signature
+│   ├── api_change.py         # the API-change gate: what a pull request changes of include/ and the .toml
 │   ├── make_example_art.py   # the generated art the runner example brings
 │   ├── dev_shell.sh          # run a command inside the pinned CI image
 │   └── rres_pack.c           # open rres packer (AES-256) -- no paid tooling needed
@@ -181,15 +183,16 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── workflows/deep.yml    # nightly fuzzing and random-seed properties, weekly mutation
 │   ├── workflows/_*.yml      # one reusable workflow per platform group
 │   ├── known-breakage.md     # canary failures we have seen and chosen not to chase
+│   ├── pull_request_template.md # what every pull request says: the ladder, seen red, not verified
 │   └── scripts/              # web boot test, canary triage, upstream report
 └── thirdparty/
-    ├── raylib/               # raylib 6.0 -- MODIFIED, six patches + three upstream backports, see its PATCHES.md
+    ├── raylib/               # raylib 6.0 -- MODIFIED, our patches and upstream backports, see its PATCHES.md
     ├── raylib-ios/           # raylib-iOS fork (submodule) -- iOS only
     ├── raymob/               # raymob C sources (Android native bridge + admob) -- patched, see PATCHES.md
-    ├── clay/                 # Clay -- the layout engine behind rmp::ui (zlib) -- one line patched
+    ├── clay/                 # Clay -- the layout engine behind rmp::ui (zlib) -- patched, see PATCHES.md
     ├── cute_aseprite/        # reads .aseprite directly (zlib OR public domain; we take the latter)
     ├── cute_tiled/           # reads Tiled JSON (same licence) -- patched, see PATCHES.md
-    ├── raylib-cpp/           # the math subset only, behind rmp/math.h
+    ├── raylib-cpp/           # the math subset only, behind rmp/math.h -- partial, see PATCHES.md
     ├── rres/                 # rres.h + rres-raylib.h + externals (AES, Monocypher, QOI, LZ4)
     ├── cJSON/                # cJSON 1.7.19 (MIT), unmodified -- behind rmp::save and the LDtk reader, in no public header
     ├── doctest/              # the unit-test framework; never shipped
@@ -1150,13 +1153,14 @@ and `concurrency` must live only in the orchestrator or parent and children canc
 
 ### The framework, and every game made from it
 
-A game made with `rmp new` carries the same `ci.yml`, byte for byte, and the same reusable
-workflows. The `config` job asks `python3 tools/rmp.py --mode` which one it is running in --
-the framework has `tests/configure_test.py`, a game does not -- and stops the run on any answer
-but `framework` or `game`. What only the framework has is skipped by that answer, never cut out
+A game made with `rmp new` carries the same `ci.yml` -- but for the block between its
+`[ci] on_push` markers, which `configure.py` writes from the game's `.toml` -- and the same
+reusable workflows. The `config` job asks `python3 tools/rmp.py --mode` which one it is running
+in -- the framework has `tests/configure_test.py`, a game does not -- and stops the run on any
+answer but `framework` or `game`. What only the framework has is skipped by that answer, never cut out
 of a copy: the framework's own steps in `lint` (its tests and its gates over its own sources),
-the `tidy`, `examples`, `e2e`, `coverage` and `docs` jobs, the MSVC pass over `examples/` in
-`_windows.yml`, and `rmp_new`. A game's
+the `tidy`, `examples`, `e2e`, `coverage`, `deep` and `docs` jobs, the steps of `api`, the MSVC
+pass over `examples/` in `_windows.yml`, and `rmp_new`. A game's
 `lint` job is actionlint, its configuration, the pinned versions, the licences and a frame drawn
 in software. `release` accepts those jobs as skipped only in a game.
 
@@ -1171,7 +1175,7 @@ OpenBSD's `ksh` in its BSD job.
 
 | Trigger | What builds |
 |---|---|
-| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64, plus the framework's own jobs: `lint`, `tidy` (clang-tidy), `examples` (build and boot), `e2e` (the scripts played), `coverage`, `docs` and `rmp_new` (~8 min, every job side by side) |
+| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64, plus the framework's own jobs: `lint`, `tidy` (clang-tidy), `examples` (build and boot), `e2e` (the scripts played), `coverage`, `deep` (the deep campaign's deterministic half), `docs` and `rmp_new` (~8 min, every job side by side); a pull request also runs `api`, below |
 | tag `v*` | All 17 targets, then Release, then itch.io |
 | `workflow_dispatch` | Fast lane, or everything with the `full` input, or the **debug lane**: `-f targets=linux-x64-glibc,windows-x64,macos`, a comma-separated list of targets and groups, builds exactly those (and the framework's own jobs) |
 
@@ -1180,6 +1184,28 @@ buys either a slow loop or, worse, a team that has learned to ignore CI.
 
 `workflow_dispatch` also takes `image_digest`, so you can smoke-test a candidate build image
 without committing the pin.
+
+### Pull requests, and the API-change gate
+
+`main` changes by pull request (CLAUDE.md, "How an agent works here"), and
+`.github/pull_request_template.md` is what each one says: what changed and why, the ladder it
+ran and where -- the laptop or the pinned image -- what was seen red first, what is not
+verified, and a checklist.
+
+On a pull request the `api` job is the API-change gate. A change to a public header under
+`include/` -- any change, a comment too -- or to a key of the `.toml` -- a key or a default of
+`DEFAULTS` in `tools/configure.py`, read from its source and never run, or a key of
+`raylib_multiplatform.toml`, whose values are the demo game's own -- is what every game is
+written against, and changing it is Omar's decision. `tools/api_change.py` compares the pull
+request with its merge base, labels it `api-change` and fails until it also carries
+`api-approved`, added by the repository's owner: the pull request's events say who added it,
+and anybody else's is refused. A label starts no run, so the job is re-run after it is added.
+The base branch's own copy of the script judges, so a pull request cannot rewrite its judge.
+On a push, a tag or a dispatch there is no pull request and the job is skipped; in a game its
+steps are. `python3 tools/api_change.py` on a branch says what its pull request would carry.
+
+Issues labelled `nightly-finding` are what `deep.yml` found (`tools/finding.py`, one per
+signature, with the command that replays it), and they are taken before anything else.
 
 ### What is pinned, and how
 
@@ -1329,6 +1355,10 @@ and signature).
 | Target | How |
 |---|---|
 | Linux x64 / ARM64 | headless under `xvfb` with `RAY_TEST_MAX_FRAMES` |
+| Linux x64 musl | the shipped archive started on Alpine (`raylib-run-alpine`) under Xvfb, with no network |
+| Linux x64 DRM | `./rmp run` on `vkms`, a kernel display with no hardware behind it, and no X at all |
+| Linux RISC-V | the shipped archive under `qemu-riscv64-static` in the build image, on riscv64 Mesa's llvmpipe |
+| macOS, the BSDs | `tools/render_check.sh`: raylib's own software rasteriser, the BSDs in QEMU VMs |
 | Windows x64 | on the real runner, with Mesa's software rasteriser staged next to the `.exe` |
 | Web | headless Chromium; the composited canvas is screenshotted and measured |
 | iOS | *(disabled)* — written, but the `macos-26` simulator will not boot under `simctl`. Set `vars.IOS_SIMULATOR_TEST=true` to try it. |

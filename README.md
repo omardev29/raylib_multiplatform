@@ -162,8 +162,9 @@ Every push runs a fast lane; a tag, or `gh workflow run ci.yml -f full=true`, ru
 Booting proves the window opened and the assets loaded; the CI also reads a frame back and checks
 it has pixels on it, because a broken shader still boots and exits 0. What each target gets —
 built, booted, rendered, or only checked statically — and what is pinned is in
-[What CI covers](https://omardev29.github.io/rmp-docs/publishing/ci.html). Nothing here tests
-*your game*: test it on the platforms you ship.
+[What CI covers](https://omardev29.github.io/rmp-docs/publishing/ci.html). Beyond that boot, that
+frame and the tests you write in `tests/game/`, nothing here tests *your game*: play it on the
+platforms you ship.
 
 ---
 
@@ -175,8 +176,8 @@ is MIT; see [LICENSE](LICENSE).
 It is **built on raylib**, which is zlib/libpng licensed and is not ours. This project is not
 affiliated with or endorsed by raylib or Ramon Santamaria. The copy it vendors is **modified**,
 and every change is listed in [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md), as
-the zlib licence's second clause requires of altered source versions. Clay and cute_tiled are
-likewise modified and likewise listed.
+the zlib licence's second clause requires of altered source versions. Clay, cute_tiled, raymob
+and raylib-cpp are likewise modified, and each lists its changes in a `PATCHES.md` of its own.
 
 Every vendored component — down to the libraries raylib bundles — with its licence, the
 alternative we take when there is a choice, and whether we altered it, is in

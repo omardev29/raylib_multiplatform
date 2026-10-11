@@ -12,15 +12,17 @@ project was found by looking at pixels, dumping an artefact or writing an assert
 ## Local, in the order to run them
 
 ```bash
-rmp test              # fmt + config + gates + configure and rmp tests + unit + layout + property +
-                      # ui-render + render + smoke. Always. In the image: xvfb-run -a ./rmp test,
+rmp test              # every stage `rmp help test` lists before "only by name": fmt, config, the
+                      # gates, the configure, rmp, api and binary tests, unit, layout, property,
+                      # ui-render, render, smoke. Always. In the image: xvfb-run -a ./rmp test,
                       # as CI's lint job, or ui-render and the smoke have no display.
-rmp test examples     # builds every example and boots it headless with a screenshot, then PLAYS the
-                      # platformer to the end (tests/platformer_play.cpp). Before touching public API,
+rmp test examples     # builds every example and boots it headless with a screenshot, PLAYS the
+                      # platformer to the end (tests/platformer_play.cpp), then plays every script
+                      # of tests/e2e/ (compared exactly in the image). Before touching public API,
                       # objects, collision, the map, scenes or the game.
-rmp test sanitize     # the unit tests again under ASan + UBSan, every report fatal (~20 s cold). After
-                      # touching anything that parses input, casts, indexes or frees: what a test
-                      # cannot see, this does.
+rmp test sanitize     # the unit and layout tests again under gcc's ASan + UBSan, every report fatal.
+                      # After touching anything that parses input, casts, indexes or frees: what a
+                      # test cannot see, this does.
 rmp test coverage     # the tests under clang's coverage: every src/rmp file against its floor in
                       # tools/coverage_floor.txt (only rises), every public function no test calls
                       # against tools/untested_api.txt (only shrinks). Gates only in the pinned image:
@@ -60,10 +62,11 @@ Things that are easy to get wrong here, each learnt the hard way:
 
 - **A new public header** needs three things before it is pushed: its line in
   `tools/header_budget.txt`, measured INSIDE the pinned image (`podman run --rm
-  -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@<digest> python3
+  --init -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@<digest> python3
   tools/header_cost.py`; the `lines` column), a row in README's namespace table
   and an entry in TECHNICAL's tree. The configure tests fail on the last two;
-  the budget gate fails on a missing line everywhere now.
+  the budget gate fails on a missing line everywhere now. And it is an API
+  change: its pull request waits for Omar's `api-approved`.
 - **The audio device suite** (`tests/audio_device_test.cpp`) runs once per
   `rmp test`, not in the random-order pass, and skips with a MESSAGE where there
   is no device. CI sets `RMP_REQUIRE_AUDIO_DEVICE=1` and runs it on miniaudio's
@@ -121,16 +124,19 @@ Two things that will waste your time:
 
 ## CI
 
-A push runs the fast set: Linux, Windows, Web, Android, and the framework's
-own jobs side by side -- `lint`, `tidy` (clang-tidy, `rmp lint`), `examples`
-(every example built and booted, the platformer's bot, the input), `e2e` (the
-scripts played and compared exactly), `coverage`, `deep` (the deep campaign's
-deterministic half: the gcc sanitized unit tests, the properties at fixed
-seeds, every committed fuzz input), `docs`, and `rmp_new`, which makes a game
-from the commit with `rmp new` and runs that game's own checks on it. In a
+A push to `main` and a pull request run the fast set: Linux, Windows, Web,
+Android, and the framework's own jobs side by side -- `lint`, `tidy`
+(clang-tidy, `rmp lint`), `examples` (every example built and booted, the
+platformer's bot, the input), `e2e` (the scripts played and compared exactly),
+`coverage`, `deep` (the deep campaign's deterministic half: the gcc sanitized
+unit tests, the properties at fixed seeds, every committed fuzz input), `docs`,
+and `rmp_new`, which makes a game from the commit with `rmp new` and runs that
+game's own checks on it. In a
 game, the same `ci.yml` skips the framework's jobs and steps
-(`needs.config.outputs.framework`). `deep.yml` runs the long half every night
-and every Sunday.
+(`needs.config.outputs.framework`). A pull request also runs `api`, the
+API-change gate (`tools/api_change.py`): a change under `include/` or to a key
+of the `.toml` is labelled `api-change` and waits for Omar's `api-approved`.
+`deep.yml` runs the long half every night and every Sunday.
 
 One fast lane per two stages; when it is red, the fix goes through a **debug
 lane** limited to the platforms involved -- Linux, Windows and macOS by
@@ -170,4 +176,6 @@ green tick. Both of these caught real bugs:
 Say what actually happened. If a check was skipped, say which one. If something
 is green, name the run id — `32319988331: 17/17` is a fact; "CI passes" is a
 claim. And update `../PROGRESS.md` as you go: the session can end at any point and
-that file is where the next one starts.
+that file is where the next one starts. A cloud session has no `../`: its pull
+request's description is that record, filled in as
+`.github/pull_request_template.md` asks.

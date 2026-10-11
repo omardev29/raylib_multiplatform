@@ -54,19 +54,21 @@ not `_*`. And it is why the scene hook is `_end` and not `_exit`: `_exit(int)`
 is POSIX. Everything you call on us is unaffected: `rmp::ui::button()`,
 `object.apply_force()`.
 
-Private implementation lives in `namespace detail`, in a header under `src/`
-that the user cannot reach. `include/` is the user's world.
+Private implementation lives under `src/`, in headers the user cannot reach. A
+`detail::` in a public header holds only what a template or an inline function
+there has to call, and a game never names it. `include/` is the user's world.
 
 ## Formatting
 
 **It is enforced, so do not hand-format.** `.clang-format` and `.clang-tidy` are
 committed at the repo root, pinned to clang 22.1.8 in
-`thirdparty/FROZEN_VERSIONS.md`, and both run in the CI `lint` job.
+`thirdparty/FROZEN_VERSIONS.md`, and both run in CI: clang-format in the `lint`
+job, clang-tidy in the `tidy` job.
 
 ```
 rmp fmt          format every file we own
 rmp fmt check    what CI runs
-rmp lint         clang-tidy, warnings-as-errors
+rmp lint         clang-tidy; a warning tools/lint_debt.txt does not owe fails
 rmp lint fix     apply what it is sure about
 ```
 
@@ -84,7 +86,6 @@ The style itself, for when you are writing rather than fixing:
 - `.h`, not `.hpp` — the repo is consistent and this was decided once.
 - Headers use `#pragma once` (`portability-avoid-pragma-once` is off for this).
 - Single-line guards stay on one line: `if (!frame_ready("button", label)) return false;`.
-- Options-struct fields align as one column, across blank lines and comments.
 
 One exemption is left in the repository, and it is **not** about alignment: the
 platform macros in `rmp/app.h`, whose bodies contain block comments that every
@@ -94,7 +95,7 @@ not a ruler.
 `thirdparty/` and `generated/` are excluded from both tools
 (`.clang-format-ignore`, and the filters in `.clang-tidy`). `tests/smoke_test.h`
 is excluded from clang-tidy too, and not because it is exempt from review: it is
-compiled as C99 by `examples/plain_c/main.c`, so `(void)` parameter lists,
+compiled as C99 by `examples/plain_c/src/main.c`, so `(void)` parameter lists,
 C-style casts and `NULL` are required there and every `modernize-*` check has
 the opposite opinion.
 
@@ -106,13 +107,14 @@ C++20, and the modern parts are used where they buy something real:
   API reads the way it does.
 - **Lambdas as container bodies**, so the compiler closes what you opened and
   "I forgot the `end()`" stops being a category of bug.
-- `std::string_view` on the way in, `constexpr` where it is free, RAII guards
-  around anything that must be closed.
+- `std::string_view` on the way in and `std::string` out, `constexpr`,
+  `consteval` and `constinit` wherever possible, RAII guards around anything
+  that must be closed.
 
 **Macros are not the enemy and are never banned.** This is a raylib project;
 raylib is a C library and its macros (`CLITERAL`, `RAYWHITE`) are used directly.
 Clay's macros are *fully supported from userland* — there is an example that
-does exactly that, `examples/ui/03_clay_direct.cpp`, and CI compiles it.
+does exactly that, `examples/ui/03_clay_direct/`, and CI builds and boots it.
 
 What the rule actually is: **our own headers do not force a macro on the user.**
 Inside `src/rmp/ui/` we call `Clay__OpenElement` /

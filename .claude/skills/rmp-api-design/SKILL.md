@@ -28,8 +28,14 @@ Three questions, in order. Stop at the first no.
    `grid({ .columns = 0 })`; that is why `row()` has no `wrap` flag.
 3. **Does it complicate the three-function menu?** Then redesign until it does not.
 
-Things deliberately left out, and why, are in `../next_architecture/ui/06-roadmap.md`.
-Read it before proposing something — the answer may already be there.
+And then it is Omar's to approve: any change under `include/`, or to a key or a
+default of the `.toml`, is an API change, and the `api` job holds its pull
+request until he adds `api-approved` (CLAUDE.md, "How an agent works here").
+
+Things deliberately left out, and why, are in `../next_architecture/ui/06-roadmap.md`
+(beside this repository when it is checked out inside `project_raylib/`; a cloud
+session does not have it, and asks in the pull request instead). Read it before
+proposing something — the answer may already be there.
 
 ## The shapes that are already established
 
@@ -83,11 +89,15 @@ struct BoxOptions {
     float gap = -1;
     float padding = -1;
     Align items = Align::CENTER;
-    bool grow_x = false; // sizing is interleaved BY AXIS — x, then y —
-    float width = 0; // so that { .width = 240, .grow_y = true } is legal.
-    bool grow_y = false; // Grouped by kind (grow_x, grow_y, width, height)
-    float height = 0; // that ordinary sidebar would not compile.
-    std::string_view id{}; // identity last: it is the rarest field
+    // Sizing is interleaved by axis -- x, then y -- so that
+    // { .width = 240, .grow_y = true } is legal. Grouped by kind (grow_x,
+    // grow_y, width, height), that ordinary sidebar would not compile.
+    bool grow_x = false;
+    float width = 0;
+    bool grow_y = false;
+    float height = 0;
+    // Identity last: it is the rarest field.
+    std::string_view id{};
 };
 ```
 
