@@ -470,15 +470,21 @@ here so that nobody "fixes" one back.
   stays sanitized. `rmp run` asks `/dev/dri` and `/dev/input` before it starts the
   game and, refused, gives the two ways out: sudo this once, or the `video` and
   `input` groups and a new login. **rmp never runs sudo unless `sudo` was typed**
-  (`rmp run sudo`: the build as you, `sudo -- GAME` said and run) **and never
-  builds as root** (`SUDO_USER` with euid 0 is refused; root with nobody behind
-  it, a container, builds). The installer's no-sudo rule is unchanged. A game
-  run with sudo saves in root's home, and logs that it does. The terminal comes
-  back however the game ends: `src/rmp/console.cpp` from inside, `rmp run`
-  from outside (SIGKILL). `drm-x64-run` runs `./rmp run` on vkms with
-  `XDG_SESSION_TYPE=tty` and no display, and is the only real proof: nothing
-  here may start a DRM binary on a developer's display -- the tests use a fake
-  `/dev`, a stand-in for the master probe and pseudo-terminals.
+  (`rmp run sudo`: the build as you, `sudo -- GAME` said and run -- and still
+  refused, before sudo asks for a password, when there is no card or something
+  else holds it) **and never builds as root**: under sudo (`SUDO_USER` with
+  euid 0) every command but `help` and `clean` is refused, in `main()` before
+  anything runs (`ROOT_COMMANDS`) -- `rmp test`'s config stage writes the
+  generated files before any build; root with nobody behind it, a container,
+  builds. The installer's no-sudo rule is unchanged. A game run with sudo
+  saves as root, and logs where. The terminal comes back however the game
+  ends: `src/rmp/console.cpp` from inside, `rmp run` from outside (SIGKILL).
+  `drm-x64-run` runs `./rmp run` on vkms with `XDG_SESSION_TYPE=tty` and no
+  display, in a game's CI too -- whose `[dev] sanitize` is `[]`, so only the
+  framework is held to the sanitizers' line there -- and is the only real
+  proof: nothing here may start a DRM binary on a developer's display -- the
+  tests use a fake `/dev`, a stand-in for the master probe and
+  pseudo-terminals.
 - **One fast lane per TWO stages; a debug lane when it is red; the full
   matrix once, at the very end of the plan** (Omar, 2026-10-11). Stages are
   integrated two at a time and pushed together, so one fast lane covers both.
@@ -779,8 +785,9 @@ Each of these was a real bug, found by reproducing rather than by reading.
   the card's last handle closes; raylib never sets `KD_GRAPHICS`). A handler
   that puts the terminal back must hand the signal to the one that was there --
   ASan's report, the core dump -- not re-raise a kernel fault (returning
-  re-executes it), use `SA_ONSTACK` (ASan's alternate stack), and leave an
-  ignored signal ignored; the sanitizers' exit is `__sanitizer_set_death_callback`
+  re-executes it), run on an alternate stack (`SA_ONSTACK`: ASan's, or its
+  own where nothing set one up, as in a release -- a stack overflow leaves the
+  handler no other), and leave an ignored signal ignored; the sanitizers' exit is `__sanitizer_set_death_callback`
   -- and gcc links ASan and UBSan as TWO shared runtimes with a copy of it
   each, so the name reaches ASan's alone and a UBSan report under gcc ran no
   callback: `rmp test sanitize` found it, clang's one runtime had hidden it, and

@@ -964,14 +964,18 @@ not read the keyboard. So `rmp run` (and the smoke stage) asks before it starts 
   and a new login, after which `rmp run` starts it as you;
 - no `/dev/input/event*` at all: a note, and it starts -- the game reads the keys of its terminal.
 
-`rmp run sudo` is the only way rmp ever runs sudo, and it is typed: rmp builds as you, says the
-exact command, and starts only the game with `sudo --`. **rmp never builds as root**: `sudo rmp
-...` is refused (`SUDO_USER` with an effective uid of 0), because build/ would be root's and the
-next build as you could not write it; root with nobody behind it -- a container, CI -- builds.
+`rmp run sudo` is the only way rmp ever runs sudo, and it is typed: rmp builds as you, asks the
+same questions but the last (no card, or a card something else holds, is refused before sudo
+asks for a password; what only root may open is what sudo is for), says the exact command, and
+starts only the game with `sudo --`. **rmp never builds as root**: under sudo (`SUDO_USER` with
+an effective uid of 0) every command but `help` and `clean` is refused before anything runs
+(`ROOT_COMMANDS` in `tools/rmp.py`), because build/, the generated files, the sources or `.git`
+would be root's and the next command as you could not write them -- `sudo rmp clean` is how what
+an earlier root left goes away; root with nobody behind it -- a container, CI -- builds.
 **Saves under sudo** are root's: with its default settings sudo sets `HOME` to `/root`, so
-`rmp::save` writes to
-`/root/.local/share/<name>/` (`[save] portable` writes root-owned files next to the binary
-instead). The game logs it at start, and the groups are the way to keep one save folder.
+`rmp::save` writes to `/root/.local/share/<name>/` (a sudoers that keeps `HOME` gives your own
+folder, written as root; `[save] portable` writes root-owned files next to the binary). The game
+logs which at start, and the groups are the way to save as yourself.
 
 **The terminal comes back.** raylib's DRM backend reads the keyboard from the terminal it starts
 on (`InitKeyboard`, `rcore_drm.c`): it clears `ICANON`, `ECHO` and `ISIG`, sets `O_NONBLOCK` (a
@@ -981,7 +985,8 @@ blind with no Ctrl+C. The screen is not the problem: the kernel gives the consol
 back when the game's last handle on the card closes, however the process ends, and raylib never
 sets `KD_GRAPHICS`. `src/rmp/console.cpp` (`guard_console()`, called from `begin_run()`, before
 any window) remembers the terminal and puts it back on every fatal signal -- then hands the
-signal to whoever had it, so a crash is still a core dump or ASan's report -- through the
+signal to whoever had it, so a crash is still a core dump or ASan's report; on an alternate stack,
+ASan's or its own, because a stack overflow leaves the handler no other -- through the
 sanitizers' death callback (both of gcc's: it links ASan and UBSan as two runtimes, each with a
 copy) and at exit; `tests/console_test.cpp` makes
 `tests/console_canary.cpp` die each way on a pseudo-terminal, guarded and not. SIGKILL is the one
