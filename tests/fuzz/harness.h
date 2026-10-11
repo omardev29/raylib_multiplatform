@@ -53,8 +53,11 @@ inline void count_abort() { ++strict.aborts_asked; }
 // Once, before the first input: no log on every input (a fuzzer runs
 // thousands a second), resources from an empty folder of its own -- never the
 // game's resources/, which would make a replay depend on the checkout -- and
-// [dev] strict off with its abort counted instead: an abort is what libFuzzer
-// reports as a crash, and a report_once() on a WRITE is allowed.
+// [dev] strict off: an abort is what libFuzzer reports as a crash, and a
+// report_once() on a WRITE is allowed. Off, strict calls no handler at all;
+// the counting one is there for a harness that turns strict on to watch a
+// write report, which then reads detail::strict.aborts_asked instead of
+// ending the run.
 //
 // The folder is emptied here, not trusted to be empty: whatever an earlier
 // run left in it would be found by the next one's loads. So a harness never
