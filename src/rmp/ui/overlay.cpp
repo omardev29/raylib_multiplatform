@@ -133,9 +133,8 @@ void open_layer_over_viewport(const Color veil, const Align placement,
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     d.layout.childAlignment = alignment_of(placement);
     // The frame's own padding, as open_frame() gives its root: the theme's,
-    // and the safe area.
-    const auto pad = static_cast<uint16_t>(px(t.panel_padding) + safe_area_inset());
-    d.layout.padding = Clay_Padding{ pad, pad, pad, pad };
+    // the safe area and the letterbox bars, side by side.
+    d.layout.padding = root_padding(px(t.panel_padding));
     d.floating.attachTo = CLAY_ATTACH_TO_ROOT;
     d.floating.zIndex = next_layer_z();
     d.floating.attachPoints = Clay_FloatingAttachPoints{ CLAY_ATTACH_POINT_LEFT_TOP,

@@ -70,6 +70,12 @@ void close_frame(bool draw);
 // takes the pointer everywhere: an overlay's veil.
 void open_frame(const FrameOptions &o, Color fill);
 
+// The padding of a frame's root: `pixels` of its own, on top of what each
+// side of the viewport keeps clear (content_insets()) -- the safe area, and
+// the letterbox bars. And of what stands in for a root, the layer an
+// overlay() inside an open frame becomes.
+Clay_Padding root_padding(float pixels);
+
 // The pass being described is in front of every pass described before it in
 // the frame: from the next frame on, those take no input -- they cannot be
 // hovered, clicked or focused -- for as long as a pass keeps saying so. What

@@ -88,15 +88,13 @@ Clay_ChildAlignment alignment_of(Align a) {
     return Clay_ChildAlignment{ x, y };
 }
 
-// The root's padding: the frame's own, on top of what each side of the
-// viewport keeps clear -- the safe area, and the letterbox bars.
-Clay_Padding root_padding(float p) {
+} // namespace
+
+Clay_Padding detail::root_padding(const float pixels) {
     const detail::Insets in = detail::content_insets();
-    auto side = [p](float inset) { return static_cast<uint16_t>(p + inset); };
+    auto side = [pixels](float inset) { return static_cast<uint16_t>(pixels + inset); };
     return Clay_Padding{ side(in.left), side(in.right), side(in.top), side(in.bottom) };
 }
-
-} // namespace
 
 // ---------------------------------------------------------------------------
 // Frame
@@ -164,7 +162,7 @@ void detail::open_frame(const FrameOptions &o, const Color fill) {
     // notch, which is right for a background and wrong for a menu -- and the
     // letterbox bars: the frame is laid out over the world, a HUD in its
     // corner, while the root still covers the viewport, bars and all.
-    root.layout.padding = root_padding(px(padding));
+    root.layout.padding = detail::root_padding(px(padding));
     // Painted only when asked: an overlay's veil, which -- covering the
     // viewport -- takes the pointer everywhere.
     if (fill.a > 0) root.backgroundColor = to_clay(fill);

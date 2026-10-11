@@ -25,6 +25,7 @@
 
 #include <raylib.h>
 #include <rlgl.h> // the RL_OPENGL_* a context is named by
+#include <rmp/app.h>
 #include <rmp/assets.h>
 #include <rmp/scene.h>
 #include <rmp/ui.h>
@@ -572,6 +573,38 @@ TEST_SUITE("ui: overlay") {
             CHECK(third(at.x, 1280) == p.x);
             CHECK(third(at.y, 720) == p.y);
         }
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "inside a frame, its content keeps clear of the letterbox bars as "
+                      "the frame's own does") {
+        // A window taller than the design: under LETTERBOX the world has bars
+        // above and below it, and a frame lays out over the world. The layer
+        // an overlay inside a frame becomes is padded the same way, side by
+        // side -- not by the safe area alone, which put its content in a bar.
+        const rmp::app::Stretch before = rmp::app::stretch();
+        rmp::app::set_stretch(rmp::app::Stretch::LETTERBOX);
+        rmp::ui::detail::set_test_viewport(1280, 1000);
+        REQUIRE(rmp::ui::detail::content_insets().top > 100);
+        for (const rmp::ui::Align align :
+             { rmp::ui::Align::TOP_LEFT, rmp::ui::Align::BOTTOM_RIGHT }) {
+            CAPTURE(static_cast<int>(align));
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin({ .placement = align });
+                rmp::ui::button("Here");
+                rmp::ui::end();
+            }
+            const Clay_Vector2 framed = middle_of("Here", 0);
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::overlay({ .placement = align }, [] { rmp::ui::button("Here"); });
+                rmp::ui::end();
+            }
+            const Clay_Vector2 layered = middle_of("Here", 0);
+            CHECK(layered.x == doctest::Approx(framed.x));
+            CHECK(layered.y == doctest::Approx(framed.y));
+        }
+        rmp::app::set_stretch(before);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
