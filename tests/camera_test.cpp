@@ -997,6 +997,30 @@ TEST_SUITE("camera: stretch") {
         }
     }
 
+    TEST_CASE_FIXTURE(Fixture,
+                      "an untouched camera: pointer() is pointer_screen() at the design "
+                      "size, in every mode, and on no other window") {
+        // What rmp/input.h promises for pointer(). On a bigger window the
+        // design's middle is the window's middle -- under NONE as well -- so
+        // the world is the screen moved by half of what the window grew.
+        const Stack stack;
+        rmp::scenes::detail::start(std::make_unique<World>());
+        const Vector2 at{ 123, 321 };
+        fake.devices.pointer = at;
+        for (const Stretch mode : MODES) {
+            CAPTURE(static_cast<int>(mode));
+            const Screen design(SCREEN_WIDTH, SCREEN_HEIGHT, mode);
+            rmp::input::detail::begin_frame();
+            CHECK(near(rmp::input::pointer(), rmp::input::pointer_screen()));
+        }
+        const Screen bigger(1600, 900, Stretch::NONE);
+        rmp::input::detail::begin_frame();
+        CHECK(near(rmp::input::pointer_screen(), at));
+        CHECK(near(rmp::input::pointer(),
+                   Vector2{ at.x - (1600 - SCREEN_WIDTH) / 2,
+                            at.y - (900 - SCREEN_HEIGHT) / 2 }));
+    }
+
     TEST_CASE_FIXTURE(Fixture, "the pointer and a click go through the stretch") {
         const Screen screen(3 * SCREEN_WIDTH, SCREEN_HEIGHT, Stretch::LETTERBOX);
         // Bars of one design width on each side; the game in the middle.
