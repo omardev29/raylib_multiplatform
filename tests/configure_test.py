@@ -5655,6 +5655,18 @@ class ConfigureNotANumberTest(unittest.TestCase):
             cfgmod.write = original
         self.assertIn('#define RMP_UI_FONT         "line one\\012line two"\n', captured["config.h"])
 
+    def test_a_trigraph_is_broken_in_the_literal(self):
+        """`title = "??/"` was `"??/"` in config.h: in a C that reads
+        trigraphs, a backslash that escaped the closing quote; in one that
+        does not, gcc's -Wtrigraphs, an error under -Werror. Found by
+        tests/configure_property_test.py at the nightly profile."""
+        self.assertEqual(cfgmod._c_string("??/"), '"?\\?/"')
+        self.assertEqual(cfgmod._c_string("???=x?"), '"?\\?\\?=x?"')
+        self.assertEqual(cfgmod._c_string("? ?"), '"? ?"')
+        cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="Why??!"))
+        with generated_header(cfg) as text:
+            self.assertIn('#define RMP_WINDOW_TITLE    "Why?\\?!"\n', text)
+
     TOO_CLOSE = "is too close to 0 for a C float, which holds it as 0 --"
 
     def test_a_number_a_float_holds_as_0_is_refused_at_its_line(self):

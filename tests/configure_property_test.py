@@ -325,6 +325,9 @@ def c_string(literal: str) -> bytes:
     -- a raw quote, newline or control character inside it, an unknown escape."""
     assert len(literal) >= 2 and literal[0] == literal[-1] == '"', literal
     body, out, i = literal[1:-1], bytearray(), 0
+    # A trigraph is another character where C reads them, and a warning --
+    # an error under -Werror -- where it does not.
+    assert not re.search(r"\?\?[=(/)'<!>-]", body), f"a trigraph in {literal!r}"
     while i < len(body):
         c = body[i]
         assert c != '"' and (ord(c) >= 0x20 and ord(c) != 0x7F), \
@@ -866,6 +869,8 @@ class ToolsReadBackTest(unittest.TestCase):
     @FEWER
     @example(cfg=dict(base_config(), resources={"rres_password": "a\nb\x00c"}))
     @example(cfg=config_with(("ui", "scale"), 1e-50))
+    # The nightly profile's: gcc "trigraph ??/ ignored [-Werror=trigraphs]".
+    @example(cfg=config_with(("window", "title"), "??/"))
     @given(changed_configs())
     def test_the_compiler_reads_config_h_as_written(self, cfg):
         if self.cxx is None:
@@ -967,6 +972,8 @@ class EncodersTest(unittest.TestCase):
         self.assertEqual(float(literal[:-1]), float(value))
 
     @example(value="a\nb")
+    @example(value="??/")
+    @example(value="???=")
     @given(st.one_of(st.text(), TEXT))
     def test_a_string_is_a_c_string(self, value):
         self.assertEqual(c_string(configure._c_string(value)), value.encode("utf-8"))

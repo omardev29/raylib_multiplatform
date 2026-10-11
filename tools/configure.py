@@ -2060,10 +2060,12 @@ def _c_string(value: str) -> str:
     """A C string literal holding exactly `value`, as UTF-8. A control
     character is three octal digits, always: raw, a newline ended the literal
     in the middle of its line, and `\\0` or `\\x` would run into a digit
-    that follows them."""
+    that follows them. A `?` after a `?` is `\\?`: `??/` is a trigraph -- a
+    backslash, in a C compiled with them, and gcc's -Wtrigraphs (-Wall) under
+    -Werror an error where they are off. `[window] title = "??/"` was both."""
     out = []
-    for c in value:
-        if c in '"\\':
+    for i, c in enumerate(value):
+        if c in '"\\' or (c == "?" and i > 0 and value[i - 1] == "?"):
             out.append("\\" + c)
         elif ord(c) < 0x20 or ord(c) == 0x7F:
             out.append(f"\\{ord(c):03o}")
