@@ -5979,6 +5979,29 @@ class ConfigureLineTest(unittest.TestCase):
         self.assertEqual(self.pointed("[window]\n# c\ntitle.x = 1\n"), (3, "title.x = 1"))
         self.assertEqual(self.pointed('[window]\ntitle . "x" = 1\n'), (2, 'title . "x" = 1'))
 
+    def test_a_table_the_schema_has_is_found_however_it_is_written(self):
+        """`window.title = 5` and `window = {title = 5}` above every section,
+        `admob.app_id = 5` in [android] and `admob = {app_id = 5}` there: each
+        pointed nowhere, since a key was looked for only under the [header] of
+        its own table."""
+        for text, spot in (("# c\nwindow.title = 5\n", (2, "window.title = 5")),
+                           ("# c\nwindow = {title = 5}\n", (2, "window = {title = 5}")),
+                           ("[android]\nadmob.app_id = 5\n", (2, "admob.app_id = 5")),
+                           ("[android]\n# c\nadmob = {app_id = 5}\n", (3, "admob = {app_id = 5}")),
+                           ('[android]\n"admob" . "app_id" = 5\n', (2, '"admob" . "app_id" = 5'))):
+            with self.subTest(text=text):
+                self.assertEqual(self.pointed(text), spot)
+
+    def test_a_key_inside_a_table_of_its_own_is_not_the_table(self):
+        """[android.admob] has app_id under it; asked where admob is, that is
+        the header, not the first key inside it."""
+        cfgmod.TOML.write_text("[android]\nx = 1\n[android.admob]\napp_id = \"a\"\n")
+        self.assertEqual(cfgmod.locate("android", "admob"), (3, "[android.admob]"))
+        self.assertEqual(cfgmod.locate("android.admob", "app_id"), (4, 'app_id = "a"'))
+        self.assertEqual(cfgmod.locate("android", "y"), (1, "[android]"))
+        self.assertEqual(cfgmod._key_of('a."b.c" . d = 1'), ("a", "b.c", "d"))
+        self.assertIsNone(cfgmod._key_of("= 1"))
+
     def test_lines_are_counted_as_toml_counts_them(self):
         """splitlines() breaks at U+2028, U+2029 and U+0085, which a TOML
         comment or string holds as they are, and every line under one was

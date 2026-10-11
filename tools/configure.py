@@ -117,6 +117,7 @@ def locate(section: str, key: str | None) -> tuple[int, str] | None:
     # () before the first header, so a key written above every section -- the
     # top level of the file -- can be located as section "".
     target = tuple(section.split(".")) if section else ()
+    want = (*target, key)
     here: tuple[str, ...] = ()
     header_at = None
     # A key whose value is a table may be written as one: [section.key], or a
@@ -129,13 +130,20 @@ def locate(section: str, key: str | None) -> tuple[int, str] | None:
             here = header
             if here == target:
                 header_at = (i, raw)
-            elif key is not None and table_at is None and here[:len(target) + 1] == (*target, key):
+            elif key is not None and table_at is None and here[:len(want)] == want:
                 table_at = (i, raw)
             continue
-        if here != target or key is None or not line or line.startswith("#"):
+        if key is None or len(here) >= len(want) or not line or line.startswith("#"):
             continue
-        if _key_of(line) == key:
-            return (i, raw)
+        # The line writes the key when the names it gives, under its header,
+        # run into it: `title = 5` in [window]; `title.x = 1` there, a table
+        # written with dotted keys; and from above, `window.title = 5` or
+        # `window = {title = 5}` above every section.
+        names = _key_of(line)
+        if names is not None:
+            reach = min(len(here) + len(names), len(want))
+            if (*here, *names)[:reach] == want[:reach]:
+                return (i, raw)
     return table_at or header_at
 
 
@@ -145,8 +153,31 @@ def _header_of(line: str) -> tuple[str, ...] | None:
     for any other line, `[1, 2]` of an array among them."""
     if not line.startswith("["):
         return None
+    return _names(line)
+
+
+# `key =` as TOML writes it: bare, "basic" or 'literal', or dotted, `a."b".c`.
+# A quoted one is how an Xcode setting with a condition has to be written --
+# the name was the text before the first `=`, so its quotes never matched, and
+# `[sdk=...]` cut it.
+_KEY = r"""[A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*'"""
+_KEY_RE = re.compile(rf"\s*((?:{_KEY})(?:\s*\.\s*(?:{_KEY}))*)\s*=")
+
+
+def _key_of(line: str) -> tuple[str, ...] | None:
+    """The names a `key = value` line gives, unquoted -- `a."b.c" = 1` is
+    ("a", "b.c"); None for any other line."""
+    m = _KEY_RE.match(line)
+    if m is None:
+        return None
+    return _names(f"{m.group(1)} = 0")
+
+
+def _names(toml: str) -> tuple[str, ...] | None:
+    """The names down the one path a one-line TOML text defines, as tomllib
+    reads them; None when it is not TOML."""
     try:
-        node = tomllib.loads(line)
+        node = tomllib.loads(toml)
     except tomllib.TOMLDecodeError:
         return None
     names: list[str] = []
@@ -154,28 +185,6 @@ def _header_of(line: str) -> tuple[str, ...] | None:
         ((name, node),) = node.items()
         names.append(name)
     return tuple(names)
-
-
-# `key =` as TOML writes it: bare, "basic" or 'literal'. A quoted one is how an
-# Xcode setting with a condition has to be written -- the name was the text
-# before the first `=`, so its quotes never matched, and `[sdk=...]` cut it.
-# A dotted key, `title.x = 1`, is written on the line of its first name.
-_KEY = r"""[A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*'"""
-_KEY_RE = re.compile(rf"\s*({_KEY})(?:\s*\.\s*(?:{_KEY}))*\s*=")
-
-
-def _key_of(line: str) -> str | None:
-    """The name a `key = value` line gives, unquoted -- the first of a dotted
-    key's; None for any other line."""
-    m = _KEY_RE.match(line)
-    if m is None:
-        return None
-    if m.group(1)[0] not in "\"'":
-        return m.group(1)
-    try:
-        return next(iter(tomllib.loads(f"{m.group(1)} = 0")))
-    except tomllib.TOMLDecodeError:
-        return None
 
 
 def locate_from(exc: ConfigError) -> tuple[int, str] | None:

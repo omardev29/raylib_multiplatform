@@ -252,23 +252,35 @@ def first(path: tuple, choices: list[str]) -> str:
 
 
 def toml_document(user: dict, pick=first) -> tuple[str, dict]:
-    """The .toml a person writes for `user`: values above every section, then a
-    [section] per table with its keys under it. A table the schema does not
-    have is written as `pick(path, choices)` says: a [section] of its own, a
-    value inline, `{...}`, or dotted keys, `name.key = value` -- by default the
-    first of them. And the line of every key, as (section, key) -> line --
-    a dotted table's first -- and of every header, as (section, None)."""
+    """The .toml a person writes for `user`: values above every section, then
+    its tables. Each table is written as `pick(path, choices)` says -- a
+    [section] of its own, a value inline, `{...}`, or dotted keys, `name.key =
+    value` -- by default a [section] for one the schema has and for a new
+    one above every section, inline for any other. And the line of every key,
+    as (section, key) -> line -- the first line that names it, the line of a
+    table that holds it inline -- and of every header, as (section, None)."""
     lines: list[str] = []
     where: dict = {}
 
-    def dotted(prefix: tuple, node: dict, spot: tuple):
+    def claim(path: tuple, node: dict):
+        """Every key inside a table written on the line just written."""
         for key, value in node.items():
-            here = prefix + (key,)
-            if isinstance(value, dict) and value and pick(here, ["inline", "dotted"]) == "dotted":
-                dotted(here, value, spot)
+            where.setdefault((".".join(path), key), len(lines))
+            if isinstance(value, dict):
+                claim(path + (key,), value)
+
+    def dotted(section: tuple, prefix: tuple, node: dict):
+        for key, value in node.items():
+            names = prefix + (key,)
+            if isinstance(value, dict) and value and pick(section + names,
+                                                          ["inline", "dotted"]) == "dotted":
+                dotted(section, names, value)
                 continue
-            lines.append(f"{'.'.join(toml_key(p) for p in here)} = {toml_value(value)}")
-            where.setdefault(spot, len(lines))
+            lines.append(f"{'.'.join(toml_key(p) for p in names)} = {toml_value(value)}")
+            for i in range(len(names)):
+                where.setdefault((".".join(section + names[:i]), names[i]), len(lines))
+            if isinstance(value, dict):
+                claim(section + names, value)
 
     def table(path: tuple, node: dict):
         name = ".".join(path)
@@ -282,16 +294,17 @@ def toml_document(user: dict, pick=first) -> tuple[str, dict]:
             here = path + (key,)
             style = "inline"
             if isinstance(value, dict):
-                style = "header" if known_table(here) else pick(here, (
-                    ["header", "inline"] if not path else ["inline", "header"])
-                    + (["dotted"] if value else []))
+                style = pick(here, (["header", "inline"] if known_table(here) or not path
+                                    else ["inline", "header"]) + (["dotted"] if value else []))
             if style == "header":
                 subtables.append(key)
             elif style == "dotted":
-                dotted((key,), value, (name, key))
+                dotted(path, (key,), value)
             else:
                 lines.append(f"{toml_key(key)} = {toml_value(value)}")
                 where[(name, key)] = len(lines)
+                if isinstance(value, dict):
+                    claim(here, value)
         for key in subtables:
             table(path + (key,), node[key])
 
@@ -515,6 +528,23 @@ def taken(cfg: dict) -> bool:
     return True
 
 
+# How toml_document() is asked to write a table: one the schema has, or a new
+# one above every section; a new one inside a table. An @example names its
+# tables' forms, in the order they are written, through the seed that picks them.
+KNOWN = ["header", "inline", "dotted"]
+NEW = ["inline", "header", "dotted"]
+TOP = (KNOWN, "header")
+
+
+def seed_for(*picks: tuple[list[str], str]) -> int:
+    """The first seed whose picks, one a table in turn, are `picks`."""
+    for seed in range(100_000):
+        chooser = random.Random(seed)
+        if all(chooser.choice(choices) == want for choices, want in picks):
+            return seed
+    raise AssertionError(f"no seed picks {picks}")
+
+
 class TotalTest(unittest.TestCase):
     """R7: a .toml is refused with a ConfigError that names its line, or taken.
     Never another exception, and never a refusal nobody can find."""
@@ -547,20 +577,28 @@ class TotalTest(unittest.TestCase):
         return None, None, where, text
 
     @example(user={"zzz": 1}, seed=0)
-    @example(user={"app": {"max_delta": math.nan}}, seed=0)
+    @example(user={"app": {"max_delta": math.nan}}, seed=seed_for(TOP))
     # Tables nobody's schema has, written each way TOML has: [window.zzz]
     # pointed at [window] -- or nowhere, with no [window] in the file --
     # `zzz.a = 1` and `title.x = 1` nowhere.
-    @example(user={"window": {"zzz": {"a": 1}}}, seed=0)               # [window.zzz]
-    @example(user={"android": {"admob": {"zzz": {"a": 1}}}}, seed=0)   # [android.admob.zzz]
-    @example(user={"zzz": {"a": 1}}, seed=5)                           # zzz.a = 1
+    @example(user={"window": {"zzz": {"a": 1}}}, seed=seed_for(TOP, (NEW, "header")))
+    @example(user={"android": {"admob": {"zzz": {"a": 1}}}},
+             seed=seed_for(TOP, TOP, (NEW, "header")))
+    @example(user={"zzz": {"a": 1}}, seed=seed_for((KNOWN, "dotted")))
+    @example(user={"window": {"title": {"x": 1}}}, seed=seed_for(TOP, (NEW, "dotted")))
     # U+0085 in a string: splitlines() broke the line there, and the error
     # under it pointed one line too far down.
     @example(user={"android": {"admob": {"app_id": "\x85"}}, "deploy": {"licenses": False}},
-             seed=0)
+             seed=seed_for(TOP, TOP, TOP))
     # A header's names are TOML's: [ios.settings.":"] was the text `ios.settings.":"`.
-    @example(user={"ios": {"settings": {":": {}}}}, seed=0)
-    @example(user={"window": {"title": {"x": 1}}}, seed=5)             # title.x = 1
+    @example(user={"ios": {"settings": {":": {}}}},
+             seed=seed_for(TOP, TOP, (["inline", "header"], "header")))
+    # A table the schema has, written inline or dotted: `window.title = 5` and
+    # `window = {title = 5}` above every section pointed nowhere, and so did
+    # `admob.app_id = 5` in [android].
+    @example(user={"window": {"title": 5}}, seed=seed_for((KNOWN, "inline")))
+    @example(user={"window": {"title": 5}}, seed=seed_for((KNOWN, "dotted")))
+    @example(user={"android": {"admob": {"app_id": 5}}}, seed=seed_for(TOP, (KNOWN, "dotted")))
     @given(user_tomls(), st.integers(0, 2**32))
     def test_any_toml_is_refused_at_its_line_or_taken(self, user, seed):
         refused, spot, where, text = self.run_toml(user, strict=False, seed=seed)
@@ -958,8 +996,10 @@ DIGITS = st.one_of(st.text(alphabet="0123456789", min_size=1, max_size=5),
 SUFFIX = st.one_of(st.just(""), st.text(alphabet="0123456789abXZ.-+", max_size=5).map(
     lambda s: "-" + s), st.text(alphabet="0123456789abXZ.-+", max_size=5).map(lambda s: "+" + s))
 TAG = st.builds(lambda a, b, c, s: f"v{a}.{b}.{c}{s}", DIGITS, DIGITS, DIGITS, SUFFIX)
-# Anything but NUL, which no environment variable -- and no git ref -- holds.
-REF_TEXT = st.text(alphabet=st.characters(exclude_characters="\x00"), max_size=12)
+# Anything but NUL, which no environment variable -- and no git ref -- holds,
+# and a lone surrogate, which no environment holds either.
+REF_TEXT = st.text(alphabet=st.characters(exclude_characters="\x00", exclude_categories=["Cs"]),
+                   max_size=12)
 REF = st.one_of(TAG, REF_TEXT, REF_TEXT.map(lambda s: "v" + s))
 
 
@@ -1088,8 +1128,10 @@ class ReadersTest(unittest.TestCase):
 
     @given(st.text(alphabet="abcdefghij_.", min_size=1, max_size=8),
            st.text(alphabet="abcdefghij_-0123", min_size=1, max_size=8),
+           # No lone surrogate: a file cannot be written with one (the nightly
+           # profile drew '\ud800', and the test died writing it).
            st.text(alphabet=st.characters(exclude_characters="\r\n\x0b\x0c\x1c\x1d\x1e\x85"
-                                          "  "), max_size=20))
+                                          "  ", exclude_categories=["Cs"]), max_size=20))
     def test_the_comment_above_a_key_is_its_own(self, section, key, said):
         self.toml.write_text(f"[{section}]\n# {said}\n{key} = 1 # trailing\n", encoding="utf-8")
         comments = configure.toml_comments(self.toml)
