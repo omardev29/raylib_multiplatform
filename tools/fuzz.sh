@@ -16,13 +16,15 @@
 # `rmp test fuzz` is build and replay; the CI deep job runs the same on every
 # push, and .github/workflows/deep.yml runs and merges every night.
 #
-# build: clang with ASan, UBSan (float-cast-overflow included: clang counts
-# it in "undefined") and the library hardening, every report fatal -- the
-# framework's Debug flags, cmake/sanitize.cmake's -- and libFuzzer when clang
-# can link AND run a fuzzer: the pinned image, or a clang with compiler-rt.
-# Without one (gcc, a clang without the runtime) the same targets are built
-# with tests/fuzz/replay_main.cpp, which replays and cannot fuzz; it says so.
-# RMP_REQUIRE_LIBFUZZER=1 (CI) makes that a failure instead.
+# build: ASan, UBSan (float-cast-overflow included: clang counts it in
+# "undefined", cmake/sanitize.cmake names it for gcc) and the library
+# hardening, every report fatal -- the framework's Debug flags -- and libFuzzer
+# when clang can link AND run a fuzzer: the pinned image, or a clang with
+# compiler-rt. Without one the same targets are built with
+# tests/fuzz/replay_main.cpp, which replays and cannot fuzz, and says so; by
+# clang when its sanitizers run, else by gcc (a clang without compiler-rt
+# compiles everything and links no sanitizer). RMP_REQUIRE_LIBFUZZER=1 (CI)
+# makes a missing libFuzzer a failure instead.
 #
 # replay: every input once, and it FAILS UNLESS EVERY FILE IT NAMED RAN --
 # libFuzzer and replay_main.cpp both print "Executed <file>" per input, and

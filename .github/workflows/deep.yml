@@ -158,7 +158,11 @@ jobs:
         if: failure() && steps.fuzz.conclusion == 'failure'
         run: |
           set -euo pipefail
-          crash=$(find "build/fuzz/crashes/$TARGET" -type f | head -1)
+          # ls, not find | head: under pipefail a head that stops reading
+          # fails the step with find's 141, and a run that died before
+          # making the folder must still be recorded.
+          crash=$(ls "build/fuzz/crashes/$TARGET" 2>/dev/null || true)
+          crash=${crash%%$'\n'*}
           python3 tools/finding.py record fuzz "$TARGET" build/fuzz/run.log \
             --repro "bash tools/fuzz.sh build && bash tools/fuzz.sh replay $TARGET <the input from the run's fuzz-$TARGET artifact: ${crash##*/}>"
 
