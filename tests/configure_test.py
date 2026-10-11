@@ -1042,13 +1042,28 @@ class ReleaseJobsHoldTheirSizeTest(unittest.TestCase):
 
 class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
     """[upx] enabled's default is EXACTLY the targets whose packed binary a CI
-    job starts -- the .toml says so, and this holds it to the workflows: a
-    job that unzips <target>-build.zip and starts what is in it."""
+    job starts on a machine of their own architecture -- the .toml says so,
+    and this holds it to the workflows: a job that unzips <target>-build.zip
+    and starts what is in it. linux-riscv64-glibc's archive is started too,
+    but under QEMU in the build image, and is held apart: whether emulation is
+    evidence enough to pack it by default is Omar's call, not this test's."""
 
-    def started_from_the_archive(self, text: str) -> set[str]:
+    # Started from the archive, but emulated: target -> the emulator.
+    EMULATED = {"linux-riscv64-glibc": "qemu-riscv64-static"}
+
+    def started_from_the_archive(self, text: str, emulated: bool = False) -> set[str]:
+        """The targets whose archive `text` unzips and starts: on their own
+        architecture, or, with `emulated`, under QEMU -- a `qemu-` in the code
+        of the step that unzips it."""
         started = set()
         for target in cfgmod.UPX_TARGETS:
-            if re.search(rf"unzip -q \S*{re.escape(target)}-build\.zip -d", text):
+            unzip = re.search(rf"unzip -q \S*{re.escape(target)}-build\.zip -d", text)
+            if not unzip:
+                continue
+            begin = text.rfind("\n      - ", 0, unzip.start())
+            end = text.find("\n      - ", unzip.end())
+            step = without_comments(text[begin:] if end < 0 else text[begin:end])
+            if ("qemu-" in step) == emulated:
                 started.add(target)
         return started
 
@@ -1064,6 +1079,43 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
         text = (WORKFLOW_DIR / "_linux.yml").read_text()
         self.assertEqual(self.started_from_the_archive(text),
                          set(cfgmod.DEFAULTS["upx"]["enabled"]))
+
+    def test_riscv64_is_started_under_qemu_and_not_packed_by_default(self):
+        """Its archive is started -- packed, the day [upx] packs it -- so the
+        evidence the .toml asks for exists, from an emulator. Until that is
+        decided it is neither in the default nor counted as started natively,
+        and the .toml says which and why."""
+        text = (WORKFLOW_DIR / "_linux.yml").read_text()
+        self.assertEqual(self.started_from_the_archive(text, emulated=True), set(self.EMULATED))
+        for target, emulator in self.EMULATED.items():
+            with self.subTest(target=target):
+                self.assertNotIn(target, cfgmod.DEFAULTS["upx"]["enabled"])
+                self.assertIn(emulator, text)
+        section = toml_section("upx")
+        para = " ".join(section[section.index("THE DEFAULT IS EXACTLY"):
+                                section.index("\nenabled")].replace("#", " ").split())
+        self.assertIn("starts what is in it on a machine of its own architecture", para)
+        self.assertRegex(para, r"linux-riscv64-glibc is started too, on a full run, "
+                               r"but under QEMU")
+        self.assertNotRegex(para, r"never executed \(linux-riscv64-glibc")
+
+    def test_an_archive_started_under_qemu_is_not_counted_as_native(self):
+        """Seen red: the step that tells the two apart, with and without its
+        emulator."""
+        step = ("  riscv64:\n    steps:\n      - name: The archive starts\n        run: |\n"
+                '          unzip -q linux-riscv64-glibc-build.zip -d "$SHIP"\n'
+                '          qemu-riscv64-static -L / "$SHIP/x"\n'
+                "      - name: Next\n")
+        self.assertEqual(self.started_from_the_archive(step), set())
+        self.assertEqual(self.started_from_the_archive(step, emulated=True),
+                         {"linux-riscv64-glibc"})
+        native = step.replace("qemu-riscv64-static -L / ", "")
+        self.assertEqual(self.started_from_the_archive(native), {"linux-riscv64-glibc"})
+        self.assertEqual(self.started_from_the_archive(native, emulated=True), set())
+        # A comment that names QEMU is not QEMU.
+        commented = native.replace("          unzip", "          # qemu-riscv64-static\n"
+                                                   "          unzip")
+        self.assertEqual(self.started_from_the_archive(commented), {"linux-riscv64-glibc"})
 
     def test_the_toml_says_where_each_one_starts(self):
         """And the measurement it quotes names its target and its commit: it
@@ -1148,6 +1200,155 @@ class RunJobsStartTheShippedBinaryTest(unittest.TestCase):
                                                                                "drm-bin")
         self.assertNotEqual(self.started(old_musl, "musl-x64-run", "linux-x64-musl"), [])
         self.assertNotEqual(self.started(old_drm, "drm-x64-run", "linux-x64-glibc-drm"), [])
+
+
+class Riscv64StartsUnderQemuTest(unittest.TestCase):
+    """linux-riscv64-glibc was built, checked statically and shipped, and never
+    started: "Static checks only -- there is no riscv64 runner to boot it on".
+    The build image has qemu-riscv64-static and the riscv64 multiarch
+    libraries, so the riscv64 job starts the archive it ships under QEMU
+    user-mode: unzipped, from a folder with no resources/, under the image's
+    Xvfb with riscv64 Mesa's llvmpipe, held to the markers every other boot is
+    held to, its exit status read, and nothing installed at job time."""
+
+    STEP = "The archive starts from any folder, under QEMU"
+    GLFW = REPO / "thirdparty" / "raylib" / "src" / "external" / "glfw" / "src"
+
+    def block(self) -> str:
+        return job_block(WORKFLOW_DIR / "_linux.yml", "riscv64")
+
+    def wrong(self, block: str) -> list[str]:
+        """What is wrong with the riscv64 job `block`: empty when it starts the
+        binary it ships the way the docstring says."""
+        if f"      - name: {self.STEP}\n" not in block:
+            return [f"no step '{self.STEP}': the riscv64 binary is never started"]
+        step = step_block(block, self.STEP)
+        code = without_comments(step)
+        wrong = []
+        if not re.search(r"^        timeout-minutes: \d+$", step, re.M):
+            wrong.append("the step has no timeout-minutes of its own")
+        zipped = block.find("zip -r ../linux-riscv64-glibc-build.zip")
+        if zipped < 0 or zipped > block.index(f"- name: {self.STEP}"):
+            wrong.append("it runs before Package has made the archive")
+        for part, why in (
+                ('unzip -q linux-riscv64-glibc-build.zip -d "$SHIP"',
+                 "it does not unzip the archive that ships"),
+                ("ELSEWHERE=$(mktemp -d)", "it is not started from a fresh folder"),
+                ('test "$RC" -eq 0', "its exit status is never read"),
+                ('grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT"',
+                 "it does not require the boot marker with every asset loaded"),
+                ('grep -q "RAY_TEST_RENDER_OK" "$OUT"', "it does not require a rendered frame"),
+                ('grep -q "RAY_TEST_DONE_FRAMES" "$OUT"', "it does not require the last frame")):
+            if part not in code:
+                wrong.append(why)
+        for tool in ("qemu-riscv64-static", "xvfb-run"):
+            if not re.search(rf"command -v {tool} > /dev/null \\?\n?\s*\|\| \{{ echo \"FAIL: "
+                             rf"[^\n]*\"; exit 1; \}}", code):
+                wrong.append(f"a missing {tool} is not a failure that names it")
+        if re.search(r"\bexit 0\b|skip", code, re.I):
+            wrong.append("it has a way to pass without starting the game")
+        for fetch in ("apt-get", "apt ", "curl ", "wget ", "pip ", "docker ", "podman "):
+            if fetch in code:
+                wrong.append(f"it fetches something at job time ({fetch.strip()})")
+        launches = [line for _, line in logical_lines(code) if "RAY_TEST_MAX_FRAMES=" in line]
+        if len(launches) != 1:
+            return wrong + [f"{len(launches)} launches of the game, not one"]
+        launch = launches[0]
+        for part, why in (
+                ('qemu-riscv64-static -L / "$SHIP/${{ inputs.project_name }}"',
+                 "it does not start the unzipped binary under QEMU with the image as sysroot"),
+                ('xvfb-run -a -s "-screen 0 1280x720x24"', "it has no X server"),
+                ("LIBGL_ALWAYS_SOFTWARE=1", "Mesa may go looking for hardware"),
+                ("timeout ", "nothing ends an emulator that hangs"),
+                ("< /dev/null", "the game can read the step's stdin"),
+                ("; then RC=0; else RC=$?; fi", "its exit status is not kept")):
+            if part not in launch:
+                wrong.append(why)
+        if re.search(r"\|\|\s*true\b", launch):
+            wrong.append("its exit status is thrown away")
+        cd = code.find('cd "$ELSEWHERE"\n')
+        if cd < 0 or cd > code.index("RAY_TEST_MAX_FRAMES="):
+            wrong.append("it is not started from the folder with no resources/")
+        return wrong
+
+    def test_the_job_starts_what_it_ships(self):
+        self.assertEqual(self.wrong(self.block()), [])
+
+    def test_the_static_only_job_fails_it(self):
+        """Seen red: the job as it was, with no step that starts anything."""
+        block = self.block()
+        at = block.index(f"      - name: {self.STEP}\n")
+        end = block.find("\n      - ", at + 1)
+        old = block[:at] + (block[end + 1:] if end >= 0 else "")
+        self.assertEqual(self.wrong(old), [f"no step '{self.STEP}': the riscv64 binary is "
+                                           "never started"])
+
+    def test_every_way_of_getting_it_wrong_fails(self):
+        block = self.block()
+        step = step_block(block, self.STEP)
+        mutations = {
+            "no stdin from /dev/null": ("< /dev/null", ""),
+            "the status thrown away": ("; then RC=0; else RC=$?; fi", " || true"),
+            "the status never read": ('test "$RC" -eq 0', "true"),
+            "no sysroot": ("qemu-riscv64-static -L / ", "qemu-riscv64-static "),
+            "not emulated": ("qemu-riscv64-static -L / ", ""),
+            "hardware GL": ("LIBGL_ALWAYS_SOFTWARE=1 ", ""),
+            "no timeout": ("timeout ", "nice "),
+            "started from the archive's folder": ('cd "$ELSEWHERE"\n', 'cd "$SHIP"\n'),
+            "no render marker": ('grep -q "RAY_TEST_RENDER_OK" "$OUT"', "true"),
+            "assets may fail": ("RAY_TEST_BOOT_OK assets_failed=0 ", "RAY_TEST_BOOT_OK"),
+            "a skip": ("set -euo pipefail\n", "set -euo pipefail\n"
+                       "          command -v qemu-riscv64-static || exit 0\n"),
+            "an install": ("set -euo pipefail\n", "set -euo pipefail\n"
+                           "          apt-get install -y qemu-user-static\n"),
+            "no step timeout": (re.search(r"        timeout-minutes: \d+\n", step).group(0), ""),
+            "a missing qemu passes": ("command -v qemu-riscv64-static > /dev/null",
+                                      "command -v qemu-riscv64-static > /dev/null || true"),
+        }
+        for name, (old, new) in mutations.items():
+            with self.subTest(mutation=name):
+                self.assertIn(old, step)
+                self.assertNotEqual(self.wrong(block.replace(step, step.replace(old, new))), [])
+
+    def glfw_opens(self) -> set[str]:
+        """The sonames GLFW dlopens on X11 with GLX: x11_init.c and glx_context.c."""
+        names = set()
+        for source in ("x11_init.c", "glx_context.c"):
+            names |= set(re.findall(r'"(lib[\w-]+\.so\.\d+)"', (self.GLFW / source).read_text()))
+        return names
+
+    def asked_for(self, step: str) -> set[str]:
+        """The riscv64 libraries the step requires before it starts the game."""
+        loop = re.search(r"for LIB in ([^;]*); do", " ".join(without_comments(step)
+                                                                .replace("\\\n", " ").split()))
+        return set(loop.group(1).split()) if loop else set()
+
+    def test_it_asks_for_every_library_glfw_opens(self):
+        """GLFW opens most of them with dlopen and carries on without one: a
+        missing libXrandr turns a feature off and says nothing. So the step asks
+        for each by name, and this reads the names out of GLFW."""
+        opens = self.glfw_opens()
+        self.assertGreaterEqual(len(opens), 10, opens)
+        self.assertTrue({"libX11.so.6", "libGLX.so.0", "libXrandr.so.2"} <= opens, opens)
+        step = step_block(self.block(), self.STEP)
+        asked = self.asked_for(step)
+        self.assertEqual(opens - asked, set(), "the step does not ask for these")
+        # And what is not GLFW's: the loader, and Mesa's GLX with its rasteriser.
+        self.assertTrue({"libGLX_mesa.so.0", "dri/swrast_dri.so"} <= asked, asked)
+        self.assertIn("/lib/ld-linux-riscv64-lp64d.so.1", without_comments(step))
+        # Seen red: one name left out.
+        self.assertEqual(opens - self.asked_for(step.replace(" libXrandr.so.2", "")),
+                         {"libXrandr.so.2"})
+
+    def test_nothing_says_it_is_never_run(self):
+        for path in (WORKFLOW_DIR / "_linux.yml", REPO / "README.md", REPO / "TECHNICAL.md",
+                     REPO / "CLAUDE.md", REPO / "raylib_multiplatform.toml"):
+            text = " ".join(path.read_text().replace("#", " ").split())
+            for said in (r"Static checks only", r"no riscv64 runner to boot",
+                         r"RISC-V has no runner", r"RISC-V[^.]* never run",
+                         r"never executed \(linux-riscv64-glibc"):
+                with self.subTest(path=path.name, said=said):
+                    self.assertNotRegex(text, said)
 
 
 
@@ -2356,11 +2557,13 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
 
     def test_linux_starts_the_unzipped_archive_from_another_folder(self):
         text = (self.WORKFLOWS / "_linux.yml").read_text()
-        for target in ("linux-x64-glibc", "linux-arm64-glibc"):
+        for target in ("linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc"):
             with self.subTest(target=target):
                 self.assertIn(f'unzip -q {target}-build.zip -d "$SHIP"', text)
-        self.assertEqual(text.count("- name: The archive starts from any folder"), 2)
+        # x64 and arm64 natively, riscv64 under QEMU (Riscv64StartsUnderQemuTest).
+        self.assertEqual(text.count("- name: The archive starts from any folder"), 3)
         self.assertEqual(text.count('          cd "$ELSEWHERE"\n          RAY_TEST_MAX_FRAMES=10'), 2)
+        self.assertEqual(text.count('          cd "$ELSEWHERE"\n          if RAY_TEST_MAX_FRAMES=10'), 1)
 
     def test_the_containers_start_the_release_from_the_root(self):
         text = (self.WORKFLOWS / "_linux.yml").read_text()

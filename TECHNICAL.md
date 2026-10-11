@@ -912,7 +912,11 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 
 - **Linux RISC-V**: cross-compiled inside the CI build image using
   `cmake/toolchain-riscv64-linux.cmake` + the image's `riscv64-linux-gnu` toolchain and riscv64
-  X11/GL multiarch libraries.
+  X11/GL multiarch libraries. There is no riscv64 runner, so the `riscv64` job starts the archive
+  it ships in the same image under `qemu-riscv64-static` (user-mode emulation, with the image's
+  riscv64 libraries as the sysroot), on Xvfb with riscv64 Mesa's llvmpipe, from a folder with no
+  `resources/`, and holds it to the boot and render markers and its exit status like every other
+  Linux boot. That is emulation, not a RISC-V machine.
 - **FreeBSD / OpenBSD / NetBSD**: built inside QEMU VMs via
   [`cross-platform-actions/action`](https://github.com/cross-platform-actions/action)
   (pinned by SHA). The action syncs the workspace into the VM, builds there into
@@ -1173,8 +1177,9 @@ int overflow that wraps somewhere harmless or a float cast that lands in range i
 The first run found the LDtk reader's casts and three tests reading objects already freed.
 Third-party code it must not report is listed, with the reason, in `cmake/sanitize_ignore.txt`.
 
-> **What the tests still do NOT cover.** BSD, RISC-V and Windows ARM64 are compiled and
-> format-checked but never run — there is no runner or emulator for them here. Android is built
+> **What the tests still do NOT cover.** Windows ARM64 is compiled and format-checked but never
+> run — there is no runner or emulator for it here. RISC-V runs under QEMU user-mode emulation and
+> the BSDs headless in QEMU VMs, which is not the hardware a player has. Android is built
 > and can optionally be smoke-run in Firebase Test Lab (below). iOS is built
 > and statically verified (the app bundle must contain a readable `CFBundleIdentifier` and its
 > `resources/` folder) but not executed, because the hosted simulator does not boot reliably.

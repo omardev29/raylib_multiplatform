@@ -6,11 +6,12 @@
 #
 # Every one builds inside the frozen image, so the toolchain is identical to the
 # one recorded in thirdparty/FROZEN_VERSIONS.md and nothing is downloaded at job
-# time. Four are also run and must render a frame: x64 and ARM64 under xvfb,
-# musl on Alpine (musl-x64-run), and x64 DRM on a vkms virtual display
-# (drm-x64-run). RISC-V has no runner to boot on and ARM64 DRM is for hardware
-# vkms does not resemble, so those two are built and checked statically. Only
-# x64 is in the fast lane; the rest run with `full`.
+# time. Five are also run and must render a frame: x64 and ARM64 under xvfb,
+# musl on Alpine (musl-x64-run), x64 DRM on a vkms virtual display
+# (drm-x64-run), and RISC-V under QEMU user-mode emulation in the image, there
+# being no riscv64 runner. ARM64 DRM is for hardware vkms does not resemble, so
+# that one is built and checked statically. Only x64 is in the fast lane; the
+# rest run with `full`.
 
 name: Linux
 
@@ -581,8 +582,9 @@ jobs:
 
   riscv64:
     # Cross-compiled inside the amd64 container: the image ships the riscv64
-    # X11/GL multiarch libraries. Static checks only — there is no riscv64
-    # runner to boot it on.
+    # X11/GL multiarch libraries. There is no riscv64 runner, so the archive
+    # it ships is started under QEMU user-mode emulation, in the same image --
+    # see "The archive starts from any folder, under QEMU".
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -683,6 +685,68 @@ jobs:
       # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-riscv64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
+
+      # THE ARCHIVE, STARTED UNDER QEMU, because there is no riscv64 runner.
+      # It is what a player downloads, unzipped and started from a folder with
+      # no resources/ in it, like x64's and arm64's: the binary that ships,
+      # packed if [upx] packs it, held to the same markers, and its exit status
+      # read.
+      #
+      # qemu-riscv64-static runs the riscv64 binary on this amd64 host, and
+      # everything the binary loads comes from the image's riscv64 multiarch
+      # packages -- the loader and glibc, the X11 libraries GLFW opens,
+      # libglvnd and Mesa -- which is why the sysroot is `-L /`. The X server
+      # is the image's own amd64 Xvfb: X is a socket, and nothing of it is
+      # emulated. The GL is riscv64 Mesa's llvmpipe, inside the emulated
+      # process, and LIBGL_ALWAYS_SOFTWARE=1 keeps Mesa from going to look for
+      # hardware.
+      #
+      # What it proves: the code, the C library and the libraries it opens
+      # work on RISC-V, and the archive is complete. What it does not: QEMU is
+      # not a RISC-V machine, with its caches and its timing.
+      #
+      # Measured in the image at c0369ec, each time in a fresh container -- so
+      # with Mesa's shader cache empty, as on a runner: 10 frames in 4.5 to
+      # 5.1 s on 4 cores and on 2 (a second start in the same container takes
+      # 1.4 to 1.8). The 120 s on the game and the 5 minutes on the step are
+      # more than twenty times that, for a runner slower than the laptop.
+      - name: The archive starts from any folder, under QEMU
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          # What it is started with, or a failure that names what is missing:
+          # never a skip. GLFW opens most of these with dlopen and carries on
+          # without one -- a missing libXrandr turns a feature off and says
+          # nothing -- so each is asked for by name (Riscv64StartsUnderQemuTest
+          # holds the list to GLFW's sources), with Mesa's GLX and rasteriser.
+          command -v qemu-riscv64-static > /dev/null \
+            || { echo "FAIL: the image has no qemu-riscv64-static"; exit 1; }
+          command -v xvfb-run > /dev/null \
+            || { echo "FAIL: the image has no xvfb-run"; exit 1; }
+          test -e /lib/ld-linux-riscv64-lp64d.so.1 \
+            || { echo "FAIL: the image has no riscv64 loader, /lib/ld-linux-riscv64-lp64d.so.1"; exit 1; }
+          RISCV=/usr/lib/riscv64-linux-gnu
+          for LIB in libX11.so.6 libX11-xcb.so.1 libXcursor.so.1 libXext.so.6 libXi.so.6 \
+                     libXinerama.so.1 libXrandr.so.2 libXrender.so.1 libXxf86vm.so.1 \
+                     libGL.so.1 libGLX.so.0 libGLX_mesa.so.0 dri/swrast_dri.so; do
+            test -e "$RISCV/$LIB" || { echo "FAIL: the image has no riscv64 $LIB in $RISCV"; exit 1; }
+          done
+          SHIP=$(mktemp -d)
+          ELSEWHERE=$(mktemp -d)
+          unzip -q linux-riscv64-glibc-build.zip -d "$SHIP"
+          OUT="$ELSEWHERE/out.txt"
+          cd "$ELSEWHERE"
+          if RAY_TEST_MAX_FRAMES=10 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 120 qemu-riscv64-static -L / "$SHIP/${{ inputs.project_name }}" \
+            >"$OUT" 2>&1 < /dev/null; then RC=0; else RC=$?; fi
+          tail -20 "$OUT"
+          test "$RC" -ne 124 || { echo "FAIL: it did not finish within 120 s under QEMU"; exit 1; }
+          test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
+          grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
+            || { echo "FAIL: started from another folder, the game did not find its resources/"; exit 1; }
+          grep -q "RAY_TEST_RENDER_OK" "$OUT" || { echo "FAIL: it drew nothing"; exit 1; }
+          grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: it died before the end"; exit 1; }
+          echo "PASS: the archive's riscv64 binary booted and rendered under QEMU"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
