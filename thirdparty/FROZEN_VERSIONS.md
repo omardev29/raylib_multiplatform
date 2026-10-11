@@ -13,7 +13,7 @@ CI checks is documentation that stays true.
 
 ```versions
 # key                     value
-build_image_digest        sha256:b31cd48c4f0dcb024c83e0b76f19a18810385410f1c8b2484f6bb6c3c051121f
+build_image_digest        sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f
 android_platform          android-36
 android_build_tools       36.0.0
 android_ndk               28.2.13676358
