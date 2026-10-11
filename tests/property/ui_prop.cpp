@@ -731,7 +731,7 @@ public:
         : _thread([this, limit] { watch(limit); }) {}
     ~Watchdog() {
         {
-            const std::lock_guard<std::mutex> lock(_mutex);
+            const std::scoped_lock lock(_mutex);
             _done = true;
         }
         _woken.notify_one();

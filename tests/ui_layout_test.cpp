@@ -78,8 +78,11 @@ void check(bool ok, std::string_view what,
 
 void check_near(float got, float want, float tolerance, std::string_view what,
                 const std::source_location where = std::source_location::current()) {
-    if (std::fabs(got - want) <= tolerance) {
-        CHECK(std::fabs(got - want) <= tolerance);
+    // A bool, not the comparison: doctest's decomposition of one, seen with
+    // its implementation in this file, is a leak the analyzer cannot rule out.
+    const bool close_enough = std::fabs(got - want) <= tolerance;
+    if (close_enough) {
+        CHECK(close_enough);
         return;
     }
     ADD_FAIL_CHECK_AT(where.file_name(), static_cast<int>(where.line()),
@@ -3440,7 +3443,7 @@ public:
         : _what(std::move(what)), _thread([this, limit] { watch(limit); }) {}
     ~Watchdog() {
         {
-            const std::lock_guard<std::mutex> lock(_mutex);
+            const std::scoped_lock lock(_mutex);
             _done = true;
         }
         _woken.notify_one();
