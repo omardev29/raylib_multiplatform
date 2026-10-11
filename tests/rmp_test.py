@@ -4658,7 +4658,7 @@ class ConsoleInCiTest(unittest.TestCase):
             "a console's session": "-e XDG_SESSION_TYPE=tty",
             "ten frames": "-e RAY_TEST_MAX_FRAMES=10",
             "sanitizers required": "-e RMP_REQUIRE_SANITIZERS=1",
-            "rmp run itself": "./rmp run 2>&1 < /dev/null",
+            "rmp run itself": "./rmp run < /dev/null 2>&1",
             "the decision, as rmp says it": said.split(" and ")[0],
             "PLATFORM=DRM in CMake": "=== PLATFORM: DRM/KMS, no X11 and no Wayland ===",
             "sanitized": "=== SANITIZERS: address, undefined ===",

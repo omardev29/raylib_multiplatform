@@ -459,6 +459,26 @@ here so that nobody "fixes" one back.
   CI runner or a player's locked-down PC. Each such line says why in a comment;
   "fixing" one into `RMP_REPORT_ONCE` breaks strict mode. And a READ never
   reports at all -- `rmp::Value` reads through a path that creates nothing.
+- **On a Linux console with no desktop, rmp builds for DRM/KMS** (Omar,
+  2026-10-11). `session_of()` in `tools/rmp.py` decides, in this order:
+  `RMP_DRM=1` or `0` (anything else refused by value); not Linux, the desktop;
+  `DISPLAY` or `WAYLAND_DISPLAY`, the desktop; SSH, the desktop and it says so;
+  `XDG_SESSION_TYPE=tty`, DRM; a virtual console (`/dev/ttyN`) as the terminal,
+  DRM. Debug and release go to `build/debug-drm` and `build/release-drm` (presets
+  of their own, never a desktop cache), X11 is never asked for -- not by CMake,
+  not by `install.sh`, which lists libdrm, gbm, EGL and GLES instead -- and Debug
+  stays sanitized. `rmp run` asks `/dev/dri` and `/dev/input` before it starts the
+  game and, refused, gives the two ways out: sudo this once, or the `video` and
+  `input` groups and a new login. **rmp never runs sudo unless `sudo` was typed**
+  (`rmp run sudo`: the build as you, `sudo -- GAME` said and run) **and never
+  builds as root** (`SUDO_USER` with euid 0 is refused; root with nobody behind
+  it, a container, builds). The installer's no-sudo rule is unchanged. A game
+  run with sudo saves in root's home, and logs that it does. The terminal comes
+  back however the game ends: `src/rmp/console.cpp` from inside, `rmp run`
+  from outside (SIGKILL). `drm-x64-run` runs `./rmp run` on vkms with
+  `XDG_SESSION_TYPE=tty` and no display, and is the only real proof: nothing
+  here may start a DRM binary on a developer's display -- the tests use a fake
+  `/dev`, a stand-in for the master probe and pseudo-terminals.
 - **One fast lane per TWO stages; a debug lane when it is red; the full
   matrix once, at the very end of the plan** (Omar, 2026-10-11). Stages are
   integrated two at a time and pushed together, so one fast lane covers both.
@@ -743,6 +763,29 @@ Each of these was a real bug, found by reproducing rather than by reading.
   uploaded when it starts; and Mesa needs **`LIBGL_ALWAYS_SOFTWARE=1`**, not
   `MESA_LOADER_DRIVER_OVERRIDE=kms_swrast`, which left EGL saying only "Failed
   to initialize EGL device".
+- **A console's word for itself lies twice.** logind sets
+  `XDG_SESSION_TYPE=tty` for an SSH login too, and `startx` keeps the console's
+  `tty` inside the X session it starts -- so a display, then SSH, are asked
+  before it, and `SessionTest` walks every combination. And `ttyname()` of an
+  open `/dev/tty` says `/dev/tty`, not which terminal it is: the controlling
+  terminal is named from its device number in `/proc/self/stat`
+  (`controlling_terminal()`; virtual consoles are major 4, minors 1-63).
+- **raylib's DRM backend breaks the terminal it starts on, and mends it only
+  at exit.** `InitKeyboard()` (`rcore_drm.c`) clears `ICANON`, `ECHO` and `ISIG`,
+  sets `O_NONBLOCK` -- a flag of the open file the shell shares -- and `K_XLATE`,
+  and restores them from an `atexit` handler: a crash, `abort()`, an ASan or
+  UBSan report (they `_exit()`) or a kill left the shell typing blind with no
+  Ctrl+C. The screen comes back by itself (the kernel restores the console when
+  the card's last handle closes; raylib never sets `KD_GRAPHICS`). A handler
+  that puts the terminal back must hand the signal to the one that was there --
+  ASan's report, the core dump -- not re-raise a kernel fault (returning
+  re-executes it), use `SA_ONSTACK` (ASan's alternate stack), and leave an
+  ignored signal ignored; the sanitizers' exit is `__sanitizer_set_death_callback`.
+  And a crash test through a null pointer never reaches SIGSEGV under UBSan,
+  which stops a null store itself: `console_canary` writes to address 16.
+- **`os.access` as root is always true.** CI's lint job runs the tests as root,
+  so a fake `/dev` made of `chmod 000` files passes there and proves nothing:
+  `node_access()` in `tools/rmp.py` is the door the tests stand in for.
 - **Pushing cancels an in-flight CI run.** `ci.yml`'s concurrency group is
   `CI-refs/heads/main` with `cancel-in-progress`. It happened twice, the note
   said so, and then it happened a **third** time to someone who had just read

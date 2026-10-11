@@ -999,7 +999,7 @@ jobs:
             -e RMP_REQUIRE_SANITIZERS=1 \
             -e CMAKE_BUILD_PARALLEL_LEVEL=4 \
             "${{ inputs.build_image }}" \
-            ./rmp run 2>&1 < /dev/null); then RC=0; else RC=$?; fi
+            ./rmp run < /dev/null 2>&1); then RC=0; else RC=$?; fi
           echo "$OUT" | tail -60
           fail() { echo "FAIL: $*"; exit 1; }
           echo "$OUT" | grep -qF "XDG_SESSION_TYPE=tty: building for DRM/KMS, in build/debug-drm" \

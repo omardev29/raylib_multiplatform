@@ -21,6 +21,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 - [Web export](#web-export)
 - [Android (raymob)](#android-raymob)
 - [iOS](#ios)
+- [Linux from a console: DRM/KMS](#linux-from-a-console-drmkms)
 - [BSD & RISC-V targets](#bsd--risc-v-targets)
 - [CI/CD pipeline](#cicd-pipeline)
 - [Maintenance & platform longevity](#maintenance--platform-longevity)
@@ -217,9 +218,11 @@ the binary (`tools/binary_check.py macos`) and fails on one above that.
 | `debug` | `0` | absolute source path | run from anywhere |
 | `release` | `1` | `"./resources/"` | LTO, ship `resources/` next to the exe |
 | `web` | `1` | `"./resources/"` | Emscripten toolchain |
+| `debug-drm`, `release-drm` | as `debug`, `release` | as `debug`, `release` | `RMP_TARGET_DRM=ON`: a Linux console, no X11 |
 
 Each preset configures a folder of its own under `build/`: `build/debug`, `build/release`,
-`build/web`, `build/memory` and `build/lint` (`BUILD_DIRS` in `tools/rmp.py` lists every folder
+`build/debug-drm`, `build/release-drm`, `build/web`, `build/memory` and `build/lint`
+(`BUILD_DIRS` in `tools/rmp.py` lists every folder
 anything writes there). `build/` itself is never a build -- `CMakeLists.txt` refuses to configure
 it -- so a release never inherits the `[dev] compiler` a debug configure wrote into its cache, and
 switching between the two rebuilds nothing. A `CMakeCache.txt` left at the top of `build/` by an
@@ -914,6 +917,82 @@ because upstream raylib has no iOS backend. The app scaffold is in `ios/` (Xcode
 - Building requires **macOS + Xcode**. CI's `ios` job in `_apple.yml` builds the xcframework and
   the app for the simulator, unsigned; `ios/README.md` has the steps by hand. iOS ads are not
   implemented.
+
+---
+
+## Linux from a console: DRM/KMS
+
+On a Linux virtual console with no desktop there is no X11 and no Wayland for GLFW to open a
+window on, and often no X11 headers to build GLFW against. raylib's DRM backend draws straight
+to the screen through the kernel instead, and `rmp` builds for it there by itself.
+
+**What decides it** -- `session_of()` in `tools/rmp.py`, in this order:
+
+1. `RMP_DRM=1` builds for DRM/KMS and `RMP_DRM=0` for the desktop, whatever else is true. Any
+   other value is refused, by value; empty is unset. `RMP_DRM=1` on anything but Linux is refused.
+2. Not Linux: the desktop.
+3. `DISPLAY` or `WAYLAND_DISPLAY` set: the desktop. Before `XDG_SESSION_TYPE`, because `startx`
+   keeps the console's `tty` inside the X session it starts.
+4. Logged in over SSH (`SSH_CONNECTION`, `SSH_CLIENT` or `SSH_TTY`): the desktop, as before, and
+   rmp says so -- logind calls an SSH login a `tty` session too, and the screen of a machine you
+   are logged into from elsewhere is not yours to take.
+5. `XDG_SESSION_TYPE=tty`, logind's word for a text login: DRM/KMS.
+6. The terminal is a virtual console, `/dev/ttyN` (stdin's, or else the controlling terminal's,
+   read from `/proc/self/stat`): DRM/KMS -- a console logind did not set up.
+7. Otherwise the desktop; with a terminal and no display, rmp says why.
+
+**What changes.** Every debug and release build goes to `build/debug-drm` and
+`build/release-drm` (the `debug-drm` and `release-drm` presets: `debug` and `release` with
+`RMP_TARGET_DRM=ON`), so a console and a desktop session on one machine never share a cache; `rmp
+test`'s stages, `rmp pack` and `rmp example` (`build/examples-drm`) follow. CMake picks raylib's
+`PLATFORM=DRM` and never looks for X11 (`BuildFoldersInCMakeTest` configures both presets with X11
+made impossible to find). The debug build stays sanitized. `install.sh` decides the same way and
+lists libdrm, gbm, EGL and GLES per system instead of the X11 headers.
+
+**Running it.** A DRM/KMS game opens `/dev/dri/card*`, which it has to be able to read and write
+and be the DRM master of -- the kernel makes the first program to open a card nobody else draws
+on its master -- and reads the keyboard, mouse and gamepads from `/dev/input/event*`. Both are
+root's and a group's (`video`, `input`); logind lets the user at the console open the card but
+not read the keyboard. So `rmp run` (and the smoke stage) asks before it starts the game:
+
+- no card at all: refused -- no display driver with modesetting, or a container without
+  `--device /dev/dri`;
+- a card something else is the master of (a desktop on another VT): refused, and sudo is not
+  offered, because root cannot take a screen from its master either;
+- a card or an input device this user cannot open: refused, with the two ways out -- `sudo
+  <the game>` this once (`rmp run sudo` does that), or `sudo usermod -aG video,input $USER`
+  and a new login, after which `rmp run` starts it as you;
+- no `/dev/input/event*` at all: a note, and it starts -- the game reads the keys of its terminal.
+
+`rmp run sudo` is the only way rmp ever runs sudo, and it is typed: rmp builds as you, says the
+exact command, and starts only the game with `sudo --`. **rmp never builds as root**: `sudo rmp
+...` is refused (`SUDO_USER` with an effective uid of 0), because build/ would be root's and the
+next build as you could not write it; root with nobody behind it -- a container, CI -- builds.
+**Saves under sudo** are root's: with its default settings sudo sets `HOME` to `/root`, so
+`rmp::save` writes to
+`/root/.local/share/<name>/` (`[save] portable` writes root-owned files next to the binary
+instead). The game logs it at start, and the groups are the way to keep one save folder.
+
+**The terminal comes back.** raylib's DRM backend reads the keyboard from the terminal it starts
+on (`InitKeyboard`, `rcore_drm.c`): it clears `ICANON`, `ECHO` and `ISIG`, sets `O_NONBLOCK` (a
+flag the shell shares) and a virtual console's keyboard mode to `K_XLATE`, and puts them back only
+from an `atexit` handler. A crash, `abort()`, a sanitizer's report or a kill left the shell typing
+blind with no Ctrl+C. The screen is not the problem: the kernel gives the console its screen
+back when the game's last handle on the card closes, however the process ends, and raylib never
+sets `KD_GRAPHICS`. `src/rmp/console.cpp` (`guard_console()`, called from `begin_run()`, before
+any window) remembers the terminal and puts it back on every fatal signal -- then hands the
+signal to whoever had it, so a crash is still a core dump or ASan's report -- through the
+sanitizers' death callback and at exit; `tests/console_test.cpp` makes
+`tests/console_canary.cpp` die each way on a pseudo-terminal, guarded and not. SIGKILL is the one
+nothing inside can catch, so `rmp run` saves the terminal before the game and restores it after,
+and says when it had to.
+
+**While it runs.** Ctrl+C does nothing (`ISIG` is off); the game quits through its own menu.
+Ctrl+Alt+F*n* still switches the console (the keyboard stays in `K_XLATE`), but the screen may
+go on showing the game while it is the DRM master -- the kernel does not take a screen from its
+master: log in on another console, blind if need be, or over SSH, and end it there. CI proves the whole path on a
+vkms display: `drm-x64-run` runs `./rmp run` with `XDG_SESSION_TYPE=tty` and no display, and
+checks it chose DRM/KMS, built `build/debug-drm` and booted.
 
 ---
 
