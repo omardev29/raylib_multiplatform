@@ -4536,12 +4536,11 @@ class ConsoleSudoTest(unittest.TestCase):
                 game.resolve() / "build" / "debug-drm" / "demo"
 
     def test_the_game_alone_goes_through_sudo_and_the_build_does_not(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            # A /dev the game could not use: sudo is how it gets there, so
-            # nothing is checked first.
-            code, calls, out, exe = self.run_cmd(["run", "sudo"],
-                                                 dev=fake_dev(Path(tmp) / "dev", cards=()))
+        # A /dev this user can open nothing of: sudo is how the game gets
+        # there, so what only root can open is not asked about.
+        code, calls, out, exe = self.run_cmd(["run", "sudo"], access=lambda path, mode: False)
         self.assertEqual(code, 0, out)
+        self.assertNotIn("FAIL", out)
         self.assertEqual(calls, [["cmake", "--preset", "debug-drm"],
                                  ["cmake", "--build", "--preset", "debug-drm", "--target",
                                   "demo"],
@@ -4549,6 +4548,30 @@ class ConsoleSudoTest(unittest.TestCase):
         self.assertIn(f"sudo -- {exe}", out)
         self.assertIn("the game, and only the game, as root", out)
         self.assertIn("root's home folder", out)
+
+    def test_what_sudo_cannot_fix_is_refused_before_sudo_asks_for_a_password(self):
+        """No card, or a card something else is the master of: root cannot
+        start that game either. Seen red with `rmp run sudo` checking nothing:
+        sudo asked for a password and the game died without a screen."""
+        with tempfile.TemporaryDirectory() as tmp:
+            code, calls, out, _ = self.run_cmd(["run", "sudo"],
+                                               dev=fake_dev(Path(tmp) / "dev", cards=()))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(calls[-1][:2], ["cmake", "--build"], "sudo ran")
+        self.assertIn("/dri/card0, card1 or card2, so no screen a game can draw on", out)
+        self.assertNotIn("sudo -- ", out)
+        code, calls, out, _ = self.run_cmd(["run", "sudo"], master=lambda card: False)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(calls[-1][:2], ["cmake", "--build"], "sudo ran")
+        self.assertIn("something else draws on the screen", out)
+        self.assertIn("sudo does not help", out)
+        # And what is true and stops nothing is still said.
+        with tempfile.TemporaryDirectory() as tmp:
+            code, calls, out, exe = self.run_cmd(["run", "sudo"],
+                                                 dev=fake_dev(Path(tmp) / "dev", events=0))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls[-1], ["sudo", "--", str(exe)])
+        self.assertIn("/input/event*: the game reads the keys of the terminal it runs on", out)
 
     def test_on_a_desktop_it_is_refused_before_anything_is_built(self):
         code, calls, out, _ = self.run_cmd(["run", "sudo"], drm="0")
@@ -4573,14 +4596,41 @@ class ConsoleSudoTest(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_rmp_under_sudo_never_builds(self):
-        """Seen red: `sudo rmp build` configured and built build/ as root."""
+        """Seen red: `sudo rmp build` configured and built build/ as root; and,
+        refused only where it configures, `sudo rmp test` wrote the generated
+        files as root in its config stage and `sudo rmp test examples` built
+        every example as root."""
         for argv in (["build"], ["build", "release"], ["run"], ["run", "sudo"], ["pack"],
-                     ["test", "smoke"]):
+                     ["test", "smoke"], ["test"], ["test", "config"], ["test", "examples"],
+                     ["lint"], ["fmt"], ["web"], ["android"]):
             with self.subTest(argv=argv):
                 code, calls, out, _ = self.run_cmd(argv, euid=0, env={"SUDO_USER": "omar"})
                 self.assertEqual(code, 1, out)
                 self.assertEqual(calls, [])
                 self.assertIn("rmp is running as root through sudo, and would build as root", out)
+                self.assertIn("`sudo rmp clean` removes what an earlier one left as root", out)
+        # Every command but the two that write nothing of the project as root.
+        self.assertEqual(set(rmp.ROOT_COMMANDS), {"help", "clean"})
+        for name in rmp.COMMANDS:
+            with self.subTest(command=name), tempfile.TemporaryDirectory() as tmp:
+                code, calls, out, _ = self.run_cmd([name, str(Path(tmp) / "x")], euid=0,
+                                                   env={"SUDO_USER": "omar"})
+                if name in rmp.ROOT_COMMANDS:
+                    self.assertNotIn("would build as root", out)
+                else:
+                    self.assertEqual((code, calls), (1, []), out)
+                    self.assertIn("would build as root", out)
+        # What sudo still may: clean away what root left, and read a page.
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            (game / "build" / "debug").mkdir(parents=True)
+            code, _, out, _ = self.run_cmd(["clean"], euid=0, env={"SUDO_USER": "omar"}, cwd=game)
+            self.assertEqual(code, 0, out)
+            self.assertFalse((game / "build").exists())
+        for argv in (["help"], ["help", "run"], ["build", "--help"]):
+            with self.subTest(argv=argv):
+                code, calls, out, _ = self.run_cmd(argv, euid=0, env={"SUDO_USER": "omar"})
+                self.assertEqual((code, calls), (0, []), out)
         code, calls, out, _ = self.run_cmd(["example", "01_pong"], euid=0,
                                            env={"SUDO_USER": "omar"}, cwd=REPO)
         self.assertEqual(code, 1, out)

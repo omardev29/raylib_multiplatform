@@ -284,7 +284,19 @@ def refuse_building_as_root(env) -> None:
         raise Refused(f"rmp is running as root through sudo, and would build as root: build/ "
                       f"would be root's, and the next `rmp build` as {sudo_user} could not "
                       "write it. Run rmp as yourself. On a console, `rmp run sudo` builds as "
-                      "you and starts only the game with sudo.")
+                      "you and starts only the game with sudo; `sudo rmp clean` removes what "
+                      "an earlier one left as root.")
+
+
+# What `sudo rmp` may still do: everything else writes the project as root --
+# build/ and the generated files (`rmp test`'s config stage runs before any
+# build), the sources (`rmp fmt`), .git (`rmp push`, `rmp deploy`) -- or a
+# home folder that is root's and not yours (`rmp new`, `install`, `update`).
+# main() asks before it hands a command to anything, a game's own rmp included.
+ROOT_COMMANDS = {
+    "help": "reads nothing and writes nothing",
+    "clean": "removes build/, which is how a build an earlier root left goes away",
+}
 
 
 class Ctx:
@@ -701,14 +713,16 @@ def start_game(ctx: Ctx, exe: Path, env=None, capture: bool = False, sudo: bool 
         refuse_sudo_for_a_window(ctx)
     if not ctx.session().drm:
         return ctx.run([exe], env=env, check=False, capture=capture)
+    found = device_access(DEV)
     if sudo:
-        argv = sudo_argv(exe)
-    else:
-        found = device_access(DEV)
-        refuse_devices(found, exe)
-        for note in found.notes:
-            print(f"  note     {note}")
-        argv = [str(exe)]
+        # Root opens every node, which is what sudo is for; it does not make a
+        # card that is not there, or take one something else holds -- refused
+        # before sudo asks for a password, as for anyone.
+        found.blocked = []
+    refuse_devices(found, exe)
+    for note in found.notes:
+        print(f"  note     {note}")
+    argv = sudo_argv(exe) if sudo else [str(exe)]
     terminal = TerminalState.save(GAME_STDIN)
     try:
         return ctx.run(argv, env=env, check=False, capture=capture)
@@ -2212,6 +2226,13 @@ def main(argv: list[str], cwd: Path | None = None) -> int:
 
     root = find_root(cwd)
     command = argv[0] if argv else "help"
+    if command in COMMANDS and command not in ROOT_COMMANDS \
+            and not any(a in HELP_FLAGS for a in argv[1:]):
+        try:
+            refuse_building_as_root(os.environ)
+        except Refused as e:
+            print(f"FAIL: {e}")
+            return FAILED
     if root is not None and command not in GLOBAL_COMMANDS:
         delegated = delegate(root, argv)
         if delegated is not None:
