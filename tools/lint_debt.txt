@@ -18,14 +18,11 @@ custom-rmp-raw-pointer                      examples/ui/07_responsive/src/main.c
 custom-rmp-raw-pointer                      include/rmp/app.h                                     1
 cppcoreguidelines-special-member-functions  include/rmp/assets.h                                  1
 custom-rmp-raw-pointer                      include/rmp/assets.h                                  2
-google-explicit-constructor                 include/rmp/assets.h                                  1
 modernize-avoid-c-arrays                    include/rmp/behavior.h                                1
 modernize-avoid-c-arrays                    include/rmp/input.h                                   4
 custom-rmp-raw-pointer                      include/rmp/object.h                                  9
 cppcoreguidelines-special-member-functions  include/rmp/save.h                                    1
-google-explicit-constructor                 include/rmp/save.h                                    3
 cppcoreguidelines-special-member-functions  include/rmp/ui.h                                      4
-google-explicit-constructor                 include/rmp/ui.h                                      2
 custom-rmp-raw-pointer                      src/rmp/animation.cpp                                 4
 custom-rmp-raw-pointer                      src/rmp/animation_internal.h                          3
 custom-rmp-raw-pointer                      src/rmp/app.cpp                                       2

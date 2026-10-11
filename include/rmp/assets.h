@@ -157,6 +157,7 @@ public:
     // overload is what refuses the temporary: a `const &`-qualified function
     // on its own would still accept one, because a const reference binds to
     // an rvalue.
+    // NOLINTNEXTLINE(google-explicit-constructor): a handle passes where raylib takes T
     operator const T &() const & { return raw(); }
     operator const T &() const && = delete;
 

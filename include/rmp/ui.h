@@ -106,7 +106,9 @@ struct Sizing {
     bool named = false;
 
     constexpr Sizing() = default;
+    // NOLINTNEXTLINE(google-explicit-constructor): `.size = 34`; a number is a size
     constexpr Sizing(float u) : units(u) {}
+    // NOLINTNEXTLINE(google-explicit-constructor): `.size = Size::LARGE`; so is a step
     constexpr Sizing(ui::Size s) : step(s), named(true) {}
 };
 } // namespace detail

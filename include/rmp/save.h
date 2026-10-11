@@ -75,10 +75,12 @@ public:
     // every pointer in the program would quietly convert to `true`.
     template <class B>
         requires std::is_same_v<B, bool>
+    // NOLINTNEXTLINE(google-explicit-constructor): v["alive"] = true; a bool is a Value
     Value(B b) : _type(Type::BOOL), _boolean(b) {}
     // Every number type, as a double: an int survives exactly up to 2^53.
     template <class N>
         requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool>)
+    // NOLINTNEXTLINE(google-explicit-constructor): v["score"] = 3; a number is a Value
     Value(N n) : _type(Type::NUMBER), _number(static_cast<double>(n)) {}
     // Text, copied in: a literal, a std::string, a std::string_view -- the one
     // constructor for every spelling of it. A template, and not a plain
@@ -90,6 +92,7 @@ public:
     template <class S>
         requires(std::is_convertible_v<const S &, std::string_view> &&
                  !std::is_pointer_v<S> && !std::is_null_pointer_v<S>)
+    // NOLINTNEXTLINE(google-explicit-constructor): v["name"] = "Omar"; text is a Value
     Value(const S &text) : _type(Type::STRING), _string(std::string_view(text)) {}
 
     // An empty list or object, for when "nothing yet" has to be one of them:
