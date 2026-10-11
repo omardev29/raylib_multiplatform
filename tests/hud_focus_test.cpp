@@ -583,7 +583,8 @@ TEST_SUITE("ui: HUD focus") {
         CHECK_FALSE(rmp::input::consumed_keyboard());
     }
 
-    TEST_CASE_FIXTURE(HeadlessUi, "turning navigation off gives the keys back") {
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "turning navigation off gives the keys back, for good") {
         play(Read::JUMP);
         press(TAB);
         REQUIRE(rmp::ui::wants_keyboard());
@@ -591,7 +592,18 @@ TEST_SUITE("ui: HUD focus") {
         CHECK_FALSE(rmp::ui::wants_keyboard());
         run_frame();
         CHECK_FALSE(rmp::ui::wants_keyboard());
+        // On again, the HUD is as it was before Tab: nobody walked back into
+        // it, so it does not take the keys back by itself, and Space is a jump.
         rmp::ui::set_navigation_enabled(true);
+        CHECK_FALSE(rmp::ui::wants_keyboard());
+        run_frame();
+        CHECK_FALSE(rmp::ui::wants_keyboard());
+        CHECK(rmp::ui::focused().empty());
+        feed.devices.keys[KEY_SPACE] = true;
+        press(SPACE);
+        feed.devices.keys[KEY_SPACE] = false;
+        CHECK(game.jumps == 1);
+        CHECK(game.map == 0);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,

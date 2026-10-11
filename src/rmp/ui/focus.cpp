@@ -655,7 +655,13 @@ void focus(std::string_view id) {
 
 std::string_view focused() { return view(target.name); }
 
-void set_navigation_enabled(bool on) { navigation.enabled = on; }
+void set_navigation_enabled(const bool on) {
+    navigation.enabled = on;
+    // A HUD the player walked into gives the keys back, and for good: turned
+    // on again, it is as it was before Tab, not holding the keys once more
+    // with nobody having asked it to.
+    if (!on && target.choice == Choice::CHOSEN) drop_focus();
+}
 bool navigation_enabled() { return navigation.enabled; }
 
 } // namespace rmp::ui
