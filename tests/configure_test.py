@@ -8244,6 +8244,37 @@ chmod +x build/memory/game
 """
 
 
+class RaylibOptimizedTest(unittest.TestCase):
+    """RMP_RAYLIB_OPTIMIZED, in CMakeLists.txt: raylib's renderer at -O2 in the
+    examples' headless build, and never without -ffp-contract=off -- a fused
+    multiply-add rounds once where -O0 rounds twice, and an e2e shot is
+    compared byte for byte."""
+
+    def block(self):
+        text = (REPO / "CMakeLists.txt").read_text()
+        at = text.index("option(RMP_RAYLIB_OPTIMIZED ")
+        return text[at:text.index("\nendif()\n", at)]
+
+    def test_the_renderer_and_nothing_else(self):
+        block = self.block()
+        self.assertIn("set(RMP_RAYLIB_OPTIMIZED_SOURCES rcore.c rshapes.c rtext.c)", block)
+        for source in ("rcore.c", "rshapes.c", "rtext.c"):
+            self.assertTrue((REPO / "thirdparty" / "raylib" / "src" / source).is_file())
+        # rlsw, the rasteriser, is compiled inside rcore.c (rlgl's implementation).
+        rcore = (REPO / "thirdparty" / "raylib" / "src" / "rcore.c").read_text(errors="replace")
+        self.assertIn("#define RLGL_IMPLEMENTATION", rcore)
+
+    def test_every_optimisation_comes_with_contraction_off(self):
+        block = self.block()
+        options = re.findall(r'COMPILE_OPTIONS "([^"]*)"', block)
+        self.assertEqual(options, ["-O2;-ffp-contract=off"])
+        self.assertNotIn("target_compile_options(raylib", block)
+
+    def test_it_refuses_any_build_but_the_headless_debug_one(self):
+        block = self.block()
+        self.assertIn('if(PRODUCTION_BUILD OR NOT PLATFORM STREQUAL "Memory")', block)
+        self.assertIn("message(FATAL_ERROR", block)
+
 class RenderCheckReadsTheExitTest(unittest.TestCase):
     """tools/render_check.sh ended its launch in `|| true` and judged the run
     by the markers alone -- which are printed BEFORE the process ends. A Debug

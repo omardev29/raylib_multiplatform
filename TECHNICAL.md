@@ -1205,7 +1205,14 @@ ball was four times its serve by the thirtieth brick), a Space Invaders whose la
 before a ship could get under it, and raylib's software renderer reading one texel past a texture
 (`thirdparty/raylib/PATCHES.md`). `examples_build.sh` plays the scripts side by side, as many as
 the machine has processors, the longest first: each has its own folder, and a frame is 1/60 s
-whatever the load, so that changes how long it waits and nothing it draws.
+whatever the load, so that changes how long it waits and nothing it draws. Its build compiles
+raylib's renderer -- `rcore.c` with rlgl and rlsw, `rshapes.c`, `rtext.c` -- at `-O2
+-ffp-contract=off`, still under ASan and UBSan (`RMP_RAYLIB_OPTIMIZED` in `CMakeLists.txt`): a
+frame costs about a fifth of what it does at -O0, and all 72 shots are byte for byte the ones -O0
+draws, in the image. No contraction is the condition: at -O2 a compiler may fuse a multiply and
+an add into one FMA, rounded once instead of twice. Nothing else asks for it -- the render
+check's golden hash is drawn at -O0 on every platform that compares it -- and the loaders
+(`rtextures.c`, `rmodels.c`, `raudio.c`) stay at -O0, where ASan sees every load.
 
 **Sanitized** — every Debug build of the framework runs under AddressSanitizer (with
 LeakSanitizer on Linux) and UndefinedBehaviorSanitizer, every report fatal: `[dev] sanitize` in

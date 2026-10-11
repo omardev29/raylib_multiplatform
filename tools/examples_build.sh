@@ -29,6 +29,16 @@
 #      pinned build image; reported and not enforced anywhere else. As many
 #      scripts as e2e targets as runs. See tests/e2e/driver.cpp.
 #
+# raylib's renderer -- rcore.c, which carries the rasteriser, rshapes.c and
+# rtext.c -- is compiled at -O2 -ffp-contract=off here, still under ASan and
+# UBSan, and everything else at -O0 like every Debug build
+# (RMP_RAYLIB_OPTIMIZED in CMakeLists.txt): a script spends most of its frames
+# inside raylib's software renderer, which this way plays about five times
+# faster and draws every e2e shot byte for byte the same, in the image.
+# Nothing else that builds raylib for PLATFORM=Memory asks for it -- the
+# render check's golden hash is drawn at -O0 on every platform that compares
+# it.
+#
 # What is NOT run: the header-only examples, which are compiled and have
 # nothing to run. examples/plain_c is booted like the rest: it is plain C with
 # its own main(), and it calls the C smoke-test hooks every other example gets
@@ -100,7 +110,8 @@ configure_examples() {
   # first run.
   mkdir -p "$BUILD"
   cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPRODUCTION_BUILD=OFF \
-        -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON > "$BUILD.configure.log" 2>&1 \
+        -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON -DRMP_RAYLIB_OPTIMIZED=ON \
+        > "$BUILD.configure.log" 2>&1 \
     || { cat "$BUILD.configure.log"; echo "FAIL: the examples did not configure"; exit 1; }
 }
 

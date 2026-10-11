@@ -501,11 +501,20 @@ here so that nobody "fixes" one back.
   edges.** So a script's input starts at frame 1, and a tapped key needs a frame
   up before it can go down again; the grammar refuses each of these with its
   line.
-- **A frame under the software renderer and ASan costs 30-45 ms** (raylib is
-  -O0 in Debug) -- a game's, in the image; a UI frame 60-150 ms, and the
-  platformer's, top-down's and the runner's 125-160. A Pong point is 75 frames;
-  Pong's script plays in ~46 s, the platformer's in ~244 s, the nine UI, scene
-  and input scripts in ~67 s together. A script proves its paths and stops.
+- **A frame under the software renderer and ASan costs 30-45 ms with raylib
+  at -O0** -- a game's, in the image; a UI frame 60-150 ms, and the
+  platformer's, top-down's and the runner's 125-160. So the examples' headless
+  build (`examples_build.sh`, and nothing else) compiles raylib's renderer --
+  `rcore.c`, which carries rlgl and rlsw, `rshapes.c`, `rtext.c` -- at -O2
+  `-ffp-contract=off`, still sanitized (`RMP_RAYLIB_OPTIMIZED`): a frame costs
+  about a fifth, and every one of the 72 e2e shots is byte for byte what -O0
+  draws. Pong's script took 85 s at -O0 and 17 s this way, in the image; the
+  platformer's took 527 s on the runner at -O0, near its 600 s ceiling, and
+  143-174 s this way on a loaded machine. `-ffp-contract=off` is not optional:
+  without it -O2 may fuse a multiply and an add, rounded once, where -O0
+  rounds twice. Every other Debug build -- the render check's golden hash
+  included -- is -O0 throughout. A Pong point is 75 frames. A script proves its
+  paths and stops.
 - **`wants_pointer()` is asked before the frame's UI exists, and answers for
   the pointer now.** A scene's `_update()`, an action by name, and an
   RMP_ENTRY_POINT's code above `begin()` all ask first. It answered with last

@@ -562,6 +562,63 @@ rmp_apply_compile_flags(raylib)
 # -Wall -Wextra below speaks about our code and not about raylib.h's.
 set_property(TARGET raylib PROPERTY SYSTEM TRUE)
 
+# --- raylib's renderer optimized, in the headless Debug build of the examples --
+# tools/examples_build.sh, and nothing else, turns this on, in
+# build/examples-check: the three files of raylib a software-rendered frame
+# spends its time in -- rcore.c, which carries rlgl and rlsw, the rasteriser,
+# and rshapes.c and rtext.c, which draw through it -- at -O2
+# -ffp-contract=off, still under the sanitizers rmp_apply_debug_checks() gave
+# them. Everything of ours is -O0 like every Debug build, and so is the rest of
+# raylib: rtextures.c, rmodels.c and raudio.c are the file loaders (stb_image,
+# cgltf, miniaudio...), where a malformed file finds a memory bug, and -O2
+# drops a load whose value nothing uses -- ASan cannot see a load that is not
+# there. UBSan's checks go in before any optimisation and stay.
+#
+# Measured in the pinned image on four processors (2026-10-11): an e2e frame is
+# about five times faster -- Pong's script 85 s at -O0, 17 s this way; the
+# platformer's hit its 600 s ceiling at -O0 on a loaded machine and took 527 s
+# on the runner -- and raylib compiles in 24 s instead of 17 s. All of raylib
+# at -O2 played no faster and took 67 s to compile: rmodels.c alone was 73 s
+# of processor time under ASan.
+#
+# -ffp-contract=off is what keeps the pixels: at -O2 a compiler may fuse a
+# multiply and an add into one FMA instruction, rounded once instead of twice
+# -- GCC on arm64 and riscv64 would, where -O0 never does -- and an e2e shot is
+# compared byte for byte. It was adopted only after all 72 e2e shots came out
+# identical to their goldens in the pinned image, the same 72 hashes the -O0
+# build draws, and the render check's frame hashed to its golden built this
+# way too. The render check itself (tools/render_check.sh, build/memory, on
+# every platform including the BSDs and Apple silicon), the coverage build
+# and the sanitizer runs do NOT ask for it: they draw a handful of frames, and
+# the golden hash stays drawn at -O0 everywhere it is compared.
+option(RMP_RAYLIB_OPTIMIZED "Compile raylib's renderer at -O2 -ffp-contract=off in a PLATFORM=Memory Debug build (tools/examples_build.sh)" OFF)
+set(RMP_RAYLIB_OPTIMIZED_SOURCES rcore.c rshapes.c rtext.c)
+if(RMP_RAYLIB_OPTIMIZED)
+  if(PRODUCTION_BUILD OR NOT PLATFORM STREQUAL "Memory")
+    message(FATAL_ERROR "RMP_RAYLIB_OPTIMIZED is for the headless Debug build of the examples, "
+      "which tools/examples_build.sh configures: PLATFORM Memory and not a production build. "
+      "This one is PLATFORM ${PLATFORM}, PRODUCTION_BUILD ${PRODUCTION_BUILD}.")
+  endif()
+  if(MSVC)
+    # Nothing has compared MSVC's pixels: raylib stays at /Od there, and says so.
+    message(STATUS "=== RAYLIB: /Od, RMP_RAYLIB_OPTIMIZED is measured for GCC and Clang only ===")
+  else()
+    foreach(_source ${RMP_RAYLIB_OPTIMIZED_SOURCES})
+      set(_path "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src/${_source}")
+      if(NOT EXISTS "${_path}")
+        message(FATAL_ERROR "RMP_RAYLIB_OPTIMIZED: ${_path} is gone; raylib's renderer moved, "
+          "and RMP_RAYLIB_OPTIMIZED_SOURCES has to follow it")
+      endif()
+      # After the target's own -O0, so it is the one that counts.
+      set_source_files_properties("${_path}" TARGET_DIRECTORY raylib
+        PROPERTIES COMPILE_OPTIONS "-O2;-ffp-contract=off")
+    endforeach()
+    list(JOIN RMP_RAYLIB_OPTIMIZED_SOURCES ", " _said)
+    message(STATUS "=== RAYLIB: ${_said} at -O2 -ffp-contract=off, still sanitized; "
+      "the rest of raylib and our code -O0 ===")
+  endif()
+endif()
+
 # --- warnings, on our code only ---------------------------------------------
 # Every target built from OUR sources -- the framework, the game, every
 # example, the tests, the packer -- and never raylib or thirdparty/, which stay
