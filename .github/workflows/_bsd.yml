@@ -28,8 +28,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    # Guard against the VM-readiness step hanging forever (cross-platform-actions #158).
-    timeout-minutes: 60
+    # Guard against the VM-readiness step hanging forever (cross-platform-actions #158),
+    # sized for the arm64 VMs, which QEMU emulates on this x86-64 runner: they build
+    # three trees (the release, the headless release shipped_check starts, and the
+    # sanitized debug render_check runs), about twenty minutes each. OpenBSD arm64
+    # took 33 and 56 minutes on two runs before the sanitizers and the release
+    # hardening, and was cut at 60 on the first run after them. x86-64 takes 2-4.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       # Built by tools/configure.py from [targets]. The OS versions live in the
