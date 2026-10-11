@@ -17,6 +17,7 @@
 //     trap       __builtin_trap()
 //     fpe        an integer divided by zero: UBSan's report where it is on
 //     overflow   a read past a heap block: ASan's report
+//     stack      a recursion with no end: a SIGSEGV with no stack left
 //     kill       raise(SIGKILL), which nothing inside a process can catch
 //
 // Every value that decides a crash comes from the command line, so that the
@@ -24,6 +25,8 @@
 
 #include "../src/rmp/internal.h"
 
+#include <array>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -68,6 +71,16 @@ void break_like_raylib(int fd) {
 
 [[gnu::noinline]] int divide(int by) { return 1000 / by; }
 
+// Until the stack runs out: `limit` comes from the command line and is never
+// reached, which the compiler cannot know, so the call stays a call and the
+// recursion is not "infinite" to it either.
+[[gnu::noinline]] int recurse(int depth, int limit) {
+    std::array<volatile char, 512> frame{};
+    frame[0] = static_cast<char>(depth);
+    if (depth == limit) return frame[0];
+    return recurse(depth + 1, limit) + frame[0];
+}
+
 } // namespace
 
 // NOLINTNEXTLINE(custom-rmp-raw-pointer): main's own signature
@@ -98,6 +111,7 @@ int main(int argc, char **argv) {
     if (how == "trap") __builtin_trap();
     if (how == "fpe") return divide(from_args - 3);
     if (how == "overflow") return read_past(from_args);
+    if (how == "stack") return recurse(0, INT_MAX / from_args);
     if (how == "kill") std::raise(SIGKILL);
     std::fputs("survived\n", stderr);
     return 3;

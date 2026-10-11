@@ -247,15 +247,82 @@ TEST_SUITE("console") {
         }
     }
 
+    TEST_CASE("the handler has a stack of its own when nothing else gave it one") {
+        // Whatever stands now -- ASan's -- is set aside for the case, so that
+        // the guard meets a thread with none, as in a release build.
+        stack_t before{};
+        REQUIRE(sigaltstack(nullptr, &before) == 0);
+        stack_t none{};
+        none.ss_flags = SS_DISABLE;
+        REQUIRE(sigaltstack(&none, nullptr) == 0);
+        {
+            const Pty pty;
+            const Unguard unguard;
+            REQUIRE(rmp::app::detail::guard_terminal(pty.sub_fd));
+            stack_t now{};
+            REQUIRE(sigaltstack(nullptr, &now) == 0);
+            CHECK((now.ss_flags & SS_DISABLE) == 0);
+            CHECK(now.ss_size >= 32 * 1024);
+            // Guarded again, the same one: not a second, not lost.
+            REQUIRE(rmp::app::detail::guard_terminal(pty.sub_fd));
+            stack_t again{};
+            REQUIRE(sigaltstack(nullptr, &again) == 0);
+            CHECK(again.ss_sp == now.ss_sp);
+            rmp::app::detail::unguard_terminal();
+            REQUIRE(sigaltstack(nullptr, &now) == 0);
+            CHECK((now.ss_flags & SS_DISABLE) != 0);
+        }
+        // One that was there is kept, and left there.
+        std::array<std::byte, 64 * 1024> theirs{};
+        stack_t given{};
+        given.ss_sp = theirs.data();
+        given.ss_size = theirs.size();
+        REQUIRE(sigaltstack(&given, nullptr) == 0);
+        {
+            const Pty pty;
+            const Unguard unguard;
+            REQUIRE(rmp::app::detail::guard_terminal(pty.sub_fd));
+            stack_t now{};
+            REQUIRE(sigaltstack(nullptr, &now) == 0);
+            CHECK(now.ss_sp == theirs.data());
+            rmp::app::detail::unguard_terminal();
+            REQUIRE(sigaltstack(nullptr, &now) == 0);
+            CHECK(now.ss_sp == theirs.data());
+            CHECK((now.ss_flags & SS_DISABLE) == 0);
+        }
+        REQUIRE(sigaltstack(&before, nullptr) == 0);
+    }
+
+    TEST_CASE("a game sudo made root says it saves as root, and where") {
+        using rmp::app::detail::sudo_note;
+        const std::string said = sudo_note(true, "omar", "/root/.local/share/demo/");
+        CHECK(
+            said ==
+            "CONSOLE: started with sudo by omar, so the game runs as root and saves as "
+            "root, "
+            "in /root/.local/share/demo/. In the video and input groups, omar can run it "
+            "without sudo, and save as omar");
+        // A sudoers that keeps HOME: the user's folder, still written as root.
+        CHECK(sudo_note(true, "omar", "/home/omar/.local/share/demo/")
+                  .find("saves as root, in /home/omar/.local/share/demo/") !=
+              std::string::npos);
+        // Not root, root with nobody behind it (a container, CI), root by sudo
+        // as root: nothing to say.
+        CHECK(sudo_note(false, "omar", "/x/").empty());
+        CHECK(sudo_note(true, "", "/x/").empty());
+        CHECK(sudo_note(true, "root", "/x/").empty());
+    }
+
 #if defined(RMP_CONSOLE_CANARY)
     TEST_CASE(
         "a game that ends without its atexit handlers leaves it broken: the control") {
         for (const std::string_view how :
-             std::array<std::string_view, 3>{ "segv", "abort", "term" }) {
+             std::array<std::string_view, 4>{ "segv", "abort", "term", "stack" }) {
             CAPTURE(how);
             const Pty pty;
             const Seen before = seen(pty.sub_fd);
             const Ending ending = canary(pty, "unguarded", how);
+            INFO(ending.out);
             REQUIRE(ending.out.find("broken") != std::string::npos);
             CHECK_FALSE((ending.exited && ending.code == 0));
             CHECK_FALSE(seen(pty.sub_fd) == before);
@@ -275,6 +342,9 @@ TEST_SUITE("console") {
             Case{ .how = "term", .signal = SIGTERM },
             Case{ .how = "trap", .signal = SIGILL },
             Case{ .how = "fpe", .signal = SIGFPE },
+            // With no stack left, only an alternate one runs the handler:
+            // ASan's where it is on, and its report says stack-overflow.
+            Case{ .how = "stack", .signal = SIGSEGV },
         };
         for (const Case &c : cases) {
             CAPTURE(c.how);
@@ -289,6 +359,9 @@ TEST_SUITE("console") {
             // where one is on: it still has the signal, or stops the game first.
             const bool reported = ending.out.find("Sanitizer") != std::string::npos ||
                 ending.out.find("runtime error:") != std::string::npos;
+            if (c.how == "stack" && reported) {
+                CHECK(ending.out.find("stack-overflow") != std::string::npos);
+            }
             if (c.signal == 0) {
                 CHECK((ending.exited && ending.code == 0));
             } else if (reported) {

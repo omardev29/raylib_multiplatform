@@ -11,6 +11,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace rmp {
 template <class... A> class Callback; // rmp/object.h
@@ -59,6 +61,11 @@ void guard_console();
 bool guard_terminal(int fd);
 void restore_terminal();
 void unguard_terminal();
+
+// What a DRM/KMS game says at start when sudo made it root (SUDO_USER,
+// someone other than root): it saves as root, in `saves`. Empty otherwise,
+// and on anything but Linux.
+std::string sudo_note(bool root, std::string_view sudo_user, std::string_view saves);
 
 } // namespace rmp::app::detail
 
