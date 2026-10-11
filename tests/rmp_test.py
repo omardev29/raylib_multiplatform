@@ -4382,7 +4382,8 @@ _DRM_BEFORE = None
 
 @contextlib.contextmanager
 def console(drm="1", system="Linux", euid=1000, dev=None, master=lambda card: True,
-            access=lambda path, mode: True, terminal=None, stdin=None):
+            access=lambda path, mode: True, terminal=None, stdin=None,
+            resources=lambda card: True):
     """main() on a Linux console: RMP_DRM decides (None: unset, and then
     `terminal` and the environment do), with a /dev of the test's making and
     the doors to the real one stood in for."""
@@ -4391,6 +4392,7 @@ def console(drm="1", system="Linux", euid=1000, dev=None, master=lambda card: Tr
             unittest.mock.patch.object(rmp, "effective_uid", lambda: euid), \
             unittest.mock.patch.object(rmp, "terminal_name", lambda: terminal), \
             unittest.mock.patch.object(rmp, "drm_master", master), \
+            unittest.mock.patch.object(rmp, "drm_resources", resources), \
             unittest.mock.patch.object(rmp, "node_access", access), \
             unittest.mock.patch.object(rmp, "GAME_STDIN", -1 if stdin is None else stdin):
         root = Path(tmp) / "dev"
@@ -4856,6 +4858,98 @@ class ConsoleDevicesTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(asked, ["card0"])
 
+    def test_a_card_with_no_display_is_passed_over_as_raylib_passes_it(self):
+        """raylib takes the first card it can open that answers
+        drmModeGetResources(), and only that one: a card1 with no display (a
+        Raspberry Pi's 3D engine, a render-only GPU) is passed over for card0.
+        The check asked card1, the first this user could open, whether it
+        had a display or not -- and vouched for a screen raylib never takes,
+        or refused one it does. Seen red: the master was asked of card1."""
+        asked = []
+
+        def resources(card, answers):
+            asked.append(("resources", card.name))
+            return answers.get(card.name, True)
+
+        def master(card, held):
+            asked.append(("master", card.name))
+            return card.name not in held
+        cases = (
+            # card1 has no display, card0 has one nobody holds: card0, and it starts.
+            ({"card1": False}, (), True, "card0",
+             [("resources", "card1"), ("resources", "card0"), ("master", "card0")]),
+            # ... and something holds card0: refused, naming card0, not card1.
+            ({"card1": False}, ("card0",), False, None,
+             [("resources", "card1"), ("resources", "card0"), ("master", "card0")]),
+            # card1 has one: card0 is never asked, held or not.
+            ({}, ("card0",), True, "card1", [("resources", "card1"), ("master", "card1")]),
+            # It cannot be told (another ioctl encoding): taken, as before.
+            ({"card1": None}, (), True, "card1", [("resources", "card1"), ("master", "card1")]),
+        )
+        for answers, held, starts, card, order in cases:
+            with self.subTest(answers=answers, held=held):
+                asked.clear()
+                code, out, started, _ = self.run_game(
+                    resources=lambda c, a=answers: resources(c, a),
+                    master=lambda c, h=held: master(c, h))
+                self.assertEqual(code, 0 if starts else 1, out)
+                self.assertEqual(bool(started), starts)
+                if order is not None:
+                    self.assertEqual(asked, order)
+                if card:
+                    self.assertIn(f"/dri/{card}, the first card raylib tries that it can "
+                                  "open and that has a display", out)
+                if not starts:
+                    self.assertIn("/dri/card0,", out.split("FAIL:", 1)[1])
+                if answers.get("card1") is False and starts:
+                    self.assertIn("passed over: ", out)
+                    self.assertIn("/dri/card1 has no display: it answers no "
+                                  "drmModeGetResources()", out)
+
+    def test_no_card_with_a_display_is_refused_and_sudo_is_not_offered(self):
+        """Every card raylib tries opens and none has a display: no screen,
+        for root too -- a GPU with no display engine, or nomodeset."""
+        code, out, started, _ = self.run_game(resources=lambda card: False)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(started, [])
+        self.assertIn("no card raylib tries has a display: ", out)
+        self.assertIn("/dri/card1, ", out)
+        self.assertIn("/dri/card0 answered no drmModeGetResources()", out)
+        self.assertIn("nomodeset", out)
+        self.assertNotIn("usermod", out, "no group gives a card a display")
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            with console(resources=lambda card: False), windows(False), \
+                    recording(CommandSequenceTest.NAME) as rec, quiet() as out:
+                code = rmp.main(["run", "sudo"], cwd=game)
+        self.assertEqual(code, 1, out.getvalue())
+        self.assertEqual([c for c, _ in rec.calls if "sudo" in c], [],
+                         "sudo was asked for a card it cannot give a display")
+
+    def test_the_display_on_a_card_you_cannot_open_is_roots_to_find(self):
+        """card1 shut to this user, card0 open with no display: raylib finds
+        nothing as this user, and root may open card1 and find it there. So
+        the refusal names card1 and offers both ways out; card0, which no
+        group changes, is not among what to fix."""
+        code, out, started, exe = self.run_game(
+            access=lambda path, mode: Path(path).name != "card1",
+            resources=lambda card: card.name != "card0")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(started, [])
+        refusal = out.split("FAIL:", 1)[1]
+        self.assertIn("/dri/card1  ", refusal)
+        self.assertNotIn("/dri/card0  ", refusal)
+        self.assertIn(f"  sudo {exe}\n", refusal)
+        self.assertIn("  sudo usermod -aG video,input omar", refusal)
+        # With a display on card0 as well, as this user the game takes card0,
+        # and says what it passed over.
+        code, out, started, _ = self.run_game(
+            access=lambda path, mode: Path(path).name != "card1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("/dri/card0, the first card raylib tries", out)
+        self.assertIn("passed over: you cannot open ", out)
+        self.assertIn("/dri/card1 -- as root, the game may draw there instead", out)
+
     def test_the_cards_are_the_ones_raylib_opens_in_its_order(self):
         """RAYLIB_CARDS is read back out of raylib's InitPlatform: a card it
         stops trying would otherwise be one rmp still vouches for."""
@@ -4903,6 +4997,41 @@ class ConsoleDevicesTest(unittest.TestCase):
             self.assertTrue(said.startswith("-rw-rw---- "), said)
             self.assertEqual(said.count(":"), 1)
             self.assertIn("No such file", rmp.describe_node(Path(tmp) / "nothing"))
+
+    def test_the_resources_probe_reads_what_the_kernel_answers(self):
+        """drm_resources() against a stand-in for the ioctl: an answer is a
+        display, any error none -- drmModeGetResources() returns NULL on
+        every one and raylib goes on -- and it cannot be told for a card that
+        does not open or another ioctl encoding. The number and the buffer
+        are DRM_IOCTL_MODE_GETRESOURCES's."""
+        import errno
+        asked = []
+        with tempfile.TemporaryDirectory() as tmp:
+            card = Path(tmp) / "card0"
+            card.write_text("")
+
+            def answers(fd, request, arg):
+                asked.append((request, bytes(arg)))
+                return 0
+            with unittest.mock.patch("fcntl.ioctl", answers), \
+                    unittest.mock.patch.object(rmp.platform, "machine", lambda: "aarch64"):
+                self.assertIs(rmp.drm_resources(card), True)
+            for err in (errno.EOPNOTSUPP, errno.EINVAL, errno.ENOTTY, errno.EIO):
+                def refuses(fd, request, arg, err=err):
+                    raise OSError(err, os.strerror(err))
+                with self.subTest(errno=errno.errorcode[err]), \
+                        unittest.mock.patch("fcntl.ioctl", refuses), \
+                        unittest.mock.patch.object(rmp.platform, "machine", lambda: "x86_64"):
+                    self.assertIs(rmp.drm_resources(card), False)
+            with unittest.mock.patch.object(rmp.platform, "machine", lambda: "ppc64le"):
+                self.assertIsNone(rmp.drm_resources(card), "another ioctl encoding")
+            self.assertIsNone(rmp.drm_resources(Path(tmp) / "nothing"))
+        # _IOWR('d', 0xA0, struct drm_mode_card_res): read and write, 64 bytes
+        # (four __u64 pointers, eight __u32), type 'd', number 0xA0 -- and
+        # every byte 0, so the kernel writes the counts through no pointer.
+        self.assertEqual(rmp.DRM_IOCTL_MODE_GETRESOURCES,
+                         (3 << 30) | (64 << 16) | (ord("d") << 8) | 0xA0)
+        self.assertEqual(asked, [(rmp.DRM_IOCTL_MODE_GETRESOURCES, bytes(64))])
 
     def test_the_master_probe_reads_what_the_kernel_answers(self):
         """drm_master() against a stand-in for the ioctl: EINVAL is the master,
@@ -5178,7 +5307,9 @@ class ConsoleInCiTest(unittest.TestCase):
         """What rmp prints on a console with no /dev/input: the decision and
         the device check's note, from rmp itself."""
         decision = rmp.drm_line(rmp.session_of({"XDG_SESSION_TYPE": "tty"}, "Linux", None))
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(rmp, "drm_resources", lambda card: True), \
+                unittest.mock.patch.object(rmp, "drm_master", lambda card: True):
             note = rmp.device_access(fake_dev(Path(tmp) / "dev", events=0)).notes[0]
         return decision, note.replace(tmp + "/dev", "/dev")
 
@@ -5219,6 +5350,7 @@ class ConsoleInCiTest(unittest.TestCase):
             "libdrm linked": "grep -q libdrm ldd.txt",
             "no X11 linked": "libX11|libwayland",
             "the device check": note.split(" of the terminal")[0],
+            "the card it takes": rmp.CARD_TAKEN,
             "booted": "RAY_TEST_BOOT_OK assets_failed=0 ",
             "drew": "RAY_TEST_RENDER_OK",
             "ended": "RAY_TEST_DONE_FRAMES",
@@ -5249,6 +5381,7 @@ class ConsoleInCiTest(unittest.TestCase):
                        run.replace("./rmp run", "-e RMP_DRM=1 ./rmp run"),
                        run.replace("build/debug-drm/$NAME", "build/debug/$NAME"),
                        run.replace("there is no /dev/input/event*", "no input"),
+                       run.replace(rmp.CARD_TAKEN, "a card"),
                        run.replace("--device /dev/dri", ""),
                        run.replace(command, command.replace("--network none ", "")),
                        run.replace('if [ "$MODE" = framework ]; then', "if true; then"),
@@ -5277,6 +5410,7 @@ class ConsoleInCiTest(unittest.TestCase):
             f"  console  {decision}",
             "-- === PLATFORM: DRM/KMS, no X11 and no Wayland ===",
             *(["-- === SANITIZERS: address, undefined ==="] if sanitized else []),
+            f"  screen   the game draws on /dev/dri/card0, {rmp.CARD_TAKEN}",
             f"  note     {note}",
             "RAY_TEST_BOOT_OK assets_failed=0 frames=10",
             "RAY_TEST_RENDER_OK pixels=1",

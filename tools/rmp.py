@@ -481,9 +481,12 @@ def node_access(path: Path, mode: int) -> bool:
 
 # The cards raylib's DRM backend opens, in its order (InitPlatform in
 # rcore_drm.c; tests/rmp_test.py reads them back out of it): the first it can
-# open and set a mode on is the screen. card1 before card0 because on a
-# Raspberry Pi card0 is the 3D engine and card1 the display.
+# open that answers drmModeGetResources() is the screen, and it never looks
+# past it. card1 before card0 because on a Raspberry Pi card0 is the 3D engine
+# and card1 the display.
 RAYLIB_CARDS = ("dri/by-path/platform-gpu-card", "dri/card1", "dri/card0", "dri/card2")
+# What `rmp run` says of the card it found -- and what drm-x64-run looks for.
+CARD_TAKEN = "the first card raylib tries that it can open and that has a display"
 
 # DRM_IOCTL_AUTH_MAGIC, _IOW('d', 0x11, struct drm_auth): only a DRM master may
 # ask it, so anyone else gets EACCES, and the master EINVAL for magic 0. It is
@@ -492,6 +495,16 @@ RAYLIB_CARDS = ("dri/by-path/platform-gpu-card", "dri/card1", "dri/card0", "dri/
 DRM_IOCTL_AUTH_MAGIC = 0x40046411
 GENERIC_IOCTL_MACHINES = ("x86_64", "amd64", "i386", "i686", "aarch64", "arm64", "armv6l",
                           "armv7l", "riscv64")
+
+# DRM_IOCTL_MODE_GETRESOURCES, _IOWR('d', 0xA0, struct drm_mode_card_res):
+# what libdrm's drmModeGetResources() asks, and what raylib's card probe takes
+# a card by. The struct is four __u64 and eight __u32, 64 bytes on every
+# machine, and with its pointers 0 the kernel fills in the counts and nothing
+# else. A card with no display -- a render-only GPU, a Raspberry Pi's 3D
+# engine, a driver loaded without modesetting -- refuses it (EOPNOTSUPP, or
+# EINVAL on older kernels), and raylib goes on to the next.
+DRM_IOCTL_MODE_GETRESOURCES = 0xC04064A0
+DRM_MODE_CARD_RES_SIZE = 64
 
 # <linux/kd.h>: get and set a virtual console's keyboard mode.
 KDGKBMODE, KDSKBMODE = 0x4B44, 0x4B45
@@ -516,6 +529,27 @@ def drm_master(card: Path):
     finally:
         os.close(fd)
     return None
+
+
+def drm_resources(card: Path):
+    """True when `card` answers drmModeGetResources() -- it has a display,
+    and raylib's probe stops at it -- False when it refuses, as raylib finds
+    it refuses, None when that cannot be told: another ioctl encoding, or a
+    card this process cannot open."""
+    if platform.machine().lower() not in GENERIC_IOCTL_MACHINES:
+        return None
+    import fcntl
+    try:
+        fd = os.open(card, os.O_RDWR | os.O_CLOEXEC | os.O_NOCTTY)
+    except OSError:
+        return None
+    try:
+        fcntl.ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, bytearray(DRM_MODE_CARD_RES_SIZE))
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+    return True
 
 
 def describe_node(path: Path) -> str:
@@ -548,13 +582,17 @@ class Devices:
     """What a DRM/KMS game would meet on this machine. `missing` and `held`
     are reasons it cannot start whoever runs it; `blocked` are the nodes this
     user cannot open, which root or the video and input groups can; `notes`
-    are true and do not stop it."""
+    are true and do not stop it. `card` is the one raylib would draw on, run
+    as this user, or None; `passed` the cards it tries before that one and
+    passes over, each with why."""
 
     def __init__(self):
         self.missing = ""
         self.held: list[Path] = []
         self.blocked: list[str] = []
         self.notes: list[str] = []
+        self.card = None
+        self.passed: list[str] = []
 
 
 def device_access(dev: Path) -> Devices:
@@ -574,12 +612,34 @@ def device_access(dev: Path) -> Devices:
         if others:
             found.missing += f" (this machine has {', '.join(others)}, which raylib never tries)"
     else:
-        usable = [c for c in cards if node_access(c, os.R_OK | os.W_OK)]
-        if not usable:
-            found.blocked += [f"{c}  {describe_node(c)}: you cannot open it to draw" for c in cards]
-        elif drm_master(usable[0]) is False:
-            # The one raylib will take: the first of its cards this user can open.
-            found.held = [usable[0]]
+        # The card raylib takes, asked as raylib asks: in its order, the first
+        # this user can open that answers drmModeGetResources(). One it cannot
+        # open, or one with no display, it passes over -- and never looks
+        # past the one that answers, so neither does this.
+        closed = []
+        for card in cards:
+            if not node_access(card, os.R_OK | os.W_OK):
+                closed.append(card)
+                found.passed.append(f"you cannot open {card} -- as root, the game may draw "
+                                    "there instead")
+            elif drm_resources(card) is False:
+                found.passed.append(f"{card} has no display: it answers no "
+                                    "drmModeGetResources()")
+            else:
+                found.card = card
+                break
+        if found.card is None and closed:
+            # Root may open these, and find the display there.
+            found.blocked += [f"{c}  {describe_node(c)}: you cannot open it to draw"
+                              for c in closed]
+        elif found.card is None:
+            tried = ", ".join(str(c) for c in cards)
+            found.missing = (f"no card raylib tries has a display: {tried} answered no "
+                             "drmModeGetResources() -- a GPU with no display engine, or a "
+                             "display driver loaded without modesetting (nomodeset on the "
+                             "kernel's command line)")
+        elif drm_master(found.card) is False:
+            found.held = [found.card]
     events = numbered(dev / "input", "event")
     if not events:
         found.notes.append(f"there is no {dev}/input/event*: the game reads the keys of the "
@@ -724,6 +784,10 @@ def start_game(ctx: Ctx, exe: Path, env=None, capture: bool = False, sudo: bool 
         # before sudo asks for a password, as for anyone.
         found.blocked = []
     refuse_devices(found, exe)
+    if found.card is not None:
+        print(f"  screen   the game draws on {found.card}, {CARD_TAKEN}")
+        for passed in found.passed:
+            print(f"           passed over: {passed}")
     for note in found.notes:
         print(f"  note     {note}")
     argv = sudo_argv(exe) if sudo else [str(exe)]

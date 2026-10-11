@@ -1036,6 +1036,8 @@ jobs:
           if grep -qE "libX11|libwayland" ldd.txt; then cat ldd.txt; fail "a windowing system was linked"; fi
           echo "$OUT" | grep -qF "there is no /dev/input/event*: the game reads the keys" \
             || fail "rmp run did not check /dev before it started the game"
+          echo "$OUT" | grep -qF "the first card raylib tries that it can open and that has a display" \
+            || fail "rmp run did not say which card raylib takes"
           echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
             || fail "it did not boot through rmp run, or an asset failed to load"
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK || fail "it drew nothing"
