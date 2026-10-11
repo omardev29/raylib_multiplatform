@@ -1,0 +1,4 @@
+# libFuzzer flags for fuzz_test_window, one a line: tools/fuzz.sh run and merge pass them.
+# WIDTHxHEIGHT is at most 11 bytes; 64 hold every way of being one or not, and
+# keep the merged corpus small (tests/campaign_test.py holds the whole corpus under 2 MB).
+-max_len=64
