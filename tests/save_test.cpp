@@ -1082,7 +1082,9 @@ TEST_SUITE("save: format") {
         // same new key, and turns every save a player has into MODIFIED.
         // Found by Mull (crypto_blake2b's sizes, mutated, survived). Renaming
         // [project] name changes the key on purpose (the .toml says so): then
-        // this case is the reminder, and the bytes are sealed again.
+        // this case fails, and the bytes are sealed again. It fails rather
+        // than skips: tests/ is the framework's alone, whose name is ray_test,
+        // and a reminder that passes is one nobody reads (review of P1).
         const std::string hex =
             "726d702d7361766520312032207365616c65642035382032366263623564390a"
             "27931c6c32802925128b55b81746b54ea4dbb66998c03c9275f73f3d12b9438"
@@ -1091,11 +1093,9 @@ TEST_SUITE("save: format") {
         for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
             file.push_back(
                 static_cast<unsigned char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
-        if (std::string_view(RMP_PROJECT_NAME) != "ray_test") {
-            MESSAGE("[project] name is not ray_test here: the sealed bytes are another "
-                    "key's");
-            return;
-        }
+        REQUIRE_MESSAGE(std::string_view(RMP_PROJECT_NAME) == "ray_test",
+                        "[project] name is no longer ray_test: seal these bytes again "
+                        "with the new name's key");
         Value back;
         REQUIRE(rmp::save::detail::decode(file, &back, true) == Status::OK);
         Value expected = Value::list();
