@@ -926,6 +926,29 @@ TEST_SUITE("resources: table") {
         rmp::detail::release_all();
     }
 
+    TEST_CASE("every kind the table holds is let go with its last handle, empty or not") {
+        // The kinds no loader of rmp::assets hands out yet -- music, shaders,
+        // render textures -- and a sheet with no texture: a zeroed payload of
+        // each is what a test without a window can make, and raylib's Unload*
+        // of each takes one.
+        using rmp::detail::ResourceKind;
+        rmp::detail::release_all();
+        {
+            const rmp::Texture texture{ rmp::detail::adopt(ResourceKind::TEXTURE,
+                                                           Texture2D{}) };
+            const rmp::Music music{ rmp::detail::adopt(ResourceKind::MUSIC, ::Music{}) };
+            const rmp::Shader shader{ rmp::detail::adopt(ResourceKind::SHADER,
+                                                         ::Shader{}) };
+            const rmp::RenderTexture target{ rmp::detail::adopt(
+                ResourceKind::RENDER_TEXTURE, RenderTexture2D{}) };
+            const rmp::SpriteSheet sheet{ rmp::detail::adopt(ResourceKind::SHEET,
+                                                             rmp::SheetData{}) };
+            CHECK(rmp::detail::live_count() == 5);
+            CHECK(sheet.raw().frame_count() == 0);
+        }
+        CHECK(rmp::detail::live_count() == 0);
+    }
+
     TEST_CASE(
         "a handle that outlived release_all() never holds what is loaded after it") {
         // The next load used to reuse the slot release_all() emptied under a
