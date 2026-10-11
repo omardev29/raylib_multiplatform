@@ -20,7 +20,8 @@ check go red on the mistake it is there for:
     (`// covers: <function>` in a tests/property/*_prop.cpp whose code calls
     it) or waived in tests/property/waivers.txt, a list that only shrinks;
   - every rmp::test::check() description is a string literal, and no two
-    alike: it is the key RC_PARAMS="reproduce=..." finds a property by;
+    alike: it is the key RC_PARAMS="reproduce=..." finds a property by; and
+    no property file calls RapidCheck's rc::check(), which fails nothing;
   - Hypothesis is a skip that says so where it is not installed, and a
     failure where RMP_REQUIRE_HYPOTHESIS=1;
   - nothing under src/rmp/ or include/rmp/ throws or includes RapidCheck:
@@ -933,6 +934,14 @@ def description_problems(folder: Path = PROPERTY) -> list[str]:
     out = [f"{where}: a check() whose description is not a string literal -- it is the key "
            "RC_PARAMS=\"reproduce=...\" finds the property by, so it is written out"
            for where in not_literal]
+    # RapidCheck's own rc::check() prints to stderr and returns a bool: a
+    # property that fails through it is a line in the log and a green run.
+    for path in sorted(folder.glob("*_prop.cpp")):
+        code = cpp_text.blank(path.read_text(encoding="utf-8"))
+        lines = cpp_text.Lines(code)
+        for call in re.finditer(r"\brc::check\s*\(", code):
+            out.append(f"{path.name}:{lines.of(call.start())}: rc::check() fails nothing -- it "
+                       "prints and returns a bool; rmp::test::check() is a doctest check")
     for text, wheres in sorted(found.items()):
         if len(wheres) > 1:
             out.append(f"{' and '.join(wheres)} share the description {text!r}: a reproduce "
@@ -976,6 +985,9 @@ class PropertyFilesTest(unittest.TestCase):
                  "a_prop.cpp:6 and b_prop.cpp:1 share the description 'a range holds its ends'"),
                 ("b_prop.cpp", 'void f() { rmp::test::check(name, g); }\n',
                  "b_prop.cpp:1: a check() whose description is not a string literal"),
+                ("b_prop.cpp", 'void f() {\n  // rc::check("said", g) in a comment\n'
+                               '  rc::check("a range holds its ends", g);\n}\n',
+                 "b_prop.cpp:3: rc::check() fails nothing"),
                 ("b_prop.cpp", '// covers: rmp::random::chance(float)\n'
                                'void f() { /* chance(0.5F) */ const char *s = "chance(1)"; }\n',
                  "b_prop.cpp covers rmp::random::chance(float), and its code never calls chance"),
