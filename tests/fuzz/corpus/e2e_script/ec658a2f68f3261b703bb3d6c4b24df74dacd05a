@@ -1,0 +1,14 @@
+# examples/gameswhere it is: columns 4-6.
+1 tap KEY_ENTER
+3 tap KEY_ENTER
+4 shot t_turned_twice
+4 press KEY_DOWN
+64 release KEY_DOWN
+
+# I: four to 36000 columns 0-3.
+65 tap KEY_LEFT
+67 tap KEY_LEFT
+69 tap KEY_LEFT
+71 tap KEY_LEFT
+72 press KEY_DOWN
+131 rele

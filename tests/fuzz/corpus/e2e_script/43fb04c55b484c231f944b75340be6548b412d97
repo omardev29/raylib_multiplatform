@@ -1,0 +1,9 @@
+# examples/ui/04_settings,  GAMEPAD_BUTTON_LEFT_FACE_DOWN
+20 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+21 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+30 shot 36000quality_list_open
+
+# A picks it.
+# The name field takes  click 466 300
+126 shot reverted
+063 end

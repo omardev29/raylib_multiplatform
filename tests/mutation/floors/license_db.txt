@@ -1,0 +1,5 @@
+# tools/license_db.py (package P8).
+kind     py
+sources  tools/license_db.py
+tests    tests/configure_test.py
+floor    -

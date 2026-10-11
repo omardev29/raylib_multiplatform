@@ -1,0 +1,9 @@
+#of health and adds. See
+# tests/e1e/script.h for the gramma# --- the happyo it
+# again.
+62 click 175 340
+64 click 80 130
+66 tap KEY_TAB
+68 tap KEY_TAB
+79 shot done_has_the_focus
+79 end

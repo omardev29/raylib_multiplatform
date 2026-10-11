@@ -1,0 +1,5 @@
+# Collision: the grid, raycasts, sweeps (package P5).
+kind     cxx
+sources  src/rmp/collision.cpp
+tests    unit_test -sf=*collision_test.cpp,*map_collision_test.cpp
+floor    -

@@ -1,0 +1,13 @@
+# examples/games/03_sthat one.
+547 tap KEY_SPACE
+547 press KEY_RIGHT
+555 tap KEY_SPACE
+563 tap KEY_SPACE
+566 release KEY_RIGHT
+569 tap KEY_RIGHT
+571 tap KEY_SPACE
+572 press KEY_RIGHT
+579 tap KEY_SPACE
+587 tap KEY_SPACE
+587 release KEY_RIGHT
+588 press KEY_R

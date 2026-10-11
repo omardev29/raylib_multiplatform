@@ -1,0 +1,5 @@
+# raylib's file loader, routed through the resources folder and the pack (package P4).
+kind     cxx
+sources  src/rmp/loader_hook.cpp
+tests    unit_test -tse=*device*
+floor    -

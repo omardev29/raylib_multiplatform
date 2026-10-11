@@ -1,0 +1,9 @@
+# examples down tat E_DOWN
+21 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+23 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+
+# Tab past  Maot pthe checkbox in the content, and Enter: the grid goes.
+25 tap KEY_TAB
+27 tap KEY_TAB
+29 tap KEY_ENTER
+40 shot craf

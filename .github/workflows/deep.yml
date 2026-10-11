@@ -1,0 +1,351 @@
+# The deep test campaign's long runs. What a push runs is the deterministic
+# half -- ci.yml's `deep` job: fixed seeds, derandomized examples, the
+# committed fuzz inputs replayed. This is the other half, the search:
+#
+#   every night  every fuzz target fuzzed for ten minutes, from the committed
+#                corpus; the properties at a random seed (printed) and 5000
+#                cases; Hypothesis at its `nightly` profile.
+#   every Sunday every mutation module, one job each: Mull over the C++,
+#                mutmut over the Python, against tests/mutation/floors/.
+#
+# What a job finds is an issue labelled nightly-finding, ONE per signature
+# (tools/finding.py): the same crash found again is a comment on its issue,
+# never a second one -- the drift.yml pattern of rmp-docs. Every issue carries
+# the one command that plays it again, and the run keeps the input. Those
+# issues are what an agent working on this repository takes first.
+#
+# What fuzzing found that adds coverage is uploaded as `corpus-<target>`,
+# merged and minimised; committing it (tools/fuzz.sh merge) is a pull request,
+# never this workflow's.
+#
+# The framework's alone: a game made with `rmp new` gets no file of
+# .github/workflows/ but the ones INCLUDE names, and this is not one of them;
+# and like the canary it runs only here, because a repository made from this
+# one is a copy, not a fork.
+
+name: Deep
+
+on:
+  schedule:
+    - cron: '0 3 * * *'     # nightly: fuzz and properties
+    - cron: '30 4 * * 0'    # weekly, Sundays: mutation
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'nightly (fuzz, properties) or weekly (mutation)'
+        type: choice
+        options: [nightly, weekly]
+        default: nightly
+      seconds:
+        description: 'How long each fuzz target runs'
+        type: string
+        default: '600'
+      only:
+        description: 'One fuzz target or mutation module (blank = every one)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# One run of each mode at a time; never cancel one, it may have found something.
+concurrency:
+  group: deep-${{ github.event.schedule || inputs.mode }}
+  cancel-in-progress: false
+
+env:
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  # There is no workflow-level `if`, so the guard lives here and every other
+  # job needs this one: a skipped `needs` skips the lot.
+  plan:
+    if: github.repository == 'omardev29/raylib_multiplatform'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.p.outputs.mode }}
+      seconds: ${{ steps.p.outputs.seconds }}
+      targets: ${{ steps.p.outputs.targets }}
+      modules: ${{ steps.p.outputs.modules }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - id: p
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          MODE: ${{ inputs.mode }}
+          SECONDS_IN: ${{ inputs.seconds }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          if [ "$SCHEDULE" = '30 4 * * 0' ]; then MODE=weekly; fi
+          MODE=${MODE:-nightly}
+          case "$MODE" in nightly | weekly) ;; *) echo "FAIL: mode '$MODE'"; exit 1 ;; esac
+          SECONDS_RUN=${SECONDS_IN:-600}
+          case "$SECONDS_RUN" in '' | *[!0-9]*) echo "FAIL: seconds '$SECONDS_RUN'"; exit 1 ;; esac
+          targets=$(bash tools/fuzz.sh targets)
+          modules=$(bash tools/mutation.sh modules | cut -d' ' -f2)
+          if [ -n "${ONLY:-}" ]; then
+            targets=$(printf '%s\n' "$targets" | grep -x -- "$ONLY" || true)
+            modules=$(printf '%s\n' "$modules" | grep -x -- "$ONLY" || true)
+            if [ -z "$targets$modules" ]; then echo "FAIL: '$ONLY' is no target and no module"; exit 1; fi
+          fi
+          json() { python3 -c 'import json, sys; print(json.dumps(sys.stdin.read().split()))'; }
+          {
+            echo "mode=$MODE"
+            echo "seconds=$SECONDS_RUN"
+            echo "targets=$(printf '%s\n' "$targets" | json)"
+            echo "modules=$(printf '%s\n' "$modules" | json)"
+          } >> "$GITHUB_OUTPUT"
+          echo "mode $MODE, ${SECONDS_RUN}s a target"
+          echo "targets: $targets"
+          echo "modules: $modules"
+
+  fuzz:
+    needs: plan
+    if: needs.plan.outputs.mode == 'nightly' && needs.plan.outputs.targets != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.plan.outputs.targets) }}
+    permissions:
+      contents: read
+      packages: read
+    # The image ci.yml pins, written out: a job's `container:` cannot read
+    # `env`, and tools/versions_check.sh fails if any workflow's digest is not
+    # the one in thirdparty/FROZEN_VERSIONS.md.
+    container:
+      image: ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      SECONDS_RUN: ${{ needs.plan.outputs.seconds }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Build
+        env:
+          RMP_REQUIRE_LIBFUZZER: "1"
+        run: |
+          set -euo pipefail
+          python3 tools/configure.py > /dev/null
+          bash tools/fuzz.sh build
+
+      # A random seed, printed: `-seed=N` with the same corpus is the same run.
+      - name: Fuzz
+        id: fuzz
+        run: |
+          set -euo pipefail
+          RMP_FUZZ_SEED=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+          export RMP_FUZZ_SEED
+          echo "seed $RMP_FUZZ_SEED"
+          status=0
+          bash tools/fuzz.sh run "$TARGET" "$SECONDS_RUN" > build/fuzz/run.log 2>&1 || status=$?
+          grep -v -E '^#[0-9]+ +(NEW|REDUCE|pulse)' build/fuzz/run.log | tail -40
+          exit "$status"
+
+      - name: Record what it found
+        if: failure() && steps.fuzz.conclusion == 'failure'
+        run: |
+          set -euo pipefail
+          crash=$(find "build/fuzz/crashes/$TARGET" -type f | head -1)
+          python3 tools/finding.py record fuzz "$TARGET" build/fuzz/run.log \
+            --repro "bash tools/fuzz.sh build && bash tools/fuzz.sh replay $TARGET <the input from the run's fuzz-$TARGET artifact: ${crash##*/}>"
+
+      # What adds coverage, merged into the committed corpus and minimised:
+      # the next pull request's to commit, after a look at its size.
+      - name: Merge what it found
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d "build/fuzz/new/$TARGET" ]; then bash tools/fuzz.sh merge "$TARGET"; fi
+
+      - name: Keep the inputs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            build/fuzz/crashes/
+            build/fuzz/run.log
+            tests/fuzz/corpus/${{ matrix.target }}/
+          if-no-files-found: ignore
+
+      - name: Keep the finding
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: finding-fuzz-${{ matrix.target }}
+          path: build/findings/
+          if-no-files-found: ignore
+
+  properties:
+    needs: plan
+    if: needs.plan.outputs.mode == 'nightly'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    # The image ci.yml pins, written out: a job's `container:` cannot read
+    # `env`, and tools/versions_check.sh fails if any workflow's digest is not
+    # the one in thirdparty/FROZEN_VERSIONS.md.
+    container:
+      image: ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: RapidCheck, at a random seed
+        id: rapidcheck
+        env:
+          RMP_REQUIRE_SANITIZERS: "1"
+        run: |
+          set -euo pipefail
+          python3 tools/configure.py > /dev/null
+          cmake --preset debug -DBUILD_TESTS=ON > /dev/null
+          cmake --build --preset debug --target property_test > /dev/null
+          seed=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+          echo "RC_PARAMS=\"seed=$seed max_success=5000\""
+          mkdir -p build/findings
+          status=0
+          RC_PARAMS="seed=$seed max_success=5000" ./build/debug/property_test \
+            > build/findings/rapidcheck.log 2>&1 || status=$?
+          tail -60 build/findings/rapidcheck.log
+          exit "$status"
+
+      - name: Record what RapidCheck found
+        if: failure() && steps.rapidcheck.conclusion == 'failure'
+        run: |
+          repro=$(grep -o 'RC_PARAMS="reproduce=[^"]*"' build/findings/rapidcheck.log | head -1 || true)
+          python3 tools/finding.py record property rapidcheck build/findings/rapidcheck.log \
+            --repro "cmake --build --preset debug --target property_test && ${repro:-RC_PARAMS=<the seed above>} ./build/debug/property_test"
+
+      - name: Hypothesis, at its nightly profile
+        id: hypothesis
+        if: always()
+        env:
+          RMP_REQUIRE_HYPOTHESIS: "1"
+          RMP_HYPOTHESIS_PROFILE: nightly
+        run: |
+          set -euo pipefail
+          mkdir -p build/findings
+          status=0
+          python3 -m unittest discover -s tests -p '*_property_test.py' -v \
+            > build/findings/hypothesis.log 2>&1 || status=$?
+          tail -60 build/findings/hypothesis.log
+          exit "$status"
+
+      - name: Record what Hypothesis found
+        if: failure() && steps.hypothesis.conclusion == 'failure'
+        run: |
+          python3 tools/finding.py record hypothesis hypothesis build/findings/hypothesis.log \
+            --repro "python3 -m unittest discover -s tests -p '*_property_test.py' -v, with the @reproduce_failure line the log prints"
+
+      - name: Keep the finding
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: finding-properties
+          path: build/findings/
+          if-no-files-found: ignore
+
+  mutation:
+    needs: plan
+    if: needs.plan.outputs.mode == 'weekly' && needs.plan.outputs.modules != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        module: ${{ fromJSON(needs.plan.outputs.modules) }}
+    permissions:
+      contents: read
+      packages: read
+    # The image ci.yml pins, written out: a job's `container:` cannot read
+    # `env`, and tools/versions_check.sh fails if any workflow's digest is not
+    # the one in thirdparty/FROZEN_VERSIONS.md.
+    container:
+      image: ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f
+    defaults:
+      run:
+        shell: bash
+    env:
+      MODULE: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The checkout belongs to the runner's user and this container runs as
+      # root: git answers nothing about it until told the folder is safe, and
+      # mutmut's copy of the tree is what git tracks.
+      - name: git trusts the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Mutate
+        id: mutate
+        run: |
+          set -euo pipefail
+          python3 tools/configure.py > /dev/null
+          mkdir -p build/mutation
+          status=0
+          bash tools/mutation.sh run "$MODULE" > build/mutation/run.log 2>&1 || status=$?
+          tail -40 build/mutation/run.log
+          exit "$status"
+
+      - name: Record what it found
+        if: failure() && steps.mutate.conclusion == 'failure'
+        run: |
+          python3 tools/finding.py record mutation "$MODULE" build/mutation/run.log \
+            --repro "bash tools/mutation.sh run $MODULE"
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: mutation-${{ matrix.module }}
+          path: |
+            build/mutation/run.log
+            build/mutation/*/report/
+          if-no-files-found: ignore
+
+      - name: Keep the finding
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: finding-mutation-${{ matrix.module }}
+          path: build/findings/
+          if-no-files-found: ignore
+
+  report:
+    needs: [plan, fuzz, properties, mutation]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: finding-*
+          path: build/findings
+          merge-multiple: true
+
+      - name: One issue per signature
+        run: |
+          set -euo pipefail
+          mkdir -p build/findings
+          python3 tools/finding.py report build/findings

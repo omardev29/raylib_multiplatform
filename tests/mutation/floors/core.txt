@@ -1,0 +1,5 @@
+# The small ones: globals, report_once, ads' stub (package P6).
+kind     cxx
+sources  src/rmp/global.cpp src/rmp/report.cpp src/rmp/ads.cpp
+tests    unit_test -tse=*device*
+floor    -

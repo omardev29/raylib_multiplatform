@@ -1,0 +1,69 @@
+# examples/ui/04_settings, played: every kind of control from the keyboard,
+# the gamepad and the mouse, applied and then reverted; a value at its
+# limit, a disabled box, a list closed without a choice. Everything but
+# typing: the field reads raylib's character queue (phase 14).
+#
+# The focus starts on Fullscreen, asked for by name, so the ring shows from
+# the first frame. A change that animates (a box filling, a colour) takes
+# 0.12 s, so a shot waits ten frames. See tests/e2e/script.h.
+
+# --- the happy path: the keyboard and the gamepad ---------------------------
+
+# Enter ticks Fullscreen, and Revert and Apply wake up.
+1 tap KEY_ENTER
+
+# Down to VSync, and down again to Master volume: the disabled Subtitles is
+# no stop on the way. Right does nothing there -- it is at 100% already.
+3 tap KEY_DOWN
+5 tap KEY_DOWN
+7 tap KEY_RIGHT
+
+# Music, down two steps of 5%: 80% to 70%.
+9 tap KEY_DOWN
+11 tap KEY_LEFT
+13 tap KEY_LEFT
+
+# The gamepad: down past Sensitivity to Quality in the other column, A to
+# open its list, down to High.
+15 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+17 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+19 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+21 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+30 shot quality_list_open
+
+# A picks it.
+31 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+
+# Language: opened, walked to Espanol, and closed with Escape -- English
+# stays.
+33 tap KEY_DOWN
+35 tap KEY_ENTER
+37 tap KEY_DOWN
+39 tap KEY_ESCAPE
+
+# The name field takes the keyboard when the focus arrives on it, and its
+# caret blinks twice a second on the game's clock: shown for the first half
+# of each second, hidden for the second.
+41 tap KEY_DOWN
+52 shot name_caret_shown
+82 shot name_caret_hidden
+
+# Down past it to Revert, to Apply, and Enter: kept, and nothing is unsaved.
+83 tap KEY_DOWN
+85 tap KEY_DOWN
+87 tap KEY_ENTER
+98 shot applied
+
+# --- the mouse, and what does not move --------------------------------------
+
+# VSync off with a click; a click on the disabled Subtitles does nothing; a
+# click on Sensitivity's rail puts it there, in steps of 5%.
+99 click 63 172
+101 click 63 217
+103 click 300 355
+114 shot clicked
+
+# Revert: back to what Apply kept.
+115 click 466 300
+126 shot reverted
+126 end

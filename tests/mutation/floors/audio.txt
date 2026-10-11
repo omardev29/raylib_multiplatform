@@ -1,0 +1,5 @@
+# rmp::audio (package P6).
+kind     cxx
+sources  src/rmp/audio.cpp
+tests    unit_test -sf=*audio_test.cpp
+floor    -

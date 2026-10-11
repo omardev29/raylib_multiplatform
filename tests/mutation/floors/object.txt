@@ -1,0 +1,5 @@
+# rmp::Object and its handles (package P5; the test-screen seam is Stage D's).
+kind     cxx
+sources  src/rmp/object.cpp
+tests    unit_test -sf=*object_test.cpp
+floor    -

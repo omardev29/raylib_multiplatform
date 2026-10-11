@@ -1,0 +1,5 @@
+# The behaviour engine and the thirteen behaviours (package P6).
+kind     cxx
+sources  src/rmp/behavior.cpp src/rmp/behaviors.cpp
+tests    unit_test -sf=*behavior_test.cpp,*behaviors_test.cpp
+floor    -

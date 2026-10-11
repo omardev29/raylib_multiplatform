@@ -1,0 +1,132 @@
+# examples/games/02_breakout, played: a game lost, then the wall cleared.
+#
+# The paddle is on the arrows, at 520 px/s: 8.67 px a frame held. The ball is
+# served up off the paddle and gains 1 % on every bounce off the paddle or a
+# brick, and nothing in the game is random, so a frame is a place in the game.
+# See tests/e2e/script.h for the grammar.
+
+# --- the failure path: three balls lost ---------------------------------------
+
+# The paddle never moves. Each serve breaks a brick or two on its way up and
+# comes down where the paddle is not; the first is lost in frame 106.
+110 shot life_lost
+426 expect scene BreakoutScene
+427 expect scene OverScene
+430 shot game_over
+
+# Play again, with the mouse: down on 440, up on 441, the new wall from 442.
+440 click 400 245
+440 expect scene OverScene
+441 expect scene BreakoutScene
+
+# --- the happy path: fifty bricks -----------------------------------------------
+
+# The moves of a player who reads where the ball will come down and meets it
+# with the part of the paddle that sends it at the bricks that are left.
+# Recorded, not written by hand: a bot with the game's own physics chose each
+# one, and this is what it pressed. At 3 % a bounce (the game as it was) the
+# same bot lost its three balls with four bricks left at best: by the
+# thirtieth brick the ball was four times its serve, far faster than the
+# paddle.
+442 press KEY_RIGHT
+451 release KEY_RIGHT
+483 press KEY_LEFT
+501 release KEY_LEFT
+533 press KEY_LEFT
+543 release KEY_LEFT
+578 press KEY_LEFT
+587 release KEY_LEFT
+622 press KEY_RIGHT
+634 release KEY_RIGHT
+724 press KEY_RIGHT
+736 release KEY_RIGHT
+763 press KEY_RIGHT
+764 release KEY_RIGHT
+808 press KEY_RIGHT
+809 release KEY_RIGHT
+832 press KEY_LEFT
+862 release KEY_LEFT
+876 press KEY_LEFT
+878 release KEY_LEFT
+913 press KEY_LEFT
+919 release KEY_LEFT
+952 press KEY_RIGHT
+966 release KEY_RIGHT
+1009 press KEY_RIGHT
+1016 release KEY_RIGHT
+1044 press KEY_RIGHT
+1057 release KEY_RIGHT
+1110 press KEY_RIGHT
+1116 release KEY_RIGHT
+
+# Through the wall: the ball is above it, breaking bricks from the top.
+1135 shot above_the_wall
+1142 press KEY_LEFT
+1164 release KEY_LEFT
+1172 press KEY_RIGHT
+1180 release KEY_RIGHT
+1210 press KEY_RIGHT
+1218 release KEY_RIGHT
+1242 press KEY_RIGHT
+1250 release KEY_RIGHT
+1313 press KEY_LEFT
+1328 release KEY_LEFT
+1350 press KEY_LEFT
+1372 release KEY_LEFT
+1402 press KEY_RIGHT
+1421 release KEY_RIGHT
+1437 press KEY_LEFT
+1449 release KEY_LEFT
+1554 press KEY_RIGHT
+1589 release KEY_RIGHT
+1616 press KEY_LEFT
+1651 release KEY_LEFT
+1675 press KEY_RIGHT
+1709 release KEY_RIGHT
+1746 press KEY_RIGHT
+1758 release KEY_RIGHT
+1777 press KEY_LEFT
+1800 release KEY_LEFT
+1852 press KEY_LEFT
+1875 release KEY_LEFT
+1907 press KEY_RIGHT
+1951 release KEY_RIGHT
+1970 press KEY_LEFT
+2007 release KEY_LEFT
+2020 press KEY_RIGHT
+2029 release KEY_RIGHT
+2094 press KEY_RIGHT
+2116 release KEY_RIGHT
+2122 press KEY_RIGHT
+2152 release KEY_RIGHT
+2193 press KEY_LEFT
+2199 release KEY_LEFT
+2203 press KEY_LEFT
+2205 release KEY_LEFT
+2231 press KEY_LEFT
+2249 release KEY_LEFT
+2335 press KEY_LEFT
+2384 release KEY_LEFT
+2395 press KEY_RIGHT
+2461 release KEY_RIGHT
+2515 press KEY_LEFT
+2566 release KEY_LEFT
+2566 press KEY_RIGHT
+2589 release KEY_RIGHT
+2594 press KEY_LEFT
+2637 release KEY_LEFT
+2638 press KEY_RIGHT
+2661 release KEY_RIGHT
+2677 press KEY_RIGHT
+2724 release KEY_RIGHT
+
+# The last brick, at frame 2729.
+2729 expect scene BreakoutScene
+2730 expect scene OverScene
+2733 shot you_win
+
+# Play again, from the keyboard: the button has the focus.
+2740 tap KEY_ENTER
+2740 expect scene BreakoutScene
+2742 shot again
+2742 end

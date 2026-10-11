@@ -1,0 +1,5 @@
+# The rres pack reader (package P4).
+kind     cxx
+sources  src/rmp/pack.cpp
+tests    unit_test -tse=*device*
+floor    -

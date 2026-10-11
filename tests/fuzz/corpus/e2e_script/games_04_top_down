@@ -1,0 +1,58 @@
+# examples/games/04_top_down, played: worn down by the room, then out of the
+# door with the room cleared.
+#
+# The character is on the arrows (TopDown, 240 px/s) and fires on Space
+# (ui_accept) the way it last moved -- right, before it has moved at all. Five
+# enemies come along the middle of the room at 90 px/s; one touching it costs
+# a fifth of its health, and then it is safe for 0.8 s. A shot of its own
+# never hurts it, and an enemy takes two. See tests/e2e/script.h for the
+# grammar.
+
+# --- the failure path: five touches -------------------------------------------
+
+# Straight at them. The first touch is in frame 61, and the pile of them pushes
+# back and keeps touching: one a 0.8 s, five in all.
+1 press KEY_RIGHT
+112 shot hurt
+259 expect scene TopDownScene
+260 expect scene OverScene
+263 shot you_died
+
+# Play again, with the mouse: down on 272, up on 273, the new room from 274.
+270 release KEY_RIGHT
+272 click 400 245
+272 expect scene OverScene
+273 expect scene TopDownScene
+
+# --- the happy path: ten hits, and the door ---------------------------------------
+
+# A shot every eighth frame from where it stands, straight down the line they
+# walk along -- fourteen for the ten hits five enemies take -- and when the
+# front ones are down, at the rest and on to the door: the last falls in frame
+# 387, and the door is reached in 471, untouched.
+275 tap KEY_SPACE
+283 tap KEY_SPACE
+291 tap KEY_SPACE
+299 tap KEY_SPACE
+307 tap KEY_SPACE
+315 tap KEY_SPACE
+318 shot first_enemy_down
+323 tap KEY_SPACE
+331 tap KEY_SPACE
+334 press KEY_RIGHT
+339 tap KEY_SPACE
+347 tap KEY_SPACE
+355 tap KEY_SPACE
+363 tap KEY_SPACE
+371 tap KEY_SPACE
+379 tap KEY_SPACE
+470 expect scene TopDownScene
+471 expect scene OverScene
+474 shot level_cleared
+
+# Play again, from the keyboard: the button has the focus.
+480 release KEY_RIGHT
+485 tap KEY_ENTER
+485 expect scene TopDownScene
+487 shot again
+487 end

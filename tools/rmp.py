@@ -89,6 +89,10 @@ BUILD_DIRS = {
     "memory-release": "tools/shipped_check.sh: a release, started from another folder",
     "test-locales": "tools/test_locales.sh: the locales the unit tests read",
     "ksh": "the OpenBSD job: what `ksh ./rmp help` printed in the VM",
+    "fuzz": "tools/fuzz.sh: the fuzz targets, with libFuzzer where clang has it, and what it found",
+    "mutation": "tools/mutation.sh: Mull's and mutmut's builds, copies and reports",
+    "hypothesis": "tests/hypothesis_profiles.py's nightly profile: the examples Hypothesis keeps",
+    "findings": "tools/finding.py: what a deep run found, before it is an issue",
 }
 
 # What `rmp clean` deletes: every build, and everything generated from the
@@ -874,6 +878,19 @@ STAGES = [
           [("configure", ["-DBUILD_UI_TESTS=ON"]),
            ("build", "ui_layout_test"),
            ("run", ["build/debug/ui_layout_test"])]),
+    # The deep test campaign (tests/deep.cmake, tools/fuzz.sh, tools/mutation.sh).
+    # property: the campaign's own gates, then RapidCheck at the fixed seed
+    # tests/property/main.cpp sets, then Hypothesis at its `ci` profile -- which
+    # says so and skips without hypothesis installed, unless
+    # RMP_REQUIRE_HYPOTHESIS=1 (CI, the image has it).
+    Stage("property", "properties: RapidCheck on the C++, Hypothesis on the Python",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "campaign_test.py"]),
+           ("configure", ["-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"]),
+           ("build", "property_test"),
+           ("run", ["build/debug/property_test"]),
+           ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "*_property_test.py"])]),
     Stage("render", "draw a frame in software and check it",
           [("render", "check")], scope="both"),
     Stage("smoke", "build the game, boot it, see it draw",
@@ -884,9 +901,15 @@ STAGES = [
           [("run", ["{python}", "tools/configure.py"]),
            ("run", ["bash", "tools/examples_build.sh", "boot"]),
            ("run", ["bash", "tools/examples_build.sh", "e2e"])], in_all=False),
-    Stage("sanitize", "the unit tests again under ASan and UBSan",
+    Stage("sanitize", "the unit and layout tests again, under gcc's ASan and UBSan",
           [("run", ["bash", "tools/test_locales.sh", "build/test-locales"]),
            ("run", ["bash", "tools/sanitize_check.sh"])], in_all=False),
+    # A second instrumented tree (build/fuzz) and minutes of Mull: by name.
+    Stage("fuzz", "every fuzz target built, and every committed input replayed",
+          [("run", ["bash", "tools/fuzz.sh", "build"]),
+           ("run", ["bash", "tools/fuzz.sh", "replay"])], in_all=False),
+    Stage("mutation", "Mull and mutmut against every floor (build image, hours)",
+          [("run", ["bash", "tools/mutation.sh", "all"])], in_all=False),
     Stage("coverage", "what the tests run of src/rmp, against its floors",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "coverage_report_test.py"]),

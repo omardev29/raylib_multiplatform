@@ -1,0 +1,7 @@
+# exarrows), S---------------›“““““““---
+1 shot title
+4 expect scene TitleScene
+# Play has the focus: Ente TE≤
+1900 expect scene TitleScene
+1903 shot title_with_best
+0951 end

@@ -191,9 +191,10 @@ jobs:
     needs: config
     runs-on: ubuntu-24.04
     # 12: 7m33s on the push of ed7e5fb without clang-tidy (14m30s with it,
-    # of its 15), which is the `tidy` job's now. The unit tests, the layout
-    # test and the render check are instrumented by ASan and UBSan, and the gcc
-    # build of the unit tests follows them.
+    # of its 15), which is the `tidy` job's now; the gcc build of the unit
+    # tests (70 s of it in run 38114100697) is the `deep` job's. The unit
+    # tests, the layout test and the render check are instrumented by ASan
+    # and UBSan.
     timeout-minutes: 12
     permissions:
       contents: read
@@ -460,19 +461,8 @@ jobs:
           ./build/debug/unit_test
           ./build/debug/unit_test --order-by=rand --rand-seed=1337 --test-suite-exclude="audio: device"
 
-      # The same unit tests built with AddressSanitizer and UndefinedBehavior-
-      # Sanitizer, every report fatal. A test asserts what it can see, and UB
-      # is what it cannot: the LDtk reader reached its first review with a
-      # signed overflow, float casts past INT_MAX and a read off the end of a
-      # vector, every one under a passing test. The step above is that, with
-      # clang; this is the second compiler, gcc, which the script pins.
-      - name: Unit tests under ASan and UBSan
-        if: needs.config.outputs.framework == 'true'
-        run: |
-          set -euo pipefail
-          export LOCPATH="$PWD/build/test-locales"
-          export RMP_REQUIRE_TEST_LOCALES=1
-          bash tools/sanitize_check.sh
+      # The gcc build of these tests under ASan and UBSan is the deep job's:
+      # it was 70 of this job's 636 seconds.
 
       # The headless UI layout assertions: four resolutions, no window, no GPU,
       # and the thing phases 1-4 of the UI architecture are gated on. It was
@@ -782,7 +772,10 @@ jobs:
           # the whole tree; these are the ones that would change what the
           # game's CI does.
           for f in tests/configure_test.py examples CLAUDE.md .claude .clang-tidy \
-                   LICENSE tools/naming_check.sh .github/workflows/canary.yml; do
+                   LICENSE tools/naming_check.sh .github/workflows/canary.yml \
+                   tests/deep.cmake tests/fuzz tests/property tests/mutation \
+                   thirdparty/rapidcheck .github/workflows/deep.yml tools/fuzz.sh \
+                   tools/mutation.sh; do
             if [ -e "$f" ]; then echo "FAIL: $f reached the game"; exit 1; fi
           done
           case "$(git ls-files -s thirdparty/raylib-ios)" in
@@ -811,6 +804,11 @@ jobs:
           # tests and examples a game does not have, and stopped at "No
           # SOURCES given to target" until the targets were guarded.
           cmake --preset lint > /dev/null
+          # And none of the framework's deep tests: CMakeLists.txt includes
+          # tests/deep.cmake OPTIONAL, and a game has no such file.
+          if ninja -C build/lint -t targets all | grep -Eq '^(fuzz_|property_test|rapidcheck)'; then
+            echo "FAIL: the game's build has the framework's deep test targets"; exit 1
+          fi
           # A game has no golden frame: the boot, the pixels and a clean exit.
           OUT=$(./rmp test render 2>&1) || { printf '%s\n' "$OUT"; exit 1; }
           printf '%s\n' "$OUT"
@@ -980,6 +978,92 @@ jobs:
             build/coverage/untested_api.txt
           if-no-files-found: warn
 
+  # The deep test campaign, the short runs, on every push -- what is
+  # deterministic: the same seed, the same examples, the same inputs on every
+  # run, so a red is the commit's and never the dice's.
+  #
+  #   - the campaign's own gates (tests/campaign_test.py): every fuzz target
+  #     has its inputs, every file of src/rmp a mutation floor, every public
+  #     function a property or a waiver;
+  #   - the unit tests and the UI layout test built by gcc under ASan and
+  #     UBSan, the second compiler (tools/sanitize_check.sh) -- moved here from
+  #     lint, where it was 70 s of a job near its timeout;
+  #   - RapidCheck at the fixed seed of tests/property/main.cpp, and
+  #     Hypothesis at the derandomized `ci` profile;
+  #   - every committed fuzz input, replayed under libFuzzer, ASan and UBSan.
+  #
+  # The long runs -- fuzzing for minutes, random seeds, Mull and mutmut -- are
+  # .github/workflows/deep.yml's, at night and on Sundays, and what they find
+  # is an issue labelled nightly-finding. The framework's own: a game has
+  # none of these files, and skips the job.
+  deep:
+    needs: config
+    if: needs.config.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Generate configuration
+        run: python3 tools/configure.py
+
+      # The image has clang and hypothesis, so the resilience list reads the
+      # headers here and the profiles are checked: neither may skip.
+      - name: The campaign's own gates
+        env:
+          RMP_REQUIRE_CLANG: "1"
+          RMP_REQUIRE_HYPOTHESIS: "1"
+        run: python3 -m unittest discover -s tests -p 'campaign_test.py' -v
+
+      # The same unit tests built with AddressSanitizer and UndefinedBehavior-
+      # Sanitizer, every report fatal. A test asserts what it can see, and UB
+      # is what it cannot: the LDtk reader reached its first review with a
+      # signed overflow, float casts past INT_MAX and a read off the end of a
+      # vector, every one under a passing test. The lint job's unit tests are
+      # that, with clang; this is the second compiler, gcc, which the script pins.
+      - name: Unit and layout tests under ASan and UBSan (gcc)
+        run: |
+          set -euo pipefail
+          bash tools/test_locales.sh build/test-locales
+          export LOCPATH="$PWD/build/test-locales"
+          export RMP_REQUIRE_TEST_LOCALES=1
+          bash tools/sanitize_check.sh
+
+      # A Debug build, so sanitized like every other; RMP_REQUIRE_SANITIZERS
+      # fails a configure that could not instrument it.
+      - name: Properties (RapidCheck, at its fixed seed)
+        env:
+          RMP_REQUIRE_SANITIZERS: "1"
+        run: |
+          set -euo pipefail
+          cmake --preset debug -DBUILD_TESTS=ON -DRMP_WERROR=ON > /dev/null
+          cmake --build --preset debug --target property_test > /dev/null
+          ./build/debug/property_test
+
+      # The image has hypothesis, so a module that skips here is a failure.
+      - name: Properties (Hypothesis, derandomized)
+        env:
+          RMP_REQUIRE_HYPOTHESIS: "1"
+        run: python3 -m unittest discover -s tests -p '*_property_test.py' -v
+
+      # libFuzzer, required: the image's clang has compiler-rt, and a replay
+      # through replay_main.cpp here would be a smaller check passing for this one.
+      - name: Every committed fuzz input, replayed
+        env:
+          RMP_REQUIRE_LIBFUZZER: "1"
+        run: |
+          set -euo pipefail
+          bash tools/fuzz.sh build
+          bash tools/fuzz.sh replay
+
   # The documentation lives in its own repository, omardev29/rmp-docs, and
   # documents one commit of this one. Here it is checked against THIS commit:
   # every page's gates, every name it links, every C and C++ block it shows
@@ -1128,13 +1212,13 @@ jobs:
   # [targets] reports `skipped`, and demanding success would mean disabling any
   # platform silently disables releases too.
   #
-  # tidy, examples, e2e, rmp_new, coverage and docs are the framework's own; a game skips
-  # them. Skipped passes ONLY in a game: in the framework a skipped job is one that did not
-  # run, and a release it did not check.
+  # tidy, examples, e2e, rmp_new, coverage, deep and docs are the framework's own; a game
+  # skips them. Skipped passes ONLY in a game: in the framework a skipped job is one that did
+  # not run, and a release it did not check.
   # ---------------------------------------------------------------------------
   release:
-    needs: [config, lint, tidy, examples, e2e, rmp_new, coverage, docs, linux, web, windows,
-            android, apple, bsd]
+    needs: [config, lint, tidy, examples, e2e, rmp_new, coverage, deep, docs, linux, web,
+            windows, android, apple, bsd]
     if: >
       always() &&
       github.ref_type == 'tag' &&
@@ -1149,6 +1233,8 @@ jobs:
        (needs.config.outputs.framework == 'false' && needs.rmp_new.result == 'skipped')) &&
       (needs.coverage.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.coverage.result == 'skipped')) &&
+      (needs.deep.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.deep.result == 'skipped')) &&
       (needs.docs.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.docs.result == 'skipped')) &&
       needs.linux.result != 'failure'   && needs.linux.result != 'cancelled' &&

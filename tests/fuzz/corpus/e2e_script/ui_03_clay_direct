@@ -1,0 +1,23 @@
+# examples/ui/03_clay_direct, played: Clay's own API next to rmp::ui, in one
+# tree. Clay_PointerOver() reads the pointer rmp::ui hands Clay, so the
+# script's pointer -- which stays where it last clicked -- hovers Clay's own
+# elements too. See tests/e2e/script.h for the grammar.
+
+# --- the happy path: Clay's hover ------------------------------------------------
+
+# Over the first slot, the one the example asks Clay about: "slot 1" appears
+# under the strip, and the column grows around it.
+3 click 289 213
+14 shot slot_one_hovered
+
+# --- the failure path: and nowhere else -----------------------------------------
+
+# Over the fourth, which nothing asks about: the label goes, and the screen
+# is what it was before anything was hovered.
+15 click 511 213
+26 shot other_slot_says_nothing
+
+# Close, rmp::ui's, is the one control, and Tab shows its focus.
+27 tap KEY_TAB
+38 shot close_has_the_focus
+38 end

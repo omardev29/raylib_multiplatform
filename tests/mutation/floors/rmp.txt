@@ -1,0 +1,5 @@
+# tools/rmp.py (package P9).
+kind     py
+sources  tools/rmp.py
+tests    tests/rmp_test.py
+floor    -

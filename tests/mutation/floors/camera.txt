@@ -1,0 +1,5 @@
+# rmp::Camera (package P3, after Stage D).
+kind     cxx
+sources  src/rmp/camera.cpp
+tests    unit_test -sf=*camera_test.cpp
+floor    -

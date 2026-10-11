@@ -1,0 +1,62 @@
+# examples/games/01_pong, played: two whole games, lost and won.
+#
+# Blue (left) is player one, on W and S; Red (right) is player two, on the
+# arrows. Every serve goes towards whoever conceded, starting with Red, along
+# (1, 0.35): a paddle left where it is misses it, and a point takes 75 frames.
+# See tests/e2e/script.h for the grammar and tools/examples_build.sh for how
+# it runs.
+
+# --- the failure path: Red wins 7-0 ------------------------------------------
+
+# Red goes down to meet the first serve. The arrows are Red's ALONE: they
+# moved both paddles until this script saw it (examples/games/01_pong).
+1 press KEY_DOWN
+19 release KEY_DOWN
+19 shot arrows_move_red_only
+
+# Red returns it, and Blue goes up and away from it.
+100 press KEY_W
+110 release KEY_W
+200 shot red_scores
+200 expect scene PongScene
+
+# Six more serves at Blue, who stays where the serve puts the paddles. The
+# seventh point pushes the end of the game on top of the court.
+639 expect scene PongScene
+640 expect scene OverScene
+641 shot red_wins
+
+# The court below is frozen and deaf: Red's keys move nothing now.
+645 press KEY_UP
+655 release KEY_UP
+658 shot court_frozen
+
+# Play again, with the mouse: down on 660, up on 661, the new game from 662.
+660 click 400 245
+660 expect scene OverScene
+661 expect scene PongScene
+
+# --- the happy path: Blue wins 7-0 -------------------------------------------
+
+# Red returns the first serve again, the same way...
+663 press KEY_DOWN
+681 release KEY_DOWN
+# ...and this time Blue goes down to meet it and sends it back,
+762 press KEY_S
+769 release KEY_S
+850 shot blue_returns
+# and Red goes up, the wrong way.
+900 press KEY_UP
+915 release KEY_UP
+962 shot blue_scores
+
+# Six serves at Red, who stays put: Blue wins.
+1407 expect scene PongScene
+1408 expect scene OverScene
+1409 shot blue_wins
+
+# Play again, from the keyboard: the button has the focus.
+1430 tap KEY_ENTER
+1430 expect scene PongScene
+1432 shot again
+1432 end

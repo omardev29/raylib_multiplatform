@@ -30,7 +30,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 RMP_PY = REPO / "tools" / "rmp.py"
 
-spec = importlib.util.spec_from_file_location("rmp_cli", RMP_PY)
+# As `tools.rmp`: the name mutmut gives the file (tools/mutation.sh).
+spec = importlib.util.spec_from_file_location("tools.rmp", RMP_PY)
 rmp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rmp)
 
@@ -1597,9 +1598,18 @@ class StagesAgreeWithLintTest(unittest.TestCase):
     COVERED_BY = {"fmt-check": "clang-format", "smoke": "render_check.sh"}
 
     # The stages a job of their own runs, each with why it is not the lint job.
+    # "<workflow>/<job>" is a job of another workflow than ci.yml.
     JOBS = {
         "examples": "examples",  # every example built and booted: its own runner
         "coverage": "coverage",  # a second build of every test, instrumented
+        # The deep test campaign's short runs: a second instrumented tree
+        # (build/fuzz), RapidCheck, Hypothesis, and the gcc build that was 70 s
+        # of the lint job.
+        "sanitize": "deep",
+        "property": "deep",
+        "fuzz": "deep",
+        # Hours of Mull and mutmut: every Sunday, one job a module.
+        "mutation": "deep.yml/mutation",
     }
     # The steps of a stage that run in a job other than the stage's own, each
     # with why. A step is named by its token: the script and the words after it.
@@ -1608,6 +1618,10 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         # platformer's script alone was most of that job's fourteen minutes
         "tools/examples_build.sh e2e": "e2e",
     }
+    # A step CI runs in shards: once for everything here, once a shard there.
+    # `mutation.sh all` is every module `mutation.sh run` takes, one job each
+    # (deep.yml lists them with `mutation.sh modules`).
+    SHARDED = {"tools/mutation.sh all": "tools/mutation.sh run"}
     # The stages no CI job runs, each with why.
     NOT_A_CHECK = {"render-update": "a recording of the golden hash, not a check",
                    "e2e-update": "a recording of the e2e goldens, not a check"}
@@ -1638,24 +1652,32 @@ class StagesAgreeWithLintTest(unittest.TestCase):
                 out.append("render_check.sh")
         return out
 
-    def gaps(self, jobs: dict, stages) -> list[str]:
-        """What a stage runs and its job does not, one sentence each."""
+    def gaps(self, jobs: dict, stages, others: dict | None = None) -> list[str]:
+        """What a stage runs and its job does not, one sentence each. `jobs`
+        is ci.yml's; `others` the jobs of each other workflow JOBS names,
+        read from disk when not given."""
         out = []
         for stage in stages:
             if stage.name in self.NOT_A_CHECK:
                 continue
             for token in self.tokens(stage):
                 name = self.STEP_JOBS.get(token, self.JOBS.get(stage.name, "lint"))
-                if name not in jobs:
+                workflow, here = "ci.yml", jobs
+                if "/" in name:
+                    workflow, name = name.split("/")
+                    here = (others or {}).get(workflow)
+                    if here is None:
+                        here = load_workflow(self, workflow)["jobs"]
+                if name not in here:
                     gap = (f"`rmp test {stage.name}` belongs to the CI job `{name}`, "
-                           "and ci.yml has none")
+                           f"and {workflow} has none")
                     if gap not in out:
                         out.append(gap)
                     continue
                 # A stage the game runs too needs a step the game's CI runs.
-                usable = [code for is_gated, code in job_steps(jobs, name)
+                usable = [code for is_gated, code in job_steps(here, name)
                           if not is_gated or stage.scope == "framework"]
-                if not any(token in code for code in usable):
+                if not any(self.SHARDED.get(token, token) in code for code in usable):
                     out.append(f"`rmp test {stage.name}` runs {token} and the CI job "
                                f"`{name}` does not" +
                                ("" if stage.scope == "framework" else " in a game"))
@@ -1676,6 +1698,8 @@ class StagesAgreeWithLintTest(unittest.TestCase):
                  for token in self.tokens(s)}
         self.assertEqual(set(self.STEP_JOBS) - steps, set(),
                          "STEP_JOBS names a step no stage of `rmp test` runs")
+        self.assertEqual(set(self.SHARDED) - steps, set(),
+                         "SHARDED names a step no stage of `rmp test` runs")
 
     def test_the_examples_stage_is_its_two_halves_in_their_two_jobs(self):
         """`rmp test examples` plays everything; CI splits it over two jobs, and
@@ -1751,6 +1775,28 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         self.assertEqual(self.gaps(jobs, rmp.STAGES),
                          ["`rmp test examples` runs tools/examples_build.sh boot and the CI "
                           "job `examples` does not"])
+
+        # The deep job's: the gcc build of the unit tests, back in lint and not
+        # in deep, is a gap of the deep job's -- and a job of another workflow.
+        jobs = without("deep", "tools/sanitize_check.sh")
+        jobs["lint"]["steps"].append({"run": "bash tools/test_locales.sh build/test-locales\n"
+                                             "bash tools/sanitize_check.sh"})
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         [f"`rmp test sanitize` runs {token} and the CI job `deep` does not"
+                          for token in ("tools/test_locales.sh build/test-locales",
+                                        "tools/sanitize_check.sh")])
+        deep = copy.deepcopy(load_workflow(self, "deep.yml")["jobs"])
+        deep["mutation"]["steps"] = [st for st in deep["mutation"]["steps"]
+                                     if "tools/mutation.sh" not in str(st.get("run", ""))]
+        self.assertEqual(self.gaps(load_workflow(self, "ci.yml")["jobs"], rmp.STAGES,
+                                   {"deep.yml": deep}),
+                         ["`rmp test mutation` runs tools/mutation.sh all and the CI job "
+                          "`mutation` does not"])
+        del deep["mutation"]
+        self.assertEqual(self.gaps(load_workflow(self, "ci.yml")["jobs"], rmp.STAGES,
+                                   {"deep.yml": deep}),
+                         ["`rmp test mutation` belongs to the CI job `mutation`, and deep.yml "
+                          "has none"])
 
         # A stage a game runs, whose step only the framework runs.
         jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
@@ -1850,7 +1896,8 @@ class CiModeTest(unittest.TestCase):
         # Every job of the framework's own, read off the file: a new one that
         # the release does not wait for is a check a tag can skip.
         own = sorted(name for name, job in jobs.items() if gated(job.get("if")))
-        self.assertEqual(own, ["coverage", "docs", "e2e", "examples", "rmp_new", "tidy"])
+        self.assertEqual(own, ["coverage", "deep", "docs", "e2e", "examples", "rmp_new",
+                               "tidy"])
         for name in own:
             with self.subTest(job=name):
                 self.assertTrue(gated(jobs[name].get("if")))
@@ -2414,7 +2461,14 @@ class NewTest(unittest.TestCase):
         for forbidden in ("CLAUDE.md", ".claude/", "examples/", "TECHNICAL.md", ".clang-tidy",
                           "tests/configure_test.py", "tests/rmp_test.py", "tests/unit_test.cpp",
                           "tests/fixtures", "canary.yml", "autofix.yml",
-                          "tools/naming_check.sh"):
+                          "tools/naming_check.sh",
+                          # The deep test campaign is the framework's alone.
+                          "tests/deep.cmake", "tests/fuzz/", "tests/property/",
+                          "tests/mutation/", "tests/campaign_test.py",
+                          "tests/hypothesis_profiles.py", "_property_test.py",
+                          "thirdparty/rapidcheck", "deep.yml", "tools/fuzz.sh",
+                          "tools/mutation.sh", "tools/mutation_report.py",
+                          "tools/finding.py"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, have)
         self.assertFalse((self.game / "LICENSE").exists(), "a root LICENSE makes GitHub call it MIT")
@@ -2525,6 +2579,10 @@ class NewTest(unittest.TestCase):
             with self.subTest(file=rel):
                 self.assertIn("rapidcheck", (REPO / rel).read_text())
                 self.assertNotIn("rapidcheck", (self.game / rel).read_text().lower())
+        # The one line that brings the deep tests in is there, and is nothing.
+        self.assertIn('include("${CMAKE_CURRENT_SOURCE_DIR}/tests/deep.cmake" OPTIONAL)',
+                      (self.game / "CMakeLists.txt").read_text())
+        self.assertFalse((self.game / "tests" / "deep.cmake").exists())
 
     def test_the_licences_credit_the_framework_and_keep_doctest_unshipped(self):
         """doctest is the game's now -- tests/game/ is built with it -- so its

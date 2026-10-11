@@ -1,0 +1,5 @@
+# rmp::assets (package P4).
+kind     cxx
+sources  src/rmp/assets.cpp
+tests    unit_test -sf=*assets_test.cpp
+floor    -

@@ -1,0 +1,5 @@
+# The runner and the clock (package P6, after Stage D: app.cpp is Stage D's).
+kind     cxx
+sources  src/rmp/app.cpp src/rmp/clock.cpp
+tests    unit_test -tse=*device*
+floor    -

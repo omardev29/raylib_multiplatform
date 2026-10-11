@@ -1,0 +1,9 @@
+# examples/games/06_tetris, played: a line cleared and a best score ke----de down, and dropped where it is: columns 4-6.
+1 tap KEY_ENTER
+3 tap KEY_ENTER
+4 shot t_turned_twice
+4 press KEY_DOWN
+64 release KEY_DOWN
+
+# I: four to the left, columns 0-3.
+65 tap 

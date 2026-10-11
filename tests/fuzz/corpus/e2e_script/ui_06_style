@@ -1,0 +1,42 @@
+# examples/ui/06_style, played: the light theme switched on, a variant
+# pressed and a disabled one that does not count, the page scrolled by the
+# keyboard to its last control, and a theme of our own made and undone.
+#
+# The page is taller than its 800x450 window, so below the header it
+# scrolls. It did not, until this script: its last two panels were below the
+# bottom of the window, where nothing could reach them. See
+# tests/e2e/script.h for the grammar.
+
+# --- the happy path ----------------------------------------------------------
+
+# A click on Light Theme: one line in the example, and every control on the
+# page changes with it. The colours fade over 0.12 s; a shot waits for them.
+3 click 368 57
+16 shot light_theme
+
+# Start game counts a press...
+17 click 126 216
+
+# --- the failure path: a disabled button --------------------------------------
+
+# ...and Continue, disabled, does not.
+19 click 223 272
+30 shot pressed_once
+
+# --- the page, by the keyboard -------------------------------------------------
+
+# Up from the first control comes round to the last, Excitement, at the
+# bottom of the page: the page scrolls to show it. Two steps right, 35% to
+# 45%, and the bar above it follows.
+31 tap KEY_UP
+33 tap KEY_RIGHT
+35 tap KEY_RIGHT
+46 shot excitement_in_view
+
+# Your own theme: a gold accent, copied from the current theme and set back;
+# Reset builds the light one again.
+47 click 130 297
+60 shot gold_accent
+61 click 698 297
+74 shot reset
+74 end

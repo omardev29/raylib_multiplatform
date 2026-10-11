@@ -1,0 +1,8 @@
+# rmp::random (package P5). Measured in the pilot of 2026-10-11, in the image:
+# 51 of 62 killed by the random suite (82.26%). The survivors are xoshiro's
+# arithmetic -- no test compares the generator with its reference sequence --
+# and two comparisons at their edge (range(int) with max == min, chance()).
+kind     cxx
+sources  src/rmp/random.cpp
+tests    unit_test -ts=random
+floor    80

@@ -1,0 +1,12 @@
+# tools/configure.py (package P8). mutmut 3 writes a whole copy of a function
+# for every mutant of it, and validate() is 614 lines: the mutated file was
+# 64.5 MB -- 4637 mutants, 1398 of them in validate() -- and mutmut did not get
+# past generating it: 25 minutes the first time, and 13 more with only these
+# tests and resolve_version selected (WP0's pilot, 2026-10-11). P8 splits
+# validate() and the other long functions first. Until then this file is that
+# pilot: resolve_version() and the two test classes that call it.
+kind     py
+sources  tools/configure.py
+tests    tests/configure_test.py::ConfigureVersionTest tests/configure_test.py::ConfigureVersionCodeCeilingTest
+select   tools.configure.x_resolve_version*
+floor    -

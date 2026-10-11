@@ -1,0 +1,6 @@
+# rmp::ui (package P7, after Stage D: src/rmp/ui/ is Stage D's).
+kind     cxx
+sources  src/rmp/ui/containers.cpp src/rmp/ui/context.cpp src/rmp/ui/controls.cpp src/rmp/ui/focus.cpp src/rmp/ui/render.cpp src/rmp/ui/style.cpp src/rmp/ui/theme.cpp src/rmp/ui/widgets.cpp
+tests    ui_layout_test
+tests    unit_test -sf=*scene_test.cpp,*input_test.cpp
+floor    -

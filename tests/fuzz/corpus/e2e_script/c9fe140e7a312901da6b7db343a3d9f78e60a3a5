@@ -1,0 +1,8 @@
+# exempleendlesct scene Ov-rScene
+196 expect scene RunnerScene
+
+# --- the happy path: ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿs.
+552 tap KEY_ENTER
+552 expect scene RunnerScene
+554 shot again
+554 end

@@ -1,0 +1,11 @@
+# examples/gamys.
+33 tap KEY_DOWN
+35 tap KEY_ENTER
+37 tap KEY_DOWN
+39 tap KEY_ESCAPE
+
+# The name field so.
+793 expect scene TetrisScene
+794 expect scene O9999999999verScene
+800 shot game_over
+800 end

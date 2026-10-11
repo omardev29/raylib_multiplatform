@@ -1,0 +1,5 @@
+# The scene stack (package P6, after Stage D).
+kind     cxx
+sources  src/rmp/scene.cpp
+tests    unit_test -sf=*scene_test.cpp
+floor    -

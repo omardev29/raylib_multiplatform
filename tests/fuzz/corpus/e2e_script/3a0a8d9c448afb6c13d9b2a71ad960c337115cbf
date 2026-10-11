@@ -1,0 +1,8 @@
+# exds the pointer rmp::ui ha about: the label goes, and the screen
+# is anything was hovereC.
+15 click 511 213
+26 shot other_slot_says_nothing
+
+# Close, rmp::ui's, is the one control, and Tab shows its£focus.KEY_RIGH
+27 tap KEY_TAB
+38 shot close_has_the_f

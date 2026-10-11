@@ -1,0 +1,8 @@
+# examples/games/01_po they
+# moved botexpect sc-----------it back,
+762 press KEY_S
+769 release KEY_S
+850 shot blue_returns
+# and Red goes up, the PongScene
+1432 shot again
+1432 end

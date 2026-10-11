@@ -1,0 +1,5 @@
+# rmp::save: the file format, sealing, folders (package P1).
+kind     cxx
+sources  src/rmp/save.cpp
+tests    unit_test -sf=*save_test.cpp
+floor    -

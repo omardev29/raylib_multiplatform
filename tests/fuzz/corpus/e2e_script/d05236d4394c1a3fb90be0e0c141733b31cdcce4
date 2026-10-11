@@ -1,0 +1,11 @@
+# examples/games/06_tetri--
+
+# T: turned twice, flat#umns 4-6.
+1 tap KEY_ENTER
+3 tap KEY_ENTER
+4 shot t_turned_twice
+3 4 release KEY_DOWN
+
+# I: four to the left, columns 0-3.
+6_LEFTrScene
+800 shot gown theme: a end

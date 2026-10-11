@@ -1,0 +1,44 @@
+# examples/scenes/01_stack, played: a game paused and resumed, and given up
+# from the pause menu. Every transition is deferred to the end of the frame
+# that asks for it, so `expect scene` is the scene on top once that frame is
+# over. See tests/e2e/script.h for the grammar.
+
+# --- the happy path: play, pause, resume ------------------------------------
+
+# Play has the focus from the first frame: Enter alone presses it.
+1 tap KEY_ENTER
+1 expect scene GameScene
+
+# Ten points a second. Pause with the mouse: down on 41, up on 42, and the
+# pause menu is pushed on top at the end of 42.
+40 shot playing
+41 click 70 105
+41 expect scene GameScene
+42 expect scene PauseScene
+
+# Sixty frames later the game below has not moved: it is suspended, not told
+# to stop -- nothing in GameScene says "paused". Its HUD is still drawn,
+# under the veil, and takes no input: a click on its Pause button does
+# nothing at all.
+102 click 70 105
+104 expect scene PauseScene
+104 shot frozen
+
+# Resume has the focus (the pause menu's first control): the gamepad's A
+# pops it, and the score goes on from where it stopped.
+105 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+105 expect scene GameScene
+125 shot resumed
+
+# --- the failure path: give up ----------------------------------------------
+
+# Pause again from the keyboard -- the HUD's one button has the focus -- then
+# down to Give up: change<MainMenuScene>() clears the stack, and the game's
+# _end() keeps its score as the best one, which the menu shows.
+126 tap KEY_ENTER
+126 expect scene PauseScene
+128 tap KEY_DOWN
+130 tap KEY_ENTER
+130 expect scene MainMenuScene
+141 shot best_kept
+141 end

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The unit tests again, under AddressSanitizer and UndefinedBehaviorSanitizer,
-# built by GCC.
+# The unit tests and the headless UI layout test again, under AddressSanitizer
+# and UndefinedBehaviorSanitizer, built by GCC.
 #
 # A test asserts what it can see, and undefined behaviour is exactly what a
 # test cannot see: a signed overflow that wraps to a harmless number, a float
@@ -46,6 +46,7 @@ echo "  compiler: $(g++ --version | head -1)"
 echo "== sanitize =="
 mkdir -p "$BUILD"
 RMP_REQUIRE_SANITIZERS=1 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON \
+      -DBUILD_UI_TESTS=ON \
       -DRMP_DEV_TOOLCHAIN=OFF -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
       -DRMP_SANITIZE=ON -DRMP_WERROR=ON \
       -DCMAKE_C_FLAGS= -DCMAKE_CXX_FLAGS= -DCMAKE_EXE_LINKER_FLAGS= > "$BUILD.configure.log" 2>&1 \
@@ -53,8 +54,10 @@ RMP_REQUIRE_SANITIZERS=1 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debu
 grep -q '=== SANITIZERS: address, undefined ===' "$BUILD.configure.log" || {
     grep -n 'SANITIZ' "$BUILD.configure.log" || true
     echo "FAIL: the build is not instrumented with address and undefined"; exit 1; }
-cmake --build "$BUILD" --target unit_test > "$BUILD.build.log" 2>&1 \
-  || { tail -60 "$BUILD.build.log"; echo "FAIL: the sanitized unit tests did not build"; exit 1; }
+# And the UI: about 3.4k lines of src/rmp/ui/ that the unit tests reach only
+# through a few incidental calls, and that only clang's build ran sanitized.
+cmake --build "$BUILD" --target unit_test ui_layout_test > "$BUILD.build.log" 2>&1 \
+  || { tail -60 "$BUILD.build.log"; echo "FAIL: the sanitized tests did not build"; exit 1; }
 
 # -fno-sanitize-recover and the hooks' halt_on_error make the first report end
 # the run with a non-zero status; the summary line is checked as well, because
@@ -70,4 +73,12 @@ if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q 'Status: SUCCESS'; th
   exit 1
 fi
 printf '%s\n' "$out" | grep -E '^\[doctest\] test cases' | sed 's/^/  /'
+status=0
+out=$(RMP_REQUIRE_SANITIZERS=1 "$BUILD/ui_layout_test" 2>&1 < /dev/null) || status=$?
+if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -qx 'PASS'; then
+  printf '%s\n' "$out" | grep -E 'runtime error|ERROR: AddressSanitizer|ERROR: LeakSanitizer|SUMMARY|#[0-9]+ |FAIL' | head -60
+  echo "FAIL: the UI layout test is not clean under ASan and UBSan (exit $status)"
+  exit 1
+fi
+echo "  ui_layout_test: PASS"
 echo "PASS: no AddressSanitizer or UndefinedBehaviorSanitizer report"

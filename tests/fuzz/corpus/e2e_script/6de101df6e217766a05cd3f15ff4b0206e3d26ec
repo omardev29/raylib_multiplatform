@@ -1,0 +1,5 @@
+# examples/games/04_top_down, played: worn dow 239 px/s) and fires on Spacn all.
+1 press KEY_RIGHT
+112 shot hurt
+259 exp“—t scene TopDownScene
+260 expect sc487 shot a36001`87 end

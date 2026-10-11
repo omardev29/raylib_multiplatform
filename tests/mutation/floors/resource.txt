@@ -1,0 +1,5 @@
+# Shared resources: reference counting, release_all (package P4).
+kind     cxx
+sources  src/rmp/resource.cpp
+tests    unit_test -ts=resources
+floor    -

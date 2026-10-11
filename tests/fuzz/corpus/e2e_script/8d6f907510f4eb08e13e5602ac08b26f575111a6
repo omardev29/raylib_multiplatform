@@ -1,0 +1,6 @@
+# examples/ui/07_responws once the pad is used:
+# down to Bestiary, Journal, Crafting, and A.
+18 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+19 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+21 shot crafting_without_the_grid
+40 end

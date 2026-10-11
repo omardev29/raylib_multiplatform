@@ -1,0 +1,5 @@
+# Aseprite sheets and animation (package P3).
+kind     cxx
+sources  src/rmp/animation.cpp
+tests    unit_test -sf=*animation_test.cpp
+floor    -

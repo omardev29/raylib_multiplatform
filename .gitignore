@@ -57,3 +57,10 @@ build-memory/
 # A compiler run without -o. One was committed on 2026-09-27; tools/repo_check.sh
 # now refuses it too.
 a.out
+
+# The deep tests' working files, should a run ever leave them at the top:
+# Hypothesis's example database (tests/hypothesis_profiles.py keeps it in
+# build/hypothesis/, or none at all) and mutmut's copy of the tree
+# (tools/mutation.sh runs mutmut inside build/mutation/).
+.hypothesis/
+mutants/

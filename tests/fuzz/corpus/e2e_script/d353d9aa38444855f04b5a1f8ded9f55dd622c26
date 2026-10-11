@@ -1,0 +1,11 @@
+# examples/games/03_space_invaders, played: shot down, then every alien.
+#
+# The ship is on th.
+298 press KEY_LEFT
+314 release KEY_LEFT
+334 press KEY_RIGHT
+340 release KEY_RIGHT
+368 press KEY_RIGHT
+399 release KEY_RIGHT
+425 press KEY_LEFT
+452 release KEY_L

@@ -49,9 +49,11 @@ def load_configure():
     runs it directly. So the test imports it the way a test should: without
     asking the thing under test to change shape for the test's convenience.
     """
-    spec = importlib.util.spec_from_file_location("rmp_configure", REPO / "tools" / "configure.py")
+    # As `tools.configure`: the name mutmut gives the file (tools/mutation.sh)
+    # -- it records which tests reach a function under its module's name.
+    spec = importlib.util.spec_from_file_location("tools.configure", REPO / "tools" / "configure.py")
     module = importlib.util.module_from_spec(spec)
-    sys.modules["rmp_configure"] = module
+    sys.modules["tools.configure"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -5552,9 +5554,10 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
 
 def load_license_db():
     """tools/license_db.py, by path, the same way configure.py is loaded."""
-    spec = importlib.util.spec_from_file_location("rmp_license_db", REPO / "tools" / "license_db.py")
+    spec = importlib.util.spec_from_file_location("tools.license_db",
+                                                  REPO / "tools" / "license_db.py")
     module = importlib.util.module_from_spec(spec)
-    sys.modules["rmp_license_db"] = module
+    sys.modules["tools.license_db"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -7695,11 +7698,13 @@ class LintJobTest(unittest.TestCase):
     GPU, ran on developer machines only for four phases.
     """
 
-    def test_the_lint_job_runs_the_sanitized_unit_tests(self):
+    def test_the_deep_job_runs_the_sanitized_unit_tests(self):
         """`rmp test sanitize` is not in `rmp test` -- it is a second build --
-        so CI is where it has to run every time."""
-        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
-        self.assertIn("bash tools/sanitize_check.sh", lint)
+        so CI is where it has to run every time: in the deep job since phase
+        16, where it moved from this one (it was 70 s of the lint job's 636)."""
+        workflow = REPO / ".github" / "workflows" / "ci.yml"
+        self.assertIn("bash tools/sanitize_check.sh", job_block(workflow, "deep"))
+        self.assertNotIn("bash tools/sanitize_check.sh", job_block(workflow, "lint"))
         self.assertIn('Stage("sanitize"', (REPO / "tools" / "rmp.py").read_text())
 
     def test_the_lint_job_runs_the_headless_ui_layout_test(self):

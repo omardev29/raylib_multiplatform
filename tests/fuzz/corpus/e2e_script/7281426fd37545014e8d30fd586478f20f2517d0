@@ -1,0 +1,14 @@
+# exoor with the room cleared.
+#
+# HT
+272 click 400 285
+272 expect scene Oveene
+273 expect scene TopDownScene
+
+# --- the happy path: ten hits, aouched.
+275 tap KEY_SPACE
+2 	ces/eÿ	tngKEY_SPACE
+299 tap KEYhSPACE
+307 tap KEY_SPACE
+315 t_SPACE
+347 tap KEY_SPA

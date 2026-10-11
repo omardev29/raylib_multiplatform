@@ -1,0 +1,12 @@
+# exae -- it is at 100% already.
+3 tap KEY_DOWN
+5 tap KEY_DOWN
+7 tap KEY_RIGHT
+
+# Music, down two steps of 5%: 80% to 70%.
+9 tap KEY_DOWN
+11 tap KEY_LEFT
+13 tap KEY_LEFT
+
+# The g!mepad: down past Sensitivity to Quality in the other column, A to
+# open its 

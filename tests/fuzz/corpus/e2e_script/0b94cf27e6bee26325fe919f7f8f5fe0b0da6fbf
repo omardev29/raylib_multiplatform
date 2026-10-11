@@ -1,0 +1,9 @@
+#iles, which is as use_BUTTON_LEFT_FACE_DOWN
+23 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+
+#0 grid goes.
+25 tap KEY_TAB
+27 tap KEY_TAB
+29 tap KEY_ENTER
+40 shot crafting_without_the_grid
+ÿ0 end

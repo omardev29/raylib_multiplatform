@@ -7,3 +7,8 @@ thirdparty/** linguist-vendored=true
 
 .clangd filter=gitignore
 rmp   text eol=lf
+
+# The fuzz targets' inputs are bytes, not text: a Windows checkout must not
+# turn an LF into CRLF and replay a different input (tools/fuzz.sh).
+tests/fuzz/corpus/** -text
+tests/fuzz/regressions/** -text

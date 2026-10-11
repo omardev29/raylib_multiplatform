@@ -90,6 +90,7 @@ VENDOR_KNOBS = {
     "src/rmp/cjson_impl.c": {"CJSON_NESTING_LIMIT"},
     "src/rmp/ui/clay_impl.cpp": {"CLAY_IMPLEMENTATION"},
     "tests/unit_test.cpp": {"DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN"},
+    "tests/property/main.cpp": {"DOCTEST_CONFIG_IMPLEMENT"},
     "tests/rlsw_sample.c": {"SWAPI", "RLSW_IMPLEMENTATION", "swGetIntegerv",
                             "swTexStorage2D"},
 }
@@ -103,6 +104,11 @@ VENDORED_HEADERS = [
     "thirdparty/cute_tiled/cute_tiled.h", "thirdparty/cute_aseprite/cute_aseprite.h",
     "thirdparty/cJSON/cJSON.h", "thirdparty/raymob/raymob.h",
     "thirdparty/doctest/doctest.h",
+    # RapidCheck's macros, where the property tests write them (RC_ASSERT, RC_PRE,
+    # RC_TAG...): the framework's alone, like the tests that read them.
+    "thirdparty/rapidcheck/include/rapidcheck/Assertions.h",
+    "thirdparty/rapidcheck/include/rapidcheck/Classify.h",
+    "thirdparty/rapidcheck/include/rapidcheck/Log.h",
 ]
 # ...and the C library's, POSIX's and the BSDs' that bite as constant names.
 # Windows' are left out on purpose: windows.h defines IN, OUT and NEAR, but it

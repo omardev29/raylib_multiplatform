@@ -1,0 +1,8 @@
+# examp181 expect scene RunnerScene
+183 expect scene OverScene
+186 shot ouc999999999h_a# examples/gamese
+196 expect_the_first_rk
+
+# Play agat scene RunnerScene
+
+in, with99# --- 9

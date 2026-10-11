@@ -1,0 +1,51 @@
+# examples/ui/01_menu, played: every screen, with the keyboard, the gamepad
+# and the mouse; a disabled button that does nothing, and the quit dialog
+# cancelled.
+#
+# An RMP_ENTRY_POINT example: which screen is up is a variable of its own,
+# not a scene, so the shots are what say it. A click is down for one frame
+# and up the next, and a button fires on the way up; a screen that has just
+# appeared can be clicked from its second frame, when its buttons have a
+# place to be hit in. See tests/e2e/script.h for the grammar.
+
+# --- the happy path: play, and back --------------------------------------------
+
+# Play has the focus from the first frame: Enter alone presses it. The score
+# is a point a frame.
+1 tap KEY_ENTER
+12 shot playing
+
+# Escape goes back to the menu. It read raylib's Escape key itself until this
+# script, and so did nothing to anything a script or a gamepad could press;
+# it is rmp::input's "ui_cancel" now.
+13 tap KEY_ESCAPE
+
+# The gamepad: the d-pad down to Options, A to open it. The new screen's
+# first control has the focus, and the ring shows: a pad was used.
+15 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+17 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+28 shot options
+29 tap KEY_ENTER
+
+# --- the failure path: a disabled button, and a dialog cancelled -------------
+
+# Cloud saves is disabled: the click does nothing to it, and the ring goes,
+# because the mouse is what is being used now. Music stays off.
+31 click 400 269
+42 shot music_off_cloud_disabled
+
+# Back, then Quit, with the mouse: the dialog asks first.
+43 click 400 325
+47 click 400 297
+58 shot really_quit
+
+# Down to Cancel, Enter: the menu again, and nothing quit.
+59 tap KEY_DOWN
+61 tap KEY_ENTER
+
+# Play once more, and back with the gamepad's B -- "ui_cancel" is bound to
+# both.
+63 tap KEY_ENTER
+65 tap GAMEPAD_BUTTON_RIGHT_FACE_RIGHT
+76 shot back_by_pad
+76 end

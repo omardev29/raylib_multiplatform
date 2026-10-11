@@ -1,0 +1,9 @@
+# examples/ui/06_style, pd on, a variant
+# pressedels w›šßš“’w the
+# bottom of16 shot light_theme
+
+# Start game counts a press...
+17 click 126 216
+
+# --- the failure path: a disabled button ---- in the example, and ere y:controls a press...
+17 click 126 

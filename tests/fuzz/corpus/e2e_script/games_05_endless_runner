@@ -1,0 +1,39 @@
+# examples/games/05_endless_runner, played: a run that ends at the first rock,
+# then one that jumps two and ends at the third, nearly twice as far.
+#
+# The runner runs on its own, from 320 px/s and faster; Space (ui_accept)
+# jumps. A rock is placed every 520 units run, give or take rmp::random's 120,
+# so the second run's rocks, drawn after the first run's, stand where they
+# stand on every run of this script and nowhere else. One rock ends a run. The
+# score is the distance, ten units to the metre. See tests/e2e/script.h for the
+# grammar.
+
+# --- the failure path: no jump --------------------------------------------------
+
+# The first rock, at 100 m.
+182 expect scene RunnerScene
+183 expect scene OverScene
+186 shot ouch_at_the_first_rock
+
+# Play again, with the mouse: down on 195, up on 196, the new run from 197.
+195 click 400 245
+195 expect scene OverScene
+196 expect scene RunnerScene
+
+# --- the happy path: two rocks jumped ---------------------------------------------
+
+# Up when the first rock is 100 px ahead, and over it at the top of the jump.
+368 tap KEY_SPACE
+384 shot over_the_first_rock
+# The second.
+454 tap KEY_SPACE
+# And no jump at the third, at 194 m.
+541 expect scene RunnerScene
+542 expect scene OverScene
+545 shot ouch_at_the_third_rock
+
+# Play again, from the keyboard: the button has the focus.
+552 tap KEY_ENTER
+552 expect scene RunnerScene
+554 shot again
+554 end

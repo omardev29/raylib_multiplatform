@@ -1,0 +1,334 @@
+# Every public function of include/rmp/ that no property holds yet to the
+# campaign's resilience rules -- no UB on any input, a documented safe value and
+# one RMP_REPORT_ONCE for a game's mistake, no NaN kept in state, no state
+# changed by a refusal. tests/campaign_test.py reads the headers' AST
+# (tools/coverage_report.py's walker), and fails a public function that is
+# neither here nor named by `// covers: <function>` in a tests/property/*_prop.cpp.
+#
+# This list ONLY SHRINKS: a function a property covers fails until its line goes,
+# a line naming a function that is gone fails, and a new public function arrives
+# with its property -- or, written here by hand, with a reviewer reading why.
+# The keys are tools/coverage_report.py's, as tools/untested_api.txt spells them.
+#
+# Measured 2026-10-11 against main 0b80c3f: 296 functions. Each block says which
+# package of Stage E takes it.
+
+# include/rmp/ads.h: P6 (stub cases)
+rmp::ads::is_interstitial_loaded()
+rmp::ads::is_rewarded_loaded()
+rmp::ads::request_interstitial()
+rmp::ads::request_rewarded()
+rmp::ads::reward_amount()
+rmp::ads::show_interstitial()
+rmp::ads::show_rewarded()
+rmp::ads::take_reward_earned()
+
+# include/rmp/app.h: P6, after Stage D
+rmp::app::quit()
+rmp::app::quit_requested()
+rmp::global [template]
+
+# include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's
+rmp::SheetData::frame(int) const
+rmp::SheetData::frame_count() const
+rmp::SheetData::tag(int) const
+rmp::SheetData::tag_count() const
+rmp::assets::failed_loads()
+rmp::assets::init()
+rmp::assets::load_data(std::string_view)
+rmp::assets::load_font(std::string_view, int)
+rmp::assets::load_image(std::string_view)
+rmp::assets::load_map(std::string_view)
+rmp::assets::load_map(std::string_view, std::string_view)
+rmp::assets::load_sheet(std::string_view)
+rmp::assets::load_sound(std::string_view)
+rmp::assets::load_texture(std::string_view)
+rmp::assets::requested_loads()
+rmp::assets::shutdown()
+rmp::assets::using_pack()
+
+# include/rmp/audio.h: P6
+rmp::audio::available()
+rmp::audio::music(std::string_view, bool)
+rmp::audio::music_playing()
+rmp::audio::play(std::string_view, const PlayOptions &)
+rmp::audio::set_volume(Bus, float)
+rmp::audio::stop_music()
+rmp::audio::volume(Bus)
+
+# include/rmp/behavior.h: P6
+rmp::behavior::Ball::_collision(Object &, Object &)
+rmp::behavior::Ball::_ready(Object &)
+rmp::behavior::Ball::_update(Object &, float)
+rmp::behavior::Follow::_update(Object &, float)
+rmp::behavior::GridSnap::_late_update(Object &, float)
+rmp::behavior::Health::_collision(Object &, Object &)
+rmp::behavior::Health::_end(Object &)
+rmp::behavior::Health::_ready(Object &)
+rmp::behavior::Health::_update(Object &, float)
+rmp::behavior::Health::damage(Object &, int)
+rmp::behavior::Health::dead() const
+rmp::behavior::Health::heal(int)
+rmp::behavior::Health::invulnerable() const
+rmp::behavior::Lifespan::_update(Object &, float)
+rmp::behavior::Parallax::_draw(Object &)
+rmp::behavior::Parallax::_ready(Object &)
+rmp::behavior::Parallax::_update(Object &, float)
+rmp::behavior::Platformer::_ready(Object &)
+rmp::behavior::Platformer::_update(Object &, float)
+rmp::behavior::Platformer::grounded() const
+rmp::behavior::Projectile::_collision(Object &, Object &)
+rmp::behavior::Projectile::_ready(Object &)
+rmp::behavior::Projectile::_update(Object &, float)
+rmp::behavior::Runner::_ready(Object &)
+rmp::behavior::Runner::_update(Object &, float)
+rmp::behavior::Runner::distance() const
+rmp::behavior::Runner::ducking() const
+rmp::behavior::Spawner::_update(Object &, float)
+rmp::behavior::Spawner::alive() const
+rmp::behavior::Spawner::jitter_amount() const
+rmp::behavior::Timer::_update(Object &, float)
+rmp::behavior::TopDown::_update(Object &, float)
+rmp::behavior::TopDown::direction() const
+rmp::behavior::TopDown::sector() const
+rmp::behavior::Tween::_update(Object &, float)
+rmp::behavior::Tween::finished() const
+rmp::behavior::Tween::restart()
+
+# include/rmp/input.h: P6, after Stage D
+rmp::input::action [template]
+rmp::input::axis()
+rmp::input::axis(std::string_view, std::string_view)
+rmp::input::axis_value(::GamepadAxis)
+rmp::input::consumed_keyboard()
+rmp::input::consumed_pointer()
+rmp::input::deadzone()
+rmp::input::just_pressed(::GamepadButton)
+rmp::input::just_pressed(::KeyboardKey)
+rmp::input::just_pressed(::MouseButton)
+rmp::input::just_pressed(std::string_view)
+rmp::input::just_released(::GamepadButton)
+rmp::input::just_released(::KeyboardKey)
+rmp::input::just_released(::MouseButton)
+rmp::input::just_released(std::string_view)
+rmp::input::pointer()
+rmp::input::pointer_delta()
+rmp::input::pointer_down()
+rmp::input::pointer_pressed()
+rmp::input::pointer_released()
+rmp::input::pointer_screen()
+rmp::input::pressed(::GamepadButton)
+rmp::input::pressed(::KeyboardKey)
+rmp::input::pressed(::MouseButton)
+rmp::input::pressed(std::string_view)
+rmp::input::set_deadzone(float)
+rmp::input::stick(::GamepadAxis, int)
+rmp::input::vector()
+rmp::input::vector(std::string_view, std::string_view, std::string_view, std::string_view)
+
+# include/rmp/object.h: P5
+rmp::Callback::Callback [template]
+rmp::Callback::clear [template]
+rmp::Callback::operator bool [template]
+rmp::Callback::operator() [template]
+rmp::Callback::operator= [template]
+rmp::Callback::set [template]
+rmp::Callback::~Callback [template]
+rmp::Handle::Handle [template]
+rmp::Handle::get [template]
+rmp::Handle::operator bool [template]
+rmp::Handle::operator* [template]
+rmp::Handle::operator-> [template]
+rmp::Object::_collision(Object &)
+rmp::Object::_draw()
+rmp::Object::_end()
+rmp::Object::_ready()
+rmp::Object::_update(float)
+rmp::Object::add [template]
+rmp::Object::alive() const
+rmp::Object::apply_force(Vector2)
+rmp::Object::apply_impulse(Vector2)
+rmp::Object::destroy()
+rmp::Object::get [template]
+rmp::Object::handle [template]
+rmp::Object::has [template]
+rmp::Object::on_click [template]
+rmp::Object::on_collision [template]
+rmp::Object::on_drag [template]
+rmp::Object::remove [template]
+rmp::Object::scene() const
+rmp::Object::world_bounds() const
+rmp::Object::world_collider() const
+rmp::Object::~Object()
+rmp::RayHit::operator bool() const
+rmp::Ref::Ref [template]
+rmp::Ref::operator bool [template]
+rmp::Ref::operator* [template]
+rmp::Ref::operator-> [template]
+rmp::Sprite::finished() const
+rmp::Sprite::frame_index() const
+rmp::Sprite::play(std::string_view, bool)
+rmp::Sprite::playing() const
+rmp::Sprite::set_frame(int)
+rmp::Sprite::stop()
+rmp::circle(float)
+rmp::operator== [template]
+rmp::rect(Vector2)
+
+# include/rmp/random.h: P5
+rmp::random::chance(float)
+rmp::random::current_seed()
+rmp::random::direction()
+rmp::random::in_circle(float)
+rmp::random::index(int)
+rmp::random::range(float, float)
+rmp::random::range(int, int)
+rmp::random::seed(uint64_t)
+rmp::random::value()
+
+# include/rmp/save.h: P1
+rmp::Value::Ref::as_bool(bool) const
+rmp::Value::Ref::as_float(float) const
+rmp::Value::Ref::as_int(int) const
+rmp::Value::Ref::as_string(std::string_view) const
+rmp::Value::Ref::contains(std::string_view) const
+rmp::Value::Ref::erase(std::string_view)
+rmp::Value::Ref::get() const
+rmp::Value::Ref::key(int) const
+rmp::Value::Ref::operator const rmp::Value &() const
+rmp::Value::Ref::operator=(Ref &&)
+rmp::Value::Ref::operator=(Value)
+rmp::Value::Ref::operator=(const Ref &)
+rmp::Value::Ref::operator[](int) const
+rmp::Value::Ref::operator[](std::string_view) const
+rmp::Value::Ref::push(Value)
+rmp::Value::Ref::size() const
+rmp::Value::Ref::type() const
+rmp::Value::Value [template]
+rmp::Value::as_bool(bool) const
+rmp::Value::as_float(float) const
+rmp::Value::as_int(int) const
+rmp::Value::as_string(std::string_view) const
+rmp::Value::contains(std::string_view) const
+rmp::Value::erase(std::string_view)
+rmp::Value::key(int) const
+rmp::Value::list()
+rmp::Value::object()
+rmp::Value::operator[](int)
+rmp::Value::operator[](int) const
+rmp::Value::operator[](std::string_view)
+rmp::Value::operator[](std::string_view) const
+rmp::Value::push(Value)
+rmp::Value::size() const
+rmp::Value::type() const
+rmp::Value::version() const
+rmp::operator==(const Value &, const Value &)
+rmp::save::Result::operator bool() const
+rmp::save::directory()
+rmp::save::exists(std::string_view)
+rmp::save::read(std::string_view, Value &, const ReadOptions &)
+rmp::save::remove(std::string_view)
+rmp::save::write(std::string_view, const Value &, const WriteOptions &)
+
+# include/rmp/scene.h: P6, after Stage D; rmp::Camera is P3's, after Stage D
+rmp::Camera::detail_settle(float)
+rmp::Camera::raylib() const
+rmp::Camera::shake(float, float)
+rmp::Camera::shake_offset() const
+rmp::Camera::to_screen(Vector2) const
+rmp::Camera::to_world(Vector2) const
+rmp::Camera::view() const
+rmp::Scene::_draw()
+rmp::Scene::_end()
+rmp::Scene::_ready()
+rmp::Scene::_resume()
+rmp::Scene::_suspend()
+rmp::Scene::_update(float)
+rmp::Scene::change [template]
+rmp::Scene::current()
+rmp::Scene::depth()
+rmp::Scene::destroy(Object &)
+rmp::Scene::object_count() const
+rmp::Scene::pop()
+rmp::Scene::push [template]
+rmp::Scene::raycast(Vector2, Vector2) const
+rmp::Scene::raycast(const RayQuery &) const
+rmp::Scene::raycast_all(const RayQuery &, std::span<RayHit>) const
+rmp::Scene::replace [template]
+rmp::Scene::spawn [template]
+
+# include/rmp/tilemap.h: P2
+rmp::MapObject::property_bool(std::string_view, bool) const
+rmp::MapObject::property_count(std::string_view) const
+rmp::MapObject::property_float(std::string_view, float) const
+rmp::MapObject::property_int(std::string_view, int) const
+rmp::MapObject::property_point(std::string_view, Vector2) const
+rmp::MapObject::property_point(std::string_view, int, Vector2) const
+rmp::MapObject::property_string(std::string_view, std::string_view) const
+rmp::Tilemap::Tilemap()
+rmp::Tilemap::Tilemap(Tilemap &&)
+rmp::Tilemap::bounds() const
+rmp::Tilemap::draw() const
+rmp::Tilemap::layer_count() const
+rmp::Tilemap::level() const
+rmp::Tilemap::neighbour_at(Vector2) const
+rmp::Tilemap::object_count() const
+rmp::Tilemap::on_object(std::string_view, Callback<Scene &, const MapObject &>)
+rmp::Tilemap::operator bool() const
+rmp::Tilemap::operator=(Tilemap &&)
+rmp::Tilemap::solid_at(Vector2) const
+rmp::Tilemap::solid_in(Rectangle) const
+rmp::Tilemap::spawn_objects(Scene &)
+rmp::Tilemap::tile_at(int, int, int) const
+rmp::Tilemap::tile_size() const
+rmp::Tilemap::valid() const
+rmp::Tilemap::~Tilemap()
+
+# include/rmp/ui.h: P7, after Stage D
+rmp::ui::begin()
+rmp::ui::begin(const FrameOptions &)
+rmp::ui::button(std::string_view)
+rmp::ui::button(std::string_view, const ButtonOptions &)
+rmp::ui::cell [template]
+rmp::ui::center [template]
+rmp::ui::checkbox(std::string_view, bool &)
+rmp::ui::checkbox(std::string_view, bool &, const CheckboxOptions &)
+rmp::ui::column [template]
+rmp::ui::compact()
+rmp::ui::current_breakpoint()
+rmp::ui::current_theme()
+rmp::ui::dropdown(std::string_view, int &, std::initializer_list<std::string_view>)
+rmp::ui::dropdown(std::string_view, int &, std::initializer_list<std::string_view>, const DropdownOptions &)
+rmp::ui::dropdown(std::string_view, int &, std::span<const std::string_view>)
+rmp::ui::dropdown(std::string_view, int &, std::span<const std::string_view>, const DropdownOptions &)
+rmp::ui::end()
+rmp::ui::focus(std::string_view)
+rmp::ui::focused()
+rmp::ui::grid [template]
+rmp::ui::image(const Texture2D &)
+rmp::ui::image(const Texture2D &, const ImageOptions &)
+rmp::ui::layer [template]
+rmp::ui::navigation_enabled()
+rmp::ui::panel [template]
+rmp::ui::progress(float)
+rmp::ui::progress(float, const ProgressOptions &)
+rmp::ui::row [template]
+rmp::ui::scale()
+rmp::ui::scroll [template]
+rmp::ui::set_navigation_enabled(bool)
+rmp::ui::set_scale(float)
+rmp::ui::set_theme(const Theme &)
+rmp::ui::shutdown()
+rmp::ui::slider(std::string_view, float &, float, float)
+rmp::ui::slider(std::string_view, float &, float, float, const SliderOptions &)
+rmp::ui::spacer()
+rmp::ui::spacer(float)
+rmp::ui::stack [template]
+rmp::ui::text(std::string_view)
+rmp::ui::text(std::string_view, const TextOptions &)
+rmp::ui::text_input(std::string_view, std::string &)
+rmp::ui::text_input(std::string_view, std::string &, const TextInputOptions &)
+rmp::ui::theme_dark()
+rmp::ui::theme_light()
+rmp::ui::wants_keyboard()
+rmp::ui::wants_pointer()

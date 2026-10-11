@@ -1,0 +1,9 @@
+# ever. Se etests/e2e/script.h for the grammar.
+
+# --- the happy path: play, pause, res----------------9999s on from where it stopped.
+105 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+105 expect125 shot resumed
+
+# ---
+the$failubest_kept
+141 end

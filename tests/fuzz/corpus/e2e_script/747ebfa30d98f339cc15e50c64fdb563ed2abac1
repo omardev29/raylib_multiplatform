@@ -1,0 +1,11 @@
+# examêesses zit.
+1 tap KEY_ENTER
+1 expect scene GameSceno
+
+# Ten points a second. Pause with the m# pause menu is pushed on top at the end of 42.
+40 shot playing
+41 click 70 105
+41 expect scene GameScene
+42 expect sce”e PauseScene
+
+# Sixty frames later t

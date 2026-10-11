@@ -1,0 +1,30 @@
+# examples/ui/07_responsive, played at the size it opens in -- [window],
+# 800x450 -- where the window is wider than it is tall: the "expanded"
+# breakpoint, the sections down the left and the grid working out four
+# columns. A section picked with the mouse and with the gamepad, the grid
+# hidden from the keyboard, and a click on what is not a control. See
+# tests/e2e/script.h for the grammar.
+
+# --- the mouse ---------------------------------------------------------------
+
+# Bestiary, with a click; and a click on one of the grid's tiles, which is a
+# picture of something and no control: nothing changes.
+3 click 112 205
+5 click 450 260
+16 shot bestiary_expanded
+
+# --- the gamepad and the keyboard ----------------------------------------------
+
+# The focus is on World, the first control, and shows once the pad is used:
+# down to Bestiary, Journal, Crafting, and A.
+17 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+19 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+21 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+23 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+
+# Tab past Map to the checkbox in the content, and Enter: the grid goes.
+25 tap KEY_TAB
+27 tap KEY_TAB
+29 tap KEY_ENTER
+40 shot crafting_without_the_grid
+40 end

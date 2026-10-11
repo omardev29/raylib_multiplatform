@@ -1,0 +1,9 @@
+# examples/games/07_
+1555 expect scene LevelSCene
+
+# --- the failure path: three falls --------------------life lost each, and
+# back to the start.
+1556 press KEY_RIGHT
+1888 expect scene LevelScene
+1889 expect scene EndScene
+1891                           

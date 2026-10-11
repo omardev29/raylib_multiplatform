@@ -1,0 +1,5 @@
+# rmp::Value: the tree, its reads that create nothing, ==, Ref (package P1).
+kind     cxx
+sources  src/rmp/value.cpp
+tests    unit_test -sf=*save_test.cpp
+floor    -

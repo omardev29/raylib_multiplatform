@@ -1,0 +1,47 @@
+# examples/input/01_actions, played: named actions from the keyboard, the
+# gamepad and the mouse; the pause menu that takes them all; and a click on
+# its Resume button that does not also fire. See tests/e2e/script.h.
+
+# --- the happy path: move, jump, fire ---------------------------------------
+
+# 200 pixels a second: D for half a second is 100 to the right, and the
+# d-pad's down -- the same "move_down" action, out of the box -- 100 down.
+1 press KEY_D
+31 release KEY_D
+31 press GAMEPAD_BUTTON_LEFT_FACE_DOWN
+61 release GAMEPAD_BUTTON_LEFT_FACE_DOWN
+
+# "jump" is Space and the gamepad's A; "fire" is the left mouse button. The
+# HUD says the pointer is down in the frame it is.
+62 tap KEY_SPACE
+64 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+66 click 600 400
+66 shot fire
+66 expect scene GameScene
+
+# --- the failure path: what does nothing ------------------------------------
+
+# F is bound to nothing; Q is "aim_left", which the game defines and never
+# reads. Neither does anything.
+68 tap KEY_F
+70 tap KEY_Q
+
+# Escape is "pause": the pause menu goes on top, and takes the input.
+72 tap KEY_ESCAPE
+72 expect scene PauseScene
+
+# Under it the game hears nothing: D moves nothing, and a click on the veil
+# fires nothing. (Space would: it is "jump" to the game, and it presses the
+# focused Resume button to the menu -- the UI's Enter.)
+74 press KEY_D
+88 release KEY_D
+89 click 600 400
+89 expect scene PauseScene
+100 shot paused
+
+# Resume, with the mouse: the click that presses it is no shot in the game.
+101 click 400 245
+101 expect scene PauseScene
+102 expect scene GameScene
+113 shot resumed
+113 end

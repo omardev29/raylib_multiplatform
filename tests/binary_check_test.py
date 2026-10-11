@@ -24,7 +24,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-spec = importlib.util.spec_from_file_location("binary_check", REPO / "tools" / "binary_check.py")
+# As `tools.binary_check`: the name mutmut gives the file (tools/mutation.sh).
+spec = importlib.util.spec_from_file_location("tools.binary_check",
+                                              REPO / "tools" / "binary_check.py")
 bc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bc)
 

@@ -1,0 +1,5 @@
+# rmp::Tilemap and the Tiled reader (package P2).
+kind     cxx
+sources  src/rmp/tilemap.cpp
+tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp
+floor    -

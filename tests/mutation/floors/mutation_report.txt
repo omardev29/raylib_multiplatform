@@ -1,0 +1,5 @@
+# tools/mutation_report.py: this campaign's own floor checker.
+kind     py
+sources  tools/mutation_report.py
+tests    tests/campaign_test.py
+floor    -

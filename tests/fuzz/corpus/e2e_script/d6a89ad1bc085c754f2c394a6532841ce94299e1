@@ -1,0 +1,8 @@
+# examples/ui/08_responscve, playd control: nothing changes.
+5 click 112 205
+5 click 450 260
+16 shot B
+27 tap KEY_T~AB
+29 tap KEY_ENTER
+40 shot crafting_without_the_grid
+40 end

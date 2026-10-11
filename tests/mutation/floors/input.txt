@@ -1,0 +1,5 @@
+# rmp::input (package P6, after Stage D).
+kind     cxx
+sources  src/rmp/input.cpp
+tests    unit_test -sf=*input_test.cpp
+floor    -

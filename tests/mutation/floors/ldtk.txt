@@ -1,0 +1,5 @@
+# The LDtk reader (package P2).
+kind     cxx
+sources  src/rmp/ldtk.cpp
+tests    unit_test -sf=*ldtk_test.cpp
+floor    -

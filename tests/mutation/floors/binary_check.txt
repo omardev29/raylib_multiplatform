@@ -1,0 +1,5 @@
+# tools/binary_check.py (package P9).
+kind     py
+sources  tools/binary_check.py
+tests    tests/binary_check_test.py
+floor    -

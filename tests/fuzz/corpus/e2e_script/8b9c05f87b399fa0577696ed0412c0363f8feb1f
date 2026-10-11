@@ -1,0 +1,8 @@
+# examples/ui/07_responsive, played at the size it opeT_FACE_DOWN
+21 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN
+23 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+
+# Tab past Map to the checkbox in the content, and Enter: the grid goes.
+25 tap KEY_TAB
+27 tap KEY_TAB
+29 tap KEY_

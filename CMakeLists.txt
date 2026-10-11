@@ -1305,6 +1305,11 @@ endif()
 # The game's own tests, tests/game/ into game_test, in a game and here alike.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/game_tests.cmake")
 
+# The deep tests -- property_test and the fuzz targets -- are the framework's
+# alone: tests/deep.cmake is not in a game, and OPTIONAL makes this line
+# nothing there.
+include("${CMAKE_CURRENT_SOURCE_DIR}/tests/deep.cmake" OPTIONAL)
+
 # --- Headless UI layout test ------------------------------------------------
 # Off by default: it is a developer tool, not part of a game build. The layout
 # runs with the text measurement, the pointer and the viewport all injected, so
