@@ -15,19 +15,30 @@
 #include "../src/rmp/ui/floating.h"
 #include "../src/rmp/ui/internal.h"
 
+#include <rmp/object.h> // rmp::Callback, for the report sink
 #include <rmp/scene.h>
 #include <rmp/ui.h>
 
+#include <array>
+#include <cmath>
+#include <limits>
 #include <memory>
+#include <optional>
+#include <string>
 #include <type_traits>
 
 namespace {
+
+using rmp::ui::Align;
 
 static_assert(std::is_default_constructible_v<rmp::ui::detail::AtCloser> &&
               !std::is_copy_constructible_v<rmp::ui::detail::AtCloser> &&
               !std::is_copy_assignable_v<rmp::ui::detail::AtCloser> &&
               !std::is_move_constructible_v<rmp::ui::detail::AtCloser> &&
               !std::is_move_assignable_v<rmp::ui::detail::AtCloser>);
+
+constexpr float VIEW_W = 1280;
+constexpr float VIEW_H = 720;
 
 // Clay's MeasureFn: its last parameter is a C pointer Clay hands back untouched.
 // NOLINTBEGIN(custom-rmp-raw-pointer): Clay's signature, not ours to choose
@@ -38,24 +49,65 @@ Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *conf
     return Clay_Dimensions{ static_cast<float>(text.length) * size * 0.5f, size };
 }
 
-void pointer_away(Clay_Vector2 &position, bool &down) {
-    position = Clay_Vector2{ -1.0f, -1.0f };
-    down = false;
+// Where the test puts the pointer, and whether it is held down. Away from
+// everything until a test says otherwise.
+struct {
+    Clay_Vector2 at{ -1.0f, -1.0f };
+    bool down = false;
+} finger;
+
+void pointer_scripted(Clay_Vector2 &position, bool &down) {
+    position = finger.at;
+    down = finger.down;
+}
+
+// What the keyboard says: nothing, unless a test pushes sideways -- which
+// shows the focus without moving it.
+struct {
+    int x = 0;
+} keys;
+
+void nav_scripted(rmp::ui::detail::NavState &out) {
+    out = rmp::ui::detail::NavState{};
+    out.x = keys.x;
+}
+
+Camera2D identity_camera() {
+    return Camera2D{
+        .offset = Vector2{ 0, 0 }, .target = Vector2{ 0, 0 }, .rotation = 0, .zoom = 1
+    };
 }
 
 struct HeadlessUi {
     HeadlessUi() {
         rmp::scenes::detail::shutdown();
         rmp::ui::detail::set_measure_provider(measure_stub);
-        rmp::ui::detail::set_pointer_provider(pointer_away);
-        rmp::ui::detail::set_test_viewport(1280, 720);
+        finger.at = Clay_Vector2{ -1.0f, -1.0f };
+        finger.down = false;
+        keys.x = 0;
+        rmp::ui::detail::set_pointer_provider(pointer_scripted);
+        rmp::ui::detail::set_nav_provider(nav_scripted);
+        rmp::ui::detail::set_test_viewport(VIEW_W, VIEW_H);
+        rmp::ui::detail::forget_notices();
+        rmp::ui::detail::set_pass_camera(identity_camera());
+        // A focus some other test showed would show this one's tooltips.
+        rmp::ui::focus("");
+        rmp::ui::detail::set_focus_visible(false);
     }
     HeadlessUi(const HeadlessUi &) = delete;
     HeadlessUi &operator=(const HeadlessUi &) = delete;
     ~HeadlessUi() {
         rmp::scenes::detail::shutdown();
+        rmp::ui::detail::forget_notices();
+        rmp::ui::detail::set_test_frame_time(0);
+        rmp::ui::detail::set_pass_camera(identity_camera());
+        rmp::ui::set_scale(0);
+        rmp::ui::focus("");
+        rmp::ui::detail::set_focus_visible(false);
+        rmp::detail::set_report_sink({});
         rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
         rmp::ui::detail::set_pointer_provider(rmp::ui::detail::pointer_from_raylib);
+        rmp::ui::detail::set_nav_provider(rmp::ui::detail::nav_from_raylib);
         rmp::ui::detail::set_test_viewport(0, 0);
     }
 };
@@ -66,13 +118,7 @@ bool same(const Camera2D &a, const Camera2D &b) {
         a.rotation == b.rotation && a.zoom == b.zoom;
 }
 
-bool identity(const Camera2D &c) {
-    return same(c,
-                Camera2D{ .offset = Vector2{ 0, 0 },
-                          .target = Vector2{ 0, 0 },
-                          .rotation = 0,
-                          .zoom = 1 });
-}
+bool identity(const Camera2D &c) { return same(c, identity_camera()); }
 
 // A scene with a camera of its own, writing down the camera its _draw() is
 // handed.
@@ -101,11 +147,131 @@ void run_frame() {
     rmp::scenes::detail::apply_pending();
 }
 
+// rmp::app::detail::frame(), as far as the UI is concerned: the notices
+// after every scene.
+void run_app_frame() {
+    rmp::ui::detail::begin_frame();
+    rmp::scenes::detail::update(1.0f / 60.0f);
+    rmp::scenes::detail::draw();
+    rmp::ui::detail::draw_notices();
+    rmp::ui::detail::end_frame();
+    rmp::scenes::detail::apply_pending();
+}
+
 bool has_box(std::string_view label) {
     Clay_BoundingBox box{};
     return rmp::ui::detail::bounds_of(label, 0, 0, &box) && box.width > 0 &&
         box.height > 0;
 }
+
+Clay_BoundingBox box_of(std::string_view label) {
+    Clay_BoundingBox box{};
+    REQUIRE(rmp::ui::detail::bounds_of(label, 0, 0, &box));
+    return box;
+}
+
+// The point of `b` that `a` names.
+Vector2 anchor_of(const Clay_BoundingBox &b, Align a) {
+    float x = b.x;
+    float y = b.y;
+    switch (a) {
+        case Align::TOP_LEFT:
+            break;
+        case Align::TOP_CENTER:
+            x += b.width / 2;
+            break;
+        case Align::TOP_RIGHT:
+            x += b.width;
+            break;
+        case Align::CENTER_LEFT:
+            y += b.height / 2;
+            break;
+        case Align::CENTER:
+            x += b.width / 2;
+            y += b.height / 2;
+            break;
+        case Align::CENTER_RIGHT:
+            x += b.width;
+            y += b.height / 2;
+            break;
+        case Align::BOTTOM_LEFT:
+            y += b.height;
+            break;
+        case Align::BOTTOM_CENTER:
+            x += b.width / 2;
+            y += b.height;
+            break;
+        case Align::BOTTOM_RIGHT:
+            x += b.width;
+            y += b.height;
+            break;
+    }
+    return Vector2{ x, y };
+}
+
+constexpr std::array ALL_ALIGNS{ Align::TOP_LEFT,    Align::TOP_CENTER,
+                                 Align::TOP_RIGHT,   Align::CENTER_LEFT,
+                                 Align::CENTER,      Align::CENTER_RIGHT,
+                                 Align::BOTTOM_LEFT, Align::BOTTOM_CENTER,
+                                 Align::BOTTOM_RIGHT };
+
+// One frame of a box 80 x 20 design units at `world`, named "box".
+void frame_with_box(Vector2 world, const rmp::ui::AtOptions &o) {
+    rmp::ui::begin();
+    rmp::ui::at(world, o, [] { rmp::ui::column({ .width = 80, .height = 20 }, [] {}); });
+    rmp::ui::end();
+}
+
+// A Clay render command with nothing but a z: what world_passthrough() reads.
+Clay_RenderCommand command_at_z(int16_t z) {
+    Clay_RenderCommand c{};
+    c.commandType = CLAY_RENDER_COMMAND_TYPE_RECTANGLE;
+    c.zIndex = z;
+    return c;
+}
+
+Clay_ElementId tooltip_id(std::string_view control) {
+    return rmp::ui::detail::peek_sub_id(rmp::ui::detail::peek_element_id(control, 0, 0),
+                                        rmp::ui::detail::TOOLTIP_SUB);
+}
+
+// The tooltip of `control`, if the pass Clay laid out last has it.
+std::optional<Clay_BoundingBox> tooltip_box(std::string_view control) {
+    const Clay_ElementData data = Clay_GetElementData(tooltip_id(control));
+    if (!data.found) return std::nullopt;
+    return data.boundingBox;
+}
+
+bool tooltip_shown(std::string_view control) { return tooltip_box(control).has_value(); }
+
+void sell_frame(const rmp::ui::TooltipOptions &o) {
+    rmp::ui::begin();
+    rmp::ui::button("Sell");
+    rmp::ui::tooltip("Gives you half", o);
+    rmp::ui::end();
+}
+
+Clay_Vector2 centre_of(const Clay_BoundingBox &b) {
+    return Clay_Vector2{ b.x + b.width / 2, b.y + b.height / 2 };
+}
+
+bool near(float a, float b) { return std::fabs(a - b) <= 0.5f; }
+
+// A scene whose _update() says something once.
+class Saving : public rmp::Scene {
+public:
+    void _update(float /*delta*/) override {
+        if (said) return;
+        rmp::ui::notify("Saved");
+        said = true;
+    }
+    void _draw() override {
+        rmp::ui::begin();
+        rmp::ui::button("Game");
+        rmp::ui::end();
+    }
+    bool said = false;
+};
 
 } // namespace
 
@@ -141,6 +307,254 @@ TEST_SUITE("ui: floating") {
         CHECK(has_box("Above"));
         CHECK(rmp::ui::detail::clay_error_count() == errors);
     }
+
+    // -- at() ----------------------------------------------------------------
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "at() puts the point its anchor names where the camera shows the "
+                      "world point") {
+        const int errors = rmp::ui::detail::clay_error_count();
+        struct Case {
+            Camera2D camera;
+            Vector2 world;
+        };
+        const std::array cases{
+            Case{ identity_camera(), Vector2{ 300, 200 } },
+            // The scene's camera of tests/camera_test.cpp: zoomed in on a point.
+            Case{ Camera2D{ .offset = Vector2{ 640, 360 },
+                            .target = Vector2{ 1000, 300 },
+                            .rotation = 0,
+                            .zoom = 2 },
+                  Vector2{ 1010, 290 } },
+            // Zoomed out, and moved.
+            Case{ Camera2D{ .offset = Vector2{ 100, 50 },
+                            .target = Vector2{ -200, 40 },
+                            .rotation = 0,
+                            .zoom = 0.5f },
+                  Vector2{ 0, 100 } },
+        };
+        for (const Case &c : cases) {
+            rmp::ui::detail::set_pass_camera(c.camera);
+            const Vector2 expected = GetWorldToScreen2D(c.world, c.camera);
+            CHECK(rmp::ui::detail::world_to_screen(c.world, c.camera).x == expected.x);
+            CHECK(rmp::ui::detail::world_to_screen(c.world, c.camera).y == expected.y);
+            for (const Align a : ALL_ALIGNS) {
+                CAPTURE(static_cast<int>(a));
+                CAPTURE(c.camera.zoom);
+                frame_with_box(c.world, { .anchor = a, .id = "box" });
+                const Clay_BoundingBox b = box_of("box");
+                const Vector2 p = anchor_of(b, a);
+                CHECK(near(p.x, expected.x));
+                CHECK(near(p.y, expected.y));
+                // Its size is its content's, scaled like everything else.
+                CHECK(near(b.width, rmp::ui::detail::px(80)));
+                CHECK(near(b.height, rmp::ui::detail::px(20)));
+            }
+        }
+        // The default anchor is the bottom centre: the box sits above the point.
+        rmp::ui::detail::set_pass_camera(identity_camera());
+        frame_with_box(Vector2{ 640, 400 }, { .id = "box" });
+        const Clay_BoundingBox b = box_of("box");
+        CHECK(near(b.x + b.width / 2, 640));
+        CHECK(near(b.y + b.height, 400));
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "at()'s offset is in design units, after projecting") {
+        rmp::ui::set_scale(2);
+        const Camera2D zoomed{
+            .offset = Vector2{ 0, 0 }, .target = Vector2{ 0, 0 }, .rotation = 0, .zoom = 3
+        };
+        rmp::ui::detail::set_pass_camera(zoomed);
+        frame_with_box(Vector2{ 100, 100 }, { .anchor = Align::TOP_LEFT, .id = "box" });
+        const Clay_BoundingBox still = box_of("box");
+        frame_with_box(
+            Vector2{ 100, 100 },
+            { .anchor = Align::TOP_LEFT, .offset = Vector2{ 10, -8 }, .id = "box" });
+        const Clay_BoundingBox moved = box_of("box");
+        // Projected first -- 300, 300 through a zoom of 3 -- then moved by the
+        // offset at the interface's scale, not the camera's.
+        CHECK(near(still.x, 300));
+        CHECK(near(still.y, 300));
+        CHECK(near(moved.x - still.x, 20));
+        CHECK(near(moved.y - still.y, -16));
+    }
+
+    TEST_CASE_FIXTURE(
+        HeadlessUi, "a box with only a growing bar in it is as wide as a touch target") {
+        // The example in rmp/ui.h: a progress() fills the space available, and
+        // a box that only fitted its content would have none to give it.
+        rmp::ui::begin();
+        rmp::ui::at(Vector2{ 400, 300 }, { .id = "bar" },
+                    [] { rmp::ui::progress(0.5f, { .id = "hp" }); });
+        rmp::ui::end();
+        const Clay_BoundingBox hp = box_of("hp");
+        CHECK(
+            near(hp.width, rmp::ui::detail::px(rmp::ui::current_theme().min_touch_size)));
+        CHECK(hp.height > 0);
+        CHECK(near(hp.x + hp.width / 2, 400));
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a point no camera shows, or no point at all, breaks nothing") {
+        const int errors = rmp::ui::detail::clay_error_count();
+        const float inf = std::numeric_limits<float>::infinity();
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const std::array far_points{
+            Vector2{ 1.0e30f, -1.0e30f }, Vector2{ nan, 10 }, Vector2{ 10, nan },
+            Vector2{ inf, inf },          Vector2{ -inf, 5 }, Vector2{ -5000, 300 }
+        };
+        for (const Vector2 &p : far_points) {
+            CAPTURE(p.x);
+            CAPTURE(p.y);
+            const Vector2 s = rmp::ui::detail::world_to_screen(p, identity_camera());
+            CHECK(std::isfinite(s.x));
+            CHECK(std::isfinite(s.y));
+            bool pressed = false;
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::at(p, { .id = "far" },
+                            [&] { pressed = rmp::ui::button("Far away") || pressed; });
+                rmp::ui::end();
+            }
+            CHECK_FALSE(pressed);
+            CHECK_FALSE(rmp::ui::detail::frame_open());
+            // Laid out, if at all, where nothing on the screen is.
+            Clay_BoundingBox b{};
+            if (rmp::ui::detail::bounds_of("far", 0, 0, &b)) {
+                const bool off = b.x + b.width < 0 || b.x > VIEW_W ||
+                    b.y + b.height < 0 || b.y > VIEW_H;
+                CHECK(off);
+            }
+        }
+        // A camera that sees nothing at all.
+        const Camera2D flat{
+            .offset = Vector2{ 0, 0 }, .target = Vector2{ 0, 0 }, .rotation = 0, .zoom = 0
+        };
+        const Vector2 s = rmp::ui::detail::world_to_screen(Vector2{ 50, 50 }, flat);
+        CHECK(std::isfinite(s.x));
+        CHECK(std::isfinite(s.y));
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "what at() paints does not take the pointer, and a control in it "
+                      "does") {
+        auto frame = [](bool &clicked) {
+            rmp::ui::begin();
+            rmp::ui::at(Vector2{ 300, 300 }, { .id = "bar" }, [] {
+                rmp::ui::progress(0.5f, { .width = 100, .height = 20, .id = "hp" });
+            });
+            rmp::ui::at(Vector2{ 900, 300 }, [&] {
+                if (rmp::ui::button("Use")) clicked = true;
+            });
+            rmp::ui::end();
+        };
+        bool clicked = false;
+        frame(clicked); // laid out: from here the boxes are known
+        const Clay_BoundingBox hp = box_of("hp");
+        finger.at = centre_of(hp);
+        frame(clicked);
+        frame(clicked);
+        CHECK_FALSE(rmp::ui::wants_pointer());
+
+        // Over the button in the other box: that is the interface's.
+        rmp::ui::begin();
+        rmp::ui::at(Vector2{ 900, 300 }, [&] { rmp::ui::button("Use"); });
+        rmp::ui::end();
+        finger.at = centre_of(box_of("Use"));
+        frame(clicked);
+        frame(clicked);
+        CHECK(rmp::ui::wants_pointer());
+        // ...and it is pressed where it is drawn.
+        finger.down = true;
+        frame(clicked);
+        CHECK_FALSE(clicked);
+        finger.down = false;
+        frame(clicked);
+        CHECK(clicked);
+
+        // The same bar outside at() is a wall like any panel: what proves the
+        // first answer was at()'s doing.
+        auto plain = [] {
+            rmp::ui::begin({ .placement = Align::TOP_LEFT });
+            rmp::ui::progress(0.5f, { .width = 100, .height = 20, .id = "plain" });
+            rmp::ui::end();
+        };
+        plain();
+        finger.at = centre_of(box_of("plain"));
+        plain();
+        plain();
+        CHECK(rmp::ui::wants_pointer());
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a control over the world takes the focus like any other") {
+        // Nothing else in the pass: it is the first control, so the focus is
+        // its, and the keyboard shows it.
+        keys.x = 1;
+        for (int frame = 0; frame < 3; ++frame) {
+            rmp::ui::begin();
+            rmp::ui::at(Vector2{ 500, 500 }, [] { rmp::ui::button("Talk"); });
+            rmp::ui::end();
+        }
+        CHECK(rmp::ui::focused() == "Talk");
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a box over the world is drawn under the rest of its pass, and its "
+                      "layers with it") {
+        rmp::ui::begin();
+        rmp::ui::panel([] { rmp::ui::text("HUD"); });
+        int16_t inner = 0;
+        rmp::ui::at(Vector2{ 100, 100 }, [&] {
+            // What a stack() inside it would be handed.
+            inner = rmp::ui::detail::next_layer_z();
+        });
+        const int16_t root = rmp::ui::detail::last_at_z();
+        rmp::ui::at(Vector2{ 200, 100 }, [] {});
+        const int16_t second = rmp::ui::detail::last_at_z();
+        const int16_t after = rmp::ui::detail::next_layer_z();
+        // Under the pass's own tree, which is at 0, and the second over the first.
+        CHECK(root < 0);
+        CHECK(second > root);
+        CHECK(second < 0);
+        // Everything in at() lets the pointer through; nothing else does.
+        CHECK(rmp::ui::detail::world_passthrough(command_at_z(root)));
+        CHECK(rmp::ui::detail::world_passthrough(command_at_z(second)));
+        CHECK(rmp::ui::detail::world_passthrough(command_at_z(inner)));
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(0)));
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(after)));
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(1000)));
+        rmp::ui::end();
+        // A new pass starts with none.
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(root)));
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(inner)));
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "at() nested, or outside a frame, keeps the frame whole") {
+        const int errors = rmp::ui::detail::clay_error_count();
+        int ran = 0;
+        rmp::ui::at(Vector2{ 1, 1 }, [&] { ++ran; });
+        CHECK(ran == 1); // the body runs; there is nothing to put it in
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        for (int frame = 0; frame < 2; ++frame) {
+            rmp::ui::begin();
+            rmp::ui::at(Vector2{ 100, 100 }, [] {
+                rmp::ui::at(Vector2{ 300, 300 }, [] { rmp::ui::button("Inner"); });
+                rmp::ui::text("outer");
+            });
+            rmp::ui::button("After");
+            rmp::ui::end();
+        }
+        CHECK(has_box("Inner"));
+        CHECK(has_box("After"));
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+    }
+
+    // -- tooltip() -----------------------------------------------------------
 
     TEST_CASE_FIXTURE(HeadlessUi, "the control declared last is the one taken, once") {
         rmp::ui::begin();
@@ -186,12 +600,289 @@ TEST_SUITE("ui: floating") {
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
+                      "a tooltip waits for the pointer to rest on its control") {
+        rmp::ui::detail::set_test_frame_time(0.125f); // exact in binary
+        sell_frame({}); // laid out
+        finger.at = centre_of(box_of("Sell"));
+        // The pointer arrives on the second frame; half a second later -- four
+        // frames of 0.125 -- the tooltip shows, and not a frame sooner.
+        int shown_at = 0;
+        for (int frame = 2; frame <= 8 && shown_at == 0; ++frame) {
+            sell_frame({});
+            if (tooltip_shown("Sell")) shown_at = frame;
+        }
+        CHECK(shown_at == 6);
+
+        // Above the control, centred, clear of it.
+        sell_frame({});
+        const std::optional<Clay_BoundingBox> shown = tooltip_box("Sell");
+        REQUIRE(shown.has_value());
+        const Clay_BoundingBox tip = shown.value_or(Clay_BoundingBox{});
+        const Clay_BoundingBox sell = box_of("Sell");
+        CHECK(near(tip.x + tip.width / 2, sell.x + sell.width / 2));
+        CHECK(tip.y + tip.height < sell.y);
+        CHECK(tip.width > 0);
+
+        // The pointer leaves: gone at once. Back: the wait starts again.
+        finger.at = Clay_Vector2{ 2, 2 };
+        sell_frame({});
+        CHECK_FALSE(tooltip_shown("Sell"));
+        finger.at = centre_of(sell);
+        sell_frame({});
+        CHECK_FALSE(tooltip_shown("Sell"));
+
+        // With no delay, on the first frame the pointer is over it.
+        sell_frame({ .delay = 0 });
+        CHECK(tooltip_shown("Sell"));
+        // A delay that is not a number is no delay, rather than never.
+        finger.at = Clay_Vector2{ 2, 2 };
+        sell_frame({});
+        finger.at = centre_of(sell);
+        sell_frame({ .delay = std::numeric_limits<float>::quiet_NaN() });
+        CHECK(tooltip_shown("Sell"));
+    }
+
+    TEST_CASE_FIXTURE(
+        HeadlessUi,
+        "a frame without the tooltip, or without its control, starts the wait "
+        "again") {
+        rmp::ui::detail::set_test_frame_time(0.125f);
+        sell_frame({});
+        finger.at = centre_of(box_of("Sell"));
+        for (int frame = 0; frame < 3; ++frame) sell_frame({}); // 0.25 s of the 0.5
+        // The control, and no tooltip asked for: the pointer stayed where it
+        // was, but nothing was waiting on it.
+        rmp::ui::begin();
+        rmp::ui::button("Sell");
+        rmp::ui::end();
+        sell_frame({});
+        sell_frame({});
+        CHECK_FALSE(tooltip_shown("Sell")); // 0.125 s since it was asked again, not 0.5
+        for (int frame = 0; frame < 3; ++frame) sell_frame({});
+        CHECK(tooltip_shown("Sell")); // 0.5 s: the whole wait, from the start
+
+        // A frame without the control at all.
+        finger.at = Clay_Vector2{ 2, 2 };
+        sell_frame({});
+        finger.at = centre_of(box_of("Sell"));
+        for (int frame = 0; frame < 3; ++frame) sell_frame({});
+        rmp::ui::begin();
+        rmp::ui::button("Elsewhere", { .id = "elsewhere" });
+        rmp::ui::end();
+        sell_frame({});
+        sell_frame({});
+        CHECK_FALSE(tooltip_shown("Sell"));
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a tooltip shows at once on a control the keyboard has reached") {
+        keys.x = 1; // a key touched: the focus is shown, and does not move
+        sell_frame({});
+        sell_frame({});
+        CHECK(rmp::ui::focused() == "Sell");
+        CHECK(tooltip_shown("Sell"));
+        // The pointer is nowhere near it, and that is the point.
+        CHECK(finger.at.x < 0);
+
+        // A focus nobody can see is not reason enough.
+        keys.x = 0;
+        rmp::ui::detail::set_focus_visible(false);
+        sell_frame({});
+        CHECK_FALSE(tooltip_shown("Sell"));
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a tooltip with no control before it is reported once") {
+        rmp::detail::reset_reports_for_tests();
+        for (int frame = 0; frame < 60; ++frame) {
+            rmp::ui::begin();
+            rmp::ui::text("Not a control");
+            rmp::ui::tooltip("About nothing");
+            rmp::ui::end();
+        }
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        // One control, one tooltip: the second has nothing left to be about.
+        rmp::detail::reset_reports_for_tests();
+        rmp::ui::begin();
+        rmp::ui::button("Sell");
+        rmp::ui::tooltip("One");
+        rmp::ui::tooltip("Two");
+        rmp::ui::end();
+        CHECK(rmp::detail::report_count() == 1);
+        // A tooltip right after a control is no mistake.
+        rmp::detail::reset_reports_for_tests();
+        sell_frame({});
+        CHECK(rmp::detail::report_count() == 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a tooltip goes on the side it is asked for") {
+        // Each side, where Clay put it, against where place_tooltip() says.
+        rmp::ui::detail::set_test_frame_time(0.125f);
+        const float gap = rmp::ui::detail::px(rmp::ui::current_theme().gap / 2);
+        for (const Align side : ALL_ALIGNS) {
+            CAPTURE(static_cast<int>(side));
+            sell_frame({ .side = side, .delay = 0 });
+            finger.at = centre_of(box_of("Sell"));
+            sell_frame({ .side = side, .delay = 0 });
+            const std::optional<Clay_BoundingBox> shown = tooltip_box("Sell");
+            REQUIRE(shown.has_value());
+            const Clay_BoundingBox tip = shown.value_or(Clay_BoundingBox{});
+            const Clay_BoundingBox c = box_of("Sell");
+            switch (side) {
+                case Align::TOP_LEFT:
+                    CHECK(near(tip.x, c.x));
+                    CHECK(near(tip.y + tip.height, c.y - gap));
+                    break;
+                case Align::TOP_CENTER:
+                    CHECK(near(tip.x + tip.width / 2, c.x + c.width / 2));
+                    CHECK(near(tip.y + tip.height, c.y - gap));
+                    break;
+                case Align::TOP_RIGHT:
+                    CHECK(near(tip.x + tip.width, c.x + c.width));
+                    CHECK(near(tip.y + tip.height, c.y - gap));
+                    break;
+                case Align::CENTER_LEFT:
+                    CHECK(near(tip.x + tip.width, c.x - gap));
+                    CHECK(near(tip.y + tip.height / 2, c.y + c.height / 2));
+                    break;
+                case Align::CENTER:
+                    CHECK(near(tip.x + tip.width / 2, c.x + c.width / 2));
+                    CHECK(near(tip.y + tip.height / 2, c.y + c.height / 2));
+                    break;
+                case Align::CENTER_RIGHT:
+                    CHECK(near(tip.x, c.x + c.width + gap));
+                    CHECK(near(tip.y + tip.height / 2, c.y + c.height / 2));
+                    break;
+                case Align::BOTTOM_LEFT:
+                    CHECK(near(tip.x, c.x));
+                    CHECK(near(tip.y, c.y + c.height + gap));
+                    break;
+                case Align::BOTTOM_CENTER:
+                    CHECK(near(tip.x + tip.width / 2, c.x + c.width / 2));
+                    CHECK(near(tip.y, c.y + c.height + gap));
+                    break;
+                case Align::BOTTOM_RIGHT:
+                    CHECK(near(tip.x + tip.width, c.x + c.width));
+                    CHECK(near(tip.y, c.y + c.height + gap));
+                    break;
+            }
+            finger.at = Clay_Vector2{ -1, -1 };
+        }
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a tooltip at the edge of the screen stays on it") {
+        // A button against the top edge, its tooltip asked for above it.
+        auto top_frame = [] {
+            rmp::ui::begin({ .placement = Align::TOP_LEFT, .padding = 0 });
+            rmp::ui::button("Sell");
+            rmp::ui::tooltip("A rather long line about selling things",
+                             { .side = Align::TOP_CENTER, .delay = 0 });
+            rmp::ui::end();
+        };
+        top_frame();
+        finger.at = centre_of(box_of("Sell"));
+        top_frame(); // shown where it was asked for, its size unknown
+        top_frame(); // its size known: put where it fits
+        const std::optional<Clay_BoundingBox> shown = tooltip_box("Sell");
+        REQUIRE(shown.has_value());
+        const Clay_BoundingBox tip = shown.value_or(Clay_BoundingBox{});
+        const Clay_BoundingBox sell = box_of("Sell");
+        CHECK(tip.y >= sell.y + sell.height); // below, the side that fits
+        CHECK(tip.x >= -0.5f); // and not past the left edge either
+        CHECK(tip.x + tip.width <= VIEW_W + 0.5f);
+    }
+
+    TEST_CASE("place_tooltip(): the side asked for when it fits, the other when not") {
+        using rmp::ui::detail::place_tooltip;
+        const Vector2 screen{ 1000, 500 };
+        const Vector2 size{ 200, 40 };
+        const float gap = 6;
+        const Rectangle middle{ 400, 200, 100, 50 };
+        for (const Align side : ALL_ALIGNS) {
+            CAPTURE(static_cast<int>(side));
+            const rmp::ui::detail::TipPlace p =
+                place_tooltip(middle, size, side, screen, gap);
+            CHECK(p.side == side);
+            CHECK(p.shift.x == 0);
+            CHECK(p.shift.y == 0);
+        }
+        // Against the top: above does not fit, below does.
+        const Rectangle top{ 400, 10, 100, 50 };
+        CHECK(place_tooltip(top, size, Align::TOP_CENTER, screen, gap).side ==
+              Align::BOTTOM_CENTER);
+        CHECK(place_tooltip(top, size, Align::TOP_LEFT, screen, gap).side ==
+              Align::BOTTOM_LEFT);
+        CHECK(place_tooltip(top, size, Align::TOP_RIGHT, screen, gap).side ==
+              Align::BOTTOM_RIGHT);
+        // Against the bottom, the other way.
+        const Rectangle bottom{ 400, 460, 100, 30 };
+        CHECK(place_tooltip(bottom, size, Align::BOTTOM_CENTER, screen, gap).side ==
+              Align::TOP_CENTER);
+        // Beside: against the left edge it goes right, and the other way.
+        const Rectangle left{ 5, 200, 100, 50 };
+        CHECK(place_tooltip(left, size, Align::CENTER_LEFT, screen, gap).side ==
+              Align::CENTER_RIGHT);
+        const Rectangle right{ 900, 200, 95, 50 };
+        CHECK(place_tooltip(right, size, Align::CENTER_RIGHT, screen, gap).side ==
+              Align::CENTER_LEFT);
+        // Neither side fits: the one asked for.
+        const Vector2 tall{ 200, 300 };
+        CHECK(place_tooltip(middle, tall, Align::TOP_CENTER, screen, gap).side ==
+              Align::TOP_CENTER);
+
+        // Along the side: moved just enough to be on the screen.
+        const Rectangle corner{ 0, 200, 40, 40 };
+        const rmp::ui::detail::TipPlace in =
+            place_tooltip(corner, size, Align::TOP_CENTER, screen, gap);
+        // Centred on the control it would start at 20 - 100 = -80.
+        CHECK(in.shift.x == 80);
+        CHECK(in.shift.y == 0);
+        const Rectangle far_right{ 980, 200, 20, 40 };
+        CHECK(place_tooltip(far_right, size, Align::BOTTOM_LEFT, screen, gap).shift.x ==
+              -180);
+        const Rectangle low{ 400, 480, 100, 20 };
+        // Beside a control at the very bottom: up, by what hangs below.
+        CHECK(place_tooltip(low, size, Align::CENTER_RIGHT, screen, gap).shift.y == -10);
+        // Wider than the screen: against its left edge.
+        const Vector2 wide{ 1200, 20 };
+        CHECK(place_tooltip(middle, wide, Align::TOP_CENTER, screen, gap).shift.x == 150);
+        // On top of the control, both ways.
+        const rmp::ui::detail::TipPlace over =
+            place_tooltip(Rectangle{ 0, 0, 10, 10 }, size, Align::CENTER, screen, gap);
+        CHECK(over.side == Align::CENTER);
+        CHECK(over.shift.x == 95);
+        CHECK(over.shift.y == 15);
+    }
+
+    // -- notify() ------------------------------------------------------------
+
+    TEST_CASE_FIXTURE(HeadlessUi,
                       "a notice, or a report on screen, does not start the UI") {
         rmp::ui::shutdown();
         REQUIRE_FALSE(rmp::ui::detail::started());
         rmp::ui::notify("Saved");
         rmp::ui::detail::show_report("UI: a mistake");
         CHECK_FALSE(rmp::ui::detail::started());
+        CHECK(rmp::ui::detail::notice_count() == 2);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "an empty queue starts nothing; a queued notice is drawn") {
+        rmp::ui::shutdown();
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        CHECK_FALSE(rmp::ui::detail::started());
+
+        rmp::ui::notify("Saved");
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        CHECK(rmp::ui::detail::started());
+        REQUIRE(rmp::ui::detail::notice_count() == 1);
+        CHECK(rmp::ui::detail::notice_at(0).box.width > 0);
+        CHECK(rmp::ui::detail::notice_layout_errors() == 0);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
@@ -203,5 +894,223 @@ TEST_SUITE("ui: floating") {
         rmp::ui::detail::draw_notices();
         CHECK_FALSE(rmp::ui::detail::frame_open());
         rmp::ui::detail::end_frame();
+    }
+
+    TEST_CASE_FIXTURE(
+        HeadlessUi,
+        "notices queued from _update() are drawn at the bottom centre, after "
+        "every scene") {
+        rmp::scenes::detail::start(std::make_unique<Saving>());
+        // The scene's own passes do not draw them: with a scene stack, the
+        // app does, after the last scene.
+        run_frame();
+        REQUIRE(rmp::ui::detail::notice_count() == 1);
+        CHECK(rmp::ui::detail::notice_at(0).box.width == 0);
+        run_app_frame();
+        const rmp::ui::detail::NoticeView n = rmp::ui::detail::notice_at(0);
+        CHECK(n.text == "Saved");
+        CHECK(n.color == rmp::ui::ColorRole::TEXT);
+        CHECK(n.alpha == 1);
+        REQUIRE(n.box.width > 0);
+        CHECK(near(n.box.x + n.box.width / 2, VIEW_W / 2));
+        const float inset = rmp::ui::detail::px(rmp::ui::current_theme().panel_padding) +
+            rmp::ui::detail::safe_area_inset();
+        CHECK(near(n.box.y + n.box.height, VIEW_H - inset));
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "the notices leave the game's interface alone") {
+        rmp::ui::notify("Saved");
+        rmp::ui::detail::begin_frame();
+        rmp::ui::begin();
+        rmp::ui::button("Game");
+        rmp::ui::end();
+        const Clay_Context *const before = Clay_GetCurrentContext();
+        const int pass = rmp::ui::detail::current_pass();
+        rmp::ui::detail::draw_notices();
+        // No pass of the game's taken, and Clay still holds the game's layout:
+        // the notices have one of their own. A pass after the game's would
+        // have told Clay the pointer was nowhere, and the wheel would not
+        // scroll the game's lists for as long as a notice showed.
+        CHECK(rmp::ui::detail::current_pass() == pass);
+        CHECK(Clay_GetCurrentContext() == before);
+        CHECK(has_box("Game"));
+        rmp::ui::detail::end_frame();
+        CHECK(rmp::ui::detail::notice_at(0).box.width > 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "the newest eight are kept, oldest first, newest lowest") {
+        for (int i = 0; i < 10; ++i) rmp::ui::notify(std::to_string(i));
+        REQUIRE(rmp::ui::detail::notice_count() == rmp::ui::detail::NOTICE_RING);
+        for (int i = 0; i < rmp::ui::detail::NOTICE_RING; ++i) {
+            CHECK(rmp::ui::detail::notice_at(i).text == std::to_string(i + 2));
+        }
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        for (int i = 1; i < rmp::ui::detail::NOTICE_RING; ++i) {
+            const Rectangle above = rmp::ui::detail::notice_at(i - 1).box;
+            const Rectangle below = rmp::ui::detail::notice_at(i).box;
+            CHECK(above.y + above.height <= below.y);
+        }
+        CHECK(rmp::ui::detail::notice_layout_errors() == 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a notice stays its seconds, fading over the last of them") {
+        rmp::ui::detail::set_test_frame_time(0.125f);
+        rmp::ui::notify("Bye", { .seconds = 1 });
+        // It ages by the frames drawn: after each, what the next one shows.
+        const std::array<float, 7> alpha{ 1, 1, 1, 1, 0.75f, 0.5f, 0.25f };
+        for (const float expected : alpha) {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::draw_notices();
+            rmp::ui::detail::end_frame();
+            REQUIRE(rmp::ui::detail::notice_count() == 1);
+            CHECK(rmp::ui::detail::notice_at(0).alpha == doctest::Approx(expected));
+        }
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        CHECK(rmp::ui::detail::notice_count() == 0);
+
+        // A short one fades over its second half: 0.25 s of its 0.5.
+        rmp::ui::notify("Blink", { .seconds = 0.5f });
+        for (const float expected : { 1.0f, 1.0f, 0.5f }) {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::draw_notices();
+            rmp::ui::detail::end_frame();
+            REQUIRE(rmp::ui::detail::notice_count() == 1);
+            CHECK(rmp::ui::detail::notice_at(0).alpha == doctest::Approx(expected));
+        }
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a notice takes neither the pointer nor the focus") {
+        rmp::ui::notify("Saved");
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        const Rectangle b = rmp::ui::detail::notice_at(0).box;
+        REQUIRE(b.width > 0);
+        finger.at = Clay_Vector2{ b.x + b.width / 2, b.y + b.height / 2 };
+        for (int frame = 0; frame < 3; ++frame) {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::draw_notices();
+            rmp::ui::detail::end_frame();
+        }
+        CHECK_FALSE(rmp::ui::wants_pointer());
+        CHECK_FALSE(rmp::ui::wants_keyboard());
+        CHECK(rmp::ui::focused().empty());
+    }
+
+    TEST_CASE_FIXTURE(
+        HeadlessUi,
+        "without scenes, the notices are drawn once a frame, after its first "
+        "pass") {
+        rmp::ui::detail::set_test_frame_time(0.125f);
+        rmp::ui::notify("Once", { .seconds = 1 });
+        // Two passes a frame, as a screen and its overlay(): aged once.
+        auto two_passes = [] {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::begin();
+            rmp::ui::button("Screen");
+            rmp::ui::end();
+            rmp::ui::begin();
+            rmp::ui::button("Over it");
+            rmp::ui::end();
+            rmp::ui::detail::end_frame();
+        };
+        for (int frame = 0; frame < 7; ++frame) two_passes();
+        REQUIRE(rmp::ui::detail::notice_count() == 1);
+        CHECK(rmp::ui::detail::notice_at(0).box.width > 0);
+        two_passes();
+        CHECK(rmp::ui::detail::notice_count() == 0);
+
+        // And a plain raylib loop, where every begin() is a frame of its own.
+        rmp::ui::notify("Plain", { .seconds = 1 });
+        for (int frame = 0; frame < 7; ++frame) {
+            rmp::ui::begin();
+            rmp::ui::end();
+        }
+        CHECK(rmp::ui::detail::notice_count() == 1);
+        rmp::ui::begin();
+        rmp::ui::end();
+        CHECK(rmp::ui::detail::notice_count() == 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a notice keeps a copy, and not too long a one") {
+        {
+            std::string temporary = "Achievement unlocked";
+            rmp::ui::notify(temporary);
+            temporary.assign(temporary.size(), 'x');
+        }
+        CHECK(rmp::ui::detail::notice_at(0).text == "Achievement unlocked");
+        // A kilobyte, as a report line can be: cut, and never in the middle of
+        // a character.
+        std::string long_line;
+        for (int i = 0; i < 400; ++i) long_line += "\xC3\xA9"; // e acute, two bytes
+        rmp::ui::notify(long_line);
+        const std::string_view kept = rmp::ui::detail::notice_at(1).text;
+        CHECK(rmp::ui::detail::utf8_length(kept) == rmp::ui::detail::NOTICE_MAX_CHARS);
+        CHECK(kept.size() == 2 * rmp::ui::detail::NOTICE_MAX_CHARS);
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        CHECK(rmp::ui::detail::notice_layout_errors() == 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a full ring of the longest notices still lays out") {
+        // The most words the ring can hold: every one a letter and a space.
+        std::string words;
+        while (rmp::ui::detail::utf8_length(words) < rmp::ui::detail::NOTICE_MAX_CHARS) {
+            words += "a ";
+        }
+        for (int i = 0; i < rmp::ui::detail::NOTICE_RING; ++i) {
+            // Each its own: Clay measures a string it has seen once.
+            rmp::ui::notify(std::to_string(i) + " " + words);
+        }
+        for (int frame = 0; frame < 3; ++frame) {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::draw_notices();
+            rmp::ui::detail::end_frame();
+        }
+        CHECK(rmp::ui::detail::notice_layout_errors() == 0);
+        // Each one wrapped to the width a notice has, and all of them on the
+        // screen.
+        for (int i = 0; i < rmp::ui::detail::NOTICE_RING; ++i) {
+            const Rectangle b = rmp::ui::detail::notice_at(i).box;
+            CHECK(b.width > 0);
+            CHECK(b.width <= rmp::ui::detail::px(560) + 0.5f);
+        }
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a notice nobody could read is reported, and queues nothing") {
+        rmp::detail::reset_reports_for_tests();
+        rmp::ui::notify("");
+        rmp::ui::notify("Never", { .seconds = 0 });
+        rmp::ui::notify("Never", { .seconds = -1 });
+        rmp::ui::notify("Never", { .seconds = std::numeric_limits<float>::quiet_NaN() });
+        CHECK(rmp::ui::detail::notice_count() == 0);
+        CHECK(rmp::detail::report_count() == 2); // no text; no time to read it in
+        // Forever is a long time, but it can be read.
+        rmp::ui::notify("Pinned", { .seconds = std::numeric_limits<float>::infinity() });
+        CHECK(rmp::ui::detail::notice_count() == 1);
+        CHECK(rmp::detail::report_count() == 2);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a report, in a debug build, becomes a notice") {
+        rmp::detail::reset_reports_for_tests();
+        rmp::detail::set_report_sink(rmp::ui::detail::show_report);
+        RMP_REPORT_ONCE("test: %s", "a mistake, on screen");
+        rmp::detail::set_report_sink({});
+        REQUIRE(rmp::ui::detail::notice_count() == 1);
+        CHECK(rmp::ui::detail::notice_at(0).text == "test: a mistake, on screen");
+        CHECK(rmp::ui::detail::notice_at(0).color == rmp::ui::ColorRole::DANGER);
+        // Showing one is never a report of its own, or the sink would hear
+        // itself: not for an empty line either.
+        const int before = rmp::detail::report_count();
+        rmp::ui::detail::show_report("");
+        CHECK(rmp::detail::report_count() == before);
     }
 }
