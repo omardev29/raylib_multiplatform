@@ -3410,6 +3410,24 @@ TEST_CASE("a game's numbers that are no lengths") {
           "a font size of a billion is the largest one baked: 1024");
 }
 
+// The list written in place, with options: the header's example, sized.
+TEST_CASE("a dropdown written in place, with options") {
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::set_scale(1);
+    int quality = 7;
+    for (int frame = 0; frame < 2; ++frame) {
+        rmp::ui::begin();
+        rmp::ui::dropdown("Quality", quality, { "Low", "Medium", "High" },
+                          { .width = 120, .id = "quality" });
+        rmp::ui::end();
+    }
+    check(quality == 2, "an index past the list is kept inside it: the last");
+    Clay_BoundingBox b{};
+    check(rmp::ui::detail::bounds_of("quality", 0, 0, &b) && b.width > 120,
+          "the row is laid out, its field the width asked for");
+    rmp::ui::set_scale(0);
+}
+
 TEST_CASE("scale limits") {
     // Automatic scale, both ends clamped. A tiny window must not make the text
     // unreadable, and a huge one must not turn a button into a billboard.
