@@ -362,11 +362,6 @@ void end_frame() {
     // reads the frame back here instead, where the framebuffer is memory. See
     // SmokeTest_CaptureFrameIfMissed().
     SmokeTest_CaptureFrameIfMissed();
-    // The run's last frame: how many of the game's mistakes the framework
-    // reported (RMP_REPORT_ONCE), each counted once. A correct game says 0.
-    if (SmokeTest_Tick() != 0) {
-        TraceLog(LOG_INFO, "RAY_TEST_REPORTS=%d", rmp::detail::report_count());
-    }
 
     // The music stream, once per frame. Here and not in frame(), because this
     // runs after every frame on every runner -- a game with its own three
@@ -378,6 +373,14 @@ void end_frame() {
     // The UI frame the runner opened, closed -- after the game's EndDrawing(),
     // so nothing is drawn here.
     rmp::ui::detail::runner_end_frame();
+
+    // The run's last frame: how many of the game's mistakes the framework
+    // reported (RMP_REPORT_ONCE), each counted once. A correct game says 0.
+    // After the runner has closed a frame the game left open, which is one of
+    // them -- before it, one left open on the last frame only went uncounted.
+    if (SmokeTest_Tick() != 0) {
+        TraceLog(LOG_INFO, "RAY_TEST_REPORTS=%d", rmp::detail::report_count());
+    }
 
     // Last, so that whoever is watching sees the frame finished: drawn, its
     // scene changes applied. Nobody is, unless a test installed an observer

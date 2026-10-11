@@ -2297,6 +2297,25 @@ class ConfigureWindowPacingTest(unittest.TestCase):
         self.assertIn("vsync=$WANT_VSYNC", render)
 
 
+class SmokeReportsCountTheLastFrameTest(unittest.TestCase):
+    """RAY_TEST_REPORTS=<n> is how many of the game's mistakes the run said,
+    and it is printed on the smoke run's last frame, in end_frame(). The
+    runner closes a frame the game left open in runner_end_frame(), and that
+    is a report: printed before it, a frame left open only on the last frame
+    was never counted, and the gate on 0 passed a game that broke it."""
+
+    def test_the_count_is_printed_after_the_runner_closes_the_ui_frame(self):
+        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        start = text.index("void end_frame() {")
+        body = text[start:text.index("\n}\n", start)]
+        runner = body.index("rmp::ui::detail::runner_end_frame();")
+        printed = body.index('"RAY_TEST_REPORTS=%d"')
+        observed = body.index("frame_ended();")
+        self.assertLess(runner, printed, "the count misses what the runner reports")
+        self.assertLess(printed, observed, "the count comes after the frame is over")
+        self.assertEqual(body.count("SmokeTest_Tick()"), 1)
+
+
 class ConfigureWindowStretchTest(unittest.TestCase):
     """[window] stretch: how the world fits a window that is not the design
     size (rmp::app::stretch(), src/rmp/stretch.cpp). Every value it takes, every
