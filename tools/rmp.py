@@ -882,11 +882,14 @@ STAGES = [
     # property: the campaign's own gates, then RapidCheck at the fixed seed
     # tests/property/main.cpp sets, then Hypothesis at its `ci` profile -- which
     # says so and skips without hypothesis installed, unless
-    # RMP_REQUIRE_HYPOTHESIS=1 (CI, the image has it).
+    # RMP_REQUIRE_HYPOTHESIS=1 (CI, the image has it). The configure comes
+    # first: it writes include/rmp/generated/config.h, which the resilience
+    # list reads the headers with, and `rmp test property` on a fresh checkout
+    # failed on its absence.
     Stage("property", "properties: RapidCheck on the C++, Hypothesis on the Python",
-          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+          [("configure", ["-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"]),
+           ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "campaign_test.py"]),
-           ("configure", ["-DBUILD_TESTS=ON", "-DRMP_WERROR=ON"]),
            ("build", "property_test"),
            ("run", ["build/debug/property_test"]),
            ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",

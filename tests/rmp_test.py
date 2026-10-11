@@ -1808,6 +1808,22 @@ class StagesAgreeWithLintTest(unittest.TestCase):
                           "does not in a game"])
 
 
+class PropertyStageTest(unittest.TestCase):
+    """`rmp test property` reads the public headers with clang -- the
+    resilience list of tests/campaign_test.py -- and they include
+    rmp/generated/config.h, which only a configure writes. Run alone on a
+    fresh checkout, the stage failed on its first step until the configure
+    came first."""
+
+    def test_the_configure_comes_before_the_campaign_gates(self):
+        steps = next(s for s in rmp.STAGES if s.name == "property").steps
+        configure = [i for i, step in enumerate(steps) if step[0] == "configure"]
+        campaign = [i for i, step in enumerate(steps)
+                    if step[0] == "run" and "campaign_test.py" in step[1]]
+        self.assertTrue(configure and campaign, steps)
+        self.assertLess(configure[0], campaign[0], steps)
+
+
 class CiModeTest(unittest.TestCase):
     """One ci.yml for the framework and for every game: what a game does not
     have is skipped by the mode, and nothing a game's CI runs is missing from
