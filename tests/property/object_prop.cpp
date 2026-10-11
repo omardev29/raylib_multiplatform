@@ -132,6 +132,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Object::~Object()
     // covers: rmp::operator== [template]
     TEST_CASE("a handle against a model of the storage") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: a handle resolves exactly while its object is alive, through any "
             "spawn, destroy, collect and reuse",
@@ -229,6 +230,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Ref::operator* [template]
     // covers: rmp::Ref::operator-> [template]
     TEST_CASE("a Ref is something or nothing") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: a Ref refers to what it was made from, and an empty one reaches a "
             "fresh stand-in, said once",
@@ -265,6 +267,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Callback::set [template]
     // covers: rmp::Callback::~Callback [template]
     TEST_CASE("a Callback against a model") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: a Callback holds one function, calls it, and lets what it "
             "captured go exactly once",
@@ -348,6 +351,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Object::on_drag [template]
     // covers: rmp::Object::on_collision [template]
     TEST_CASE("the on_ callbacks") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: on_click, on_drag and on_collision each keep the last function "
             "handed to them, and call it with the object",
@@ -395,6 +399,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Object::has [template]
     // covers: rmp::Object::remove [template]
     TEST_CASE("behaviors against a set") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: behaviors added, got and removed in any order are a set, the last "
             "add of a kind winning",
@@ -448,6 +453,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Object::_collision(Object &)
     // covers: rmp::Object::_draw()
     TEST_CASE("the hooks") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: _ready once at spawn, _update every frame alive, _end once at "
             "destroy, _collision once a pair a frame on each",
@@ -539,6 +545,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Object::apply_force(Vector2)
     // covers: rmp::Object::apply_impulse(Vector2)
     TEST_CASE("forces and the integrator") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: a force or an impulse that is not a number is refused, said once, "
             "and the velocity stays one",
@@ -597,6 +604,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::rect(Vector2)
     // covers: rmp::circle(float)
     TEST_CASE("the box an object occupies") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: rect() and circle() are the shape they are handed, to the bit", [] {
                 const Vector2 size{ *rmp::test::gen::hostile_float(),
@@ -646,6 +654,7 @@ TEST_SUITE("property: object") {
     }
 
     TEST_CASE("the edges") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: an edge rule never makes a finite position or velocity infinite, "
             "whatever its bounds",
@@ -706,6 +715,7 @@ TEST_SUITE("property: object") {
 
     // covers: rmp::Object::scene() const
     TEST_CASE("an object's scene") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: scene() is the scene that spawned it; for any other, current(), "
             "said once",
@@ -736,6 +746,7 @@ TEST_SUITE("property: object") {
     // covers: rmp::Sprite::frame_index() const
     // covers: rmp::Sprite::set_frame(int)
     TEST_CASE("a sprite with no sheet") {
+        const world::Hushed hushed;
         rmp::test::check(
             "object: a sprite with no sheet plays nothing, says so once a tag, and keeps "
             "any frame it is set to",

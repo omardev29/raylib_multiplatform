@@ -53,6 +53,19 @@ struct Fresh {
     ~Fresh() { rmp::objects::detail::reset_for_tests(); }
 };
 
+// The log silenced for a test case: the properties set off every "said
+// once" on purpose, two hundred times each, and forget it between cases to
+// watch it fire again. What is said is counted (report_count()) whatever the
+// level; a failing property speaks through doctest, not through the log.
+struct Hushed {
+    Hushed() { SetTraceLogLevel(LOG_NONE); }
+    Hushed(const Hushed &) = delete;
+    Hushed &operator=(const Hushed &) = delete;
+    Hushed(Hushed &&) = delete;
+    Hushed &operator=(Hushed &&) = delete;
+    ~Hushed() { SetTraceLogLevel(LOG_INFO); }
+};
+
 class World : public rmp::Scene {
 public:
     World() = default;

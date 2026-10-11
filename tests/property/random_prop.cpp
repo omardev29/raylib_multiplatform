@@ -16,6 +16,7 @@
 
 #include "check.h"
 #include "gen.h"
+#include "object_gen.h"
 
 #include "../../src/rmp/internal.h"
 
@@ -102,6 +103,7 @@ TEST_SUITE("property: random") {
     // covers: rmp::random::seed(uint64_t)
     // covers: rmp::random::value()
     TEST_CASE("the generator is xoshiro128++ seeded through SplitMix64") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check("random: range(INT_MIN, INT_MAX) is the reference's whole word",
                          [](uint64_t seed) {
                              Reference reference(seed);
@@ -125,6 +127,7 @@ TEST_SUITE("property: random") {
 
     // covers: rmp::random::current_seed()
     TEST_CASE("the seed is the run") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check("random: current_seed() is what seed() was handed",
                          [](uint64_t seed) {
                              rmp::random::seed(seed);
@@ -152,6 +155,7 @@ TEST_SUITE("property: random") {
 
     // covers: rmp::random::range(int, int)
     TEST_CASE("range(int) for every pair of ints") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check("random: range(int) is inside [min, max] for any ends",
                          [](uint64_t seed) {
                              const int min = *any_int();
@@ -192,6 +196,7 @@ TEST_SUITE("property: random") {
 
     // covers: rmp::random::range(float, float)
     TEST_CASE("range(float) for every pair of floats") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check(
             "random: range(float) stays between finite ends and never reaches max",
             [](uint64_t seed) {
@@ -268,6 +273,7 @@ TEST_SUITE("property: random") {
 
     // covers: rmp::random::chance(float)
     TEST_CASE("chance() for every probability") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check(
             "random: chance(p) is never for p <= 0 and always for p >= 1",
             [](uint64_t seed) {
@@ -303,6 +309,7 @@ TEST_SUITE("property: random") {
     // covers: rmp::random::in_circle(float)
     // covers: rmp::random::direction()
     TEST_CASE("in_circle() and direction() for every radius") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check(
             "random: in_circle(r) lands within |r| for any finite radius",
             [](uint64_t seed) {
@@ -357,6 +364,7 @@ TEST_SUITE("property: random") {
 
     // covers: rmp::random::index(int)
     TEST_CASE("index() for every count") {
+        const rmp::test::world::Hushed hushed;
         rmp::test::check("random: index(n) is in [0, n), and 0 with nothing to pick",
                          [](uint64_t seed) {
                              const int count = *any_int();

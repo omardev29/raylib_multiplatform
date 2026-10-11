@@ -90,6 +90,7 @@ constexpr std::size_t MOST_HITS = 64;
 TEST_SUITE("property: collision") {
     // covers: rmp::Object::world_collider() const
     TEST_CASE("the grid is the O(n^2) loop, in any world") {
+        const world::Hushed hushed;
         rmp::test::check(
             "collision: the grid finds exactly the pairs the O(n^2) loop finds", [] {
                 const world::Fresh fresh;
@@ -132,6 +133,7 @@ TEST_SUITE("property: collision") {
     }
 
     TEST_CASE("a frame keeps what is finite finite") {
+        const world::Hushed hushed;
         rmp::test::check(
             "collision: the collision pass never makes a finite position or velocity "
             "infinite",
@@ -155,6 +157,7 @@ TEST_SUITE("property: collision") {
     }
 
     TEST_CASE("two shapes near the top of the floats") {
+        const world::Hushed hushed;
         rmp::test::check(
             "collision: a shape pushed out of a wall at the edge of the floats stays a "
             "number, and so does its speed",
@@ -205,6 +208,7 @@ TEST_SUITE("property: collision") {
     }
 
     TEST_CASE("a push against a speed near FLT_MAX") {
+        const world::Hushed hushed;
         rmp::test::check(
             "collision: a slanted push takes away a speed near FLT_MAX and leaves a "
             "number",
@@ -240,6 +244,7 @@ TEST_SUITE("property: collision") {
     }
 
     TEST_CASE("a fast mover does not pass through a wall") {
+        const world::Hushed hushed;
         rmp::test::check(
             "collision: a mover that crosses a wall in one frame is told it hit it", [] {
                 const world::Fresh fresh;
@@ -285,6 +290,7 @@ TEST_SUITE("property: collision") {
 
     // covers: rmp::RayHit::operator bool() const
     TEST_CASE("the grid's ray is every object's ray, for any ray") {
+        const world::Hushed hushed;
         rmp::test::check(
             "collision: the grid's raycast finds exactly what testing every object finds",
             [] {
