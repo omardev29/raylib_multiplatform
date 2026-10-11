@@ -720,6 +720,29 @@ void a_scene_with_its_own_texture() {
     split_under({ .blur = 8, .dim = 0 }, true);
     check(rmp::ui::detail::backdrop_blurred(),
           "after rmp::ui::shutdown() it blurs again");
+    // The frame after it is redirected too, and no overlay takes it: a scene
+    // drawing through its own texture there is said as well -- by the
+    // frame's last hook -- and the blur is off after it all the same.
+    rmp::detail::reset_reports_for_tests();
+    bool asked_for = false;
+    frame([&] {
+        asked_for = rmp::ui::detail::backdrop_redirected();
+        draw_split(true);
+        BeginTextureMode(own);
+        ClearBackground(RED);
+        EndTextureMode();
+    });
+    redirected = false;
+    for (int i = 0; i < 3; ++i) {
+        frame([&] {
+            draw_split(true);
+            redirected = redirected || rmp::ui::detail::backdrop_redirected();
+            rmp::ui::overlay({ .blur = 8, .dim = 0 }, [] {});
+        });
+    }
+    check(asked_for && rmp::detail::report_count() == 1 && !redirected,
+          "...in a redirected frame no overlay took, too: reported, and the blur off");
+    rmp::ui::shutdown();
     frame([] { draw_split(true); });
     UnloadRenderTexture(own);
 }
