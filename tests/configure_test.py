@@ -7701,22 +7701,37 @@ class ActionsArePinnedByShaTest(unittest.TestCase):
             if m and not m.group(1).startswith("./"):
                 yield n, m.group(1), m.group(2)
 
-    def test_every_action_is_a_commit_with_its_version_said(self):
-        found = 0
-        for wf in sorted((REPO / ".github" / "workflows").glob("*.yml")):
-            for n, ref, rest in self.uses(wf.read_text()):
-                found += 1
-                with self.subTest(at=f"{wf.name}:{n}", uses=ref):
-                    self.assertRegex(ref, r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$",
-                                     f"{wf.name}:{n} uses {ref}: pin it to a commit")
-                    self.assertRegex(rest, r"#\s*v?\d", f"{wf.name}:{n} does not say which version")
-        self.assertGreaterEqual(found, 20)
+    def problems(self, name: str, text: str) -> list[str]:
+        """Every `uses:` of `text` that is not a commit with its version said."""
+        out = []
+        for n, ref, rest in self.uses(text):
+            if not re.match(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$", ref):
+                out.append(f"{name}:{n} uses {ref}: pin it to a commit")
+            elif not re.search(r"#\s*v?\d", rest):
+                out.append(f"{name}:{n} does not say which version")
+        return out
 
-    def test_a_tag_is_refused(self):
-        text = "steps:\n  - uses: actions/checkout@v4\n  - uses: actions/cache@0123456789abcdef0123456789abcdef01234567  # v4\n"
-        refs = [r for _, r, _ in self.uses(text)]
-        self.assertEqual(refs, ["actions/checkout@v4", "actions/cache@0123456789abcdef0123456789abcdef01234567"])
-        self.assertNotRegex(refs[0], r"@[0-9a-f]{40}$")
+    def test_every_action_is_a_commit_with_its_version_said(self):
+        found, problems = 0, []
+        for wf in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+            text = wf.read_text()
+            found += len(list(self.uses(text)))
+            problems += self.problems(wf.name, text)
+        self.assertGreaterEqual(found, 20)
+        self.assertEqual(problems, [])
+
+    def test_a_tag_and_a_silent_pin_are_refused(self):
+        """The real check, run on a workflow that names a tag, one that pins a
+        commit without saying the version, and one that is right."""
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        text = ("steps:\n"
+                "  - uses: actions/checkout@v4\n"
+                f"  - uses: actions/cache@{sha}\n"
+                f"  - uses: actions/setup-python@{sha}  # v5.1.0\n"
+                "  - uses: ./.github/workflows/_web.yml\n")
+        self.assertEqual(self.problems("probe.yml", text),
+                         ["probe.yml:2 uses actions/checkout@v4: pin it to a commit",
+                          "probe.yml:3 does not say which version"])
 
 
 class E2eScriptsTest(unittest.TestCase):

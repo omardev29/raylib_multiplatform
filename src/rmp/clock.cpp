@@ -50,9 +50,9 @@ rmp::Callback<> &observer() {
 
 float step_delta() {
     const float raw = timing.fixed > 0 ? timing.fixed : GetFrameTime();
-    // 0 switches the clamp off, and so does a negative reading, which no
-    // platform should produce but a monotonic clock going backwards on a
-    // suspend/resume is not unheard of -- and a negative step would run the
+    // RMP_MAX_DELTA = 0 switches the clamp off. A negative reading becomes 0:
+    // no platform should produce one, but a monotonic clock going backwards on
+    // a suspend/resume is not unheard of -- and a negative step would run the
     // whole world in reverse for one frame.
     float step = raw;
     if (raw < 0) {

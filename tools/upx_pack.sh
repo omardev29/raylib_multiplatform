@@ -5,9 +5,9 @@
 #   tools/upx_pack.sh <target> <path-to-binary>
 #
 # Doing nothing is the normal outcome and is not a failure: the default
-# compresses the four Linux targets whose packed binary CI starts on their own
-# architecture -- linux-x64-glibc, linux-arm64-glibc, linux-x64-musl and
-# linux-x64-glibc-drm -- so every other job calls this and exits.
+# compresses the five Linux targets whose packed binary CI starts --
+# linux-x64-glibc, linux-arm64-glibc, linux-x64-musl, linux-x64-glibc-drm and,
+# under QEMU, linux-riscv64-glibc -- so every other job calls this and exits.
 #
 # The binary given is the copy in package/, the one the archive is made from:
 # build/release/<name> stays the file the linker wrote, which is what
