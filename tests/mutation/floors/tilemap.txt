@@ -1,8 +1,13 @@
 # rmp::Tilemap and the Tiled reader (package P2). The queries are reached by
 # every map test, whichever reader made the map, and by the properties of
-# tests/property/tilemap_prop.cpp and ldtk_prop.cpp.
+# tests/property/tilemap_prop.cpp and ldtk_prop.cpp. Measured 2026-10-11 in
+# the image (Mull 0.34.1, cxx_all): 316 of 393 (80.41%), 74.30% before the
+# cases the first run asked for. The survivors are draw() past a texture --
+# no unit test has a GPU to load one -- the reader's log lines, and bounds
+# checks a later one makes equivalent (a NaN cell, a column one past the
+# layer that gid_at's size check or solid_in's clamp already refuses).
 kind     cxx
 sources  src/rmp/tilemap.cpp
 tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp,*ldtk_test.cpp
 tests    property_test -ts=*tilemap,*ldtk
-floor    -
+floor    80
