@@ -1168,6 +1168,204 @@ class CommentsTest(Scratch):
         self.assertEqual(configure.toml_comments(path), owed, text)
 
 
+# A manifest template, as raymob/app/AndroidManifest.template.xml writes one.
+TEMPLATE_LINE = st.one_of(
+    st.sampled_from(["<manifest>", "  <uses-permission a='x'/>", "</manifest>", "", "  ",
+                     "<!-- #if internet -->", "<!-- #if vibration -->", "<!-- #if admob -->",
+                     "  <!--   #if   internet   -->", "<!-- #endif -->", "<!-- #if nothing -->",
+                     "<!-- #doc -->", "<!-- #enddoc -->", "  explained here"]),
+    st.text(alphabet="<>/ abcxyz='", max_size=12))
+PLAIN = st.sampled_from(["  <uses-permission a='x'/>", "  <application/>", "", "  "])
+# Mostly well formed -- a block per flag, a #doc block, plain lines -- and now
+# and then a line of anything, a stray directive among them.
+SEGMENT = st.one_of(
+    PLAIN.map(lambda line: [line]),
+    st.tuples(st.sampled_from(["internet", "vibration", "admob"]), st.lists(PLAIN, max_size=3))
+    .map(lambda b: [f"<!-- #if {b[0]} -->", *b[1], "<!-- #endif -->"]),
+    st.lists(PLAIN, max_size=2).map(lambda d: ["<!-- #doc -->", "  why", *d, "<!-- #enddoc -->"]),
+    TEMPLATE_LINE.map(lambda line: [line]))
+TEMPLATES = st.lists(SEGMENT, max_size=8).map(lambda segments: [x for s in segments for x in s])
+
+
+def manifest_from(template: list[str], flags: dict) -> list[str] | str:
+    """What gen_android_manifest() owes a template: its lines, a block kept or
+    dropped by its flag, the #doc blocks gone, no blank line twice or first,
+    the notice after the XML declaration -- or the phrase its refusal says."""
+    out, keeping, active, in_doc = [], True, None, False
+    for line in template:
+        if re.fullmatch(r"\s*<!--\s*#doc\s*-->\s*", line):
+            in_doc = True
+            continue
+        if re.fullmatch(r"\s*<!--\s*#enddoc\s*-->\s*", line):
+            in_doc = False
+            continue
+        if in_doc:
+            continue
+        m = re.fullmatch(r"\s*<!--\s*#if\s+([a-z_]+)\s*-->\s*", line)
+        if m:
+            if active is not None:
+                return "nested #if"
+            if m.group(1) not in flags:
+                return "unknown flag"
+            active, keeping = m.group(1), flags[m.group(1)]
+            continue
+        if re.fullmatch(r"\s*<!--\s*#endif\s*-->\s*", line):
+            if active is None:
+                return "#endif without #if"
+            active, keeping = None, True
+            continue
+        if keeping:
+            out.append(line)
+    if active is not None:
+        return "was never closed"
+    if in_doc:
+        return "#doc was never closed"
+    tidy = []
+    for line in out:
+        if line.strip() or (tidy and tidy[-1].strip()):
+            tidy.append(line)
+    notice = f"<!-- {configure.GEN_HEADER} -->"
+    tidy.insert(1 if tidy and tidy[0].startswith("<?xml") else 0, notice)
+    return "\n".join(tidy).rstrip().split("\n")
+
+
+class GeneratedTest(Scratch):
+    """The generators, for any input they read besides the .toml."""
+
+    @given(TEMPLATES, st.booleans(), st.booleans(), st.booleans(),
+           st.booleans(), st.sampled_from([["android"], ["web"]]))
+    def test_the_manifest_is_its_template_with_each_block_decided(self, lines, xml, internet,
+                                                                  vibration, admob, targets):
+        template = (['<?xml version="1.0" encoding="utf-8"?>'] if xml else []) + lines
+        path = self.fresh() / "AndroidManifest.template.xml"
+        path.write_text("\n".join(template) + "\n")
+        cfg = base_config()
+        cfg["android"]["permissions"].update(internet=internet, vibration=vibration)
+        cfg["android"]["admob"]["enabled"] = admob
+        on = admob and "android" in targets
+        flags = {"internet": internet or on, "vibration": vibration, "admob": on}
+        captured = {}
+        with mock.patch.object(configure, "MANIFEST_TEMPLATE", path), \
+                mock.patch.object(configure, "write", lambda p, c: captured.__setitem__("m", c)):
+            try:
+                configure.gen_android_manifest(cfg, targets)
+            except configure.ConfigError as refused:
+                expected = manifest_from(template, flags)
+                self.assertIsInstance(expected, str, f"refused what it takes: {refused}")
+                self.assertIn(expected, str(refused))
+                self.assertIn(path.name, str(refused))
+                return
+        expected = manifest_from(template, flags)
+        self.assertIsInstance(expected, list, f"took what it refuses: {expected}")
+        self.assertEqual(captured["m"], "\n".join(expected) + "\n")
+
+    def notice_rows(self, draw, repo: Path):
+        """Rows of the record and a component on disk for each: a LICENSE, a
+        notice nowhere (part of another, upstream only), or none at all."""
+        rows, notices = [], {}
+        for i, kind in enumerate(draw(st.lists(st.sampled_from(
+                ["file", "file", "part-of", "upstream", "missing"]), max_size=4))):
+            name = "raylib_multiplatform" if draw(st.booleans()) and i == 0 else f"dep{i}"
+            licences = draw(st.sampled_from(["MIT", "zlib", "MIT|Apache-2.0"]))
+            elect = "-" if "|" not in licences else draw(st.sampled_from(licences.split("|")))
+            evidence = {"file": "file", "missing": "file", "part-of": "part-of:dep0",
+                        "upstream": "upstream:https://example.org/x"}[kind]
+            folder = repo / "thirdparty" / f"c{i}"
+            folder.mkdir(parents=True)
+            if kind == "file":
+                notices[name] = f"Notice of {name}, number {i}."
+                (folder / "LICENSE").write_text(notices[name] + "\n\n")
+            rows.append(configure.license_db.Row(
+                name=name, path=f"thirdparty/c{i}", licences=licences, elect=elect,
+                modified=draw(st.sampled_from(["no", "yes", "subset"])),
+                linked=draw(st.sampled_from(["all", "desktop", "web", "android|ios", "none"])),
+                evidence=evidence))
+        return rows, notices
+
+    @given(st.data(), st.sampled_from(["linux", "windows", "apple", "bsd", "web", "android", "ios"]),
+           st.text(alphabet="abcxyz_", min_size=1, max_size=10))
+    def test_licenses_txt_credits_what_reaches_its_family(self, data, family, project):
+        repo = self.fresh()
+        rows, notices = self.notice_rows(data.draw, repo)
+        cfg = base_config()
+        cfg["project"]["name"] = project
+        reaching = configure.license_db.rows_for(rows, family)
+        missing = [row["path"] for row in reaching
+                   if row["evidence"] == "file" and row["name"] not in notices]
+        with mock.patch.object(configure, "REPO", repo):
+            try:
+                text = configure.licenses_text(cfg, family, rows)
+            except configure.ConfigError as refused:
+                self.assertTrue(missing, f"refused a record it can write: {refused}")
+                self.assertIn("they cannot go into LICENSES.txt: " + ", ".join(missing),
+                              str(refused))
+                return
+        self.assertFalse(missing, "wrote a notice with a component's text missing")
+        lines = text.split("\n")
+        self.assertEqual(lines[:2], [f"Third-party licences for {project}", "=" * (30 + len(project))])
+        self.assertTrue(text.endswith("\n"))
+        for row in rows:
+            licence = row["licences"].replace("|", " or ")
+            if row["elect"] != "-":
+                licence += f" (this build takes the {row['elect']} alternative)"
+            heading = f"  {row['name']} -- {licence}"
+            shipped = row in reaching and not row["evidence"].startswith("part-of:")
+            self.assertEqual(heading in lines, shipped, heading)
+            if not shipped:
+                continue
+            at = lines.index(heading)
+            mark = ("The framework this game is built on: src/rmp/ and include/rmp/ in the source."
+                    if row["name"] == "raylib_multiplatform" else
+                    f"MODIFIED for this build. See thirdparty/{Path(row['path']).name}/PATCHES.md "
+                    "in the source." if row["modified"] == "yes" else
+                    f"PARTIAL copy. See thirdparty/{Path(row['path']).name}/PATCHES.md in the "
+                    "source." if row["modified"] == "subset" else "Unmodified copy.")
+            notice = notices.get(row["name"]) or (
+                f"No notice travels with this component: it is {row.elected}, under which none "
+                "is owed. Upstream: https://example.org/x")
+            self.assertEqual(lines[at - 1:at + 5], ["-" * 70, heading, f"  {mark}", "-" * 70, "",
+                                                    notice])
+
+    @given(TOML_TEXT)
+    def test_a_toml_that_does_not_parse_is_refused_saying_so(self, text):
+        toml = self.fresh() / "raylib_multiplatform.toml"
+        toml.write_text(text, encoding="utf-8")
+        try:
+            tomllib.loads(text)
+            parses = True
+        except tomllib.TOMLDecodeError:
+            parses = False
+        with mock.patch.object(configure, "TOML", toml), quiet():
+            try:
+                configure.load_config()
+            except configure.ConfigError as refused:
+                self.assertEqual("is not valid TOML" in str(refused), not parses, str(refused))
+                return
+        self.assertTrue(parses)
+
+    @given(st.just(None))
+    def test_no_toml_is_the_defaults_and_a_warning(self, _):
+        gone = self.fresh() / "raylib_multiplatform.toml"
+        err = io.StringIO()
+        with mock.patch.object(configure, "TOML", gone), contextlib.redirect_stderr(err):
+            cfg = configure.load_config()
+        self.assertEqual(cfg, configure.DEFAULTS)
+        cfg["window"]["title"] = "changed"
+        self.assertNotEqual(configure.DEFAULTS["window"]["title"], "changed", "a copy, not DEFAULTS")
+        self.assertIn("raylib_multiplatform.toml not found", err.getvalue())
+
+    @given(changed_configs())
+    def test_print_defines_is_the_header_as_a_table(self, cfg):
+        if not taken(cfg):
+            return
+        table = configure.app_defines(cfg)
+        entries = [e for e in configure.APP_DEFINES if not isinstance(e, str)]
+        self.assertEqual([(row["name"], row["key"]) for row in table],
+                         [(name, key) for name, key, _ in entries])
+        defines = c_defines(generate(cfg)["include/rmp/generated/config.h"])
+        self.assertEqual({row["name"]: row["value"] for row in table}, defines)
+
+
 TARGET_NAMES = sorted(set(configure.GROUPS) | set(configure.TARGETS))
 ENABLED = st.lists(st.sampled_from(list(configure.TARGETS)), min_size=1, unique=True).map(
     lambda ts: [t for t in configure.TARGETS if t in ts])

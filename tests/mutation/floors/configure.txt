@@ -21,7 +21,8 @@ sources  tools/configure.py
 tests    tests/configure_property_test.py::TotalTest tests/configure_property_test.py::TakenTest
 tests    tests/configure_property_test.py::BuildFilesTest tests/configure_property_test.py::EncodersTest
 tests    tests/configure_property_test.py::VersionTest tests/configure_property_test.py::ReadersTest
-tests    tests/configure_property_test.py::TargetsTest
+tests    tests/configure_property_test.py::TargetsTest tests/configure_property_test.py::RepoFilesTest
+tests    tests/configure_property_test.py::CommentsTest tests/configure_property_test.py::GeneratedTest
 tests    tests/configure_test.py::ConfigureVersionTest tests/configure_test.py::ConfigureVersionCodeCeilingTest
 tests    tests/configure_test.py::ConfigureTargetsTest tests/configure_test.py::ConfigureUpxTest
 tests    tests/configure_test.py::ConfigureUpxSizeCapTest tests/configure_test.py::ConfigureValidateTest
