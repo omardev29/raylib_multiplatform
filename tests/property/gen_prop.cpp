@@ -18,18 +18,16 @@
 #include "check.h"
 #include "gen.h"
 
-#include "../../src/rmp/save_internal.h"
-
 #include <doctest.h>
 
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <limits>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
-
-static_assert(rmp::test::gen::SAVE_DEPTH == rmp::save::detail::MAX_DEPTH,
-              "gen.h's SAVE_DEPTH is the depth rmp::save reads back");
 
 namespace {
 
@@ -50,6 +48,49 @@ template <class T> std::vector<T> sample(const rc::Gen<T> &gen, int count) {
 
 template <class T, class P> bool any(const std::vector<T> &values, P predicate) {
     return std::ranges::any_of(values, predicate);
+}
+
+// Hears nothing: the properties shrunk() checks are made to fail, and
+// RapidCheck's own listener would print their reproduce strings when the
+// program ends, as if a property of the suite had failed.
+class Quiet : public rc::detail::TestListener {
+public:
+    void
+    onTestCaseFinished(const rc::detail::CaseDescription & /*description*/) override {}
+    void onShrinkTried(const rc::detail::CaseDescription & /*shrink*/,
+                       bool /*accepted*/) override {}
+    void onTestFinished(const rc::detail::TestMetadata & /*metadata*/,
+                        const rc::detail::TestResult & /*result*/) override {}
+};
+
+// The counterexample a property that fails is shown with, after shrinking --
+// "(it held)" when it did not fail -- from a fixed seed.
+template <class Testable> std::string shrunk(Testable &&property) {
+    rc::detail::TestParams params;
+    params.seed = 20261010;
+    params.maxSuccess = 200;
+    Quiet quiet;
+    const rc::detail::TestResult result = rc::detail::checkProperty(
+        rc::detail::toProperty(std::forward<Testable>(property)),
+        rc::detail::TestMetadata{}, params, quiet);
+    rc::detail::FailureResult failure;
+    if (!result.match(failure) || failure.counterExample.empty()) return "(it held)";
+    return failure.counterExample.front().second;
+}
+
+bool holds_nan(const rmp::Value &v) {
+    if (v.type() == rmp::Value::Type::NUMBER)
+        return std::isnan(rmp::detail::ValueAccess::number(v));
+    const bool object = v.type() == rmp::Value::Type::OBJECT;
+    for (int i = 0; i < v.size(); ++i)
+        if (holds_nan(object ? v[v.key(i)] : v[i])) return true;
+    return false;
+}
+
+std::string shown(const rmp::Value &v) {
+    std::ostringstream out;
+    rmp::showValue(v, out);
+    return out.str();
 }
 
 } // namespace
@@ -135,6 +176,38 @@ TEST_SUITE("property: gen") {
             return v.type() == Type::OBJECT && v.size() > 0 &&
                 v.key(0).find('\0') != std::string_view::npos;
         }));
+    }
+
+    TEST_CASE("a Value is shown as it is: every number exactly, NaN and the infinities "
+              "by name") {
+        CHECK(shown(rmp::Value(std::numeric_limits<double>::max())) ==
+              "1.7976931348623157e+308");
+        CHECK(shown(rmp::Value(std::numeric_limits<double>::denorm_min())) == "5e-324");
+        // 2^53 + 2: a double holds it exactly, a float would show 9.0072e+15.
+        CHECK(shown(rmp::Value(9007199254740994.0)) == "9007199254740994");
+        CHECK(shown(rmp::Value(0.1)) == "0.1");
+        CHECK(shown(rmp::Value(-0.0)) == "-0");
+        CHECK(shown(rmp::Value(std::numeric_limits<double>::infinity())) == "inf");
+        CHECK(shown(rmp::Value(-std::numeric_limits<double>::infinity())) == "-inf");
+        CHECK(shown(rmp::Value(std::numeric_limits<double>::quiet_NaN())) == "nan");
+        rmp::Value tree = rmp::Value::object();
+        tree[std::string("a\0b", 3)][0] = "\xFF\"";
+        CHECK(shown(tree) == "{\"a\\x00b\": [\"\\xff\\x22\"]}");
+    }
+
+    TEST_CASE("a counterexample shrinks to the smallest Value that still fails") {
+        // A NaN anywhere: whatever tree or spine failed first, the NaN alone.
+        CHECK(shrunk([](const rmp::Value &v) { RC_ASSERT(!holds_nan(v)); }) == "(nan)");
+        // Past what a save reads back: the shallowest spine that is.
+        const std::string deep = shrunk([](const rmp::Value &v) {
+            RC_ASSERT(rmp::test::gen::depth(v) <= rmp::test::gen::SAVE_DEPTH);
+        });
+        CHECK(std::ranges::count(deep, '[') + std::ranges::count(deep, '{') ==
+              rmp::test::gen::SAVE_DEPTH + 1);
+        // And a property that holds says so.
+        CHECK(shrunk([](const rmp::Value &v) {
+                  RC_ASSERT(rmp::test::gen::depth(v) >= 0);
+              }) == "(it held)");
     }
 
     TEST_CASE("a drawn Value is the tree depth() measures, through a copy") {

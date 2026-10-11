@@ -14,7 +14,10 @@
 //   rmp::test::gen::hostile_string()    NUL inside, multi-byte UTF-8, bytes
 //                                       that are not UTF-8, or plain text
 //   rmp::test::gen::value()             a Value tree, sometimes deeper than
-//   rc::Arbitrary<rmp::Value>           rmp::save reads back (MAX_DEPTH)
+//   rc::Arbitrary<rmp::Value>           rmp::save reads back (MAX_DEPTH);
+//                                       it shrinks to a child or to one
+//                                       element fewer, so a counterexample is
+//                                       the smallest Value that still fails
 //
 // tests/property/gen_prop.cpp holds each generator to what it says here: a
 // generator that quietly stopped drawing NaN would turn every hostile-float
@@ -24,12 +27,17 @@
 // may do.
 // ---------------------------------------------------------------------------
 
+#include "../../src/rmp/save_internal.h"
+
 #include <rmp/save.h>
 
 #include <rapidcheck.h>
 #include <raylib.h>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <ostream>
@@ -40,11 +48,10 @@
 
 namespace rmp::test::gen {
 
-// How deep a save may nest: rmp::save::detail::MAX_DEPTH, which
-// tests/property/gen_prop.cpp holds this to. Not included from
-// src/rmp/save_internal.h, so a property file that only wants floats does not
-// take the save's internals with it.
-inline constexpr int SAVE_DEPTH = 64;
+// How deep a save may nest: rmp::save::detail::MAX_DEPTH. save_internal.h is
+// also where a Value's number is read exactly (rmp::detail::ValueAccess), for
+// showValue() below.
+inline constexpr int SAVE_DEPTH = rmp::save::detail::MAX_DEPTH;
 // How deep value() goes when it reaches past that on purpose.
 inline constexpr int DEEPEST = SAVE_DEPTH + 2;
 
@@ -140,9 +147,10 @@ inline rc::Gen<rmp::Value> tree(int levels) {
 // what crosses SAVE_DEPTH, which a bushy random tree almost never reaches.
 inline rc::Gen<rmp::Value> spine() {
     return rc::gen::exec([] {
-        // element(), not inRange(): inRange scales with the run's size, and the
-        // early cases of a property would never leave SAVE_DEPTH - 2.
-        const int levels = SAVE_DEPTH - 2 + *rc::gen::element(0, 1, 2, 3, 4);
+        // At the nominal size: inRange scales its range with the run's size,
+        // and the early cases of a property would never leave SAVE_DEPTH - 2.
+        const int levels =
+            SAVE_DEPTH - 2 + *rc::gen::resize(rc::kNominalSize, rc::gen::inRange(0, 5));
         rmp::Value inner = *leaf();
         for (int level = 0; level < levels; ++level) {
             rmp::Value outer =
@@ -158,14 +166,45 @@ inline rc::Gen<rmp::Value> spine() {
     });
 }
 
+// What a Value shrinks to: each of its children -- a spine unwraps one level
+// at a time, down to its leaf -- then itself with one element fewer. Leaves
+// stay as they were drawn: a NaN, an infinity, a NUL inside a string are what
+// a counterexample is about, not noise in it.
+//
+// value() shrinks with this alone. RapidCheck's own shrinking of the trees
+// above could not do it: weightedOneOf() never trades a spine for a tree, and
+// a NaN found at the bottom of a spine was shown 66 levels deep.
+inline rc::Seq<rmp::Value> smaller(const rmp::Value &v) {
+    const bool object = v.type() == rmp::Value::Type::OBJECT;
+    const int count = v.size();
+    std::vector<rmp::Value> out;
+    for (int i = 0; i < count; ++i) out.push_back(object ? v[v.key(i)] : v[i]);
+    for (int skip = 0; skip < count; ++skip) {
+        rmp::Value fewer = object ? rmp::Value::object() : rmp::Value::list();
+        for (int i = 0; i < count; ++i) {
+            if (i == skip) continue;
+            if (object) {
+                fewer[v.key(i)] = v[v.key(i)];
+            } else {
+                fewer.push(v[i]);
+            }
+        }
+        out.push_back(std::move(fewer));
+    }
+    return rc::seq::fromContainer(std::move(out));
+}
+
 } // namespace detail
 
 // A Value: two times in three a small tree, else a spine from two levels short
 // of what a save reads back to two past it -- often enough that a property of
 // 200 cases sees every depth of the spine more than once.
 inline rc::Gen<rmp::Value> value() {
-    return rc::gen::weightedOneOf<rmp::Value>(
+    const rc::Gen<rmp::Value> drawn = rc::gen::weightedOneOf<rmp::Value>(
         { { 2, detail::tree(4) }, { 1, detail::spine() } });
+    return [drawn](const rc::Random &random, int size) {
+        return rc::shrinkable::shrinkRecur(drawn(random, size).value(), &detail::smaller);
+    };
 }
 
 // How deep a Value nests: 0 for a leaf or an empty container, one more for
@@ -198,12 +237,20 @@ inline void showValue(const Value &v, std::ostream &os) {
             os << (v.as_bool() ? "true" : "false");
             return;
         case Value::Type::NUMBER: {
-            // as_float() gives its fallback for a NaN, whichever it is.
-            const float n = v.as_float(1);
-            if (n == 1 && v.as_float(2) == 2) {
+            // The double as stored, in the fewest digits that read back as
+            // exactly it: as_float() would show DBL_MAX as inf and a denormal
+            // as 0, and a counterexample that is not the value is a lie.
+            const double n = rmp::detail::ValueAccess::number(v);
+            if (std::isnan(n)) {
                 os << "nan";
+            } else if (std::isinf(n)) {
+                os << (n > 0 ? "inf" : "-inf");
             } else {
-                os << n;
+                std::array<char, 32> text{};
+                const std::to_chars_result written =
+                    std::to_chars(text.data(), text.data() + text.size(), n);
+                os << std::string_view(
+                    text.data(), static_cast<std::size_t>(written.ptr - text.data()));
             }
             return;
         }
