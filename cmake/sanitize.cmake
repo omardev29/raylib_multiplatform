@@ -104,6 +104,11 @@ function(_rmp_sanitize_flags names out_compile out_link)
                  "-fsanitize-ignorelist=${RMP_SANITIZE_IGNORELIST}")
     set(_link -fsanitize=${_joined})
   endif()
+  # A UBSan runtime without its C++ half: see RMP_SANITIZE_NO_VPTR below.
+  if(RMP_SANITIZE_NO_VPTR AND "undefined" IN_LIST names AND NOT MSVC)
+    list(APPEND _compile -fno-sanitize=vptr)
+    list(APPEND _link -fno-sanitize=vptr)
+  endif()
   set(${out_compile} "${_compile}" PARENT_SCOPE)
   set(${out_link} "${_link}" PARENT_SCOPE)
 endfunction()
@@ -137,14 +142,29 @@ function(_rmp_sanitize_probe names result why)
     return()
   endif()
   set(_dir "${CMAKE_BINARY_DIR}/CMakeFiles/rmp_sanitize_probe")
+  # The C++ probe calls a virtual function through a base, because that is
+  # what UBSan's vptr check instruments, and its handler lives in the
+  # runtime's C++ half -- which NetBSD 10's GCC 10.5 does not ship. A probe
+  # with no polymorphic type never asked for it, said yes, and the game's
+  # link failed on __ubsan_handle_dynamic_type_cache_miss_abort.
   file(WRITE "${_dir}/probe.cpp" [=[
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
+struct Shape {
+    virtual ~Shape() = default;
+    virtual int corners() const { return 0; }
+};
+struct Square : Shape {
+    int corners() const override { return 4; }
+};
+static int corners_of(const Shape &shape) { return shape.corners(); }
 int main() {
     std::vector<std::string> words{ "sanitizer", "probe" };
-    std::printf("%s %s\n", words[0].c_str(), words[1].c_str());
-    return words.size() == 2 ? 0 : 1;
+    const std::unique_ptr<Shape> shape = std::make_unique<Square>();
+    std::printf("%s %s %d\n", words[0].c_str(), words[1].c_str(), corners_of(*shape));
+    return words.size() == 2 && corners_of(*shape) == 4 ? 0 : 1;
 }
 ]=])
   file(WRITE "${_dir}/probe.c" [=[
@@ -209,6 +229,22 @@ if(RMP_SANITIZE_WANTED)
     endforeach()
   endif()
   _rmp_sanitize_probe("${RMP_SANITIZE_WANTED}" _ok _why)
+  # UBSan whose runtime has no C++ half (NetBSD 10's GCC 10.5): every check
+  # but vptr still runs, so it is kept without vptr rather than dropped whole.
+  set(RMP_SANITIZE_NO_VPTR OFF)
+  if(NOT _ok AND "undefined" IN_LIST RMP_SANITIZE_WANTED AND NOT MSVC)
+    set(RMP_SANITIZE_NO_VPTR ON)
+    _rmp_sanitize_probe("${RMP_SANITIZE_WANTED}" _ok _why_without)
+    if(_ok)
+      string(CONCAT _vptr_message
+        "[dev] sanitize: UBSan runs WITHOUT its vptr check here -- ${CMAKE_CXX_COMPILER_ID} "
+        "${CMAKE_CXX_COMPILER_VERSION}'s runtime has no C++ half:\n      ${_why}\n"
+        "  Every other check of address and undefined runs.")
+      message(WARNING "${_vptr_message}")
+    else()
+      set(RMP_SANITIZE_NO_VPTR OFF)
+    endif()
+  endif()
   if(_ok)
     set(RMP_SANITIZE_APPLIED ${RMP_SANITIZE_WANTED})
   else()

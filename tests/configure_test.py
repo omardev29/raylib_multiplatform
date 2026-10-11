@@ -3788,6 +3788,112 @@ class SanitizerSuppressionsTest(unittest.TestCase):
         self.assertIn("-fsanitize-ignorelist=${RMP_SANITIZE_IGNORELIST}", sanitize)
 
 
+class SanitizerProbeReachesVptrTest(unittest.TestCase):
+    """NetBSD 10's GCC 10.5 ships a UBSan runtime with no C++ half: no
+    __ubsan_handle_dynamic_type_cache_miss_abort, the handler of the vptr check
+    that -fsanitize=undefined turns on for C++. The probe built a C++ program
+    with no polymorphic type, never asked for it, said "address, undefined",
+    and the game's link failed in the BSD VM, twenty minutes in.
+
+    Here the same runtime is made on this machine: gcc and g++ behind a
+    wrapper that, when linking, swaps libubsan for a stub holding every
+    __ubsan_ symbol it exports but the vptr ones. Configured with it, the
+    probe has to notice, and the build has to keep the rest of UBSan with
+    -fno-sanitize=vptr -- not drop UBSan, and not say yes and fail at link."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        import subprocess
+        cls.skip = None
+        needs = ("gcc", "g++", "nm", "cmake", "ninja")
+        missing = [n for n in needs if shutil.which(n) is None]
+        if not sys.platform.startswith("linux") or missing:
+            if IN_BUILD_IMAGE and sys.platform.startswith("linux"):
+                raise AssertionError(f"the build image has {missing}; this cannot skip there")
+            cls.skip = f"needs Linux and {', '.join(needs)}"
+            return
+        libubsan = subprocess.run(["g++", "-print-file-name=libubsan.so"], capture_output=True,
+                                  text=True, stdin=subprocess.DEVNULL).stdout.strip()
+        if not Path(libubsan).is_file():
+            if IN_BUILD_IMAGE:
+                raise AssertionError("the build image's gcc has no libubsan.so")
+            cls.skip = "this gcc has no libubsan.so"
+            return
+        cls._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(cls._tmp.name)
+        syms = subprocess.run(["nm", "-D", "--defined-only", libubsan], capture_output=True,
+                              text=True, check=True, stdin=subprocess.DEVNULL).stdout
+        stub = ["#include <stdlib.h>"]
+        for kind, name in (line.split()[1:3] for line in syms.splitlines()
+                           if len(line.split()) == 3 and line.split()[2].startswith("__ubsan_")):
+            # The vptr half is what NetBSD lacks; the default-options hook is
+            # cmake/sanitizer_hooks.c's to define, and a second one would clash.
+            if "dynamic_type_cache_miss" in name or "vptr" in name or "default" in name:
+                continue
+            stub.append(f"void {name}(void) {{ abort(); }}" if kind in "TWi"
+                        else f"char {name}[1024];")
+        (tmp / "stub.c").write_text("\n".join(stub) + "\n")
+        subprocess.run(["gcc", "-c", "-fPIC", str(tmp / "stub.c"), "-o", str(tmp / "stub.o")],
+                       check=True, stdin=subprocess.DEVNULL)
+        wrapper = tmp / "bin" / "wrap.py"
+        wrapper.parent.mkdir()
+        real = {n: shutil.which(n) for n in ("gcc", "g++")}
+        wrapper.write_text(f"""#!{sys.executable}
+import os, sys
+real = {real!r}[os.path.basename(sys.argv[0])]
+args = sys.argv[1:]
+if "-c" not in args and "-E" not in args and "-S" not in args:
+    out = []
+    for a in args:
+        if a.startswith("-fsanitize=") and not a.startswith("-fsanitize-"):
+            kept = [s for s in a[len("-fsanitize="):].split(",") if s == "address"]
+            if kept:
+                out.append("-fsanitize=" + ",".join(kept))
+            continue
+        out.append(a)
+    if any(a.startswith("-fsanitize=") for a in args):
+        out.append({str(tmp / "stub.o")!r})
+    args = out
+os.execv(real, [real] + args)
+""")
+        wrapper.chmod(0o755)
+        for name in ("gcc", "g++"):
+            (wrapper.parent / name).symlink_to(wrapper)
+        source = tmp / "src"
+        shutil.copytree(REPO, source, symlinks=True, ignore=shutil.ignore_patterns(
+            ".git", "build", ".zig-*", "generated", "project.yml"))
+        cls.tree = source / "build" / "debug"
+        got = subprocess.run(
+            ["cmake", "-S", str(source), "-B", str(cls.tree), "-G", "Ninja",
+             "-DCMAKE_BUILD_TYPE=Debug", "-DRMP_DEV_TOOLCHAIN=OFF",
+             f"-DCMAKE_C_COMPILER={wrapper.parent / 'gcc'}",
+             f"-DCMAKE_CXX_COMPILER={wrapper.parent / 'g++'}"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL,
+            env={k: v for k, v in os.environ.items() if k != "RMP_REQUIRE_SANITIZERS"})
+        cls.configure = got.stdout + got.stderr
+        if got.returncode != 0:
+            raise AssertionError("the tree did not configure:\n" + cls.configure[-3000:])
+        cls.ninja = (cls.tree / "build.ninja").read_text()
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "_tmp", None) is not None:
+            cls._tmp.cleanup()
+
+    def setUp(self):
+        if self.skip:
+            self.skipTest(self.skip)
+
+    def test_the_probe_sees_the_missing_half_and_says_so(self):
+        self.assertIn("UBSan runs WITHOUT its vptr check here", " ".join(self.configure.split()))
+
+    def test_the_rest_of_ubsan_and_asan_stay(self):
+        self.assertIn("=== SANITIZERS: address, undefined ===", self.configure)
+        self.assertIn("-fno-sanitize=vptr", self.ninja)
+        self.assertRegex(self.ninja, r"-fsanitize=address,undefined,float-cast-overflow")
+
+
 class FrameworkDebugIsSanitizedTest(unittest.TestCase):
     """The framework's Debug builds ALWAYS run under ASan and UBSan, and
     "always" is a set of things that can each be undone by an edit nobody

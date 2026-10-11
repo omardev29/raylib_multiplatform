@@ -499,6 +499,14 @@ Each of these was a real bug, found by reproducing rather than by reading.
   workflow step itself under podman; `RunJobsStartTheShippedBinaryTest` keeps it.
   The init is the engine's own (docker-init; podman's catatonit), so
   `raylib-run-alpine` does not carry one.
+- **A probe proves only what it exercises.** The sanitizer probe linked a C++
+  program with no polymorphic type, so it never asked for UBSan's vptr handler
+  -- which NetBSD 10's GCC 10.5 runtime does not have -- said "address,
+  undefined", and the game's link failed in the VM on
+  `__ubsan_handle_dynamic_type_cache_miss_abort`. It calls a virtual function
+  now, and a runtime without the C++ half keeps the rest of UBSan with
+  `-fno-sanitize=vptr` and says so; `SanitizerProbeReachesVptrTest` builds that
+  runtime on Linux, a stub of libubsan without the vptr symbols.
 - **A boot proves what the machine had, not what the binary needs.**
   `musl-x64-run` called booting the headless build in a bare Alpine "the proof
   that it needs nothing but musl"; that build is a static PIE (zig links it
