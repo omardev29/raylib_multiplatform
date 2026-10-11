@@ -30,6 +30,11 @@
 #       close_* halves, which follow an open_* that has already spoken, stay
 #       silent. Phase 14 paid the twenty silent ones the tree had, so there
 #       is no debt left to keep and none to add
+#   S8  no iostreams in the library (src/rmp/, include/rmp/): one
+#       std::ifstream in src/rmp/pack.cpp brought all of them into every
+#       release against a static libc++ -- +19 % on linux-x64, +18 % on the
+#       web's .wasm, +22-26 % per Android ABI -- for a seek and a read. Files
+#       go through C's stdio (in a unique_ptr) or raylib
 #
 # Comments, strings and character literals do not count (S3 reads only the
 # comments): they are blanked before any rule runs, so a comment may say what
@@ -62,6 +67,7 @@ RULES = {
     "S5": "a user-defined literal: Google's style has none, the standard library's included",
     "S6": "postfix ++/-- whose value is not used: ++i",
     "S7": "an rmp::ui entry point silent outside a frame: if (!frame_ready(...)) return",
+    "S8": "iostreams in the library, a fifth of every release: C's stdio or raylib",
 }
 
 # A function body whose first statement leaves when no frame is open, with
@@ -98,6 +104,12 @@ C_CAST = re.compile(r"(?<![\w)\]>])(\(\s*(?:const\s+)?" + ARITHMETIC + r"\s*\))\
 
 FLOOR = re.compile(r"#\s*include\s*<(format|source_location|expected|print|stacktrace|generator"
                    r"|flat_map|flat_set|mdspan|spanstream)>|\bstd::bit_cast\b|\busing\s+enum\b")
+
+IOSTREAMS = re.compile(r"#\s*include\s*<(fstream|iostream|istream|ostream|sstream|iomanip"
+                       r"|strstream|spanstream|syncstream)>")
+# The library a game links, where the size budget would only see it twenty
+# minutes into CI; a test or an example may print with them.
+LIBRARY = ("src/rmp/", "include/rmp/")
 
 UDL_DEFINITION = re.compile(r"\boperator\s*\"\"")
 # std::literals, std::string_view_literals, std::chrono_literals and the rest.
@@ -186,6 +198,9 @@ def check(path, rules, explicit=False):
         hit("S5", m.start(), "operator\"\"")
     for m in UDL_IMPORT.finditer(code):
         hit("S5", m.start(), " ".join(m.group(0).split()))
+    if explicit or posix.startswith(LIBRARY):
+        for m in IOSTREAMS.finditer(code):
+            hit("S8", m.start(), f"<{m.group(1)}>")
     # S7 over rmp::ui's sources in the tree, and over any file named.
     if not is_c and (explicit or posix.startswith("src/rmp/ui/")):
         for offset, name in silent_entry_points(code):

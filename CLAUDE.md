@@ -454,7 +454,7 @@ here so that nobody "fixes" one back.
   down.** Omar's rules of 2026-10-10 are three things: checks in `.clang-tidy`
   (two of them `CustomChecks`, which run only with
   `--experimental-custom-checks` -- without the flag clang-tidy registers
-  nothing and says nothing); text rules in `tools/style_check.sh` (S1-S6, every
+  nothing and says nothing); text rules in `tools/style_check.sh` (S1-S8, every
   `#if` branch, `++i` included); and `tools/cppcheck_check.sh`. What clang-tidy
   still finds is `tools/lint_debt.txt` (`check file count`): `rmp lint` fails a
   warning nobody owes, a count that grew and a count above what is left; `bash
@@ -838,8 +838,9 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **No iostreams in the library.** One `std::ifstream` in `src/rmp/pack.cpp`
   (Stage E) brought all of iostreams into every release: +19 % on
   linux-x64, +18 % on the web's `.wasm`, +22-26 % per Android ABI, against a
-  static libc++. The size budget caught it; C's stdio in a `unique_ptr` reads
-  the pack now. Files go through stdio or raylib, never `<fstream>`.
+  static libc++. The size budget caught it twenty minutes into CI; C's stdio
+  in a `unique_ptr` reads the pack now, and `tools/style_check.sh` S8 refuses
+  an iostream header in `src/rmp` and `include/rmp` in a second.
 - **cute_aseprite trusts the file.** It asserts on a broken one, leaks on some
   real ones and loops on linked cels that link in a circle;
   `src/rmp/aseprite.cpp`'s `prepare_aseprite()` walks every chunk first, and

@@ -9979,6 +9979,34 @@ class StyleCheckTest(unittest.TestCase):
                           "void later() {", "    int x = 0;",
                           "    if (!frame_open()) return;", "}")
 
+    def test_s8_no_iostreams_in_the_library(self):
+        """One std::ifstream in pack.cpp made every release a fifth bigger."""
+        self.assert_red("S8", "#include <fstream>", "#include <cstdio>")
+        self.assert_red("S8", "#include <iostream>", "# include < sstream >", count=1)
+        self.assert_red("S8", "#  include <sstream>", "#include<iomanip>", count=2)
+        self.assert_green("#include <cstdio>", "#include <string>",
+                          "// #include <fstream> in a comment is not an include",
+                          'const char *say = "#include <iostream>";')
+
+    def test_s8_is_the_library_alone(self):
+        """A test or an example may print with iostreams; src/rmp and
+        include/rmp may not, and the tree holds none today."""
+        import shutil
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            for name in ("style_check.sh", "cpp_text.py"):
+                shutil.copy(REPO / "tools" / name, root / "tools")
+            for where in ("src/rmp/x.cpp", "tests/x_test.cpp"):
+                (root / where).parent.mkdir(parents=True, exist_ok=True)
+                (root / where).write_text("#include <sstream>\nint x = 0;\n")
+            got = subprocess.run(["bash", str(root / "tools" / "style_check.sh")],
+                                 capture_output=True, text=True, cwd=root)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("src/rmp/x.cpp:1: S8 <sstream>", got.stdout)
+        self.assertNotIn("tests/x_test.cpp", got.stdout)
+
     def test_s7_holds_the_whole_tree(self):
         """Phase 14 paid S7's debt: no entry point of src/rmp/ui is silent
         outside a frame, and the list of owed ones (SILENT_DEBT) is gone with
