@@ -588,6 +588,35 @@ function(rmp_apply_warnings target)
   endif()
 endfunction()
 
+# --- coverage ----------------------------------------------------------------
+# tools/coverage_check.sh, and nothing else, turns this on, in build/coverage:
+# clang's source-based coverage over the framework and the tests that run it
+# -- not raylib or thirdparty/, which are not ours to cover, and not a game.
+# The tests link librmp.a WHOLE (rmp_link_framework below): an archive gives
+# the linker only the members something references, so a file no test reaches
+# would be missing from the report instead of standing in it at 0%.
+option(RMP_COVERAGE "Instrument the framework and its tests for coverage (tools/coverage_check.sh)" OFF)
+if(RMP_COVERAGE AND (PRODUCTION_BUILD OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+  message(FATAL_ERROR "RMP_COVERAGE is clang's source-based coverage, of a Debug build, and "
+                      "this is ${CMAKE_CXX_COMPILER_ID} (PRODUCTION_BUILD ${PRODUCTION_BUILD}). "
+                      "Run it through tools/coverage_check.sh.")
+endif()
+function(rmp_apply_coverage target)
+  if(RMP_COVERAGE)
+    target_compile_options(${target} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+    target_link_options(${target} PRIVATE -fprofile-instr-generate)
+  endif()
+endfunction()
+# How a test executable links the framework: whole under RMP_COVERAGE.
+function(rmp_link_framework target)
+  if(RMP_COVERAGE)
+    target_link_libraries(${target} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,rmp>")
+  else()
+    target_link_libraries(${target} PRIVATE rmp)
+  endif()
+  rmp_apply_coverage(${target})
+endfunction()
+
 # --- RESOURCES_PATH ----------------------------------------------------------
 # Where the game reads its loose files from. Production: relative to the
 # executable, ship resources/ next to it. Development: an absolute path, so the
@@ -672,6 +701,7 @@ if(NOT PRODUCTION_BUILD)
 endif()
 rmp_apply_compile_flags(rmp)
 rmp_apply_warnings(rmp)
+rmp_apply_coverage(rmp)
 else()
   message(STATUS "=== NO src/rmp/: no framework library, a plain C game ===")
 endif()
@@ -968,7 +998,7 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/t
   if(NOT RMP_BUILD_EXAMPLES)
     set_property(TARGET input_play PROPERTY EXCLUDE_FROM_ALL TRUE)
   endif()
-  target_link_libraries(input_play PRIVATE rmp)
+  rmp_link_framework(input_play)
   target_compile_definitions(input_play PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   rmp_apply_compile_flags(input_play)
   rmp_apply_link_flags(input_play)
@@ -1070,7 +1100,7 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
   # but it never opens a window. The tests use zeroed payloads, and raylib's
   # unloaders are defined on those: UnloadImage is free(nullptr), UnloadTexture
   # guards on id > 0. That is what makes reference counting a unit test.
-  target_link_libraries(unit_test PRIVATE rmp)
+  rmp_link_framework(unit_test)
   rmp_apply_compile_flags(unit_test)
   rmp_apply_warnings(unit_test)
 
@@ -1109,7 +1139,7 @@ if(BUILD_UI_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.c
   target_compile_definitions(ui_layout_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
   # raylib is linked but never asked to open anything: MeasureTextEx and the
   # drawing calls are all behind the injected seams.
-  target_link_libraries(ui_layout_test PRIVATE rmp)
+  rmp_link_framework(ui_layout_test)
   rmp_apply_compile_flags(ui_layout_test)
   rmp_apply_warnings(ui_layout_test)
 endif()

@@ -19,6 +19,11 @@ rmp test examples     # builds every example and boots it headless with a screen
 rmp test sanitize     # the unit tests again under ASan + UBSan, every report fatal (~20 s cold). After
                       # touching anything that parses input, casts, indexes or frees: what a test
                       # cannot see, this does.
+rmp test coverage     # the tests under clang's coverage: every src/rmp file against its floor in
+                      # tools/coverage_floor.txt (only rises), every public function no test calls
+                      # against tools/untested_api.txt (only shrinks). Gates only in the pinned image:
+                      # tools/dev_shell.sh bash tools/coverage_check.sh [--update]. After adding or
+                      # testing framework code -- a floor two points behind fails too.
 rmp example 01_pong   # build one example and run it (by name or path; `rmp example` lists them)
 rmp run               # the actual game
 ```

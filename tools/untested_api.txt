@@ -1,0 +1,34 @@
+# Public functions of include/rmp/ that no test calls: the debt, one per line,
+# exactly as tools/coverage_report.py prints them. It only shrinks -- a new
+# public function arrives with a test, and a line whose function a test now
+# calls, or that is gone, fails until it is removed (--update removes it).
+rmp::Object::_draw()
+rmp::Scene::_resume()
+rmp::Tilemap::Tilemap(Tilemap &&)
+rmp::Tilemap::operator bool() const
+rmp::Value::Ref::key(int) const
+rmp::ads::is_interstitial_loaded()
+rmp::ads::is_rewarded_loaded()
+rmp::ads::request_interstitial()
+rmp::ads::request_rewarded()
+rmp::ads::reward_amount()
+rmp::ads::show_interstitial()
+rmp::ads::show_rewarded()
+rmp::ads::take_reward_earned()
+rmp::assets::load_map(std::string_view)
+rmp::assets::load_map(std::string_view, std::string_view)
+rmp::assets::load_sheet(std::string_view)
+rmp::assets::using_pack()
+rmp::behavior::Runner::ducking() const
+rmp::behavior::Tween::restart()
+rmp::input::just_pressed(::GamepadButton)
+rmp::input::just_pressed(::KeyboardKey)
+rmp::input::just_released(::GamepadButton)
+rmp::input::just_released(::KeyboardKey)
+rmp::ui::center [template]
+rmp::ui::dropdown(std::string_view, int &, std::initializer_list<std::string_view>, const DropdownOptions &)
+rmp::ui::layer [template]
+rmp::ui::navigation_enabled()
+rmp::ui::progress(float)
+rmp::ui::spacer(float)
+rmp::ui::stack [template]

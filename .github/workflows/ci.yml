@@ -815,6 +815,67 @@ jobs:
           git checkout -- raylib_multiplatform.toml .github/workflows/ci.yml
           echo "PASS: [ci] on_push writes the triggers, and nothing else"
 
+  # What the tests run of src/rmp, line by line: the unit tests, the headless
+  # UI layout test and tests/input_play.cpp built with clang's source-based
+  # coverage, against tools/coverage_floor.txt (per file, measured in this
+  # image, only rises) and tools/untested_api.txt (the public functions no test
+  # calls, only shrinks). A file that drops below its floor fails, and so does
+  # one two points over it -- the floor is raised in the same commit that
+  # earned it, or the ratchet stalls. The same script as `rmp test coverage`;
+  # the floors gate only here, in the image, where they were measured.
+  #
+  # Its own job, not the lint job's: a second build of every test, and the
+  # lint job is near its timeout already.
+  coverage:
+    needs: config
+    if: needs.config.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The report's every FAIL, on fixtures: below a floor, over it, a file
+      # missing, a marker without a reason or without its pair, a new uncalled
+      # function and a listed one that is called now. The image has clang and
+      # llvm-cxxfilt, so a test that needs them may not skip here.
+      - name: The coverage report fails what it is for
+        env:
+          RMP_REQUIRE_CLANG: "1"
+        run: python3 -m unittest discover -s tests -p 'coverage_report_test.py' -v
+
+      - name: Coverage of src/rmp, against its floors
+        run: bash tools/coverage_check.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f build/coverage/summary.md ]; then
+            cat build/coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The annotated sources (html/index.html), the numbers, and this run's
+      # list of public functions no test calls.
+      - name: Coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage
+          path: |
+            build/coverage/html/
+            build/coverage/coverage.json
+            build/coverage/coverage.lcov
+            build/coverage/summary.md
+            build/coverage/untested_api.txt
+          if-no-files-found: warn
+
   # The documentation lives in its own repository, omardev29/rmp-docs, and
   # documents one commit of this one. Here it is checked against THIS commit:
   # every page's gates, every name it links, every C and C++ block it shows
@@ -963,12 +1024,13 @@ jobs:
   # [targets] reports `skipped`, and demanding success would mean disabling any
   # platform silently disables releases too.
   #
-  # examples, rmp_new and docs are the framework's own; a game skips them. Skipped
+  # examples, rmp_new, coverage and docs are the framework's own; a game skips them. Skipped
   # passes ONLY in a game: in the framework a skipped job is one that did not
   # run, and a release it did not check.
   # ---------------------------------------------------------------------------
   release:
-    needs: [config, lint, examples, rmp_new, docs, linux, web, windows, android, apple, bsd]
+    needs: [config, lint, examples, rmp_new, coverage, docs, linux, web, windows, android, apple,
+            bsd]
     if: >
       always() &&
       github.ref_type == 'tag' &&
@@ -977,6 +1039,8 @@ jobs:
        (needs.config.outputs.framework == 'false' && needs.examples.result == 'skipped')) &&
       (needs.rmp_new.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.rmp_new.result == 'skipped')) &&
+      (needs.coverage.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.coverage.result == 'skipped')) &&
       (needs.docs.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.docs.result == 'skipped')) &&
       needs.linux.result != 'failure'   && needs.linux.result != 'cancelled' &&

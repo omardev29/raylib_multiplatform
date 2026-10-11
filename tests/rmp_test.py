@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -1504,22 +1505,40 @@ def code_lines(script: str) -> str:
                      if not line.lstrip().startswith("#"))
 
 
-def lint_steps(case):
-    """(gated, code) for each step of ci.yml's lint job."""
-    job = load_workflow(case, "ci.yml")["jobs"]["lint"]
-    case.assertFalse(gated(job.get("if")), "the lint job itself is framework-only")
-    return [(gated(step.get("if")), code_lines(str(step.get("run", "")) + " " +
-                                                str(step.get("uses", ""))))
+def job_steps(jobs: dict, name: str):
+    """(gated, code) for each step of one job of ci.yml. A job gated on the
+    framework gates every step in it."""
+    job = jobs[name]
+    whole = gated(job.get("if"))
+    return [(whole or gated(step.get("if")), code_lines(str(step.get("run", "")) + " " +
+                                                        str(step.get("uses", ""))))
             for step in job["steps"]]
 
 
+def lint_steps(case):
+    """(gated, code) for each step of ci.yml's lint job."""
+    jobs = load_workflow(case, "ci.yml")["jobs"]
+    case.assertFalse(gated(jobs["lint"].get("if")), "the lint job itself is framework-only")
+    return job_steps(jobs, "lint")
+
+
 class StagesAgreeWithLintTest(unittest.TestCase):
-    """Every stage of `rmp test` runs in the CI lint job too: a stage that
-    exists in one place and not the other is how the UI layout test ran on
-    laptops only, for four phases. And a stage a game runs has to run in a
-    game's CI: its step may not be gated to the framework."""
+    """Every stage of `rmp test` runs in CI too: a stage that exists in one
+    place and not the other is how the UI layout test ran on laptops only, for
+    four phases. In the lint job, unless JOBS names the job of its own that
+    runs it -- and then in THAT job, not merely somewhere in ci.yml. And a
+    stage a game runs has to run in a game's CI: its step may not be gated to
+    the framework."""
 
     COVERED_BY = {"fmt-check": "clang-format", "smoke": "render_check.sh"}
+
+    # The stages a job of their own runs, each with why it is not the lint job.
+    JOBS = {
+        "examples": "examples",  # every example built and booted: its own runner
+        "coverage": "coverage",  # a second build of every test, instrumented
+    }
+    # The stages no CI job runs, each with why.
+    NOT_A_CHECK = {"render-update": "a recording of the golden hash, not a check"}
 
     def tokens(self, stage):
         out = []
@@ -1539,22 +1558,81 @@ class StagesAgreeWithLintTest(unittest.TestCase):
                 out.append("render_check.sh")
         return out
 
-    def test_every_stage_has_its_step_in_the_lint_job(self):
-        steps = lint_steps(self)
-        self.assertTrue(any("actionlint" in code for _, code in steps),
-                        "the lint job did not parse")
-        for stage in rmp.STAGES:
-            if stage.name in ("examples", "render-update"):
-                continue  # the examples job, and a recording -- not a check
+    def gaps(self, jobs: dict, stages) -> list[str]:
+        """What a stage runs and its job does not, one sentence each."""
+        out = []
+        for stage in stages:
+            if stage.name in self.NOT_A_CHECK:
+                continue
+            name = self.JOBS.get(stage.name, "lint")
+            if name not in jobs:
+                out.append(f"`rmp test {stage.name}` belongs to the CI job `{name}`, "
+                           "and ci.yml has none")
+                continue
             # A stage the game runs too needs a step the game's CI runs.
-            usable = [code for is_gated, code in steps
+            usable = [code for is_gated, code in job_steps(jobs, name)
                       if not is_gated or stage.scope == "framework"]
             for token in self.tokens(stage):
-                with self.subTest(stage=stage.name, token=token):
-                    self.assertTrue(any(token in code for code in usable),
-                                    f"`rmp test {stage.name}` runs {token} and the CI lint "
-                                    "job does not" + ("" if stage.scope == "framework" else
-                                                      " in a game"))
+                if not any(token in code for code in usable):
+                    out.append(f"`rmp test {stage.name}` runs {token} and the CI job "
+                               f"`{name}` does not" +
+                               ("" if stage.scope == "framework" else " in a game"))
+        return out
+
+    def test_every_stage_has_its_step_in_its_job(self):
+        jobs = load_workflow(self, "ci.yml")["jobs"]
+        self.assertTrue(any("actionlint" in code for _, code in lint_steps(self)),
+                        "the lint job did not parse")
+        self.assertFalse(gated(jobs["lint"].get("if")), "the lint job itself is framework-only")
+        self.assertEqual(self.gaps(jobs, rmp.STAGES), [])
+
+    def test_the_map_names_stages_that_exist(self):
+        names = {s.name for s in rmp.STAGES}
+        self.assertEqual(set(self.JOBS) - names, set())
+        self.assertEqual(set(self.NOT_A_CHECK) - names, set())
+
+    def test_a_stage_whose_step_left_its_job_is_a_gap(self):
+        """Seen red, each way it can go wrong: the coverage step taken out of
+        the coverage job, the report's tests moved to the lint job (somewhere
+        in ci.yml, and not in the job the map says), the job deleted, and the
+        same for a stage of the lint job."""
+        def without(job, needle):
+            jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
+            jobs[job]["steps"] = [st for st in jobs[job]["steps"]
+                                  if needle not in str(st.get("run", ""))]
+            return jobs
+
+        jobs = without("coverage", "tools/coverage_check.sh")
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test coverage` runs tools/coverage_check.sh and the CI job "
+                          "`coverage` does not"])
+
+        jobs = without("coverage", "coverage_report_test.py")
+        jobs["lint"]["steps"].append({"run": "python3 -m unittest discover -s tests -p "
+                                             "'coverage_report_test.py'"})
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test coverage` runs coverage_report_test.py and the CI job "
+                          "`coverage` does not"])
+
+        jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
+        del jobs["coverage"]
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test coverage` belongs to the CI job `coverage`, and ci.yml "
+                          "has none"])
+
+        jobs = without("lint", "tools/seam_check.sh")
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test seam` runs tools/seam_check.sh and the CI job `lint` "
+                          "does not"])
+
+        # A stage a game runs, whose step only the framework runs.
+        jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
+        for step in jobs["lint"]["steps"]:
+            if "license_db.py" in str(step.get("run", "")):
+                step["if"] = "needs.config.outputs.framework == 'true'"
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test config` runs tools/license_db.py and the CI job `lint` "
+                          "does not in a game"])
 
 
 class CiModeTest(unittest.TestCase):
@@ -1642,7 +1720,11 @@ class CiModeTest(unittest.TestCase):
     def test_the_framework_jobs_are_gated_and_release_tells_skipped_apart(self):
         jobs = load_workflow(self, "ci.yml")["jobs"]
         release = " ".join(jobs["release"]["if"].split())
-        for name in ("examples", "rmp_new", "docs"):
+        # Every job of the framework's own, read off the file: a new one that
+        # the release does not wait for is a check a tag can skip.
+        own = sorted(name for name, job in jobs.items() if gated(job.get("if")))
+        self.assertEqual(own, ["coverage", "docs", "examples", "rmp_new"])
+        for name in own:
             with self.subTest(job=name):
                 self.assertTrue(gated(jobs[name].get("if")))
                 self.assertIn(name, jobs["release"]["needs"])

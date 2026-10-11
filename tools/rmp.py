@@ -70,6 +70,7 @@ BUILD_DIRS = {
     "memory": "the memory preset, tools/render_check.sh, the musl job's headless build",
     "lint": "the lint preset: the compile database clang-tidy reads",
     "sanitize": "tools/sanitize_check.sh: the unit tests under gcc's ASan and UBSan",
+    "coverage": "tools/coverage_check.sh: the tests under clang's coverage, and its report",
     "examples": "rmp example",
     "examples-check": "tools/examples_build.sh: every example, built and booted",
     "memory-release": "tools/shipped_check.sh: a release, started from another folder",
@@ -396,6 +397,10 @@ STAGES = [
     Stage("sanitize", "the unit tests again under ASan and UBSan",
           [("run", ["bash", "tools/test_locales.sh", "build/test-locales"]),
            ("run", ["bash", "tools/sanitize_check.sh"])], in_all=False),
+    Stage("coverage", "what the tests run of src/rmp, against its floors",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "coverage_report_test.py"]),
+           ("run", ["bash", "tools/coverage_check.sh"])], in_all=False),
     Stage("render-update", "record the frame as the new golden hash",
           [("render", "update")], in_all=False),
 ]

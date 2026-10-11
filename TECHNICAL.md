@@ -1177,6 +1177,18 @@ int overflow that wraps somewhere harmless or a float cast that lands in range i
 The first run found the LDtk reader's casts and three tests reading objects already freed.
 Third-party code it must not report is listed, with the reason, in `cmake/sanitize_ignore.txt`.
 
+**Covered, by a ratchet** — `tools/coverage_check.sh` (`rmp test coverage`, the `coverage` job)
+builds the unit tests, the layout test and `tests/input_play.cpp` with clang's source-based
+coverage, linking `librmp.a` whole so that a file no test reaches shows at 0% instead of not at
+all, and `tools/coverage_report.py` reads llvm-cov's per-line export. Two lists hold it, both
+measured in the pinned image and gated only there: `tools/coverage_floor.txt`, the line coverage
+of each file of `src/rmp/` rounded down, which only rises (a file below its line fails, and so
+does one two points over it until the line is raised); and `tools/untested_api.txt`, the public
+functions of `include/rmp/` no test calls, which only shrinks (a new one fails, and so does a
+listed one a test now calls). Lines no test can run go between `// RMP_COVERAGE_OFF(<why>)` and
+`// RMP_COVERAGE_ON` and are counted apart. `bash tools/coverage_check.sh --update` in the image
+raises the floors and removes what is called now; it never lowers one or adds a function.
+
 > **What the tests still do NOT cover.** Windows ARM64 is compiled and format-checked but never
 > run — there is no runner or emulator for it here. RISC-V runs under QEMU user-mode emulation and
 > the BSDs headless in QEMU VMs, which is not the hardware a player has. Android is built
