@@ -11,6 +11,8 @@
 # children. WP0's pilot, LicenceGuardTest alone and check() one 174-line
 # function, was 45.10%; the most survivors now are _check_text's (56 of 130)
 # and _check_marks' (36 of 120) failure messages past their first words.
+# Again after review added the one-lie property (each rule of check() fails
+# its row alone): 870 detected = 79.89%, 21 min on a loaded machine.
 kind     py
 sources  tools/license_db.py
 tests    tests/license_db_property_test.py tests/configure_test.py::LicenceGuardTest
