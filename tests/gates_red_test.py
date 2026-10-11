@@ -22,7 +22,10 @@ glibc_check.sh said "ok, static?" of a file that is no ELF at all;
 workflow_check.sh passed a callee that asks to write what its caller only
 lets it read, and was a traceback on `permissions: write-all` and on a
 `workflow_call:` with nothing under it; examples_check.sh read neither a
-second plain C example nor a header.
+second plain C example nor a header. And at review: glibc_check.sh took
+objdump's translated words for a file it could not read (a static program
+was a FAIL on a Spanish desktop), and header_cost.py was a traceback,
+without the compiler's error, for a header that does not compile.
 
 And two Python gates' counterexamples from their property tests, named:
 header_cost.py's budget file with a note after a number, and
