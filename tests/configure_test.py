@@ -7829,6 +7829,54 @@ class E2eScriptsTest(unittest.TestCase):
                               f"tests/e2e/golden/{golden} is no shot of any script: delete it")
 
 
+class SeamCheckHoldsItsDebtTest(unittest.TestCase):
+    """tools/seam_check.sh holds a DEBT file to the calls it is in debt for.
+
+    ui/controls.cpp is on the list for the text field's character queue and
+    backspace (phase 14). Its caret blinked on GetTime() -- the wall clock --
+    as well, and the file being allowed meant nothing said so, until an e2e
+    script could not draw the same caret twice. Run on a copy of src/rmp and
+    include/rmp with one line changed."""
+
+    CARET = "const bool caret_on = typing && std::fmod(caret.f, 1.0f) < 0.5f;"
+
+    def run_on(self, old, new):
+        import shutil
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            shutil.copy(REPO / "tools" / "seam_check.sh", root / "tools")
+            shutil.copytree(REPO / "src" / "rmp", root / "src" / "rmp")
+            shutil.copytree(REPO / "include" / "rmp", root / "include" / "rmp")
+            controls = root / "src" / "rmp" / "ui" / "controls.cpp"
+            text = controls.read_text()
+            self.assertIn(old, text, "the line this test changes is gone: find its new form")
+            controls.write_text(text.replace(old, new))
+            done = subprocess.run(["bash", str(root / "tools" / "seam_check.sh")],
+                                  capture_output=True, text=True, check=False,
+                                  stdin=subprocess.DEVNULL)
+            return done.returncode, done.stdout
+
+    def test_the_tree_as_it_is_passes(self):
+        code, out = self.run_on(self.CARET, self.CARET)
+        self.assertEqual(code, 0, out)
+
+    def test_the_caret_back_on_the_wall_clock_fails(self):
+        code, out = self.run_on(
+            self.CARET,
+            "const bool caret_on = typing && (static_cast<int>(GetTime() * 2.0) % 2) == 0;")
+        self.assertEqual(code, 1, out)
+        self.assertIn("src/rmp/ui/controls.cpp is on the list for GetCharPressed|IsKeyPressed, "
+                      "and reads something else too", out)
+        self.assertRegex(out, r":GetTime\(\)")
+
+    def test_a_debt_paid_off_comes_off_its_line(self):
+        code, out = self.run_on("GetCharPressed()) != 0", "next_character()) != 0")
+        self.assertEqual(code, 1, out)
+        self.assertIn("no longer calls GetCharPressed: take it off its DEBT_CALLS line", out)
+
+
 class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
     """A game a script starts reads nothing from the script's stdin.
 

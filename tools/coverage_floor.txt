@@ -31,10 +31,10 @@ src/rmp/scene.cpp                100
 src/rmp/tilemap.cpp              91
 src/rmp/tilemap_internal.h       100
 src/rmp/ui/containers.cpp        72
-src/rmp/ui/context.cpp           86
+src/rmp/ui/context.cpp           89
 src/rmp/ui/controls.cpp          97
 src/rmp/ui/focus.cpp             93
-src/rmp/ui/internal.h            86
+src/rmp/ui/internal.h            90
 src/rmp/ui/render.cpp            31
 src/rmp/ui/style.cpp             79
 src/rmp/ui/theme.cpp             100

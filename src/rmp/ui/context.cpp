@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <vector>
 
 // Defaults, so this still compiles against a generated header from before the
@@ -176,6 +177,29 @@ struct {
     std::array<std::array<Blocker, MAX_BLOCKERS>, 2> entries;
     std::array<int, 2> count{};
 } blockers;
+
+// Where the interface takes the pointer, as a frame drew it: every surface a
+// pass input can reach painted, and every control it declared, each cut to
+// the scroll areas around it. Double-buffered with the geometry. It is what
+// wants_pointer() answers from until this frame's UI has run -- for where the
+// pointer is NOW. Answering with last frame's own answer, which is where the
+// pointer WAS, let a finger that lands on a button without hovering first
+// reach the game underneath as well: ui/05_inventory's e2e script, clicking
+// its list, logged a click in the world.
+constexpr int MAX_CLAIMS = 512;
+// Every field initialised, so all of it is constant-initialised: the e2e
+// driver's set_pointer_provider() reaches forget_claims() before main(), and
+// a member left to a constructor is initialised in an order nobody chose.
+struct {
+    std::array<std::array<Clay_BoundingBox, MAX_CLAIMS>, 2> rects{};
+    std::array<int, 2> count{};
+    std::array<bool, 2> full{}; // more than fit: the frame's answer stands
+} claims;
+
+void forget_claims() {
+    claims.count = {};
+    claims.full = {};
+}
 
 struct PassId {
     uint32_t id;
@@ -351,6 +375,7 @@ void shutdown_context() {
     // is exactly where it was before the first start.
     Clay_SetCurrentContext(nullptr);
     context.started = false;
+    forget_claims();
 }
 
 bool frame_open() { return context.frame_open; }
@@ -493,6 +518,7 @@ void reset_id_counters() {
 }
 
 bool frame_marked() { return frame.marked; }
+bool ui_ran_this_frame() { return frame.marked && this_pass.index >= 0; }
 bool frame_self_marked() { return frame.self_marked; }
 void set_frame_self_marked(bool self) { frame.self_marked = self; }
 
@@ -593,6 +619,8 @@ void prepare_frame() {
     bounds.front = 1 - bounds.front;
     bounds.count[bounds.front] = 0;
     blockers.count[bounds.front] = 0;
+    claims.count[bounds.front] = 0;
+    claims.full[bounds.front] = false;
 
     reset_frame_arena();
     update_scale();
@@ -620,9 +648,85 @@ void prepare_frame() {
     begin_focus_frame();
 }
 
+// --- the focus, kept in view ------------------------------------------------
+//
+// A scroll area moves for the wheel and a finger and for nothing else, so the
+// keyboard or the gamepad walking down a list took the focus onto rows the
+// area had clipped away, and the ring went on being drawn where nobody could
+// see it: ui/05_inventory's list, found by its e2e script. Now, when the focus
+// lands somewhere new and shows, every scroll area it is inside moves just far
+// enough to show it -- once, so the wheel or a finger can take the list
+// somewhere else afterwards without being pulled back.
+
+namespace {
+
+struct {
+    uint32_t id = 0; // the focus last brought into view
+} revealed;
+
+// THIS frame's box: at the frame boundary the front buffer is the frame that
+// has just been described, all of its passes. drawn_box() is the same, outside.
+std::optional<BoundsEntry> drawn_this_frame(uint32_t id) {
+    const int front = bounds.front;
+    for (int i = 0; i < bounds.count[front]; ++i) {
+        if (bounds.entries[front][i].id == id) return bounds.entries[front][i];
+    }
+    return std::nullopt;
+}
+
+// How far to move something at `start`, `size` long, for it to lie inside
+// `outer_start`, `outer_size`: 0 when it does, and when it cannot, its start
+// against the outer one's.
+float into_view(float start, float size, float outer_start, float outer_size) {
+    if (start < outer_start || size > outer_size) return outer_start - start;
+    const float over = (start + size) - (outer_start + outer_size);
+    return over > 0.0f ? -over : 0.0f;
+}
+
+void reveal_focus() {
+    const uint32_t id = focused_id();
+    if (id == 0 || id == revealed.id || !focus_visible()) return;
+    const std::optional<BoundsEntry> at = drawn_this_frame(id);
+    if (!at) return; // not drawn this frame: when it is
+    revealed.id = id;
+    Clay_BoundingBox box = at->box;
+    uint32_t clip = at->clip;
+    // Innermost first, and each move carries the box with it into the next
+    // area out: a list inside a scrolling page shows its row, then the page
+    // shows the list. Both axes: one an area does not scroll along has
+    // nothing to show, and Clay clamps it back to 0 at the next frame.
+    for (int depth = 0; clip != 0 && depth <= MAX_CLIP_DEPTH; ++depth) {
+        const std::optional<BoundsEntry> area = drawn_this_frame(clip);
+        if (!area) return;
+        Clay_ElementId area_id{};
+        area_id.id = clip;
+        const Clay_ScrollContainerData scroll = Clay_GetScrollContainerData(area_id);
+        if (scroll.found && scroll.scrollPosition != nullptr) {
+            const float dx = into_view(box.x, box.width, area->box.x, area->box.width);
+            const float dy = into_view(box.y, box.height, area->box.y, area->box.height);
+            scroll.scrollPosition->x += dx;
+            scroll.scrollPosition->y += dy;
+            box.x += dx;
+            box.y += dy;
+        }
+        clip = area->clip;
+    }
+}
+
+} // namespace
+
+std::optional<DrawnBox> drawn_box(uint32_t id) {
+    const std::optional<BoundsEntry> at = drawn_this_frame(id);
+    if (!at) return std::nullopt;
+    return DrawnBox{ at->box, at->clip };
+}
+
 void end_frame() {
     if (!frame.marked) return;
-    if (frame.prepared) end_focus_frame();
+    if (frame.prepared) {
+        end_focus_frame();
+        reveal_focus();
+    }
     // The UI drew nothing this frame, so it wants neither the pointer nor the
     // keyboard. It is said here because otherwise there is nothing to say it:
     // the flags are cleared by the FIRST begin() of a frame, and a pause menu
@@ -744,25 +848,17 @@ void pointer_from_raylib(Clay_Vector2 &position, bool &down) {
 // be deliberate; Left/Right the same way; the press that means "do it", and
 // the one that means "never mind" (Escape, the B button).
 // This function is the whole of what the UI reads from the keyboard and the
-// gamepad -- everything else works from the NavState it fills in. The
-// keyboard's half is nav_from_keys(), in internal.h.
+// gamepad -- everything else works from the NavState it fills in. What the
+// keys and the pad mean is nav_from_keys() and nav_from_pad(), in internal.h.
 void nav_from_raylib(NavState &out) {
     const auto down = [](int key) { return IsKeyDown(key); };
     const auto pressed = [](int key) { return IsKeyPressed(key); };
     const auto pad = [](int &x, int &y, bool &submit, bool &cancel) {
         if (!IsGamepadAvailable(0)) return;
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) y += 1;
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) y -= 1;
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) x += 1;
-        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) x -= 1;
-        const float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
-        if (ly > 0.5f) y += 1;
-        if (ly < -0.5f) y -= 1;
-        const float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
-        if (lx > 0.5f) x += 1;
-        if (lx < -0.5f) x -= 1;
-        submit = submit || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
-        cancel = cancel || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
+        nav_from_pad([](int button) { return IsGamepadButtonDown(0, button); },
+                     [](int button) { return IsGamepadButtonPressed(0, button); },
+                     [](int axis) { return GetGamepadAxisMovement(0, axis); }, x, y,
+                     submit, cancel);
     };
     out = nav_from_keys(down, pressed, pad);
 }
@@ -794,12 +890,14 @@ void set_measure_provider(MeasureFn fn) {
 void set_pointer_provider(PointerFn fn) {
     providers.pointer = (fn != nullptr) ? fn : pointer_from_raylib;
     begin_capture_frame();
+    forget_claims();
 }
 
 void set_test_viewport(float width, float height) {
     test_viewport.width = width;
     test_viewport.height = height;
     begin_capture_frame();
+    forget_claims();
 }
 
 bool test_mode() { return test_viewport.width > 0.0f && test_viewport.height > 0.0f; }
@@ -955,10 +1053,74 @@ bool pointer_over(Clay_ElementId id, float slop_y) {
     return true;
 }
 
+namespace {
+
+// `box` as far as `clip` lets it show; nothing when it does not.
+Clay_BoundingBox cut_to(Clay_BoundingBox box, const Clay_BoundingBox &clip) {
+    const float left = box.x > clip.x ? box.x : clip.x;
+    const float top = box.y > clip.y ? box.y : clip.y;
+    const float right = (box.x + box.width) < (clip.x + clip.width) ? box.x + box.width
+                                                                    : clip.x + clip.width;
+    const float bottom = (box.y + box.height) < (clip.y + clip.height)
+        ? box.y + box.height
+        : clip.y + clip.height;
+    if (right <= left || bottom <= top) return Clay_BoundingBox{ 0, 0, 0, 0 };
+    return Clay_BoundingBox{ left, top, right - left, bottom - top };
+}
+
+// Recorded for THIS frame, for a pass input can reach; a box with no area
+// takes nothing.
+void claim(const Clay_BoundingBox &box) {
+    if (!this_pass.input || box.width <= 0.0f || box.height <= 0.0f) return;
+    const int front = bounds.front;
+    if (claims.count[front] >= MAX_CLAIMS) {
+        claims.full[front] = true;
+        return;
+    }
+    claims.rects[front][claims.count[front]++] = box;
+}
+
+} // namespace
+
+void claim_control(uint32_t id) {
+    const std::optional<BoundsEntry> at = drawn_this_frame(id);
+    if (!at) return;
+    Clay_BoundingBox box = at->box;
+    if (at->clip != 0) {
+        const std::optional<BoundsEntry> area = drawn_this_frame(at->clip);
+        if (area) box = cut_to(box, area->box);
+    }
+    claim(box);
+}
+
+bool pointer_claimed_now() {
+    // Before the first begin() of a frame the pointer the UI sampled is last
+    // frame's, or there is none yet: RMP_ENTRY_POINT marks the frame in the
+    // first begin(), after the game's own code has asked. Then it is read
+    // here, the same way update_pointer() reads it.
+    Clay_Vector2 p = pointer.position;
+    bool down = pointer.down;
+    if (!frame.prepared) read_pointer(p, down);
+    if (!down && touch_only()) return false; // no finger, no pointer
+    // The frame drawn last: the back buffer once this one is prepared, the
+    // front one until then.
+    const int last = frame.prepared ? 1 - bounds.front : bounds.front;
+    for (int i = 0; i < claims.count[last]; ++i) {
+        if (inside_box(p, claims.rects[last][i])) return true;
+    }
+    return false;
+}
+
+bool claims_complete() {
+    const int last = frame.prepared ? 1 - bounds.front : bounds.front;
+    return !claims.full[last];
+}
+
 void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
     // The gate for a pass input cannot reach, and for a touch screen nothing is
-    // touching, is the same one hover has.
-    if (!pointer_present()) return;
+    // touching, is the same one hover has. What is painted is recorded either
+    // way, for a pointer that arrives before the next frame's UI has run.
+    bool hit = !pointer_present();
     const Clay_Vector2 p = pointer_position();
 
     // The clip rectangles open at this point of the list, outermost first. A
@@ -976,6 +1138,19 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
         return true;
     };
 
+    // What of `b` the open clips let show.
+    auto shown = [&](Clay_BoundingBox b) {
+        for (int i = 0; i < depth; ++i) b = cut_to(b, open_clips[i]);
+        return b;
+    };
+    auto surface = [&](const Clay_BoundingBox &b) {
+        claim(shown(b));
+        if (!hit && shown_under_pointer(b)) {
+            set_pointer_over_ui();
+            hit = true;
+        }
+    };
+
     for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
         switch (cmd.commandType) {
@@ -983,18 +1158,12 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
             case CLAY_RENDER_COMMAND_TYPE_BORDER:
             case CLAY_RENDER_COMMAND_TYPE_IMAGE:
             case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
-                if (shown_under_pointer(cmd.boundingBox)) {
-                    set_pointer_over_ui();
-                    return;
-                }
+                surface(cmd.boundingBox);
                 break;
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START:
                 // A scroll area is interface even where it paints nothing:
                 // dragging inside it scrolls it.
-                if (shown_under_pointer(cmd.boundingBox)) {
-                    set_pointer_over_ui();
-                    return;
-                }
+                surface(cmd.boundingBox);
                 if (depth < MAX_CLIP_DEPTH) {
                     open_clips[depth++] = cmd.boundingBox;
                 } else {

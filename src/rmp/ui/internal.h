@@ -15,8 +15,10 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace rmp::ui::detail {
 
@@ -101,6 +103,17 @@ bool bounds_of_id(Clay_ElementId id, Clay_BoundingBox *out);
 // thinner than a finger.
 bool pointer_over(Clay_ElementId id);
 bool pointer_over(Clay_ElementId id, float slop_y);
+
+// What the interface takes the pointer over, for when wants_pointer() is
+// asked before this frame's UI has run (context.cpp, `claims`): a control the
+// pass declared, recorded at its end() by focus.cpp; whether the pointer is
+// over anything the last frame drawn claimed -- read now, if the frame has
+// not sampled it yet; whether that frame's claims all fit; and whether the UI
+// has run this frame at all, which is when its own answer takes over.
+void claim_control(uint32_t id);
+bool pointer_claimed_now();
+bool claims_complete();
+bool ui_ran_this_frame();
 
 // Is the pointer over something this pass PAINTED as the interface? Every
 // render command but text counts: a background (a panel, a progress bar, an
@@ -235,6 +248,15 @@ bool pass_input();
 // read them. See bounds_of_id().
 void capture_pass_bounds();
 
+// The box an element was drawn with THIS frame, and the scroll area it is
+// inside (0 for none) -- for the frame boundary, once every pass has drawn.
+// bounds_of_id() is LAST frame's, for a frame still being described.
+struct DrawnBox {
+    Clay_BoundingBox box;
+    uint32_t clip;
+};
+std::optional<DrawnBox> drawn_box(uint32_t id);
+
 // --- style.cpp -------------------------------------------------------------
 //
 // Sizes and colours, in one place so that no widget has to invent either.
@@ -279,6 +301,17 @@ bool focusable(Clay_ElementId id, std::string_view name);
 // rmp::ui::focus() itself; false again on a click.
 bool focus_visible();
 void set_focus_visible(bool on);
+
+// The element with the focus, or 0: what rmp::ui::focused() names. The frame
+// boundary keeps it in view inside the scroll areas it is in (context.cpp).
+uint32_t focused_id();
+
+// The controls the frame that has just ended put where nobody can reach them:
+// a control that takes the focus, not wholly inside the window, and in no
+// scroll area that could bring it in. Their labels. For tests/e2e/driver.cpp,
+// which fails a script whose example does it -- ui/04_settings had its Apply
+// button below the bottom of its own window, at the size it opens in.
+std::vector<std::string> controls_out_of_reach();
 
 void begin_focus_frame(); // resolve navigation, using last frame's list
 void end_focus_frame(); // swap the lists
@@ -456,7 +489,7 @@ void nav_from_raylib(NavState &out);
 
 // What the keyboard means to navigation, on any keyboard: `down(key)` and
 // `pressed(key)` answer for a raylib KeyboardKey, and `more(x, y, submit,
-// cancel)` adds whatever else pushes -- the gamepad, in nav_from_raylib().
+// cancel)` adds whatever else pushes -- the gamepad, nav_from_pad() below.
 // One function, so the keys a player navigates with and the keys a scripted
 // run presses (tests/e2e/driver.cpp) cannot drift apart. Down and Tab push
 // down, Up up, Left and Right sideways; Shift+Tab goes back; Enter submits
@@ -483,6 +516,30 @@ NavState nav_from_keys(Down down, Pressed pressed, More more) {
     out.submit = submit;
     out.cancel = cancel;
     return out;
+}
+
+// What the first gamepad adds to it, for nav_from_keys()' `more`: the d-pad,
+// or the left stick pushed past half way to be deliberate, push; the bottom
+// face button submits (and so activates), the right one cancels. `down(b)`
+// and `pressed(b)` answer for a raylib GamepadButton, `axis(a)` for a
+// GamepadAxis. One function for the same reason as the keyboard's:
+// nav_from_raylib() reads a real pad through it, tests/e2e/driver.cpp a
+// scripted one.
+template <class Down, class Pressed, class Axis>
+void nav_from_pad(Down down, Pressed pressed, Axis axis, int &x, int &y, bool &submit,
+                  bool &cancel) {
+    if (down(GAMEPAD_BUTTON_LEFT_FACE_DOWN)) y += 1;
+    if (down(GAMEPAD_BUTTON_LEFT_FACE_UP)) y -= 1;
+    if (down(GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) x += 1;
+    if (down(GAMEPAD_BUTTON_LEFT_FACE_LEFT)) x -= 1;
+    const float ly = axis(GAMEPAD_AXIS_LEFT_Y);
+    if (ly > 0.5f) y += 1;
+    if (ly < -0.5f) y -= 1;
+    const float lx = axis(GAMEPAD_AXIS_LEFT_X);
+    if (lx > 0.5f) x += 1;
+    if (lx < -0.5f) x -= 1;
+    submit = submit || pressed(GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+    cancel = cancel || pressed(GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
 }
 
 // --- shared conversions ----------------------------------------------------

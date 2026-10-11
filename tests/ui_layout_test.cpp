@@ -1262,6 +1262,134 @@ void run_scroll_moves() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// The keyboard walking down a list that is longer than its scroll area: the
+// area follows the focus, once each time the focus moves, and leaves it be
+// otherwise. It did not, and the focus ring went on below the area's edge
+// where nobody could see it (ui/05_inventory's e2e script found it).
+void run_scroll_follows_focus() {
+    std::printf("\n--- a scroll area keeps the focus in view ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::focus("");
+    rmp::ui::detail::set_focus_visible(false);
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
+
+    auto frame = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::button("above");
+        rmp::ui::scroll({ .height = 120, .id = "follow" }, [&] {
+            for (int i = 0; i < 12; ++i) rmp::ui::button(TextFormat("entry%d", i));
+        });
+        rmp::ui::end();
+    };
+    auto inside = [](const Box &b, const Box &area) {
+        return b.y >= area.y - 0.5f && b.y + b.h <= area.y + area.h + 0.5f;
+    };
+    auto down = [&] {
+        fake_nav.state.y = 1;
+        frame();
+        fake_nav.state.y = 0;
+        frame();
+    };
+
+    frame();
+    frame();
+    const Box area = box_of("follow");
+    check(!inside(box_of("entry8"), area), "the ninth row starts out of the area's view");
+
+    // Without the keyboard the focus is not shown, and nothing moves for it.
+    rmp::ui::focus("entry8");
+    rmp::ui::detail::set_focus_visible(false);
+    frame();
+    frame();
+    check(!inside(box_of("entry8"), area), "a focus nobody sees moves no list");
+
+    // Down from the top: through "above", into the list, and down it.
+    rmp::ui::focus("");
+    for (int i = 0; i < 10; ++i) down();
+    check(rmp::ui::focused() == "entry8", "ten downs from nothing land on the ninth row");
+    frame();
+    check(inside(box_of("entry8"), area), "and the area has scrolled to show it");
+    check(box_of("follow").y == area.y, "the area itself stayed where it was");
+
+    // Up again: back above the top of what shows.
+    for (int i = 0; i < 6; ++i) {
+        fake_nav.state.y = -1;
+        frame();
+        fake_nav.state.y = 0;
+        frame();
+    }
+    check(rmp::ui::focused() == "entry2", "six ups land on the third row");
+    frame();
+    check(inside(box_of("entry2"), area), "and the area scrolls back up to it");
+
+    // Dragged away by a finger, it stays away: the focus did not move.
+    const Box at = box_of("follow");
+    fake_pointer.position = Clay_Vector2{ at.x + at.w / 2, at.y + at.h - 4 };
+    fake_pointer.down = true;
+    frame();
+    for (int step = 1; step <= 10; ++step) {
+        fake_pointer.position =
+            Clay_Vector2{ at.x + at.w / 2,
+                          at.y + at.h - 4 - (10.0f * static_cast<float>(step)) };
+        frame();
+    }
+    fake_pointer.down = false;
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    for (int i = 0; i < 90; ++i) frame(); // and any momentum dies away
+    check(!inside(box_of("entry2"), area),
+          "a list dragged off the focus is not pulled back to it");
+
+    rmp::ui::focus("");
+    fake_nav.state = rmp::ui::detail::NavState{};
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// A control laid out outside the window, in no scroll area that could bring
+// it in, is a control nobody can see or click: tests/e2e/driver.cpp fails a
+// script on it, and this says it is found -- and that what a scroll area can
+// show, or what is disabled and takes no focus, is not. ui/04_settings had its
+// Apply button below the bottom of its own window.
+void run_out_of_reach() {
+    std::printf("\n--- a control nobody can reach ---\n");
+    rmp::ui::detail::set_test_viewport(800, 450);
+    rmp::ui::detail::set_scale_override(1.0f);
+    auto names = [] {
+        std::string all;
+        for (const std::string &n : rmp::ui::detail::controls_out_of_reach())
+            all += n + ";";
+        return all;
+    };
+    auto frame = [&](int rows) {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::button("Top");
+        rmp::ui::scroll({ .height = 80, .id = "list" }, [] {
+            for (int i = 0; i < 14; ++i) rmp::ui::button(TextFormat("listed%d", i));
+        });
+        for (int i = 0; i < rows; ++i) rmp::ui::text(TextFormat("filler%d", i));
+        rmp::ui::button("Below");
+        rmp::ui::button("Off", { .enabled = false });
+        rmp::ui::end();
+    };
+
+    frame(0);
+    frame(0);
+    Clay_BoundingBox last{};
+    check(rmp::ui::detail::bounds_of("listed13", 0, 0, &last) && last.y > 450,
+          "the list's last row is laid out below the window, clipped by its area");
+    check(names().empty(), "everything in the window, or in a scroll area, is in reach");
+    frame(20);
+    frame(20);
+    check(names() == "Below;",
+          "a button pushed below the window is out of reach, and only it: the rows its "
+          "scroll area clips, and a disabled one, are not");
+    frame(0);
+    check(names().empty(), "and back in the window, it is in reach again");
+
+    rmp::ui::detail::set_scale_override(0.0f);
+}
+
 // A scroll container clips what is inside it. An item scrolled out of view is
 // not on screen, so it must not be clickable either — the box it remembers is
 // outside the container, which is precisely where the pointer must not find it.
@@ -1468,6 +1596,118 @@ void run_activate() {
     check(played == 1, "a pass input cannot reach does not answer the keyboard");
 
     fake_nav.state = rmp::ui::detail::NavState{};
+}
+
+// What the keyboard and the first gamepad mean to navigation: nav_from_keys()
+// and nav_from_pad(), the two functions nav_from_raylib() reads real devices
+// through and tests/e2e/driver.cpp the scripted ones. Each binding, each way.
+void run_nav_mapping() {
+    std::printf("\n--- what the keys and the pad mean ---\n");
+    struct {
+        std::array<bool, 512> down{};
+        std::array<bool, 512> pressed{};
+        std::array<bool, 18> pad_down{};
+        std::array<bool, 18> pad_pressed{};
+        std::array<float, 6> axes{};
+    } held;
+    const auto at = [](int i) { return static_cast<std::size_t>(i); };
+    const auto read = [&] {
+        return rmp::ui::detail::nav_from_keys(
+            [&](int key) { return held.down[at(key)]; },
+            [&](int key) { return held.pressed[at(key)]; },
+            [&](int &x, int &y, bool &submit, bool &cancel) {
+                rmp::ui::detail::nav_from_pad(
+                    [&](int b) { return held.pad_down[at(b)]; },
+                    [&](int b) { return held.pad_pressed[at(b)]; },
+                    [&](int a) { return held.axes[at(a)]; }, x, y, submit, cancel);
+            });
+    };
+    const auto is = [](const rmp::ui::detail::NavState &n, int x, int y, bool activate,
+                       bool submit, bool cancel) {
+        return n.x == x && n.y == y && n.activate == activate && n.submit == submit &&
+            n.cancel == cancel;
+    };
+    const auto key = [&](int k, bool fresh) {
+        held = {};
+        held.down[at(k)] = true;
+        held.pressed[at(k)] = fresh;
+        return read();
+    };
+    const auto button = [&](int b, bool fresh) {
+        held = {};
+        held.pad_down[at(b)] = true;
+        held.pad_pressed[at(b)] = fresh;
+        return read();
+    };
+    const auto stick = [&](int a, float v) {
+        held = {};
+        held.axes[at(a)] = v;
+        return read();
+    };
+
+    held = {};
+    check(is(read(), 0, 0, false, false, false), "nothing held is nothing");
+
+    check(is(key(KEY_DOWN, true), 0, 1, false, false, false), "Down pushes down");
+    check(is(key(KEY_TAB, true), 0, 1, false, false, false), "and so does Tab");
+    check(is(key(KEY_UP, true), 0, -1, false, false, false), "Up pushes up");
+    check(is(key(KEY_RIGHT, false), 1, 0, false, false, false),
+          "Right, held, pushes right");
+    check(is(key(KEY_LEFT, false), -1, 0, false, false, false), "Left pushes left");
+    held = {};
+    held.down[at(KEY_TAB)] = true;
+    held.down[at(KEY_LEFT_SHIFT)] = true;
+    check(is(read(), 0, -1, false, false, false), "Shift+Tab goes back");
+    check(is(key(KEY_ENTER, true), 0, 0, true, true, false),
+          "Enter submits and activates");
+    check(is(key(KEY_KP_ENTER, true), 0, 0, true, true, false), "so does the keypad's");
+    check(is(key(KEY_ENTER, false), 0, 0, false, false, false),
+          "Enter held from before activates nothing");
+    check(is(key(KEY_SPACE, true), 0, 0, true, false, false),
+          "Space activates and does not submit: a text field types it");
+    check(is(key(KEY_ESCAPE, true), 0, 0, false, false, true), "Escape cancels");
+
+    check(is(button(GAMEPAD_BUTTON_LEFT_FACE_DOWN, true), 0, 1, false, false, false),
+          "the d-pad's down pushes down");
+    check(is(button(GAMEPAD_BUTTON_LEFT_FACE_UP, false), 0, -1, false, false, false),
+          "its up pushes up");
+    check(is(button(GAMEPAD_BUTTON_LEFT_FACE_RIGHT, false), 1, 0, false, false, false),
+          "its right pushes right");
+    check(is(button(GAMEPAD_BUTTON_LEFT_FACE_LEFT, false), -1, 0, false, false, false),
+          "its left pushes left");
+    check(is(button(GAMEPAD_BUTTON_RIGHT_FACE_DOWN, true), 0, 0, true, true, false),
+          "the bottom face button submits and activates");
+    check(is(button(GAMEPAD_BUTTON_RIGHT_FACE_DOWN, false), 0, 0, false, false, false),
+          "held from before, it does not");
+    check(is(button(GAMEPAD_BUTTON_RIGHT_FACE_RIGHT, true), 0, 0, false, false, true),
+          "the right face button cancels");
+    check(is(button(GAMEPAD_BUTTON_RIGHT_FACE_UP, true), 0, 0, false, false, false),
+          "the top face button means nothing to the UI");
+
+    check(is(stick(GAMEPAD_AXIS_LEFT_Y, 0.6f), 0, 1, false, false, false),
+          "the left stick past half way down pushes down");
+    check(is(stick(GAMEPAD_AXIS_LEFT_Y, -0.6f), 0, -1, false, false, false),
+          "and up, up");
+    check(is(stick(GAMEPAD_AXIS_LEFT_X, 0.6f), 1, 0, false, false, false),
+          "right, right");
+    check(is(stick(GAMEPAD_AXIS_LEFT_X, -0.6f), -1, 0, false, false, false),
+          "left, left");
+    check(is(stick(GAMEPAD_AXIS_LEFT_Y, 0.4f), 0, 0, false, false, false),
+          "short of half way it is resting");
+    check(is(stick(GAMEPAD_AXIS_RIGHT_Y, 1.0f), 0, 0, false, false, false),
+          "the right stick does not navigate");
+
+    held = {};
+    held.down[at(KEY_DOWN)] = true;
+    held.pad_down[at(GAMEPAD_BUTTON_LEFT_FACE_DOWN)] = true;
+    held.axes[at(GAMEPAD_AXIS_LEFT_Y)] = 1.0f;
+    check(is(read(), 0, 1, false, false, false),
+          "the keyboard, the d-pad and the stick at once are one step, not three");
+    held = {};
+    held.down[at(KEY_UP)] = true;
+    held.pad_down[at(GAMEPAD_BUTTON_LEFT_FACE_DOWN)] = true;
+    check(is(read(), 0, 0, false, false, false),
+          "up on one and down on the other is still");
 }
 
 // A click is a press AND a release on the same control. button() always knew;
@@ -2035,6 +2275,96 @@ void run_pointer_over_interface() {
     rmp::ui::detail::set_pointer_provider(pointer_stub);
 }
 
+// wants_pointer() is asked by the game before this frame's UI exists -- a
+// scene's _update(), an action by name, an RMP_ENTRY_POINT's own code before
+// begin() -- and it answered with last frame's answer, which is for where the
+// pointer WAS. A finger lands without hovering first: the tap that pressed a
+// button reached the game underneath it too. ui/05_inventory's e2e script
+// found it, clicking its list. It answers for where the pointer is NOW,
+// against what the last frame drew, until this frame's UI has run.
+void run_pointer_lands_on_interface() {
+    std::printf("\n--- a pointer that lands on the interface is the interface's ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    int pressed = 0;
+    bool box = false;
+    auto pass = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        if (rmp::ui::button("Take")) ++pressed;
+        rmp::ui::checkbox("Loud", box);
+        rmp::ui::panel({ .box = { .padding = 30, .id = "card" } },
+                       [] { rmp::ui::text("Card"); });
+        rmp::ui::scroll({ .height = 60, .id = "rows" }, [] {
+            for (int i = 0; i < 6; ++i) rmp::ui::button(TextFormat("row%d", i));
+        });
+        rmp::ui::end();
+    };
+    // An RMP_GAME frame: the boundary, then the scenes' updates -- which is
+    // where `before` is asked -- then the UI.
+    auto game_frame = [&](bool &before) {
+        rmp::ui::detail::begin_frame();
+        before = rmp::ui::wants_pointer();
+        pass();
+        rmp::ui::detail::end_frame();
+    };
+
+    fake_pointer.position = Clay_Vector2{ 1270, 710 };
+    fake_pointer.down = false;
+    pass();
+    pass();
+    const Box take = box_of("Take");
+    const Box loud = box_of("Loud");
+    const Box card = box_of("card");
+    const Box rows = box_of("rows");
+    const Box hidden = box_of("row5");
+    check(take.w > 0 && loud.w > 0 && card.w > 0 && rows.w > 0, "all laid out");
+    check(hidden.y > rows.y + rows.h, "the last row is below its area's edge");
+    check(!rmp::ui::wants_pointer(), "out in the open, nothing wants the pointer");
+
+    // Lands on the button and goes down in the same frame, as a finger does.
+    // Asked before the UI runs -- by an RMP_ENTRY_POINT game, before begin().
+    fake_pointer.position = Clay_Vector2{ take.x + take.w / 2, take.y + take.h / 2 };
+    fake_pointer.down = true;
+    check(rmp::ui::wants_pointer(),
+          "a pointer that lands on a button is the UI's before this frame's UI has run");
+    bool before = false;
+    game_frame(before);
+    check(before, "and in an RMP_GAME frame, at the scenes' update");
+    check(rmp::ui::wants_pointer(), "and after the UI has run, as it was");
+    fake_pointer.down = false;
+    game_frame(before);
+    check(pressed == 1, "the button was pressed");
+
+    // And leaves it for the open in one frame: the game's, at once.
+    fake_pointer.position = Clay_Vector2{ 1270, 710 };
+    fake_pointer.down = true;
+    game_frame(before);
+    check(!before, "a pointer that jumps off the interface is the game's at once");
+    fake_pointer.down = false;
+    game_frame(before);
+
+    auto lands_on = [&](float x, float y) {
+        fake_pointer.position = Clay_Vector2{ x, y };
+        fake_pointer.down = true;
+        bool at = false;
+        game_frame(at);
+        fake_pointer.down = false;
+        bool ignored = false;
+        game_frame(ignored);
+        return at;
+    };
+    check(lands_on(loud.x + loud.w - 4, loud.y + loud.h / 2),
+          "a checkbox's label, where nothing is painted, is the checkbox's");
+    check(lands_on(card.x + 5, card.y + 5), "a panel's background is the interface's");
+    check(lands_on(rows.x + 5, rows.y + rows.h - 3), "so is a scroll area");
+    check(!lands_on(hidden.x + hidden.w / 2, hidden.y + hidden.h / 2),
+          "but not a row it has clipped away");
+    check(!lands_on(1270, 710), "and not the open");
+
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
 // begin() opens a centred column that FITS its content, and that is the
 // three-function menu. Nothing it took could make the frame reach the edges of
 // the window: a growing child filled the fitted column and no more, and two
@@ -2284,6 +2614,7 @@ int main() {
     run_default_focus_two_passes();
     run_walk_between_passes();
     run_activate();
+    run_nav_mapping();
     run_idle_frame();
     run_zero_area();
     run_dropdown_occlusion();
@@ -2293,8 +2624,11 @@ int main() {
     run_text_utf8();
     run_focus_between_frames();
     run_pointer_over_interface();
+    run_pointer_lands_on_interface();
     run_scroll_clip();
     run_scroll_moves();
+    run_scroll_follows_focus();
+    run_out_of_reach();
     run_image_lifetime();
     run_sizes();
     run_themes();

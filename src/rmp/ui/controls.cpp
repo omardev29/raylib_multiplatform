@@ -556,6 +556,18 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
         // The game is told to keep its hands off via wants_keyboard().
         detail::set_keyboard_captured(true);
     }
+
+    // How long the field has been typing, on the game's clock: frame_time(),
+    // what the scenes were handed, and not GetTime(), which is the wall
+    // clock -- a scripted run drew the caret wherever the machine's speed
+    // left it, and a paused game blinked on. It starts again at 0 each time
+    // the field takes the keyboard, so the caret shows at once.
+    detail::WidgetState &caret = *detail::state_for(id.id);
+    if (!typing || took) {
+        caret.f = 0.0f;
+    } else {
+        caret.f += detail::frame_time();
+    }
     // Not on the frame it took the keyboard: the Space that took it is in the
     // character queue too.
     if (typing && !took) {
@@ -598,9 +610,8 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
             } else {
                 // The caret is a character rather than a drawn rectangle: it
                 // costs no render command, and it blinks by not being appended
-                // half the time.
-                const bool caret_on =
-                    typing && (static_cast<int>(GetTime() * 2.0) % 2) == 0;
+                // half the time -- the first half of every second it types.
+                const bool caret_on = typing && std::fmod(caret.f, 1.0f) < 0.5f;
                 label_text(caret_on ? value + "_" : value,
                            o.enabled ? t.text : t.disabled_text, t.font_size);
             }

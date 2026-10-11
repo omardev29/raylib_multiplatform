@@ -778,10 +778,12 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
 //     if (!rmp::ui::wants_keyboard() && IsKeyDown(KEY_W))       walk();
 // ---------------------------------------------------------------------------
 
-// Both answer for the last frame in which the UI drew, and keep answering until
-// the next begin() — so it does not matter whether you ask in _update(), which
-// runs before anything draws, or on the line after end(). Like everything in
-// immediate mode that is one frame of tolerance, which nobody will notice.
+// Both can be asked before anything draws -- in _update(), or above begin() --
+// and on the line after end(). Until the frame's first begin(), wants_pointer()
+// answers for where the pointer is NOW, against what the last frame drew, so
+// a finger that lands on a button without hovering first is the button's from
+// its first frame; wants_keyboard() answers for the field that was typing,
+// which still is.
 
 // The pointer is over the interface, or the interface is using it (dragging a
 // slider). "Over the interface" is over anything it paints as a surface: every

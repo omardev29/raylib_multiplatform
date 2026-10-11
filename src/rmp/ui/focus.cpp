@@ -15,6 +15,9 @@
 
 #include <array>
 #include <cstring>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace rmp::ui {
 
@@ -301,6 +304,11 @@ bool focusable(Clay_ElementId id, std::string_view name) {
 void begin_pass_focus() { lists.pass_first = lists.current_count; }
 
 void end_pass_focus() {
+    // Every control of the pass takes the pointer where it was drawn, for a
+    // pointer that arrives before the next frame's UI has run.
+    for (int i = lists.pass_first; i < lists.current_count && i < MAX_FOCUSABLES; ++i) {
+        claim_control(lists.current[i].id);
+    }
     if (!navigation.enabled) return;
     if (lists.current_count <= lists.pass_first) return; // nothing focusable in it
     for (int i = 0; i < lists.current_count; ++i) {
@@ -373,6 +381,28 @@ bool pointer_over_ui() { return capture.pointer_over_ui || capture.pointer_id !=
 bool keyboard_captured() { return capture.keyboard; }
 
 bool focus_visible() { return target.visible; }
+uint32_t focused_id() { return target.id; }
+
+std::vector<std::string> controls_out_of_reach() {
+    // Half a pixel either way: a box that ends exactly on the window's edge
+    // is inside it, whatever the float arithmetic made of the last digit.
+    constexpr float EDGE = 0.5f;
+    const Clay_Dimensions window = viewport();
+    std::vector<std::string> out;
+    const int count =
+        lists.previous_count < MAX_FOCUSABLES ? lists.previous_count : MAX_FOCUSABLES;
+    for (int i = 0; i < count; ++i) {
+        const std::optional<DrawnBox> drawn = drawn_box(lists.previous[i].id);
+        if (!drawn) continue;
+        if (drawn->clip != 0) continue; // its scroll area can bring it in
+        const Clay_BoundingBox &box = drawn->box;
+        const bool inside = box.x >= -EDGE && box.y >= -EDGE &&
+            box.x + box.width <= window.width + EDGE &&
+            box.y + box.height <= window.height + EDGE;
+        if (!inside) out.emplace_back(view(lists.previous[i].name));
+    }
+    return out;
+}
 
 void focus_by_id(uint32_t id, std::string_view name) {
     target.id = id;
@@ -411,7 +441,18 @@ WidgetState *state_for(uint32_t id) {
 
 // --- public ----------------------------------------------------------------
 
-bool wants_pointer() { return detail::pointer_over_ui(); }
+// Until this frame's UI has run, for where the pointer is NOW, against what
+// the last frame drew: a scene's _update() and an action asked for by name
+// come first. Last frame's own answer was for where the pointer WAS, and a
+// finger lands without hovering first -- a tap on a button reached the game
+// underneath it too. A drag in progress has the pointer whatever it is over.
+bool wants_pointer() {
+    if (capture.pointer_id != 0) return true;
+    if (detail::ui_ran_this_frame() || !detail::claims_complete()) {
+        return detail::pointer_over_ui();
+    }
+    return detail::pointer_claimed_now();
+}
 bool wants_keyboard() { return detail::keyboard_captured(); }
 
 void focus(std::string_view id) {
