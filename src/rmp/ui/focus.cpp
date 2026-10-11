@@ -413,14 +413,15 @@ bool focusable(Clay_ElementId id, std::string_view name) {
 //
 // So: a pass that declares focusable widgets and has no focus of its own takes
 // its FIRST one -- unless it is a HUD over a game being played (`hud`), where
-// Enter and Space are the game's, and nothing is focused until Tab. "Of its own" is the whole subtlety -- the focus is per frame
-// but the passes are not, so what decides is whether the focused element has
-// been declared by ANY pass so far this frame, or was on screen last frame and
-// may yet be declared by a pass still to come. A pause menu over a HUD that
-// input cannot reach finds nothing (the HUD registers nothing) and takes its
-// own first button; with input_below on, the HUD registers first and keeps it,
-// so the menu cannot steal the focus back every frame, and the HUD cannot
-// steal back a focus Tab has walked up into the menu.
+// Enter and Space are the game's, and nothing is focused until Tab. "Of its
+// own" is the whole subtlety -- the focus is per frame but the passes are not,
+// so what decides is whether the focused element has been declared by ANY pass
+// so far this frame, or was on screen last frame and may yet be declared by a
+// pass still to come. A pause menu over a HUD that input cannot reach finds
+// nothing (the HUD registers nothing) and takes its own first button; with
+// input_below on, the HUD registers first and keeps it, so the menu cannot
+// steal the focus back every frame, and the HUD cannot steal back a focus Tab
+// has walked up into the menu.
 
 void begin_pass_focus() {
     lists.pass_first = lists.current_count;
