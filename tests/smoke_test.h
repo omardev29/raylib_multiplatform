@@ -24,7 +24,10 @@
 //   RAY_TEST_BOOT_FAIL    — InitWindow() never got a window; nothing else ran,
 //                           or (with "save:") a save did not make it to this
 //                           platform's folder and back -- see after_ready()
-//                           in src/rmp/app.cpp. BOOT_OK is not printed then.
+//                           in src/rmp/app.cpp -- or RAY_TEST_WINDOW held
+//                           something that is not WIDTHxHEIGHT
+//                           (read_test_window() in src/rmp/scene.cpp).
+//                           BOOT_OK is not printed then.
 //   RAY_TEST_SAVE_OK      — that save round trip worked; printed just before
 //                           BOOT_OK under RAY_TEST_MAX_FRAMES or RAY_TEST_SAVE=1
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content

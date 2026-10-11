@@ -134,9 +134,11 @@ bool quit_requested();
 //              bars of the clear colour. Every player sees exactly the same
 //              part of the world, the interface stays inside it, and
 //              nothing is ever cut off -- a court, a board, a single screen.
-//   EXPAND     scaled by s like LETTERBOX, with no bars: the longer side of
-//              the window shows MORE of the world. A level that scrolls
-//              anyway, where seeing further is fine.
+//   EXPAND     scaled by s like LETTERBOX, with no bars: MORE of the world
+//              shows the way the window is longer than the design -- above
+//              and below on a 4:3 monitor for a 16:9 design, at the sides on a
+//              21:9 one. A level that scrolls anyway, where seeing further is
+//              fine.
 //
 // The camera and the pointer follow it: Camera::view(), to_world(),
 // rmp::input::pointer() and a click on an object are right in every mode, and
