@@ -167,6 +167,12 @@ void catch_pointer_over_viewport() {
     d.layout.sizing.height = fixed(v.height);
     d.floating.attachTo = CLAY_ATTACH_TO_ROOT;
     d.floating.zIndex = next_layer_z();
+    // Not for Clay, which decides by what is under the pointer which scroll
+    // area a drag or the wheel moves: a floating layer that captures it hides
+    // every area of the overlay's own content from Clay. The game's input is
+    // ours to take, and claim_pointer_over_painted() takes it from this
+    // command whatever Clay does.
+    d.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
     d.custom.customData = &catcher.tag;
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);

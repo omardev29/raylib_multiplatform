@@ -305,6 +305,54 @@ TEST_SUITE("ui: overlay") {
         CHECK(takes_the_pointer_all_over());
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a scroll area in it scrolls under a finger, dim 0 too") {
+        // What takes the pointer from the game must not take it from the
+        // overlay's own content: Clay decides which scroll area a drag
+        // belongs to, and a layer over the viewport that captures the pointer
+        // -- what a veil painting nothing is drawn with -- hides every area
+        // under it from Clay.
+        for (const float dim : { 0.45f, 0.0f }) {
+            CAPTURE(dim);
+            const std::string area = dim > 0 ? "veiled list" : "clear list";
+            const std::string first = area + " 0";
+            const auto draw = [&] {
+                rmp::ui::overlay(
+                    { .placement = rmp::ui::Align::TOP_LEFT, .dim = dim }, [&] {
+                        rmp::ui::scroll({ .height = 80, .id = area }, [&] {
+                            for (int i = 0; i < 8; ++i) {
+                                rmp::ui::button(area + " " + std::to_string(i));
+                            }
+                        });
+                    });
+            };
+            fake_pointer.position = Clay_Vector2{ -1, -1 };
+            fake_pointer.down = false;
+            draw();
+            draw();
+            Clay_BoundingBox list{};
+            Clay_BoundingBox before{};
+            REQUIRE(rmp::ui::detail::bounds_of(area, 0, 0, &list));
+            REQUIRE(rmp::ui::detail::bounds_of(first, 0, 0, &before));
+            // Pressed in the area, and dragged up a few pixels a frame.
+            const Clay_Vector2 at{ list.x + list.width / 2, list.y + list.height / 2 };
+            fake_pointer.position = at;
+            fake_pointer.down = true;
+            draw();
+            for (int step = 1; step <= 8; ++step) {
+                fake_pointer.position =
+                    Clay_Vector2{ at.x, at.y - 6.0f * static_cast<float>(step) };
+                draw();
+            }
+            fake_pointer.down = false;
+            draw();
+            draw();
+            Clay_BoundingBox after{};
+            REQUIRE(rmp::ui::detail::bounds_of(first, 0, 0, &after));
+            CHECK(after.y < before.y - 20);
+        }
+    }
+
     TEST_CASE_FIXTURE(
         HeadlessUi, "the passes described before it take no input from the next frame") {
         int under = 0;
