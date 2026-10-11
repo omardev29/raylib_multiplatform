@@ -124,6 +124,12 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   │   └── pending.txt       #   the examples with no script yet -- a list that only shrinks
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
 │   ├── rmp_test.py           # rmp itself: every command, the launchers, rmp new, CI's game mode
+│   ├── deep.cmake            # the deep tests' targets: property_test and fuzz_<name> (included OPTIONAL)
+│   ├── property/             # RapidCheck: *_prop.cpp, gen.h (hostile floats, Value trees), check.h, waivers.txt
+│   ├── fuzz/                 # libFuzzer: <name>.cpp, harness.h, replay_main.cpp, corpus/<name>/, regressions/<name>/
+│   ├── mutation/floors/      # one file a module: what Mull or mutmut mutates, its tests, its floor
+│   ├── *_property_test.py    # Hypothesis, with hypothesis_profiles.py (ci: derandomized; nightly)
+│   ├── campaign_test.py      # the campaign's own gates: inputs, floors, the resilience list
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
 ├── resources/                # Your assets (flat -- the pack does not recurse)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
@@ -135,6 +141,9 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── *_check.sh            # the gates: versions, seam, portable, naming, headers, repo, workflows, licences
 │   ├── lint.sh               # clang-tidy over src/, tests/ and examples/ (rmp lint, and CI)
 │   ├── examples_build.sh     # builds and boots every example headless, with a screenshot each, and plays tests/e2e/
+│   ├── fuzz.sh               # the fuzz targets: build, replay (every input, or fail), run, merge
+│   ├── mutation.sh           # Mull and mutmut, one module at a time; mutation_report.py holds the floors
+│   ├── finding.py            # what the nightly runs found, as one nightly-finding issue per signature
 │   ├── make_example_art.py   # the generated art the runner example brings
 │   ├── dev_shell.sh          # run a command inside the pinned CI image
 │   └── rres_pack.c           # open rres packer (AES-256) -- no paid tooling needed
@@ -157,6 +166,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── workflows/ci.yml      # orchestrator: triggers, pins, job graph
 │   ├── workflows/canary.yml  # weekly build against floating versions
 │   ├── workflows/autofix.yml # agent dispatched onto the runner that broke
+│   ├── workflows/deep.yml    # nightly fuzzing and random-seed properties, weekly mutation
 │   ├── workflows/_*.yml      # one reusable workflow per platform group
 │   ├── known-breakage.md     # canary failures we have seen and chosen not to chase
 │   └── scripts/              # web boot test, canary triage, upstream report
@@ -171,6 +181,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
     ├── rres/                 # rres.h + rres-raylib.h + externals (AES, Monocypher, QOI, LZ4)
     ├── cJSON/                # cJSON 1.7.19 (MIT), unmodified -- behind rmp::save and the LDtk reader, in no public header
     ├── doctest/              # the unit-test framework; never shipped
+    ├── rapidcheck/           # property-based testing for property_test; the framework's only, never shipped
     └── FROZEN_VERSIONS.md    # every pin, machine-readable and CI-enforced
 ```
 
@@ -1308,7 +1319,7 @@ LeakSanitizer on Linux) and UndefinedBehaviorSanitizer, every report fatal: `[de
 the `.toml`, applied by `cmake/sanitize.cmake` where a probe can run a sanitized program, so the
 unit tests, the layout test, the smoke and render checks and every example are all instrumented
 (a game turns it on; `rmp new` writes `[]`). `tools/sanitize_check.sh` (`rmp test sanitize`, a step
-of the `lint` job) builds the unit tests a second time with gcc. A test asserts what it can see; an
+of the `deep` job) builds the unit tests and the UI layout test a second time with gcc. A test asserts what it can see; an
 int overflow that wraps somewhere harmless or a float cast that lands in range is what it cannot.
 The first run found the LDtk reader's casts and three tests reading objects already freed.
 Third-party code it must not report is listed, with the reason, in `cmake/sanitize_ignore.txt`.
@@ -1324,6 +1335,41 @@ functions of `include/rmp/` no test calls, which only shrinks (a new one fails, 
 listed one a test now calls). Lines no test can run go between `// RMP_COVERAGE_OFF(<why>)` and
 `// RMP_COVERAGE_ON` and are counted apart. `bash tools/coverage_check.sh --update` in the image
 raises the floors and removes what is called now; it never lowers one or adds a function.
+
+**Searched, as well as run** -- the deep test campaign (phase 16). A unit test checks the cases its
+author thought of; these look for the ones nobody did, under ASan and UBSan, every report fatal.
+
+- *Properties.* `tests/property/*_prop.cpp` (RapidCheck, `property_test`) state what must hold for
+  every input -- `rmp::test::check("a copy keeps its depth", [](const rmp::Value &v) {...})` --
+  and RapidCheck generates hundreds and shrinks a counterexample to its smallest. The generators
+  everyone shares are in `tests/property/gen.h`: floats that are NaN, infinite, denormal, `-0` or
+  past `int`'s range half the time, strings with a NUL or bytes that are not UTF-8, `rmp::Value`
+  trees that reach past what a save reads back -- RapidCheck's own `arbitrary<float>` almost never
+  draws a NaN. `tests/property/gen_prop.cpp` holds each generator to what it promises.
+  `tests/*_property_test.py` do the same for the Python with Hypothesis, through
+  `tests/hypothesis_profiles.py`. RapidCheck's `RC_ASSERT` throws: exceptions are allowed in the
+  test binaries that link it and nowhere under `src/rmp/` (`ExceptionsStayInTheTestsTest`).
+- *Fuzzing.* `tests/fuzz/<name>.cpp` is a libFuzzer target over one parser; its oracle is
+  everything the header promises about bad input, and `tests/fuzz/harness.h` makes a replay depend
+  on the input alone. `tools/fuzz.sh build` builds every target in `build/fuzz/` with libFuzzer
+  where clang has compiler-rt, and with `tests/fuzz/replay_main.cpp` (which only replays)
+  elsewhere; `replay` runs every committed input -- `corpus/<name>/` and `regressions/<name>/` --
+  and fails unless every file it named ran; `run` fuzzes and `merge` adds what found new coverage.
+- *Mutation.* `tools/mutation.sh run <module>` changes one operator, constant or call at a time
+  (Mull for the C++, in the image; mutmut for the Python, on a copy of the tree) and runs the
+  module's tests against each. `tests/mutation/floors/<module>.txt` names the sources, the tests,
+  the score that must hold -- rounded down to 5, and it only rises -- and the equivalent mutants,
+  each with why no test can kill it; that list only shrinks. Every file of `src/rmp/` is in one.
+  A Python test loads the tool it tests as `tools.<name>`, the name mutmut records hits under.
+- *When.* `rmp test property` and the `deep` job of every push: the campaign's own gates, the gcc
+  build of the unit tests under the sanitizers, RapidCheck at a fixed seed, Hypothesis
+  derandomized, every committed fuzz input replayed -- deterministic, so a red is the commit's.
+  `.github/workflows/deep.yml`: every night, ten minutes of fuzzing per target and the properties
+  at a random seed; every Sunday, every mutation module. What they find is an issue labelled
+  `nightly-finding`, one per signature (`tools/finding.py`), with the command that replays it.
+- *Resilience.* `tests/property/waivers.txt` is every public function of `include/rmp/` that no
+  property holds yet (`// covers: <function>` in a `_prop.cpp` is what holds one); it only
+  shrinks, and a new public function arrives with its property.
 
 > **What the tests still do NOT cover.** Windows ARM64 is compiled and format-checked but never
 > run — there is no runner or emulator for it here. RISC-V runs under QEMU user-mode emulation and

@@ -197,6 +197,35 @@ here so that nobody "fixes" one back.
   between `// RMP_COVERAGE_OFF(<why>)` and `// RMP_COVERAGE_ON` and are counted
   apart. The probe fails, never skips, without compiler-rt or with llvm tools of
   another release. A new `src/rmp` file needs its floor line in the same commit.
+- **The deep campaign searches for what nobody wrote a test for, and only
+  ratchets.** `tests/deep.cmake` (one OPTIONAL line in `CMakeLists.txt`, so a
+  game has none of it) builds `property_test` -- RapidCheck, vendored
+  FRAMEWORK_ONLY and stripped by `rmp new` with its licence row and pin -- and
+  one `fuzz_<name>` per `tests/fuzz/<name>.cpp`, libFuzzer where clang has
+  compiler-rt and `tests/fuzz/replay_main.cpp` elsewhere. `tests/property/gen.h`
+  is the generators every property shares (NaN, infinities, denormals, values
+  past `int`, NUL inside a string, Values deeper than a save reads back);
+  `tests/property/check.h` is the doctest integration (RapidCheck's own does
+  not compile). `tools/fuzz.sh replay` fails unless every committed input --
+  `tests/fuzz/corpus/<name>/` and `regressions/<name>/` -- ran. `tools/mutation.sh`
+  is Mull (the C++, in the image) and mutmut (the Python, on a copy of the
+  tracked tree; a test loads the tool it tests as `tools.<name>`, the name
+  mutmut records hits under); each module's `tests/mutation/floors/<module>.txt`
+  holds a floor that only rises (the score rounded down to 5) and equivalent
+  mutants with their reasons, a list that only shrinks; every file of `src/rmp/`
+  is in one. `tests/campaign_test.py` holds all of it: inputs for every target,
+  the corpus under 2 MB, a floor for every file, every public function of
+  `include/rmp/` covered by a property (`// covers: <function>`) or in
+  `tests/property/waivers.txt`, which only shrinks, and **no `throw` under
+  `src/rmp/` or `include/rmp/`** -- RapidCheck's `RC_ASSERT` throws, and that
+  is allowed in its test binary and nowhere else (Omar, 2026-10-10). A push runs
+  the deterministic half (`rmp test property`; the `deep` job: those gates, the
+  gcc-sanitized unit and layout tests, RapidCheck at a fixed seed, Hypothesis
+  derandomized, every committed fuzz input replayed); `.github/workflows/deep.yml`
+  runs the search every night (fuzzing, random seeds) and every Sunday (every
+  mutation module), only on this repository, and what it finds is an issue
+  labelled `nightly-finding`, one per signature (`tools/finding.py`), with the
+  command that replays it. **Those issues are taken first.**
 - **`rmp` is the one command, and a game is a copy made from a list.**
   `tools/rmp.py`, behind `rmp` (POSIX sh), `rmp.ps1` and `rmp.cmd`, builds,
   tests and ships; `rmp help` lists it all, and every gate is a stage of
@@ -298,9 +327,11 @@ here so that nobody "fixes" one back.
   SDK, so the Android job builds `--offline` (amd64 only; a step first proves
   the wrapper's Gradle is in it, and `[android] gradle_offline = false` is a
   game's way out). Each of those is a pin that `versions_check.sh` compares
-  with the running image's manifest. The digest lives in THREE
-  places — `ci.yml`, `web-backends.yml`, `thirdparty/FROZEN_VERSIONS.md` —
-  and `versions_check.sh` fails if any two disagree. Bumping it: push the
+  with the running image's manifest. The digest lives in
+  `thirdparty/FROZEN_VERSIONS.md` and in every workflow that names the image --
+  `ci.yml`, `web-backends.yml`, and `deep.yml` three times (a job's
+  `container:` cannot read `env`) -- and `versions_check.sh` reads every
+  workflow and fails if any two disagree. Bumping it: push the
   image repo's main (the PAT cannot open a pull request there; a dispatch on
   a branch builds and verifies both architectures and publishes nothing), let
   its workflow build each architecture on a runner of its own -- arm64 on
@@ -901,7 +932,8 @@ real mixer for about a second, only in the first), headless layout, render
 and smoke), `rmp test examples` before touching the public API (it builds
 and boots all of them with a screenshot each, plays the platformer to the flag at 60 and
 240 Hz, and plays `tests/e2e/` -- compared exactly only inside the image), `rmp test coverage`
-after adding or testing framework code, `rmp test sanitize` after touching anything that parses, casts or frees (`rmp test`
+after adding or testing framework code, `rmp test fuzz` after touching a parser (every committed input replayed under libFuzzer and the
+sanitizers), `rmp test sanitize` after touching anything that parses, casts or frees (`rmp test`
 already runs the unit tests under ASan and UBSan with the default compiler, because every
 framework Debug build is sanitized; `sanitize` is the same under gcc, with `RMP_WERROR` -- the
 first run found UB the tests passed over and three tests reading freed memory), and a screenshot
@@ -909,8 +941,9 @@ when the
 change is visual — looking at pixels is how most of the bugs above were
 found. Every stage of `rmp test` has a step in CI -- in the `lint` job (one a game's CI runs too,
 for the stages a game has), or in the job of its own that `StagesAgreeWithLintTest.JOBS` names
-(`examples`, `coverage`), or, for one step of a stage, `STEP_JOBS` (`examples_build.sh e2e`, the
-`e2e` job) -- and the test checks each stage against that job. `rmp lint` is the `tidy` job. In the image, run
+(`examples`, `coverage`, `deep`; `mutation` is `deep.yml`'s weekly job, a shard a module:
+`SHARDED`), or, for one step of a stage, `STEP_JOBS` (`examples_build.sh e2e`, the `e2e` job)
+-- and the test checks each stage against that job. `rmp lint` is the `tidy` job. In the image, run
 `xvfb-run -a ./rmp test` as CI's lint job does: with no display the desktop smoke dies in
 `CloseWindow` under ASan instead of failing with a message. The image-dependent gates (header budget, PyYAML, versions
 against the manifest) run for real only inside the pinned image: `podman run

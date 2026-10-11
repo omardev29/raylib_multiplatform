@@ -12,7 +12,8 @@ project was found by looking at pixels, dumping an artefact or writing an assert
 ## Local, in the order to run them
 
 ```bash
-rmp test              # fmt + config + gates + configure and rmp tests + unit + layout + render + smoke. Always.
+rmp test              # fmt + config + gates + configure and rmp tests + unit + layout + property +
+                      # render + smoke. Always.
 rmp test examples     # builds every example and boots it headless with a screenshot, then PLAYS the
                       # platformer to the end (tests/platformer_play.cpp). Before touching public API,
                       # objects, collision, the map, scenes or the game.
@@ -24,6 +25,13 @@ rmp test coverage     # the tests under clang's coverage: every src/rmp file aga
                       # against tools/untested_api.txt (only shrinks). Gates only in the pinned image:
                       # tools/dev_shell.sh bash tools/coverage_check.sh [--update]. After adding or
                       # testing framework code -- a floor two points behind fails too.
+rmp test property     # (in `rmp test`) the campaign's gates, RapidCheck at its fixed seed, Hypothesis
+                      # derandomized -- skipped with a message without hypothesis installed.
+rmp test fuzz         # every fuzz target built in build/fuzz (libFuzzer where clang has compiler-rt)
+                      # and every committed input replayed; fails unless every file ran. After
+                      # touching a parser: save, Value, LDtk, Tiled, Aseprite, rres, the loader.
+rmp test mutation     # Mull and mutmut over every module against tests/mutation/floors/ -- hours, in
+                      # the image. One module: tools/dev_shell.sh bash tools/mutation.sh run random
 rmp example 01_pong   # build one example and run it (by name or path; `rmp example` lists them)
 rmp run               # the actual game
 ```
@@ -63,6 +71,29 @@ Things that are easy to get wrong here, each learnt the hard way:
 - **A mutation you ran by hand proves nothing if it did not apply.** Assert the
   text you replace is found exactly once before trusting a green result.
 
+## The deep campaign: properties, fuzzing, mutation
+
+Each harness and property is **seen red before it is trusted green**: a real
+defect, or a mutation planted by hand (found exactly once, as above) and the
+red it causes written in the commit. What the search finds becomes a named
+case, so it is checked on every run and not only when the dice find it again:
+
+- A RapidCheck counterexample prints `RC_PARAMS="reproduce=..."`; play it with
+  that variable set, then write the case as a doctest TEST_CASE in the module's
+  own `*_test.cpp`. The property file says `// covers: <function>` for each
+  public function it holds, and that function's line leaves
+  `tests/property/waivers.txt` in the same commit.
+- A Hypothesis failure prints `@reproduce_failure(...)`; the case goes into the
+  module's unit tests as an explicit example.
+- A crash libFuzzer finds lands in `build/fuzz/crashes/<target>/`; it goes into
+  `tests/fuzz/regressions/<target>/` with a name that says what it is, and
+  `bash tools/fuzz.sh replay <target>` is red until the fix and green after.
+- A mutant that survives is a missing assertion -- or an equivalent change,
+  listed in the module's floor file with why no test can kill it. Raise a
+  floor in the commit that earned it (`bash tools/mutation.sh update <module>`).
+- Issues labelled `nightly-finding` are what `deep.yml` found overnight, one per
+  signature, each with the command that plays it again. Take them first.
+
 ## When the change is visual, look at it
 
 A headless assert proves the boxes are where you said. It does not prove the
@@ -87,10 +118,13 @@ Two things that will waste your time:
 A push runs the fast set: Linux, Windows, Web, Android, and the framework's
 own jobs side by side -- `lint`, `tidy` (clang-tidy, `rmp lint`), `examples`
 (every example built and booted, the platformer's bot, the input), `e2e` (the
-scripts played and compared exactly), `coverage`, `docs`, and `rmp_new`, which
-makes a game from the commit with `rmp new` and runs that game's own checks on
-it. In a game, the same `ci.yml` skips the framework's jobs and steps
-(`needs.config.outputs.framework`).
+scripts played and compared exactly), `coverage`, `deep` (the deep campaign's
+deterministic half: the gcc sanitized unit tests, the properties at fixed
+seeds, every committed fuzz input), `docs`, and `rmp_new`, which makes a game
+from the commit with `rmp new` and runs that game's own checks on it. In a
+game, the same `ci.yml` skips the framework's jobs and steps
+(`needs.config.outputs.framework`). `deep.yml` runs the long half every night
+and every Sunday.
 
 One fast lane per two stages; when it is red, the fix goes through a **debug
 lane** limited to the platforms involved -- Linux, Windows and macOS by
