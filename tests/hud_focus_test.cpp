@@ -666,6 +666,18 @@ TEST_SUITE("ui: HUD focus") {
         feed.devices.keys[KEY_SPACE] = false;
         CHECK(game.jumps == 1);
         CHECK(game.map == 0);
+        rmp::scenes::detail::shutdown();
+
+        // A menu's focus is not the keys, and it is kept as it always was --
+        // on its second control, where a menu's own default would not put it.
+        play(Read::NOTHING);
+        press(DOWN);
+        REQUIRE(rmp::ui::focused() == "Bag");
+        rmp::ui::set_navigation_enabled(false);
+        run_frame();
+        rmp::ui::set_navigation_enabled(true);
+        run_frame();
+        CHECK(rmp::ui::focused() == "Bag");
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
