@@ -1226,7 +1226,9 @@ if(BUILD_TESTS)
   # was written, built and reported green while never having been in the binary.
   file(GLOB UNIT_TEST_SOURCES CONFIGURE_DEPENDS
        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*_test.cpp")
-  list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp")
+  # The two UI tests with a main() of their own, built under BUILD_UI_TESTS.
+  list(REMOVE_ITEM UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.cpp"
+       "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_render_test.cpp")
 endif()
 # A game made with `rmp new` has tests/smoke_test.h and no tests, and its copy
 # of CMakePresets.json still has the `lint` preset, which asks for them: with
@@ -1328,6 +1330,24 @@ if(BUILD_UI_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout_test.c
   rmp_link_framework(ui_layout_test)
   rmp_apply_compile_flags(ui_layout_test)
   rmp_apply_warnings(ui_layout_test)
+endif()
+
+# --- UI on a real GPU -------------------------------------------------------
+# The one UI test that opens a window. overlay()'s blur is a shader, and
+# raylib's software renderer has none, so this draws on the desktop's GL -- a
+# hidden window, Mesa's llvmpipe under xvfb-run in CI -- and reads the pixels
+# back. Under the layout test's option, so the lint preset gives it a
+# compile_commands.json entry too.
+#
+#   cmake --preset debug -DBUILD_UI_TESTS=ON
+#   cmake --build --preset debug --target ui_render_test && ./build/debug/ui_render_test
+if(BUILD_UI_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_render_test.cpp")
+  add_executable(ui_render_test "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_render_test.cpp")
+  set_property(TARGET ui_render_test PROPERTY CXX_STANDARD 20)
+  target_compile_definitions(ui_render_test PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
+  rmp_link_framework(ui_render_test)
+  rmp_apply_compile_flags(ui_render_test)
+  rmp_apply_warnings(ui_render_test)
 endif()
 
 # Remove the generated pack (e.g. to fall back to loose files in dev).

@@ -123,6 +123,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── smoke_test.h          # CI boot + render hook (RAY_TEST_MAX_FRAMES, RAY_TEST_SCREENSHOT), header-only
 │   ├── *_test.cpp            # doctest, no window: objects, collision, behaviors, scenes, input, assets, tilemap...
 │   ├── ui_layout_test.cpp    # layout and hit-testing with no window (-DBUILD_UI_TESTS=ON)
+│   ├── ui_render_test.cpp    # the UI on a real GPU: a hidden window, read back (-DBUILD_UI_TESTS=ON)
 │   ├── platformer_play.cpp   # a bot that plays examples/games/07_platformer to the end (examples job)
 │   ├── e2e/                  # examples PLAYED from scripts, every shot compared with a golden PNG
 │   │   ├── driver.cpp        #   linked into e2e_<area>_<name>: the clock, the hands, the eyes

@@ -481,6 +481,20 @@ jobs:
           cmake --build --preset debug --target ui_layout_test
           ./build/debug/ui_layout_test
 
+      # The one UI test with a GPU: overlay()'s blur is a shader, which
+      # raylib's software renderer cannot run, so this opens a hidden window
+      # on Mesa's llvmpipe under xvfb-run and reads the pixels back -- the
+      # libraries LeakSanitizer reads at exit, as in the examples job's smoke.
+      - name: UI render tests (GL, xvfb)
+        if: needs.config.outputs.framework == 'true'
+        env:
+          RMP_REQUIRE_SANITIZERS: "1"
+        run: |
+          set -euo pipefail
+          cmake --preset debug -DBUILD_UI_TESTS=ON > /dev/null
+          cmake --build --preset debug --target ui_render_test > /dev/null
+          xvfb-run -a ./build/debug/ui_render_test
+
       # A game's own tests: tests/game/, built with its src/ into game_test and
       # run with no window -- `rmp test unit` in a game. `rmp new` writes one,
       # for the main menu; a game that deletes the folder has none, and this
