@@ -94,17 +94,21 @@ Color faded(Color c, float alpha) {
 }
 
 Color role_color(const Theme &t, ColorRole role) {
+    Color c = t.text;
     switch (role) {
         case ColorRole::TEXT:
-            return t.text;
+            break;
         case ColorRole::MUTED:
-            return t.text_muted;
+            c = t.text_muted;
+            break;
         case ColorRole::PRIMARY:
-            return t.primary;
+            c = t.primary;
+            break;
         case ColorRole::DANGER:
-            return t.danger;
+            c = t.danger;
+            break;
     }
-    return t.text;
+    return c;
 }
 
 // --- their own Clay ----------------------------------------------------------
@@ -128,12 +132,14 @@ struct {
 // of the game's: the log says it, once, and RMP_REPORT_ONCE does not -- it
 // would come back here as a notice through the debug build's sink, and
 // [dev] strict would stop a correct game for it.
+// RMP_COVERAGE_OFF(sized never to fail: see "a full ring of the longest notices")
 void on_layout_error(Clay_ErrorData e) {
     if (layout.errors++ == 0) {
         TraceLog(LOG_WARNING, "UI: the notices could not be laid out: %.*s",
                  e.errorText.length, e.errorText.chars);
     }
 }
+// RMP_COVERAGE_ON
 
 // Their context, made the first time something is drawn. Clay_Initialize()
 // makes the context it creates the current one; the one that was current --

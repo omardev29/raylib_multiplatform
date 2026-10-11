@@ -33,7 +33,6 @@
 
 #include <array>
 #include <cmath>
-#include <limits>
 
 namespace rmp::ui::detail {
 
@@ -52,9 +51,9 @@ struct {
 constexpr float FAR_AWAY = 1.0e6f;
 
 // The z of the first at() box of a pass. Every box after it takes the next
-// one up, towards 0, which is where the pass's own tree is drawn; the last
-// MAX_BOXES gets is shared by any after it, which keeps them under the pass
-// and lets them through all the same.
+// one up, towards 0, which is where the pass's own tree is drawn. Past
+// MAX_BOXES in one pass they share the last one: still under the pass, and
+// still letting the pointer through.
 constexpr int16_t FIRST_AT_Z = -32000;
 constexpr int MAX_BOXES = 31999;
 
@@ -113,27 +112,37 @@ void remember_layers(int16_t first, int16_t last) {
 }
 
 Clay_FloatingAttachPointType attach_point(Align a) {
+    // BOTTOM_CENTER is the default anchor; every other one is said below.
+    Clay_FloatingAttachPointType p = CLAY_ATTACH_POINT_CENTER_BOTTOM;
     switch (a) {
         case Align::TOP_LEFT:
-            return CLAY_ATTACH_POINT_LEFT_TOP;
+            p = CLAY_ATTACH_POINT_LEFT_TOP;
+            break;
         case Align::TOP_CENTER:
-            return CLAY_ATTACH_POINT_CENTER_TOP;
+            p = CLAY_ATTACH_POINT_CENTER_TOP;
+            break;
         case Align::TOP_RIGHT:
-            return CLAY_ATTACH_POINT_RIGHT_TOP;
+            p = CLAY_ATTACH_POINT_RIGHT_TOP;
+            break;
         case Align::CENTER_LEFT:
-            return CLAY_ATTACH_POINT_LEFT_CENTER;
+            p = CLAY_ATTACH_POINT_LEFT_CENTER;
+            break;
         case Align::CENTER:
-            return CLAY_ATTACH_POINT_CENTER_CENTER;
+            p = CLAY_ATTACH_POINT_CENTER_CENTER;
+            break;
         case Align::CENTER_RIGHT:
-            return CLAY_ATTACH_POINT_RIGHT_CENTER;
+            p = CLAY_ATTACH_POINT_RIGHT_CENTER;
+            break;
         case Align::BOTTOM_LEFT:
-            return CLAY_ATTACH_POINT_LEFT_BOTTOM;
+            p = CLAY_ATTACH_POINT_LEFT_BOTTOM;
+            break;
         case Align::BOTTOM_CENTER:
-            return CLAY_ATTACH_POINT_CENTER_BOTTOM;
+            break;
         case Align::BOTTOM_RIGHT:
-            return CLAY_ATTACH_POINT_RIGHT_BOTTOM;
+            p = CLAY_ATTACH_POINT_RIGHT_BOTTOM;
+            break;
     }
-    return CLAY_ATTACH_POINT_CENTER_BOTTOM;
+    return p;
 }
 
 // One coordinate, kept where a float means something: a NaN goes far up and

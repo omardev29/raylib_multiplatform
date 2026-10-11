@@ -60,36 +60,44 @@ struct Attach {
 };
 
 Attach attach_for(Align side) {
+    // TOP_CENTER, the default side; every other one is said below.
+    Attach a{ CLAY_ATTACH_POINT_CENTER_BOTTOM, CLAY_ATTACH_POINT_CENTER_TOP, 0, -1 };
     switch (side) {
         case Align::TOP_LEFT:
-            return Attach{ CLAY_ATTACH_POINT_LEFT_BOTTOM, CLAY_ATTACH_POINT_LEFT_TOP, 0,
-                           -1 };
+            a = Attach{ CLAY_ATTACH_POINT_LEFT_BOTTOM, CLAY_ATTACH_POINT_LEFT_TOP, 0,
+                        -1 };
+            break;
         case Align::TOP_CENTER:
-            return Attach{ CLAY_ATTACH_POINT_CENTER_BOTTOM, CLAY_ATTACH_POINT_CENTER_TOP,
-                           0, -1 };
+            break;
         case Align::TOP_RIGHT:
-            return Attach{ CLAY_ATTACH_POINT_RIGHT_BOTTOM, CLAY_ATTACH_POINT_RIGHT_TOP, 0,
-                           -1 };
+            a = Attach{ CLAY_ATTACH_POINT_RIGHT_BOTTOM, CLAY_ATTACH_POINT_RIGHT_TOP, 0,
+                        -1 };
+            break;
         case Align::CENTER_LEFT:
-            return Attach{ CLAY_ATTACH_POINT_RIGHT_CENTER, CLAY_ATTACH_POINT_LEFT_CENTER,
-                           -1, 0 };
+            a = Attach{ CLAY_ATTACH_POINT_RIGHT_CENTER, CLAY_ATTACH_POINT_LEFT_CENTER, -1,
+                        0 };
+            break;
         case Align::CENTER:
-            return Attach{ CLAY_ATTACH_POINT_CENTER_CENTER,
-                           CLAY_ATTACH_POINT_CENTER_CENTER, 0, 0 };
+            a = Attach{ CLAY_ATTACH_POINT_CENTER_CENTER, CLAY_ATTACH_POINT_CENTER_CENTER,
+                        0, 0 };
+            break;
         case Align::CENTER_RIGHT:
-            return Attach{ CLAY_ATTACH_POINT_LEFT_CENTER, CLAY_ATTACH_POINT_RIGHT_CENTER,
-                           1, 0 };
+            a = Attach{ CLAY_ATTACH_POINT_LEFT_CENTER, CLAY_ATTACH_POINT_RIGHT_CENTER, 1,
+                        0 };
+            break;
         case Align::BOTTOM_LEFT:
-            return Attach{ CLAY_ATTACH_POINT_LEFT_TOP, CLAY_ATTACH_POINT_LEFT_BOTTOM, 0,
-                           1 };
+            a = Attach{ CLAY_ATTACH_POINT_LEFT_TOP, CLAY_ATTACH_POINT_LEFT_BOTTOM, 0, 1 };
+            break;
         case Align::BOTTOM_CENTER:
-            return Attach{ CLAY_ATTACH_POINT_CENTER_TOP, CLAY_ATTACH_POINT_CENTER_BOTTOM,
-                           0, 1 };
+            a = Attach{ CLAY_ATTACH_POINT_CENTER_TOP, CLAY_ATTACH_POINT_CENTER_BOTTOM, 0,
+                        1 };
+            break;
         case Align::BOTTOM_RIGHT:
-            return Attach{ CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_BOTTOM, 0,
-                           1 };
+            a = Attach{ CLAY_ATTACH_POINT_RIGHT_TOP, CLAY_ATTACH_POINT_RIGHT_BOTTOM, 0,
+                        1 };
+            break;
     }
-    return Attach{ CLAY_ATTACH_POINT_CENTER_BOTTOM, CLAY_ATTACH_POINT_CENTER_TOP, 0, -1 };
+    return a;
 }
 
 bool above_or_below(Align side) {
@@ -110,27 +118,36 @@ bool above_or_below(Align side) {
 }
 
 Align opposite(Align side) {
+    Align o = side; // CENTER is its own
     switch (side) {
         case Align::TOP_LEFT:
-            return Align::BOTTOM_LEFT;
+            o = Align::BOTTOM_LEFT;
+            break;
         case Align::TOP_CENTER:
-            return Align::BOTTOM_CENTER;
+            o = Align::BOTTOM_CENTER;
+            break;
         case Align::TOP_RIGHT:
-            return Align::BOTTOM_RIGHT;
+            o = Align::BOTTOM_RIGHT;
+            break;
         case Align::CENTER_LEFT:
-            return Align::CENTER_RIGHT;
+            o = Align::CENTER_RIGHT;
+            break;
         case Align::CENTER:
-            return Align::CENTER;
+            break;
         case Align::CENTER_RIGHT:
-            return Align::CENTER_LEFT;
+            o = Align::CENTER_LEFT;
+            break;
         case Align::BOTTOM_LEFT:
-            return Align::TOP_LEFT;
+            o = Align::TOP_LEFT;
+            break;
         case Align::BOTTOM_CENTER:
-            return Align::TOP_CENTER;
+            o = Align::TOP_CENTER;
+            break;
         case Align::BOTTOM_RIGHT:
-            return Align::TOP_RIGHT;
+            o = Align::TOP_RIGHT;
+            break;
     }
-    return side;
+    return o;
 }
 
 // Where Clay puts a tooltip of `size` on `side` of `control`, `gap` away:

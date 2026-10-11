@@ -26,6 +26,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 namespace {
 
@@ -272,6 +273,17 @@ public:
     }
     bool said = false;
 };
+
+// at() inside at(), `depth` deep, a button in the innermost.
+void nest(int depth) {
+    rmp::ui::at(Vector2{ 10.0f * static_cast<float>(depth), 10 }, [depth] {
+        if (depth > 1) {
+            nest(depth - 1);
+        } else {
+            rmp::ui::button("Deep");
+        }
+    });
+}
 
 } // namespace
 
@@ -554,6 +566,51 @@ TEST_SUITE("ui: floating") {
         CHECK(rmp::ui::detail::clay_error_count() == errors);
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi, "at() nested past eight deep is said once, and holds") {
+        rmp::detail::reset_reports_for_tests();
+        const int errors = rmp::ui::detail::clay_error_count();
+        for (int frame = 0; frame < 3; ++frame) {
+            rmp::ui::begin();
+            nest(10);
+            rmp::ui::button("After");
+            rmp::ui::end();
+        }
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK(has_box("Deep"));
+        CHECK(has_box("After"));
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+        // Eight deep is no mistake.
+        rmp::detail::reset_reports_for_tests();
+        rmp::ui::begin();
+        nest(8);
+        rmp::ui::end();
+        CHECK(rmp::detail::report_count() == 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "what floats inside at() lets the pointer through, however many "
+                      "layers come between") {
+        rmp::ui::begin();
+        std::vector<int16_t> inside;
+        for (int i = 0; i < 20; ++i) {
+            rmp::ui::at(Vector2{ 30.0f * static_cast<float>(i), 50 },
+                        [&] { inside.push_back(rmp::ui::detail::next_layer_z()); });
+            // A layer of the pass's own between two boxes: the z inside them
+            // stop following on, and are kept apart.
+            rmp::ui::stack([] { rmp::ui::layer([] {}); });
+        }
+        const int16_t after = rmp::ui::detail::next_layer_z();
+        for (const int16_t z : inside) {
+            CAPTURE(z);
+            CHECK(rmp::ui::detail::world_passthrough(command_at_z(z)));
+        }
+        // The first layers of the pass's own are its own.
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(inside[0] + 2)));
+        CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(after)));
+        rmp::ui::end();
+    }
+
     // -- tooltip() -----------------------------------------------------------
 
     TEST_CASE_FIXTURE(HeadlessUi, "the control declared last is the one taken, once") {
@@ -719,10 +776,11 @@ TEST_SUITE("ui: floating") {
     TEST_CASE_FIXTURE(HeadlessUi, "a tooltip goes on the side it is asked for") {
         // Each side, where Clay put it, against where place_tooltip() says.
         rmp::ui::detail::set_test_frame_time(0.125f);
-        const float gap = rmp::ui::detail::px(rmp::ui::current_theme().gap / 2);
         for (const Align side : ALL_ALIGNS) {
             CAPTURE(static_cast<int>(side));
             sell_frame({ .side = side, .delay = 0 });
+            // After a frame: the scale is this viewport's, not the last test's.
+            const float gap = rmp::ui::detail::px(rmp::ui::current_theme().gap / 2);
             finger.at = centre_of(box_of("Sell"));
             sell_frame({ .side = side, .delay = 0 });
             const std::optional<Clay_BoundingBox> shown = tooltip_box("Sell");
@@ -936,6 +994,26 @@ TEST_SUITE("ui: floating") {
         CHECK(has_box("Game"));
         rmp::ui::detail::end_frame();
         CHECK(rmp::ui::detail::notice_at(0).box.width > 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a notice is in the colour it was given") {
+        const std::array roles{ rmp::ui::ColorRole::TEXT, rmp::ui::ColorRole::MUTED,
+                                rmp::ui::ColorRole::PRIMARY, rmp::ui::ColorRole::DANGER };
+        for (const rmp::ui::ColorRole role : roles)
+            rmp::ui::notify("x", { .color = role });
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        int i = 0;
+        for (const rmp::ui::ColorRole role : roles) {
+            CHECK(rmp::ui::detail::notice_at(i).color == role);
+            CHECK(rmp::ui::detail::notice_at(i).box.width > 0);
+            ++i;
+        }
+        // Past either end of the queue there is nothing.
+        CHECK(rmp::ui::detail::notice_at(-1).text.empty());
+        CHECK(rmp::ui::detail::notice_at(4).text.empty());
+        CHECK(rmp::ui::detail::notice_at(4).alpha == 0);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
