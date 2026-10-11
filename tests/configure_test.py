@@ -2983,6 +2983,95 @@ class EveryBootRequiresItsAssetsTest(unittest.TestCase):
             sample.unlink()
 
 
+class EveryBootRequiresNoReportTest(unittest.TestCase):
+    """RAY_TEST_REPORTS=<n>, after a smoke run's last frame, is how many
+    mistakes of the game's the framework reported (RMP_REPORT_ONCE), and
+    `rmp test`'s smoke step and every example's boot require 0. The boots CI
+    runs on each platform read the markers and not the count -- the steps
+    that start a game under RAY_TEST_MAX_FRAMES, and render_check.sh and
+    shipped_check.sh, which the BSDs, macOS and the lint job call -- so a
+    mistake that only one platform's branch makes passed everywhere. Each
+    requires it now, at the end of its line, and spares a game in plain C,
+    which has no src/rmp/ and prints no count. The web's boot is not one: it
+    runs with no frame budget, and the count is printed on the budget's last
+    frame."""
+
+    COUNT = re.compile(r"RAY_TEST_REPORTS=0(?:\\r\?|\[\[:space:\]\]\*)?\$")
+
+    def boot_steps(self):
+        """(where, run) of every workflow step that starts a game under a frame
+        budget and reads its boot marker. Comments are not code."""
+        yaml = require_yaml(self)
+        out = []
+        for wf in sorted(WORKFLOW_DIR.glob("*.yml")):
+            data = yaml.safe_load(wf.read_text())
+            for job_name, job in (data.get("jobs") or {}).items():
+                for n, step in enumerate(job.get("steps") or []):
+                    run = without_comments(str(step.get("run", "")))
+                    if "RAY_TEST_MAX_FRAMES" in run and "RAY_TEST_BOOT_OK" in run:
+                        out.append((f"{wf.name} {job_name}: {step.get('name', n)}", run))
+        return out
+
+    @classmethod
+    def problems(cls, run: str) -> list[str]:
+        lines = [line for line in run.splitlines() if cls.COUNT.search(line)]
+        if not lines:
+            return ["it does not require RAY_TEST_REPORTS=0 at the end of a line"]
+        found = []
+        for line in lines:
+            if "src/rmp" not in line and "$SRC_RMP" not in line:
+                found.append("its count is required of a game in plain C too, which has none: "
+                             + line.strip())
+        if "$SRC_RMP" in run:
+            at = run.find("SRC_RMP=$PWD/src/rmp")
+            cd = run.find("cd ")
+            if at < 0 or (0 <= cd < at):
+                found.append("SRC_RMP is not $PWD/src/rmp asked before the step's cd")
+        return found
+
+    def test_every_boot_step_requires_no_report(self):
+        steps = self.boot_steps()
+        for where, run in steps:
+            with self.subTest(step=where):
+                self.assertEqual(self.problems(run), [])
+        # x64 and arm64 twice each, riscv64, musl's two, DRM's two, Windows, iOS.
+        self.assertGreaterEqual(len(steps), 11, [w for w, _ in steps])
+        self.assertFalse([w for w, run in steps if "web_boot_test" in run])
+
+    def test_the_check_sees_what_it_is_for(self):
+        steps = dict(self.boot_steps())
+        for where, run in steps.items():
+            with self.subTest(step=where):
+                broken = run.replace("RAY_TEST_REPORTS=0", "RAY_TEST_REPORTS")
+                self.assertNotEqual(self.problems(broken), [])
+                spared = run.replace("[ -d src/rmp ] && ", "").replace(
+                    '[ -d "$SRC_RMP" ] && ', "").replace("(Test-Path src/rmp) -and ", "")
+                self.assertNotEqual(self.problems(spared), [], "nothing spares plain C")
+        moved = next(run for run in steps.values() if "$SRC_RMP" in run)
+        late = moved.replace("SRC_RMP=$PWD/src/rmp", "SRC_RMP=src/rmp")
+        self.assertNotEqual(self.problems(late), [])
+
+    def test_the_scripts_require_it_of_every_launch(self):
+        """render_check.sh starts the game once; shipped_check.sh three times,
+        and each start's log is read for the count."""
+        render = (REPO / "tools" / "render_check.sh").read_text()
+        self.assertEqual(self.problems(without_comments(render)), [])
+        shipped = without_comments((REPO / "tools" / "shipped_check.sh").read_text())
+        self.assertEqual(self.problems(shipped), [])
+        launches = [m.start() for m in re.finditer(r"RAY_TEST_MAX_FRAMES=", shipped)]
+        self.assertEqual(len(launches), 3, "shipped_check.sh starts the release three times")
+        for start, end in zip(launches, launches[1:] + [len(shipped)]):
+            self.assertIn('no_reports "$LOG"', shipped[start:end],
+                          "a start of the release whose log is not read for the count")
+        for path in (REPO / "tools").iterdir():
+            if path.suffix not in (".sh", ".py"):
+                continue
+            text = without_comments(path.read_text())
+            if "RAY_TEST_MAX_FRAMES" in text and "RAY_TEST_BOOT_OK assets_failed=0" in text:
+                with self.subTest(script=path.name):
+                    self.assertIn("RAY_TEST_REPORTS=0$", text)
+
+
 class ConfigureAdmobIdsTest(unittest.TestCase):
     """[android.admob] app_id, interstitial_id and rewarded_id go into the
     manifest and into the SDK as they are written. `app_id = 5` and
@@ -9275,9 +9364,39 @@ echo "INFO: RAY_TEST_BOOT_OK assets_failed=0 assets_requested=1 vsync=1"
 echo "INFO: RAY_TEST_RENDER_OK frame=5 pixels=1 ratio=0.1 hash=0badf00d"
 echo "INFO: RAY_TEST_DONE_FRAMES rendered=10"
 printf '%b' "$STUB_EXTRA"
+if [ -n "$STUB_REPORTS" ]; then echo "INFO: RAY_TEST_REPORTS=$STUB_REPORTS"; fi
 exit "$STUB_STATUS"
 GAME
 chmod +x build/memory/game
+"""
+
+
+# Stands in for cmake under tools/shipped_check.sh: a configure writes, into
+# the folder after -B, a release that boots, prints the count of the game's
+# mistakes $STUB_REPORTS asks for -- $STUB_ELSEWHERE instead when it is
+# started from the folder called elsewhere -- and exits 0; a build does
+# nothing.
+FAKE_RELEASE_CMAKE = r"""#!/bin/sh
+case " $* " in *" --build "*) exit 0 ;; esac
+dir=
+while [ $# -gt 0 ]; do
+    if [ "$1" = -B ]; then dir=$2; fi
+    shift
+done
+mkdir -p "$dir"
+cat > "$dir/game" <<'GAME'
+#!/bin/sh
+echo "INFO: RAY_TEST_BOOT_OK assets_failed=0 assets_requested=1 vsync=1"
+echo "INFO: RAY_TEST_DONE_FRAMES rendered=5"
+count=$STUB_REPORTS
+if [ "$(basename "$PWD")" = elsewhere ] && [ -n "$STUB_ELSEWHERE" ]; then count=$STUB_ELSEWHERE; fi
+if [ -n "$count" ]; then
+    echo "WARNING: UI: a mistake of the game's"
+    echo "INFO: RAY_TEST_REPORTS=$count"
+fi
+exit 0
+GAME
+chmod +x "$dir/game"
 """
 
 
@@ -9551,7 +9670,7 @@ class RenderCheckReadsTheExitTest(unittest.TestCase):
     after RAY_TEST_DONE_FRAMES, with a status nothing read. The script runs
     here in a copy of the tree, against a cmake that writes a stand-in game."""
 
-    def run_check(self, status, extra=""):
+    def run_check(self, status, extra="", framework=False, reports=""):
         import shutil
         import subprocess
         if sys.platform == "win32" or shutil.which("sh") is None:
@@ -9559,6 +9678,8 @@ class RenderCheckReadsTheExitTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "tools").mkdir()
+            if framework:
+                (root / "src" / "rmp").mkdir(parents=True)
             shutil.copy(REPO / "tools" / "render_check.sh", root / "tools")
             (root / "include" / "rmp" / "generated").mkdir(parents=True)
             (root / "include" / "rmp" / "generated" / "config.h").write_text(
@@ -9568,7 +9689,7 @@ class RenderCheckReadsTheExitTest(unittest.TestCase):
             (fake / "cmake").write_text(FAKE_CMAKE)
             (fake / "cmake").chmod(0o755)
             env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}",
-                       STUB_STATUS=str(status), STUB_EXTRA=extra)
+                       STUB_STATUS=str(status), STUB_EXTRA=extra, STUB_REPORTS=reports)
             got = subprocess.run(["sh", "tools/render_check.sh", "Ninja", "", "game"], cwd=root,
                                  env=env, capture_output=True, text=True,
                                  stdin=subprocess.DEVNULL)
@@ -9594,6 +9715,85 @@ class RenderCheckReadsTheExitTest(unittest.TestCase):
                     self.assertEqual(code, 1, out)
                     self.assertIn("FAIL: a sanitizer reported the run above", out)
                     self.assertIn("the sanitizer's report", out)
+
+    def test_a_mistake_of_the_games_fails_a_game_with_the_framework(self):
+        """RAY_TEST_REPORTS=0, as `rmp test`'s smoke step requires: a count
+        that is not 0, or none at all, fails a game with src/rmp/, and says
+        the framework's WARNING lines. Seen red: render_check.sh passed all
+        three."""
+        code, out = self.run_check(0, framework=True, reports="0")
+        self.assertEqual(code, 0, out)
+        for reports in ("2", "10", ""):
+            with self.subTest(reports=reports):
+                code, out = self.run_check(
+                    0, r"WARNING: UI: button() called outside begin()/end()\n",
+                    framework=True, reports=reports)
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL: the framework reported a mistake in the game", out)
+                self.assertIn("WARNING: UI: button() called outside begin()/end()", out)
+
+    def test_a_game_in_plain_c_counts_none(self):
+        """No src/rmp/, no framework to report anything, and no count."""
+        code, out = self.run_check(0)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("RAY_TEST_REPORTS", out)
+
+
+class ShippedCheckReadsTheCountTest(unittest.TestCase):
+    """tools/shipped_check.sh starts the release three times -- where it was
+    built, and from another folder (or, on NetBSD and OpenBSD, its own) --
+    and each start's log is held to RAY_TEST_REPORTS=0, a game in plain C
+    spared. A copy of the tree with a cmake that writes a stand-in release.
+    Seen red: the script passed every count."""
+
+    def shipped(self, framework=True, reports="0", elsewhere=""):
+        import shutil
+        import subprocess
+        if sys.platform == "win32" or shutil.which("sh") is None:
+            self.skipTest("shipped_check.sh is POSIX sh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            for name in ("shipped_check.sh", "ship_resources.sh"):
+                shutil.copy(REPO / "tools" / name, root / "tools")
+            (root / "resources").mkdir()
+            if framework:
+                (root / "src" / "rmp").mkdir(parents=True)
+                (root / "resources" / "resources.rres").write_text("pack")
+            else:
+                (root / "resources" / "hero.png").write_text("png")
+            fake = root / "fakebin"
+            fake.mkdir()
+            (fake / "cmake").write_text(FAKE_RELEASE_CMAKE)
+            (fake / "cmake").chmod(0o755)
+            env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}",
+                       STUB_REPORTS=reports, STUB_ELSEWHERE=elsewhere)
+            got = subprocess.run(["sh", "tools/shipped_check.sh", "Ninja", "", "game"], cwd=root,
+                                 env=env, capture_output=True, text=True,
+                                 stdin=subprocess.DEVNULL, timeout=60)
+            return got.returncode, got.stdout + got.stderr
+
+    def test_a_clean_count_passes(self):
+        code, out = self.shipped()
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS: the release found its resources/", out)
+
+    def test_a_count_that_is_not_0_fails_each_start(self):
+        for reports, elsewhere in (("3", ""), ("", ""), ("0", "1")):
+            with self.subTest(reports=reports, elsewhere=elsewhere):
+                code, out = self.shipped(reports=reports, elsewhere=elsewhere)
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL: the framework reported a mistake in the game", out)
+                if reports or elsewhere:
+                    self.assertIn("WARNING: UI: a mistake of the game's", out)
+        # The second start's: the first was clean, and said so.
+        code, out = self.shipped(reports="0", elsewhere="1")
+        self.assertIn("ok    from the project folder it reads the root's resources/", out)
+
+    def test_a_game_in_plain_c_counts_none(self):
+        code, out = self.shipped(framework=False, reports="")
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS: the release found its resources/", out)
 
 class BsdInlineScriptSizeTest(unittest.TestCase):
     """The cpa.sh script has a size limit and nothing was measuring it.

@@ -5354,6 +5354,7 @@ class ConsoleInCiTest(unittest.TestCase):
             "booted": "RAY_TEST_BOOT_OK assets_failed=0 ",
             "drew": "RAY_TEST_RENDER_OK",
             "ended": "RAY_TEST_DONE_FRAMES",
+            "no mistake of the game's": "if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$'",
             "no sanitizer report": "ERROR: (Address|Leak)Sanitizer|runtime error:",
             "its status": 'test "$RC" -eq 0',
         }
@@ -5391,14 +5392,19 @@ class ConsoleInCiTest(unittest.TestCase):
                 self.assertNotEqual(broken, run, "the mutation did not apply")
                 self.assertNotEqual(self.problems(broken), [])
 
-    def play(self, run: str, framework: bool, sanitized: bool) -> subprocess.CompletedProcess:
+    def play(self, run: str, framework: bool, sanitized: bool,
+             reports="0") -> subprocess.CompletedProcess:
         """The step's own script, in a project of its own, with docker a
         stand-in that prints what `rmp run` would and builds nothing: the
-        framework's output, or a game's, with or without the sanitizers."""
+        framework's output, or a game's, with or without the sanitizers, and
+        the count of the game's mistakes the framework reported (None: no
+        count, a game in plain C, with no src/rmp/)."""
         decision, note = self.said()
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp)
         project = fake_project(tmp / "p", framework=framework)
+        if reports is not None:
+            (project / "src" / "rmp").mkdir(parents=True)
         shutil.copy(RMP_PY, project / "tools" / "rmp.py")
         build = project / "build" / "debug-drm"
         build.mkdir(parents=True)
@@ -5414,7 +5420,8 @@ class ConsoleInCiTest(unittest.TestCase):
             f"  note     {note}",
             "RAY_TEST_BOOT_OK assets_failed=0 frames=10",
             "RAY_TEST_RENDER_OK pixels=1",
-            "RAY_TEST_DONE_FRAMES 10", ""]))
+            "RAY_TEST_DONE_FRAMES 10",
+            *([] if reports is None else [f"INFO: RAY_TEST_REPORTS={reports}"]), ""]))
         stubs = tmp / "bin"
         stubs.mkdir()
         (stubs / "docker").write_text(
@@ -5446,6 +5453,22 @@ class ConsoleInCiTest(unittest.TestCase):
                     self.assertIn("PASS: rmp chose DRM/KMS on a console", got.stdout)
                 else:
                     self.assertIn("FAIL: the framework's debug build was not sanitized",
+                                  got.stdout)
+
+    def test_a_mistake_of_the_games_fails_it_and_plain_c_counts_none(self):
+        """RAY_TEST_REPORTS=0, as `rmp test`'s smoke step requires: a count
+        that is not 0, or none at all, fails a game with src/rmp/; a game in
+        plain C has no framework to count. Seen red: the step passed both."""
+        if os.name == "nt":
+            self.skipTest("bash")
+        run, _ = self.step()
+        for reports, passes in (("0", True), ("1", False), ("10", False), ("", False),
+                                (None, True)):
+            with self.subTest(reports=reports):
+                got = self.play(run, True, True, reports=reports)
+                self.assertEqual(got.returncode == 0, passes, got.stdout + got.stderr)
+                if not passes:
+                    self.assertIn("FAIL: the framework reported a mistake in the game",
                                   got.stdout)
 
 

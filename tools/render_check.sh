@@ -89,6 +89,18 @@ grep -q "RAY_TEST_RENDER_OK" "$LOG" || { echo "FAIL: it drew nothing"; exit 1; }
 grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
     echo "FAIL: it died before the end of its frame budget"; exit 1; }
 
+# And no mistake of the game's: RAY_TEST_REPORTS=<n>, after the last frame, is
+# how many the framework reported (RMP_REPORT_ONCE), each once -- 0, as `rmp
+# test`'s smoke step requires (tools/rmp.py). Here, it is every BSD's, the
+# macOS job's and the lint job's. A game in plain C has no framework to report
+# anything (examples/plain_c's recipe takes src/rmp/ away) and prints no count.
+if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$LOG"; then
+    grep -E 'WARNING|RAY_TEST_REPORTS' "$LOG" || true
+    echo "FAIL: the framework reported a mistake in the game (the WARNING lines above,"
+    echo "      said once each) -- or the run printed no RAY_TEST_REPORTS line at all"
+    exit 1
+fi
+
 # [window] vsync reached the window: the boot line says what the window was
 # asked for, and it must be what the .toml says. A setting that validates and
 # never reaches raylib is a setting that does nothing.

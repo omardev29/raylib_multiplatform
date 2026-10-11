@@ -134,6 +134,12 @@ jobs:
           # RAY_TEST_RENDER_OK is the gate that a blank frame cannot pass.
           grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: runtime boot + render test"
 
       - name: Package
@@ -172,6 +178,7 @@ jobs:
           set -euo pipefail
           SHIP=$(mktemp -d)
           ELSEWHERE=$(mktemp -d)
+          SRC_RMP=$PWD/src/rmp   # a game in plain C has none; asked before the cd
           unzip -q linux-x64-glibc-build.zip -d "$SHIP"
           OUT="$ELSEWHERE/out.txt"
           cd "$ELSEWHERE"
@@ -182,6 +189,12 @@ jobs:
           grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
             || { echo "FAIL: started from another folder, the game did not find its resources/"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d "$SRC_RMP" ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: the archive runs from any folder"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -261,6 +274,12 @@ jobs:
             || { echo "FAIL: boot marker missing or texture not loaded"; exit 1; }
           grep -q "RAY_TEST_RENDER_OK"   "$OUT" || { echo "FAIL: render marker missing (blank frame?)"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: runtime boot + render test"
 
       - name: Package
@@ -299,6 +318,7 @@ jobs:
           set -euo pipefail
           SHIP=$(mktemp -d)
           ELSEWHERE=$(mktemp -d)
+          SRC_RMP=$PWD/src/rmp   # a game in plain C has none; asked before the cd
           unzip -q linux-arm64-glibc-build.zip -d "$SHIP"
           OUT="$ELSEWHERE/out.txt"
           cd "$ELSEWHERE"
@@ -309,6 +329,12 @@ jobs:
           grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
             || { echo "FAIL: started from another folder, the game did not find its resources/"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: frame marker missing"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d "$SRC_RMP" ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: the archive runs from any folder"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -530,6 +556,12 @@ jobs:
             || { echo "FAIL: did not boot on Alpine, or an asset failed to load"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FAIL: drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FAIL: died before the end"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' <<< "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' <<< "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           # And its exit status: a crash on the way out is one a player sees.
           test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
           # The exact frame only where there is a golden one: the framework.
@@ -581,6 +613,12 @@ jobs:
             || { echo "FAIL: the shipped binary did not boot on Alpine, or an asset failed to load"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FAIL: it drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FAIL: it died before the end"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' <<< "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' <<< "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: the archive's binary booted and rendered on Alpine"
 
   riscv64:
@@ -736,6 +774,7 @@ jobs:
           done
           SHIP=$(mktemp -d)
           ELSEWHERE=$(mktemp -d)
+          SRC_RMP=$PWD/src/rmp   # a game in plain C has none; asked before the cd
           unzip -q linux-riscv64-glibc-build.zip -d "$SHIP"
           OUT="$ELSEWHERE/out.txt"
           cd "$ELSEWHERE"
@@ -749,6 +788,12 @@ jobs:
             || { echo "FAIL: started from another folder, the game did not find its resources/"; exit 1; }
           grep -q "RAY_TEST_RENDER_OK" "$OUT" || { echo "FAIL: it drew nothing"; exit 1; }
           grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: it died before the end"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d "$SRC_RMP" ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: the archive's riscv64 binary booted and rendered under QEMU"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -981,6 +1026,12 @@ jobs:
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FAIL: it drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FAIL: it died before the end"; exit 1; }
           test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' <<< "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' <<< "$OUT" || true
+            echo "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          fi
           echo "PASS: booted and rendered through DRM/KMS"
 
       # rmp itself, the way somebody at a Linux console with no desktop runs it
@@ -1042,6 +1093,12 @@ jobs:
             || fail "it did not boot through rmp run, or an asset failed to load"
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK || fail "it drew nothing"
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || fail "it died before the end"
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if [ -d src/rmp ] && ! grep -q 'RAY_TEST_REPORTS=0$' <<< "$OUT"; then
+            grep -E 'WARNING|RAY_TEST_REPORTS' <<< "$OUT" || true
+            fail "the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"
+          fi
           if echo "$OUT" | grep -qE "ERROR: (Address|Leak)Sanitizer|runtime error:"; then
             fail "a sanitizer reported the run above"
           fi

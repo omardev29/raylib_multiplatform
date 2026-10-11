@@ -314,6 +314,12 @@ jobs:
           if ($all -notmatch "RAY_TEST_SAVE_OK dir=.*Jos") { Write-Host "FAIL: the save round trip did not use the non-ASCII APPDATA"; exit 1 }
           if ($all -notmatch "RAY_TEST_RENDER_OK")   { Write-Host "FAIL: render marker missing (blank frame?)"; exit 1 }
           if ($all -notmatch "RAY_TEST_DONE_FRAMES") { Write-Host "FAIL: frame marker missing"; exit 1 }
+          # No mistake of the game's that the framework reported (RMP_REPORT_ONCE),
+          # as `rmp test`'s smoke step requires; a game in plain C counts none.
+          if ((Test-Path src/rmp) -and ($all -notmatch '(?m)RAY_TEST_REPORTS=0\r?$')) {
+            $all -split "`n" | Where-Object { $_ -match 'WARNING|RAY_TEST_REPORTS' } | ForEach-Object { Write-Host $_ }
+            Write-Host "FAIL: the framework reported a mistake in the game (the WARNING lines above), or printed no RAY_TEST_REPORTS line"; exit 1
+          }
           Write-Host "PASS: Windows boot + render verified on GALLIUM_DRIVER=$used"
 
       # The game must ship against the player's real driver. A stray Mesa
