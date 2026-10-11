@@ -92,6 +92,27 @@ def offending(line):
     return code.find("||", a + 2) >= 0
 
 
+def logical_lines(numbered):
+    """A line whose code ends in a backslash goes on in the next one: to a shell
+    `A && B \\` and `|| C` below it are one line, and the second half of the
+    shape. Read line by line they were two clean ones, and the first draft of
+    tools/coverage_check.sh passed this check with one: shellcheck saw it, and
+    nothing runs shellcheck over tools/. Reported at the line it starts on."""
+    out, start, parts = [], None, []
+    for lineno, text in numbered:
+        if start is None:
+            start = lineno
+        if shell_code(text).rstrip().endswith("\\"):
+            parts.append(text.rstrip()[:-1])
+            continue
+        parts.append(text)
+        out.append((start, " ".join(parts)))
+        start, parts = None, []
+    if parts:
+        out.append((start, " ".join(parts)))
+    return out
+
+
 def run_block_lines(path):
     """(lineno, text) for every line inside a `run:` block of a workflow.
 
@@ -145,7 +166,7 @@ for path in sources:
     else:
         numbered = list(enumerate(path.read_text(encoding="utf-8").splitlines(), 1))
     scanned += 1
-    for lineno, text in numbered:
+    for lineno, text in logical_lines(numbered):
         if ALLOW_MARKER in text:
             continue
         if offending(text):

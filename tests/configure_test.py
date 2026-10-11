@@ -7963,6 +7963,25 @@ class ShellPatternCheckTest(unittest.TestCase):
         self.assertEqual(got.returncode, 1, got.stdout)
         self.assertIn("not if/then/else", got.stdout)
 
+    def test_a_line_continued_with_a_backslash_is_one_line(self):
+        """Split across a `\\`, the shape is two clean lines to a reader of
+        lines: the first draft of tools/coverage_check.sh passed with one.
+        Reported at the line where it starts."""
+        got = self.run_on('true', 'grep -q a f && grep -q b f \\', '  || exit 1')
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn(":2: `A && B || C` is not if/then/else", got.stdout)
+        got = self.run_on('make_it \\', '  && echo ok \\', '  || exit 1', suffix=".yml")
+        self.assertEqual(got.returncode, 0, got.stdout)  # a .yml is read in its run: blocks
+        got = self.run_on('jobs:', '  x:', '    steps:', '      - run: |',
+                          '          make_it && echo ok \\', '            || exit 1',
+                          suffix=".yml")
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn(":5: `A && B || C`", got.stdout)
+        # A continuation with no `&&` on it, and a `\\` inside a comment, are not.
+        got = self.run_on('cmake -S . -B b \\', '  -G Ninja || exit 1',
+                          'make_it && echo ok  # a comment \\', 'echo next || true')
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+
     def test_the_guard_shape_is_allowed(self):
         """`cmd || { echo ...; exit 1; }` has no `&&`, which is the whole
         reason it is the shape to reach for."""
