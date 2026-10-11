@@ -269,11 +269,10 @@ private:
 };
 
 void OverScene::_draw() {
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-    rmp::ui::begin();
-    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-    if (rmp::ui::button("Play again")) rmp::Scene::change<TetrisScene>();
-    rmp::ui::end();
+    rmp::ui::overlay({ .dim = 0.75f }, [this] {
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+        if (rmp::ui::button("Play again")) rmp::Scene::change<TetrisScene>();
+    });
 }
 
 } // namespace

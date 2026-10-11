@@ -8,7 +8,9 @@
 
 #include <rmp/assets.h>
 #include <rmp/audio.h>
+#include <rmp/input.h>
 #include <rmp/tilemap.h>
+#include <rmp/ui.h>
 
 #include <algorithm>
 #include <utility>
@@ -32,6 +34,9 @@ void LevelScene::_ready() {
     // reorder the levels there and the game still starts at the beginning.
     map = rmp::assets::load_map("world.ldtk", _level);
     rmp::audio::music("music"); // already playing after a level change: not restarted
+    // Not Space, not Enter: those are the jump's and the menus'. Defining it
+    // again in the next level replaces it, never adds to it.
+    rmp::input::action("pause", KEY_ESCAPE, KEY_P, GAMEPAD_BUTTON_MIDDLE_RIGHT);
 
     // The player first, so that what is built below can know who it is.
     auto &player =
@@ -118,12 +123,15 @@ void LevelScene::_ready() {
     camera.follow = _player;
     camera.limits = map.bounds(); // the level's own rectangle, in the world
     camera.smoothing = 10;
+    camera.zoom = ZOOM;
 }
 
 void LevelScene::_update(float delta) {
-    if (GetScreenHeight() > 0)
-        camera.zoom = static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT;
     if (_over) return;
+    if (rmp::input::just_pressed("pause")) {
+        rmp::Scene::push<PauseScene>(); // this scene freezes under it, clock and all
+        return;
+    }
     run().seconds += delta;
 
     const auto player = _player.get();
@@ -178,10 +186,11 @@ void LevelScene::win() {
     rmp::Scene::push<EndScene>(true, record);
 }
 
-// The HUD, in screen space and as big as the window: hearts, coins, the clock.
+// The HUD, in screen space: hearts, coins and the clock down the left, drawn
+// from the same tiles as the world and at its scale -- however the window
+// stretches it -- and the Pause button at the right.
 void LevelScene::_draw() {
-    const float scale =
-        std::max(1.0f, static_cast<float>(GetScreenHeight()) / VIEW_HEIGHT);
+    const float scale = camera.raylib().zoom; // screen pixels to a pixel of the art
     for (int i = 0; i < 3; ++i) {
         const int heart = i < run().lives ? tiles::HEART : tiles::HEART_EMPTY;
         draw_icon(heart, { (6 + (static_cast<float>(i) * 17)) * scale, 4 * scale },
@@ -190,8 +199,16 @@ void LevelScene::_draw() {
     draw_icon(tiles::COIN, { 6 * scale, 22 * scale }, scale);
     draw_icon(tiles::TIMES, { 20 * scale, 22 * scale }, scale);
     draw_number(run().coins, { 32 * scale, 22 * scale }, scale);
-    const float right = static_cast<float>(GetScreenWidth());
-    draw_seconds(run().seconds, { right - (60 * scale), 4 * scale }, scale);
+    draw_seconds(run().seconds, { 6 * scale, 40 * scale }, scale);
+
+    // A phone has no Escape: the one way to pause there is a finger. The
+    // interface knows this scene is being played -- the player reads Space,
+    // the arrows and the A button through rmp::input -- so the button takes
+    // no focus, and Space jumps rather than pressing it (FrameOptions'
+    // focus_first, in rmp/ui.h).
+    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_RIGHT });
+    if (rmp::ui::button("Pause")) rmp::Scene::push<PauseScene>();
+    rmp::ui::end();
 }
 
 } // namespace game

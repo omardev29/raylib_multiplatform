@@ -22,6 +22,11 @@
 //   Platformer      the run, the jump, coyote time and the buffered jump.
 //   rmp::Camera     follows with smoothing, stops at the level's edges
 //                   (`limits = map.bounds()`), and shakes when you are hit.
+//   the stretch     Stretch::EXPAND: a window of another shape shows more of
+//                   the world rather than bars, so the zoom is one constant.
+//   rmp::ui         the menus; the pause, the level blurred behind it by
+//                   overlay(); and the HUD's Pause button for a finger, which
+//                   Space -- the jump -- does not press.
 //   rmp::audio      the music and the effects, by name. Asking for the track
 //                   that is already playing does not restart it, so the music
 //                   carries on from one level to the next.

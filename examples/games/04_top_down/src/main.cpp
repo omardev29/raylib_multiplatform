@@ -7,6 +7,9 @@
 // player is one field rather than an `if` in a _collision. Each of those is a
 // pair of bit masks, named once in include/layers.h.
 //
+// And a health bar over every enemy, wherever it has walked to: rmp::ui::at()
+// puts a box of the interface over a point of the world.
+//
 // A whole level: clear the room or don't, walk out of the door, or die trying.
 //
 // Run it: `rmp example 04_top_down`.
@@ -21,9 +24,12 @@
 
 #include "layers.h"
 
+#include <vector>
+
 namespace {
 
 constexpr int ENEMIES = 5;
+constexpr int ENEMY_HP = 2;
 constexpr int PLAYER_HP = 5;
 constexpr float DOOR_Y = 225; // the gap in the right-hand wall
 constexpr float SHOT_SPEED = 520;
@@ -96,6 +102,23 @@ public:
                               { .width = 150, .fill = rmp::ui::current_theme().danger });
             rmp::ui::text(TextFormat("Enemies %d", _enemies));
         });
+        // A bar over each enemy still standing. at() projects the point
+        // through the scene's camera -- so the bar stays on the enemy however
+        // the world is scrolled, zoomed or stretched -- and puts the box's
+        // bottom centre on it, lifted clear of the circle by the offset. What
+        // it paints does not take the pointer: a click on the enemy is still
+        // the enemy's.
+        const rmp::ui::ProgressOptions bar{ .width = 24,
+                                            .height = 5,
+                                            .fill = rmp::ui::current_theme().danger };
+        for (const rmp::Handle<rmp::Object> &foe : _foes) {
+            const auto enemy = foe.get();
+            if (!enemy) continue; // shot down: its Health destroyed it
+            const float hp =
+                static_cast<float>(enemy->get<rmp::behavior::Health>()->hp) / ENEMY_HP;
+            rmp::ui::at(enemy->position, { .offset = { 0, -18 } },
+                        [&] { rmp::ui::progress(hp, bar); });
+        }
         rmp::ui::end();
     }
 
@@ -134,12 +157,13 @@ private:
         // Two hits, and only a bullet lands one: `hurt_by` is the rule, and
         // on_death is what the room does about it.
         enemy.add<rmp::behavior::Health>({
-            .hp = 2,
+            .hp = ENEMY_HP,
             .invulnerable_for = 0.1f,
             .on_death = [this](rmp::Object &) { --_enemies; },
             .hurt_by = layer::BULLET,
         });
         ++_enemies;
+        _foes.push_back(enemy.handle());
     }
 
     void shoot() {
@@ -157,15 +181,15 @@ private:
     // Between frames, a handle -- and Follow takes one for the same reason:
     // what is being chased is the thing most likely to die while it is chased.
     rmp::Handle<rmp::Object> _player;
+    std::vector<rmp::Handle<rmp::Object>> _foes; // for their health bars
     int _enemies = 0;
 };
 
 void OverScene::_draw() {
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-    rmp::ui::begin();
-    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-    if (rmp::ui::button("Play again")) rmp::Scene::change<TopDownScene>();
-    rmp::ui::end();
+    rmp::ui::overlay({ .dim = 0.75f }, [this] {
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+        if (rmp::ui::button("Play again")) rmp::Scene::change<TopDownScene>();
+    });
 }
 
 } // namespace

@@ -20,6 +20,13 @@
 //   3. A whole game to the flag again at 240 Hz, because a game that can be
 //      won at one frame rate and not another is not finished either.
 //
+// And all the way through, at both rates: the bot never pauses, so the pause
+// scene must never come up. The HUD has a Pause button for a finger, and the
+// bot jumps with Space, which presses the focused control of a menu; the
+// interface knows the level is being played (the player reads Space through
+// rmp::input), so the button has no focus and Space is the jump's alone.
+// Before that was so, the first jump of every run paused the game instead.
+//
 // The route through the Desert (up two platforms to the key and back) is
 // written for the level as it is. When world.ldtk is redesigned in LDtk the
 // route may need updating, and the failure says where the player got stuck.
@@ -48,6 +55,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -56,21 +64,39 @@ namespace {
 
 // ---- the devices --------------------------------------------------------------
 
-// The fake devices, and Enter's last state so that holding it is one press.
-// The dot at every use says "file state".
+// The fake devices: what is held this frame, and what was held the frame
+// before, so that a key held down is one press. The dot at every use says
+// "file state".
 struct {
     rmp::input::detail::DeviceState devices;
-    bool enter_was = false;
+    rmp::input::detail::DeviceState before;
 } fake;
+
+bool key_down(int key) { return fake.devices.keys[static_cast<std::size_t>(key)]; }
+
+bool key_pressed(int key) {
+    return key_down(key) && !fake.before.keys[static_cast<std::size_t>(key)];
+}
 
 // The seams' signatures, which write through `out`.
 void sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
+// The UI's navigation from the same keys, through the mapping a player's
+// keyboard goes through (nav_from_keys(), ui/internal.h): Enter AND Space
+// press the focused control, as they do in the game.
 void navigate(rmp::ui::detail::NavState &out) {
-    out.x = 0;
-    out.y = fake.devices.keys[KEY_DOWN] ? 1 : (fake.devices.keys[KEY_UP] ? -1 : 0);
-    out.activate = fake.devices.keys[KEY_ENTER] && !fake.enter_was;
-    fake.enter_was = fake.devices.keys[KEY_ENTER];
+    out = rmp::ui::detail::nav_from_keys([](int key) { return key_down(key); },
+                                         [](int key) { return key_pressed(key); },
+                                         [](int &, int &, bool &, bool &) {});
+}
+
+// Whether a key went down this frame: the only frames on which a key can
+// press something in the interface.
+bool key_went_down() {
+    for (std::size_t k = 0; k < fake.devices.keys.size(); ++k) {
+        if (fake.devices.keys[k] && !fake.before.keys[k]) return true;
+    }
+    return false;
 }
 
 void release_all() { fake.devices = rmp::input::detail::DeviceState{}; }
@@ -295,6 +321,16 @@ void play(bool fall) {
 
 void step() {
     ++run.frames;
+    // The bot never pauses. A pause scene on top is a key that pressed the
+    // HUD's Pause button -- Space, at a jump -- and every phase after it
+    // would fail for a reason that is not theirs.
+    if (top<game::PauseScene>() != nullptr) {
+        fail("the pause scene came up " + std::to_string(game::run().seconds) +
+             " s into the run, and the bot only runs and jumps: Space pressed the "
+             "HUD's Pause button");
+        next(Phase::DONE);
+        return;
+    }
     switch (run.phase) {
         case Phase::TITLE:
             press_button(run.frames - 30, 0); // Play
@@ -430,10 +466,14 @@ void step() {
 
 // A frame of the game. While a level is being played it is the logic only --
 // the scenes and what they queued -- which is what makes 240 Hz affordable
-// on the software renderer; menus are drawn, because their buttons are. The
-// input was sampled by the runner before this, as it is for every game.
+// on the software renderer, but for a frame on which a key goes down: that
+// one is drawn whole, the HUD and its Pause button with it, because a key can
+// press a button only on the frame it goes down, and a key the HUD never met
+// would prove nothing about it. Menus are drawn, because their buttons are.
+// The input was sampled by the runner before this, as it is for every game.
 void frame_of_game(float dt) {
-    if (top<game::LevelScene>() != nullptr && run.phase != Phase::TITLE) {
+    if (top<game::LevelScene>() != nullptr && run.phase != Phase::TITLE &&
+        !key_went_down()) {
         rmp::scenes::detail::update(dt);
         rmp::scenes::detail::apply_pending();
     } else {
@@ -458,6 +498,7 @@ void ready() {
 void frame(float /*real time is not the game's time here*/) {
     rmp::ui::detail::set_nav_provider(navigate);
     frame_of_game(run.delta);
+    fake.before = fake.devices;
     step();
     if (run.phase == Phase::DONE) {
         if (run.failures == 0) {
