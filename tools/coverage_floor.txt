@@ -18,7 +18,7 @@ src/rmp/global.cpp               100
 src/rmp/input.cpp                85
 src/rmp/internal.h               100
 src/rmp/json_internal.h          100
-src/rmp/ldtk.cpp                 96
+src/rmp/ldtk.cpp                 97
 src/rmp/loader_hook.cpp          36
 src/rmp/object.cpp               76
 src/rmp/object_internal.h        100
@@ -29,7 +29,7 @@ src/rmp/resource.cpp             88
 src/rmp/save.cpp                 93
 src/rmp/save_internal.h          100
 src/rmp/scene.cpp                100
-src/rmp/tilemap.cpp              91
+src/rmp/tilemap.cpp              92
 src/rmp/tilemap_internal.h       100
 src/rmp/ui/containers.cpp        72
 src/rmp/ui/context.cpp           89
