@@ -492,12 +492,13 @@ class ApiJobTest(unittest.TestCase):
         self.assertEqual(steps[0]["env"]["PR"], "${{ github.event.pull_request.number }}")
         return steps[0]["run"]
 
-    def play(self, files: dict) -> subprocess.CompletedProcess:
+    def play(self, files: dict, base_has_it: bool = True) -> subprocess.CompletedProcess:
         """The step's script, on the merge commit GitHub makes of a pull
         request: HEAD^1 is the base as it is now, HEAD the two merged."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            repo = Scratch(root / "repo", {"tools/api_change.py": SCRIPT.read_text()})
+            repo = Scratch(root / "repo",
+                           {"tools/api_change.py": SCRIPT.read_text()} if base_has_it else {})
             repo.pull_request(files)
             repo.git("checkout", "-q", "--detach", "main")
             repo.git("merge", "-q", "--no-ff", "-m", "Merge pr into main", "pr")
@@ -519,6 +520,15 @@ class ApiJobTest(unittest.TestCase):
         got = self.play({"include/rmp/game.h": HEADER + "int lives();\n",
                          "tools/api_change.py": "import sys\nsys.exit(0)\n"})
         self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("include/rmp/game.h: modified", got.stdout)
+
+    def test_a_base_without_the_judge_lends_it_the_pull_requests_and_says_so(self):
+        """A base branch from before the gate: the copy the pull request
+        brings judges it, and the log says whose it was."""
+        got = self.play({"include/rmp/game.h": HEADER + "int lives();\n",
+                         "tools/api_change.py": SCRIPT.read_text()}, base_has_it=False)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("the pull request's own copy judges", got.stdout)
         self.assertIn("include/rmp/game.h: modified", got.stdout)
 
 
