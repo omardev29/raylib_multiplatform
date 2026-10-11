@@ -63,6 +63,18 @@ if [ "$MADE_PACK" -eq 1 ]; then rm -f resources/resources.rres; fi
 # Each start keeps its exit status: a crash on the way out is a crash a player
 # sees, and a `|| true` here passed one.
 exited() { [ "$1" -eq 0 ] || { echo "FAIL: the release exited with status $1"; exit 1; }; }
+# And no mistake of the game's in the log $1: RAY_TEST_REPORTS=<n>, after the
+# last frame, is how many the framework reported (RMP_REPORT_ONCE) -- 0, as
+# `rmp test`'s smoke step requires (tools/rmp.py). A game in plain C has no
+# framework (its recipe takes src/rmp/ away) and prints no count.
+no_reports() {
+    if [ -d "$ROOT/src/rmp" ] && ! grep -q 'RAY_TEST_REPORTS=0$' "$1"; then
+        grep -E 'WARNING|RAY_TEST_REPORTS' "$1" || true
+        echo "FAIL: the framework reported a mistake in the game (the WARNING lines above,"
+        echo "      said once each) -- or the run printed no RAY_TEST_REPORTS line at all"
+        exit 1
+    fi
+}
 
 LOG="$ROOT/$BUILD/source-tree.log"
 if RAY_TEST_MAX_FRAMES=5 "./$BUILD/$NAME" > "$LOG" 2>&1 < /dev/null; then RC=0; else RC=$?; fi
@@ -72,6 +84,7 @@ grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
     echo "      did not find resources/ -- with none next to it, it reads the working"
     echo "      directory's, and must not move away from it"; exit 1; }
 exited "$RC"
+no_reports "$LOG"
 echo "  ok    from the project folder it reads the root's resources/"
 
 LOG="$ROOT/$BUILD/shipped.log"
@@ -87,6 +100,7 @@ case "$(uname -s)" in
         grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
             echo "FAIL: started from its own folder, the release failed to load an asset"; exit 1; }
         exited "$RC"
+        no_reports "$LOG"
         echo "PASS: $(uname -s) reads resources/ from the working directory, and says so"
         exit 0
         ;;
@@ -102,4 +116,5 @@ grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
 grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
     echo "FAIL: it died before the end of its frame budget"; exit 1; }
 exited "$RC"
+no_reports "$LOG"
 echo "PASS: the release found its resources/ from another folder"
