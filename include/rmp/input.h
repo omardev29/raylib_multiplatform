@@ -32,6 +32,7 @@
 #include <raylib.h>
 #include <rmp/config.h>
 
+#include <array>
 #include <cstdint>
 #include <initializer_list>
 #include <string_view>
@@ -224,10 +225,10 @@ struct DeviceState {
     static constexpr int PAD_BUTTONS = 18;
     static constexpr int AXES = 6;
 
-    bool keys[KEYS] = {};
-    bool mouse[MOUSE_BUTTONS] = {};
-    bool pad[PAD_BUTTONS] = {};
-    float axes[AXES] = {};
+    std::array<bool, KEYS> keys{};
+    std::array<bool, MOUSE_BUTTONS> mouse{};
+    std::array<bool, PAD_BUTTONS> pad{};
+    std::array<float, AXES> axes{};
     Vector2 pointer = { 0, 0 };
 };
 

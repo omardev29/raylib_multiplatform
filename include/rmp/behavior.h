@@ -378,7 +378,7 @@ struct Spawner {
         // a spawner that what it made has died, so with a counter `max_alive`
         // would cap how many it ever produced, and an endless runner would stop
         // making obstacles thirty seconds in. A handle answers on its own.
-        Handle<Object> made[MAX_SPAWNED];
+        std::array<Handle<Object>, MAX_SPAWNED> made;
         int made_count = 0;
     } ours;
 
