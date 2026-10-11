@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 
 #include <raylib.h> // ComputeMD5
+#include <rmp/config.h> // RMP_RRES_PASSWORD
 
 #include <external/aes.h>
 #include <external/monocypher.h>
@@ -150,7 +151,8 @@ inline void showValue(const File &file, std::ostream &os) {
 }
 
 struct Options {
-    std::string_view password = "raylib-template";
+    std::string_view password =
+        RMP_RRES_PASSWORD; // the game's, as the packer is given it
     Stretch stretch = cheap;
     std::uint8_t salt_seed =
         1; // the packer reads /dev/urandom; a test wants the same bytes

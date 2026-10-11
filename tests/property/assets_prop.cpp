@@ -415,6 +415,7 @@ rc::Gen<std::vector<pack::File>> packed_files() {
         const auto names =
             *rc::gen::resize(8, rc::gen::unique<std::vector<std::string>>(file_name()));
         std::vector<pack::File> out;
+        out.reserve(names.size());
         for (const std::string &name : names) {
             out.push_back({ name, *rc::gen::arbitrary<pack::Bytes>(),
                             *rc::gen::element(pack::CIPHER_NONE, pack::CIPHER_AES,
