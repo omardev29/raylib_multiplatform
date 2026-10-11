@@ -35,16 +35,11 @@ rmp::app::stretch()
 rmp::global [template]
 
 # include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's
-rmp::SheetData::frame(int) const
-rmp::SheetData::frame_count() const
-rmp::SheetData::tag(int) const
-rmp::SheetData::tag_count() const
 rmp::assets::failed_loads()
 rmp::assets::init()
 rmp::assets::load_data(std::string_view)
 rmp::assets::load_font(std::string_view, int)
 rmp::assets::load_image(std::string_view)
-rmp::assets::load_sheet(std::string_view)
 rmp::assets::load_sound(std::string_view)
 rmp::assets::load_texture(std::string_view)
 rmp::assets::requested_loads()

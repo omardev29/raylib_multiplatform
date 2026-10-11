@@ -1,5 +1,10 @@
-# Aseprite sheets and animation (package P3).
+# Aseprite sheets and animation (package P3): the walk in front of
+# cute_aseprite (aseprite.cpp) and the parse, upload and clock behind it.
+# Killed by the cases of tests/animation_test.cpp -- every refusal of the
+# walk, the deflate decoder's included, has one -- and by the properties of
+# tests/property/animation_prop.cpp.
 kind     cxx
-sources  src/rmp/animation.cpp
+sources  src/rmp/animation.cpp src/rmp/aseprite.cpp
 tests    unit_test -sf=*animation_test.cpp
+tests    property_test -ts=*animation
 floor    -
