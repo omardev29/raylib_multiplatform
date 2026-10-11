@@ -11,7 +11,8 @@
 //   - every number a parsed map hands out is finite, every size not
 //     negative, whatever number the file wrote (past int's range, past
 //     float's, cJSON's 1e400, cute_tiled's "nan");
-//   - a tile's source is its place in its tileset's grid, never negative;
+//   - a tile's source is its place in its tileset's grid, never negative --
+//     LDtk's square tiles and Tiled's of any width and height;
 //   - load_map(name) and load_map(name, level) are parse_map() of the file.
 //
 // The queries over a map, whichever reader made it, are
@@ -347,6 +348,44 @@ rc::Gen<TiledSpec> tiled_map() {
     });
 }
 
+// A Tiled tileset of tiles that need not be square, all small numbers.
+struct TiledSetSpec {
+    int first_gid = 1;
+    int columns = 1;
+    int rows = 1;
+    int width = 16;
+    int height = 16;
+    int margin = 0;
+    int spacing = 0;
+};
+
+std::string to_json(const TiledSetSpec &t) {
+    return R"({"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[],)"
+           R"("tilesets":[{"firstgid":)" +
+        std::to_string(t.first_gid) + R"(,"columns":)" + std::to_string(t.columns) +
+        R"(,"tilecount":)" + std::to_string(t.columns * t.rows) + R"(,"tilewidth":)" +
+        std::to_string(t.width) + R"(,"tileheight":)" + std::to_string(t.height) +
+        R"(,"margin":)" + std::to_string(t.margin) + R"(,"spacing":)" +
+        std::to_string(t.spacing) + "}]}";
+}
+
+// NOLINTNEXTLINE(readability-identifier-naming): RapidCheck's name
+void showValue(const TiledSetSpec &t, std::ostream &os) { os << to_json(t); }
+
+rc::Gen<TiledSetSpec> tiled_set() {
+    return rc::gen::exec([] {
+        TiledSetSpec t;
+        t.first_gid = *rc::gen::inRange(1, 100);
+        t.columns = *rc::gen::inRange(1, 6);
+        t.rows = *rc::gen::inRange(1, 6);
+        t.width = *rc::gen::inRange(1, 40);
+        t.height = *rc::gen::inRange(1, 40);
+        t.margin = *rc::gen::inRange(0, 8);
+        t.spacing = *rc::gen::inRange(0, 8);
+        return t;
+    });
+}
+
 // Every number a map hands out, finite; every size not negative.
 void assert_finite(const rmp::Tilemap &map) {
     const auto finite = [](Vector2 v) {
@@ -595,6 +634,37 @@ TEST_SUITE("property: ldtk") {
                     RC_ASSERT(source.width == static_cast<float>(size));
                 }
                 RC_ASSERT(placed == data.layers[0].placed.size());
+            });
+        rmp::test::check(
+            "a Tiled tile's source is margin plus its column of width and spacing and "
+            "its row of height and spacing",
+            [] {
+                // LDtk's tiles are square; Tiled's are not, so this is where a
+                // row's step taken from the width instead of the height shows.
+                const TiledSetSpec spec = *tiled_set();
+                const std::string text = to_json(spec);
+                rmp::Tilemap map;
+                rmp::tilemap::detail::Access::adopt(
+                    map,
+                    rmp::tilemap::detail::parse_map(
+                        text.data(), static_cast<int>(text.size()), "set.json"));
+                RC_ASSERT(map.valid());
+                const rmp::tilemap::detail::MapData &data =
+                    *rmp::tilemap::detail::Access::data(map);
+                for (int local = 0; local < spec.columns * spec.rows; ++local) {
+                    const Rectangle source =
+                        rmp::tilemap::detail::tile_source(&data, spec.first_gid + local);
+                    const int column = local % spec.columns;
+                    const int row = local / spec.columns; // the tileset's row, whole
+                    RC_ASSERT(source.x ==
+                              static_cast<float>(spec.margin +
+                                                 (column * (spec.width + spec.spacing))));
+                    RC_ASSERT(source.y ==
+                              static_cast<float>(spec.margin +
+                                                 (row * (spec.height + spec.spacing))));
+                    RC_ASSERT(source.width == static_cast<float>(spec.width));
+                    RC_ASSERT(source.height == static_cast<float>(spec.height));
+                }
             });
         SetTraceLogLevel(LOG_INFO);
     }
