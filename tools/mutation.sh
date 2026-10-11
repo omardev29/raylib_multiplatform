@@ -181,6 +181,25 @@ run_py() {
   mkdir -p "$dir"
   git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$dir"
   (cd "$dir"; python3 tools/configure.py > /dev/null)
+  # mutmut keeps the mutant under test in its own process and mirrors it into
+  # MUTANT_UNDER_TEST, which every program a test starts inherits. A tool a
+  # test starts as a program, in a folder of its own -- MutationScriptTest
+  # runs tools/mutation.sh so -- then went looking for mutmut's setup.cfg in
+  # that folder while the stats were collected, and the run died there
+  # ("failed to collect stats", every mutant without a verdict). Started as
+  # a program its functions are __main__'s, which no mutant names, so without
+  # the variable it runs exactly what it ran in every other phase.
+  cat > "$dir/conftest.py" <<'PY'
+# Written by tools/mutation.sh, in mutmut's copy of the tree only.
+import os
+
+import pytest
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    os.environ.pop("MUTANT_UNDER_TEST", None)
+PY
   sources=$(report "$module" --print sources)
   tests=$(report "$module" --print tests)
   selects=$(report "$module" --print select)

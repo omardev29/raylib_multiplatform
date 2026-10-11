@@ -1,5 +1,9 @@
-# tools/mutation_report.py: this campaign's own floor checker.
+# tools/mutation_report.py: this campaign's own floor checker. Measured in the
+# image on 2026-10-11, mutmut 3.8.0: 454 mutants, 216 detected, 48 survived,
+# 190 with no test -- main() and what only it calls, which campaign_test.py
+# reaches through a subprocess, and mutmut sees in-process calls only =
+# 47.58%. 52 s with 4 children.
 kind     py
 sources  tools/mutation_report.py
 tests    tests/campaign_test.py
-floor    -
+floor    45
