@@ -8163,6 +8163,66 @@ class SeamCheckHoldsItsDebtTest(unittest.TestCase):
         self.assertIn("no longer calls GetCharPressed: take it off its DEBT_CALLS line", out)
 
 
+class DrmCardProbeTest(unittest.TestCase):
+    """raylib's DRM backend looks for its card line by line -- platform-gpu-card,
+    card1, card0, card2 -- and each line asked for the card's DRM resources
+    again, whatever the line before had found: the card that answered had its
+    drmModeRes replaced and never freed (LeakSanitizer, 92 bytes, the first
+    sanitized DRM run, drm-x64-run on vkms), and card2 was opened and never
+    asked, so a display there could not start. Our own patch
+    (thirdparty/raylib/PATCHES.md): after the first line a card is asked only
+    while res is NULL, and card2 is asked too. This reads the probe, so a raylib
+    bump that loses the patch is red here and not on a runner."""
+
+    SOURCE = REPO / "thirdparty" / "raylib" / "src" / "platforms" / "rcore_drm.c"
+
+    @staticmethod
+    def problems(code: str) -> list[str]:
+        start = code.find("trying platform-gpu-card")
+        end = code.find("#endif", start)
+        if start < 0 or end < 0:
+            return ["the card probe (from 'trying platform-gpu-card' to its #endif) is not there"]
+        probe = code[start:end]
+        asks = [m.start() for m in re.finditer(r"res\s*=\s*drmModeGetResources\(", probe)]
+        out = []
+        if len(asks) < 4:
+            out.append(f"the probe asks for DRM resources {len(asks)} time(s), not once a card (4)")
+        for at in asks[1:]:
+            line = probe[probe.rfind("\n", 0, at) + 1:probe.find("\n", at)]
+            before = probe[probe.rfind("\n", 0, at) + 1:at]
+            if not re.search(r"res\s*==\s*NULL", before):
+                out.append("a card asks for DRM resources whatever the card before found: "
+                           + line.strip())
+        last_open = probe.find('open("/dev/dri/card2"')
+        if last_open < 0 or not any(at > last_open for at in asks):
+            out.append("card2 is opened and never asked for its DRM resources")
+        return out
+
+    def test_each_card_is_asked_once_and_card2_too(self):
+        self.assertEqual(self.problems(self.SOURCE.read_text(errors="replace")), [])
+
+    def test_upstreams_probe_is_refused(self):
+        """Seen red: the probe as raylib 6.0.0 and upstream master write it."""
+        upstream = """
+    TRACELOG(LOG_WARNING, "DISPLAY: No graphic card set, trying platform-gpu-card");
+    platform.fd = open("/dev/dri/by-path/platform-gpu-card", O_RDWR);
+    drmModeRes *res = NULL;
+    if ((platform.fd == -1) || ((res = drmModeGetResources(platform.fd)) == NULL))
+    { platform.fd = open("/dev/dri/card1", O_RDWR); }
+    if ((platform.fd == -1) || ((res = drmModeGetResources(platform.fd)) == NULL))
+    { platform.fd = open("/dev/dri/card0", O_RDWR); }
+    if ((platform.fd == -1) || ((res = drmModeGetResources(platform.fd)) == NULL))
+    { platform.fd = open("/dev/dri/card2", O_RDWR); }
+#endif
+"""
+        got = self.problems(upstream)
+        self.assertEqual(len([p for p in got if "whatever the card before found" in p]), 2, got)
+        self.assertIn("card2 is opened and never asked for its DRM resources", got)
+        self.assertEqual(self.problems("no probe here"),
+                         ["the card probe (from 'trying platform-gpu-card' to its #endif) "
+                          "is not there"])
+
+
 class GameContainersHaveAnInitTest(unittest.TestCase):
     """A container that starts a game has an init as its PID 1.
 

@@ -1154,6 +1154,10 @@ int InitPlatform(void)
     platform.fd = open("/dev/dri/by-path/platform-gpu-card", O_RDWR); // VideoCore VI (Raspberry Pi 4)
     if (platform.fd != -1) TRACELOG(LOG_INFO, "DISPLAY: platform-gpu-card opened successfully");
 
+    // PATCHED (raylib_multiplatform): each card below asks for its resources
+    // only while no card before it has given them (res == NULL). Upstream asks
+    // again on every line, so a card that answered had its drmModeRes replaced
+    // by the next line's and never freed: LeakSanitizer, 92 bytes, on vkms.
     drmModeRes *res = NULL;
     if ((platform.fd == -1) || ((res = drmModeGetResources(platform.fd)) == NULL))
     {
@@ -1163,7 +1167,7 @@ int InitPlatform(void)
         if (platform.fd != -1) TRACELOG(LOG_INFO, "DISPLAY: card1 opened successfully");
     }
 
-    if ((platform.fd == -1) || ((res = drmModeGetResources(platform.fd)) == NULL))
+    if ((platform.fd == -1) || ((res == NULL) && ((res = drmModeGetResources(platform.fd)) == NULL)))
     {
         if (platform.fd != -1) close(platform.fd);
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to open graphic card1, trying card0");
@@ -1171,13 +1175,18 @@ int InitPlatform(void)
         if (platform.fd != -1) TRACELOG(LOG_INFO, "DISPLAY: card0 opened successfully");
     }
 
-    if ((platform.fd == -1) || ((res = drmModeGetResources(platform.fd)) == NULL))
+    if ((platform.fd == -1) || ((res == NULL) && ((res = drmModeGetResources(platform.fd)) == NULL)))
     {
         if (platform.fd != -1) close(platform.fd);
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to open graphic card0, trying card2");
         platform.fd = open("/dev/dri/card2", O_RDWR);
         if (platform.fd != -1) TRACELOG(LOG_INFO, "DISPLAY: card2 opened successfully");
     }
+
+    // PATCHED (raylib_multiplatform): card2, the last one tried, is asked for
+    // its resources too. Upstream opens it and asks nothing, so a machine whose
+    // display is card2 always failed below with "Failed get DRM resources".
+    if ((platform.fd != -1) && (res == NULL)) res = drmModeGetResources(platform.fd);
 #endif
 
     if (platform.fd == -1)

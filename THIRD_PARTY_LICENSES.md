@@ -120,7 +120,7 @@ every change is commented at its site:
 
 | Component | Mark |
 |---|---|
-| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, three memory fixes in `raudio.c` and the software renderer's scissor in `src/external/rlsw.h`, backported from upstream, and a texel clamp of our own in the same renderer's nearest-texel lookup; no signature changed |
+| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, three memory fixes in `raudio.c` and the software renderer's scissor in `src/external/rlsw.h`, backported from upstream, a texel clamp of our own in the same renderer's nearest-texel lookup, and our own fix of the DRM backend's card probe (`rcore_drm.c`); no signature changed |
 | Clay 0.14 | [`thirdparty/clay/PATCHES.md`](thirdparty/clay/PATCHES.md) -- one line, the C++ version guard |
 | cute_tiled | [`thirdparty/cute_tiled/PATCHES.md`](thirdparty/cute_tiled/PATCHES.md) -- unknown JSON keys are skipped instead of failing the load |
 | raylib-cpp 6.0.3 | [`thirdparty/raylib-cpp/PATCHES.md`](thirdparty/raylib-cpp/PATCHES.md) -- a partial copy, the math headers only |
