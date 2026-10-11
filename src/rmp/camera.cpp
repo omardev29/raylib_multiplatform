@@ -24,7 +24,7 @@ namespace {
 // the scale [window] stretch gives the design -- 1 under NONE, so there the
 // zoom is the camera's alone, as it always was. A zoom that is not positive is
 // 1, as it always was.
-float pixels_per_unit(float zoom, float scale) {
+constexpr float pixels_per_unit(const float zoom, const float scale) {
     return (zoom > 0 ? zoom : 1.0f) * scale;
 }
 
@@ -33,7 +33,7 @@ float pixels_per_unit(float zoom, float scale) {
 // window divided by the zoom; under LETTERBOX it is the design divided by the
 // zoom whatever the window; under EXPAND the design, and more of the world
 // along the window's longer side.
-Rectangle view_around(Vector2 centre, const Rectangle &area, float ppu) {
+Rectangle view_around(const Vector2 centre, const Rectangle &area, const float ppu) {
     const float w = area.width / ppu;
     const float h = area.height / ppu;
     return Rectangle{ centre.x - w / 2, centre.y - h / 2, w, h };

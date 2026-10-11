@@ -98,7 +98,7 @@ bool near(Vector2 a, Vector2 b) {
 // mode the test found put back however it ends.
 struct Screen {
     rmp::app::Stretch was = rmp::app::stretch();
-    Screen(float width, float height, rmp::app::Stretch mode) {
+    Screen(const float width, const float height, const rmp::app::Stretch mode) {
         rmp::objects::detail::set_test_screen(width, height);
         rmp::app::set_stretch(mode);
     }
@@ -905,6 +905,95 @@ TEST_SUITE("camera: stretch") {
             // a half by one -- not the window's three by two.
             CHECK(world.camera.position.x == doctest::Approx(0.75f * SCREEN_WIDTH));
             CHECK(world.camera.position.y == doctest::Approx(0.5f * SCREEN_HEIGHT));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "at a limit the camera draws where its position is, and a shake "
+                      "moves it no further than its strength") {
+        // The case above only proves the drawn view stays inside the limits,
+        // which a clamp against the window's view instead of the stretched one
+        // also does -- by pinning the picture somewhere else. Here the view in
+        // the corner is the limit's corner exactly, with no shake, and with
+        // one the corner moves inwards by at most the shake's strength.
+        constexpr float STRENGTH = 40;
+        for (const Vector2 size : { Vector2{ 1600, 900 }, Vector2{ 1080, 2400 },
+                                    Vector2{ 3 * SCREEN_WIDTH, SCREEN_HEIGHT },
+                                    Vector2{ 4096, 4096 }, Vector2{ 1, 1 } }) {
+            for (const Stretch mode : MODES) {
+                CAPTURE(size.x);
+                CAPTURE(size.y);
+                CAPTURE(static_cast<int>(mode));
+                const Screen screen(size.x, size.y, mode);
+                World world;
+                world.camera.limits = { 0, 0, 20 * SCREEN_WIDTH, 20 * SCREEN_HEIGHT };
+                world.camera.position = { 0, 0 };
+                world.camera.detail_settle(0.0f);
+                const Rectangle area = game_area();
+                const Rectangle v = world.camera.view();
+                // Pinned: the view's top-left corner on the limit's.
+                CHECK(v.x == doctest::Approx(0).scale(1));
+                CHECK(v.y == doctest::Approx(0).scale(1));
+                CHECK(near(world.camera.raylib().target, world.camera.position));
+                CHECK(near(world.camera.to_world(Vector2{ area.x, area.y }),
+                           Vector2{ 0, 0 }));
+
+                world.camera.shake(STRENGTH, 0.5f);
+                for (int i = 0; i < 20; ++i) {
+                    world.camera.detail_settle(1.0f / 60);
+                    const Vector2 seen = world.camera.to_world(Vector2{ area.x, area.y });
+                    CHECK(seen.x >= -1e-2f);
+                    CHECK(seen.y >= -1e-2f);
+                    CHECK(seen.x <= STRENGTH + 1e-2f);
+                    CHECK(seen.y <= STRENGTH + 1e-2f);
+                }
+            }
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a zoom that is not a zoom is 1, times the stretch") {
+        // As without a stretch: zero, a negative and NaN are 1 -- here 1 on
+        // top of the letterbox's 2, never a NaN in the drawn camera.
+        const Screen screen(2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::LETTERBOX);
+        World world;
+        for (const float zoom :
+             { 0.0f, -2.0f, std::numeric_limits<float>::quiet_NaN() }) {
+            CAPTURE(zoom);
+            world.camera.zoom = zoom;
+            CHECK(world.camera.raylib().zoom == doctest::Approx(2));
+            CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH));
+            CHECK(world.camera.view().height == doctest::Approx(SCREEN_HEIGHT));
+            CHECK(near(world.camera.to_world(Vector2{ 0, 0 }), Vector2{ 0, 0 }));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a screen of one pixel, and a 4096 square, in every mode") {
+        // The extremes of a window: the design still fits, centred, and the
+        // corners of the game's area are the corners of the view.
+        const World world;
+        for (const Vector2 size : { Vector2{ 1, 1 }, Vector2{ 4096, 4096 } }) {
+            for (const Stretch mode : MODES) {
+                CAPTURE(size.x);
+                CAPTURE(static_cast<int>(mode));
+                const Screen screen(size.x, size.y, mode);
+                const Rectangle area = game_area();
+                const Rectangle v = world.camera.view();
+                CHECK(std::isfinite(world.camera.raylib().zoom));
+                CHECK(world.camera.raylib().zoom > 0);
+                CHECK(near(world.camera.to_world(Vector2{ area.x, area.y }),
+                           Vector2{ v.x, v.y }));
+                CHECK(near(world.camera.to_world(
+                               Vector2{ area.x + area.width, area.y + area.height }),
+                           Vector2{ v.x + v.width, v.y + v.height }));
+                if (mode == Stretch::LETTERBOX) {
+                    CHECK(v.width == doctest::Approx(SCREEN_WIDTH));
+                    CHECK(v.height == doctest::Approx(SCREEN_HEIGHT));
+                } else if (mode == Stretch::NONE) {
+                    CHECK(v.width == doctest::Approx(size.x));
+                    CHECK(v.height == doctest::Approx(size.y));
+                }
+            }
         }
     }
 

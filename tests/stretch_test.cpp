@@ -48,8 +48,8 @@ struct Fixture {
     }
 };
 
-void check_clip(const std::optional<rmp::scenes::detail::WorldClip> &clip, int x, int y,
-                int w, int h) {
+void check_clip(const std::optional<rmp::scenes::detail::WorldClip> &clip, const int x,
+                const int y, const int w, const int h) {
     REQUIRE(clip.has_value());
     const rmp::scenes::detail::WorldClip got =
         clip.value_or(rmp::scenes::detail::WorldClip{ -1, -1, -1, -1 });
@@ -221,6 +221,33 @@ TEST_SUITE("app: stretch: the letterbox's clip") {
         CHECK(bottom < 2400);
         // Centred: the two bars differ by a pixel at most.
         CHECK(std::abs(top - (2400 - bottom)) <= 1);
+    }
+
+    TEST_CASE("the extremes: a 4096 square, a bar under a pixel, one pixel") {
+        // A square monitor: the design across its width, bars above and below
+        // of exactly (4096 - 4096 / W * H) / 2 pixels each.
+        const auto s = 4096 / W;
+        const auto bar = static_cast<int>(std::lround((4096 - H * s) / 2));
+        check_clip(world_clip(Stretch::LETTERBOX, Vector2{ 4096, 4096 }), 0, bar, 4096,
+                   4096 - 2 * bar);
+        // One pixel wider than the design: half a pixel of bar on each side.
+        // Each edge is rounded on its own, so the clip is still the design's
+        // width, and inside the window.
+        const auto wider = world_clip(Stretch::LETTERBOX, Vector2{ W + 1, H });
+        REQUIRE(wider.has_value());
+        const rmp::scenes::detail::WorldClip got =
+            wider.value_or(rmp::scenes::detail::WorldClip{ -1, -1, -1, -1 });
+        CHECK(got.width == static_cast<int>(W));
+        CHECK(got.x >= 0);
+        CHECK(got.x + got.width <= static_cast<int>(W) + 1);
+        // A window of one pixel has no bar a pixel wide: nothing to cut.
+        CHECK_FALSE(world_clip(Stretch::LETTERBOX, Vector2{ 1, 1 }).has_value());
+        // And what is not a size never cuts, whichever way it is not one.
+        const float inf = std::numeric_limits<float>::infinity();
+        for (const Vector2 screen : { Vector2{ inf, H }, Vector2{ W, inf },
+                                      Vector2{ -W, H }, Vector2{ W, -H } }) {
+            CHECK_FALSE(world_clip(Stretch::LETTERBOX, screen).has_value());
+        }
     }
 }
 
