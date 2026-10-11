@@ -317,12 +317,13 @@ TEST_SUITE("random") {
         CHECK(rmp::random::value() == 16777215.0f / 16777216.0f);
         rmp::random::seed(12415944);
         const float drawn = rmp::random::range(-std::numeric_limits<float>::min(), 0.0f);
-        CHECK(drawn < 0.0f);
-        CHECK(drawn >= -std::numeric_limits<float>::min());
-        // And the other way round: from 0 down to -FLT_MIN never lands on it.
+        // The nearest float short of max -- not min, which is in range too.
+        CHECK(drawn == -std::numeric_limits<float>::denorm_min());
+        // And the other way round: from 0 down to -FLT_MIN, whose answer at
+        // this seed rounds onto -FLT_MIN, comes back one float short of it.
         rmp::random::seed(12415944);
-        CHECK(rmp::random::range(0.0f, -std::numeric_limits<float>::min()) >
-              -std::numeric_limits<float>::min());
+        CHECK(rmp::random::range(0.0f, -std::numeric_limits<float>::min()) ==
+              std::nextafter(-std::numeric_limits<float>::min(), 0.0f));
         // A gap rounding pushed one float PAST max: -(2^24 + 2) to 1, whose
         // difference rounds up to 2^24 + 4.
         rmp::random::seed(12415944);

@@ -1,6 +1,9 @@
 # Collision: the grid, raycasts, sweeps (package P5).
 kind     cxx
 sources  src/rmp/collision.cpp
-tests    unit_test -sf=*collision_test.cpp,*map_collision_test.cpp
+# Without the hundred-raycast timing case: its 20 ms ceiling is a build's
+# without sanitizers, and Mull's -O0 build with every mutant compiled in took
+# 41 ms on a loaded machine -- the warm-up run failed and no mutant ran.
+tests    unit_test -sf=*collision_test.cpp,*map_collision_test.cpp -tce=*cheap
 tests    property_test -ts=*collision
 floor    -
