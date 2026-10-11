@@ -40,6 +40,7 @@
 #include <rmp/ui.h>
 
 #include <array>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -634,8 +635,23 @@ void eases_in() {
     frame([] { draw_split(true); });
 }
 
+// What the backdrop said in the log while a check listened: how many times it
+// gave up on the blur, a machine's condition said once.
+struct {
+    int gave_up = 0;
+} heard;
+
+void hear(int /*level*/, const char *text, va_list args) {
+    std::array<char, 512> line{};
+    std::vsnprintf(line.data(), line.size(), text, args);
+    if (std::string_view(line.data()).find("cannot blur here") !=
+        std::string_view::npos) {
+        ++heard.gave_up;
+    }
+}
+
 // A shader that does not build is a machine's condition: the veil alone, a
-// line in the log, and no report.
+// line in the log -- one, however many frames ask -- and no report.
 void a_shader_that_fails() {
     const int reports = rmp::detail::report_count();
     rmp::ui::detail::ShaderSource broken =
@@ -645,6 +661,9 @@ void a_shader_that_fails() {
     bool redirected = false;
     const Shot plain = frame([] { draw_split(true); });
     bool all_plain = true;
+    heard.gave_up = 0;
+    SetTraceLogLevel(LOG_INFO); // where the line is said
+    SetTraceLogCallback(hear);
     for (int i = 0; i < 4; ++i) {
         const Shot shot = frame([&] {
             draw_split(true);
@@ -653,8 +672,14 @@ void a_shader_that_fails() {
         });
         all_plain = identical(shot, plain, "broken_shader") && all_plain;
     }
+    SetTraceLogCallback(nullptr);
+    SetTraceLogLevel(LOG_WARNING);
     check(!redirected && all_plain,
           "a shader that does not build: never redirected, the frame untouched (dim 0)");
+    std::printf("      \"cannot blur here\" said %d times over four frames\n",
+                heard.gave_up);
+    check(heard.gave_up == 1,
+          "...said once in the log, and not tried again every frame after it");
     check(rmp::detail::report_count() == reports,
           "...and it is not the game's mistake: nothing reported");
     rmp::ui::detail::set_test_blur_shader(std::nullopt);
