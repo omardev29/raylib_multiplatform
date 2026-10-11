@@ -116,7 +116,7 @@ struct Quiet {
 struct Parsed {
     rmp::Tilemap map;
     const MapData *data = nullptr;
-    Parsed(const std::string &text, const char *name, const char *level = "") {
+    Parsed(const std::string &text, const char *name, std::string_view level = {}) {
         rmp::tilemap::detail::Access::adopt(
             map,
             rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
@@ -899,7 +899,7 @@ TEST_SUITE("ldtk") {
                                cJSON_GetObjectItemCaseSensitive(root.get(), "levels")) {
                 const std::string name = str(level, "identifier");
                 CAPTURE(name);
-                const Parsed p(text, sample, name.c_str());
+                const Parsed p(text, sample, name);
                 REQUIRE(p.map.valid());
                 const cJSON *layers =
                     cJSON_GetObjectItemCaseSensitive(level, "layerInstances");
@@ -1134,7 +1134,7 @@ TEST_SUITE("ldtk") {
         while (!level.empty() && visited.size() < 32) {
             CAPTURE(level);
             visited.push_back(level);
-            const Parsed p(text, "world.ldtk", level.c_str());
+            const Parsed p(text, "world.ldtk", level);
             REQUIRE(p.map.valid());
             const Rectangle b = p.map.bounds();
             CHECK(p.map.layer_count() > 0);
@@ -1323,6 +1323,20 @@ TEST_SUITE("ldtk") {
         CHECK(src.x > 0);
         CHECK(src.y == doctest::Approx(0)); // a padding below 0 is 0
         CHECK(src.width == doctest::Approx(2147483647.0));
+    }
+
+    TEST_CASE("a level asked for is every byte of its name, a NUL inside too") {
+        // property: ldtk's counterexample. parse_map took the level as a C
+        // string, so "C" followed by a NUL and "x" was "C": a level other than
+        // the one asked for loaded, and level() said "C".
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[]},"levels":[)"
+            R"({"identifier":"C","pxWid":8,"pxHei":8,"layerInstances":[]}]})";
+        CHECK_FALSE(Parsed(doc, "nul.ldtk", std::string("C\0x", 3)).map.valid());
+        CHECK_FALSE(Parsed(doc, "nul.ldtk", std::string("\0", 1)).map.valid());
+        CHECK(std::string(Parsed(doc, "nul.ldtk", "C").map.level()) == "C");
+        CHECK(std::string(Parsed(doc, "nul.ldtk").map.level()) == "C");
     }
 
     TEST_CASE("neighbour_at never names the level the map is") {

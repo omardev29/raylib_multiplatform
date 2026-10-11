@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 // ---------------------------------------------------------------------------
@@ -179,15 +180,17 @@ struct Access {
 };
 
 // The bytes of a map file into a MapData: an LDtk project when `name` ends in
-// .ldtk, a Tiled JSON map otherwise. `level` picks the LDtk level by name, and
-// empty means the first; Tiled has no levels and ignores it. Returns nullptr
+// .ldtk, a Tiled JSON map otherwise. `level` picks the LDtk level by name,
+// every byte of it -- a NUL inside is part of the name, and no level has one
+// -- and empty means the first; Tiled has no levels and ignores it. Returns nullptr
 // and says why. TAKES no ownership of `bytes`; the caller owns the result and
 // frees it with free_map.
-MapPtr parse_map(const void *bytes, int size, const char *name, const char *level = "");
+MapPtr parse_map(const void *bytes, int size, const char *name,
+                 std::string_view level = {});
 
 // The Tiled half and the LDtk half of parse_map, for the tests that want one.
 MapPtr parse_tiled(const void *bytes, int size, const char *name);
-MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *level);
+MapPtr parse_ldtk(const void *bytes, int size, const char *name, std::string_view level);
 
 // The object layers, flattened, for a test that wants to look before spawning.
 int object_count(const MapData *data);

@@ -40,6 +40,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rmp {
@@ -437,7 +438,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     return { data.release(), &free_map };
 }
 
-MapPtr parse_map(const void *bytes, int size, const char *name, const char *level) {
+MapPtr parse_map(const void *bytes, int size, const char *name, std::string_view level) {
     const std::string file = name != nullptr ? name : "";
     // A level file on its own is half a project: its tilesets and layer
     // definitions live in the .ldtk.
@@ -451,8 +452,8 @@ MapPtr parse_map(const void *bytes, int size, const char *name, const char *leve
         return { nullptr, &free_map };
     }
     const bool ldtk = file.ends_with(".ldtk");
-    MapPtr out = ldtk ? parse_ldtk(bytes, size, name, level != nullptr ? level : "")
-                      : parse_tiled(bytes, size, name);
+    MapPtr out =
+        ldtk ? parse_ldtk(bytes, size, name, level) : parse_tiled(bytes, size, name);
     if (out != nullptr) out->source = file;
     return out;
 }
@@ -562,21 +563,34 @@ int cell_h(const MapData &data, const Layer &layer) {
     return layer.cell_height > 0 ? layer.cell_height : data.tile_height;
 }
 
+// Where a world coordinate is in a layer's grid, in cells: the layer's (0,0)
+// is the map's origin plus the layer's offset. In double: a float division by
+// a cell that is not a power of two rounds, and the sum of two rounded
+// quotients -- solid_in() made its far edge as left + width / cell -- landed
+// past a cell boundary the edge only touched: a box resting on a floor of 12
+// px cells was IN the floor. Every float, and every sum of two of them, is
+// exact in a double.
+double cell_coordinate(double world, double origin, double offset, int cell) {
+    return (world - origin - offset) / cell;
+}
+
 // The cell of `layer` under a world position, or false when it is outside.
 bool cell_under(const MapData &data, const Layer &layer, Vector2 world, int *column,
                 int *row) {
     const int w = cell_w(data, layer);
     const int h = cell_h(data, layer);
     if (w <= 0 || h <= 0) return false;
-    // Divided and compared as floats, and only cast once it is known to be a
+    // Divided and compared in double, and only cast once it is known to be a
     // cell of the layer: a position of 1e20, an infinity or a NaN cast to int
-    // straight away is undefined behaviour, and a NaN passed `x < 0`.
-    const float x =
-        std::floor((world.x - data.origin.x - layer.offset.x) / static_cast<float>(w));
-    const float y =
-        std::floor((world.y - data.origin.y - layer.offset.y) / static_cast<float>(h));
-    if (std::isnan(x) || std::isnan(y) || x < 0 || y < 0 ||
-        x >= static_cast<float>(layer.width) || y >= static_cast<float>(layer.height)) {
+    // straight away is undefined behaviour, and a NaN passed `x < 0`. Double,
+    // and the same arithmetic as solid_in()'s, so that a point and the
+    // rectangle with no area there name the same cell.
+    const double x =
+        std::floor(cell_coordinate(world.x, data.origin.x, layer.offset.x, w));
+    const double y =
+        std::floor(cell_coordinate(world.y, data.origin.y, layer.offset.y, h));
+    if (std::isnan(x) || std::isnan(y) || x < 0 || y < 0 || x >= layer.width ||
+        y >= layer.height) {
         return false;
     }
     *column = static_cast<int>(x);
@@ -722,26 +736,33 @@ bool Tilemap::solid_in(Rectangle world_rect) const {
         const int w = cell_w(*data, layer);
         const int h = cell_h(*data, layer);
         if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) continue;
-        const float left =
-            (world_rect.x - data->origin.x - layer.offset.x) / static_cast<float>(w);
-        const float top =
-            (world_rect.y - data->origin.y - layer.offset.y) / static_cast<float>(h);
-        const float right = left + (world_rect.width / static_cast<float>(w));
-        const float bottom = top + (world_rect.height / static_cast<float>(h));
+        // Each edge from its own coordinate -- the far one from x + width,
+        // summed in double -- never the near edge plus the size in cells:
+        // two roundings there put an edge that only touches a cell inside it.
+        const double left =
+            cell_coordinate(world_rect.x, data->origin.x, layer.offset.x, w);
+        const double top =
+            cell_coordinate(world_rect.y, data->origin.y, layer.offset.y, h);
+        const double right =
+            cell_coordinate(static_cast<double>(world_rect.x) + world_rect.width,
+                            data->origin.x, layer.offset.x, w);
+        const double bottom =
+            cell_coordinate(static_cast<double>(world_rect.y) + world_rect.height,
+                            data->origin.y, layer.offset.y, h);
         if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) ||
             !std::isfinite(bottom)) {
             continue;
         }
-        const auto cells_x = static_cast<float>(layer.width);
-        const auto cells_y = static_cast<float>(layer.height);
-        const float first_x = std::floor(left);
-        const float first_y = std::floor(top);
-        const float last_x = std::max(first_x, std::ceil(right) - 1);
-        const float last_y = std::max(first_y, std::ceil(bottom) - 1);
+        const auto cells_x = static_cast<double>(layer.width);
+        const auto cells_y = static_cast<double>(layer.height);
+        const double first_x = std::floor(left);
+        const double first_y = std::floor(top);
+        const double last_x = std::max(first_x, std::ceil(right) - 1);
+        const double last_y = std::max(first_y, std::ceil(bottom) - 1);
         if (last_x < 0 || last_y < 0 || first_x >= cells_x || first_y >= cells_y)
             continue;
-        const int first_col = static_cast<int>(std::max(first_x, 0.0f));
-        const int first_row = static_cast<int>(std::max(first_y, 0.0f));
+        const int first_col = static_cast<int>(std::max(first_x, 0.0));
+        const int first_row = static_cast<int>(std::max(first_y, 0.0));
         const int last_col = static_cast<int>(std::min(last_x, cells_x - 1));
         const int last_row = static_cast<int>(std::min(last_y, cells_y - 1));
         for (int row = first_row; row <= last_row; ++row) {

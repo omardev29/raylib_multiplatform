@@ -99,7 +99,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     rmp::tilemap::detail::Access::adopt(
         map,
         rmp::tilemap::detail::parse_map(project.data(), static_cast<int>(project.size()),
-                                        "fuzz.ldtk", level.c_str()));
+                                        "fuzz.ldtk", level));
     if (map.valid() && !level.empty()) {
         require(map.level() == level, "the level loaded is the one asked for");
     }

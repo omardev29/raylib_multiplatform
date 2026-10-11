@@ -68,6 +68,7 @@
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -562,9 +563,8 @@ void say_levels(const std::vector<LevelRef> &levels, const char *name,
 
 } // namespace
 
-MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *level) {
+MapPtr parse_ldtk(const void *bytes, int size, const char *name, std::string_view level) {
     if (name == nullptr) name = "";
-    if (level == nullptr) level = "";
     if (bytes == nullptr || size <= 0) return { nullptr, &free_map };
 
     // Every number of the project is read in the "C" locale, or a German
@@ -602,15 +602,18 @@ MapPtr parse_ldtk(const void *bytes, int size, const char *name, const char *lev
             name, version);
     }
 
+    // By every byte of the name: a level asked for as "A" with a NUL and more
+    // after it was "A" to a C string, and loaded a level other than the one
+    // asked for. No identifier holds a NUL (cJSON ends the string there).
     const LevelRef *chosen = nullptr;
     for (const LevelRef &ref : levels) {
-        if (level[0] == '\0' || std::string(text(ref.level, "identifier")) == level) {
+        if (level.empty() || std::string_view(text(ref.level, "identifier")) == level) {
             chosen = &ref;
             break;
         }
     }
     if (chosen == nullptr) {
-        say_levels(levels, name, level);
+        say_levels(levels, name, std::string(level).c_str());
         return { nullptr, &free_map };
     }
 

@@ -26,7 +26,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -153,6 +155,38 @@ TEST_SUITE("map collision") {
         CHECK_FALSE(world.map.solid_in({ NAN, 0, 10, 10 }));
         CHECK_FALSE(world.map.solid_in({ 0, 0, INFINITY, 10 }));
         CHECK_FALSE(world.map.solid_in({ 32, 32, -5, 10 }));
+    }
+
+    TEST_CASE(
+        "touching a cell that is not a power of two wide is not being in it either") {
+        // property: tilemap's counterexample (RC seed 2). solid_in() made a
+        // far edge as the near edge in cells plus the size in cells, two
+        // float quotients by 12 that do not divide: -37/12 + 49/12 summed to
+        // 1.0000001, and a box whose bottom rests on row 1 was IN row 1.
+        auto data = std::make_unique<rmp::tilemap::detail::MapData>();
+        data->origin = Vector2{ -512, -512 };
+        data->tile_width = 12;
+        data->tile_height = 12;
+        rmp::tilemap::detail::Layer layer;
+        layer.width = 2;
+        layer.height = 2;
+        layer.cell_width = 12;
+        layer.cell_height = 12;
+        layer.offset = Vector2{ -64, -64 }; // the grid's (0,0) at -576
+        layer.gids.assign(4, 0);
+        layer.solid_cells = { false, false, false, true }; // cell (1, 1) alone
+        data->layers.push_back(std::move(layer));
+        rmp::Tilemap map;
+        rmp::tilemap::detail::Access::adopt(
+            map,
+            rmp::tilemap::detail::MapPtr(data.release(),
+                                         &rmp::tilemap::detail::free_map));
+        // Resting on the cell's top (-564), and a quarter pixel into it.
+        CHECK_FALSE(map.solid_in({ -588, -613, 96, 49 }));
+        CHECK(map.solid_in({ -588, -613, 96, 49.25f }));
+        // Flush against its left side (-564), and a quarter pixel into it.
+        CHECK_FALSE(map.solid_in({ -601, -560, 37, 4 }));
+        CHECK(map.solid_in({ -601, -560, 37.25f, 4 }));
     }
 
     TEST_CASE_FIXTURE(Fixture, "a solid object falls onto the floor and stays there") {
