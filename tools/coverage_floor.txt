@@ -15,7 +15,7 @@ src/rmp/clock.cpp                100
 src/rmp/collision.cpp            96
 src/rmp/console.cpp              94
 src/rmp/global.cpp               100
-src/rmp/input.cpp                92
+src/rmp/input.cpp                93
 src/rmp/internal.h               100
 src/rmp/json_internal.h          100
 src/rmp/ldtk.cpp                 97
@@ -29,7 +29,7 @@ src/rmp/resource.cpp             88
 src/rmp/save.cpp                 94
 src/rmp/save_internal.h          100
 src/rmp/scene.cpp                100
-src/rmp/stretch.cpp              96
+src/rmp/stretch.cpp              97
 src/rmp/tilemap.cpp              92
 src/rmp/tilemap_internal.h       100
 src/rmp/ui/at.cpp                100
