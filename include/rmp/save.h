@@ -165,11 +165,20 @@ private:
     // fields are reached through these, never by name.
     explicit Value(Type type) : _type(type) {}
     [[nodiscard]] double number() const { return _number; }
-    [[nodiscard]] std::vector<std::string> &keys() { return _keys; }
     [[nodiscard]] const std::vector<std::string> &keys() const { return _keys; }
     [[nodiscard]] std::vector<Value> &items() { return _items; }
     [[nodiscard]] const std::vector<Value> &items() const { return _items; }
     void set_version(int version) { _version = version; }
+
+    // An OBJECT's index, kept by every change to its members (value.cpp), so
+    // that [key], size() and key(i) are not a walk over them. place() is
+    // where a key is, _keys.size() when it is not there. member() is where it
+    // is once the caller writes `holds` -- something, or nothing -- into it:
+    // made at the end, holding nothing until then, when it was not there.
+    // rehash() makes the table again from _keys.
+    [[nodiscard]] std::size_t place(std::string_view key) const;
+    std::size_t member(std::string_view key, bool holds);
+    void rehash();
 
     Type _type = Type::NONE;
     bool _boolean = false;
@@ -177,6 +186,10 @@ private:
     std::string _string;
     std::vector<std::string> _keys; // OBJECT: _keys[i] names _items[i]
     std::vector<Value> _items; // LIST and OBJECT
+    // OBJECT: a hash table of the places in _keys -- a place + 1, 0 for an
+    // empty slot -- and the places of the members that hold nothing, in order.
+    std::vector<std::size_t> _slots;
+    std::vector<std::size_t> _absent;
     int _version = RMP_SAVE_VERSION;
 };
 
@@ -250,8 +263,10 @@ private:
     // One more key or index on the path; operator[] builds a deeper Ref so.
     void extend(Step step) { _path.push_back(std::move(step)); }
     // The Value to write into, created on the way; nullptr (said once) when
-    // the path cannot be made. find() is the same walk creating nothing.
-    Value *materialise();
+    // the path cannot be made. `holds` is whether it will hold something once
+    // written, which the object it is a member of writes down. find() is the
+    // same walk creating nothing.
+    Value *materialise(bool holds);
     Value *find();
 
     Value &_root; // the Value it started from, which the path must not outlive

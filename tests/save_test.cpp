@@ -28,6 +28,7 @@
 #include <climits>
 #include <cstdarg>
 #include <clocale>
+#include <cstdint>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -408,6 +409,11 @@ TEST_SUITE("save: Value") {
         v["gold"]["amount"] = 98;
         CHECK(rmp::detail::report_count() == 1); // once per key
         CHECK(v["gold"]["amount"].as_int(-1) == -1); // and reading it is NONE
+        // Keyed by the whole key: two that differ only past a NUL are two
+        // keys, and were one report as C strings.
+        v["gold"][std::string("x\0a", 3)] = 1;
+        v["gold"][std::string("x\0b", 3)] = 1;
+        CHECK(rmp::detail::report_count() == 3);
 
         Value list = Value::list();
         list.push(1);
@@ -540,6 +546,66 @@ TEST_SUITE("save: Value") {
         CHECK_FALSE(Value(3).erase("a"));
         v["cleared"] = Value{};
         CHECK_FALSE(v.erase("cleared")); // nothing was there
+    }
+
+    TEST_CASE("a key erased and written again goes last; one cleared keeps its place") {
+        // The two ways a member stops being there, and what each does to its
+        // place in key(i) and in the file. erase() takes the key away, so a
+        // later write adds it at the end. Assigning nothing leaves the key
+        // where it was, holding nothing, so a later write -- a value, a path
+        // through it, a push -- puts it back in that place. Pinned as it was
+        // before the members were indexed (value.cpp), and held to it after.
+        const auto order = [](const Value &v) {
+            std::string out;
+            for (int i = 0; i < v.size(); ++i) out += std::string(v.key(i)) + ",";
+            return out;
+        };
+        Value v;
+        v["a"] = 1;
+        v["b"] = 2;
+        v["c"] = 3;
+        v["d"] = 4;
+        CHECK(v.erase("a"));
+        v["a"] = 5;
+        CHECK(order(v) == "b,c,d,a,");
+        v["b"] = Value{};
+        CHECK(order(v) == "c,d,a,");
+        v["b"] = 6;
+        CHECK(order(v) == "b,c,d,a,");
+        v["c"] = Value{};
+        v["c"]["deeper"] = 7;
+        CHECK(order(v) == "b,c,d,a,");
+        v["d"] = Value{};
+        v["d"].push(8);
+        CHECK(order(v) == "b,c,d,a,");
+        // Cleared and THEN erased: the place went with the key.
+        v["b"] = Value{};
+        CHECK_FALSE(v.erase("b"));
+        v["b"] = 9;
+        CHECK(order(v) == "c,d,a,b,");
+        CHECK(rmp::save::detail::to_json(v) ==
+              R"({"c":{"deeper":7},"d":[8],"a":5,"b":9})");
+
+        // One level down, through a Ref, the same.
+        Value w;
+        w["p"]["x"] = 1;
+        w["p"]["y"] = 2;
+        w["p"]["z"] = 3;
+        CHECK(w["p"].erase("x"));
+        w["p"]["x"] = 4;
+        w["p"]["y"] = Value{};
+        w["p"]["y"] = 5;
+        CHECK(order(w["p"]) == "y,z,x,");
+
+        // And in an object read from a file, which was built another way.
+        Value read;
+        REQUIRE(rmp::save::detail::from_json(R"({"k":1,"l":2,"m":3})", &read));
+        read["k"] = Value{};
+        CHECK(order(read) == "l,m,");
+        read["k"] = 6;
+        CHECK(read.erase("l"));
+        read["l"] = 7;
+        CHECK(order(read) == "k,m,l,");
     }
 
     TEST_CASE("a Ref walks the keys of the object it names, and creates nothing") {
@@ -981,6 +1047,52 @@ TEST_SUITE("save: format") {
         CHECK_FALSE(v.contains("gone"));
         CHECK(again.starts_with(R"({"k0":-1,"k1":1,)"));
         CHECK(again.ends_with(R"("k99999":99999})"));
+#if defined(RMP_SANITIZE)
+        CHECK(seconds < 20.0); // ASan and UBSan cost several times the time
+#else
+        CHECK(seconds < 3.0);
+#endif
+    }
+
+    TEST_CASE("an object of fifty thousand keys is built and walked in a moment") {
+        // Walked the way rmp/save.h says to walk an object you did not write
+        // -- size(), key(i), [key] -- each of which went through the members
+        // before the one it was after: 10 000 keys took 25 s under ASan, and
+        // 40 000 took 256. Built through [key] = ..., which searched the same
+        // way. A member holding nothing among them, which key(i) steps over,
+        // and the same object again as a file reads it back.
+        constexpr int KEYS = 50000;
+        constexpr int CLEARED = 7;
+        const auto start = std::chrono::steady_clock::now();
+        Value built;
+        for (int i = 0; i < KEYS; ++i) built["k" + std::to_string(i)] = i;
+        built["k" + std::to_string(CLEARED)] = Value{};
+        Value read;
+        REQUIRE(rmp::save::detail::from_json(rmp::save::detail::to_json(built), &read));
+        const auto walk = [](const Value &v) {
+            std::int64_t sum = 0;
+            int seen = 0;
+            bool in_order = true;
+            for (int i = 0; i < v.size(); ++i) {
+                const std::string_view key = v.key(i);
+                const int expected = i < CLEARED ? i : i + 1;
+                in_order = in_order && key == "k" + std::to_string(expected);
+                sum += v[key].as_int(-1);
+                ++seen;
+            }
+            CHECK(seen == KEYS - 1);
+            CHECK(in_order);
+            CHECK(sum == std::int64_t{ KEYS } * (KEYS - 1) / 2 - CLEARED);
+            CHECK_FALSE(v.contains("k" + std::to_string(CLEARED)));
+            CHECK(v.contains("k" + std::to_string(KEYS - 1)));
+        };
+        walk(built);
+        walk(read);
+        const double seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+                .count();
+        MESSAGE(KEYS << " keys built, written, read and walked twice in " << seconds
+                     << " s");
 #if defined(RMP_SANITIZE)
         CHECK(seconds < 20.0); // ASan and UBSan cost several times the time
 #else

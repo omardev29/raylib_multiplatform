@@ -40,15 +40,14 @@ struct ValueAccess {
     // and a save must write back exactly what it read.
     static double number(const Value &value) { return value.number(); }
     // An object's keys and its items, as stored -- a member holding nothing
-    // included, which the caller skips -- so a save is read and written in one
-    // pass over them. Through key(i) and [key], each member walked every one
-    // before it, and a save of a million keys took hours to read.
+    // included, which the caller skips -- so a save is written in one pass
+    // over them. Read only: an object is built through object[key] = ...,
+    // which keeps the index beside them (value.cpp) that a write straight
+    // into these would leave behind.
     static const std::vector<std::string> &keys(const Value &value) {
         return value.keys();
     }
     static const std::vector<Value> &items(const Value &value) { return value.items(); }
-    static std::vector<std::string> &keys(Value &value) { return value.keys(); }
-    static std::vector<Value> &items(Value &value) { return value.items(); }
 };
 
 } // namespace rmp::detail

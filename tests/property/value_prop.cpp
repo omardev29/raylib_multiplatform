@@ -505,6 +505,111 @@ TEST_SUITE("property: value") {
                          });
     }
 
+    TEST_CASE("an object's members keep their places through any run of writes") {
+        const QuietLog quiet;
+        rmp::test::check(
+            "size(), key(i), [key] and contains() agree with a list of places after "
+            "every write, clear, erase, path and push",
+            [] {
+                // The places, written down the plain way: every key in the
+                // order it was first written, holding nothing when it was
+                // cleared -- it keeps its place -- and gone when it was erased.
+                // value.cpp keeps an index of its own beside the members (a
+                // hash of the keys, and where those holding nothing are), and
+                // this is what it has to agree with -- across its growth, so a
+                // pool of keys past what the first table holds.
+                std::vector<std::pair<std::string, Value>> places;
+                const auto find = [&places](const std::string &key) {
+                    return std::ranges::find_if(
+                        places, [&](const auto &p) { return p.first == key; });
+                };
+                const int pool = 1 + pick(40);
+                const auto draw = [pool] {
+                    return pick(8) == 0 ? *rmp::test::gen::hostile_string()
+                                        : "k" + std::to_string(pick(pool));
+                };
+                Value v = Value::object();
+                const int steps = 1 + pick(150);
+                for (int step = 0; step < steps; ++step) {
+                    const std::string key = draw();
+                    const auto at = find(key);
+                    const Value now = at != places.end() ? at->second : Value();
+                    const auto write = [&](const Value &x) {
+                        if (at != places.end()) {
+                            at->second = x;
+                        } else {
+                            places.emplace_back(key, x);
+                        }
+                    };
+                    switch (pick(7)) {
+                        case 0: { // a write, of nothing now and then
+                            const Value x = pick(4) == 0 ? Value() : Value(step);
+                            v[key] = x;
+                            write(x);
+                            break;
+                        }
+                        case 1: { // an erase
+                            const bool held = now.type() != Type::NONE;
+                            RC_ASSERT(v.erase(key) == held);
+                            if (at != places.end()) places.erase(at);
+                            break;
+                        }
+                        case 2: { // a path through it, to something or nothing
+                            const Value x = pick(3) == 0 ? Value() : Value(step);
+                            v[key]["d"] = x;
+                            if (now.type() == Type::NONE || now.type() == Type::OBJECT) {
+                                Value deeper =
+                                    now.type() == Type::NONE ? Value::object() : now;
+                                deeper["d"] = x;
+                                write(deeper);
+                            }
+                            break;
+                        }
+                        case 3: { // a push into it
+                            v[key].push(step);
+                            Value pushed = now;
+                            pushed.push(step);
+                            if (now.type() == Type::NONE || now.type() == Type::LIST)
+                                write(pushed);
+                            break;
+                        }
+                        case 4: { // a copy of the whole, and a move
+                            Value copy = v;
+                            v = std::move(copy);
+                            break;
+                        }
+                        case 5: { // a Ref from a Ref, which copies the value
+                            const std::string other = draw();
+                            const auto from = find(other);
+                            const Value source =
+                                from != places.end() ? from->second : Value();
+                            v[key] = v[other];
+                            write(source);
+                            break;
+                        }
+                        default: { // a read, which changes nothing
+                            const Value &as_const = v;
+                            RC_ASSERT(as_const[key] == now);
+                            break;
+                        }
+                    }
+                    std::vector<std::string_view> live;
+                    for (const auto &[name, value] : places)
+                        if (value.type() != Type::NONE) live.emplace_back(name);
+                    RC_ASSERT(v.type() == Type::OBJECT);
+                    RC_ASSERT(v.size() == static_cast<int>(live.size()));
+                    for (int i = 0; i < v.size(); ++i)
+                        RC_ASSERT(v.key(i) == live[static_cast<std::size_t>(i)]);
+                    RC_ASSERT(v.key(v.size()).empty());
+                    for (const auto &[name, value] : places) {
+                        const Value &as_const = v;
+                        RC_ASSERT(as_const[name] == value);
+                        RC_ASSERT(v.contains(name) == (value.type() != Type::NONE));
+                    }
+                }
+            });
+    }
+
     TEST_CASE("a write lands where it reads back, or changes nothing and is said once") {
         const QuietLog quiet;
         rmp::test::check(

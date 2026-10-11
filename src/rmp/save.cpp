@@ -43,7 +43,6 @@
 #include <random>
 #include <string>
 #include <system_error>
-#include <unordered_map>
 #include <utility>
 
 #if defined(_WIN32)
@@ -224,23 +223,14 @@ Value from_cjson(const cJSON *node) {
         return list;
     }
     if (cJSON_IsObject(node)) {
-        // Built in one pass (see ValueAccess::keys), a key that comes twice
-        // found through a table: it keeps its first place and takes its last
-        // value, as object[key] = ... gave it.
+        // A key that comes twice keeps its first place and takes its last
+        // value, as object[key] = ... gives it -- which finds a key through
+        // the object's own index (value.cpp), so a file of a million keys is
+        // read in one pass.
         Value object = Value::object();
-        std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(object);
-        std::vector<Value> &items = rmp::detail::ValueAccess::items(object);
-        std::unordered_map<std::string_view, std::size_t>
-            place; // views into cJSON's keys
         for (const cJSON *child = node->child; child != nullptr; child = child->next) {
             if (child->string == nullptr || cJSON_IsNull(child)) continue;
-            const auto [at, added] = place.try_emplace(child->string, keys.size());
-            if (added) {
-                keys.emplace_back(child->string);
-                items.push_back(from_cjson(child));
-            } else {
-                items[at->second] = from_cjson(child);
-            }
+            object[std::string_view(child->string)] = from_cjson(child);
         }
         return object;
     }
