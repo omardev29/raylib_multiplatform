@@ -877,6 +877,10 @@ TEST_SUITE("ui: floating") {
         const Rectangle bottom{ 400, 460, 100, 30 };
         CHECK(place_tooltip(bottom, size, Align::BOTTOM_CENTER, screen, gap).side ==
               Align::TOP_CENTER);
+        CHECK(place_tooltip(bottom, size, Align::BOTTOM_LEFT, screen, gap).side ==
+              Align::TOP_LEFT);
+        CHECK(place_tooltip(bottom, size, Align::BOTTOM_RIGHT, screen, gap).side ==
+              Align::TOP_RIGHT);
         // Beside: against the left edge it goes right, and the other way.
         const Rectangle left{ 5, 200, 100, 50 };
         CHECK(place_tooltip(left, size, Align::CENTER_LEFT, screen, gap).side ==

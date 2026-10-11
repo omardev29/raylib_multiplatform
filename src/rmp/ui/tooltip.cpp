@@ -245,8 +245,8 @@ TipPlace place_tooltip(Rectangle control, Vector2 size, Align side, Vector2 scre
                        float gap) {
     TipPlace place{ side, Vector2{ 0, 0 } };
     const bool vertical = above_or_below(side);
-    if (side != Align::CENTER &&
-        !fits_across(tip_at(control, size, side, gap), screen, vertical) &&
+    // CENTER is its own opposite: it never moves to another side, only along.
+    if (!fits_across(tip_at(control, size, side, gap), screen, vertical) &&
         fits_across(tip_at(control, size, opposite(side), gap), screen, vertical)) {
         place.side = opposite(side);
     }
