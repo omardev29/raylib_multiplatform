@@ -702,8 +702,8 @@ SANITIZE_REFUSED = {
                "ids, the PCG random generator and md5 wrap on purpose",
     "implicit-conversion": "it reports conversions that are defined behaviour, which "
                            "raylib's float-and-int API makes on every call",
-    "fuzzer": "libFuzzer replaces main(): it is how the framework fuzzes its parsers, not a "
-              "way to build a game",
+    "fuzzer": "libFuzzer replaces main(): it builds a fuzz target, a program of its own around "
+              "one function, not a game",
 }
 # android:appCategory: how the Play Store files the app.
 APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",

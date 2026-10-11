@@ -413,8 +413,9 @@ sanitize = ["address", "undefined"]
 #
 #   address    AddressSanitizer: a read or write past a buffer, a use after
 #              free or after return, and -- LeakSanitizer, part of it on Linux
-#              -- memory nobody freed, reported at exit. About twice as slow
-#              and three times the memory.
+#              -- memory nobody freed, reported at exit. About three times as
+#              slow (the framework's unit tests: 5.5 s, then 18.6 s) and two
+#              to three times the memory.
 #   undefined  UndefinedBehaviorSanitizer: a signed overflow, a shift past the
 #              width, a float cast to an int it does not fit, a misaligned or
 #              null access. Cheap.

@@ -9,7 +9,9 @@
 #
 # Two things, and only the second needs a runtime:
 #
-#   HARDENING, every Debug build, framework and game. Bounds-checked operator[]
+#   HARDENING, every Debug build CMakeLists.txt makes, framework and game --
+#   the desktop; Android's raymob CMake and the iOS Xcode project do not
+#   include this file. Bounds-checked operator[]
 #   and front()/back() in libstdc++ (_GLIBCXX_ASSERTIONS) and libc++
 #   (_LIBCPP_HARDENING_MODE), and uninitialised locals filled with a pattern
 #   that crashes instead of a zero that happens to work

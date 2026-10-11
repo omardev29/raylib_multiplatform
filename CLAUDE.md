@@ -322,7 +322,9 @@ here so that nobody "fixes" one back.
   `-DRMP_SANITIZE=OFF` turns it off only to measure. A game gets `sanitize =
   []`: off, its choice. CI sets `RMP_REQUIRE_SANITIZERS=1`, so a runner that
   cannot run them fails at configure instead of testing nothing in silence. A
-  timing check needs an `RMP_SANITIZE` allowance, because ASan is 3-4x slower.
+  timing check needs an `RMP_SANITIZE` allowance: ASan makes the unit tests
+  3.4 times slower (5.5 s, then 18.6 s). All of this is the desktop: Android
+  and iOS build through their own projects, and get none of it.
   LSan suppressions (`cmake/sanitizer_hooks.c`) name only system `lib*.so`
   files seen leaking in a real run -- never our code -- and today there are
   none. Every target built from our sources gets `rmp_apply_warnings`
@@ -364,8 +366,9 @@ here so that nobody "fixes" one back.
   warning nobody owes, a count that grew and a count above what is left; `bash
   tools/lint.sh debt` lowers it, and nothing is ever added. A new warning is
   fixed, or carries `NOLINT(check)` with its reason. cppcheck has zero findings
-  in `src/rmp`; every suppression is inline, `// cppcheck-suppress id ; why`,
-  and one that matches nothing fails. Two rules have no check, and are review
+  in `src/rmp`; a suppression is inline, `// cppcheck-suppress id ; why`, and
+  one that matches nothing fails -- but for the few checks
+  `tools/cppcheck_check.sh` turns off whole, each with its reason there. Two rules have no check, and are review
   questions: `const` on a by-value parameter in a definition (clang-tidy 22
   does not look at parameters), and `constexpr`/`consteval`/`constinit`
   wherever possible. The game's own code is not held to any of it: a game gets
