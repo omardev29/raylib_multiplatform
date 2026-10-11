@@ -28,7 +28,8 @@ what is ours.
 
 | | |
 |---|---|
-| [01_stack](scenes/01_stack/src/main.cpp) | The whole model, one scene per file under `src/scenes/`: a menu that changes to a game, and a game that pushes a pause overlay onto itself. The pause scene contains **no policy** — freezing the world is what the defaults already do — and nothing in the game knows it exists. Plus `rmp::global<T>()` for the score that survives the transition. **Start here.** |
+| [01_stack](scenes/01_stack/src/main.cpp) | The whole model, one scene per file under `src/scenes/`: a menu that changes to a game, and a game that pushes a pause menu onto itself. The pause scene contains **no policy** — freezing the world is what the defaults already do, and its whole `_draw()` is one `rmp::ui::overlay()` — and nothing in the game knows it exists. A HUD over a scene being played: the arrows move the player, not the focus, and Tab walks into the HUD. Plus `rmp::global<T>()` for the score that survives the transition. **Start here.** |
+| [02_stretch](scenes/02_stretch/src/main.cpp) | `[window] stretch`, in a window that is not the design's size: a court that is letterboxed, expanded or shown 1:1, a key and a button to go round the three, and a HUD that stays on the court. Resize it. The camera, the pointer and the interface follow the mode, and nothing in the scene asks which one is on. |
 
 ## [`input/`](input) — `rmp::input`
 
@@ -43,10 +44,11 @@ what is ours.
 | [01_menu](ui/01_menu/src/main.cpp) | A main menu in three lines, then an options screen, a confirm dialog and a HUD — one screen per file under `src/screens/`. Variants, disabled controls, explicit ids, placement, the Theme. **Start here.** |
 | [02_layout](ui/02_layout/src/main.cpp) | `row`, `column`, `panel`, `center`, `stack`/`layer`, `spacer`, plus `image` and `progress`. The Sizing model — fit, grow, fixed — and why design units are not pixels. |
 | [03_clay_direct](ui/03_clay_direct/src/main.cpp) | **The escape hatch.** Clay's own macros in the same frame as `rmp::ui`, for anything the small API does not expose yet. |
-| [04_settings](ui/04_settings/src/main.cpp) | Checkbox, slider, dropdown, text input — and the focus/keyboard/gamepad navigation you get without writing any. The state model, which is "your variable, by reference" and nothing else; the variable lives in `include/settings.h`. The two volume sliders are the `rmp::audio` buses, and the settings are kept with `rmp::save` -- read with every field defaulting to the struct, written on Apply, and a damaged file said as such. |
-| [05_inventory](ui/05_inventory/src/main.cpp) | `grid` with a column count worked out from the space available, `scroll` with clipping, and `wants_pointer()` keeping the game's hands off the UI's clicks. One panel per file under `src/panels/`. |
+| [04_settings](ui/04_settings/src/main.cpp) | Checkbox, slider, dropdown, text input — and the focus/keyboard/gamepad navigation you get without writing any. The state model, which is "your variable, by reference" and nothing else; the variable lives in `include/settings.h`. The two volume sliders are the `rmp::audio` buses, and the settings are kept with `rmp::save` -- read with every field defaulting to the struct, written on Apply with a "Saved" from `notify()`, and a damaged file said as such. |
+| [05_inventory](ui/05_inventory/src/main.cpp) | `grid` with a column count worked out from the space available, `scroll` with clipping, `tooltip()` for what each item is -- under a resting pointer or the keyboard's focus -- and `wants_pointer()` keeping the game's hands off the UI's clicks. One panel per file under `src/panels/`. |
 | [06_style](ui/06_style/src/main.cpp) | The two themes, the five variants, the three sizes and the transition. Nothing in it names a colour — that is the point. Plus copy-modify-set for a Theme of your own. |
-| [07_responsive](ui/07_responsive/src/main.cpp) | `scale()` versus `current_breakpoint()`, and which to reach for. A sidebar that becomes a top strip when the window is taller than it is wide. Resize it. |
+| [07_responsive](ui/07_responsive/src/main.cpp) | `scale()` versus `current_breakpoint()`, and which to reach for. A sidebar that becomes a top strip when the window is taller than it is wide. Resize it: it takes the whole window with `set_stretch(Stretch::NONE)`, where the other examples letterbox. |
+| [08_overlay](ui/08_overlay/src/main.cpp) | `overlay()`: a pause menu pushed as a scene of its own, blurred, that freezes the game below; and "Really quit?" drawn by the game scene itself -- an overlay with a `panel()` in it, which is all a dialog is. The veil takes the clicks, the first button the focus, and the balls go on behind the question. One scene per file under `src/scenes/`. |
 
 ## [`ads/`](ads) — `rmp::ads`
 

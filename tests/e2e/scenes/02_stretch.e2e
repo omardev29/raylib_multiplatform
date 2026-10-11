@@ -1,0 +1,21 @@
+# examples/scenes/02_stretch, played at the size it opens in -- [window],
+# 800x450 -- where every stretch draws the same court, so the HUD's line is
+# what says which one is on. What the three look like in a window of another
+# shape is the examples job's: tools/examples_build.sh boots this example in
+# two more and reads the letterbox off the picture. See tests/e2e/script.h
+# for the grammar.
+
+# The .toml's mode, LETTERBOX.
+10 shot letterbox
+
+# M goes round: EXPAND. The gamepad's Y: NONE.
+11 tap KEY_M
+22 shot expand
+23 tap GAMEPAD_BUTTON_RIGHT_FACE_UP
+34 shot none
+
+# And the button, for a screen with no keys: LETTERBOX again.
+35 click 90 115
+46 shot letterbox_by_the_button
+46 expect scene CourtScene
+46 end

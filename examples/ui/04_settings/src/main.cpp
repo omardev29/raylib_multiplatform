@@ -17,8 +17,9 @@
 //     if (rmp::ui::checkbox("Fullscreen", cfg.fullscreen)) apply(cfg);
 //
 // And they are kept: load() reads them through rmp::save when the screen
-// opens, store() writes them on Apply. The Settings struct stays plain data;
-// the Value is only the shape it has on disk.
+// opens, store() writes them on Apply, and rmp::ui::notify() says so. The
+// Settings struct stays plain data; the Value is only the shape it has on
+// disk.
 //
 // Run it: `rmp example 04_settings`.
 // ---------------------------------------------------------------------------
@@ -85,7 +86,8 @@ static void load(Settings &s) {
     s.player = std::string(v["player"].as_string(s.player));
 }
 
-static void store(const Settings &s) {
+// True when it reached the disk.
+static bool store(const Settings &s) {
     rmp::Value v;
     v["fullscreen"] = s.fullscreen;
     v["vsync"] = s.vsync;
@@ -95,7 +97,7 @@ static void store(const Settings &s) {
     v["quality"] = s.quality;
     v["language"] = s.language;
     v["player"] = s.player;
-    rmp::save::write("settings", v);
+    return rmp::save::write("settings", v);
 }
 
 static void on_ready() {
@@ -195,9 +197,18 @@ static void on_frame(float /*delta*/) {
                                             { .style = rmp::ui::Variant::PRIMARY,
                                               .enabled = dirty })) {
                             apply(cfg);
-                            store(cfg);
-                            saved = cfg;
-                            dirty = false;
+                            // A word at the bottom of the screen, gone by
+                            // itself in three seconds: nothing to close, and
+                            // nothing in this layout moves to make room.
+                            if (store(cfg)) {
+                                saved = cfg;
+                                dirty = false;
+                                rmp::ui::notify("Saved");
+                            } else {
+                                // Still unsaved, so Apply stays lit: try again.
+                                rmp::ui::notify("Not saved: the disk refused it",
+                                                { .color = rmp::ui::ColorRole::DANGER });
+                            }
                         }
                     });
 

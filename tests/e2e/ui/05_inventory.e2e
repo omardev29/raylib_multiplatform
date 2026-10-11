@@ -1,13 +1,16 @@
 # examples/ui/05_inventory, played: an item picked from the list with the
 # keyboard, the gamepad and the mouse; the list scrolling to follow the focus;
-# and clicks on what is not a button. See tests/e2e/script.h for the grammar.
+# each item's tooltip, beside it to the left, for the focus at once and for a
+# pointer that rests; and clicks on what is not a button. See
+# tests/e2e/script.h for the grammar.
 
 # --- the happy path ----------------------------------------------------------
 
 # The list's first button, Sword, has the focus. Down eight times is Coin,
 # below the bottom of the list -- which scrolls to show it. It did not,
 # until this script: the ring went on below the edge, where nobody could see
-# it. Enter picks it, and the grid lights it.
+# it. Enter picks it, and the grid lights it. The ring shows, and so does
+# Coin's tooltip: a keyboard's focus is somewhere the player is looking.
 3 tap KEY_DOWN
 5 tap KEY_DOWN
 7 tap KEY_DOWN
@@ -28,16 +31,20 @@
 39 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN
 50 shot round_to_sword
 
-# The mouse: a click on Torch in the list.
+# The mouse: a click on Torch in the list. The mouse is no focus anybody
+# is looking at, so the ring goes, and with it the tooltip -- until the
+# pointer has rested on Torch for half a second.
 51 click 660 286
 62 shot torch_by_click
+85 shot torch_described
 
 # --- the failure path: what is not a button ---------------------------------
 
 # The grid shows the items and is no control: a click on Bow there picks
-# nothing. Nor does a click just under the list's edge, on the part of Key
-# the list has clipped away. Torch stays picked.
-63 click 333 340
-65 click 660 396
-76 shot nothing_else_picks
-76 end
+# nothing, and the pointer off Torch takes its tooltip away. Nor does a click
+# just under the list's edge, on the part of Key the list has clipped away.
+# Torch stays picked.
+86 click 333 340
+88 click 660 396
+99 shot nothing_else_picks
+99 end
