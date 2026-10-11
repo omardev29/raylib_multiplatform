@@ -121,7 +121,7 @@ bool quit_requested();
 //
 //     if (IsKeyPressed(KEY_ESCAPE)) rmp::app::quit();
 
-// How the world fits a window that is not the [window] size -- a desktop
+// How the world fits a window that is not the size [window] says -- a desktop
 // window dragged wider, a phone of another shape, a TV. The [window] width and
 // height are the DESIGN size: what the game was drawn for. s below is how much
 // bigger the window is than that, min(width / design width, height / design
