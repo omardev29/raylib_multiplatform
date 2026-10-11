@@ -1015,12 +1015,12 @@ void collide(Scene &scene) {
     // the impact gets the impact.
     for (const Pushed &p : pushed) {
         Object &o = *p.object;
-        const float into = o.velocity.x * p.out.x + o.velocity.y * p.out.y;
         // `into < 0` is false for a NaN. And only what leaves a number is
         // taken away: a speed into the contact past FLT_MAX (an overflow to
         // -inf) makes the velocity infinite or NaN, and so does a finite one
         // taken from a velocity near FLT_MAX across the contact -- (FLT_MAX,
         // -FLT_MAX) pushed out along (3, 4) kept 1.12 FLT_MAX of x.
+        const float into = o.velocity.x * p.out.x + o.velocity.y * p.out.y;
         if (into < 0) {
             const Vector2 after{ o.velocity.x - p.out.x * into,
                                  o.velocity.y - p.out.y * into };
