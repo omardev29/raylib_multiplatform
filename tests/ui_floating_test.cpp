@@ -726,6 +726,35 @@ TEST_SUITE("ui: floating") {
         rmp::ui::end();
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a pass that never reached its end() leaves the next pass's at() "
+                      "nothing of it") {
+        // Begun, and dropped without an end(): pass_ended() -- where at()
+        // forgets what it handed out -- never ran for it.
+        const int errors = rmp::ui::detail::clay_error_count();
+        rmp::ui::begin();
+        std::vector<int16_t> stale;
+        for (int i = 0; i < 3; ++i) {
+            rmp::ui::at(Vector2{ 100, 100 },
+                        [&] { stale.push_back(rmp::ui::detail::next_layer_z()); });
+            rmp::ui::stack([] { rmp::ui::layer([] {}); });
+        }
+        rmp::ui::detail::set_frame_open(false);
+        // The next pass. Its first at() starts from nothing: the z the last
+        // pass handed out inside its boxes are anybody's again, but for what
+        // this box takes itself -- 1 and 2, the first z of any pass.
+        rmp::ui::begin();
+        rmp::ui::at(Vector2{ 100, 100 }, [] {});
+        REQUIRE(stale.size() == 3);
+        for (const int16_t z : stale) {
+            CAPTURE(z);
+            if (z > 2) CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(z)));
+        }
+        rmp::ui::end();
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+    }
+
     // -- tooltip() -----------------------------------------------------------
 
     TEST_CASE_FIXTURE(HeadlessUi, "the control declared last is the one taken, once") {
@@ -907,6 +936,31 @@ TEST_SUITE("ui: floating") {
         rmp::ui::tooltip("Twice");
         rmp::ui::end();
         CHECK(rmp::detail::report_count() == 1);
+    }
+
+    TEST_CASE_FIXTURE(
+        HeadlessUi, "a tooltip does not show by the focus in a pass input cannot reach") {
+        keys.x = 1; // a key touched: the focus is shown
+        auto frame = [](bool reachable) {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::set_pass_input(reachable);
+            rmp::ui::begin();
+            rmp::ui::button("Sell");
+            rmp::ui::tooltip("Gives you half");
+            rmp::ui::end();
+            rmp::ui::detail::set_pass_input(true);
+            rmp::ui::detail::end_frame();
+        };
+        frame(true);
+        frame(true);
+        REQUIRE(rmp::ui::focused() == "Sell");
+        REQUIRE(tooltip_shown("Sell"));
+        // Under an overlay now, or a scene the app says input does not reach:
+        // no ring is drawn there, and no line about it either -- from the
+        // first frame, while the focus is still where it was.
+        frame(false);
+        CHECK(rmp::ui::focused() == "Sell");
+        CHECK_FALSE(tooltip_shown("Sell"));
     }
 
     TEST_CASE_FIXTURE(HeadlessUi, "a long tooltip wraps at its width") {
@@ -1312,6 +1366,31 @@ TEST_SUITE("ui: floating") {
             REQUIRE(rmp::ui::detail::notice_count() == 1);
             CHECK(rmp::ui::detail::notice_at(0).alpha == doctest::Approx(expected));
         }
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "the notices are drawn at the window's scale with no interface of "
+                      "the game's to set it") {
+        // A game that never calls begin(): its warnings on screen in a debug
+        // build are all the interface it has, and the first of them starts
+        // the UI after the frame began -- too late for the frame to have set
+        // the scale. Once in a window of the design size, once in one twice
+        // as big.
+        auto first_notice_height = [](float width, float height) {
+            rmp::ui::shutdown();
+            rmp::ui::detail::forget_notices();
+            rmp::ui::detail::set_test_viewport(width, height);
+            rmp::ui::notify("Saved");
+            rmp::ui::detail::begin_frame();
+            REQUIRE_FALSE(rmp::ui::detail::started());
+            rmp::ui::detail::draw_notices();
+            rmp::ui::detail::end_frame();
+            return rmp::ui::detail::notice_at(0).box.height;
+        };
+        const float design = first_notice_height(VIEW_W, VIEW_H);
+        const float twice = first_notice_height(2 * VIEW_W, 2 * VIEW_H);
+        REQUIRE(design > 0);
+        CHECK(twice > 1.5f * design);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi, "a notice takes neither the pointer nor the focus") {
