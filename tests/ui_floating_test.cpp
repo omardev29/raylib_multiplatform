@@ -748,6 +748,26 @@ TEST_SUITE("ui: floating") {
         CHECK_FALSE(tooltip_shown("Sell"));
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi, "a tooltip keeps a copy of its text") {
+        sell_frame({});
+        finger.at = centre_of(box_of("Sell"));
+        for (int frame = 0; frame < 2; ++frame) {
+            rmp::ui::begin();
+            rmp::ui::button("Sell");
+            {
+                // Gone before end() lays it out: under ASan, a read of it
+                // would stop the test here.
+                std::string line = "Gives you half";
+                rmp::ui::tooltip(line, { .delay = 0 });
+                line.assign(line.size(), '#');
+            }
+            rmp::ui::end();
+        }
+        const std::optional<Clay_BoundingBox> shown = tooltip_box("Sell");
+        REQUIRE(shown.has_value());
+        CHECK(shown.value_or(Clay_BoundingBox{}).width > 0);
+    }
+
     TEST_CASE_FIXTURE(HeadlessUi,
                       "a tooltip with no control before it is reported once") {
         rmp::detail::reset_reports_for_tests();
