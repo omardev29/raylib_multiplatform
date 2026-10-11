@@ -27,6 +27,15 @@
 //   - A point the camera cannot show, or that is no number at all -- or an
 //     offset that is none -- is kept far off the screen: Clay culls the box,
 //     and nothing downstream ever converts a NaN or a 1e30 into an int.
+//   - So is a point the screen does not show: the box goes with its point,
+//     whole -- a point just past the edge left half a box showing -- and
+//     nothing in it takes the pointer, the focus or the keys (pass_input(),
+//     context.cpp, says no while one is open), nor anything in a box
+//     described inside it. A button over an NPC that has walked off the
+//     screen is not a button anyone can find, so it is not one to focus,
+//     press or call out of reach (controls_out_of_reach(), focus.cpp, asks
+//     only what can be focused). Back on the screen it is a control again,
+//     held to the window like any other.
 // ===========================================================================
 
 #include "floating.h"
@@ -66,11 +75,13 @@ constexpr int MAX_DEPTH = 8;
 struct Open {
     bool opened = false;
     int16_t first_layer = 0;
+    bool hidden = false; // its point is off the screen, or the box around it is
 };
 struct {
     std::array<Open, MAX_DEPTH> stack{};
     int depth = 0;
     int overflow = 0; // nested past MAX_DEPTH: opened nothing, close nothing
+    int hidden = 0; // how many of the open ones are hidden
 } boxes;
 
 // What the pass being described has handed out inside at(), for
@@ -163,9 +174,16 @@ float kept(float v) {
 void push(Open o) {
     if (boxes.depth < MAX_DEPTH) {
         boxes.stack[boxes.depth++] = o;
+        if (o.hidden) ++boxes.hidden;
     } else {
         ++boxes.overflow;
     }
+}
+
+// Whether the screen shows a point: on it, its edges included.
+bool on_screen(Vector2 p) {
+    const Clay_Dimensions view = viewport();
+    return p.x >= 0 && p.y >= 0 && p.x <= view.width && p.y <= view.height;
 }
 
 } // namespace
@@ -179,6 +197,8 @@ Vector2 world_to_screen(Vector2 world, const Camera2D &camera) {
 }
 
 int16_t last_at_z() { return given.last_z; }
+
+bool inside_hidden_at() { return boxes.hidden > 0; }
 
 void end_at_pass() { forget_given(); }
 
@@ -203,6 +223,7 @@ void open_at(Vector2 world, const AtOptions &o) {
 
     const Theme &t = current_theme();
     const Vector2 at = world_to_screen(world, projection.camera);
+    const bool hidden = boxes.hidden > 0 || !on_screen(at);
 
     Clay_ElementDeclaration d{};
     // It fits what is in it -- and is never narrower than a touch target, so
@@ -225,8 +246,9 @@ void open_at(Vector2 world, const AtOptions &o) {
     // none goes far away with the box, not px()'s 0, which would put the box
     // on the point as if nothing were wrong.
     const float scale = ui_scale();
-    d.floating.offset =
-        Clay_Vector2{ kept(at.x + o.offset.x * scale), kept(at.y + o.offset.y * scale) };
+    d.floating.offset = hidden ? Clay_Vector2{ -FAR_AWAY, -FAR_AWAY }
+                               : Clay_Vector2{ kept(at.x + o.offset.x * scale),
+                                               kept(at.y + o.offset.y * scale) };
     d.floating.zIndex = box_z(given.boxes);
     given.last_z = d.floating.zIndex;
     // Clay's own hit test is not ours (see pointer_over()); this says the same
@@ -246,7 +268,7 @@ void open_at(Vector2 world, const AtOptions &o) {
     // over an NPC is hovered where it is drawn and not only where the list
     // around the at() happens to be.
     push_clip(Clay_ElementId{});
-    push(Open{ .opened = true, .first_layer = first_layer });
+    push(Open{ .opened = true, .first_layer = first_layer, .hidden = hidden });
 }
 
 void close_at() {
@@ -256,6 +278,7 @@ void close_at() {
     }
     if (boxes.depth == 0) return;
     const Open o = boxes.stack[--boxes.depth];
+    if (o.hidden) --boxes.hidden;
     if (!o.opened) return;
     // One more z marks where the inside ended; nobody else is handed it.
     remember_layers(o.first_layer, next_layer_z());

@@ -412,6 +412,10 @@ void finish(const e2e::Step &step) {
 // cannot be seen or clicked by anyone, and no shot of it would say so if the
 // script never looked down there. ui/04_settings drew its Apply button below
 // the bottom of its own 800x450 window, and the style page half of itself.
+// A control in an rmp::ui::at() box is held to the same while the box's
+// point is on the screen; while it is off, the box draws nothing and its
+// controls take nothing -- they are not there to reach, and not named here
+// (src/rmp/ui/at.cpp, tests/ui_floating_test.cpp).
 void reach() {
     for (const std::string &name : rmp::ui::detail::controls_out_of_reach()) {
         if (std::ranges::find(run.unreachable, name) != run.unreachable.end()) continue;

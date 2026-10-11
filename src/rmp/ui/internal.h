@@ -318,8 +318,13 @@ void begin_pass();
 int current_pass();
 
 // Whether this pass can be interacted with. Behind rmp::ui::detail::
-// set_pass_input(), which rmp::app drives from Scene::input_below.
+// set_pass_input(), which rmp::app drives from Scene::input_below -- and
+// not inside an at() box whose point is off the screen (at.cpp).
 bool pass_input();
+
+// Whether an at() box is open whose point the screen does not show, or that
+// is inside one: what is described in it takes nothing (at.cpp).
+bool inside_hidden_at();
 
 // Record the boxes this pass ended up with, so that the next frame's pass can
 // read them. See bounds_of_id().
