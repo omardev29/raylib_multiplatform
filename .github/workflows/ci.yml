@@ -805,12 +805,19 @@ jobs:
           # SOURCES given to target" until the targets were guarded.
           cmake --preset lint > /dev/null
           # And none of the framework's deep tests: CMakeLists.txt includes
-          # tests/deep.cmake OPTIONAL, and a game has no such file. grep reads
-          # the whole list, never -q: under pipefail, a -q that stops at the
-          # first match leaves ninja writing into a closed pipe, and once the
-          # list outgrows the pipe's 64 KB (the framework's is 63 KB) its 141
-          # turns a match into "not there".
-          if ninja -C build/lint -t targets all | grep -E '^(fuzz_|property_test|rapidcheck)' > /dev/null; then
+          # tests/deep.cmake OPTIONAL, and a game has no such file. The list is
+          # read whole first, never piped: under pipefail, a `grep -q` that
+          # stops at the first match leaves ninja writing into a closed pipe,
+          # and once the list outgrows the pipe's 64 KB (the framework's is
+          # 63 KB) its 141 turns a match into "not there" -- and a ninja that
+          # failed would have read as "not there" too. `rmp: phony` is the
+          # proof the list is the game's build and not an empty one.
+          targets=$(ninja -C build/lint -t targets all)
+          case "$targets" in
+            *"rmp: phony"*) ;;
+            *) echo "FAIL: ninja listed no rmp target in build/lint: the check below would see nothing"; exit 1 ;;
+          esac
+          if grep -E '^(fuzz_|property_test|rapidcheck)' <<< "$targets" > /dev/null; then
             echo "FAIL: the game's build has the framework's deep test targets"; exit 1
           fi
           # A game has no golden frame: the boot, the pixels and a clean exit.
