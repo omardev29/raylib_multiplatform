@@ -54,14 +54,14 @@ rmp::Callback<std::string_view> &sink() {
     return on_report;
 }
 
-bool already(const void *site, const char *key) {
+bool already(const void *site, std::string_view key) {
     return std::ranges::any_of(
         reports.seen, [&](const Seen &s) { return s.site == site && s.key == key; });
 }
 
-void emit(const void *site, const char *key, const char *fmt, va_list args) {
+void emit(const void *site, std::string_view key, const char *fmt, va_list args) {
     if (already(site, key)) return;
-    reports.seen.push_back(Seen{ site, key });
+    reports.seen.push_back(Seen{ site, std::string(key) });
 
     std::array<char, 1024> line{};
     std::vsnprintf(line.data(), line.size(), fmt, args);
@@ -94,7 +94,15 @@ void report_once(const void *site, const char *fmt, ...) {
 void report_once_keyed(const void *site, const char *key, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    emit(site, key != nullptr ? key : "", fmt, args);
+    emit(site, key != nullptr ? std::string_view(key) : std::string_view(), fmt, args);
+    va_end(args);
+}
+
+// NOLINTNEXTLINE(modernize-avoid-variadic-functions)
+void report_once_keyed(const void *site, std::string_view key, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    emit(site, key, fmt, args);
     va_end(args);
 }
 

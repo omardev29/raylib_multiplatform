@@ -17,22 +17,11 @@
 # by hand at its merge, into the blocks of the packages that take their headers
 # after Stage D: none of them had a property yet, as no function of theirs did.
 
-# include/rmp/ads.h: P6 (stub cases)
-rmp::ads::is_interstitial_loaded()
-rmp::ads::is_rewarded_loaded()
-rmp::ads::request_interstitial()
-rmp::ads::request_rewarded()
-rmp::ads::reward_amount()
-rmp::ads::show_interstitial()
-rmp::ads::show_rewarded()
-rmp::ads::take_reward_earned()
-
 # include/rmp/app.h: P6, after Stage D
 rmp::app::quit()
 rmp::app::quit_requested()
 rmp::app::set_stretch(Stretch)
 rmp::app::stretch()
-rmp::global [template]
 
 # include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's
 rmp::SheetData::frame(int) const
@@ -40,54 +29,6 @@ rmp::SheetData::frame_count() const
 rmp::SheetData::tag(int) const
 rmp::SheetData::tag_count() const
 rmp::assets::load_sheet(std::string_view)
-
-# include/rmp/audio.h: P6
-rmp::audio::available()
-rmp::audio::music(std::string_view, bool)
-rmp::audio::music_playing()
-rmp::audio::play(std::string_view, const PlayOptions &)
-rmp::audio::set_volume(Bus, float)
-rmp::audio::stop_music()
-rmp::audio::volume(Bus)
-
-# include/rmp/behavior.h: P6
-rmp::behavior::Ball::_collision(Object &, Object &)
-rmp::behavior::Ball::_ready(Object &)
-rmp::behavior::Ball::_update(Object &, float)
-rmp::behavior::Follow::_update(Object &, float)
-rmp::behavior::GridSnap::_late_update(Object &, float)
-rmp::behavior::Health::_collision(Object &, Object &)
-rmp::behavior::Health::_end(Object &)
-rmp::behavior::Health::_ready(Object &)
-rmp::behavior::Health::_update(Object &, float)
-rmp::behavior::Health::damage(Object &, int)
-rmp::behavior::Health::dead() const
-rmp::behavior::Health::heal(int)
-rmp::behavior::Health::invulnerable() const
-rmp::behavior::Lifespan::_update(Object &, float)
-rmp::behavior::Parallax::_draw(Object &)
-rmp::behavior::Parallax::_ready(Object &)
-rmp::behavior::Parallax::_update(Object &, float)
-rmp::behavior::Platformer::_ready(Object &)
-rmp::behavior::Platformer::_update(Object &, float)
-rmp::behavior::Platformer::grounded() const
-rmp::behavior::Projectile::_collision(Object &, Object &)
-rmp::behavior::Projectile::_ready(Object &)
-rmp::behavior::Projectile::_update(Object &, float)
-rmp::behavior::Runner::_ready(Object &)
-rmp::behavior::Runner::_update(Object &, float)
-rmp::behavior::Runner::distance() const
-rmp::behavior::Runner::ducking() const
-rmp::behavior::Spawner::_update(Object &, float)
-rmp::behavior::Spawner::alive() const
-rmp::behavior::Spawner::jitter_amount() const
-rmp::behavior::Timer::_update(Object &, float)
-rmp::behavior::TopDown::_update(Object &, float)
-rmp::behavior::TopDown::direction() const
-rmp::behavior::TopDown::sector() const
-rmp::behavior::Tween::_update(Object &, float)
-rmp::behavior::Tween::finished() const
-rmp::behavior::Tween::restart()
 
 # include/rmp/input.h: P6, after Stage D
 rmp::input::action [template]

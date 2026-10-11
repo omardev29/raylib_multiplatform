@@ -116,8 +116,15 @@ bool open_for_real() {
 
 bool real_device() { return state().ready && state().opener == nullptr; }
 
+// A NUL inside a name: no file is called that. A file is opened by its C
+// string, which stops at the NUL -- so "coin.wav\0x" found coin.wav and played
+// it, and two names that differ only after a NUL were the same sound (audio's
+// property found both).
+bool has_nul(std::string_view name) { return name.find('\0') != std::string_view::npos; }
+
 // The first name the logical name expands to that exists, or "".
 std::string resolve(std::string_view name) {
+    if (has_nul(name)) return {};
     for (const std::string &candidate : detail::candidates(name)) {
         if (rmp::assets::detail::resource_exists(candidate.c_str())) return candidate;
     }
@@ -129,6 +136,7 @@ std::string resolve(std::string_view name) {
 // name with an audio extension. Built from the same list, so the line cannot
 // claim a search that did not happen.
 std::string looked_for(std::string_view name) {
+    if (has_nul(name)) return "nothing: the name has a NUL byte inside";
     std::string out;
     for (const std::string &candidate : detail::candidates(name)) {
         if (!out.empty()) out += ", ";
@@ -223,6 +231,17 @@ float clamp_volume(float value, float previous) {
 
 float effect_volume(float per_play, float sfx_bus) {
     return clamp_volume(per_play, 1.0f) * clamp_volume(sfx_bus, 1.0f);
+}
+
+float raylib_pitch(float pitch) {
+    // A pitch of 0 or less is silence or a crash depending on the backend; a
+    // NaN or an infinity is both. Any of them reads as "no change".
+    if (!(pitch > 0) || !std::isfinite(pitch)) return 1.0f;
+    // And raylib turns the pitch into a sample rate, the device's divided by
+    // it, cast to an unsigned int: a denormal pitch made that an infinity, a
+    // cast with no defined result (audio's property, under UBSan, in
+    // raudio.c), and a pitch in the thousands made it 0 Hz.
+    return std::clamp(pitch, MIN_PITCH, MAX_PITCH);
 }
 
 float raylib_pan(float pan) {
@@ -340,13 +359,13 @@ void play(std::string_view name, const PlayOptions &options) {
         // failures said differently, because they are fixed differently.
         if (file.empty()) {
             RMP_REPORT_ONCE_KEYED(
-                e->name.c_str(),
+                std::string_view(e->name),
                 "AUDIO: no sound called \"%s\" in resources/ (looked for "
                 "%s)",
                 e->name.c_str(), looked_for(e->name).c_str());
         } else if (!e->base.valid()) {
             RMP_REPORT_ONCE_KEYED(
-                e->name.c_str(),
+                std::string_view(e->name),
                 "AUDIO: \"%s\" is in resources/ but could not be decoded "
                 "(raylib here reads .wav, .ogg, .mp3 and .qoa)",
                 file.c_str());
@@ -358,11 +377,7 @@ void play(std::string_view name, const PlayOptions &options) {
     voice.started = ++state().plays;
     voice.volume = detail::clamp_volume(options.volume, 1.0f);
     SetSoundVolume(voice.sound, detail::effect_volume(voice.volume, state().sfx));
-    // A pitch of 0 or less is silence or a crash depending on the backend; a
-    // NaN or an infinity is both. Any of them reads as "no change".
-    SetSoundPitch(voice.sound,
-                  options.pitch > 0 && std::isfinite(options.pitch) ? options.pitch
-                                                                    : 1.0f);
+    SetSoundPitch(voice.sound, detail::raylib_pitch(options.pitch));
     SetSoundPan(voice.sound, detail::raylib_pan(options.pan));
     PlaySound(voice.sound);
 }
@@ -395,8 +410,7 @@ void music(std::string_view name, bool loop) {
     if (file.empty()) {
         s.missing_music.emplace_back(name);
         RMP_REPORT_ONCE_KEYED(
-            std::string(name).c_str(),
-            "AUDIO: no music called \"%s\" in resources/ (looked for %s)",
+            name, "AUDIO: no music called \"%s\" in resources/ (looked for %s)",
             std::string(name).c_str(), looked_for(name).c_str());
         return;
     }
@@ -417,7 +431,7 @@ void music(std::string_view name, bool loop) {
         // load_data() has already counted an empty read itself.
         if (!next.bytes.empty()) ++rmp::assets::detail::loads.failed;
         s.missing_music.emplace_back(name);
-        RMP_REPORT_ONCE_KEYED(file.c_str(),
+        RMP_REPORT_ONCE_KEYED(std::string_view(file),
                               "AUDIO: \"%s\" is in resources/ but could not be streamed "
                               "(raylib here reads .wav, .ogg, .mp3 and .qoa)",
                               file.c_str());

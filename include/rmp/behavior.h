@@ -21,6 +21,13 @@
 // a Follow chases the handle you gave it, and a TopDown reads the actions you
 // named.
 //
+// WHAT THEY WRITE IS A NUMBER. A behavior writes into its object -- the
+// position, the velocity, the scale -- only finite numbers: a field that is
+// NaN or an infinity, or one so large the arithmetic overflows, leaves the
+// object as it was, and the behavior says so once (a field that is NaN is
+// named). A hook handed a delta that is not a number of seconds, 0 or more,
+// counts it as 0 and says so once; the framework never hands one.
+//
 // WHAT IS NOT HERE, and why, in short: `patrol` is a Tween, `magnet` is a
 // Follow, `draggable` is Object::on_drag, and `tetromino`, `formation` and
 // `paddle` are three games with a different name on them.
@@ -265,8 +272,9 @@ struct Tween {
     bool loop = false; // start again from `from` at the end of each pass
     bool ping_pong = false; // turn back at each end, forever; wins over `loop`
 
-    // Whether it has stopped on `to`, which only a tween with neither `loop`
-    // nor `ping_pong` ever does.
+    // Whether it has stopped on `to`: a tween with neither `loop` nor
+    // `ping_pong` does at the end of its pass, and one of 0 seconds at once,
+    // whatever those two say.
     [[nodiscard]] bool finished() const { return ours.done; }
     // Starts it again from `from`, going forwards, as if it had just been added.
     void restart() {
@@ -383,8 +391,8 @@ struct Spawner {
     } ours;
 
     // A fresh random amount between -jitter and +jitter from rmp::random::range,
-    // or 0 when `jitter` is 0 or less: what each interval after the first is
-    // moved by.
+    // or 0 when `jitter` is 0 or less or not a finite number: what each
+    // interval after the first is moved by.
     [[nodiscard]] float jitter_amount() const;
 };
 
@@ -394,7 +402,9 @@ struct Timer {
     bool repeat = true; // false = one call, and then it is spent
     // Called with the object the Timer is on. A frame longer than `seconds`
     // calls it once for every interval that frame covered, so a countdown
-    // keeps time on a slow machine.
+    // keeps time on a slow machine -- up to a thousand: more than that owed in
+    // one frame is an interval far shorter than any frame, and the rest of the
+    // time is dropped and said once.
     Callback<Object &> on_timeout;
 
     void _update(Object &self, float delta);

@@ -33,6 +33,8 @@
 #include <rmp/scene.h>
 
 #include <array>
+#include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -1060,4 +1062,299 @@ TEST_CASE_FIXTURE(Fixture, "Health: max_hp follows hp unless it is given") {
     CHECK(given.max_hp == 9);
     given.heal(100);
     CHECK(given.hp == 9);
+}
+
+// ---------------------------------------------------------------------------
+// What tests/property/behavior_prop.cpp found: each counterexample, named.
+// Every one of these failed -- or stopped under a sanitizer, or never
+// returned -- before the fix it holds.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class Loose : public rmp::Object {};
+
+constexpr float FRAME = 1.0f / 60;
+constexpr float NOT_A_NUMBER = std::numeric_limits<float>::quiet_NaN();
+constexpr float INFINITE = std::numeric_limits<float>::infinity();
+
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+} // namespace
+
+TEST_CASE_FIXTURE(Fixture, "a delta that is not a frame is no time, said once") {
+    // A NaN was every position a behavior wrote from then on, a negative
+    // delta ran a Tween backwards past `from`, an infinity a Timer forever.
+    for (const float delta : { NOT_A_NUMBER, -1.0f, INFINITE, -INFINITE }) {
+        CAPTURE(delta);
+        Loose o;
+        rmp::behavior::Lifespan life{ .seconds = 1 };
+        life._update(o, delta);
+        CHECK(life.ours.elapsed == 0.0f);
+        CHECK(o.alive());
+    }
+    CHECK(rmp::detail::report_count() == 1);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a behavior never writes a NaN its fields make into the object") {
+    Loose o;
+    o.velocity = { 3, 4 };
+    hold(KEY_D);
+    rmp::input::detail::begin_frame();
+    rmp::behavior::TopDown walker{ .speed = NOT_A_NUMBER };
+    walker._update(o, FRAME);
+    CHECK(o.velocity.x == 3.0f); // left as it was
+    CHECK(o.velocity.y == 4.0f);
+    // The field, by name, and the write that was not made.
+    CHECK(rmp::detail::report_count() == 2);
+}
+
+TEST_CASE_FIXTURE(Fixture, "TopDown: a stick at infinity is no input") {
+    // input::vector() of an infinite axis is a NaN, which was the facing, the
+    // velocity and then sector()'s cast.
+    fake.devices.axes[GAMEPAD_AXIS_LEFT_X] = INFINITE;
+    rmp::input::detail::begin_frame();
+    Loose o;
+    rmp::behavior::TopDown walker;
+    walker._update(o, FRAME);
+    CHECK(finite(o.velocity));
+    CHECK(walker.direction().x == 1.0f); // the facing it started with
+    CHECK(walker.sector() == 0);
+}
+
+TEST_CASE_FIXTURE(Fixture, "TopDown: a facing that is no direction is east") {
+    rmp::behavior::TopDown walker;
+    walker.ours.facing = { NOT_A_NUMBER, NOT_A_NUMBER };
+    CHECK(walker.sector() == 0); // a cast of NaN to int, before
+    walker.ours.facing = { INFINITE, -INFINITE };
+    CHECK(walker.sector() == 1); // north-east, as atan2 has it
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "Platformer and Runner: air_jumps = INT_MAX is not an overflow") {
+    // `jumps_used < air_jumps + 1` was undefined for it, on the first update.
+    Loose o;
+    rmp::input::detail::begin_frame(); // the first frame has no edges
+    hold(KEY_SPACE);
+    rmp::input::detail::begin_frame();
+    rmp::behavior::Platformer p{ .air_jumps = std::numeric_limits<int>::max() };
+    p._update(o, FRAME);
+    CHECK(p.ours.jumps_used == 2); // the ground's, spent by falling, and one in the air
+    rmp::behavior::Runner r{ .air_jumps = std::numeric_limits<int>::max() };
+    r._update(o, FRAME);
+    CHECK(r.ours.jumps_used == 2);
+}
+
+TEST_CASE_FIXTURE(Fixture, "Platformer: a jump_buffer longer than 'never' jumps nobody") {
+    // The buffer measured from 1000, what `ours` starts at: at 2000 a jump
+    // nobody pressed fired on every frame, and a coyote_time as long never
+    // closed, so the jumps never ran out.
+    Loose o;
+    rmp::behavior::Platformer p{ .jump = 700, .coyote_time = 2000, .jump_buffer = 2000 };
+    for (int i = 0; i < 10; ++i) {
+        rmp::input::detail::begin_frame();
+        p._update(o, FRAME);
+    }
+    CHECK(p.ours.jumps_used == 1); // the ground's, spent by falling
+    CHECK(o.velocity.y > 0); // falling, not jumping
+}
+
+TEST_CASE_FIXTURE(Fixture, "Runner: ducking is the duck action held") {
+    Loose o;
+    rmp::behavior::Runner r{ .duck_action = "move_down" };
+    rmp::input::detail::begin_frame();
+    r._update(o, FRAME);
+    CHECK_FALSE(r.ducking());
+    hold(KEY_S);
+    rmp::input::detail::begin_frame();
+    r._update(o, FRAME);
+    CHECK(r.ducking());
+    rmp::behavior::Runner never;
+    never._update(o, FRAME);
+    CHECK_FALSE(never.ducking()); // no duck_action: it never ducks
+}
+
+TEST_CASE_FIXTURE(Fixture, "Ball: a pace that would overflow stops climbing") {
+    Loose ball;
+    ball.shape = rmp::rect({ 10, 10 });
+    ball.velocity = { 1, 0 };
+    Loose wall;
+    wall.shape = rmp::rect({ 10, 100 });
+    wall.position = { 8, 0 };
+    wall.solid = true;
+    rmp::behavior::Ball b{ .speed = std::numeric_limits<float>::max(), .speed_up = 2 };
+    b._collision(ball, wall);
+    CHECK(b.speed == std::numeric_limits<float>::max());
+    b._update(ball, FRAME);
+    CHECK(finite(ball.velocity));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "Tween: a frame longer than a looping pass stays between the ends") {
+    // One pass was taken back however many the frame covered: a 0.03 s
+    // tween on a 0.1 s frame went to 233% of the way, past `to`.
+    Loose o;
+    rmp::behavior::Tween loop{ .property = rmp::behavior::Property::POSITION_X,
+                               .from = 0,
+                               .to = 100,
+                               .seconds = 0.03f,
+                               .ease = rmp::behavior::Ease::LINEAR,
+                               .loop = true };
+    loop._update(o, 0.1f);
+    CHECK(o.position.x == doctest::Approx(100.0 / 3).epsilon(1e-3));
+    // Three passes and a third: back, forth, back -- a third of the way back.
+    rmp::behavior::Tween pong = loop;
+    pong.loop = false;
+    pong.ping_pong = true;
+    pong.restart();
+    pong._update(o, 0.1f);
+    CHECK(pong.ours.back);
+    CHECK(o.position.x == doctest::Approx(200.0 / 3).epsilon(1e-3));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "Tween: one of no time is finished on `to`, whatever it repeats") {
+    Loose o;
+    rmp::behavior::Tween instant{ .property = rmp::behavior::Property::ROTATION,
+                                  .to = 90,
+                                  .seconds = 0,
+                                  .ping_pong = true };
+    instant._update(o, FRAME);
+    CHECK(o.rotation == 90.0f);
+    CHECK(instant.finished());
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "Tween: restart() starts it again from `from`, going forwards") {
+    Loose o;
+    rmp::behavior::Tween t{ .property = rmp::behavior::Property::POSITION_Y,
+                            .from = 10,
+                            .to = 20,
+                            .seconds = 1,
+                            .ease = rmp::behavior::Ease::LINEAR,
+                            .ping_pong = true };
+    t._update(o, 1.5f); // into the way back
+    CHECK(t.ours.back);
+    t.restart();
+    CHECK_FALSE(t.ours.back);
+    CHECK(t.ours.elapsed == 0.0f);
+    t._update(o, 0);
+    CHECK(o.position.y == 10.0f);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "GridSnap: a cell too small to count the position in leaves it") {
+    // (1000 / 1e-40) is past float's range: the snap was an infinity.
+    Loose o;
+    o.position = { 1000, 1000 };
+    rmp::behavior::GridSnap snap{ .cell = { 1e-40f, 32 } };
+    snap._late_update(o, FRAME);
+    CHECK(o.position.x == 1000.0f);
+    CHECK(o.position.y == 992.0f); // 31 cells of 32: the other axis snaps
+    CHECK(rmp::detail::report_count() == 1);
+}
+
+TEST_CASE_FIXTURE(Fixture, "Parallax: any shift and any screen tile in bounded copies") {
+    using rmp::behavior::detail::MAX_PARALLAX_COPIES;
+    using rmp::behavior::detail::parallax_tiling;
+    // A NaN shift is none (a cast of NaN before); a screen of infinite width,
+    // or one a thousand million textures wide, is the most a frame draws.
+    const auto none = parallax_tiling(NOT_A_NUMBER, 64, 1280);
+    CHECK(none.offset == 0.0f);
+    CHECK(none.copies == 21);
+    CHECK(parallax_tiling(0, 64, INFINITE).copies == MAX_PARALLAX_COPIES);
+    CHECK(parallax_tiling(0, 1, 1e12f).copies == MAX_PARALLAX_COPIES);
+    CHECK(parallax_tiling(0, 64, NOT_A_NUMBER).copies == 1);
+    CHECK(parallax_tiling(0, INFINITE, 1280).copies == 0);
+    // A hair past a whole number of widths is the same picture as none.
+    CHECK(parallax_tiling(1e-10f, 100, 1280).offset == 0.0f);
+}
+
+TEST_CASE_FIXTURE(Fixture, "Spawner: a jitter that is not a finite number is none") {
+    rmp::behavior::Spawner s{ .jitter = INFINITE };
+    CHECK(s.jitter_amount() == 0.0f); // rmp::random::range of an infinity, before
+    s.jitter = NOT_A_NUMBER;
+    CHECK(s.jitter_amount() == 0.0f);
+    s.jitter = std::numeric_limits<float>::max();
+    for (int i = 0; i < 16; ++i) CHECK(std::isfinite(s.jitter_amount()));
+}
+
+TEST_CASE_FIXTURE(Fixture, "Timer: an interval below what it has counted still ends") {
+    // Subtracting one interval at a time: in a float, 1e8 - 1 is 1e8, and
+    // that loop never ended. At most MAX_TIMEOUTS calls a frame, the rest
+    // of the time dropped, said once.
+    Loose o;
+    static int calls = 0;
+    calls = 0;
+    rmp::behavior::Timer t{ .seconds = 1, .on_timeout = [](rmp::Object &) { ++calls; } };
+    t._update(o, 1e8f);
+    CHECK(calls == rmp::behavior::detail::MAX_TIMEOUTS);
+    CHECK(t.ours.elapsed >= 0.0f);
+    CHECK(t.ours.elapsed < 1.0f);
+    CHECK(rmp::detail::report_count() == 1);
+    // Fewer than that owed is every one of them.
+    calls = 0;
+    rmp::behavior::Timer fast{ .seconds = 0.001f,
+                               .on_timeout = [](rmp::Object &) { ++calls; } };
+    fast._update(o, 0.5f);
+    CHECK(calls >= 499);
+    CHECK(calls <= 500);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "Timer: one that does not repeat is spent before its one call") {
+    // A call that destroyed the object returned before the line that spent
+    // the timer, and a second update called it again.
+    Loose o;
+    static int calls = 0;
+    calls = 0;
+    rmp::behavior::Timer once{ .seconds = 1,
+                               .repeat = false,
+                               .on_timeout = [](rmp::Object &self) {
+                                   ++calls;
+                                   self.destroy();
+                               } };
+    once._update(o, 1);
+    once._update(o, 1);
+    CHECK(calls == 1);
+    CHECK(once.ours.spent);
+}
+
+TEST_CASE_FIXTURE(Fixture, "Health: a window longer than int's range blinks, defined") {
+    // The blink cast phase * 2 to an int: undefined from about 1e8 seconds at
+    // 12 Hz -- an invulnerability meant as "forever" -- and for a NaN; a
+    // negative delta grew the window into that range by itself.
+    Loose o;
+    rmp::behavior::Health h{ .invulnerable_for = 1e9f };
+    h._ready(o);
+    CHECK(h.damage(o, 1));
+    h._update(o, FRAME);
+    h._update(o, -100);
+    CHECK(h.ours.invulnerable_left <= 1e9f);
+    h._end(o);
+    CHECK(o.visible);
+}
+
+TEST_CASE_FIXTURE(Fixture, "Health: heal(INT_MAX) is back to full, not an overflow") {
+    Loose o;
+    rmp::behavior::Health h{ .hp = 3, .invulnerable_for = 0 };
+    h._ready(o);
+    h.damage(o, 2);
+    h.heal(std::numeric_limits<int>::max());
+    CHECK(h.hp == 3);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "Health: damage below INT_MIN from an hp a game set is death") {
+    Loose o;
+    static int deaths = 0;
+    deaths = 0;
+    rmp::behavior::Health h{ .hp = -35,
+                             .destroy_on_death = false,
+                             .on_death = [](rmp::Object &) { ++deaths; } };
+    h._ready(o);
+    CHECK(h.damage(o, std::numeric_limits<int>::max() - 1));
+    CHECK(h.hp == 0);
+    CHECK(deaths == 1);
 }

@@ -60,6 +60,13 @@ WorldViewport world_viewport();
 // The storage behind these is constant-initialised, so a test's static
 // initializer may call them before main() in any order.
 
+// A frame of `raw` seconds as the game is handed it: what step_delta() and
+// frame_delta() make of the reading, with `max` as [app] max_delta. 0 for a
+// reading that is not a number of seconds, 0 or more -- negative, NaN, an
+// infinity -- and `max` for one past it, when `max` is more than 0 (0 switches
+// the clamp off). Always a finite number, 0 or more.
+float clamp_delta(float raw, float max);
+
 // What step_delta() returned this frame. Before any runner has called it --
 // rmp::ui in a plain raylib loop of the game's own, which nothing steps --
 // the frame raylib timed, clamped the same way.
@@ -226,6 +233,12 @@ namespace rmp::detail {
 void report_once(const void *site, const char *fmt, ...) RMP_PRINTF_FORMAT(2, 3);
 // NOLINTNEXTLINE(modernize-avoid-variadic-functions)
 void report_once_keyed(const void *site, const char *key, const char *fmt, ...)
+    RMP_PRINTF_FORMAT(3, 4);
+// The same, keyed by every byte of `key`: a name the game chose -- a sound, a
+// song -- can hold a NUL, and two names that differ only after it are two
+// mistakes. As a C string they were one line (audio's property found it).
+// NOLINTNEXTLINE(modernize-avoid-variadic-functions,custom-rmp-raw-pointer): the site is an address and the format printf's, as in the C string form above
+void report_once_keyed(const void *site, std::string_view key, const char *fmt, ...)
     RMP_PRINTF_FORMAT(3, 4);
 
 // [dev] strict. Off unless the entry point turns it on from RMP_DEV_STRICT,

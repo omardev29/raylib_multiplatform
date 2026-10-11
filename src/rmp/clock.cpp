@@ -21,6 +21,7 @@
 
 #include <raylib.h>
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -42,16 +43,7 @@ struct {
 // How long the frame took: what raylib timed, or the step a test fixed.
 float raw_delta() { return timing.fixed > 0 ? timing.fixed : GetFrameTime(); }
 
-// A frame of `raw` seconds as the game is handed it. RMP_MAX_DELTA = 0
-// switches the clamp off. A negative reading becomes 0: no platform should
-// produce one, but a monotonic clock going backwards on a suspend/resume is
-// not unheard of -- and a negative step would run the whole world in reverse
-// for one frame.
-float clamped(const float raw) {
-    if (raw < 0) return 0.0f;
-    if (RMP_MAX_DELTA > 0 && raw > RMP_MAX_DELTA) return RMP_MAX_DELTA;
-    return raw;
-}
+float clamped(const float raw) { return clamp_delta(raw, RMP_MAX_DELTA); }
 
 // Behind a function, so it is built on first use: rmp::Callback is not a
 // literal type, and a namespace-scope one would be initialised in an order
@@ -62,6 +54,20 @@ rmp::Callback<> &observer() {
 }
 
 } // namespace
+
+// A reading that is not a number of seconds, 0 or more, becomes 0: a frame
+// in which no time passed. A negative one, because no platform should produce
+// one, but a monotonic clock going backwards on a suspend/resume is not
+// unheard of -- and a negative step would run the whole world in reverse for
+// one frame. A NaN or an infinity, because every position in the world is
+// that number the next frame, for good: `raw < 0` and `raw > max` are both
+// false for a NaN, and the clamp let it through (the clock's property found
+// it). And past `max` is `max`, when there is one.
+float clamp_delta(const float raw, const float max) {
+    if (!std::isfinite(raw) || raw < 0) return 0.0f;
+    if (max > 0 && raw > max) return max;
+    return raw;
+}
 
 float step_delta() {
     timing.last = clamped(raw_delta());
