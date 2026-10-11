@@ -41,6 +41,9 @@
 #include <unistd.h>
 #if defined(RMP_SANITIZE) && __has_include(<sanitizer/common_interface_defs.h>)
 #include <sanitizer/common_interface_defs.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#include <dlfcn.h>
+#endif
 #endif
 #endif
 
@@ -102,6 +105,29 @@ void on_fatal_signal(int signal, siginfo_t *info, void * /*context*/) {
 
 void put_back_at_exit() { put_back(); }
 
+#if defined(RMP_SANITIZE) && __has_include(<sanitizer/common_interface_defs.h>)
+// ASan and UBSan end the process with _exit() after their report: no atexit
+// handler, no signal. Their death callback is the one way in -- and clang
+// links the two as one runtime, gcc as two shared libraries with a copy of the
+// callback each, where the name reaches only the first loaded, ASan's. So
+// UBSan's is asked of libubsan itself (seen: a division by zero under gcc's
+// UBSan left the terminal broken, under clang's it did not).
+// NOLINTNEXTLINE(custom-rmp-raw-pointer): the runtimes' own signature
+void on_sanitizer_death(void (*callback)()) {
+    __sanitizer_set_death_callback(callback);
+#if defined(__GNUC__) && !defined(__clang__)
+    // NOLINTNEXTLINE(custom-rmp-raw-pointer): dlopen's own handle
+    void *ubsan = dlopen("libubsan.so.1", RTLD_LAZY | RTLD_NOLOAD);
+    if (ubsan == nullptr) return;
+    // NOLINTNEXTLINE(custom-rmp-raw-pointer): dlsym's own
+    void *set = dlsym(ubsan, "__sanitizer_set_death_callback");
+    // NOLINTNEXTLINE(custom-rmp-raw-pointer): the function dlsym found
+    if (set != nullptr) reinterpret_cast<void (*)(void (*)())>(set)(callback);
+    dlclose(ubsan);
+#endif
+}
+#endif
+
 [[maybe_unused]] std::string from_environment(const std::string &name) {
     // NOLINTNEXTLINE(custom-rmp-raw-pointer): getenv's own, copied at once
     const char *value = std::getenv(name.c_str());
@@ -139,9 +165,7 @@ bool guard_terminal(int fd) {
         guard.installed.at(i) = sigaction(FATAL_SIGNALS.at(i), &ours, nullptr) == 0;
     }
 #if defined(RMP_SANITIZE) && __has_include(<sanitizer/common_interface_defs.h>)
-    // ASan and UBSan end the process with _exit() after their report: no
-    // atexit handler, no signal. Their death callback is the one way in.
-    __sanitizer_set_death_callback(put_back);
+    on_sanitizer_death(put_back);
 #endif
     if (!guard.exit_registered)
         guard.exit_registered = std::atexit(put_back_at_exit) == 0;
@@ -157,7 +181,7 @@ void unguard_terminal() {
         guard.installed.at(i) = false;
     }
 #if defined(RMP_SANITIZE) && __has_include(<sanitizer/common_interface_defs.h>)
-    __sanitizer_set_death_callback(nullptr);
+    on_sanitizer_death(nullptr);
 #endif
     // The atexit handler stays registered -- there is no taking one back --
     // and does nothing with no terminal to put back.
