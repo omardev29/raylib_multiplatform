@@ -348,6 +348,10 @@ class WindowsTest(Files, unittest.TestCase):
             "MZ and nothing else": b"MZ",
             "no PE signature": b"MZ" + b"\0" * 0x3A + struct.pack("<I", 0x40) + b"XX\0\0",
             "cut after the headers": good[:SECTION_RAW + 4],
+            # Found by tests/binary_check_property_test.py: a PE32+ cut just
+            # after its optional header's magic, before the 8-byte image base
+            # -- struct.error, a traceback in place of exit 2.
+            "a PE32+ cut inside its image base": good[:0x40 + 24 + 2],
         }
         for what, data in cases.items():
             with self.subTest(what=what):
@@ -623,7 +627,13 @@ class ElfTest(Files, unittest.TestCase):
         cases = {"a PE": b"MZ" + b"\0" * 100, "empty": b"", "cut short": whole[:30],
                  # e_phnum, at 56 in a 64-bit header, set to 0
                  "an object file": whole[:56] + struct.pack("<H", 0) + whole[58:],
-                 "program headers cut short": whole[:80]}
+                 "program headers cut short": whole[:80],
+                 # Found by tests/binary_check_property_test.py: the program
+                 # headers whole and the dynamic section cut inside its first
+                 # entry. Read for BIND_NOW after the check had stopped
+                 # catching, so NotReadable escaped as a traceback -- without
+                 # --musl, which reads it earlier, inside the catch.
+                 "the dynamic section cut short": whole[:64 + 56 * 5 + 6]}
         for what, data in cases.items():
             with self.subTest(what=what):
                 code, out = self.check(data)
