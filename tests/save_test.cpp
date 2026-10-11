@@ -21,10 +21,12 @@
 
 #include <rmp/save.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <chrono>
 #include <climits>
+#include <cstdarg>
 #include <clocale>
 #include <cmath>
 #include <cstdio>
@@ -190,6 +192,26 @@ std::string file_text(const fs::path &path) {
 struct {
     int stops = 0;
 } strict;
+
+// What raylib's log said while a test listened, one formatted line each.
+struct {
+    std::vector<std::string> lines;
+} heard;
+
+// NOLINTNEXTLINE(custom-rmp-raw-pointer): raylib's TraceLogCallback, a C signature
+void hear(int /*level*/, const char *text, va_list args) {
+    std::array<char, 512> line{};
+    std::vsnprintf(line.data(), line.size(), text, args);
+    heard.lines.emplace_back(line.data());
+}
+
+// How many lines heard so far contain `what`.
+int heard_lines_with(std::string_view what) {
+    return static_cast<int>(
+        std::ranges::count_if(heard.lines, [what](const std::string &line) {
+            return line.find(what) != std::string::npos;
+        }));
+}
 
 } // namespace
 
@@ -975,6 +997,55 @@ TEST_SUITE("save: format") {
         CHECK(va == vb);
     }
 
+    TEST_CASE("a seal's nonce is random, not a counter: every four bytes of it differ") {
+        // 24 bytes of std::random_device, four at a time, and a counter mixed
+        // into the last eight. A fill loop that ran once, or not at all, left
+        // a nonce that was the counter and zeros -- still different every
+        // time, so the case above passed -- and with a key in every copy of the
+        // game, a predictable nonce is the one thing XChaCha20 cannot afford.
+        // Found by Mull (save.cpp's nonce loop, mutated, survived).
+        const Bytes a = encoded(sample(), true);
+        const Bytes b = encoded(sample(), true);
+        const std::size_t at = header_end(a) + 1;
+        REQUIRE(header_end(b) + 1 == at);
+        for (std::size_t chunk = 0; chunk < 16; chunk += 4) {
+            CAPTURE(chunk);
+            CHECK(std::memcmp(a.data() + at + chunk, b.data() + at + chunk, 4) != 0);
+        }
+    }
+
+    TEST_CASE(
+        "a save sealed by this framework still opens: the key is derived as it was") {
+        // Bytes sealed with [project] name = "ray_test" when this case was
+        // written. A change to the key's derivation -- its material, its
+        // length -- passes every round trip, which seals and opens with the
+        // same new key, and turns every save a player has into MODIFIED.
+        // Found by Mull (crypto_blake2b's sizes, mutated, survived). Renaming
+        // [project] name changes the key on purpose (the .toml says so): then
+        // this case is the reminder, and the bytes are sealed again.
+        const std::string hex =
+            "726d702d7361766520312032207365616c65642035382032366263623564390a"
+            "27931c6c32802925128b55b81746b54ea4dbb66998c03c9275f73f3d12b9438"
+            "17fa58d93b1c70e126c361f0b5f15e3511a793ef4713db77e3f56";
+        Bytes file;
+        for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+            file.push_back(
+                static_cast<unsigned char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+        if (std::string_view(RMP_PROJECT_NAME) != "ray_test") {
+            MESSAGE("[project] name is not ray_test here: the sealed bytes are another "
+                    "key's");
+            return;
+        }
+        Value back;
+        REQUIRE(rmp::save::detail::decode(file, &back, true) == Status::OK);
+        Value expected = Value::list();
+        expected.push(1e300);
+        expected.push(Value());
+        expected.push(true);
+        CHECK(back == expected);
+        CHECK(back.version() == 2);
+    }
+
     // -----------------------------------------------------------------------
     // Versions
     // -----------------------------------------------------------------------
@@ -1163,6 +1234,20 @@ TEST_SUITE("save: format") {
         CHECK(decode(with_fixed_crc(file)) != Status::OK);
     }
 
+    TEST_CASE("a header line longer than any we write is UNREADABLE, not TRUNCATED") {
+        // The header is read up to its 128th byte. 128 bytes that start like
+        // ours and have no '\n' were cut short; 129 are not a header of ours.
+        // Found by Mull (the `< 128`, mutated to `<= 128`, survived).
+        const std::string start = "rmp-save ";
+        const auto file_of = [&start](std::size_t size) {
+            std::string text = start + std::string(size - start.size(), '1');
+            return Bytes(text.begin(), text.end());
+        };
+        CHECK(decode(file_of(128)) == Status::TRUNCATED);
+        CHECK(decode(file_of(129)) == Status::UNREADABLE);
+        CHECK(decode(file_of(400)) == Status::UNREADABLE);
+    }
+
     TEST_CASE("not a save, or a newer format: UNREADABLE") {
         const auto bytes = [](const std::string &s) { return Bytes(s.begin(), s.end()); };
         CHECK(decode(bytes("{\"coins\": 5}")) == Status::UNREADABLE);
@@ -1240,6 +1325,9 @@ TEST_SUITE("save: files") {
         const std::string where = rmp::save::directory();
         CHECK(fs::equivalent(fs::path(where), dir.path));
         CHECK((where.back() == '/' || where.back() == '\\'));
+        // No portable folder, so nothing to give up on (Mull: the portable
+        // probe forced on, survived).
+        CHECK(rmp::save::detail::fallbacks() == 0);
     }
 
     TEST_CASE_FIXTURE(Fixture, "the default of write() is [save] encrypt") {
@@ -1380,7 +1468,15 @@ TEST_SUITE("save: files") {
         const fs::path blocker = dir.path / "a_file";
         std::ofstream(blocker) << "x";
         rmp::save::detail::set_folders_for_tests("", (blocker / "saves").string());
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
         CHECK_FALSE(rmp::save::write("slot", sample()));
+        CHECK_FALSE(rmp::save::write("slot", sample()));
+        SetTraceLogCallback(nullptr);
+        // The machine, not the game: a plain log, every time, never once
+        // (Mull: the log line removed, survived).
+        CHECK(heard_lines_with("SAVE: could not write") == 2);
+        CHECK(rmp::detail::report_count() == 0);
         Value v;
         CHECK(rmp::save::read("slot", v).status == Status::MISSING);
     }
@@ -1466,6 +1562,26 @@ TEST_SUITE("save: portable") {
         CHECK_FALSE(fs::exists(portable.path / "slot.save.tmp")); // cleaned up
         CHECK(rmp::save::write("other", sample()));
         CHECK(rmp::save::detail::fallbacks() == 1); // once
+        rmp::save::detail::reset_for_tests();
+    }
+
+    TEST_CASE("giving up on the portable folder is said in the log, once") {
+        // The fallback's line is the player's only clue that the saves moved
+        // (Mull: the line removed, survived): a plain log, never
+        // RMP_REPORT_ONCE -- a read-only folder is the machine, and [dev]
+        // strict must not abort a correct game over it.
+        const TempDir portable;
+        const TempDir user;
+        fs::create_directories(portable.path / "slot.save" / "in_the_way");
+        rmp::save::detail::set_folders_for_tests(portable.str(), user.str());
+        rmp::detail::reset_reports_for_tests();
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
+        CHECK(rmp::save::write("slot", sample()));
+        CHECK(rmp::save::write("other", sample()));
+        SetTraceLogCallback(nullptr);
+        CHECK(heard_lines_with("SAVE: cannot write in") == 1);
+        CHECK(rmp::detail::report_count() == 0);
         rmp::save::detail::reset_for_tests();
     }
 
