@@ -494,8 +494,11 @@ def deep_merge(base: dict, over: dict, path: str = "") -> dict:
     for k, v in over.items():
         here = f"{path}.{k}" if path else k
         if k not in base:
-            raise ConfigError(f"unknown key [{here}] in raylib_multiplatform.toml",
-                              (path, k) if path else (k, None))
+            # Above every section, a table is found by its [header] and a value
+            # by its line in section "": (k, None) looked for a header nobody
+            # wrote, and `zzz = 1` pointed nowhere.
+            where = (path, k) if path else ((k, None) if isinstance(v, dict) else ("", k))
+            raise ConfigError(f"unknown key [{here}] in raylib_multiplatform.toml", where)
         # A value where a table goes -- `audio = 0.5` above every section, or
         # `admob = true` inside [android] -- used to be stored as it was, and
         # the first check to index it died with "'float' object is not
@@ -531,11 +534,14 @@ def load_config() -> dict:
 # Validation
 # ---------------------------------------------------------------------------
 
-NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+# Every pattern a value is checked with ends in \Z, not $: Python's `$` also
+# matches before a final newline, and `name = "game\n"` was taken -- a CMake
+# target and a file name with a newline in it. tools/rmp.py reads these three.
+NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\Z")
 # Android package rules: dot-separated segments, each starting with a letter.
-APPID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+APPID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+\Z")
 # Apple allows hyphens in bundle ids, Android does not.
-BUNDLE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$")
+BUNDLE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+\Z")
 
 PROTECTED_MODULES = {
     "rtextures": "the asset layer (src/rmp/), the rres loader and the CI render gate "
@@ -835,7 +841,7 @@ def validate_linux(cfg: dict) -> None:
     if not isinstance(glibc, str):
         raise ConfigError(f"[linux] glibc = {glibc!r} has to be a string like \"2.28\", "
                           "or \"\" to build with whatever the host has.")
-    if glibc and not re.match(r"^2\.(1[7-9]|[2-9][0-9])$", glibc):
+    if glibc and not re.match(r"^2\.(1[7-9]|[2-9][0-9])\Z", glibc):
         raise ConfigError(
             f"[linux] glibc = {glibc!r} is not a version this can target.\n"
             "Use 2.17 to 2.99, or \"\" to build against the host's glibc and target "
@@ -1104,7 +1110,8 @@ def validate_ios(cfg: dict) -> None:
             f"[ios] bundle_id = {bundle!r} is not a valid bundle identifier.\n"
             "It needs at least one dot, e.g. com.yourname.yourgame.")
 
-    if not re.match(r"^\d+\.\d+(\.\d+)?$", str(cfg["ios"]["deployment_target"])):
+    # [0-9], not \d: that is any Unicode digit, and int() reads ١٥ as 15.
+    if not re.match(r"^[0-9]+\.[0-9]+(\.[0-9]+)?\Z", str(cfg["ios"]["deployment_target"])):
         raise ConfigError(f"[ios] deployment_target = {cfg['ios']['deployment_target']!r} "
                           "must look like \"15.6\".")
     # std::filesystem, which rmp::save is built on, is unavailable in Apple's
@@ -1250,7 +1257,7 @@ def validate_icon(cfg: dict) -> None:
 
     bg = cfg["icon"]["adaptive_background"]
     a_string(bg, "[icon] adaptive_background", 'Use "" for no colour at all.')
-    if bg and not re.match(r"^#[0-9a-fA-F]{6}$", bg):
+    if bg and not re.match(r"^#[0-9a-fA-F]{6}\Z", bg):
         raise ConfigError(f"[icon] adaptive_background = {bg!r} must be #RRGGBB, or \"\".")
 
 
@@ -1299,12 +1306,12 @@ def validate_deploy(cfg: dict) -> None:
     # charsets are deliberately tight: a newline in any of them would let the
     # config file define arbitrary job outputs.
     for key, value, pattern, shape in (
-        ("[deploy.itch] user", cfg["deploy"]["itch"]["user"], r"^[A-Za-z0-9_-]*$", "an itch.io username"),
-        ("[deploy.itch] game", cfg["deploy"]["itch"]["game"], r"^[A-Za-z0-9_-]*$", "an itch.io game slug"),
+        ("[deploy.itch] user", cfg["deploy"]["itch"]["user"], r"^[A-Za-z0-9_-]*\Z", "an itch.io username"),
+        ("[deploy.itch] game", cfg["deploy"]["itch"]["game"], r"^[A-Za-z0-9_-]*\Z", "an itch.io game slug"),
         ("[deploy.firebase] project_id", cfg["deploy"]["firebase"]["project_id"],
-         r"^[a-z0-9-]*$", "a GCP project id (lowercase, digits, hyphens)"),
+         r"^[a-z0-9-]*\Z", "a GCP project id (lowercase, digits, hyphens)"),
         ("[deploy.firebase] device", cfg["deploy"]["firebase"]["device"],
-         r"^[A-Za-z0-9_.,=-]*$", "a gcloud device spec, e.g. model=MediumPhone.arm,version=33"),
+         r"^[A-Za-z0-9_.,=-]*\Z", "a gcloud device spec, e.g. model=MediumPhone.arm,version=33"),
     ):
         if not isinstance(value, str) or not re.match(pattern, value):
             # The literal half of this message carries the only words a test can

@@ -5651,6 +5651,80 @@ class ConfigureNotANumberTest(unittest.TestCase):
         self.assertIn('#define RMP_RRES_PASSWORD   "line one\\012line two"\n', captured["config.h"])
 
 
+class ConfigureWholeValueTest(unittest.TestCase):
+    """A pattern validate() checks a value with is the whole value. Every one
+    of them was `^...$`, and Python's `$` matches before a final newline too:
+    `name = "game\\n"` was taken, and became a CMake target, a file name and
+    an Android library name with a newline in it. Found by
+    tests/configure_property_test.py, TakenTest."""
+
+    # (key path, a value it takes)
+    SHAPED = [(("project", "name"), "game"),
+              (("android", "application_id"), "com.real.game"),
+              (("ios", "bundle_id"), "com.real.game"),
+              (("linux", "glibc"), "2.28"),
+              (("ios", "deployment_target"), "15.6"),
+              (("icon", "adaptive_background"), "#3DDC84"),
+              (("deploy", "itch", "user"), "me"),
+              (("deploy", "itch", "game"), "game"),
+              (("deploy", "firebase", "project_id"), "my-project"),
+              (("deploy", "firebase", "device"), "model=MediumPhone.arm,version=33")]
+
+    def config(self, path, value):
+        cfg = base_config()
+        cfg["deploy"]["itch"].update(user="me", game="game")   # a pair, or neither
+        node = cfg
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+        return cfg
+
+    def test_each_takes_its_value(self):
+        for path, good in self.SHAPED:
+            with self.subTest(key=path), quiet():
+                cfgmod.validate(self.config(path, good), False)
+
+    def test_a_trailing_newline_is_not_part_of_it(self):
+        for path, good in self.SHAPED:
+            with self.subTest(key=path):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.config(path, good + "\n"), False)
+                self.assertIn(f"{path[-1]} = ", str(caught.exception))
+
+    def test_the_names_rmp_new_checks_are_whole_too(self):
+        """tools/rmp.py reads NAME_RE, APPID_RE and BUNDLE_RE with .match()."""
+        for pattern, good in ((cfgmod.NAME_RE, "game"), (cfgmod.APPID_RE, "com.real.game"),
+                              (cfgmod.BUNDLE_RE, "com.real.game")):
+            with self.subTest(pattern=pattern.pattern):
+                self.assertTrue(pattern.match(good))
+                self.assertIsNone(pattern.match(good + "\n"))
+
+    def test_the_deployment_target_is_in_ascii_digits(self):
+        """`\\d` took ١٥.٦ (Arabic-Indic), int() read it as 15, and Xcode got
+        IPHONEOS_DEPLOYMENT_TARGET "١٥.٦"."""
+        for bad in ("١٥.٦", "1٥.6", "15.６"):
+            with self.subTest(target=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(self.config(("ios", "deployment_target"), bad), False)
+                self.assertIn("[ios] deployment_target", str(caught.exception))
+
+    def test_an_unknown_name_above_every_section_is_found_on_its_line(self):
+        """`zzz = 1` above every section was refused as unknown with where
+        ("zzz", None) -- a [zzz] header nobody wrote -- so it pointed nowhere."""
+        import tempfile
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfgmod.TOML = Path(tmp) / "raylib_multiplatform.toml"
+            for text, line in (("# top\nzzz = 1\n[window]\nwidth = 800\n", (2, "zzz = 1")),
+                               ("[zzz]\nx = 1\n", (1, "[zzz]"))):
+                with self.subTest(text=text):
+                    cfgmod.TOML.write_text(text)
+                    with self.assertRaises(cfgmod.ConfigError) as caught:
+                        cfgmod.load_config()
+                    self.assertIn("unknown key [zzz]", str(caught.exception))
+                    self.assertEqual(cfgmod.locate_from(caught.exception), line)
+
+
 def load_license_db():
     """tools/license_db.py, by path, the same way configure.py is loaded."""
     spec = importlib.util.spec_from_file_location("tools.license_db",
