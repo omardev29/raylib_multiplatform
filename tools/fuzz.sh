@@ -101,7 +101,8 @@ EOF
 # RMP_REQUIRE_SANITIZERS=1. A clang without compiler-rt compiles everything
 # and links none of it, and gcc's libasan may well be there.
 clang_sanitizes() {
-  command -v clang++ >/dev/null 2>&1 && command -v clang >/dev/null 2>&1 || return 1
+  command -v clang++ >/dev/null 2>&1 || return 1
+  command -v clang >/dev/null 2>&1 || return 1
   local probe="$BUILD/probe"
   mkdir -p "$probe"
   printf 'int main() { return 0; }\n' > "$probe/sanitized.cpp"
