@@ -728,6 +728,10 @@ class BuildFilesTest(unittest.TestCase):
             elif render is configure._c_int:
                 self.assertRegex(literal, r"\A-?[0-9]+\Z", name)
                 self.assertEqual(int(literal), value, name)
+            elif render is configure._c_stretch:
+                # A mode, by its place in STRETCH_MODES: src/rmp/stretch.cpp
+                # reads the number as rmp::app::Stretch.
+                self.assertEqual(literal, str(configure.STRETCH_MODES.index(value)), name)
             else:
                 self.assertEqual(literal, "1" if value else "0", name)
 
@@ -911,6 +915,9 @@ class ToolsReadBackTest(unittest.TestCase):
                 # hold is a warning there, an error under -Werror.
                 checks.append(f"static_assert(({name} != 0.0f) == {str(value != 0).lower()}, "
                               f"\"{name}\");")
+            elif render is configure._c_stretch:
+                checks.append(f"static_assert({name} == "
+                              f"{configure.STRETCH_MODES.index(value)}, \"{name}\");")
             else:
                 checks.append(f"static_assert({name} == {int(value)}, \"{name}\");")
         (self.dir / "check.cpp").write_text(
