@@ -40,45 +40,6 @@ rmp::assets::requested_loads()
 rmp::assets::shutdown()
 rmp::assets::using_pack()
 
-# include/rmp/behavior.h: P6
-rmp::behavior::Ball::_collision(Object &, Object &)
-rmp::behavior::Ball::_ready(Object &)
-rmp::behavior::Ball::_update(Object &, float)
-rmp::behavior::Follow::_update(Object &, float)
-rmp::behavior::GridSnap::_late_update(Object &, float)
-rmp::behavior::Health::_collision(Object &, Object &)
-rmp::behavior::Health::_end(Object &)
-rmp::behavior::Health::_ready(Object &)
-rmp::behavior::Health::_update(Object &, float)
-rmp::behavior::Health::damage(Object &, int)
-rmp::behavior::Health::dead() const
-rmp::behavior::Health::heal(int)
-rmp::behavior::Health::invulnerable() const
-rmp::behavior::Lifespan::_update(Object &, float)
-rmp::behavior::Parallax::_draw(Object &)
-rmp::behavior::Parallax::_ready(Object &)
-rmp::behavior::Parallax::_update(Object &, float)
-rmp::behavior::Platformer::_ready(Object &)
-rmp::behavior::Platformer::_update(Object &, float)
-rmp::behavior::Platformer::grounded() const
-rmp::behavior::Projectile::_collision(Object &, Object &)
-rmp::behavior::Projectile::_ready(Object &)
-rmp::behavior::Projectile::_update(Object &, float)
-rmp::behavior::Runner::_ready(Object &)
-rmp::behavior::Runner::_update(Object &, float)
-rmp::behavior::Runner::distance() const
-rmp::behavior::Runner::ducking() const
-rmp::behavior::Spawner::_update(Object &, float)
-rmp::behavior::Spawner::alive() const
-rmp::behavior::Spawner::jitter_amount() const
-rmp::behavior::Timer::_update(Object &, float)
-rmp::behavior::TopDown::_update(Object &, float)
-rmp::behavior::TopDown::direction() const
-rmp::behavior::TopDown::sector() const
-rmp::behavior::Tween::_update(Object &, float)
-rmp::behavior::Tween::finished() const
-rmp::behavior::Tween::restart()
-
 # include/rmp/input.h: P6, after Stage D
 rmp::input::action [template]
 rmp::input::axis()

@@ -33,7 +33,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <initializer_list>
+#include <limits>
 #include <numbers>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -55,10 +59,86 @@ constexpr float NEAR_ZERO = 0.0001f;
 
 float length_of(Vector2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+// The direction of `v`, or none: {0, 0} for a vector too short to have one,
+// and for one that is not a number. A vector whose parts are finite and whose
+// length is not -- each part near float's end -- has its direction worked out
+// in double, where the length fits.
 Vector2 normalised(Vector2 v) {
     const float len = length_of(v);
-    if (len < NEAR_ZERO) return Vector2{ 0, 0 };
-    return Vector2{ v.x / len, v.y / len };
+    if (std::isfinite(len)) {
+        if (len < NEAR_ZERO) return Vector2{ 0, 0 };
+        return Vector2{ v.x / len, v.y / len };
+    }
+    if (!finite(v)) return Vector2{ 0, 0 };
+    const double big = std::hypot(static_cast<double>(v.x), static_cast<double>(v.y));
+    return Vector2{ static_cast<float>(v.x / big), static_cast<float>(v.y / big) };
+}
+
+// The seconds a hook was handed, as a behavior counts them: a finite number,
+// 0 or more. The framework's clock never hands anything else (clamp_delta, in
+// src/rmp/clock.cpp); a game that calls a hook itself might, and a NaN there
+// was a NaN in every position the behavior wrote, an infinity a Timer that
+// never returned. Anything else is a frame in which no time passed, said once.
+float seconds_of(float delta) {
+    if (std::isfinite(delta) && delta >= 0) return delta;
+    RMP_REPORT_ONCE(
+        "BEHAVIOR: a behavior's hook was handed delta = %g. A frame is a finite "
+        "number of seconds, 0 or more, and this one counts as 0.",
+        static_cast<double>(delta));
+    return 0.0f;
+}
+
+// What a behavior writes -- into its object, and into what it keeps -- is a
+// finite number, or nothing. A value that is not one (a field that is NaN or
+// an infinity, a speed so large the arithmetic overflowed, an object already
+// at NaN) leaves the old value where it was and is said once per behavior:
+// written, it would be every position the object touches from then on.
+void not_written(std::string_view who, float value) {
+    RMP_REPORT_ONCE_KEYED(
+        who,
+        "BEHAVIOR: %.*s did not write %g: a behavior writes only finite "
+        "numbers, and left the old value. Look at its fields, and at the "
+        "object's position.",
+        static_cast<int>(who.size()), who.data(), static_cast<double>(value));
+}
+
+void put(float &slot, float value, std::string_view who) {
+    if (std::isfinite(value)) {
+        slot = value;
+        return;
+    }
+    not_written(who, value);
+}
+
+void put(Vector2 &slot, Vector2 value, std::string_view who) {
+    if (finite(value)) {
+        slot = value;
+        return;
+    }
+    not_written(who, std::isfinite(value.x) ? value.y : value.x);
+}
+
+// A field the game set, and its name.
+struct Field {
+    std::string_view name;
+    float value;
+};
+
+// A field that is NaN is said once, by name. Every comparison with one is
+// false, so it quietly turns a behavior off -- a Timer that never fires, a
+// Lifespan that never ends -- or would reach the object through what the
+// behavior writes, which put() refuses.
+void say_nan(std::string_view who, std::initializer_list<Field> fields) {
+    for (const Field &f : fields) {
+        if (!std::isnan(f.value)) continue;
+        const std::string key = std::string(who) + "::" + std::string(f.name);
+        RMP_REPORT_ONCE_KEYED(std::string_view(key),
+                              "BEHAVIOR: %s is NaN. Every comparison with it is false, "
+                              "and nothing the behavior works out from it is written.",
+                              key.c_str());
+    }
 }
 
 // Move `current` towards `target` at `rate` per second, or jump straight there
@@ -78,6 +158,25 @@ std::string_view or_default(std::string_view given, std::string_view fallback) {
 }
 
 bool held(std::string_view action) { return rmp::input::pressed(action); }
+
+// Whether `used` jumps leave one: the ground's and `air_jumps` more. Not
+// `used < air_jumps + 1`, which was undefined for an air_jumps of INT_MAX.
+bool has_air_jump(int used, int air_jumps) { return used <= air_jumps; }
+
+// How long ago the ground was, or the jump press, when it never was: what
+// Platformer's `ours` starts at and what a jump sets them to. A coyote_time or
+// a jump_buffer that long or longer -- a field nobody means -- does not make
+// "never" recent: at 2000 the buffer fired a jump nobody pressed, every frame,
+// and the coyote window never closed (the behaviours' property found both).
+constexpr float LONG_AGO = 1000;
+
+bool within(float since, float window) { return since < LONG_AGO && since <= window; }
+
+// One more jump, and never past INT_MAX: a count with no ceiling can be asked
+// to pass it.
+void count_jump(int &used) {
+    if (used < std::numeric_limits<int>::max()) ++used;
+}
 bool pressed(std::string_view action) { return rmp::input::just_pressed(action); }
 
 // Is there something SOLID directly below? A raycast rather than a flag on the
@@ -124,6 +223,9 @@ int TopDown::sector() const {
     // positive angle is downward on screen. The suffix table starts at "e" and
     // goes anticlockwise in screen terms, which is why the angle is negated.
     float angle = std::atan2(-ours.facing.y, ours.facing.x);
+    // A facing that is no direction -- `ours` is public, and a NaN written
+    // there made the cast below undefined -- is east, where the table starts.
+    if (!std::isfinite(angle)) return 0;
     if (angle < 0) angle += 2 * std::numbers::pi_v<float>;
     const float eighth = 2 * std::numbers::pi_v<float> / 8;
     auto index = static_cast<int>((angle + eighth / 2) / eighth);
@@ -131,9 +233,15 @@ int TopDown::sector() const {
 }
 
 void TopDown::_update(Object &self, float delta) {
+    const float seconds = seconds_of(delta);
+    say_nan("TopDown", { { "speed", speed }, { "acceleration", acceleration } });
     Vector2 wanted =
         rmp::input::vector(or_default(left, "move_left"), or_default(right, "move_right"),
                            or_default(up, "move_up"), or_default(down, "move_down"));
+    // A reading that is not a number is no input: a stick that reported an
+    // infinity came back from vector() as a NaN, and that was the facing, the
+    // velocity and the sprite's sector.
+    if (!finite(wanted)) wanted = Vector2{ 0, 0 };
 
     if (!eight_way && wanted.x != 0 && wanted.y != 0) {
         // Four directions: whichever axis is being pushed harder wins, and a
@@ -146,11 +254,16 @@ void TopDown::_update(Object &self, float delta) {
         }
     }
 
-    if (wanted.x != 0 || wanted.y != 0) ours.facing = normalised(wanted);
+    if (wanted.x != 0 || wanted.y != 0) {
+        const Vector2 facing = normalised(wanted);
+        if (facing.x != 0 || facing.y != 0) ours.facing = facing;
+    }
 
     const Vector2 target{ wanted.x * speed, wanted.y * speed };
-    self.velocity.x = approach(self.velocity.x, target.x, acceleration, delta);
-    self.velocity.y = approach(self.velocity.y, target.y, acceleration, delta);
+    put(self.velocity,
+        Vector2{ approach(self.velocity.x, target.x, acceleration, seconds),
+                 approach(self.velocity.y, target.y, acceleration, seconds) },
+        "TopDown");
 
     // The flip first, because it is the half that works with no sheet at all:
     // a one-direction sheet mirrored for the left. Which assumes the art faces
@@ -198,9 +311,18 @@ void Platformer::_ready(Object &self) {
 }
 
 void Platformer::_update(Object &self, float delta) {
+    const float seconds = seconds_of(delta);
+    say_nan("Platformer",
+            { { "speed", speed },
+              { "acceleration", acceleration },
+              { "gravity", gravity },
+              { "jump", jump },
+              { "coyote_time", coyote_time },
+              { "jump_buffer", jump_buffer } });
     const float dir = (held(or_default(right, "move_right")) ? 1.0f : 0.0f) -
         (held(or_default(left, "move_left")) ? 1.0f : 0.0f);
-    self.velocity.x = approach(self.velocity.x, dir * speed, acceleration, delta);
+    put(self.velocity.x, approach(self.velocity.x, dir * speed, acceleration, seconds),
+        "Platformer");
 
     const bool was_grounded = ours.grounded;
     ours.grounded = standing_on_something(self, 2.0f) && self.velocity.y >= -NEAR_ZERO;
@@ -208,7 +330,7 @@ void Platformer::_update(Object &self, float delta) {
         ours.since_grounded = 0;
         if (!was_grounded) ours.jumps_used = 0;
     } else {
-        ours.since_grounded += delta;
+        ours.since_grounded += seconds;
         // LEAVING THE GROUND SPENDS THE GROUND JUMP, once the coyote window has
         // closed. Without this line `jumps_used < air_jumps + 1` hands a free
         // jump to anything that has not jumped yet -- a player long past the
@@ -217,7 +339,7 @@ void Platformer::_update(Object &self, float delta) {
         // felt, because there was always a jump available anyway, and the
         // buffered jump is never observed, because the press fires the moment
         // it happens instead of waiting for the landing.
-        if (ours.since_grounded > coyote_time && ours.jumps_used == 0) {
+        if (!within(ours.since_grounded, coyote_time) && ours.jumps_used == 0) {
             ours.jumps_used = 1;
         }
     }
@@ -225,23 +347,23 @@ void Platformer::_update(Object &self, float delta) {
     if (pressed(or_default(jump_action, "ui_accept")))
         ours.since_jump_pressed = 0;
     else
-        ours.since_jump_pressed += delta;
+        ours.since_jump_pressed += seconds;
 
     // Coyote time and the buffered jump, which are the two things nobody can
     // name and everybody feels: a jump pressed just after the ledge still
     // fires, and one pressed just before landing is remembered.
-    const bool may_jump =
-        ours.since_grounded <= coyote_time || ours.jumps_used < air_jumps + 1;
-    if (ours.since_jump_pressed <= jump_buffer && may_jump) {
-        self.velocity.y = -jump;
-        ours.since_jump_pressed = 1000;
-        ours.since_grounded = 1000;
-        ++ours.jumps_used;
+    const bool may_jump = within(ours.since_grounded, coyote_time) ||
+        has_air_jump(ours.jumps_used, air_jumps);
+    if (within(ours.since_jump_pressed, jump_buffer) && may_jump) {
+        put(self.velocity.y, -jump, "Platformer");
+        ours.since_jump_pressed = LONG_AGO;
+        ours.since_grounded = LONG_AGO;
+        count_jump(ours.jumps_used);
         ours.grounded = false;
     }
 
     if (!ours.grounded)
-        self.velocity.y += gravity * delta;
+        put(self.velocity.y, self.velocity.y + gravity * seconds, "Platformer");
     else if (self.velocity.y > 0)
         self.velocity.y = 0;
 }
@@ -257,9 +379,19 @@ void Runner::_ready(Object &self) {
 }
 
 void Runner::_update(Object &self, float delta) {
-    speed += accelerate * delta;
-    if (speed > max_speed) speed = max_speed;
-    ours.distance += speed * delta;
+    const float seconds = seconds_of(delta);
+    say_nan("Runner",
+            { { "speed", speed },
+              { "accelerate", accelerate },
+              { "max_speed", max_speed },
+              { "gravity", gravity },
+              { "jump", jump } });
+    // Its own field, and so written like the object's: only ever a number.
+    float faster = speed + accelerate * seconds;
+    if (faster > max_speed) faster = max_speed;
+    put(speed, faster, "Runner");
+    const float ran = speed * seconds;
+    if (std::isfinite(ran)) ours.distance += ran;
 
     ours.ducking = !duck_action.empty() && held(duck_action);
 
@@ -275,19 +407,19 @@ void Runner::_update(Object &self, float delta) {
     }
 
     if (pressed(or_default(jump_action, "ui_accept")) &&
-        (ours.grounded || ours.jumps_used < air_jumps + 1)) {
-        self.velocity.y = -jump;
-        ++ours.jumps_used;
+        (ours.grounded || has_air_jump(ours.jumps_used, air_jumps))) {
+        put(self.velocity.y, -jump, "Runner");
+        count_jump(ours.jumps_used);
         ours.grounded = false;
     }
 
     if (!ours.grounded)
-        self.velocity.y += gravity * delta;
+        put(self.velocity.y, self.velocity.y + gravity * seconds, "Runner");
     else if (self.velocity.y > 0)
         self.velocity.y = 0;
 
     // The x is the runner's, always: this is the behavior that runs forward.
-    self.velocity.x = speed;
+    put(self.velocity.x, speed, "Runner");
 }
 
 // ---------------------------------------------------------------------------
@@ -315,9 +447,15 @@ void Ball::_collision(Object &self, Object &other) {
     const float overlap_x = (mine.width + theirs.width) / 2 - std::fabs(my_x - their_x);
     const float overlap_y = (mine.height + theirs.height) / 2 - std::fabs(my_y - their_y);
 
+    say_nan("Ball",
+            { { "speed", speed },
+              { "max_bounce_deg", max_bounce_deg },
+              { "speed_up", speed_up } });
+    // Worked out on a copy, and written once: what comes out of a collider
+    // that is not a number is not written at all.
+    Vector2 velocity = self.velocity;
     if (overlap_x < overlap_y) {
-        self.velocity.x =
-            my_x < their_x ? -std::fabs(self.velocity.x) : std::fabs(self.velocity.x);
+        velocity.x = my_x < their_x ? -std::fabs(velocity.x) : std::fabs(velocity.x);
         // Where along the face it landed, -1..1, tilts the bounce. This is half
         // of why Pong feels like Pong: hitting with the end of the paddle sends
         // the ball off at an angle, and the player learns it without being told.
@@ -326,37 +464,37 @@ void Ball::_collision(Object &self, Object &other) {
             const float clamped = along < -1 ? -1 : (along > 1 ? 1 : along);
             const float angle =
                 clamped * max_bounce_deg * std::numbers::pi_v<float> / 180;
-            const float sign = self.velocity.x < 0 ? -1.0f : 1.0f;
-            self.velocity =
-                Vector2{ sign * std::cos(angle) * speed, std::sin(angle) * speed };
+            const float sign = velocity.x < 0 ? -1.0f : 1.0f;
+            velocity = Vector2{ sign * std::cos(angle) * speed, std::sin(angle) * speed };
         }
     } else {
-        self.velocity.y =
-            my_y < their_y ? -std::fabs(self.velocity.y) : std::fabs(self.velocity.y);
+        velocity.y = my_y < their_y ? -std::fabs(velocity.y) : std::fabs(velocity.y);
         if (theirs.width > 0 && max_bounce_deg > 0) {
             const float along = (my_x - their_x) / (theirs.width / 2);
             const float clamped = along < -1 ? -1 : (along > 1 ? 1 : along);
             const float angle =
                 clamped * max_bounce_deg * std::numbers::pi_v<float> / 180;
-            const float sign = self.velocity.y < 0 ? -1.0f : 1.0f;
-            self.velocity =
-                Vector2{ std::sin(angle) * speed, sign * std::cos(angle) * speed };
+            const float sign = velocity.y < 0 ? -1.0f : 1.0f;
+            velocity = Vector2{ std::sin(angle) * speed, sign * std::cos(angle) * speed };
         }
     }
+    put(self.velocity, velocity, "Ball");
 
-    if (other.solid && speed_up != 1.0f) speed *= speed_up;
+    // Its own field: a pace that overflowed would be a velocity of NaN on the
+    // next update, so it stops climbing at float's end instead.
+    if (other.solid && speed_up != 1.0f) put(speed, speed * speed_up, "Ball");
 }
 
 void Ball::_update(Object &self, float delta) {
-    (void)delta;
+    (void)seconds_of(delta);
+    say_nan("Ball", { { "speed", speed } });
     // ONLY when it is not zero. That one condition is what makes the serve a
     // single apply_force -- the direction is all that survives the normalise --
     // and what makes `ball.velocity = {}` a stable "stopped" rather than
     // something the next frame undoes.
-    const float len = length_of(self.velocity);
-    if (len < NEAR_ZERO) return;
-    self.velocity =
-        Vector2{ self.velocity.x / len * speed, self.velocity.y / len * speed };
+    const Vector2 dir = normalised(self.velocity);
+    if (dir.x == 0 && dir.y == 0) return;
+    put(self.velocity, Vector2{ dir.x * speed, dir.y * speed }, "Ball");
 }
 
 // ---------------------------------------------------------------------------
@@ -372,12 +510,12 @@ void Projectile::_collision(Object &self, Object &other) {
 }
 
 void Projectile::_update(Object &self, float delta) {
-    (void)delta;
-    if (speed <= 0) return; // keep whatever it was given
-    const float len = length_of(self.velocity);
-    if (len < NEAR_ZERO) return;
-    self.velocity =
-        Vector2{ self.velocity.x / len * speed, self.velocity.y / len * speed };
+    (void)seconds_of(delta);
+    say_nan("Projectile", { { "speed", speed } });
+    if (!(speed > 0)) return; // keep whatever it was given
+    const Vector2 dir = normalised(self.velocity);
+    if (dir.x == 0 && dir.y == 0) return;
+    put(self.velocity, Vector2{ dir.x * speed, dir.y * speed }, "Projectile");
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +523,11 @@ void Projectile::_update(Object &self, float delta) {
 // ---------------------------------------------------------------------------
 
 void Follow::_update(Object &self, float delta) {
+    const float seconds = seconds_of(delta);
+    say_nan("Follow",
+            { { "speed", speed },
+              { "stop_distance", stop_distance },
+              { "acceleration", acceleration } });
     const Ref<Object> goal = target.get();
     if (!goal) {
         // The target died. Coasting is the right answer rather than stopping
@@ -395,13 +538,17 @@ void Follow::_update(Object &self, float delta) {
                       goal->position.y - self.position.y };
     const float distance = length_of(to);
     if (distance <= stop_distance) {
-        self.velocity.x = approach(self.velocity.x, 0, acceleration, delta);
-        self.velocity.y = approach(self.velocity.y, 0, acceleration, delta);
+        put(self.velocity,
+            Vector2{ approach(self.velocity.x, 0, acceleration, seconds),
+                     approach(self.velocity.y, 0, acceleration, seconds) },
+            "Follow");
         return;
     }
     const Vector2 dir = normalised(to);
-    self.velocity.x = approach(self.velocity.x, dir.x * speed, acceleration, delta);
-    self.velocity.y = approach(self.velocity.y, dir.y * speed, acceleration, delta);
+    put(self.velocity,
+        Vector2{ approach(self.velocity.x, dir.x * speed, acceleration, seconds),
+                 approach(self.velocity.y, dir.y * speed, acceleration, seconds) },
+        "Follow");
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +572,12 @@ float eased(Ease kind, float t) {
 }
 
 void write_property(Object &self, Property property, float value) {
+    if (!std::isfinite(value)) {
+        // From a field that is not a number -- and for ALPHA, a cast to an
+        // unsigned char with no defined result.
+        not_written("Tween", value);
+        return;
+    }
     switch (property) {
         case Property::POSITION_X:
             self.position.x = value;
@@ -454,8 +607,12 @@ void write_property(Object &self, Property property, float value) {
 } // namespace
 
 void Tween::_update(Object &self, float delta) {
-    if (ours.done || seconds <= 0) {
-        if (seconds <= 0 && !ours.done) {
+    const float step = seconds_of(delta);
+    say_nan("Tween", { { "from", from }, { "to", to }, { "seconds", seconds } });
+    // A NaN `seconds` goes the way 0 does: there is no pass to divide by it.
+    const bool instant = !(seconds > 0);
+    if (ours.done || instant) {
+        if (instant && !ours.done) {
             // A zero-length tween is the destination, immediately. Dividing by
             // it would be a NaN that spreads to the position and then to
             // everything the position touches.
@@ -465,15 +622,18 @@ void Tween::_update(Object &self, float delta) {
         return;
     }
 
-    ours.elapsed += delta;
+    ours.elapsed += step;
     float t = ours.elapsed / seconds;
     if (t >= 1) {
-        if (ping_pong) {
-            ours.back = !ours.back;
-            ours.elapsed -= seconds;
-            t = ours.elapsed / seconds;
-        } else if (loop) {
-            ours.elapsed -= seconds;
+        if (ping_pong || loop) {
+            // Every pass the frame covered, and not one: a frame longer than
+            // `seconds` -- a fast tween on a slow frame -- was taken one pass
+            // back and put the object past `to`, by the passes it missed. The
+            // remainder exactly, and a ping_pong turned once per pass.
+            const float passes = std::floor(t);
+            ours.elapsed =
+                std::isfinite(ours.elapsed) ? std::fmod(ours.elapsed, seconds) : 0.0f;
+            if (ping_pong && std::fmod(passes, 2.0f) == 1.0f) ours.back = !ours.back;
             t = ours.elapsed / seconds;
         } else {
             // EXACTLY the destination, not an epsilon short of it. A platform
@@ -486,7 +646,11 @@ void Tween::_update(Object &self, float delta) {
     }
 
     const float shaped = eased(ease, ours.back ? 1 - t : t);
-    write_property(self, property, from + (to - from) * shaped);
+    float value = from + (to - from) * shaped;
+    // `to - from` past float's range, the two ends finite: std::lerp, which
+    // never forms the difference.
+    if (!std::isfinite(value)) value = std::lerp(from, to, shaped);
+    write_property(self, property, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -494,16 +658,25 @@ void Tween::_update(Object &self, float delta) {
 // ---------------------------------------------------------------------------
 
 void GridSnap::_late_update(Object &self, float delta) {
-    (void)delta;
+    (void)seconds_of(delta);
+    say_nan("GridSnap",
+            { { "cell.x", cell.x },
+              { "cell.y", cell.y },
+              { "offset.x", offset.x },
+              { "offset.y", offset.y } });
     // Round, not floor: a piece has to land on the CENTRE of its cell, and
-    // flooring would drift it half a cell towards the origin every time.
+    // flooring would drift it half a cell towards the origin every time. And
+    // through put(): a cell so small the position is no number of them -- the
+    // count past float's range -- came back as an infinity.
     if (cell.x > 0) {
-        self.position.x =
-            offset.x + std::round((self.position.x - offset.x) / cell.x) * cell.x;
+        put(self.position.x,
+            offset.x + std::round((self.position.x - offset.x) / cell.x) * cell.x,
+            "GridSnap");
     }
     if (cell.y > 0) {
-        self.position.y =
-            offset.y + std::round((self.position.y - offset.y) / cell.y) * cell.y;
+        put(self.position.y,
+            offset.y + std::round((self.position.y - offset.y) / cell.y) * cell.y,
+            "GridSnap");
     }
 }
 
@@ -520,10 +693,11 @@ void Parallax::_ready(Object &self) {
 // cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Parallax::_update(Object &self, float delta) {
     (void)self;
+    say_nan("Parallax", { { "factor", factor }, { "speed", speed }, { "y", y } });
     // Only its own drift. Where the CAMERA is gets read at draw time and
     // multiplied by the factor there, so a camera that follows the player
     // scrolls every layer at its own rate with no bookkeeping in between.
-    ours.scroll += speed * delta;
+    put(ours.scroll, ours.scroll + speed * seconds_of(delta), "Parallax");
 }
 
 // cppcheck-suppress constParameterReference ; a hook's signature is the API's
@@ -565,7 +739,7 @@ float parallax_shift(float x, float view_x, float factor, float scroll) {
 }
 
 ParallaxTiling parallax_tiling(float shift, float width, float screen) {
-    if (width <= 0) return ParallaxTiling{};
+    if (!(width > 0) || !std::isfinite(width)) return ParallaxTiling{};
     // Modulo the texture's width, and drawn MORE THAN ONCE. This is the whole
     // behavior: one copy leaves a gap the moment the offset passes the width,
     // and getting the next copy's position wrong by a pixel is a seam that
@@ -573,15 +747,27 @@ ParallaxTiling parallax_tiling(float shift, float width, float screen) {
     // argument and a positive for a positive one, and a positive offset is a
     // gap down the left-hand side -- which is why it is nudged back into range
     // rather than trusted.
-    float offset = std::fmod(shift, width);
+    // A shift that is not a number is none: fmod() of it is a NaN, and the
+    // cast below of a NaN had no defined result.
+    float offset = std::isfinite(shift) ? std::fmod(shift, width) : 0.0f;
     if (offset > 0) offset -= width;
+    // A shift a hair past a whole number of widths rounds to exactly -width
+    // there, which is the same picture as 0.
+    if (offset <= -width) offset = 0;
 
     // An integer count, with each copy's position derived from it. Stepping a
     // float by `width` accumulates error across the copies, and error between
     // two copies of a scrolling background IS the seam this behavior exists to
-    // remove: a gap of a third of a pixel that crawls sideways.
-    const int copies = static_cast<int>((screen - offset) / width) + 1;
-    return ParallaxTiling{ offset, copies };
+    // remove: a gap of a third of a pixel that crawls sideways. One for a
+    // screen of no width or of none at all, and at most MAX_PARALLAX_COPIES: a
+    // view thousands of textures wide -- a camera zoomed far out -- was a cast
+    // past int's range, and then a loop of that many draws.
+    const float fit = (screen - offset) / width;
+    if (!(fit >= 0)) return ParallaxTiling{ offset, 1 };
+    if (fit >= static_cast<float>(MAX_PARALLAX_COPIES - 1)) {
+        return ParallaxTiling{ offset, MAX_PARALLAX_COPIES };
+    }
+    return ParallaxTiling{ offset, static_cast<int>(fit) + 1 };
 }
 
 } // namespace detail
@@ -609,6 +795,11 @@ int spawner_cap(int max_alive) {
 
 // cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Spawner::_update(Object &self, float delta) {
+    const float seconds = seconds_of(delta);
+    say_nan("Spawner",
+            { { "every_seconds", every_seconds },
+              { "every_distance", every_distance },
+              { "jitter", jitter } });
     const Ref<Scene> scene = Storage::spawned_in(self);
     if (!scene || !on_spawn) return;
 
@@ -620,15 +811,18 @@ void Spawner::_update(Object &self, float delta) {
     if (!ours.started) {
         ours.started = true;
         ours.last_at = ruler.position;
-        ours.countdown = every_seconds;
-        ours.next_at = every_distance;
+        // A NaN is not kept: neither mode runs on one, and a field put right
+        // later starts from 0, due at once.
+        ours.countdown = std::isnan(every_seconds) ? 0.0f : every_seconds;
+        ours.next_at = std::isnan(every_distance) ? 0.0f : every_distance;
         ours.travelled = 0;
     }
 
     const float moved = std::sqrt(
         (ruler.position.x - ours.last_at.x) * (ruler.position.x - ours.last_at.x) +
         (ruler.position.y - ours.last_at.y) * (ruler.position.y - ours.last_at.y));
-    ours.travelled += moved;
+    // A ruler at NaN moved by no distance anyone can add up.
+    if (!std::isnan(moved)) ours.travelled += moved;
     ours.last_at = ruler.position;
 
     bool due = false;
@@ -648,7 +842,7 @@ void Spawner::_update(Object &self, float delta) {
             ours.next_at += every_distance + jitter_amount();
         }
     } else if (every_seconds > 0) {
-        ours.countdown -= delta;
+        ours.countdown -= seconds;
         if (ours.countdown <= 0) {
             due = true;
             // += rather than =, for the same reason as above: a frame that
@@ -695,8 +889,12 @@ int Spawner::alive() const {
 }
 
 float Spawner::jitter_amount() const {
-    if (jitter <= 0) return 0;
-    return rmp::random::range(-jitter, jitter);
+    // None for a jitter that is not a finite number: rmp::random::range() of
+    // an infinity gave one back, and every interval after it with it. And at
+    // most half of float's range either way, so the range's width is a number.
+    if (!(jitter > 0) || !std::isfinite(jitter)) return 0;
+    const float most = std::min(jitter, std::numeric_limits<float>::max() / 2);
+    return rmp::random::range(-most, most);
 }
 
 // ---------------------------------------------------------------------------
@@ -704,19 +902,39 @@ float Spawner::jitter_amount() const {
 // ---------------------------------------------------------------------------
 
 void Timer::_update(Object &self, float delta) {
-    if (ours.spent || seconds <= 0) return;
-    ours.elapsed += delta;
-    // `while` and not `if`: a frame longer than the interval owes more than one
-    // tick, and dropping them makes a countdown run slow on a slow machine.
-    // [app] max_delta bounds how many that can ever be.
-    while (ours.elapsed >= seconds) {
-        ours.elapsed -= seconds;
+    const float step = seconds_of(delta);
+    say_nan("Timer", { { "seconds", seconds } });
+    if (ours.spent || !(seconds > 0)) return;
+    ours.elapsed += step;
+    if (!(ours.elapsed >= seconds)) return;
+    // Every interval the frame covered, and not one: a frame longer than the
+    // interval owes more than one tick, and dropping them makes a countdown
+    // run slow on a slow machine. COUNTED, with the remainder kept exactly:
+    // subtracting `seconds` once a tick never ended when `seconds` was below
+    // the rounding of `elapsed` (in a float, 1e8 - 1 is 1e8), nor for an
+    // infinite frame. And at most detail::MAX_TIMEOUTS calls: more than that
+    // owed in one frame is an interval far shorter than any frame, and the
+    // rest of the time is dropped, said once.
+    const double owed = std::isfinite(ours.elapsed)
+        ? std::floor(static_cast<double>(ours.elapsed) / seconds)
+        : std::numeric_limits<double>::infinity();
+    ours.elapsed = std::isfinite(ours.elapsed) ? std::fmod(ours.elapsed, seconds) : 0.0f;
+    int calls = detail::MAX_TIMEOUTS;
+    if (owed <= detail::MAX_TIMEOUTS) {
+        calls = static_cast<int>(owed);
+    } else {
+        RMP_REPORT_ONCE("BEHAVIOR: a Timer of %g seconds owed %g calls in one frame, and "
+                        "makes %d; the rest of the time is dropped. Its interval is far "
+                        "shorter than a frame.",
+                        static_cast<double>(seconds), owed, detail::MAX_TIMEOUTS);
+    }
+    for (int i = 0; i < calls; ++i) {
+        // Spent BEFORE its one call: a call that destroys the object returned
+        // before the line that spent it, and the next update -- a hook called
+        // by hand -- called it again.
+        if (!repeat) ours.spent = true;
         if (on_timeout) on_timeout(self);
-        if (!self.alive()) return;
-        if (!repeat) {
-            ours.spent = true;
-            return;
-        }
+        if (!self.alive() || ours.spent) return;
     }
 }
 
@@ -725,7 +943,8 @@ void Timer::_update(Object &self, float delta) {
 // ---------------------------------------------------------------------------
 
 void Lifespan::_update(Object &self, float delta) {
-    ours.elapsed += delta;
+    say_nan("Lifespan", { { "seconds", seconds } });
+    ours.elapsed += seconds_of(delta);
     if (ours.elapsed >= seconds) self.destroy();
 }
 
@@ -745,9 +964,14 @@ bool Health::damage(Object &self, int amount) {
     if (amount <= 0 || ours.died) return false;
     if (ours.invulnerable_left > 0) return false; // the window, and the point of it
 
-    hp -= amount;
+    // In a wider type: hp is whatever the game set, and below INT_MIN the
+    // subtraction was undefined.
+    const std::int64_t left = static_cast<std::int64_t>(hp) - amount;
+    hp = left < std::numeric_limits<int>::min() ? std::numeric_limits<int>::min()
+                                                : static_cast<int>(left);
     if (on_damage) on_damage(self, amount);
-    ours.invulnerable_left = invulnerable_for;
+    // A window that is not a number is none.
+    ours.invulnerable_left = invulnerable_for > 0 ? invulnerable_for : 0;
 
     if (hp <= 0) {
         hp = 0;
@@ -763,19 +987,24 @@ bool Health::damage(Object &self, int amount) {
 
 void Health::heal(int amount) {
     if (amount <= 0 || ours.died) return;
-    hp += amount;
-    if (hp > max_hp) hp = max_hp;
+    // In a wider type: heal(INT_MAX), "back to full", overflowed before the
+    // clamp to max_hp could.
+    const std::int64_t healed = static_cast<std::int64_t>(hp) + amount;
+    hp = healed > max_hp ? max_hp : static_cast<int>(healed);
 }
 
 void Health::_update(Object &self, float delta) {
-    if (ours.invulnerable_left <= 0) {
+    const float seconds = seconds_of(delta);
+    say_nan("Health",
+            { { "invulnerable_for", invulnerable_for }, { "blink_hz", blink_hz } });
+    if (!(ours.invulnerable_left > 0)) {
         if (ours.hid) {
             self.visible = true;
             ours.hid = false;
         }
         return;
     }
-    ours.invulnerable_left -= delta;
+    ours.invulnerable_left -= seconds;
     if (ours.invulnerable_left <= 0) {
         ours.invulnerable_left = 0;
         self.visible = true;
@@ -784,7 +1013,11 @@ void Health::_update(Object &self, float delta) {
     }
     if (blink_hz > 0) {
         const float phase = ours.invulnerable_left * blink_hz;
-        const bool hide = (static_cast<int>(phase * 2) % 2) == 1;
+        // The second half of each blink, by fmod: the cast of phase * 2 to an
+        // int it used to be was undefined past int's range -- a window of a
+        // hundred million seconds at 12 Hz, an invulnerability that is
+        // "forever" -- and for a NaN.
+        const bool hide = std::fmod(phase * 2, 2.0f) >= 1.0f;
         self.visible = !hide;
         ours.hid = hide;
     }

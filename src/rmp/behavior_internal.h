@@ -12,6 +12,10 @@
 
 namespace rmp::behavior::detail {
 
+// The most calls one Timer makes in one frame. More owed than that is an
+// interval far shorter than any frame, and the rest of the time is dropped.
+inline constexpr int MAX_TIMEOUTS = 1000;
+
 // Where a Parallax layer's copies go. The twenty lines everybody writes wrong
 // the first time: one copy leaves a gap the moment the offset passes the
 // texture's width, and a second copy placed a pixel out is a seam that crawls
@@ -27,6 +31,9 @@ struct ParallaxTiling {
 // in the world -- and factor 0 does not move it at all: it stays put on the
 // screen, carried along with the camera.
 float parallax_shift(float x, float view_x, float factor, float scroll);
+
+// The most copies of one layer a frame draws.
+inline constexpr int MAX_PARALLAX_COPIES = 4096;
 
 // `shift` is what parallax_shift() gives. A width of zero or less gives no
 // copies rather than a division by it.
