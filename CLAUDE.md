@@ -140,6 +140,48 @@ here so that nobody "fixes" one back.
   lose, play again -- or it does not belong there. The job boots them all and
   the screenshot says whether they look like games; four of the six sat broken
   for a phase behind a syntax-only check, and that is what this rule is for.
+- **The games are played from scripts, and their frames compared exactly.**
+  `tests/e2e/<area>/<name>.e2e` is what a player presses, frame by frame
+  (`press`/`release`/`tap KEY_*`, `click x y`), what the screen must show
+  (`shot <name>`) and which scene is on top (`expect scene <Class>`), to `end`.
+  `e2e_<area>_<name>` is the example as it ships plus `tests/e2e/driver.cpp`,
+  which installs itself before `main()`: every frame exactly 1/60 s and
+  `rmp::random` at seed 1 (`src/rmp/clock.cpp`), rmp::input AND the UI's
+  navigation and pointer fed from the script, saves in a fresh folder, no sound
+  device. A shot must match `tests/e2e/golden/<area>/<name>/<shot>.png`
+  **exactly** (Omar, 2026-10-11: a tolerance only for a shot that proves it
+  needs one, with the reason) -- enforced inside the pinned image, where
+  `examples_build.sh` sets `RMP_E2E_COMPARE=1`; anywhere else it is reported. A
+  failure is `E2E FAIL <line>: <reason>`, a non-zero exit, and
+  expected/actual/diff in `build/examples-check/e2e/`, which the examples job
+  uploads. Goldens come from the image only -- `tools/dev_shell.sh bash -c
+  'python3 tools/configure.py && ./rmp test e2e-update'`; the script and the
+  driver refuse it elsewhere -- and every picture that changed is looked at
+  before it is committed. Every game has a script or a line in
+  `tests/e2e/pending.txt`, which only shrinks (`E2eScriptsTest`,
+  `PENDING_CEILING`); every shot has a golden, every golden a shot, and CMake
+  refuses a script that plays no example.
+- **Coverage is a ratchet, measured in the image.** `rmp test coverage`
+  (`tools/coverage_check.sh`; the framework-only `coverage` job, which a release
+  waits for) builds the unit tests, the layout test and `tests/input_play.cpp`
+  with clang's source-based coverage -- `RMP_COVERAGE` links `librmp.a` whole,
+  so a file no test reaches shows at 0% instead of missing -- and
+  `tools/coverage_report.py` holds two lists. `tools/coverage_floor.txt` is each
+  `src/rmp` file's line coverage, rounded down, and only rises: below its line
+  fails, two points over it fails too (raise the line in the commit that earned
+  it), a file with lines and no line fails, and a source file missing from the
+  report fails unless it has no code of its own (`cjson_impl.c`).
+  `tools/untested_api.txt` is the public functions of `include/rmp/` no test
+  calls (clang's AST of the headers against the demangled profile; a template
+  counts when any instantiation runs), and only shrinks: a new one fails --
+  write the test -- and a listed one a test now calls, or that is gone, fails
+  until its line goes. Both gate only inside the pinned image, where they were
+  measured; elsewhere they print. `bash tools/coverage_check.sh --update` there
+  raises the floors and drops what is called; it never lowers a floor or adds a
+  function -- that is a hand edit a reviewer reads. Lines no test can run go
+  between `// RMP_COVERAGE_OFF(<why>)` and `// RMP_COVERAGE_ON` and are counted
+  apart. The probe fails, never skips, without compiler-rt or with llvm tools of
+  another release. A new `src/rmp` file needs its floor line in the same commit.
 - **`rmp` is the one command, and a game is a copy made from a list.**
   `tools/rmp.py`, behind `rmp` (POSIX sh), `rmp.ps1` and `rmp.cmd`, builds,
   tests and ships; `rmp help` lists it all, and every gate is a stage of
@@ -290,7 +332,9 @@ here so that nobody "fixes" one back.
   actionlint caught it; it does not (shellcheck's SC2015 fires only on
   degenerate forms), and the audit of 2026-09-22 found two live instances —
   so it is `tools/shell_pattern_check.sh` now, in `rmp test` and in `lint`,
-  and it went red on those two the day it existed. Two disagreeing checks on
+  and it went red on those two the day it existed. A line continued with `\`
+  is read as one: `A && B \` over `|| C` passed it until 2026-10-11 (shellcheck
+  says SC2015 there, and nothing runs shellcheck over `tools/`). Two disagreeing checks on
   `[dev] compiler` would have made `mingw` unusable, and the configure tests
   found it the day they existed. A context window ends; a gate does not.
 - **Every release binary has a size budget, and growing it is a decision.**
@@ -311,7 +355,9 @@ here so that nobody "fixes" one back.
   jobs print the lines and say so, and the day it commits one it is held to it.
 - **`[upx] enabled`'s default is exactly the targets whose packed binary CI
   starts**: linux-x64-glibc, linux-arm64-glibc, linux-x64-musl (on Alpine,
-  under Xvfb) and linux-x64-glibc-drm (on vkms). Each of those jobs unzips the
+  under Xvfb), linux-x64-glibc-drm (on vkms) and linux-riscv64-glibc (under
+  QEMU in the build image -- an emulator, not a RISC-V machine, and in the
+  default by Omar's decision of 2026-10-11). Each of those jobs unzips the
   archive it ships and starts what is in it; `UpxDefaultIsWhatCiStartsTest`
   holds the default to the workflows, both ways.
 - **Debug is sanitized, Release is hardened, and both are measured.** Every
@@ -407,6 +453,45 @@ here so that nobody "fixes" one back.
   PSBs do.
 
 ## Caveats that have already cost time
+
+- **riscv64 runs under QEMU, in the build image.** There is no riscv64 runner,
+  so the `riscv64` job starts the archive it ships with the image's
+  `qemu-riscv64-static -L /`: the sysroot is the image's riscv64 multiarch
+  packages (glibc, the X libraries GLFW opens, libglvnd, Mesa), the X server is
+  the image's amd64 Xvfb (X is a socket), and the GL is riscv64 Mesa's llvmpipe
+  inside the emulated process (`LIBGL_ALWAYS_SOFTWARE=1`). Ten frames take
+  about 5 s cold; a second start in the same container is 3 s faster (Mesa's
+  shader cache), so time it in a fresh one. GLFW dlopens most X libraries and
+  carries on without one -- with no libXrandr the game passed every marker --
+  so the step asks for each by name and `Riscv64StartsUnderQemuTest` holds
+  that list to GLFW's sources. It proves the code, the C library and the
+  libraries it opens work on RISC-V; it is not a RISC-V machine's caches or
+  timing.
+- **One clock, or no two runs draw the same frame.** `step_delta()` lives in
+  `src/rmp/clock.cpp`, the framework's one `GetFrameTime()`, and the UI's
+  `frame_time()` is `frame_delta()`: what the scenes were handed. The UI read
+  raylib's clock itself, so under a fixed step its menus faded and
+  repeat-scrolled by wall time. A game that reads `GetTime()`/`GetFrameTime()`
+  cannot be scripted -- the platformer's flag did.
+- **A script can press only what the game reads through rmp::input or
+  rmp::ui.** Under PLATFORM=Memory raylib's own key and mouse state never
+  changes: `examples/ui/01_menu` (Escape), `ui/05_inventory`
+  (`IsMouseButtonPressed`), `assets/01_loading` and `ads/01_interstitial` read
+  raylib directly, and the text field reads `GetCharPressed()` and blinks on
+  `GetTime()`. `nav_from_keys()` (`ui/internal.h`) is the one keyboard mapping,
+  shared by `nav_from_raylib()` and the driver.
+- **The input of frame N+1 is set at the end of frame N, and frame 0 has no
+  edges.** So a script's input starts at frame 1, and a tapped key needs a frame
+  up before it can go down again; the grammar refuses each of these with its
+  line.
+- **A frame under the software renderer and ASan costs 30-45 ms** (raylib is
+  -O0 in Debug). A Pong point is 75 frames; Pong's script plays in ~46 s in the
+  image. A script proves its paths and stops.
+- **llvm-cov has two line counts.** `llvm-cov report` and the html index count
+  a line once per function that maps it -- a lambda's lines twice -- while the
+  per-line export counts each line of a file once, and a macro's lines in the
+  file that defines it (`src/rmp/internal.h` has 8: `RMP_REPORT_ONCE`). The
+  floors are the export's.
 
 - **A CustomChecks query fails in silence.** Its regex takes no C escapes --
   `"\\.h$"` matches nothing, write `[.]` -- and a query that does not parse is
@@ -697,16 +782,19 @@ repo, size budget, and cppcheck where it is installed (CI requires it) —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
 real mixer for about a second, only in the first), headless layout, render
 and smoke), `rmp test examples` before touching the public API (it builds
-and boots all of them with a screenshot each, and plays the platformer to the flag at 60 and
-240 Hz), `rmp test sanitize` after touching anything that parses, casts or frees (`rmp test`
+and boots all of them with a screenshot each, plays the platformer to the flag at 60 and
+240 Hz, and plays `tests/e2e/` -- compared exactly only inside the image), `rmp test coverage`
+after adding or testing framework code, `rmp test sanitize` after touching anything that parses, casts or frees (`rmp test`
 already runs the unit tests under ASan and UBSan with the default compiler, because every
 framework Debug build is sanitized; `sanitize` is the same under gcc, with `RMP_WERROR` -- the
 first run found UB the tests passed over and three tests reading freed memory), and a screenshot
 when the
 change is visual — looking at pixels is how most of the bugs above were
-found. Every stage of `rmp test` has a step in the `lint` job -- one a game's
-CI runs too, for the stages a game has -- and `StagesAgreeWithLintTest` says
-so. The image-dependent gates (header budget, PyYAML, versions
+found. Every stage of `rmp test` has a step in CI -- in the `lint` job (one a game's CI runs too,
+for the stages a game has), or in the job of its own that `StagesAgreeWithLintTest.JOBS` names
+(`examples`, `coverage`) -- and the test checks each stage against that job. In the image, run
+`xvfb-run -a ./rmp test` as CI's lint job does: with no display the desktop smoke dies in
+`CloseWindow` under ASan instead of failing with a message. The image-dependent gates (header budget, PyYAML, versions
 against the manifest) run for real only inside the pinned image: `podman run
 --rm -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@sha256:<digest>
 bash tools/<x>_check.sh` is how to see what CI sees.

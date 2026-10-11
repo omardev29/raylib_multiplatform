@@ -1042,11 +1042,10 @@ class ReleaseJobsHoldTheirSizeTest(unittest.TestCase):
 
 class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
     """[upx] enabled's default is EXACTLY the targets whose packed binary a CI
-    job starts on a machine of their own architecture -- the .toml says so,
-    and this holds it to the workflows: a job that unzips <target>-build.zip
-    and starts what is in it. linux-riscv64-glibc's archive is started too,
-    but under QEMU in the build image, and is held apart: whether emulation is
-    evidence enough to pack it by default is Omar's call, not this test's."""
+    job starts -- the .toml says so, and this holds it to the workflows: a job
+    that unzips <target>-build.zip and starts what is in it. On a machine of
+    its own architecture, or, for linux-riscv64-glibc, under QEMU in the build
+    image: in the default by Omar's decision of 2026-10-11."""
 
     # Started from the archive, but emulated: target -> the emulator.
     EMULATED = {"linux-riscv64-glibc": "qemu-riscv64-static"}
@@ -1067,37 +1066,34 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
                 started.add(target)
         return started
 
-    def test_the_default_packs_musl_and_drm_too(self):
+    def test_the_default_packs_musl_drm_and_riscv64_too(self):
         self.assertEqual(cfgmod.DEFAULTS["upx"]["enabled"],
                          ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl",
-                          "linux-x64-glibc-drm"])
+                          "linux-x64-glibc-drm", "linux-riscv64-glibc"])
         toml = toml_section("upx")
-        enabled = re.search(r"^enabled\s*=\s*(\[.*\])$", toml, re.M).group(1)
+        enabled = re.search(r"^enabled\s*=\s*(\[[^\]]*\])", toml, re.M).group(1)
         self.assertEqual(json.loads(enabled), cfgmod.DEFAULTS["upx"]["enabled"])
 
     def test_the_default_is_what_ci_starts(self):
         text = (WORKFLOW_DIR / "_linux.yml").read_text()
-        self.assertEqual(self.started_from_the_archive(text),
-                         set(cfgmod.DEFAULTS["upx"]["enabled"]))
+        native = self.started_from_the_archive(text)
+        emulated = self.started_from_the_archive(text, emulated=True)
+        self.assertEqual(native | emulated, set(cfgmod.DEFAULTS["upx"]["enabled"]))
+        self.assertEqual(emulated, set(self.EMULATED))
 
-    def test_riscv64_is_started_under_qemu_and_not_packed_by_default(self):
-        """Its archive is started -- packed, the day [upx] packs it -- so the
-        evidence the .toml asks for exists, from an emulator. Until that is
-        decided it is neither in the default nor counted as started natively,
-        and the .toml says which and why."""
+    def test_riscv64_is_started_under_qemu_and_packed_by_default(self):
+        """Its archive is started, packed, under the emulator the .toml names,
+        and the .toml says that it is an emulator and whose decision it was."""
         text = (WORKFLOW_DIR / "_linux.yml").read_text()
-        self.assertEqual(self.started_from_the_archive(text, emulated=True), set(self.EMULATED))
         for target, emulator in self.EMULATED.items():
             with self.subTest(target=target):
-                self.assertNotIn(target, cfgmod.DEFAULTS["upx"]["enabled"])
+                self.assertIn(target, cfgmod.DEFAULTS["upx"]["enabled"])
                 self.assertIn(emulator, text)
         section = toml_section("upx")
         para = " ".join(section[section.index("THE DEFAULT IS EXACTLY"):
                                 section.index("\nenabled")].replace("#", " ").split())
-        self.assertIn("starts what is in it on a machine of its own architecture", para)
-        self.assertRegex(para, r"linux-riscv64-glibc is started too, on a full run, "
-                               r"but under QEMU")
-        self.assertNotRegex(para, r"never executed \(linux-riscv64-glibc")
+        self.assertRegex(para, r"linux-riscv64-glibc on a full run, under QEMU in the build image")
+        self.assertIn("by Omar's decision of 2026-10-11", para)
 
     def test_an_archive_started_under_qemu_is_not_counted_as_native(self):
         """Seen red: the step that tells the two apart, with and without its
