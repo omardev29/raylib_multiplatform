@@ -176,6 +176,53 @@ Clay_ElementId id_in_pass(const char *label, unsigned pass, unsigned occurrence)
     return Clay_GetElementIdWithIndex(s, pass * 4096 + occurrence);
 }
 
+// --- the interface described in the wrong place ------------------------------
+// Each is a mistake the game makes in its own code, and each is said once --
+// RMP_REPORT_ONCE -- while the frame around it still balances.
+
+// begin() in _update(): nothing is drawn while the world moves.
+class UiInUpdate : public rmp::Scene {
+public:
+    void _update(float /*delta*/) override {
+        rmp::ui::begin();
+        rmp::ui::button("Jump");
+        rmp::ui::end();
+    }
+};
+
+// A _draw() that never says end().
+class LeftOpen : public rmp::Scene {
+public:
+    void _draw() override {
+        rmp::ui::begin();
+        rmp::ui::button("Open");
+    }
+};
+
+// A health bar described in an object's _draw(), under the camera: what
+// rmp::ui::at() is for.
+class BarObject : public rmp::Object {
+public:
+    void _draw() override { rmp::ui::button("Bar"); }
+};
+
+class WithBar : public rmp::Scene {
+public:
+    void _ready() override { spawn<BarObject>(); }
+};
+
+// From nothing, and back to nothing: the reports are one table for the whole
+// binary, and Clay's error count one counter.
+struct Misuse {
+    Misuse() {
+        rmp::detail::reset_reports_for_tests();
+        rmp::ui::detail::reset_clay_errors_for_tests();
+    }
+    Misuse(const Misuse &) = delete;
+    Misuse &operator=(const Misuse &) = delete;
+    ~Misuse() { rmp::detail::reset_reports_for_tests(); }
+};
+
 } // namespace
 
 TEST_SUITE("scenes") {
@@ -504,6 +551,70 @@ TEST_SUITE("scene shutdown") {
         CHECK(trace.log.empty());
     }
 
+} // TEST_SUITE
+
+TEST_SUITE("scene ui: the wrong place") {
+    TEST_CASE("an interface described in _update() is said once, and draws nothing") {
+        const Fixture fix;
+        const HeadlessUi headless;
+        const Misuse misuse;
+        start_clean<UiInUpdate>();
+        for (int i = 0; i < 60; ++i) run_frame();
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == 0);
+    }
+
+    TEST_CASE("a frame a scene leaves open is said once, and closed for it") {
+        const Fixture fix;
+        const HeadlessUi headless;
+        const Misuse misuse;
+        start_clean<LeftOpen>();
+        for (int i = 0; i < 60; ++i) run_frame();
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == 0);
+        // Closed as end() closes one: laid out, and there to be clicked.
+        Clay_BoundingBox box{};
+        CHECK(rmp::ui::detail::bounds_of_id(id_in_pass("Open", 0, 0), &box));
+        CHECK(box.width > 0);
+    }
+
+    TEST_CASE("a widget in an object's _draw() is said once") {
+        const Fixture fix;
+        const HeadlessUi headless;
+        const Misuse misuse;
+        start_clean<WithBar>();
+        for (int i = 0; i < 60; ++i) run_frame();
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        CHECK(rmp::ui::detail::clay_error_count() == 0);
+    }
+
+    TEST_CASE("and a scene's own _draw() is where it goes: nothing is said") {
+        const Fixture fix;
+        const HeadlessUi headless;
+        const Misuse misuse;
+        start_clean<UiScene<'A'>>();
+        for (int i = 0; i < 60; ++i) run_frame();
+        CHECK(rmp::detail::report_count() == 0);
+    }
+
+    TEST_CASE(
+        "with the stack running, the frame is the app's: the runner's hooks leave it") {
+        // RMP_GAME's frame() marks the UI frame itself, after the step; the
+        // runner marks it only for RMP_ENTRY_POINT, which has no stack.
+        const Fixture fix;
+        start_clean<A>();
+        rmp::ui::detail::runner_begin_frame();
+        CHECK_FALSE(rmp::ui::detail::frame_marked());
+        rmp::ui::detail::runner_end_frame();
+        rmp::scenes::detail::shutdown();
+        rmp::ui::detail::runner_begin_frame();
+        CHECK(rmp::ui::detail::frame_marked());
+        rmp::ui::detail::runner_end_frame();
+        CHECK_FALSE(rmp::ui::detail::frame_marked());
+    }
 } // TEST_SUITE
 
 TEST_SUITE("scene ui passes") {

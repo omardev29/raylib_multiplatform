@@ -8,7 +8,10 @@
 
 #include "internal.h"
 #include "../internal.h"
+
+#include <algorithm>
 #include <array>
+#include <vector>
 
 namespace rmp::ui {
 
@@ -126,6 +129,21 @@ struct {
     int overflow = 0;
 } grids;
 
+// The containers of this pass that lay out left to right -- a row, a cell, a
+// grid's row -- by the id Clay gave them, so that spacer(n) can ask whether
+// the one it is in is one: Clay_GetOpenElementId() is the container open
+// right now, whoever opened it. Every other container is a column. Kept for
+// the pass, so an id can only be one of these if it was one when declared.
+struct {
+    std::vector<uint32_t> ids;
+} rows;
+
+void note_row() { rows.ids.push_back(Clay_GetOpenElementId()); }
+
+bool in_row() {
+    return std::ranges::find(rows.ids, Clay_GetOpenElementId()) != rows.ids.end();
+}
+
 // Named containers get a stable id, the same whatever else is on screen;
 // unnamed ones stay anonymous, which is what most of them should be.
 void open_with_id(std::string_view id, const Clay_ElementDeclaration &d) {
@@ -146,6 +164,7 @@ void open_grid_row(float gap) {
     d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
+    note_row();
 }
 
 } // namespace
@@ -154,22 +173,29 @@ namespace detail {
 
 const void *last_image_data() { return last_image.data; }
 
+void begin_pass_containers() {
+    grids.depth = 0;
+    grids.overflow = 0;
+    rows.ids.clear();
+}
+
 void open_row(const BoxOptions &o) {
-    if (!frame_open()) return;
+    if (!frame_ready("row", o.id)) return;
     Clay_ElementDeclaration d{};
     d.layout = layout_of(o, CLAY_LEFT_TO_RIGHT, 0);
     open_with_id(o.id, d);
+    note_row();
 }
 
 void open_column(const BoxOptions &o) {
-    if (!frame_open()) return;
+    if (!frame_ready("column", o.id)) return;
     Clay_ElementDeclaration d{};
     d.layout = layout_of(o, CLAY_TOP_TO_BOTTOM, 0);
     open_with_id(o.id, d);
 }
 
 void open_panel(const PanelOptions &o) {
-    if (!frame_open()) return;
+    if (!frame_ready("panel", o.box.id)) return;
     const Theme &t = current_theme();
 
     Clay_ElementDeclaration d{};
@@ -200,7 +226,7 @@ void open_panel(const PanelOptions &o) {
 }
 
 void open_center() {
-    if (!frame_open()) return;
+    if (!frame_ready("center", {})) return;
     Clay_ElementDeclaration d{};
     // Grows to fill whatever it was given, then centres its contents inside it.
     // That is all "centre this" needs to mean.
@@ -214,7 +240,7 @@ void open_center() {
 }
 
 void open_stack() {
-    if (!frame_open()) return;
+    if (!frame_ready("stack", {})) return;
     // The stack itself is an ordinary box. The layering happens in its
     // children, which is why each one has to be a layer(): Clay stacks by
     // detaching an element from the flow, and there is no way to guess which
@@ -228,7 +254,7 @@ void open_stack() {
 }
 
 void open_layer() {
-    if (!frame_open()) return;
+    if (!frame_ready("layer", {})) return;
     Clay_ElementDeclaration d{};
     d.layout.sizing.width = axis(true, 0);
     d.layout.sizing.height = axis(true, 0);
@@ -249,7 +275,7 @@ void open_layer() {
 }
 
 void open_grid(const GridOptions &o) {
-    if (!frame_open()) return;
+    if (!frame_ready("grid", o.id)) return;
     const Theme &t = current_theme();
 
     Clay_ElementDeclaration d{};
@@ -322,7 +348,7 @@ void close_grid() {
 }
 
 void open_cell() {
-    if (!frame_open()) return;
+    if (!frame_ready("cell", {})) return;
     if (grids.depth == 0 || grids.overflow > 0) {
         // A cell outside a grid is a plain box rather than an error: it keeps
         // the tree balanced, and the mistake is visible on screen instead of
@@ -334,6 +360,7 @@ void open_cell() {
         d.layout.sizing.height = axis(false, 0);
         Clay__OpenElement();
         Clay__ConfigureOpenElement(d);
+        note_row(); // left to right, Clay's default, as a cell in a grid is
         return;
     }
 
@@ -357,6 +384,7 @@ void open_cell() {
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
+    note_row(); // its direction is Clay's default: left to right
     ++g.index;
 }
 
@@ -366,7 +394,7 @@ void close_cell() {
 }
 
 void open_scroll(const ScrollOptions &o) {
-    if (!frame_open()) return;
+    if (!frame_ready("scroll", o.id)) return;
     const Theme &t = current_theme();
     // Named or not, a scroll area gets an id: hit testing has to know where the
     // area is to decide whether what is inside it is on screen at all.
@@ -415,7 +443,7 @@ void close_element() {
 // ---------------------------------------------------------------------------
 
 void spacer() {
-    if (!detail::frame_open()) return;
+    if (!detail::frame_ready("spacer", {})) return;
     Clay_ElementDeclaration d{};
     d.layout.sizing.width = axis(true, 0);
     d.layout.sizing.height = axis(true, 0);
@@ -425,10 +453,13 @@ void spacer() {
 }
 
 void spacer(float fixed) {
-    if (!detail::frame_open()) return;
+    if (!detail::frame_ready("spacer", {})) return;
+    // A gap along the container it is in, and nothing across it: n by n made
+    // a column n wide and a row n tall, whatever else was in them.
+    const bool across = in_row();
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width = axis(false, fixed);
-    d.layout.sizing.height = axis(false, fixed);
+    d.layout.sizing.width = axis(false, across ? fixed : 0);
+    d.layout.sizing.height = axis(false, across ? 0 : fixed);
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
     Clay__CloseElement();
@@ -437,7 +468,7 @@ void spacer(float fixed) {
 void image(const Texture2D &texture) { image(texture, ImageOptions{}); }
 
 void image(const Texture2D &texture, const ImageOptions &o) {
-    if (!detail::frame_open()) return;
+    if (!detail::frame_ready("image", {})) return;
 
     Clay_ElementDeclaration d{};
     if (o.grow) {
@@ -489,7 +520,7 @@ void image(const Texture2D &texture, const ImageOptions &o) {
 void progress(float fraction) { progress(fraction, ProgressOptions{}); }
 
 void progress(float fraction, const ProgressOptions &o) {
-    if (!detail::frame_open()) return;
+    if (!detail::frame_ready("progress", o.id)) return;
     const Theme &t = current_theme();
 
     if (fraction < 0.0f) fraction = 0.0f;

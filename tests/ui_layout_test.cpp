@@ -20,8 +20,10 @@
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/app.h>
+#include <rmp/object.h> // rmp::Callback, for the report sink
 #include <rmp/ui.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -29,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace {
 
@@ -2423,9 +2426,15 @@ void run_frame_grow() {
 struct {
     std::array<int, 32> sizes{};
     int count = 0;
+    int refused = 0; // asked for while failing: a font that will not load
+    bool failing = false;
 } font_bakes;
 
 rmp::Font fake_bake(const char *name, int pixel_size) {
+    if (font_bakes.failing) {
+        ++font_bakes.refused;
+        return rmp::Font{};
+    }
     if (font_bakes.count < 32) font_bakes.sizes[font_bakes.count++] = pixel_size;
     // texture.id 0 is what lets this live and die with no GL context: raylib's
     // UnloadFont leaves alone a font whose texture is the default font's, and
@@ -2578,6 +2587,532 @@ void run_corner_radii() {
           "with a square corner as square on the inside as out");
 }
 
+// ---------------------------------------------------------------------------
+// The game's mistakes: each said once, and the frame survives it
+//
+// Every widget used to return in silence outside begin()/end(), a begin()
+// twice said so sixty times a second, and an end() with no begin() said
+// nothing at all. A button in _update() looked like a bug in the framework.
+// Each is one line now -- RMP_REPORT_ONCE, the framework's one way of saying
+// the game is wrong -- and a frame that still balances.
+// ---------------------------------------------------------------------------
+
+// What was said: [dev] strict hands each new report to its handler -- abort()
+// in a game, this counter here -- and the sink hears its line.
+struct {
+    int heard = 0;
+    std::vector<std::string> lines;
+} said;
+
+void count_report() { ++said.heard; }
+
+bool said_line_with(std::string_view part) {
+    return std::ranges::any_of(said.lines, [part](const std::string &line) {
+        return line.find(part) != std::string::npos;
+    });
+}
+
+// From nothing: no report yet, no Clay error yet, and every report counted.
+// Strict and the sink go back to what they were when it ends.
+class Listening {
+public:
+    Listening() {
+        rmp::detail::reset_reports_for_tests();
+        rmp::ui::detail::reset_clay_errors_for_tests();
+        said.heard = 0;
+        said.lines.clear();
+        rmp::detail::set_strict(true);
+        _previous = rmp::detail::set_strict_handler(count_report);
+        rmp::detail::set_report_sink(
+            [](std::string_view line) { said.lines.emplace_back(line); });
+    }
+    ~Listening() {
+        rmp::detail::set_strict(false);
+        rmp::detail::set_strict_handler(_previous);
+        rmp::detail::set_report_sink({});
+        rmp::detail::reset_reports_for_tests();
+    }
+    Listening(const Listening &) = delete;
+    Listening &operator=(const Listening &) = delete;
+
+private:
+    rmp::detail::StrictHandler _previous = nullptr;
+};
+
+// Every entry point of the interface, with no frame open: eighteen kinds,
+// spacer() and spacer(8) being one.
+constexpr int ENTRY_POINT_KINDS = 18;
+void describe_everything(int frame) {
+    bool on = false;
+    float volume = 0.5f;
+    int quality = 0;
+    std::string name;
+    rmp::ui::button("Play");
+    // Text is what it says, and what it says changes -- a score. One line
+    // whatever it says, or this would be one line a frame.
+    rmp::ui::text(std::to_string(frame));
+    rmp::ui::checkbox("Sound", on);
+    rmp::ui::slider("Volume", volume, 0, 1);
+    rmp::ui::dropdown("Quality", quality, { "Low", "High" });
+    rmp::ui::text_input("Name", name);
+    rmp::ui::row([] {});
+    rmp::ui::column([] {});
+    rmp::ui::panel([] {});
+    rmp::ui::center([] {});
+    rmp::ui::stack([] {});
+    rmp::ui::layer([] {});
+    rmp::ui::grid([] {});
+    rmp::ui::cell([] {});
+    rmp::ui::scroll([] {});
+    rmp::ui::spacer();
+    rmp::ui::spacer(8);
+    rmp::ui::image(Texture2D{});
+    rmp::ui::progress(0.5f);
+}
+
+void run_misuse() {
+    std::printf("\n--- the interface in the wrong place: said once ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    {
+        const Listening listening;
+        describe_everything(0);
+        check(said.heard == ENTRY_POINT_KINDS,
+              "every entry point outside begin()/end() says so, one line each");
+        for (int frame = 1; frame <= 60; ++frame) describe_everything(frame);
+        check(said.heard == ENTRY_POINT_KINDS,
+              "and once, however many frames it goes on");
+        check(said_line_with("rmp::ui::button(\"Play\")") && said_line_with("begin()"),
+              "naming the call and where it goes");
+        check(rmp::ui::detail::clay_error_count() == 0,
+              "with nothing half-built in Clay");
+        draw_menu();
+        draw_menu();
+        check(box_of("Play").w > 0 && said.heard == ENTRY_POINT_KINDS,
+              "and the next frame is a frame like any other");
+    }
+
+    {
+        const Listening listening;
+        for (int i = 0; i < 60; ++i) rmp::ui::end();
+        check(said.heard == 1 && said_line_with("rmp::ui::end()"),
+              "an end() with no begin() before it says so, once");
+        draw_menu();
+        check(rmp::ui::detail::clay_error_count() == 0 && box_of("Play").w > 0,
+              "and closes nothing");
+    }
+
+    // begin() where column() goes: inside a container, or twice in a row. It
+    // opens nothing, its end() closes nothing, and what is between the two
+    // goes into the container it was written in.
+    {
+        const Listening listening;
+        for (int i = 0; i < 60; ++i) {
+            rmp::ui::begin();
+            rmp::ui::button("Before");
+            rmp::ui::column({ .id = "inner" }, [] {
+                rmp::ui::begin();
+                rmp::ui::button("Inside");
+                rmp::ui::end();
+            });
+            rmp::ui::begin();
+            rmp::ui::button("Twice");
+            rmp::ui::end();
+            rmp::ui::button("After");
+            rmp::ui::end();
+        }
+        check(said.heard == 1 && said_line_with("column()"),
+              "a begin() inside an open frame says so, once, and what it wanted");
+        check(!rmp::ui::detail::frame_open() && rmp::ui::detail::clay_error_count() == 0,
+              "and the frame around it still balances");
+        check(inside(box_of("inner"), box_of("Inside")),
+              "its content lands in the container it was written in");
+        check(box_of("Twice").w > 0 && box_of("After").y > box_of("Twice").y,
+              "and the frame goes on after its end(), in the same pass");
+    }
+
+    {
+        const Listening listening;
+        rmp::ui::begin();
+        rmp::ui::button("Open");
+        rmp::ui::shutdown();
+        check(said.heard == 1 && said_line_with("shutdown()"),
+              "shutdown() with a frame open says end() was never called");
+        check(!rmp::ui::detail::frame_open(), "and the frame is gone with the rest");
+        draw_menu();
+        draw_menu();
+        check(box_of("Play").w > 0 && said.heard == 1, "and the UI starts again cleanly");
+    }
+}
+
+// The scene stack says which part of a frame is running. In _update() nothing
+// is drawn, and under the camera nothing of the interface can be: one line for
+// the whole phase, naming where it goes instead.
+void run_misuse_in_phases() {
+    std::printf("\n--- the interface in _update() and under the camera ---\n");
+    using rmp::ui::detail::Phase;
+    using rmp::ui::detail::set_phase;
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    {
+        const Listening listening;
+        set_phase(Phase::UPDATE);
+        for (int i = 0; i < 60; ++i) {
+            rmp::ui::begin();
+            rmp::ui::button("Jump");
+            rmp::ui::text("Ready");
+            rmp::ui::end();
+        }
+        set_phase(Phase::FREE);
+        check(said.heard == 1 && said_line_with("_update()") && said_line_with("_draw()"),
+              "a frame described in _update() is one line, naming _draw()");
+        check(!rmp::ui::detail::frame_open() && rmp::ui::detail::clay_error_count() == 0,
+              "and nothing of it was opened");
+    }
+
+    {
+        const Listening listening;
+        set_phase(Phase::WORLD);
+        for (int i = 0; i < 60; ++i) {
+            rmp::ui::button("Bar");
+            rmp::ui::progress(0.5f);
+        }
+        set_phase(Phase::FREE);
+        check(said.heard == 1 && said_line_with("rmp::ui::at()"),
+              "under the camera it is one line too, and it names at()");
+    }
+
+    {
+        const Listening listening;
+        set_phase(Phase::DRAW);
+        draw_menu();
+        draw_menu();
+        set_phase(Phase::FREE);
+        check(said.heard == 0 && box_of("Play").w > 0,
+              "and a scene's _draw() is where it goes: nothing said");
+    }
+}
+
+// RMP_ENTRY_POINT's runner marks the UI frame around the frame hook, as
+// rmp::app::detail::frame() does for RMP_GAME. Without it every begin() made
+// a frame of its own, so a screen and the overlay over it sampled the pointer
+// twice -- and the second pass, the one in front, never saw a press start.
+void run_runner_frame() {
+    std::printf("\n--- RMP_ENTRY_POINT: one UI frame around the frame hook ---\n");
+    rmp::ui::detail::set_pointer_provider(pointer_scripted);
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    fake_pointer.down = false;
+
+    int resumed = 0;
+    auto frame = [&] {
+        rmp::ui::detail::runner_begin_frame();
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::button("Hud");
+        rmp::ui::end();
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
+        if (rmp::ui::button("Resume")) ++resumed;
+        rmp::ui::end();
+        rmp::ui::detail::runner_end_frame();
+    };
+    frame();
+    frame();
+    Clay_BoundingBox resume{};
+    check(rmp::ui::detail::bounds_of("Resume", 0, 1, &resume) && resume.width > 0,
+          "the second begin() of the frame is its second pass");
+    check(!rmp::ui::detail::frame_marked(), "and the runner closes the frame it opened");
+
+    fake_pointer.position =
+        Clay_Vector2{ resume.x + resume.width / 2, resume.y + resume.height / 2 };
+    fake_pointer.down = true;
+    frame();
+    fake_pointer.down = false;
+    frame();
+    check(resumed == 1, "a click on the pass in front lands: the pointer sampled once");
+
+    {
+        const Listening listening;
+        for (int i = 0; i < 60; ++i) {
+            rmp::ui::detail::runner_begin_frame();
+            rmp::ui::begin();
+            rmp::ui::button("Open");
+            rmp::ui::detail::runner_end_frame();
+        }
+        check(said.heard == 1 && said_line_with("end()"),
+              "a frame the game left open is said once");
+        check(!rmp::ui::detail::frame_open() && !rmp::ui::detail::frame_marked() &&
+                  rmp::ui::detail::clay_error_count() == 0,
+              "and the runner closes it, so the next one starts clean");
+        rmp::ui::detail::runner_begin_frame();
+        draw_menu();
+        rmp::ui::detail::runner_end_frame();
+        check(said.heard == 1 && box_of("Play").w > 0, "as it does");
+    }
+
+    // A plain raylib loop has no runner, and begin() marks its own frame.
+    draw_menu();
+    check(!rmp::ui::detail::frame_marked(), "without a runner, end() closes the frame");
+
+    fake_pointer.position = Clay_Vector2{ -1, -1 };
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+}
+
+// rmp::app::Stretch::LETTERBOX: the world keeps its shape, with bars around
+// it, and a frame lays out over the world -- not over the bars.
+void run_letterbox() {
+    std::printf("\n--- letterbox: the interface over the world, not the bars ---\n");
+    const auto hud = [] {
+        for (int i = 0; i < 2; ++i) {
+            rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 0 });
+            rmp::ui::button("Hud");
+            rmp::ui::end();
+        }
+        return box_of("Hud");
+    };
+    const auto design = Vector2{ static_cast<float>(RMP_WINDOW_WIDTH),
+                                 static_cast<float>(RMP_WINDOW_HEIGHT) };
+
+    rmp::app::set_stretch(rmp::app::Stretch::LETTERBOX);
+
+    // The design's own shape, twice the size: no bars, nothing moves.
+    rmp::ui::detail::set_test_viewport(design.x * 2, design.y * 2);
+    Box at = hud();
+    check_near(at.x, 0, 0.5f, "at the design's shape the HUD is in the corner");
+    check_near(at.y, 0, 0.5f, "both ways");
+
+    // Wider: bars left and right.
+    const float width = design.x * 3;
+    const float height = design.y * 2;
+    rmp::ui::detail::set_test_viewport(width, height);
+    const float bar = (width - design.x * 2) / 2;
+    at = hud();
+    check_near(at.x, bar, 1.0f, "wider: a TOP_LEFT HUD is at the world's corner");
+    check_near(at.y, 0, 0.5f, "and at the top");
+    draw_menu();
+    draw_menu();
+    expect_centred(width, height, "wider, the menu");
+    const Box play = box_of("Play");
+    check(play.x >= bar && play.x + play.w <= width - bar, "inside the world's area");
+    check(rmp::ui::current_breakpoint() == rmp::ui::Breakpoint::EXPANDED,
+          "and the breakpoint is the world's shape");
+
+    // A phone held upright: bars above and below, and a world of 16:9 in it.
+    rmp::ui::detail::set_test_viewport(1080, 2400);
+    const float s = 1080 / design.x;
+    const float top = (2400 - design.y * s) / 2;
+    at = hud();
+    check_near(at.x, 0, 0.5f, "upright: the HUD is at the world's left edge");
+    check_near(at.y, top, 1.0f, "and its top, under the bar");
+    check(rmp::ui::current_breakpoint() == rmp::ui::Breakpoint::EXPANDED,
+          "the breakpoint is the world's, which is not compact");
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::button("Padded");
+        rmp::ui::end();
+    }
+    const float pad = rmp::ui::current_theme().panel_padding * rmp::ui::scale();
+    check_near(box_of("Padded").y, top + pad, 1.0f, "the frame's padding comes on top");
+
+    // EXPAND fills the window: no bars, and the window's own breakpoint.
+    rmp::app::set_stretch(rmp::app::Stretch::EXPAND);
+    at = hud();
+    check_near(at.y, 0, 0.5f, "expand: no bars, the HUD at the top of the window");
+    check(rmp::ui::compact(), "and an upright window is compact again");
+
+    rmp::app::set_stretch(rmp::app::Stretch::NONE);
+    at = hud();
+    check_near(at.y, 0, 0.5f, "none: the same");
+    check(rmp::ui::compact(), "both ways");
+}
+
+// UI-22: raylib has one scissor. A scroll area inside another took its place,
+// and at its end switched clipping off: the rest of the outer one spilled out.
+void run_scissor_stack() {
+    std::printf("\n--- scroll areas inside each other clip to both ---\n");
+    using rmp::ui::detail::pop_scissor;
+    using rmp::ui::detail::push_scissor;
+    auto same = [](Clay_BoundingBox a, Clay_BoundingBox b) {
+        return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+    };
+    rmp::ui::detail::ScissorStack s{};
+    const Clay_BoundingBox outer{ 0, 0, 100, 100 };
+    check(same(push_scissor(s, outer), outer), "the outermost clips to itself");
+    check(same(push_scissor(s, Clay_BoundingBox{ 50, 40, 100, 100 }),
+               Clay_BoundingBox{ 50, 40, 50, 60 }),
+          "one inside it clips to both");
+    std::optional<Clay_BoundingBox> back = pop_scissor(s);
+    check(back.has_value() && same(*back, outer), "its end puts the outer clip back");
+    check(!pop_scissor(s).has_value() && s.depth == 0, "and the outer one's end, none");
+
+    (void)push_scissor(s, Clay_BoundingBox{ 0, 0, 10, 10 });
+    const Clay_BoundingBox apart = push_scissor(s, Clay_BoundingBox{ 20, 20, 5, 5 });
+    check(apart.width <= 0 || apart.height <= 0, "two that do not meet show nothing");
+    (void)pop_scissor(s);
+    (void)pop_scissor(s);
+
+    // Deeper than it holds: the opens and the closes still pair up.
+    int restored = 0;
+    for (int i = 0; i < rmp::ui::detail::MAX_SCISSORS + 3; ++i)
+        (void)push_scissor(s, outer);
+    for (int i = 0; i < rmp::ui::detail::MAX_SCISSORS + 3; ++i) {
+        if (pop_scissor(s).has_value()) ++restored;
+    }
+    check(restored == rmp::ui::detail::MAX_SCISSORS + 2 && s.depth == 0 &&
+              s.overflow == 0,
+          "nested past the limit, every close but the last puts one back");
+}
+
+// UI-39: spacer(n) is a gap along the container's own direction. It was n by
+// n, so a gap in a column made the column n wide, and one in a row made the
+// row n tall.
+void run_spacer_direction() {
+    std::printf("\n--- spacer(n) is a gap along its container ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin();
+        rmp::ui::column({ .gap = 0, .id = "tall" }, [] {
+            rmp::ui::text("ab");
+            rmp::ui::spacer(300);
+        });
+        rmp::ui::row({ .gap = 0, .id = "wide" }, [] {
+            rmp::ui::text("ab");
+            rmp::ui::spacer(300);
+        });
+        rmp::ui::grid({ .columns = 1, .id = "cells" }, [] {
+            rmp::ui::cell([] {
+                rmp::ui::text("ab");
+                rmp::ui::spacer(300);
+            });
+        });
+        rmp::ui::end();
+    }
+    const float gap = 300 * rmp::ui::scale();
+    const Box tall = box_of("tall");
+    const Box wide = box_of("wide");
+    check(tall.h >= gap && tall.w < gap,
+          "in a column it is tall, and no wider than the text");
+    check(wide.w >= gap && wide.h < gap, "in a row it is wide, and no taller");
+    check(box_of("cells").h < gap, "in a cell, which lays out left to right, too");
+}
+
+// UI-40: shutdown() forgets everything a frame left behind, so the UI that
+// starts again on the next begin() is the one the first begin() started.
+
+void run_shutdown_forgets() {
+    std::printf("\n--- shutdown() forgets the frame, the font and the transitions ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+
+    // Inside a frame the app marked: the next begin() would have found it
+    // still marked, and never closed a frame of its own again.
+    draw_menu();
+    rmp::ui::detail::begin_frame();
+    rmp::ui::shutdown();
+    check(!rmp::ui::detail::frame_marked(), "the frame boundary goes");
+    draw_menu();
+    check(!rmp::ui::detail::frame_marked(),
+          "and a plain begin()/end() closes its own again");
+
+    // A [ui] font that failed is tried again by the UI that starts after.
+    {
+        const Listening listening; // the failed load is reported, once
+        // From a UI that has measured nothing: Clay keeps what it measured,
+        // and would not ask for the font at all.
+        rmp::ui::shutdown();
+        rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
+        rmp::ui::detail::set_font_provider(fake_bake, "flaky-ui.ttf");
+        font_bakes.failing = true;
+        font_bakes.refused = 0;
+        font_bakes.count = 0;
+        draw_menu();
+        const int refused = font_bakes.refused;
+        rmp::ui::shutdown();
+        font_bakes.failing = false;
+        draw_menu();
+        check(refused > 0 && font_bakes.count > 0,
+              "a font that failed is asked for again after shutdown()");
+        rmp::ui::shutdown();
+        rmp::ui::detail::set_font_provider(nullptr, nullptr);
+        rmp::ui::detail::set_measure_provider(measure_stub);
+    }
+
+    // A transition half way through is not where a control starts again.
+    rmp::ui::Theme slow = rmp::ui::current_theme();
+    const rmp::ui::Theme before = slow;
+    slow.transition = 0.2f;
+    rmp::ui::set_theme(slow);
+    rmp::ui::detail::set_test_frame_time(0.05f);
+    rmp::ui::detail::anim_begin_frame();
+    Clay_ElementId id{};
+    id.id = 0xC0FFEE;
+    (void)rmp::ui::detail::anim_value(id, 0, true);
+    rmp::ui::shutdown();
+    check(rmp::ui::detail::anim_value(id, 0, false) == 0.0f,
+          "after shutdown() a control starts where it is going");
+    rmp::ui::detail::set_test_frame_time(0);
+    rmp::ui::set_theme(before);
+}
+
+// The text field types what a provider says was typed: raylib's character
+// queue and Backspace in a game, a script in a test.
+struct {
+    rmp::ui::detail::Typed next{};
+    int reads = 0;
+} fake_typed;
+
+void typed_scripted(rmp::ui::detail::Typed &out) {
+    ++fake_typed.reads;
+    out = fake_typed.next;
+    fake_typed.next = rmp::ui::detail::Typed{};
+}
+
+void run_typed() {
+    std::printf("\n--- the text field types what the provider says ---\n");
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::detail::set_text_provider(typed_scripted);
+    fake_nav.state = rmp::ui::detail::NavState{};
+    std::string name = "ab";
+    auto frame = [&] {
+        rmp::ui::begin();
+        rmp::ui::text_input("Name", name);
+        rmp::ui::end();
+    };
+    rmp::ui::focus("");
+    frame();
+    frame();
+    fake_typed.reads = 0;
+    frame();
+    check(fake_typed.reads == 0, "a field that is not typing reads nothing");
+
+    press_nav(frame, NAV_ENTER);
+    check(rmp::ui::wants_keyboard(), "Enter starts it typing");
+    fake_typed.next.codepoints = { 'c', 0xE9 };
+    fake_typed.next.count = 2;
+    frame();
+    check(name == "abc\xC3\xA9", "what was typed goes on the end, in UTF-8");
+    fake_typed.next.backspaces = 3;
+    frame();
+    check(name == "a", "Backspace, pressed and repeating, takes one character each time");
+
+    press_nav(frame, NAV_ESCAPE);
+    fake_typed.reads = 0;
+    fake_typed.next.codepoints = { 'z' };
+    fake_typed.next.count = 1;
+    frame();
+    check(fake_typed.reads == 0 && name == "a",
+          "and given back, it leaves the queue to the game");
+
+    rmp::ui::detail::set_text_provider(nullptr);
+    rmp::ui::focus("");
+
+    // And raylib's own half, with no window: nothing in the queue, no key.
+    rmp::ui::detail::Typed raw{};
+    raw.count = 3;
+    raw.backspaces = 2;
+    rmp::ui::detail::typed_from_raylib(raw);
+    check(raw.count == 0 && raw.backspaces == 0,
+          "raylib's typing, with no window, is nothing at all");
+}
+
 } // namespace
 
 int main() {
@@ -2640,6 +3175,14 @@ int main() {
     run_corner_radii();
     run_restart_after_shutdown();
     run_font_sizes();
+    run_misuse();
+    run_misuse_in_phases();
+    run_runner_frame();
+    run_letterbox();
+    run_scissor_stack();
+    run_spacer_direction();
+    run_shutdown_forgets();
+    run_typed();
 
     std::printf("\n--- scale limits ---\n");
 

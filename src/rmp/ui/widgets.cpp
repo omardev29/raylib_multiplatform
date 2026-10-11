@@ -8,6 +8,7 @@
 // ===========================================================================
 
 #include "internal.h"
+#include "../internal.h" // RMP_REPORT_ONCE
 
 #include <rmp/config.h>
 
@@ -87,9 +88,12 @@ Clay_ChildAlignment alignment_of(Align a) {
     return Clay_ChildAlignment{ x, y };
 }
 
-Clay_Padding uniform_padding(float p) {
-    auto v = static_cast<uint16_t>(p);
-    return Clay_Padding{ v, v, v, v };
+// The root's padding: the frame's own, on top of what each side of the
+// viewport keeps clear -- the safe area, and the letterbox bars.
+Clay_Padding root_padding(float p) {
+    const detail::Insets in = detail::content_insets();
+    auto side = [p](float inset) { return static_cast<uint16_t>(p + inset); };
+    return Clay_Padding{ side(in.left), side(in.right), side(in.top), side(in.bottom) };
 }
 
 } // namespace
@@ -103,11 +107,22 @@ void begin() { begin(FrameOptions{}); }
 void begin(const FrameOptions &o) { detail::open_frame(o, Color{ 0, 0, 0, 0 }); }
 
 void detail::open_frame(const FrameOptions &o, const Color fill) {
+    // In _update(), or under the camera: said once for the phase, and nothing
+    // opened -- so what follows says nothing more, and its end() closes
+    // nothing.
+    if (detail::phase_refuses("begin")) return;
     if (!detail::ensure_started()) return;
 
     if (detail::frame_open()) {
-        TraceLog(LOG_WARNING,
-                 "UI: begin() called twice without end(); ignoring the second one");
+        // A mistake in the game, so said once and not sixty times a second.
+        // What is between this begin() and its end() goes into the frame
+        // already open, where it was written, and that frame still closes
+        // where it was meant to.
+        RMP_REPORT_ONCE(
+            "UI: rmp::ui::begin() while a frame is open: end() was not called, "
+            "or begin() is inside a container -- column() is what goes there. "
+            "Its content went into the frame already open.");
+        detail::note_nested_begin();
         return;
     }
     // Marking the frame is the app's job — it happens once, around however many
@@ -145,9 +160,11 @@ void detail::open_frame(const FrameOptions &o, const Color fill) {
     root.layout.sizing.height = size_grow();
     root.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     root.layout.childAlignment = alignment_of(o.placement);
-    // Safe area. [android.display] into_cutout draws the game behind the notch,
-    // which is right for a background and wrong for a menu.
-    root.layout.padding = uniform_padding(px(padding) + detail::safe_area_inset());
+    // The safe area -- [android.display] into_cutout draws the game behind the
+    // notch, which is right for a background and wrong for a menu -- and the
+    // letterbox bars: the frame is laid out over the world, a HUD in its
+    // corner, while the root still covers the viewport, bars and all.
+    root.layout.padding = root_padding(px(padding));
     // Painted only when asked: an overlay's veil, which -- covering the
     // viewport -- takes the pointer everywhere.
     if (fill.a > 0) root.backgroundColor = to_clay(fill);
@@ -179,6 +196,13 @@ void detail::open_frame(const FrameOptions &o, const Color fill) {
 }
 
 void end() {
+    // The end() of a begin() said inside an open frame closes nothing.
+    if (detail::close_nested_begin()) return;
+    if (!detail::frame_ready("end", {})) return;
+    detail::close_frame(true);
+}
+
+void detail::close_frame(const bool draw) {
     if (!detail::frame_open()) return;
     detail::set_frame_open(false);
 
@@ -217,11 +241,13 @@ void end() {
     detail::end_pass_focus();
 
     // In test mode there is no GL context to draw into; the layout is the
-    // whole point and it has already happened.
-    if (!detail::test_mode()) detail::draw(commands);
+    // whole point and it has already happened. Nor past EndDrawing(), where
+    // the runner closes a frame the game left open.
+    if (draw && !detail::test_mode()) detail::draw(commands);
 
-    // Before the boundary below can close: the frame is still this one.
-    detail::pass_ended();
+    // Before the boundary below can close: the frame is still this one. Only
+    // for a pass that was drawn -- what comes after it is drawn too.
+    if (draw) detail::pass_ended();
 
     // Only when there was no app to mark it. With one, the boundary closes
     // after the last scene has drawn, not after the first.
@@ -235,7 +261,7 @@ void end() {
 bool button(std::string_view label) { return button(label, ButtonOptions{}); }
 
 bool button(std::string_view label, const ButtonOptions &o) {
-    if (!detail::frame_open()) return false;
+    if (!detail::frame_ready("button", label)) return false;
 
     const Theme &t = current_theme();
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -372,7 +398,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
 void text(std::string_view s) { text(s, TextOptions{}); }
 
 void text(std::string_view s, const TextOptions &o) {
-    if (!detail::frame_open()) return;
+    if (!detail::frame_ready("text", s)) return;
 
     const Theme &t = current_theme();
     Color c = t.text;
@@ -405,10 +431,11 @@ void text(std::string_view s, const TextOptions &o) {
 // ---------------------------------------------------------------------------
 
 void shutdown() {
+    // The game's mistake -- the entry point shuts the UI down between frames
+    // -- so it is reported. The frame goes with everything else.
     if (detail::frame_open()) {
-        TraceLog(LOG_WARNING,
-                 "UI: shutdown() while a frame was open; end() was never called");
-        detail::set_frame_open(false);
+        RMP_REPORT_ONCE("UI: rmp::ui::shutdown() while a frame was open: rmp::ui::end() "
+                        "was never called.");
     }
     detail::shutdown_context();
 }

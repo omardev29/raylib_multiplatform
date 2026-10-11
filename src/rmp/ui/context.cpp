@@ -9,7 +9,9 @@
 
 #include "internal.h"
 #include "../internal.h"
+#include "../scene_internal.h" // running(): whose frame this is, RMP_GAME's or the runner's
 
+#include <rmp/app.h> // stretch(), for the insets
 #include <rmp/assets.h>
 #include <rmp/config.h>
 
@@ -51,8 +53,23 @@ namespace {
 struct {
     bool started = false;
     bool frame_open = false;
+    // begin()s said while the frame was open, each waiting for the end() that
+    // pairs with it: see note_nested_begin().
+    int nested = 0;
     std::vector<unsigned char> arena; // Clay's memory, ours to own
 } context;
+
+// Which part of the frame the scene stack is running (set_phase()). FREE is
+// everything outside the stack, which is all there is without scenes.
+struct {
+    Phase current = Phase::FREE;
+} phases;
+
+// A frame the runner marked for RMP_ENTRY_POINT, so that it is the one to
+// close it -- and nothing else.
+struct {
+    bool marked = false;
+} runner;
 
 struct {
     float scale = 1.0f;
@@ -85,6 +102,10 @@ struct {
     // same warning for every piece of text, every frame.
     bool failed = false;
 } font;
+
+// Everything a frame leaves behind, gone: the UI is shutting down. Defined at
+// the bottom, where every piece of it has been declared.
+void forget_frame();
 
 // Every face goes: the UI is shutting down, or the font is another one.
 void release_fonts() {
@@ -255,6 +276,7 @@ struct {
     MeasureFn measure = measure_with_raylib;
     PointerFn pointer = pointer_from_raylib;
     NavFn nav = nav_from_raylib;
+    TextFn text = typed_from_raylib;
     FontFn font = load_ui_font;
     const char *font_name = nullptr; // nullptr = [ui] font
 } providers;
@@ -388,6 +410,16 @@ void shutdown_context() {
     // First, and whether or not the UI started: the backdrop's texture is on
     // the GPU, and the window closes after this.
     release_backdrop();
+    // And whether or not it started, everything a frame leaves behind goes:
+    // the next begin() starts the UI again -- there is no init() -- and it has
+    // to be the UI the first begin() started, not one inside a frame the app
+    // marked before it shut down, with a font it gave up on and every fade
+    // where it stopped.
+    forget_frame();
+    font.failed = false;
+    forget_transitions();
+    begin_pass_containers();
+    forget_focus();
     if (!context.started) return;
     release_fonts();
     context.arena = std::vector<unsigned char>{};
@@ -397,17 +429,90 @@ void shutdown_context() {
     // is exactly where it was before the first start.
     Clay_SetCurrentContext(nullptr);
     context.started = false;
-    forget_claims();
-    modality.this_frame = -1;
-    modality.last_frame = -1;
-    forget_focus();
 }
 
 bool frame_open() { return context.frame_open; }
-void set_frame_open(bool open) { context.frame_open = open; }
 
-bool frame_ready(std::string_view /*what*/, std::string_view /*label*/) {
-    return context.frame_open;
+// Opening or closing a frame, either way, starts the count of begin()s
+// written inside it again: they belong to the frame they were written in.
+void set_frame_open(bool open) {
+    context.frame_open = open;
+    context.nested = 0;
+}
+
+void note_nested_begin() { ++context.nested; }
+
+bool close_nested_begin() {
+    if (context.nested == 0) return false;
+    --context.nested;
+    return true;
+}
+
+namespace {
+
+// A function's name, terminated, for a report's %s.
+std::array<char, 24> name_of(std::string_view what) {
+    std::array<char, 24> name{};
+    std::snprintf(name.data(), name.size(), "%.*s", static_cast<int>(what.size()),
+                  what.data());
+    return name;
+}
+
+} // namespace
+
+// While the stack updates, or draws the world under the camera, a frame
+// cannot be opened -- so one line for the whole phase, naming the call that
+// tried first, and silence for the rest of what it describes.
+bool phase_refuses(std::string_view what) {
+    switch (phases.current) {
+        case Phase::UPDATE:
+            RMP_REPORT_ONCE(
+                "UI: rmp::ui::%s() in _update(): nothing is drawn while the "
+                "world moves, so it did nothing. The interface is described in "
+                "the scene's _draw().",
+                name_of(what).data());
+            return true;
+        case Phase::WORLD:
+            RMP_REPORT_ONCE(
+                "UI: rmp::ui::%s() in an object's _draw(), which runs under "
+                "the camera, so it did nothing. The interface is described in "
+                "the scene's own _draw(), in screen space -- and a box that "
+                "follows a point of the world is rmp::ui::at().",
+                name_of(what).data());
+            return true;
+        case Phase::FREE:
+        case Phase::DRAW:
+            break;
+    }
+    return false;
+}
+
+bool frame_ready(std::string_view what, std::string_view label) {
+    if (context.frame_open) return true;
+    if (phase_refuses(what)) return false;
+    // The call as it was written: button("Play"), or spacer() for one with no
+    // label -- cut short, a label being any length.
+    std::array<char, 96> call{};
+    if (label.empty()) {
+        std::snprintf(call.data(), call.size(), "%.*s()", static_cast<int>(what.size()),
+                      what.data());
+    } else {
+        std::snprintf(call.data(), call.size(), "%.*s(\"%.*s\")",
+                      static_cast<int>(what.size()), what.data(),
+                      static_cast<int>(label.size()), label.data());
+    }
+    // Keyed by the call, so two buttons in the wrong place are two lines --
+    // but by the function alone for one whose argument is what it SAYS and
+    // not a name: text("120") would be a line for every score the game
+    // reaches.
+    const bool says = what == "text" || what == "tooltip";
+    const std::array<char, 24> name = name_of(what);
+    RMP_REPORT_ONCE_KEYED(says ? name.data() : call.data(),
+                          "UI: rmp::ui::%s with no frame open, so it did nothing. The "
+                          "interface is described between rmp::ui::begin() and "
+                          "rmp::ui::end(), in a scene's _draw().",
+                          call.data());
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -559,6 +664,7 @@ void begin_pass() {
     // top of what the app said (set_pass_input()), never instead of it.
     this_pass.behind = this_pass.index < modality.last_frame;
     reset_id_counters();
+    begin_pass_containers();
     begin_pass_focus();
     // The first pass of the frame is where wants_pointer() and wants_keyboard()
     // start again from nothing. See begin_capture_frame().
@@ -641,14 +747,23 @@ void block_pointer(Clay_ElementId id) {
 
 namespace detail {
 
-// Marking is unconditional: from here to end_frame() there is one frame, and
-// nobody else gets to open another. Preparing is not, because the UI may not
-// exist yet — see prepare_frame().
-void begin_frame() {
+namespace {
+
+// The boundary, without the half that needs Clay.
+void mark_frame() {
     frame.marked = true;
     this_pass.index = -1;
     this_pass.input = true;
     this_pass.behind = false;
+}
+
+} // namespace
+
+// Marking is unconditional: from here to end_frame() there is one frame, and
+// nobody else gets to open another. Preparing is not, because the UI may not
+// exist yet — see prepare_frame().
+void begin_frame() {
+    mark_frame();
     prepare_frame();
 }
 
@@ -802,14 +917,56 @@ void set_test_frame_time(const float seconds) {
 
 // --- the runner's frame, and where the interface is described ---------------
 //
-// Hooks the app and the scene stack call (../ui_internal.h). Nothing is
-// marked here, and nothing is said: begin() marks a frame of RMP_ENTRY_POINT's
-// itself, and a widget outside one returns doing nothing.
+// Hooks the app and the scene stack call (../ui_internal.h).
 
-void runner_begin_frame() {}
-void runner_end_frame() {}
-void set_phase(Phase /*phase*/) {}
-void after_scene_draw(int /*index*/, int /*top*/) {}
+// RMP_ENTRY_POINT's frame hook is one UI frame however many begin()/end()
+// pairs it draws, so the runner marks it around the hook. It used to be
+// begin() that marked it, and each pair was a frame of its own: a screen and
+// the overlay over it sampled the pointer twice, and the one in front never
+// saw a press begin. Marking only: the half that needs Clay still waits for
+// the first begin(), after the step the game was handed, exactly as before.
+// With the scene stack running this is RMP_GAME, whose frame() marks its own
+// frame after the step, and this leaves it alone.
+void runner_begin_frame() {
+    if (rmp::scenes::detail::running() || frame.marked) return;
+    mark_frame();
+    runner.marked = true;
+}
+
+// After the game's EndDrawing(). A frame it left open is said once and closed
+// for it -- laid out and not drawn, the screen being finished -- so that the
+// next frame starts clean instead of nesting inside this one for good.
+void runner_end_frame() {
+    if (!runner.marked) return;
+    runner.marked = false;
+    if (context.frame_open) {
+        RMP_REPORT_ONCE("UI: rmp::ui::begin() without rmp::ui::end() in the frame hook. "
+                        "The frame was closed for it after EndDrawing(), too late to be "
+                        "drawn: every begin() needs its end(), before EndDrawing().");
+        close_frame(false);
+    }
+    end_frame();
+}
+
+void set_phase(const Phase phase) { phases.current = phase; }
+
+// A scene's _draw() has returned, and its frame has to be closed by now: the
+// next scene's begin() would otherwise go inside it, and the frame would end
+// with the scene it was not. Said once for each place on the stack -- there
+// is no RTTI to name the scene by -- and closed as end() closes one, drawn:
+// this is still between BeginDrawing() and EndDrawing().
+void after_scene_draw(const int index, const int top) {
+    if (!context.frame_open) return;
+    std::array<char, 16> where{};
+    std::snprintf(where.data(), where.size(), "%d", index);
+    RMP_REPORT_ONCE_KEYED(
+        where.data(),
+        "UI: rmp::ui::begin() without rmp::ui::end() in the _draw() of the "
+        "scene %d of %d on the stack, counting from the bottom%s. The frame "
+        "was closed for it: every begin() needs its end().",
+        index + 1, top + 1, index == top ? " (the one on top)" : "");
+    close_frame(true);
+}
 
 // ---------------------------------------------------------------------------
 // Identity
@@ -932,6 +1089,24 @@ void nav_from_raylib(NavState &out) {
 }
 
 void read_nav(NavState &out) { providers.nav(out); }
+
+// raylib's half of the text field: the character queue, as far as it goes,
+// and Backspace pressed or repeating. Read only by a field that is typing.
+void typed_from_raylib(Typed &out) {
+    out = Typed{};
+    int c = 0;
+    while ((c = GetCharPressed()) != 0) {
+        if (out.count < MAX_TYPED) out.codepoints[static_cast<size_t>(out.count++)] = c;
+    }
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE))
+        out.backspaces = 1;
+}
+
+void read_typed(Typed &out) { providers.text(out); }
+
+void set_text_provider(TextFn fn) {
+    providers.text = (fn != nullptr) ? fn : typed_from_raylib;
+}
 
 void set_nav_provider(NavFn fn) {
     providers.nav = (fn != nullptr) ? fn : nav_from_raylib;
@@ -1287,6 +1462,31 @@ bool touch_only() {
 #endif
 }
 
+namespace {
+
+void forget_frame() {
+    set_frame_open(false);
+    frame.marked = false;
+    frame.self_marked = false;
+    frame.prepared = false;
+    runner.marked = false;
+    this_pass.index = -1;
+    this_pass.input = true;
+    this_pass.behind = false;
+    reset_id_counters();
+    bounds.count = {};
+    blockers.count = {};
+    forget_claims();
+    modality.this_frame = -1;
+    modality.last_frame = -1;
+    reset_frame_arena();
+    clay.over_capacity = false;
+    revealed.id = 0;
+    pointer = {};
+}
+
+} // namespace
+
 float safe_area_inset() {
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
     // An approximation, and deliberately so. raylib exposes no safe-area API,
@@ -1300,6 +1500,39 @@ float safe_area_inset() {
 #else
     return 0.0f;
 #endif
+}
+
+namespace {
+
+// Where the world is drawn inside the viewport: rmp::app::detail::
+// world_viewport(), the same numbers the camera draws by, against the
+// viewport this UI lays out in -- so set_test_viewport() moves it too.
+Rectangle world_area() {
+    const Clay_Dimensions v = viewport();
+    return rmp::app::detail::world_viewport(rmp::app::stretch(),
+                                            Vector2{ v.width, v.height })
+        .area;
+}
+
+} // namespace
+
+Insets content_insets() {
+    const Clay_Dimensions v = viewport();
+    const float safe = safe_area_inset();
+    const Rectangle area = world_area();
+    // No bars when the area is the whole viewport -- NONE, EXPAND, or the
+    // design's own shape -- and nothing but the safe area then.
+    const auto wider = [safe](float bar) { return bar > safe ? bar : safe; };
+    if (v.width <= 0 || v.height <= 0) return Insets{ safe, safe, safe, safe };
+    return Insets{ wider(area.x), wider(area.y), wider(v.width - (area.x + area.width)),
+                   wider(v.height - (area.y + area.height)) };
+}
+
+Clay_Dimensions content_area() {
+    const Clay_Dimensions v = viewport();
+    if (v.width <= 0 || v.height <= 0) return v;
+    const Rectangle area = world_area();
+    return Clay_Dimensions{ area.width, area.height };
 }
 
 } // namespace detail
@@ -1321,8 +1554,10 @@ void set_scale(float s) { detail::set_scale_override(s); }
 // whether a row still fits, is how wide the viewport is next to how tall.
 // ---------------------------------------------------------------------------
 
+// The shape of what the game is drawn in: the window, or the world inside its
+// letterbox bars, whose shape is the design's whatever the window does.
 Breakpoint current_breakpoint() {
-    const Clay_Dimensions v = detail::viewport();
+    const Clay_Dimensions v = detail::content_area();
     if (v.height <= 0.0f) return Breakpoint::MEDIUM;
     const float aspect = v.width / v.height;
     if (aspect < 1.0f) return Breakpoint::COMPACT; // taller than wide

@@ -10,12 +10,11 @@
 #
 # HOW IT IS ENFORCED. Not as "zero occurrences": a seam has to touch the real
 # thing, and that is its job -- the clock in clock.cpp, the devices in
-# input.cpp, the UI's own pointer and keys in ui/context.cpp. And one file is
-# still debt: the text field in
-# ui/controls.cpp reads the character queue and backspace itself. So this is a
-# RATCHET. The files below are the ones allowed, the debt among them is marked,
-# and the list may only get shorter. Any OTHER file that starts doing it fails
-# the build -- and a debt file is held to the calls it is in debt for.
+# input.cpp, the UI's own pointer, keys and typing in ui/context.cpp. So this
+# is a RATCHET. The files below are the ones allowed, and the list may only
+# get shorter. Any OTHER file that starts doing it fails the build. None of
+# them is debt any more: the last one, the text field in ui/controls.cpp,
+# reads what was typed through the UI's seam since phase 14.
 #
 # It also checks a SECOND rule, added after it cost a link error: inside rmp::,
 # a raylib type whose name we have taken must be written with a leading `::`.
@@ -56,13 +55,10 @@ strip_comments() { sed -e 's|//.*||' -e 's|^[[:space:]]*\*.*||' -- "$1"; }
 # worst kind of intermittent. -c reads all of its input.
 count_hits() { strip_comments "$1" | grep -cE "$PATTERN"; }
 
-# Files allowed to call them, and why. Two kinds:
-#
-#   THE SEAM ITSELF — these are the functions a test replaces. They have to
-#   touch the real thing; that is their job.
-#   DEBT — a read that should go through a seam and does not yet, so a test
-#   cannot drive it without a window. The note below the list says why the
-#   UI's reads stay in the UI and not in rmp::input.
+# Files allowed to call them, and why. Each is THE SEAM ITSELF: the functions
+# a test replaces, which have to touch the real thing -- that is their job.
+# The note below the list says why the UI's reads stay in the UI and not in
+# rmp::input.
 ALLOWED=(
   "src/rmp/clock.cpp"         # THE seam for time: step_delta() is the one
                              # GetFrameTime() in the framework, and every runner
@@ -82,7 +78,9 @@ ALLOWED=(
                              # the mouse, the keyboard and the gamepad the UI
                              # navigates itself with -- each sampled once at the
                              # frame boundary through a provider a test
-                             # replaces, and the viewport. Its clock,
+                             # replaces; read_typed(), the characters and the
+                             # Backspace a text field types, read by the field
+                             # that is typing; and the viewport. Its clock,
                              # frame_time(), is the game's: clock.cpp, above.
   "src/rmp/object.cpp"        # THE seam for the viewport: view_rect() falls back
                              # to the screen for an object with empty bounds, and
@@ -95,18 +93,6 @@ ALLOWED=(
                              # its transitions headless. This is the call the
                              # RAY_TEST_BOOT_OK gate was missing, not one to
                              # route away.
-  "src/rmp/ui/controls.cpp"   # DEBT: the character queue and backspace ->
-                             # phase 14
-)
-
-# A DEBT file may make the reads it is on the list for, and no other: it is
-# on the list for those, not for anything that compiles there. The text
-# field's caret blinked on GetTime() until 2026-10-11 -- the wall clock, so a
-# scripted run (tests/e2e/) drew it wherever the machine's speed left it -- and
-# the file being allowed meant nothing could say so. "file=calls", the calls
-# as the PATTERN below spells them.
-DEBT_CALLS=(
-  "src/rmp/ui/controls.cpp=GetCharPressed|IsKeyPressed"
 )
 
 # src/rmp/random.cpp was on this list for naming GetRandomValue in a COMMENT.
@@ -123,10 +109,12 @@ DEBT_CALLS=(
 # focus.cpp came off this list when the keyboard and the gamepad got the same
 # treatment the mouse already had: one sampler in context.cpp, read once at the
 # frame boundary, replaceable by a test. That is what let the layout test press
-# Enter on a focused button without a window. What is left in controls.cpp is
-# the text field's own business -- the character queue and backspace -- and it
-# moves in phase 14 with the rest of it. The caret's blink went to the game's
-# clock (frame_time()) on 2026-10-11, and DEBT_CALLS keeps it there.
+# Enter on a focused button without a window. controls.cpp came off it in phase
+# 14: the text field's caret went to the game's clock (frame_time()) and what
+# it types -- the character queue and Backspace -- to read_typed() in
+# context.cpp, a provider the layout test types through. While it was DEBT the
+# file was held to the two calls it owed (DEBT_CALLS), and its caret's
+# GetTime() was red; off the list, any call of the PATTERN there is red.
 
 # widgets.cpp was on this list until phase 4. Moving the scroll wheel and the
 # frame time out of begin() and into the frame boundary took its last two
@@ -147,14 +135,6 @@ if [ "$(find src/rmp include/rmp \( -name '*.cpp' -o -name '*.h' \) 2>/dev/null 
   exit 1
 fi
 
-# The calls a DEBT file may still make, or nothing when it is no debt file.
-debt_calls_of() {
-  local entry
-  for entry in "${DEBT_CALLS[@]}"; do
-    if [ "${entry%%=*}" = "$1" ]; then printf '%s\n' "${entry#*=}"; return; fi
-  done
-}
-
 while IFS= read -r file; do
   scanned=$((scanned + 1))
   if [ "$(count_hits "$file")" -eq 0 ]; then continue; fi
@@ -167,18 +147,6 @@ while IFS= read -r file; do
     echo "  FAIL  $file reads time, input, randomness or the screen directly:"
     strip_comments "$file" | grep -nE "$PATTERN" | sed 's/^/          /'
     fails=$((fails + 1))
-    continue
-  fi
-  calls=$(debt_calls_of "$file")
-  if [ -n "$calls" ]; then
-    # Every call on every line, one per line as `line:call`, and those that
-    # are not the debt's.
-    extra=$(strip_comments "$file" | grep -noE "$PATTERN" | grep -vE ":($calls)\$" || true)
-    if [ -n "$extra" ]; then
-      echo "  FAIL  $file is on the list for $calls, and reads something else too:"
-      printf '%s\n' "$extra" | sed 's/^/          /'
-      fails=$((fails + 1))
-    fi
   fi
 done < <(find src/rmp include/rmp \( -name '*.cpp' -o -name '*.h' \) | sort)
 
@@ -186,21 +154,6 @@ if [ "$found_any" -eq 0 ]; then
   echo "  ok    nothing under src/rmp/ or include/rmp/ reads time, input or randomness"
   exit 0
 fi
-
-# A debt paid off is a call to take off its line: the text field reading no
-# character queue any more would leave GetCharPressed allowed for nothing.
-for entry in "${DEBT_CALLS[@]}"; do
-  file=${entry%%=*}
-  rest=${entry#*=}
-  while [ -n "$rest" ]; do
-    call=${rest%%|*}
-    if [ "$rest" = "$call" ]; then rest=""; else rest=${rest#*|}; fi
-    if [ -f "$file" ] && [ "$(strip_comments "$file" | grep -cE "$call")" -eq 0 ]; then
-      echo "  FAIL  $file no longer calls $call: take it off its DEBT_CALLS line."
-      fails=$((fails + 1))
-    fi
-  done
-done
 
 # The ratchet's other half: an entry that no longer matches is an entry to
 # delete, or the list stops meaning anything.

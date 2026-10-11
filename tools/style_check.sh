@@ -28,8 +28,8 @@
 #       frame_ready() says so once; doing nothing without a word is how a
 #       button in _update() looks like a bug in the framework. Only the
 #       close_* halves, which follow an open_* that has already spoken, stay
-#       silent. What the tree still owes is SILENT_DEBT, below, which only
-#       shrinks
+#       silent. Phase 14 paid the twenty silent ones the tree had, so there
+#       is no debt left to keep and none to add
 #
 # Comments, strings and character literals do not count (S3 reads only the
 # comments): they are blanked before any rule runs, so a comment may say what
@@ -64,17 +64,6 @@ RULES = {
     "S7": "an rmp::ui entry point silent outside a frame: if (!frame_ready(...)) return",
 }
 
-# S7's debt: the entry points that still return in silence outside a frame,
-# by file and function. Phase 14 pays it, and the list only shrinks: a
-# function here that speaks now fails until its name goes, and one that is
-# silent and not here fails as any other would.
-SILENT_DEBT = {
-    "src/rmp/ui/containers.cpp": {"open_row", "open_column", "open_panel", "open_center",
-                                  "open_stack", "open_layer", "open_grid", "open_cell",
-                                  "open_scroll", "spacer", "image", "progress"},
-    "src/rmp/ui/controls.cpp": {"checkbox", "slider", "dropdown", "text_input"},
-    "src/rmp/ui/widgets.cpp": {"end", "button", "text"},
-}
 # A function body whose first statement leaves when no frame is open, with
 # or without another condition beside it. The name is the last word before
 # the parameter list; a signature may run over lines.
@@ -199,13 +188,8 @@ def check(path, rules, explicit=False):
         hit("S5", m.start(), " ".join(m.group(0).split()))
     # S7 over rmp::ui's sources in the tree, and over any file named.
     if not is_c and (explicit or posix.startswith("src/rmp/ui/")):
-        owed = SILENT_DEBT.get(posix, set()) if not explicit else set()
-        silent = silent_entry_points(code)
-        for offset, name in silent:
-            if name not in owed:
-                hit("S7", offset, f"{name}()")
-        for name in sorted(owed - {name for _, name in silent}):
-            hit("S7", 0, f"{name}() speaks now: take it off SILENT_DEBT in tools/style_check.sh")
+        for offset, name in silent_entry_points(code):
+            hit("S7", offset, f"{name}()")
     return found
 
 

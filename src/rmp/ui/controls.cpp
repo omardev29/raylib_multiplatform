@@ -106,7 +106,7 @@ bool checkbox(std::string_view label, bool &value) {
 }
 
 bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
-    if (!detail::frame_open()) return false;
+    if (!detail::frame_ready("checkbox", label)) return false;
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -180,7 +180,7 @@ bool slider(std::string_view label, float &value, float min, float max) {
 
 bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o) {
-    if (!detail::frame_open() || max <= min) return false;
+    if (!detail::frame_ready("slider", label) || max <= min) return false;
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -338,7 +338,7 @@ bool dropdown(std::string_view label, int &selected,
 
 bool dropdown(std::string_view label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o) {
-    if (!detail::frame_open() || items.empty()) return false;
+    if (!detail::frame_ready("dropdown", label) || items.empty()) return false;
     const Theme &t = current_theme();
     // An int, because that is what a game keeps; a list longer than an int
     // counts is not a dropdown anyone can use.
@@ -519,7 +519,7 @@ bool text_input(std::string_view label, std::string &value) {
 }
 
 bool text_input(std::string_view label, std::string &value, const TextInputOptions &o) {
-    if (!detail::frame_open()) return false;
+    if (!detail::frame_ready("text_input", label)) return false;
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -573,13 +573,18 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
         caret.f += detail::frame_time();
     }
     // Not on the frame it took the keyboard: the Space that took it is in the
-    // character queue too.
+    // character queue too. What was typed comes through the UI's own seam
+    // (read_typed(), context.cpp), as the pointer and the keys do -- raylib's
+    // queue in a game, a script in a test.
     if (typing && !took) {
-        int c = 0;
-        while ((c = GetCharPressed()) != 0) {
-            if (detail::utf8_append(value, c, o.max_length)) changed = true;
+        detail::Typed typed;
+        detail::read_typed(typed);
+        for (int i = 0; i < typed.count && i < detail::MAX_TYPED; ++i) {
+            if (detail::utf8_append(value, typed.codepoints[static_cast<size_t>(i)],
+                                    o.max_length))
+                changed = true;
         }
-        if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
+        for (int i = 0; i < typed.backspaces; ++i) {
             if (detail::utf8_pop(value)) changed = true;
         }
     }

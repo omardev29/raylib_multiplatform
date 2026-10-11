@@ -107,6 +107,11 @@ float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
     return ease(s.t);
 }
 
+void forget_transitions() {
+    anim.slots = {};
+    anim.delta = 0.0f;
+}
+
 Color state_color(Clay_ElementId id, Color base, Color hover, Color press, bool over,
                   bool pressed) {
     // Two channels, not three states, because they overlap: pressing something

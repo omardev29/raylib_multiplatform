@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <optional>
 
 namespace rmp::ui::detail {
 
@@ -146,6 +147,39 @@ void box_outline(Clay_BoundingBox b, Corners c, Clay_BorderWidth inset, Outline 
     }
 }
 
+Clay_BoundingBox push_scissor(ScissorStack &stack, Clay_BoundingBox box) {
+    if (stack.depth > 0) {
+        // What both let show. Two that do not meet leave a box with no area,
+        // and raylib's scissor then clips everything, which is right.
+        const Clay_BoundingBox &around =
+            stack.boxes[static_cast<size_t>(stack.depth - 1)];
+        const float left = std::fmax(box.x, around.x);
+        const float top = std::fmax(box.y, around.y);
+        const float right = std::fmin(box.x + box.width, around.x + around.width);
+        const float bottom = std::fmin(box.y + box.height, around.y + around.height);
+        box = Clay_BoundingBox{ left, top, right > left ? right - left : 0.0f,
+                                bottom > top ? bottom - top : 0.0f };
+    }
+    if (stack.depth < MAX_SCISSORS) {
+        stack.boxes[static_cast<size_t>(stack.depth++)] = box;
+    } else {
+        // Paired even past the limit, the way the clips and the grids are: the
+        // close of one that was not pushed must not pop one that was.
+        ++stack.overflow;
+    }
+    return box;
+}
+
+std::optional<Clay_BoundingBox> pop_scissor(ScissorStack &stack) {
+    if (stack.overflow > 0) {
+        --stack.overflow;
+    } else if (stack.depth > 0) {
+        --stack.depth;
+    }
+    if (stack.depth == 0) return std::nullopt;
+    return stack.boxes[static_cast<size_t>(stack.depth - 1)];
+}
+
 const char *cstr(Clay_StringSlice slice) {
     int len = slice.length;
     if (len >= SCRATCH) len = SCRATCH - 1;
@@ -155,6 +189,11 @@ const char *cstr(Clay_StringSlice slice) {
 }
 
 void draw(Clay_RenderCommandArray commands) {
+    ScissorStack scissors{};
+    const auto clip_to = [](Clay_BoundingBox b) {
+        BeginScissorMode(static_cast<int>(b.x), static_cast<int>(b.y),
+                         static_cast<int>(b.width), static_cast<int>(b.height));
+    };
     // Already sorted by z order, so drawing them in sequence is correct.
     for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
@@ -232,14 +271,19 @@ void draw(Clay_RenderCommandArray commands) {
             }
 
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
-                BeginScissorMode(static_cast<int>(rect.x), static_cast<int>(rect.y),
-                                 static_cast<int>(rect.width),
-                                 static_cast<int>(rect.height));
+                // Cut to every scroll area around it: raylib has one scissor.
+                clip_to(push_scissor(scissors, cmd.boundingBox));
                 break;
             }
 
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END: {
-                EndScissorMode();
+                // The one around it comes back; after the outermost, none.
+                if (const std::optional<Clay_BoundingBox> around =
+                        pop_scissor(scissors)) {
+                    clip_to(*around);
+                } else {
+                    EndScissorMode();
+                }
                 break;
             }
 
@@ -247,6 +291,9 @@ void draw(Clay_RenderCommandArray commands) {
                 break;
         }
     }
+    // A list that ended with one still open -- Clay pairs them, so never --
+    // must not leave the rest of the game clipped.
+    if (scissors.depth > 0) EndScissorMode();
 }
 
 } // namespace rmp::ui::detail

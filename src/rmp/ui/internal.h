@@ -43,8 +43,27 @@ void set_frame_open(bool open);
 // The question every entry point asks first: is a frame open for `what` (the
 // function, "button") labelled `label` to go into? True when it is. When it
 // is not, the call is a mistake in the game: it is said once, keyed by what
-// and label, and the caller returns doing nothing.
+// and label, and the caller returns doing nothing. While the scene stack is
+// updating, or drawing the world under the camera, it is said once for the
+// whole phase instead -- the begin() that came first already named it.
 bool frame_ready(std::string_view what, std::string_view label);
+
+// The phase half of that, on its own, for begin(): true while the scene stack
+// is updating or drawing the world under the camera, where nothing of the
+// interface can be described -- said once for the whole phase.
+bool phase_refuses(std::string_view what);
+
+// A begin() while a frame is open, inside one of its containers: a mistake
+// the game made (begin() went where column() goes), said once by begin(). It
+// opens nothing, and the end() that pairs with it closes nothing, so the
+// frame around it still closes where it was meant to. Counted per frame.
+void note_nested_begin();
+bool close_nested_begin(); // true when this end() was that begin()'s
+
+// end(), and how a frame the game left open is closed for it: laid out, its
+// interaction resolved, and drawn when `draw` -- not past EndDrawing(), where
+// the runner closes RMP_ENTRY_POINT's.
+void close_frame(bool draw);
 
 // begin(o), with the root painted `fill` -- a colour with no alpha paints
 // nothing, which is begin(). The root covers the whole viewport, so a fill
@@ -197,6 +216,23 @@ uint32_t take_last_control();
 // and wrong for a menu.
 float safe_area_inset();
 
+// Pixels to keep clear on each side of the viewport: the safe area above, and
+// under rmp::app::Stretch::LETTERBOX the bars around the world, so that a
+// frame lays out over the game and not over the bars -- a TOP_LEFT HUD at the
+// world's corner, a menu centred on it. A side takes whichever is wider: the
+// notch is at the edge of the screen, inside a bar as wide as it.
+struct Insets {
+    float left = 0;
+    float top = 0;
+    float right = 0;
+    float bottom = 0;
+};
+Insets content_insets();
+
+// The part of the viewport the game is drawn in: the whole of it, or the
+// world's area inside the letterbox bars. What current_breakpoint() reads.
+Clay_Dimensions content_area();
+
 // The font to draw and measure text of this many pixels with. A [ui] font is
 // baked at exactly that size, once, and kept until the UI shuts down, so
 // every size is sharp; raylib's built-in font is the same font at every size,
@@ -304,6 +340,10 @@ void anim_begin_frame();
 // what lets one element animate more than one thing.
 float anim_value(Clay_ElementId id, uint32_t channel, bool on);
 
+// Every transition forgotten: the UI is shutting down, and a control seen
+// after it starts again starts where it is going, as on the first frame.
+void forget_transitions();
+
 // The colour a control is right now, moving between the three the theme gives
 // it. Every widget with a hover state goes through this, which is why they all
 // feel the same.
@@ -319,6 +359,13 @@ float resolve_size(const Sizing &s, const Theme &t);
 // The same thing as a multiplier on the theme's base type Size, for the
 // metrics that have to move with it: padding, and the minimum touch height.
 float size_ratio(const Sizing &s, const Theme &t);
+
+// --- containers.cpp --------------------------------------------------------
+
+// A pass starts with no container open: the grids nested so far and the rows
+// spacer(n) asks about belong to the last one, and go. Called by begin(), and
+// by shutdown().
+void begin_pass_containers();
 
 // --- focus.cpp -------------------------------------------------------------
 //
@@ -504,20 +551,55 @@ void box_outline(Clay_BoundingBox box, Corners corners, Clay_BorderWidth inset,
 // into a scratch buffer with a terminator first.
 const char *cstr(Clay_StringSlice slice);
 
+// The scissor rectangles open while a pass is drawn, innermost last. raylib
+// has ONE scissor, so a scroll area inside another one set its own and the
+// outer clip was gone -- and at its end it switched clipping off, so the rest
+// of the outer area spilled out of it. Now each one opens cut to every one
+// around it, and its end puts the one around it back. Pure, so a test can
+// hold it to that without a window.
+inline constexpr int MAX_SCISSORS = 8;
+struct ScissorStack {
+    std::array<Clay_BoundingBox, MAX_SCISSORS> boxes{};
+    int depth = 0;
+    int overflow = 0; // opened past the limit, so the closes still pair up
+};
+// What to clip to now that `box` opens: `box`, cut to what is open around it
+// (no area at all when they do not meet).
+Clay_BoundingBox push_scissor(ScissorStack &stack, Clay_BoundingBox box);
+// What to clip to now that the innermost one closes: the one around it, or
+// nothing when it was the outermost.
+std::optional<Clay_BoundingBox> pop_scissor(ScissorStack &stack);
+
 // --- seams for tests -------------------------------------------------------
 //
 // With these two replaced, the layout runs with no window and no GPU:
 // Clay_EndLayout is pure computation. That is what makes headless layout tests
 // possible (tests/ui_layout_test.cpp).
 
+// What the keyboard typed this frame, for the text field that has it: the
+// characters in the order they came, and how many times Backspace went down
+// -- once when it is pressed, and once for each repeat while it is held. It is
+// read by the field typing, when it types, and by nothing else: raylib's
+// character queue empties as it is read, and a game reading it itself for a
+// name of its own must find it there whenever no field of ours is typing.
+inline constexpr int MAX_TYPED = 16; // raylib's own queue holds 16
+struct Typed {
+    std::array<int, MAX_TYPED> codepoints{};
+    int count = 0;
+    int backspaces = 0;
+};
+void read_typed(Typed &out);
+
 using MeasureFn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
 using PointerFn = void (*)(Clay_Vector2 &position, bool &down);
 using NavFn = void (*)(NavState &out);
 using FontFn = rmp::Font (*)(const char *name, int pixel_size);
+using TextFn = void (*)(Typed &out);
 
 void set_measure_provider(MeasureFn fn);
 void set_pointer_provider(PointerFn fn);
 void set_nav_provider(NavFn fn);
+void set_text_provider(TextFn fn); // nullptr puts raylib's back
 
 // The [ui] font, and what bakes it at a pixel size: RMP_UI_FONT and
 // rmp::assets::load_font, unless a test swaps them -- baking a face needs a GL
@@ -559,6 +641,7 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
                                     void *user);
 void pointer_from_raylib(Clay_Vector2 &position, bool &down);
 void nav_from_raylib(NavState &out);
+void typed_from_raylib(Typed &out);
 
 // What the keyboard means to navigation, on any keyboard: `down(key)` and
 // `pressed(key)` answer for a raylib KeyboardKey, and `more(x, y, submit,
