@@ -14,9 +14,10 @@
 # the one command that plays it again, and the run keeps the input. Those
 # issues are what an agent working on this repository takes first.
 #
-# What fuzzing found that adds coverage is uploaded as `corpus-<target>`,
-# merged and minimised; committing it (tools/fuzz.sh merge) is a pull request,
-# never this workflow's.
+# What fuzzing found that adds coverage is merged into the corpus
+# (tools/fuzz.sh merge: only inputs that add coverage join it) and uploaded in
+# the `fuzz-<target>` artifact, with the crashes and the log; committing it is
+# a pull request, never this workflow's.
 #
 # The framework's alone: a game made with `rmp new` gets no file of
 # .github/workflows/ but the ones INCLUDE names, and this is not one of them;
@@ -161,8 +162,9 @@ jobs:
           python3 tools/finding.py record fuzz "$TARGET" build/fuzz/run.log \
             --repro "bash tools/fuzz.sh build && bash tools/fuzz.sh replay $TARGET <the input from the run's fuzz-$TARGET artifact: ${crash##*/}>"
 
-      # What adds coverage, merged into the committed corpus and minimised:
-      # the next pull request's to commit, after a look at its size.
+      # What adds coverage, merged into the committed corpus (only inputs that
+      # add coverage join it): the next pull request's to commit, after a look
+      # at its size.
       - name: Merge what it found
         if: always()
         run: |
