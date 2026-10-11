@@ -12,7 +12,8 @@
 //     negative, whatever number the file wrote (past int's range, past
 //     float's, cJSON's 1e400, cute_tiled's "nan");
 //   - a tile's source is its place in its tileset's grid, never negative --
-//     LDtk's square tiles and Tiled's of any width and height;
+//     LDtk's square tiles and Tiled's of any width and height -- and a Tiled
+//     tile is drawn at its cell of the map's grid, raised by its overhang;
 //   - load_map(name) and load_map(name, level) are parse_map() of the file.
 //
 // The queries over a map, whichever reader made it, are
@@ -350,6 +351,8 @@ rc::Gen<TiledSpec> tiled_map() {
 
 // A Tiled tileset of tiles that need not be square, all small numbers.
 struct TiledSetSpec {
+    int grid_width = 16; // the map's cell, which a tile need not match
+    int grid_height = 16;
     int first_gid = 1;
     int columns = 1;
     int rows = 1;
@@ -360,10 +363,11 @@ struct TiledSetSpec {
 };
 
 std::string to_json(const TiledSetSpec &t) {
-    return R"({"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[],)"
-           R"("tilesets":[{"firstgid":)" +
-        std::to_string(t.first_gid) + R"(,"columns":)" + std::to_string(t.columns) +
-        R"(,"tilecount":)" + std::to_string(t.columns * t.rows) + R"(,"tilewidth":)" +
+    return R"({"width":1,"height":1,"tilewidth":)" + std::to_string(t.grid_width) +
+        R"(,"tileheight":)" + std::to_string(t.grid_height) +
+        R"(,"layers":[],"tilesets":[{"firstgid":)" + std::to_string(t.first_gid) +
+        R"(,"columns":)" + std::to_string(t.columns) + R"(,"tilecount":)" +
+        std::to_string(t.columns * t.rows) + R"(,"tilewidth":)" +
         std::to_string(t.width) + R"(,"tileheight":)" + std::to_string(t.height) +
         R"(,"margin":)" + std::to_string(t.margin) + R"(,"spacing":)" +
         std::to_string(t.spacing) + "}]}";
@@ -375,6 +379,8 @@ void showValue(const TiledSetSpec &t, std::ostream &os) { os << to_json(t); }
 rc::Gen<TiledSetSpec> tiled_set() {
     return rc::gen::exec([] {
         TiledSetSpec t;
+        t.grid_width = *rc::gen::inRange(1, 40);
+        t.grid_height = *rc::gen::inRange(1, 40);
         t.first_gid = *rc::gen::inRange(1, 100);
         t.columns = *rc::gen::inRange(1, 6);
         t.rows = *rc::gen::inRange(1, 6);
@@ -665,6 +671,38 @@ TEST_SUITE("property: ldtk") {
                     RC_ASSERT(source.width == static_cast<float>(spec.width));
                     RC_ASSERT(source.height == static_cast<float>(spec.height));
                 }
+            });
+        rmp::test::check(
+            "a Tiled tile is drawn at its cell of the map's grid, raised by how much "
+            "taller than the cell it is",
+            [] {
+                // The map's cell and the tileset's tile are two sizes, neither
+                // square: a step taken from the other axis, or from the tile
+                // instead of the cell, puts a whole layer somewhere else.
+                const TiledSetSpec spec = *tiled_set();
+                const std::string text = to_json(spec);
+                rmp::Tilemap map;
+                rmp::tilemap::detail::Access::adopt(
+                    map,
+                    rmp::tilemap::detail::parse_map(
+                        text.data(), static_cast<int>(text.size()), "grid.json"));
+                RC_ASSERT(map.valid());
+                const rmp::tilemap::detail::MapData &data =
+                    *rmp::tilemap::detail::Access::data(map);
+                const int column = *rc::gen::inRange(0, 50);
+                const int row = *rc::gen::inRange(0, 50);
+                const int local = *rc::gen::inRange(0, spec.columns * spec.rows);
+                const Vector2 at = rmp::tilemap::detail::tile_origin(
+                    &data, spec.first_gid + local, column, row);
+                RC_ASSERT(at.x == static_cast<float>(column * spec.grid_width));
+                RC_ASSERT(at.y ==
+                          static_cast<float>((row * spec.grid_height) -
+                                             (spec.height - spec.grid_height)));
+                // A gid no tileset holds hangs from nothing: its cell's corner.
+                const Vector2 none = rmp::tilemap::detail::tile_origin(
+                    &data, spec.first_gid + (spec.columns * spec.rows), column, row);
+                RC_ASSERT(none.x == static_cast<float>(column * spec.grid_width));
+                RC_ASSERT(none.y == static_cast<float>(row * spec.grid_height));
             });
         SetTraceLogLevel(LOG_INFO);
     }
