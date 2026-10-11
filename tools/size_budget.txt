@@ -31,22 +31,22 @@
 # run's log replaces it.
 #
 # binary               kind    unpacked    packed
-linux-x64-glibc        elf      1234656    365836  # measured at cf7b676
-linux-arm64-glibc      elf      1173513    352446  # estimate: run 38089107324 (ce0beac) x linux-x64-glibc's growth since
-linux-riscv64-glibc    elf       960648         -  # measured at cf7b676
-linux-x64-musl         elf      1232872    365196  # measured at cf7b676
-linux-x64-glibc-drm    elf       748616    310540  # measured at cf7b676
-linux-arm64-glibc-drm  elf       666213         -  # estimate: run 38089107324 (ce0beac) x linux-x64-glibc-drm's growth since
-windows-x64            pe       2205184         -  # estimate: run 38089107324 (ce0beac); B1 adds nothing to a MinGW build
-windows-arm64          pe       1312768         -  # estimate: run 38089107324 (ce0beac); B1 adds nothing to an MSVC build
-macos                  macho          ?         -  # 1696040 at ce0beac, before B1's stack protector and libc++ checks
-freebsd-x64            elf            ?         -  # 762152 at ce0beac, before B1
-freebsd-arm64          elf            ?         -  # 680976 at ce0beac, before B1
-openbsd-x64            elf            ?         -  # 844128 at ce0beac, before B1
-openbsd-arm64          elf            ?         -  # 840656 at ce0beac, before B1
-netbsd-x64             elf            ?         -  # 922104 at ce0beac, before B1
-web                    wasm      477389         -  # measured at cf7b676
-android/arm64-v8a      so       2324912         -  # measured at ce0beac, run 38089107324
-android/armeabi-v7a    so       1727196         -  # measured at ce0beac, run 38089107324
-android/x86            so       2617548         -  # measured at ce0beac, run 38089107324
-android/x86_64         so       2554992         -  # measured at ce0beac, run 38089107324
+linux-x64-glibc        elf      1236560    366804  # measured at 029b2c0
+linux-arm64-glibc      elf      1162896    346808  # measured at 029b2c0
+linux-riscv64-glibc    elf       962752         -  # measured at 029b2c0
+linux-x64-musl         elf      1232664    365412  # measured at 029b2c0
+linux-x64-glibc-drm    elf       754856    312400  # measured at 029b2c0
+linux-arm64-glibc-drm  elf       660552         -  # measured at 029b2c0
+windows-x64            pe       2206720         -  # measured at 029b2c0
+windows-arm64          pe       1312256         -  # measured at 029b2c0
+macos                  macho    1696392         -  # measured at 029b2c0
+freebsd-x64            elf       783848         -  # measured at 029b2c0
+freebsd-arm64          elf       694632         -  # measured at 029b2c0
+openbsd-x64            elf       847040         -  # measured at 029b2c0
+openbsd-arm64          elf       843556         -  # estimate: 840656 at ce0beac x openbsd-x64's growth to 029b2c0 (timed out there)
+netbsd-x64             elf       948353         -  # estimate: 922104 at ce0beac x freebsd-x64's growth to 029b2c0 (did not link there)
+web                    wasm      477952         -  # measured at 029b2c0
+android/arm64-v8a      so       2327472         -  # measured at 029b2c0
+android/armeabi-v7a    so       1728772         -  # measured at 029b2c0
+android/x86            so       2609980         -  # measured at 029b2c0
+android/x86_64         so       2557152         -  # measured at 029b2c0
