@@ -90,14 +90,16 @@ void pointer_scripted(Clay_Vector2 &position, bool &down) {
 }
 
 // What the keyboard says: nothing, unless a test pushes sideways -- which
-// shows the focus without moving it.
+// shows the focus without moving it -- or presses Enter.
 struct {
     int x = 0;
+    bool activate = false;
 } keys;
 
 void nav_scripted(rmp::ui::detail::NavState &out) {
     out = rmp::ui::detail::NavState{};
     out.x = keys.x;
+    out.activate = keys.activate;
 }
 
 Camera2D identity_camera() {
@@ -113,6 +115,7 @@ struct HeadlessUi {
         finger.at = Clay_Vector2{ -1.0f, -1.0f };
         finger.down = false;
         keys.x = 0;
+        keys.activate = false;
         rmp::ui::detail::set_pointer_provider(pointer_scripted);
         rmp::ui::detail::set_nav_provider(nav_scripted);
         rmp::ui::detail::set_test_viewport(VIEW_W, VIEW_H);
@@ -621,6 +624,127 @@ TEST_SUITE("ui: floating") {
             rmp::ui::end();
         }
         CHECK(rmp::ui::focused() == "Talk");
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a box whose point the screen does not show draws nothing and "
+                      "takes nothing, and nobody is told it is out of reach") {
+        // An NPC that walked off the screen with a button over its head: the
+        // game put the box there on purpose, every frame, and the e2e driver
+        // failed the script on it as a control laid out out of reach. It is
+        // not there to reach: not on the screen even in part -- a point just
+        // past the edge left half a box showing -- and not the focus, the
+        // keys' or the pointer's, the first control of its pass or not.
+        keys.x = 1; // the keyboard shows the focus
+        for (const Vector2 off :
+             { Vector2{ -10, 300 }, Vector2{ -400, 300 }, Vector2{ 600, VIEW_H + 4 },
+               Vector2{ VIEW_W + 1, 0 } }) {
+            CAPTURE(off.x);
+            CAPTURE(off.y);
+            bool pressed = false;
+            for (int frame = 0; frame < 3; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::at(off, { .id = "npc" },
+                            [&] { pressed = rmp::ui::button("Talk") || pressed; });
+                rmp::ui::end();
+            }
+            CHECK(rmp::ui::focused().empty());
+            CHECK(rmp::ui::detail::controls_out_of_reach().empty());
+            const Clay_BoundingBox b = box_of("Talk");
+            CHECK((b.x + b.width < 0 || b.x > VIEW_W || b.y + b.height < 0 ||
+                   b.y > VIEW_H));
+            // Asked for by name, it is waited for and never found: Enter
+            // presses nothing, and the keys stay the game's.
+            rmp::ui::focus("Talk");
+            for (int frame = 0; frame < 4; ++frame) {
+                keys.activate = frame == 2;
+                rmp::ui::begin();
+                rmp::ui::at(off, { .id = "npc" },
+                            [&] { pressed = rmp::ui::button("Talk") || pressed; });
+                rmp::ui::end();
+            }
+            keys.activate = false;
+            CHECK_FALSE(pressed);
+            CHECK_FALSE(rmp::ui::wants_keyboard());
+            rmp::ui::focus("");
+        }
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a box whose point the screen shows is held to the window like "
+                      "any control") {
+        // The other side: on the screen, a control in at() is a control, and
+        // one the box puts past the window's edge is out of reach -- an
+        // offset that throws it off, an anchor that hangs it over the top.
+        keys.x = 1;
+        const auto frames = [](Vector2 point, const rmp::ui::AtOptions &o) {
+            for (int frame = 0; frame < 3; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::at(point, o, [] { rmp::ui::button("Talk"); });
+                rmp::ui::end();
+            }
+        };
+        frames(Vector2{ 640, 360 }, { .id = "npc" });
+        CHECK(rmp::ui::focused() == "Talk");
+        CHECK(rmp::ui::detail::controls_out_of_reach().empty());
+        // Enter presses it, as it does any control with the focus -- what the
+        // box off the screen is held to not doing.
+        rmp::ui::focus("Talk");
+        bool pressed = false;
+        for (int frame = 0; frame < 4; ++frame) {
+            keys.activate = frame == 2;
+            rmp::ui::begin();
+            rmp::ui::at(Vector2{ 640, 360 }, { .id = "npc" },
+                        [&] { pressed = rmp::ui::button("Talk") || pressed; });
+            rmp::ui::end();
+        }
+        keys.activate = false;
+        CHECK(pressed);
+        frames(Vector2{ 640, 360 }, { .offset = Vector2{ 0, -2000 }, .id = "npc" });
+        CHECK(rmp::ui::detail::controls_out_of_reach() ==
+              std::vector<std::string>{ "Talk" });
+        frames(Vector2{ 640, 2 }, { .id = "npc" }); // bottom centre on it: above the top
+        CHECK(rmp::ui::detail::controls_out_of_reach() ==
+              std::vector<std::string>{ "Talk" });
+        // The point on the very edge is on the screen.
+        frames(Vector2{ 640, VIEW_H }, { .anchor = Align::BOTTOM_CENTER, .id = "npc" });
+        CHECK(rmp::ui::focused() == "Talk");
+        CHECK(rmp::ui::detail::controls_out_of_reach().empty());
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a box that walks off the screen and back is a control again, "
+                      "and one inside a box off it is not") {
+        keys.x = 1;
+        Vector2 npc{ 640, 360 };
+        int pressed = 0;
+        const auto frame = [&] {
+            rmp::ui::begin();
+            rmp::ui::at(npc, { .id = "npc" }, [&] {
+                if (rmp::ui::button("Talk")) ++pressed;
+                // Its own point is on the screen; the box around it is not.
+                rmp::ui::at(Vector2{ 100, 100 }, { .id = "inner" },
+                            [&] { rmp::ui::button("Inner"); });
+            });
+            rmp::ui::button("Stay");
+            rmp::ui::end();
+        };
+        for (int i = 0; i < 3; ++i) frame();
+        CHECK(rmp::ui::focused() == "Talk");
+        npc = Vector2{ -500, 360 };
+        for (int i = 0; i < 3; ++i) frame();
+        CHECK(rmp::ui::focused() == "Stay"); // the focus moved to what is there
+        CHECK(rmp::ui::detail::controls_out_of_reach().empty());
+        rmp::ui::focus("Inner");
+        for (int i = 0; i < 3; ++i) frame();
+        CHECK(rmp::ui::focused() != "Inner");
+        npc = Vector2{ 640, 360 };
+        rmp::ui::focus("Talk");
+        for (int i = 0; i < 3; ++i) frame();
+        CHECK(rmp::ui::focused() == "Talk");
+        CHECK(rmp::ui::detail::controls_out_of_reach().empty());
+        CHECK(pressed == 0);
+        rmp::ui::focus("");
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,

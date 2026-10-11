@@ -10,6 +10,17 @@
 // elements or complain. A Ref creates only when it is written through, and
 // only a write that cannot land (through a number, at a negative index, past
 // the end of a list) is reported.
+//
+// An object keeps its members in two lists side by side, _keys and _items,
+// in the order they were added -- which is what key(i) and the file give
+// back -- and an INDEX beside them, kept by every change: a hash table from
+// a key to its place (_slots), and the places of the members that hold
+// nothing, in order (_absent). Without it, walking an object the way
+// rmp/save.h says to -- size(), key(i), [key] -- went through the members
+// before each one: 10 000 keys took 25 s under ASan. A member that holds
+// nothing keeps its place, so a key cleared and written again is back where
+// it was, and one erased and written again is last; _absent is what lets
+// key(i) step over those in a binary search instead of a walk.
 // ---------------------------------------------------------------------------
 
 #include <rmp/save.h>
@@ -17,11 +28,16 @@
 #include "internal.h"
 
 #include <algorithm>
+#include <bit>
 #include <cfloat>
 #include <climits>
 #include <cmath>
+#include <cstddef>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rmp {
 
@@ -50,7 +66,69 @@ const char *type_name(Value::Type type) {
     return "?";
 }
 
+// The fewest slots a table starts with, and how full it may get: at most
+// half, so a probe always meets an empty slot, and meets one soon.
+constexpr std::size_t MIN_SLOTS = 8;
+
+std::size_t slots_for(std::size_t keys) {
+    return keys == 0 ? 0 : std::max(MIN_SLOTS, std::bit_ceil(2 * keys));
+}
+
+std::size_t hash_of(std::string_view key) { return std::hash<std::string_view>{}(key); }
+
+// Into the first empty slot from the key's own on: linear probing, which
+// place() walks the same way.
+void put(std::vector<std::size_t> &slots, std::string_view key, std::size_t at) {
+    const std::size_t mask = slots.size() - 1;
+    std::size_t i = hash_of(key) & mask;
+    while (slots[i] != 0) i = (i + 1) & mask;
+    slots[i] = at + 1;
+}
+
 } // namespace
+
+// ---------------------------------------------------------------------------
+// The index
+// ---------------------------------------------------------------------------
+
+std::size_t Value::place(std::string_view key) const {
+    if (_slots.empty()) return _keys.size();
+    const std::size_t mask = _slots.size() - 1;
+    for (std::size_t i = hash_of(key) & mask;; i = (i + 1) & mask) {
+        const std::size_t slot = _slots[i];
+        if (slot == 0) return _keys.size();
+        if (_keys[slot - 1] == key) return slot - 1;
+    }
+}
+
+std::size_t Value::member(std::string_view key, bool holds) {
+    const std::size_t found = place(key);
+    if (found < _keys.size()) {
+        const auto it = std::ranges::lower_bound(_absent, found);
+        const bool listed = it != _absent.end() && *it == found;
+        if (holds && listed) {
+            _absent.erase(it);
+        } else if (!holds && !listed) {
+            _absent.insert(it, found);
+        }
+        return found;
+    }
+    const std::size_t at = _keys.size();
+    _keys.emplace_back(key);
+    _items.emplace_back();
+    if (!holds) _absent.push_back(at); // the last place: the list stays in order
+    if (_slots.size() < slots_for(_keys.size())) {
+        rehash();
+    } else {
+        put(_slots, key, at);
+    }
+    return at;
+}
+
+void Value::rehash() {
+    _slots.assign(slots_for(_keys.size()), 0);
+    for (std::size_t at = 0; at < _keys.size(); ++at) put(_slots, _keys[at], at);
+}
 
 Value Value::list() { return Value(Type::LIST); }
 
@@ -90,8 +168,7 @@ std::string_view Value::as_string(std::string_view fallback) const {
 int Value::size() const {
     if (_type == Type::LIST) return static_cast<int>(_items.size());
     if (_type != Type::OBJECT) return 0;
-    return static_cast<int>(std::ranges::count_if(
-        _items, [](const Value &item) { return item.type() != Type::NONE; }));
+    return static_cast<int>(_keys.size() - _absent.size());
 }
 
 bool Value::contains(std::string_view key) const {
@@ -101,21 +178,28 @@ bool Value::contains(std::string_view key) const {
 std::string_view Value::key(int index) const {
     // "" and not {}: a view the framework returns always has a NUL after it,
     // and a default one has no characters at all, not even that.
-    if (_type != Type::OBJECT || index < 0) return "";
-    int seen = 0;
-    for (std::size_t i = 0; i < _keys.size(); ++i) {
-        if (_items[i].type() == Type::NONE) continue;
-        if (seen++ == index) return _keys[i];
+    if (_type != Type::OBJECT || index < 0 || index >= size()) return "";
+    // The index-th member that holds something comes after as many that
+    // hold nothing as have, before them, at most `index` that do -- a count
+    // that only grows along _absent, so it is found by halving.
+    const auto wanted = static_cast<std::size_t>(index);
+    std::size_t low = 0;
+    std::size_t high = _absent.size();
+    while (low < high) {
+        const std::size_t middle = low + (high - low) / 2;
+        if (_absent[middle] - middle <= wanted) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
     }
-    return "";
+    return _keys[wanted + low];
 }
 
 const Value &Value::operator[](std::string_view key) const {
     if (_type != Type::OBJECT) return none();
-    for (std::size_t i = 0; i < _keys.size(); ++i) {
-        if (_keys[i] == key) return _items[i];
-    }
-    return none();
+    const std::size_t at = place(key);
+    return at < _keys.size() ? _items[at] : none();
 }
 
 const Value &Value::operator[](int index) const {
@@ -139,17 +223,20 @@ void Value::push(Value value) {
 
 bool Value::erase(std::string_view key) {
     if (_type != Type::OBJECT) return false;
-    for (std::size_t i = 0; i < _keys.size(); ++i) {
-        if (_keys[i] == key) {
-            // A member holding nothing was not there, so erasing it is
-            // "false" -- and it goes all the same.
-            const bool was_there = _items[i].type() != Type::NONE;
-            _keys.erase(_keys.begin() + static_cast<std::ptrdiff_t>(i));
-            _items.erase(_items.begin() + static_cast<std::ptrdiff_t>(i));
-            return was_there;
-        }
-    }
-    return false;
+    const std::size_t at = place(key);
+    if (at == _keys.size()) return false;
+    // A member holding nothing was not there, so erasing it is "false" --
+    // and it goes all the same.
+    const bool was_there = _items[at].type() != Type::NONE;
+    _keys.erase(_keys.begin() + static_cast<std::ptrdiff_t>(at));
+    _items.erase(_items.begin() + static_cast<std::ptrdiff_t>(at));
+    // Every member after it moved down a place, in _absent and in the table,
+    // which is made again: what moving them cost already.
+    auto it = std::ranges::lower_bound(_absent, at);
+    if (it != _absent.end() && *it == at) it = _absent.erase(it);
+    for (; it != _absent.end(); ++it) --*it;
+    rehash();
+    return was_there;
 }
 
 bool operator==(const Value &a, const Value &b) {
@@ -225,9 +312,8 @@ Value *Value::Ref::find() {
     for (const Step &step : _path) {
         Value *next = nullptr;
         if (step.is_key && at->type() == Type::OBJECT) {
-            for (std::size_t i = 0; i < at->keys().size(); ++i) {
-                if (at->keys()[i] == step.key) next = &at->items()[i];
-            }
+            const std::size_t place = at->place(step.key);
+            if (place < at->keys().size()) next = &at->items()[place];
         } else if (!step.is_key && at->type() == Type::LIST && step.index >= 0 &&
                    std::cmp_less(step.index, at->items().size())) {
             next = &at->items()[static_cast<std::size_t>(step.index)];
@@ -238,7 +324,7 @@ Value *Value::Ref::find() {
     return at;
 }
 
-Value *Value::Ref::materialise() {
+Value *Value::Ref::materialise(const bool holds) {
     // Two passes. The first walks the path touching nothing and says whether
     // the write can land at all; only then does the second create what is
     // missing. In one pass, a write that failed halfway -- v["a"]["b"][5] = 1
@@ -251,7 +337,7 @@ Value *Value::Ref::materialise() {
         if (step.is_key) {
             if (type != Type::NONE && type != Type::OBJECT) {
                 RMP_REPORT_ONCE_KEYED(
-                    step.key.c_str(),
+                    std::string_view(step.key),
                     "SAVE: writing [\"%s\"] into %s: nothing was written. "
                     "Assign it first -- v[...] = rmp::Value::object() -- if "
                     "it is meant to change type",
@@ -260,9 +346,8 @@ Value *Value::Ref::materialise() {
             }
             const Value *next = nullptr;
             if (type == Type::OBJECT) {
-                for (std::size_t i = 0; i < at->keys().size(); ++i) {
-                    if (at->keys()[i] == step.key) next = &at->items()[i];
-                }
+                const std::size_t place = at->place(step.key);
+                if (place < at->keys().size()) next = &at->items()[place];
             }
             at = next;
         } else {
@@ -283,20 +368,18 @@ Value *Value::Ref::materialise() {
         }
     }
 
+    // A member on the way holds something from here on -- the list or the
+    // object the next step makes of it, if it held nothing -- and the last
+    // one what the caller is about to write: the object it is in writes that
+    // down as it goes.
     Value *here = &_root;
-    for (const Step &step : _path) {
+    for (std::size_t s = 0; s < _path.size(); ++s) {
+        const Step &step = _path[s];
         if (step.is_key) {
             if (here->type() == Type::NONE) *here = Value::object();
-            Value *found = nullptr;
-            for (std::size_t i = 0; i < here->keys().size(); ++i) {
-                if (here->keys()[i] == step.key) found = &here->items()[i];
-            }
-            if (found == nullptr) {
-                here->keys().push_back(step.key);
-                here->items().emplace_back();
-                found = &here->items().back();
-            }
-            here = found;
+            const bool last = s + 1 == _path.size();
+            const std::size_t found = here->member(step.key, !last || holds);
+            here = &here->items()[found];
         } else {
             if (here->type() == Type::NONE) *here = Value::list();
             if (std::cmp_equal(step.index, here->items().size()))
@@ -310,7 +393,7 @@ Value *Value::Ref::materialise() {
 Value::Ref &Value::Ref::operator=(Value value) {
     // `value` is already a copy, taken before the path is created, so
     // v["a"] = v["a"]["b"] and v["copy"] = v are both well defined.
-    if (Value *slot = materialise()) *slot = std::move(value);
+    if (Value *slot = materialise(value.type() != Type::NONE)) *slot = std::move(value);
     return *this;
 }
 
@@ -326,7 +409,9 @@ Value::Ref &Value::Ref::operator=(Ref &&other) noexcept(false) {
 }
 
 void Value::Ref::push(Value value) {
-    if (Value *slot = materialise()) slot->push(std::move(value));
+    // Something, whatever it was: nothing becomes a list, and anything else
+    // is left as it was, holding something.
+    if (Value *slot = materialise(true)) slot->push(std::move(value));
 }
 
 bool Value::Ref::erase(std::string_view key) {

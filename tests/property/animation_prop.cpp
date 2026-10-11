@@ -594,6 +594,12 @@ TEST_SUITE("property: animation") {
                         // No GPU here: the texture is the hole, the rest is there.
                         RC_ASSERT(sheet.raw().texture.id == 0U);
                     }
+                    // The file's name, a NUL, and more is no file's name: not
+                    // the sheet above, cached under the part before the NUL,
+                    // and not the file read again.
+                    RC_ASSERT(
+                        !rmp::assets::load_sheet(std::string("sheet.aseprite\0x", 16))
+                             .valid());
                 }
                 RC_ASSERT(!rmp::assets::load_sheet("missing.aseprite").valid());
             });

@@ -13,6 +13,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <rmp/assets.h>
 #include <rmp/tilemap.h>
@@ -130,6 +131,24 @@ void decode_failed(const char *name) {
     ++detail::loads.failed;
     RMP_REPORT_ONCE_KEYED(name, "ASSETS: '%s' is in %s but could not be decoded", name,
                           detail::resources_root());
+}
+
+// A name with a NUL character in it names no file. Everything that opens one
+// -- raylib, the pack, the C library -- reads a name as a C string and would
+// open what comes before the NUL: load_sheet("hero.aseprite\0x") loaded
+// hero.aseprite, and cached it under the name cut short. The game's mistake:
+// nothing, one failed load, and said once per name, whichever loader it was
+// handed to. Every public loader asks this first.
+bool refused(std::string_view name) {
+    if (name.find('\0') == std::string_view::npos) return false;
+    ++detail::loads.requested;
+    ++detail::loads.failed;
+    const std::string shown(name); // what a C string of it says: up to the NUL
+    RMP_REPORT_ONCE_KEYED(name,
+                          "ASSETS: \"%s\" and a NUL character after it is no file "
+                          "name; nothing was loaded",
+                          shown.c_str());
+    return true;
 }
 
 // raylib answers a font it cannot read with GetFontDefault() instead of an
@@ -295,6 +314,7 @@ constexpr int MAX_FONT_SIZE = 1024;
 // restarted.
 
 rmp::Image load_image(std::string_view name_view) {
+    if (refused(name_view)) return rmp::Image{};
     const std::string key(name_view);
     const char *name = key.c_str();
     using rmp::detail::ResourceKind;
@@ -311,6 +331,7 @@ rmp::Image load_image(std::string_view name_view) {
 }
 
 rmp::Texture load_texture(std::string_view name_view) {
+    if (refused(name_view)) return rmp::Texture{};
     const std::string key(name_view);
     const char *name = key.c_str();
     using rmp::detail::ResourceKind;
@@ -332,7 +353,8 @@ rmp::Sound load_sound(std::string_view name_view) {
     // silent empty sound when it was missing. The device opens here now, the
     // same lazy way rmp::audio opens it, and rmp::app closes it on the way out
     // in the right order. On a machine with no device this is empty and says
-    // so once.
+    // so once. A name that is no file name is refused first, device or not.
+    if (refused(name_view)) return rmp::Sound{};
     if (!rmp::audio::detail::ensure_device()) return rmp::Sound{};
     const std::string key(name_view);
     const char *name = key.c_str();
@@ -350,6 +372,7 @@ rmp::Sound load_sound(std::string_view name_view) {
 }
 
 rmp::Font load_font(std::string_view name_view, int font_size) {
+    if (refused(name_view)) return rmp::Font{};
     const std::string key(name_view);
     const char *name = key.c_str();
     using rmp::detail::ResourceKind;
@@ -392,6 +415,7 @@ rmp::Font load_font(std::string_view name_view, int font_size) {
 }
 
 rmp::SpriteSheet load_sheet(std::string_view name_view) {
+    if (refused(name_view)) return rmp::SpriteSheet{};
     const std::string key(name_view);
     const char *name = key.c_str();
     using rmp::detail::ResourceKind;
@@ -428,6 +452,7 @@ rmp::Tilemap load_map(std::string_view name) { return load_map(name, ""); }
 
 rmp::Tilemap load_map(std::string_view name, std::string_view level_view) {
     rmp::Tilemap map;
+    if (refused(name)) return map;
     const std::string key(name);
     const std::string level(level_view);
     const std::vector<unsigned char> bytes = load_data(name);
@@ -443,6 +468,7 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level_view) {
 }
 
 std::vector<unsigned char> load_data(std::string_view name_view) {
+    if (refused(name_view)) return {};
     const std::string key(name_view);
     const char *name = key.c_str();
     ++detail::loads.requested;

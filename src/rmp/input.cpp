@@ -175,9 +175,11 @@ bool action_state(std::string_view name, Edge edge) {
     const Action *action = find(name);
     if (action == nullptr) {
         // Once per name: "jump" and "fire" misspelt are two mistakes, and each
-        // gets its line; the same one sixty times a second gets one.
+        // gets its line; the same one sixty times a second gets one. Keyed by
+        // the whole name, a NUL in it included -- as a C string, two names
+        // that differ past one were one mistake -- and printed up to it.
         const std::string key(name);
-        RMP_REPORT_ONCE_KEYED(key.c_str(),
+        RMP_REPORT_ONCE_KEYED(name,
                               "INPUT: no action called \"%s\". Define it with "
                               "rmp::input::action(\"%s\", KEY_...); until then it reads "
                               "as false.",
@@ -217,9 +219,10 @@ float action_amount(std::string_view name) {
     if (action == nullptr) {
         // The same rule as action_state(), and for a sharper reason: this is
         // the path axis() and vector() take, and a stick that never moves says
-        // nothing at all on its own. Once per name -- vector() asks for four.
+        // nothing at all on its own. Once per name -- vector() asks for four --
+        // keyed as action_state() keys it.
         const std::string key(name);
-        RMP_REPORT_ONCE_KEYED(key.c_str(),
+        RMP_REPORT_ONCE_KEYED(name,
                               "INPUT: no action called \"%s\". Define it with "
                               "rmp::input::action(\"%s\", KEY_...); until then it reads "
                               "as 0.",
@@ -311,9 +314,9 @@ void define(std::string_view name, std::initializer_list<Binding> bindings) {
     int count = static_cast<int>(bindings.size());
     if (count > MAX_BINDINGS) {
         // A mistake in the game, and one a scene's _ready() makes every time
-        // the scene is entered: said once per action.
+        // the scene is entered: said once per action, keyed by all of its name.
         const std::string key(name);
-        RMP_REPORT_ONCE_KEYED(key.c_str(),
+        RMP_REPORT_ONCE_KEYED(name,
                               "INPUT: \"%s\" was given %d bindings and the limit is %d; "
                               "the extra ones are ignored.",
                               key.c_str(), count, MAX_BINDINGS);

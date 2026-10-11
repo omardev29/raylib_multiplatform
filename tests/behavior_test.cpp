@@ -18,10 +18,13 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <ctime>
+#include <limits>
 #include <new>
 #include <string>
 #include <vector>
@@ -1087,17 +1090,38 @@ TEST_CASE_FIXTURE(Fixture,
 
 namespace {
 
-// Microseconds for one update pass over `count` objects, each carrying one
-// behavior. The objects are built once and the pass is run `passes` times, so
-// what is timed is the engine and not the spawning.
-double pass_micros(int count, int passes) {
+// The seconds this thread has run: what a pass costs, which a machine busy
+// with something else does not change -- the time the thread waited for a
+// core is not in it, and on a core shared with a busy neighbour a long pass
+// waits more than a short one. Wall time where a thread has no clock of its
+// own to ask.
+double thread_seconds() {
+#if defined(__unix__) || defined(__APPLE__)
+    timespec now{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now);
+    return static_cast<double>(now.tv_sec) + static_cast<double>(now.tv_nsec) * 1e-9;
+#else
+    return std::chrono::duration<double>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+#endif
+}
+
+// Seconds for the fastest of `passes` update passes over `count` objects, each
+// carrying one behavior, timed one pass at a time. The objects are built once,
+// so what is timed is the engine and not the spawning. And the FASTEST: what
+// else the machine does only ever makes a pass longer -- its caches, the
+// clock's own wall time where it is one -- so the fastest is the engine's.
+double fastest_pass(int count, int passes) {
     World world;
     for (int i = 0; i < count; ++i) world.spawn().add<Tagged>({ .tag = i });
-    const auto started = std::chrono::steady_clock::now();
-    for (int i = 0; i < passes; ++i) rmp::objects::detail::update(world, 1.0f / 60);
-    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - started);
-    return static_cast<double>(elapsed.count()) / passes;
+    double fastest = std::numeric_limits<double>::infinity();
+    for (int i = 0; i < passes; ++i) {
+        const double started = thread_seconds();
+        rmp::objects::detail::update(world, 1.0f / 60);
+        fastest = std::min(fastest, thread_seconds() - started);
+    }
+    return fastest;
 }
 
 } // namespace
@@ -1105,22 +1129,36 @@ double pass_micros(int count, int passes) {
 TEST_CASE_FIXTURE(Fixture,
                   "two thousand objects with a behavior each are a fraction "
                   "of a frame") {
-    const double micros = pass_micros(2000, 5);
-    MESSAGE("2000 objects, one behavior each: " << micros / 1000.0 << " ms per pass");
+    const double ms = fastest_pass(2000, 5) * 1000.0;
+    MESSAGE("2000 objects, one behavior each: " << ms << " ms per pass");
 #if defined(RMP_SANITIZE)
-    CHECK(micros < 200000.0); // ASan and UBSan cost several times the time
+    CHECK(ms < 200.0); // ASan and UBSan cost several times the time
 #else
-    CHECK(micros < 20000.0); // 20 ms, which is generous for a debug build
+    CHECK(ms < 20.0); // 20 ms, which is generous for a debug build
 #endif
 }
 
 TEST_CASE_FIXTURE(Fixture, "and four times the objects cost about four times as much") {
     // The assertion that matters, because it does not depend on the machine: a
-    // linear engine gives a ratio near 4 and the quadratic one gave 15.
-    const double small = pass_micros(500, 20);
-    const double large = pass_micros(2000, 5);
-    const double ratio = large / (small > 1.0 ? small : 1.0);
-    MESSAGE("500: " << small << " us, 2000: " << large << " us, ratio " << ratio);
+    // linear engine gives a ratio near 4 and the quadratic one gave 15. Nor on
+    // the machine's load, which it did: 500 objects timed first and 2000 after
+    // them, on the wall clock, a load that arrived in between was the ratio's
+    // -- over 8 in 4 runs of 16, three busy neighbours on the test's core.
+    // Now a pass is the time the thread ran, each size is the fastest of all
+    // its passes, and the two are measured in turn, ROUNDS times over (0 of
+    // 16 under the same load). One world at a time, as before: two alive at
+    // once would make the small one's lookups pay for the large one's
+    // owners, and a quadratic engine would read as linear.
+    constexpr int ROUNDS = 5;
+    double small = std::numeric_limits<double>::infinity();
+    double large = std::numeric_limits<double>::infinity();
+    for (int round = 0; round < ROUNDS; ++round) {
+        small = std::min(small, fastest_pass(500, 8));
+        large = std::min(large, fastest_pass(2000, 4));
+    }
+    const double ratio = large / std::max(small, 1e-9);
+    MESSAGE("500: " << small * 1e6 << " us, 2000: " << large * 1e6 << " us, ratio "
+                    << ratio);
     CHECK(ratio < 8.0);
 }
 

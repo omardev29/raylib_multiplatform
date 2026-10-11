@@ -16,7 +16,8 @@
 //   - which paths the loader hook answers for: a file directly in the
 //     resources folder, however the path is spelled, and nothing below it;
 //   - the loaders under any name at all: a name that is nowhere is an empty
-//     resource, counted as requested and failed, and never reported.
+//     resource, counted as requested and failed, and not reported -- but for
+//     a name with a NUL in it, which is no file's, and is said once.
 //
 // Every property here was seen red: the commit that added this file says how.
 // ---------------------------------------------------------------------------
@@ -610,7 +611,8 @@ TEST_SUITE("property: assets") {
     TEST_CASE("the loaders under any name at all") {
         const Quiet quiet;
         rmp::test::check(
-            "a name that is nowhere is an empty resource, counted, and never reported",
+            "a name that is nowhere is an empty resource, counted, and reported only "
+            "when it has a NUL in it",
             [] {
                 const std::string name = *rmp::test::gen::hostile_string();
                 const int font_size = *rc::gen::inRange(1, 257);
@@ -626,7 +628,12 @@ TEST_SUITE("property: assets") {
                 RC_ASSERT(rmp::assets::requested_loads() - requested == 4);
                 RC_ASSERT(rmp::assets::failed_loads() - failed == 4);
                 RC_ASSERT(!rmp::assets::load_sound(name).valid());
-                RC_ASSERT(rmp::detail::report_count() == 0);
+                // A NUL makes it no file name at all -- everything that opens
+                // a file would open what comes before it -- and that is said,
+                // once, whichever loaders it went to; any other name that is
+                // nowhere is just not there.
+                const bool nul = name.find('\0') != std::string::npos;
+                RC_ASSERT(rmp::detail::report_count() == (nul ? 1 : 0));
             });
     }
 

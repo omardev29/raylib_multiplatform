@@ -732,7 +732,7 @@ void begin_pass() {
 }
 
 int current_pass() { return this_pass.index < 0 ? 0 : this_pass.index; }
-bool pass_input() { return this_pass.input && !this_pass.behind; }
+bool pass_input() { return this_pass.input && !this_pass.behind && !inside_hidden_at(); }
 
 void set_pass_modal() {
     if (current_pass() > modality.this_frame) modality.this_frame = current_pass();

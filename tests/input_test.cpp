@@ -225,6 +225,33 @@ TEST_SUITE("input actions") {
         rmp::detail::reset_reports_for_tests();
     }
 
+    TEST_CASE("two names that differ only past a NUL are two mistakes, said once each") {
+        // An action's name is a std::string_view, and the report about it is
+        // keyed by all of it: as a C string, "jump\0a" and "jump\0b" were one
+        // key, and the second mistake was never said.
+        const Fixture fix;
+        frame();
+        rmp::detail::reset_reports_for_tests();
+        const std::string a("jump\0a", 6);
+        const std::string b("jump\0b", 6);
+        CHECK_FALSE(rmp::input::pressed(a));
+        CHECK_FALSE(rmp::input::pressed(b));
+        CHECK(rmp::detail::report_count() == 2);
+        CHECK(rmp::input::axis(a, b) == doctest::Approx(0));
+        CHECK(rmp::detail::report_count() == 4);
+        CHECK_FALSE(rmp::input::pressed(a));
+        CHECK(rmp::input::axis(b, a) == doctest::Approx(0));
+        CHECK(rmp::detail::report_count() == 4);
+        const auto nine = [](std::string_view name) {
+            rmp::input::action(name, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE,
+                               KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE);
+        };
+        nine(a);
+        nine(b);
+        CHECK(rmp::detail::report_count() == 6);
+        rmp::detail::reset_reports_for_tests();
+    }
+
     TEST_CASE("more bindings than the table holds is truncated, not overflowed") {
         const Fixture fix;
         rmp::input::action("many", KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H,
