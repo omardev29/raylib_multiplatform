@@ -35,6 +35,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import sys
@@ -154,10 +155,15 @@ def mull_mutants(report: dict, sources: list[str]) -> dict[str, str]:
     return out
 
 
-def mutmut_mutants(meta: dict) -> dict[str, str]:
-    """Mutant name -> verdict, from one of mutmut's mutants/<file>.meta."""
+def mutmut_mutants(meta: dict, select: list[str] | None = None) -> dict[str, str]:
+    """Mutant name -> verdict, from one of mutmut's mutants/<file>.meta --
+    only the mutants `select` names (mutmut's globs), when it names any.
+    mutmut writes every mutant of the file into the .meta and leaves the ones
+    it was not asked to run at null: read whole, they were a run that never
+    finished, and a floor file with a select line could not pass."""
     return {name: MUTMUT_EXIT.get(code, UNDETECTED)
-            for name, code in (meta.get("exit_code_by_key") or {}).items()}
+            for name, code in (meta.get("exit_code_by_key") or {}).items()
+            if not select or any(fnmatch.fnmatchcase(name, glob) for glob in select)}
 
 
 # --- the verdict -------------------------------------------------------------------
@@ -258,7 +264,7 @@ def main(argv: list[str]) -> int:
                 if mutants.get(mid) != DETECTED:
                     mutants[mid] = verdict
         for meta in args.mutmut:
-            mutants.update(mutmut_mutants(json.loads(meta.read_text())))
+            mutants.update(mutmut_mutants(json.loads(meta.read_text()), floor.select))
     except (OSError, ValueError, KeyError, TypeError) as e:
         print(f"FAIL: {args.module}: the report cannot be read: {e}")
         return 1

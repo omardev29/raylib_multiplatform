@@ -502,6 +502,37 @@ class FloorCheckerTest(unittest.TestCase):
             "m.x_f__mutmut_3": mr.UNDETECTED, "m.x_f__mutmut_4": mr.DETECTED,
             "m.x_f__mutmut_5": mr.UNFINISHED, "m.x_f__mutmut_6": mr.NOT_COUNTED})
 
+    def test_a_select_line_counts_what_it_selected(self):
+        """mutmut writes every mutant of the file into its .meta, and the ones
+        `mutmut run <names>` was not asked to run stay null. This is the .meta
+        mutmut 3.8 wrote in the image for a two-function file run with
+        "tools.m.x_a*": read whole, x_b's two read as a run that did not
+        finish, and a floor file with a select line could never pass."""
+        meta = {"exit_code_by_key": {"tools.m.x_a__mutmut_1": 1, "tools.m.x_a__mutmut_2": 1,
+                                     "tools.m.x_b__mutmut_1": None,
+                                     "tools.m.x_b__mutmut_2": None}}
+        self.assertEqual(mr.mutmut_mutants(meta, ["tools.m.x_a*"]),
+                         {"tools.m.x_a__mutmut_1": mr.DETECTED,
+                          "tools.m.x_a__mutmut_2": mr.DETECTED})
+        self.assertEqual(len(mr.mutmut_mutants(meta)), 4)
+        with tempfile.TemporaryDirectory() as tmp:
+            floors = Path(tmp) / "floors"
+            floors.mkdir()
+            (floors / "m.txt").write_text("kind py\nsources tools/m.py\ntests tests/m_test.py\n"
+                                          "select tools.m.x_a*\nfloor 100\n")
+            (floors / "all.txt").write_text("kind py\nsources tools/m.py\ntests tests/m_test.py\n"
+                                            "floor 100\n")
+            report = Path(tmp) / "m.py.meta"
+            report.write_text(json.dumps(meta))
+            for module, code, says in (("m", 0, "2/2 detected"),
+                                       ("all", 1, "2 mutant(s) never got a verdict")):
+                with self.subTest(module=module):
+                    out = subprocess.run([sys.executable, str(TOOLS / "mutation_report.py"),
+                                          module, "--floors", str(floors), "--mutmut",
+                                          str(report)], capture_output=True, text=True)
+                    self.assertEqual(out.returncode, code, out.stdout)
+                    self.assertIn(says, out.stdout)
+
     def test_a_floor_file_says_what_it_must(self):
         for text, says in [
             (GOOD.replace("kind     cxx", "kind     rust"), "kind is cxx or py"),
