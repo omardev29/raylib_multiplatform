@@ -43,6 +43,7 @@
 
 #include <rmp/assets.h>
 #include <rmp/config.h>
+#include <rmp/tilemap.h> // load_map() returns one
 
 #include <raylib.h>
 #include <rres.h> // rresSetCipherPassword
@@ -1254,6 +1255,23 @@ TEST_SUITE("assets: loads") {
         CHECK_FALSE(resource_exists("missing.mp3"));
         CHECK_FALSE(resource_exists(""));
         CHECK_FALSE(resource_exists(nullptr));
+    }
+
+    TEST_CASE("load_map counts a map it cannot read, and not one it can") {
+        // The reading is rmp::Tilemap's (tests/tilemap_test.cpp,
+        // tests/ldtk_test.cpp); what rmp::assets adds is the count the boot
+        // gate reads, and the bytes, from the pack or the loose files.
+        const AtRoot at(RMP_TEST_FIXTURES);
+        const Counts map;
+        CHECK(rmp::assets::load_map("map_minimal.json").valid());
+        // The map is read; the one failure is its tileset's picture, which
+        // the fixtures do not have -- counted by the texture load, not here.
+        CHECK(map.more_failed() == 1);
+        const Counts before;
+        CHECK_FALSE(rmp::assets::load_map("anim.aseprite").valid()); // there, and no map
+        CHECK(before.more_failed() == 1);
+        CHECK_FALSE(rmp::assets::load_map("missing.json").valid());
+        CHECK(before.more_failed() == 2);
     }
 
     TEST_CASE(
