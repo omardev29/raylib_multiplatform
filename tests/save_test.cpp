@@ -37,6 +37,7 @@
 #include <numbers>
 #include <random>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -169,6 +170,16 @@ Bytes with_fixed_crc(Bytes file) {
             reinterpret_cast<const unsigned char *>(covered.data()), covered.size())));
     std::memcpy(file.data() + space + 1, crc.data(), 8);
     return file;
+}
+
+// A plain save around any payload, its CRC right: what someone who knows the
+// format writes by hand.
+Bytes plain_file(std::string_view json) {
+    const std::string head =
+        "rmp-save 1 1 plain " + std::to_string(json.size()) + " 00000000\n";
+    Bytes file(head.begin(), head.end());
+    file.insert(file.end(), json.begin(), json.end());
+    return with_fixed_crc(file);
 }
 
 std::string file_text(const fs::path &path) {
@@ -698,18 +709,58 @@ TEST_SUITE("save: format") {
         std::setlocale(LC_NUMERIC, was.c_str());
     }
 
-    TEST_CASE("NaN and infinity are written as nothing, and read as the default") {
-        Value v;
-        v["nan"] = std::nan("");
-        v["inf"] = std::numeric_limits<double>::infinity();
-        v["list"].push(-std::numeric_limits<double>::infinity());
+    TEST_CASE("a number that is not finite is refused, never written as nothing") {
+        // JSON has no NaN and no infinity. They were written as null, so the
+        // save read back as something else than what was saved -- a NaN as
+        // nothing at all (Omar, 2026-10-10: no non-finite number enters a
+        // save). Found by tests/property/save_prop.cpp.
+        for (const double n :
+             { std::nan(""), -std::nan(""), std::numeric_limits<double>::infinity(),
+               -std::numeric_limits<double>::infinity() }) {
+            CAPTURE(n);
+            Value v;
+            v["fine"] = 1;
+            v["list"].push(n);
+            Bytes out = { 9 };
+            CHECK_FALSE(rmp::save::detail::encode(v, 1, false, &out));
+            CHECK_FALSE(rmp::save::detail::encode(v, 1, true, &out));
+            CHECK(out == Bytes{ 9 }); // left as it was
+            CHECK(rmp::save::detail::to_json(v).empty());
+            CHECK_FALSE(rmp::save::detail::encode(Value(n), 1, false, &out));
+        }
+        // The largest finite numbers are numbers like any other.
+        Value big;
+        big.push(std::numeric_limits<double>::max());
+        big.push(-std::numeric_limits<double>::max());
         Value back;
-        REQUIRE(decode(encoded(v, false), &back) == Status::OK);
-        CHECK(back["nan"].as_float(1.0f) == doctest::Approx(1.0));
-        CHECK_FALSE(back.contains("nan"));
-        CHECK(back["inf"].as_int(2) == 2);
-        CHECK(back["list"].size() == 1); // its place kept, as NONE
-        CHECK(back["list"][0].type() == Value::Type::NONE);
+        REQUIRE(decode(encoded(big, false), &back) == Status::OK);
+        CHECK(back == big);
+    }
+
+    TEST_CASE("a JSON number too large for a double is no save: 1e400 is UNREADABLE") {
+        // strtod reads 1e400 as infinity, and it came in as a NUMBER that was
+        // written back as null: decode(encode(decode(x))) != decode(x).
+        // Found by tests/property/save_prop.cpp and fuzz_value_json;
+        // tests/fuzz/regressions/value_json/1e400 replays it.
+        const std::vector<std::string> texts = {
+            "1e400", "-1e400", "[1E+309]", R"({"coins":1e400})",
+            R"({"a":[1,{"b":-17976931348623159e292}]})"
+        };
+        for (const std::string &text : texts) {
+            CAPTURE(text);
+            Value v = 5;
+            CHECK_FALSE(rmp::save::detail::from_json(text, &v));
+            CHECK(v == Value(5));
+            CHECK(decode(plain_file(text), &v) == Status::UNREADABLE);
+            CHECK(v == Value(5));
+        }
+        // Past the largest double by rounding only, and below the smallest:
+        // finite, and read.
+        Value v;
+        CHECK(rmp::save::detail::from_json("1.7976931348623157e308", &v));
+        CHECK(rmp::detail::ValueAccess::number(v) == std::numeric_limits<double>::max());
+        CHECK(rmp::save::detail::from_json("1e-400", &v));
+        CHECK(std::isfinite(rmp::detail::ValueAccess::number(v)));
     }
 
     TEST_CASE("strings: quotes, backslashes, control characters, UTF-8, empty") {
@@ -792,6 +843,55 @@ TEST_SUITE("save: format") {
         Value v;
         CHECK(rmp::save::detail::from_json(arrays(LIMIT), &v));
         CHECK_FALSE(rmp::save::detail::from_json(arrays(LIMIT + 1), &v));
+    }
+
+    TEST_CASE("nesting counts containers: 65 is refused even with nothing in the last") {
+        // The parser counts containers. The writer counted levels down to a
+        // value, so 65 lists or objects with an empty one at the bottom --
+        // nothing under it to count -- were written, and read back UNREADABLE:
+        // a save that write() said was saved, lost. Found by
+        // tests/property/save_prop.cpp: a spine whose innermost object holds
+        // nothing.
+        constexpr int LIMIT = rmp::save::detail::MAX_DEPTH;
+        const auto containers = [](int count, bool lists) {
+            Value inner = lists ? Value::list() : Value::object();
+            for (int i = 1; i < count; ++i) {
+                Value outer = lists ? Value::list() : Value::object();
+                if (lists) {
+                    outer.push(std::move(inner));
+                } else {
+                    outer["d"] = std::move(inner);
+                }
+                inner = std::move(outer);
+            }
+            return inner;
+        };
+        for (const bool lists : { true, false }) {
+            CAPTURE(lists);
+            Bytes out;
+            REQUIRE(rmp::save::detail::encode(containers(LIMIT, lists), 1, false, &out));
+            Value back;
+            CHECK(decode(out, &back) == Status::OK);
+            CHECK(back == containers(LIMIT, lists));
+            CHECK_FALSE(
+                rmp::save::detail::encode(containers(LIMIT + 1, lists), 1, false, &out));
+            CHECK(rmp::save::detail::to_json(containers(LIMIT + 1, lists)).empty());
+        }
+        // An object whose one member holds nothing is an empty object too.
+        Value spine = containers(LIMIT, false);
+        Value outer;
+        outer["d"] = std::move(spine);
+        Bytes out;
+        CHECK_FALSE(rmp::save::detail::encode(outer, 1, false, &out));
+        Value holds_nothing;
+        holds_nothing["gone"] = Value();
+        Value deep = holds_nothing;
+        for (int i = 1; i <= LIMIT; ++i) {
+            Value up;
+            up["d"] = std::move(deep);
+            deep = std::move(up);
+        }
+        CHECK_FALSE(rmp::save::detail::encode(deep, 1, false, &out));
     }
 
     TEST_CASE("a string or a key with a NUL in it is refused, not cut short") {

@@ -1,5 +1,9 @@
-# rmp::save: the file format, sealing, folders (package P1).
+# rmp::save: the file format, sealing, folders (package P1). Killed by either
+# program is killed: save_test's named cases, and the save properties --
+# round trips plain and sealed, every refusal, a changed or cut file, the
+# slots on disk.
 kind     cxx
 sources  src/rmp/save.cpp
 tests    unit_test -sf=*save_test.cpp
+tests    property_test -sf=*save_prop.cpp
 floor    -

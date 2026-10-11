@@ -50,15 +50,18 @@ using Bytes = std::vector<unsigned char>;
 // CRC-32 (IEEE 802.3, the zlib one): crc32("123456789") == 0xCBF43926.
 std::uint32_t crc32(const unsigned char *data, std::size_t size);
 
-// A whole save file, as bytes. False only when the Value cannot be expressed
-// (nested past the depth cJSON would read back).
+// A whole save file, as bytes. False only when the Value could not be read
+// back -- more lists and objects inside each other than cJSON reads, a NUL in
+// a string or a key, a number that is not finite -- and then *out is as it was.
 bool encode(const Value &value, int version, bool sealed, Bytes *out);
 
-// The inverse. On OK, *out is replaced and carries the file's version. With
-// `sealed_only`, a plain file is MODIFIED: see rmp::save::ReadOptions.
+// The inverse. On OK, *out is replaced and carries the file's version; on
+// anything else it is as it was. With `sealed_only`, a plain file is MODIFIED:
+// see rmp::save::ReadOptions.
 Status decode(const Bytes &file, Value *out, bool sealed_only = false);
 
-// How deep a save may nest, writing and reading alike. src/rmp/cjson_impl.c
+// How deep a save may nest, writing and reading alike: lists and objects
+// inside each other, counted the way the parser counts them. src/rmp/cjson_impl.c
 // sets CJSON_NESTING_LIMIT to the same number, and tests/save_test.cpp checks
 // that the two agree. Small on purpose: the conversion is recursive, and the
 // web's default stack of 64 KB overflowed at about 400 levels.

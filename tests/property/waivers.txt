@@ -187,14 +187,6 @@ rmp::random::range(int, int)
 rmp::random::seed(uint64_t)
 rmp::random::value()
 
-# include/rmp/save.h: P1
-rmp::save::Result::operator bool() const
-rmp::save::directory()
-rmp::save::exists(std::string_view)
-rmp::save::read(std::string_view, Value &, const ReadOptions &)
-rmp::save::remove(std::string_view)
-rmp::save::write(std::string_view, const Value &, const WriteOptions &)
-
 # include/rmp/scene.h: P6, after Stage D; rmp::Camera is P3's, after Stage D
 rmp::Camera::detail_settle(float)
 rmp::Camera::raylib() const

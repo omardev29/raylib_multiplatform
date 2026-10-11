@@ -298,12 +298,15 @@ struct ReadOptions {
 // and said once -- a slot name is not a place to put a path.
 //
 // False when it could not be written; the previous save, if any, is intact.
-// Also false, and said once, for a Value that could not be read back: nested
-// deeper than 64 levels, or with a NUL character in a string or a key.
+// Also false, and said once, for a Value that could not be read back: more
+// than 64 lists and objects inside each other, a NUL character in a string or
+// a key, or a number that is not finite -- a NaN or an infinity, which JSON
+// cannot hold.
 bool write(std::string_view slot, const Value &value, const WriteOptions &options = {});
 
 // Fills `out` and says so. On anything but OK, `out` is left exactly as it was,
-// so a game can fill it with defaults first and read over them.
+// so a game can fill it with defaults first and read over them. A file holding
+// a number too large for a double (1e400) is UNREADABLE: no save holds one.
 Result read(std::string_view slot, Value &out, const ReadOptions &options = {});
 
 // Whether there is a save in that slot, in any folder read() looks in. It does
