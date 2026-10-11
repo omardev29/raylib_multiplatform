@@ -6,4 +6,9 @@ sources  src/rmp/collision.cpp
 # 41 ms on a loaded machine -- the warm-up run failed and no mutant ran.
 tests    unit_test -sf=*collision_test.cpp,*map_collision_test.cpp -tce=*cheap
 tests    property_test -ts=*collision
-floor    -
+# Measured in the image on 2026-10-11 (P5): 493 of 708 detected, 69.63% --
+# 62.15% before collision_prop.cpp's narrow phase against a reference in
+# double. Most of the rest are comparisons at their edge in the broad phase
+# and the walk, which only ever make a candidate list longer or shorter by
+# a cell the narrow phase then decides about.
+floor    65
