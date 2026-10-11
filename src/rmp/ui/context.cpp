@@ -17,10 +17,12 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 // Defaults, so this still compiles against a generated header from before the
@@ -544,8 +546,60 @@ void update_scale() {
 
 float ui_scale() { return sizing.scale; }
 
+float px(float design_units) {
+    const float pixels = design_units * ui_scale();
+    if (std::isfinite(pixels) && std::fabs(pixels) <= MAX_PIXELS) return pixels;
+    // A game's mistake, and its every frame: once. The value the option or
+    // the theme held is in the line.
+    RMP_REPORT_ONCE(
+        "UI: a size of %g design units is %g pixels, which is not a length "
+        "the interface can have; %g is used. An option or the theme is wrong.",
+        static_cast<double>(design_units), static_cast<double>(pixels),
+        std::isnan(pixels) ? 0.0 : std::copysign(MAX_PIXELS, pixels));
+    if (std::isnan(pixels)) return 0.0f;
+    return std::copysign(MAX_PIXELS, pixels);
+}
+
+namespace {
+uint16_t whole_pixels_up_to(float pixels, float most) {
+    if (pixels >= 0.0f && pixels <= most) return static_cast<uint16_t>(pixels);
+    RMP_REPORT_ONCE("UI: a padding, a gap, a border or a font size of %g pixels; it can "
+                    "be 0 to %g, and that is used",
+                    static_cast<double>(pixels), static_cast<double>(most));
+    return pixels > most ? static_cast<uint16_t>(most) : 0;
+}
+} // namespace
+
+uint16_t whole_pixels(float pixels) { return whole_pixels_up_to(pixels, 65535.0f); }
+
+uint16_t px16(float design_units) { return whole_pixels(px(design_units)); }
+
+uint16_t font_px(float design_units) {
+    return whole_pixels_up_to(px(design_units), MAX_FONT_PIXELS);
+}
+
+// The most a pinned scale can be: four times the automatic one's ceiling, an
+// "interface size" setting turned past anything readable.
+constexpr float MOST_SCALE = 16.0f;
+
 void set_scale_override(float s) {
-    sizing.scale_override = (s > 0.0f) ? s : 0.0f;
+    if (s > 0.0f && s <= MOST_SCALE) {
+        sizing.scale_override = s;
+    } else {
+        // 0 is automatic, and asked for; anything else here is the game's
+        // mistake -- NaN, below 0, an infinity -- said once: automatic, or
+        // the most a pin can be.
+        const float used = s > MOST_SCALE ? MOST_SCALE : 0.0f;
+        if (s != 0.0f) {
+            // Once for each way of getting it wrong.
+            RMP_REPORT_ONCE_KEYED(std::isnan(s) ? "nan" : (s < 0.0f ? "below" : "above"),
+                                  "UI: rmp::ui::set_scale(%g): a scale is above 0 and at "
+                                  "most %g; %s is used",
+                                  static_cast<double>(s), static_cast<double>(MOST_SCALE),
+                                  used > 0.0f ? "the most" : "the automatic one");
+        }
+        sizing.scale_override = used;
+    }
     if (context.started) update_scale();
 }
 
@@ -1061,12 +1115,83 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
 // Providers (swapped out by the headless layout tests)
 // ---------------------------------------------------------------------------
 
+// What measure_text() rounds a width up to a multiple of: see its end.
+constexpr float QUANTUM = 64.0f;
+
+// What render.cpp's DrawTextEx() will draw, measured the way it draws it, a
+// piece at a time -- which is how Clay asks. Clay measures a text word by word
+// and a space on its own, once, and adds them up (Clay__MeasureTextCached);
+// DrawTextEx() draws a whole line and puts letter_spacing() between every two
+// of its letters, the spaces' included. raylib's MeasureTextEx() counts the
+// spacing only inside what it is given, so every space lost the two around
+// it: a two-word line was laid out four pixels narrower than it was drawn at
+// 20 pixels, and a menu's longer lines ran past the buttons under them.
+//
+// So each letter brings the spacing BEFORE it, but the first letter of its
+// line: a word does when there is a letter before it on its line (Clay hands
+// the whole string over with the word, so that is a look back), and a space,
+// which Clay measures once without saying where it is, always does. Added
+// up, a line is exactly as wide as it is drawn -- unless it starts with a
+// space, which brought a spacing nothing is before; then it is one spacing
+// wider, never narrower. A line that Clay wraps is one spacing wider too,
+// past the first, for the same reason: its first word was measured with the
+// space before it. Wider is a box with a little room in it; narrower is text
+// running out of its box.
+//
+// Letter for letter as DrawTextEx() goes: the bytes cstr() copies -- up to a
+// NUL, as it reads them --, raylib's own UTF-8 decoding and glyph lookup, a
+// glyph with no advance taking its rectangle's width, and raylib's font when
+// this one has no texture. tests/property/ui_text_prop.cpp holds it to
+// DrawTextEx() over random fonts, sizes and lines.
+Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size) {
+    const ::Font f = face.texture.id != 0 ? face : GetFontDefault();
+    // A font with nothing in it -- raylib's, before there is a window -- is
+    // nothing DrawTextEx() could draw either.
+    if (!IsFontValid(f) || text.length <= 0) return Clay_Dimensions{ 0, 0 };
+    const float scale = font_size / static_cast<float>(f.baseSize);
+    const float spacing = letter_spacing(font_size);
+
+    // The bytes up to a NUL -- terminated, so raylib's decoding stops there.
+    const std::string_view s(cstr(text));
+    if (s.empty()) return Clay_Dimensions{ 0, 0 }; // what MeasureTextEx() said
+    float width = 0;
+    int letters = 0;
+    for (std::size_t i = 0; i < s.size();) {
+        int bytes = 0;
+        const int codepoint = GetCodepointNext(s.data() + i, &bytes);
+        i += static_cast<std::size_t>(bytes);
+        if (codepoint == '\n') continue; // a line ends there: not Clay's to ask
+        const int index = GetGlyphIndex(f, codepoint);
+        const int advance = f.glyphs[index].advanceX;
+        width +=
+            (advance == 0 ? f.recs[index].width : static_cast<float>(advance)) * scale;
+        ++letters;
+    }
+    if (letters == 0) return Clay_Dimensions{ 0, font_size };
+    width += static_cast<float>(letters - 1) * spacing;
+
+    // The spacing before it. A space: always. A word: when a letter is before
+    // it on its line, spaces between them.
+    const bool space = text.length == 1 && text.chars[0] == ' ';
+    std::ptrdiff_t before = text.chars - text.baseChars; // where it starts in its text
+    while (before > 0 && text.baseChars[before - 1] == ' ') --before;
+    if (space || (before > 0 && text.baseChars[before - 1] != '\n')) width += spacing;
+
+    // Up to the next 64th of a pixel, which a float holds exactly: Clay adds
+    // the pieces up, adds a padding and takes it off again, and with widths
+    // like 222.6 (letter_spacing() of 14 pixels is 1.4) the sum came back
+    // 222.59999 -- narrower than the text in it, which then wrapped
+    // (scenes/02_stretch's '800x450, designed for 800x450'). Exact sums need
+    // exact pieces; a 64th more each is never narrower than what is drawn.
+    if (!std::isfinite(width)) return Clay_Dimensions{ 0, font_size };
+    width = std::ceil(width * QUANTUM) / QUANTUM;
+    return Clay_Dimensions{ width, font_size };
+}
+
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void * /*unused*/) {
     auto size = static_cast<float>(config->fontSize);
-    const ::Font f = ui_font(size);
-    const Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
-    return Clay_Dimensions{ m.x, m.y };
+    return measure_text(ui_font(size), text, size);
 }
 
 void pointer_from_raylib(Clay_Vector2 &position, bool &down) {
@@ -1118,16 +1243,22 @@ void set_nav_provider(NavFn fn) {
     providers.nav = (fn != nullptr) ? fn : nav_from_raylib;
 }
 
+// Both of these forget what Clay measured: it keeps a text's measurement for as
+// long as the text is on screen, and one taken with another font, or another
+// measurement, would lay the next frame out at the old width.
 void set_font_provider(FontFn fn, const char *name) {
     providers.font = (fn != nullptr) ? fn : load_ui_font;
     providers.font_name = name;
     release_fonts();
     font.failed = false;
+    if (context.started) Clay_ResetMeasureTextCache();
 }
 
 void set_measure_provider(MeasureFn fn) {
     providers.measure = (fn != nullptr) ? fn : measure_with_raylib;
-    if (context.started) Clay_SetMeasureTextFunction(providers.measure, nullptr);
+    if (!context.started) return;
+    Clay_SetMeasureTextFunction(providers.measure, nullptr);
+    Clay_ResetMeasureTextCache();
 }
 
 // Both of these throw away what the UI thinks about the pointer, and they have

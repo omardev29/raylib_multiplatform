@@ -16,8 +16,16 @@ namespace rmp::ui {
 
 namespace {
 
+using detail::font_px;
 using detail::px;
+using detail::px16;
 using detail::to_clay;
+
+// What the last pass asked to be drawn (detail::last_pass_commands()): Clay's
+// array, which lives in Clay's arena until the next layout.
+struct {
+    Clay_RenderCommandArray commands{};
+} last_pass;
 
 // Sizing helpers. Clay's own CLAY_SIZING_* are macros with compound literals;
 // these are the same thing written as C++ so the macros never come near us.
@@ -90,9 +98,11 @@ Clay_ChildAlignment alignment_of(Align a) {
 
 } // namespace
 
+Clay_RenderCommandArray detail::last_pass_commands() { return last_pass.commands; }
+
 Clay_Padding detail::root_padding(const float pixels) {
     const detail::Insets in = detail::content_insets();
-    auto side = [pixels](float inset) { return static_cast<uint16_t>(pixels + inset); };
+    auto side = [pixels](float inset) { return detail::whole_pixels(pixels + inset); };
     return Clay_Padding{ side(in.left), side(in.right), side(in.top), side(in.bottom) };
 }
 
@@ -184,7 +194,7 @@ void detail::open_frame(const FrameOptions &o, const Color fill) {
     content.layout.sizing.width = o.grow ? size_grow() : size_fit();
     content.layout.sizing.height = o.grow ? size_grow() : size_fit();
     content.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
-    content.layout.childGap = static_cast<uint16_t>(px(gap));
+    content.layout.childGap = px16(gap);
     content.layout.childAlignment = o.grow
         ? alignment_of(o.placement)
         : Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
@@ -208,6 +218,7 @@ void detail::close_frame(const bool draw) {
     Clay__CloseElement(); // the root
 
     const Clay_RenderCommandArray commands = Clay_EndLayout(detail::frame_time());
+    last_pass.commands = commands;
 
     // AFTER the layout, not before it. Clay hit-tests against the tree it holds
     // at the time, and this is the only moment it holds THIS pass's: called
@@ -354,10 +365,9 @@ bool button(std::string_view label, const ButtonOptions &o) {
     // min_touch_size is the whole reason a short label still makes a button a
     // thumb can hit.
     decl.layout.sizing.height = size_fit_min(px(min_height));
-    decl.layout.padding = Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * ratio)),
-                                        static_cast<uint16_t>(px(t.padding_x * ratio)),
-                                        static_cast<uint16_t>(px(t.padding_y * ratio)),
-                                        static_cast<uint16_t>(px(t.padding_y * ratio)) };
+    decl.layout.padding =
+        Clay_Padding{ px16(t.padding_x * ratio), px16(t.padding_x * ratio),
+                      px16(t.padding_y * ratio), px16(t.padding_y * ratio) };
     decl.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
     decl.backgroundColor = to_clay(background);
@@ -368,11 +378,11 @@ bool button(std::string_view label, const ButtonOptions &o) {
         // a controller build where one widget forgot it is a controller build
         // that gets stuck. It replaces the ordinary outline rather than sitting
         // next to it: two rings on one control reads as a rendering bug.
-        auto w = static_cast<uint16_t>(px(t.focus_ring));
+        auto w = px16(t.focus_ring);
         decl.border.color = to_clay(t.focus);
         decl.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     } else if (outline_w > 0.0f) {
-        auto w = static_cast<uint16_t>(px(outline_w));
+        auto w = px16(outline_w);
         if (w < 1) w = 1; // a sub-pixel border is an invisible border
         decl.border.color = to_clay(outline);
         decl.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
@@ -385,7 +395,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
     {
         Clay_TextElementConfig tc{};
         tc.textColor = to_clay(foreground);
-        tc.fontSize = static_cast<uint16_t>(px(font_units));
+        tc.fontSize = font_px(font_units);
         tc.wrapMode = CLAY_TEXT_WRAP_NONE;
         Clay__OpenTextElement(detail::intern(label), tc);
     }
@@ -418,7 +428,7 @@ void text(std::string_view s, const TextOptions &o) {
 
     Clay_TextElementConfig tc{};
     tc.textColor = to_clay(c);
-    tc.fontSize = static_cast<uint16_t>(px(detail::resolve_size(o.size, t)));
+    tc.fontSize = font_px(detail::resolve_size(o.size, t));
     tc.wrapMode = o.wrap ? CLAY_TEXT_WRAP_WORDS : CLAY_TEXT_WRAP_NONE;
 
     // Copied on the way in, so text(std::to_string(score)) is safe: Clay keeps
@@ -436,6 +446,7 @@ void shutdown() {
         RMP_REPORT_ONCE("UI: rmp::ui::shutdown() while a frame was open: rmp::ui::end() "
                         "was never called.");
     }
+    last_pass.commands = Clay_RenderCommandArray{}; // Clay's arena goes below
     detail::shutdown_context();
 }
 

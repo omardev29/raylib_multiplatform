@@ -12,6 +12,7 @@
 // ===========================================================================
 
 #include "internal.h"
+#include "../internal.h" // RMP_REPORT_ONCE
 
 #include <array>
 #include <cstdio>
@@ -22,7 +23,9 @@ namespace rmp::ui {
 
 namespace {
 
+using detail::font_px;
 using detail::px;
+using detail::px16;
 using detail::to_clay;
 
 // A click is a press AND a release on the same element, exactly as button()
@@ -57,7 +60,7 @@ Clay_SizingAxis grow() {
 void focus_border(Clay_ElementDeclaration &d, bool on) {
     if (!on || !detail::focus_visible()) return;
     const Theme &t = current_theme();
-    auto w = static_cast<uint16_t>(px(t.focus_ring));
+    auto w = px16(t.focus_ring);
     d.border.color = to_clay(t.focus);
     d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
 }
@@ -65,7 +68,7 @@ void focus_border(Clay_ElementDeclaration &d, bool on) {
 void label_text(std::string_view s, Color c, float size) {
     Clay_TextElementConfig tc{};
     tc.textColor = to_clay(c);
-    tc.fontSize = static_cast<uint16_t>(px(size));
+    tc.fontSize = font_px(size);
     tc.wrapMode = CLAY_TEXT_WRAP_NONE;
     Clay__OpenTextElement(detail::intern(s), tc);
 }
@@ -81,11 +84,9 @@ Clay_ElementDeclaration control_row(bool has_focus) {
     Clay_ElementDeclaration d{};
     d.layout.sizing.width = grow();
     d.layout.sizing.height = fit();
-    d.layout.childGap = static_cast<uint16_t>(px(t.gap));
-    d.layout.padding = Clay_Padding{ static_cast<uint16_t>(px(t.padding_y)),
-                                     static_cast<uint16_t>(px(t.padding_y)),
-                                     static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                                     static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+    d.layout.childGap = px16(t.gap);
+    d.layout.padding = Clay_Padding{ px16(t.padding_y), px16(t.padding_y),
+                                     px16(t.padding_y * 0.5f), px16(t.padding_y * 0.5f) };
     d.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
     d.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
@@ -144,7 +145,7 @@ bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
             !o.enabled ? t.disabled : detail::mix_color(t.surface, t.primary, on));
         const float r = px(t.corner_radius * 0.5f);
         box.cornerRadius = Clay_CornerRadius{ r, r, r, r };
-        auto bw = static_cast<uint16_t>(px(1.5f));
+        auto bw = px16(1.5f);
         box.border.color = to_clay(value ? t.primary : t.border);
         box.border.width = Clay_BorderWidth{ bw, bw, bw, bw, 0 };
 
@@ -181,11 +182,41 @@ bool slider(std::string_view label, float &value, float min, float max) {
 bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o) {
     if (!detail::frame_ready("slider", label)) return false;
-    if (max <= min) {
+    // A range that is no range of numbers -- NaN or an infinity at either end,
+    // or ends so far apart that the distance is one -- is the game's mistake:
+    // said once, and no slider, as for max <= min.
+    const bool numbers =
+        std::isfinite(min) && std::isfinite(max) && std::isfinite(max - min);
+    if (!numbers) {
+        RMP_REPORT_ONCE_KEYED(
+            std::string(label).c_str(),
+            "UI: rmp::ui::slider(\"%.*s\") from %g to %g: not a range of "
+            "numbers, so there is no slider",
+            static_cast<int>(label.size()), label.data(), static_cast<double>(min),
+            static_cast<double>(max));
+    }
+    if (!numbers || max <= min) {
         // No slider, so nothing for a tooltip() after it to be about: not the
         // control before it either, which would wear this one's tooltip.
         (void)detail::take_last_control();
         return false;
+    }
+    // NaN goes into no game's variable: the value is clamped into the range
+    // below, and NaN is in no range, so it is min -- and the mistake is said.
+    if (std::isnan(value)) {
+        RMP_REPORT_ONCE_KEYED(
+            std::string(label).c_str(),
+            "UI: rmp::ui::slider(\"%.*s\") was handed a value that is not a "
+            "number; it is set to %g, the start of its range",
+            static_cast<int>(label.size()), label.data(), static_cast<double>(min));
+        value = min;
+    }
+    // A step that is no distance is no step, said once: an infinite one made
+    // the value NaN (0 steps of it).
+    const bool stepped = o.step > 0.0f && std::isfinite(o.step);
+    if (o.step != 0.0f && !stepped) {
+        RMP_REPORT_ONCE("UI: rmp::ui::slider() with a step of %g: none is used",
+                        static_cast<double>(o.step));
     }
     const Theme &t = current_theme();
 
@@ -237,7 +268,7 @@ bool slider(std::string_view label, float &value, float min, float max,
     // one" and leaves a TV build with no way to change it.
     if (has_focus && o.enabled) {
         const int nav = detail::nav_axis_x();
-        const float step = o.step > 0 ? o.step : span * 0.05f;
+        const float step = stepped ? o.step : span * 0.05f;
         if (nav == 0) {
             st->i = 0;
             st->f = 0.0f;
@@ -258,7 +289,7 @@ bool slider(std::string_view label, float &value, float min, float max,
         }
     }
 
-    if (o.step > 0) {
+    if (stepped) {
         // std::lround, not (int)(x + 0.5f): the second rounds the wrong way for
         // negative values, and a slider whose range crosses zero has them. The
         // clamps below still put the result back inside [min, max].
@@ -426,10 +457,8 @@ bool dropdown(std::string_view label, int &selected,
         field.layout.sizing.width = o.width > 0 ? fixed(o.width) : grow();
         field.layout.sizing.height = fit();
         field.layout.padding =
-            Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                          static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                          static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                          static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+            Clay_Padding{ px16(t.padding_x * 0.5f), px16(t.padding_x * 0.5f),
+                          px16(t.padding_y * 0.5f), px16(t.padding_y * 0.5f) };
         field.layout.childAlignment =
             Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
         field.backgroundColor = to_clay(
@@ -466,7 +495,7 @@ bool dropdown(std::string_view label, int &selected,
                 menu.floating.attachPoints =
                     Clay_FloatingAttachPoints{ CLAY_ATTACH_POINT_LEFT_TOP,
                                                CLAY_ATTACH_POINT_LEFT_BOTTOM };
-                auto bw = static_cast<uint16_t>(px(1));
+                auto bw = px16(1);
                 menu.border.color = to_clay(t.border);
                 menu.border.width = Clay_BorderWidth{ bw, bw, bw, bw, 0 };
 
@@ -492,10 +521,9 @@ bool dropdown(std::string_view label, int &selected,
                     Clay_ElementDeclaration item{};
                     item.layout.sizing.width = grow();
                     item.layout.padding =
-                        Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                                      static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                                      static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                                      static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+                        Clay_Padding{ px16(t.padding_x * 0.5f), px16(t.padding_x * 0.5f),
+                                      px16(t.padding_y * 0.5f),
+                                      px16(t.padding_y * 0.5f) };
                     // The item the keyboard is on lights up like the one under
                     // the pointer, once the player has reached for a key.
                     const bool lit =
@@ -612,10 +640,8 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
         field.layout.sizing.width = o.width > 0 ? fixed(o.width) : grow();
         field.layout.sizing.height = fit();
         field.layout.padding =
-            Clay_Padding{ static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                          static_cast<uint16_t>(px(t.padding_x * 0.5f)),
-                          static_cast<uint16_t>(px(t.padding_y * 0.5f)),
-                          static_cast<uint16_t>(px(t.padding_y * 0.5f)) };
+            Clay_Padding{ px16(t.padding_x * 0.5f), px16(t.padding_x * 0.5f),
+                          px16(t.padding_y * 0.5f), px16(t.padding_y * 0.5f) };
         field.layout.childAlignment =
             Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
         field.backgroundColor = to_clay(o.enabled ? t.surface : t.disabled);

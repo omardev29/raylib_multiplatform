@@ -40,8 +40,11 @@ namespace rmp::ui {
 
 namespace {
 
+using detail::font_px;
 using detail::px;
+using detail::px16;
 using detail::to_clay;
+using detail::whole_pixels;
 
 // How long the fade at the end of a notice is: its last half second, or its
 // second half when it is shorter than a second.
@@ -214,10 +217,9 @@ void lay_out_and_draw() {
     root.layout.sizing.width.type = CLAY__SIZING_TYPE_GROW;
     root.layout.sizing.height.type = CLAY__SIZING_TYPE_GROW;
     // Clear of the edge as begin()'s own column is, and of the notch.
-    const auto inset =
-        static_cast<uint16_t>(px(t.panel_padding) + detail::safe_area_inset());
+    const auto inset = whole_pixels(px(t.panel_padding) + detail::safe_area_inset());
     root.layout.padding = Clay_Padding{ inset, inset, inset, inset };
-    root.layout.childGap = static_cast<uint16_t>(px(t.gap / 2));
+    root.layout.childGap = px16(t.gap / 2);
     root.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     root.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_BOTTOM };
@@ -232,8 +234,8 @@ void lay_out_and_draw() {
         box.layout.sizing.width.type = CLAY__SIZING_TYPE_FIT;
         box.layout.sizing.width.size.minMax = Clay_SizingMinMax{ 0, px(MAX_WIDTH) };
         box.layout.sizing.height.type = CLAY__SIZING_TYPE_FIT;
-        const auto pad_x = static_cast<uint16_t>(px(t.padding_x));
-        const auto pad_y = static_cast<uint16_t>(px(t.padding_y / 2));
+        const auto pad_x = px16(t.padding_x);
+        const auto pad_y = px16(t.padding_y / 2);
         box.layout.padding = Clay_Padding{ pad_x, pad_x, pad_y, pad_y };
         box.backgroundColor = to_clay(n.fill);
         const float r = px(t.corner_radius);
@@ -243,7 +245,7 @@ void lay_out_and_draw() {
         Clay__ConfigureOpenElement(box);
         Clay_TextElementConfig tc{};
         tc.textColor = to_clay(n.ink);
-        tc.fontSize = static_cast<uint16_t>(px(t.font_size));
+        tc.fontSize = font_px(t.font_size);
         tc.wrapMode = CLAY_TEXT_WRAP_WORDS;
         // The ring's own string: nothing changes it between here and the draw
         // below, which is as long as Clay keeps it.

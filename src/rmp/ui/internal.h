@@ -560,8 +560,9 @@ void box_outline(Clay_BoundingBox box, Corners corners, Clay_BorderWidth inset,
                  Outline &out);
 
 // Clay hands out string slices that are NOT null terminated. raylib's
-// DrawTextEx and MeasureTextEx both need one, so every slice has to be copied
-// into a scratch buffer with a terminator first.
+// DrawTextEx needs one, and measure_text() reads the same bytes it does, so
+// every slice is copied into a scratch buffer with a terminator first -- the
+// first 1023 bytes of it; one of no length, or less, is "".
 const char *cstr(Clay_StringSlice slice);
 
 // The scissor rectangles open while a pass is drawn, innermost last. raylib
@@ -635,6 +636,12 @@ void set_test_viewport(float width, float height);
 bool bounds_of(std::string_view label, unsigned occurrence, int pass,
                Clay_BoundingBox *out);
 
+// What the last pass laid out asked to be drawn: Clay's own array, valid until
+// the next pass is laid out or the UI shuts down. For a test that holds what is
+// drawn to the box it is drawn in -- a line of text to the width its command
+// says, above all.
+Clay_RenderCommandArray last_pass_commands();
+
 // How many errors Clay has reported since the last reset, and the first one's
 // type — first, because what follows a capacity failure is its consequences. Clay reports through a handler rather than a return value, so this is
 // the only way a test can see that a frame produced a duplicate id or ran out
@@ -652,6 +659,16 @@ const void *last_image_data();
 // The defaults, exposed so a test can put them back.
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void *user);
+
+// What measure_with_raylib() measures a piece of text with, `face` being the
+// font ui_font() gives for `font_size`: apart, so that a test can hand it a
+// font of its own making -- baking one needs a GL context.
+Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size);
+
+// The space render.cpp draws between two letters of a text `font_size` pixels
+// tall, and the one every measurement counts.
+inline float letter_spacing(float font_size) { return font_size / 10.0f; }
+
 void pointer_from_raylib(Clay_Vector2 &position, bool &down);
 void nav_from_raylib(NavState &out);
 void typed_from_raylib(Typed &out);
@@ -729,8 +746,27 @@ inline Color from_clay(Clay_Color c) {
                   static_cast<unsigned char>(c.b), static_cast<unsigned char>(c.a) };
 }
 
-// Design units -> pixels.
-inline float px(float design_units) { return design_units * ui_scale(); }
+// The most pixels any length in the interface is, either way: a million, past
+// any screen, and two thousand of them still inside what an int holds -- what
+// raylib's scissor is handed a box in.
+inline constexpr float MAX_PIXELS = 1.0e6f;
+
+// Design units -> pixels. A length that is not a number is none, and none is
+// past MAX_PIXELS either way: a game's mistake -- an option, a size -- said once.
+float px(float design_units);
+
+// Pixels as Clay keeps a padding, a gap, the width of a border and a font
+// size: whole, 0 to 65535. Outside that is a mistake too, said once, and the
+// nearest end is used.
+uint16_t whole_pixels(float pixels);
+// Design units the same way: whole_pixels(px(design_units)).
+uint16_t px16(float design_units);
+
+// A font size, in whole pixels: px16(), and no more than MAX_FONT_PIXELS -- a
+// [ui] font is baked at the size it is drawn at, and a glyph atlas for a size
+// nobody can read is memory nobody has.
+inline constexpr float MAX_FONT_PIXELS = 1024.0f;
+uint16_t font_px(float design_units);
 
 // --- controls.cpp: UTF-8, as text_input() edits it --------------------------
 //

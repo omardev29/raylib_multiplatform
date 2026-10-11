@@ -47,5 +47,5 @@ src/rmp/ui/render.cpp            39
 src/rmp/ui/style.cpp             100
 src/rmp/ui/theme.cpp             100
 src/rmp/ui/tooltip.cpp           100
-src/rmp/ui/widgets.cpp           87
+src/rmp/ui/widgets.cpp           88
 src/rmp/value.cpp                95

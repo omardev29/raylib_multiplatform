@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <vector>
 
 namespace rmp::ui {
@@ -18,6 +19,7 @@ namespace rmp::ui {
 namespace {
 
 using detail::px;
+using detail::px16;
 using detail::to_clay;
 
 Clay_SizingAxis axis(bool grow, float fixed) {
@@ -80,7 +82,7 @@ Clay_ChildAlignment alignment_of(Align a) {
 }
 
 Clay_Padding pad(float p) {
-    auto v = static_cast<uint16_t>(px(p));
+    auto v = px16(p);
     return Clay_Padding{ v, v, v, v };
 }
 
@@ -91,7 +93,7 @@ Clay_LayoutConfig layout_of(const BoxOptions &o, Clay_LayoutDirection dir,
     l.sizing.width = axis(o.grow_x, o.width);
     l.sizing.height = axis(o.grow_y, o.height);
     l.padding = pad(o.padding < 0 ? default_padding : o.padding);
-    l.childGap = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    l.childGap = px16(o.gap < 0 ? t.gap : o.gap);
     l.childAlignment = alignment_of(o.items);
     l.layoutDirection = dir;
     return l;
@@ -159,7 +161,7 @@ void open_grid_row(float gap) {
     Clay_ElementDeclaration d{};
     d.layout.sizing.width = axis(true, 0);
     d.layout.sizing.height = axis(false, 0);
-    d.layout.childGap = static_cast<uint16_t>(px(gap));
+    d.layout.childGap = px16(gap);
     d.layout.layoutDirection = CLAY_LEFT_TO_RIGHT;
     d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
     Clay__OpenElement();
@@ -209,14 +211,14 @@ void open_panel(const PanelOptions &o) {
     d.cornerRadius = Clay_CornerRadius{ r, r, r, r };
 
     if (!transparent(o.border)) {
-        auto w = static_cast<uint16_t>(px(o.border_width < 0 ? 1.0f : o.border_width));
+        auto w = px16(o.border_width < 0 ? 1.0f : o.border_width);
         d.border.color = to_clay(o.border);
         d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     } else if (t.border_width > 0.0f) {
         // No border asked for, but the theme draws them. A light Theme has no
         // shadows to separate a white panel from a white page, so it says so
         // once — here — instead of every call site having to remember.
-        auto w = static_cast<uint16_t>(px(t.border_width));
+        auto w = px16(t.border_width);
         if (w < 1) w = 1;
         d.border.color = to_clay(t.border);
         d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
@@ -282,7 +284,7 @@ void open_grid(const GridOptions &o) {
     d.layout.sizing.width = axis(o.grow_x, 0);
     d.layout.sizing.height = axis(o.grow_y, 0);
     d.layout.padding = pad(o.padding < 0 ? 0 : o.padding);
-    d.layout.childGap = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    d.layout.childGap = px16(o.gap < 0 ? t.gap : o.gap);
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
     d.layout.childAlignment = Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_TOP };
 
@@ -405,7 +407,7 @@ void open_scroll(const ScrollOptions &o) {
     d.layout.sizing.width = axis(o.grow_x, o.width);
     d.layout.sizing.height = axis(o.grow_y, o.height);
     d.layout.padding = pad(o.padding < 0 ? 0 : o.padding);
-    d.layout.childGap = static_cast<uint16_t>(px(o.gap < 0 ? t.gap : o.gap));
+    d.layout.childGap = px16(o.gap < 0 ? t.gap : o.gap);
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
 
     // clip + childOffset is the whole of scrolling: Clay moves the children by
@@ -523,6 +525,13 @@ void progress(float fraction, const ProgressOptions &o) {
     if (!detail::frame_ready("progress", o.id)) return;
     const Theme &t = current_theme();
 
+    // Clamped, as the header says; and NaN -- hp / max_hp with no max_hp --
+    // is no fraction at all: an empty bar, and the mistake said once.
+    if (std::isnan(fraction)) {
+        RMP_REPORT_ONCE("UI: rmp::ui::progress() was handed a fraction that is not a "
+                        "number; the bar is drawn empty");
+        fraction = 0.0f;
+    }
     if (fraction < 0.0f) fraction = 0.0f;
     if (fraction > 1.0f) fraction = 1.0f;
 

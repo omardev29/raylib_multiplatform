@@ -17,9 +17,14 @@
 // after that is a runtime call, so an in-game appearance setting is one line.
 // ===========================================================================
 
+#include "../internal.h" // RMP_REPORT_ONCE_KEYED
+
 #include <rmp/ui.h>
 
 #include <rmp/config.h>
+
+#include <cmath>
+#include <string>
 
 // The fallback for a translation unit compiled without the generated header;
 // tools/configure.py always writes RMP_UI_THEME into it.
@@ -85,7 +90,48 @@ Theme theme_light() {
     return t;
 }
 
+namespace {
+
+// The most a metric of a theme can be, in design units: a gap or a font of
+// four thousand is a screen of nothing already. Seconds, for `transition`.
+constexpr float MOST_UNITS = 4096.0f;
+constexpr float MOST_SECONDS = 60.0f;
+
+// A metric that is not one -- NaN, below 0, an infinity, past MOST -- is the
+// game's mistake: said once by its name, and the dark theme's in its place, so
+// the interface goes on being laid out and drawn.
+void keep(float &metric, float fallback, float most, const std::string &name) {
+    if (metric >= 0.0f && metric <= most) return;
+    RMP_REPORT_ONCE_KEYED(name.c_str(),
+                          "UI: set_theme() with %s = %g, which is not between 0 and %g; "
+                          "%g is used",
+                          name.c_str(), static_cast<double>(metric),
+                          static_cast<double>(most), static_cast<double>(fallback));
+    metric = fallback;
+}
+
+} // namespace
+
 const Theme &current_theme() { return active(); }
-void set_theme(const Theme &t) { active() = t; }
+
+void set_theme(const Theme &t) {
+    Theme kept = t;
+    const Theme dark = theme_dark();
+    keep(kept.font_size, dark.font_size, MOST_UNITS, "font_size");
+    keep(kept.font_size_small, dark.font_size_small, MOST_UNITS, "font_size_small");
+    keep(kept.font_size_large, dark.font_size_large, MOST_UNITS, "font_size_large");
+    keep(kept.padding_x, dark.padding_x, MOST_UNITS, "padding_x");
+    keep(kept.padding_y, dark.padding_y, MOST_UNITS, "padding_y");
+    keep(kept.gap, dark.gap, MOST_UNITS, "gap");
+    keep(kept.panel_padding, dark.panel_padding, MOST_UNITS, "panel_padding");
+    keep(kept.corner_radius, dark.corner_radius, MOST_UNITS, "corner_radius");
+    keep(kept.border_width, dark.border_width, MOST_UNITS, "border_width");
+    keep(kept.control_size, dark.control_size, MOST_UNITS, "control_size");
+    keep(kept.track_thickness, dark.track_thickness, MOST_UNITS, "track_thickness");
+    keep(kept.focus_ring, dark.focus_ring, MOST_UNITS, "focus_ring");
+    keep(kept.transition, dark.transition, MOST_SECONDS, "transition");
+    keep(kept.min_touch_size, dark.min_touch_size, MOST_UNITS, "min_touch_size");
+    active() = kept;
+}
 
 } // namespace rmp::ui

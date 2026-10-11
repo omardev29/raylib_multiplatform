@@ -3,4 +3,3 @@
 # public function arrives with a test, and a line whose function a test now
 # calls, or that is gone, fails until it is removed (--update removes it).
 rmp::Object::_draw()
-rmp::ui::dropdown(std::string_view, int &, std::initializer_list<std::string_view>, const DropdownOptions &)
