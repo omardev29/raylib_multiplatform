@@ -1,5 +1,11 @@
-# tools/license_db.py (package P8).
+# tools/license_db.py (package P8). The tests are LicenceGuardTest, the class
+# of configure_test.py that calls it in-process: the whole file under mutmut
+# stopped at its first test that needs what mutmut's copy does not have (a
+# clang-tidy run against build/lint), "failed to collect stats", and no
+# mutant got a verdict. Measured in the image on 2026-10-11, mutmut 3.8.0:
+# 1020 mutants, 460 detected, 300 survived, 260 with no test = 45.10%, 101 s.
+# P8 sets the floor.
 kind     py
 sources  tools/license_db.py
-tests    tests/configure_test.py
+tests    tests/configure_test.py::LicenceGuardTest
 floor    -
