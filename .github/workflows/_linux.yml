@@ -980,9 +980,10 @@ jobs:
       # (Stage G): no DISPLAY, no WAYLAND_DISPLAY, XDG_SESSION_TYPE=tty -- what
       # logind sets for a text login -- and `./rmp run`, which has to decide
       # DRM/KMS on its own (no RMP_DRM: the detection is what is under test),
-      # configure and build build/debug-drm, sanitized like every framework
-      # Debug build, ask /dev/dri and /dev/input before it starts the game, and
-      # start it on the vkms card. In the build image, which has every DRM
+      # configure and build build/debug-drm, sanitized as [dev] sanitize says
+      # (every framework Debug build is; a game's, as its .toml asks), ask
+      # /dev/dri and /dev/input before it starts the game, and start it on
+      # the vkms card. In the build image, which has every DRM
       # header; as its root, who has nobody behind it and needs no sudo for
       # the card. No /dev/input is handed in, so the run says the game reads
       # only its terminal's keys -- the device check's own line, and the proof
@@ -1006,8 +1007,15 @@ jobs:
             || fail "rmp did not decide DRM/KMS on a console"
           echo "$OUT" | grep -qF "=== PLATFORM: DRM/KMS, no X11 and no Wayland ===" \
             || fail "CMake did not configure PLATFORM=DRM"
-          echo "$OUT" | grep -qF "=== SANITIZERS: address, undefined ===" \
-            || fail "the debug build was not sanitized"
+          # Sanitized as the .toml asks: the framework's [dev] sanitize is
+          # ASan and UBSan; a game's is [] unless it says otherwise, and
+          # RMP_REQUIRE_SANITIZERS=1 has already refused a build that asked
+          # for one and could not have it.
+          MODE=$(python3 tools/rmp.py --mode)
+          if [ "$MODE" = framework ]; then
+            echo "$OUT" | grep -qF "=== SANITIZERS: address, undefined ===" \
+              || fail "the framework's debug build was not sanitized"
+          fi
           test -x "build/debug-drm/$NAME" || fail "no build/debug-drm/$NAME"
           test ! -e build/debug || fail "the desktop's build/debug was touched"
           grep -qx 'PLATFORM:STRING=DRM' build/debug-drm/CMakeCache.txt \

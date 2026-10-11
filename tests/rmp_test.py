@@ -4752,22 +4752,46 @@ class ConsoleInCiTest(unittest.TestCase):
         self.assertEqual(len(steps), 1, "drm-x64-run has no step that runs ./rmp run")
         return code_lines(steps[0]["run"]), jobs["drm-x64-run"]
 
-    def problems(self, run: str) -> list[str]:
-        said = rmp.drm_line(rmp.session_of({"XDG_SESSION_TYPE": "tty"}, "Linux", None))
+    @staticmethod
+    def said():
+        """What rmp prints on a console with no /dev/input: the decision and
+        the device check's note, from rmp itself."""
+        decision = rmp.drm_line(rmp.session_of({"XDG_SESSION_TYPE": "tty"}, "Linux", None))
         with tempfile.TemporaryDirectory() as tmp:
             note = rmp.device_access(fake_dev(Path(tmp) / "dev", events=0)).notes[0]
-        note = note.replace(tmp + "/dev", "/dev")
-        wanted = {
+        return decision, note.replace(tmp + "/dev", "/dev")
+
+    @staticmethod
+    def rmp_run_command(run: str) -> str:
+        """The one `docker run ... ./rmp run` command, continuation lines and all."""
+        end = run.index("./rmp run")
+        return run[run.rindex("docker run", 0, end):end]
+
+    def problems(self, run: str) -> list[str]:
+        decision, note = self.said()
+        try:
+            command = self.rmp_run_command(run)
+        except ValueError:
+            return ["no `docker run ... ./rmp run`"]
+        # Each on the container that runs rmp, not anywhere in the step: the
+        # ldd container has --network none too.
+        flags = {
             "the build image": '"${{ inputs.build_image }}"',
             "the card": "--device /dev/dri",
             "no network": "--network none",
             "a console's session": "-e XDG_SESSION_TYPE=tty",
             "ten frames": "-e RAY_TEST_MAX_FRAMES=10",
             "sanitizers required": "-e RMP_REQUIRE_SANITIZERS=1",
+        }
+        found = [f"missing on the rmp container {what}: {text}" for what, text in flags.items()
+                 if text not in command]
+        wanted = {
             "rmp run itself": "./rmp run < /dev/null 2>&1",
-            "the decision, as rmp says it": said.split(" and ")[0],
+            "the decision, as rmp says it": decision.split(" and ")[0],
             "PLATFORM=DRM in CMake": "=== PLATFORM: DRM/KMS, no X11 and no Wayland ===",
-            "sanitized": "=== SANITIZERS: address, undefined ===",
+            "the framework held to its sanitizers": (
+                'MODE=$(python3 tools/rmp.py --mode)\nif [ "$MODE" = framework ]; then\n'
+                '  echo "$OUT" | grep -qF "=== SANITIZERS: address, undefined ===" \\\n'),
             "the folder": 'test -x "build/debug-drm/$NAME"',
             "not the desktop's": "test ! -e build/debug ",
             "the cache": "PLATFORM:STRING=DRM",
@@ -4780,7 +4804,12 @@ class ConsoleInCiTest(unittest.TestCase):
             "no sanitizer report": "ERROR: (Address|Leak)Sanitizer|runtime error:",
             "its status": 'test "$RC" -eq 0',
         }
-        found = [f"missing {what}: {text}" for what, text in wanted.items() if text not in run]
+        found += [f"missing {what}: {text}" for what, text in wanted.items() if text not in run]
+        # A game's [dev] sanitize is [] (`rmp new`), and the step runs in
+        # every game that ships linux-x64-glibc-drm: its sanitizers are the
+        # framework's to require, and nobody else's.
+        if run.count("=== SANITIZERS:") != 1:
+            found.append("the sanitizers' line is required outside the framework's branch")
         for forbidden in ("RMP_DRM", "-e DISPLAY", "WAYLAND_DISPLAY", "SSH_"):
             if forbidden in run:
                 found.append(f"{forbidden} in the step: the detection is what is under test")
@@ -4794,13 +4823,75 @@ class ConsoleInCiTest(unittest.TestCase):
 
     def test_the_check_sees_what_it_is_for(self):
         run, _ = self.step()
+        command = self.rmp_run_command(run)
         for broken in (run.replace("-e XDG_SESSION_TYPE=tty", ""),
                        run.replace("./rmp run", "-e RMP_DRM=1 ./rmp run"),
                        run.replace("build/debug-drm/$NAME", "build/debug/$NAME"),
                        run.replace("there is no /dev/input/event*", "no input"),
-                       run.replace("--device /dev/dri", "")):
+                       run.replace("--device /dev/dri", ""),
+                       run.replace(command, command.replace("--network none ", "")),
+                       run.replace('if [ "$MODE" = framework ]; then', "if true; then"),
+                       run.replace("=== PLATFORM:", "=== SANITIZERS: address, undefined ===\n"
+                                   "=== PLATFORM:")):
             with self.subTest():
+                self.assertNotEqual(broken, run, "the mutation did not apply")
                 self.assertNotEqual(self.problems(broken), [])
+
+    def play(self, run: str, framework: bool, sanitized: bool) -> subprocess.CompletedProcess:
+        """The step's own script, in a project of its own, with docker a
+        stand-in that prints what `rmp run` would and builds nothing: the
+        framework's output, or a game's, with or without the sanitizers."""
+        decision, note = self.said()
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        project = fake_project(tmp / "p", framework=framework)
+        shutil.copy(RMP_PY, project / "tools" / "rmp.py")
+        build = project / "build" / "debug-drm"
+        build.mkdir(parents=True)
+        (build / "demo").write_text("")
+        (build / "demo").chmod(0o755)
+        (build / "CMakeCache.txt").write_text("PLATFORM:STRING=DRM\n")
+        out = tmp / "out.txt"
+        out.write_text("\n".join([
+            f"  console  {decision}",
+            "-- === PLATFORM: DRM/KMS, no X11 and no Wayland ===",
+            *(["-- === SANITIZERS: address, undefined ==="] if sanitized else []),
+            f"  note     {note}",
+            "RAY_TEST_BOOT_OK assets_failed=0 frames=10",
+            "RAY_TEST_RENDER_OK pixels=1",
+            "RAY_TEST_DONE_FRAMES 10", ""]))
+        stubs = tmp / "bin"
+        stubs.mkdir()
+        (stubs / "docker").write_text(
+            '#!/bin/sh\nfor a in "$@"; do\n'
+            '  [ "$a" = ldd ] && { echo "libdrm.so.2 => /usr/lib/libdrm.so.2"; exit 0; }\n'
+            f'done\ncat "{out}"\n')
+        (stubs / "docker").chmod(0o755)
+        (stubs / "python3").symlink_to(sys.executable)
+        script = run.replace("${{ inputs.project_name }}", "demo") \
+            .replace("${{ inputs.build_image }}", "image")
+        return subprocess.run(["bash", "-c", script], cwd=project, capture_output=True, text=True,
+                              env=dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}"),
+                              timeout=60)
+
+    def test_a_game_passes_and_the_framework_is_held_to_its_sanitizers(self):
+        """The step runs in every game that ships linux-x64-glibc-drm, and a
+        game's [dev] sanitize is []. Seen red with the sanitizers' line
+        required of every project: a game's release would have failed here."""
+        if os.name == "nt":
+            self.skipTest("bash")
+        run, _ = self.step()
+        for framework, sanitized, passes in ((True, True, True), (False, False, True),
+                                             (False, True, True), (True, False, False)):
+            with self.subTest(framework=framework, sanitized=sanitized):
+                got = self.play(run, framework, sanitized)
+                said = got.stdout + got.stderr
+                self.assertEqual(got.returncode == 0, passes, said)
+                if passes:
+                    self.assertIn("PASS: rmp chose DRM/KMS on a console", got.stdout)
+                else:
+                    self.assertIn("FAIL: the framework's debug build was not sanitized",
+                                  got.stdout)
 
 
 if __name__ == "__main__":
