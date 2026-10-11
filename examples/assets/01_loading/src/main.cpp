@@ -5,8 +5,8 @@
 //   - a packed, optionally AES-encrypted "resources.rres", or
 //   - the loose files, while you are working.
 // The same code reads either. Switch between them with:
-//   cmake --build build --target pack_resources     # -> resources/resources.rres
-//   cmake --build build --target unpack_resources   # back to loose files
+//   cmake --build --preset debug --target pack_resources     # -> resources/resources.rres
+//   cmake --build --preset debug --target unpack_resources   # back to loose files
 //
 // This example carries its own resources/ next to src/, and that is all it
 // takes: an example with a resources/ folder reads that one, not the game's.

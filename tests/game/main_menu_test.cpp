@@ -5,8 +5,8 @@
 // with no window, and CI runs them on every push. Delete tests/game/ and
 // neither asks for them again.
 //
-//     rmp test unit                    build them and run them
-//     ./build/game_test -tc="*menu*"   one case, by name
+//     rmp test unit                          build them and run them
+//     ./build/debug/game_test -tc="*menu*"   one case, by name
 //
 // With no window there is no GPU: a texture comes back empty and a frame
 // draws nothing, while files still load and your code still runs. What a test

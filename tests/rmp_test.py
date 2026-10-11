@@ -990,8 +990,17 @@ def layout_findings(rel: str, text: str) -> list[tuple[int, str]]:
 
 
 def layout_sources():
-    """What the gate reads: everything that runs a build or says how to. Not
-    tests/, whose fixtures name the old layout on purpose."""
+    """What the gate reads: everything that runs a build or says how to. In
+    tests/ and examples/, the C and C++ sources, whose usage comments say how
+    to run them -- tests/game/main_menu_test.cpp ships in every game and is
+    on the docs' Testing page. Not tests/fixtures/, nor the tests' Python,
+    whose fixtures name the old layout on purpose."""
+    for top in ("tests", "examples"):
+        for folder, dirs, files in os.walk(REPO / top):
+            dirs[:] = sorted(d for d in dirs if d not in ("fixtures", "__pycache__"))
+            for name in sorted(files):
+                if name.endswith((".c", ".cpp", ".h", ".hpp")):
+                    yield Path(folder) / name
     for top in (".github", "tools", "cmake", ".claude"):
         for folder, dirs, files in os.walk(REPO / top):
             # .claude/worktrees/ holds the agents' checkouts, not this one.

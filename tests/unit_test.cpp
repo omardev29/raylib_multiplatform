@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // The unit tests. doctest, no window, no GPU, milliseconds.
 //
-//     rmp test unit                  all of them
-//     ./build/unit_test -ts=random    one suite
-//     ./build/unit_test -tc="*seed*"  one case
+//     rmp test unit                        all of them
+//     ./build/debug/unit_test -ts=random    one suite
+//     ./build/debug/unit_test -tc="*seed*"  one case
 //
 // Every phase from here adds its file next to this one and CMake picks it up:
 // tests/*_test.cpp is globbed, so a new test file needs no build change. This

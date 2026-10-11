@@ -2,8 +2,8 @@
 // tests/ui_layout_test.cpp — the UI layout, checked without a window.
 //
 //   cmake --preset debug -DBUILD_UI_TESTS=ON
-//   cmake --build build --target ui_layout_test
-//   ./build/ui_layout_test
+//   cmake --build --preset debug --target ui_layout_test
+//   ./build/debug/ui_layout_test
 //
 // Clay's layout is pure computation, so with the text measurement and the
 // pointer swapped for stubs and a viewport injected, the whole thing runs with
