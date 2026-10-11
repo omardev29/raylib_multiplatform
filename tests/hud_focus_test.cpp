@@ -246,6 +246,22 @@ public:
     }
 };
 
+// A menu the game goes on under, and that input reaches through: a bag
+// opened over a game that does not stop for it. It reads nothing itself.
+class Inventory : public rmp::Scene {
+public:
+    Inventory() {
+        updates_below = true;
+        input_below = true;
+    }
+    void _draw() override {
+        rmp::ui::begin();
+        rmp::ui::button("Use");
+        rmp::ui::button("Drop");
+        rmp::ui::end();
+    }
+};
+
 // The game, started on its own, played for two frames: the first draws the HUD,
 // the second is the first that can know where it is.
 void play(Read read, std::optional<bool> focus_first = std::nullopt) {
@@ -499,6 +515,12 @@ TEST_SUITE("ui: HUD focus") {
         CHECK(game.map == 1); // the click pressed it
         CHECK(rmp::ui::focused() == "Map");
         CHECK(rmp::ui::wants_keyboard());
+
+        // A click on it keeps the keys for that click only: the next one
+        // elsewhere still gives them back.
+        click(Clay_Vector2{ 20, 700 });
+        CHECK(rmp::ui::focused().empty());
+        CHECK_FALSE(rmp::ui::wants_keyboard());
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
@@ -581,6 +603,43 @@ TEST_SUITE("ui: HUD focus") {
         // own Escape is heard.
         CHECK_FALSE(rmp::ui::wants_keyboard());
         CHECK_FALSE(rmp::input::consumed_keyboard());
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a menu over a game that goes on under it: the arrows stay in "
+                      "the menu, and Tab walks into the HUD and on out of it") {
+        play(Read::JUMP);
+        rmp::Scene::push<Inventory>();
+        rmp::scenes::detail::apply_pending();
+        run_frames(2);
+        // Still played underneath, so its HUD takes nothing, though input
+        // reaches it; the menu is a menu, and its first control has the focus.
+        CHECK(game.playing);
+        CHECK(rmp::ui::focused() == "Use");
+        // Each a press of its own: a frame with it down, and one with it up.
+        const auto tap = [](const NavState &nav) {
+            press(nav);
+            run_frame();
+        };
+        // The arrows wrap inside the menu, either way, past the HUD.
+        tap(DOWN);
+        CHECK(rmp::ui::focused() == "Drop");
+        tap(DOWN);
+        CHECK(rmp::ui::focused() == "Use");
+        tap(NavState{ .y = -1 });
+        CHECK(rmp::ui::focused() == "Drop");
+        CHECK_FALSE(rmp::ui::wants_keyboard());
+        // Tab is the way in, and in there the keys are the HUD's...
+        tap(TAB);
+        CHECK(rmp::ui::focused() == "Map");
+        CHECK(rmp::ui::wants_keyboard());
+        tap(DOWN);
+        CHECK(rmp::ui::focused() == "Bag");
+        CHECK(rmp::ui::wants_keyboard());
+        // ...until the arrows walk on out of it, into the menu.
+        tap(DOWN);
+        CHECK(rmp::ui::focused() == "Use");
+        CHECK_FALSE(rmp::ui::wants_keyboard());
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
@@ -687,6 +746,31 @@ TEST_SUITE("ui: HUD focus") {
         feed.nav = NavState{};
         CHECK(game.map == 0);
         // A frame that reads nothing is a menu's.
+        frame(false);
+        frame(false);
+        CHECK(rmp::ui::focused() == "Map");
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "without scenes, every pass of the frame is judged on what "
+                      "the frame read") {
+        // Two begin()/end() pairs in one frame the runner marked: the second
+        // HUD is as much over the game as the first.
+        const auto frame = [](bool read) {
+            rmp::input::detail::begin_frame();
+            rmp::ui::detail::begin_frame();
+            if (read) (void)rmp::input::pressed("jump");
+            rmp::ui::begin({ .placement = rmp::ui::Align::TOP_RIGHT });
+            rmp::ui::button("Map");
+            rmp::ui::end();
+            rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+            rmp::ui::button("Bag");
+            rmp::ui::end();
+            rmp::ui::detail::end_frame();
+        };
+        frame(true);
+        frame(true);
+        CHECK(rmp::ui::focused().empty());
         frame(false);
         frame(false);
         CHECK(rmp::ui::focused() == "Map");

@@ -954,6 +954,13 @@ TEST_SUITE("input, the keys the interface navigates with") {
         rmp::input::action("jump", KEY_W);
         (void)rmp::input::pressed("jump");
         CHECK(!noted());
+        // One of them is enough, wherever it stands among the bindings.
+        rmp::input::action("jump", KEY_SPACE, KEY_W, KEY_J);
+        (void)rmp::input::pressed("jump");
+        CHECK(noted());
+        rmp::input::action("jump", KEY_W, KEY_SPACE, KEY_J);
+        (void)rmp::input::pressed("jump");
+        CHECK(noted());
         // A factory action like any other: move_left is A, Left, the d-pad and
         // the stick, and redefined to A alone it reads nothing of the interface's.
         (void)rmp::input::pressed("move_left");
