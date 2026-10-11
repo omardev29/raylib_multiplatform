@@ -94,6 +94,20 @@ EOF
   grep -q 'Done 16 runs' "$probe/log"
 }
 
+# Whether clang can link a program with ASan and UBSan and run it -- the same
+# question cmake/sanitize.cmake asks, and the build is configured with
+# RMP_REQUIRE_SANITIZERS=1. A clang without compiler-rt compiles everything
+# and links none of it, and gcc's libasan may well be there.
+clang_sanitizes() {
+  command -v clang++ >/dev/null 2>&1 && command -v clang >/dev/null 2>&1 || return 1
+  local probe="$BUILD/probe"
+  mkdir -p "$probe"
+  printf 'int main() { return 0; }\n' > "$probe/sanitized.cpp"
+  clang++ -fsanitize=address,undefined "$probe/sanitized.cpp" -o "$probe/sanitized" \
+    > "$probe/sanitized.log" 2>&1 || return 1
+  "$probe/sanitized" > "$probe/sanitized.log" 2>&1 < /dev/null
+}
+
 build() {
   mkdir -p "$BUILD"
   # Written again only by a build that finished: a failed one leaves nothing
@@ -112,7 +126,10 @@ build() {
     echo "  note  no libFuzzer here (clang with compiler-rt): the targets replay and cannot fuzz."
     echo "        The pinned image can: tools/dev_shell.sh bash tools/fuzz.sh build"
   fi
-  if command -v clang++ >/dev/null 2>&1 && command -v clang >/dev/null 2>&1; then
+  # libFuzzer is clang's. To replay, the compiler is whichever runs the
+  # sanitizers: clang when it can, else gcc -- a clang without compiler-rt
+  # picked here made the configure refuse a build gcc could have made.
+  if [ "$engine" = libfuzzer ] || clang_sanitizes; then
     cc=clang
     cxx=clang++
   else

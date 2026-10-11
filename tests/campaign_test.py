@@ -276,6 +276,130 @@ class FuzzReplayCountsTest(unittest.TestCase):
         self.assertEqual(code, 2, out)
 
 
+class FuzzBuildCompilerTest(unittest.TestCase):
+    """tools/fuzz.sh build on a machine of stand-ins: which compiler and which
+    engine it picks. The build is configured with RMP_REQUIRE_SANITIZERS=1, so
+    a compiler that cannot run ASan is a refused configure -- and a clang
+    without compiler-rt, which compiles everything and links no sanitizer,
+    was picked over a gcc whose sanitizers run (seen on a clang made to look
+    for its runtimes in an empty folder: "FAIL: the fuzz build did not
+    configure")."""
+
+    # A compiler driver that writes a program for -o: libFuzzer's probe prints
+    # what fuzz.sh waits for, anything else exits 0. What it can link is the
+    # mode file's: nothing sanitized, the sanitizers, or libFuzzer too.
+    CLANG = """#!/bin/sh
+out=""; prev=""; fuzzer=0; sanitized=0
+for a in "$@"; do
+  case "$a" in
+    --version) echo "clang version 0 (stand-in)"; exit 0 ;;
+    -fsanitize=*fuzzer*) fuzzer=1 ;;
+    -fsanitize=*) sanitized=1 ;;
+  esac
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  prev="$a"
+done
+mode=$(cat "$STANDIN_MODE")
+if [ "$fuzzer" = 1 ] && [ "$mode" != libfuzzer ]; then echo "no libclang_rt.fuzzer" >&2; exit 1; fi
+if [ "$sanitized" = 1 ] && [ "$mode" = bare ]; then echo "no libclang_rt.asan" >&2; exit 1; fi
+printf '#!/bin/sh\\necho "Done 16 runs"\\n' > "$out"
+chmod +x "$out"
+"""
+    GCC = '#!/bin/sh\necho "g++ (stand-in) 0"\n'
+    # Writes what the configure was asked for, and says what deep.cmake says.
+    CMAKE = """#!/bin/sh
+if [ "$1" = "--build" ]; then
+  printf '#!/bin/sh\\n' > build/fuzz/fuzz_x
+  chmod +x build/fuzz/fuzz_x
+  exit 0
+fi
+engine=""
+for a in "$@"; do
+  case "$a" in
+    -DCMAKE_CXX_COMPILER=*) echo "${a#*=}" > build/compiler ;;
+    -DRMP_FUZZ_ENGINE=*) engine="${a#*=}" ;;
+  esac
+done
+echo "=== SANITIZERS: address, undefined ==="
+echo "=== FUZZ: $engine, fuzz_x ==="
+"""
+    TOOLS = ("bash", "sh", "dirname", "basename", "mkdir", "rm", "cat", "sed", "head", "grep",
+             "tr", "wc", "chmod")
+
+    def setUp(self):
+        if shutil.which("bash") is None:
+            self.skipTest("no bash")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        (self.root / "tools").mkdir()
+        shutil.copy(TOOLS / "fuzz.sh", self.root / "tools" / "fuzz.sh")
+        (self.root / "tests" / "fuzz").mkdir(parents=True)
+        (self.root / "tests" / "fuzz" / "x.cpp").write_text("// a harness\n")
+        # Only the stand-ins and the tools the script runs: not this
+        # machine's own clang or gcc.
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        for tool in self.TOOLS:
+            found = shutil.which(tool)
+            if found is None:
+                self.skipTest(f"no {tool}")
+            (self.bin / tool).symlink_to(found)
+        self.stub("cmake", self.CMAKE)
+        self.stub("g++", self.GCC)
+        self.stub("gcc", self.GCC)
+        self.mode = self.root / "mode"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def stub(self, name: str, text: str):
+        (self.bin / name).write_text(text)
+        (self.bin / name).chmod(0o755)
+
+    def build(self, clang: str | None, **env):
+        if clang is not None:
+            self.mode.write_text(clang)
+            self.stub("clang", self.CLANG)
+            self.stub("clang++", self.CLANG)
+        got = subprocess.run(["bash", "tools/fuzz.sh", "build"], cwd=self.root,
+                             capture_output=True, text=True,
+                             env={"PATH": str(self.bin), "STANDIN_MODE": str(self.mode),
+                                  "HOME": str(self.root), **env})
+        out = got.stdout + got.stderr
+        compiler = self.root / "build" / "compiler"
+        engine = self.root / "build" / "fuzz" / "engine"
+        return (got.returncode, out, compiler.read_text().strip() if compiler.exists() else None,
+                engine.read_text().strip() if engine.exists() else None)
+
+    def test_libfuzzer_is_clangs(self):
+        code, out, compiler, engine = self.build("libfuzzer")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((compiler, engine), ("clang++", "libfuzzer"))
+
+    def test_a_clang_that_sanitizes_replays(self):
+        code, out, compiler, engine = self.build("sanitizers")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((compiler, engine), ("clang++", "replay"))
+        self.assertIn("no libFuzzer here", out)
+
+    def test_a_clang_without_its_runtimes_leaves_the_build_to_gcc(self):
+        code, out, compiler, engine = self.build("bare")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((compiler, engine), ("g++", "replay"))
+        self.assertIn("== fuzz: build (replay, g++ (stand-in) 0) ==", out)
+
+    def test_no_clang_at_all_is_gcc(self):
+        code, out, compiler, engine = self.build(None)
+        self.assertEqual(code, 0, out)
+        self.assertEqual((compiler, engine), ("g++", "replay"))
+
+    def test_libfuzzer_required_and_missing_fails_before_configuring(self):
+        code, out, compiler, engine = self.build("sanitizers", RMP_REQUIRE_LIBFUZZER="1")
+        self.assertEqual(code, 1, out)
+        self.assertIn("RMP_REQUIRE_LIBFUZZER=1", out)
+        self.assertEqual((compiler, engine), (None, None))
+
+
 # ---------------------------------------------------------------------------
 # The mutation floors
 # ---------------------------------------------------------------------------
