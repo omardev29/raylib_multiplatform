@@ -1,0 +1,5 @@
+# libFuzzer flags for fuzz_aseprite, one a line: tools/fuzz.sh run and merge pass them.
+# The seeds are under 1.5 KB but for the platformer's five sheets (7.3 KB each,
+# raw cels); 8 KB holds every one whole and keeps the merged corpus small
+# (tests/campaign_test.py holds the whole corpus under 2 MB).
+-max_len=8192

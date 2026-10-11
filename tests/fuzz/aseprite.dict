@@ -1,0 +1,23 @@
+# libFuzzer's dictionary for fuzz_aseprite: the format's magic numbers and
+# chunk types, little-endian as the file writes them, and zlib's headers --
+# which tools/fuzz.sh hands it as -dict.
+"\xe0\xa5"
+"\xfa\xf1"
+"\x04\x00"
+"\x11\x00"
+"\x04\x20"
+"\x05\x20"
+"\x06\x20"
+"\x07\x20"
+"\x08\x20"
+"\x18\x20"
+"\x19\x20"
+"\x20\x20"
+"\x22\x20"
+"\x23\x20"
+"\x78\x9c"
+"\x78\x01"
+"\x78\xda"
+"\xff\xff"
+"\xff\xff\xff\xff"
+"\x00\x00\x00\x00"

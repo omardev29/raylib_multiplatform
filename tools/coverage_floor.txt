@@ -4,7 +4,8 @@
 # more above it. `bash tools/coverage_check.sh --update` in the image raises the
 # lines to what it measured; lowering one is an edit somebody has to explain.
 src/rmp/ads.cpp                  0
-src/rmp/animation.cpp            84
+src/rmp/animation.cpp            100
+src/rmp/aseprite.cpp             100
 src/rmp/app.cpp                  95
 src/rmp/assets.cpp               61
 src/rmp/audio.cpp                97
