@@ -2,10 +2,16 @@
 # LicenceGuardTest, the class of configure_test.py that calls it in-process:
 # with all of configure_test.py, mutmut's stats run stopped at a test that
 # needs a build/lint its copy does not have, and no mutant got a verdict.
-# WP0 measured LicenceGuardTest alone in the image on 2026-10-11, mutmut
-# 3.8.0: 1020 mutants, 460 detected, 300 survived, 260 with no test = 45.10%.
-# check() was 174 lines then; it is a function a rule now.
+# notice_text() and _comment_lines() are reached through configure.py too,
+# which imports the module as `license_db` -- a name mutmut records nothing
+# under -- so their properties are here.
+#
+# Measured in the image on 2026-10-11, mutmut 3.8.0: 1089 mutants, 867
+# detected, 222 survived, none without a test = 79.61%, 13 min with 3
+# children. WP0's pilot, LicenceGuardTest alone and check() one 174-line
+# function, was 45.10%; the most survivors now are _check_text's (56 of 130)
+# and _check_marks' (36 of 120) failure messages past their first words.
 kind     py
 sources  tools/license_db.py
 tests    tests/license_db_property_test.py tests/configure_test.py::LicenceGuardTest
-floor    -
+floor    75
