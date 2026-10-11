@@ -40,6 +40,12 @@
 #include <string_view>
 #include <system_error>
 
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace rmp::test::fuzz {
 
 namespace detail {
@@ -48,6 +54,23 @@ struct Strict {
 };
 inline Strict strict;
 inline void count_abort() { ++strict.aborts_asked; }
+
+// The empty resources folder of this process, gone when it exits.
+struct Empty {
+    std::filesystem::path folder;
+};
+inline Empty empty;
+inline void remove_empty() {
+    std::error_code error;
+    std::filesystem::remove_all(empty.folder, error);
+}
+inline int process_id() {
+#if defined(_WIN32)
+    return _getpid();
+#else
+    return static_cast<int>(getpid());
+#endif
+}
 } // namespace detail
 
 // Once, before the first input: no log on every input (a fuzzer runs
@@ -59,17 +82,21 @@ inline void count_abort() { ++strict.aborts_asked; }
 // write report, which then reads detail::strict.aborts_asked instead of
 // ending the run.
 //
-// The folder is emptied here, not trusted to be empty: whatever an earlier
-// run left in it would be found by the next one's loads. So a harness never
-// writes into it -- one that needs a file on disk makes a folder of its own.
+// The folder is this process's -- its id in the name -- and emptied here, not
+// trusted to be empty. One name for every process was one folder for every
+// fuzzer on the machine, and the campaign's agents replay side by side: each
+// one's start would delete the folder another was loading from. It goes when
+// the process exits; a crash leaves an empty folder behind, nothing more. A harness never writes into it -- one that needs a file on disk makes
+// a folder of its own.
 inline void initialize() {
     SetTraceLogLevel(LOG_NONE);
     std::error_code error;
-    const std::filesystem::path empty =
-        std::filesystem::temp_directory_path(error) / "rmp-fuzz-empty-resources";
-    std::filesystem::remove_all(empty, error);
-    std::filesystem::create_directories(empty, error);
-    const std::string root = (empty / "").string();
+    detail::empty.folder = std::filesystem::temp_directory_path(error) /
+        ("rmp-fuzz-empty-resources-" + std::to_string(detail::process_id()));
+    std::filesystem::remove_all(detail::empty.folder, error);
+    std::filesystem::create_directories(detail::empty.folder, error);
+    std::atexit(detail::remove_empty);
+    const std::string root = (detail::empty.folder / "").string();
     rmp::assets::detail::set_resources_root(root.c_str());
     rmp::detail::set_strict(false);
     rmp::detail::set_strict_handler(detail::count_abort);
