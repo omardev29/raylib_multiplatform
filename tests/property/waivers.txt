@@ -3,7 +3,8 @@
 # one RMP_REPORT_ONCE for a game's mistake, no NaN kept in state, no state
 # changed by a refusal. tests/campaign_test.py reads the headers' AST
 # (tools/coverage_report.py's walker), and fails a public function that is
-# neither here nor named by `// covers: <function>` in a tests/property/*_prop.cpp.
+# neither here nor named by `// covers: <function>` in a tests/property/*_prop.cpp
+# -- a file whose code calls it: a covers line alone holds nothing.
 #
 # This list ONLY SHRINKS: a function a property covers fails until its line goes,
 # a line naming a function that is gone fails, and a new public function arrives

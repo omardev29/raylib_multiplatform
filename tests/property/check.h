@@ -10,7 +10,8 @@
 // the shrunk counterexample is the failure's message, and RapidCheck prints
 // the RC_PARAMS="reproduce=..." that plays exactly that case again when the
 // program ends. The description is the key that reproduce string finds the
-// property by, so two properties never share one.
+// property by, so it is a string literal and two properties never share one
+// (tests/campaign_test.py's PropertyFilesTest reads every *_prop.cpp).
 //
 // RapidCheck ships a doctest integration (extras/doctest), and it does not
 // compile: inside its own `namespace rc::doctest`, doctest's macros' plain

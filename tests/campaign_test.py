@@ -17,8 +17,10 @@ check go red on the mistake it is there for:
   - the floor checker fails below a floor, fails a floor the score has left
     behind, and fails an equivalent mutant that a test kills or that is gone;
   - every public function of include/rmp/ is held by a property
-    (`// covers: <function>` in a tests/property/*_prop.cpp) or waived in
-    tests/property/waivers.txt, a list that only shrinks;
+    (`// covers: <function>` in a tests/property/*_prop.cpp whose code calls
+    it) or waived in tests/property/waivers.txt, a list that only shrinks;
+  - every rmp::test::check() description is a string literal, and no two
+    alike: it is the key RC_PARAMS="reproduce=..." finds a property by;
   - Hypothesis is a skip that says so where it is not installed, and a
     failure where RMP_REQUIRE_HYPOTHESIS=1;
   - nothing under src/rmp/ or include/rmp/ throws or includes RapidCheck:
@@ -830,6 +832,134 @@ class ResilienceListTest(unittest.TestCase):
             (folder / "b_test.cpp").write_text("// covers: rmp::c()\n")
             self.assertEqual(covered(folder), {"rmp::a()": "a_prop.cpp",
                                                "rmp::b(int)": "a_prop.cpp"})
+
+
+def spelled_as(key: str) -> str | None:
+    """The name a property file's code must say for `// covers: key` to be
+    believed: the function's own, unqualified -- None for an operator or a
+    destructor, which code uses without spelling their names."""
+    head = key.split("(")[0].split(" [")[0]
+    if "operator" in head:
+        return None
+    name = head.split("::")[-1]
+    return None if name.startswith("~") else name
+
+
+def unbacked_covers(folder: Path = PROPERTY) -> list[str]:
+    """`// covers:` lines whose file never names the function in its code --
+    a comment that would take a function off waivers.txt with no property
+    behind it (configure_test's rejection gate was satisfied by a docstring
+    once, the same way)."""
+    out = []
+    for path in sorted(folder.glob("*_prop.cpp")):
+        text = path.read_text(encoding="utf-8")
+        code = cpp_text.blank(text)
+        for key in COVERS.findall(text):
+            name = spelled_as(key)
+            if name is not None and not re.search(rf"(?<![\w~]){re.escape(name)}\b", code):
+                out.append(f"{path.name} covers {key}, and its code never calls {name}: "
+                           "a `// covers:` line is a property's, not a promise")
+    return out
+
+
+# rmp::test::check(<description>, ...), and a plain check( under a using:
+# never a member's x.check( or another namespace's y::check(.
+CHECK_CALL = re.compile(r"(?<![\w.>:])(?:rmp::test::)?check\s*\(")
+LITERALS = re.compile(r'\s*((?:"(?:[^"\\\n]|\\.)*"\s*)+)(?=,)')
+
+
+def check_descriptions(folder: Path = PROPERTY) -> tuple[dict[str, list[str]], list[str]]:
+    """Every rmp::test::check() description of the *_prop.cpp files, as
+    {description: [file:line, ...]}, and the calls whose description is not
+    a string literal."""
+    found: dict[str, list[str]] = {}
+    not_literal = []
+    for path in sorted(folder.glob("*_prop.cpp")):
+        code = cpp_text.blank(path.read_text(encoding="utf-8"), comments=True, strings=False)
+        lines = cpp_text.Lines(code)
+        for call in CHECK_CALL.finditer(code):
+            where = f"{path.name}:{lines.of(call.start())}"
+            literal = LITERALS.match(code, call.end())
+            if literal is None:
+                not_literal.append(where)
+                continue
+            text = "".join(re.findall(r'"((?:[^"\\\n]|\\.)*)"', literal.group(1)))
+            found.setdefault(text, []).append(where)
+    return found, not_literal
+
+
+def description_problems(folder: Path = PROPERTY) -> list[str]:
+    found, not_literal = check_descriptions(folder)
+    out = [f"{where}: a check() whose description is not a string literal -- it is the key "
+           "RC_PARAMS=\"reproduce=...\" finds the property by, so it is written out"
+           for where in not_literal]
+    for text, wheres in sorted(found.items()):
+        if len(wheres) > 1:
+            out.append(f"{' and '.join(wheres)} share the description {text!r}: a reproduce "
+                       "string would replay its case against both")
+    return out
+
+
+class PropertyFilesTest(unittest.TestCase):
+    """What tests/property/check.h and the resilience list take on trust,
+    checked: a check()'s description is the key a reproduce string finds its
+    property by -- written out, and never two alike -- and a `// covers:`
+    line belongs to a file whose code calls the function."""
+
+    def test_the_property_files_keep_both(self):
+        found, not_literal = check_descriptions()
+        self.assertTrue(found, "no check() found at all: the check would pass on nothing")
+        self.assertEqual(not_literal, [])
+        self.assertEqual(description_problems(), [])
+        self.assertEqual(unbacked_covers(), [])
+
+    def test_the_check_sees_each_mistake(self):
+        good = ('// covers: rmp::random::range(int, int)\n'
+                '// covers: rmp::Value::operator==(const Value &) const\n'
+                '// covers: rmp::Value::~Value()\n'
+                'TEST_CASE("x") {\n'
+                '    // rmp::test::check("in a comment", ...) is not a call\n'
+                '    rmp::test::check("a range holds"\n'
+                '                     " its ends",\n'
+                '                     [](int a) { RC_ASSERT(rmp::random::range(a, a) == a); });\n'
+                '    other.check("not ours", 1);\n'
+                '}\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "a_prop.cpp").write_text(good)
+            self.assertEqual(description_problems(folder), [])
+            self.assertEqual(unbacked_covers(folder), [])
+            self.assertEqual(check_descriptions(folder)[0],
+                             {"a range holds its ends": ["a_prop.cpp:6"]})
+            cases = [
+                ("b_prop.cpp", 'void f() { check("a range holds" " its ends", g); }\n',
+                 "a_prop.cpp:6 and b_prop.cpp:1 share the description 'a range holds its ends'"),
+                ("b_prop.cpp", 'void f() { rmp::test::check(name, g); }\n',
+                 "b_prop.cpp:1: a check() whose description is not a string literal"),
+                ("b_prop.cpp", '// covers: rmp::random::chance(float)\n'
+                               'void f() { /* chance(0.5F) */ const char *s = "chance(1)"; }\n',
+                 "b_prop.cpp covers rmp::random::chance(float), and its code never calls chance"),
+                ("b_prop.cpp", '// covers: rmp::random::range(int, int)\n'
+                               'void f() { int ranged = 0; }\n',
+                 "b_prop.cpp covers rmp::random::range(int, int), and its code never calls range"),
+            ]
+            for name, text, says in cases:
+                with self.subTest(says=says):
+                    (folder / name).write_text(text)
+                    found = description_problems(folder) + unbacked_covers(folder)
+                    (folder / name).unlink()
+                    self.assertEqual(len(found), 1, found)
+                    self.assertIn(says, found[0])
+
+    def test_the_name_a_covers_line_asks_for(self):
+        for key, name in [("rmp::random::range(int, int)", "range"),
+                          ("rmp::global [template]", "global"),
+                          ("rmp::Value::Value(const S &) [template]", "Value"),
+                          ("rmp::Value::Ref::operator const rmp::Value &() const", None),
+                          ("rmp::Callback::operator() [template]", None),
+                          ("rmp::Object::~Object()", None)]:
+            with self.subTest(key=key):
+                self.assertEqual(spelled_as(key), name)
 
 
 # ---------------------------------------------------------------------------
