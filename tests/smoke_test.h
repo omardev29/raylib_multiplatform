@@ -110,6 +110,34 @@ static inline int SmokeTest_CaptureAt(void) {
 }
 
 // ---------------------------------------------------------------------------
+// A frame read back with LoadImageFromScreen(), the way a person sees it.
+//
+// rlReadScreenPixels() flips what glReadPixels() returns, because GL's origin
+// is the bottom-left corner. The software renderer's read-back is neither
+// flipped nor in RGBA order: under PLATFORM=Memory the picture arrives upside
+// down with red and blue swapped. Seen in the first screenshots -- purple hills
+// came out red, red text came out blue. A hash does not care (it is a
+// fingerprint, and the golden one was recorded on the raw bytes); a person
+// looking at the picture does, and so does a golden PNG compared pixel by pixel
+// (tests/e2e/). Anywhere else the image comes back as it went in.
+//
+// By value, and returned, because this file is C too: ImageFlipVertical()
+// replaces the pixels, so the caller keeps what comes back and unloads that.
+// ---------------------------------------------------------------------------
+static inline Image SmokeTest_Upright(Image img) {
+    if (rlGetVersion() != RL_OPENGL_SOFTWARE || img.data == NULL) return img;
+    unsigned char *q = (unsigned char *)img.data;
+    const long total = (long)img.width * (long)img.height;
+    for (long i = 0; i < total; ++i) {
+        const unsigned char r = q[i * 4];
+        q[i * 4] = q[i * 4 + 2];
+        q[i * 4 + 2] = r;
+    }
+    ImageFlipVertical(&img);
+    return img;
+}
+
+// ---------------------------------------------------------------------------
 // Call once per frame, IMMEDIATELY BEFORE EndDrawing().
 //
 // The placement is load-bearing, in both directions:
@@ -207,25 +235,11 @@ static inline void SmokeTest_CaptureFrame(void) {
     const long differing = total - (long)hist[bg];
     free(hist);
 
-    // The picture, when asked for, on the last frame.
+    // The picture, when asked for, on the last frame. Upright, for a person;
+    // the hash above was taken on the bytes as they came.
     const char *shot = getenv("RAY_TEST_SCREENSHOT");
     if (shooting && shot && shot[0]) {
-        // rlReadScreenPixels() flips what glReadPixels() returns, because GL's
-        // origin is the bottom-left corner. The software renderer's read-back
-        // is neither flipped nor in RGBA order: under PLATFORM=Memory the
-        // picture arrives upside down with red and blue swapped. Seen in the
-        // first screenshots -- purple hills came out red, red text came out
-        // blue. The hash above does not care (it is a fingerprint, and the
-        // golden one was recorded on these bytes); a person looking at it does.
-        if (rlGetVersion() == RL_OPENGL_SOFTWARE) {
-            unsigned char *q = (unsigned char *)img.data;
-            for (long i = 0; i < total; ++i) {
-                const unsigned char r = q[i * 4];
-                q[i * 4] = q[i * 4 + 2];
-                q[i * 4 + 2] = r;
-            }
-            ImageFlipVertical(&img);
-        }
+        img = SmokeTest_Upright(img);
         if (ExportImage(img, shot)) {
             TraceLog(LOG_INFO, "RAY_TEST_SCREENSHOT %s", shot);
         } else {
