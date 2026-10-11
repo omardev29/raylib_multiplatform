@@ -84,14 +84,22 @@ Two things that will waste your time:
 
 ## CI
 
-A push runs the fast set: Linux, Windows, Web, Android, the `lint` job, the
-`examples` job, and `rmp_new`, which makes a game from the commit with
-`rmp new` and runs that game's own checks on it. In a game, the same `ci.yml`
-skips the framework's jobs and steps (`needs.config.outputs.framework`). The
-full matrix is manual:
+A push runs the fast set: Linux, Windows, Web, Android, and the framework's
+own jobs side by side -- `lint`, `tidy` (clang-tidy, `rmp lint`), `examples`
+(every example built and booted, the platformer's bot, the input), `e2e` (the
+scripts played and compared exactly), `coverage`, `docs`, and `rmp_new`, which
+makes a game from the commit with `rmp new` and runs that game's own checks on
+it. In a game, the same `ci.yml` skips the framework's jobs and steps
+(`needs.config.outputs.framework`).
+
+One fast lane per two stages; when it is red, the fix goes through a **debug
+lane** limited to the platforms involved -- Linux, Windows and macOS by
+default, Android or iOS only when the bug is there -- and the full matrix runs
+once, at the end of the plan:
 
 ```bash
-gh workflow run ci.yml -f full=true
+gh workflow run ci.yml -f targets=linux-x64-glibc,windows-x64,macos   # the debug lane
+gh workflow run ci.yml -f full=true                                   # all 17
 gh run list --limit 5
 gh run view <id>
 ```

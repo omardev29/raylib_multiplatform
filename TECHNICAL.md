@@ -969,7 +969,8 @@ workflows. The `config` job asks `python3 tools/rmp.py --mode` which one it is r
 the framework has `tests/configure_test.py`, a game does not -- and stops the run on any answer
 but `framework` or `game`. What only the framework has is skipped by that answer, never cut out
 of a copy: the framework's own steps in `lint` (its tests and its gates over its own sources),
-the `examples` job, the MSVC pass over `examples/` in `_windows.yml`, and `rmp_new`. A game's
+the `tidy`, `examples`, `e2e`, `coverage` and `docs` jobs, the MSVC pass over `examples/` in
+`_windows.yml`, and `rmp_new`. A game's
 `lint` job is actionlint, its configuration, the pinned versions, the licences and a frame drawn
 in software. `release` accepts those jobs as skipped only in a game.
 
@@ -984,9 +985,9 @@ OpenBSD's `ksh` in its BSD job.
 
 | Trigger | What builds |
 |---|---|
-| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64, plus the `lint`, `examples` and `rmp_new` jobs (~10 min) |
+| push to `main`, pull request | **Fast lane** — Linux x64, Web, Android, Windows x64, plus the framework's own jobs: `lint`, `tidy` (clang-tidy), `examples` (build and boot), `e2e` (the scripts played), `coverage`, `docs` and `rmp_new` (~8 min, every job side by side) |
 | tag `v*` | All 17 targets, then Release, then itch.io |
-| `workflow_dispatch` | Fast lane, or everything with the `full` input |
+| `workflow_dispatch` | Fast lane, or everything with the `full` input, or the **debug lane**: `-f targets=linux-x64-glibc,windows-x64,macos`, a comma-separated list of targets and groups, builds exactly those (and the framework's own jobs) |
 
 The full matrix costs about an hour of BSD QEMU and macOS runner time. Paying that per commit
 buys either a slow loop or, worse, a team that has learned to ignore CI.
@@ -1188,7 +1189,9 @@ fed from the script, saves in a fresh folder, no sound device. Each shot is comp
 compiler and one libm, inside the pinned build image, where `tools/examples_build.sh` sets
 `RMP_E2E_COMPARE=1`; anywhere else a difference is reported and not enforced. A failure leaves
 the expected picture, the actual one and the difference in `build/examples-check/e2e/`, which
-the examples job uploads. `rmp test e2e-update` re-records the goldens, inside the image only.
+the `e2e` job uploads -- the second half of `examples_build.sh`, beside the `examples` job, which
+builds and boots everything else and plays none of the scripts. `rmp test e2e-update` re-records
+the goldens, inside the image only.
 The grammar refuses, with the line, every script that cannot mean what it says (a press at frame
 0, a key tapped again before it came up, a shot named twice, no `end`); `E2eScriptsTest` holds
 every example of `games/`, `ui/`, `scenes/` and `input/` to a script (or to

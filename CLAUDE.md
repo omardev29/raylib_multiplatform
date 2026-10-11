@@ -135,7 +135,8 @@ here so that nobody "fixes" one back.
   job. `rmp example <name|path>` builds and runs one. **Omar's machine must
   not compile them constantly**: they are out of `rmp test` (about half a
   minute warm); `rmp test examples` runs `tools/examples_build.sh`, the same
-  script CI runs.
+  script CI runs -- its `boot` half, then its `e2e` half, which CI runs side by
+  side in the `examples` and `e2e` jobs.
 - **A game in `examples/games/` is playable from start to finish** -- win,
   lose, play again -- or it does not belong there. The job boots them all and
   the screenshot says whether they look like games; four of the six sat broken
@@ -155,7 +156,7 @@ here so that nobody "fixes" one back.
   needs one, with the reason) -- enforced inside the pinned image, where
   `examples_build.sh` sets `RMP_E2E_COMPARE=1`; anywhere else it is reported. A
   failure is `E2E FAIL <line>: <reason>`, a non-zero exit, and
-  expected/actual/diff in `build/examples-check/e2e/`, which the examples job
+  expected/actual/diff in `build/examples-check/e2e/`, which the `e2e` job
   uploads. Goldens come from the image only -- `tools/dev_shell.sh bash -c
   'python3 tools/configure.py && ./rmp test e2e-update'`; the script and the
   driver refuse it elsewhere -- and every picture that changed is looked at
@@ -172,7 +173,9 @@ here so that nobody "fixes" one back.
   An e2e run's ceiling is 600 s (`E2E_LIMIT` in `examples_build.sh`), a boot's
   180, and the scripts are played side by side, one per processor (or
   `CMAKE_BUILD_PARALLEL_LEVEL` of them, when it is set), the most frames first -- each has its own folder, and a frame is 1/60 s whatever the
-  load, so that changes the wait and nothing drawn.
+  load, so that changes the wait and nothing drawn. In CI they are the `e2e`
+  job's (`examples_build.sh e2e`), beside the `examples` job, which builds and
+  boots everything else (`examples_build.sh boot`) and plays none of them.
 - **Coverage is a ratchet, measured in the image.** `rmp test coverage`
   (`tools/coverage_check.sh`; the framework-only `coverage` job, which a release
   waits for) builds the unit tests, the layout test and `tests/input_play.cpp`
@@ -456,13 +459,21 @@ here so that nobody "fixes" one back.
   CI runner or a player's locked-down PC. Each such line says why in a comment;
   "fixing" one into `RMP_REPORT_ONCE` breaks strict mode. And a READ never
   reports at all -- `rmp::Value` reads through a path that creates nothing.
-- **Between phases, the fast lane is enough.** The full 17-target matrix is
-  ~20 minutes and belongs to structural phases only (a header split, a new
-  vendored dependency, an entry-point change). The BSDs are best effort: a
-  failure there after a green fast lane is a **PSB** — a platform-specific bug —
-  and the history of this repo says those are cheap to fix once and never come
-  back. Running the whole matrix between every phase costs more time than the
-  PSBs do.
+- **One fast lane per TWO stages; a debug lane when it is red; the full
+  matrix once, at the very end of the plan** (Omar, 2026-10-11). Stages are
+  integrated two at a time and pushed together, so one fast lane covers both.
+  When it is red, the fix is checked on a **debug lane**: a dispatch limited to
+  the platforms involved, `gh workflow run ci.yml -f
+  targets=linux-x64-glibc,windows-x64,macos` -- Linux, Windows and macOS by
+  default, `android` or `ios` added only when the bug is there. `-f targets`
+  takes a comma-separated list of targets and groups (`configure.py --only`,
+  every wrong item refused with its position), builds exactly those, and runs
+  every framework job beside them (`lint`, `tidy`, `examples`, `e2e`,
+  `coverage`, `docs`, `rmp_new`). The full 17-target matrix (~20 minutes) runs
+  once, when the plan is done. The BSDs are best effort: a failure there after
+  a green fast lane is a **PSB** — a platform-specific bug — and the history of
+  this repo says those are cheap to fix once and never come back. Running the
+  whole matrix between every phase costs more time than the PSBs do.
 
 ## Caveats that have already cost time
 
@@ -839,14 +850,16 @@ when the
 change is visual — looking at pixels is how most of the bugs above were
 found. Every stage of `rmp test` has a step in CI -- in the `lint` job (one a game's CI runs too,
 for the stages a game has), or in the job of its own that `StagesAgreeWithLintTest.JOBS` names
-(`examples`, `coverage`) -- and the test checks each stage against that job. In the image, run
+(`examples`, `coverage`), or, for one step of a stage, `STEP_JOBS` (`examples_build.sh e2e`, the
+`e2e` job) -- and the test checks each stage against that job. `rmp lint` is the `tidy` job. In the image, run
 `xvfb-run -a ./rmp test` as CI's lint job does: with no display the desktop smoke dies in
 `CloseWindow` under ASan instead of failing with a message. The image-dependent gates (header budget, PyYAML, versions
 against the manifest) run for real only inside the pinned image: `podman run
 --rm -v "$PWD":/work -w /work ghcr.io/omardev29/raylib-build@sha256:<digest>
 bash tools/<x>_check.sh` is how to see what CI sees.
 CI: a push runs the fast set, `gh workflow run ci.yml -f full=true` runs all 17
-targets. The `docs` job checks `omardev29/rmp-docs` (main) against the commit:
+targets, and `-f targets=linux-x64-glibc,windows-x64,macos` the debug lane: those
+targets and the framework's jobs. The `docs` job checks `omardev29/rmp-docs` (main) against the commit:
 every page's gates and every code block compiled against these headers. It only
 warns on a push and blocks a tag's release, so a change to the public API is
 followed by the docs change in `../rmp-docs` and a bump of its `FRAMEWORK_REF`
