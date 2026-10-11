@@ -44,6 +44,11 @@
 #include <utility>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <csignal>
+#include <sys/resource.h>
+#endif
+
 namespace fs = std::filesystem;
 using rmp::Value;
 using rmp::save::Status;
@@ -212,6 +217,19 @@ int heard_lines_with(std::string_view what) {
             return line.find(what) != std::string::npos;
         }));
 }
+
+#if defined(__linux__)
+// The descriptors this process has open, as the kernel lists them.
+int open_descriptors() {
+    int count = 0;
+    std::error_code error;
+    for (fs::directory_iterator at("/proc/self/fd", error), end; !error && at != end;
+         at.increment(error)) {
+        ++count;
+    }
+    return count;
+}
+#endif
 
 } // namespace
 
@@ -1542,6 +1560,92 @@ TEST_SUITE("save: files") {
         Value v;
         CHECK(rmp::save::read("slot", v).status == Status::MISSING);
     }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "with no portable folder, a save where the game runs is not read") {
+        // A read looks in the user's folder and, with [save] portable, in the
+        // portable one too. With no portable folder there is no second place
+        // -- and "" for one is the working directory, where a file called
+        // slot.save is nobody's save (Mull: the empty() check replaced,
+        // survived; review of P1).
+        const TempDir elsewhere;
+        const Bytes bytes = encoded(sample(), false);
+        std::ofstream(elsewhere.path / "slot.save", std::ios::binary)
+            .write(reinterpret_cast<const char *>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
+        const fs::path was = fs::current_path();
+        fs::current_path(elsewhere.path);
+        Value v = 3;
+        const Status status = rmp::save::read("slot", v).status;
+        const bool there = rmp::save::exists("slot");
+        fs::current_path(was);
+        CHECK(status == Status::MISSING);
+        CHECK_FALSE(there);
+        CHECK(v == Value(3));
+    }
+
+#if defined(__linux__)
+    TEST_CASE_FIXTURE(Fixture, "what a write and a read open, they close") {
+        // Every file rmp::save opens is closed by its handle. Without the
+        // close, each write and each read left a descriptor open -- a long
+        // session runs out of them, and on Windows a file still open cannot
+        // be renamed over or removed -- and no test saw it: Mull's mutant was
+        // listed as equivalent (review of P1). Linux lists them in
+        // /proc/self/fd.
+        REQUIRE(rmp::save::write("slot", sample())); // the folder made once
+        const int before = open_descriptors();
+        REQUIRE(before > 0);
+        for (int i = 0; i < 4; ++i) {
+            REQUIRE(rmp::save::write("slot", sample(), { .encrypted = i % 2 == 0 }));
+            Value back;
+            REQUIRE(rmp::save::read("slot", back));
+            CHECK(rmp::save::exists("slot"));
+        }
+        CHECK(open_descriptors() == before);
+        CHECK(rmp::save::remove("slot"));
+        CHECK(open_descriptors() == before);
+    }
+#endif
+
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    TEST_CASE_FIXTURE(
+        Fixture,
+        "a write the disk refuses half way keeps the old save, and no temporary") {
+        // The file opened and its bytes did not land: a full disk, a quota.
+        // RLIMIT_FSIZE at 0 refuses every byte written into a file (EFBIG,
+        // SIGXFSZ ignored while it lasts) -- a full disk a test can arrange.
+        // write() says false and removes its temporary, and the save already
+        // there is the one read. The removal taken out survived Mull, listed
+        // as a full disk no test can arrange (review of P1).
+        Value old;
+        old["level"] = 3;
+        REQUIRE(rmp::save::write("slot", old));
+        rlimit was{};
+        REQUIRE(getrlimit(RLIMIT_FSIZE, &was) == 0);
+        rlimit full = was;
+        full.rlim_cur = 0;
+        struct sigaction ignore{};
+        ignore.sa_handler = SIG_IGN;
+        struct sigaction before{};
+        REQUIRE(sigaction(SIGXFSZ, &ignore, &before) == 0);
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
+        const bool limited = setrlimit(RLIMIT_FSIZE, &full) == 0;
+        const bool wrote = limited && rmp::save::write("slot", sample());
+        const bool restored = setrlimit(RLIMIT_FSIZE, &was) == 0;
+        SetTraceLogCallback(nullptr);
+        sigaction(SIGXFSZ, &before, nullptr);
+        REQUIRE(limited);
+        REQUIRE(restored);
+        CHECK_FALSE(wrote);
+        CHECK(heard_lines_with("SAVE: could not write") == 1);
+        CHECK(rmp::detail::report_count() == 0);
+        CHECK_FALSE(fs::exists(dir.path / "slot.save.tmp"));
+        Value back;
+        REQUIRE(rmp::save::read("slot", back));
+        CHECK(back == old);
+    }
+#endif
 }
 
 TEST_SUITE("save: portable") {

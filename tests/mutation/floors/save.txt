@@ -4,13 +4,12 @@
 # slots on disk.
 #
 # Measured in the image on 2026-10-11 (Mull 0.34.1, clang 18.1.3): 273 mutants,
-# 233 detected, 36 below equivalent or out of every test's reach = 98.31%. Four
-# survive and count: two out-of-bounds writes no test in Mull's build can see
-# (the nonce's fill loop at `<= NONCE`, the counter's shift at `<= 8`; the
-# sanitized unit tests report both), create_directories() failing on a folder
-# that exists (664:16), and the other folder's name when there is no portable
-# one (723:21: "" -- a slot's file in the working directory). Mull puts 42 in
-# place of a scalar call: a bool reads it as false, a size as 42.
+# 236 detected, 34 below equivalent or out of every test's reach = 98.74%.
+# Three survive and count: two out-of-bounds writes no test in Mull's build can
+# see (the nonce's fill loop at `<= NONCE`, the counter's shift at `<= 8`; the
+# sanitized unit tests report both), and create_directories() failing on a
+# folder that exists (664:16). Mull puts 42 in place of a scalar call: a bool
+# reads it as false, a size as 42.
 kind     cxx
 sources  src/rmp/save.cpp
 tests    unit_test -sf=*save_test.cpp
@@ -37,7 +36,6 @@ equivalent cxx_init_const:src/rmp/save.cpp:420:17 whole_number() writes it befor
 equivalent cxx_init_const:src/rmp/save.cpp:421:19 whole_number() writes it before it is read, and when it cannot, decode() has already returned
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:435:35 snprintf's size as 42, past the 9-byte buffer, and "%08x" is 8 characters: the same text
 equivalent cxx_lt_to_le:src/rmp/save.cpp:454:18 a sealed payload of exactly nonce and tag holds no JSON, which no writer seals: its tag fails either way, MODIFIED
-equivalent cxx_replace_scalar_call:src/rmp/save.cpp:645:43 fclose() not called: the save was flushed and synced before, and on POSIX a file renamed or read while open is the same file -- a descriptor leaks
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:650:14 empty() as false: fopen() of an empty path fails, nullptr either way
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:664:9 the error as false: a folder create_directories() could not make fails the probe file opened next, false either way
 equivalent cxx_init_const:src/rmp/save.cpp:666:10 42 as a bool is false, its initial value
@@ -46,7 +44,6 @@ equivalent cxx_replace_scalar_call:src/rmp/save.cpp:731:13 the error as false: l
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:762:9 the error as false: file_size() reports one as uintmax_t(-1), past the cap, refused either way
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:766:14 empty() as false: fread() of no bytes returns 0, which is the size, true either way
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:775:14 empty() as false: to_path() of a non-empty string is never empty on POSIX, where Mull runs
-equivalent cxx_replace_scalar_call:src/rmp/save.cpp:793:13 the temporary removed after a write or a sync that failed -- a full disk, which no test can arrange
 equivalent cxx_replace_scalar_call:src/rmp/save.cpp:824:27 empty() as false: with_separator() of an empty path is empty
 equivalent cxx_remove_void_call:src/rmp/save.cpp:869:5 the variant that runs keeps TraceLog() and removes the destructor of file_in()'s temporary (seen in the binary): a leak only
 equivalent cxx_init_const:src/rmp/save.cpp:900:10 42 as a bool is false, its initial value
