@@ -31,9 +31,8 @@
 
 namespace {
 
-// The size RapidCheck calls nominal: the one a property's last cases run at,
-// where a generator that grows with the size draws everything it can.
-constexpr int SAMPLE_SIZE = 100;
+// Where a generator that grows with the size draws everything it can.
+constexpr int SAMPLE_SIZE = rmp::test::gen::NOMINAL_SIZE;
 
 // `count` values of a generator, from a fixed seed: what a generator draws,
 // without a property around it -- so a test can ask whether it ever draws X.

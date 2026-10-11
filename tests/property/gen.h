@@ -54,6 +54,10 @@ namespace rmp::test::gen {
 inline constexpr int SAVE_DEPTH = rmp::save::detail::MAX_DEPTH;
 // How deep value() goes when it reaches past that on purpose.
 inline constexpr int DEEPEST = SAVE_DEPTH + 2;
+// The size RapidCheck calls nominal (its own constant has a name this
+// repository's naming rules refuse): the size a property's last cases run at,
+// where a generator that scales with the size draws its whole range.
+inline constexpr int NOMINAL_SIZE = 100;
 
 namespace detail {
 
@@ -150,7 +154,7 @@ inline rc::Gen<rmp::Value> spine() {
         // At the nominal size: inRange scales its range with the run's size,
         // and the early cases of a property would never leave SAVE_DEPTH - 2.
         const int levels =
-            SAVE_DEPTH - 2 + *rc::gen::resize(rc::kNominalSize, rc::gen::inRange(0, 5));
+            SAVE_DEPTH - 2 + *rc::gen::resize(NOMINAL_SIZE, rc::gen::inRange(0, 5));
         rmp::Value inner = *leaf();
         for (int level = 0; level < levels; ++level) {
             rmp::Value outer =
