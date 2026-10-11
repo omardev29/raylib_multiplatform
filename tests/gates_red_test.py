@@ -568,7 +568,7 @@ class HeaderCostCheckTest(GateTest):
 
 CALLER = """\
 on: push
-jobs:
+{workflow_permissions}jobs:
   build:
 {permissions}    uses: ./.github/workflows/_x.yml
 """
@@ -599,11 +599,13 @@ class WorkflowCheckTest(GateTest):
             self.skipTest("workflow_check.sh reads YAML, and PyYAML is not installed")
         super().setUp()
 
-    def pair(self, caller_permissions="", callee_permissions="", inputs=""):
+    def pair(self, caller_permissions="", callee_permissions="", inputs="",
+             workflow_permissions=""):
         fixture = self.tree.root / "fixture"
         flows = fixture / ".github" / "workflows"
         flows.mkdir(parents=True, exist_ok=True)
-        (flows / "ci.yml").write_text(CALLER.format(permissions=caller_permissions))
+        (flows / "ci.yml").write_text(CALLER.format(permissions=caller_permissions,
+                                                    workflow_permissions=workflow_permissions))
         (flows / "_x.yml").write_text(CALLEE.format(permissions=callee_permissions,
                                                     inputs=inputs))
         return str(fixture)
@@ -639,6 +641,35 @@ class WorkflowCheckTest(GateTest):
                                     "permissions:\n  packages: write\n  contents: read\n"))
         self.assert_green(self.pair("    permissions: read-all\n",
                                     "permissions:\n  packages: read\n"))
+
+    def test_planted_a_scope_a_job_s_map_leaves_out(self):
+        """A job that says `permissions:` grants nothing it does not name --
+        only metadata is read whatever the map says. contents was taken as
+        granted everywhere, as it is when nothing is declared at all, so a
+        callee that reads the repository under a caller that names only
+        packages passed; GitHub starts no job of that run."""
+        self.assert_red("asks for ['contents: read'] and is not granted it", args=[self.pair(
+            "    permissions:\n      packages: read\n",
+            "permissions:\n  contents: read\n  packages: read\n")])
+        self.assert_green(self.pair(
+            "", "permissions:\n  contents: read\n  metadata: read\n"))
+
+    def test_planted_a_workflow_that_grants_less_than_its_job_is_asked(self):
+        """A job that says nothing runs with its workflow's permissions, not
+        the repository's default: `packages: write` asked under a workflow
+        that grants `packages: read` is refused, and granted under one that
+        grants write."""
+        self.assert_red("asks for ['packages: write'] and is not granted it", args=[self.pair(
+            "", "permissions:\n  packages: write\n",
+            workflow_permissions="permissions:\n  contents: read\n  packages: read\n")])
+        self.assert_green(self.pair(
+            "", "permissions:\n  contents: read\n  packages: write\n",
+            workflow_permissions="permissions:\n  contents: read\n  packages: write\n"))
+        # The job's own map, when it has one, and not the workflow's.
+        self.assert_red("asks for ['packages: write'] and is not granted it", args=[self.pair(
+            "    permissions:\n      contents: read\n      packages: read\n",
+            "permissions:\n  contents: read\n  packages: write\n",
+            workflow_permissions="permissions: write-all\n")])
 
     def test_a_reusable_workflow_with_nothing_under_workflow_call(self):
         """`on: workflow_call:` and no inputs is a reusable workflow GitHub
