@@ -7735,24 +7735,47 @@ class ActionsArePinnedByShaTest(unittest.TestCase):
 
 
 class E2eScriptsTest(unittest.TestCase):
-    """Every game is played from a script, and every picture a script takes
-    has a golden to be compared with.
+    """Every game, menu, scene and input example is played from a script, and
+    every picture a script takes has a golden to be compared with.
 
     tests/e2e/<area>/<name>.e2e plays examples/<area>/<name> (tests/e2e/
     driver.cpp, tools/examples_build.sh); each `shot` in it is compared with
     tests/e2e/golden/<area>/<name>/<shot>.png. A shot with no golden checks
     nothing, a golden no shot takes is a picture nobody compares any more,
-    and a game with no script is a game nobody plays -- each of those looks
-    exactly like a pass. The games still without one are tests/e2e/pending.txt,
-    which only shrinks."""
+    and an example with no script is an example nobody plays -- each of those
+    looks exactly like a pass. The ones still without one are
+    tests/e2e/pending.txt, which only shrinks."""
 
     E2E = REPO / "tests" / "e2e"
     GOLDEN = REPO / "tests" / "e2e" / "golden"
     PENDING_FILE = REPO / "tests" / "e2e" / "pending.txt"
     # The most lines pending.txt may have. It only goes down: lower it in the
-    # commit that adds a game's script.
+    # commit that adds a script.
     PENDING_CEILING = 5
     SHOT = re.compile(r"^\s*\d+\s+shot\s+(\S+)")
+
+    # The areas of examples/ whose every example is played from a script.
+    PLAYED = ("games", "ui", "scenes", "input")
+    # And the ones that are not, each with why. Every area is in one of the
+    # two, so a new one is a decision and not a gap.
+    NOT_PLAYED = {
+        "ads": "rmp::ads shows an ad on Android only: on the desktop, and in the "
+               "PLATFORM=Memory run a script plays, every call does nothing, so "
+               "there is no ad to see or to close -- and ads/01_interstitial "
+               "reads its keys from raylib (IsKeyPressed), which a script "
+               "cannot press",
+        "assets": "assets/01_loading shows a picture and a line of text, and its "
+                  "two keys play a sound -- the run has no sound device, and "
+                  "nothing on the screen changes. Its keys are read from raylib "
+                  "(IsKeyPressed), which a script cannot press: two lines through "
+                  "rmp::input would fix that, and a script would still only "
+                  "prove the boot the examples job already takes a picture of",
+        "platform": "02_mobile_raymob is Android's raymob API, compiled out "
+                    "everywhere else; 03_minimal_includes has no main() -- it is "
+                    "the check that rmp/ui.h stands alone, compiled and never run",
+        "plain_c": "plain C with its own main(): the driver plays a game through "
+                   "rmp's seams, and it has none (CMake refuses a script for it)",
+    }
 
     def scripts(self):
         """{"games/01_pong": path} for every script."""
@@ -7767,29 +7790,77 @@ class E2eScriptsTest(unittest.TestCase):
         return [m.group(1) for line in script.read_text().splitlines()
                 if (m := self.SHOT.match(line.split("#", 1)[0]))]
 
-    def test_every_game_has_a_script_or_is_pending(self):
+    def played_examples(self):
+        """"ui/01_menu" for every example in an area that is played."""
+        return sorted(d.parent.parent.relative_to(REPO / "examples").as_posix()
+                      for area in self.PLAYED
+                      for d in (REPO / "examples" / area).glob("*/src/main.cpp"))
+
+    @staticmethod
+    def unscripted(examples, scripts, pending):
+        """The examples with neither a script nor a pending line."""
+        return [e for e in examples if e not in scripts and e not in pending]
+
+    @staticmethod
+    def stale(pending, scripts):
+        """The pending lines for an example that has a script now."""
+        return [line for line in pending if line in scripts]
+
+    def test_every_area_is_played_or_says_why_not(self):
+        areas = sorted(d.name for d in (REPO / "examples").iterdir() if d.is_dir())
+        self.assertGreaterEqual(len(areas), 8, "examples/ moved; this would check nothing")
+        self.assertFalse(set(self.PLAYED) & set(self.NOT_PLAYED), "an area cannot be both")
+        for area in areas:
+            with self.subTest(area=area):
+                self.assertTrue(area in self.PLAYED or area in self.NOT_PLAYED,
+                                f"examples/{area}/ is new: play its examples from "
+                                "tests/e2e/, or add it to NOT_PLAYED with the reason")
+        for area in [*self.PLAYED, *self.NOT_PLAYED]:
+            with self.subTest(named=area):
+                self.assertTrue((REPO / "examples" / area).is_dir(),
+                                f"examples/{area}/ is gone: take it off this test")
+
+    def test_every_example_played_has_a_script_or_is_pending(self):
         scripts, pending = self.scripts(), self.pending()
-        games = sorted(d.parent.parent.relative_to(REPO / "examples").as_posix()
-                       for d in (REPO / "examples" / "games").glob("*/src/main.cpp"))
-        self.assertGreaterEqual(len(games), 7, "examples/games/ moved; this would check nothing")
-        for game in games:
-            with self.subTest(game=game):
-                self.assertTrue(game in scripts or game in pending,
-                                f"examples/{game} has no script: write tests/e2e/{game}.e2e")
+        examples = self.played_examples()
+        for area, at_least in (("games", 7), ("ui", 7), ("scenes", 1), ("input", 1)):
+            with self.subTest(area=area):
+                self.assertGreaterEqual(sum(e.startswith(area + "/") for e in examples), at_least,
+                                        f"examples/{area}/ moved; this would check nothing")
+        for example in self.unscripted(examples, scripts, pending):
+            with self.subTest(example=example):
+                self.fail(f"examples/{example} has no script: write tests/e2e/{example}.e2e")
+
+    def test_an_example_with_no_script_is_found(self):
+        """Seen red: the check above, on a tree where one example has neither."""
+        examples = ["games/01_pong", "ui/01_menu", "ui/02_layout"]
+        scripts = {"games/01_pong": Path("x"), "ui/01_menu": Path("y")}
+        self.assertEqual(self.unscripted(examples, scripts, []), ["ui/02_layout"])
+        self.assertEqual(self.unscripted(examples, scripts, ["ui/02_layout"]), [])
 
     def test_the_pending_list_only_shrinks(self):
         scripts, pending = self.scripts(), self.pending()
         self.assertLessEqual(len(pending), self.PENDING_CEILING,
-                             "tests/e2e/pending.txt grew: a new game comes with its script")
-        self.assertEqual(len(pending), len(set(pending)), "a game is pending twice")
-        for game in pending:
-            with self.subTest(game=game):
-                self.assertTrue(game.startswith("games/"), f"{game}: only games are pending")
-                self.assertTrue((REPO / "examples" / game / "src" / "main.cpp").is_file(),
-                                f"{game} is pending and is not a game in examples/")
-                self.assertNotIn(game, scripts,
-                                 f"{game} has a script now: delete its line from pending.txt "
-                                 "and lower PENDING_CEILING")
+                             "tests/e2e/pending.txt grew: a new example comes with its script")
+        self.assertEqual(len(pending), len(set(pending)), "an example is pending twice")
+        for line in pending:
+            with self.subTest(pending=line):
+                self.assertIn(line.split("/", 1)[0], self.PLAYED,
+                              f"{line}: only an example of an area played from scripts "
+                              "is pending")
+                self.assertTrue((REPO / "examples" / line / "src" / "main.cpp").is_file(),
+                                f"{line} is pending and is not an example in examples/")
+        for line in self.stale(pending, scripts):
+            with self.subTest(stale=line):
+                self.fail(f"{line} has a script now: delete its line from pending.txt "
+                          "and lower PENDING_CEILING")
+
+    def test_a_pending_line_with_a_script_is_found(self):
+        """Seen red: the check above, on a list that still names a played one."""
+        scripts = {"ui/01_menu": Path("y")}
+        self.assertEqual(self.stale(["games/02_breakout", "ui/01_menu"], scripts),
+                         ["ui/01_menu"])
+        self.assertEqual(self.stale(["games/02_breakout"], scripts), [])
 
     def test_the_ceiling_is_what_is_left(self):
         """A ceiling above the list would let it grow back."""

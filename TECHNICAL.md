@@ -117,9 +117,9 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   │   ├── driver.cpp        #   linked into e2e_<area>_<name>: the clock, the hands, the eyes
 │   │   ├── script.cpp        #   the grammar of a .e2e (script.h), every rejection with its line
 │   │   ├── compare.cpp       #   the exact comparison (compare.h), and expected / actual / diff
-│   │   ├── games/*.e2e       #   one script per game: a happy path and a failure path
+│   │   ├── <area>/*.e2e      #   one per example of games/ ui/ scenes/ input/: a happy and a failure path
 │   │   ├── golden/           #   <area>/<name>/<shot>.png, recorded inside the build image
-│   │   └── pending.txt       #   the games with no script yet -- a list that only shrinks
+│   │   └── pending.txt       #   the examples with no script yet -- a list that only shrinks
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
 │   ├── rmp_test.py           # rmp itself: every command, the launchers, rmp new, CI's game mode
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
@@ -1176,8 +1176,9 @@ arrived (nobody could step off), a rider that kept a pixel of overlap (the ledge
 platform that undid every jump from it above ~127 FPS.
 
 **Played from a script, and compared pixel for pixel** — `tests/e2e/<area>/<name>.e2e` says what a
-player presses, frame by frame (`120 tap KEY_ENTER`, `400 click 400 245`), what the screen must
-show (`200 shot red_scores`) and which scene must be on top (`640 expect scene OverScene`).
+player presses, frame by frame (`120 tap KEY_ENTER`, `15 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN`,
+`400 click 400 245`), what the screen must show (`200 shot red_scores`) and which scene must be on
+top (`640 expect scene OverScene`).
 `e2e_<area>_<name>` is the example exactly as it ships -- its own `main.cpp` and entry point --
 plus `tests/e2e/driver.cpp`, which installs itself before `main()` through the seams: every frame
 exactly 1/60 s and `rmp::random` at seed 1 (`src/rmp/clock.cpp`; the UI animates by the same
@@ -1190,8 +1191,15 @@ the expected picture, the actual one and the difference in `build/examples-check
 the examples job uploads. `rmp test e2e-update` re-records the goldens, inside the image only.
 The grammar refuses, with the line, every script that cannot mean what it says (a press at frame
 0, a key tapped again before it came up, a shot named twice, no `end`); `E2eScriptsTest` holds
-every game to a script (or to `tests/e2e/pending.txt`, which only shrinks), every shot to a
-golden and every golden to a shot. Pong's first script found that the arrows moved both paddles.
+every example of `games/`, `ui/`, `scenes/` and `input/` to a script (or to
+`tests/e2e/pending.txt`, which only shrinks), says why each other area is not played, and holds
+every shot to a golden and every golden to a shot. On every frame, whatever the script checks,
+the driver fails a control the example laid out outside its window and in no scroll area
+(`rmp::ui::detail::controls_out_of_reach()`): nobody can see or click it. Pong's first script
+found that the arrows moved both paddles; the UI's found the settings screen's Apply button and
+half the style page below the bottom of their own window, a list whose focus walked out of
+sight, a tap on a button that reached the game underneath it as well, and two examples that read
+the keyboard and the mouse from raylib where no script, and no gamepad, could press them.
 
 **Sanitized** — every Debug build of the framework runs under AddressSanitizer (with
 LeakSanitizer on Linux) and UndefinedBehaviorSanitizer, every report fatal: `[dev] sanitize` in
