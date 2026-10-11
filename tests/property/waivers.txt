@@ -165,24 +165,6 @@ rmp::Camera::shake_offset() const
 rmp::Camera::to_screen(Vector2) const
 rmp::Camera::to_world(Vector2) const
 rmp::Camera::view() const
-rmp::Scene::_draw()
-rmp::Scene::_end()
-rmp::Scene::_ready()
-rmp::Scene::_resume()
-rmp::Scene::_suspend()
-rmp::Scene::_update(float)
-rmp::Scene::change [template]
-rmp::Scene::current()
-rmp::Scene::depth()
-rmp::Scene::destroy(Object &)
-rmp::Scene::object_count() const
-rmp::Scene::pop()
-rmp::Scene::push [template]
-rmp::Scene::raycast(Vector2, Vector2) const
-rmp::Scene::raycast(const RayQuery &) const
-rmp::Scene::raycast_all(const RayQuery &, std::span<RayHit>) const
-rmp::Scene::replace [template]
-rmp::Scene::spawn [template]
 
 # include/rmp/ui.h: P7, after Stage D
 rmp::ui::at [template]

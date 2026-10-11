@@ -436,6 +436,11 @@ void shutdown() {
     // load assets that are about to be released.
     scene_stack.pending.clear();
     while (!scene_stack.items.empty()) end_top();
+    // And again: an _end() above is the game's code, and may have asked for a
+    // scene on its way out. Kept, that scene outlived the window and the
+    // resource table -- destroyed at exit, with whatever its constructor
+    // loaded -- and a stack started again ran it first.
+    scene_stack.pending.clear();
     scene_stack.playing.clear();
     scene_stack.running = false;
 }
