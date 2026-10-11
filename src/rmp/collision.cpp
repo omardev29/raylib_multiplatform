@@ -39,6 +39,7 @@
 #include "object_internal.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -578,17 +579,6 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     }
     grid->cell = clampf(total / static_cast<float>(entries.size()), 8.0f, 2048.0f);
 
-    float x0 = entries[0].swept.x;
-    float y0 = entries[0].swept.y;
-    float x1 = x0;
-    float y1 = y0;
-    for (const Entry &e : entries) {
-        if (e.swept.x < x0) x0 = e.swept.x;
-        if (e.swept.y < y0) y0 = e.swept.y;
-        if (e.swept.x + e.swept.width > x1) x1 = e.swept.x + e.swept.width;
-        if (e.swept.y + e.swept.height > y1) y1 = e.swept.y + e.swept.height;
-    }
-
     // The grid is sized to the OBJECTS and not to the world. A level four
     // thousand units across with two thousand four-unit objects in it wants a
     // cell of 8 by the rule above, which is 250 000 cells for 2 000 things --
@@ -597,28 +587,39 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
     // budget proportional to what is actually in it, and the broad phase stays
     // a broad phase instead of falling back to the O(n^2) loop on exactly the
     // scenes that need it most.
-    // Every entry's shape is a finite box (index_for leaves out the rest);
-    // a swept one can still run past FLT_MAX, from a previous position near
-    // it. That, and a world spread past what an int counts in cells even at
-    // the largest cell, are what the grid cannot describe.
+    //
+    // The grid is the span of the entries' own cells, so every entry's cells
+    // are inside it by construction: a cell outside would be a write outside.
+    // Every entry's shape is a finite box (index_for leaves out the rest), but
+    // a swept one can run past FLT_MAX from a previous position near it, and
+    // a world can spread past what an int counts in cells even at the largest
+    // cell: neither has cells, and the grid cannot describe it.
     const auto budget = static_cast<std::int64_t>(entries.size()) * 4 + 1024;
+    std::vector<CellSpan> &spans = grid->spans;
     bool fits = false;
     for (int step = 0; step < 64 && !fits; ++step) {
-        const std::optional<CellSpan> all = span_of(x0, y0, x1, y1, grid->cell);
-        if (all) {
-            const std::int64_t cols = std::int64_t{ all->x1 } - all->x0 + 1;
-            const std::int64_t rows = std::int64_t{ all->y1 } - all->y0 + 1;
+        spans.clear();
+        CellSpan all = { INT_MAX, INT_MAX, INT_MIN, INT_MIN };
+        for (const Entry &e : entries) {
+            const std::optional<CellSpan> s = span_of(e.swept, grid->cell);
+            if (!s) break;
+            spans.push_back(*s);
+            all = CellSpan{ std::min(all.x0, s->x0), std::min(all.y0, s->y0),
+                            std::max(all.x1, s->x1), std::max(all.y1, s->y1) };
+        }
+        if (spans.size() == entries.size()) {
+            const std::int64_t cols = std::int64_t{ all.x1 } - all.x0 + 1;
+            const std::int64_t rows = std::int64_t{ all.y1 } - all.y0 + 1;
             // Divided, not multiplied: two counts near 2^32 overflow 64 bits.
-            if (cols > 0 && rows > 0 && cols <= budget && rows <= budget / cols) {
-                grid->min_x = all->x0;
-                grid->min_y = all->y0;
+            if (cols <= budget && rows <= budget / cols) {
+                grid->min_x = all.x0;
+                grid->min_y = all.y0;
                 grid->cols = static_cast<int>(cols);
                 grid->rows = static_cast<int>(rows);
                 fits = true;
-                break;
             }
         }
-        grid->cell *= 2;
+        if (!fits) grid->cell *= 2;
     }
 
     // Nothing the doublings could bring within budget: the grid says so by
@@ -629,22 +630,6 @@ void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> 
         return;
     }
     const auto total_cells = static_cast<std::int64_t>(grid->cols) * grid->rows;
-    // Each entry's cells, worked out once, the same for both passes below. A
-    // box inside [x0, x1] has its cells inside the grid's, since floor() of a
-    // division by a positive cell never goes down as its argument goes up --
-    // and checked all the same, because a cell outside is a write outside.
-    std::vector<CellSpan> &spans = grid->spans;
-    spans.clear();
-    for (const Entry &e : entries) {
-        const std::optional<CellSpan> s = span_of(e.swept, grid->cell);
-        if (!s || s->x0 < grid->min_x || s->y0 < grid->min_y ||
-            s->x1 >= std::int64_t{ grid->min_x } + grid->cols ||
-            s->y1 >= std::int64_t{ grid->min_y } + grid->rows) {
-            grid->clear();
-            return;
-        }
-        spans.push_back(*s);
-    }
 
     // Counting sort, two passes. First how many entries each cell holds...
     const auto cells = static_cast<std::size_t>(total_cells);

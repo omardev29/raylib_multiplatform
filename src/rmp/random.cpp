@@ -130,10 +130,11 @@ float range(float min, float max) {
     // Rounding can land ON max, or a float past it: -FLT_MIN to 0 at the
     // largest v rounds to -0, which is 0. "Never reaching max" is the promise,
     // so it is the nearest float short of max -- or min, for an empty range.
+    // (The other end needs nothing: min plus something on max's side of it
+    // rounds to min at the nearest.)
     if (min < max ? drawn >= max : drawn <= max) {
         drawn = min == max ? min : std::nextafter(max, min);
     }
-    if (min < max ? drawn < min : drawn > min) drawn = min;
     return drawn;
 }
 
