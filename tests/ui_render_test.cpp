@@ -661,7 +661,10 @@ struct {
     int gave_up = 0;
 } heard;
 
+// raylib's TraceLogCallback: its format is a C string raylib hands over.
+// NOLINTBEGIN(custom-rmp-raw-pointer): raylib's signature, not ours to choose
 void hear(int /*level*/, const char *text, va_list args) {
+    // NOLINTEND(custom-rmp-raw-pointer)
     std::array<char, 512> line{};
     std::vsnprintf(line.data(), line.size(), text, args);
     if (std::string_view(line.data()).find("cannot blur here") !=
