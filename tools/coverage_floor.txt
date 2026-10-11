@@ -20,7 +20,7 @@ src/rmp/internal.h               100
 src/rmp/json_internal.h          100
 src/rmp/ldtk.cpp                 97
 src/rmp/loader_hook.cpp          100
-src/rmp/object.cpp               79
+src/rmp/object.cpp               81
 src/rmp/object_internal.h        100
 src/rmp/pack.cpp                 100
 src/rmp/pack_internal.h          100
