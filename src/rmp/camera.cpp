@@ -31,8 +31,8 @@ constexpr float pixels_per_unit(const float zoom, const float scale) {
 // What a camera at `centre` shows of the world: the game's area on the screen,
 // in world units. Under NONE the area is the whole window and this is the
 // window divided by the zoom; under LETTERBOX it is the design divided by the
-// zoom whatever the window; under EXPAND the design, and more of the world
-// along the window's longer side.
+// zoom whatever the window; under EXPAND the design, and more of the world the
+// way the window is longer than the design's shape.
 Rectangle view_around(const Vector2 centre, const Rectangle &area, const float ppu) {
     const float w = area.width / ppu;
     const float h = area.height / ppu;

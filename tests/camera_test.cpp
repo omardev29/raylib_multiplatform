@@ -805,7 +805,9 @@ TEST_SUITE("camera: stretch") {
         }
     }
 
-    TEST_CASE_FIXTURE(Fixture, "EXPAND shows more of the world along the longer side") {
+    TEST_CASE_FIXTURE(Fixture,
+                      "EXPAND shows more of the world the way the window is longer than "
+                      "the design") {
         const World world;
         SUBCASE("a phone held upright: the design's width, and more height") {
             const Screen screen(1080, 2400, Stretch::EXPAND);
@@ -829,6 +831,17 @@ TEST_SUITE("camera: stretch") {
             CHECK(v.width == doctest::Approx(1.5f * SCREEN_WIDTH));
             CHECK(v.height == doctest::Approx(SCREEN_HEIGHT));
             CHECK(world.camera.raylib().zoom == doctest::Approx(2));
+        }
+        SUBCASE("a 4:3 monitor, wider than tall: the design's width, and more height") {
+            // Longer than the DESIGN is what counts, not the window's longer
+            // side: 1024x768 is landscape, and taller than a wider design.
+            REQUIRE(SCREEN_WIDTH / SCREEN_HEIGHT > 4.0f / 3.0f);
+            const Screen screen(1024, 768, Stretch::EXPAND);
+            const Rectangle v = world.camera.view();
+            CHECK(v.width == doctest::Approx(SCREEN_WIDTH));
+            CHECK(v.height == doctest::Approx(768 * SCREEN_WIDTH / 1024));
+            CHECK(v.height > SCREEN_HEIGHT);
+            CHECK(world.camera.raylib().zoom == doctest::Approx(1024 / SCREEN_WIDTH));
         }
     }
 

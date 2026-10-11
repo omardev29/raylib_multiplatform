@@ -858,7 +858,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     one_of(cfg["window"]["stretch"], set(STRETCH_MODES), "[window] stretch",
            "none draws the world at 1:1 whatever the window; letterbox scales the design\n"
            "to fit and fills the rest with bars; expand scales it the same and shows more\n"
-           "of the world along the longer side.")
+           "of the world the way the window is longer than the design, with no bars.")
     for k in ("width", "height"):
         v = cfg["window"][k]
         if not isinstance(v, int) or not (16 <= v <= 16384):

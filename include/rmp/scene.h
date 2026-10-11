@@ -142,8 +142,9 @@ public:
 
     // What is visible, in world units, ignoring rotation: the game's area of
     // the window divided by the zoom and the stretch's scale. The window under
-    // NONE; the design under LETTERBOX, whatever the window; the design and
-    // more along the window's longer side under EXPAND.
+    // NONE; the design under LETTERBOX, whatever the window; under EXPAND the
+    // design and more, the way the window is longer than the design's shape --
+    // taller on a 4:3 monitor, wider on a 21:9 one.
     [[nodiscard]] Rectangle view() const;
     [[nodiscard]] Vector2 to_screen(Vector2 world) const;
     [[nodiscard]] Vector2 to_world(Vector2 screen) const;

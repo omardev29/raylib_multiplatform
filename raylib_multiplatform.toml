@@ -49,8 +49,10 @@ fps = 0
 #   "letterbox"  the design scaled to fit and centred, the rest of the window
 #                bars of the clear colour. Every player sees the same part of
 #                the world, and rmp::ui keeps the interface inside it.
-#   "expand"     scaled to fit like letterbox, with no bars: the longer side
-#                shows more of the world. For a level that scrolls anyway.
+#   "expand"     scaled to fit like letterbox, with no bars: more of the world
+#                shows the way the window is longer than the design -- above
+#                and below on a 4:3 screen, at the sides on a 21:9 one. For a
+#                level that scrolls anyway.
 # A scene can change it at any moment with rmp::app::set_stretch(). A .toml
 # without this line gets "none".
 stretch = "letterbox"
