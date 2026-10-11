@@ -13,6 +13,7 @@
 
 #include "internal.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -180,11 +181,15 @@ std::optional<Clay_BoundingBox> pop_scissor(ScissorStack &stack) {
     return stack.boxes[static_cast<size_t>(stack.depth - 1)];
 }
 
+// A slice of no length is "". Clay hands out one of length -1: a word too wide
+// for its box, then a space and a newline (wrapped, the line after the word
+// is the newline's, and Clay takes the space before it off a line that has
+// nothing on it). -1 here wrote the terminator one byte in front of the
+// buffer, every frame that text was drawn.
 const char *cstr(Clay_StringSlice slice) {
-    int len = slice.length;
-    if (len >= SCRATCH) len = SCRATCH - 1;
+    const int len = std::clamp<int>(slice.length, 0, SCRATCH - 1);
     if (len > 0) std::memcpy(scratch.text.data(), slice.chars, static_cast<size_t>(len));
-    scratch.text[len] = '\0';
+    scratch.text[static_cast<size_t>(len)] = '\0';
     return scratch.text.data();
 }
 
@@ -240,6 +245,7 @@ void draw(Clay_RenderCommandArray commands) {
 
             case CLAY_RENDER_COMMAND_TYPE_TEXT: {
                 const auto &t = cmd.renderData.text;
+                if (t.stringContents.length <= 0) break; // see cstr()
                 auto size = static_cast<float>(t.fontSize);
                 const ::Font f = ui_font(size); // baked at exactly this size: sharp
                 DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,

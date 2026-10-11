@@ -3145,6 +3145,39 @@ TEST_CASE("shutdown() forgets the frame, the font and the transitions") {
 }
 TEST_CASE("the text field types what the provider says") { run_typed(); }
 
+// Found by tests/property/ui_text_prop.cpp. Clay wraps a word too wide for its
+// box onto a line of its own, space after it included, and then takes that
+// space off the NEXT line -- the newline's, which has nothing on it -- and
+// hands it over as a line of length -1. render.cpp's cstr() wrote its
+// terminator at [-1], one byte in front of its buffer, every frame.
+TEST_CASE("a word too wide for its box, a space and a newline") {
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    for (int frame = 0; frame < 2; ++frame) {
+        rmp::ui::begin();
+        rmp::ui::column({ .width = 60 }, [] {
+            rmp::ui::text("Supercalifragilistic \nNext", { .size = 20, .wrap = true });
+        });
+        rmp::ui::end();
+    }
+    int negative = 0;
+    const Clay_RenderCommandArray commands = rmp::ui::detail::last_pass_commands();
+    for (int32_t i = 0; i < commands.length; ++i) {
+        const Clay_RenderCommand &cmd = commands.internalArray[i];
+        if (cmd.commandType != CLAY_RENDER_COMMAND_TYPE_TEXT) continue;
+        const Clay_StringSlice &line = cmd.renderData.text.stringContents;
+        if (line.length < 0) ++negative;
+        const std::string_view copied = rmp::ui::detail::cstr(line);
+        check(copied.size() == static_cast<std::size_t>(std::max(line.length, 0)),
+              "every line is copied whole, and one of no length or less is \"\"");
+    }
+    // What Clay does today; if it stops, the guard in cstr() is what is left.
+    check(negative == 1, "Clay hands over the newline's line with a length of -1");
+    const char *const word = "word";
+    check(std::string_view(rmp::ui::detail::cstr(Clay_StringSlice{ -1, word, word }))
+              .empty(),
+          "a slice of length -1 is \"\"");
+}
+
 TEST_CASE("scale limits") {
     // Automatic scale, both ends clamped. A tiny window must not make the text
     // unreadable, and a huge one must not turn a button into a billboard.

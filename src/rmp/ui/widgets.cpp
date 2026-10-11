@@ -19,6 +19,12 @@ namespace {
 using detail::px;
 using detail::to_clay;
 
+// What the last pass asked to be drawn (detail::last_pass_commands()): Clay's
+// array, which lives in Clay's arena until the next layout.
+struct {
+    Clay_RenderCommandArray commands{};
+} last_pass;
+
 // Sizing helpers. Clay's own CLAY_SIZING_* are macros with compound literals;
 // these are the same thing written as C++ so the macros never come near us.
 Clay_SizingAxis size_fit() {
@@ -89,6 +95,8 @@ Clay_ChildAlignment alignment_of(Align a) {
 }
 
 } // namespace
+
+Clay_RenderCommandArray detail::last_pass_commands() { return last_pass.commands; }
 
 Clay_Padding detail::root_padding(const float pixels) {
     const detail::Insets in = detail::content_insets();
@@ -208,6 +216,7 @@ void detail::close_frame(const bool draw) {
     Clay__CloseElement(); // the root
 
     const Clay_RenderCommandArray commands = Clay_EndLayout(detail::frame_time());
+    last_pass.commands = commands;
 
     // AFTER the layout, not before it. Clay hit-tests against the tree it holds
     // at the time, and this is the only moment it holds THIS pass's: called
@@ -436,6 +445,7 @@ void shutdown() {
         RMP_REPORT_ONCE("UI: rmp::ui::shutdown() while a frame was open: rmp::ui::end() "
                         "was never called.");
     }
+    last_pass.commands = Clay_RenderCommandArray{}; // Clay's arena goes below
     detail::shutdown_context();
 }
 

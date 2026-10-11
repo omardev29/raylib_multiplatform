@@ -635,6 +635,12 @@ void set_test_viewport(float width, float height);
 bool bounds_of(std::string_view label, unsigned occurrence, int pass,
                Clay_BoundingBox *out);
 
+// What the last pass laid out asked to be drawn: Clay's own array, valid until
+// the next pass is laid out or the UI shuts down. For a test that holds what is
+// drawn to the box it is drawn in -- a line of text to the width its command
+// says, above all.
+Clay_RenderCommandArray last_pass_commands();
+
 // How many errors Clay has reported since the last reset, and the first one's
 // type — first, because what follows a capacity failure is its consequences. Clay reports through a handler rather than a return value, so this is
 // the only way a test can see that a frame produced a duplicate id or ran out
