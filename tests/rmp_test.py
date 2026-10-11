@@ -1784,7 +1784,7 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         self.assertEqual(self.gaps(jobs, rmp.STAGES),
                          [f"`rmp test sanitize` runs {token} and the CI job `deep` does not"
                           for token in ("tools/test_locales.sh build/test-locales",
-                                        "tools/sanitize_check.sh")])
+                                        "build/test-locales", "tools/sanitize_check.sh")])
         deep = copy.deepcopy(load_workflow(self, "deep.yml")["jobs"])
         deep["mutation"]["steps"] = [st for st in deep["mutation"]["steps"]
                                      if "tools/mutation.sh" not in str(st.get("run", ""))]
