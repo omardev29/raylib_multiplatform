@@ -4,4 +4,6 @@
 kind     cxx
 sources  src/rmp/stretch.cpp
 tests    unit_test -sf=*stretch_test.cpp
+# world_viewport() over any screen and mode, set_stretch() over any int.
+tests    property_test -ts=*app
 floor    -

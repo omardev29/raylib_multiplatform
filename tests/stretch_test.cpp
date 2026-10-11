@@ -194,10 +194,14 @@ TEST_SUITE("app: stretch") {
         // last. It was stored, and drew as NONE with nothing said.
         rmp::app::set_stretch(Stretch::LETTERBOX);
         rmp::detail::reset_reports_for_tests();
+        // NOLINTBEGIN(clang-analyzer-optin.core.EnumCastOutOfRange): a number
+        // that is no mode is the thing under test -- and a scoped enum holds
+        // every int, so the cast itself is defined.
         rmp::app::set_stretch(static_cast<Stretch>(4));
         CHECK(rmp::app::stretch() == Stretch::LETTERBOX);
         CHECK(rmp::detail::report_count() == 1);
         rmp::app::set_stretch(static_cast<Stretch>(-1));
+        // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange)
         CHECK(rmp::app::stretch() == Stretch::LETTERBOX);
         CHECK(rmp::detail::report_count() == 1);
         rmp::app::set_stretch(Stretch::EXPAND);

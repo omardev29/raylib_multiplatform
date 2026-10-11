@@ -385,6 +385,7 @@ TEST_SUITE("property: input") {
                 const std::size_t count =
                     *rc::gen::element<std::size_t>(1, 2, 3, 4, 8, 9);
                 std::vector<Binding> bindings;
+                bindings.reserve(count);
                 for (std::size_t i = 0; i < count; ++i)
                     bindings.push_back(draw_binding());
                 rmp::input::set_deadzone(*rc::gen::element(0.0f, 0.2f, 0.5f));

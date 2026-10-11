@@ -1,5 +1,9 @@
 # The scene stack (package P6, after Stage D).
 kind     cxx
 sources  src/rmp/scene.cpp
-tests    unit_test -sf=*scene_test.cpp
+# world_clip() and RAY_TEST_WINDOW's reader are scene.cpp's, and stretch_test.cpp
+# is where they are pinned.
+tests    unit_test -sf=*scene_test.cpp,*stretch_test.cpp
+# The stack against its model, and world_clip() and the test window over any input.
+tests    property_test -ts=*scene,*app
 floor    -
