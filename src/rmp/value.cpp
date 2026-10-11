@@ -308,6 +308,12 @@ Value::Ref &Value::Ref::operator=(const Ref &other) {
     return *this;
 }
 
+Value::Ref &Value::Ref::operator=(Ref &&other) noexcept(false) {
+    // The copy above: a Ref on the right names a value, temporary or not.
+    const Ref &named = other;
+    return *this = named;
+}
+
 void Value::Ref::push(Value value) {
     if (Value *slot = materialise()) slot->push(std::move(value));
 }

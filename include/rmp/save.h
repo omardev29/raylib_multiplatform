@@ -222,9 +222,12 @@ public:
     // copies the VALUE, never the path -- v["a"] = v["b"] copies b into a.
     Ref &operator=(Value value);
     Ref &operator=(const Ref &other);
-    // No move assignment on purpose: a temporary Ref on the right -- which is
-    // what v["a"] = v["b"] hands over -- goes through the copy above, which
-    // copies the value. A defaulted one would move the PATH and rebind.
+    // The same copy of the value, for a temporary Ref on the right -- which is
+    // what v["a"] = v["b"] hands over. Not defaulted: that would move the PATH
+    // and rebind (and cannot, with the root held by reference); not deleted,
+    // which would refuse v["a"] = v["b"]. noexcept(false) on purpose: copying
+    // a Value allocates.
+    Ref &operator=(Ref &&other) noexcept(false);
     Ref(const Ref &) = default;
     Ref(Ref &&) = default;
     ~Ref() = default;

@@ -162,6 +162,10 @@ static_assert(
     "a temporary rmp::Texture must NOT convert: it would release on the same line");
 static_assert(!std::is_convertible_v<rmp::Font, const ::Font &>);
 static_assert(!std::is_convertible_v<rmp::Sound, const ::Sound &>);
+// A handle's moves cannot fail, and say so: a std::vector of them moves its
+// handles when it grows, instead of copying each one and counting it twice.
+static_assert(std::is_nothrow_move_constructible_v<rmp::Texture>);
+static_assert(std::is_nothrow_move_assignable_v<rmp::Texture>);
 
 TEST_CASE("the resource table has no cap: three hundred names are three hundred slots") {
     // It used to be a fixed array of 256, and the 257th load was silently not

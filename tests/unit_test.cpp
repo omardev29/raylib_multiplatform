@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdint>
 #include <set>
+#include <utility>
 
 namespace {
 
@@ -279,8 +280,8 @@ TEST_SUITE("resources") {
 
     TEST_CASE("self-assignment does not release what it is holding") {
         // The classic way to write this wrong: release, then retain a dangling
-        // slot. Copy-and-swap makes it impossible, and this is the test that says
-        // the idiom is still there.
+        // slot. Holding the new reference before letting the old one go makes it
+        // impossible, and this is the test that says it still does.
         rmp::detail::release_all();
         rmp::Image a = make("self.png");
         rmp::Image &alias = a;
@@ -300,6 +301,28 @@ TEST_SUITE("resources") {
         a = b;
         CHECK(rmp::detail::ref_count("first.png") == 0);
         CHECK(rmp::detail::ref_count("second.png") == 2);
+        CHECK(rmp::detail::live_count() == 1);
+        rmp::detail::release_all();
+    }
+
+    TEST_CASE("move assignment releases the old resource and takes the new one over") {
+        rmp::detail::release_all();
+        rmp::Image a = make("old.png");
+        rmp::Image b = make("new.png");
+        a = std::move(b);
+        CHECK(a.valid());
+        CHECK_FALSE(b.valid()); // NOLINT: checking the moved-from state IS the test
+        CHECK(rmp::detail::ref_count("old.png") == 0);
+        // Taken over, not shared: one reference, as before the move.
+        CHECK(rmp::detail::ref_count("new.png") == 1);
+        CHECK(rmp::detail::live_count() == 1);
+
+        // Moved into itself, a handle keeps what it holds -- the same promise
+        // as the copy's, above.
+        rmp::Image &alias = a;
+        a = std::move(alias);
+        CHECK(a.valid());
+        CHECK(rmp::detail::ref_count("new.png") == 1);
         CHECK(rmp::detail::live_count() == 1);
         rmp::detail::release_all();
     }

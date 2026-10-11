@@ -459,9 +459,14 @@ void close_element();
 
 // Closes the element even if the body throws. Exceptions are usually off in a
 // game, but a container left open would corrupt the whole frame, and that is
-// too cheap to insure against not to.
+// too cheap to insure against not to. One container is closed once, so a
+// closer is not copied -- nor moved, which a deleted copy also refuses: each
+// of these is a guard that lives in the one scope it closes.
 struct Closer {
+    Closer() = default;
     ~Closer() { close_element(); }
+    Closer(const Closer &) = delete;
+    Closer &operator=(const Closer &) = delete;
 };
 } // namespace detail
 
@@ -596,17 +601,27 @@ void close_cell();
 void open_scroll(const ScrollOptions &o);
 void close_scroll();
 
+// Guards like Closer, above: one container, closed once, never copied.
 struct GridCloser {
+    GridCloser() = default;
     ~GridCloser() { close_grid(); }
+    GridCloser(const GridCloser &) = delete;
+    GridCloser &operator=(const GridCloser &) = delete;
 };
 struct CellCloser {
+    CellCloser() = default;
     ~CellCloser() { close_cell(); }
+    CellCloser(const CellCloser &) = delete;
+    CellCloser &operator=(const CellCloser &) = delete;
 };
 // A scroll area closes like any other container AND stops clipping, and the
 // second half is why it needs a closer of its own: what is inside one can only
 // be clicked where the area itself is.
 struct ScrollCloser {
+    ScrollCloser() = default;
     ~ScrollCloser() { close_scroll(); }
+    ScrollCloser(const ScrollCloser &) = delete;
+    ScrollCloser &operator=(const ScrollCloser &) = delete;
 };
 } // namespace detail
 

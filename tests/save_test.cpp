@@ -402,6 +402,15 @@ TEST_SUITE("save: Value") {
         auto other = v["a"];
         other = kept; // a named Ref on the right: the value again, not the path
         CHECK(v["a"]["x"].as_int() == 2);
+        auto from = v["c"];
+        from = 4;
+        auto to = v["d"];
+        to = std::move(from); // a Ref moved in: the value yet again, not the path
+        CHECK(v["d"].as_int() == 4);
+        // NOLINTNEXTLINE(bugprone-use-after-move): `from` still names c, which is the test
+        from = 5;
+        CHECK(v["c"].as_int() == 5);
+        CHECK(v["d"].as_int() == 4);
         other = 7;
         CHECK(v["a"].as_int() == 7);
         CHECK(v["b"]["x"].as_int() == 2); // `other` was never rebound to b

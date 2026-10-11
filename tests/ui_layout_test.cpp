@@ -27,8 +27,22 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace {
+
+// The containers' closers are guards: each closes one container, once, at the
+// end of the scope that opened it. A copy would close it a second time, so
+// none of them copies or moves; row() and the rest make one by default.
+template <class T> consteval bool is_guard() {
+    return std::is_default_constructible_v<T> && !std::is_copy_constructible_v<T> &&
+        !std::is_copy_assignable_v<T> && !std::is_move_constructible_v<T> &&
+        !std::is_move_assignable_v<T>;
+}
+static_assert(is_guard<rmp::ui::detail::Closer>());
+static_assert(is_guard<rmp::ui::detail::GridCloser>());
+static_assert(is_guard<rmp::ui::detail::CellCloser>());
+static_assert(is_guard<rmp::ui::detail::ScrollCloser>());
 
 struct {
     int failures = 0;

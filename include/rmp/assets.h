@@ -127,10 +127,18 @@ public:
     Resource(const Resource &other) : _slot(other.slot()) { retain(_slot); }
     Resource(Resource &&other) noexcept : _slot(other.trade(nullptr)) {}
 
-    // Copy-and-swap: one operator for copy AND move assignment, and
-    // self-assignment cannot go wrong because the argument is already a copy.
-    Resource &operator=(Resource other) noexcept {
-        _slot = other.trade(_slot);
+    // A move assignment is the move above into a local, swapped with this: the
+    // local takes the old reference away when it goes. So the new reference is
+    // always held before the old one is let go, and a handle moved into itself
+    // keeps what it holds. A copy assignment is a copy, moved in -- and a copy
+    // of itself is nothing to do.
+    Resource &operator=(const Resource &other) {
+        if (this != &other) *this = Resource(other);
+        return *this;
+    }
+    Resource &operator=(Resource &&other) noexcept {
+        Resource taken(std::move(other));
+        _slot = taken.trade(_slot);
         return *this;
     }
     // Drops this reference. When it was the last one, the resource is unloaded.
