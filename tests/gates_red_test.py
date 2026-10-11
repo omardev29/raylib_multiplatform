@@ -731,6 +731,16 @@ class GlibcCheckTest(GateTest):
             self.skipTest("no static libc here")
         out = self.assert_green(str(static), "2.28")
         self.assertIn("is statically linked", out)
+        # Whatever language the machine speaks: objdump's "not a dynamic
+        # object" is translated (binutils ships es, de, fr...), and on a
+        # Spanish desktop -- "no es un objeto dinamico" -- a static program
+        # was a FAIL. Proved where the translation is installed; elsewhere
+        # objdump answers in English whatever it is asked.
+        for language in ("es_ES.UTF-8", "de_DE.UTF-8", "fr_FR.UTF-8"):
+            with self.subTest(language=language):
+                out = self.assert_green(str(static), "2.28", env={
+                    "LC_ALL": language, "LANG": language, "LANGUAGE": language[:2]})
+                self.assertIn("is statically linked", out)
 
     def test_no_objdump_is_a_failure_in_the_image(self):
         """Without objdump the check cannot read anything: on a laptop that

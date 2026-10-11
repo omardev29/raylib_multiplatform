@@ -86,8 +86,10 @@ fi
 # What objdump says, and whether it could say it. A static program is "not a
 # dynamic object" and needs nothing from glibc; anything else objdump cannot
 # read -- a zip, a packed binary, a download cut short -- is no program this
-# can judge, and saying "ok" of it was a gate that passed garbage.
-if ! DUMP=$(objdump -T "$BINARY" 2>&1); then
+# can judge, and saying "ok" of it was a gate that passed garbage. In English
+# whatever the machine speaks: binutils translates that sentence, and on a
+# Spanish desktop a static program was a FAIL.
+if ! DUMP=$(LC_ALL=C objdump -T "$BINARY" 2>&1); then
   case "$DUMP" in
     *"not a dynamic object"*)
       echo "  ok    $BINARY is statically linked: it imports nothing from glibc"
