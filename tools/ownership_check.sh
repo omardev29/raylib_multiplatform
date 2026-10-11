@@ -13,6 +13,14 @@
 #       -- not in a scene, a widget or an example, where a forgotten Unload is
 #       a leak and a second one is a double free. The names are read live from
 #       raylib.h and rres-raylib.h, so a raylib update brings its new ones.
+#   O3  no cute_aseprite_load_from_memory or cute_aseprite_load_from_file
+#       outside src/rmp/animation.cpp, under include/, src/, tests/ and
+#       examples/, in C and C++. cute_aseprite trusts the file: it asserts on
+#       a broken one, leaks on some real ones and loops on linked cels that
+#       link in a circle. So bytes reach it only through load() there, which
+#       hands it the copy prepare_aseprite() made of a file it walked --
+#       and _from_file reads a path no walk ever saw. Named at all, and not
+#       only called: a pointer to it is a call somewhere else.
 #
 # Each rule is a ratchet, like seam_check.sh: the files below may keep their
 # calls, each with the reason, and the lists only ever shrink. Adding a file
@@ -23,7 +31,7 @@
 #
 # Usage:
 #   tools/ownership_check.sh            the tree
-#   tools/ownership_check.sh FILE...    exactly those files, with both rules --
+#   tools/ownership_check.sh FILE...    exactly those files, with every rule --
 #                                       how the tests and the docs watch it go red
 # Exit:   0 = clean, 1 = a call outside its list (with file:line)
 
@@ -43,6 +51,8 @@ RULES = {
           "rmp::Ref<T> or a reference refers to it",
     "O2": "a raylib resource made or freed outside its owner: load it through "
           "rmp::assets, which frees it with the handle",
+    "O3": "cute_aseprite handed bytes prepare_aseprite() never walked: load a sheet "
+          "through rmp::assets, which goes through src/rmp/animation.cpp",
 }
 
 # Files allowed to keep their calls, and why. THE LIST ONLY SHRINKS.
@@ -69,6 +79,18 @@ ALLOWED = {
         # A chunk of the rres pack, decoded and handed to the loaders above.
         "src/rmp/pack.cpp",
     },
+    "O3": {
+        # The one load(): prepare_aseprite() first, cute_aseprite on its copy.
+        "src/rmp/animation.cpp",
+        # Reads back the pictures cute_aseprite composes from what
+        # prepare_aseprite() handed over (prepared()), to hold the sheet's
+        # texture to them.
+        "tests/animation_test.cpp",
+        # Compares cute_aseprite's pictures of the copy the walk made with
+        # those of the file it came from -- a file the generator made safe,
+        # which is the property: the walk changes no pixel.
+        "tests/property/animation_prop.cpp",
+    },
 }
 
 # `new` as an allocation (`new T`, `new T[`, `new (place) T`), `delete`, and
@@ -76,6 +98,10 @@ ALLOWED = {
 # allocation decision too. `= delete` is a deleted function, not a free.
 ALLOCATION = re.compile(r"(?<![\w:])(new|delete)(?![\w])|(?<![\w])(malloc|calloc|realloc|free)\s*\(")
 DELETED = re.compile(r"=\s*delete\b|\boperator\s+(new|delete)\b")
+
+# cute_aseprite's two loads, named in code and not only called: a pointer to
+# one is a call somewhere else.
+ASEPRITE_LOAD = re.compile(r"(?<![\w.>])cute_aseprite_load_from_(?:memory|file)\b")
 
 RAYLIB_HEADERS = ["thirdparty/raylib/src/raylib.h", "thirdparty/rres/rres-raylib.h"]
 
@@ -105,6 +131,8 @@ def in_scope(posix, rule, explicit):
         return False  # a vendored library compiled once: its own business
     if rule == "O1":
         return posix.startswith(("include/rmp/", "src/rmp/"))
+    if rule == "O3":
+        return posix.startswith(("include/", "src/", "tests/", "examples/"))
     return posix.startswith(("include/rmp/", "src/rmp/", "examples/"))
 
 
@@ -121,12 +149,15 @@ def check(path, lifetimes, explicit):
         for m in re.finditer(r"(?<![\w.>])(\w+)\s*\(", code):
             if m.group(1) in lifetimes:
                 found.append(("O2", line_of(m.start(1)), m.group(1)))
+    if in_scope(posix, "O3", explicit) and posix not in ALLOWED["O3"]:
+        for m in ASEPRITE_LOAD.finditer(code):
+            found.append(("O3", line_of(m.start()), m.group(0)))
     return found
 
 
 args = sys.argv[1:]
 explicit = bool(args)
-files = [pathlib.Path(a) for a in args] if explicit else tree(("include", "src", "examples"))
+files = [pathlib.Path(a) for a in args] if explicit else tree(("include", "src", "tests", "examples"))
 lifetimes = raylib_lifetimes()
 fails = 0
 for path in files:
@@ -145,5 +176,6 @@ if fails:
     sys.exit(1)
 print(f"  ok    nothing owned by hand in {len(files)} file(s): new/delete/malloc/free "
       f"only in the {len(ALLOWED['O1'])} allowed, raylib's {len(lifetimes)} Load*/Unload* "
-      f"only in the {len(ALLOWED['O2'])} owners")
+      f"only in the {len(ALLOWED['O2'])} owners, cute_aseprite's loads only in the "
+      f"{len(ALLOWED['O3'])} that hand it walked bytes")
 PY

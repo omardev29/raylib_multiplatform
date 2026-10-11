@@ -10373,6 +10373,57 @@ class OwnershipCheckTest(unittest.TestCase):
                           'const char *how = "UnloadTexture(t)";',
                           "void f(Sprite &s) { s.LoadTexture(); }")
 
+    def test_o3_cute_aseprite_handed_bytes_nobody_walked(self):
+        """cute_aseprite trusts the file -- it asserts, leaks and loops on
+        what prepare_aseprite() refuses -- so a call to either of its loads,
+        or a pointer to one, anywhere but the one load() of animation.cpp."""
+        self.assert_red("O3", "ase_t *read(const void *data, int size) {",
+                        "    return cute_aseprite_load_from_memory(data, size, nullptr);", "}")
+        self.assert_red("O3", 'ase_t *a = cute_aseprite_load_from_file("hero.ase", nullptr);',
+                        "auto *later = &::cute_aseprite_load_from_memory;", count=2)
+
+    def test_o3_leaves_what_only_names_it(self):
+        self.assert_green("// cute_aseprite_load_from_memory() is what O3 refuses",
+                          'const char *said = "cute_aseprite_load_from_file";',
+                          "void f(ase_t *a) { cute_aseprite_free(a); }",
+                          "void g(Reader &r) { r.cute_aseprite_load_from_memory(); }",
+                          "int my_cute_aseprite_load_from_memory = 0;")
+
+    def test_o3_its_three_files_by_path_and_a_test_planted_beside_them(self):
+        """The tree mode keeps animation.cpp's load() and the two tests that
+        read cute_aseprite's own pictures back, and covers tests/ and
+        examples/, which O1 and O2 do not."""
+        import shutil
+        import subprocess
+        got = subprocess.run(["bash", str(self.SCRIPT), "src/rmp/animation.cpp",
+                              "tests/animation_test.cpp", "tests/property/animation_prop.cpp"],
+                             cwd=REPO, capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        for path in ("src/rmp/animation.cpp", "tests/animation_test.cpp",
+                     "tests/property/animation_prop.cpp"):
+            self.assertIn("cute_aseprite_load_from_memory(", (REPO / path).read_text(),
+                          f"{path} no longer calls it: take it off O3's list")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in ("tools/ownership_check.sh", "tools/cpp_text.py",
+                        "thirdparty/raylib/src/raylib.h", "thirdparty/rres/rres-raylib.h"):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(REPO / rel, root / rel)
+            call = "ase_t *a = cute_aseprite_load_from_memory(p, n, nullptr);\n"
+            planted = ("tests/later_test.cpp", "examples/games/01_pong/src/later.cpp",
+                       "src/scenes/later.cpp", "src/rmp/later.cpp", "examples/plain_c/src/x.c")
+            for rel in (*planted, "src/rmp/animation.cpp", "tests/animation_test.cpp"):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(call)
+            got = subprocess.run(["bash", str(root / "tools" / "ownership_check.sh")],
+                                 cwd=root, capture_output=True, text=True)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        for rel in planted:
+            self.assertIn(f"{rel}:1: O3 cute_aseprite_load_from_memory", got.stdout)
+        self.assertNotIn("FAIL  src/rmp/animation.cpp", got.stdout)
+        self.assertNotIn("FAIL  tests/animation_test.cpp", got.stdout)
+        self.assertEqual(got.stdout.count(" O3 "), len(planted), got.stdout)
+
     def test_c_keeps_its_load_and_unload(self):
         """The plain C example has no destructor to put an Unload in."""
         import subprocess
