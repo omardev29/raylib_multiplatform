@@ -429,6 +429,7 @@ endif()
 # Checked, every one, like the strip above: a flag a toolchain does not take is
 # left out and said, never a broken build. What the linker made of them is read
 # off the shipped binary by `tools/binary_check.py elf` in the Linux jobs.
+# BEGIN flags documented on rmp-docs framework/security.html
 set(RMP_RELEASE_C_FLAGS "")
 set(RMP_RELEASE_CXX_FLAGS "")
 set(RMP_RELEASE_LINK_FLAGS "")
@@ -526,6 +527,7 @@ if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
   list(JOIN _said ", " _said)
   message(STATUS "=== RELEASE HARDENING: ${_said} ===")
 endif()
+# END flags documented on rmp-docs framework/security.html
 
 function(rmp_apply_link_flags target)
   # Dead-code stripping, the linker half.

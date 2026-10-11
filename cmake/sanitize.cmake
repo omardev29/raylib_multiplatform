@@ -75,6 +75,7 @@ if(DEFINED RMP_DEV_SANITIZE AND RMP_DEV_SANITIZE AND NOT RMP_SANITIZE)
   message(STATUS "=== SANITIZERS: off for this build directory (RMP_SANITIZE=OFF) ===")
 endif()
 
+# BEGIN flags documented on rmp-docs framework/security.html
 # The flags for one list of sanitizers, by compiler. OUT_COMPILE and OUT_LINK
 # are set in the caller's scope; both empty means "this compiler has none".
 function(_rmp_sanitize_flags names out_compile out_link)
@@ -112,6 +113,54 @@ function(_rmp_sanitize_flags names out_compile out_link)
   set(${out_compile} "${_compile}" PARENT_SCOPE)
   set(${out_link} "${_link}" PARENT_SCOPE)
 endfunction()
+
+# Every Debug target: the hardening, then the sanitizers that ran -- which the
+# probe below has decided by the time rmp_apply_compile_flags() calls this. It
+# is called there and never at directory scope, so it reaches exactly what that
+# function reaches -- and rres_pack, a host tool that rmp pack runs, is not one
+# of them.
+function(rmp_apply_debug_checks target)
+  target_compile_definitions(${target} PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:_GLIBCXX_ASSERTIONS>
+    $<$<COMPILE_LANGUAGE:CXX>:_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE>)
+  if(RMP_AUTO_VAR_INIT_C)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C>:-ftrivial-auto-var-init=pattern>)
+  endif()
+  if(RMP_AUTO_VAR_INIT_CXX)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-ftrivial-auto-var-init=pattern>)
+  endif()
+
+  get_target_property(_type ${target} TYPE)
+  # The hooks go into every executable whenever sanitizers were asked for,
+  # applied or not: without a runtime they are four functions nobody calls,
+  # and with them the file always has a compile command for clang-tidy.
+  if(RMP_SANITIZE_WANTED AND _type STREQUAL "EXECUTABLE")
+    target_sources(${target} PRIVATE "${RMP_SANITIZER_HOOKS}")
+  endif()
+  if(NOT RMP_SANITIZE_APPLIED)
+    return()
+  endif()
+  target_compile_options(${target} PRIVATE ${RMP_SANITIZE_COMPILE_FLAGS})
+  # What the code can ask: RMP_SANITIZE for "any", and one per sanitizer.
+  # tests/sanitize_test.cpp holds them to what the compiler itself says.
+  target_compile_definitions(${target} PRIVATE RMP_SANITIZE=1)
+  if("address" IN_LIST RMP_SANITIZE_APPLIED)
+    target_compile_definitions(${target} PRIVATE RMP_SANITIZE_ADDRESS=1)
+  endif()
+  if("undefined" IN_LIST RMP_SANITIZE_APPLIED)
+    target_compile_definitions(${target} PRIVATE RMP_SANITIZE_UNDEFINED=1)
+  endif()
+  if(_type STREQUAL "EXECUTABLE")
+    target_link_options(${target} PRIVATE ${RMP_SANITIZE_LINK_FLAGS})
+    if(RMP_PAXCTL AND "address" IN_LIST RMP_SANITIZE_APPLIED)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${RMP_PAXCTL}" +a "$<TARGET_FILE:${target}>"
+        COMMENT "NetBSD: ASLR off for ${target}, or its ASan will not start (paxctl +a)"
+        VERBATIM)
+    endif()
+  endif()
+endfunction()
+# END flags documented on rmp-docs framework/security.html
 
 # Build the probe with these sanitizers, the hooks linked in like every real
 # executable, and RUN it: in C++ and in C, which is what raylib is. RESULT is
@@ -324,49 +373,3 @@ if(RMP_SANITIZE_WANTED)
     message(STATUS "=== SANITIZERS: ${_applied_text} ===")
   endif()
 endif()
-
-# Every Debug target: the hardening, then the sanitizers that ran. Called by
-# rmp_apply_compile_flags(), never at directory scope, so it reaches exactly
-# what that function reaches -- and rres_pack, a host tool that rmp pack runs,
-# is not one of them.
-function(rmp_apply_debug_checks target)
-  target_compile_definitions(${target} PRIVATE
-    $<$<COMPILE_LANGUAGE:CXX>:_GLIBCXX_ASSERTIONS>
-    $<$<COMPILE_LANGUAGE:CXX>:_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE>)
-  if(RMP_AUTO_VAR_INIT_C)
-    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C>:-ftrivial-auto-var-init=pattern>)
-  endif()
-  if(RMP_AUTO_VAR_INIT_CXX)
-    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-ftrivial-auto-var-init=pattern>)
-  endif()
-
-  get_target_property(_type ${target} TYPE)
-  # The hooks go into every executable whenever sanitizers were asked for,
-  # applied or not: without a runtime they are four functions nobody calls,
-  # and with them the file always has a compile command for clang-tidy.
-  if(RMP_SANITIZE_WANTED AND _type STREQUAL "EXECUTABLE")
-    target_sources(${target} PRIVATE "${RMP_SANITIZER_HOOKS}")
-  endif()
-  if(NOT RMP_SANITIZE_APPLIED)
-    return()
-  endif()
-  target_compile_options(${target} PRIVATE ${RMP_SANITIZE_COMPILE_FLAGS})
-  # What the code can ask: RMP_SANITIZE for "any", and one per sanitizer.
-  # tests/sanitize_test.cpp holds them to what the compiler itself says.
-  target_compile_definitions(${target} PRIVATE RMP_SANITIZE=1)
-  if("address" IN_LIST RMP_SANITIZE_APPLIED)
-    target_compile_definitions(${target} PRIVATE RMP_SANITIZE_ADDRESS=1)
-  endif()
-  if("undefined" IN_LIST RMP_SANITIZE_APPLIED)
-    target_compile_definitions(${target} PRIVATE RMP_SANITIZE_UNDEFINED=1)
-  endif()
-  if(_type STREQUAL "EXECUTABLE")
-    target_link_options(${target} PRIVATE ${RMP_SANITIZE_LINK_FLAGS})
-    if(RMP_PAXCTL AND "address" IN_LIST RMP_SANITIZE_APPLIED)
-      add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND "${RMP_PAXCTL}" +a "$<TARGET_FILE:${target}>"
-        COMMENT "NetBSD: ASLR off for ${target}, or its ASan will not start (paxctl +a)"
-        VERBATIM)
-    endif()
-  endif()
-endfunction()

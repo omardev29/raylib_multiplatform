@@ -3977,6 +3977,276 @@ class FrameworkDebugIsSanitizedTest(unittest.TestCase):
         self.assertNotIn("rmp_apply_compile_flags(rres_pack)", self.CMAKE)
 
 
+CMAKE_OPENERS = {"if", "foreach", "while", "function", "macro", "block"}
+CMAKE_CLOSERS = {"endif", "endforeach", "endwhile", "endfunction", "endmacro", "endblock"}
+_CMAKE_COMMAND = re.compile(r"[A-Za-z_][A-Za-z0-9_]*[ \t]*\(")
+_CMAKE_BRACKET = re.compile(r"\[(=*)\[")
+
+
+def cmake_statements(text: str) -> list[tuple[int, int, str, str]]:
+    """(first line, last line, command, arguments) of every command invocation
+    in CMake source, in order. Comments and bracket arguments are skipped, and
+    a parenthesis inside a quoted argument is text, not nesting."""
+    out = []
+    i, line, n = 0, 1, len(text)
+
+    def skip_bracket(at: int, opened: re.Match) -> int:
+        close = "]" + opened.group(1) + "]"
+        end = text.index(close, at)
+        return end + len(close)
+
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            line += 1
+            i += 1
+            continue
+        if c == "#":
+            bracket = _CMAKE_BRACKET.match(text, i + 1)
+            end = skip_bracket(i, bracket) if bracket else text.find("\n", i)
+            end = n if end < 0 else end
+            line += text.count("\n", i, end)
+            i = end
+            continue
+        m = _CMAKE_COMMAND.match(text, i)
+        if m and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            first = line
+            j, depth = m.end(), 1
+            while j < n and depth:
+                ch = text[j]
+                if ch == '"':
+                    k = j + 1
+                    while k < n and text[k] != '"':
+                        k += 2 if text[k] == "\\" else 1
+                    line += text.count("\n", j, k)
+                    j = k + 1
+                    continue
+                bracket = _CMAKE_BRACKET.match(text, j) if ch == "[" else None
+                if bracket:
+                    end = skip_bracket(j, bracket)
+                    line += text.count("\n", j, end)
+                    j = end
+                    continue
+                if ch == "#":
+                    end = text.find("\n", j)
+                    j = n if end < 0 else end
+                    continue
+                if ch == "\n":
+                    line += 1
+                elif ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                j += 1
+            name = m.group(0)[:-1].strip().lower()
+            out.append((first, line, name, text[m.end():j - 1]))
+            i = j
+            continue
+        i += 1
+    return out
+
+
+def cmake_arguments(args: str) -> list[str]:
+    """The arguments of one invocation, split as CMake splits them: on
+    whitespace outside quotes, a quoted argument kept with its quotes."""
+    return re.findall(r'"(?:[^"\\]|\\.)*"|[^\s"]+', args)
+
+
+class SecurityPageMarkersTest(unittest.TestCase):
+    """rmp-docs' Security page (framework/security.html) lists every flag the
+    release hardening in CMakeLists.txt and the Debug checks in
+    cmake/sanitize.cmake can give a build, and its gate reads them between two
+    comment lines in each file. So each file holds exactly one pair -- BEGIN
+    before END, neither inside an if(), a foreach() or a function() -- and
+    every statement that can emit a flag of those blocks lies between them. A
+    flag chosen outside the pair is a flag the page can leave out and its gate
+    never notice.
+
+    What "can emit" means, per file: a write of the variables the block hands
+    to the rest of the build (and the foreach() a write sits in, whose list is
+    the flags); the functions that emit; and in cmake/sanitize.cmake, which
+    has no other business, every target_*/add_* command that sets an option,
+    a definition or a link option. CMakeLists.txt sets plenty of those for
+    other reasons, so there it is the variables alone."""
+
+    BEGIN = "# BEGIN flags documented on rmp-docs framework/security.html"
+    END = "# END flags documented on rmp-docs framework/security.html"
+    EMITTERS = {"target_compile_options", "target_link_options", "target_compile_definitions",
+                "add_compile_options", "add_link_options", "add_compile_definitions",
+                "add_definitions", "link_libraries", "set_property", "set_target_properties"}
+    BLOCKS = {
+        "CMakeLists.txt": {
+            "variables": {"RMP_RELEASE_C_FLAGS", "RMP_RELEASE_CXX_FLAGS",
+                          "RMP_RELEASE_LINK_FLAGS", "RMP_RELEASE_PIE_APPLIED"},
+            "functions": (),
+            "commands": False,
+            # A few of what the block gives today, so that a parser that
+            # stopped finding flags cannot pass by finding none.
+            "some_flags": ("-fstack-protector-strong", "-fstack-clash-protection",
+                           "-D_FORTIFY_SOURCE=", "-U_FORTIFY_SOURCE", "-D_GLIBCXX_ASSERTIONS",
+                           "-Wl,-z,relro", "-Wl,--dynamicbase"),
+        },
+        "cmake/sanitize.cmake": {
+            "variables": {"RMP_SANITIZE_COMPILE_FLAGS", "RMP_SANITIZE_LINK_FLAGS"},
+            "functions": ("_rmp_sanitize_flags", "rmp_apply_debug_checks"),
+            "commands": True,
+            "some_flags": ("-fsanitize=", "/fsanitize=address", "/INCREMENTAL:NO",
+                           "-fno-sanitize=vptr", "-ftrivial-auto-var-init=pattern",
+                           "-D_GLIBCXX_ASSERTIONS", "-DRMP_SANITIZE=1"),
+        },
+    }
+
+    @staticmethod
+    def flags_of(name: str, args: str) -> list[str]:
+        """The flags and -D defines in one statement's arguments, generator
+        expressions unwrapped: what a reader would call the flags it emits."""
+        while True:
+            unwrapped = re.sub(r"\$<(?:[^<>:]*:)?([^<>]*)>", r"\1", args)
+            if unwrapped == args:
+                break
+            args = unwrapped
+        words = [w.strip('"') for w in cmake_arguments(args)]
+        if name in ("target_compile_definitions", "add_compile_definitions"):
+            skip = {"PRIVATE", "PUBLIC", "INTERFACE"}
+            words = words[1:] if name.startswith("target_") else words
+            return [w if w.startswith("-D") else "-D" + w for w in words
+                    if w and w not in skip]
+        found = []
+        for w in words:
+            found += re.findall(r"(?<![\w$}/])(?:-[A-Za-z][^\s\"'<>;]*|/[A-Za-z][\w:=.-]*)", w)
+        return found
+
+    def problems(self, text: str, block: dict) -> tuple[list[str], list[str]]:
+        """(what is wrong with the markers in `text`, the flags between them)."""
+        lines = text.splitlines()
+        begins = [i + 1 for i, l in enumerate(lines)
+                  if l.strip().startswith("# BEGIN flags documented")]
+        ends = [i + 1 for i, l in enumerate(lines)
+                if l.strip().startswith("# END flags documented")]
+        wrong = []
+        if len(begins) != 1 or len(ends) != 1:
+            return [f"exactly one pair of markers, and there are {len(begins)} BEGIN and "
+                    f"{len(ends)} END"], []
+        begin, end = begins[0], ends[0]
+        for at, marker in ((begin, self.BEGIN), (end, self.END)):
+            if lines[at - 1] != marker:
+                wrong.append(f"line {at} is {lines[at - 1]!r}, and the docs' gate reads "
+                             f"{marker!r}, whole and from the first column")
+        if begin > end:
+            wrong.append(f"END (line {end}) comes before BEGIN (line {begin})")
+
+        def inside(first: int, last: int) -> bool:
+            return begin < first and last < end
+
+        statements = cmake_statements(text)
+        open_blocks = []          # (statement, emits) for every open if/foreach/function
+        depth_at = {}
+        flags = []
+        emitting = []             # (first, last, name, args) that can emit a flag
+        functions = {}
+        for statement in statements:
+            first, last, name, args = statement
+            for marker in (begin, end):
+                if marker not in depth_at and marker < first:
+                    depth_at[marker] = [s[2] for s, _ in open_blocks]
+            words = cmake_arguments(args)
+            writes = ((name == "set" and words and words[0] in block["variables"]
+                       and any(w != '""' for w in words[1:]))
+                      or (name == "list" and len(words) > 2
+                          and words[0] in ("APPEND", "PREPEND", "INSERT")
+                          and words[1] in block["variables"]))
+            if writes:
+                emitting.append(statement)
+                for i, (opened, _) in enumerate(open_blocks):
+                    if opened[2] == "foreach":
+                        open_blocks[i] = (opened, True)
+            elif block["commands"] and name in self.EMITTERS:
+                emitting.append(statement)
+            if name in CMAKE_OPENERS:
+                open_blocks.append((statement, False))
+            elif name in CMAKE_CLOSERS and open_blocks:
+                opened, emits = open_blocks.pop()
+                if emits:
+                    emitting.append(opened)
+                if opened[2] == "function":
+                    functions[cmake_arguments(opened[3])[0]] = (opened[0], last)
+        for marker, label in ((begin, "BEGIN"), (end, "END")):
+            if depth_at.get(marker):
+                wrong.append(f"{label} (line {marker}) is inside {depth_at[marker][-1]}(): the "
+                             "pair must hold whole statements")
+        for first, last, name, args in sorted(emitting):
+            if not inside(first, last):
+                emitted = self.flags_of(name, args)
+                wrong.append(f"line {first}: {name}() emits {' '.join(emitted) or 'a flag'} "
+                             "outside the markers")
+        for first, last, name, args in statements:
+            if inside(first, last) and name != "message":
+                flags += self.flags_of(name, args)
+        for function in block["functions"]:
+            if function not in functions:
+                wrong.append(f"no function({function}) in the file")
+            elif not inside(*functions[function]):
+                wrong.append(f"function({function}) (lines {functions[function][0]}-"
+                             f"{functions[function][1]}) is not wholly between the markers")
+        return wrong, flags
+
+    def test_each_file_has_one_pair_around_every_flag_it_can_emit(self):
+        for path, block in self.BLOCKS.items():
+            with self.subTest(file=path):
+                wrong, flags = self.problems((REPO / path).read_text(), block)
+                self.assertEqual(wrong, [])
+                for flag in block["some_flags"]:
+                    self.assertTrue(any(f.startswith(flag) for f in flags),
+                                    f"{flag} is not among the flags between the markers: {flags}")
+
+    def test_a_pair_missing_doubled_reversed_or_cut_in_half_is_refused(self):
+        for path, block in self.BLOCKS.items():
+            text = (REPO / path).read_text()
+            lines = text.splitlines(keepends=True)
+            begin = next(l for l in lines if l.startswith(self.BEGIN))
+            end = next(l for l in lines if l.startswith(self.END))
+            first_if = next(i for i, l in enumerate(lines)
+                            if l.startswith(("if(", "function(")) and lines.index(begin) < i)
+            cut = lines[:]
+            cut.remove(begin)
+            cut.insert(first_if, begin)
+            broken = {
+                "no begin": (text.replace(begin, ""), "exactly one pair"),
+                "no end": (text.replace(end, ""), "exactly one pair"),
+                "two pairs": (text + begin + end, "exactly one pair"),
+                "reversed": (text.replace(begin, "@@").replace(end, begin).replace("@@", end),
+                             "comes before BEGIN"),
+                "indented": (text.replace(begin, "  " + begin), "whole and from the first"),
+                "inside a block": ("".join(cut), "is inside"),
+            }
+            for label, (variant, said) in broken.items():
+                with self.subTest(file=path, variant=label):
+                    wrong, _ = self.problems(variant, block)
+                    self.assertTrue(any(said in w for w in wrong), wrong)
+
+    def test_a_flag_emitted_outside_the_pair_is_refused(self):
+        """The red this test was written to see: one flag, chosen after END."""
+        outside = {
+            "CMakeLists.txt": ["list(APPEND RMP_RELEASE_C_FLAGS -fcf-protection)\n",
+                               "foreach(_flag -Wl,-z,separate-code)\n"
+                               "  list(APPEND RMP_RELEASE_LINK_FLAGS ${_flag})\nendforeach()\n",
+                               "set(RMP_RELEASE_PIE_APPLIED ON)\n"],
+            "cmake/sanitize.cmake": ["set(RMP_SANITIZE_COMPILE_FLAGS -fsanitize=thread)\n",
+                                     "add_compile_options(-fsanitize=thread)\n",
+                                     "function(x target)\n  target_compile_definitions("
+                                     "${target} PRIVATE RMP_SANITIZE_THREAD=1)\nendfunction()\n"],
+        }
+        for path, block in self.BLOCKS.items():
+            text = (REPO / path).read_text()
+            end = next(l for l in text.splitlines(keepends=True) if l.startswith(self.END))
+            for added in outside[path]:
+                with self.subTest(file=path, added=added):
+                    wrong, _ = self.problems(text.replace(end, end + added), block)
+                    self.assertTrue(any("outside the markers" in w for w in wrong), wrong)
+                    wrong, _ = self.problems(text.replace(end, added + end), block)
+                    self.assertEqual(wrong, [])
+
+
 class ConfigureWebBackendTest(unittest.TestCase):
     """[web] backend — which of raylib 6.0's three web paths gets built.
 
