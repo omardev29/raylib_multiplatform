@@ -957,6 +957,13 @@ def validate_app(cfg: dict) -> None:
             f"[app] max_delta = {md!r} has to be a number of seconds, like 0.05.\n"
             "  0.05 is one twentieth of a second: a frame longer than that is handed\n"
             "  to the game as 0.05 so that nothing teleports. 0 turns the clamp off.")
+    # TOML has nan, and every comparison with it is false: it passed each bound
+    # below and reached rmp/config.h as `nanf`, which does not compile. `!=`
+    # and not math.isnan(): an integer too long for a float is not a crash.
+    if md != md:
+        raise ConfigError(
+            f"[app] max_delta = {md!r} is not a number. It is a duration in seconds,\n"
+            "  like 0.05, or 0 to switch the clamp off.")
     if md < 0:
         raise ConfigError(f"[app] max_delta = {md!r} cannot be negative: it is a duration.")
     if md > 1:
@@ -1411,8 +1418,9 @@ def validate_ui(cfg: dict) -> None:
         raise ConfigError("[ui] font must be a string; \"\" means raylib's built-in font.")
     if not isinstance(ui["font_size"], int) or not (6 <= ui["font_size"] <= 200):
         raise ConfigError(f"[ui] font_size = {ui['font_size']!r} must be an integer between 6 and 200.")
+    # `!= itself` is nan, which passes `< 0` and `> 8` both: see [app] max_delta.
     if not isinstance(ui["scale"], (int, float)) or isinstance(ui["scale"], bool) \
-            or ui["scale"] < 0 or ui["scale"] > 8:
+            or ui["scale"] != ui["scale"] or ui["scale"] < 0 or ui["scale"] > 8:
         raise ConfigError(f"[ui] scale = {ui['scale']!r} must be a number between 0 and 8 "
                           "(0 = derive it from [window] and the real window size).")
     if not isinstance(ui["max_elements"], int) or not (16 <= ui["max_elements"] <= 65536):
@@ -1904,11 +1912,30 @@ def gen_dev_linker(cfg: dict) -> None:
 
 
 def _c_string(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    """A C string literal holding exactly `value`, as UTF-8. A control
+    character is three octal digits, always: raw, a newline ended the literal
+    in the middle of its line, and `\\0` or `\\x` would run into a digit
+    that follows them."""
+    out = []
+    for c in value:
+        if c in '"\\':
+            out.append("\\" + c)
+        elif ord(c) < 0x20 or ord(c) == 0x7F:
+            out.append(f"\\{ord(c):03o}")
+        else:
+            out.append(c)
+    return '"' + "".join(out) + '"'
 
 
 def _c_float(value) -> str:
-    return f"{float(value)}f"
+    """A C float literal of `value`. C has none for nan or an infinity, and
+    `nanf` is a header that does not compile: validate() refuses them at their
+    line first, and this refuses whatever else would reach the header."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ConfigError(f"{value!r} is not a number rmp/config.h can hold: C has no "
+                          "literal for nan or an infinity.")
+    return f"{number}f"
 
 
 def _c_bool(value) -> str:

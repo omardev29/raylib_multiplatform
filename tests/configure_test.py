@@ -5552,6 +5552,73 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         self.assertNotIn("float step_delta()", (REPO / "src" / "rmp" / "app.cpp").read_text())
 
 
+class ConfigureNotANumberTest(unittest.TestCase):
+    """TOML has nan, and every comparison with it is false: `[app] max_delta =
+    nan` passed `md < 0`, `md > 1` and `0 < md < 1/240` alike, `[ui] scale =
+    nan` passed `< 0` and `> 8`, and _c_float() wrote `nanf` into
+    rmp/config.h, which does not compile (defect 1 of the phase 16 design;
+    found again by tests/configure_property_test.py). And what config.h holds
+    is a C literal of exactly the value, whatever the value is."""
+
+    NAN, INF = float("nan"), float("inf")
+
+    def test_nan_is_refused_where_a_number_of_seconds_goes(self):
+        cfg = base_config(app={"max_delta": self.NAN})
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("[app] max_delta = nan is not a number", str(caught.exception))
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+
+    def test_nan_is_refused_where_a_scale_goes(self):
+        cfg = base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]), scale=self.NAN))
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        self.assertIn("[ui] scale = nan must be a number between 0 and 8", str(caught.exception))
+
+    def test_no_number_the_header_takes_can_be_nan_or_infinite(self):
+        """Every float the header carries, each of the three that are not a
+        number C can write."""
+        floats = [key for entry in cfgmod.APP_DEFINES if not isinstance(entry, str)
+                  and entry[2] is cfgmod._c_float for key in [entry[1]]]
+        self.assertEqual(len(floats), 6)
+        for key in floats:
+            section, name = key.split(".")
+            for bad in (self.NAN, self.INF, -self.INF):
+                with self.subTest(key=key, value=bad):
+                    cfg = base_config(**{section: dict(copy.deepcopy(cfgmod.DEFAULTS[section]),
+                                                       **{name: bad})})
+                    with self.assertRaises(cfgmod.ConfigError), quiet():
+                        cfgmod.validate(cfg, False)
+
+    def test_a_float_c_cannot_write_is_refused_by_the_writer_too(self):
+        for bad in (self.NAN, self.INF, -self.INF):
+            with self.subTest(value=bad), self.assertRaises(cfgmod.ConfigError):
+                cfgmod._c_float(bad)
+        self.assertEqual(cfgmod._c_float(0.05), "0.05f")
+        self.assertEqual(cfgmod._c_float(1), "1.0f")
+
+    def test_a_control_character_is_an_escape_in_the_literal(self):
+        """`rres_password = "a\\nb"` passed validate() and wrote a raw newline
+        into the middle of a C string literal: a header that does not
+        compile. Three octal digits, always: `\\0` or `\\x` would run into a
+        digit after them."""
+        self.assertEqual(cfgmod._c_string("a\nb"), '"a\\012b"')
+        self.assertEqual(cfgmod._c_string("\x00" + "7"), '"\\0007"')
+        self.assertEqual(cfgmod._c_string("tab\there\x7f"), '"tab\\011here\\177"')
+        self.assertEqual(cfgmod._c_string('say "hi" \\ é'), '"say \\"hi\\" \\\\ é"')
+        cfg = base_config(resources={"rres_password": "line one\nline two"})
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+                cfgmod.gen_app_config(cfg)
+        finally:
+            cfgmod.write = original
+        self.assertIn('#define RMP_RRES_PASSWORD   "line one\\012line two"\n', captured["config.h"])
+
+
 def load_license_db():
     """tools/license_db.py, by path, the same way configure.py is loaded."""
     spec = importlib.util.spec_from_file_location("tools.license_db",
