@@ -35,6 +35,12 @@
 #       release against a static libc++ -- +19 % on linux-x64, +18 % on the
 #       web's .wasm, +22-26 % per Android ABI -- for a seek and a read. Files
 #       go through C's stdio (in a unique_ptr) or raylib
+#   S9  no `//` comment that ends in a backslash, in C or C++: the backslash
+#       splices the next line onto the comment, and whatever code was on it
+#       is gone -- a statement, a `#define`'s next line, a closing brace.
+#       gcc says so (-Wcomment, "multi-line comment"); clang and clang-tidy
+#       never do, so a lint run and a clang build are clean over it. Trailing
+#       spaces after the backslash change nothing: gcc splices there too
 #
 # Comments, strings and character literals do not count (S3 reads only the
 # comments): they are blanked before any rule runs, so a comment may say what
@@ -68,6 +74,7 @@ RULES = {
     "S6": "postfix ++/-- whose value is not used: ++i",
     "S7": "an rmp::ui entry point silent outside a frame: if (!frame_ready(...)) return",
     "S8": "iostreams in the library, a fifth of every release: C's stdio or raylib",
+    "S9": "a // comment ending in a backslash, which makes the next line part of it",
 }
 
 # A function body whose first statement leaves when no frame is open, with
@@ -86,6 +93,28 @@ def silent_entry_points(code):
         if not name.startswith("close_") and name not in ("if", "for", "while", "switch"):
             out.append((m.start(1), name))
     return out
+
+
+def continued_comments(kept):
+    """Offsets of every `//` comment whose line ends in a backslash, in a
+    text whose strings and character literals are blanked and whose comments
+    are kept. A `//` inside a block comment starts nothing."""
+    out = []
+    i, n = 0, len(kept)
+    while i < n:
+        if kept.startswith("/*", i):
+            j = kept.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        elif kept.startswith("//", i):
+            j = kept.find("\n", i)
+            j = n if j < 0 else j
+            if kept[i:j].rstrip(" \t\r").endswith("\\"):
+                out.append(i)
+            i = j
+        else:
+            i += 1
+    return out
+
 
 # Compiled as C: tests/smoke_test.h is included by examples/plain_c/main.c.
 C_HEADERS = {"tests/smoke_test.h"}
@@ -190,6 +219,8 @@ def check(path, rules, explicit=False):
     comments = blank(raw, comments=False)
     for m in re.finditer(r"\b(TODO|FIXME|XXX)\b", comments):
         hit("S3", m.start(), m.group(1))
+    for offset in continued_comments(comments):
+        hit("S9", offset, "// ...\\")
     if not posix.startswith(FLOOR_EXEMPT):
         for m in FLOOR.finditer(code):
             hit("S4", m.start(), " ".join(m.group(0).split()))

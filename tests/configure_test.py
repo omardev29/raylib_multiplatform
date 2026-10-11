@@ -10053,6 +10053,54 @@ class StyleCheckTest(unittest.TestCase):
         self.assertIn("src/rmp/x.cpp:1: S8 <sstream>", got.stdout)
         self.assertNotIn("tests/x_test.cpp", got.stdout)
 
+    def test_s9_a_line_comment_that_takes_the_next_line(self):
+        """A `//` comment ending in a backslash splices the next line onto it:
+        gcc says -Wcomment, clang and clang-tidy say nothing, and the line is
+        gone. In C++ and in C, inside a macro too, with spaces after it."""
+        self.assert_red("S9", "int f() { return 1; } // the folder is C:\\",
+                        "int g() { return 2; }")
+        self.assert_red("S9", "// a trailing space after it changes nothing \\   ",
+                        "int lost = 0;")
+        self.assert_red("S9", "#define TWICE(x) ((x) + (x)) // doubled \\",
+                        "int after = TWICE(1);")
+        self.assert_red("S9", "int f(void) { return 0; } // in C as well \\", "int g;",
+                        suffix=".c")
+        self.assert_red("S9", "// one \\", "// two \\", "int x;", count=2)
+
+    def test_s9_leaves_a_backslash_that_is_not_a_line_comments_last(self):
+        self.assert_green("/* a block comment over two lines \\",
+                          "   is still one comment */",
+                          "/* // a line comment inside a block one \\",
+                          "*/",
+                          '#define URL "http://example.com/" \\',
+                          '    "index.html"',
+                          "#define ONE 1 \\",
+                          "    + 0",
+                          "// a \\ in the middle of a comment",
+                          'const char *s = "// in a string \\\\";',
+                          "char c = '\\\\'; // a character, then a comment")
+
+    def test_s9_reads_every_root_and_c(self):
+        """Not only the library: a test, an example and a C file lose a line
+        the same way."""
+        import shutil
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            for name in ("style_check.sh", "cpp_text.py"):
+                shutil.copy(REPO / "tools" / name, root / "tools")
+            planted = ("src/rmp/x.cpp", "tests/x_test.cpp", "examples/plain_c/src/x.c",
+                       "include/rmp/x.h")
+            for where in planted:
+                (root / where).parent.mkdir(parents=True, exist_ok=True)
+                (root / where).write_text("int x = 0; // gone \\\nint y = 1;\n")
+            got = subprocess.run(["bash", str(root / "tools" / "style_check.sh")],
+                                 capture_output=True, text=True, cwd=root)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        for where in planted:
+            self.assertIn(f"{where}:1: S9 ", got.stdout)
+
     def test_s7_holds_the_whole_tree(self):
         """Phase 14 paid S7's debt: no entry point of src/rmp/ui is silent
         outside a frame, and the list of owed ones (SILENT_DEBT) is gone with
