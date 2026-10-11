@@ -320,7 +320,9 @@ void after_ready() {
     const bool save_test =
         SmokeTest_maxFrames > 0 || (asked != nullptr && asked[0] == '1');
     if (save_test && !smoke_save_round_trip()) return;
-    if (test_window.refused) return; // start() said why, with RAY_TEST_BOOT_FAIL
+    // A RAY_TEST_WINDOW start() could not read: no boot. read_test_window()
+    // said why, with RAY_TEST_BOOT_FAIL.
+    if (test_window.refused) return;
     SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
 }
 
@@ -459,28 +461,18 @@ void start(std::unique_ptr<rmp::Scene> first) {
     // of another shape -- at the design size every mode is the same picture.
     // RAY_TEST_MAX_FRAMES is what turns the smoke test on, and no shipped run
     // sets it.
-    int width = RMP_WINDOW_WIDTH;
-    int height = RMP_WINDOW_HEIGHT;
-    std::string window;
+    std::string asked;
     if (SmokeTest_maxFrames > 0) {
         // NOLINTNEXTLINE(custom-rmp-raw-pointer): what getenv() hands back, copied at once
-        const char *asked = std::getenv("RAY_TEST_WINDOW");
-        if (asked != nullptr) window = asked;
+        const char *env = std::getenv("RAY_TEST_WINDOW");
+        if (env != nullptr) asked = env;
     }
-    if (!window.empty()) {
-        if (const auto size = rmp::scenes::detail::parse_test_window(window)) {
-            width = size->width;
-            height = size->height;
-            TraceLog(LOG_INFO, "RAY_TEST_WINDOW %dx%d", width, height);
-        } else {
-            test_window.refused = true;
-            TraceLog(LOG_ERROR,
-                     "RAY_TEST_BOOT_FAIL RAY_TEST_WINDOW=\"%s\" is not WIDTHxHEIGHT, two "
-                     "whole numbers 16..16384 joined by an x -- 1080x2400, say",
-                     window.c_str());
-        }
-    }
-    InitWindow(width, height, RMP_WINDOW_TITLE);
+    const rmp::scenes::detail::TestWindow wanted =
+        rmp::scenes::detail::read_test_window(asked);
+    test_window.refused = wanted.refused;
+    const rmp::scenes::detail::WindowSize size = wanted.size.value_or(
+        rmp::scenes::detail::WindowSize{ RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT });
+    InitWindow(size.width, size.height, RMP_WINDOW_TITLE);
     rmp::scenes::detail::start(std::move(first));
 }
 

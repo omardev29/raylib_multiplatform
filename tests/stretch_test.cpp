@@ -282,4 +282,29 @@ TEST_SUITE("app: stretch: RAY_TEST_WINDOW") {
             CHECK_FALSE(parse_test_window(text).has_value());
         }
     }
+
+    TEST_CASE("what start() is told: nothing, a size, or a refusal") {
+        using rmp::scenes::detail::read_test_window;
+        using rmp::scenes::detail::TestWindow;
+        // Not set, or not the smoke test: the .toml's window, and a boot.
+        const TestWindow none = read_test_window("");
+        CHECK_FALSE(none.size.has_value());
+        CHECK_FALSE(none.refused);
+        // A size it reads is the window's.
+        const TestWindow tall = read_test_window("1080x2400");
+        REQUIRE(tall.size.has_value());
+        CHECK(tall.size.value_or(rmp::scenes::detail::WindowSize{ 0, 0 }).width == 1080);
+        CHECK(tall.size.value_or(rmp::scenes::detail::WindowSize{ 0, 0 }).height == 2400);
+        CHECK_FALSE(tall.refused);
+        // Anything else: no size, and the boot is refused rather than run at
+        // the design size, where every stretch is the same picture.
+        for (const std::string_view bad :
+             std::to_array<std::string_view>({ "1080 x 2400", "tall", "x", "15x15" })) {
+            const std::string shown(bad);
+            CAPTURE(shown);
+            const TestWindow got = read_test_window(bad);
+            CHECK_FALSE(got.size.has_value());
+            CHECK(got.refused);
+        }
+    }
 }

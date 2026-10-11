@@ -2409,11 +2409,13 @@ class TestWindowOnlyUnderTheSmokeTest(unittest.TestCase):
         read = body.find("std::getenv(\"RAY_TEST_WINDOW\")")
         if guard < 0 or read < 0 or body.find("}", guard) < read:
             out.append("RAY_TEST_WINDOW is not read under the smoke test alone")
-        if "InitWindow(width, height, RMP_WINDOW_TITLE);" not in body:
+        opened = body.find("InitWindow(size.width, size.height, RMP_WINDOW_TITLE);")
+        asked = body.find("read_test_window(asked)")
+        if opened < 0 or asked < 0 or "wanted.size.value_or(" not in body:
             out.append("InitWindow() does not open at what was read")
-        elif body.index("parse_test_window(") > body.index("InitWindow("):
+        elif asked > opened:
             out.append("RAY_TEST_WINDOW is read after the window opened")
-        if "test_window.refused = true;" not in body or "RAY_TEST_BOOT_FAIL" not in body:
+        if "test_window.refused = wanted.refused;" not in body:
             out.append("a RAY_TEST_WINDOW it cannot read does not fail the boot")
         ready = app.index("void after_ready() {")
         ready = app[ready:app.index("\n}\n", ready)]
@@ -2431,9 +2433,9 @@ class TestWindowOnlyUnderTheSmokeTest(unittest.TestCase):
         app = (REPO / "src" / "rmp" / "app.cpp").read_text()
         for old, new in (
                 ("if (SmokeTest_maxFrames > 0) {", "if (SmokeTest_maxFrames >= 0) {"),
-                ("InitWindow(width, height, RMP_WINDOW_TITLE);",
+                ("InitWindow(size.width, size.height, RMP_WINDOW_TITLE);",
                  "InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);"),
-                ("test_window.refused = true;", ""),
+                ("test_window.refused = wanted.refused;", ""),
                 ("if (test_window.refused) return;", "")):
             with self.subTest(removed=old):
                 self.assertIn(old, app)

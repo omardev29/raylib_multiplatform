@@ -23,6 +23,7 @@
 #include <cmath>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -345,6 +346,24 @@ std::optional<WindowSize> parse_test_window(const std::string_view text) {
     const std::optional<int> height = side(text.substr(cross + 1));
     if (!width || !height) return std::nullopt;
     return WindowSize{ *width, *height };
+}
+
+TestWindow read_test_window(const std::string_view asked) {
+    if (asked.empty()) return TestWindow{ std::nullopt, false };
+    const std::optional<WindowSize> size = parse_test_window(asked);
+    if (!size) {
+        // A mistake in the CI step that set it, said in the log next to the
+        // marker every boot gate greps for. Not RMP_REPORT_ONCE: it is not a
+        // mistake in the game, and the boot failing is the verdict.
+        const std::string shown(asked);
+        TraceLog(LOG_ERROR,
+                 "RAY_TEST_BOOT_FAIL RAY_TEST_WINDOW=\"%s\" is not WIDTHxHEIGHT, two "
+                 "whole numbers 16..16384 joined by an x -- 1080x2400, say",
+                 shown.c_str());
+        return TestWindow{ std::nullopt, true };
+    }
+    TraceLog(LOG_INFO, "RAY_TEST_WINDOW %dx%d", size->width, size->height);
+    return TestWindow{ size, false };
 }
 
 void apply_pending() {

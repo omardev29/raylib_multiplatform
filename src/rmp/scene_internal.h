@@ -77,6 +77,18 @@ struct WindowSize {
 };
 std::optional<WindowSize> parse_test_window(std::string_view text);
 
+// What RAY_TEST_WINDOW asks of RMP_GAME's window. `asked` is its value: ""
+// when it is not set, or the smoke test is off. A size parse_test_window()
+// reads is the window's, and the log says "RAY_TEST_WINDOW WxH". Anything
+// else is refused with RAY_TEST_BOOT_FAIL and the reason, and the boot must
+// then not be reported: a typo in a CI step would otherwise boot at the
+// design size, where every [window] stretch is the same picture.
+struct TestWindow {
+    std::optional<WindowSize> size;
+    bool refused;
+};
+TestWindow read_test_window(std::string_view asked);
+
 // True once start() has run and until shutdown() finishes. The UI uses it to
 // tell "inside an app" from "someone calling rmp::ui::begin() on their own".
 bool running();
