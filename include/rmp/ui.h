@@ -910,7 +910,9 @@ template <class Body> void at(Vector2 world, Body &&body) {
 // How tooltip() places its line, and how long it waits.
 struct TooltipOptions {
     Align side = Align::TOP_CENTER; // which side of the control it appears on
-    float delay = 0.5f; // seconds the pointer rests on the control before it shows
+    // Seconds the pointer rests on the control before it shows; infinity: never
+    // by the pointer, by the focus alone.
+    float delay = 0.5f;
 };
 
 // A line about the control declared just before it, shown while the pointer
@@ -920,7 +922,8 @@ struct TooltipOptions {
 //     rmp::ui::tooltip("Gives you half of what it cost");
 //
 // The text is copied. One with no control before it in the frame is reported
-// once and shows nothing.
+// once and shows nothing. An empty one shows nothing and is no mistake:
+// tooltip(item.description) for an item without one.
 void tooltip(std::string_view text);
 void tooltip(std::string_view text, const TooltipOptions &o);
 
