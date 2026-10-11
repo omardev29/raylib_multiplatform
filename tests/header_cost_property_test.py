@@ -186,5 +186,74 @@ class VerdictTest(unittest.TestCase):
             self.assertEqual(hc.parse_budget(written), budget)
 
 
+class CompileFailureTest(unittest.TestCase):
+    """A header the compiler refuses measures nothing, in any mode: exit 1,
+    a FAIL naming it with what the compiler said, the others measured and
+    judged as ever, and --write-budget writing nothing -- a budget without
+    that header would pass the next --check's NO BUDGET by accident. A
+    compiler that does not start at all is one FAIL, not one per header."""
+
+    @given(st.dictionaries(NAMES, st.integers(0, 10**5), min_size=1, max_size=5), st.data(),
+           st.booleans(), st.booleans())
+    def test_a_header_that_does_not_compile(self, measured, data, check, write):
+        import contextlib
+        import io
+        import subprocess
+        import tempfile
+        from unittest import mock
+        broken = set(data.draw(st.sets(st.sampled_from(sorted(measured)), min_size=1)))
+        stderr = data.draw(st.sampled_from([b"fatal error: x.h: No such file\n",
+                                            "error: unknown type name 'Thing'\n", None, ""]))
+
+        def measure(cxx, header, runs=5):
+            if header.name in broken:
+                raise subprocess.CalledProcessError(1, [cxx, "-E"], stderr=stderr)
+            return measured[header.name], 1.0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            target = root / "tools" / "header_budget.txt"
+            target.write_text(hc.format_budget(measured.items()))
+            before = target.read_text()
+            headers = [root / "include" / "rmp" / name for name in sorted(measured)]
+            argv = ["--check"] * check + ["--write-budget"] * write
+            out = io.StringIO()
+            with mock.patch.object(hc, "REPO", root), mock.patch.object(hc, "BUDGET", target), \
+                    mock.patch.object(hc, "headers", lambda: headers), \
+                    mock.patch.object(hc, "measure", measure), contextlib.redirect_stdout(out):
+                code = hc.main(argv)
+            said = out.getvalue()
+            self.assertEqual(target.read_text(), before, said)
+        self.assertEqual(code, 1, said)
+        for name in measured:
+            if name in broken:
+                self.assertRegex(said, rf"  FAIL  rmp/{re.escape(name)} +does not compile")
+            else:
+                self.assertRegex(said, rf"  ok    rmp/{re.escape(name)} ")
+        if stderr:
+            # Each line of it, as text under the FAIL, whichever form it came in.
+            text = stderr.decode() if isinstance(stderr, bytes) else stderr
+            self.assertIn(f"\n          {text.strip()}\n", said)
+        self.assertIn(f"FAIL: {len(broken)} header(s) off budget", said)
+
+    def test_a_compiler_that_does_not_start(self):
+        import contextlib
+        import io
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            headers = [Path(tmp) / name for name in ("a.h", "b.h")]
+            out = io.StringIO()
+            with mock.patch.object(hc, "compiler", lambda: str(Path(tmp) / "no-such-c++")), \
+                    mock.patch.object(hc, "headers", lambda: headers), \
+                    mock.patch.object(hc, "read_budget", lambda: {"a.h": 1, "b.h": 1}), \
+                    contextlib.redirect_stdout(out):
+                code = hc.main(["--check"])
+        self.assertEqual(code, 1, out.getvalue())
+        self.assertEqual(out.getvalue().count("FAIL"), 1, out.getvalue())
+        self.assertIn("no-such-c++ could not be started", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

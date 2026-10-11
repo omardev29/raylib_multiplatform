@@ -27,7 +27,9 @@ image is the toolchain the one the budget was written against, so on a laptop
 those two report and exit 0 unless --strict is given.
 
 What does NOT depend on the toolchain fails everywhere: a header with no line
-in the budget, and a line in the budget for a header that no longer exists.
+in the budget, a line in the budget for a header that no longer exists, and
+a header that does not compile with the include list below (what the
+compiler said is printed under its name, and --write-budget writes nothing).
 rmp/audio.h reached CI with no budget, because `rmp test` on a laptop only
 reported it -- and whether a name is in a file is the same on every machine.
 """
@@ -140,9 +142,29 @@ def main(argv: list[str]) -> int:
     in_image = IMAGE_MANIFEST.is_file()
     gate = args.check and (in_image or args.strict)
     fails = 0
+    broken = 0
     rows = []
     for header in headers():
-        lines, ms = measure(cxx, header)
+        try:
+            lines, ms = measure(cxx, header)
+        except OSError as e:
+            # No compiler to start: nothing can be measured, once.
+            print(f"FAIL: {cxx} could not be started: {e}")
+            return 1
+        except subprocess.CalledProcessError as e:
+            # A header the compiler refuses with INCLUDES and DEFINES above --
+            # a vendored folder CMake has and this list lacks -- measures
+            # nothing, on every machine; what the compiler said is the
+            # reason, and a traceback left it out.
+            said = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) \
+                else (e.stderr or "")
+            print(f"  FAIL  rmp/{header.name:14} does not compile with {cxx} and the include "
+                  "list of tools/header_cost.py:")
+            for line in said.strip().splitlines()[:8]:
+                print(f"          {line}")
+            fails += 1
+            broken += 1
+            continue
         rows.append((header.name, lines, ms))
         want = budget.get(header.name)
         verdict = ""
@@ -166,7 +188,12 @@ def main(argv: list[str]) -> int:
                   "remove the line")
             fails += 1
 
-    if args.write_budget:
+    if args.write_budget and broken:
+        # Written without them, the next --check would say NO BUDGET of a
+        # header that has one; the file stays as it was.
+        print(f"not written: {BUDGET.relative_to(REPO)} keeps its lines while a header "
+              "does not compile")
+    elif args.write_budget:
         BUDGET.write_text(format_budget((name, lines) for name, lines, _ in rows))
         print(f"wrote {BUDGET.relative_to(REPO)}")
 

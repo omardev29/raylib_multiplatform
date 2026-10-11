@@ -548,6 +548,16 @@ class HeaderCostCheckTest(GateTest):
         out = self.assert_red("is in tools/header_budget.txt but not in include/rmp/")
         self.assertRegex(out, r"FAIL  rmp/gone\.h +is in")
 
+    def test_planted_a_header_that_does_not_compile(self):
+        """A header that does not compile with this script's include list --
+        a vendored folder added to CMake's and not to INCLUDES -- was a
+        CalledProcessError traceback, and what the compiler said was not in
+        it. It is a FAIL naming the header, with the compiler's words."""
+        self.tree.plant("include/rmp/random.h",
+                        "#pragma once\n#include <rmp/config.h>\n#include <never_vendored.h>\n")
+        out = self.assert_red("FAIL  rmp/random.h       does not compile", "never_vendored.h")
+        self.assertIn("ok    rmp/math.h", out)
+
     def test_planted_a_note_after_a_number(self):
         """Found by tests/header_cost_property_test.py: a budget line with a
         note after its number -- how a hand edit says why -- was a ValueError
