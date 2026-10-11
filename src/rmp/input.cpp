@@ -186,22 +186,25 @@ bool action_state(std::string_view name, Edge edge) {
     }
     note_read(action->ui_keys);
 
+    // An action is a boolean -- held while any of its bindings is down -- and
+    // its edges are the edges of THAT, not of each binding: Space held and W
+    // pressed on top of it is no second jump, and Space let go while W is
+    // still down is no release of an action that is still held.
+    bool now = false;
+    bool before = false;
     for (int i = 0; i < action->count; ++i) {
         const detail::Binding &binding = action->bindings[i];
         if (consumed(binding)) continue;
-        const bool now = binding_down(binding, frames.now);
-        const bool before = frames.have_previous && binding_down(binding, frames.before);
-        switch (edge) {
-            case Edge::HELD:
-                if (now) return true;
-                break;
-            case Edge::DOWN:
-                if (now && !before) return true;
-                break;
-            case Edge::UP:
-                if (!now && before) return true;
-                break;
-        }
+        now = now || binding_down(binding, frames.now);
+        before = before || (frames.have_previous && binding_down(binding, frames.before));
+    }
+    switch (edge) {
+        case Edge::HELD:
+            return now;
+        case Edge::DOWN:
+            return now && !before;
+        case Edge::UP:
+            return !now && before;
     }
     return false;
 }
@@ -253,6 +256,28 @@ bool raw_edge(detail::Device device, int code, Edge edge) {
     return false;
 }
 
+// What a device said, as numbers the rest of this file can read. A driver --
+// or a seam -- can hand over a stick that is not a number, or far past its
+// -1..1, and a pointer that is not one either: a NaN there was a NaN
+// vector(), and a stick at 4 an axis() of 4.75. Conditions of the machine, so
+// nothing is said: a stick that says nothing is at rest, one past its end is
+// at its end, and a pointer coordinate that is not a number is where the
+// pointer was -- and one past 2^24 pixels, where a float stops counting every
+// pixel and no window reaches, is held there, so the delta between two of
+// them is a number too.
+constexpr float POINTER_LIMIT = 16777216.0f; // 2^24
+
+void keep_readable(detail::DeviceState &now, const detail::DeviceState &before) {
+    for (float &axis : now.axes) {
+        axis = std::isnan(axis) ? 0.0f : std::clamp(axis, -1.0f, 1.0f);
+    }
+    const auto coordinate = [](const float v, const float was) {
+        return std::isnan(v) ? was : std::clamp(v, -POINTER_LIMIT, POINTER_LIMIT);
+    };
+    now.pointer = Vector2{ coordinate(now.pointer.x, before.pointer.x),
+                           coordinate(now.pointer.y, before.pointer.y) };
+}
+
 // The actions that exist before anyone defines anything, so that vector() with
 // no arguments is a whole eight-direction movement scheme. They are ordinary
 // actions: redefining any of them replaces it like any other.
@@ -285,10 +310,13 @@ void define(std::string_view name, std::initializer_list<Binding> bindings) {
     ensure_factory();
     int count = static_cast<int>(bindings.size());
     if (count > MAX_BINDINGS) {
-        TraceLog(LOG_WARNING,
-                 "INPUT: \"%.*s\" was given %d bindings and the limit is %d; the extra "
-                 "ones are ignored.",
-                 static_cast<int>(name.size()), name.data(), count, MAX_BINDINGS);
+        // A mistake in the game, and one a scene's _ready() makes every time
+        // the scene is entered: said once per action.
+        const std::string key(name);
+        RMP_REPORT_ONCE_KEYED(key.c_str(),
+                              "INPUT: \"%s\" was given %d bindings and the limit is %d; "
+                              "the extra ones are ignored.",
+                              key.c_str(), count, MAX_BINDINGS);
         count = MAX_BINDINGS;
     }
 
@@ -340,6 +368,7 @@ void begin_frame() {
     frames.before = frames.now;
     reading.layer_input = true;
     frames.sample(frames.now);
+    keep_readable(frames.now, frames.before);
     // What the last frame read of the interface's keys was that frame's. The
     // scene stack takes the note around each scene's update; a game without
     // scenes is judged on the frame's own reads, and a frame the UI did not
@@ -474,6 +503,14 @@ bool pointer_released() { return just_released(MOUSE_BUTTON_LEFT); }
 float deadzone() { return reading.deadzone; }
 
 void set_deadzone(float value) {
+    // NaN is no dead zone, and no slider makes one: a mistake in the game,
+    // which keeps the one it had. Kept, it was a stick that counted as pushed
+    // at any reading and an axis_value() of NaN.
+    if (std::isnan(value)) {
+        RMP_REPORT_ONCE("INPUT: set_deadzone(NaN); the dead zone stays %g.",
+                        static_cast<double>(reading.deadzone));
+        return;
+    }
     // Clamped rather than rejected: this one is reachable from a settings
     // slider, and a slider that can wedge the sticks off is worse than one
     // whose ends do nothing.

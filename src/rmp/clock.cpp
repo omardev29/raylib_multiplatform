@@ -55,17 +55,18 @@ rmp::Callback<> &observer() {
 
 } // namespace
 
-// A reading that is not a number of seconds, 0 or more, becomes 0: a frame
-// in which no time passed. A negative one, because no platform should produce
-// one, but a monotonic clock going backwards on a suspend/resume is not
-// unheard of -- and a negative step would run the whole world in reverse for
-// one frame. A NaN or an infinity, because every position in the world is
-// that number the next frame, for good: `raw < 0` and `raw > max` are both
-// false for a NaN, and the clamp let it through (the clock's property found
-// it). And past `max` is `max`, when there is one.
+// Every comparison is written so that a NaN fails it: `raw >= 0` is false for
+// NaN, where `raw < 0` would have let it through -- and a NaN step makes every
+// position it touches NaN for the rest of the run.
 float clamp_delta(const float raw, const float max) {
-    if (!std::isfinite(raw) || raw < 0) return 0.0f;
-    if (max > 0 && raw > max) return max;
+    // A ceiling that is not a positive number of seconds is no ceiling.
+    const bool ceiling = max > 0 && std::isfinite(max);
+    if (ceiling && raw > max) return max; // +inf included
+    // A negative reading becomes 0: no platform should produce one, but a
+    // monotonic clock going backwards on a suspend/resume is not unheard of --
+    // and a negative step would run the whole world in reverse for one frame.
+    // NaN is no time at all, and so is +inf with nothing to cut it to.
+    if (!(raw >= 0) || !std::isfinite(raw)) return 0.0f;
     return raw;
 }
 
@@ -85,7 +86,11 @@ void forget_steps_for_tests() {
     timing.last = 0;
 }
 
-void set_fixed_delta(float seconds) { timing.fixed = seconds > 0 ? seconds : 0; }
+// Not a positive number of seconds -- 0, negative, NaN, infinite -- is the
+// real clock again.
+void set_fixed_delta(float seconds) {
+    timing.fixed = seconds > 0 && std::isfinite(seconds) ? seconds : 0;
+}
 
 void set_test_seed(std::optional<std::uint64_t> seed) { timing.seed = seed; }
 

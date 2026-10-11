@@ -38,7 +38,9 @@ namespace rmp::app::detail {
 // One function of the mode and the screen, so the camera (scene.cpp,
 // camera.cpp) and the interface (rmp::ui, against its own viewport) cannot
 // disagree about where the game is. A screen with no area -- or one that is
-// not a number -- is the design size at 1:1.
+// not a number, or so small the design fits it at no scale a float holds --
+// is the design size at 1:1. Otherwise `scale` is a positive finite number and
+// `area` is inside the screen, LETTERBOX's never a hair past it.
 struct WorldViewport {
     Rectangle area;
     float scale;
@@ -60,11 +62,14 @@ WorldViewport world_viewport();
 // The storage behind these is constant-initialised, so a test's static
 // initializer may call them before main() in any order.
 
-// A frame of `raw` seconds as the game is handed it: what step_delta() and
-// frame_delta() make of the reading, with `max` as [app] max_delta. 0 for a
-// reading that is not a number of seconds, 0 or more -- negative, NaN, an
-// infinity -- and `max` for one past it, when `max` is more than 0 (0 switches
-// the clamp off). Always a finite number, 0 or more.
+// A frame of `raw` seconds as the game is handed it: `max` seconds at most --
+// [app] max_delta, RMP_MAX_DELTA -- and never less than 0. A `max` that is not
+// a positive finite number switches the ceiling off. What is not a number of
+// seconds -- NaN, a negative reading, +inf with no ceiling to cut it to -- is
+// 0: a frame in which no time passed. Whatever goes in, what comes out is a
+// finite number in [0, max] (or [0, raw] with no ceiling), so no NaN or
+// infinity reaches a position through the step. Pure: step_delta() is this
+// applied to what raylib timed.
 float clamp_delta(float raw, float max);
 
 // What step_delta() returned this frame. Before any runner has called it --
@@ -76,7 +81,8 @@ float frame_delta();
 void forget_steps_for_tests();
 
 // More than 0: every frame advances exactly `seconds` -- still clamped by
-// [app] max_delta -- whatever the machine took. 0 goes back to the real clock.
+// [app] max_delta -- whatever the machine took. 0 goes back to the real clock,
+// and so does anything that is not a finite number of seconds.
 void set_fixed_delta(float seconds);
 
 // What begin_run() seeds rmp::random with, instead of the wall clock. nullopt

@@ -36,7 +36,21 @@ struct {
 
 Stretch stretch() { return world.mode; }
 
-void set_stretch(const Stretch mode) { world.mode = mode; }
+// Any int is a Stretch -- a scoped enum holds every value of its underlying
+// type -- and a settings menu cycling through the modes by number reaches one
+// past the last. That is no mode: the one in use stays, and it is said once.
+void set_stretch(const Stretch mode) {
+    switch (mode) {
+        case Stretch::NONE:
+        case Stretch::LETTERBOX:
+        case Stretch::EXPAND:
+            world.mode = mode;
+            return;
+    }
+    RMP_REPORT_ONCE("APP: set_stretch(%d) is no mode -- Stretch::NONE, LETTERBOX or "
+                    "EXPAND; the mode stays what it was.",
+                    static_cast<int>(mode));
+}
 
 namespace detail {
 
@@ -52,11 +66,18 @@ WorldViewport world_viewport(const Stretch mode, const Vector2 screen) {
     const float sx = screen.x / DESIGN_W;
     const float sy = screen.y / DESIGN_H;
     const float s = sx < sy ? sx : sy;
+    // A screen so small that the design fits it at no scale a float can hold
+    // -- a denormal's worth of pixels, which only a test hands in -- is one
+    // with no area: a scale of 0 is a camera that divides by it.
+    if (!(s > 0)) return WorldViewport{ Rectangle{ 0, 0, DESIGN_W, DESIGN_H }, 1.0f };
     const Rectangle whole{ 0, 0, screen.x, screen.y };
     switch (mode) {
         case Stretch::LETTERBOX: {
-            const float w = DESIGN_W * s;
-            const float h = DESIGN_H * s;
+            // Never more than the screen: the design times a scale that was
+            // rounded can be a hair past it -- and past the largest float,
+            // infinite, on a screen near it.
+            const float w = std::fmin(DESIGN_W * s, screen.x);
+            const float h = std::fmin(DESIGN_H * s, screen.y);
             return WorldViewport{
                 Rectangle{ (screen.x - w) / 2, (screen.y - h) / 2, w, h }, s
             };

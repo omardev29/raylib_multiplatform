@@ -569,6 +569,46 @@ TEST_SUITE("scene shutdown") {
         CHECK(trace.log == "A.end");
     }
 
+    TEST_CASE("what an _end() asks for on the way out is dropped too, and the next run "
+              "starts clean") {
+        // tests/property/scene_prop.cpp's counterexample: shutdown() emptied
+        // the queue BEFORE it ended the scenes, so a scene whose _end() asked
+        // for another left it queued -- made, never destroyed until the
+        // program's own exit, after the window and the resource table were
+        // gone -- and a stack started again entered it first.
+        const Fixture fix;
+        static int made = 0;
+        made = 0;
+        class Counted : public rmp::Scene {
+        public:
+            Counted() { ++made; }
+            ~Counted() override { --made; }
+            Counted(const Counted &) = delete;
+            Counted &operator=(const Counted &) = delete;
+            Counted(Counted &&) = delete;
+            Counted &operator=(Counted &&) = delete;
+            void _ready() override { note("N", "ready"); }
+        };
+        class Leaving : public rmp::Scene {
+        public:
+            void _end() override {
+                note("L", "end");
+                rmp::Scene::change<Counted>();
+            }
+        };
+        rmp::scenes::detail::start(std::make_unique<Leaving>());
+        trace.log.clear();
+        rmp::scenes::detail::shutdown();
+        CHECK(trace.log == "L.end");
+        CHECK(made == 0);
+
+        start_clean<A>();
+        rmp::scenes::detail::apply_pending();
+        CHECK(trace.log.empty());
+        CHECK(rmp::Scene::depth() == 1);
+        CHECK(made == 0);
+    }
+
     TEST_CASE("a frame after shutdown does nothing rather than crashing") {
         const Fixture fix;
         start_clean<A>();

@@ -1,0 +1,8 @@
+# libFuzzer's dictionary for fuzz_test_window: what a RAY_TEST_WINDOW is made
+# of. tools/fuzz.sh hands it to libFuzzer as -dict when it exists.
+cross="x"
+smallest="16"
+largest="16384"
+past_largest="16385"
+five_digits="99999"
+leading_zero="0"

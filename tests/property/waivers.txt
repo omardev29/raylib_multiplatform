@@ -20,8 +20,6 @@
 # include/rmp/app.h: P6, after Stage D
 rmp::app::quit()
 rmp::app::quit_requested()
-rmp::app::set_stretch(Stretch)
-rmp::app::stretch()
 
 # include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's
 rmp::SheetData::frame(int) const
@@ -31,35 +29,6 @@ rmp::SheetData::tag_count() const
 rmp::assets::load_sheet(std::string_view)
 
 # include/rmp/input.h: P6, after Stage D
-rmp::input::action [template]
-rmp::input::axis()
-rmp::input::axis(std::string_view, std::string_view)
-rmp::input::axis_value(::GamepadAxis)
-rmp::input::consumed_keyboard()
-rmp::input::consumed_pointer()
-rmp::input::deadzone()
-rmp::input::just_pressed(::GamepadButton)
-rmp::input::just_pressed(::KeyboardKey)
-rmp::input::just_pressed(::MouseButton)
-rmp::input::just_pressed(std::string_view)
-rmp::input::just_released(::GamepadButton)
-rmp::input::just_released(::KeyboardKey)
-rmp::input::just_released(::MouseButton)
-rmp::input::just_released(std::string_view)
-rmp::input::pointer()
-rmp::input::pointer_delta()
-rmp::input::pointer_down()
-rmp::input::pointer_pressed()
-rmp::input::pointer_released()
-rmp::input::pointer_screen()
-rmp::input::pressed(::GamepadButton)
-rmp::input::pressed(::KeyboardKey)
-rmp::input::pressed(::MouseButton)
-rmp::input::pressed(std::string_view)
-rmp::input::set_deadzone(float)
-rmp::input::stick(::GamepadAxis, int)
-rmp::input::vector()
-rmp::input::vector(std::string_view, std::string_view, std::string_view, std::string_view)
 
 # include/rmp/object.h: P5
 
@@ -67,21 +36,6 @@ rmp::input::vector(std::string_view, std::string_view, std::string_view, std::st
 
 # include/rmp/scene.h: P6, after Stage D (rmp::Camera's are held by
 # tests/property/camera_prop.cpp, P3b)
-rmp::Scene::_draw()
-rmp::Scene::_end()
-rmp::Scene::_ready()
-rmp::Scene::_resume()
-rmp::Scene::_suspend()
-rmp::Scene::_update(float)
-rmp::Scene::change [template]
-rmp::Scene::current()
-rmp::Scene::depth()
-rmp::Scene::destroy(Object &)
-rmp::Scene::object_count() const
-rmp::Scene::pop()
-rmp::Scene::push [template]
-rmp::Scene::replace [template]
-rmp::Scene::spawn [template]
 
 # include/rmp/ui.h: P7, after Stage D
 rmp::ui::at [template]

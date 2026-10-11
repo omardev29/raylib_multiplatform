@@ -99,25 +99,43 @@ TEST_SUITE("app: the clock") {
         CHECK(rmp::app::detail::frame_delta() == step);
     }
 
-    TEST_CASE("a reading that is not a number of seconds is a frame of no time") {
-        // tests/property/clock_prop.cpp's first counterexample: a NaN went
-        // through the clamp, because `raw < 0` and `raw > max` are both false
-        // for one -- and so did an infinity with the clamp off.
+    TEST_CASE("a reading that is no number of seconds is no time at all") {
+        // tests/property/app_prop.cpp's counterexamples: NaN under a ceiling
+        // of 1 was NaN, and NaN steps make every position they touch NaN; and
+        // +inf with the ceiling off was +inf.
+        using rmp::app::detail::clamp_delta;
         const float nan = std::numeric_limits<float>::quiet_NaN();
         const float inf = std::numeric_limits<float>::infinity();
-        for (const float max : { 0.0f, 0.05f, -1.0f, nan, inf }) {
-            CAPTURE(max);
-            CHECK(rmp::app::detail::clamp_delta(nan, max) == 0.0f);
-            CHECK(rmp::app::detail::clamp_delta(-nan, max) == 0.0f);
-            CHECK(rmp::app::detail::clamp_delta(inf, max) == 0.0f);
-            CHECK(rmp::app::detail::clamp_delta(-inf, max) == 0.0f);
-            CHECK(rmp::app::detail::clamp_delta(-STEP, max) == 0.0f);
+        CHECK(clamp_delta(nan, 1.0f) == 0.0f);
+        CHECK(clamp_delta(nan, 0.0f) == 0.0f);
+        CHECK(clamp_delta(-inf, 1.0f) == 0.0f);
+        CHECK(clamp_delta(-STEP, 1.0f) == 0.0f);
+        CHECK(clamp_delta(inf, 0.0f) == 0.0f);
+        // A ceiling cuts +inf to itself, as it cuts any longer frame.
+        CHECK(clamp_delta(inf, 0.05f) == 0.05f);
+        CHECK(clamp_delta(3.0f, 0.05f) == 0.05f);
+        // A ceiling that is no positive number of seconds is no ceiling.
+        for (const float off : { 0.0f, -1.0f, nan, inf }) {
+            CHECK(clamp_delta(3.0f, off) == 3.0f);
+            CHECK(clamp_delta(STEP, off) == STEP);
+            CHECK(clamp_delta(inf, off) == 0.0f);
         }
-        CHECK(rmp::app::detail::clamp_delta(STEP, 0.0f) == STEP);
-        CHECK(rmp::app::detail::clamp_delta(STEP, 0.05f) == STEP);
-        CHECK(rmp::app::detail::clamp_delta(1.0f, 0.05f) == 0.05f);
-        CHECK(rmp::app::detail::clamp_delta(std::numeric_limits<float>::max(), 0.05f) ==
-              0.05f);
+        // And inside the ceiling a reading is what it was.
+        CHECK(clamp_delta(STEP, 0.05f) == STEP);
+        CHECK(clamp_delta(0.05f, 0.05f) == 0.05f);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a fixed step that is no number of seconds is the real clock") {
+        // set_fixed_delta(+inf) was a step of inf, which [app] max_delta then
+        // cut to 0.05 a frame whatever the machine took; NaN is refused too.
+        for (const float bad : { std::numeric_limits<float>::infinity(),
+                                 std::numeric_limits<float>::quiet_NaN() }) {
+            rmp::app::detail::set_fixed_delta(STEP);
+            rmp::app::detail::set_fixed_delta(bad);
+            CHECK(rmp::app::detail::step_delta() == 0.0f);
+            CHECK(rmp::app::detail::frame_delta() == 0.0f);
+        }
     }
 
     TEST_CASE_FIXTURE(Fixture, "0, or less, is the real clock -- no window, no time") {

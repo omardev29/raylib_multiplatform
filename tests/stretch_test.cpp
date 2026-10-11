@@ -138,6 +138,77 @@ TEST_SUITE("app: stretch") {
         }
     }
 
+    TEST_CASE(
+        "a screen the design fits at no scale is the design at 1:1, not a scale of 0") {
+        // tests/property/app_prop.cpp's counterexample: a denormal's worth of
+        // pixels by 1e-20 under EXPAND was a scale of 0 -- and the camera
+        // divides by the scale, so the view was infinite.
+        const float tiny = std::numeric_limits<float>::denorm_min();
+        for (const Stretch mode :
+             { Stretch::NONE, Stretch::LETTERBOX, Stretch::EXPAND }) {
+            check_area(world_viewport(mode, Vector2{ tiny, 1e-20f }), 0, 0, W, H, 1);
+            check_area(world_viewport(mode, Vector2{ tiny, tiny }), 0, 0, W, H, 1);
+        }
+    }
+
+    TEST_CASE("the largest screen a float holds: the letterbox is finite and inside it") {
+        // The design times a scale rounded up was past FLT_MAX: an infinite
+        // width, and a bar of -inf.
+        const float most = std::numeric_limits<float>::max();
+        const WorldViewport v = world_viewport(Stretch::LETTERBOX, Vector2{ most, most });
+        CHECK(std::isfinite(v.area.width));
+        CHECK(std::isfinite(v.area.height));
+        CHECK(v.area.x >= 0);
+        CHECK(v.area.y >= 0);
+        CHECK(v.area.width <= most);
+        CHECK(v.scale > 0);
+        CHECK(std::isfinite(v.scale));
+    }
+
+    TEST_CASE("a letterbox never reaches past the screen, by a hair or more") {
+        // The area is the design times a scale that was rounded: with the
+        // framework's 800 x 450 on a 1920 x 1200 monitor its width came out a
+        // hair past the screen's 1920 columns, and the bar to its left a hair
+        // under 0 -- and the same on a 480 x 854 phone held upright.
+        for (const Vector2 screen : { Vector2{ 1920, 1200 }, Vector2{ 480, 854 } }) {
+            const WorldViewport v = world_viewport(Stretch::LETTERBOX, screen);
+            CHECK(v.area.x >= 0);
+            CHECK(v.area.width <= screen.x);
+        }
+        for (int px = 1; px <= 4096; ++px) {
+            const auto side = static_cast<float>(px);
+            for (const Vector2 screen :
+                 { Vector2{ side, 2 * H }, Vector2{ 2 * W, side } }) {
+                const WorldViewport v = world_viewport(Stretch::LETTERBOX, screen);
+                CHECK(v.area.x >= 0);
+                CHECK(v.area.y >= 0);
+                CHECK(v.area.width <= screen.x);
+                CHECK(v.area.height <= screen.y);
+            }
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a number that is no mode keeps the mode, and is said once") {
+        // A settings menu cycling through the modes by number, one past the
+        // last. It was stored, and drew as NONE with nothing said.
+        rmp::app::set_stretch(Stretch::LETTERBOX);
+        rmp::detail::reset_reports_for_tests();
+        // NOLINTBEGIN(clang-analyzer-optin.core.EnumCastOutOfRange): a number
+        // that is no mode is the thing under test -- and a scoped enum holds
+        // every int, so the cast itself is defined.
+        rmp::app::set_stretch(static_cast<Stretch>(4));
+        CHECK(rmp::app::stretch() == Stretch::LETTERBOX);
+        CHECK(rmp::detail::report_count() == 1);
+        rmp::app::set_stretch(static_cast<Stretch>(-1));
+        // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange)
+        CHECK(rmp::app::stretch() == Stretch::LETTERBOX);
+        CHECK(rmp::detail::report_count() == 1);
+        rmp::app::set_stretch(Stretch::EXPAND);
+        CHECK(rmp::app::stretch() == Stretch::EXPAND);
+        rmp::detail::reset_reports_for_tests();
+    }
+
     TEST_CASE_FIXTURE(Fixture,
                       "with no window the screen is the design size, in every mode") {
         for (const Stretch mode :
@@ -240,6 +311,17 @@ TEST_SUITE("app: stretch: the letterbox's clip") {
         CHECK(got.width == static_cast<int>(W));
         CHECK(got.x >= 0);
         CHECK(got.x + got.width <= static_cast<int>(W) + 1);
+        // A screen past what an int can say is not cut -- the edges were
+        // lround()ed out of range of an int, and the clip landed half a
+        // float's range from the area (app_prop.cpp: 1600 x FLT_MAX). Nor is
+        // one under a pixel, which has no pixel to cut.
+        for (const Vector2 screen :
+             { Vector2{ 1600, std::numeric_limits<float>::max() }, Vector2{ 2.2e9f, H },
+               Vector2{ W, 1e30f }, Vector2{ 0.5f, 0.25f } }) {
+            CAPTURE(screen.x);
+            CAPTURE(screen.y);
+            CHECK_FALSE(world_clip(Stretch::LETTERBOX, screen).has_value());
+        }
         // A window of one pixel has no bar a pixel wide: nothing to cut.
         CHECK_FALSE(world_clip(Stretch::LETTERBOX, Vector2{ 1, 1 }).has_value());
         // And what is not a size never cuts, whichever way it is not one.

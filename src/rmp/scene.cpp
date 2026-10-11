@@ -307,6 +307,15 @@ std::optional<WorldClip> world_clip(const rmp::app::Stretch mode, const Vector2 
         !std::isfinite(screen.y)) {
         return std::nullopt;
     }
+    // A scissor is whole pixels in ints. A screen under a pixel has none to
+    // cut, and one past 2^24 -- where a float stops counting every pixel, far
+    // past any window and far short of 2^31, where the edges below leave what
+    // an int can say -- only a test hands in: the world is left uncut.
+    constexpr auto MOST_PIXELS = static_cast<float>(1 << 24);
+    if (!(screen.x >= 1) || !(screen.y >= 1) || screen.x > MOST_PIXELS ||
+        screen.y > MOST_PIXELS) {
+        return std::nullopt;
+    }
     const Rectangle area = rmp::app::detail::world_viewport(mode, screen).area;
     // Each edge rounded on its own, so the clip is the area to the nearest
     // pixel on every side: no half pixel of the world on a bar, none cut off
@@ -427,6 +436,11 @@ void shutdown() {
     // load assets that are about to be released.
     scene_stack.pending.clear();
     while (!scene_stack.items.empty()) end_top();
+    // And again: an _end() above is the game's code, and may have asked for a
+    // scene on its way out. Kept, that scene outlived the window and the
+    // resource table -- destroyed at exit, with whatever its constructor
+    // loaded -- and a stack started again ran it first.
+    scene_stack.pending.clear();
     scene_stack.playing.clear();
     scene_stack.running = false;
 }

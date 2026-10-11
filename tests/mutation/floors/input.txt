@@ -2,4 +2,6 @@
 kind     cxx
 sources  src/rmp/input.cpp
 tests    unit_test -sf=*input_test.cpp
+# Any device state, dead zone and binding, against a model of an action's frames.
+tests    property_test -ts=*input
 floor    -

@@ -3,4 +3,6 @@ kind     cxx
 sources  src/rmp/app.cpp src/rmp/clock.cpp
 tests    unit_test -tse=*device*
 tests    property_test -sf=*clock_prop.cpp
+# clamp_delta(), step_delta() and frame_delta() against any reading and ceiling.
+tests    property_test -ts=*app
 floor    -
