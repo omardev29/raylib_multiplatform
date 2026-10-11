@@ -48,14 +48,31 @@ FLAGS = ["-DRMP_PRODUCTION_BUILD=1", "-O0", "-O2", "-O3", "-D_DEBUG", "-DDEBUG",
          "-g", "-DRMP_PRODUCTION_BUILD=0"]
 
 
+# What makes a file of ours a debug one, each alone: the check names each.
+ONE_AWAY = ["-O0", "-D_DEBUG", "-DDEBUG", "no production build"]
+
+
+def one_away(flags: list[str], mistake: str) -> list[str]:
+    """A release's flags with one mistake: a flag added, or the define gone."""
+    if mistake == "no production build":
+        return [f for f in flags if f != "-DRMP_PRODUCTION_BUILD=1"]
+    return [*flags, mistake]
+
+
 @st.composite
 def entry(draw):
     kind = draw(st.sampled_from(sorted(KINDS)))
-    # Half of them the flags a release has, so that a database that passes is
-    # as common as one that fails.
-    if draw(st.booleans()):
+    # A third of them the flags a release has, so that a database that passes
+    # is as common as one that fails; a third a release with ONE mistake, so
+    # that each rule decides alone in some example -- with flags drawn at
+    # random, a file of ours with -DDEBUG and nothing else wrong was rare
+    # enough that dropping that rule passed every example of the profile.
+    shape = draw(st.sampled_from(["release", "one away", "any"]))
+    if shape != "any":
         flags = ["-DRMP_PRODUCTION_BUILD=1", *draw(st.lists(
             st.sampled_from(["-O2", "-O3", "-g", "-DNDEBUG"]), max_size=3))]
+        if shape == "one away":
+            flags = one_away(flags, draw(st.sampled_from(ONE_AWAY)))
     else:
         flags = draw(st.lists(st.sampled_from(FLAGS), max_size=5))
     form = draw(st.sampled_from(["arguments", "command"]))
@@ -156,6 +173,46 @@ TEXTS = st.one_of(
     st.text(max_size=40))
 
 
+class OneMistakeTest(unittest.TestCase):
+    """Each rule alone: a file of ours compiled as a release but for one
+    mistake fails, and says which; the same mistake on raylib's own copy
+    fails only for -O0, and on a vendored file never."""
+
+    def test_each_mistake_alone(self):
+        release = ["-DRMP_PRODUCTION_BUILD=1", "-O2", "-g", "-DNDEBUG"]
+        said = {"-O0": "-O0", "-D_DEBUG": "_DEBUG/DEBUG defined",
+                "-DDEBUG": "_DEBUG/DEBUG defined",
+                "no production build": "no -DRMP_PRODUCTION_BUILD=1"}
+        good = {"kind": "game", "file": "/w/src/main.cpp", "form": "arguments",
+                "flags": release}
+        for mistake in ONE_AWAY:
+            for kind, file in (("game", "/w/src/rmp/app.cpp"),
+                               ("raylib", "/w/thirdparty/raylib/src/rcore.c"),
+                               ("other", "/w/thirdparty/src/vendored.c")):
+                with self.subTest(mistake=mistake, kind=kind):
+                    one = {"kind": kind, "file": file, "form": "command",
+                           "flags": one_away(release, mistake)}
+                    with tempfile.TemporaryDirectory() as tmp:
+                        lay_out(Path(tmp), [("Release", [good, one])])
+                        code, out = check(Path(tmp))
+                    fails = kind == "game" or (kind == "raylib" and mistake == "-O0")
+                    self.assertEqual(code, 1 if fails else 0, out)
+                    if fails:
+                        self.assertIn(f"  FAIL  {file}: {said[mistake]}", out)
+
+
+# A database nobody can read, whatever it was going to say: every prefix of
+# one AGP wrote short of the whole (a build stopped halfway), and one of each
+# shape the format does not have.
+UNREADABLE = st.one_of(
+    st.lists(entry(), max_size=3).map(lambda es: json.dumps([written(e) for e in es])).flatmap(
+        lambda text: st.integers(0, len(text) - 1).map(lambda n: text[:n])),
+    st.sampled_from(['{"file": "/w/src/main.cpp"}', "[0]", '[{"file": 3, "command": "cc"}]',
+                     '[{"file": "/w/src/a.cpp", "arguments": "-O2"}]',
+                     '[{"file": "/w/src/a.cpp", "command": "cc \\"x"}]',
+                     '[{"file": "/w/src/a.cpp", "command": 7}]']))
+
+
 class AnyDatabaseTest(unittest.TestCase):
     """Whatever the file holds, the check exits 0 or 1 and says which: a
     database it cannot read is a FAIL that names it."""
@@ -175,6 +232,28 @@ class AnyDatabaseTest(unittest.TestCase):
             code, out = check(Path(tmp))
         self.assertIn(code, (0, 1), out)
         self.assertIn("PASS: " if code == 0 else "FAIL", out)
+
+    @given(DATABASES, st.sampled_from(VARIANTS[:3]),
+           UNREADABLE | st.binary(max_size=40).filter(lambda b: b.strip()[:1] != b"["))
+    def test_one_it_cannot_read_fails_whatever_is_beside_it(self, databases, variant, content):
+        """Beside a release that passes, and whatever else: a release
+        database it cannot read is a FAIL naming it, and exit 1 -- the
+        files it would have listed were compiled with nobody looking."""
+        good = {"kind": "game", "file": "/w/src/main.cpp", "form": "arguments",
+                "flags": ["-DRMP_PRODUCTION_BUILD=1", "-O2"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            lay_out(Path(tmp), [*databases, ("Release", [good])])
+            db = Path(tmp) / variant / "cut" / "compile_commands.json"
+            db.parent.mkdir(parents=True)
+            if isinstance(content, bytes):
+                db.write_bytes(content)
+            else:
+                db.write_text(content)
+            code, out = check(Path(tmp))
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"  FAIL  {db}: ", out)
+        self.assertIn("FAIL: 1 release compile database(s) could not be read", out)
+        self.assertNotIn("PASS: ", out)
 
 
 if __name__ == "__main__":
