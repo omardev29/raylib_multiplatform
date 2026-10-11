@@ -941,6 +941,10 @@ jobs:
           ls -la /dev/dri || { echo "FAIL: vkms loaded and /dev/dri is still empty"; exit 1; }
 
       - name: Boot and render through DRM/KMS
+        # Ten frames take seconds: a game that hangs fails here, not at the
+        # job's 40 minutes. --init so the game is not PID 1, where a SIGTERM
+        # it has no handler for is ignored (the xvfb-run caveat in CLAUDE.md).
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -961,7 +965,7 @@ jobs:
             "${{ inputs.build_image }}" -la /dev/dri || true
           # Started from / and not from /app: a release has to find the
           # resources/ next to itself, wherever it is started from.
-          if OUT=$(docker run --rm --device /dev/dri \
+          if OUT=$(docker run --rm --init --device /dev/dri \
             -v "$PWD/drm-bin:/app:ro" \
             -w / -e RAY_TEST_MAX_FRAMES=10 \
             -e LIBGL_ALWAYS_SOFTWARE=1 \
@@ -989,10 +993,13 @@ jobs:
       # only its terminal's keys -- the device check's own line, and the proof
       # that the game was started by `rmp run` and not around it.
       - name: rmp run on a console -- chose DRM/KMS, built, booted
+        # The sanitized debug build is most of it; a game that hangs after it
+        # fails here rather than at the job's 40 minutes. --init as above.
+        timeout-minutes: 25
         run: |
           set -euo pipefail
           NAME="${{ inputs.project_name }}"
-          if OUT=$(docker run --rm --network none --device /dev/dri \
+          if OUT=$(docker run --rm --init --network none --device /dev/dri \
             -v "$PWD:/work" -w /work \
             -e XDG_SESSION_TYPE=tty \
             -e RAY_TEST_MAX_FRAMES=10 \
