@@ -50,6 +50,33 @@ Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *conf
     return Clay_Dimensions{ static_cast<float>(text.length) * size * 0.5f, size };
 }
 
+// The same, and a report on the way: what ui_font() says the first time a
+// [ui] font cannot be loaded -- which can be while the notices are measured,
+// when nothing else has measured any text yet.
+// NOLINTBEGIN(custom-rmp-raw-pointer): Clay's signature, not ours to choose
+Clay_Dimensions measure_reporting(Clay_StringSlice text, Clay_TextElementConfig *config,
+                                  void *user) {
+    // NOLINTEND(custom-rmp-raw-pointer)
+    RMP_REPORT_ONCE("test: a report while the notices are measured");
+    return measure_stub(text, config, user);
+}
+
+// More reports than the ring holds, all while one notice is measured: the
+// newest of them are what is kept, as in the ring itself.
+struct {
+    int said = 0;
+} flood;
+
+// NOLINTBEGIN(custom-rmp-raw-pointer): Clay's signature, not ours to choose
+Clay_Dimensions measure_flooding(Clay_StringSlice text, Clay_TextElementConfig *config,
+                                 void *user) {
+    // NOLINTEND(custom-rmp-raw-pointer)
+    for (; flood.said < rmp::ui::detail::NOTICE_RING + 2; ++flood.said) {
+        rmp::ui::detail::show_report("flood " + std::to_string(flood.said));
+    }
+    return measure_stub(text, config, user);
+}
+
 // Where the test puts the pointer, and whether it is held down. Away from
 // everything until a test says otherwise.
 struct {
@@ -103,6 +130,7 @@ struct HeadlessUi {
         rmp::ui::detail::set_test_frame_time(0);
         rmp::ui::detail::set_pass_camera(identity_camera());
         rmp::ui::set_scale(0);
+        rmp::ui::set_navigation_enabled(true);
         rmp::ui::focus("");
         rmp::ui::detail::set_focus_visible(false);
         rmp::detail::set_report_sink({});
@@ -257,6 +285,10 @@ Clay_Vector2 centre_of(const Clay_BoundingBox &b) {
 }
 
 bool near(float a, float b) { return std::fabs(a - b) <= 0.5f; }
+
+bool same_color(Color a, Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
 
 // A scene whose _update() says something once.
 class Saving : public rmp::Scene {
@@ -449,6 +481,34 @@ TEST_SUITE("ui: floating") {
         CHECK(rmp::ui::detail::clay_error_count() == errors);
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi, "an offset that is no number breaks nothing either") {
+        const int errors = rmp::ui::detail::clay_error_count();
+        const float inf = std::numeric_limits<float>::infinity();
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const std::array offsets{ Vector2{ nan, 0 }, Vector2{ 0, inf },
+                                  Vector2{ -inf, nan }, Vector2{ 1.0e30f, -1.0e30f } };
+        for (const Vector2 &off : offsets) {
+            CAPTURE(off.x);
+            CAPTURE(off.y);
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::at(Vector2{ 100, 100 }, { .offset = off, .id = "far" },
+                            [] { rmp::ui::button("Far away"); });
+                rmp::ui::end();
+            }
+            // A box at a number -- Clay culls a NaN one nowhere and draws it --
+            // and where nothing on the screen is.
+            Clay_BoundingBox b{};
+            REQUIRE(rmp::ui::detail::bounds_of("far", 0, 0, &b));
+            CHECK(std::isfinite(b.x));
+            CHECK(std::isfinite(b.y));
+            const bool off_screen =
+                b.x + b.width < 0 || b.x > VIEW_W || b.y + b.height < 0 || b.y > VIEW_H;
+            CHECK(off_screen);
+        }
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+    }
+
     TEST_CASE_FIXTURE(HeadlessUi,
                       "what at() paints does not take the pointer, and a control in it "
                       "does") {
@@ -514,8 +574,8 @@ TEST_SUITE("ui: floating") {
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
-                      "a box over the world is drawn under the rest of its pass, and its "
-                      "layers with it") {
+                      "a box over the world is drawn under the rest of its pass, and "
+                      "nothing in it takes the pointer") {
         rmp::ui::begin();
         rmp::ui::panel([] { rmp::ui::text("HUD"); });
         int16_t inner = 0;
@@ -527,7 +587,8 @@ TEST_SUITE("ui: floating") {
         rmp::ui::at(Vector2{ 200, 100 }, [] {});
         const int16_t second = rmp::ui::detail::last_at_z();
         const int16_t after = rmp::ui::detail::next_layer_z();
-        // Under the pass's own tree, which is at 0, and the second over the first.
+        // Under the pass's own tree, which is at 0, and the second over the
+        // first: the z Clay was handed, read back.
         CHECK(root < 0);
         CHECK(second > root);
         CHECK(second < 0);
@@ -562,6 +623,15 @@ TEST_SUITE("ui: floating") {
         }
         CHECK(has_box("Inner"));
         CHECK(has_box("After"));
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        // A frame opened inside an at() that had none to go into: the at()
+        // closes nothing of it, and end() closes all of it.
+        rmp::ui::at(Vector2{ 1, 1 }, [] {
+            rmp::ui::begin();
+            rmp::ui::button("Inside");
+        });
+        rmp::ui::end();
+        CHECK(has_box("Inside"));
         CHECK_FALSE(rmp::ui::detail::frame_open());
         CHECK(rmp::ui::detail::clay_error_count() == errors);
     }
@@ -746,6 +816,73 @@ TEST_SUITE("ui: floating") {
         rmp::ui::detail::set_focus_visible(false);
         sell_frame({});
         CHECK_FALSE(tooltip_shown("Sell"));
+
+        // Nor one the game turned navigation off for: the ring is not drawn.
+        keys.x = 1;
+        sell_frame({});
+        sell_frame({});
+        REQUIRE(tooltip_shown("Sell"));
+        rmp::ui::set_navigation_enabled(false);
+        sell_frame({});
+        rmp::ui::set_navigation_enabled(true);
+        CHECK_FALSE(tooltip_shown("Sell"));
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a tooltip that waits forever shows by the focus alone, and an "
+                      "empty one not at all") {
+        rmp::ui::detail::set_test_frame_time(0.125f);
+        const float forever = std::numeric_limits<float>::infinity();
+        sell_frame({ .delay = forever });
+        finger.at = centre_of(box_of("Sell"));
+        for (int frame = 0; frame < 40; ++frame) sell_frame({ .delay = forever }); // 5 s
+        CHECK_FALSE(tooltip_shown("Sell"));
+        keys.x = 1; // a key touched: the focus shows
+        sell_frame({ .delay = forever });
+        sell_frame({ .delay = forever });
+        CHECK(tooltip_shown("Sell"));
+
+        // tooltip(item.description) for an item that has none: nothing shown,
+        // by the pointer or by the focus, and no mistake.
+        rmp::detail::reset_reports_for_tests();
+        auto empty_frame = [] {
+            rmp::ui::begin();
+            rmp::ui::button("Sell");
+            rmp::ui::tooltip("", { .delay = 0 });
+            rmp::ui::end();
+        };
+        empty_frame();
+        empty_frame();
+        CHECK_FALSE(tooltip_shown("Sell"));
+        CHECK(rmp::detail::report_count() == 0);
+        // It was about the button all the same: one after it is about nothing.
+        rmp::ui::begin();
+        rmp::ui::button("Sell");
+        rmp::ui::tooltip("");
+        rmp::ui::tooltip("Twice");
+        rmp::ui::end();
+        CHECK(rmp::detail::report_count() == 1);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi, "a long tooltip wraps at its width") {
+        std::string line;
+        for (int i = 0; i < 40; ++i) line += "word ";
+        auto frame = [&] {
+            rmp::ui::begin();
+            rmp::ui::button("Sell");
+            rmp::ui::tooltip(line, { .delay = 0 });
+            rmp::ui::end();
+        };
+        frame();
+        finger.at = centre_of(box_of("Sell"));
+        frame();
+        const std::optional<Clay_BoundingBox> shown = tooltip_box("Sell");
+        REQUIRE(shown.has_value());
+        const Clay_BoundingBox tip = shown.value_or(Clay_BoundingBox{});
+        CHECK(tip.width <= rmp::ui::detail::px(320) + 0.5f);
+        // Several lines of it, then.
+        CHECK(tip.height >
+              2 * rmp::ui::detail::px(rmp::ui::current_theme().font_size_small));
     }
 
     TEST_CASE_FIXTURE(HeadlessUi, "a tooltip keeps a copy of its text") {
@@ -791,6 +928,16 @@ TEST_SUITE("ui: floating") {
         rmp::detail::reset_reports_for_tests();
         sell_frame({});
         CHECK(rmp::detail::report_count() == 0);
+        // A line that changes every frame is the same mistake every frame:
+        // one report, not one per line.
+        rmp::detail::reset_reports_for_tests();
+        for (int frame = 0; frame < 60; ++frame) {
+            rmp::ui::begin();
+            rmp::ui::text("Not a control");
+            rmp::ui::tooltip("Ready in " + std::to_string(60 - frame) + " frames");
+            rmp::ui::end();
+        }
+        CHECK(rmp::detail::report_count() == 1);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi, "a tooltip goes on the side it is asked for") {
@@ -967,8 +1114,7 @@ TEST_SUITE("ui: floating") {
         CHECK(rmp::ui::detail::notice_layout_errors() == 0);
     }
 
-    TEST_CASE_FIXTURE(HeadlessUi,
-                      "the notices are drawn as a pass that leaves no frame open") {
+    TEST_CASE_FIXTURE(HeadlessUi, "drawing the notices leaves no frame open") {
         rmp::ui::detail::begin_frame();
         rmp::ui::begin();
         rmp::ui::button("Game");
@@ -1021,17 +1167,34 @@ TEST_SUITE("ui: floating") {
     }
 
     TEST_CASE_FIXTURE(HeadlessUi, "a notice is in the colour it was given") {
-        const std::array roles{ rmp::ui::ColorRole::TEXT, rmp::ui::ColorRole::MUTED,
-                                rmp::ui::ColorRole::PRIMARY, rmp::ui::ColorRole::DANGER };
-        for (const rmp::ui::ColorRole role : roles)
-            rmp::ui::notify("x", { .color = role });
+        const rmp::ui::Theme &t = rmp::ui::current_theme();
+        struct Paint {
+            rmp::ui::ColorRole role;
+            Color expected;
+        };
+        const std::array paints{ Paint{ rmp::ui::ColorRole::TEXT, t.text },
+                                 Paint{ rmp::ui::ColorRole::MUTED, t.text_muted },
+                                 Paint{ rmp::ui::ColorRole::PRIMARY, t.primary },
+                                 Paint{ rmp::ui::ColorRole::DANGER, t.danger } };
+        // Four colours a test can tell apart, or it proves nothing.
+        for (size_t a = 0; a < paints.size(); ++a) {
+            for (size_t b = a + 1; b < paints.size(); ++b) {
+                REQUIRE_FALSE(same_color(paints[a].expected, paints[b].expected));
+            }
+        }
+        for (const Paint &p : paints) rmp::ui::notify("x", { .color = p.role });
         rmp::ui::detail::begin_frame();
         rmp::ui::detail::draw_notices();
         rmp::ui::detail::end_frame();
         int i = 0;
-        for (const rmp::ui::ColorRole role : roles) {
-            CHECK(rmp::ui::detail::notice_at(i).color == role);
-            CHECK(rmp::ui::detail::notice_at(i).box.width > 0);
+        for (const Paint &p : paints) {
+            CAPTURE(i);
+            const rmp::ui::detail::NoticeView n = rmp::ui::detail::notice_at(i);
+            CHECK(n.color == p.role);
+            CHECK(n.box.width > 0);
+            // Painted in the theme's colour for it, on the theme's panel.
+            CHECK(same_color(n.ink, p.expected));
+            CHECK(same_color(n.fill, t.panel));
             ++i;
         }
         // Past either end of the queue there is nothing.
@@ -1042,18 +1205,23 @@ TEST_SUITE("ui: floating") {
 
     TEST_CASE_FIXTURE(HeadlessUi,
                       "the newest eight are kept, oldest first, newest lowest") {
-        for (int i = 0; i < 10; ++i) rmp::ui::notify(std::to_string(i));
+        // Each one longer than the one before, so its box says which it is.
+        auto line = [](int i) { return std::string(static_cast<size_t>(i + 1), 'a'); };
+        for (int i = 0; i < 10; ++i) rmp::ui::notify(line(i));
         REQUIRE(rmp::ui::detail::notice_count() == rmp::ui::detail::NOTICE_RING);
         for (int i = 0; i < rmp::ui::detail::NOTICE_RING; ++i) {
-            CHECK(rmp::ui::detail::notice_at(i).text == std::to_string(i + 2));
+            CHECK(rmp::ui::detail::notice_at(i).text == line(i + 2));
         }
         rmp::ui::detail::begin_frame();
         rmp::ui::detail::draw_notices();
         rmp::ui::detail::end_frame();
         for (int i = 1; i < rmp::ui::detail::NOTICE_RING; ++i) {
+            CAPTURE(i);
             const Rectangle above = rmp::ui::detail::notice_at(i - 1).box;
             const Rectangle below = rmp::ui::detail::notice_at(i).box;
             CHECK(above.y + above.height <= below.y);
+            // The longer, newer line in the lower, wider box.
+            CHECK(above.width < below.width);
         }
         CHECK(rmp::ui::detail::notice_layout_errors() == 0);
     }
@@ -1062,18 +1230,32 @@ TEST_SUITE("ui: floating") {
                       "a notice stays its seconds, fading over the last of them") {
         rmp::ui::detail::set_test_frame_time(0.125f);
         rmp::ui::notify("Bye", { .seconds = 1 });
+        const rmp::ui::Theme &t = rmp::ui::current_theme();
         // It ages by the frames drawn: after each, what the next one shows.
         const std::array<float, 7> alpha{ 1, 1, 1, 1, 0.75f, 0.5f, 0.25f };
-        for (const float expected : alpha) {
+        // And what each one painted: the first at once, unfaded, and every
+        // one of its 1 s of frames -- eight of 0.125 -- the last at a quarter.
+        const std::array<float, 8> painted{ 1, 1, 1, 1, 1, 0.75f, 0.5f, 0.25f };
+        auto ink_alpha = [&](float a) {
+            return static_cast<unsigned char>(std::lround(t.text.a * a));
+        };
+        auto fill_alpha = [&](float a) {
+            return static_cast<unsigned char>(std::lround(t.panel.a * a));
+        };
+        for (size_t frame = 0; frame < painted.size(); ++frame) {
+            CAPTURE(frame);
+            REQUIRE(rmp::ui::detail::notice_count() == 1);
             rmp::ui::detail::begin_frame();
             rmp::ui::detail::draw_notices();
             rmp::ui::detail::end_frame();
-            REQUIRE(rmp::ui::detail::notice_count() == 1);
-            CHECK(rmp::ui::detail::notice_at(0).alpha == doctest::Approx(expected));
+            if (frame < alpha.size()) {
+                REQUIRE(rmp::ui::detail::notice_count() == 1);
+                const rmp::ui::detail::NoticeView n = rmp::ui::detail::notice_at(0);
+                CHECK(n.alpha == doctest::Approx(alpha[frame]));
+                CHECK(n.ink.a == ink_alpha(painted[frame]));
+                CHECK(n.fill.a == fill_alpha(painted[frame]));
+            }
         }
-        rmp::ui::detail::begin_frame();
-        rmp::ui::detail::draw_notices();
-        rmp::ui::detail::end_frame();
         CHECK(rmp::ui::detail::notice_count() == 0);
 
         // A short one fades over its second half: 0.25 s of its 0.5.
@@ -1201,6 +1383,62 @@ TEST_SUITE("ui: floating") {
         CHECK(rmp::detail::report_count() == 2);
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a report while the notices are laid out waits for them to be "
+                      "drawn") {
+        rmp::detail::reset_reports_for_tests();
+        rmp::detail::set_report_sink(rmp::ui::detail::show_report);
+        // A full ring, of lines too long for a string to keep inline: the one
+        // a report pushed out would be freed while Clay was reading it.
+        auto line = [](int i) {
+            return "A line long enough to live on the heap, number " + std::to_string(i);
+        };
+        constexpr int RING = rmp::ui::detail::NOTICE_RING;
+        for (int i = 0; i < RING; ++i) rmp::ui::notify(line(i));
+        rmp::ui::detail::set_measure_provider(measure_reporting);
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        rmp::ui::detail::set_measure_provider(measure_stub);
+        CHECK(rmp::detail::report_count() == 1);
+        // The ring as it was drawn, the oldest making room for the report,
+        // which comes after it: not drawn yet, and not a frame older.
+        REQUIRE(rmp::ui::detail::notice_count() == RING);
+        for (int i = 0; i + 1 < RING; ++i) {
+            CAPTURE(i);
+            CHECK(rmp::ui::detail::notice_at(i).text == line(i + 1));
+            CHECK(rmp::ui::detail::notice_at(i).box.width > 0);
+        }
+        const rmp::ui::detail::NoticeView report = rmp::ui::detail::notice_at(RING - 1);
+        CHECK(report.text == "test: a report while the notices are measured");
+        CHECK(report.color == rmp::ui::ColorRole::DANGER);
+        CHECK(report.box.width == 0);
+        CHECK(report.alpha == 1);
+        // The next frame draws it.
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        CHECK(rmp::ui::detail::notice_at(RING - 1).box.width > 0);
+        CHECK(rmp::ui::detail::notice_layout_errors() == 0);
+
+        // More of them than the ring holds, during one draw: the newest.
+        rmp::ui::detail::forget_notices();
+        // A line no other test shows: Clay measures a string once, and the
+        // notices' context outlives a test.
+        rmp::ui::notify("Flooded with reports");
+        flood.said = 0;
+        rmp::ui::detail::set_measure_provider(measure_flooding);
+        rmp::ui::detail::begin_frame();
+        rmp::ui::detail::draw_notices();
+        rmp::ui::detail::end_frame();
+        rmp::ui::detail::set_measure_provider(measure_stub);
+        REQUIRE(rmp::ui::detail::notice_count() == RING);
+        for (int i = 0; i < RING; ++i) {
+            CAPTURE(i);
+            CHECK(rmp::ui::detail::notice_at(i).text == "flood " + std::to_string(i + 2));
+        }
+    }
+
     TEST_CASE_FIXTURE(HeadlessUi, "a report, in a debug build, becomes a notice") {
         rmp::detail::reset_reports_for_tests();
         rmp::detail::set_report_sink(rmp::ui::detail::show_report);
@@ -1214,5 +1452,6 @@ TEST_SUITE("ui: floating") {
         const int before = rmp::detail::report_count();
         rmp::ui::detail::show_report("");
         CHECK(rmp::detail::report_count() == before);
+        CHECK(rmp::ui::detail::notice_count() == 1);
     }
 }

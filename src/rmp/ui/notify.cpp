@@ -56,30 +56,50 @@ struct Notice {
     ColorRole color = ColorRole::TEXT;
     float age = 0; // seconds it has been drawn for
     Rectangle box{ 0, 0, 0, 0 }; // where it was last laid out
+    Color ink{ 0, 0, 0, 0 }; // what its text was last painted with
+    Color fill{ 0, 0, 0, 0 }; // and its box
 };
 
 // The queue: a ring, oldest at `first`. The dot says "file state".
+//
+// While the ring is laid out and drawn, Clay holds pointers into its
+// strings, and a report can arrive in the middle of it -- the [ui] font
+// failing the first time a notice is measured says so through
+// show_report(). Pushed into a full ring, it would free the string Clay
+// was reading. So what arrives then waits in `later`, and joins the ring
+// once the drawing is done.
 struct {
     std::array<Notice, detail::NOTICE_RING> ring;
     int first = 0;
     int count = 0;
+    bool drawing = false;
+    std::vector<Notice> later;
 } notices;
 
 Notice &nth(int i) {
     return notices.ring[static_cast<size_t>((notices.first + i) % detail::NOTICE_RING)];
 }
 
-void push(std::string_view text, float seconds, ColorRole color) {
-    std::string copy(text);
-    detail::utf8_truncate(copy, detail::NOTICE_MAX_CHARS);
+void enqueue(Notice &&n) {
+    if (notices.drawing) {
+        // However many: they go through the ring afterwards, which keeps the
+        // newest, and a report is said once, so they are few.
+        notices.later.push_back(std::move(n));
+        return;
+    }
     if (notices.count == detail::NOTICE_RING) {
         // Full: the oldest makes room.
         notices.first = (notices.first + 1) % detail::NOTICE_RING;
         --notices.count;
     }
-    nth(notices.count) =
-        Notice{ std::move(copy), seconds, color, 0, Rectangle{ 0, 0, 0, 0 } };
+    nth(notices.count) = std::move(n);
     ++notices.count;
+}
+
+void push(std::string_view text, float seconds, ColorRole color) {
+    Notice n{ .text = std::string(text), .seconds = seconds, .color = color };
+    detail::utf8_truncate(n.text, detail::NOTICE_MAX_CHARS);
+    enqueue(std::move(n));
 }
 
 float alpha_of(const Notice &n) {
@@ -193,8 +213,10 @@ void lay_out_and_draw() {
     Clay__OpenElement();
     Clay__ConfigureOpenElement(root);
     for (int i = 0; i < notices.count; ++i) {
-        const Notice &n = nth(i);
+        Notice &n = nth(i);
         const float alpha = alpha_of(n);
+        n.fill = faded(t.panel, alpha);
+        n.ink = faded(role_color(t, n.color), alpha);
         Clay_ElementDeclaration box{};
         box.layout.sizing.width.type = CLAY__SIZING_TYPE_FIT;
         box.layout.sizing.width.size.minMax = Clay_SizingMinMax{ 0, px(MAX_WIDTH) };
@@ -202,14 +224,14 @@ void lay_out_and_draw() {
         const auto pad_x = static_cast<uint16_t>(px(t.padding_x));
         const auto pad_y = static_cast<uint16_t>(px(t.padding_y / 2));
         box.layout.padding = Clay_Padding{ pad_x, pad_x, pad_y, pad_y };
-        box.backgroundColor = to_clay(faded(t.panel, alpha));
+        box.backgroundColor = to_clay(n.fill);
         const float r = px(t.corner_radius);
         box.cornerRadius = Clay_CornerRadius{ r, r, r, r };
         Clay__OpenElementWithId(
             Clay_GetElementIdWithIndex(clay_string(NOTICE_ID), static_cast<uint32_t>(i)));
         Clay__ConfigureOpenElement(box);
         Clay_TextElementConfig tc{};
-        tc.textColor = to_clay(faded(role_color(t, n.color), alpha));
+        tc.textColor = to_clay(n.ink);
         tc.fontSize = static_cast<uint16_t>(px(t.font_size));
         tc.wrapMode = CLAY_TEXT_WRAP_WORDS;
         // The ring's own string: nothing changes it between here and the draw
@@ -260,6 +282,7 @@ void draw_notices() {
     if (!ensure_started()) return;
     update_scale();
     if (!ensure_layout()) return;
+    notices.drawing = true;
     lay_out_and_draw();
     // Then a frame older. Drawn first, so a notice of 1 s is on screen for
     // exactly 1 s of frames, its first one included.
@@ -273,6 +296,10 @@ void draw_notices() {
         ++kept;
     }
     notices.count = kept;
+    notices.drawing = false;
+    // What arrived meanwhile, newest last, not a frame older: nobody saw it.
+    for (Notice &n : notices.later) enqueue(std::move(n));
+    notices.later.clear();
 }
 
 void show_report(std::string_view line) {
@@ -297,16 +324,20 @@ void pass_ended() {
 int notice_count() { return notices.count; }
 
 NoticeView notice_at(int index) {
-    if (index < 0 || index >= notices.count) {
-        return NoticeView{ {}, ColorRole::TEXT, 0, Rectangle{ 0, 0, 0, 0 } };
-    }
+    if (index < 0 || index >= notices.count) return NoticeView{};
     const Notice &n = nth(index);
-    return NoticeView{ n.text, n.color, alpha_of(n), n.box };
+    return NoticeView{ .text = n.text,
+                       .color = n.color,
+                       .alpha = alpha_of(n),
+                       .box = n.box,
+                       .ink = n.ink,
+                       .fill = n.fill };
 }
 
 void forget_notices() {
     notices.first = 0;
     notices.count = 0;
+    notices.later.clear();
 }
 
 int notice_layout_errors() { return layout.errors; }

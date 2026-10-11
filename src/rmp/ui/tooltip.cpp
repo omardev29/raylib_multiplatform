@@ -24,7 +24,6 @@
 #include "../internal.h"
 
 #include <cmath>
-#include <string>
 
 namespace rmp::ui {
 
@@ -273,17 +272,19 @@ void tooltip(std::string_view text, const TooltipOptions &o) {
     if (!detail::frame_ready("tooltip", text)) return;
     const uint32_t control = detail::take_last_control();
     if (control == 0) {
-        // The text names the mistake: two of them are two lines.
-        const std::string key(text);
-        RMP_REPORT_ONCE_KEYED(
-            key.c_str(),
-            "UI: rmp::ui::tooltip(\"%.*s\") with no control declared just "
-            "before it, so it is about nothing and shows nothing. It "
-            "follows the button(), checkbox(), slider(), dropdown() or "
-            "text_input() it is about -- one tooltip each.",
-            static_cast<int>(text.size()), text.data());
+        // Once, naming the first one, and not keyed by the text: a line that
+        // changes every frame -- "Ready in 3.2 s" -- would be a new report
+        // every frame, on screen and in a table that never shrinks.
+        RMP_REPORT_ONCE("UI: rmp::ui::tooltip(\"%.*s\") with no control declared just "
+                        "before it, so it is about nothing and shows nothing. It "
+                        "follows the button(), checkbox(), slider(), dropdown() or "
+                        "text_input() it is about -- one tooltip each.",
+                        static_cast<int>(text.size()), text.data());
         return;
     }
+    // Nothing to say about it this frame -- tooltip(item.description) for an
+    // item without one: no box, and no mistake.
+    if (text.empty()) return;
     Clay_ElementId control_id{};
     control_id.id = control;
 
@@ -302,8 +303,9 @@ void tooltip(std::string_view text, const TooltipOptions &o) {
     } else if (rest.id == control) {
         rest = {};
     }
-    // Not a number is no wait, rather than one that never ends.
-    const float delay = std::isfinite(o.delay) && o.delay > 0 ? o.delay : 0.0f;
+    // Not a number, or below 0, is no wait. An infinite one is what it says:
+    // the pointer never waits long enough, and the focus alone shows it.
+    const float delay = std::isnan(o.delay) || o.delay < 0 ? 0.0f : o.delay;
     const bool rested = over && rest.seconds >= delay;
     // The keyboard's or the pad's focus on it, and on screen: the same line,
     // without the wait -- a player walking a menu does not hover.

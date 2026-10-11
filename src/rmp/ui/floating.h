@@ -27,10 +27,13 @@ Camera2D pass_camera();
 // instead, where Clay culls it and nothing converts it to an int.
 Vector2 world_to_screen(Vector2 world, const Camera2D &camera);
 
-// The z the last at() box was laid out at. Below 0: a box over the world is
-// drawn under the rest of its pass -- the HUD over the health bars, not the
-// other way round -- and the boxes among themselves in the order they were
-// described.
+// The z the last at() box of the pass was handed to Clay with; 0 before the
+// first. Below 0: a box over the world is drawn under the rest of its pass --
+// the HUD over the health bars, not the other way round -- and the boxes
+// among themselves in the order they were described. What floats INSIDE one
+// -- a stack()'s layers -- is handed next_layer_z() like any other layer, so
+// it is drawn over the pass; keeping it under is next_layer_z()'s to do
+// (context.cpp), not at()'s.
 int16_t last_at_z();
 
 // The pass has ended: what at() remembered about it goes. pass_ended()
@@ -71,15 +74,18 @@ inline constexpr int NOTICE_RING = 8;
 // one. A report's line can be a kilobyte, and the log has all of it.
 inline constexpr int NOTICE_MAX_CHARS = 240;
 
-// A notice as the next draw_notices() shows it, for the tests.
+// A notice as the next draw_notices() shows it, for the tests -- and, in
+// `box`, `ink` and `fill`, as the last one painted it: nothing, before that.
 struct NoticeView {
-    std::string_view text;
-    ColorRole color;
-    float alpha; // 1 until its fade starts, then down towards 0
-    Rectangle box; // where draw_notices() last laid it out; 0 x 0 before that
+    std::string_view text{};
+    ColorRole color = ColorRole::TEXT;
+    float alpha = 0; // 1 until its fade starts, then down towards 0
+    Rectangle box{ 0, 0, 0, 0 };
+    Color ink{ 0, 0, 0, 0 }; // its text's colour, faded
+    Color fill{ 0, 0, 0, 0 }; // its box's
 };
 int notice_count();
-NoticeView notice_at(int index); // 0 = the oldest
+NoticeView notice_at(int index); // 0 = the oldest; past either end, NoticeView{}
 void forget_notices();
 
 // How many errors Clay has reported laying the notices out. Always 0: they

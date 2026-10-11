@@ -22,9 +22,9 @@
 //     controls take the pointer as controls do, by their own hover and by
 //     the claims focus.cpp records for them -- a button over an NPC's head
 //     is clicked and focused where it is drawn.
-//   - A point the camera cannot show, or that is no number at all, is kept
-//     far off the screen: Clay culls the box, and nothing downstream ever
-//     converts a NaN or a 1e30 into an int.
+//   - A point the camera cannot show, or that is no number at all -- or an
+//     offset that is none -- is kept far off the screen: Clay culls the box,
+//     and nothing downstream ever converts a NaN or a 1e30 into an int.
 // ===========================================================================
 
 #include "floating.h"
@@ -75,7 +75,8 @@ struct {
 // world_passthrough(): how many boxes -- their own z are FIRST_AT_Z and up --
 // and the layer z of whatever floats inside one -- a stack() in a health bar
 // -- as ranges. Consecutive boxes give consecutive ranges, which are merged,
-// so a hundred enemies are one range.
+// so a hundred enemies are one range. And the z the last box was given, as
+// Clay was told it (last_at_z()).
 constexpr int MAX_RANGES = 16;
 struct LayerRange {
     int16_t first;
@@ -85,11 +86,13 @@ struct {
     int boxes = 0;
     std::array<LayerRange, MAX_RANGES> layers{};
     int count = 0;
+    int16_t last_z = 0;
 } given;
 
 void forget_given() {
     given.boxes = 0;
     given.count = 0;
+    given.last_z = 0;
 }
 
 int16_t box_z(int nth) {
@@ -173,7 +176,7 @@ Vector2 world_to_screen(Vector2 world, const Camera2D &camera) {
     return Vector2{ kept(p.x), kept(p.y) };
 }
 
-int16_t last_at_z() { return given.boxes == 0 ? 0 : box_z(given.boxes - 1); }
+int16_t last_at_z() { return given.last_z; }
 
 void end_at_pass() { forget_given(); }
 
@@ -216,8 +219,11 @@ void open_at(Vector2 world, const AtOptions &o) {
     d.floating.attachTo = CLAY_ATTACH_TO_ROOT;
     d.floating.attachPoints =
         Clay_FloatingAttachPoints{ attach_point(o.anchor), CLAY_ATTACH_POINT_LEFT_TOP };
-    d.floating.offset = Clay_Vector2{ at.x + px(o.offset.x), at.y + px(o.offset.y) };
+    // Kept again after it: an offset can be no number too.
+    d.floating.offset =
+        Clay_Vector2{ kept(at.x + px(o.offset.x)), kept(at.y + px(o.offset.y)) };
     d.floating.zIndex = box_z(given.boxes);
+    given.last_z = d.floating.zIndex;
     // Clay's own hit test is not ours (see pointer_over()); this says the same
     // thing to anyone driving Clay's.
     d.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
