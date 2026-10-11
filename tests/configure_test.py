@@ -5883,6 +5883,24 @@ class ConfigureReadBackTest(unittest.TestCase):
         self.assertEqual(base["OTHER_CPLUSPLUSFLAGS"],
                          f"$(inherited) {cfgmod.IOS_STRICT_CXX_FLAGS} -DONE -DTWO")
 
+    def test_xcodegen_reads_the_project_name_and_ids_as_strings(self):
+        """`name: NULL` was YAML's null and `bundleIdPrefix: yes` its true:
+        a project name NAME_RE takes and a bundle id BUNDLE_RE takes, written
+        plain into project.yml. Found by tests/configure_property_test.py at
+        the nightly profile."""
+        yaml = require_yaml(self)
+        for name, bundle in (("NULL", "com.real.game"), ("yes", "yes.game"), ("On", "off.on.no")):
+            with self.subTest(name=name, bundle=bundle):
+                cfg = base_config(project={"name": name})
+                cfg["ios"]["bundle_id"] = bundle
+                spec = yaml.safe_load(self.generated(cfg)["project.yml"])
+                self.assertEqual(spec["name"], name)
+                self.assertEqual(list(spec["targets"]), [name])
+                self.assertEqual(spec["options"]["bundleIdPrefix"], bundle.rsplit(".", 1)[0])
+                base = spec["targets"][name]["settings"]["base"]
+                self.assertEqual(base["PRODUCT_NAME"], name)
+                self.assertEqual(base["PRODUCT_BUNDLE_IDENTIFIER"], bundle)
+
     def test_an_xcode_setting_holds_a_string_a_number_a_switch_or_a_list(self):
         """A table, a date or a list of lists is no build setting: refused,
         where it used to reach Xcode as the text of a Python dict."""
@@ -6003,6 +6021,24 @@ class ConfigureLineTest(unittest.TestCase):
                            ('[android]\n"admob" . "app_id" = 5\n', (2, '"admob" . "app_id" = 5'))):
             with self.subTest(text=text):
                 self.assertEqual(self.pointed(text), spot)
+
+    def test_a_table_with_no_header_is_found_on_the_line_that_writes_it(self):
+        """`targets.enabled = []` has no [targets] to point at, and "[targets]:
+        nothing left to build" names the table: no line at all. Found by
+        tests/configure_property_test.py at the nightly profile. A key nobody
+        wrote in such a table is on that line too, as it would be on its
+        header; a table nobody wrote is nowhere."""
+        for text, spot in (("# c\ntargets.enabled = []\n", (2, "targets.enabled = []")),
+                           ("# c\ntargets = {enabled = []}\n", (2, "targets = {enabled = []}"))):
+            with self.subTest(text=text):
+                self.assertEqual(self.pointed(text), spot)
+                self.assertEqual(cfgmod.locate("targets", "disabled"), spot)
+        cfgmod.TOML.write_text("[deploy]\nitch.user = \"me\"\n")
+        self.assertEqual(cfgmod.locate("deploy.itch", "game"), (2, 'itch.user = "me"'))
+        self.assertIsNone(cfgmod.locate("deploy.firebase", "device"), "[deploy] is not where it is")
+        self.assertEqual(cfgmod.locate("deploy", "firebase"), (1, "[deploy]"))
+        self.assertIsNone(cfgmod.locate("deploy", "firebase", fallback=False))
+        self.assertIsNone(cfgmod.locate("ui", "scale"), "no [ui], and nothing writes it")
 
     def test_a_key_inside_a_table_of_its_own_is_not_the_table(self):
         """[android.admob] has app_id under it; asked where admob is, that is

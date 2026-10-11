@@ -267,6 +267,7 @@ def toml_document(user: dict, pick=first) -> tuple[str, dict]:
         for key, value in node.items():
             where.setdefault((".".join(path), key), len(lines))
             if isinstance(value, dict):
+                where.setdefault((".".join(path + (key,)), None), len(lines))
                 claim(path + (key,), value)
 
     def dotted(section: tuple, prefix: tuple, node: dict):
@@ -279,7 +280,10 @@ def toml_document(user: dict, pick=first) -> tuple[str, dict]:
             lines.append(f"{'.'.join(toml_key(p) for p in names)} = {toml_value(value)}")
             for i in range(len(names)):
                 where.setdefault((".".join(section + names[:i]), names[i]), len(lines))
+                if i:   # a table the line writes, with no header of its own
+                    where.setdefault((".".join(section + names[:i]), None), len(lines))
             if isinstance(value, dict):
+                where.setdefault((".".join(section + names), None), len(lines))
                 claim(section + names, value)
 
     def table(path: tuple, node: dict):
@@ -304,6 +308,7 @@ def toml_document(user: dict, pick=first) -> tuple[str, dict]:
                 lines.append(f"{toml_key(key)} = {toml_value(value)}")
                 where[(name, key)] = len(lines)
                 if isinstance(value, dict):
+                    where.setdefault((".".join(here), None), len(lines))
                     claim(here, value)
         for key in subtables:
             table(path + (key,), node[key])
@@ -602,6 +607,10 @@ class TotalTest(unittest.TestCase):
     @example(user={"window": {"title": 5}}, seed=seed_for((KNOWN, "inline")))
     @example(user={"window": {"title": 5}}, seed=seed_for((KNOWN, "dotted")))
     @example(user={"android": {"admob": {"app_id": 5}}}, seed=seed_for(TOP, (KNOWN, "dotted")))
+    # The nightly profile's: "[targets]: nothing left to build" names the
+    # table, and `targets.enabled = []` has no [targets] header to point at.
+    @example(user={"targets": {"enabled": []}}, seed=seed_for((KNOWN, "dotted")))
+    @example(user={"targets": {"enabled": []}}, seed=seed_for((KNOWN, "inline")))
     @given(user_tomls(), st.integers(0, 2**32))
     def test_any_toml_is_refused_at_its_line_or_taken(self, user, seed):
         refused, spot, where, text = self.run_toml(user, strict=False, seed=seed)
@@ -759,6 +768,10 @@ class BuildFilesTest(unittest.TestCase):
     # No build setting: a table reached Xcode as the text of a Python dict.
     @example(cfg=config_with(("ios", "settings"), {"OTHER_LDFLAGS": {"a": 1}}))
     @example(cfg=config_with(("ios", "settings"), {"WHEN": datetime.date(2026, 10, 11)}))
+    # The nightly profile's: `name: NULL` is YAML's null, and `bundleIdPrefix:
+    # yes` its true -- names and ids NAME_RE and BUNDLE_RE take.
+    @example(cfg=config_with(("project", "name"), "NULL"))
+    @example(cfg=config_with(("ios", "bundle_id"), "yes.game"))
     @given(changed_configs())
     def test_xcodegen_reads_back_the_project(self, cfg):
         self.assertIsNotNone(yaml, "PyYAML is missing inside the build image")
@@ -767,7 +780,10 @@ class BuildFilesTest(unittest.TestCase):
         spec = yaml.safe_load(generate(cfg)["ios/project.yml"])
         name = cfg["project"]["name"]
         self.assertEqual(spec["name"], name)
+        self.assertEqual(list(spec["targets"]), [name])
+        self.assertEqual(spec["options"]["bundleIdPrefix"], cfg["ios"]["bundle_id"].rsplit(".", 1)[0])
         base = spec["targets"][name]["settings"]["base"]
+        self.assertEqual(base["PRODUCT_NAME"], name)
         self.assertEqual(base["PRODUCT_BUNDLE_IDENTIFIER"], cfg["ios"]["bundle_id"])
         self.assertEqual(base["INFOPLIST_KEY_CFBundleDisplayName"], cfg["window"]["title"])
         self.assertEqual(base["IPHONEOS_DEPLOYMENT_TARGET"] if "IPHONEOS_DEPLOYMENT_TARGET" in base
