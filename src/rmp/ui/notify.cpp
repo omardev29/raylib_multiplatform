@@ -320,9 +320,11 @@ void show_report(std::string_view line) {
     push(line, NotifyOptions{}.seconds, ColorRole::DANGER);
 }
 
-void pass_ended() {
+void pass_ended(const bool drawn) {
     end_at_pass();
     end_tooltip_pass();
+    // Closed past EndDrawing(), by the runner: nothing more goes on screen.
+    if (!drawn) return;
     // With a scene stack the app draws them, after the last scene.
     if (rmp::scenes::detail::running()) return;
     // Without one: after the frame's first pass, so once a frame -- a game

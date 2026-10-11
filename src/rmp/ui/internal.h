@@ -505,9 +505,16 @@ bool world_passthrough(const Clay_RenderCommand &command);
 
 // --- notify.cpp ------------------------------------------------------------
 
-// The very end of end(), the pass drawn: where a game with no scene stack has
-// its notices drawn, there being no app frame to draw them after.
-void pass_ended();
+// The very end of every pass, however it was closed -- end(), a scene's
+// _draw() that left its frame open, the runner closing one after EndDrawing()
+// -- and `drawn` when it was drawn. Where at() and tooltip() forget what they
+// kept of the pass (end_at_pass(), end_tooltip_pass(), ui/floating.h): a pass
+// that skipped it would leave the next one at()'s z ranges, and a layer
+// there would let the pointer through. And, drawn, where a game with no scene
+// stack has its notices drawn -- after the frame's FIRST pass
+// (current_pass() == 0), there being no app frame to draw them after and no
+// telling which end() is the last.
+void pass_ended(bool drawn);
 
 // --- backdrop.cpp ----------------------------------------------------------
 

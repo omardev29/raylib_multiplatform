@@ -245,9 +245,10 @@ void detail::close_frame(const bool draw) {
     // the runner closes a frame the game left open.
     if (draw && !detail::test_mode()) detail::draw(commands);
 
-    // Before the boundary below can close: the frame is still this one. Only
-    // for a pass that was drawn -- what comes after it is drawn too.
-    if (draw) detail::pass_ended();
+    // Before the boundary below can close: the frame is still this one. Every
+    // pass, so that what at() and tooltip() kept of it goes with it; the
+    // notices only after one that was drawn -- they are drawn too.
+    detail::pass_ended(draw);
 
     // Only when there was no app to mark it. With one, the boundary closes
     // after the last scene has drawn, not after the first.

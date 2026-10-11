@@ -755,6 +755,32 @@ TEST_SUITE("ui: floating") {
         CHECK(rmp::ui::detail::clay_error_count() == errors);
     }
 
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a pass closed without being drawn leaves the next pass nothing "
+                      "of its at()s") {
+        // What the runner does to a frame the game left open, after
+        // EndDrawing(): laid out, and not drawn. What at() handed out goes
+        // with it all the same -- the next pass's first layer is not one of
+        // its at()'s, so nothing else would forget them.
+        const int errors = rmp::ui::detail::clay_error_count();
+        rmp::ui::begin();
+        for (int i = 0; i < 3; ++i) {
+            rmp::ui::at(Vector2{ 100, 100 },
+                        [] { (void)rmp::ui::detail::next_layer_z(); });
+        }
+        rmp::ui::detail::close_frame(false);
+        CHECK_FALSE(rmp::ui::detail::frame_open());
+        rmp::ui::begin();
+        std::vector<int16_t> own;
+        for (int i = 0; i < 6; ++i) own.push_back(rmp::ui::detail::next_layer_z());
+        for (const int16_t z : own) {
+            CAPTURE(z);
+            CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(z)));
+        }
+        rmp::ui::end();
+        CHECK(rmp::ui::detail::clay_error_count() == errors);
+    }
+
     // -- tooltip() -----------------------------------------------------------
 
     TEST_CASE_FIXTURE(HeadlessUi, "the control declared last is the one taken, once") {
