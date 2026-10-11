@@ -1,0 +1,7 @@
+# A Linux console's terminal, put back however a DRM/KMS game ends (Stage G):
+# src/rmp/console.cpp. tests/console_test.cpp runs the handler in-process and
+# tests/console_canary.cpp dies every way on a pseudo-terminal.
+kind     cxx
+sources  src/rmp/console.cpp
+tests    unit_test -sf=*console_test.cpp
+floor    -
