@@ -190,6 +190,8 @@ struct {
     int jumps = 0; // what the game heard, routed
     int pauses = 0;
     bool playing = false; // what its pass was told, last time it drew
+    bool chat = false; // the HUD has a text field too
+    std::string said;
 } game;
 
 void read_as_told() {
@@ -224,6 +226,7 @@ public:
             { .placement = rmp::ui::Align::TOP_RIGHT, .focus_first = game.focus_first });
         if (rmp::ui::button("Map")) ++game.map;
         if (rmp::ui::button("Bag")) ++game.bag;
+        if (game.chat) rmp::ui::text_input("Say", game.said);
         rmp::ui::end();
     }
 };
@@ -496,6 +499,52 @@ TEST_SUITE("ui: HUD focus") {
         CHECK(game.map == 1); // the click pressed it
         CHECK(rmp::ui::focused() == "Map");
         CHECK(rmp::ui::wants_keyboard());
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a click on a HUD's button presses it, and the keys stay "
+                      "the game's") {
+        // A touch Pause in a HUD: a finger presses it without walking into the
+        // HUD, so Space after it is still a jump and presses nothing.
+        play(Read::JUMP);
+        click(centre_of("Map"));
+        CHECK(game.map == 1);
+        CHECK_FALSE(rmp::ui::wants_keyboard());
+        CHECK_FALSE(rmp::input::consumed_keyboard());
+        feed.devices.keys[KEY_SPACE] = true;
+        press(SPACE);
+        feed.devices.keys[KEY_SPACE] = false;
+        CHECK(game.jumps == 1);
+        CHECK(game.map == 1);
+        CHECK(rmp::ui::focused().empty());
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
+                      "a click into a HUD's text field types, and Enter gives "
+                      "the keys back") {
+        // Typing is having the keyboard, not the focus: the field types with
+        // no focus resting in the HUD, and Space is a character, not a jump.
+        play(Read::JUMP);
+        game.chat = true;
+        run_frames(2);
+        REQUIRE(rmp::ui::focused().empty());
+        click(centre_of("Say"));
+        CHECK(rmp::ui::wants_keyboard());
+        feed.devices.keys[KEY_SPACE] = true;
+        press(SPACE);
+        feed.devices.keys[KEY_SPACE] = false;
+        CHECK(game.jumps == 0);
+        CHECK(game.map == 0);
+        CHECK(rmp::ui::wants_keyboard());
+        press(ENTER);
+        CHECK_FALSE(rmp::ui::wants_keyboard());
+        CHECK(rmp::ui::focused().empty());
+        run_frame();
+        feed.devices.keys[KEY_SPACE] = true;
+        press(SPACE);
+        feed.devices.keys[KEY_SPACE] = false;
+        CHECK(game.jumps == 1);
+        CHECK(game.map == 0);
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
