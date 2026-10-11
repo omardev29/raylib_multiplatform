@@ -1216,6 +1216,24 @@ TEST_SUITE("ldtk") {
         rmp::assets::detail::set_resources_root(previous.c_str());
     }
 
+    TEST_CASE("load_map reads a project out of resources/, and a level of it by name") {
+        const Quiet quiet;
+        const AtLdtk at;
+        const rmp::Tilemap first = rmp::assets::load_map("minimal.ldtk");
+        REQUIRE(first.valid());
+        CHECK(std::string(first.level()) == "Start");
+        const rmp::Tilemap next = rmp::assets::load_map("minimal.ldtk", "Next");
+        REQUIRE(next.valid());
+        CHECK(std::string(next.level()) == "Next");
+        // The same map parse_map makes of the file's bytes.
+        const Parsed parsed(text_of("minimal.ldtk"), "minimal.ldtk", "Next");
+        CHECK(next.bounds().x == parsed.map.bounds().x);
+        CHECK(next.object_count() == parsed.map.object_count());
+        CHECK_FALSE(rmp::assets::load_map("minimal.ldtk", "Nope").valid());
+        CHECK_FALSE(rmp::assets::load_map("no_such_world.ldtk").valid());
+        CHECK_FALSE(rmp::assets::load_map("no_such_world.ldtk", "Next").valid());
+    }
+
     TEST_CASE("load_map picks the reader by the extension") {
         const Quiet quiet;
         // The same LDtk text named .json goes to the Tiled reader, which

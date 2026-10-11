@@ -4,8 +4,6 @@
 # calls, or that is gone, fails until it is removed (--update removes it).
 rmp::Object::_draw()
 rmp::Scene::_resume()
-rmp::Tilemap::Tilemap(Tilemap &&)
-rmp::Tilemap::operator bool() const
 rmp::Value::Ref::key(int) const
 rmp::ads::is_interstitial_loaded()
 rmp::ads::is_rewarded_loaded()
@@ -15,8 +13,6 @@ rmp::ads::reward_amount()
 rmp::ads::show_interstitial()
 rmp::ads::show_rewarded()
 rmp::ads::take_reward_earned()
-rmp::assets::load_map(std::string_view)
-rmp::assets::load_map(std::string_view, std::string_view)
 rmp::assets::load_sheet(std::string_view)
 rmp::assets::using_pack()
 rmp::behavior::Runner::ducking() const

@@ -356,6 +356,18 @@ TEST_CASE_FIXTURE(Fixture, "a map moves, and moving it does not free it twice") 
     CHECK(world.map.layer_count() == 2);
 }
 
+TEST_CASE("a map moved into a new one is that map, and `if (map)` says which is which") {
+    Parsed loaded("map_minimal.json");
+    REQUIRE(loaded.map);
+    const rmp::Tilemap moved(std::move(loaded.map));
+    CHECK(static_cast<bool>(moved));
+    CHECK(moved.layer_count() == 2);
+    CHECK(moved.object_count() == 2);
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move): the promise
+    CHECK_FALSE(static_cast<bool>(loaded.map));
+    CHECK_FALSE(rmp::Tilemap());
+}
+
 // ---------------------------------------------------------------------------
 // The tileset image: margin, spacing, and where a gid actually is in it
 // ---------------------------------------------------------------------------
