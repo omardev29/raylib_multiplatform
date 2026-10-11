@@ -36,12 +36,13 @@
 // Where it cannot run, the veil comes alone, and the reason is a machine's,
 // not the game's: raylib's software renderer and OpenGL 1.1 have no shaders,
 // 2.1 takes GLSL 1.20, which the blur is not written in, and a driver may
-// refuse a shader or a framebuffer. Each is one TraceLog line, never RMP_REPORT_ONCE:
-// [dev] strict would stop a correct game on a CI runner. What IS the game's
-// is reported: a blur asked for in a frame of its own (RMP_ENTRY_POINT),
-// which nothing redirects, and a scene that draws through BeginTextureMode()
-// of its own while the frame is redirected -- EndTextureMode() sends the rest
-// of the frame to the screen, behind the backdrop's back.
+// refuse a shader or a framebuffer. Each is one TraceLog line, never
+// RMP_REPORT_ONCE: [dev] strict would stop a correct game on a CI runner.
+// What IS the game's is reported: a blur asked for in a frame of its own
+// (RMP_ENTRY_POINT), which nothing redirects, and a scene that draws through
+// BeginTextureMode() of its own while the frame is redirected --
+// EndTextureMode() sends the rest of the frame to the screen, behind the
+// backdrop's back.
 //
 // Nothing here runs without a window. The unit tests have none: the GPU half
 // is marked out of their coverage, and the pure half -- glsl_for(),
