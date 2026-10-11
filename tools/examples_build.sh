@@ -104,6 +104,17 @@ configure_examples() {
     || { cat "$BUILD.configure.log"; echo "FAIL: the examples did not configure"; exit 1; }
 }
 
+# One e2e target, started in the background by play_e2e: its output and its
+# exit status go to files of their own, read once every script has ended. The
+# seconds it took go with them, so a slow script is seen to be slow.
+play_one() {
+  local t=$1 logs=$2 status=0 started
+  started=$(date +%s)
+  $LIMIT "$BUILD/$t" > "$logs/$t.out" 2>&1 < /dev/null || status=$?
+  echo "$(( $(date +%s) - started ))" > "$logs/$t.seconds"
+  echo "$status" > "$logs/$t.status"
+}
+
 # 5. Booting proves an example draws; the platformer's bot proves one game can
 # be won. This plays examples from a SCRIPT -- what a player presses, frame by
 # frame, at exactly 1/60 s with rmp::random at seed 1 -- and compares what they
@@ -111,6 +122,7 @@ configure_examples() {
 play_e2e() {
   echo "== examples: e2e, played from tests/e2e/ =="
   local scripts nscripts e2e_targets nmade played e2e_failed t status out ok
+  local slots logs order s seconds
   # A script's own ceiling (above), for every launch in here.
   local LIMIT="$E2E_LIMIT"
   scripts=$(find tests/e2e -name '*.e2e' | sort)
@@ -130,11 +142,44 @@ play_e2e() {
   else
     echo "  outside the pinned build image: a difference is reported, not enforced"
   fi
+  # Played side by side, as many at once as the machine has processors. Each
+  # script is a process of its own, with its own folder under $BUILD/e2e/ and
+  # its own saves, and every frame is exactly 1/60 s whatever else the machine
+  # is doing -- so playing them together cannot change what they draw, only
+  # how long this waits: one after another they took about twelve minutes in
+  # the image, the platformer's alone about four. The scripts with the most
+  # frames start first, so the longest is not the last to begin. A target is
+  # e2e_<area>_<name>, from tests/e2e/<area>/<name>.e2e (CMakeLists.txt).
+  slots=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+  logs="$BUILD/e2e-logs"
+  rm -rf "$logs"
+  mkdir -p "$logs"
+  order=$(for s in $scripts; do
+            printf '%s %s\n' "$(awk '$2 == "end" { n = $1 } END { print n + 0 }' "$s")" "$s"
+          done | sort -rn | cut -d' ' -f2)
+  for s in $order; do
+    t=$(printf '%s\n' "$s" | sed 's|^tests/e2e/||; s|\.e2e$||; s|/|_|g; s|^|e2e_|')
+    if ! printf '%s\n' "$e2e_targets" | grep -qx "$t"; then
+      echo "FAIL: $s has no target $t among the configured ones."
+      exit 1
+    fi
+    # bash 3.2 (macOS) has no `wait -n`: a slot is free when a job has ended.
+    while [ "$(jobs -rp | wc -l)" -ge "$slots" ]; do sleep 1; done
+    play_one "$t" "$logs" &
+  done
+  wait
+
   played=0
   e2e_failed=0
   for t in $e2e_targets; do
-    status=0
-    out=$($LIMIT "$BUILD/$t" 2>&1 < /dev/null) || status=$?
+    if [ ! -f "$logs/$t.status" ]; then
+      e2e_failed=$((e2e_failed + 1))
+      echo "  FAIL  $t  (it was never started, or never ended)"
+      continue
+    fi
+    status=$(cat "$logs/$t.status")
+    seconds=$(cat "$logs/$t.seconds")
+    out=$(cat "$logs/$t.out")
     played=$((played + 1))
     printf '%s\n' "$out" | grep -E '^E2E (FAIL|DIFF|NOTE|RECORDED) |^E2E [a-z]' | sed 's/^/  /' || true
     ok=1
@@ -147,10 +192,10 @@ play_e2e() {
       ok=0
     fi
     if [ "$ok" -eq 1 ] && [ "$status" -eq 0 ]; then
-      echo "  ok    $t"
+      echo "  ok    $t  (${seconds} s)"
     else
       e2e_failed=$((e2e_failed + 1))
-      echo "  FAIL  $t  (exit $status)"
+      echo "  FAIL  $t  (exit $status, ${seconds} s)"
       # A check that failed says what and where above. Anything else -- a
       # crash, a sanitizer, a game that never reached `end` -- is in the tail.
       if ! printf '%s\n' "$out" | grep -q '^E2E FAIL '; then
