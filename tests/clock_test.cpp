@@ -19,6 +19,7 @@
 #include <rmp/object.h> // rmp::Callback
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 namespace {
@@ -96,6 +97,27 @@ TEST_SUITE("app: the clock") {
             CHECK(step == 1.0f);
         }
         CHECK(rmp::app::detail::frame_delta() == step);
+    }
+
+    TEST_CASE("a reading that is not a number of seconds is a frame of no time") {
+        // tests/property/clock_prop.cpp's first counterexample: a NaN went
+        // through the clamp, because `raw < 0` and `raw > max` are both false
+        // for one -- and so did an infinity with the clamp off.
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        for (const float max : { 0.0f, 0.05f, -1.0f, nan, inf }) {
+            CAPTURE(max);
+            CHECK(rmp::app::detail::clamp_delta(nan, max) == 0.0f);
+            CHECK(rmp::app::detail::clamp_delta(-nan, max) == 0.0f);
+            CHECK(rmp::app::detail::clamp_delta(inf, max) == 0.0f);
+            CHECK(rmp::app::detail::clamp_delta(-inf, max) == 0.0f);
+            CHECK(rmp::app::detail::clamp_delta(-STEP, max) == 0.0f);
+        }
+        CHECK(rmp::app::detail::clamp_delta(STEP, 0.0f) == STEP);
+        CHECK(rmp::app::detail::clamp_delta(STEP, 0.05f) == STEP);
+        CHECK(rmp::app::detail::clamp_delta(1.0f, 0.05f) == 0.05f);
+        CHECK(rmp::app::detail::clamp_delta(std::numeric_limits<float>::max(), 0.05f) ==
+              0.05f);
     }
 
     TEST_CASE_FIXTURE(Fixture, "0, or less, is the real clock -- no window, no time") {

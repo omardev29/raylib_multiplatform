@@ -60,6 +60,13 @@ WorldViewport world_viewport();
 // The storage behind these is constant-initialised, so a test's static
 // initializer may call them before main() in any order.
 
+// A frame of `raw` seconds as the game is handed it: what step_delta() and
+// frame_delta() make of the reading, with `max` as [app] max_delta. 0 for a
+// reading that is not a number of seconds, 0 or more -- negative, NaN, an
+// infinity -- and `max` for one past it, when `max` is more than 0 (0 switches
+// the clamp off). Always a finite number, 0 or more.
+float clamp_delta(float raw, float max);
+
 // What step_delta() returned this frame. Before any runner has called it --
 // rmp::ui in a plain raylib loop of the game's own, which nothing steps --
 // the frame raylib timed, clamped the same way.
