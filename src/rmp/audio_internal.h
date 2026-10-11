@@ -34,6 +34,13 @@ float effect_volume(float per_play, float sfx_bus);
 // rather than stored, so one bad slider value cannot silence the game.
 float clamp_volume(float value, float previous);
 
+// PlayOptions::pitch as raylib is handed it: four octaves either way of the
+// sound's own, clamped to that, and 1 for one that is 0 or less or not a
+// number.
+inline constexpr float MIN_PITCH = 1.0f / 16;
+inline constexpr float MAX_PITCH = 16.0f;
+float raylib_pitch(float pitch);
+
 // PlayOptions::pan as raylib 6 takes it: -1 left, 0 centre, 1 right, clamped,
 // and a NaN is the centre.
 float raylib_pan(float pan);

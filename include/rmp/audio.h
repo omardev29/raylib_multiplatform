@@ -51,13 +51,13 @@ enum class Bus { MASTER, MUSIC, SFX };
 // as C++20 requires.
 struct PlayOptions {
     float volume = 1.0f; // this play only; times the SFX bus, times MASTER
-    float pitch = 1.0f; // 2 = an octave up, 0.5 = an octave down
+    float pitch = 1.0f; // 2 = an octave up, 0.5 = an octave down; 1/16..16, clamped
     float pan = 0.0f; // -1 = left, 0 = centre, 1 = right (raylib 6's range)
 };
 
 // A sound effect. Loaded the first time it is asked for and kept, so the
-// second play costs nothing; a name that does not exist says so once and
-// plays nothing.
+// second play costs nothing; a name that does not exist -- a name with a NUL
+// byte inside is no file's -- says so once and plays nothing.
 void play(std::string_view name, const PlayOptions &options = {});
 
 // Start the music, looping, or replace whatever is playing. Asking for the

@@ -97,6 +97,28 @@ TEST_SUITE("report_once") {
         CHECK(rmp::detail::report_count() == 2);
     }
 
+    TEST_CASE_FIXTURE(Fixture, "a key given as bytes is every byte of it, a NUL too") {
+        // A name the game chose can hold a NUL, and two that differ only after
+        // it are two mistakes: tests/property/audio_prop.cpp found a missing
+        // sound and a missing song keyed by their C strings, one line for two.
+        using namespace std::string_view_literals;
+        static const char SITE = 0;
+        rmp::detail::report_once_keyed(&SITE, "a\0b"sv, "first");
+        rmp::detail::report_once_keyed(&SITE, "a\0c"sv, "second");
+        rmp::detail::report_once_keyed(&SITE, "a"sv, "third");
+        CHECK(rmp::detail::report_count() == 3);
+        rmp::detail::report_once_keyed(&SITE, "a\0b"sv, "again");
+        CHECK(rmp::detail::report_count() == 3);
+        // A C string is the same key as its bytes up to its end; none at all
+        // is the empty one, which is the plain form's.
+        rmp::detail::report_once_keyed(&SITE, "a", "as a C string");
+        CHECK(rmp::detail::report_count() == 3);
+        rmp::detail::report_once(&SITE, "plain");
+        rmp::detail::report_once_keyed(&SITE, static_cast<const char *>(nullptr), "null");
+        rmp::detail::report_once_keyed(&SITE, std::string_view(), "empty");
+        CHECK(rmp::detail::report_count() == 4);
+    }
+
     TEST_CASE_FIXTURE(Fixture, "reset forgets, so the same line can be watched again") {
         warn_from_one_site(1);
         rmp::detail::reset_reports_for_tests();

@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -157,6 +158,30 @@ TEST_SUITE("audio") {
         CHECK(raylib_pan(std::nanf("")) == 0.0f);
         // The default is the centre -- raylib 5's 0.5 would be right of it.
         CHECK(rmp::audio::PlayOptions{}.pan == 0.0f);
+    }
+
+    TEST_CASE("a pitch is four octaves either way, clamped, and 1 when it is not one") {
+        // tests/property/audio_prop.cpp's counterexample, under UBSan in
+        // raudio.c: raylib divides the device's rate by the pitch and casts it
+        // to an unsigned int, and a denormal pitch made that an infinity.
+        using rmp::audio::detail::MAX_PITCH;
+        using rmp::audio::detail::MIN_PITCH;
+        using rmp::audio::detail::raylib_pitch;
+        CHECK(raylib_pitch(1.0f) == 1.0f);
+        CHECK(raylib_pitch(2.0f) == 2.0f);
+        CHECK(raylib_pitch(0.5f) == 0.5f);
+        CHECK(raylib_pitch(MIN_PITCH) == MIN_PITCH);
+        CHECK(raylib_pitch(MAX_PITCH) == MAX_PITCH);
+        CHECK(raylib_pitch(std::numeric_limits<float>::denorm_min()) == MIN_PITCH);
+        CHECK(raylib_pitch(1e-30f) == MIN_PITCH);
+        CHECK(raylib_pitch(1e30f) == MAX_PITCH);
+        CHECK(raylib_pitch(std::numeric_limits<float>::max()) == MAX_PITCH);
+        for (const float none :
+             { 0.0f, -0.0f, -1.0f, std::nanf(""), std::numeric_limits<float>::infinity(),
+               -std::numeric_limits<float>::infinity() }) {
+            CAPTURE(none);
+            CHECK(raylib_pitch(none) == 1.0f);
+        }
     }
 
     TEST_CASE("looking candidates up is not a failed load") {
@@ -299,6 +324,26 @@ TEST_SUITE("audio") {
         CHECK(rmp::detail::report_count() == 3);
         CHECK_FALSE(rmp::audio::music_playing());
         CHECK(device_opens.count == 1);
+        rmp::detail::reset_reports_for_tests();
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "two names that differ only after a NUL are two missing sounds") {
+        // tests/property/audio_prop.cpp's counterexample: the report was keyed
+        // by the name as a C string, so "\0" and "\0a" -- or "jump\0" and
+        // "jump\0x" -- were one line, and the second mistake was never said.
+        using namespace std::string_literals;
+        rmp::detail::reset_reports_for_tests();
+        rmp::audio::detail::set_device_opener(fake_device);
+        rmp::audio::play("\0"s);
+        rmp::audio::play("\0a"s);
+        CHECK(rmp::detail::report_count() == 2);
+        rmp::audio::music("jump\0"s);
+        rmp::audio::music("jump\0x"s);
+        CHECK(rmp::detail::report_count() == 4);
+        rmp::audio::play("\0a"s); // said already
+        rmp::audio::music("jump\0x"s);
+        CHECK(rmp::detail::report_count() == 4);
         rmp::detail::reset_reports_for_tests();
     }
 

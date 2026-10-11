@@ -34,10 +34,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <numbers>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -193,7 +195,7 @@ struct Device {
 };
 
 // The energy of one play of `name`, over its whole length.
-Energy energy_of_play(const char *name, const rmp::audio::PlayOptions &options) {
+Energy energy_of_play(std::string_view name, const rmp::audio::PlayOptions &options) {
     (void)take();
     rmp::audio::play(name, options);
     wait(0.15);
@@ -241,6 +243,38 @@ TEST_SUITE("audio: device") {
         CHECK(after.total() == doctest::Approx(before.total()).epsilon(0.1));
         CHECK(after.right / after.left ==
               doctest::Approx(before.right / before.left).epsilon(0.1));
+    }
+
+    TEST_CASE("a pitch raylib cannot make a sample rate of plays at its clamp") {
+        // tests/property/audio_prop.cpp's counterexample. raylib sets a
+        // voice's pitch as the device's rate divided by it, cast to an
+        // unsigned int: a denormal pitch was an infinity there, which UBSan
+        // stops in raudio.c, and a huge one a rate of 0 Hz.
+        const Device device;
+        if (!device.ok) return;
+        for (const float pitch : { std::numeric_limits<float>::denorm_min(), 1e-30f,
+                                   1e30f, std::numeric_limits<float>::max() }) {
+            CAPTURE(pitch);
+            CHECK(energy_of_play("short", { .pitch = pitch }).total() > 0);
+        }
+    }
+
+    TEST_CASE(
+        "a name with a NUL inside plays nothing, though a file is called its start") {
+        // "short.wav\0x" was opened as the C string "short.wav" and played it
+        // (tests/property/audio_prop.cpp). No file is called what the game
+        // asked for, and that is said.
+        using namespace std::string_literals;
+        const Device device;
+        if (!device.ok) return;
+        rmp::detail::reset_reports_for_tests();
+        CHECK(energy_of_play("short.wav\0x"s, {}).total() == 0);
+        CHECK(energy_of_play("short\0"s, {}).total() == 0);
+        CHECK(rmp::detail::report_count() == 2);
+        rmp::audio::music("long.wav\0"s);
+        CHECK_FALSE(rmp::audio::music_playing());
+        CHECK(rmp::detail::report_count() == 3);
+        rmp::detail::reset_reports_for_tests();
     }
 
     TEST_CASE("the SFX bus scales effects that are already ringing") {

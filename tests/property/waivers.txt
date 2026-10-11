@@ -51,15 +51,6 @@ rmp::assets::requested_loads()
 rmp::assets::shutdown()
 rmp::assets::using_pack()
 
-# include/rmp/audio.h: P6
-rmp::audio::available()
-rmp::audio::music(std::string_view, bool)
-rmp::audio::music_playing()
-rmp::audio::play(std::string_view, const PlayOptions &)
-rmp::audio::set_volume(Bus, float)
-rmp::audio::stop_music()
-rmp::audio::volume(Bus)
-
 # include/rmp/behavior.h: P6
 rmp::behavior::Ball::_collision(Object &, Object &)
 rmp::behavior::Ball::_ready(Object &)

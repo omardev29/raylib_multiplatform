@@ -2,4 +2,5 @@
 kind     cxx
 sources  src/rmp/audio.cpp
 tests    unit_test -sf=*audio_test.cpp
+tests    property_test -sf=*audio_prop.cpp
 floor    -
