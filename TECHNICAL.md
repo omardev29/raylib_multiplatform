@@ -70,6 +70,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
 │       ├── animation.cpp     #   rmp::Sprite playback from an Aseprite sheet
 │       ├── animation_internal.h
+│       ├── aseprite.cpp      #   every .aseprite walked, bounds-checked, before cute_aseprite
 │       ├── aseprite_impl.cpp #   compiles cute_aseprite once
 │       ├── tilemap.cpp       #   rmp::Tilemap -- drawing, solids, object factories; the Tiled reader
 │       ├── tilemap_internal.h #  the parsed map both readers fill

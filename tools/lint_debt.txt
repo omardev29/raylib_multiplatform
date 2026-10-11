@@ -17,7 +17,7 @@ custom-rmp-raw-pointer  examples/ui/07_responsive/src/main.cpp                1
 custom-rmp-raw-pointer  include/rmp/app.h                                     1
 custom-rmp-raw-pointer  include/rmp/assets.h                                  2
 custom-rmp-raw-pointer  include/rmp/object.h                                  9
-custom-rmp-raw-pointer  src/rmp/animation.cpp                                 4
+custom-rmp-raw-pointer  src/rmp/animation.cpp                                 3
 custom-rmp-raw-pointer  src/rmp/animation_internal.h                          3
 custom-rmp-raw-pointer  src/rmp/app.cpp                                       2
 custom-rmp-raw-pointer  src/rmp/assets.cpp                                    32
