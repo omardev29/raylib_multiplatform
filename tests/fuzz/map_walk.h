@@ -18,11 +18,17 @@
 //   - neighbour_at() never names the level the map is, and says "" inside it;
 //   - tile_at() takes any layer, column and row, and an empty map answers zero
 //     to everything;
-//   - a map moves: the one moved from is empty, the one moved to the same map.
+//   - a map moves: the one moved from is empty, the one moved to the same map;
+//   - its layers hold no more cells, all together, than MAX_CELLS: draw() and
+//     solid_in() walk a layer cell by cell, and a layer is two numbers in the
+//     file.
 //
-// Bounded per input -- at most WALKED cells a layer, WALKED objects -- so a
-// level of sixteen million cells, which the LDtk reader accepts, does not turn
-// one input into a second of work.
+// Bounded per input -- at most WALKED cells a layer, WALKED objects, and the
+// queries over the whole map only on maps of at most SCANNED cells -- so a
+// level of sixteen million cells, which the readers accept, does not turn one
+// input into minutes of work: solid_in() of a rectangle the size of such a
+// level asks every cell of it, ten times over, and libFuzzer's -timeout would
+// call the walk's own work a hang (regressions/ldtk/sixteen_million_cells).
 // ---------------------------------------------------------------------------
 
 #include "harness.h"
@@ -37,6 +43,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -51,6 +58,18 @@ using rmp::tilemap::detail::MapData;
 
 // How much of one map the walk asks about.
 inline constexpr int WALKED = 512;
+// The most cells, over all its layers, a map may have for the walk to ask
+// solid_in() about rectangles as big as the map: under the sanitizers a cell
+// costs about a microsecond, and the walk asks ten such rectangles.
+inline constexpr std::int64_t SCANNED = 4096;
+
+// Every cell of every layer, as the layers say.
+inline std::int64_t cells_of(const MapData &data) {
+    std::int64_t out = 0;
+    for (const Layer &layer : data.layers)
+        out += static_cast<std::int64_t>(layer.width) * layer.height;
+    return out;
+}
 
 inline bool finite(float v) { return std::isfinite(v); }
 inline bool finite(Vector2 v) { return finite(v.x) && finite(v.y); }
@@ -210,6 +229,9 @@ inline void walk(rmp::Tilemap &map) {
     const float cell = rmp::tilemap::detail::smallest_cell(&data);
     require(std::isfinite(cell) && cell >= 0,
             "smallest_cell() is finite and not negative");
+    const std::int64_t cells = cells_of(data);
+    require(cells <= rmp::tilemap::detail::MAX_CELLS,
+            "a map's layers hold no more cells than MAX_CELLS");
 
     walk_tiles(data, map);
     walk_objects(data, map);
@@ -232,12 +254,16 @@ inline void walk(rmp::Tilemap &map) {
                Vector2{ level.world.x + (level.world.width * 0.99f),
                         level.world.y + (level.world.height * 0.99f) });
     }
-    // Any rectangle at all: no UB, whatever it answers.
-    for (const float v : HOSTILE) {
-        static_cast<void>(map.solid_in(Rectangle{ v, b.y, b.width, b.height }));
-        static_cast<void>(map.solid_in(Rectangle{ b.x, v, b.width, b.height }));
-        static_cast<void>(map.solid_in(Rectangle{ b.x, b.y, v, b.height }));
-        static_cast<void>(map.solid_in(Rectangle{ b.x, b.y, b.width, v }));
+    // Any rectangle at all: no UB, whatever it answers. As big as the map,
+    // and bigger, only on a map small enough to ask that of; on a bigger one
+    // the HOSTILE points above have asked the same arithmetic of one cell.
+    if (cells <= SCANNED) {
+        for (const float v : HOSTILE) {
+            static_cast<void>(map.solid_in(Rectangle{ v, b.y, b.width, b.height }));
+            static_cast<void>(map.solid_in(Rectangle{ b.x, v, b.width, b.height }));
+            static_cast<void>(map.solid_in(Rectangle{ b.x, b.y, v, b.height }));
+            static_cast<void>(map.solid_in(Rectangle{ b.x, b.y, b.width, v }));
+        }
     }
 
     // It moves, and moves back: the same map, and the one moved from empty.

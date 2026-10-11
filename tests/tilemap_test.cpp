@@ -918,6 +918,43 @@ TEST_CASE("a tileset that says it holds two billion tiles allocates nothing for 
     SetTraceLogLevel(LOG_INFO);
 }
 
+TEST_CASE(
+    "tile layers past the cell budget are left out, and the rest of the map loads") {
+    // A layer's width and height are two numbers in the file, whatever data it
+    // holds, and draw() and solid_in() walk it cell by cell: 150 bytes saying
+    // 100 000 x 100 000 were ten billion cells, and fuzz_tiled's walk timed
+    // out on them (regressions/tiled/a_layer_past_the_cell_budget). LDtk's
+    // budget, MAX_CELLS, is the whole file's here too.
+    SetTraceLogLevel(LOG_NONE);
+    const std::int64_t budget = rmp::tilemap::detail::MAX_CELLS;
+    const auto side = static_cast<std::int64_t>(std::sqrt(static_cast<double>(budget)));
+    REQUIRE(side * side == budget);
+    const auto layer = [](std::int64_t width, std::int64_t height) {
+        return R"({"type":"tilelayer","width":)" + std::to_string(width) +
+            R"(,"height":)" + std::to_string(height) + R"(,"data":[1]})";
+    };
+    const auto widths = [](const std::string &layers) {
+        const Parsed loaded(bytes_from(tiled_map(layers)), "cells.json");
+        REQUIRE(loaded.map.valid());
+        std::vector<int> out;
+        out.reserve(loaded.data->layers.size());
+        for (const rmp::tilemap::detail::Layer &l : loaded.data->layers)
+            out.push_back(l.width);
+        return out;
+    };
+    // Exactly the budget, in one layer: kept.
+    CHECK(widths("[" + layer(side, side) + "]") ==
+          std::vector<int>{ static_cast<int>(side) });
+    // Past it in one: left out, and the small one after it kept.
+    CHECK(widths("[" + layer(100000, 100000) + "," + layer(2, 2) + "]") ==
+          std::vector<int>{ 2 });
+    // The budget is the whole file's: a layer that fits, then one that does
+    // not fit what is left.
+    CHECK(widths("[" + layer(side, side - 1) + "," + layer(side, 2) + "," + layer(1, 1) +
+                 "]") == std::vector<int>{ static_cast<int>(side), 1 });
+    SetTraceLogLevel(LOG_INFO);
+}
+
 // ---------------------------------------------------------------------------
 // What Mull found no test holding (tests/mutation/floors/tilemap.txt): each
 // case below kills mutants that survived every test before it.

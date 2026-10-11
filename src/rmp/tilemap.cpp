@@ -261,6 +261,11 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     // says it holds two billion tiles is a number, and would be a quarter of
     // a gigabyte of solid flags.
     std::int64_t tiles_left = tilemap::detail::MAX_TILES;
+    // And so are the cells of its tile layers (MAX_CELLS), all of them
+    // together: a layer's size is two numbers in the file, whatever data it
+    // holds, and draw() and solid_in() walk it cell by cell -- a map of 150
+    // bytes with a layer of 100 000 x 100 000 was ten billion cells a frame.
+    std::int64_t cells_left = tilemap::detail::MAX_CELLS;
 
     for (const cute_tiled_tileset_t *set = raw->tilesets; set != nullptr;
          set = set->next) {
@@ -432,6 +437,16 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         out.solid_layer = std::strcmp(klass, "solid") == 0;
         out.width = size_int(layer->width);
         out.height = size_int(layer->height);
+        const std::int64_t area = static_cast<std::int64_t>(out.width) * out.height;
+        if (area > cells_left) {
+            TraceLog(LOG_WARNING,
+                     "MAP: layer \"%s\" of [%s] is %d x %d cells, more than any real "
+                     "map has in all its layers; it is left out.",
+                     out.name.c_str(), name != nullptr ? name : "", out.width,
+                     out.height);
+            continue;
+        }
+        cells_left -= area;
         out.gids.reserve(static_cast<std::size_t>(layer->data_count));
         for (int i = 0; i < layer->data_count; ++i) {
             // The top three bits are Tiled's flip flags, not part of the id.
