@@ -43,12 +43,27 @@ void seed(uint64_t value);
 // clock and never has to seed to be reproducible.
 uint64_t current_seed();
 
-float value(); // 0..1
-float range(float min, float max); // from min up to, never reaching, max
-int range(int min, int max); // inclusive at both ends, like raylib's
-bool chance(float probability); // true with that probability, 0..1
+float value(); // 0..1, never reaching 1
 
-Vector2 in_circle(float radius); // uniform inside the disc, not on the rim
+// From min up to, never reaching, max -- or down to it, when max is the
+// smaller; min itself when they are equal. Any two floats, -FLT_MAX to
+// FLT_MAX included. A NaN or an infinite end is a mistake in the game: said
+// once, and the answer is min, or max when min is the one that is not a
+// number, or 0. One number of the sequence each call, whatever the ends.
+float range(float min, float max);
+
+// Inclusive at both ends, like raylib's, for any two ints: range(INT_MIN,
+// INT_MAX) is every int. min when max <= min, and then the sequence does not
+// move.
+int range(int min, int max);
+
+// True with that probability, 0..1: never at 0 or below, always at 1 or
+// above. A NaN is never, and said once.
+bool chance(float probability);
+
+// Uniform inside the disc, not on the rim. A NaN or infinite radius is the
+// centre, {0, 0}, and said once.
+Vector2 in_circle(float radius);
 Vector2 direction(); // a unit vector, any angle
 
 // Pick one. Returns 0 for an empty range, which is the only answer that does

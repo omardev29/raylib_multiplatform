@@ -146,7 +146,8 @@ struct Sprite {
 
 // What an object does at the edge of its `bounds` -- the map's, or the view's,
 // when `bounds` is empty. CLAMP and BOUNCE act as soon as world_bounds()
-// crosses an edge; WRAP and DESTROY wait until it is entirely outside.
+// crosses an edge; WRAP and DESTROY wait until it is entirely outside. Bounds
+// that are not a finite box do nothing, said once.
 enum class Edge {
     NONE, // the default: objects may leave, and do
     CLAMP, // stops at the edge          a paddle, a player, a cursor
@@ -527,6 +528,9 @@ void detach(Object &self, int type);
 //   ray's own origin is whatever you pass in, so a character asking about the
 //   ground under itself is never the stale half.
 //
+// A ray from or to a NaN or an infinity, or longer than a float can square
+// (about 1.8e19 units), hits nothing, and that is said once.
+//
 // The query and the hit, RayQuery and RayHit, are declared below Object: both
 // hold a Handle, and a Handle needs Object complete.
 // ---------------------------------------------------------------------------
@@ -685,6 +689,11 @@ public:
     // Both exist because using the wrong one gives exactly the bug you would
     // expect. A force applied once barely moves anything, and an impulse
     // applied every frame goes twice as fast at 120 fps as at 60.
+    //
+    // Either one that is not a number -- or that would leave the velocity
+    // past what a float holds -- is refused and said once, and so is a frame
+    // that would: the object stops where it is rather than carrying a NaN
+    // into its position and from there into everything it touches.
     void apply_force(Vector2 force); // sustained: velocity += f/mass*delta
     void apply_impulse(Vector2 impulse); // instant:   velocity += i/mass
 
@@ -787,13 +796,16 @@ public:
     // The axis-aligned box this object occupies right now, from the sprite or
     // the shape. Empty when it has neither, which is what an invisible logic
     // object is. With no `collider` and no `shape`, this box is what the object
-    // collides as, and an empty one collides with nothing.
+    // collides as, and an empty one collides with nothing. A shape's mirrored
+    // scale or negative size is still a size: the same box.
     [[nodiscard]] Rectangle world_bounds() const;
 
     // The box the collider occupies right now: `collider` if it has one, else
     // world_bounds(). For debug drawing and for a game doing its own query --
     // the collision pass works with the precise shape and not with this box, so
-    // a circle collides as a circle.
+    // a circle collides as a circle. A shape whose box is not a finite number
+    // -- a NaN or an infinity in its position, size or scale -- is nowhere, and
+    // collides with nothing.
     [[nodiscard]] Rectangle world_collider() const;
 
     // Deferred: the object stops updating and drawing IMMEDIATELY, and its

@@ -14,6 +14,7 @@
 
 #include <doctest.h>
 
+#include "../src/rmp/internal.h"
 #include "../src/rmp/object_internal.h"
 #include "../src/rmp/ui/internal.h"
 
@@ -25,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <span>
 #include <string>
 #include <vector>
@@ -923,6 +925,28 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(hit.distance == doctest::Approx(0));
 }
 
+TEST_CASE_FIXTURE(
+    Fixture, "a ray that starts inside a disc hits it where it leaves, or not at all") {
+    // What rmp-docs' collision page says, and the box above does not do: from
+    // inside a circle the hit is the way out, with the normal outwards there,
+    // and a ray that ends inside the circle too misses it. collision_prop.cpp's
+    // ray property assumed every ray through a shape hits, and at seed 11 its
+    // 470th case was one from just inside a disc of 19.25 to inside it again.
+    World world;
+    auto &disc = world.spawn({ .position = { 0, 0 }, .shape = rmp::circle(20) });
+    const rmp::RayHit out = world.raycast({ 5, 0 }, { 100, 0 });
+    REQUIRE(static_cast<bool>(out));
+    CHECK(out.object == disc.handle());
+    CHECK(out.point.x == doctest::Approx(20));
+    CHECK(out.distance == doctest::Approx(15));
+    CHECK(out.normal.x == doctest::Approx(1));
+    CHECK_FALSE(world.raycast({ 5, 0 }, { 10, 0 }));
+    // The property's own counterexample, alone in a world of its own.
+    World other;
+    other.spawn({ .position = { -14.75f, -48.25f }, .shape = rmp::circle(19.25f) });
+    CHECK_FALSE(other.raycast({ -32.5f, -55.5f }, { -3.505f, -41.835f }));
+}
+
 TEST_CASE_FIXTURE(Fixture, "a ray of zero length is not a crash") {
     World world;
     world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
@@ -1264,4 +1288,244 @@ TEST_CASE_FIXTURE(Fixture, "a hundred raycasts over two thousand objects are che
 #else
     CHECK(ms < 20.0);
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// Numbers a game hands over by mistake: NaN, the infinities, the edge of the
+// floats. What tests/property/collision_prop.cpp found, one case each.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr float NAN_F = std::numeric_limits<float>::quiet_NaN();
+constexpr float INF_F = std::numeric_limits<float>::infinity();
+constexpr float TOP_F = std::numeric_limits<float>::max();
+
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+} // namespace
+
+TEST_CASE_FIXTURE(Fixture, "a NaN among finite objects is nowhere, and the grid agrees") {
+    // The first red of collision_prop.cpp. The grid's cell of a NaN was
+    // static_cast<int>(floor(NaN / cell)) -- undefined behaviour, which UBSan
+    // reports as float-cast-overflow and x86 answers INT_MIN -- and the cell
+    // index built from it wrote outside the grid. Every comparison with a NaN
+    // being false, its box overlapped nothing; its circle and its rectangle
+    // overlapped EVERYTHING, "not outside" reading as inside.
+    World world;
+    auto &lost =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 20 }) });
+    auto &near =
+        world.spawn<Probe>({ .position = { 5, 0 }, .shape = rmp::rect({ 20, 20 }) });
+    auto &far = world.spawn<Probe>({ .position = { 300, 0 }, .shape = rmp::circle(10) });
+    lost.position = { NAN_F, 0 };
+    lost.solid = near.solid = far.solid = true;
+
+    CHECK(pairs_of(world, true) == pairs_of(world, false));
+    CHECK(pairs_of(world, true).empty());
+    frame(world, 1.0f / 60);
+    CHECK(near.hits == 0);
+    CHECK(far.hits == 0);
+    CHECK(near.position.x == 5); // and nothing pushed it to NaN
+    CHECK(far.position.x == 300);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a shape at infinity, or larger than a float, touches nothing") {
+    World world;
+    auto &ordinary =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 20 }) });
+    auto &endless =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    auto &sideways =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::circle(10) });
+    auto &enormous =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    endless.shape.size = { INF_F, 10 };
+    sideways.position = { -INF_F, 0 };
+    enormous.shape.size = { TOP_F, TOP_F };
+    enormous.scale = { 2, 2 }; // FLT_MAX * 2 is infinity
+    ordinary.solid = endless.solid = sideways.solid = enormous.solid = true;
+
+    CHECK(pairs_of(world, true) == pairs_of(world, false));
+    frame(world, 1.0f / 60);
+    CHECK(ordinary.hits == 0);
+    CHECK(ordinary.position.x == 0);
+    CHECK(ordinary.position.y == 0);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a world wider than an int counts in cells is still searched") {
+    // Two objects 1e30 apart need a cell of 1e30 / 2^31 -- more doublings of
+    // the cell than the grid allows -- and the grid falls back to the loop it
+    // is an optimisation of. The cast of a cell past int's range was undefined
+    // behaviour on the way there.
+    World world;
+    world.spawn<Probe>({ .position = { -1e30f, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    auto &a =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    auto &b =
+        world.spawn<Probe>({ .position = { 4, 0 }, .shape = rmp::rect({ 10, 10 }) });
+    world.spawn<Probe>({ .position = { 1e30f, 1e30f }, .shape = rmp::rect({ 10, 10 }) });
+    CHECK(pairs_of(world, true) == pairs_of(world, false));
+    REQUIRE(pairs_of(world, true).size() == 1);
+    frame(world, 1.0f / 60);
+    CHECK(a.hits == 1);
+    CHECK(b.hits == 1);
+    const rmp::RayHit hit = world.raycast({ -100, 0 }, { 100, 0 });
+    CHECK(hit.object == a.handle());
+}
+
+TEST_CASE_FIXTURE(Fixture, "a mirrored box collides as the same box") {
+    // A scale of -1, or a negative size, is a mirror and not a hole: the
+    // circle already said "a mirrored scale is still a size", and the box now
+    // says it too. Signed, its half-width was negative -- it overlapped
+    // nothing, and its box ran backwards through the grid.
+    World world;
+    auto &mirrored = world.spawn<Probe>(
+        { .position = { 0, 0 }, .shape = rmp::rect({ 20, 20 }), .scale = { -1, 1 } });
+    // Each of these three touches the mirrored box and nothing else.
+    auto &other =
+        world.spawn<Probe>({ .position = { 19, -5 }, .shape = rmp::rect({ 20, 20 }) });
+    auto &negative =
+        world.spawn<Probe>({ .position = { -5, 19 }, .shape = rmp::rect({ -20, 20 }) });
+    auto &round =
+        world.spawn<Probe>({ .position = { -19, -5 }, .shape = rmp::circle(-10) });
+    const Rectangle box = mirrored.world_collider();
+    CHECK(box.x == doctest::Approx(-10));
+    CHECK(box.width == doctest::Approx(20));
+    CHECK(negative.world_collider().width == doctest::Approx(20));
+    CHECK(pairs_of(world, true) == pairs_of(world, false));
+    frame(world, 1.0f / 60);
+    CHECK(mirrored.hits == 3);
+    CHECK(other.hits == 1);
+    CHECK(negative.hits == 1);
+    CHECK(round.hits == 1);
+}
+
+TEST_CASE_FIXTURE(Fixture, "a ray that is not a number hits nothing, and says so once") {
+    World world;
+    world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 40, 40 }) });
+    world.spawn({ .position = { 100, 0 }, .shape = rmp::circle(20) });
+    rmp::detail::reset_reports_for_tests();
+    // A NaN end hit the first box at t = 0, with a normal of NaN.
+    CHECK_FALSE(world.raycast({ NAN_F, 0 }, { 100, 0 }));
+    CHECK_FALSE(world.raycast({ 0, 0 }, { NAN_F, NAN_F }));
+    CHECK_FALSE(world.raycast({ -INF_F, 0 }, { 100, 0 }));
+    CHECK_FALSE(world.raycast({ -100, 0 }, { INF_F, 0 }));
+    // Longer than a float can square: from -1e20 to 1e20 is 4e40 squared.
+    CHECK_FALSE(world.raycast({ -1e20f, 0 }, { 1e20f, 0 }));
+    CHECK(rmp::detail::report_count() == 1);
+    // And raycast_all writes nothing into what it was handed.
+    std::array<rmp::RayHit, 2> room{};
+    room[0].distance = 7;
+    CHECK(world.raycast_all({ .from = { NAN_F, 0 }, .to = { 100, 0 } }, room) == 0);
+    CHECK(room[0].distance == 7);
+    // A long ray a float CAN square still hits.
+    CHECK(static_cast<bool>(world.raycast({ -1e18f, 0 }, { 1e18f, 0 })));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a ray at the edge of the floats misses a circle across them") {
+    // The ray starts at x = 3e38 and the circle sits at -3e38: the distance
+    // between them is past FLT_MAX, its square is infinity, and with x not
+    // moving it is multiplied by 0. b * b - 4 * a * c was inf - inf, and
+    // `disc < 0` is false for the NaN: a hit at t = NaN.
+    World world;
+    world.spawn({ .position = { -3e38f, 0 }, .shape = rmp::circle(10) });
+    const rmp::RayHit hit = world.raycast({ 3e38f, -5 }, { 3e38f, 5 });
+    CHECK_FALSE(hit);
+    CHECK(hit.distance == 0);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a box pushed out of a wall at the edge of the floats stays a number") {
+    // The wall's right edge is FLT_MAX; the box overlapping it from inside is
+    // pushed right, out of it, by more than the room left above. A push that
+    // ends at infinity is not made -- from there every sum is a NaN -- and the
+    // pair is still told it touched.
+    World world;
+    auto &wall = world.spawn<Probe>(
+        { .position = { TOP_F - 1e38f, 0 }, .shape = rmp::rect({ 2e38f, 2e38f }) });
+    wall.solid = true;
+    wall.immovable = true;
+    auto &box = world.spawn<Probe>(
+        { .position = { TOP_F - 1e38f, 0 }, .shape = rmp::rect({ 2e38f, 2e38f }) });
+    box.solid = true;
+    REQUIRE(std::isfinite(wall.world_collider().x + wall.world_collider().width));
+    rmp::objects::detail::collide(world);
+    CHECK(finite(box.position));
+    CHECK(box.position.x == TOP_F - 1e38f);
+    CHECK(box.hits == 1);
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a slanted push against a speed near FLT_MAX leaves a number") {
+    // Two small discs touching on a slant. The speed INTO the contact is the
+    // velocity's two halves added -- 3e38 * 0.7 twice -- which is -infinity,
+    // and taking it away made the velocity infinite.
+    World world;
+    auto &still = world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::circle(10) });
+    still.solid = true;
+    still.immovable = true;
+    auto &mover = world.spawn<Probe>({ .position = { 13, 13 },
+                                       .shape = rmp::circle(10),
+                                       .velocity = { -3e38f, -3e38f } });
+    mover.solid = true;
+    rmp::objects::detail::collide(world);
+    CHECK(mover.hits == 1);
+    CHECK(finite(mover.velocity));
+    CHECK(finite(mover.position));
+}
+
+TEST_CASE_FIXTURE(Fixture, "a push across a speed near FLT_MAX leaves a number too") {
+    // collision_prop.cpp's counterexample, once its speed could point any
+    // way: the speed into a contact along (3, 4) is a number, -0.2 FLT_MAX,
+    // and taking it away from (FLT_MAX, -FLT_MAX) kept 1.12 FLT_MAX of x --
+    // infinity. A removal that would leave no number is not made.
+    World world;
+    auto &still = world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::circle(10) });
+    still.solid = true;
+    still.immovable = true;
+    auto &mover = world.spawn<Probe>({ .position = { 6, 8 },
+                                       .shape = rmp::circle(10),
+                                       .velocity = { TOP_F, -TOP_F } });
+    mover.solid = true;
+    rmp::objects::detail::collide(world);
+    CHECK(mover.hits == 1);
+    CHECK(finite(mover.velocity));
+    CHECK(finite(mover.position));
+    CHECK(mover.velocity.x == TOP_F); // kept, as it came
+    // And the ordinary speed across the same contact still loses its part
+    // going in: (10, -20) along (0.6, 0.8) goes in at 10, and keeps (16, -12).
+    mover.position = { 6, 8 };
+    mover.velocity = { 10, -20 };
+    rmp::objects::detail::collide(world);
+    CHECK(mover.velocity.x == doctest::Approx(16));
+    CHECK(mover.velocity.y == doctest::Approx(-12));
+}
+
+TEST_CASE_FIXTURE(Fixture, "an object whose last position was NaN is not swept from it") {
+    // The game's _update left a NaN in a position, and something after it --
+    // a _late_update, the scene's own _update -- wrote over it before the
+    // collision pass. Where the object WAS is then NaN, its travel is NaN, and
+    // a fast solid object meeting it treated IT as the mover -- NaN >= anything
+    // is false -- and rewound it along the segment from NaN: to NaN.
+    // The bullet first: of a pair, the second is the mover when the
+    // comparison of their travels is false, and a NaN makes it false.
+    World world;
+    auto &bullet = world.spawn<Probe>({ .position = { -60, 0 },
+                                        .shape = rmp::rect({ 4, 4 }),
+                                        .velocity = { 7200, 0 } });
+    bullet.solid = true;
+    auto &victim =
+        world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 20 }) });
+    victim.solid = true;
+    victim.position = { NAN_F, NAN_F };
+    rmp::objects::detail::update(world, 1.0f / 60); // remembered, and the bullet crosses
+    victim.position = { 0, 0 }; // ...and the game puts it back
+    rmp::objects::detail::collide(world);
+    CHECK(bullet.hits == 1);
+    CHECK(finite(victim.position));
+    CHECK(finite(bullet.position));
 }

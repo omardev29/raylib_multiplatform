@@ -131,64 +131,8 @@ rmp::input::vector()
 rmp::input::vector(std::string_view, std::string_view, std::string_view, std::string_view)
 
 # include/rmp/object.h: P5
-rmp::Callback::Callback [template]
-rmp::Callback::clear [template]
-rmp::Callback::operator bool [template]
-rmp::Callback::operator() [template]
-rmp::Callback::operator= [template]
-rmp::Callback::set [template]
-rmp::Callback::~Callback [template]
-rmp::Handle::Handle [template]
-rmp::Handle::get [template]
-rmp::Handle::operator bool [template]
-rmp::Handle::operator* [template]
-rmp::Handle::operator-> [template]
-rmp::Object::_collision(Object &)
-rmp::Object::_draw()
-rmp::Object::_end()
-rmp::Object::_ready()
-rmp::Object::_update(float)
-rmp::Object::add [template]
-rmp::Object::alive() const
-rmp::Object::apply_force(Vector2)
-rmp::Object::apply_impulse(Vector2)
-rmp::Object::destroy()
-rmp::Object::get [template]
-rmp::Object::handle [template]
-rmp::Object::has [template]
-rmp::Object::on_click [template]
-rmp::Object::on_collision [template]
-rmp::Object::on_drag [template]
-rmp::Object::remove [template]
-rmp::Object::scene() const
-rmp::Object::world_bounds() const
-rmp::Object::world_collider() const
-rmp::Object::~Object()
-rmp::RayHit::operator bool() const
-rmp::Ref::Ref [template]
-rmp::Ref::operator bool [template]
-rmp::Ref::operator* [template]
-rmp::Ref::operator-> [template]
-rmp::Sprite::finished() const
-rmp::Sprite::frame_index() const
-rmp::Sprite::play(std::string_view, bool)
-rmp::Sprite::playing() const
-rmp::Sprite::set_frame(int)
-rmp::Sprite::stop()
-rmp::circle(float)
-rmp::operator== [template]
-rmp::rect(Vector2)
 
 # include/rmp/random.h: P5
-rmp::random::chance(float)
-rmp::random::current_seed()
-rmp::random::direction()
-rmp::random::in_circle(float)
-rmp::random::index(int)
-rmp::random::range(float, float)
-rmp::random::range(int, int)
-rmp::random::seed(uint64_t)
-rmp::random::value()
 
 # include/rmp/scene.h: P6, after Stage D; rmp::Camera is P3's, after Stage D
 rmp::Camera::detail_settle(float)

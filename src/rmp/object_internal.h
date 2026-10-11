@@ -12,6 +12,7 @@
 // the GPU, and the test drives everything except it.
 // ---------------------------------------------------------------------------
 
+#include <span>
 #include <vector>
 
 #include <raylib.h> // Vector2
@@ -20,6 +21,8 @@ namespace rmp {
 
 class Object;
 class Scene;
+struct RayQuery;
+struct RayHit;
 template <class T> class Ref;
 
 // The one key into Object's private half, and the reason it is a struct rather
@@ -128,6 +131,14 @@ void reset_pointer_for_tests();
 // shows up as "sometimes the bullet goes through" a month later, and no
 // hand-written case would ever find it.
 int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, int max);
+
+// The hits a ray finds, nearest first, walking the grid -- which is what
+// Scene::raycast_all() does -- or testing every object the index holds: the
+// raycast's own differential, as touching_pairs_for_tests is the pass's. The
+// narrow phase is the same code either way, so the two answers are equal to
+// the bit, and a cell the walk skipped is the only way they can differ.
+int raycast_for_tests(const Scene &scene, const RayQuery &query, bool use_grid,
+                      std::span<RayHit> out);
 
 // ---------------------------------------------------------------------------
 // Behaviors. The engine is src/rmp/behavior.cpp; these are the four points the
