@@ -173,11 +173,12 @@ run input_play '^INPUT PASS$'
 # a run that is not the smoke test never reaches. Its own profile name, so it
 # is a program that has to have written one.
 smoke_status=0
-smoke=$(RAY_TEST_MAX_FRAMES=40 RAY_TEST_WINDOW=640x360 \
-        LLVM_PROFILE_FILE="$PWD/$PROF/input_play_smoke-%p.profraw" "$BUILD/input_play" \
-        2>&1 < /dev/null) || smoke_status=$?
-for marker in '^INPUT PASS$' 'RAY_TEST_WINDOW 640x360' 'RAY_TEST_SAVE_OK' 'RAY_TEST_BOOT_OK' \
-              'RAY_TEST_REPORTS=0$'; do
+export LLVM_PROFILE_FILE="$PWD/$PROF/input_play_smoke-%p.profraw"
+smoke=$(RAY_TEST_MAX_FRAMES=40 RAY_TEST_WINDOW=640x360 "$BUILD/input_play" < /dev/null 2>&1) \
+  || smoke_status=$?
+unset LLVM_PROFILE_FILE
+for marker in '^INPUT PASS$' 'RAY_TEST_WINDOW 640x360' 'RAY_TEST_SAVE_OK' \
+              'RAY_TEST_BOOT_OK assets_failed=0 ' 'RAY_TEST_REPORTS=0$'; do
   if [ "$smoke_status" -ne 0 ] || ! printf '%s\n' "$smoke" | grep -q "$marker"; then
     printf '%s\n' "$smoke" | tail -30 | sed 's/^/      /'
     echo "FAIL: input_play under the smoke test did not say $marker (exit $smoke_status)"
