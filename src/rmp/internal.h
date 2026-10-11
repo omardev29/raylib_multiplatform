@@ -60,8 +60,13 @@ WorldViewport world_viewport();
 // The storage behind these is constant-initialised, so a test's static
 // initializer may call them before main() in any order.
 
-// What step_delta() returned this frame: 0 before the first one.
+// What step_delta() returned this frame. Before any runner has called it --
+// rmp::ui in a plain raylib loop of the game's own, which nothing steps --
+// the frame raylib timed, clamped the same way.
 float frame_delta();
+
+// Back to no runner having stepped, for the tests of the line above.
+void forget_steps_for_tests();
 
 // More than 0: every frame advances exactly `seconds` -- still clamped by
 // [app] max_delta -- whatever the machine took. 0 goes back to the real clock.

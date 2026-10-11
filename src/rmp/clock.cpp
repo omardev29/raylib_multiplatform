@@ -35,8 +35,23 @@ namespace {
 struct {
     float fixed = 0; // > 0: every frame is exactly this long
     float last = 0; // what step_delta() returned last
+    bool stepped = false; // a runner has called step_delta(): its number is the frame's
     std::optional<std::uint64_t> seed; // what begin_run() seeds with
 } timing;
+
+// How long the frame took: what raylib timed, or the step a test fixed.
+float raw_delta() { return timing.fixed > 0 ? timing.fixed : GetFrameTime(); }
+
+// A frame of `raw` seconds as the game is handed it. RMP_MAX_DELTA = 0
+// switches the clamp off. A negative reading becomes 0: no platform should
+// produce one, but a monotonic clock going backwards on a suspend/resume is
+// not unheard of -- and a negative step would run the whole world in reverse
+// for one frame.
+float clamped(const float raw) {
+    if (raw < 0) return 0.0f;
+    if (RMP_MAX_DELTA > 0 && raw > RMP_MAX_DELTA) return RMP_MAX_DELTA;
+    return raw;
+}
 
 // Behind a function, so it is built on first use: rmp::Callback is not a
 // literal type, and a namespace-scope one would be initialised in an order
@@ -49,22 +64,20 @@ rmp::Callback<> &observer() {
 } // namespace
 
 float step_delta() {
-    const float raw = timing.fixed > 0 ? timing.fixed : GetFrameTime();
-    // RMP_MAX_DELTA = 0 switches the clamp off. A negative reading becomes 0:
-    // no platform should produce one, but a monotonic clock going backwards on
-    // a suspend/resume is not unheard of -- and a negative step would run the
-    // whole world in reverse for one frame.
-    float step = raw;
-    if (raw < 0) {
-        step = 0;
-    } else if (RMP_MAX_DELTA > 0 && raw > RMP_MAX_DELTA) {
-        step = RMP_MAX_DELTA;
-    }
-    timing.last = step;
-    return step;
+    timing.last = clamped(raw_delta());
+    timing.stepped = true;
+    return timing.last;
 }
 
-float frame_delta() { return timing.last; }
+// With no runner -- rmp::ui in a plain raylib loop of the game's own --
+// nothing calls step_delta(), and what it last returned would be 0 for
+// good: no menu would fade, no notice go away, no tooltip show.
+float frame_delta() { return timing.stepped ? timing.last : clamped(raw_delta()); }
+
+void forget_steps_for_tests() {
+    timing.stepped = false;
+    timing.last = 0;
+}
 
 void set_fixed_delta(float seconds) { timing.fixed = seconds > 0 ? seconds : 0; }
 

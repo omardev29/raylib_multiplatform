@@ -108,6 +108,29 @@ TEST_SUITE("app: the clock") {
         CHECK(rmp::app::detail::step_delta() == 0.0f);
     }
 
+    TEST_CASE_FIXTURE(Fixture,
+                      "with no runner stepping, the frame is still timed -- a plain "
+                      "raylib loop's menus fade and its notices go") {
+        rmp::app::detail::forget_steps_for_tests();
+        // The fixed step stands in for what raylib timed: there is no window.
+        rmp::app::detail::set_fixed_delta(STEP);
+        CHECK(rmp::app::detail::frame_delta() == STEP);
+        CHECK(rmp::ui::detail::frame_time() == STEP);
+        // Clamped as a step is.
+        rmp::app::detail::set_fixed_delta(1.0f);
+        if (RMP_MAX_DELTA > 0) {
+            CHECK(rmp::app::detail::frame_delta() == doctest::Approx(RMP_MAX_DELTA));
+        } else {
+            CHECK(rmp::app::detail::frame_delta() == 1.0f);
+        }
+        // Once a runner steps, its number is the frame's, whatever the clock
+        // says after it.
+        rmp::app::detail::set_fixed_delta(STEP);
+        (void)rmp::app::detail::step_delta();
+        rmp::app::detail::set_fixed_delta(1.0f / 240);
+        CHECK(rmp::app::detail::frame_delta() == STEP);
+    }
+
     TEST_CASE_FIXTURE(Fixture, "the test seed is kept until it is taken back") {
         CHECK_FALSE(rmp::app::detail::test_seed().has_value());
         rmp::app::detail::set_test_seed(std::uint64_t{ 1 });
