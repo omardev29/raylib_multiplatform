@@ -2539,6 +2539,9 @@ class NewTest(unittest.TestCase):
         # Sanitizers are the framework's always and a game's when it asks.
         self.assertEqual(base["dev"]["sanitize"], ["address", "undefined"])
         self.assertEqual(mine["dev"]["sanitize"], [])
+        # Omar, 2026-10-10: a new game letterboxes, like the framework.
+        self.assertEqual(base["window"]["stretch"], "letterbox")
+        self.assertEqual(mine["window"]["stretch"], "letterbox")
         for table in ("project", "window", "android", "ios", "resources", "dev"):
             mine[table] = dict(mine[table])
         mine["android"]["admob"] = dict(mine["android"]["admob"], enabled=True)
