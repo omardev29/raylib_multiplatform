@@ -1486,8 +1486,17 @@ def resolve_version() -> tuple[str, int]:
         # `+` and not `*` on the suffix: semver has no empty pre-release, and
         # `v1.2.3-` would otherwise pass and publish a release literally named
         # "1.2.3-". Found by tests/configure_test.py.
-        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.\-+]+)?", ref_name)
+        # [0-9] and not \d, which is any Unicode digit: v١.٢.٣ was the release
+        # '١.٢.٣' with the code of v1.2.3.
+        m = re.fullmatch(r"v([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+][0-9A-Za-z.\-+]+)?", ref_name)
         if m:
+            # Semantic versioning has no leading zero, and with one v01.2.3 and
+            # v1.2.3 are two release names with one versionCode.
+            if any(len(g) > 1 and g.startswith("0") for g in m.groups()):
+                plain = ".".join(str(int(g)) for g in m.groups())
+                raise ConfigError(
+                    f"tag {ref_name!r}: a number with a leading zero, which would share "
+                    f"v{plain}'s Android versionCode. Tag v{plain} instead.")
             major, minor, patch = (int(g) for g in m.groups())
             if minor > 999 or patch > 999:
                 raise ConfigError(
@@ -1504,11 +1513,18 @@ def resolve_version() -> tuple[str, int]:
                     f"tag {ref_name!r}: major must stay at or below {PLAY_MAX_MAJOR}. "
                     f"The Android versionCode is major*1_000_000 + minor*1_000 + patch, and "
                     f"Google Play refuses anything above {PLAY_MAX_VERSION_CODE:,}.")
-            return ref_name[1:], major * 1_000_000 + minor * 1_000 + patch
+            code = major * 1_000_000 + minor * 1_000 + patch
+            # Android's versionCode is a positive integer.
+            if code == 0:
+                raise ConfigError(
+                    f"tag {ref_name!r} would be Android versionCode 0, and Android takes a "
+                    "positive one. The first release is v0.0.1.")
+            return ref_name[1:], code
         # ci.yml releases on 'v*', so a v-tag that does not parse is on the
         # release path. Falling back would publish a release named 0.0.0-dev.
         raise ConfigError(
-            f"tag {ref_name!r} is not vMAJOR.MINOR.PATCH (optionally -rc1 / +build).\n"
+            f"tag {ref_name!r} is not vMAJOR.MINOR.PATCH in ASCII digits (optionally -rc1 / "
+            "+build).\n"
             "Releases take their version from the tag and there is no fallback that "
             "would not be a lie.\nDelete the tag and re-tag: git tag -d "
             f"{ref_name} && git push origin :refs/tags/{ref_name}")

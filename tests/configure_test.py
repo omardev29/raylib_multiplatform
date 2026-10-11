@@ -283,6 +283,38 @@ class ConfigureVersionTest(unittest.TestCase):
         with quiet():
             self.assertEqual(self.at_tag("1.2.3"), ("0.0.0-dev", 1))
 
+    def test_digits_are_ascii(self):
+        """`\\d` is any Unicode digit: v١.٢.٣ (Arabic-Indic) was version
+        '١.٢.٣' with code 1002003 -- a release name no store shows, and the
+        code of v1.2.3 (defect 2 of the phase 16 design)."""
+        for tag in ("v١.٢.٣", "v1.2.٣", "v１.2.3"):
+            with self.subTest(tag=tag):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.at_tag(tag)
+                self.assertIn("ASCII", str(caught.exception))
+
+    def test_a_leading_zero_is_refused_and_says_whose_code_it_would_take(self):
+        """v01.2.3 and v1.2.3 were two release names with one versionCode,
+        1002003 -- the collision the anchored pattern exists to prevent.
+        Semantic versioning has no leading zero either."""
+        for tag, twin in (("v01.2.3", "v1.2.3"), ("v1.02.3", "v1.2.3"), ("v1.2.03", "v1.2.3"),
+                          ("v00.0.1", "v0.0.1")):
+            with self.subTest(tag=tag):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.at_tag(tag)
+                self.assertIn("leading zero", str(caught.exception))
+                self.assertIn(twin, str(caught.exception))
+        self.assertEqual(self.at_tag("v0.10.100"), ("0.10.100", 10_100))
+
+    def test_v0_0_0_is_refused_because_its_code_is_0(self):
+        """Android's versionCode is a positive integer, and 0.0.0 packs to 0
+        -- a pre-release of it as well."""
+        for tag in ("v0.0.0", "v0.0.0-rc1", "v0.0.0+build"):
+            with self.subTest(tag=tag):
+                with self.assertRaises(cfgmod.ConfigError) as caught:
+                    self.at_tag(tag)
+                self.assertIn("versionCode 0", str(caught.exception))
+
 
 class ConfigureTargetsTest(unittest.TestCase):
     """expand_targets(): groups overlap on purpose, and must not double up."""
