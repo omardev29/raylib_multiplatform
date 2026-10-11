@@ -449,13 +449,13 @@ std::string plain_name(std::string text) {
 // absolute, Android's empty one, a drive -- and on Windows, where the system
 // reads a backslash as a separator, with backslashes.
 const std::vector<std::string> &roots() {
-    static const std::vector<std::string> spelled = {
+    static const std::vector<std::string> SPELLED = {
         "resources/", "./res/", "/abs/game/resources/", "", "C:/g/r/",
 #if defined(_WIN32)
         R"(C:\g\r\)",
 #endif
     };
-    return spelled;
+    return SPELLED;
 }
 
 // The log off for the length of a test case: a property asks for thousands of
