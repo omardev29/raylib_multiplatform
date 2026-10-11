@@ -84,10 +84,20 @@ struct Guard {
     std::array<struct sigaction, FATAL_SIGNALS.size()> previous{};
     std::array<bool, FATAL_SIGNALS.size()> installed{};
     bool stack_installed = false; // the alternate stack below is the thread's
-    alignas(16) std::array<std::byte, ALTERNATE_STACK_SIZE> stack{};
 };
 
 Guard guard;
+
+// The alternate stack, apart from Guard: Guard starts with fd = -1, so it is
+// initialised data and every byte of it is written into the binary -- 64 KiB
+// of zeros in every DRM/KMS build, which put linux-arm64-glibc-drm 10.19 % over
+// its size budget. All zeros and on its own, it is .bss: it costs the file
+// nothing, and the loader hands it out zeroed.
+struct AlternateStack {
+    alignas(16) std::array<std::byte, ALTERNATE_STACK_SIZE> bytes{};
+};
+
+AlternateStack alternate;
 
 // Async-signal-safe throughout: it runs inside a signal handler.
 void put_back() {
@@ -183,8 +193,8 @@ bool guard_terminal(int fd) {
     if (!guard.stack_installed && sigaltstack(nullptr, &current) == 0 &&
         (current.ss_flags & SS_DISABLE) != 0) {
         stack_t ours{};
-        ours.ss_sp = guard.stack.data();
-        ours.ss_size = guard.stack.size();
+        ours.ss_sp = alternate.bytes.data();
+        ours.ss_size = alternate.bytes.size();
         guard.stack_installed = sigaltstack(&ours, nullptr) == 0;
     }
 #if defined(RMP_SANITIZE) && __has_include(<sanitizer/common_interface_defs.h>)
