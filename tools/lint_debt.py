@@ -23,7 +23,8 @@ A header reached from several translation units is counted once: every
 warning is keyed by the file it is in (normalised, so tests/../src/rmp/x.h is
 src/rmp/x.h), its line, column and check.
 
-Every file runs in its own clang-tidy process, its output kept whole, with
+Every file runs in its own clang-tidy process, its output kept whole, as
+many at once as there are processors, the costliest first (schedule()), with
 --experimental-custom-checks: without that flag the CustomChecks in
 .clang-tidy are not registered, and clang-tidy does not say so. A process that
 exits non-zero could not compile its file, and that fails whatever it owes.
@@ -38,6 +39,7 @@ or a file clang-tidy could not compile.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -146,6 +148,35 @@ def write_debt(debt: dict[tuple[str, str], int]) -> None:
     DEBT.write_text(HEADER + "\n" + body)
 
 
+def schedule(files: list[str], database: Path) -> list[str]:
+    """The order the files are handed to clang-tidy: the costliest first, so
+    the one that takes longest is not the last to start and the run does not
+    end on one processor while the others wait.
+
+    The cost is how many times clang-tidy reads the file: once per command the
+    compile database has for it -- tests/e2e/driver.cpp was in every e2e
+    target, sixteen of them, and src/rmp/app.cpp is in every game -- then its
+    size. Measured over the 104 files of 2026-10-11 on four processors:
+    519 s in path order, 429 s in this one, 428 s with every file's real time
+    known beforehand. Only the order changes: the same files, the same
+    output, the same verdict."""
+    try:
+        entries = json.loads(database.read_text())
+    except (OSError, ValueError):
+        return list(files)
+    commands: dict[str, int] = {}
+    for entry in entries:
+        name = str(Path(entry["directory"], entry["file"]).resolve())
+        commands[name] = commands.get(name, 0) + 1
+
+    def cost(file: str) -> tuple[int, int, str]:
+        path = Path(REPO, file).resolve()
+        size = path.stat().st_size if path.is_file() else 0
+        return (-commands.get(str(path), 0), -size, file)
+
+    return sorted(files, key=cost)
+
+
 def tidy(file: str) -> tuple[str, int, str]:
     got = subprocess.run(["clang-tidy", "-p", "build/lint", "--quiet",
                           "--experimental-custom-checks", file],
@@ -164,13 +195,14 @@ def main(argv: list[str]) -> int:
     # of memory.
     level = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "")
     jobs = int(level) if level.isdigit() and int(level) > 0 else (os.cpu_count() or 2)
-    output = []
-    broken = []
+    results: dict[str, tuple[int, str]] = {}
+    order = schedule(files, REPO / "build/lint/compile_commands.json")
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        for file, code, text in pool.map(tidy, files):
-            output.append(text)
-            if code != 0:
-                broken.append((file, text))
+        for file, code, text in pool.map(tidy, order):
+            results[file] = (code, text)
+    # Read back in the order asked for, whatever order they ran in.
+    output = [results[file][1] for file in files]
+    broken = [(file, results[file][1]) for file in files if results[file][0] != 0]
     for file, text in broken:
         sys.stdout.write(text)
         print(f"  FAIL  clang-tidy could not read {file} (exit status above)")

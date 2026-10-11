@@ -9307,6 +9307,37 @@ class LintDebtTest(unittest.TestCase):
                 _, problems = self.mod.read_debt(text)
                 self.assertEqual(len(problems), 1, problems)
 
+    def test_the_costliest_file_starts_first_and_none_is_lost(self):
+        """The order clang-tidy is handed the files: by the commands the
+        compile database has for each, then by size. Only the order: every
+        file once, and the path order back where nothing says otherwise."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "compile_commands.json"
+            def entry(f):
+                return {"directory": str(REPO), "file": f, "command": "c++ -c " + f}
+            db.write_text(json.dumps([entry("src/rmp/app.cpp")] * 3 +
+                                     [entry("tests/e2e/driver.cpp")] * 16 +
+                                     [entry("src/rmp/ui/context.cpp"), entry("tools/md5.c"),
+                                      entry("src/rmp/clock.cpp")]))
+            files = ["src/rmp/app.cpp", "src/rmp/clock.cpp", "src/rmp/ui/context.cpp",
+                     "tests/e2e/driver.cpp", "tools/md5.c"]
+            got = self.mod.schedule(files, db)
+            self.assertEqual(sorted(got), sorted(files))
+            self.assertEqual(got[:2], ["tests/e2e/driver.cpp", "src/rmp/app.cpp"])
+            # One command each: the biggest file first.
+            rest = got[2:]
+            sizes = [(REPO / f).stat().st_size for f in rest]
+            self.assertEqual(sizes, sorted(sizes, reverse=True))
+            # No database to read: the files as they were given.
+            self.assertEqual(self.mod.schedule(files, Path(tmp) / "none.json"), files)
+
+    def test_the_verdict_is_read_in_the_order_asked_for(self):
+        """Whatever order the processes ran in, what is printed and judged is
+        read back in the order lint.sh gave."""
+        text = (REPO / "tools" / "lint_debt.py").read_text()
+        self.assertIn("pool.map(tidy, order)", text)
+        self.assertIn("output = [results[file][1] for file in files]", text)
+
     def test_clang_tidy_talking_about_its_configuration_is_a_failure(self):
         """A CustomChecks query that does not parse is this one line, exit 0,
         and the check never runs."""
