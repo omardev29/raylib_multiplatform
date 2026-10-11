@@ -4,6 +4,13 @@
 //   cmake --preset debug -DBUILD_UI_TESTS=ON
 //   cmake --build --preset debug --target ui_layout_test
 //   ./build/debug/ui_layout_test
+//   ./build/debug/ui_layout_test -tc="*dropdown*"
+//
+// doctest, in a program of its own: the cases run in the order they are
+// written, each in the UI the one before it left, and the last one -- Clay's
+// element ceiling -- leaves it unable to lay anything out again. main() at the
+// end says so, and prints PASS, which tools/coverage_check.sh and
+// tools/sanitize_check.sh read.
 //
 // Clay's layout is pure computation, so with the text measurement and the
 // pointer swapped for stubs and a viewport injected, the whole thing runs with
@@ -15,6 +22,10 @@
 // window changes, do the buttons avoid each other, and does the scale behave
 // at the extremes.
 // ===========================================================================
+
+// doctest's knob, by doctest's name: its main() is written below, not by it.
+#define DOCTEST_CONFIG_IMPLEMENT // NOLINT(readability-identifier-naming)
+#include <doctest/doctest.h>
 
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
@@ -28,6 +39,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -48,20 +60,26 @@ static_assert(is_guard<rmp::ui::detail::GridCloser>());
 static_assert(is_guard<rmp::ui::detail::CellCloser>());
 static_assert(is_guard<rmp::ui::detail::ScrollCloser>());
 
-struct {
-    int failures = 0;
-} results;
-
-void check(bool ok, const char *what) {
-    std::printf("%s  %s\n", ok ? "ok  " : "FAIL", what);
-    if (!ok) ++results.failures;
+// A check, as doctest counts and reports it -- at the line that asked, which is
+// what the reader of a failure wants, not this one.
+void check(bool ok, std::string_view what,
+           const std::source_location where = std::source_location::current()) {
+    if (ok) {
+        CHECK(ok);
+        return;
+    }
+    ADD_FAIL_CHECK_AT(where.file_name(), static_cast<int>(where.line()), what);
 }
 
-void check_near(float got, float want, float tolerance, const char *what) {
-    const bool ok = std::fabs(got - want) <= tolerance;
-    std::printf("%s  %s (got %.2f, want %.2f +/- %.2f)\n", ok ? "ok  " : "FAIL", what,
-                got, want, tolerance);
-    if (!ok) ++results.failures;
+void check_near(float got, float want, float tolerance, std::string_view what,
+                const std::source_location where = std::source_location::current()) {
+    if (std::fabs(got - want) <= tolerance) {
+        CHECK(std::fabs(got - want) <= tolerance);
+        return;
+    }
+    ADD_FAIL_CHECK_AT(where.file_name(), static_cast<int>(where.line()),
+                      what << " (got " << got << ", want " << want << " +/- " << tolerance
+                           << ")");
 }
 
 // A stub that needs no font: every glyph is half the font Size wide, and a line
@@ -95,8 +113,7 @@ struct Box {
 Box box_of(const char *label) {
     Clay_BoundingBox b{};
     if (!rmp::ui::detail::bounds_of(label, 0, 0, &b)) {
-        std::printf("FAIL  '%s' produced no element at all\n", label);
-        ++results.failures;
+        FAIL_CHECK("'" << label << "' produced no element at all");
         return Box{ 0, 0, 0, 0 };
     }
     return Box{ b.x, b.y, b.width, b.height };
@@ -120,7 +137,6 @@ void expect_centred(float view_w, float view_h, const char *what) {
 }
 
 void run_at(float w, float h, const char *what) {
-    std::printf("\n--- %s (%.0fx%.0f) ---\n", what, w, h);
     rmp::ui::detail::set_test_viewport(w, h);
 
     // Twice: the first frame has no previous geometry to hit-test against, so
@@ -185,7 +201,6 @@ bool inside(Box outer, Box inner) {
 }
 
 void run_containers(float w, float h) {
-    std::printf("\n--- containers (%.0fx%.0f) ---\n", w, h);
     rmp::ui::detail::set_test_viewport(w, h);
     draw_dialog();
     draw_dialog();
@@ -255,7 +270,6 @@ struct {
 void nav_scripted(rmp::ui::detail::NavState &out) { out = fake_nav.state; }
 
 void run_interaction() {
-    std::printf("\n--- interaction ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -365,7 +379,6 @@ void run_interaction() {
 // ---------------------------------------------------------------------------
 
 void run_dropdown() {
-    std::printf("\n--- dropdown ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -432,7 +445,6 @@ void run_dropdown() {
 // ---------------------------------------------------------------------------
 
 void run_grid() {
-    std::printf("\n--- grid ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     auto frame = [&] {
@@ -472,7 +484,6 @@ void run_grid() {
 // ---------------------------------------------------------------------------
 
 void run_sizes() {
-    std::printf("\n--- sizes and variants ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     rmp::ui::begin();
@@ -520,8 +531,6 @@ void run_sizes() {
 }
 
 void run_themes() {
-    std::printf("\n--- themes ---\n");
-
     const rmp::ui::Theme dark = rmp::ui::theme_dark();
     const rmp::ui::Theme light = rmp::ui::theme_light();
 
@@ -551,8 +560,6 @@ void run_themes() {
 }
 
 void run_breakpoints() {
-    std::printf("\n--- breakpoints ---\n");
-
     struct CaseRow {
         float w, h;
         rmp::ui::Breakpoint want;
@@ -600,7 +607,6 @@ void run_breakpoints() {
 // allocating id function, which counted the label a second time and handed back
 // an occurrence no widget would ever own.
 void run_focus_by_name() {
-    std::printf("\n--- focus by name ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     // A frame first, so "Play"/"Options"/"Quit" are labels the occurrence table
@@ -636,7 +642,6 @@ void run_focus_by_name() {
 // the remainder was thrown away. The value never moved, at any frame rate above
 // about 42 fps.
 void run_slider_nav() {
-    std::printf("\n--- slider: keyboard and gamepad ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     float quality = 2.0f;
@@ -688,7 +693,6 @@ void run_slider_nav() {
 // pointer back while the first was still being dragged — and nothing ever
 // cleared it if the dragging slider went away.
 void run_two_sliders() {
-    std::printf("\n--- two sliders, one pointer ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -752,7 +756,6 @@ void run_two_sliders() {
 // _draw. It used to be cleared as the last act of the frame, so both readers got
 // false and the player walked across the level while typing a save name.
 void run_keyboard_capture() {
-    std::printf("\n--- wants_keyboard() ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     std::string name = "Omar";
@@ -778,7 +781,6 @@ void run_keyboard_capture() {
 // used to become a different element every frame — hover, focus and its
 // remembered box detaching all at once.
 void run_arena_overflow() {
-    std::printf("\n--- the text arena, full ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     rmp::ui::begin();
@@ -800,7 +802,6 @@ void run_arena_overflow() {
 // in a list became one element: hovering one lit both, clicking either fired the
 // wrong one, and nothing was logged.
 void run_label_overflow() {
-    std::printf("\n--- more labels than the table holds ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::detail::reset_reports_for_tests();
 
@@ -822,7 +823,6 @@ void run_label_overflow() {
 // close it with, so its close consumed the grid ABOVE it and everything after
 // was off by one.
 void run_nested_grids() {
-    std::printf("\n--- grids nested past the limit ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::detail::reset_clay_errors_for_tests();
 
@@ -880,7 +880,6 @@ void run_nested_grids() {
 // Clay_SetMaxElementCount(), a function the user cannot call and a name they
 // were promised never to see.
 void run_element_ceiling() {
-    std::printf("\n--- the element ceiling ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::detail::reset_reports_for_tests();
     rmp::ui::detail::reset_clay_errors_for_tests();
@@ -902,7 +901,6 @@ void run_element_ceiling() {
 // indices, which is what stops a lower scene showing a button conditionally
 // from renumbering the scene above it.
 void run_two_passes() {
-    std::printf("\n--- two passes in one frame ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -971,7 +969,6 @@ void run_two_passes() {
 // image() used to hand Clay the address of its own parameter, which binds a
 // temporary happily. Clay keeps that pointer until end() draws.
 void run_image_lifetime() {
-    std::printf("\n--- image() and the caller's texture ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     const void *given = nullptr;
@@ -1012,7 +1009,6 @@ void run_image_lifetime() {
 // ---------------------------------------------------------------------------
 
 void run_two_pass_clicks() {
-    std::printf("\n--- two passes: hover and click ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1093,7 +1089,6 @@ void run_two_pass_clicks() {
 // while the pointer sits over one of its buttons leaves the game's mouse dead
 // for good.
 void run_idle_frame() {
-    std::printf("\n--- a frame with no UI at all ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1128,7 +1123,6 @@ void run_idle_frame() {
 // at the origin is inside all of them at once — and on a real machine a
 // minimised window reports the same 0x0.
 void run_zero_area() {
-    std::printf("\n--- an element with no area ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1161,7 +1155,6 @@ void run_zero_area() {
 // and a box test on its own would let a click go straight through the list into
 // the control underneath.
 void run_dropdown_occlusion() {
-    std::printf("\n--- an open list covers what is under it ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1218,7 +1211,6 @@ void run_dropdown_occlusion() {
 // the element that is open, and the area was opened after the call), so it
 // was always zero: the list clipped, and never moved.
 void run_scroll_moves() {
-    std::printf("\n--- dragging a scroll area moves what is in it ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1271,7 +1263,6 @@ void run_scroll_moves() {
 // otherwise. It did not, and the focus ring went on below the area's edge
 // where nobody could see it (ui/05_inventory's e2e script found it).
 void run_scroll_follows_focus() {
-    std::printf("\n--- a scroll area keeps the focus in view ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::focus("");
@@ -1356,7 +1347,6 @@ void run_scroll_follows_focus() {
 // show, or what is disabled and takes no focus, is not. ui/04_settings had its
 // Apply button below the bottom of its own window.
 void run_out_of_reach() {
-    std::printf("\n--- a control nobody can reach ---\n");
     rmp::ui::detail::set_test_viewport(800, 450);
     rmp::ui::detail::set_scale_override(1.0f);
     auto names = [] {
@@ -1398,7 +1388,6 @@ void run_out_of_reach() {
 // not on screen, so it must not be clickable either — the box it remembers is
 // outside the container, which is precisely where the pointer must not find it.
 void run_scroll_clip() {
-    std::printf("\n--- a clipped list is not clickable outside its box ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1454,7 +1443,6 @@ void run_scroll_clip() {
 // ---------------------------------------------------------------------------
 
 void run_default_focus() {
-    std::printf("\n--- the focus nobody asked for ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
     fake_pointer.position = Clay_Vector2{ -1, -1 };
@@ -1516,7 +1504,6 @@ void run_default_focus() {
 }
 
 void run_default_focus_two_passes() {
-    std::printf("\n--- the focus when two scenes draw ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     bool hud_reachable = false;
@@ -1554,7 +1541,6 @@ void run_default_focus_two_passes() {
 }
 
 void run_activate() {
-    std::printf("\n--- pressing a button with the keyboard ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::focus("");
 
@@ -1606,7 +1592,6 @@ void run_activate() {
 // and nav_from_pad(), the two functions nav_from_raylib() reads real devices
 // through and tests/e2e/driver.cpp the scripted ones. Each binding, each way.
 void run_nav_mapping() {
-    std::printf("\n--- what the keys and the pad mean ---\n");
     struct {
         std::array<bool, 512> down{};
         std::array<bool, 512> pressed{};
@@ -1718,7 +1703,6 @@ void run_nav_mapping() {
 // checkbox, dropdown and text_input reacted to any release over them, so a
 // drag that started on the game and ended on the settings panel ticked a box.
 void run_press_starts_on_control() {
-    std::printf("\n--- a click starts on the control it ends on ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -1807,7 +1791,6 @@ void run_press_starts_on_control() {
 // frame.
 template <class Frame> void press_nav(Frame &&frame, rmp::ui::detail::NavState state);
 void run_walk_between_passes() {
-    std::printf("\n--- the arrows walk between two scenes ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     auto frame = [] {
         rmp::ui::detail::begin_frame();
@@ -1858,7 +1841,6 @@ constexpr rmp::ui::detail::NavState NAV_ESCAPE{ .cancel = true };
 // true -- which silences every key and gamepad action the game has. A gamepad
 // player who walked onto "Name" in a settings screen was stuck there.
 void run_text_field_focus() {
-    std::printf("\n--- a text field gives the focus back ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
     fake_pointer.position = Clay_Vector2{ -1, -1 };
@@ -1966,7 +1948,6 @@ void run_text_field_focus() {
 // the way the player does. The helpers are the whole of the editing, kept apart
 // so that this can hold them to the one promise: a character is never cut.
 void run_text_utf8() {
-    std::printf("\n--- the text field: UTF-8 and max_length ---\n");
     using rmp::ui::detail::utf8_append;
     using rmp::ui::detail::utf8_length;
     using rmp::ui::detail::utf8_pop;
@@ -2026,7 +2007,6 @@ void run_text_utf8() {
 }
 
 void run_dropdown_nav() {
-    std::printf("\n--- a dropdown from the keyboard and the gamepad ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     fake_nav.state = rmp::ui::detail::NavState{};
 
@@ -2094,7 +2074,6 @@ void run_dropdown_nav() {
 // came last the frame before, the id matched nothing and the screen's own
 // default took over: asked for "Second", got "First".
 void run_focus_between_frames() {
-    std::printf("\n--- focus() between frames ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     fake_nav.state = rmp::ui::detail::NavState{};
 
@@ -2169,7 +2148,6 @@ void run_focus_between_frames() {
 // grid({ .columns = 0 }) is "as many as fit". When not even one cell fitted it
 // fell back to four, so the narrower the grid, the MORE columns it got.
 void run_grid_fit() {
-    std::printf("\n--- a grid that fits its columns ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     // A cell is min_cell plus a gap: 96 + 12 = 108 design units by default.
@@ -2229,7 +2207,6 @@ void run_grid_fit() {
 // under it. Plain text with nothing behind it -- a HUD's score -- is the one
 // thing that does NOT claim it, on purpose.
 void run_pointer_over_interface() {
-    std::printf("\n--- wants_pointer() over everything the interface paints ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -2287,7 +2264,6 @@ void run_pointer_over_interface() {
 // found it, clicking its list. It answers for where the pointer is NOW,
 // against what the last frame drew, until this frame's UI has run.
 void run_pointer_lands_on_interface() {
-    std::printf("\n--- a pointer that lands on the interface is the interface's ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
 
@@ -2375,7 +2351,6 @@ void run_pointer_lands_on_interface() {
 // examples that assumed otherwise (ui/05_inventory, ui/07_responsive) came out
 // a third of the width they were drawn for. FrameOptions::grow is that frame.
 void run_frame_grow() {
-    std::printf("\n--- a frame that fills the window ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     auto filled = [&](rmp::ui::Align placement) {
@@ -2453,7 +2428,6 @@ bool baked(int pixel_size) {
 }
 
 void run_font_sizes() {
-    std::printf("\n--- a [ui] font, sharp at every size ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
     rmp::ui::detail::set_font_provider(fake_bake, "fake-ui.ttf");
@@ -2522,7 +2496,6 @@ void run_font_sizes() {
 // pointed into the arena shutdown() had just freed, and the first thing a
 // restart does is write the element ceiling into that context.
 void run_restart_after_shutdown() {
-    std::printf("\n--- begin() after shutdown() ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::shutdown();
     rmp::ui::begin();
@@ -2538,7 +2511,6 @@ void run_restart_after_shutdown() {
 // only at the top, came out rounded everywhere or nowhere. It is reachable from
 // Clay directly (examples/ui/03_clay_direct), so it is the renderer's to honour.
 void run_corner_radii() {
-    std::printf("\n--- each corner its own radius ---\n");
     const Clay_BoundingBox box{ 10, 20, 100, 60 };
     const rmp::ui::detail::Corners c =
         rmp::ui::detail::corners_of(Clay_CornerRadius{ 0, 10, 20, 30 }, box);
@@ -2671,7 +2643,6 @@ void describe_everything(int frame) {
 }
 
 void run_misuse() {
-    std::printf("\n--- the interface in the wrong place: said once ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     {
@@ -2752,7 +2723,6 @@ void run_misuse() {
 // is drawn, and under the camera nothing of the interface can be: one line for
 // the whole phase, naming where it goes instead.
 void run_misuse_in_phases() {
-    std::printf("\n--- the interface in _update() and under the camera ---\n");
     using rmp::ui::detail::Phase;
     using rmp::ui::detail::set_phase;
     rmp::ui::detail::set_test_viewport(1280, 720);
@@ -2801,7 +2771,6 @@ void run_misuse_in_phases() {
 // a frame of its own, so a screen and the overlay over it sampled the pointer
 // twice -- and the second pass, the one in front, never saw a press start.
 void run_runner_frame() {
-    std::printf("\n--- RMP_ENTRY_POINT: one UI frame around the frame hook ---\n");
     rmp::ui::detail::set_pointer_provider(pointer_scripted);
     rmp::ui::detail::set_test_viewport(1280, 720);
     fake_pointer.position = Clay_Vector2{ -1, -1 };
@@ -2863,7 +2832,6 @@ void run_runner_frame() {
 // rmp::app::Stretch::LETTERBOX: the world keeps its shape, with bars around
 // it, and a frame lays out over the world -- not over the bars.
 void run_letterbox() {
-    std::printf("\n--- letterbox: the interface over the world, not the bars ---\n");
     const auto hud = [] {
         for (int i = 0; i < 2; ++i) {
             rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 0 });
@@ -2931,7 +2899,6 @@ void run_letterbox() {
 // UI-22: raylib has one scissor. A scroll area inside another took its place,
 // and at its end switched clipping off: the rest of the outer one spilled out.
 void run_scissor_stack() {
-    std::printf("\n--- scroll areas inside each other clip to both ---\n");
     using rmp::ui::detail::pop_scissor;
     using rmp::ui::detail::push_scissor;
     auto same = [](Clay_BoundingBox a, Clay_BoundingBox b) {
@@ -2969,7 +2936,6 @@ void run_scissor_stack() {
 // n, so a gap in a column made the column n wide, and one in a row made the
 // row n tall.
 void run_spacer_direction() {
-    std::printf("\n--- spacer(n) is a gap along its container ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     for (int i = 0; i < 2; ++i) {
         rmp::ui::begin();
@@ -3002,7 +2968,6 @@ void run_spacer_direction() {
 // starts again on the next begin() is the one the first begin() started.
 
 void run_shutdown_forgets() {
-    std::printf("\n--- shutdown() forgets the frame, the font and the transitions ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
 
     // Inside a frame the app marked: the next begin() would have found it
@@ -3069,7 +3034,6 @@ void typed_scripted(rmp::ui::detail::Typed &out) {
 }
 
 void run_typed() {
-    std::printf("\n--- the text field types what the provider says ---\n");
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::detail::set_text_provider(typed_scripted);
     fake_nav.state = rmp::ui::detail::NavState{};
@@ -3116,79 +3080,72 @@ void run_typed() {
           "raylib's typing, with no window, is nothing at all");
 }
 
-} // namespace
-
-int main() {
-    // Every position below is measured against the whole viewport: the world
-    // at 1:1, whatever [window] stretch says in the .toml.
-    rmp::app::set_stretch(rmp::app::Stretch::NONE);
-    rmp::ui::detail::set_measure_provider(measure_stub);
-    rmp::ui::detail::set_pointer_provider(pointer_stub);
-    // Nothing held down and nothing pressed, until a test says otherwise.
-    rmp::ui::detail::set_nav_provider(nav_scripted);
-
-    // The design resolution these are all measured against is RMP_WINDOW_*,
-    // straight from [window] in raylib_multiplatform.toml.
-    std::printf("design resolution: %dx%d\n", RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT);
-
+// The cases, in the order they run: each starts from the UI the one before it
+// left, as they always have.
+TEST_CASE("the menu, centred: small window (800x600)") {
     run_at(800, 600, "small window");
-    run_at(1280, 720, "720p");
-    run_at(1920, 1080, "1080p");
-    run_at(2560, 1440, "1440p");
-
-    run_containers(1280, 720);
-    run_containers(800, 600);
-    run_frame_grow();
-    run_grid();
-    run_grid_fit();
-    run_interaction();
-    run_dropdown();
-    run_focus_by_name();
-    run_slider_nav();
-    run_two_sliders();
-    run_keyboard_capture();
-    run_arena_overflow();
-    run_label_overflow();
-    run_nested_grids();
-    run_two_passes();
-    run_two_pass_clicks();
-    run_default_focus();
-    run_default_focus_two_passes();
-    run_walk_between_passes();
-    run_activate();
-    run_nav_mapping();
-    run_idle_frame();
-    run_zero_area();
-    run_dropdown_occlusion();
-    run_press_starts_on_control();
-    run_text_field_focus();
-    run_dropdown_nav();
-    run_text_utf8();
-    run_focus_between_frames();
+}
+TEST_CASE("the menu, centred: 720p (1280x720)") { run_at(1280, 720, "720p"); }
+TEST_CASE("the menu, centred: 1080p (1920x1080)") { run_at(1920, 1080, "1080p"); }
+TEST_CASE("the menu, centred: 1440p (2560x1440)") { run_at(2560, 1440, "1440p"); }
+TEST_CASE("containers (1280x720)") { run_containers(1280, 720); }
+TEST_CASE("containers (800x600)") { run_containers(800, 600); }
+TEST_CASE("a frame that fills the window") { run_frame_grow(); }
+TEST_CASE("grid") { run_grid(); }
+TEST_CASE("a grid that fits its columns") { run_grid_fit(); }
+TEST_CASE("interaction") { run_interaction(); }
+TEST_CASE("dropdown") { run_dropdown(); }
+TEST_CASE("focus by name") { run_focus_by_name(); }
+TEST_CASE("slider: keyboard and gamepad") { run_slider_nav(); }
+TEST_CASE("two sliders, one pointer") { run_two_sliders(); }
+TEST_CASE("wants_keyboard()") { run_keyboard_capture(); }
+TEST_CASE("the text arena, full") { run_arena_overflow(); }
+TEST_CASE("more labels than the table holds") { run_label_overflow(); }
+TEST_CASE("grids nested past the limit") { run_nested_grids(); }
+TEST_CASE("two passes in one frame") { run_two_passes(); }
+TEST_CASE("two passes: hover and click") { run_two_pass_clicks(); }
+TEST_CASE("the focus nobody asked for") { run_default_focus(); }
+TEST_CASE("the focus when two scenes draw") { run_default_focus_two_passes(); }
+TEST_CASE("the arrows walk between two scenes") { run_walk_between_passes(); }
+TEST_CASE("pressing a button with the keyboard") { run_activate(); }
+TEST_CASE("what the keys and the pad mean") { run_nav_mapping(); }
+TEST_CASE("a frame with no UI at all") { run_idle_frame(); }
+TEST_CASE("an element with no area") { run_zero_area(); }
+TEST_CASE("an open list covers what is under it") { run_dropdown_occlusion(); }
+TEST_CASE("a click starts on the control it ends on") { run_press_starts_on_control(); }
+TEST_CASE("a text field gives the focus back") { run_text_field_focus(); }
+TEST_CASE("a dropdown from the keyboard and the gamepad") { run_dropdown_nav(); }
+TEST_CASE("the text field: UTF-8 and max_length") { run_text_utf8(); }
+TEST_CASE("focus() between frames") { run_focus_between_frames(); }
+TEST_CASE("wants_pointer() over everything the interface paints") {
     run_pointer_over_interface();
+}
+TEST_CASE("a pointer that lands on the interface is the interface's") {
     run_pointer_lands_on_interface();
-    run_scroll_clip();
-    run_scroll_moves();
-    run_scroll_follows_focus();
-    run_out_of_reach();
-    run_image_lifetime();
-    run_sizes();
-    run_themes();
-    run_breakpoints();
-    run_corner_radii();
-    run_restart_after_shutdown();
-    run_font_sizes();
-    run_misuse();
-    run_misuse_in_phases();
-    run_runner_frame();
-    run_letterbox();
-    run_scissor_stack();
-    run_spacer_direction();
+}
+TEST_CASE("a clipped list is not clickable outside its box") { run_scroll_clip(); }
+TEST_CASE("dragging a scroll area moves what is in it") { run_scroll_moves(); }
+TEST_CASE("a scroll area keeps the focus in view") { run_scroll_follows_focus(); }
+TEST_CASE("a control nobody can reach") { run_out_of_reach(); }
+TEST_CASE("image() and the caller's texture") { run_image_lifetime(); }
+TEST_CASE("sizes and variants") { run_sizes(); }
+TEST_CASE("themes") { run_themes(); }
+TEST_CASE("breakpoints") { run_breakpoints(); }
+TEST_CASE("each corner its own radius") { run_corner_radii(); }
+TEST_CASE("begin() after shutdown()") { run_restart_after_shutdown(); }
+TEST_CASE("a [ui] font, sharp at every size") { run_font_sizes(); }
+TEST_CASE("the interface in the wrong place: said once") { run_misuse(); }
+TEST_CASE("the interface in _update() and under the camera") { run_misuse_in_phases(); }
+TEST_CASE("RMP_ENTRY_POINT: one UI frame around the frame hook") { run_runner_frame(); }
+TEST_CASE("letterbox: the interface over the world, not the bars") { run_letterbox(); }
+TEST_CASE("scroll areas inside each other clip to both") { run_scissor_stack(); }
+TEST_CASE("spacer(n) is a gap along its container") { run_spacer_direction(); }
+TEST_CASE("shutdown() forgets the frame, the font and the transitions") {
     run_shutdown_forgets();
-    run_typed();
+}
+TEST_CASE("the text field types what the provider says") { run_typed(); }
 
-    std::printf("\n--- scale limits ---\n");
-
+TEST_CASE("scale limits") {
     // Automatic scale, both ends clamped. A tiny window must not make the text
     // unreadable, and a huge one must not turn a button into a billboard.
     rmp::ui::detail::set_test_viewport(160, 120);
@@ -3218,16 +3175,34 @@ int main() {
     draw_menu();
     check(std::fabs(rmp::ui::scale() - 2.0f) > 0.001f,
           "set_scale(0) goes back to automatic");
+}
 
-    // LAST, and it has to be: Clay's element hashmap never shrinks once it has
-    // filled, so a frame that crosses the ceiling leaves the context unable to
-    // lay anything out for the rest of the process. That is the reason the
-    // warning it produces says "until the game is restarted", and it is why no
-    // test may run after this one.
-    run_element_ceiling();
+// LAST, and it has to be: Clay's element hashmap never shrinks once it has
+// filled, so a frame that crosses the ceiling leaves the context unable to
+// lay anything out for the rest of the process. That is the reason the
+// warning it produces says "until the game is restarted", and it is why no
+// test may run after this one.
+TEST_CASE("the element ceiling") { run_element_ceiling(); }
 
+} // namespace
+
+// NOLINTNEXTLINE(custom-rmp-raw-pointer): main's signature is the language's
+int main(int argc, char **argv) {
+    // Every position below is measured against the whole viewport: the world
+    // at 1:1, whatever [window] stretch says in the .toml.
+    rmp::app::set_stretch(rmp::app::Stretch::NONE);
+    rmp::ui::detail::set_measure_provider(measure_stub);
+    rmp::ui::detail::set_pointer_provider(pointer_stub);
+    // Nothing held down and nothing pressed, until a test says otherwise.
+    rmp::ui::detail::set_nav_provider(nav_scripted);
+
+    doctest::Context context(argc, argv);
+    // In the order they are written, whatever the command line says: the
+    // cases share one UI, and the element ceiling has to be the last.
+    context.setOption("order-by", "file");
+    const int failed = context.run();
     rmp::ui::shutdown();
-
-    std::printf("\n%s\n", results.failures == 0 ? "PASS" : "FAILED");
-    return results.failures == 0 ? 0 : 1;
+    if (context.shouldExit()) return failed;
+    std::printf("\n%s\n", failed == 0 ? "PASS" : "FAILED");
+    return failed;
 }
