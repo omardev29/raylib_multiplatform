@@ -780,9 +780,13 @@ Each of these was a real bug, found by reproducing rather than by reading.
   that puts the terminal back must hand the signal to the one that was there --
   ASan's report, the core dump -- not re-raise a kernel fault (returning
   re-executes it), use `SA_ONSTACK` (ASan's alternate stack), and leave an
-  ignored signal ignored; the sanitizers' exit is `__sanitizer_set_death_callback`.
-  And a crash test through a null pointer never reaches SIGSEGV under UBSan,
-  which stops a null store itself: `console_canary` writes to address 16.
+  ignored signal ignored; the sanitizers' exit is `__sanitizer_set_death_callback`
+  -- and gcc links ASan and UBSan as TWO shared runtimes with a copy of it
+  each, so the name reaches ASan's alone and a UBSan report under gcc ran no
+  callback: `rmp test sanitize` found it, clang's one runtime had hidden it, and
+  libubsan's own copy is asked for by `dlsym`. And a crash test through a null
+  pointer never reaches SIGSEGV under UBSan, which stops a null store itself:
+  `console_canary` writes to address 16.
 - **`os.access` as root is always true.** CI's lint job runs the tests as root,
   so a fake `/dev` made of `chmod 000` files passes there and proves nothing:
   `node_access()` in `tools/rmp.py` is the door the tests stand in for.

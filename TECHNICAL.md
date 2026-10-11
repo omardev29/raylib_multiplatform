@@ -982,7 +982,8 @@ back when the game's last handle on the card closes, however the process ends, a
 sets `KD_GRAPHICS`. `src/rmp/console.cpp` (`guard_console()`, called from `begin_run()`, before
 any window) remembers the terminal and puts it back on every fatal signal -- then hands the
 signal to whoever had it, so a crash is still a core dump or ASan's report -- through the
-sanitizers' death callback and at exit; `tests/console_test.cpp` makes
+sanitizers' death callback (both of gcc's: it links ASan and UBSan as two runtimes, each with a
+copy) and at exit; `tests/console_test.cpp` makes
 `tests/console_canary.cpp` die each way on a pseudo-terminal, guarded and not. SIGKILL is the one
 nothing inside can catch, so `rmp run` saves the terminal before the game and restores it after,
 and says when it had to.
