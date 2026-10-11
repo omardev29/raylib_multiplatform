@@ -129,6 +129,27 @@ std::size_t header_end(const Bytes &file) {
     return newline;
 }
 
+// `v` rebuilt with, now and then, one more member in an object: one holding
+// nothing, under a key with a NUL in it. A member holding nothing is not
+// there for any function of Value, so it is not written and must not stop
+// the save -- and gen.h draws one in about one tree in three hundred, past a
+// run's 200 cases: unsavable() reading the key of a member it then skips
+// survived them (review of P1, hand mutation).
+Value with_hidden_members(const Value &v) {
+    if (v.type() == Value::Type::LIST) {
+        Value out = Value::list();
+        for (int i = 0; i < v.size(); ++i) out.push(with_hidden_members(v[i]));
+        return out;
+    }
+    if (v.type() != Value::Type::OBJECT) return v;
+    Value out = Value::object();
+    for (int i = 0; i < v.size(); ++i) out[v.key(i)] = with_hidden_members(v[v.key(i)]);
+    const std::string key =
+        std::string("hidden") + '\0' + *rc::gen::string<std::string>();
+    if (*rc::gen::arbitrary<bool>() && !out.contains(key)) out[key] = Value();
+    return out;
+}
+
 // A savable Value: drawn until it is one -- most are.
 Value savable_value() {
     return *rc::gen::suchThat(rc::gen::arbitrary<Value>(),
@@ -202,7 +223,9 @@ TEST_SUITE("property: save") {
         rmp::test::check(
             "encode refuses exactly what would not read back: past 64 containers, a NUL, "
             "a number that is not finite",
-            [](const Value &v, bool sealed) {
+            [](const Value &drawn, bool sealed) {
+                const Value v =
+                    *rc::gen::arbitrary<bool>() ? with_hidden_members(drawn) : drawn;
                 Bytes out = { 1, 2, 3 };
                 const bool wrote = rmp::save::detail::encode(v, 1, sealed, &out);
                 RC_ASSERT(wrote == model::savable(v));

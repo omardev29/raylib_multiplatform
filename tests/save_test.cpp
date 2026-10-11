@@ -965,6 +965,28 @@ TEST_SUITE("save: format") {
         CHECK(rmp::save::detail::encode(fine, 1, false, &out));
     }
 
+    TEST_CASE(
+        "a member holding nothing is not written, and a NUL in its key stops nothing") {
+        // A member assigned nothing is not there, so neither is its key: one
+        // with a NUL in it is not a key the save holds, and must not refuse the
+        // write. unsavable() checking the key before skipping the member passed
+        // tests/property/save_prop.cpp's 200 cases -- gen.h draws such a member
+        // in about one tree in three hundred (review of P1, hand mutation).
+        Value v;
+        v["coins"] = 5;
+        v[std::string("a\0b", 3)] = Value();
+        Bytes out;
+        REQUIRE(rmp::save::detail::encode(v, 1, false, &out));
+        CHECK(rmp::save::detail::to_json(v) == R"({"coins":5})");
+        Value back;
+        CHECK(decode(out, &back) == Status::OK);
+        CHECK(back == v);
+        CHECK(back.size() == 1);
+        Value deeper;
+        deeper["list"].push(v);
+        CHECK(rmp::save::detail::encode(deeper, 1, true, &out));
+    }
+
     TEST_CASE("a plain save is readable text: a header line, then the JSON") {
         Value v;
         v["coins"] = 5;
