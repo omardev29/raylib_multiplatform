@@ -19,6 +19,7 @@
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
 
+#include <rmp/app.h>
 #include <rmp/ui.h>
 
 #include <array>
@@ -2580,6 +2581,9 @@ void run_corner_radii() {
 } // namespace
 
 int main() {
+    // Every position below is measured against the whole viewport: the world
+    // at 1:1, whatever [window] stretch says in the .toml.
+    rmp::app::set_stretch(rmp::app::Stretch::NONE);
     rmp::ui::detail::set_measure_provider(measure_stub);
     rmp::ui::detail::set_pointer_provider(pointer_stub);
     // Nothing held down and nothing pressed, until a test says otherwise.

@@ -1,6 +1,7 @@
 #pragma once
 // ---------------------------------------------------------------------------
-// rmp/app.h — the entry point, and closing the app.
+// rmp/app.h — the entry point, closing the app, and how the world fits the
+// window.
 //
 // You write on_ready(), on_frame(float) and on_exit(); RMP_ENTRY_POINT writes
 // the runner for your platform. There are three, and the difference between
@@ -119,6 +120,39 @@ bool quit_requested();
 // also runs the stop hook the same way the close button does:
 //
 //     if (IsKeyPressed(KEY_ESCAPE)) rmp::app::quit();
+
+// How the world fits a window that is not the [window] size -- a desktop
+// window dragged wider, a phone of another shape, a TV. The [window] width and
+// height are the DESIGN size: what the game was drawn for. s below is how much
+// bigger the window is than that, min(width / design width, height / design
+// height): the most the whole design fits.
+//
+//   NONE       the world at 1:1 around the camera: a bigger window shows more
+//              of it and a smaller one less, and nothing is scaled. What
+//              every game got before there was a choice.
+//   LETTERBOX  the design, scaled by s and centred, the rest of the window
+//              bars of the clear colour. Every player sees exactly the same
+//              part of the world, the interface stays inside it, and
+//              nothing is ever cut off -- a court, a board, a single screen.
+//   EXPAND     scaled by s like LETTERBOX, with no bars: the longer side of
+//              the window shows MORE of the world. A level that scrolls
+//              anyway, where seeing further is fine.
+//
+// The camera and the pointer follow it: Camera::view(), to_world(),
+// rmp::input::pointer() and a click on an object are right in every mode, and
+// rmp::ui keeps the interface inside the game's area. A game that draws its
+// world in _draw() with its own BeginMode2D() goes through
+// scene.camera.raylib() to get it too.
+enum class Stretch { NONE, LETTERBOX, EXPAND };
+
+// The mode in use. It starts as [window] stretch in raylib_multiplatform.toml.
+Stretch stretch();
+
+// Change it, from anywhere and at once: the next thing that asks -- the camera,
+// the pointer, the interface -- sees the new mode. The examples share one
+// .toml, so the ones that need another mode set it here, in their first
+// scene's _ready().
+void set_stretch(Stretch mode);
 
 namespace detail {
 // GetFrameTime(), with [app] max_delta applied. Every runner below calls this

@@ -100,7 +100,9 @@ Clay_Padding uniform_padding(float p) {
 
 void begin() { begin(FrameOptions{}); }
 
-void begin(const FrameOptions &o) {
+void begin(const FrameOptions &o) { detail::open_frame(o, Color{ 0, 0, 0, 0 }); }
+
+void detail::open_frame(const FrameOptions &o, const Color fill) {
     if (!detail::ensure_started()) return;
 
     if (detail::frame_open()) {
@@ -124,6 +126,8 @@ void begin(const FrameOptions &o) {
     }
 
     detail::set_frame_open(true);
+    // Before the pass starts: its default focus depends on it.
+    detail::set_pass_focus_first(o.focus_first);
     detail::begin_pass();
 
     const Theme &t = current_theme();
@@ -144,6 +148,9 @@ void begin(const FrameOptions &o) {
     // Safe area. [android.display] into_cutout draws the game behind the notch,
     // which is right for a background and wrong for a menu.
     root.layout.padding = uniform_padding(px(padding) + detail::safe_area_inset());
+    // Painted only when asked: an overlay's veil, which -- covering the
+    // viewport -- takes the pointer everywhere.
+    if (fill.a > 0) root.backgroundColor = to_clay(fill);
 
     Clay__OpenElement();
     Clay__ConfigureOpenElement(root);
@@ -213,6 +220,9 @@ void end() {
     // whole point and it has already happened.
     if (!detail::test_mode()) detail::draw(commands);
 
+    // Before the boundary below can close: the frame is still this one.
+    detail::pass_ended();
+
     // Only when there was no app to mark it. With one, the boundary closes
     // after the last scene has drawn, not after the first.
     if (detail::frame_self_marked()) detail::end_frame();
@@ -229,6 +239,7 @@ bool button(std::string_view label, const ButtonOptions &o) {
 
     const Theme &t = current_theme();
     const Clay_ElementId id = detail::element_id(label, o.id);
+    detail::note_control(id);
 
     // Hit-testing uses the geometry this element had LAST frame — this one has
     // not been laid out yet. It is inherent to immediate mode: the first frame

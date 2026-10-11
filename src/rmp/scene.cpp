@@ -14,6 +14,7 @@
 #include "object_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
+#include "ui_internal.h"
 
 #include <rmp/input.h>
 #include <rmp/ui.h>
@@ -44,6 +45,9 @@ struct {
     // are applied in that order, so `push(A); pop();` leaves the stack as it was.
     std::vector<Pending> pending;
     bool running = false;
+    // Whether each scene read the keys the interface navigates with in this
+    // frame's update, by index: what its passes are told in the draw.
+    std::vector<bool> playing;
 } scene_stack;
 
 // Owning from the template in rmp/scene.h all the way down: nothing between
@@ -167,6 +171,11 @@ void update(float delta) {
     if (scene_stack.items.empty()) return;
     const int lowest = lowest_participant([](const Scene &s) { return s.updates_below; });
     const int top = static_cast<int>(scene_stack.items.size()) - 1;
+    // A scene that is not updated reads nothing, so it is not being played.
+    scene_stack.playing.assign(scene_stack.items.size(), false);
+    // Nothing is drawn while the world moves: an interface described here is
+    // a mistake rmp::ui reports.
+    rmp::ui::detail::set_phase(rmp::ui::detail::Phase::UPDATE);
     // Bottom upwards: the world moves before whatever is layered on top of it
     // reacts to where the world ended up.
     for (int i = lowest; i <= top; ++i) {
@@ -176,6 +185,8 @@ void update(float delta) {
         // simply does not fire. Nothing in that scene says so.
         rmp::input::detail::set_layer_input(reachable_by_input(i));
         Scene &scene = *scene_stack.items[static_cast<size_t>(i)];
+        // What was read before this scene's turn is not this scene's.
+        rmp::ui::detail::take_game_keys();
         // The pointer first, so a press is acted on in the frame it happened
         // and an on_click can spawn or destroy before anything else looks.
         rmp::objects::detail::pointer(scene);
@@ -195,7 +206,11 @@ void update(float delta) {
         // its follow. Anything reading camera.view() next frame -- the
         // default bounds, the pointer, Parallax -- sees the settled frame.
         scene.camera.detail_settle(delta);
+        // Did it, or its objects, read the keys the interface navigates
+        // with? Then it is being played, and its HUD waits for Tab.
+        scene_stack.playing[static_cast<size_t>(i)] = rmp::ui::detail::take_game_keys();
     }
+    rmp::ui::detail::set_phase(rmp::ui::detail::Phase::FREE);
     rmp::input::detail::set_layer_input(true);
 }
 
@@ -223,7 +238,13 @@ void draw() {
         // menu is drawn, is not interactive, and neither scene wrote a line
         // about it.
         rmp::ui::detail::set_pass_input(reachable_by_input(i));
-        Scene &scene = *scene_stack.items[static_cast<size_t>(i)];
+        // Over a game being played, or not: what this scene read in this
+        // frame's update. A draw with no update before it (a test) read
+        // nothing.
+        const auto slot = static_cast<size_t>(i);
+        rmp::ui::detail::set_pass_playing(slot < scene_stack.playing.size() &&
+                                          scene_stack.playing[slot]);
+        Scene &scene = *scene_stack.items[slot];
         // Objects first, in world space, and the scene's own _draw() after, in
         // screen space: that is what puts the HUD over the game rather than
         // under it, without either one saying so.
@@ -238,12 +259,26 @@ void draw() {
         // InitWindow() there is no batch to push it into -- a segfault, not a
         // no-op. In a running game the window is always there.
         const bool window = IsWindowReady();
-        if (window) BeginMode2D(scene.camera.raylib());
+        const Camera2D camera = scene.camera.raylib();
+        // Under the camera nothing of the interface can be drawn: what an
+        // object's _draw() describes is reported (rmp::ui::at() is the way).
+        rmp::ui::detail::set_phase(rmp::ui::detail::Phase::WORLD);
+        if (window) BeginMode2D(camera);
         scene.map.draw();
         rmp::objects::detail::draw(scene);
         if (window) EndMode2D();
+        // The scene's own _draw(), in screen space: where the interface is
+        // described, and at() projects through the camera that drew the world.
+        rmp::ui::detail::set_pass_camera(camera);
+        rmp::ui::detail::set_phase(rmp::ui::detail::Phase::DRAW);
         scene._draw();
+        rmp::ui::detail::after_scene_draw(i, top);
     }
+    // Outside the stack: no camera, no game being played, the input the app's.
+    rmp::ui::detail::set_phase(rmp::ui::detail::Phase::FREE);
+    rmp::ui::detail::set_pass_camera(Camera2D{
+        .offset = Vector2{ 0, 0 }, .target = Vector2{ 0, 0 }, .rotation = 0, .zoom = 1 });
+    rmp::ui::detail::set_pass_playing(false);
     rmp::ui::detail::set_pass_input(true);
 }
 
@@ -308,6 +343,7 @@ void shutdown() {
     // load assets that are about to be released.
     scene_stack.pending.clear();
     while (!scene_stack.items.empty()) end_top();
+    scene_stack.playing.clear();
     scene_stack.running = false;
 }
 

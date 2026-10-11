@@ -47,6 +47,18 @@ void set_resources_root(const char *root) {
     if (root == nullptr) root = "";
     resources.root = root;
 }
+
+// The backdrop's render target and shader (rmp/assets.h). Neither makes
+// anything: the backdrop draws no blur, so nothing asks for one. Empty is also
+// the answer for a texture with no area and a shader with no fragment source,
+// whatever is made here.
+rmp::RenderTexture make_render_texture(int /*width*/, int /*height*/) {
+    return rmp::RenderTexture{};
+}
+
+rmp::Shader make_shader(std::string_view /*vertex*/, std::string_view /*fragment*/) {
+    return rmp::Shader{};
+}
 } // namespace detail
 
 namespace {

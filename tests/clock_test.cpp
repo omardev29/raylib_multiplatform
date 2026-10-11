@@ -35,6 +35,7 @@ struct Fixture {
         rmp::app::detail::set_test_seed(std::nullopt);
         rmp::app::detail::set_frame_observer({});
         rmp::ui::detail::set_test_viewport(0, 0);
+        rmp::ui::detail::set_test_frame_time(0);
         (void)rmp::app::detail::step_delta();
     }
 };
@@ -68,6 +69,22 @@ TEST_SUITE("app: the clock") {
         (void)rmp::app::detail::step_delta();
         rmp::ui::detail::set_test_viewport(800, 450);
         CHECK(rmp::ui::detail::frame_time() == 0.0f);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a headless test can let time go by, and only a headless one") {
+        rmp::ui::detail::set_test_viewport(800, 450);
+        rmp::ui::detail::set_test_frame_time(0.25f);
+        CHECK(rmp::ui::detail::frame_time() == 0.25f);
+        // Nothing below zero: time does not run backwards.
+        rmp::ui::detail::set_test_frame_time(-1);
+        CHECK(rmp::ui::detail::frame_time() == 0.0f);
+        // Outside test mode it is the game's clock, whatever a test set.
+        rmp::ui::detail::set_test_frame_time(0.25f);
+        rmp::ui::detail::set_test_viewport(0, 0);
+        rmp::app::detail::set_fixed_delta(STEP);
+        (void)rmp::app::detail::step_delta();
+        CHECK(rmp::ui::detail::frame_time() == STEP);
     }
 
     TEST_CASE_FIXTURE(Fixture, "a fixed step is still clamped by [app] max_delta") {

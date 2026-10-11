@@ -22,6 +22,14 @@
 #   S6  `++i`, not `i++`, where the value is not used: as a statement and in
 #       a for loop's increment (and `--i` alike). Google's rule; the postfix
 #       form promises a copy of the old value that nothing reads
+#   S7  no entry point of rmp::ui (src/rmp/ui/) that returns in silence when
+#       no frame is open: `if (!frame_open()) return` as its first line. A
+#       widget called outside begin()/end() is a mistake in the game, and
+#       frame_ready() says so once; doing nothing without a word is how a
+#       button in _update() looks like a bug in the framework. Only the
+#       close_* halves, which follow an open_* that has already spoken, stay
+#       silent. What the tree still owes is SILENT_DEBT, below, which only
+#       shrinks
 #
 # Comments, strings and character literals do not count (S3 reads only the
 # comments): they are blanked before any rule runs, so a comment may say what
@@ -53,7 +61,36 @@ RULES = {
     "S4": "newer than GCC 10.5, the floor compiler (NetBSD), in code a game compiles",
     "S5": "a user-defined literal: Google's style has none, the standard library's included",
     "S6": "postfix ++/-- whose value is not used: ++i",
+    "S7": "an rmp::ui entry point silent outside a frame: if (!frame_ready(...)) return",
 }
+
+# S7's debt: the entry points that still return in silence outside a frame,
+# by file and function. Phase 14 pays it, and the list only shrinks: a
+# function here that speaks now fails until its name goes, and one that is
+# silent and not here fails as any other would.
+SILENT_DEBT = {
+    "src/rmp/ui/containers.cpp": {"open_row", "open_column", "open_panel", "open_center",
+                                  "open_stack", "open_layer", "open_grid", "open_cell",
+                                  "open_scroll", "spacer", "image", "progress"},
+    "src/rmp/ui/controls.cpp": {"checkbox", "slider", "dropdown", "text_input"},
+    "src/rmp/ui/widgets.cpp": {"end", "button", "text"},
+}
+# A function body whose first statement leaves when no frame is open, with
+# or without another condition beside it. The name is the last word before
+# the parameter list; a signature may run over lines.
+SILENT = re.compile(r"\b((?:\w+::)*\w+)\s*\([^;{}()]*(?:\([^;{}()]*\)[^;{}()]*)*\)\s*(?:const\s*)?"
+                    r"\{\s*if\s*\(\s*!\s*(?:detail::)?frame_open\s*\(\s*\)[^;{}]*\)\s*return\b")
+
+
+def silent_entry_points(code):
+    """(offset, name) of every function that returns in silence outside a
+    frame, but for the close_* halves."""
+    out = []
+    for m in SILENT.finditer(code):
+        name = m.group(1).split("::")[-1]
+        if not name.startswith("close_") and name not in ("if", "for", "while", "switch"):
+            out.append((m.start(1), name))
+    return out
 
 # Compiled as C: tests/smoke_test.h is included by examples/plain_c/main.c.
 C_HEADERS = {"tests/smoke_test.h"}
@@ -130,7 +167,7 @@ def postfix_sites(code):
     return sites
 
 
-def check(path, rules):
+def check(path, rules, explicit=False):
     posix = path.as_posix()
     raw = path.read_text(encoding="utf-8", errors="replace")
     code = blank(raw)
@@ -160,6 +197,15 @@ def check(path, rules):
         hit("S5", m.start(), "operator\"\"")
     for m in UDL_IMPORT.finditer(code):
         hit("S5", m.start(), " ".join(m.group(0).split()))
+    # S7 over rmp::ui's sources in the tree, and over any file named.
+    if not is_c and (explicit or posix.startswith("src/rmp/ui/")):
+        owed = SILENT_DEBT.get(posix, set()) if not explicit else set()
+        silent = silent_entry_points(code)
+        for offset, name in silent:
+            if name not in owed:
+                hit("S7", offset, f"{name}()")
+        for name in sorted(owed - {name for _, name in silent}):
+            hit("S7", 0, f"{name}() speaks now: take it off SILENT_DEBT in tools/style_check.sh")
     return found
 
 
@@ -171,7 +217,7 @@ for path in files:
         print(f"  FAIL  {path} does not exist")
         fails += 1
         continue
-    for rule, line, what in check(path, set(RULES)):
+    for rule, line, what in check(path, set(RULES), explicit=bool(args)):
         print(f"  FAIL  {path}:{line}: {rule} {what} -- {RULES[rule]}")
         fails += 1
 

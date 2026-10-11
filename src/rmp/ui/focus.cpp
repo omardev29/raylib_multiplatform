@@ -114,6 +114,16 @@ struct {
     uint32_t vertical_id = 0;
 } capture;
 
+// Over a game being played, or not: what the game read of the keys the
+// interface navigates with (note_game_keys()), what the scene stack made of it
+// for the pass being described (set_pass_playing()), and what that pass's
+// FrameOptions::focus_first said.
+struct {
+    bool game_keys = false;
+    bool pass_playing = false;
+    std::optional<bool> pass_focus_first;
+} hud;
+
 constexpr float REPEAT_DELAY = 0.45f;
 constexpr float REPEAT_INTERVAL = 0.09f;
 
@@ -382,6 +392,29 @@ bool keyboard_captured() { return capture.keyboard; }
 
 bool focus_visible() { return target.visible; }
 uint32_t focused_id() { return target.id; }
+
+// --- over a game being played ------------------------------------------------
+//
+// The note, and what the scene stack and begin() hand over, are kept here.
+// The focus does nothing with them: every pass is a menu, and its first
+// control takes the focus.
+
+void note_game_keys() { hud.game_keys = true; }
+
+bool take_game_keys() {
+    const bool read = hud.game_keys;
+    hud.game_keys = false;
+    return read;
+}
+
+void set_pass_playing(const bool playing) { hud.pass_playing = playing; }
+bool pass_playing() { return hud.pass_playing; }
+
+void set_pass_focus_first(const std::optional<bool> first) {
+    hud.pass_focus_first = first;
+}
+
+void forget_focus() {}
 
 std::vector<std::string> controls_out_of_reach() {
     // Half a pixel either way: a box that ends exactly on the window's edge

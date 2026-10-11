@@ -214,7 +214,26 @@ struct {
     std::array<PassId, MAX_BOUNDS> ids;
     int id_count = 0;
     int16_t layer_z = 0;
+    uint32_t last_control = 0; // see note_control()
+    // Behind a pass that was in front of it last frame (set_pass_modal()):
+    // no input, whatever `input` says. Apart from `input`, which the app sets
+    // once per scene, because a scene may describe two passes and only the
+    // first is behind the second.
+    bool behind = false;
 } this_pass;
+
+// The frontmost pass that said it is in front of the rest (set_pass_modal()):
+// this frame's, being found, and last frame's, which is what this frame's
+// passes obey. -1 for none.
+struct {
+    int this_frame = -1;
+    int last_frame = -1;
+} modality;
+
+// What frame_time() answers in test mode. 0, unless a test lets time go by.
+struct {
+    float seconds = 0;
+} test_clock;
 
 // The clipping containers open right now, innermost last. Pushed by
 // open_scroll() and popped by close_scroll(); reset per pass so an imbalance
@@ -366,6 +385,9 @@ bool ensure_started() {
 }
 
 void shutdown_context() {
+    // First, and whether or not the UI started: the backdrop's texture is on
+    // the GPU, and the window closes after this.
+    release_backdrop();
     if (!context.started) return;
     release_fonts();
     context.arena = std::vector<unsigned char>{};
@@ -376,10 +398,17 @@ void shutdown_context() {
     Clay_SetCurrentContext(nullptr);
     context.started = false;
     forget_claims();
+    modality.this_frame = -1;
+    modality.last_frame = -1;
+    forget_focus();
 }
 
 bool frame_open() { return context.frame_open; }
 void set_frame_open(bool open) { context.frame_open = open; }
+
+bool frame_ready(std::string_view /*what*/, std::string_view /*label*/) {
+    return context.frame_open;
+}
 
 // ---------------------------------------------------------------------------
 // Scale
@@ -512,6 +541,7 @@ void reset_id_counters() {
     labels.count = 0;
     labels.overflow = 0;
     this_pass.layer_z = 0;
+    this_pass.last_control = 0;
     this_pass.id_count = 0;
     clips.depth = 0;
     clips.overflow = 0;
@@ -524,6 +554,10 @@ void set_frame_self_marked(bool self) { frame.self_marked = self; }
 
 void begin_pass() {
     ++this_pass.index;
+    // Behind a pass that was in front of it last frame: an overlay's veil is
+    // over it, so the pointer, the keys and the focus are the overlay's. On
+    // top of what the app said (set_pass_input()), never instead of it.
+    this_pass.behind = this_pass.index < modality.last_frame;
     reset_id_counters();
     begin_pass_focus();
     // The first pass of the frame is where wants_pointer() and wants_keyboard()
@@ -532,7 +566,19 @@ void begin_pass() {
 }
 
 int current_pass() { return this_pass.index < 0 ? 0 : this_pass.index; }
-bool pass_input() { return this_pass.input; }
+bool pass_input() { return this_pass.input && !this_pass.behind; }
+
+void set_pass_modal() {
+    if (current_pass() > modality.this_frame) modality.this_frame = current_pass();
+}
+
+void note_control(const Clay_ElementId id) { this_pass.last_control = id.id; }
+
+uint32_t take_last_control() {
+    const uint32_t id = this_pass.last_control;
+    this_pass.last_control = 0;
+    return id;
+}
 
 // Ask Clay for the box of every id this pass used, now that the layout is
 // finished, and write them where the next frame's matching pass will look.
@@ -602,6 +648,7 @@ void begin_frame() {
     frame.marked = true;
     this_pass.index = -1;
     this_pass.input = true;
+    this_pass.behind = false;
     prepare_frame();
 }
 
@@ -737,11 +784,32 @@ void end_frame() {
     frame.self_marked = false;
     frame.prepared = false;
     this_pass.input = true;
+    this_pass.behind = false;
+    // What was in front this frame is what the next one's passes obey.
+    modality.last_frame = modality.this_frame;
+    modality.this_frame = -1;
 }
 
 void set_pass_input(bool reachable) { this_pass.input = reachable; }
 
-float frame_time() { return test_mode() ? 0.0f : rmp::app::detail::frame_delta(); }
+float frame_time() {
+    return test_mode() ? test_clock.seconds : rmp::app::detail::frame_delta();
+}
+
+void set_test_frame_time(const float seconds) {
+    test_clock.seconds = seconds > 0 ? seconds : 0.0f;
+}
+
+// --- the runner's frame, and where the interface is described ---------------
+//
+// Hooks the app and the scene stack call (../ui_internal.h). Nothing is
+// marked here, and nothing is said: begin() marks a frame of RMP_ENTRY_POINT's
+// itself, and a widget outside one returns doing nothing.
+
+void runner_begin_frame() {}
+void runner_end_frame() {}
+void set_phase(Phase /*phase*/) {}
+void after_scene_draw(int /*index*/, int /*top*/) {}
 
 // ---------------------------------------------------------------------------
 // Identity
@@ -953,12 +1021,10 @@ void update_pointer() {
 // each widget is what makes it impossible to miss one — the alternative is
 // twelve widgets that each have to remember.
 Clay_Vector2 pointer_position() { return pointer.position; }
-bool pointer_down() { return this_pass.input && pointer.down; }
-bool pointer_present() { return this_pass.input && pointer.present; }
-bool pointer_just_pressed() {
-    return this_pass.input && pointer.down && !pointer.was_down;
-}
-bool pointer_released() { return this_pass.input && !pointer.down && pointer.was_down; }
+bool pointer_down() { return pass_input() && pointer.down; }
+bool pointer_present() { return pass_input() && pointer.present; }
+bool pointer_just_pressed() { return pass_input() && pointer.down && !pointer.was_down; }
+bool pointer_released() { return pass_input() && !pointer.down && pointer.was_down; }
 
 namespace {
 // The BACK buffer: what the last frame measured. The front one is being filled
@@ -1071,7 +1137,7 @@ Clay_BoundingBox cut_to(Clay_BoundingBox box, const Clay_BoundingBox &clip) {
 // Recorded for THIS frame, for a pass input can reach; a box with no area
 // takes nothing.
 void claim(const Clay_BoundingBox &box) {
-    if (!this_pass.input || box.width <= 0.0f || box.height <= 0.0f) return;
+    if (!pass_input() || box.width <= 0.0f || box.height <= 0.0f) return;
     const int front = bounds.front;
     if (claims.count[front] >= MAX_CLAIMS) {
         claims.full[front] = true;
@@ -1143,7 +1209,10 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
         for (int i = 0; i < depth; ++i) b = cut_to(b, open_clips[i]);
         return b;
     };
-    auto surface = [&](const Clay_BoundingBox &b) {
+    auto surface = [&](const Clay_RenderCommand &cmd) {
+        // Painted inside at(): over the world, and not a wall in front of it.
+        if (world_passthrough(cmd)) return;
+        const Clay_BoundingBox &b = cmd.boundingBox;
         claim(shown(b));
         if (!hit && shown_under_pointer(b)) {
             set_pointer_over_ui();
@@ -1158,12 +1227,12 @@ void claim_pointer_over_painted(Clay_RenderCommandArray commands) {
             case CLAY_RENDER_COMMAND_TYPE_BORDER:
             case CLAY_RENDER_COMMAND_TYPE_IMAGE:
             case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
-                surface(cmd.boundingBox);
+                surface(cmd);
                 break;
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START:
                 // A scroll area is interface even where it paints nothing:
                 // dragging inside it scrolls it.
-                surface(cmd.boundingBox);
+                surface(cmd);
                 if (depth < MAX_CLIP_DEPTH) {
                     open_clips[depth++] = cmd.boundingBox;
                 } else {

@@ -18,7 +18,36 @@ namespace rmp {
 template <class... A> class Callback; // rmp/object.h
 } // namespace rmp
 
+namespace rmp::app {
+enum class Stretch; // rmp/app.h; a scoped enum, so declaring it is enough here
+} // namespace rmp::app
+
 namespace rmp::app::detail {
+
+// --- stretch.cpp -----------------------------------------------------------
+// How the world fits the window: rmp::app::stretch(), in numbers. `area` is
+// the rectangle of the window, in pixels, that the design-size world
+// ([window] width x height) is drawn into, and `scale` how many pixels a
+// world unit is there -- before the camera's own zoom. With s = min(screen
+// width / design width, screen height / design height):
+//
+//   NONE       area = the screen, scale = 1
+//   LETTERBOX  area = design x s, centred on the screen, scale = s
+//   EXPAND     area = the screen, scale = s
+//
+// One function of the mode and the screen, so the camera (scene.cpp,
+// camera.cpp) and the interface (rmp::ui, against its own viewport) cannot
+// disagree about where the game is. A screen with no area -- or one that is
+// not a number -- is the design size at 1:1.
+struct WorldViewport {
+    Rectangle area;
+    float scale;
+};
+WorldViewport world_viewport(rmp::app::Stretch mode, Vector2 screen);
+
+// The same, for the mode in use and the screen the camera sees:
+// rmp::objects::detail::view_rect(), the design size while there is no window.
+WorldViewport world_viewport();
 
 // --- clock.cpp -------------------------------------------------------------
 // The framework's one clock. step_delta() (rmp/app.h) is what every runner
@@ -203,6 +232,13 @@ bool strict();
 // counter. Returns the previous handler so a test can put it back.
 using StrictHandler = void (*)();
 StrictHandler set_strict_handler(StrictHandler handler);
+
+// Who else hears a report: called with the line, as the log has it, each time
+// a new one is said -- before [dev] strict stops the program, so it is heard
+// even then. The entry point gives it to rmp::ui in a debug build, which puts
+// the line on screen (rmp::ui::notify()); nobody else does. An empty callback
+// takes it away.
+void set_report_sink(rmp::Callback<std::string_view> on_report);
 
 // Tests. How many distinct diagnostics have fired since the last reset, and
 // the way to forget them so the same test can watch one fire again.

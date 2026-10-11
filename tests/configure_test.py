@@ -9045,6 +9045,68 @@ class StyleCheckTest(unittest.TestCase):
                           "void f(int n) { while (n--) {} }",
                           "void f(std::vector<int> &v) { for (int x : v) {} }")
 
+    def test_s7_an_entry_point_that_is_silent_outside_a_frame(self):
+        self.assert_red("S7", "void spacer() {", "    if (!detail::frame_open()) return;", "}")
+        self.assert_red("S7", "bool button(std::string_view label, const ButtonOptions &o) {",
+                        "    if (!frame_open()) return false;", "    return true;", "}")
+        # With another condition beside it, and a signature over two lines.
+        self.assert_red("S7", "bool slider(std::string_view label, float &value, float min,",
+                        "            float max, const SliderOptions &o) {",
+                        "    if (!detail::frame_open() || max <= min) return false;",
+                        "    return true;", "}")
+        self.assert_red("S7", "void detail::open_row(const BoxOptions &o) {",
+                        "    if (!frame_open()) return;", "}", "void open_cell() {",
+                        "    if ( ! frame_open ( ) ) return;", "}", count=2)
+
+    def test_s7_leaves_the_close_halves_and_the_ones_that_speak(self):
+        self.assert_green("void close_grid() {", "    if (!frame_open()) return;", "}",
+                          "void detail::close_scroll() { if (!frame_open()) return; }",
+                          "bool button(std::string_view label) {",
+                          '    if (!detail::frame_ready("button", label)) return false;',
+                          "    return true;", "}",
+                          "void later() {", "    int x = 0;",
+                          "    if (!frame_open()) return;", "}")
+
+    def test_s7_holds_the_tree_to_its_debt_both_ways(self):
+        """A name in SILENT_DEBT is owed; one that speaks now has to come off,
+        and a silent one not on it fails like any other. Run on a copy of
+        src/rmp/ui with one function changed each way."""
+        import shutil
+        import subprocess
+
+        def run(edit):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "tools").mkdir()
+                for name in ("style_check.sh", "cpp_text.py"):
+                    shutil.copy(REPO / "tools" / name, root / "tools")
+                shutil.copytree(REPO / "src" / "rmp" / "ui", root / "src" / "rmp" / "ui")
+                edit(root / "src" / "rmp" / "ui")
+                return subprocess.run(["bash", str(root / "tools" / "style_check.sh")],
+                                      capture_output=True, text=True, cwd=root)
+
+        def speak(ui):
+            path = ui / "containers.cpp"
+            text = path.read_text()
+            old = "void image(const Texture2D &texture, const ImageOptions &o) {\n" \
+                  "    if (!detail::frame_open()) return;"
+            self.assertIn(old, text, "image() changed: find its first line again")
+            path.write_text(text.replace(old, old.replace(
+                "detail::frame_open()", 'detail::frame_ready("image", "")')))
+
+        def new_silent(ui):
+            path = ui / "widgets.cpp"
+            path.write_text(path.read_text() + "\nvoid hush() {\n    if (!frame_open()) return;\n}\n")
+
+        self.assertEqual(run(lambda ui: None).returncode, 0)
+        got = run(speak)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("S7 image() speaks now: take it off SILENT_DEBT", got.stdout)
+        got = run(new_silent)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("widgets.cpp", got.stdout)
+        self.assertIn("S7 hush()", got.stdout)
+
     def test_c_is_c(self):
         """tests/smoke_test.h and the .c files are compiled as C, where a cast,
         NULL and `i++` are the language -- S1, S2 and S6 leave them alone."""

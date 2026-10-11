@@ -12,11 +12,13 @@
 #include "audio_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
+#include "ui_internal.h"
 
 #include <raylib.h>
 #include <rmp/assets.h>
 #include <rmp/config.h>
 #include <rmp/input.h>
+#include <rmp/object.h> // rmp::Callback, for the report sink
 #include <rmp/random.h>
 #include <rmp/save.h>
 #include <rmp/scene.h>
@@ -267,6 +269,12 @@ void begin_run() {
 #if RMP_DEV_STRICT && !defined(NDEBUG)
     rmp::detail::set_strict(true);
 #endif
+    // And in a debug build every one of those warnings is said on screen as
+    // well, through rmp::ui::notify(): a log line scrolls past, a line over
+    // the game does not. Debug builds only, by the same NDEBUG.
+#if !defined(NDEBUG)
+    rmp::detail::set_report_sink(rmp::ui::detail::show_report);
+#endif
     SmokeTest_Begin();
     guard_console(); // DRM/KMS: the terminal back however the game ends (console.cpp)
 #if defined(PLATFORM_IOS)
@@ -331,7 +339,12 @@ bool keep_running() {
 // nothing at all through rmp::input. And it is called exactly once: a second
 // sample in the same frame compares every key with itself, and every
 // just_pressed() of that frame is gone. tests/input_play.cpp plays both.
-void begin_frame() { rmp::input::detail::begin_frame(); }
+void begin_frame() {
+    rmp::input::detail::begin_frame();
+    // And the UI's frame, for a game with its own frame hook: one UI frame
+    // around however many begin()/end() pairs it draws. See ui_internal.h.
+    rmp::ui::detail::runner_begin_frame();
+}
 
 void end_frame() {
     // For a game that owns its own frame -- RMP_ENTRY_POINT -- nothing of ours
@@ -339,7 +352,11 @@ void end_frame() {
     // reads the frame back here instead, where the framebuffer is memory. See
     // SmokeTest_CaptureFrameIfMissed().
     SmokeTest_CaptureFrameIfMissed();
-    SmokeTest_Tick();
+    // The run's last frame: how many of the game's mistakes the framework
+    // reported (RMP_REPORT_ONCE), each counted once. A correct game says 0.
+    if (SmokeTest_Tick() != 0) {
+        TraceLog(LOG_INFO, "RAY_TEST_REPORTS=%d", rmp::detail::report_count());
+    }
 
     // The music stream, once per frame. Here and not in frame(), because this
     // runs after every frame on every runner -- a game with its own three
@@ -347,6 +364,10 @@ void end_frame() {
     // not fed runs dry and stutters. It keeps playing under a pause menu that
     // freezes the scene below. A no-op with no music or no device.
     rmp::audio::detail::update();
+
+    // The UI frame the runner opened, closed -- after the game's EndDrawing(),
+    // so nothing is drawn here.
+    rmp::ui::detail::runner_end_frame();
 
     // Last, so that whoever is watching sees the frame finished: drawn, its
     // scene changes applied. Nobody is, unless a test installed an observer
@@ -400,6 +421,8 @@ void begin_stop() {
 void end_stop() {
     rmp::audio::detail::close_device();
     rmp::assets::shutdown();
+    // The UI is gone: a warning from here on is said in the log only.
+    rmp::detail::set_report_sink({});
 }
 
 // ---------------------------------------------------------------------------
@@ -449,8 +472,15 @@ void frame(float delta) {
     //      visible, which is what makes a full-screen loading scene work with
     //      one field and no policy.
     BeginDrawing();
+    //      Into a texture instead of the screen, when last frame's overlay()
+    //      asked for a blur: the overlay blurs what is drawn under it.
+    rmp::ui::detail::begin_backdrop();
     ClearBackground(rmp::scenes::detail::clear_color());
     rmp::scenes::detail::draw();
+    //      Then the screen again -- with that texture on it, when no overlay
+    //      took it -- and the notices over everything, taking no input.
+    rmp::ui::detail::finish_backdrop();
+    rmp::ui::detail::draw_notices();
 
     // 5. The CI render gate, between the last draw call and EndDrawing().
     //    Neither side of that line works — see tests/smoke_test.h. It is here

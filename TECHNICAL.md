@@ -47,6 +47,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── report.cpp        #   RMP_REPORT_ONCE: one line per mistake, [dev] strict
 │       ├── app.cpp           #   rmp::app -- the frame, quit(), compiled into EACH executable
 │       ├── console.cpp       #   a Linux console's terminal back, however a DRM/KMS game ends
+│       ├── stretch.cpp       #   rmp::app::stretch() -- how the world fits the window, in numbers
 │       ├── global.cpp        #   rmp::global<T>() registry and its destruction order
 │       ├── scene.cpp         #   the scene stack, transitions, the frame order
 │       ├── scene_internal.h
@@ -58,6 +59,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── behaviors.cpp     #   the CATALOGUE: TopDown, Platformer, Runner, Ball, Spawner...
 │       ├── behavior_internal.h
 │       ├── input.cpp         #   rmp::input -- actions, the device seam, routing against the UI
+│       ├── ui_internal.h     #   the UI's hooks the app, the scene stack and rmp::input call
 │       ├── random.cpp        #   rmp::random -- xoshiro128++, seeded once at start
 │       ├── ads.cpp           #   rmp::ads -- the one file that includes <admob.h>
 │       ├── assets.cpp        #   rmp::assets -- the public surface, with the loose-file fallback
@@ -86,13 +88,20 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │           ├── widgets.cpp   #     begin / end / button / text
 │           ├── containers.cpp #    row / column / panel / stack / grid / scroll / image
 │           ├── controls.cpp  #     checkbox / slider / dropdown / text_input
-│           ├── focus.cpp     #     keyboard and gamepad navigation, the capture flags
+│           ├── focus.cpp     #     keyboard and gamepad navigation, the capture flags, HUD focus
+│           ├── overlay.cpp   #     overlay(): a frame of its own in front of the rest
+│           ├── backdrop.cpp  #     what an overlay blurs: the frame drawn into a texture
+│           ├── backdrop.h    #     the backdrop's private half, for its tests
+│           ├── at.cpp        #     at(): a box over a point of the world, through the camera
+│           ├── tooltip.cpp   #     tooltip(): a line about the control before it
+│           ├── notify.cpp    #     notify(), and a debug build's warnings on screen
+│           ├── floating.h    #     the private half of at(), tooltip() and notify()
 │           ├── style.cpp     #     variants, sizes, transitions
 │           ├── render.cpp    #     draw commands -> raylib calls
 │           └── theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)
 │   └── rmp/                  # THE framework's headers -- one per module, include what you use
-│       ├── app.h             #   RMP_GAME, RMP_ENTRY_POINT, quit(), global<T>()
+│       ├── app.h             #   RMP_GAME, RMP_ENTRY_POINT, quit(), global<T>(), stretch()
 │       ├── scene.h           #   rmp::Scene -- the stack, spawn<T>(), raycast, the `map` field
 │       ├── object.h          #   rmp::Object, Handle<T>, Sprite, shapes, edges, Callback
 │       ├── behavior.h        #   rmp::behavior -- the catalogue, added with object.add<B>()

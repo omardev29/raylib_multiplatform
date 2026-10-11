@@ -9,6 +9,8 @@
 
 #include "internal.h"
 
+#include <rmp/object.h> // rmp::Callback, for the sink
+
 #include <raylib.h>
 
 #include <algorithm>
@@ -18,6 +20,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rmp::detail {
@@ -41,6 +45,15 @@ struct {
     StrictHandler on_strict = abort_on_report;
 } reports;
 
+// Who else hears a report (set_report_sink). Behind a function, so it is
+// built on first use: rmp::Callback is not a literal type, and a namespace-
+// scope one would be initialised in an order nobody chose -- a report from
+// another file's static initializer could find it unbuilt.
+rmp::Callback<std::string_view> &sink() {
+    static rmp::Callback<std::string_view> on_report;
+    return on_report;
+}
+
 bool already(const void *site, const char *key) {
     return std::ranges::any_of(
         reports.seen, [&](const Seen &s) { return s.site == site && s.key == key; });
@@ -53,6 +66,9 @@ void emit(const void *site, const char *key, const char *fmt, va_list args) {
     std::array<char, 1024> line{};
     std::vsnprintf(line.data(), line.size(), fmt, args);
     TraceLog(reports.strict ? LOG_ERROR : LOG_WARNING, "%s", line.data());
+    // Before strict stops the program: the sink hears every line, the fatal
+    // one included.
+    sink()(std::string_view(line.data()));
     if (reports.strict) {
         TraceLog(LOG_ERROR,
                  "[dev] strict = true: the diagnostic above is fatal in a debug build. "
@@ -89,6 +105,10 @@ StrictHandler set_strict_handler(StrictHandler handler) {
     StrictHandler previous = reports.on_strict;
     reports.on_strict = handler != nullptr ? handler : abort_on_report;
     return previous;
+}
+
+void set_report_sink(rmp::Callback<std::string_view> on_report) {
+    sink() = std::move(on_report);
 }
 
 int report_count() { return static_cast<int>(reports.seen.size()); }

@@ -12,6 +12,7 @@
 #include <rmp/ui.h>
 
 #include "clay.h"
+#include "../ui_internal.h" // the hooks the app, the scenes and rmp::input call
 
 #include <array>
 #include <cstdint>
@@ -38,6 +39,23 @@ bool started();
 // True between begin() and end(). Used to catch mismatched pairs in debug.
 bool frame_open();
 void set_frame_open(bool open);
+
+// The question every entry point asks first: is a frame open for `what` (the
+// function, "button") labelled `label` to go into? True when it is. When it
+// is not, the call is a mistake in the game: it is said once, keyed by what
+// and label, and the caller returns doing nothing.
+bool frame_ready(std::string_view what, std::string_view label);
+
+// begin(o), with the root painted `fill` -- a colour with no alpha paints
+// nothing, which is begin(). The root covers the whole viewport, so a fill
+// takes the pointer everywhere: an overlay's veil.
+void open_frame(const FrameOptions &o, Color fill);
+
+// The pass being described is in front of every pass described before it in
+// the frame: from the next frame on, those take no input -- they cannot be
+// hovered, clicked or focused -- for as long as a pass keeps saying so. What
+// overlay() makes of a frame of its own.
+void set_pass_modal();
 
 // Free Clay's arena and any loaded font. Behind rmp::ui::shutdown().
 void shutdown_context();
@@ -67,6 +85,11 @@ struct NavState {
     // Pressed THIS frame: Escape or the B button. Gives a text field's
     // keyboard back and closes an open dropdown without picking anything.
     bool cancel = false;
+    // Pressed THIS frame: Tab, with or without Shift. It moves the focus like
+    // `y` -- it is in `y` too -- and it is the one key that walks into a HUD
+    // over a game being played (FrameOptions::focus_first). Not the gamepad's
+    // Select: on a console the way to the interface is the pause menu.
+    bool tab = false;
 };
 void read_nav(NavState &out);
 
@@ -156,6 +179,18 @@ bool test_mode();
 // frame_delta(), src/rmp/clock.cpp), so a fixed step fixes the menus too.
 // Everything in the UI that animates takes its time from here.
 float frame_time();
+
+// What frame_time() answers in test mode instead of 0, so a headless test can
+// let a tooltip's delay or a notice's seconds go by. 0 puts it back; a test
+// that sets it sets it back.
+void set_test_frame_time(float seconds);
+
+// The control declared last in the pass -- a button, a checkbox, a slider, a
+// dropdown, a text field -- for what is about it and comes after it
+// (tooltip()). Every control notes itself; taking it forgets it, and a new
+// pass starts with none. 0 for none.
+void note_control(Clay_ElementId id);
+uint32_t take_last_control();
 
 // Pixels to keep clear at the edge of the screen. [android.display]
 // into_cutout draws the game behind the notch, which is right for a background
@@ -323,6 +358,18 @@ void end_focus_frame(); // swap the lists
 void begin_pass_focus();
 void end_pass_focus();
 
+// The pass's FrameOptions::focus_first, handed over by begin() before the pass
+// starts. Unset is the framework's guess: see set_pass_playing() and
+// pass_playing(), in ../ui_internal.h and here.
+void set_pass_focus_first(std::optional<bool> first);
+
+// Whether the pass being described is over a game being played: what the
+// scene stack said with set_pass_playing().
+bool pass_playing();
+
+// Everything the focus remembers, gone: the UI is shutting down.
+void forget_focus();
+
 // True once per press, for whoever has the focus. Enter, Space, or the
 // gamepad's bottom face button.
 bool take_activate();
@@ -400,6 +447,32 @@ WidgetState *state_for(uint32_t id);
 bool pointer_over_ui();
 bool keyboard_captured();
 void focus_by_id(uint32_t id, std::string_view name);
+
+// --- at.cpp ----------------------------------------------------------------
+
+// Is this render command painted by something inside at()? Those do not take
+// the pointer (claim_pointer_over_painted() skips them): a health bar must not
+// stop the enemy under it being clicked. The controls inside take it as
+// controls do, through focus.cpp.
+bool world_passthrough(const Clay_RenderCommand &command);
+
+// --- notify.cpp ------------------------------------------------------------
+
+// The very end of end(), the pass drawn: where a game with no scene stack has
+// its notices drawn, there being no app frame to draw them after.
+void pass_ended();
+
+// --- backdrop.cpp ----------------------------------------------------------
+
+// overlay() is opening a frame of its own: everything drawn so far this frame
+// is the backdrop. With `blur` above 0 it is blurred and put on screen now,
+// when this frame was redirected into a texture for it, and the next frame is
+// redirected; with 0, the next frame is not.
+void blur_backdrop(float blur);
+
+// The texture and the shader go, while the window is still open: the UI is
+// shutting down (shutdown_context()).
+void release_backdrop();
 
 // --- render.cpp ------------------------------------------------------------
 
@@ -515,6 +588,7 @@ NavState nav_from_keys(Down down, Pressed pressed, More more) {
     out.activate = submit || pressed(KEY_SPACE);
     out.submit = submit;
     out.cancel = cancel;
+    out.tab = pressed(KEY_TAB);
     return out;
 }
 

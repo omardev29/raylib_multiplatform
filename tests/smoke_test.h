@@ -30,6 +30,9 @@
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content
 //   RAY_TEST_RENDER_FAIL  — the frame was blank; something stopped drawing
 //   RAY_TEST_DONE_FRAMES  — the frame budget was rendered, exiting cleanly
+//   RAY_TEST_REPORTS=<n>  — printed after it by src/rmp/app.cpp, not by this
+//                           file: how many mistakes of the game's the framework
+//                           reported in the run (RMP_REPORT_ONCE); 0 is correct
 //   RAY_TEST_SCREENSHOT   — the captured frame was written to the PNG named by
 //                           the RAY_TEST_SCREENSHOT environment variable
 //

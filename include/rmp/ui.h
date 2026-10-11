@@ -18,7 +18,12 @@
 //
 //   1. end() draws. So the begin()/end() pair goes between BeginDrawing() and
 //      EndDrawing(), and before SmokeTest_CaptureFrame() if you keep that.
-//   2. One UI frame per game frame.
+//   2. Describe it where it is drawn: in a scene's _draw(), in screen space.
+//      Not in _update(), which draws nothing, and not in an object's _draw(),
+//      which runs under the camera -- at() is how a box follows the world. A
+//      call in the wrong place is reported once, and does nothing. Each
+//      begin()/end() pair is a pass, and a frame may hold several: a HUD and
+//      the pause menu over it, or a screen and its overlay().
 //   3. Interaction uses the previous frame's geometry. A button cannot be
 //      clicked on the very first frame it appears — 16 ms at 60 fps. This is
 //      inherent to immediate mode; see TECHNICAL.md for why the alternative is
@@ -37,8 +42,10 @@
 
 // The standard library this header pays for, measured in tools/header_budget.txt:
 // <string_view> for every label, <string> for the text a text_input() edits,
-// <span> and <initializer_list> for a dropdown's items.
+// <span> and <initializer_list> for a dropdown's items, <optional> for a
+// frame's focus_first, which can be left to the framework.
 #include <initializer_list>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -313,6 +320,18 @@ struct FrameOptions {
     //     rmp::ui::row({ .grow_x = true, .grow_y = true }, [&] { side(); main(); });
     //     rmp::ui::end();
     bool grow = false;
+    // Whether the frame's first control takes the focus by itself, so that
+    // Enter and the A button press it the moment it appears. Left unset, the
+    // framework decides: yes -- which is what keeps a menu three functions
+    // long -- unless the scene drawing it reads the keys the interface
+    // navigates with (Enter, Space, the arrows, Tab, the d-pad, the A button,
+    // the left stick) through rmp::input. That scene is being played, so this
+    // is a HUD over it: its controls take no focus and no key until the player
+    // presses Tab, and Escape, the B button or a click elsewhere hands the keys
+    // back to the game. true or false decides it yourself.
+    //
+    //     rmp::ui::begin({ .placement = rmp::ui::Align::TOP_RIGHT, .focus_first = false });
+    std::optional<bool> focus_first{};
 };
 
 // Open the UI for this frame. The default is a centred column, which is what
@@ -323,6 +342,71 @@ void begin(const FrameOptions &o);
 // Lay out, resolve interaction, and draw. Call it between BeginDrawing() and
 // EndDrawing().
 void end();
+
+// ---------------------------------------------------------------------------
+// Overlays
+//
+// A pause menu, a "Really quit?", a game-over card: something in front of
+// everything else, with what is behind it dimmed -- or blurred -- so that the
+// eye goes where the player has to act. It is a frame of its own, so it takes
+// the place of begin()/end() rather than going between them:
+//
+//     void PauseScene::_draw() {
+//         rmp::ui::overlay({ .blur = 6, .dim = 0.4f }, [] {
+//             if (rmp::ui::button("Resume")) rmp::Scene::pop();
+//             if (rmp::ui::button("Quit")) rmp::app::quit();
+//         });
+//     }
+//
+// Everything drawn earlier in the frame is behind it, dimmed towards `veil`
+// and blurred when asked; its own content is drawn on top of that, sharp. The
+// veil takes the pointer everywhere, so a click outside the menu does not
+// reach the game; from the next frame the passes described before it take no
+// input, so the focus stays inside it; and its first control takes the
+// focus, so Enter presses it -- whatever the scene underneath reads.
+//
+// A dialog is no more than this with a panel() inside it. Called while
+// another frame is open, it reports once and puts its content in that frame,
+// over a veil and without the blur.
+// ---------------------------------------------------------------------------
+
+// How overlay() covers what is under it, and where its content goes.
+struct OverlayOptions {
+    Align placement = Align::CENTER; // where its content sits, as FrameOptions::placement
+    // How far to blur what is underneath, in design units; 0 = no blur, which
+    // costs one rectangle. A real blur on every GPU raylib drives, OpenGL ES
+    // 2.0 and WebGL included. raylib's software renderer has no shaders, so
+    // there -- and wherever a shader cannot be built -- the veil comes alone.
+    float blur = 0;
+    float dim = 0.45f; // 0..1: how far what is underneath goes towards `veil`
+    Color veil = CLITERAL(Color){ 0, 0, 0, 255 }; // what it is dimmed towards
+};
+
+namespace detail {
+// Not for you: the non-template halves of overlay(), as for the containers
+// below. See src/rmp/ui/overlay.cpp.
+void open_overlay(const OverlayOptions &o);
+void close_overlay();
+
+// Closes the overlay even if the body throws: a guard, one per overlay, never
+// copied or moved -- see Closer, below.
+struct OverlayCloser {
+    OverlayCloser() = default;
+    ~OverlayCloser() { close_overlay(); }
+    OverlayCloser(const OverlayCloser &) = delete;
+    OverlayCloser &operator=(const OverlayCloser &) = delete;
+};
+} // namespace detail
+
+// A frame in front of everything drawn before it. See above.
+template <class Body> void overlay(const OverlayOptions &o, Body &&body) {
+    detail::open_overlay(o);
+    const detail::OverlayCloser close;
+    body();
+}
+template <class Body> void overlay(Body &&body) {
+    overlay(OverlayOptions{}, static_cast<Body &&>(body));
+}
 
 // ---------------------------------------------------------------------------
 // Widgets
@@ -767,6 +851,95 @@ bool text_input(std::string_view label, std::string &value);
 bool text_input(std::string_view label, std::string &value, const TextInputOptions &o);
 
 // ---------------------------------------------------------------------------
+// Over the world, over a control, over everything
+//
+// Three things that float over the rest of the interface instead of taking a
+// place in its column: a box that follows something in the world, a line
+// about the control under the pointer, and a message that comes and goes by
+// itself.
+// ---------------------------------------------------------------------------
+
+// Where at() puts its box, relative to the point it follows.
+struct AtOptions {
+    // The point of the box that sits on the world position: BOTTOM_CENTER puts
+    // the box above it, which is where a health bar or a name goes.
+    Align anchor = Align::BOTTOM_CENTER;
+    Vector2 offset{ 0, 0 }; // design units, after projecting: { 0, -8 } lifts it
+    std::string_view id{}; // a stable name for the box, as BoxOptions::id
+};
+
+namespace detail {
+// Not for you: the non-template halves of at(). See src/rmp/ui/at.cpp.
+void open_at(Vector2 world, const AtOptions &o);
+void close_at();
+
+// A guard, as Closer is.
+struct AtCloser {
+    AtCloser() = default;
+    ~AtCloser() { close_at(); }
+    AtCloser(const AtCloser &) = delete;
+    AtCloser &operator=(const AtCloser &) = delete;
+};
+} // namespace detail
+
+// A box over a point of the WORLD, wherever the scene's camera shows it --
+// zoomed, scrolled, shaken and stretched with it. Between begin() and end(),
+// in the scene's _draw(), like everything else here:
+//
+//     rmp::ui::begin();
+//     for (const rmp::Handle<Enemy> &e : enemies)
+//         if (e) rmp::ui::at(e->position, [&] { rmp::ui::progress(e->hp / 10.0f); });
+//     rmp::ui::end();
+//
+// What it paints does not take the pointer: a click on the enemy under its
+// health bar still reaches the enemy. A control inside it is a control like
+// any other -- it can be clicked and focused where it is drawn. Without
+// scenes there is no camera, and the world is the screen.
+template <class Body> void at(Vector2 world, const AtOptions &o, Body &&body) {
+    detail::open_at(world, o);
+    const detail::AtCloser close;
+    body();
+}
+template <class Body> void at(Vector2 world, Body &&body) {
+    at(world, AtOptions{}, static_cast<Body &&>(body));
+}
+
+// How tooltip() places its line, and how long it waits.
+struct TooltipOptions {
+    Align side = Align::TOP_CENTER; // which side of the control it appears on
+    float delay = 0.5f; // seconds the pointer rests on the control before it shows
+};
+
+// A line about the control declared just before it, shown while the pointer
+// rests on that control, or while the keyboard or gamepad focus is on it:
+//
+//     if (rmp::ui::button("Sell")) sell(item);
+//     rmp::ui::tooltip("Gives you half of what it cost");
+//
+// The text is copied. One with no control before it in the frame is reported
+// once and shows nothing.
+void tooltip(std::string_view text);
+void tooltip(std::string_view text, const TooltipOptions &o);
+
+// How long notify() keeps a message, and its colour.
+struct NotifyOptions {
+    float seconds = 3; // on screen for this long, then it fades out
+    ColorRole color = ColorRole::TEXT; // which theme colour the text is painted in
+};
+
+// A short message at the bottom of the screen that goes away by itself:
+// "Saved", "Achievement unlocked". Call it from anywhere -- _update(), a
+// callback, a frame with no UI -- because it only queues: the framework draws
+// what is queued over everything else, and it never takes the pointer or the
+// focus. The newest few are shown, one above the other.
+//
+// In a debug build the framework's own warnings arrive here too: a mistake it
+// reports once in the log (an action nobody defined, a widget outside
+// begin()/end()) is also said on screen, where it cannot scroll past.
+void notify(std::string_view text);
+void notify(std::string_view text, const NotifyOptions &o);
+
+// ---------------------------------------------------------------------------
 // Input, and who gets it
 //
 // The UI reads the pointer and the keyboard itself. These two are how your game
@@ -817,6 +990,12 @@ bool wants_keyboard();
 // appears. With two scenes drawing, the one on top gets it — unless the one
 // underneath is still reachable (Scene::input_below), which is the case where
 // it can hold the focus and the arrows can walk between the two.
+//
+// EXCEPT OVER A GAME BEING PLAYED. A scene that reads the keys the interface
+// navigates with is a game, and its UI a HUD: Space is a jump there, not a
+// press of the HUD's first button. Its controls wait for Tab, and give the
+// keys back on Escape, the B button or a click elsewhere. FrameOptions::
+// focus_first says it the other way, either way, when the guess is wrong.
 //
 // The RING, though, only appears once the player touches the keyboard or the
 // gamepad, and goes away again on a click. Someone playing with a mouse should
@@ -878,7 +1057,9 @@ namespace detail {
 // WITHOUT AN APP none of this changes for you: the first begin() of a frame
 // marks the boundary itself and end() closes it, which is exactly what happened
 // before any of this existed. rmp::ui on its own, in a plain raylib loop, is
-// still begin() and end() and nothing else.
+// still begin() and end() and nothing else. (RMP_ENTRY_POINT's runner marks it
+// too, around your frame hook, so two passes in one of its frames are still
+// one frame.)
 void begin_frame();
 void end_frame();
 

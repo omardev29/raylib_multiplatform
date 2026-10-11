@@ -11,6 +11,12 @@
 
 #include "../src/rmp/internal.h"
 
+#include <rmp/object.h> // rmp::Callback, what the sink is
+
+#include <string>
+#include <string_view>
+#include <vector>
+
 namespace {
 
 struct {
@@ -35,9 +41,25 @@ struct Fixture {
     ~Fixture() {
         rmp::detail::set_strict(false);
         rmp::detail::set_strict_handler(previous);
+        rmp::detail::set_report_sink({});
         rmp::detail::reset_reports_for_tests();
     }
 };
+
+// What the sink heard, and how many stops strict had made by then.
+struct {
+    std::vector<std::string> lines;
+    std::vector<int> stops_before;
+} heard;
+
+void listen() {
+    heard.lines.clear();
+    heard.stops_before.clear();
+    rmp::detail::set_report_sink([](std::string_view line) {
+        heard.lines.emplace_back(line);
+        heard.stops_before.push_back(strict.stops);
+    });
+}
 
 } // namespace
 
@@ -100,6 +122,33 @@ TEST_SUITE("report_once") {
         warn_keyed("fire");
         CHECK(strict.stops == 0);
         CHECK(rmp::detail::report_count() == 2);
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "the sink hears each new line once, as the log says it") {
+        listen();
+        for (int i = 0; i < 60; ++i) warn_from_one_site(7);
+        warn_keyed("jump");
+        warn_keyed("jump");
+        REQUIRE(heard.lines.size() == 2);
+        CHECK(heard.lines[0] == "test: warning number 7");
+        CHECK(heard.lines[1] == "test: about jump");
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "under strict the sink hears the line before the stop") {
+        listen();
+        rmp::detail::set_strict(true);
+        warn_keyed("fire");
+        REQUIRE(heard.lines.size() == 1);
+        CHECK(heard.stops_before[0] == 0);
+        CHECK(strict.stops == 1);
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "an empty sink is taken away") {
+        listen();
+        rmp::detail::set_report_sink({});
+        warn_keyed("gone");
+        CHECK(heard.lines.empty());
+        CHECK(rmp::detail::report_count() == 1);
     }
 
     TEST_CASE_FIXTURE(Fixture, "a null handler is the default abort, not a null call") {

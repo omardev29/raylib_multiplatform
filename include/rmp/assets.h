@@ -340,4 +340,16 @@ std::vector<unsigned char> load_data(std::string_view name); // empty when it is
 int requested_loads();
 int failed_loads();
 
+namespace detail {
+// Not for you: the two GPU objects rmp::ui::overlay() blurs with
+// (src/rmp/ui/backdrop.cpp). raylib's Load* calls live in this module and
+// nowhere else -- tools/ownership_check.sh -- so the backdrop asks here, and
+// gets a handle that unloads itself like every other one. Each is empty, and
+// touches no GPU, when there is nothing to make: a texture with no area, a
+// shader with no fragment source. An empty `vertex` is raylib's default
+// vertex shader.
+rmp::RenderTexture make_render_texture(int width, int height);
+rmp::Shader make_shader(std::string_view vertex, std::string_view fragment);
+} // namespace detail
+
 } // namespace rmp::assets

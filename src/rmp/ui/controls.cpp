@@ -110,6 +110,7 @@ bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
+    detail::note_control(id);
     const bool over = o.enabled && detail::pointer_over(id);
     if (over) detail::set_pointer_over_ui();
 
@@ -183,6 +184,7 @@ bool slider(std::string_view label, float &value, float min, float max,
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
+    detail::note_control(id);
     const Clay_ElementId track_id = detail::sub_id(id, 0); // the slider's rail
 
     const bool has_focus = o.enabled && detail::focusable(id, label);
@@ -345,6 +347,7 @@ bool dropdown(std::string_view label, int &selected,
     if (selected >= count) selected = count - 1;
 
     const Clay_ElementId id = detail::element_id(label, o.id);
+    detail::note_control(id);
     detail::WidgetState *st = detail::state_for(id.id);
 
     const bool over = o.enabled && detail::pointer_over(id);
@@ -520,6 +523,7 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
+    detail::note_control(id);
     const bool over = o.enabled && detail::pointer_over(id);
     if (over) detail::set_pointer_over_ui();
 
