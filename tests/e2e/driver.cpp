@@ -14,15 +14,18 @@
 //               and the UI's, which read one clock;
 //   the hands   rmp::input's devices AND the UI's navigation and pointer,
 //               which are two seams (CLAUDE.md says why), fed from what the
-//               script holds down; the input for frame N+1 is set at the end
-//               of frame N, which is when a real keyboard changes;
+//               script holds down -- the keyboard, the first gamepad's
+//               buttons and the mouse; the input for frame N+1 is set at the
+//               end of frame N, which is when a real keyboard changes;
 //   the disk    rmp::save writes to a fresh folder under the build tree, so
 //               a best score from the last run cannot change this one;
 //   the sound   no device, the same on a laptop with speakers and in a CI
 //               container without any;
 //   the eyes    at the end of every frame, after EndDrawing() -- valid here,
 //               where the framebuffer is memory (tests/smoke_test.h) -- the
-//               script's shots and expectations for that frame.
+//               script's shots and expectations for that frame, and on
+//               every frame whether the example put a control where nobody
+//               can reach it (rmp::ui::detail::controls_out_of_reach()).
 //
 // What it prints: `E2E SHOT <name> <w>x<h> hash=<fnv>` for every shot (two
 // runs, or the image and a laptop, compare by those), `E2E FAIL <line>:
@@ -63,6 +66,7 @@
 #include <raylib.h>
 #include <smoke_test.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -106,6 +110,8 @@ struct {
     Mode mode = Mode::REPORT;
     fs::path golden;
     fs::path out;
+    // The controls already reported as out of reach, each said once.
+    std::vector<std::string> unreachable;
     // When it started, for the line that says how long it took: real time,
     // which the game never sees. A duration since the clock's epoch, because a
     // time_point's constructor may throw and this is built before main().
@@ -117,7 +123,7 @@ struct {
 struct {
     rmp::input::detail::DeviceState now;
     rmp::input::detail::DeviceState before;
-    std::vector<int> tapped;
+    std::vector<e2e::Step> tapped;
     bool clicked = false;
 } hands;
 
@@ -146,15 +152,31 @@ bool down(int key) { return hands.now.keys[slot(key)]; }
 bool pressed(int key) {
     return hands.now.keys[slot(key)] && !hands.before.keys[slot(key)];
 }
+bool pad_down(int button) { return hands.now.pad[slot(button)]; }
+bool pad_pressed(int button) {
+    return hands.now.pad[slot(button)] && !hands.before.pad[slot(button)];
+}
+
+// What a key step works: a key, or one of the first gamepad's buttons.
+bool &held(const e2e::Step &step) {
+    return step.pad ? hands.now.pad[slot(step.key)] : hands.now.keys[slot(step.key)];
+}
 
 void sample(rmp::input::detail::DeviceState &out) { out = hands.now; }
 
-// The keyboard's navigation, from the script's keyboard: the same function
-// nav_from_raylib() reads a real one with (src/rmp/ui/internal.h). No gamepad.
+// The UI's navigation, from the script's keyboard and gamepad: the same two
+// functions nav_from_raylib() reads real ones with (src/rmp/ui/internal.h).
+// The sticks rest at 0: a script has buttons and no axes.
 void navigate(rmp::ui::detail::NavState &out) {
-    out = rmp::ui::detail::nav_from_keys([](int key) { return down(key); },
-                                         [](int key) { return pressed(key); },
-                                         [](int &, int &, bool &, bool &) {});
+    out = rmp::ui::detail::nav_from_keys(
+        [](int key) { return down(key); }, [](int key) { return pressed(key); },
+        [](int &x, int &y, bool &submit, bool &cancel) {
+            rmp::ui::detail::nav_from_pad(
+                [](int button) { return pad_down(button); },
+                [](int button) { return pad_pressed(button); },
+                [](int axis) { return hands.now.axes[slot(axis)]; }, x, y, submit,
+                cancel);
+        });
 }
 
 void point(Clay_Vector2 &position, bool &button) {
@@ -169,7 +191,7 @@ bool no_sound() { return false; }
 // then every input step of that frame, in the order written.
 void hands_for(int frame) {
     hands.before = hands.now;
-    for (const int key : hands.tapped) hands.now.keys[slot(key)] = false;
+    for (const e2e::Step &tap : hands.tapped) held(tap) = false;
     hands.tapped.clear();
     if (hands.clicked) {
         hands.now.mouse[MOUSE_BUTTON_LEFT] = false;
@@ -181,14 +203,14 @@ void hands_for(int frame) {
         ++run.next_input;
         switch (step.verb) {
             case e2e::Verb::PRESS:
-                hands.now.keys[slot(step.key)] = true;
+                held(step) = true;
                 break;
             case e2e::Verb::RELEASE:
-                hands.now.keys[slot(step.key)] = false;
+                held(step) = false;
                 break;
             case e2e::Verb::TAP:
-                hands.now.keys[slot(step.key)] = true;
-                hands.tapped.push_back(step.key);
+                held(step) = true;
+                hands.tapped.push_back(step);
                 break;
             case e2e::Verb::CLICK:
                 hands.now.pointer =
@@ -288,8 +310,25 @@ void finish(const e2e::Step &step) {
     rmp::app::quit();
 }
 
-// The end of every frame: the seed, once, then this frame's checks, then the
-// next frame's input.
+// Every frame, whatever the script checks: a control the example drew
+// where nobody can reach it -- outside its window, in no scroll area --
+// cannot be seen or clicked by anyone, and no shot of it would say so if the
+// script never looked down there. ui/04_settings drew its Apply button below
+// the bottom of its own 800x450 window, and the style page half of itself.
+void reach() {
+    for (const std::string &name : rmp::ui::detail::controls_out_of_reach()) {
+        if (std::ranges::find(run.unreachable, name) != run.unreachable.end()) continue;
+        run.unreachable.push_back(name);
+        fail(0,
+             "frame " + std::to_string(run.frame) + " lays out the control `" + name +
+                 "` outside its " + std::to_string(GetScreenWidth()) + "x" +
+                 std::to_string(GetScreenHeight()) +
+                 " window and in no scroll area: nobody can see it or click it");
+    }
+}
+
+// The end of every frame: the seed, once, what nobody can reach, then this
+// frame's checks, then the next frame's input.
 void on_frame_end() {
     if (run.ended) return;
     if (run.frame == 0 && rmp::random::current_seed() != SEED) {
@@ -299,6 +338,7 @@ void on_frame_end() {
                  ": begin_run() did not take set_test_seed(), or the game seeded it "
                  "itself -- and a run seeded differently is a different run");
     }
+    reach();
     const std::vector<e2e::Step> &steps = run.script.steps;
     while (run.next_check < steps.size() && steps[run.next_check].frame <= run.frame) {
         const e2e::Step &step = steps[run.next_check];

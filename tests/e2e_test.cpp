@@ -15,6 +15,7 @@
 #include "e2e/script.h"
 
 #include <raylib.h>
+#include <rmp/input.h>
 
 #include <filesystem>
 #include <random>
@@ -186,6 +187,54 @@ TEST_SUITE("e2e: the script") {
         refuses("12 PRESS KEY_A\n", 1, "unknown verb `PRESS`");
     }
 
+    TEST_CASE("the first gamepad's buttons, beside the keys") {
+        e2e::Script script;
+        e2e::ParseError error;
+        REQUIRE(e2e::parse("1 press GAMEPAD_BUTTON_LEFT_FACE_DOWN\n"
+                           "1 press KEY_DOWN\n"
+                           "9 release GAMEPAD_BUTTON_LEFT_FACE_DOWN\n"
+                           "10 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n"
+                           "12 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n"
+                           "12 shot a\n12 end\n",
+                           script, error));
+        INFO(error.reason);
+        REQUIRE(script.steps.size() == 7);
+        CHECK(script.steps[0].verb == e2e::Verb::PRESS);
+        CHECK(script.steps[0].pad);
+        CHECK(script.steps[0].key == GAMEPAD_BUTTON_LEFT_FACE_DOWN);
+        CHECK_FALSE(script.steps[1].pad);
+        CHECK(script.steps[1].key == KEY_DOWN);
+        CHECK(script.steps[2].verb == e2e::Verb::RELEASE);
+        CHECK(script.steps[2].pad);
+        CHECK(script.steps[3].verb == e2e::Verb::TAP);
+        CHECK(script.steps[3].key == GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+        CHECK(script.steps[3].pad);
+        CHECK_FALSE(script.steps[5].pad); // a shot is no button
+    }
+
+    TEST_CASE("a button goes down once and comes up once, as a key does") {
+        refuses(
+            "1 press GAMEPAD_BUTTON_LEFT_FACE_UP\n2 press GAMEPAD_BUTTON_LEFT_FACE_UP\n",
+            2, "GAMEPAD_BUTTON_LEFT_FACE_UP is already held: pressed on line 1");
+        refuses("1 release GAMEPAD_BUTTON_MIDDLE\n", 1,
+                "release GAMEPAD_BUTTON_MIDDLE, which is not held");
+        refuses("1 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n2 tap "
+                "GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n",
+                2, "GAMEPAD_BUTTON_RIGHT_FACE_DOWN was tapped at frame 1 (line 1)");
+        refuses("0 tap GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n", 1, "tap at frame 0");
+        refuses("1 press GAMEPAD_BUTTON_UNKNOWN\n", 1,
+                "`GAMEPAD_BUTTON_UNKNOWN` is not a key or a gamepad button");
+        refuses("1 press GAMEPAD_AXIS_LEFT_X\n", 1, "is not a key or a gamepad button");
+        refuses("1 press gamepad_button_middle\n", 1, "is not a key or a gamepad button");
+        // A key and a button are two things: holding one says nothing of the
+        // other.
+        e2e::Script script;
+        e2e::ParseError error;
+        CHECK(e2e::parse("1 press KEY_ENTER\n1 press GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n"
+                         "2 release GAMEPAD_BUTTON_RIGHT_FACE_DOWN\n2 shot a\n2 end\n",
+                         script, error));
+    }
+
     TEST_CASE("keys") {
         refuses("12 press\n", 1, "press needs a key");
         refuses("12 tap\n", 1, "tap needs a key");
@@ -268,6 +317,22 @@ TEST_SUITE("e2e: the script") {
         CHECK_FALSE(e2e::key_named("KEY_").has_value());
         CHECK(e2e::key_name(KEY_ENTER) == "KEY_ENTER");
         CHECK(e2e::key_name(9999) == "key 9999");
+        CHECK(e2e::pad_button_named("GAMEPAD_BUTTON_LEFT_FACE_UP") ==
+              GAMEPAD_BUTTON_LEFT_FACE_UP);
+        CHECK(e2e::pad_button_named("GAMEPAD_BUTTON_RIGHT_THUMB") ==
+              GAMEPAD_BUTTON_RIGHT_THUMB);
+        CHECK_FALSE(e2e::pad_button_named("GAMEPAD_BUTTON_UNKNOWN").has_value());
+        CHECK_FALSE(e2e::pad_button_named("KEY_SPACE").has_value());
+        CHECK_FALSE(e2e::key_named("GAMEPAD_BUTTON_MIDDLE").has_value());
+        CHECK(e2e::pad_button_name(GAMEPAD_BUTTON_MIDDLE_RIGHT) ==
+              "GAMEPAD_BUTTON_MIDDLE_RIGHT");
+        CHECK(e2e::pad_button_name(99) == "gamepad button 99");
+        // Every button rmp::input holds has a name, and only those: one past
+        // the last is no button.
+        for (int b = GAMEPAD_BUTTON_LEFT_FACE_UP; b <= GAMEPAD_BUTTON_RIGHT_THUMB; ++b) {
+            CHECK(e2e::pad_button_named(e2e::pad_button_name(b)) == b);
+        }
+        CHECK(GAMEPAD_BUTTON_RIGHT_THUMB < rmp::input::detail::DeviceState::PAD_BUTTONS);
     }
 }
 

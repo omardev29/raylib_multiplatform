@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <map>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -134,6 +135,36 @@ constexpr auto KEYS = std::to_array<KeyName>({
     { "KEY_KP_EQUAL", KEY_KP_EQUAL },
 });
 
+// raylib's GamepadButton, every one but GAMEPAD_BUTTON_UNKNOWN: what
+// rmp::input's DeviceState holds for the first gamepad, and what the UI's
+// navigation reads (nav_from_pad() in src/rmp/ui/internal.h).
+constexpr auto PAD_BUTTONS = std::to_array<KeyName>({
+    { "GAMEPAD_BUTTON_LEFT_FACE_UP", GAMEPAD_BUTTON_LEFT_FACE_UP },
+    { "GAMEPAD_BUTTON_LEFT_FACE_RIGHT", GAMEPAD_BUTTON_LEFT_FACE_RIGHT },
+    { "GAMEPAD_BUTTON_LEFT_FACE_DOWN", GAMEPAD_BUTTON_LEFT_FACE_DOWN },
+    { "GAMEPAD_BUTTON_LEFT_FACE_LEFT", GAMEPAD_BUTTON_LEFT_FACE_LEFT },
+    { "GAMEPAD_BUTTON_RIGHT_FACE_UP", GAMEPAD_BUTTON_RIGHT_FACE_UP },
+    { "GAMEPAD_BUTTON_RIGHT_FACE_RIGHT", GAMEPAD_BUTTON_RIGHT_FACE_RIGHT },
+    { "GAMEPAD_BUTTON_RIGHT_FACE_DOWN", GAMEPAD_BUTTON_RIGHT_FACE_DOWN },
+    { "GAMEPAD_BUTTON_RIGHT_FACE_LEFT", GAMEPAD_BUTTON_RIGHT_FACE_LEFT },
+    { "GAMEPAD_BUTTON_LEFT_TRIGGER_1", GAMEPAD_BUTTON_LEFT_TRIGGER_1 },
+    { "GAMEPAD_BUTTON_LEFT_TRIGGER_2", GAMEPAD_BUTTON_LEFT_TRIGGER_2 },
+    { "GAMEPAD_BUTTON_RIGHT_TRIGGER_1", GAMEPAD_BUTTON_RIGHT_TRIGGER_1 },
+    { "GAMEPAD_BUTTON_RIGHT_TRIGGER_2", GAMEPAD_BUTTON_RIGHT_TRIGGER_2 },
+    { "GAMEPAD_BUTTON_MIDDLE_LEFT", GAMEPAD_BUTTON_MIDDLE_LEFT },
+    { "GAMEPAD_BUTTON_MIDDLE", GAMEPAD_BUTTON_MIDDLE },
+    { "GAMEPAD_BUTTON_MIDDLE_RIGHT", GAMEPAD_BUTTON_MIDDLE_RIGHT },
+    { "GAMEPAD_BUTTON_LEFT_THUMB", GAMEPAD_BUTTON_LEFT_THUMB },
+    { "GAMEPAD_BUTTON_RIGHT_THUMB", GAMEPAD_BUTTON_RIGHT_THUMB },
+});
+
+std::optional<int> named(std::span<const KeyName> table, std::string_view name) {
+    for (const KeyName &k : table) {
+        if (k.name == name) return k.key;
+    }
+    return std::nullopt;
+}
+
 constexpr std::string_view VERBS = "press, release, tap, click, shot, expect or end";
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
@@ -194,8 +225,9 @@ bool valid_class(std::string_view name) {
 
 std::string quoted(std::string_view word) { return "`" + std::string(word) + "`"; }
 
-// What holds a key down, or the button: the line and frame that put it there,
-// and whether it was a tap (or a click), which lets go on its own a frame later.
+// What holds a key or a button down, or the mouse's: the line and frame that
+// put it there, and whether it was a tap (or a click), which lets go on its
+// own a frame later.
 struct Down {
     int line = 0;
     int frame = -1;
@@ -233,8 +265,11 @@ private:
     int _frame = 0; // its frame
     int _last_frame = 0;
     int _last_frame_line = 0;
-    std::map<int, Down> _down; // key -> what holds it
-    std::map<int, Down> _released; // key -> the release that let it go last
+    // By name, so that a key and a gamepad button with the same number are
+    // two things: KEY_... or GAMEPAD_BUTTON_... -> what holds it, and the
+    // release that let it go last.
+    std::map<std::string, Down, std::less<>> _down;
+    std::map<std::string, Down, std::less<>> _released;
     Down _mouse; // the last click
     std::map<std::string, int, std::less<>> _shots; // name -> line
     bool _checks = false;
@@ -251,22 +286,28 @@ bool Parser::no_input_at_the_start(std::string_view verb_word) {
 
 bool Parser::key_step(Verb verb, std::string_view verb_word,
                       const std::vector<std::string_view> &args) {
-    if (args.empty())
-        return fail(std::string(verb_word) + " needs a key, such as KEY_SPACE");
+    if (args.empty()) {
+        return fail(std::string(verb_word) +
+                    " needs a key or a gamepad button, such as KEY_SPACE");
+    }
     if (args.size() > 1)
         return fail(std::string(verb_word) + " takes one key; " + quoted(args[1]) +
                     " is extra");
     const std::optional<int> key = key_named(args[0]);
-    if (!key)
-        return fail(quoted(args[0]) + " is not a key: raylib's names, such as KEY_SPACE");
+    const std::optional<int> button = key ? std::nullopt : pad_button_named(args[0]);
+    if (!key && !button) {
+        return fail(quoted(args[0]) +
+                    " is not a key or a gamepad button: raylib's names, such as "
+                    "KEY_SPACE or GAMEPAD_BUTTON_RIGHT_FACE_DOWN");
+    }
     if (!no_input_at_the_start(verb_word)) return false;
     const std::string name(args[0]);
 
     // A tap two or more frames ago is over: it went down and came up.
-    const auto it = _down.find(*key);
+    const auto it = _down.find(name);
     if (it != _down.end() && it->second.tap && it->second.frame < _frame - 1)
         _down.erase(it);
-    const auto held = _down.find(*key);
+    const auto held = _down.find(name);
     const std::string line_of =
         held != _down.end() ? std::to_string(held->second.line) : "";
     if (verb == Verb::RELEASE) {
@@ -281,8 +322,8 @@ bool Parser::key_step(Verb verb, std::string_view verb_word,
                         line_of + ": it never goes down -- a tap is one frame");
         }
         _down.erase(held);
-        _released[*key] = Down{ _line, _frame, false };
-    } else if (const auto up = _released.find(*key);
+        _released[name] = Down{ _line, _frame, false };
+    } else if (const auto up = _released.find(name);
                up != _released.end() && up->second.frame == _frame) {
         return fail(name + " is released at this frame, on line " +
                     std::to_string(up->second.line) + ": press it from frame " +
@@ -297,9 +338,13 @@ bool Parser::key_step(Verb verb, std::string_view verb_word,
                     std::to_string(_frame) + ": press it from frame " +
                     std::to_string(_frame + 1) + ", or it never comes up");
     } else {
-        _down[*key] = Down{ _line, _frame, verb == Verb::TAP };
+        _down[name] = Down{ _line, _frame, verb == Verb::TAP };
     }
-    _steps.push_back(Step{ .line = _line, .frame = _frame, .verb = verb, .key = *key });
+    _steps.push_back(Step{ .line = _line,
+                           .frame = _frame,
+                           .verb = verb,
+                           .key = key ? *key : *button,
+                           .pad = !key });
     return true;
 }
 
@@ -443,18 +488,24 @@ bool parse(std::string_view text, Script &out, ParseError &error) {
     return true;
 }
 
-std::optional<int> key_named(std::string_view name) {
-    for (const KeyName &k : KEYS) {
-        if (k.name == name) return k.key;
-    }
-    return std::nullopt;
-}
+std::optional<int> key_named(std::string_view name) { return named(KEYS, name); }
 
 std::string key_name(int key) {
     for (const KeyName &k : KEYS) {
         if (k.key == key) return std::string(k.name);
     }
     return "key " + std::to_string(key);
+}
+
+std::optional<int> pad_button_named(std::string_view name) {
+    return named(PAD_BUTTONS, name);
+}
+
+std::string pad_button_name(int button) {
+    for (const KeyName &k : PAD_BUTTONS) {
+        if (k.key == button) return std::string(k.name);
+    }
+    return "gamepad button " + std::to_string(button);
 }
 
 std::string readable_type(std::string_view raw) {
