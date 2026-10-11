@@ -2599,6 +2599,63 @@ def compute_stamp() -> str:
 # CLI
 # ---------------------------------------------------------------------------
 
+def narrow_to(value: str, targets: list[str]) -> list[str]:
+    """--only's value applied to the enabled `targets`: one group or target,
+    or several separated by commas -- `linux-x64-glibc,windows-x64,macos`, the
+    platforms a red fast lane involves and nothing else. The union of what the
+    names select, in the canonical order, and never more than is enabled.
+
+    It arrives from a text box on a web page, so every way it can be wrong is
+    a named error that says which item: an empty value, an empty item (a comma
+    too many), a name given twice, a name that is not a target or a group, and
+    a name whose targets are all switched off in [targets] -- a debug lane that
+    asked for a platform and quietly did not build it would be a green that
+    proved nothing about it. Spaces around a name are tolerated, as they were
+    when it took one name; a space INSIDE one is two names without the comma,
+    and is refused saying so."""
+    if not value.strip():
+        raise ConfigError(
+            "--only was given an empty value. Leave it out to build every "
+            "enabled target.")
+    items = value.split(",")
+    many = len(items) > 1
+    enabled = ", ".join(targets)
+    seen: dict[str, int] = {}
+    wanted: set[str] = set()
+    for position, raw in enumerate(items, 1):
+        name = raw.strip()
+        where = f" (item {position} of {len(items)} in {value!r})" if many else ""
+        if not name:
+            raise ConfigError(
+                f"--only {value!r}: item {position} of {len(items)} is empty -- a comma too "
+                "many. Separate the names with single commas, e.g. "
+                "--only linux-x64-glibc,windows-x64,macos.")
+        if name in seen:
+            raise ConfigError(
+                f"--only {value!r}: {name!r} is named twice, as items {seen[name]} and "
+                f"{position}. Name each group or target once.")
+        seen[name] = position
+        if name in GROUPS:
+            group = set(GROUPS[name])
+        elif name in TARGETS:
+            group = {name}
+        else:
+            known = ", ".join(sorted(set(GROUPS) | set(TARGETS)))
+            hint = ""
+            if len(name.split()) > 1:
+                hint = ("\nThe names are separated by commas, not spaces: "
+                        f"--only {','.join(name.split())}")
+            raise ConfigError(
+                f"--only {name!r} is not a target or a group{where}.{hint}\nKnown: {known}")
+        mine = [t for t in targets if t in group]
+        if not mine:
+            raise ConfigError(
+                f"--only {name!r} leaves nothing to build{where}: none of its targets "
+                f"are enabled in [targets].\nEnabled: {enabled}")
+        wanted.update(mine)
+    return [t for t in targets if t in wanted]
+
+
 def _print_matrix(cfg: dict, family: str, targets: list[str]) -> None:
     # `targets` is passed in rather than recomputed, because --only narrows it
     # and a matrix that re-derived its own list ignored the narrowing: a
@@ -2732,9 +2789,11 @@ def main(argv: list[str]) -> int:
                          "and rmp deploy in a game)")
     ap.add_argument("--print-name", action="store_true")
     ap.add_argument("--print-targets", action="store_true")
-    ap.add_argument("--only", metavar="GROUP_OR_TARGET",
-                    help="narrow the printed targets to a group or a single target, "
-                         "so one family can be run on its own (e.g. --only drm). "
+    ap.add_argument("--only", metavar="GROUP_OR_TARGET[,...]",
+                    help="narrow the printed targets to groups or targets, separated by "
+                         "commas, so one family -- or the platforms a red run involves -- "
+                         "can be run on its own (e.g. --only drm, or --only "
+                         "linux-x64-glibc,windows-x64,macos). "
                          "Only valid together with a --print-* flag.")
     ap.add_argument("--print-glibc", action="store_true",
                     help="[linux] glibc, the oldest glibc the binary may need")
@@ -2824,7 +2883,9 @@ def main(argv: list[str]) -> int:
     if args.only is not None:
         # Narrows what CI runs without touching the .toml, so one family can be
         # tried on its own -- `-f targets=drm` instead of twenty minutes of
-        # matrix to see three minutes of DRM.
+        # matrix to see three minutes of DRM -- and a red fast lane re-checked
+        # on exactly the platforms involved: the debug lane,
+        # `-f targets=linux-x64-glibc,windows-x64,macos`.
         #
         # It filters what [targets] already enables and never adds to it: a
         # workflow input must not be able to build something the project has
@@ -2835,25 +2896,7 @@ def main(argv: list[str]) -> int:
             raise ConfigError(
                 "--only narrows what gets printed, so it needs one of "
                 "--print-targets, --print-families, --print-matrix or --print-upx.")
-        name = args.only.strip()
-        if not name:
-            raise ConfigError(
-                "--only was given an empty value. Leave it out to build every "
-                "enabled target.")
-        if name in GROUPS:
-            wanted = set(GROUPS[name])
-        elif name in TARGETS:
-            wanted = {name}
-        else:
-            known = ", ".join(sorted(set(GROUPS) | set(TARGETS)))
-            raise ConfigError(f"--only {name!r} is not a target or a group.\nKnown: {known}")
-        narrowed = [t for t in targets if t in wanted]
-        if not narrowed:
-            enabled = ", ".join(targets)
-            raise ConfigError(
-                f"--only {name!r} leaves nothing to build: none of its targets "
-                f"are enabled in [targets].\nEnabled: {enabled}")
-        targets = narrowed
+        targets = narrow_to(args.only, targets)
 
     if args.print_upx:
         print(json.dumps(expand_upx(cfg, targets), separators=(",", ":")))

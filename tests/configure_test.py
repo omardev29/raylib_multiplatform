@@ -4999,6 +4999,180 @@ class ConfigureOnlyFilterTest(unittest.TestCase):
         self.assertEqual(json.loads(plain), json.loads(allof))
 
 
+class ConfigureOnlyListTest(unittest.TestCase):
+    """`--only` with several names, separated by commas: the debug lane. When a
+    fast lane is red, `gh workflow run ci.yml -f
+    targets=linux-x64-glibc,windows-x64,macos` re-checks it on the platforms
+    involved and nothing else -- Linux, Windows and macOS by default, Android
+    or iOS when the bug is there.
+
+    Every list is run against a .toml of its own, so what is enabled is known
+    here and not borrowed from the project's [targets]."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.toml = Path(self.tmp.name) / "raylib_multiplatform.toml"
+        # --config points the module at another .toml for good: every test
+        # after this one would read a file that no longer exists.
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+
+    def only(self, value, *, disabled=(), what="--print-targets"):
+        """(printed value, error) for --only VALUE against a .toml with every
+        target on but `disabled`."""
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        text = re.sub(r"(?m)^enabled\s*=.*$", 'enabled = ["all"]', text, count=1)
+        text = re.sub(r"(?m)^disabled\s*=.*$",
+                      "disabled = [" + ", ".join(f'"{d}"' for d in disabled) + "]", text, count=1)
+        self.toml.write_text(text)
+        args = [what] if what != "--print-matrix" else [what, "bsd"]
+        out, exc = run_cli(*args, "--config", str(self.toml), "--only", value)
+        return (json.loads(out) if exc is None else None), exc
+
+    def test_the_toml_this_test_writes_is_the_one_read(self):
+        """A rewrite that did not take would test the project's [targets]."""
+        got, exc = self.only("all", disabled=["web"])
+        self.assertIsNone(exc)
+        self.assertNotIn("web", got)
+        self.assertEqual(len(got), len(cfgmod.TARGETS) - 1)
+
+    def test_the_debug_lane_is_exactly_the_platforms_named(self):
+        got, exc = self.only("linux-x64-glibc,windows-x64,macos")
+        self.assertIsNone(exc)
+        self.assertEqual(got, ["linux-x64-glibc", "windows-x64", "macos"])
+        families, exc = self.only("linux-x64-glibc,windows-x64,macos", what="--print-families")
+        self.assertIsNone(exc)
+        # android and web sit it out: no job in ci.yml is gated on them.
+        self.assertEqual(families, ["apple", "linux", "windows"])
+        matrix, exc = self.only("linux-x64-glibc,windows-x64,macos", what="--print-matrix")
+        self.assertIsNone(exc)
+        self.assertEqual(matrix["include"], [])
+        upx, exc = self.only("linux-x64-glibc,windows-x64,macos", what="--print-upx")
+        self.assertIsNone(exc)
+        self.assertTrue(set(upx) <= {"linux-x64-glibc", "windows-x64", "macos"})
+
+    def test_groups_and_targets_mix_and_the_union_is_in_canonical_order(self):
+        got, exc = self.only("android,drm,freebsd-x64")
+        self.assertIsNone(exc)
+        expected = {"android", "freebsd-x64", *cfgmod.GROUPS["drm"]}
+        self.assertEqual(got, [t for t in cfgmod.TARGETS if t in expected])
+        # A target that a group named alongside it already brings is the same
+        # target once: overlapping names are a union, not a mistake.
+        got, exc = self.only("drm,linux-x64-glibc-drm")
+        self.assertIsNone(exc)
+        self.assertEqual(got, cfgmod.GROUPS["drm"])
+        got, exc = self.only("desktop,linux")
+        self.assertIsNone(exc)
+        both = set(cfgmod.GROUPS["desktop"]) | set(cfgmod.GROUPS["linux"])
+        self.assertEqual(got, [t for t in cfgmod.TARGETS if t in both])
+
+    def test_a_list_reaches_the_bsd_matrix(self):
+        got, exc = self.only("openbsd-x64,netbsd-x64,web", what="--print-matrix")
+        self.assertIsNone(exc)
+        self.assertEqual([leg["target"] for leg in got["include"]], ["openbsd-x64", "netbsd-x64"])
+
+    def test_spaces_around_a_name_are_tolerated(self):
+        """As they were when --only took one name: a box on a web page."""
+        plain, _ = self.only("linux-x64-glibc,windows-x64,macos")
+        for spaced in (" linux-x64-glibc, windows-x64 ,macos ", "linux-x64-glibc,\twindows-x64,macos"):
+            with self.subTest(only=spaced):
+                got, exc = self.only(spaced)
+                self.assertIsNone(exc)
+                self.assertEqual(got, plain)
+
+    def test_a_space_inside_a_name_is_two_names_without_a_comma(self):
+        _, exc = self.only("linux-x64-glibc windows-x64")
+        self.assertIsNotNone(exc)
+        self.assertIn("'linux-x64-glibc windows-x64' is not a target or a group", str(exc))
+        self.assertIn("separated by commas, not spaces: --only linux-x64-glibc,windows-x64",
+                      str(exc))
+        _, exc = self.only("macos,linux-x64-glibc windows-x64")
+        self.assertIsNotNone(exc)
+        self.assertIn("(item 2 of 2 in 'macos,linux-x64-glibc windows-x64')", str(exc))
+
+    def test_an_empty_item_is_refused_saying_which(self):
+        for value, position, count in (("macos,,windows-x64", 2, 3), (",macos", 1, 2),
+                                       ("macos,", 2, 2), ("macos, ,windows-x64", 2, 3),
+                                       (",", 1, 2)):
+            with self.subTest(only=value):
+                _, exc = self.only(value)
+                self.assertIsNotNone(exc, f"{value!r} was accepted")
+                self.assertIn(f"item {position} of {count} is empty", str(exc))
+                self.assertIn("--only linux-x64-glibc,windows-x64,macos", str(exc))
+
+    def test_an_empty_value_is_still_refused_as_empty(self):
+        for blank in ("", " ", "\t "):
+            with self.subTest(only=repr(blank)):
+                _, exc = self.only(blank)
+                self.assertIsNotNone(exc)
+                self.assertIn("empty value", str(exc))
+
+    def test_a_name_given_twice_is_refused_with_both_places(self):
+        for value, name, first, second in (("macos,macos", "macos", 1, 2),
+                                           ("drm,web, drm", "drm", 1, 3),
+                                           ("web,linux,android,linux", "linux", 2, 4)):
+            with self.subTest(only=value):
+                _, exc = self.only(value)
+                self.assertIsNotNone(exc, f"{value!r} was accepted")
+                self.assertIn(f"{name!r} is named twice, as items {first} and {second}",
+                              str(exc))
+
+    def test_an_unknown_name_in_a_list_is_refused_saying_which_item(self):
+        for value, name, position in (("macos,nope", "nope", 2), ("x64,macos", "x64", 1),
+                                      ("linux-x64-glibc,windows-x64,MacOS", "MacOS", 3)):
+            with self.subTest(only=value):
+                _, exc = self.only(value)
+                self.assertIsNotNone(exc, f"{value!r} was accepted")
+                self.assertIn(f"--only {name!r} is not a target or a group "
+                              f"(item {position} of", str(exc))
+                self.assertIn("Known: ", str(exc))
+                self.assertIn("linux-x64-glibc", str(exc).split("Known: ")[1])
+
+    def test_a_list_whose_targets_are_all_off_is_refused(self):
+        _, exc = self.only("ios,android", disabled=["ios", "android"])
+        self.assertIsNotNone(exc)
+        self.assertIn("--only 'ios' leaves nothing to build (item 1 of 2", str(exc))
+        self.assertIn("Enabled: ", str(exc))
+
+    def test_one_name_whose_targets_are_all_off_is_refused_even_beside_others(self):
+        """A debug lane that asked for iOS, with iOS switched off, and built the
+        rest would be green about a platform it never touched."""
+        _, exc = self.only("linux-x64-glibc,ios,macos", disabled=["ios"])
+        self.assertIsNotNone(exc)
+        self.assertIn("--only 'ios' leaves nothing to build (item 2 of 3", str(exc))
+        _, exc = self.only("windows,mobile", disabled=["android", "ios"])
+        self.assertIsNotNone(exc)
+        self.assertIn("--only 'mobile' leaves nothing to build (item 2 of 2", str(exc))
+        # A group with SOME of its targets on narrows to those, in a list too.
+        got, exc = self.only("windows,mobile", disabled=["ios"])
+        self.assertIsNone(exc)
+        self.assertEqual(got, ["windows-x64", "windows-arm64", "android"])
+
+    def test_a_single_name_reads_as_it_did(self):
+        """The messages of one name are the ones they were, with no item count."""
+        _, exc = self.only("nope")
+        self.assertEqual(str(exc).splitlines()[0], "--only 'nope' is not a target or a group.")
+        _, exc = self.only("ios", disabled=["ios"])
+        self.assertEqual(str(exc).splitlines()[0],
+                         "--only 'ios' leaves nothing to build: none of its targets are "
+                         "enabled in [targets].")
+
+    def test_the_workflow_input_says_a_list_is_taken(self):
+        """The dispatch box is where the list is typed, so its description is
+        where the syntax has to be."""
+        data = require_yaml(self).safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+        on = data.get("on", data.get(True))   # YAML 1.1 reads `on` as True
+        spec = on["workflow_dispatch"]["inputs"]["targets"]
+        self.assertIn("comma", spec["description"])
+        self.assertIn("linux-x64-glibc,windows-x64,macos", spec["description"])
+        self.assertEqual(spec["type"], "string")
+        ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+        # The list reaches configure.py whole, through the environment, and
+        # asking for targets still implies the full lane for them.
+        self.assertIn('NARROW="--only=${ONLY}"', ci)
+        self.assertIn('[ -n "${ONLY:-}" ]; then\n            echo "full=true"', ci)
+
+
 class ConfigureDrmTargetTest(unittest.TestCase):
     """DRM/KMS is a shipped target now, not a thing you could opt into.
 

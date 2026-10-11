@@ -42,7 +42,7 @@ on:
         type: boolean
         default: false
       targets:
-        description: 'Only this group or target, e.g. drm or macos (blank = every enabled target)'
+        description: 'Only these groups or targets, comma-separated, e.g. drm, or linux-x64-glibc,windows-x64,macos to debug a red fast lane (blank = every enabled target)'
         type: string
         default: ''
       image_digest:
@@ -116,9 +116,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "build_image=${OVERRIDE:-$PINNED_IMAGE}" >> "$GITHUB_OUTPUT"
-          # Asking for one family means you want that family built, so it
-          # implies the full lane -- otherwise `-f targets=drm` would resolve to
-          # drm and then be filtered out again by every `inputs.full` gate.
+          # Asking for targets means you want those targets built, so it
+          # implies the full lane for them -- otherwise `-f targets=drm` would
+          # resolve to drm and then be filtered out again by every
+          # `inputs.full` gate. That is the debug lane too: a red fast lane
+          # re-checked with `-f targets=linux-x64-glibc,windows-x64,macos`.
           if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ inputs.full }}" = "true" ] || [ -n "${ONLY:-}" ]; then
             echo "full=true" >> "$GITHUB_OUTPUT"
           else
@@ -149,10 +151,12 @@ jobs:
 
           # Read once here, so every leaf gets the same answer and no workflow
           # has to learn to parse TOML.
-          # --only narrows; it can never add. configure.py rejects a name that
-          # is not a target or a group, and rejects one whose targets are all
-          # switched off in the .toml, so a workflow input cannot build
-          # something the project has turned off.
+          # --only narrows; it can never add. It takes one name or several,
+          # separated by commas, and configure.py rejects a name that is not a
+          # target or a group, one given twice, an empty one, and one whose
+          # targets are all switched off in the .toml, so a workflow input
+          # cannot build something the project has turned off -- nor ask for a
+          # platform and quietly not build it.
           # ${NARROW:+"$NARROW"} and not a bare $NARROW: the flag is either one
           # argument or NO argument, and an unquoted empty variable is the only
           # spelling of "no argument" a shell has -- which is also SC2086, now
