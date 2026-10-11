@@ -360,7 +360,9 @@ jobs:
           # A cache that is not there would read as "PIE off", and pass.
           grep -q '^RMP_RELEASE_PIE:BOOL=' "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
           if grep -q '^RMP_RELEASE_PIE:BOOL=ON' "$CACHE"; then PIE=--pie; fi
-          python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
+          # --musl: its interpreter is musl's loader and the one library it
+          # names is musl's libc.so -- what musl-x64-run's Alpine has to give it.
+          python3 tools/binary_check.py elf ${PIE:+"$PIE"} --musl "build/release/${{ inputs.project_name }}"
 
       - name: Test (static) — it is a musl binary and not a glibc one
         run: |
@@ -423,20 +425,37 @@ jobs:
   musl-x64-run:
     # AND IT ACTUALLY RUNS ON ALPINE. Everything in `musl` proves the binary is
     # musl-shaped; only this proves musl was the right shape. Twice: the
-    # headless build renders the golden frame with nothing installed, and the
-    # archive a player downloads -- packed, where [upx] packs it -- starts on
-    # an Alpine desktop and draws.
+    # headless build renders the golden frame, and the archive a player
+    # downloads -- packed, where [upx] packs it -- starts on an Alpine desktop
+    # and draws.
     #
     # ALPINE IS NOT THE JOB'S CONTAINER, and that is not a style choice: the
     # runner injects its own Node into a container job so that actions/checkout
     # and friends can run, and that Node is linked against glibc. In a musl-only
     # image it does not start, and the job dies before reaching anything of
     # ours. So the job runs on the ordinary runner, where the actions work, and
-    # Alpine is entered with `docker run` for the one command that matters.
+    # Alpine is entered with `docker run` for the commands that matter.
+    #
+    # THE ALPINE IS OURS, and the job downloads nothing. RUN_IMAGE is
+    # ghcr.io/omardev29/raylib-run-alpine, built by the raylib-build-image
+    # repository (alpine/, alpine-image.yaml): Alpine 3.20.10 pinned by digest,
+    # plus exactly what an Alpine desktop needs to start the shipped binary --
+    # Xvfb and xvfb-run, Mesa with llvmpipe, and the X libraries GLFW opens --
+    # proved at image build time by drawing a triangle on llvmpipe under
+    # xvfb-run. It is pinned here by digest, and the same digest is
+    # run_alpine_digest in thirdparty/FROZEN_VERSIONS.md; versions_check.sh
+    # fails if the two disagree. It used to be `alpine@sha256:...` from Docker
+    # Hub with an `apk add` of the desktop at job time. Every container here
+    # runs with --network none, so nothing can be fetched from inside it either.
     needs: musl-x64
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-musl')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    env:
+      RUN_IMAGE: 'ghcr.io/omardev29/raylib-run-alpine@sha256:5823e1e4fa870083781977cfa30878c4c88f913a9dc0cd19b47a3f82ac409841'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -450,13 +469,40 @@ jobs:
           name: linux-x64-musl-build
           path: musl-zip
 
-      - name: Boot and render, inside Alpine, with nothing installed
+      # The Alpine and the Mesa this log is about, first, like the build
+      # image's manifest in every container job.
+      - name: Run image manifest
+        run: |
+          set -euo pipefail
+          # A digest of zeros is the placeholder that stood here before the
+          # image was first published. It fails here, saying so, and not as a
+          # pull error that reads like a registry outage.
+          case "${RUN_IMAGE##*@sha256:}" in
+            *[!0]*) ;;
+            *) echo "FAIL: RUN_IMAGE is the placeholder digest. Publish raylib-run-alpine"
+               echo "      (raylib-build-image, alpine-image.yaml) and pin the digest from its"
+               echo "      run summary here and as run_alpine_digest in thirdparty/FROZEN_VERSIONS.md."
+               exit 1 ;;
+          esac
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$RUN_IMAGE"
+          docker run --rm --network none "$RUN_IMAGE" cat /etc/raylib-run-alpine.json
+
+      # WHAT IT NEEDS, read out of the binary, because the boot below can no
+      # longer say it: the Alpine it boots on carries X and Mesa for the
+      # shipped binary, and booting in a plain Alpine was all that said "it
+      # needs nothing but musl". The headless build is statically linked --
+      # no interpreter, no DT_NEEDED -- so it asks the system for nothing at
+      # all; a glibc loader or a glibc library would fail here. (The release
+      # is dynamic, and musl-x64 reads it the same way before UPX packs it:
+      # musl's loader and libc.so, and nothing else.)
+      - name: It needs nothing but musl
+        run: python3 tools/binary_check.py elf --musl "musl-bin/${{ inputs.project_name }}"
+
+      - name: Boot and render the headless build on Alpine
         run: |
           set -euo pipefail
           chmod +x "musl-bin/${{ inputs.project_name }}"
-          # Alpine pinned by digest. NOTHING is installed into it: if the binary
-          # needed a package Alpine does not ship, that is the bug this job is
-          # here to find, and installing things would hide it.
           # The binary is a PRODUCTION_BUILD, so it looks for ./resources/ next
           # to itself. That layout gets assembled on the host and mounted as ONE
           # directory, because a second -v nested underneath a :ro mount asks
@@ -467,10 +513,10 @@ jobs:
           cp -r resources musl-bin/resources
           # Started from / and not from /app: a release has to find the
           # resources/ next to itself, wherever it is started from.
-          OUT=$(docker run --rm \
+          OUT=$(docker run --rm --network none \
             -v "$PWD/musl-bin:/app:ro" \
             -w / -e RAY_TEST_MAX_FRAMES=10 \
-            alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \
+            "$RUN_IMAGE" \
             "/app/${{ inputs.project_name }}" 2>&1) || true
           echo "$OUT" | tail -20
           echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
@@ -491,14 +537,8 @@ jobs:
       # step above starts a headless build, and the binary that ships is a
       # different one -- linked for a desktop, and packed by UPX where [upx]
       # packs it, which the default does. A desktop program needs what an
-      # Alpine desktop has, an X server and Mesa, and those come from Alpine's
-      # own repository at job time: the second exception to "a Linux job
-      # downloads nothing", after drm-x64-run's kernel modules and for the same
-      # reason -- nothing depends on this job, and the binary under test was
-      # built and uploaded before it starts. The packages float within the
-      # pinned image's release branch, so a red here that the step above does
-      # not share is Alpine's to read first. The step above installs nothing,
-      # and stays the proof that the binary needs nothing but musl.
+      # Alpine desktop has, an X server and Mesa, and RUN_IMAGE has them: this
+      # is the step that image exists for.
       - name: The archive it ships starts on Alpine
         run: |
           set -euo pipefail
@@ -512,19 +552,19 @@ jobs:
           # find the resources/ the archive put next to it. And its exit status
           # is read: a crash on the way out is a crash a player sees.
           #
-          # --init, or it hangs until the job times out. `sh -c 'a && b'` execs
-          # b, so xvfb-run was the container's PID 1 -- and there Xvfb came up,
-          # the game never started (xvfb-run waits for Xvfb's SIGUSR1 to say
-          # the server is ready), and `timeout` could not end it, because busybox
-          # timeout execs what it runs and PID 1 ignores a SIGTERM it has no
-          # handler for. With an init as PID 1 it took five seconds. Found by
-          # running this very step under podman, before any runner did.
-          if OUT=$(docker run --rm --init \
+          # --init, or it hangs until the job times out. Without one, xvfb-run
+          # is the container's PID 1 -- and there Xvfb came up, the game never
+          # started (xvfb-run waits for Xvfb's SIGUSR1 to say the server is
+          # ready), and `timeout` could not end it, because busybox timeout
+          # execs what it runs and PID 1 ignores a SIGTERM it has no handler
+          # for. With an init as PID 1 it took five seconds. Found by running
+          # this very step under podman, before any runner did. The init is the
+          # engine's own (docker-init), not something the image carries.
+          if OUT=$(docker run --rm --init --network none \
             -v "$PWD/musl-ship:/app:ro" \
             -w / -e RAY_TEST_MAX_FRAMES=10 \
-            alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \
-            sh -c 'apk add --no-cache -q xvfb-run mesa-gl mesa-dri-gallium libxcursor libxrandr libxi libxinerama > /dev/null \
-                   && timeout 180 xvfb-run -a -s "-screen 0 1280x720x24" "$0" < /dev/null' \
+            "$RUN_IMAGE" \
+            timeout 180 xvfb-run -a -s "-screen 0 1280x720x24" \
             "/app/${{ inputs.project_name }}" 2>&1); then RC=0; else RC=$?; fi
           echo "$OUT" | tail -20
           test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }

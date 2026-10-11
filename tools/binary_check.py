@@ -23,7 +23,7 @@ written in the file.
         first macOS that ran on Apple silicon, which the toolchain raises any
         lower target to.
 
-    binary_check.py elf BINARY... [--pie]
+    binary_check.py elf BINARY... [--pie] [--musl]
         The hardening a Linux or BSD release is linked with, read out of the
         program headers and the dynamic section: RELRO and BIND_NOW (the
         relocations are read-only once it starts) and a stack that is not
@@ -33,6 +33,16 @@ written in the file.
         by default (+5.5% on linux-x64-glibc, Omar's decision). A flag a
         toolchain silently ignores is a flag that was never there; this reads
         what the linker wrote.
+
+        With --musl it must also ask the system for musl and nothing else: its
+        interpreter (PT_INTERP) is musl's loader for its machine,
+        /lib/ld-musl-<arch>.so.1, and every library it names (DT_NEEDED) is
+        musl's C library -- or it is statically linked and names neither, and
+        asks the system for nothing at all. musl-x64 reads the release this
+        way before UPX packs it (musl's loader and libc.so), and musl-x64-run
+        reads the headless build before booting it (static): the Alpine it
+        boots on carries X and Mesa for the shipped binary, so a boot there
+        no longer says what a binary needs.
 
 Standard library only, so it runs on any runner and on a laptop, with no
 objdump, otool or lipo of the right flavour to find first.
@@ -431,10 +441,11 @@ def check_macos(path: str, min_os: str) -> int:
 # ---------------------------------------------------------------------------
 
 ET_EXEC, ET_DYN = 2, 3
-PT_DYNAMIC, PT_INTERP = 2, 3
+PT_LOAD, PT_DYNAMIC, PT_INTERP = 1, 2, 3
 PT_GNU_STACK, PT_GNU_RELRO = 0x6474E551, 0x6474E552
 PF_X = 1
-DT_NULL, DT_BIND_NOW, DT_FLAGS, DT_FLAGS_1 = 0, 24, 30, 0x6FFFFFFB
+DT_NULL, DT_NEEDED, DT_STRTAB, DT_STRSZ = 0, 1, 5, 10
+DT_BIND_NOW, DT_FLAGS, DT_FLAGS_1 = 24, 30, 0x6FFFFFFB
 DF_BIND_NOW = 0x8
 DF_1_NOW, DF_1_PIE = 0x1, 0x08000000
 
@@ -461,42 +472,89 @@ class Elf:
         self.field = field
 
         self.type = field("H", 16)
+        self.machine = field("H", 18)
         if self.wide:
             phoff, phentsize, phnum = field("Q", 32), field("H", 54), field("H", 56)
         else:
             phoff, phentsize, phnum = field("I", 28), field("H", 42), field("H", 44)
         if phnum == 0:
             raise NotReadable("no program headers: an object file, not a program")
-        # (type, flags, offset, size in the file) of each program header
+        # (type, flags, offset, size in the file) of each program header, and
+        # (address, offset, size in the file) of each PT_LOAD -- what turns an
+        # address in the dynamic section into a place in the file.
         self.segments = []
+        self.loads = []
         for i in range(phnum):
             at = phoff + i * phentsize
             if self.wide:
-                kind, flags, offset, filesz = (field("I", at), field("I", at + 4),
-                                               field("Q", at + 8), field("Q", at + 32))
+                kind, flags, offset, vaddr, filesz = (field("I", at), field("I", at + 4),
+                                                      field("Q", at + 8), field("Q", at + 16),
+                                                      field("Q", at + 32))
             else:
-                kind, offset, filesz, flags = (field("I", at), field("I", at + 4),
-                                               field("I", at + 16), field("I", at + 24))
+                kind, offset, vaddr, filesz, flags = (field("I", at), field("I", at + 4),
+                                                      field("I", at + 8), field("I", at + 16),
+                                                      field("I", at + 24))
             self.segments.append((kind, flags, offset, filesz))
+            if kind == PT_LOAD:
+                self.loads.append((vaddr, offset, filesz))
 
     def segment(self, kind: int):
         return next((s for s in self.segments if s[0] == kind), None)
 
-    def dynamic(self) -> dict[int, int]:
-        """tag -> value for every entry of the dynamic section, up to DT_NULL."""
+    def dynamic_entries(self) -> list[tuple[int, int]]:
+        """(tag, value) for every entry of the dynamic section, up to DT_NULL,
+        in order: DT_NEEDED comes once per library."""
         seg = self.segment(PT_DYNAMIC)
         if seg is None:
-            return {}
+            return []
         _kind, _flags, offset, filesz = seg
         size, fmt = (16, "q") if self.wide else (8, "i")
-        out: dict[int, int] = {}
+        out = []
         for at in range(offset, offset + filesz - size + 1, size):
             tag = self.field(fmt, at) & ((1 << (size * 4)) - 1)
             value = self.field(fmt.upper(), at + size // 2)
             if tag == DT_NULL:
                 break
-            out[tag] = value
+            out.append((tag, value))
         return out
+
+    def dynamic(self) -> dict[int, int]:
+        """tag -> value for every entry of the dynamic section, up to DT_NULL."""
+        return dict(self.dynamic_entries())
+
+    def offset_of(self, address: int) -> int:
+        """The file offset of a virtual address, through the PT_LOAD holding it."""
+        for vaddr, offset, filesz in self.loads:
+            if vaddr <= address < vaddr + filesz:
+                return address - vaddr + offset
+        raise NotReadable(f"address {address:#x} is in no PT_LOAD segment")
+
+    def string(self, at: int, end: int | None = None) -> str:
+        """The NUL-terminated string at a file offset, not past `end`."""
+        stop = self.data.find(b"\0", at, len(self.data) if end is None else end)
+        if at < 0 or at >= len(self.data) or stop < 0:
+            raise NotReadable(f"unterminated string at offset {at:#x}")
+        return self.data[at:stop].decode("utf-8", "replace")
+
+    def interpreter(self) -> str | None:
+        """The loader it asks the kernel for (PT_INTERP), or None."""
+        seg = self.segment(PT_INTERP)
+        if seg is None:
+            return None
+        _kind, _flags, offset, filesz = seg
+        return self.string(offset, offset + filesz)
+
+    def needed(self) -> list[str]:
+        """Every library it names (DT_NEEDED), in order."""
+        entries = self.dynamic_entries()
+        names = [value for tag, value in entries if tag == DT_NEEDED]
+        if not names:
+            return []
+        table = dict(entries).get(DT_STRTAB)
+        if table is None:
+            raise NotReadable("DT_NEEDED with no DT_STRTAB to read the names from")
+        start = self.offset_of(table)
+        return [self.string(start + name) for name in names]
 
 
 def elf_findings(elf: Elf) -> list[tuple[bool, str]]:
@@ -528,11 +586,63 @@ def elf_findings(elf: Elf) -> list[tuple[bool, str]]:
     ]
 
 
-def check_elf(paths: list[str], pie: bool = False) -> int:
+# musl's loader is /lib/ld-musl-<arch>.so.1, by the machine it runs: the
+# targets a musl build can be made for here. musl's libc.so IS that loader,
+# and its libm, libpthread, libdl and librt live inside it, so a musl
+# toolchain names one library: libc.so (musl's own soname, which zig and
+# musl-gcc write) or libc.musl-<arch>.so.1 (what Alpine's gcc writes).
+MUSL_ARCH = {0x3E: "x86_64", 0xB7: "aarch64", 0xF3: "riscv64"}
+
+# The ones worth naming when they appear: what a glibc link writes.
+NOT_MUSL = {
+    "libc.so.6": "glibc's C library: a glibc binary does not start on Alpine",
+    "libm.so.6": "glibc's libm: musl's is inside its libc.so",
+    "libpthread.so.0": "glibc's libpthread: musl's is inside its libc.so",
+    "libdl.so.2": "glibc's libdl: musl's is inside its libc.so",
+    "librt.so.1": "glibc's librt: musl's is inside its libc.so",
+    "libstdc++.so.6": "the system's C++ runtime: link it statically",
+    "libgcc_s.so.1": "the system's GCC runtime: link it statically",
+}
+
+
+def musl_findings(elf: Elf) -> list[tuple[bool, str]]:
+    """(holds, sentence) for what it asks of the system: musl, or nothing."""
+    interp, needed = elf.interpreter(), elf.needed()
+    arch = MUSL_ARCH.get(elf.machine)
+    if interp is None and not needed:
+        return [(True, "statically linked: no interpreter and no DT_NEEDED, so it asks "
+                       "the system for nothing at all")]
+    if arch is None:
+        return [(False, f"machine {elf.machine:#x}: no musl loader is known for it")]
+    loader = f"/lib/ld-musl-{arch}.so.1"
+    out = []
+    if interp == loader:
+        out.append((True, f"interpreter {interp}: musl's loader"))
+    elif interp is None:
+        out.append((False, f"no interpreter, and it names {', '.join(needed)}: "
+                           "a shared library, not a program"))
+    elif "ld-linux" in interp:
+        out.append((False, f"interpreter {interp}: glibc's loader, not musl's ({loader}) "
+                           "-- a glibc binary does not start on Alpine"))
+    else:
+        out.append((False, f"interpreter {interp}: not musl's loader ({loader})"))
+    musl_libc = ("libc.so", f"libc.musl-{arch}.so.1")
+    for name in needed:
+        if name in musl_libc:
+            out.append((True, f"needs {name}: musl's C library"))
+        else:
+            out.append((False, f"needs {name}: " + NOT_MUSL.get(
+                name, "not musl, so a system without that library refuses to start it")))
+    return out
+
+
+def check_elf(paths: list[str], pie: bool = False, musl: bool = False) -> int:
     worst = 0
+    hardening = needs = False
     for path in paths:
         try:
             elf = Elf(Path(path).read_bytes())
+            libraries = musl_findings(elf) if musl else []
         except (OSError, NotReadable) as e:
             print(f"FAIL: {path}: {e}")
             worst = 2
@@ -545,13 +655,23 @@ def check_elf(paths: list[str], pie: bool = False) -> int:
                 continue
             print(f"  {'ok  ' if holds else 'FAIL'}  {sentence}")
             failed += not holds
+            hardening |= not holds
+        for holds, sentence in libraries:
+            print(f"  {'ok  ' if holds else 'FAIL'}  {sentence}")
+            failed += not holds
+            needs |= not holds
         if failed:
             worst = max(worst, 1)
     if worst == 1:
-        print("FAIL: the release is not linked with the hardening CMakeLists.txt asks for. "
-              "See RMP_RELEASE_HARDENING there.")
+        if hardening:
+            print("FAIL: the release is not linked with the hardening CMakeLists.txt asks for. "
+                  "See RMP_RELEASE_HARDENING there.")
+        if needs:
+            print("FAIL: it asks the system for something that is not musl. An Alpine "
+                  "without it refuses to start the game, before main().")
     elif worst == 0:
-        print("PASS: " + ("PIE, " if pie else "") + "RELRO, BIND_NOW and a non-executable stack")
+        print("PASS: " + ("PIE, " if pie else "") + "RELRO, BIND_NOW and a non-executable stack"
+              + (", and nothing but musl" if musl else ""))
     return worst
 
 
@@ -566,15 +686,19 @@ def main(argv: list[str]) -> int:
     mac = sub.add_parser("macos", help="the minimum macOS of every slice")
     mac.add_argument("binary")
     mac.add_argument("--min-os", required=True)
-    elf = sub.add_parser("elf", help="PIE, RELRO, BIND_NOW and a non-executable stack")
+    elf = sub.add_parser("elf", help="PIE, RELRO, BIND_NOW and a non-executable stack; "
+                                     "with --musl, nothing but musl")
     elf.add_argument("binary", nargs="+")
     elf.add_argument("--pie", action="store_true",
                      help="require a position-independent executable too")
+    elf.add_argument("--musl", action="store_true",
+                     help="require musl's loader and musl's libc and nothing else "
+                          "(or a static binary, which asks for nothing)")
     args = ap.parse_args(argv)
     if args.os == "windows":
         return check_windows(args.exe, args.require_icon)
     if args.os == "elf":
-        return check_elf(args.binary, args.pie)
+        return check_elf(args.binary, args.pie, args.musl)
     return check_macos(args.binary, args.min_os)
 
 

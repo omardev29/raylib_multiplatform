@@ -14,6 +14,11 @@ CI checks is documentation that stays true.
 ```versions
 # key                     value
 build_image_digest        sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f
+# The Alpine musl-x64-run starts the musl binary on: ghcr.io/omardev29/
+# raylib-run-alpine, built from alpine/ in the image repository (Alpine 3.20.10
+# by digest, Xvfb, Mesa, the X libraries GLFW opens), amd64 only. Pinned here
+# and in _linux.yml's musl-x64-run; versions_check.sh fails if they disagree.
+run_alpine_digest         sha256:5823e1e4fa870083781977cfa30878c4c88f913a9dc0cd19b47a3f82ac409841
 android_platform          android-36
 android_build_tools       36.0.0
 android_ndk               28.2.13676358

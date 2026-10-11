@@ -936,13 +936,16 @@ class LinuxJobsReadTheHardeningTest(unittest.TestCase):
                 self.assertNotEqual(code, 0, out)
                 self.assertIsNone(asked, "the check ran without the cache")
                 self.assertIn("says nothing of RMP_RELEASE_PIE", out)
+                # musl's release is also read for what it asks of the system:
+                # musl's loader and libc.so, and nothing else.
+                musl = ["--musl"] if job == "musl-x64" else []
                 code, asked, out = self.run_step(job, "RMP_RELEASE_PIE:BOOL=ON\n")
                 self.assertEqual(code, 0, out)
-                self.assertEqual(asked.split(), ["tools/binary_check.py", "elf", "--pie",
+                self.assertEqual(asked.split(), ["tools/binary_check.py", "elf", "--pie", *musl,
                                                  "build/release/demo"])
                 code, asked, out = self.run_step(job, "RMP_RELEASE_PIE:BOOL=OFF\n")
                 self.assertEqual(code, 0, out)
-                self.assertEqual(asked.split(), ["tools/binary_check.py", "elf",
+                self.assertEqual(asked.split(), ["tools/binary_check.py", "elf", *musl,
                                                  "build/release/demo"])
 
 
@@ -1117,17 +1120,20 @@ class RunJobsStartTheShippedBinaryTest(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertEqual(self.started(text, job, target), [])
 
-    def test_musl_installs_a_desktop_and_starts_it_under_xvfb(self):
+    def test_musl_starts_it_under_xvfb_in_our_image(self):
         block = job_block(WORKFLOW_DIR / "_linux.yml", "musl-x64-run")
         step = step_block(block, "The archive it ships starts on Alpine")
         self.assertIn("timeout 180 xvfb-run", step)
-        self.assertIn("apk add --no-cache", step)
         # Without an init, xvfb-run is PID 1 and waits for ever: see the step.
-        self.assertIn("docker run --rm --init", step)
+        self.assertIn("docker run --rm --init --network none", step)
+        self.assertIn('            "$RUN_IMAGE" \\\n            timeout 180 xvfb-run', step)
         self.assertIn('then RC=0; else RC=$?; fi', step)
-        # The headless golden frame stays, with nothing installed.
-        nothing = step_block(block, "Boot and render, inside Alpine, with nothing installed")
-        self.assertNotIn("apk", nothing.replace("# ", ""))
+        # The desktop comes with the image now; nothing is installed.
+        self.assertNotIn("apk", step)
+        # The headless golden frame stays, after the read of what it needs.
+        headless = step_block(block, "Boot and render the headless build on Alpine")
+        self.assertIn('"$RUN_IMAGE"', headless)
+        self.assertIn("RAY_TEST_RENDER_OK", headless)
 
     def test_the_old_jobs_fail_it(self):
         """Seen red: the jobs as they were, started from copies uploaded before
@@ -1143,6 +1149,432 @@ class RunJobsStartTheShippedBinaryTest(unittest.TestCase):
         self.assertNotEqual(self.started(old_musl, "musl-x64-run", "linux-x64-musl"), [])
         self.assertNotEqual(self.started(old_drm, "drm-x64-run", "linux-x64-glibc-drm"), [])
 
+
+
+# The musl-x64-run job as it was until it had an image of its own: Alpine from
+# Docker Hub, and its desktop from Alpine's repository at job time.
+OLD_MUSL_RUN = """  musl-x64-run:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Boot and render, inside Alpine, with nothing installed
+        run: |
+          OUT=$(docker run --rm \\
+            -v "$PWD/musl-bin:/app:ro" \\
+            -w / -e RAY_TEST_MAX_FRAMES=10 \\
+            alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \\
+            "/app/${{ inputs.project_name }}" 2>&1) || true
+      - name: The archive it ships starts on Alpine
+        run: |
+          if OUT=$(docker run --rm --init \\
+            -v "$PWD/musl-ship:/app:ro" \\
+            -w / -e RAY_TEST_MAX_FRAMES=10 \\
+            alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e \\
+            sh -c 'apk add --no-cache -q xvfb-run mesa-gl > /dev/null \\
+                   && timeout 180 xvfb-run -a "$0" < /dev/null' \\
+            "/app/${{ inputs.project_name }}" 2>&1); then RC=0; else RC=$?; fi
+"""
+
+RUN_IMAGE_RE = re.compile(r"ghcr\.io/omardev29/raylib-run-alpine@sha256:[0-9a-f]{64}")
+
+
+def without_comments(text: str) -> str:
+    """`text` with its whole-line comments blanked, which may name what the
+    code must not do -- `apk add`, `alpine@sha256:` -- to say why it does not.
+    Blanked and not dropped, so a line number still points into the file."""
+    return "\n".join("" if line.lstrip().startswith("#") else line
+                     for line in text.splitlines())
+
+
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """(first line number, line) with each backslash continuation joined, so a
+    `docker run` written over five lines reads as one command."""
+    out, start, held = [], 0, []
+    for number, line in enumerate(text.splitlines(), 1):
+        if not held:
+            start = number
+        if line.rstrip().endswith("\\"):
+            held.append(line.rstrip()[:-1])
+            continue
+        held.append(line)
+        out.append((start, " ".join(held)))
+        held = []
+    if held:
+        out.append((start, " ".join(held)))
+    return out
+
+
+# docker/podman options that take no value. Every other option takes one, as
+# the next word when it is not written --name=value, so the image is the first
+# word that is neither an option nor an option's value.
+DOCKER_FLAGS = {"--rm", "--init", "-i", "-t", "-it", "-ti", "-d", "--detach", "--privileged",
+                "--read-only", "-q", "--quiet", "--tty", "--interactive", "-P",
+                "--publish-all", "--no-healthcheck", "-a", "--all-tags"}
+
+# The `${{ }}` expressions that name the build image: the config job's output
+# of ci.yml's PINNED_IMAGE, and the input each reusable workflow receives it as.
+BUILD_IMAGE_EXPRESSIONS = {"${{ inputs.build_image }}", "${{ needs.config.outputs.build_image }}"}
+
+
+def workflow_images(text: str) -> list[tuple[int, str, str]]:
+    """(line, how it is named, the image) for every image a workflow pulls:
+    `image:` and `container:` keys, `uses: docker://`, and the image word of
+    every `docker`/`podman` `run`, `pull` and `create`. A `$VAR` is followed
+    to the `VAR:` the same file sets it to."""
+    found = []
+    code = without_comments(text)
+    for number, line in logical_lines(code):
+        key = re.match(r"^\s*(?:-\s+)?(image|container):\s*(\S.*?)\s*$", line)
+        if key:
+            found.append((number, key.group(1) + ":", key.group(2).strip("'\"")))
+        uses = re.search(r"uses:\s*['\"]?docker://([^\s'\"]+)", line)
+        if uses:
+            found.append((number, "uses: docker://", uses.group(1)))
+        for command in re.finditer(r"\b(docker|podman)\s+(run|pull|create)\b(.*)", line):
+            words = re.findall(r'"[^"]*"|\'[^\']*\'|\$\{\{[^}]*\}\}|\S+', command.group(3))
+            skip = False
+            for word in words:
+                if skip:
+                    skip = False
+                    continue
+                if word.startswith("-"):
+                    skip = "=" not in word and word not in DOCKER_FLAGS
+                    continue
+                image = word.strip("'\"")
+                variable = re.fullmatch(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", image)
+                if variable:
+                    setting = re.search(rf"^\s*{variable.group(1)}:\s*(\S+)\s*$", code, re.M)
+                    image = setting.group(1).strip("'\"") if setting else image
+                found.append((number, f"{command.group(1)} {command.group(2)}", image))
+                break
+    return found
+
+
+def not_ghcr(image: str) -> str | None:
+    """Why `image` is not one of ours on ghcr.io, or None when it is."""
+    if image in BUILD_IMAGE_EXPRESSIONS:
+        return None
+    if image.startswith("${{"):
+        return "an expression this cannot follow to an image"
+    if image.startswith("$"):
+        return "a variable this file does not set"
+    if image.startswith("docker.io/") or "/" not in image or "." not in image.split("/")[0]:
+        return "Docker Hub"
+    if not image.startswith("ghcr.io/"):
+        return "a registry that is not ghcr.io"
+    return None
+
+
+class NoDockerHubImageTest(unittest.TestCase):
+    """No workflow pulls an image from anywhere but ghcr.io.
+
+    A Linux job downloads nothing: what it runs comes from an image of ours,
+    pinned by digest. musl-x64-run broke that for as long as it existed --
+    `alpine@sha256:` from Docker Hub, which is pinned and still a download at
+    job time, from a registry with anonymous rate limits -- and nothing said
+    so, because the digest made it look frozen. Every image a workflow names
+    is read here: `image:`, `container:`, `uses: docker://`, and the image word
+    of every `docker`/`podman` run, pull and create, with a `$VAR` followed to
+    where the file sets it. Anything that is not ghcr.io fails, unless ALLOWED
+    names it and says why."""
+
+    # (workflow, image) -> the reason it may come from elsewhere. Empty: when
+    # this gate was written, the two Docker Hub pulls in musl-x64-run were the
+    # only ones in .github/workflows/, and that job has an image of its own now.
+    ALLOWED: dict[tuple[str, str], str] = {}
+
+    def offenders(self, name: str, text: str) -> list[str]:
+        out = []
+        for number, how, image in workflow_images(text):
+            why = not_ghcr(image)
+            if why and (name, image) not in self.ALLOWED:
+                out.append(f"{name}:{number}: {how} {image} -- {why}")
+        # And any pinned reference at all, wherever it is written: a digest
+        # makes a Docker Hub image look as frozen as one of ours.
+        for number, line in enumerate(without_comments(text).splitlines(), 1):
+            for ref in re.findall(r"([\w./-]+)@sha256:[0-9a-f]{64}", line):
+                if not ref.startswith("ghcr.io/") and (name, ref) not in self.ALLOWED:
+                    out.append(f"{name}:{number}: {ref}@sha256:... -- not ghcr.io")
+            if "docker.io" in line:
+                out.append(f"{name}:{number}: names docker.io")
+        return out
+
+    def test_no_workflow_pulls_from_docker_hub(self):
+        found = []
+        for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+            found += self.offenders(path.name, path.read_text(encoding="utf-8"))
+        self.assertEqual(found, [], "pull it from an image of ours on ghcr.io, or add it "
+                                    "to ALLOWED with the reason:\n  " + "\n  ".join(found))
+
+    def test_it_reads_every_image_the_workflows_name(self):
+        """The ones that are there, found: a reader that finds nothing passes
+        everything."""
+        images = {(p.name, how, image) for p in WORKFLOW_DIR.glob("*.yml")
+                  for _, how, image in workflow_images(p.read_text(encoding="utf-8"))}
+        build = "ghcr.io/omardev29/raylib-build@sha256:"
+        self.assertIn(("_linux.yml", "image:", "${{ inputs.build_image }}"), images)
+        self.assertIn(("ci.yml", "image:", "${{ needs.config.outputs.build_image }}"), images)
+        self.assertIn(("_linux.yml", "docker run", "${{ inputs.build_image }}"), images)
+        self.assertTrue(any(n == "web-backends.yml" and i.startswith(build)
+                            for n, _, i in images))
+        musl = {i for n, how, i in images if n == "_linux.yml" and how == "docker run"
+                and "raylib-run-alpine" in i}
+        self.assertEqual(len(musl), 1, images)
+        self.assertRegex(musl.pop(), RUN_IMAGE_RE)
+
+    def test_the_old_musl_job_fails_it(self):
+        """Seen red: musl-x64-run as it was, two pulls of alpine@sha256:."""
+        found = self.offenders("_linux.yml", OLD_MUSL_RUN)
+        self.assertEqual(len([f for f in found if "docker run alpine@sha256:" in f]), 2, found)
+        self.assertTrue(all("Docker Hub" in f or "not ghcr.io" in f for f in found), found)
+
+    def test_every_way_of_naming_one_fails(self):
+        cases = {
+            "a container image": "    container:\n      image: ubuntu:24.04\n",
+            "the short container form": "    container: alpine:3.20\n",
+            "a service": "    services:\n      db:\n        image: postgres@sha256:" + "a" * 64,
+            "a docker action": "      - uses: docker://alpine:3.20\n",
+            "docker.io spelled out": "        run: docker pull docker.io/library/alpine\n",
+            "a bare docker run": "        run: docker run --rm -v a:/b -w / ubuntu:24.04 true\n",
+            "podman": "        run: podman run --rm --entrypoint sh debian:13 -c true\n",
+            "a variable set to Docker Hub": "    env:\n      IMG: alpine:3.20\n"
+                                            "        run: docker run --rm \"$IMG\" true\n",
+            "a variable nobody sets": "        run: docker run --rm \"$NOWHERE\" true\n",
+            "an expression it cannot follow": "    container:\n      image: ${{ matrix.image }}\n",
+            "another registry": "        run: docker run --rm quay.io/x/y:1 true\n",
+        }
+        for what, text in cases.items():
+            with self.subTest(what=what):
+                self.assertNotEqual(self.offenders("x.yml", text), [], text)
+
+    def test_ours_and_the_build_image_pass(self):
+        ok = ("    container:\n      image: ${{ inputs.build_image }}\n"
+              "    env:\n      IMG: 'ghcr.io/omardev29/raylib-run-alpine@sha256:" + "b" * 64 + "'\n"
+              "        run: |\n          docker run --rm --init --network none \\\n"
+              "            -v \"$PWD/x:/app:ro\" -w / -e A=1 \\\n            \"$IMG\" \\\n"
+              "            timeout 180 xvfb-run game\n"
+              "          docker run --rm --device /dev/dri --entrypoint ls \\\n"
+              "            \"${{ inputs.build_image }}\" -la /dev/dri\n"
+              "      # a comment may say alpine@sha256:" + "c" * 64 + " to explain\n")
+        self.assertEqual(self.offenders("x.yml", ok), [])
+        self.assertEqual([i for _, _, i in workflow_images(ok)],
+                         ["${{ inputs.build_image }}",
+                          "ghcr.io/omardev29/raylib-run-alpine@sha256:" + "b" * 64,
+                          "${{ inputs.build_image }}"])
+
+    def test_an_allowed_image_passes_and_no_entry_is_dead(self):
+        text = "        run: docker run --rm alpine:3.20 true\n"
+        self.assertNotEqual(self.offenders("x.yml", text), [])
+        self.ALLOWED = {("x.yml", "alpine:3.20"): "a reason"}   # this instance only
+        self.assertEqual(self.offenders("x.yml", text), [])
+        del self.ALLOWED
+        for (name, image), why in self.ALLOWED.items():
+            with self.subTest(name=name, image=image):
+                self.assertTrue(why.strip())
+                found = {i for _, _, i in workflow_images((WORKFLOW_DIR / name).read_text())}
+                self.assertIn(image, found, f"ALLOWED names {image} in {name}, which no "
+                                            "longer pulls it: remove the entry")
+
+
+class MuslRunImageTest(unittest.TestCase):
+    """musl-x64-run starts the musl binaries on raylib-run-alpine, our image,
+    by digest -- the digest thirdparty/FROZEN_VERSIONS.md declares -- and
+    installs nothing and pulls nothing else. What the headless build needs is
+    read out of it first, because the image carries X and Mesa now and a boot
+    there no longer says "it needs nothing but musl"."""
+
+    LINUX = WORKFLOW_DIR / "_linux.yml"
+
+    def wrong_with(self, block: str) -> list[str]:
+        """What is wrong with the musl-x64-run job `block`."""
+        wrong = []
+        code = without_comments(block)
+        image = re.search(r"^      RUN_IMAGE: '(.*)'$", block, re.M)
+        if not image or not RUN_IMAGE_RE.fullmatch(image.group(1)):
+            wrong.append("RUN_IMAGE is not raylib-run-alpine by digest")
+        # Docker Hub's alpine, by tag or digest -- not raylib-run-alpine@.
+        if re.search(r"(?<![\w./-])alpine[@:]", code):
+            wrong.append("it names Docker Hub's alpine")
+        for bad in ("docker.io", "apk "):
+            if bad in code:
+                wrong.append(f"it names {bad.strip()}")
+        runs = [line for _, line in logical_lines(code) if "docker run" in line]
+        if len(runs) < 3:
+            wrong.append(f"{len(runs)} docker runs, and the manifest, the headless build "
+                         "and the archive make three")
+        for line in runs:
+            if '"$RUN_IMAGE"' not in line:
+                wrong.append(f"a docker run that does not start RUN_IMAGE: {line.strip()[:60]}")
+            if "--network none" not in line:
+                wrong.append(f"a docker run with a network: {line.strip()[:60]}")
+        return wrong
+
+    def test_it_runs_our_image_by_digest_and_nothing_else(self):
+        self.assertEqual(self.wrong_with(job_block(self.LINUX, "musl-x64-run")), [])
+
+    def test_the_old_job_fails_it(self):
+        """Seen red: the job as it was."""
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "_linux.yml"
+            path.write_text("jobs:\n" + OLD_MUSL_RUN)
+            wrong = self.wrong_with(job_block(path, "musl-x64-run"))
+        self.assertIn("RUN_IMAGE is not raylib-run-alpine by digest", wrong)
+        self.assertIn("it names Docker Hub's alpine", wrong)
+        self.assertIn("it names apk", wrong)
+        self.assertTrue(any(w.startswith("a docker run with a network") for w in wrong), wrong)
+
+    def test_its_digest_is_the_frozen_one(self):
+        block = job_block(self.LINUX, "musl-x64-run")
+        pinned = re.search(r"raylib-run-alpine@(sha256:[0-9a-f]{64})", block).group(1)
+        self.assertEqual(pinned, cfgmod.frozen_versions()["run_alpine_digest"])
+        # And nowhere else: one place in the workflows, one in the frozen block.
+        everywhere = [p.name for p in WORKFLOW_DIR.glob("*.yml")
+                      if "raylib-run-alpine" in without_comments(p.read_text())]
+        self.assertEqual(everywhere, ["_linux.yml"])
+
+    def test_what_it_needs_is_read_before_it_boots(self):
+        block = job_block(self.LINUX, "musl-x64-run")
+        read = step_block(block, "It needs nothing but musl")
+        self.assertIn('python3 tools/binary_check.py elf --musl '
+                      '"musl-bin/${{ inputs.project_name }}"', read)
+        self.assertLess(block.index("- name: It needs nothing but musl"),
+                        block.index("- name: Boot and render the headless build on Alpine"))
+
+    def run_manifest_step(self, image: str):
+        """The job's first step, with RUN_IMAGE set to `image` and a docker
+        that writes down what it was asked."""
+        import subprocess
+        import textwrap
+        step = step_block(job_block(self.LINUX, "musl-x64-run"), "Run image manifest")
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        script = script.replace("${{ github.token }}", "t").replace("${{ github.actor }}", "a")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub = root / "docker"
+            stub.write_text('#!/bin/sh\necho "$*" >> "$(dirname "$0")/asked"\ncat > /dev/null\n')
+            stub.chmod(0o755)
+            got = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True,
+                                 text=True, stdin=subprocess.DEVNULL, timeout=60,
+                                 env=dict(os.environ, RUN_IMAGE=image,
+                                          PATH=f"{root}:{os.environ['PATH']}"))
+            asked = (root / "asked").read_text() if (root / "asked").exists() else ""
+        return got.returncode, got.stdout + got.stderr, asked
+
+    def test_the_placeholder_fails_the_job_saying_so(self):
+        """Seen red: the zeros that stand in before the image is published
+        stop the job at its first step, with what to do, and pull nothing."""
+        if sys.platform == "win32":
+            self.skipTest("the step is bash")
+        zeros = "ghcr.io/omardev29/raylib-run-alpine@sha256:" + "0" * 64
+        code, out, asked = self.run_manifest_step(zeros)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("RUN_IMAGE is the placeholder digest", out)
+        self.assertIn("run_alpine_digest", out)
+        self.assertEqual(asked, "")
+        real = "ghcr.io/omardev29/raylib-run-alpine@sha256:" + "0" * 63 + "1"
+        code, out, asked = self.run_manifest_step(real)
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"pull -q {real}", asked)
+        self.assertIn(f"run --rm --network none {real} cat /etc/raylib-run-alpine.json", asked)
+
+
+class VersionsCheckRunImageTest(unittest.TestCase):
+    """tools/versions_check.sh holds musl-x64-run's digest to run_alpine_digest
+    in thirdparty/FROZEN_VERSIONS.md, as it holds the build image's -- seen
+    red on a copy of the tree with each way of disagreeing planted in it."""
+
+    # What versions_check.sh reads, as far as the image pins go.
+    READS = ("tools/versions_check.sh", "thirdparty/FROZEN_VERSIONS.md",
+             "raymob/app/build.gradle", "raymob/build.gradle",
+             "raymob/gradle/wrapper/gradle-wrapper.properties")
+
+    def run_on(self, plant=None):
+        """versions_check.sh on a copy of the tree, after `plant(root)`."""
+        import shutil
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in self.READS:
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(REPO / rel, root / rel)
+            shutil.copytree(WORKFLOW_DIR, root / ".github" / "workflows")
+            if plant:
+                plant(root)
+            got = subprocess.run(["bash", str(root / "tools" / "versions_check.sh")],
+                                 capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                 timeout=120)
+        return got.returncode, got.stdout
+
+    @staticmethod
+    def edit(root, rel, old, new):
+        path = root / rel
+        text = path.read_text()
+        assert old in text, (rel, old)
+        path.write_text(text.replace(old, new, 1))
+
+    def frozen(self):
+        return cfgmod.frozen_versions()["run_alpine_digest"]
+
+    def test_the_tree_agrees(self):
+        if sys.platform == "win32":
+            self.skipTest("versions_check.sh is bash")
+        _code, out = self.run_on()
+        self.assertIn(f"  ok    run image digest           {self.frozen()}", out)
+        self.assertNotIn("DRIFT run image", out)
+
+    def test_each_disagreement_is_a_drift(self):
+        if sys.platform == "win32":
+            self.skipTest("versions_check.sh is bash")
+        other = "sha256:" + "e" * 64
+        workflow = ".github/workflows/_linux.yml"
+        cases = {
+            "the workflow moved": (lambda r: self.edit(r, workflow, self.frozen(), other),
+                                   "DRIFT run image digest"),
+            "the frozen block moved": (lambda r: self.edit(r, "thirdparty/FROZEN_VERSIONS.md",
+                                                           self.frozen(), other),
+                                       "DRIFT run image digest"),
+            "two digests": (lambda r: (r / ".github/workflows/x.yml").write_text(
+                                "x: ghcr.io/omardev29/raylib-run-alpine@" + other + "\n"),
+                            "DRIFT run image               workflows disagree"),
+            "none": (lambda r: self.edit(r, workflow, "raylib-run-alpine@", "raylib-run-x@"),
+                     "DRIFT run image               no digest-pinned raylib-run-alpine"),
+            ":latest": (lambda r: (r / ".github/workflows/x.yml").write_text(
+                            "x: ghcr.io/omardev29/raylib-run-alpine:latest\n"),
+                        "DRIFT run image               a :latest reference"),
+            "the key is gone": (lambda r: self.edit(r, "thirdparty/FROZEN_VERSIONS.md",
+                                                    "run_alpine_digest", "run_alpine_gone"),
+                                "declared=<missing from FROZEN_VERSIONS.md>"),
+        }
+        for what, (plant, says) in cases.items():
+            with self.subTest(what=what):
+                code, out = self.run_on(plant)
+                self.assertNotEqual(code, 0, out)
+                self.assertIn(says, out)
+
+    def test_the_canary_may_float_it(self):
+        """canary.yml is outside both rules, like it is for the build image."""
+        if sys.platform == "win32":
+            self.skipTest("versions_check.sh is bash")
+        _code, out = self.run_on(lambda r: (r / ".github/workflows/canary.yml").write_text(
+            "x: ghcr.io/omardev29/raylib-run-alpine:latest\n"))
+        self.assertNotIn("DRIFT run image", out)
+
+    def test_the_placeholder_is_said_and_a_real_digest_is_not(self):
+        if sys.platform == "win32":
+            self.skipTest("versions_check.sh is bash")
+        real = "sha256:" + "0" * 63 + "1"
+
+        def pin(root):
+            for rel in (".github/workflows/_linux.yml", "thirdparty/FROZEN_VERSIONS.md"):
+                self.edit(root, rel, self.frozen(), real)
+        zeros = "sha256:" + "0" * 64
+        _code, out = self.run_on(lambda r: [self.edit(r, rel, self.frozen(), zeros) for rel in
+                                            (".github/workflows/_linux.yml",
+                                             "thirdparty/FROZEN_VERSIONS.md")])
+        self.assertIn("note  run image digest           the placeholder", out)
+        _code, out = self.run_on(pin)
+        self.assertIn(f"ok    run image digest           {real}", out)
+        self.assertNotIn("the placeholder", out)
 
 class AndroidReleaseCheckTest(unittest.TestCase):
     """tools/android_release_check.py, the Android job's proof that the release

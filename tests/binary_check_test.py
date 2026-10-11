@@ -462,42 +462,74 @@ class MacosTest(Files, unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 def elf(etype=bc.ET_DYN, interp=True, relro=True, stack_flags=6, dynamic=None,
-        wide=True, big=False):
+        wide=True, big=False, machine=0x3E, interp_path="/lib/ld-musl-x86_64.so.1",
+        needed=(), strtab=True):
     """An ELF executable's header, program headers and dynamic section --
     what binary_check.py elf reads, and nothing it does not. stack_flags is
     PT_GNU_STACK's p_flags (6 = RW, 7 = RWX), None for no such segment;
-    dynamic is {tag: value}, BIND_NOW and nothing else by default."""
+    dynamic is {tag: value}, BIND_NOW and nothing else by default.
+
+    interp_path is what PT_INTERP holds, and needed the DT_NEEDED names, in
+    order: they are written into a string table after the dynamic section,
+    which a PT_LOAD maps at LOAD_ADDRESS, so DT_STRTAB is an ADDRESS that has
+    to be turned back into a place in the file -- the way a linker writes it.
+    strtab=False leaves DT_STRTAB out."""
     o = ">" if big else "<"
     dynamic = {bc.DT_FLAGS: bc.DF_BIND_NOW} if dynamic is None else dynamic
-    entries = list(dynamic.items()) + [(bc.DT_NULL, 0)]
-    dyn = b"".join(struct.pack(o + ("qQ" if wide else "iI"), tag, value)
-                   for tag, value in entries)
-    segments = []   # (type, flags, offset, size)
+    entry = "qQ" if wide else "iI"
+    names = (b"\0" + b"".join(n.encode() + b"\0" for n in needed)) if needed else b""
+    offsets, at = [], 1
+    for n in needed:
+        offsets.append(at)
+        at += len(n) + 1
+    interp_bytes = interp_path.encode() + b"\0"
+    extra = [(bc.DT_NEEDED, off) for off in offsets]
+    count = len(dynamic) + len(extra) + (2 if needed and strtab else 0) + 1
+    segments = []   # (type, flags, offset, size); offsets patched below
+    segments.append((bc.PT_LOAD, 5, 0, 0))
     if interp:
-        segments.append((bc.PT_INTERP, 4, 0, 28))
-    segments.append((bc.PT_DYNAMIC, 6, 0, len(dyn)))   # offset patched below
+        segments.append((bc.PT_INTERP, 4, 0, len(interp_bytes)))
+    segments.append((bc.PT_DYNAMIC, 6, 0, count * struct.calcsize(o + entry)))
     if relro:
         segments.append((bc.PT_GNU_RELRO, 4, 0, 0x100))
     if stack_flags is not None:
         segments.append((bc.PT_GNU_STACK, stack_flags, 0, 0))
     ehsize, phentsize = (64, 56) if wide else (52, 32)
     dyn_at = ehsize + phentsize * len(segments)
+    dyn_size = count * struct.calcsize(o + entry)
+    interp_at = dyn_at + dyn_size
+    strtab_at = interp_at + len(interp_bytes)
+    total = strtab_at + len(names)
+    if needed and strtab:
+        extra += [(bc.DT_STRTAB, LOAD_ADDRESS + strtab_at), (bc.DT_STRSZ, len(names))]
+    entries = list(dynamic.items()) + extra + [(bc.DT_NULL, 0)]
+    dyn = b"".join(struct.pack(o + entry, tag, value) for tag, value in entries)
     ident = b"\x7fELF" + bytes([2 if wide else 1, 2 if big else 1, 1]) + b"\0" * 9
     if wide:
-        header = ident + struct.pack(o + "HHIQQQIHHHHHH", etype, 0x3E, 1, 0, ehsize, 0, 0,
+        header = ident + struct.pack(o + "HHIQQQIHHHHHH", etype, machine, 1, 0, ehsize, 0, 0,
                                      ehsize, phentsize, len(segments), 64, 0, 0)
     else:
-        header = ident + struct.pack(o + "HHIIIIIHHHHHH", etype, 3, 1, 0, ehsize, 0, 0,
+        header = ident + struct.pack(o + "HHIIIIIHHHHHH", etype, machine, 1, 0, ehsize, 0, 0,
                                      ehsize, phentsize, len(segments), 40, 0, 0)
     table = b""
     for kind, flags, offset, size in segments:
-        if kind == bc.PT_DYNAMIC:
+        vaddr = 0
+        if kind == bc.PT_LOAD:
+            vaddr, size = LOAD_ADDRESS, total
+        elif kind == bc.PT_DYNAMIC:
             offset = dyn_at
+        elif kind == bc.PT_INTERP:
+            offset = interp_at
         if wide:
-            table += struct.pack(o + "IIQQQQQQ", kind, flags, offset, 0, 0, size, size, 8)
+            table += struct.pack(o + "IIQQQQQQ", kind, flags, offset, vaddr, vaddr, size, size, 8)
         else:
-            table += struct.pack(o + "IIIIIIII", kind, offset, 0, 0, size, size, flags, 4)
-    return header + table + dyn
+            table += struct.pack(o + "IIIIIIII", kind, offset, vaddr, vaddr, size, size, flags, 4)
+    return header + table + dyn + interp_bytes + names
+
+
+# Where the fixture's one PT_LOAD maps the file: not 0, so an address read as
+# a file offset lands nowhere.
+LOAD_ADDRESS = 0x400000
 
 
 # What linux_build.sh's zig wrote for linux-x64-glibc before the release
@@ -595,6 +627,141 @@ class ElfTest(Files, unittest.TestCase):
                 code, out = self.check(data)
                 self.assertEqual(code, 2, out)
                 self.assertTrue(out.startswith("FAIL: "), out)
+
+
+# ---------------------------------------------------------------------------
+# --musl: what it asks the system for
+# ---------------------------------------------------------------------------
+
+# What tools/linux_build.sh's zig wrote for linux-x64-musl, read with readelf:
+# the release asks for musl's loader and libc.so; the headless build (raylib's
+# Memory platform) is a static PIE that names neither.
+MUSL_RELEASE = dict(needed=["libc.so"], dynamic={bc.DT_FLAGS: bc.DF_BIND_NOW,
+                                                 bc.DT_FLAGS_1: bc.DF_1_NOW | bc.DF_1_PIE})
+MUSL_HEADLESS = dict(interp=False, dynamic={bc.DT_FLAGS: bc.DF_BIND_NOW,
+                                            bc.DT_FLAGS_1: bc.DF_1_NOW | bc.DF_1_PIE})
+GLIBC_LOADER = "/lib64/ld-linux-x86-64.so.2"
+
+
+class ElfMuslTest(Files, unittest.TestCase):
+
+    def check(self, *datas, musl=True):
+        return self.run_main(["elf", "--pie", *(["--musl"] if musl else []),
+                              *(self.file(d, f"game{i}") for i, d in enumerate(datas))])
+
+    def test_the_musl_release_passes_and_says_what_it_needs(self):
+        code, out = self.check(elf(**MUSL_RELEASE))
+        self.assertEqual(code, 0, out)
+        self.assertIn("ok    interpreter /lib/ld-musl-x86_64.so.1: musl's loader", out)
+        self.assertIn("ok    needs libc.so: musl's C library", out)
+        self.assertIn("PASS: PIE, RELRO, BIND_NOW and a non-executable stack, "
+                      "and nothing but musl", out)
+
+    def test_the_headless_build_is_static_and_asks_for_nothing(self):
+        """What musl-x64-run reads before booting it: no interpreter, no
+        DT_NEEDED. The Alpine it boots on has X and Mesa in it now; this is
+        what still says the binary needs none of it."""
+        code, out = self.check(elf(**MUSL_HEADLESS))
+        self.assertEqual(code, 0, out)
+        self.assertIn("ok    statically linked: no interpreter and no DT_NEEDED", out)
+
+    def test_alpines_own_spelling_of_libc_passes(self):
+        code, out = self.check(elf(needed=["libc.musl-x86_64.so.1"]))
+        self.assertEqual(code, 0, out)
+
+    def test_a_planted_glibc_needed_fails(self):
+        """Seen red: the musl release with glibc's libc.so.6 beside its own --
+        after it and before it, because every DT_NEEDED counts and not only
+        the last one a dict would keep."""
+        for planted, says in (("libc.so.6", "glibc's C library"),
+                              ("libm.so.6", "glibc's libm"),
+                              ("libX11.so.6", "not musl, so a system without that library")):
+            for needed in (["libc.so", planted], [planted, "libc.so"]):
+                with self.subTest(needed=needed):
+                    code, out = self.check(elf(needed=needed))
+                    self.assertEqual(code, 1, out)
+                    self.assertIn(f"FAIL  needs {planted}: {says}", out)
+                    self.assertEqual(out.count("FAIL  "), 1, out)
+                    self.assertIn("FAIL: it asks the system for something that is not musl",
+                                  out)
+                    self.assertNotIn("RMP_RELEASE_HARDENING", out)
+
+    def test_a_planted_glibc_interpreter_fails(self):
+        """Seen red: the musl release asking for glibc's loader."""
+        code, out = self.check(elf(needed=["libc.so"], interp_path=GLIBC_LOADER))
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"FAIL  interpreter {GLIBC_LOADER}: glibc's loader, not musl's "
+                      "(/lib/ld-musl-x86_64.so.1)", out)
+        self.assertEqual(out.count("FAIL  "), 1, out)
+
+    def test_a_glibc_binary_fails_twice_over(self):
+        code, out = self.check(elf(needed=["libc.so.6"], interp_path=GLIBC_LOADER))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("FAIL  "), 2, out)
+
+    def test_the_loader_is_the_one_for_its_machine(self):
+        arm = "/lib/ld-musl-aarch64.so.1"
+        code, out = self.check(elf(machine=0xB7, interp_path=arm, needed=["libc.so"]))
+        self.assertEqual(code, 0, out)
+        code, out = self.check(elf(machine=0xB7, needed=["libc.so"]))
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  interpreter /lib/ld-musl-x86_64.so.1: not musl's loader "
+                      f"({arm})", out)
+        code, out = self.check(elf(machine=0xB7, interp_path=arm,
+                                   needed=["libc.musl-x86_64.so.1"]))
+        self.assertEqual(code, 1, out)
+        code, out = self.check(elf(machine=0x28, interp_path="/lib/ld-musl-armhf.so.1",
+                                   needed=["libc.so"]))
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  machine 0x28: no musl loader is known for it", out)
+
+    def test_a_library_that_names_libraries_without_a_loader_fails(self):
+        code, out = self.check(elf(interp=False, needed=["libc.so"]))
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  no interpreter, and it names libc.so: a shared library", out)
+
+    def test_only_musl_asks_for_it(self):
+        """Without --musl a glibc binary is judged on its hardening alone."""
+        code, out = self.check(elf(needed=["libc.so.6"], interp_path=GLIBC_LOADER), musl=False)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("libc.so.6", out)
+        self.assertNotIn("nothing but musl", out)
+
+    def test_hardening_and_libraries_each_say_their_own_failure(self):
+        code, out = self.check(elf(stack_flags=7, needed=["libc.so.6"]))
+        self.assertEqual(code, 1, out)
+        self.assertIn("RMP_RELEASE_HARDENING", out)
+        self.assertIn("FAIL: it asks the system for something that is not musl", out)
+
+    def test_32_bit_and_big_endian(self):
+        for wide, big in ((False, False), (True, True), (False, True)):
+            with self.subTest(wide=wide, big=big):
+                code, out = self.check(elf(wide=wide, big=big, **MUSL_RELEASE))
+                self.assertEqual(code, 0, out)
+                code, out = self.check(elf(wide=wide, big=big, needed=["libc.so", "libc.so.6"]))
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL  needs libc.so.6", out)
+
+    def test_names_it_cannot_read_exit_2(self):
+        whole = elf(**MUSL_RELEASE)
+        cases = {"DT_NEEDED and no DT_STRTAB": elf(needed=["libc.so"], strtab=False),
+                 "names cut off": whole[:-4],
+                 "an interpreter cut off": elf(interp_path="/lib/ld-musl-x86_64.so.1")[:-1]}
+        for what, data in cases.items():
+            with self.subTest(what=what):
+                code, out = self.check(data)
+                self.assertEqual(code, 2, out)
+                self.assertTrue(out.startswith("FAIL: "), out)
+
+    def test_an_address_outside_every_load_exits_2(self):
+        data = bytearray(elf(**MUSL_RELEASE))
+        at = bytes(data).find(struct.pack("<qQ", bc.DT_STRTAB, 0)[:8])
+        self.assertGreater(at, 0)
+        struct.pack_into("<Q", data, at + 8, 0x10)   # below LOAD_ADDRESS
+        code, out = self.check(bytes(data))
+        self.assertEqual(code, 2, out)
+        self.assertIn("is in no PT_LOAD segment", out)
+
 
 if __name__ == "__main__":
     unittest.main()

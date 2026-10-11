@@ -162,6 +162,40 @@ if grep -qE 'raylib-build:latest' $WORKFLOWS; then
     fails=$((fails + 1)); checks=$((checks + 1))
 fi
 
+echo "== Alpine run image pin (musl-x64-run) =="
+# The Alpine that musl-x64-run starts the musl binary on: raylib-run-alpine,
+# built in the image repository from alpine/. The same two rules as the build
+# image -- one digest across the workflows, the declared one, and never
+# :latest -- over the same files, canary.yml excluded for the same reason.
+RUN_DIGESTS=()
+# shellcheck disable=SC2086
+while IFS= read -r _digest; do
+    RUN_DIGESTS+=("$_digest")
+done < <(grep -hoE 'raylib-run-alpine@sha256:[0-9a-f]{64}' $WORKFLOWS \
+          | sed 's/.*@//' | sort -u)
+if [ ${#RUN_DIGESTS[@]} -eq 0 ]; then
+    echo "  DRIFT run image               no digest-pinned raylib-run-alpine in .github/workflows/"
+    fails=$((fails + 1)); checks=$((checks + 1))
+elif [ ${#RUN_DIGESTS[@]} -gt 1 ]; then
+    echo "  DRIFT run image               workflows disagree: ${RUN_DIGESTS[*]}"
+    fails=$((fails + 1)); checks=$((checks + 1))
+else
+    check "run image digest" run_alpine_digest "${RUN_DIGESTS[0]}"
+    # Agreeing is not the same as published: all zeros is the placeholder,
+    # and musl-x64-run fails on it until the real digest is pinned.
+    case "${RUN_DIGESTS[0]#sha256:}" in
+        *[!0]*) ;;
+        *) printf '  note  %-26s %s\n' "run image digest" \
+               "the placeholder: musl-x64-run fails until raylib-run-alpine is published and pinned" ;;
+    esac
+fi
+
+# shellcheck disable=SC2086
+if grep -qE 'raylib-run-alpine:latest' $WORKFLOWS; then
+    echo "  DRIFT run image               a :latest reference is present (use the digest)"
+    fails=$((fails + 1)); checks=$((checks + 1))
+fi
+
 # --- the check that actually matters, when we can make it ------------------
 if [ -r "$IMAGE_MANIFEST" ]; then
     echo "== Running build image ($IMAGE_MANIFEST) =="
