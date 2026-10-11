@@ -1,5 +1,7 @@
-# tools/binary_check.py (package P9).
+# tools/binary_check.py (package P9): the readers that judge a shipped .exe,
+# Mac binary and ELF. Its unit tests build binaries byte by byte; the
+# property test cuts, pokes and extends them.
 kind     py
 sources  tools/binary_check.py
-tests    tests/binary_check_test.py
+tests    tests/binary_check_test.py tests/binary_check_property_test.py
 floor    -
