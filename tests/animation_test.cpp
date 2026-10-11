@@ -475,10 +475,12 @@ TEST_CASE("a negative speed turns a ping-pong round the other way first") {
 // reads it, and refuses what cute_aseprite would assert on, read or write
 // outside what it owns for, go round forever on or leak. Before that walk, a
 // file that passed the 128-byte header check went straight to cute_aseprite,
-// and every case below that is refused was an abort, an out-of-bounds access,
-// a hang or a leak -- tests/fuzz/aseprite.cpp found 315 such files in its first
-// 90 seconds (tests/fuzz/regressions/aseprite/ keeps one of each kind). The
-// files are written byte by byte by tests/aseprite_builder.h.
+// and what the cases below refuse was an abort, an out-of-bounds access, a
+// hang or a leak -- or, the rest, a sheet read wrong: a tag past the frames,
+// a stored block's uninitialised pixels. tests/fuzz/aseprite.cpp found 315
+// crashing files in its first 90 seconds (tests/fuzz/regressions/aseprite/
+// keeps one of each kind). Each case says what it was. The files are written
+// byte by byte by tests/aseprite_builder.h.
 // ===========================================================================
 
 namespace {
