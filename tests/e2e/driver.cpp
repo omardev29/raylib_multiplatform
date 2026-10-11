@@ -5,7 +5,8 @@
 // Linked into e2e_<area>_<example> (CMakeLists.txt) next to the example's own
 // sources -- its main.cpp and its RMP_GAME or RMP_ENTRY_POINT included -- so
 // what runs is the game as it ships, under raylib's software renderer
-// (PLATFORM=Memory). Nothing in the game knows: this file installs itself
+// (PLATFORM=Memory). Compiled once for all of them: which script, which
+// goldens and which folder are the target's own file (target.h). Nothing in the game knows: this file installs itself
 // with a static initializer, before main(), through the seams a headless test
 // already had and the clock's (src/rmp/internal.h):
 //
@@ -45,12 +46,13 @@
 //                      the image. `rmp test e2e-update`.
 //
 // On a difference the expected picture, the actual one and the difference go
-// to RMP_E2E_OUT (build/examples-check/e2e/<area>/<example>/), which the
-// examples job uploads.
+// to e2e::target::OUT (build/examples-check/e2e/<area>/<example>/), which CI
+// uploads.
 // ===========================================================================
 
 #include "compare.h"
 #include "script.h"
+#include "target.h"
 
 #include "audio_internal.h"
 #include "internal.h"
@@ -79,12 +81,6 @@
 #include <system_error>
 #include <typeinfo>
 #include <vector>
-
-#if !defined(RMP_E2E_SCRIPT) || !defined(RMP_E2E_GOLDEN) || !defined(RMP_E2E_OUT) || \
-    !defined(RMP_E2E_NAME)
-#error \
-    "an e2e target is built by CMakeLists.txt, which defines RMP_E2E_SCRIPT, RMP_E2E_GOLDEN, RMP_E2E_OUT and RMP_E2E_NAME"
-#endif
 
 namespace {
 
@@ -305,7 +301,8 @@ void finish(const e2e::Step &step) {
     const std::chrono::duration<double> took =
         std::chrono::steady_clock::now().time_since_epoch() - run.started;
     std::printf("E2E %s: %d check(s) over %d frame(s), %d failed, in %.1f s\n",
-                RMP_E2E_NAME, run.checks, step.frame + 1, run.failures, took.count());
+                std::string(e2e::target::NAME).c_str(), run.checks, step.frame + 1,
+                run.failures, took.count());
     if (run.failures == 0) std::printf("E2E PASS\n");
     rmp::app::quit();
 }
@@ -393,17 +390,18 @@ void clear_pictures(const fs::path &dir) {
 void install() {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
 
-    const std::ifstream file(RMP_E2E_SCRIPT, std::ios::binary);
-    if (!file) refuse(0, "cannot read the script " RMP_E2E_SCRIPT);
+    const std::string script(e2e::target::SCRIPT);
+    const std::ifstream file(script, std::ios::binary);
+    if (!file) refuse(0, "cannot read the script " + script);
     std::ostringstream text;
     text << file.rdbuf();
     e2e::ParseError error;
     if (!e2e::parse(text.str(), run.script, error)) {
-        refuse(error.line, error.reason + " (" RMP_E2E_SCRIPT ")");
+        refuse(error.line, error.reason + " (" + script + ")");
     }
 
-    run.golden = RMP_E2E_GOLDEN;
-    run.out = RMP_E2E_OUT;
+    run.golden = fs::path(e2e::target::GOLDEN);
+    run.out = fs::path(e2e::target::OUT);
     if (environment_is_one("RMP_E2E_UPDATE")) {
         if (!in_the_image()) {
             refuse(
@@ -437,7 +435,7 @@ void install() {
     if (run.mode == Mode::UPDATE) mode = "recording the goldens";
     if (run.mode == Mode::COMPARE) mode = "compared exactly";
     run.started = std::chrono::steady_clock::now().time_since_epoch();
-    std::printf("E2E START %s: %d frame(s), %s\n", RMP_E2E_NAME,
+    std::printf("E2E START %s: %d frame(s), %s\n", std::string(e2e::target::NAME).c_str(),
                 run.script.steps.back().frame + 1, mode.c_str());
     hands_for(0);
 }

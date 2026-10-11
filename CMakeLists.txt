@@ -903,20 +903,44 @@ message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 # does not know. Out of example_targets.txt, whose count is asserted against
 # the tree; tools/examples_build.sh runs what e2e_targets.txt lists. Framework
 # only: a game made with `rmp new` has no tests/e2e/.
+#
+# The driver, the script reader and the comparison are compiled ONCE, into
+# rmp_e2e_driver, an object library -- objects, not an archive, or the linker
+# would leave out the driver, which nothing calls: it installs itself. What
+# one target plays is four strings in a file of its own (tests/e2e/target.h).
+# They were -D defines on the driver, which compiled it sixteen times in every
+# e2e build and had clang-tidy read it sixteen times.
 function(rmp_add_e2e NAME DIR REL)
   rmp_add_game(${NAME} "${DIR}")
-  target_sources(${NAME} PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/driver.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/script.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/compare.cpp")
-  # The seams it drives are the framework's private ones: src/rmp/internal.h
-  # and its neighbours, the way tests/platformer_play.cpp reaches them.
-  target_include_directories(${NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp")
-  target_compile_definitions(${NAME} PRIVATE
-    RMP_E2E_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/${REL}.e2e"
-    RMP_E2E_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/golden/${REL}"
-    RMP_E2E_OUT="${CMAKE_BINARY_DIR}/e2e/${REL}"
-    RMP_E2E_NAME="${REL}")
+  if(NOT TARGET rmp_e2e_driver)
+    add_library(rmp_e2e_driver OBJECT
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/driver.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/script.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/compare.cpp")
+    set_property(TARGET rmp_e2e_driver PROPERTY CXX_STANDARD 20)
+    set_property(TARGET rmp_e2e_driver PROPERTY EXCLUDE_FROM_ALL TRUE)
+    target_link_libraries(rmp_e2e_driver PRIVATE rmp)
+    # The seams it drives are the framework's private ones: src/rmp/internal.h
+    # and its neighbours, the way tests/platformer_play.cpp reaches them.
+    target_include_directories(rmp_e2e_driver PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp")
+    rmp_apply_compile_flags(rmp_e2e_driver)
+    rmp_apply_warnings(rmp_e2e_driver)
+  endif()
+  # Beside e2e/, not in it: that folder is what a failed shot leaves, and
+  # CI uploads it.
+  set(_target_file "${CMAKE_BINARY_DIR}/e2e_target/${NAME}.cpp")
+  file(CONFIGURE OUTPUT "${_target_file}" @ONLY CONTENT
+"// Written by CMakeLists.txt (rmp_add_e2e) for @NAME@: what it plays.
+#include \"${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/target.h\"
+
+constinit const std::string_view e2e::target::SCRIPT =
+    \"${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/${REL}.e2e\";
+constinit const std::string_view e2e::target::GOLDEN =
+    \"${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/golden/${REL}\";
+constinit const std::string_view e2e::target::OUT = \"${CMAKE_BINARY_DIR}/e2e/${REL}\";
+constinit const std::string_view e2e::target::NAME = \"${REL}\";
+")
+  target_sources(${NAME} PRIVATE $<TARGET_OBJECTS:rmp_e2e_driver> "${_target_file}")
 endfunction()
 
 # --- the examples -----------------------------------------------------------
