@@ -60,20 +60,25 @@ if [ "$MADE_PACK" -eq 1 ]; then rm -f resources/resources.rres; fi
 # was started and read the root's: only a resources/ beside the binary may move
 # it. The framework's entry point checks before it moves, and so does the
 # main() of a game in plain C (examples/plain_c), which moves on its own.
+# Each start keeps its exit status: a crash on the way out is a crash a player
+# sees, and a `|| true` here passed one.
+exited() { [ "$1" -eq 0 ] || { echo "FAIL: the release exited with status $1"; exit 1; }; }
+
 LOG="$ROOT/$BUILD/source-tree.log"
-RAY_TEST_MAX_FRAMES=5 "./$BUILD/$NAME" > "$LOG" 2>&1 < /dev/null || true
+if RAY_TEST_MAX_FRAMES=5 "./$BUILD/$NAME" > "$LOG" 2>&1 < /dev/null; then RC=0; else RC=$?; fi
 tail -5 "$LOG"
 grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
     echo "FAIL: started from the project folder, the release in $BUILD did not boot or"
     echo "      did not find resources/ -- with none next to it, it reads the working"
     echo "      directory's, and must not move away from it"; exit 1; }
+exited "$RC"
 echo "  ok    from the project folder it reads the root's resources/"
 
 LOG="$ROOT/$BUILD/shipped.log"
 case "$(uname -s)" in
     NetBSD | OpenBSD)
         cd "$SHIP"
-        RAY_TEST_MAX_FRAMES=5 "./$NAME" > "$LOG" 2>&1 < /dev/null || true
+        if RAY_TEST_MAX_FRAMES=5 "./$NAME" > "$LOG" 2>&1 < /dev/null; then RC=0; else RC=$?; fi
         cd "$ROOT"
         tail -15 "$LOG"
         grep -q "this system does not say where the executable is" "$LOG" || {
@@ -81,13 +86,14 @@ case "$(uname -s)" in
             echo "      not say it is reading resources/ from the working directory"; exit 1; }
         grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
             echo "FAIL: started from its own folder, the release failed to load an asset"; exit 1; }
+        exited "$RC"
         echo "PASS: $(uname -s) reads resources/ from the working directory, and says so"
         exit 0
         ;;
 esac
 
 cd "$BUILD/elsewhere"
-RAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME" > "$LOG" 2>&1 < /dev/null || true
+if RAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME" > "$LOG" 2>&1 < /dev/null; then RC=0; else RC=$?; fi
 cd "$ROOT"
 tail -15 "$LOG"
 grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
@@ -95,4 +101,5 @@ grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG" || {
     echo "      its resources/ -- it has to read the one next to the executable"; exit 1; }
 grep -q "RAY_TEST_DONE_FRAMES" "$LOG" || {
     echo "FAIL: it died before the end of its frame budget"; exit 1; }
+exited "$RC"
 echo "PASS: the release found its resources/ from another folder"

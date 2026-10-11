@@ -7507,6 +7507,19 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
                 if re.search(r"\bRAY_TEST_MAX_FRAMES=", code):
                     yield f.name, n, code
 
+    def test_no_launch_throws_its_exit_status_away(self):
+        """A crash on the way out is a crash a player sees, and LeakSanitizer
+        reports at exit: `|| true` after a game's start passed both, in
+        shipped_check.sh and in the musl and DRM run jobs."""
+        for name, n, code in self.launches():
+            with self.subTest(at=f"{name}:{n}"):
+                self.assertNotRegex(code, r"\|\|\s*true\b", f"{name}:{n} ignores how the game exited")
+        for wf in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+            text = wf.read_text()
+            for m in re.finditer(r"RAY_TEST_MAX_FRAMES=[^\n]*(?:\n[^\n]*){0,8}?\)\s*\|\|\s*true", text):
+                with self.subTest(at=f"{wf.name}:{text[:m.start()].count(chr(10)) + 1}"):
+                    self.fail(f"{wf.name} starts a game and ignores how it exited")
+
     def test_every_launch_reads_dev_null(self):
         found = list(self.launches())
         self.assertGreaterEqual(len(found), 4)

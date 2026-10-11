@@ -153,9 +153,10 @@ jobs:
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-build.zip .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt. The measured line is printed either
-      # way, so this log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure). The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-x64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
@@ -279,9 +280,10 @@ jobs:
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-build.zip .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt. The measured line is printed either
-      # way, so this log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure). The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-arm64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
@@ -410,9 +412,10 @@ jobs:
           bash tools/upx_pack.sh linux-x64-musl "package/${{ inputs.project_name }}"
           cd package && zip -r ../linux-x64-musl-build.zip .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt. The measured line is printed either
-      # way, so this log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure). The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-x64-musl "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
@@ -513,16 +516,18 @@ jobs:
           cp -r resources musl-bin/resources
           # Started from / and not from /app: a release has to find the
           # resources/ next to itself, wherever it is started from.
-          OUT=$(docker run --rm --network none \
+          if OUT=$(docker run --rm --network none \
             -v "$PWD/musl-bin:/app:ro" \
             -w / -e RAY_TEST_MAX_FRAMES=10 \
             "$RUN_IMAGE" \
-            "/app/${{ inputs.project_name }}" 2>&1) || true
+            "/app/${{ inputs.project_name }}" 2>&1); then RC=0; else RC=$?; fi
           echo "$OUT" | tail -20
           echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
             || { echo "FAIL: did not boot on Alpine, or an asset failed to load"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FAIL: drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FAIL: died before the end"; exit 1; }
+          # And its exit status: a crash on the way out is one a player sees.
+          test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
           # The exact frame only where there is a golden one: the framework.
           # A game checks the boot, the pixels and the clean exit above.
           if [ -f tests/fixtures/render_hash.txt ]; then
@@ -672,9 +677,10 @@ jobs:
             > package/resources/PACK_SKIPPED.txt
           cd package && zip -r ../linux-riscv64-glibc-build.zip .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt. The measured line is printed either
-      # way, so this log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure). The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-riscv64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
@@ -794,9 +800,10 @@ jobs:
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-x64-glibc-drm-build.zip .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt. The measured line is printed either
-      # way, so this log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure). The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-x64-glibc-drm "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
@@ -889,18 +896,19 @@ jobs:
             "${{ inputs.build_image }}" -la /dev/dri || true
           # Started from / and not from /app: a release has to find the
           # resources/ next to itself, wherever it is started from.
-          OUT=$(docker run --rm --device /dev/dri \
+          if OUT=$(docker run --rm --device /dev/dri \
             -v "$PWD/drm-bin:/app:ro" \
             -w / -e RAY_TEST_MAX_FRAMES=10 \
             -e LIBGL_ALWAYS_SOFTWARE=1 \
             -e EGL_LOG_LEVEL=debug \
             "${{ inputs.build_image }}" \
-            "/app/${{ inputs.project_name }}" 2>&1) || true
+            "/app/${{ inputs.project_name }}" 2>&1); then RC=0; else RC=$?; fi
           echo "$OUT" | tail -30
           echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
             || { echo "FAIL: it did not boot on DRM, or an asset failed to load"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_RENDER_OK   || { echo "FAIL: it drew nothing"; exit 1; }
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FAIL: it died before the end"; exit 1; }
+          test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
           echo "PASS: booted and rendered through DRM/KMS"
 
 
@@ -1015,9 +1023,10 @@ jobs:
           sh tools/ship_resources.sh package   # the pack; loose files for a plain C game
           cd package && zip -r ../linux-arm64-glibc-drm-build.zip .
 
-      # The binary as linked and the copy that ships, each within 1.5% of its
-      # line in tools/size_budget.txt. The measured line is printed either
-      # way, so this log is all it takes to update the file.
+      # The binary as linked and the copy that ships, each held to its line in
+      # tools/size_budget.txt (past 1.5% a warning, past 10% a failure). The
+      # measured line is printed either way, so this log is all it takes to
+      # update the file.
       - name: Within its size budget
         run: python3 tools/size_check.py linux-arm64-glibc-drm "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
