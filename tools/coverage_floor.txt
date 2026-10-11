@@ -13,7 +13,7 @@ src/rmp/behaviors.cpp            91
 src/rmp/camera.cpp               100
 src/rmp/clock.cpp                95
 src/rmp/collision.cpp            96
-src/rmp/console.cpp              92
+src/rmp/console.cpp              94
 src/rmp/global.cpp               100
 src/rmp/input.cpp                85
 src/rmp/internal.h               100

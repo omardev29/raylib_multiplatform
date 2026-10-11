@@ -273,7 +273,7 @@ TEST_SUITE("console") {
             CHECK((now.ss_flags & SS_DISABLE) != 0);
         }
         // One that was there is kept, and left there.
-        std::array<std::byte, 64 * 1024> theirs{};
+        std::array<std::byte, std::size_t{ 64 } * 1024> theirs{};
         stack_t given{};
         given.ss_sp = theirs.data();
         given.ss_size = theirs.size();

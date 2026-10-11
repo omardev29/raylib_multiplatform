@@ -70,7 +70,7 @@ constexpr std::array FATAL_SIGNALS{ SIGSEGV, SIGBUS,  SIGFPE, SIGILL,  SIGTRAP, 
 // report of the overflow, or -- in a build without it, a release -- this one.
 // Far more than put_back() and a sigaction need, and than the largest signal
 // frame a machine pushes (arm64's with SVE).
-constexpr std::size_t ALTERNATE_STACK_SIZE = 64 * 1024;
+constexpr std::size_t ALTERNATE_STACK_SIZE = std::size_t{ 64 } * 1024;
 
 // The terminal as it was, and the handlers ours stand in front of. Written
 // before a handler is installed and only read after, so a handler never sees
