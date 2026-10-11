@@ -159,6 +159,16 @@ std::optional<std::string> raylib_text(const std::string &path) {
     return std::string(text.get());
 }
 
+// What a load counts, from here on.
+struct Counts {
+    int requested = rmp::assets::requested_loads();
+    int failed = rmp::assets::failed_loads();
+    [[nodiscard]] int more_requested() const {
+        return rmp::assets::requested_loads() - requested;
+    }
+    [[nodiscard]] int more_failed() const { return rmp::assets::failed_loads() - failed; }
+};
+
 rres::Key cheap(std::string_view password, const rres::Salt &salt) {
     return pack::cheap(password, salt);
 }
@@ -648,6 +658,78 @@ TEST_SUITE("assets: pack") {
         CHECK(memory_image(picture({ 65536, 65536, 7, 1 }, 16), "p.png").data == nullptr);
     }
 
+    TEST_CASE("every pixel format rres names is raylib's of that name") {
+        // By name, not by number: raylib 6 put formats in the middle of its enum.
+        const std::vector<std::pair<std::uint32_t, int>> formats = {
+            { 1, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE },
+            { 2, PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA },
+            { 3, PIXELFORMAT_UNCOMPRESSED_R5G6B5 },
+            { 4, PIXELFORMAT_UNCOMPRESSED_R8G8B8 },
+            { 5, PIXELFORMAT_UNCOMPRESSED_R5G5B5A1 },
+            { 6, PIXELFORMAT_UNCOMPRESSED_R4G4B4A4 },
+            { 7, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 },
+            { 8, PIXELFORMAT_UNCOMPRESSED_R32 },
+            { 9, PIXELFORMAT_UNCOMPRESSED_R32G32B32 },
+            { 10, PIXELFORMAT_UNCOMPRESSED_R32G32B32A32 },
+            { 11, PIXELFORMAT_COMPRESSED_DXT1_RGB },
+            { 12, PIXELFORMAT_COMPRESSED_DXT1_RGBA },
+            { 13, PIXELFORMAT_COMPRESSED_DXT3_RGBA },
+            { 14, PIXELFORMAT_COMPRESSED_DXT5_RGBA },
+            { 15, PIXELFORMAT_COMPRESSED_ETC1_RGB },
+            { 16, PIXELFORMAT_COMPRESSED_ETC2_RGB },
+            { 17, PIXELFORMAT_COMPRESSED_ETC2_EAC_RGBA },
+            { 18, PIXELFORMAT_COMPRESSED_PVRT_RGB },
+            { 19, PIXELFORMAT_COMPRESSED_PVRT_RGBA },
+            { 20, PIXELFORMAT_COMPRESSED_ASTC_4x4_RGBA },
+            { 21, PIXELFORMAT_COMPRESSED_ASTC_8x8_RGBA },
+        };
+        for (const auto &[rres_format, raylib_format] : formats) {
+            CAPTURE(rres_format);
+            const auto bytes =
+                static_cast<std::size_t>(GetPixelDataSize(8, 8, raylib_format));
+            pack::Bytes text =
+                pack::plain({ 8, 8, rres_format, 1 }, pack::Bytes(bytes, 1));
+            const auto size = static_cast<std::uint32_t>(text.size());
+            const ::Image image = memory_image(
+                pack::write_chunks({ { "p", "IMGE", 0, 0, std::move(text), size } }),
+                "p");
+            CHECK(image.format == raylib_format);
+            CHECK(image.data != nullptr);
+            UnloadImage(image);
+        }
+    }
+
+    TEST_CASE("a pack that is not one, or keeps its directory some way rres cannot, is "
+              "refused") {
+        const pack::Bytes good = pack::write({ { "a.txt", pack::bytes_of("a") } });
+        REQUIRE(readable(good));
+        pack::Bytes magic = good;
+        magic[0] = 'R';
+        CHECK_FALSE(readable(magic));
+        pack::Bytes version = good;
+        version[4] = 101;
+        CHECK_FALSE(readable(version));
+        pack::Bytes no_directory = good;
+        pack::set_u32(no_directory, 8, 0);
+        CHECK_FALSE(readable(no_directory));
+        // A directory that is encrypted, or compressed.
+        for (const std::size_t field : { std::size_t{ 8 }, std::size_t{ 9 } }) {
+            pack::Bytes directory = good;
+            directory[pack::chunks(directory).back().info + field] = 30;
+            CHECK_FALSE(readable(directory));
+        }
+        // A cipher this does not read: rres's XOR.
+        pack::Bytes xored = good;
+        xored[pack::chunks(xored).front().info + 9] = 1;
+        CHECK(readable(xored));
+        CHECK_FALSE(memory_read(xored, "a.txt").has_value());
+        // And a chunk past 2 GiB, which a CRC and an MD5 cannot be taken of.
+        rres::MemorySource memory(good);
+        rres::Chunk huge;
+        huge.info.packed_size = 0x80000000U;
+        CHECK_FALSE(rres::open_chunk(memory, huge, RMP_RRES_PASSWORD, cheap).has_value());
+    }
+
     TEST_CASE("a RAWD picture is decoded by the extension packed with it") {
         const ::Image red = GenImageColor(2, 2, RED);
         int size = 0;
@@ -665,6 +747,69 @@ TEST_SUITE("assets: pack") {
         // The same bytes under another extension are not a PNG to raylib.
         CHECK(memory_image(pack::write({ { "dot.txt", bytes } }), "dot.txt").data ==
               nullptr);
+    }
+}
+
+TEST_SUITE("assets: pack, loaders") {
+    TEST_CASE("a picture in the pack is loaded from it, and one that is not falls back") {
+        const ::Image red = GenImageColor(2, 2, RED);
+        int size = 0;
+        const std::unique_ptr<unsigned char, decltype(&MemFree)> png(
+            ExportImageToMemory(red, ".png", &size), &MemFree);
+        UnloadImage(red);
+        REQUIRE(png != nullptr);
+        const pack::Bytes dot(png.get(), png.get() + size);
+
+        const Scratch release("pictures");
+        release.put_pack(
+            pack::write({ { "dot.png", dot }, { "bad.png", pack::bytes_of("no") } }));
+        release.put(
+            "loose.png",
+            std::string_view(reinterpret_cast<const char *>(dot.data()), dot.size()));
+        const AtRoot at(release.root());
+        const OpenPack open;
+        REQUIRE(open.opened);
+        const Counts before;
+        const rmp::Image packed = rmp::assets::load_image("dot.png");
+        REQUIRE(packed.valid());
+        CHECK(packed.raw().width == 2);
+        CHECK(before.more_failed() == 0);
+        // Not in the pack: the loose file, as development reads it.
+        CHECK(rmp::assets::load_image("loose.png").valid());
+        CHECK(before.more_failed() == 0);
+        // In the pack and not a picture, and no loose file behind it.
+        CHECK_FALSE(rmp::assets::load_image("bad.png").valid());
+        CHECK(before.more_requested() == 3);
+        CHECK(before.more_failed() == 1);
+        CHECK(::Image(rmp::assets::detail::pack_read_image(nullptr)).data == nullptr);
+    }
+
+    TEST_CASE("a font in the pack is read from it, and one that cannot be drawn leaks "
+              "nothing") {
+        // With no window there is no GPU, and the font comes back empty; it
+        // decoded, so it is no failed load -- and its glyph tables used to be
+        // kept, every load (LeakSanitizer is the check).
+        const std::string fonts =
+            RMP_TEST_FIXTURES "../../examples/assets/01_loading/resources/";
+        std::ifstream file(fonts + "ui.ttf", std::ios::binary);
+        const pack::Bytes ttf{ std::istreambuf_iterator<char>(file),
+                               std::istreambuf_iterator<char>() };
+        REQUIRE_FALSE(ttf.empty());
+        {
+            const AtRoot at(fonts);
+            const Counts before;
+            static_cast<void>(rmp::assets::load_font("ui.ttf", 20));
+            CHECK(before.more_failed() == 0);
+        }
+        const Scratch release("fonts");
+        release.put_pack(pack::write({ { "ui.ttf", ttf } }));
+        const AtRoot at(release.root());
+        const OpenPack open;
+        REQUIRE(open.opened);
+        const Counts before;
+        static_cast<void>(rmp::assets::load_font("ui.ttf", 20));
+        CHECK(before.more_failed() == 0);
+        CHECK(before.more_requested() == 1);
     }
 }
 
@@ -853,19 +998,6 @@ static_assert(std::is_nothrow_move_assignable_v<rmp::Texture>);
 // assets_failed, and it counted only names with NOTHING behind them: a corrupt
 // PNG left a blank texture and a green boot. The sound and the music need a
 // device, so they are in tests/audio_device_test.cpp.
-
-namespace {
-
-struct Counts {
-    int requested = rmp::assets::requested_loads();
-    int failed = rmp::assets::failed_loads();
-    [[nodiscard]] int more_requested() const {
-        return rmp::assets::requested_loads() - requested;
-    }
-    [[nodiscard]] int more_failed() const { return rmp::assets::failed_loads() - failed; }
-};
-
-} // namespace
 
 TEST_SUITE("assets: loads") {
     TEST_CASE("an image that is there and does not decode is a failed load") {

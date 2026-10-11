@@ -323,7 +323,18 @@ rmp::Font load_font(std::string_view name_view, int font_size) {
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::FONT, name, font_size))
         return rmp::Font{ hit };
     const ::Font raw = load_font_raw(name, font_size);
-    if (raw.texture.id == 0) return rmp::Font{};
+    if (raw.texture.id == 0) {
+        // Decoded, and no GPU to go to -- before the window, or headless.
+        // raylib's UnloadFont() tells its default font apart by the texture
+        // id, which with no window is 0 for both, so it frees nothing: every
+        // such load kept its glyph tables (97 allocations for 95 glyphs,
+        // LeakSanitizer said). They are let go here, the default's never.
+        if (font_decoded(raw)) {
+            UnloadFontData(raw.glyphs, raw.glyphCount);
+            MemFree(raw.recs);
+        }
+        return rmp::Font{};
+    }
     auto *slot = rmp::detail::adopt_named(ResourceKind::FONT, name, font_size, raw);
     if (slot == nullptr) {
         UnloadFont(raw);

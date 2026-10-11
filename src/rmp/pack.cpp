@@ -349,11 +349,12 @@ std::optional<Index> read_index(Source &pack) {
     // rres seeks to the directory from the end of the header.
     const std::uint64_t where = HEADER_SIZE + u32_at(header, 8);
     if (u32_at(header, 8) == 0) return std::nullopt; // no directory, no names
+    // Plain, always: a directory that needed the password would need it to
+    // list the names, and rres never read a compressed one.
     const std::optional<ChunkInfo> info = read_info(pack, where);
     if (!info || !is_type(info->type, "CDIR") || info->compression != RRES_COMP_NONE ||
         info->cipher != RRES_CIPHER_NONE) {
-        return std::
-            nullopt; // a directory that needed a password would need it to list names
+        return std::nullopt;
     }
     const std::optional<Contents> directory =
         open_chunk(pack, { where, where + INFO_SIZE, *info }, "", nullptr);
