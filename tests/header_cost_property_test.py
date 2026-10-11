@@ -80,5 +80,74 @@ class BudgetFileTest(unittest.TestCase):
             self.assertRegex(text, rf"(^|\n)\s*{re.escape(name)}\s+0*{lines}\s*(\n|$)")
 
 
+class VerdictTest(unittest.TestCase):
+    """main()'s verdict, with the compiler stood in for: for any headers
+    measured at any size, any budget, inside the image or not, --check and
+    --strict or not -- exit 1 exactly when the docstring says.
+
+      - a header over its budget by more than BUDGET_TOLERANCE GREW, under it
+        by as much is a STALE BUDGET: fatal in the image or with --strict,
+        a note elsewhere;
+      - a header with no budget, and a budget for a header that is gone, fail
+        everywhere: whether a name is in a file is the same on every machine;
+      - without --check nothing is compared, and --write-budget writes what
+        was measured."""
+
+    @given(st.dictionaries(NAMES, st.integers(0, 10**5), min_size=1, max_size=5),
+           st.dictionaries(NAMES, st.integers(0, 10**5), max_size=5), st.data(),
+           st.booleans(), st.booleans(), st.booleans(), st.booleans())
+    def test_exit_1_exactly_when_the_rule_says(self, measured, budget, data, check, strict,
+                                                in_image, write):
+        import contextlib
+        import io
+        import tempfile
+        from unittest import mock
+        # Budgets for headers that are gone, or none: either decides alone.
+        if data.draw(st.booleans()):
+            budget = {name: n for name, n in budget.items() if name in measured}
+        # Some budgets near what was measured: the tolerance's edges.
+        for name in measured:
+            if data.draw(st.booleans()):
+                budget[name] = data.draw(st.sampled_from(
+                    [measured[name], int(measured[name] / 1.2), int(measured[name] / 0.8) + 1,
+                     int(measured[name] / 1.2) + 1, int(measured[name] / 0.8)]))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            (root / "include" / "rmp").mkdir(parents=True)
+            target = root / "tools" / "header_budget.txt"
+            target.write_text(hc.format_budget(budget.items()))
+            manifest = root / "image.json"
+            if in_image:
+                manifest.write_text("{}")
+            headers = [root / "include" / "rmp" / name for name in sorted(measured)]
+            argv = ["--check"] * check + ["--strict"] * strict + ["--write-budget"] * write
+            out = io.StringIO()
+            with mock.patch.object(hc, "REPO", root), mock.patch.object(hc, "BUDGET", target), \
+                    mock.patch.object(hc, "IMAGE_MANIFEST", manifest), \
+                    mock.patch.object(hc, "headers", lambda: headers), \
+                    mock.patch.object(hc, "measure",
+                                      lambda cxx, header, runs=5: (measured[header.name], 1.0)), \
+                    contextlib.redirect_stdout(out):
+                code = hc.main(argv)
+            written = target.read_text()
+        gate = check and (in_image or strict)
+        tolerance = hc.BUDGET_TOLERANCE
+
+        def off(name):
+            want = budget[name]
+            return (measured[name] > want * (1 + tolerance)
+                    or measured[name] < want * (1 - tolerance))
+
+        fails = check and (any(name not in budget or (gate and off(name)) for name in measured)
+                           or bool(set(budget) - set(measured)))
+        self.assertEqual(code, 1 if fails else 0, out.getvalue())
+        self.assertIn("FAIL: " if fails else "PASS: ", out.getvalue())
+        if write:
+            self.assertEqual(hc.parse_budget(written), measured)
+        else:
+            self.assertEqual(hc.parse_budget(written), budget)
+
+
 if __name__ == "__main__":
     unittest.main()
