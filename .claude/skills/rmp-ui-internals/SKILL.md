@@ -15,9 +15,15 @@ style.cpp       size steps, state colours, the transition table
 widgets.cpp     begin / end / button / text
 containers.cpp  row column panel center stack layer spacer image progress grid cell scroll
 controls.cpp    checkbox slider dropdown text_input
-focus.cpp       focus, keyboard and gamepad navigation, per-widget scratch state
-render.cpp      Clay's render commands -> raylib draw calls
+focus.cpp       focus, keyboard and gamepad navigation, a HUD's focus, per-widget scratch state
+render.cpp      Clay's render commands -> raylib draw calls, and the scissor stack
 theme.cpp       theme_dark(), theme_light(), the active theme
+overlay.cpp     overlay(): a frame of its own in front, the veil, the modality
+backdrop.cpp    what an overlay blurs: the frame drawn into a texture (backdrop.h: its tests' half)
+at.cpp          at(): a box over a point of the world, under the rest of its pass
+tooltip.cpp     tooltip(): a line about the control declared before it
+notify.cpp      notify() and a debug build's reports on screen, in a Clay context of their own
+floating.h      the private half of at(), tooltip() and notify()
 ```
 
 Two structural rules: **no widget implements navigation** (it registers as
@@ -63,6 +69,16 @@ reproducing it.
   `Clay_BeginLayout` — after it the offset arrives a frame late.
 - Floating elements (what `layer()` builds) are drawn **by z-index**, not by
   declaration order, so `next_layer_z()` hands out an increasing z per frame.
+  The pass's own tree is at 0, so a z below 0 is drawn under it: that is how an
+  `at()` box goes under the HUD.
+- **A floating element captures the pointer by default**, and Clay decides by
+  what is under the pointer which scroll area takes the wheel and a drag: an
+  invisible layer over the viewport hid every area under it.
+  `CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH` is what floats and only claims the
+  game's input (an overlay's veil at dim 0, an `at()` box).
+- **raylib has one scissor**, and Clay emits a `SCISSOR_START`/`SCISSOR_END`
+  pair per scroll area: nested areas need the stack `render.cpp` keeps, or the
+  inner one replaces the outer clip and its end switches clipping off.
 - SIMD includes: `<emmintrin.h>` on x86_64, `<arm_neon.h>` on aarch64, nothing on
   riscv64 or wasm.
 - **One line of clay.h is patched**: the C++ version guard accepts `201709L`,
@@ -81,7 +97,12 @@ reproducing it.
 - **Hover is suppressed when no pointer is present.** On a touch screen the last
   place tapped would otherwise stay lit forever.
 - **Breakpoints classify by aspect ratio, not pixels.** `scale()` has already
-  normalised size; a 1080-pixel-wide phone is not a desktop.
+  normalised size; a 1080-pixel-wide phone is not a desktop. The aspect is the
+  game's area: under `Stretch::LETTERBOX`, the world inside its bars.
+- **An entry point outside a frame says so, once** (`frame_ready()`, keyed by
+  the call -- by the function alone for `text()` and `tooltip()`, whose argument
+  changes). `tools/style_check.sh` S7 refuses a silent
+  `if (!frame_open()) return;` as an entry point's first line.
 - **Transitions are colour only.** Nothing in the layout moves, so an animation
   can never make you miss what you clicked. `theme.transition = 0` removes the
   state entirely, which is what makes the headless test deterministic.
@@ -98,6 +119,10 @@ computation, so the whole thing runs with no GPU, no window and no display.
 cmake --preset debug -DBUILD_UI_TESTS=ON
 cmake --build --preset debug --target ui_layout_test && ./build/debug/ui_layout_test
 ```
+
+What only a GPU can show -- the backdrop's blur, the scissor stack in pixels --
+is `tests/ui_render_test.cpp`: a hidden window on the desktop's GL, read back
+(`rmp test ui-render`; CI runs it under `xvfb-run`, on llvmpipe).
 
 Two traps that produced false failures, both in the test rather than the code:
 `element_id()` called **after** the frame returns occurrence 1, because the

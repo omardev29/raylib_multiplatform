@@ -83,7 +83,7 @@ The style itself, for when you are writing rather than fixing:
   twenty, and `git blame` should point at whoever wrote the code.
 - `.h`, not `.hpp` — the repo is consistent and this was decided once.
 - Headers use `#pragma once` (`portability-avoid-pragma-once` is off for this).
-- Single-line guards stay on one line: `if (!frame_open()) return;`.
+- Single-line guards stay on one line: `if (!frame_ready("button", label)) return false;`.
 - Options-struct fields align as one column, across blank lines and comments.
 
 One exemption is left in the repository, and it is **not** about alignment: the

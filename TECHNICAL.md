@@ -666,7 +666,9 @@ Three things to know before you do it:
 Our renderer handles `RECTANGLE` and `BORDER` (each corner with its own radius, each side of a
 border with its own width), `TEXT`, `IMAGE` (point `imageData` at a `Texture2D` you own; a tint
 is a `Color *` in `userData`, and a `backgroundColor` is not one — Clay draws it as a rectangle
-after the image, over it) and the `SCISSOR` pair, so clipping and scroll containers work.
+after the image, over it) and the `SCISSOR` pair, so clipping and scroll containers work -- and a
+scroll area inside another clips to both: raylib has one scissor, so `render.cpp` keeps a stack of
+them and gives raylib their intersection.
 `CUSTOM` is not handled — `src/rmp/ui/render.cpp` is one short file, and adding a case is the
 intended way to extend it.
 
@@ -678,13 +680,44 @@ field, which is also what you want when the values are computed from the Theme a
 than written as literals. Nothing about the macros is being avoided; they simply do not fit the
 shape of this particular API.
 
-The implementation is ten files under `src/rmp/ui/`: `clay_impl.cpp` (compiles the engine once,
+The implementation is the files under `src/rmp/ui/`: `clay_impl.cpp` (compiles the engine once,
 same idea as `rres_impl.cpp`), `internal.h` (the private header, which is where Clay is
 included), `context.cpp` (start-up, scale, font, the text arena, element identity, hit testing, the
 test seams), `widgets.cpp` (`begin`, `end`, `button`, `text`), `containers.cpp` (the containers,
 `image`, `progress`, `grid`, `scroll`), `controls.cpp` (`checkbox`, `slider`, `dropdown`,
-`text_input`), `focus.cpp` (focus, keyboard and gamepad navigation), `style.cpp` (sizes, state
-colours, transitions), `render.cpp` (draw commands into raylib calls) and `theme.cpp`.
+`text_input`), `focus.cpp` (focus, keyboard and gamepad navigation, a HUD's focus), `style.cpp`
+(sizes, state colours, transitions), `render.cpp` (draw commands into raylib calls), `theme.cpp`,
+and what floats over the rest: `overlay.cpp` with `backdrop.cpp`/`backdrop.h` (its blur), and
+`at.cpp`, `tooltip.cpp` and `notify.cpp` with `floating.h`, their private half.
+
+What floats, and why each is where it is:
+
+- **`overlay()`** is a frame of its own in front of everything drawn before it: its root painted
+  with the veil (which takes the pointer everywhere), the passes before it inert from the next
+  frame, its first control focused. Its blur needs the frame as a texture, and OpenGL ES 2.0
+  cannot copy the framebuffer, so the frame after an overlay asks for one is drawn into a texture
+  from `BeginDrawing()` on (`begin_backdrop()`, called by `RMP_GAME`'s frame), and the overlay
+  blurs that and puts it on screen: two separable Gaussian passes at a half, a quarter or less of the
+  size, in GLSL ES 1.00, ES 3.00 or 330 by `rlGetVersion()`. The first frame of an overlay has the
+  veil alone, and the blur eases in over the theme's transition. Where no shader can run --
+  raylib's software renderer, OpenGL 1.1 and 2.1, a driver that refuses one -- the veil comes
+  alone and the log says so once; a blur asked for in a frame of the game's own
+  (`RMP_ENTRY_POINT`, nothing redirected) and a scene that ends a render texture of its own under
+  the blur are the game's mistakes, reported once. Inside a frame already open it is a layer over
+  that frame, reported once, without the blur.
+- **`at()`**'s box is a floating element attached to the root, its anchor on the point the
+  scene's camera projects (`set_pass_camera()`), drawn UNDER the rest of its pass (a z below 0):
+  a health bar walks under the HUD's panel, as the enemy does. What it paints lets the pointer
+  through to the world (`world_passthrough()`); its controls are hovered and clicked where they are
+  drawn, and are not clipped by a scroll area the `at()` is described in.
+- **`tooltip()`** is about the control declared just before it (`take_last_control()`); it shows
+  after `delay` seconds of the pointer resting, at once on a visible focus, and by the focus alone
+  when `delay` is infinite. An empty text shows nothing, and is no mistake.
+- **The notices** of `notify()` -- and, in a debug build, every `RMP_REPORT_ONCE` on screen -- are
+  laid out by a Clay context of their own, not as a pass of the game's: a pass after the game's
+  would be the layout Clay holds when the next frame starts, and the game's scroll areas would stop
+  taking the wheel while a notice showed. `RMP_GAME` draws them after the last scene; a game with
+  its own frame hook, after its frame's first `begin()`/`end()`.
 
 Two details from that boundary that are worth knowing:
 
@@ -1285,7 +1318,9 @@ platform that undid every jump from it above ~127 FPS.
 
 **Played from a script, and compared pixel for pixel** — `tests/e2e/<area>/<name>.e2e` says what a
 player presses, frame by frame (`120 tap KEY_ENTER`, `15 tap GAMEPAD_BUTTON_LEFT_FACE_DOWN`,
-`400 click 400 245`), what the screen must show (`200 shot red_scores`) and which scene must be on
+`400 click 400 245`, `30 type "Ana"` -- one frame's characters for the text field that has the
+keyboard; a tap of `KEY_BACKSPACE` takes one off, and a `#` cannot be typed, even between the
+quotes, because it starts a comment), what the screen must show (`200 shot red_scores`) and which scene must be on
 top (`640 expect scene OverScene`).
 `e2e_<area>_<name>` is the example exactly as it ships -- its own `main.cpp` and entry point --
 plus `tests/e2e/driver.cpp`, which installs itself before `main()` through the seams: every frame

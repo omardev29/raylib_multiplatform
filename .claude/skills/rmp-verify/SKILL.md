@@ -13,7 +13,8 @@ project was found by looking at pixels, dumping an artefact or writing an assert
 
 ```bash
 rmp test              # fmt + config + gates + configure and rmp tests + unit + layout + property +
-                      # render + smoke. Always.
+                      # ui-render + render + smoke. Always. In the image: xvfb-run -a ./rmp test,
+                      # as CI's lint job, or ui-render and the smoke have no display.
 rmp test examples     # builds every example and boots it headless with a screenshot, then PLAYS the
                       # platformer to the end (tests/platformer_play.cpp). Before touching public API,
                       # objects, collision, the map, scenes or the game.
@@ -47,6 +48,8 @@ python3 tools/configure.py --check     # the .toml is valid
 bash tools/versions_check.sh           # the pinned versions still agree
 cmake --preset debug -DBUILD_UI_TESTS=ON && cmake --build --preset debug --target ui_layout_test
 ./build/debug/ui_layout_test           # layout at four resolutions, no window, no GPU
+cmake --build --preset debug --target ui_render_test
+./build/debug/ui_render_test           # the UI on a real GPU: the blur and the scissors, read back
 RAY_TEST_MAX_FRAMES=10 ./build/debug/ray_test    # expects RAY_TEST_SAVE_OK, RAY_TEST_BOOT_OK, RAY_TEST_RENDER_OK
 ```
 

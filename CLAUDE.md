@@ -144,8 +144,10 @@ here so that nobody "fixes" one back.
 - **The games, menus, scenes and input are played from scripts, and their
   frames compared exactly.**
   `tests/e2e/<area>/<name>.e2e` is what a player presses, frame by frame
-  (`press`/`release`/`tap KEY_*` or `GAMEPAD_BUTTON_*`, `click x y`), what the
-  screen must show
+  (`press`/`release`/`tap KEY_*` or `GAMEPAD_BUTTON_*`, `click x y`, and
+  `type "..."`: one frame's characters for the text field that has the
+  keyboard, a tap of `KEY_BACKSPACE` taking one off, and no `#`, which starts a
+  comment even between the quotes), what the screen must show
   (`shot <name>`) and which scene is on top (`expect scene <Class>`), to `end`.
   `e2e_<area>_<name>` is the example as it ships plus `tests/e2e/driver.cpp`,
   which installs itself before `main()`: every frame exactly 1/60 s and
@@ -549,22 +551,25 @@ here so that nobody "fixes" one back.
   timing.
 - **One clock, or no two runs draw the same frame.** `step_delta()` lives in
   `src/rmp/clock.cpp`, the framework's one `GetFrameTime()`, and the UI's
-  `frame_time()` is `frame_delta()`: what the scenes were handed. The UI read
-  raylib's clock itself, so under a fixed step its menus faded and
-  repeat-scrolled by wall time. A game that reads `GetTime()`/`GetFrameTime()`
+  `frame_time()` is `frame_delta()`: what the scenes were handed -- or, with no
+  runner stepping (rmp::ui in a plain raylib loop), the frame raylib timed,
+  clamped the same way: that loop's menus never faded and its notices never
+  went. The UI read raylib's clock itself, so under a fixed step its menus
+  faded and repeat-scrolled by wall time. A game that reads `GetTime()`/`GetFrameTime()`
   cannot be scripted -- the platformer's flag did.
 - **A script can press only what the game reads through rmp::input or
   rmp::ui.** Under PLATFORM=Memory raylib's own key and mouse state never
   changes: `assets/01_loading` and `ads/01_interstitial` read raylib directly
-  (neither is played: `NOT_PLAYED` says why), the text field reads
-  `GetCharPressed()` (phase 14), and the UI reads the wheel itself, so a script
-  scrolls a list by moving the focus. `nav_from_keys()` and `nav_from_pad()`
+  (neither is played: `NOT_PLAYED` says why), a script types into a text
+  field with `type "..."` (the field reads `read_typed()`, the UI's seam), and
+  the UI reads the wheel itself, so a script scrolls a list by moving the
+  focus. `nav_from_keys()` and `nav_from_pad()`
   (`ui/internal.h`) are the one keyboard and gamepad mapping, shared by
   `nav_from_raylib()` and the driver. Space and Enter press the focused control
   of a menu on top: a script that taps a game's Space under a pause menu
-  resumes it. `seam_check.sh` holds a DEBT file to the calls it is in debt for
-  (`DEBT_CALLS`): `ui/controls.cpp` may call `GetCharPressed` and
-  `IsKeyPressed`, and `GetTime()` there is red.
+  resumes it. `seam_check.sh` keeps no debt: `ui/controls.cpp` came off its
+  list in phase 14, and any read of the clock, the devices or the screen there
+  is red (`SeamCheckTakesNoDebtTest`).
 - **The input of frame N+1 is set at the end of frame N, and frame 0 has no
   edges.** So a script's input starts at frame 1, and a tapped key needs a frame
   up before it can go down again; the grammar refuses each of these with its
@@ -641,6 +646,32 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **Clay emits `RECTANGLE` in addition to `IMAGE`** for an element with a
   background colour, and the rectangle comes *after*. An image tint put there
   paints a flat square over the picture; ours travels via `userData`.
+- **A Clay floating element captures the pointer by default.** An invisible
+  layer over the viewport -- an overlay's veil at dim 0 -- hid every scroll
+  area under it from Clay, which decides by what is under the pointer where
+  the wheel and a drag go. What floats and only claims the game's input is
+  `CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH`; `claim_pointer_over_painted()`
+  takes the input from its render command whatever Clay does.
+- **rlgl keeps ONE set of `BLEND_CUSTOM` factors, and they are the game's.**
+  Framework code never calls `rlSetBlendFactors`: the backdrop turns blending
+  off for its one copy instead, and `ui_render_test` holds a game's custom
+  blend across a blurred frame.
+- **A GLSL program is one version.** An ES fragment shader beside raylib's 330
+  vertex shader does not link ("all shaders must use same shading language
+  version"), so the blur brings its own vertex shader in its own dialect --
+  and with both halves one version, Mesa takes GLSL ES 1.00 and 3.00 under the
+  desktop's context, which is how `ui_render_test` builds and draws the shader
+  a phone and a browser use, on llvmpipe.
+- **`rlGetActiveFramebuffer()` answers 0 under OpenGL ES 2.0, whatever is
+  bound.** It asks for `GL_DRAW_FRAMEBUFFER_BINDING`, which ES 2.0 has not.
+  `ui/backdrop.cpp` asks `GL_FRAMEBUFFER_BINDING` itself in an ES 2.0 build
+  (WebGL 1, Android at ES20, DRM) -- the framework's one direct GL call -- to
+  see a scene that drew through its own render texture under a blur. Only the
+  matrix compiles that line, and no job runs it.
+- **A bilinear downsample averages every texel only at exactly half the
+  size**, read at the target's texel centres. Read at a quarter it skips three
+  texels of four, and at 45 to 23 it drifts: the blur halves the frame down
+  step by step to twice the small picture, so every pixel counts once.
 - **Debug and release each have a folder, and `build/` itself is never a
   build.** They shared `build/`, and a reconfigure does not take the compiler
   back out of the cache: `[dev] compiler` is written with `FORCE`, so `rmp build
@@ -929,7 +960,9 @@ portable, shell patterns, naming, style, ownership, pointers, headers, header co
 repo, size budget, and cppcheck where it is installed (CI requires it) —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
 real mixer for about a second, only in the first), headless layout, the properties (the
-campaign's gates, RapidCheck at its seed, Hypothesis derandomized), render and smoke), `rmp test examples` before touching the public API (it builds
+campaign's gates, RapidCheck at its seed, Hypothesis derandomized), the UI on a real GPU
+(`ui-render`: a hidden window, the backdrop's blur read back -- under `xvfb-run` in CI),
+render and smoke), `rmp test examples` before touching the public API (it builds
 and boots all of them with a screenshot each, plays the platformer to the flag at 60 and
 240 Hz, and plays `tests/e2e/` -- compared exactly only inside the image), `rmp test coverage`
 after adding or testing framework code, `rmp test fuzz` after touching a parser (every committed input replayed under libFuzzer and the
