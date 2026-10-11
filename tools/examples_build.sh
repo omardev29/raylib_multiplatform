@@ -24,6 +24,10 @@
 #      RAY_TEST_RENDER_OK, RAY_TEST_DONE_FRAMES), and wrote its screenshot.
 #   4. The platformer is played to the end (tests/platformer_play.cpp), and
 #      rmp::input is read both ways a game is written (tests/input_play.cpp).
+#   5. Every example with a script in tests/e2e/ is PLAYED from it, frame by
+#      frame, and every shot compared with its golden PNG: exactly, inside the
+#      pinned build image; reported and not enforced anywhere else. As many
+#      scripts as e2e targets as runs. See tests/e2e/driver.cpp.
 #
 # What is NOT run: the header-only examples, which are compiled and have
 # nothing to run. examples/plain_c is booted like the rest: it is plain C with
@@ -33,6 +37,12 @@
 #
 # Usage: tools/examples_build.sh                 (from the repo root)
 #        RMP_EXAMPLE_FRAMES=60 tools/examples_build.sh
+#        tools/examples_build.sh e2e             5. alone: builds the e2e
+#                                                 targets and plays them
+#        RMP_E2E_UPDATE=1 tools/examples_build.sh e2e
+#                                                 records the goldens, inside
+#                                                 the image only: `rmp test
+#                                                 e2e-update`
 #
 # ASCII only and no GNU-only constructs -- tools/portable_check.sh covers this
 # directory, and macOS ships bash 3.2.
@@ -42,10 +52,130 @@ cd "$(dirname "$0")/.."
 BUILD="build/examples-check"
 SHOTS="$BUILD/screenshots"
 FRAMES="${RMP_EXAMPLE_FRAMES:-30}"
+ONLY="${1:-all}"
+case "$ONLY" in
+  all | e2e) ;;
+  *) echo "usage: tools/examples_build.sh [e2e]"; exit 2 ;;
+esac
 
 # macOS has no `timeout`; there the run simply has no ceiling.
 LIMIT=""
 if command -v timeout >/dev/null 2>&1; then LIMIT="timeout 180"; fi
+
+# What says this is the pinned build image; tools/versions_check.sh reads it
+# too. The e2e goldens are compared exactly, so one compiler, one libm and one
+# renderer draw them and check them: this image's.
+IMAGE_MANIFEST=/etc/raylib-build-image.json
+# Refused before the build, which takes minutes. The driver refuses it too,
+# and it is the one that would write.
+if [ "${RMP_E2E_UPDATE:-}" = "1" ] && [ ! -r "$IMAGE_MANIFEST" ]; then
+  echo "FAIL: RMP_E2E_UPDATE records the e2e goldens, and only inside the pinned build image:"
+  echo "      tools/dev_shell.sh bash -c 'python3 tools/configure.py && ./rmp test e2e-update'"
+  exit 1
+fi
+
+configure_examples() {
+  # A build directory configured from somewhere else cannot be configured
+  # here: CMake refuses a cache made in another source directory. The goldens
+  # are recorded inside the image, which sees this checkout at /work
+  # (tools/dev_shell.sh), and played on the laptop, which sees it at its own
+  # path -- so the folder of the other one is started again, and said so.
+  local made_in
+  if [ -f "$BUILD/CMakeCache.txt" ]; then
+    made_in=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD/CMakeCache.txt")
+    if [ -n "$made_in" ] && [ "$made_in" != "$(pwd -P)" ]; then
+      echo "  $BUILD was configured from $made_in: starting it again from $(pwd -P)"
+      rm -rf "$BUILD"
+    fi
+  fi
+  # A fresh checkout has no build/ at all, and the configure log below lives
+  # next to the build directory rather than inside it. CI found this on the
+  # first run.
+  mkdir -p "$BUILD"
+  cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPRODUCTION_BUILD=OFF \
+        -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON > "$BUILD.configure.log" 2>&1 \
+    || { cat "$BUILD.configure.log"; echo "FAIL: the examples did not configure"; exit 1; }
+}
+
+# 5. Booting proves an example draws; the platformer's bot proves one game can
+# be won. This plays examples from a SCRIPT -- what a player presses, frame by
+# frame, at exactly 1/60 s with rmp::random at seed 1 -- and compares what they
+# draw with tests/e2e/golden/, pixel for pixel. See tests/e2e/driver.cpp.
+play_e2e() {
+  echo "== examples: e2e, played from tests/e2e/ =="
+  local scripts nscripts e2e_targets nmade played e2e_failed t status out ok
+  scripts=$(find tests/e2e -name '*.e2e' | sort)
+  nscripts=$(printf '%s\n' "$scripts" | grep -c . || true)
+  e2e_targets=$(cat "$BUILD/e2e_targets.txt")
+  nmade=$(printf '%s\n' "$e2e_targets" | grep -c . || true)
+  if [ "$nmade" -ne "$nscripts" ]; then
+    echo "FAIL: $nmade e2e targets were configured for $nscripts scripts under tests/e2e/."
+    echo "      CMakeLists.txt (rmp_add_e2e) no longer finds every script."
+    exit 1
+  fi
+  if [ "${RMP_E2E_UPDATE:-}" = "1" ]; then
+    echo "  recording the goldens (RMP_E2E_UPDATE=1)"
+  elif [ -r "$IMAGE_MANIFEST" ]; then
+    export RMP_E2E_COMPARE=1
+    echo "  inside the pinned build image: every shot must match its golden exactly"
+  else
+    echo "  outside the pinned build image: a difference is reported, not enforced"
+  fi
+  played=0
+  e2e_failed=0
+  for t in $e2e_targets; do
+    status=0
+    out=$($LIMIT "$BUILD/$t" 2>&1 < /dev/null) || status=$?
+    played=$((played + 1))
+    printf '%s\n' "$out" | grep -E '^E2E (FAIL|DIFF|NOTE|RECORDED) |^E2E [a-z]' | sed 's/^/  /' || true
+    ok=1
+    printf '%s\n' "$out" | grep -q '^E2E PASS$' || ok=0
+    if printf '%s\n' "$out" | grep -q '^E2E FAIL '; then ok=0; fi
+    printf '%s\n' "$out" | grep -q 'RAY_TEST_BOOT_OK assets_failed=0 ' || ok=0
+    if printf '%s\n' "$out" | grep -qE 'ERROR: (AddressSanitizer|LeakSanitizer)|runtime error:'; then
+      printf '%s\n' "$out" | awk '/ERROR: (AddressSanitizer|LeakSanitizer)|runtime error:/ { n = 40 } n-- > 0' \
+        | sed 's/^/          /'
+      ok=0
+    fi
+    if [ "$ok" -eq 1 ] && [ "$status" -eq 0 ]; then
+      echo "  ok    $t"
+    else
+      e2e_failed=$((e2e_failed + 1))
+      echo "  FAIL  $t  (exit $status)"
+      # A check that failed says what and where above. Anything else -- a
+      # crash, a sanitizer, a game that never reached `end` -- is in the tail.
+      if ! printf '%s\n' "$out" | grep -q '^E2E FAIL '; then
+        printf '%s\n' "$out" | grep -v '^E2E ' | tail -15 | sed 's/^/          /'
+      fi
+    fi
+  done
+  if [ "$played" -ne "$nscripts" ]; then
+    echo "FAIL: played $played scripts, expected $nscripts. Something was skipped."
+    exit 1
+  fi
+  if [ "$e2e_failed" -ne 0 ]; then
+    echo "FAIL: $e2e_failed of $played script(s) failed. Expected, actual and diff of every"
+    echo "      shot that differed: $BUILD/e2e/<area>/<example>/"
+    exit 1
+  fi
+  if [ "${RMP_E2E_UPDATE:-}" = "1" ]; then
+    echo "PASS: $played script(s) played and their goldens recorded in tests/e2e/golden/:"
+    echo "      look at every picture that changed before committing it"
+  else
+    echo "PASS: $played script(s) played to their end"
+  fi
+}
+
+if [ "$ONLY" = e2e ]; then
+  echo "== examples: build the e2e targets =="
+  configure_examples
+  # shellcheck disable=SC2046  # one --target per line of the file, by design
+  cmake --build "$BUILD" $(sed 's/^/--target /' "$BUILD/e2e_targets.txt") \
+        > "$BUILD.build.log" 2>&1 \
+    || { tail -60 "$BUILD.build.log"; echo "FAIL: an e2e target did not build"; exit 1; }
+  play_e2e
+  exit 0
+fi
 
 echo "== examples: shape =="
 bash tools/examples_check.sh
@@ -63,12 +193,7 @@ for d in $(find examples -type d -name src | sort); do
 done
 echo "  $expected examples with an entry point, $headers header-only"
 
-# A fresh checkout has no build/ at all, and the configure log below lives next
-# to the build directory rather than inside it. CI found this on the first run.
-mkdir -p "$BUILD"
-cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPRODUCTION_BUILD=OFF \
-      -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON > "$BUILD.configure.log" 2>&1 \
-  || { cat "$BUILD.configure.log"; echo "FAIL: the examples did not configure"; exit 1; }
+configure_examples
 cmake --build "$BUILD" > "$BUILD.build.log" 2>&1 \
   || { tail -60 "$BUILD.build.log"; echo "FAIL: an example did not build"; exit 1; }
 
@@ -137,7 +262,7 @@ if [ ! -x "$BUILD/platformer_play" ]; then
   exit 1
 fi
 status=0
-out=$($LIMIT "$BUILD/platformer_play" 2>&1) || status=$?
+out=$($LIMIT "$BUILD/platformer_play" 2>&1 < /dev/null) || status=$?
 printf '%s\n' "$out" | grep '^PLAY' | sed 's/^/  /'
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^PLAY PASS$'; then
   printf '%s\n' "$out" | tail -15 | sed 's/^/          /'
@@ -155,7 +280,7 @@ if [ ! -x "$BUILD/input_play" ]; then
   exit 1
 fi
 status=0
-out=$($LIMIT "$BUILD/input_play" 2>&1) || status=$?
+out=$($LIMIT "$BUILD/input_play" 2>&1 < /dev/null) || status=$?
 printf '%s\n' "$out" | grep '^INPUT' | sed 's/^/  /'
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^INPUT PASS$'; then
   printf '%s\n' "$out" | tail -15 | sed 's/^/          /'
@@ -163,3 +288,5 @@ if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^INPUT PASS$'; then
   exit 1
 fi
 echo "PASS: a press is seen once, by a game's own hook and by a scene"
+
+play_e2e

@@ -1,0 +1,11 @@
+# The games under examples/games/ that have no e2e script yet, one
+# examples/<area>/<name> path per line. E2eScriptsTest in tests/configure_test.py
+# holds this list: every game has a script in tests/e2e/ or a line here, a line
+# here for a game that has a script fails (delete the line), and the list may
+# not be longer than PENDING_CEILING there -- which only goes down. Adding a
+# game to examples/games/ means writing its script, not a line here.
+games/02_breakout
+games/03_space_invaders
+games/04_top_down
+games/05_endless_runner
+games/07_platformer

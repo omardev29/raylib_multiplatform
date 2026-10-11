@@ -72,7 +72,7 @@ BUILD_DIRS = {
     "sanitize": "tools/sanitize_check.sh: the unit tests under gcc's ASan and UBSan",
     "coverage": "tools/coverage_check.sh: the tests under clang's coverage, and its report",
     "examples": "rmp example",
-    "examples-check": "tools/examples_build.sh: every example, built and booted",
+    "examples-check": "tools/examples_build.sh: every example, built, booted and played",
     "memory-release": "tools/shipped_check.sh: a release, started from another folder",
     "test-locales": "tools/test_locales.sh: the locales the unit tests read",
     "ksh": "the OpenBSD job: what `ksh ./rmp help` printed in the VM",
@@ -391,7 +391,7 @@ STAGES = [
           [("render", "check")], scope="both"),
     Stage("smoke", "build the game, boot it, see it draw",
           [("configure", []), ("build", None), ("smoke",)], scope="both"),
-    Stage("examples", "build and boot every example, and play the platformer",
+    Stage("examples", "boot every example, play the platformer and the e2e scripts",
           [("run", ["{python}", "tools/configure.py"]),
            ("run", ["bash", "tools/examples_build.sh"])], in_all=False),
     Stage("sanitize", "the unit tests again under ASan and UBSan",
@@ -403,6 +403,13 @@ STAGES = [
            ("run", ["bash", "tools/coverage_check.sh"])], in_all=False),
     Stage("render-update", "record the frame as the new golden hash",
           [("render", "update")], in_all=False),
+    # Inside the pinned build image only: the goldens are compared exactly,
+    # so they are drawn by the compiler and renderer that compares them. The
+    # script and the driver both refuse anywhere else, and say how to run it.
+    Stage("e2e-update", "record every e2e shot as its golden (inside the build image)",
+          [("run", ["{python}", "tools/configure.py"]),
+           ("run", ["bash", "tools/examples_build.sh", "e2e"], {"RMP_E2E_UPDATE": "1"})],
+          in_all=False),
 ]
 
 

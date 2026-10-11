@@ -894,6 +894,31 @@ endif()
 
 message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 
+# --- an example, PLAYED: tests/e2e/ ------------------------------------------
+# rmp_add_e2e(<target> <dir> <area/name>) is the example in <dir> exactly as
+# rmp_add_game() builds it -- its main.cpp and its entry point included -- plus
+# tests/e2e/driver.cpp, which installs itself before main() and plays
+# tests/e2e/<area/name>.e2e through the clock, input, UI, save and audio seams,
+# comparing every shot with tests/e2e/golden/<area/name>/<shot>.png. The game
+# does not know. Out of example_targets.txt, whose count is asserted against
+# the tree; tools/examples_build.sh runs what e2e_targets.txt lists. Framework
+# only: a game made with `rmp new` has no tests/e2e/.
+function(rmp_add_e2e NAME DIR REL)
+  rmp_add_game(${NAME} "${DIR}")
+  target_sources(${NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/driver.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/script.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/compare.cpp")
+  # The seams it drives are the framework's private ones: src/rmp/internal.h
+  # and its neighbours, the way tests/platformer_play.cpp reaches them.
+  target_include_directories(${NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp")
+  target_compile_definitions(${NAME} PRIVATE
+    RMP_E2E_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/${REL}.e2e"
+    RMP_E2E_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/golden/${REL}"
+    RMP_E2E_OUT="${CMAKE_BINARY_DIR}/e2e/${REL}"
+    RMP_E2E_NAME="${REL}")
+endfunction()
+
 # --- the examples -----------------------------------------------------------
 # Every examples/<area>/<name>/ (and examples/<name>/) with a src/main.cpp or a
 # src/main.c is a game: rmp_add_game(example_<area>_<name>). An example
@@ -919,6 +944,29 @@ if(RMP_BUILD_EXAMPLES)
     set(_target "example_${_name}")
     rmp_add_game(${_target} "${_dir}")
     list(APPEND RMP_EXAMPLE_TARGETS ${_target})
+    # A script makes it an e2e target too. Only a C++ example: the driver
+    # drives rmp's seams, and a plain C one has no framework to drive.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/${_rel}.e2e")
+      if(NOT _main MATCHES "main\\.cpp$")
+        message(FATAL_ERROR "tests/e2e/${_rel}.e2e plays examples/${_rel}, which is plain C: "
+          "the e2e driver plays a game through rmp's seams, and it has none.")
+      endif()
+      rmp_add_e2e("e2e_${_name}" "${_dir}" "${_rel}")
+      list(APPEND RMP_E2E_TARGETS "e2e_${_name}")
+      list(APPEND _rmp_e2e_played "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/${_rel}.e2e")
+    endif()
+  endforeach()
+
+  # A script nothing plays is a test that never runs, and it looks exactly like
+  # one that passes: its example was renamed, or it was put in the wrong folder.
+  file(GLOB_RECURSE _rmp_e2e_scripts CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/*.e2e")
+  foreach(_script ${_rmp_e2e_scripts})
+    if(NOT _script IN_LIST _rmp_e2e_played)
+      file(RELATIVE_PATH _orphan "${CMAKE_CURRENT_SOURCE_DIR}" "${_script}")
+      message(FATAL_ERROR "${_orphan} plays no example: it has to be "
+        "tests/e2e/<area>/<name>.e2e for an examples/<area>/<name>/src/main.cpp.")
+    endif()
   endforeach()
 
   # The header-only examples: a src/ with .cpp files and no main.
@@ -954,6 +1002,12 @@ if(RMP_BUILD_EXAMPLES)
   file(WRITE "${CMAKE_BINARY_DIR}/example_targets.txt" "")
   foreach(_t ${RMP_EXAMPLE_TARGETS})
     file(APPEND "${CMAKE_BINARY_DIR}/example_targets.txt" "${_t}\n")
+  endforeach()
+  list(LENGTH RMP_E2E_TARGETS _n)
+  message(STATUS "=== E2E: ${_n} scripts ===")
+  file(WRITE "${CMAKE_BINARY_DIR}/e2e_targets.txt" "")
+  foreach(_t ${RMP_E2E_TARGETS})
+    file(APPEND "${CMAKE_BINARY_DIR}/e2e_targets.txt" "${_t}\n")
   endforeach()
 endif()
 
@@ -1085,6 +1139,13 @@ endif()
 if(BUILD_TESTS AND UNIT_TEST_SOURCES)
   add_executable(unit_test ${UNIT_TEST_SOURCES})
   set_property(TARGET unit_test PROPERTY CXX_STANDARD 20)
+  # The e2e script's grammar and the pixel comparison, which tests/e2e_test.cpp
+  # checks without playing anything.
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/script.cpp")
+    target_sources(unit_test PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/script.cpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/compare.cpp")
+  endif()
   # SYSTEM for doctest, so its 9 000 lines of macros are not ours to fix.
   target_include_directories(unit_test SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"

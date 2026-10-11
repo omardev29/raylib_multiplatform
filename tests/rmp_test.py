@@ -1538,7 +1538,8 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         "coverage": "coverage",  # a second build of every test, instrumented
     }
     # The stages no CI job runs, each with why.
-    NOT_A_CHECK = {"render-update": "a recording of the golden hash, not a check"}
+    NOT_A_CHECK = {"render-update": "a recording of the golden hash, not a check",
+                   "e2e-update": "a recording of the e2e goldens, not a check"}
 
     def tokens(self, stage):
         out = []

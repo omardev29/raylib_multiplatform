@@ -113,6 +113,13 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── *_test.cpp            # doctest, no window: objects, collision, behaviors, scenes, input, assets, tilemap...
 │   ├── ui_layout_test.cpp    # layout and hit-testing with no window (-DBUILD_UI_TESTS=ON)
 │   ├── platformer_play.cpp   # a bot that plays examples/games/07_platformer to the end (examples job)
+│   ├── e2e/                  # examples PLAYED from scripts, every shot compared with a golden PNG
+│   │   ├── driver.cpp        #   linked into e2e_<area>_<name>: the clock, the hands, the eyes
+│   │   ├── script.cpp        #   the grammar of a .e2e (script.h), every rejection with its line
+│   │   ├── compare.cpp       #   the exact comparison (compare.h), and expected / actual / diff
+│   │   ├── games/*.e2e       #   one script per game: a happy path and a failure path
+│   │   ├── golden/           #   <area>/<name>/<shot>.png, recorded inside the build image
+│   │   └── pending.txt       #   the games with no script yet -- a list that only shrinks
 │   ├── configure_test.py     # every rejection of configure.py, and the repository's gates
 │   ├── rmp_test.py           # rmp itself: every command, the launchers, rmp new, CI's game mode
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
@@ -125,7 +132,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── android_release_check.py # the release APK's compile commands: optimised, RMP_PRODUCTION_BUILD=1
 │   ├── *_check.sh            # the gates: versions, seam, portable, naming, headers, repo, workflows, licences
 │   ├── lint.sh               # clang-tidy over src/, tests/ and examples/ (rmp lint, and CI)
-│   ├── examples_build.sh     # builds and boots every example headless, with a screenshot each
+│   ├── examples_build.sh     # builds and boots every example headless, with a screenshot each, and plays tests/e2e/
 │   ├── make_example_art.py   # the generated art the runner example brings
 │   ├── dev_shell.sh          # run a command inside the pinned CI image
 │   └── rres_pack.c           # open rres packer (AES-256) -- no paid tooling needed
@@ -1167,6 +1174,24 @@ the flag again at 240 Hz. The examples job runs it after booting every example, 
 to finish?", and it found three bugs a boot never would: a lift that turned round the frame it
 arrived (nobody could step off), a rider that kept a pixel of overlap (the ledge's corner), and a
 platform that undid every jump from it above ~127 FPS.
+
+**Played from a script, and compared pixel for pixel** — `tests/e2e/<area>/<name>.e2e` says what a
+player presses, frame by frame (`120 tap KEY_ENTER`, `400 click 400 245`), what the screen must
+show (`200 shot red_scores`) and which scene must be on top (`640 expect scene OverScene`).
+`e2e_<area>_<name>` is the example exactly as it ships -- its own `main.cpp` and entry point --
+plus `tests/e2e/driver.cpp`, which installs itself before `main()` through the seams: every frame
+exactly 1/60 s and `rmp::random` at seed 1 (`src/rmp/clock.cpp`; the UI animates by the same
+clock, which is what made this possible), rmp::input's devices and the UI's navigation and pointer
+fed from the script, saves in a fresh folder, no sound device. Each shot is compared with
+`tests/e2e/golden/<area>/<name>/<shot>.png` **exactly**: one renderer (raylib's software one), one
+compiler and one libm, inside the pinned build image, where `tools/examples_build.sh` sets
+`RMP_E2E_COMPARE=1`; anywhere else a difference is reported and not enforced. A failure leaves
+the expected picture, the actual one and the difference in `build/examples-check/e2e/`, which
+the examples job uploads. `rmp test e2e-update` re-records the goldens, inside the image only.
+The grammar refuses, with the line, every script that cannot mean what it says (a press at frame
+0, a key tapped again before it came up, a shot named twice, no `end`); `E2eScriptsTest` holds
+every game to a script (or to `tests/e2e/pending.txt`, which only shrinks), every shot to a
+golden and every golden to a shot. Pong's first script found that the arrows moved both paddles.
 
 **Sanitized** — every Debug build of the framework runs under AddressSanitizer (with
 LeakSanitizer on Linux) and UndefinedBehaviorSanitizer, every report fatal: `[dev] sanitize` in

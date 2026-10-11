@@ -1,0 +1,58 @@
+# examples/games/06_tetris, played: a line cleared and a best score kept,
+# then a game lost.
+#
+# Seed 1 deals T I J Z S L O, then L O J S T Z I, from a 7-bag; a piece
+# appears at column 5 and falls a row every half second, or every 3 frames
+# while KEY_DOWN is held. KEY_LEFT and KEY_RIGHT move it one column per press
+# and KEY_ENTER turns it a quarter, each one press = one step -- so a key
+# tapped again has to come up for a frame in between. The save folder starts
+# empty every run (tests/e2e/driver.cpp), so the best score starts at 0.
+# See tests/e2e/script.h for the grammar.
+
+# --- the happy path: a line ---------------------------------------------------
+
+# T: turned twice, flat side down, and dropped where it is: columns 4-6.
+1 tap KEY_ENTER
+3 tap KEY_ENTER
+4 shot t_turned_twice
+4 press KEY_DOWN
+64 release KEY_DOWN
+
+# I: four to the left, columns 0-3.
+65 tap KEY_LEFT
+67 tap KEY_LEFT
+69 tap KEY_LEFT
+71 tap KEY_LEFT
+72 press KEY_DOWN
+131 release KEY_DOWN
+
+# J: three to the right, columns 7-9 -- and the bottom row is full.
+132 tap KEY_RIGHT
+134 tap KEY_RIGHT
+136 tap KEY_RIGHT
+137 press KEY_DOWN
+193 shot line_cleared
+193 expect scene TetrisScene
+
+# --- the failure path: the well fills up -------------------------------------
+
+# Everything else straight down the middle, until a piece has no room to
+# appear. One line beats a best of 0: "New best!", and it is saved.
+461 expect scene TetrisScene
+462 expect scene OverScene
+463 release KEY_DOWN
+470 shot new_best
+
+# Play again, from the keyboard: the one button has the focus. The new game
+# reads the best score back from the save.
+472 tap KEY_ENTER
+472 expect scene TetrisScene
+474 shot best_read_back
+474 press KEY_DOWN
+
+# And straight down the middle again, with no line this time: the best score
+# stands, and the game says so.
+793 expect scene TetrisScene
+794 expect scene OverScene
+800 shot game_over
+800 end

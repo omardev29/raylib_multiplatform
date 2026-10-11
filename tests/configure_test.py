@@ -5968,7 +5968,7 @@ class DocumentedTreeTest(unittest.TestCase):
         self.assertGreater(len(named), 40)
         on_disk = {p.name for p in (REPO / "include" / "rmp").glob("*.h")}
         on_disk |= {p.name for p in (REPO / "src" / "rmp").rglob("*") if p.is_file()}
-        on_disk |= {p.name for p in (REPO / "tests").glob("*")}
+        on_disk |= {p.name for p in (REPO / "tests").rglob("*")}
         on_disk |= {p.name for p in (REPO / "tools").glob("*")}
         on_disk |= {p.name for p in (REPO / "cmake").glob("*")}
         on_disk |= {p.name for p in (REPO / "src").glob("*")}
@@ -7723,6 +7723,101 @@ class ActionsArePinnedByShaTest(unittest.TestCase):
         self.assertNotRegex(refs[0], r"@[0-9a-f]{40}$")
 
 
+class E2eScriptsTest(unittest.TestCase):
+    """Every game is played from a script, and every picture a script takes
+    has a golden to be compared with.
+
+    tests/e2e/<area>/<name>.e2e plays examples/<area>/<name> (tests/e2e/
+    driver.cpp, tools/examples_build.sh); each `shot` in it is compared with
+    tests/e2e/golden/<area>/<name>/<shot>.png. A shot with no golden checks
+    nothing, a golden no shot takes is a picture nobody compares any more,
+    and a game with no script is a game nobody plays -- each of those looks
+    exactly like a pass. The games still without one are tests/e2e/pending.txt,
+    which only shrinks."""
+
+    E2E = REPO / "tests" / "e2e"
+    GOLDEN = REPO / "tests" / "e2e" / "golden"
+    PENDING_FILE = REPO / "tests" / "e2e" / "pending.txt"
+    # The most lines pending.txt may have. It only goes down: lower it in the
+    # commit that adds a game's script.
+    PENDING_CEILING = 5
+    SHOT = re.compile(r"^\s*\d+\s+shot\s+(\S+)")
+
+    def scripts(self):
+        """{"games/01_pong": path} for every script."""
+        return {p.relative_to(self.E2E).with_suffix("").as_posix(): p
+                for p in sorted(self.E2E.rglob("*.e2e"))}
+
+    def pending(self):
+        lines = [l.split("#", 1)[0].strip() for l in self.PENDING_FILE.read_text().splitlines()]
+        return [l for l in lines if l]
+
+    def shots(self, script):
+        return [m.group(1) for line in script.read_text().splitlines()
+                if (m := self.SHOT.match(line.split("#", 1)[0]))]
+
+    def test_every_game_has_a_script_or_is_pending(self):
+        scripts, pending = self.scripts(), self.pending()
+        games = sorted(d.parent.parent.relative_to(REPO / "examples").as_posix()
+                       for d in (REPO / "examples" / "games").glob("*/src/main.cpp"))
+        self.assertGreaterEqual(len(games), 7, "examples/games/ moved; this would check nothing")
+        for game in games:
+            with self.subTest(game=game):
+                self.assertTrue(game in scripts or game in pending,
+                                f"examples/{game} has no script: write tests/e2e/{game}.e2e")
+
+    def test_the_pending_list_only_shrinks(self):
+        scripts, pending = self.scripts(), self.pending()
+        self.assertLessEqual(len(pending), self.PENDING_CEILING,
+                             "tests/e2e/pending.txt grew: a new game comes with its script")
+        self.assertEqual(len(pending), len(set(pending)), "a game is pending twice")
+        for game in pending:
+            with self.subTest(game=game):
+                self.assertTrue(game.startswith("games/"), f"{game}: only games are pending")
+                self.assertTrue((REPO / "examples" / game / "src" / "main.cpp").is_file(),
+                                f"{game} is pending and is not a game in examples/")
+                self.assertNotIn(game, scripts,
+                                 f"{game} has a script now: delete its line from pending.txt "
+                                 "and lower PENDING_CEILING")
+
+    def test_the_ceiling_is_what_is_left(self):
+        """A ceiling above the list would let it grow back."""
+        self.assertEqual(len(self.pending()), self.PENDING_CEILING,
+                         "lower PENDING_CEILING to the number of lines in pending.txt")
+
+    def test_every_script_plays_an_example(self):
+        scripts = self.scripts()
+        self.assertGreaterEqual(len(scripts), 2)
+        for rel in scripts:
+            with self.subTest(script=rel):
+                self.assertTrue((REPO / "examples" / rel / "src" / "main.cpp").is_file(),
+                                f"tests/e2e/{rel}.e2e plays examples/{rel}, which is not a C++ "
+                                "example")
+
+    def test_every_shot_has_its_golden(self):
+        for rel, script in self.scripts().items():
+            shots = self.shots(script)
+            self.assertTrue(shots, f"tests/e2e/{rel}.e2e takes no picture")
+            for shot in shots:
+                with self.subTest(script=rel, shot=shot):
+                    self.assertTrue((self.GOLDEN / rel / f"{shot}.png").is_file(),
+                                    f"tests/e2e/{rel}.e2e takes `{shot}` and "
+                                    f"tests/e2e/golden/{rel}/{shot}.png is not there: record it "
+                                    "inside the image, `rmp test e2e-update`")
+
+    def test_no_golden_is_an_orphan(self):
+        scripts = self.scripts()
+        wanted = {f"{rel}/{shot}.png" for rel, script in scripts.items()
+                  for shot in self.shots(script)}
+        found = [p.relative_to(self.GOLDEN).as_posix()
+                 for p in sorted(self.GOLDEN.rglob("*")) if p.is_file()]
+        self.assertTrue(found, "tests/e2e/golden/ is empty; this would check nothing")
+        for golden in found:
+            with self.subTest(golden=golden):
+                self.assertIn(golden, wanted,
+                              f"tests/e2e/golden/{golden} is no shot of any script: delete it")
+
+
 class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
     """A game a script starts reads nothing from the script's stdin.
 
@@ -7736,11 +7831,18 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
     game in tools/ takes its stdin from /dev/null.
     """
 
+    # A game started with a frame budget, or a program the examples build made
+    # started under its time limit: tests/platformer_play.cpp, input_play and
+    # every e2e target. Those two were started with no budget, so the first
+    # half of this missed them, and a key typed into the terminal during
+    # `rmp test examples` reached a scripted game.
+    LAUNCH = re.compile(r'\bRAY_TEST_MAX_FRAMES=|\$LIMIT\s+"\$BUILD/')
+
     def launches(self):
         for f in sorted((REPO / "tools").glob("*.sh")):
             for n, line in enumerate(f.read_text().splitlines(), 1):
                 code = line.split("#", 1)[0] if not line.lstrip().startswith("#") else ""
-                if re.search(r"\bRAY_TEST_MAX_FRAMES=", code):
+                if self.LAUNCH.search(code):
                     yield f.name, n, code
 
     def test_no_launch_throws_its_exit_status_away(self):
@@ -7809,6 +7911,13 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
     def test_every_launch_reads_dev_null(self):
         found = list(self.launches())
         self.assertGreaterEqual(len(found), 4)
+        # The ones the budget does not mark, each found: the platformer's bot,
+        # the input check and the e2e scripts.
+        played = [code for name, _, code in found if name == "examples_build.sh"]
+        for program in ('"$BUILD/platformer_play"', '"$BUILD/input_play"', '"$BUILD/$t"'):
+            with self.subTest(program=program):
+                self.assertTrue(any(program in code for code in played),
+                                f"examples_build.sh starts {program} somewhere this does not see")
         for name, n, code in found:
             with self.subTest(at=f"{name}:{n}"):
                 self.assertRegex(code, r"<\s*/dev/null", f"{name}:{n} starts a game that can read the script's stdin")
