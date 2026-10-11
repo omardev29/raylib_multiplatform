@@ -27,9 +27,10 @@ bool backdrop_blurred();
 
 // The dialect of GLSL the blur is written in. One shader, three prologues:
 // OpenGL ES 2.0 and WebGL 1 take GLSL ES 1.00, ES 3.0 and WebGL 2 take 3.00,
-// OpenGL 3.3 and 4.3 take 330. NONE where no shader runs at all: raylib's
-// software renderer, OpenGL 1.1, and 2.1, which raylib drives without the
-// render textures the blur is drawn through.
+// OpenGL 3.3 and 4.3 take 330. NONE where the blur has no shader to run:
+// raylib's software renderer and OpenGL 1.1, which run none at all, and 2.1,
+// whose GLSL 1.20 the blur is not written in (nothing raylib builds for us
+// opens a 2.1 context).
 enum class Glsl { NONE, ES_100, ES_300, CORE_330 };
 
 // The dialect for what rlGetVersion() answers. Pure.

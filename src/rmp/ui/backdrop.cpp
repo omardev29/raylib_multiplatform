@@ -35,8 +35,8 @@
 //
 // Where it cannot run, the veil comes alone, and the reason is a machine's,
 // not the game's: raylib's software renderer and OpenGL 1.1 have no shaders,
-// 2.1 has no render textures as raylib drives it, and a driver may refuse a
-// shader or a framebuffer. Each is one TraceLog line, never RMP_REPORT_ONCE:
+// 2.1 takes GLSL 1.20, which the blur is not written in, and a driver may
+// refuse a shader or a framebuffer. Each is one TraceLog line, never RMP_REPORT_ONCE:
 // [dev] strict would stop a correct game on a CI runner. What IS the game's
 // is reported: a blur asked for in a frame of its own (RMP_ENTRY_POINT),
 // which nothing redirects, and a scene that draws through BeginTextureMode()
@@ -220,7 +220,7 @@ std::string_view without_shaders(int gl_version) {
         case RL_OPENGL_11:
             return "OpenGL 1.1 has no shaders";
         case RL_OPENGL_21:
-            return "OpenGL 2.1 has no render textures as raylib drives it";
+            return "OpenGL 2.1 takes GLSL 1.20, which the blur is not written in";
         default:
             return "this OpenGL is not one raylib names";
     }
