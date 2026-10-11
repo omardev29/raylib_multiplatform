@@ -6,7 +6,7 @@
 src/rmp/ads.cpp                  0
 src/rmp/animation.cpp            84
 src/rmp/app.cpp                  77
-src/rmp/assets.cpp               55
+src/rmp/assets.cpp               61
 src/rmp/audio.cpp                97
 src/rmp/behavior.cpp             100
 src/rmp/behaviors.cpp            91
