@@ -1,0 +1,8 @@
+# tools/android_release_check.py (package P9): the Android job's proof that the
+# release variant was compiled as a release. Its rule over a model of every
+# entry, and anything a database can hold, in the property test; the
+# counterexamples, named, beside the gates.
+kind     py
+sources  tools/android_release_check.py
+tests    tests/android_release_check_property_test.py tests/gates_red_test.py::AndroidReleaseCheckCounterexamplesTest
+floor    -

@@ -1,0 +1,8 @@
+# tools/header_cost.py (package P9): what each public header costs, and the
+# budget file it is held to. mutmut reaches what the tests call in-process --
+# the budget file's reader and writer; measure() and main() compile headers
+# and run as a program (tests/gates_red_test.py), which mutmut does not see.
+kind     py
+sources  tools/header_cost.py
+tests    tests/header_cost_property_test.py tests/gates_red_test.py::HeaderCostCounterexamplesTest
+floor    -
