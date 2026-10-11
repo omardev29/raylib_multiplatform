@@ -1,0 +1,77 @@
+# examples/games/07_platformer, played: the world to the flag and a best run
+# kept, then three falls, game over, and the title showing the best run.
+#
+# Right and left run (the arrows), Space jumps. The levels are three in a row
+# in one LDtk world, and walking off the right edge of one is a change to the
+# next. The moves were recorded from tests/platformer_play.cpp's bot -- the
+# same route, through the Desert's key and door -- played under this driver;
+# nothing in the game is random. See tests/e2e/script.h for the grammar.
+
+# --- the title -----------------------------------------------------------------
+
+1 shot title
+4 expect scene TitleScene
+# Play has the focus: Enter alone starts a run.
+5 tap KEY_ENTER
+5 expect scene LevelScene
+
+# --- the happy path: the flag ---------------------------------------------------
+
+# The Meadow: right, and over what is in the way.
+6 press KEY_RIGHT
+84 tap KEY_SPACE
+170 tap KEY_SPACE
+222 tap KEY_SPACE
+# Off its right edge and into the Desert, a scene of its own.
+331 expect scene LevelScene
+# Wait for the moving platform, ride it, and up to the key above it.
+404 tap KEY_SPACE
+447 release KEY_RIGHT
+731 press KEY_RIGHT
+755 tap KEY_SPACE
+784 tap KEY_SPACE
+813 release KEY_RIGHT
+813 press KEY_LEFT
+830 tap KEY_SPACE
+858 press KEY_RIGHT
+858 release KEY_LEFT
+860 shot key_taken
+873 tap KEY_SPACE
+# The key's door, opened by walking into it.
+930 shot door_open
+# The Snowfield, where a bat costs a life on the way up to the flag.
+958 expect scene LevelScene
+994 tap KEY_SPACE
+1038 tap KEY_SPACE
+1083 tap KEY_SPACE
+1155 release KEY_RIGHT
+1213 press KEY_RIGHT
+1411 tap KEY_SPACE
+1455 tap KEY_SPACE
+1497 tap KEY_SPACE
+1541 expect scene LevelScene
+1542 expect scene EndScene
+# Nine coins in 25.6 s, and the first run is a new best, kept with rmp::save.
+1545 shot you_made_it
+
+# Play again: the first button has the focus. A new run, from the Meadow.
+1550 release KEY_RIGHT
+1555 tap KEY_ENTER
+1555 expect scene LevelScene
+
+# --- the failure path: three falls ------------------------------------------------
+
+# Straight into the Meadow's first pit, three times: a life lost each, and
+# back to the start.
+1556 press KEY_RIGHT
+1888 expect scene LevelScene
+1889 expect scene EndScene
+1892 shot game_over
+
+# Menu, the second button: down, then Enter. The title reads the best run back.
+1895 release KEY_RIGHT
+1897 tap KEY_DOWN
+1900 tap KEY_ENTER
+1900 expect scene TitleScene
+1903 shot title_with_best
+1903 end

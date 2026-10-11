@@ -7751,7 +7751,7 @@ class E2eScriptsTest(unittest.TestCase):
     PENDING_FILE = REPO / "tests" / "e2e" / "pending.txt"
     # The most lines pending.txt may have. It only goes down: lower it in the
     # commit that adds a script.
-    PENDING_CEILING = 1
+    PENDING_CEILING = 0
     SHOT = re.compile(r"^\s*\d+\s+shot\s+(\S+)")
 
     # The areas of examples/ whose every example is played from a script.

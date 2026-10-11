@@ -5,4 +5,3 @@
 # (delete the line), and the list may not be longer than PENDING_CEILING
 # there -- which only goes down. Adding an example to one of those areas
 # means writing its script, not a line here.
-games/07_platformer
