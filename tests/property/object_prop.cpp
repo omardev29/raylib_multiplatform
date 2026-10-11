@@ -711,6 +711,108 @@ TEST_SUITE("property: object") {
                 RC_ASSERT(box.x + box.width <= area.x + area.width + slack);
                 RC_ASSERT(box.y + box.height <= area.y + area.height + slack);
             });
+        rmp::test::check(
+            "object: an edge rule acts on a box past an edge and on nothing that only "
+            "touches one, as rmp/object.h says each one does",
+            [] {
+                const world::Fresh fresh;
+                world::World scene;
+                // Whole numbers, so that touching is exact.
+                const auto whole = [](int lo, int hi) {
+                    return static_cast<float>(*rc::gen::inRange(lo, hi));
+                };
+                const Rectangle area{ whole(-200, 200), whole(-200, 200), whole(60, 400),
+                                      whole(60, 400) };
+                const float w = 2 * whole(1, 20);
+                const float h = 2 * whole(1, 20);
+                // Where the box starts on each axis: well out, touching from
+                // outside, across the edge, touching from inside, inside -- at
+                // either end.
+                const auto start = [](float low, float size, float box) {
+                    switch (*rc::gen::inRange(0, 9)) {
+                        case 0:
+                            return low - box - 10;
+                        case 1:
+                            return low - box;
+                        case 2:
+                            return low - (box / 2);
+                        case 3:
+                            return low;
+                        case 4:
+                            return low + 1;
+                        case 5:
+                            return low + size - box;
+                        case 6:
+                            return low + size - (box / 2);
+                        case 7:
+                            return low + size;
+                        default:
+                            return low + size + 10;
+                    }
+                };
+                const float bx = start(area.x, area.width, w);
+                const float by = start(area.y, area.height, h);
+                const Vector2 moving{ static_cast<float>(*rc::gen::element(-30, 0, 30)),
+                                      static_cast<float>(*rc::gen::element(-30, 0, 30)) };
+                const rmp::Edge edge =
+                    *rc::gen::element(rmp::Edge::CLAMP, rmp::Edge::BOUNCE,
+                                      rmp::Edge::WRAP, rmp::Edge::DESTROY);
+                auto &object = scene.spawn({ .position = { bx + (w / 2), by + (h / 2) },
+                                             .shape = rmp::rect({ w, h }),
+                                             .velocity = moving,
+                                             .edges = edge,
+                                             .bounds = area });
+                const bool entered = *rc::gen::arbitrary<bool>();
+                rmp::Storage::set_entered_bounds(object, entered);
+                rmp::objects::detail::update(scene, 0); // the edges, and nothing moving
+
+                const float right = area.x + area.width;
+                const float bottom = area.y + area.height;
+                Vector2 at{ bx + (w / 2), by + (h / 2) };
+                Vector2 v = moving;
+                bool alive = true;
+                if (edge == rmp::Edge::CLAMP || edge == rmp::Edge::BOUNCE) {
+                    // As soon as the box crosses an edge, and not when it touches.
+                    if (bx < area.x) {
+                        at.x += area.x - bx;
+                        if (edge == rmp::Edge::BOUNCE && v.x < 0) v.x = -v.x;
+                    }
+                    if (bx + w > right) {
+                        at.x -= (bx + w) - right;
+                        if (edge == rmp::Edge::BOUNCE && v.x > 0) v.x = -v.x;
+                    }
+                    if (by < area.y) {
+                        at.y += area.y - by;
+                        if (edge == rmp::Edge::BOUNCE && v.y < 0) v.y = -v.y;
+                    }
+                    if (by + h > bottom) {
+                        at.y -= (by + h) - bottom;
+                        if (edge == rmp::Edge::BOUNCE && v.y > 0) v.y = -v.y;
+                    }
+                } else if (edge == rmp::Edge::WRAP) {
+                    // Entirely past a side: back just outside the other one.
+                    if (bx + w < area.x) {
+                        at.x += right - bx;
+                    } else if (bx > right) {
+                        at.x += area.x - (bx + w);
+                    }
+                    if (by + h < area.y) {
+                        at.y += bottom - by;
+                    } else if (by > bottom) {
+                        at.y += area.y - (by + h);
+                    }
+                } else {
+                    // Entirely outside, and inside at some point first.
+                    const bool out =
+                        bx + w < area.x || bx > right || by + h < area.y || by > bottom;
+                    alive = !(out && entered);
+                }
+                RC_ASSERT(object.alive() == alive);
+                RC_ASSERT(object.position.x == at.x);
+                RC_ASSERT(object.position.y == at.y);
+                RC_ASSERT(object.velocity.x == v.x);
+                RC_ASSERT(object.velocity.y == v.y);
+            });
     }
 
     // covers: rmp::Object::scene() const
