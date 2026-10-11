@@ -175,9 +175,11 @@ Vector2 vector();
 
 Vector2 pointer_screen(); // in pixels, top-left origin
 // In WORLD units, through the current scene's camera -- what you compare an
-// object's position with. Same as pointer_screen() while the camera is where
-// it starts, and in a game with no scenes (RMP_ENTRY_POINT), which has no
-// camera to go through.
+// object's position with -- and so through [window] stretch as well: on a
+// letterboxed window, a pointer on a bar is outside the world. Same as
+// pointer_screen() while the camera is where it starts AND the window is the
+// design size (or the stretch is NONE), and in a game with no scenes
+// (RMP_ENTRY_POINT), which has no camera to go through.
 Vector2 pointer();
 Vector2 pointer_delta(); // how far it moved since the last frame, in pixels
 // The left mouse button, which a touch presses too: held, the frame it goes

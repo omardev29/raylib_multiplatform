@@ -2172,6 +2172,8 @@ class ConfigureErrorLocationTest(unittest.TestCase):
             ("window", {"vsync": "on"}),
             ("window", {"fps": 2000}),
             ("window", {"fps": 15}),   # against the default max_delta 0.05
+            ("window", {"stretch": "fit"}),
+            ("window", {"stretch": ["letterbox"]}),
             ("raylib", {"disabled_modules": ["rshapes"]}),
             ("ui", dict(cfgmod.DEFAULTS["ui"], theme="chartreuse")),
             ("dev", {"compiler": "clang", "linker": "gold"}),
@@ -2293,6 +2295,172 @@ class ConfigureWindowPacingTest(unittest.TestCase):
         render = (REPO / "tools" / "render_check.sh").read_text()
         self.assertIn("RMP_WINDOW_VSYNC", render)
         self.assertIn("vsync=$WANT_VSYNC", render)
+
+
+class ConfigureWindowStretchTest(unittest.TestCase):
+    """[window] stretch: how the world fits a window that is not the design
+    size (rmp::app::stretch(), src/rmp/stretch.cpp). Every value it takes, every
+    one it does not and every type it is not, what a .toml that does not say
+    gets, the number each one becomes in the header -- and the framework's own
+    .toml, which every `rmp new` game starts as a copy of, at "letterbox"."""
+
+    def validate(self, value):
+        cfg = base_config(window={"stretch": value})
+        with quiet():
+            cfgmod.validate(cfg, False)
+
+    def reject(self, value, said):
+        cfg = base_config(window={"stretch": value})
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+        message = str(caught.exception)
+        self.assertIn(said, message)
+        # Named, so the reporter can point at the line.
+        self.assertIn("[window] stretch", message)
+        self.assertIsNotNone(cfgmod.locate_from(caught.exception),
+                             f"cannot be pointed at: {message}")
+        return message
+
+    def test_a_toml_that_does_not_say_keeps_none(self):
+        """What every game had before there was a choice: a game written for
+        that, with no line about it, keeps it."""
+        import subprocess
+        self.assertEqual(cfgmod.DEFAULTS["window"]["stretch"], "none")
+        with tempfile.TemporaryDirectory() as tmp:
+            bare = Path(tmp) / "bare.toml"
+            bare.write_text('[window]\nwidth = 640\n')
+            got = subprocess.run([sys.executable, str(REPO / "tools" / "configure.py"),
+                                  "--print-defines", "--config", str(bare)],
+                                 capture_output=True, text=True, cwd=REPO)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        rows = {d["name"]: d["value"] for d in json.loads(got.stdout)}
+        self.assertEqual(rows["RMP_WINDOW_STRETCH"], "0")
+
+    def test_every_value_it_takes(self):
+        for value in ("none", "letterbox", "expand"):
+            with self.subTest(stretch=value):
+                self.validate(value)
+
+    def test_a_word_that_is_not_one_of_the_three(self):
+        # "fit" is what another engine calls one of them; the answer lists
+        # what this one calls them. Case matters, as it does for every other
+        # choice in the file.
+        for bad in ("fit", "Letterbox", "LETTERBOX", "letter_box", "stretch", " none"):
+            with self.subTest(stretch=bad):
+                message = self.reject(bad, "has to be one of")
+                for word in ("none", "letterbox", "expand"):
+                    self.assertIn(word, message)
+
+    def test_the_empty_string_is_not_none(self):
+        self.reject("", "has to be one of")
+
+    def test_the_wrong_type(self):
+        for bad in (["letterbox"], {"mode": "letterbox"}, 1, 0, 1.0, True, False):
+            with self.subTest(stretch=bad):
+                self.reject(bad, "has to be a string")
+
+    def test_each_reaches_the_header_as_its_number(self):
+        for value, number in (("none", 0), ("letterbox", 1), ("expand", 2)):
+            with self.subTest(stretch=value):
+                with generated_header(base_config(window={"stretch": value})) as header:
+                    self.assertRegex(header, rf"#define RMP_WINDOW_STRETCH +{number}\n")
+
+    def test_the_framework_and_every_new_game_letterbox(self):
+        """Omar, 2026-10-10: the framework's .toml says letterbox, and so does
+        every game `rmp new` makes -- it copies this file and edits only the
+        lines it names, none of them this one."""
+        window = toml_section("window")
+        self.assertRegex(window, r'\nstretch = "letterbox"\n')
+        # And the comment above it -- what the site shows for the key -- says
+        # what each of the three does, and how a scene changes it.
+        note = cfgmod.toml_comments(REPO / "raylib_multiplatform.toml")["window.stretch"]
+        for word in ('"none"', '"letterbox"', '"expand"', "rmp::app::set_stretch"):
+            self.assertIn(word, note)
+        rmp_py = (REPO / "tools" / "rmp.py").read_text()
+        edits = rmp_py[rmp_py.index("    edit_lines(target / TOML, ["):]
+        edits = edits[:edits.index("    ])")]
+        self.assertNotIn("stretch", edits)
+
+    def test_app_cpp_reads_none_of_it_and_stretch_cpp_starts_from_it(self):
+        """The mode starts as the .toml's in the LIBRARY, where a test binary
+        with no entry point reads it too; app.cpp, compiled into each
+        executable, never names it."""
+        stretch = (REPO / "src" / "rmp" / "stretch.cpp").read_text()
+        self.assertIn("RMP_WINDOW_STRETCH", stretch)
+        app = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        self.assertNotIn("RMP_WINDOW_STRETCH", app)
+
+
+class TestWindowOnlyUnderTheSmokeTest(unittest.TestCase):
+    """RAY_TEST_WINDOW=WxH opens RMP_GAME's window at another size so CI can
+    boot a [window] stretch on a screen of another shape -- and nothing but
+    the smoke test may: a player whose environment happens to hold it gets the
+    window the .toml asked for. What it may hold is pinned in
+    tests/stretch_test.cpp; this holds start() to asking only under
+    RAY_TEST_MAX_FRAMES, before InitWindow(), with what it read, and to a
+    boot that fails -- not one at the design size -- on a value it cannot read."""
+
+    @staticmethod
+    def problems(app: str) -> list[str]:
+        out = []
+        start = app.index("void start(std::unique_ptr<rmp::Scene> first) {")
+        body = app[start:app.index("\n}\n", start)]
+        guard = body.find("if (SmokeTest_maxFrames > 0) {")
+        read = body.find("std::getenv(\"RAY_TEST_WINDOW\")")
+        if guard < 0 or read < 0 or body.find("}", guard) < read:
+            out.append("RAY_TEST_WINDOW is not read under the smoke test alone")
+        if "InitWindow(width, height, RMP_WINDOW_TITLE);" not in body:
+            out.append("InitWindow() does not open at what was read")
+        elif body.index("parse_test_window(") > body.index("InitWindow("):
+            out.append("RAY_TEST_WINDOW is read after the window opened")
+        if "test_window.refused = true;" not in body or "RAY_TEST_BOOT_FAIL" not in body:
+            out.append("a RAY_TEST_WINDOW it cannot read does not fail the boot")
+        ready = app.index("void after_ready() {")
+        ready = app[ready:app.index("\n}\n", ready)]
+        if "if (test_window.refused) return;" not in ready or \
+                ready.index("if (test_window.refused) return;") > \
+                ready.index("SmokeTest_ReportBoot("):
+            out.append("after_ready() reports the boot after a refused RAY_TEST_WINDOW")
+        return out
+
+    def test_start_reads_it_only_under_the_smoke_test(self):
+        app = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        self.assertEqual(self.problems(app), [])
+
+    def test_the_check_goes_red_on_each_mistake(self):
+        app = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        for old, new in (
+                ("if (SmokeTest_maxFrames > 0) {", "if (SmokeTest_maxFrames >= 0) {"),
+                ("InitWindow(width, height, RMP_WINDOW_TITLE);",
+                 "InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);"),
+                ("test_window.refused = true;", ""),
+                ("if (test_window.refused) return;", "")):
+            with self.subTest(removed=old):
+                self.assertIn(old, app)
+                self.assertNotEqual(self.problems(app.replace(old, new, 1)), [])
+
+
+class StretchModesAgreeTest(unittest.TestCase):
+    """RMP_WINDOW_STRETCH is a number, and stretch.cpp casts it to
+    rmp::app::Stretch: the generator's order IS the enum's. A mode added to one
+    and not the other, or the two reordered, would start every game in the
+    wrong mode, and compile."""
+
+    def enum_names(self, text: str) -> list[str]:
+        found = re.search(r"enum class Stretch\s*\{([^}]*)\}", text)
+        self.assertIsNotNone(found, "no `enum class Stretch { ... }` in rmp/app.h")
+        return [n.strip() for n in found.group(1).split(",") if n.strip()]
+
+    def test_the_generator_order_is_the_enum_order(self):
+        names = self.enum_names((REPO / "include" / "rmp" / "app.h").read_text())
+        self.assertEqual([m.upper() for m in cfgmod.STRETCH_MODES], names)
+        self.assertEqual(set(cfgmod.STRETCH_MODES), cfgmod.ALLOWED["window.stretch"])
+
+    def test_the_check_goes_red_on_a_reordered_enum(self):
+        names = self.enum_names("enum class Stretch { NONE, EXPAND, LETTERBOX };")
+        self.assertNotEqual([m.upper() for m in cfgmod.STRETCH_MODES], names)
+        names = self.enum_names("enum class Stretch { NONE, LETTERBOX, EXPAND, FILL };")
+        self.assertNotEqual([m.upper() for m in cfgmod.STRETCH_MODES], names)
 
 
 def unguarded_calls(text: str, call: str) -> list[int]:
@@ -4543,6 +4711,7 @@ class ConfigureMembershipTest(unittest.TestCase):
         ("window", "orientation", "landscape"),
         ("android", "gl_version", "ES30"),
         ("dev", "linker", "auto"),
+        ("window", "stretch", "letterbox"),
     ]
 
     # Everything TOML can hand over that is not a string. The unhashable ones
@@ -6962,6 +7131,7 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         "unknown target or group":    ("upx", ("disabled",), ["playstation"]),
         "[web] backend":              ("web", ("backend",), "sdl"),
         "[window] fps":               ("window", ("fps",), -1),
+        "[window] stretch":           ("window", ("stretch",), "fit"),
         "must be an integer between 16 and 16384": ("window", ("width",), 4),
         "[android] category":         ("android", ("category",), "not-a-category"),
         "must be true or false":      ("android", ("display", "keep_on"), "false"),

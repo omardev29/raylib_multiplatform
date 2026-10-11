@@ -11,9 +11,16 @@
 
 #include <raylib.h> // Color, for clear_color()
 
+#include <optional>
+#include <string_view>
+
 namespace rmp {
 class Scene;
 } // namespace rmp
+
+namespace rmp::app {
+enum class Stretch; // rmp/app.h; a scoped enum, so declaring it is enough here
+} // namespace rmp::app
 
 namespace rmp::scenes::detail {
 
@@ -43,6 +50,32 @@ void apply_pending();
 // still open and before the resource table is released, because a scene can
 // hold an rmp::Texture and its destructor has to find its slot still there.
 void shutdown();
+
+// The rectangle of the window the world -- the map and the objects -- is cut
+// to while it is drawn, in whole pixels: the game's area under
+// Stretch::LETTERBOX, so nothing of the world shows on the bars, which keep the
+// clear colour. Nothing when the world may cover the whole window: NONE,
+// EXPAND, and a letterbox that leaves no bar (a window of the design's own
+// shape), so there the draw is exactly what it always was. `screen` is the
+// window, in the pixels BeginScissorMode() takes.
+struct WorldClip {
+    int x;
+    int y;
+    int width;
+    int height;
+};
+std::optional<WorldClip> world_clip(rmp::app::Stretch mode, Vector2 screen);
+
+// RAY_TEST_WINDOW=WxH: the size the CI smoke test may ask RMP_GAME's window to
+// open at instead of [window] width x height, so a [window] stretch can be
+// booted on a screen of another shape. Two whole numbers joined by a lower-case
+// x, each 16..16384 like [window] width and height; anything else is nothing.
+// rmp::app::detail::start() asks for it only under the smoke test.
+struct WindowSize {
+    int width;
+    int height;
+};
+std::optional<WindowSize> parse_test_window(std::string_view text);
 
 // True once start() has run and until shutdown() finishes. The UI uses it to
 // tell "inside an app" from "someone calling rmp::ui::begin() on their own".

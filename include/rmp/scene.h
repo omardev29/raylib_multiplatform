@@ -62,9 +62,17 @@ namespace rmp {
 // scene that never mentions it draws exactly where it always did: at that size
 // the camera is the identity. `position` is the CENTRE of what is visible.
 //
+// On a window of another size it fits the world the way [window] stretch says
+// (rmp::app::stretch()): under LETTERBOX and EXPAND the design is scaled into
+// the window before `zoom` is applied, so `zoom = 2` is twice as big as the
+// stretch drew it, and view(), to_world() and the pointer follow. Under NONE a
+// bigger window shows more of the world at 1:1, as it always did.
+//
 // The app opens it around the map and the objects and closes it before
 // Scene::_draw(), which is why rmp::ui inside _draw() does not drift with the
-// view. To draw in world units yourself: BeginMode2D(camera.raylib()).
+// view. Under LETTERBOX the map and the objects are also cut to the game's
+// area, so the bars keep the clear colour. To draw in world units yourself:
+// BeginMode2D(camera.raylib()).
 //
 // Two details that are written wrong by hand more often than not:
 //   - `limits` win over `follow`: when the player nears the edge of the map
@@ -78,7 +86,7 @@ public:
     // The world point at the centre of the view. While `follow` has a target
     // the camera writes it every frame, and `limits` clamp it.
     Vector2 position{ RMP_WINDOW_WIDTH / 2.0f, RMP_WINDOW_HEIGHT / 2.0f };
-    float zoom = 1.0f; // 2 = everything twice as big
+    float zoom = 1.0f; // 2 = everything twice as big, on top of the stretch
     float rotation = 0; // degrees, clockwise, like raylib's Camera2D
 
     // Follow this object: every frame, after it has moved, the camera centres
@@ -132,12 +140,17 @@ public:
     // Near a limit less of it shows: raylib() clamps the result.
     [[nodiscard]] Vector2 shake_offset() const { return _shake_now; }
 
-    // What is visible, in world units, ignoring rotation.
+    // What is visible, in world units, ignoring rotation: the game's area of
+    // the window divided by the zoom and the stretch's scale. The window under
+    // NONE; the design under LETTERBOX, whatever the window; the design and
+    // more along the window's longer side under EXPAND.
     [[nodiscard]] Rectangle view() const;
     [[nodiscard]] Vector2 to_screen(Vector2 world) const;
     [[nodiscard]] Vector2 to_world(Vector2 screen) const;
 
-    // The raylib camera this is, for BeginMode2D() in your own drawing.
+    // The raylib camera this is, for BeginMode2D() in your own drawing. The
+    // stretch is in it: `offset` is the middle of the game's area, and `zoom`
+    // is this zoom times the stretch's scale.
     [[nodiscard]] Camera2D raylib() const;
 
     // Called by the scene once per frame after the objects have moved: apply

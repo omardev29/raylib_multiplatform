@@ -99,11 +99,21 @@ Cell *slot_at(unsigned index) {
     return &pool.slots[index];
 }
 
+// The screen a test handed in with set_test_screen(), instead of the window.
+// Zero is "none". The dot says "file state".
+struct {
+    float width = 0;
+    float height = 0;
+} test_screen;
+
 // The view, for an object whose `bounds` are empty. GetScreenWidth() is 0
 // before a window exists, which is exactly the case tests/object_test.cpp runs
 // in, so the design size from the .toml stands in. A test that cares about a
 // specific rectangle sets `bounds` and does not depend on either.
 Rectangle view_rect() {
+    if (test_screen.width > 0 && test_screen.height > 0) {
+        return Rectangle{ 0, 0, test_screen.width, test_screen.height };
+    }
     auto w = static_cast<float>(GetScreenWidth());
     auto h = static_cast<float>(GetScreenHeight());
     if (w <= 0 || h <= 0) {
@@ -453,6 +463,15 @@ namespace objects::detail {
 // The anonymous-namespace one, reachable from the camera. Qualified, so it
 // finds the file-scope function and not this wrapper.
 Rectangle view_rect() { return rmp::view_rect(); }
+
+void set_test_screen(const float width, const float height) {
+    // Anything that is not a size -- zero, negative, NaN, infinite -- is
+    // "no test screen": the window again.
+    const bool size =
+        width > 0 && height > 0 && std::isfinite(width) && std::isfinite(height);
+    test_screen.width = size ? width : 0;
+    test_screen.height = size ? height : 0;
+}
 
 void mark_for_release(unsigned index) {
     pool.pending_free.push_back(index);
@@ -1019,6 +1038,7 @@ void release_scene(Scene &scene) {
 }
 
 void reset_for_tests() {
+    set_test_screen(0, 0);
     pool.by_scene.clear();
     pool.pending_free.clear();
     pool.draw_order.clear();

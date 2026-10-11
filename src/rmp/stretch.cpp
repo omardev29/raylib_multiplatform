@@ -22,9 +22,14 @@ namespace rmp::app {
 
 namespace {
 
-// The mode in use. The dot says "file state".
+// The mode in use, from [window] stretch until set_stretch() says otherwise.
+// RMP_WINDOW_STRETCH is the mode's index in rmp::app::Stretch -- the
+// generator writes them in the enum's order, and StretchModesAgreeTest in
+// tests/configure_test.py holds the two together. A constant initialiser, so
+// the value is there before any static initialiser of any translation unit
+// could ask. The dot says "file state".
 struct {
-    Stretch mode = Stretch::NONE;
+    Stretch mode = static_cast<Stretch>(RMP_WINDOW_STRETCH);
 } world;
 
 } // namespace

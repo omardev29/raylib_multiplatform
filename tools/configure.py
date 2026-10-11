@@ -414,8 +414,11 @@ def admob_on(cfg: dict, targets: list[str]) -> bool:
 
 DEFAULTS: dict = {
     "project": {"name": "ray_test"},
+    # stretch "none": a .toml written before there was a choice keeps what it
+    # had. The framework's own .toml -- and every game `rmp new` makes from
+    # it -- says "letterbox".
     "window": {"title": "Raylib is Multiplatform!", "width": 800, "height": 450,
-               "orientation": "landscape", "vsync": True, "fps": 0},
+               "orientation": "landscape", "vsync": True, "fps": 0, "stretch": "none"},
     "app": {"max_delta": 0.05},
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
@@ -679,6 +682,10 @@ ADMOB_IDS = (
 
 COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
 ORIENTATIONS = {"landscape", "portrait", "unspecified"}
+# [window] stretch, IN ORDER: RMP_WINDOW_STRETCH is the index, and src/rmp/
+# stretch.cpp casts it to rmp::app::Stretch { NONE, LETTERBOX, EXPAND }.
+# StretchModesAgreeTest holds the two orders together.
+STRETCH_MODES = ("none", "letterbox", "expand")
 GL_VERSIONS = {"ES20", "ES30"}
 LINKERS = {"auto", "mold", "lld", "default"}
 # [dev] sanitize: what a Debug build may be instrumented with. Two, because
@@ -848,6 +855,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
     # on a list or a table, and `orientation = ["landscape"]` answered with a
     # traceback. The same went for gl_version and linker below.
     one_of(cfg["window"]["orientation"], ORIENTATIONS, "[window] orientation")
+    one_of(cfg["window"]["stretch"], set(STRETCH_MODES), "[window] stretch",
+           "none draws the world at 1:1 whatever the window; letterbox scales the design\n"
+           "to fit and fills the rest with bars; expand scales it the same and shows more\n"
+           "of the world along the longer side.")
     for k in ("width", "height"):
         v = cfg["window"][k]
         if not isinstance(v, int) or not (16 <= v <= 16384):
@@ -1786,6 +1797,10 @@ def _c_int(value) -> str:
     return str(value)
 
 
+def _c_stretch(value: str) -> str:
+    return str(STRETCH_MODES.index(value))
+
+
 # Every #define the generated rmp/config.h carries, in order: its name, the
 # .toml key it comes from, and how the value is written in C. A string is a
 # group's comment. gen_app_config() writes the header from this table and
@@ -1801,6 +1816,9 @@ APP_DEFINES = [
     "   ignore FPS: the browser and the display link pace the frame there.",
     ("RMP_WINDOW_VSYNC", "window.vsync", _c_bool),
     ("RMP_WINDOW_FPS", "window.fps", _c_int),
+    "[window] stretch, the mode rmp::app::stretch() starts in: 0 NONE, 1 LETTERBOX,\n"
+    "   2 EXPAND -- the order of rmp::app::Stretch.",
+    ("RMP_WINDOW_STRETCH", "window.stretch", _c_stretch),
     "Obfuscation only — this string is in the shipped binary. It lives here\n"
     "   because Android and iOS take nothing from CMakeLists.txt, so a value defined\n"
     "   only there would silently differ on those two.",
@@ -2688,6 +2706,7 @@ def _print_matrix(cfg: dict, family: str, targets: list[str]) -> None:
 # refuses, nor miss one it takes.
 ALLOWED = {
     "window.orientation": ORIENTATIONS,
+    "window.stretch": set(STRETCH_MODES),
     "android.gl_version": GL_VERSIONS,
     "android.category": APP_CATEGORIES,
     "windows.backend": WINDOWS_BACKENDS,

@@ -72,8 +72,16 @@ namespace rmp::objects::detail {
 // (gravity and any accumulated force), then the edge rules. In that order,
 // because the edges have to see where the object actually ended up.
 // The window, or the design size before there is one. What an empty
-// `bounds` used to mean on its own; the camera's view is built from it.
+// `bounds` used to mean on its own; the camera's view is built from it, and
+// so is rmp::app::detail::world_viewport(), the stretch in numbers.
 Rectangle view_rect();
+
+// For tests: the screen view_rect() answers with instead of the window -- a
+// 1600x900 desktop, or a phone held upright -- with no window at all, so the
+// camera's arithmetic under every [window] stretch can be pinned. A width or a
+// height that is not a positive, finite number puts the window (or the design
+// size) back, and so does reset_for_tests().
+void set_test_screen(float width, float height);
 
 void update(const Scene &scene, float delta);
 

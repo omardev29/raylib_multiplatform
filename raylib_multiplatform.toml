@@ -42,6 +42,18 @@ vsync = true
 # mode: 144 asks for a 144 Hz mode. 1/fps may not be longer than [app]
 # max_delta, or the game would run in slow motion.
 fps = 0
+# How the world fits a window that is not width x height -- a desktop window
+# dragged bigger, a phone of another shape, a TV:
+#   "none"       the world at 1:1: a bigger window shows more of it and a
+#                smaller one less. Nothing is scaled.
+#   "letterbox"  the design scaled to fit and centred, the rest of the window
+#                bars of the clear colour. Every player sees the same part of
+#                the world, and rmp::ui keeps the interface inside it.
+#   "expand"     scaled to fit like letterbox, with no bars: the longer side
+#                shows more of the world. For a level that scrolls anyway.
+# A scene can change it at any moment with rmp::app::set_stretch(). A .toml
+# without this line gets "none".
+stretch = "letterbox"
 
 [app]
 # The longest step the game logic is ever handed, in seconds.

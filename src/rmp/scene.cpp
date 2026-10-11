@@ -16,10 +16,14 @@
 #include "scene_internal.h"
 #include "ui_internal.h"
 
+#include <rmp/app.h>
 #include <rmp/input.h>
 #include <rmp/ui.h>
 
+#include <cmath>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -260,13 +264,24 @@ void draw() {
         // no-op. In a running game the window is always there.
         const bool window = IsWindowReady();
         const Camera2D camera = scene.camera.raylib();
+        // LETTERBOX: the world is cut to the game's area, so the bars keep
+        // the clear colour whatever stands past the edge of the design. Not
+        // the scene's _draw() below: the interface lays itself out inside the
+        // area on its own, and a game's own overlay may mean the whole window.
+        // Cut on the same screen the camera fitted the world into.
+        const Rectangle screen = rmp::objects::detail::view_rect();
+        const std::optional<WorldClip> clip = window
+            ? world_clip(rmp::app::stretch(), Vector2{ screen.width, screen.height })
+            : std::nullopt;
         // Under the camera nothing of the interface can be drawn: what an
         // object's _draw() describes is reported (rmp::ui::at() is the way).
         rmp::ui::detail::set_phase(rmp::ui::detail::Phase::WORLD);
+        if (clip) BeginScissorMode(clip->x, clip->y, clip->width, clip->height);
         if (window) BeginMode2D(camera);
         scene.map.draw();
         rmp::objects::detail::draw(scene);
         if (window) EndMode2D();
+        if (clip) EndScissorMode();
         // The scene's own _draw(), in screen space: where the interface is
         // described, and at() projects through the camera that drew the world.
         rmp::ui::detail::set_pass_camera(camera);
@@ -280,6 +295,56 @@ void draw() {
         .offset = Vector2{ 0, 0 }, .target = Vector2{ 0, 0 }, .rotation = 0, .zoom = 1 });
     rmp::ui::detail::set_pass_playing(false);
     rmp::ui::detail::set_pass_input(true);
+}
+
+std::optional<WorldClip> world_clip(const rmp::app::Stretch mode, const Vector2 screen) {
+    if (mode != rmp::app::Stretch::LETTERBOX) return std::nullopt;
+    // A screen with no area, or not a number, is the design at 1:1 to
+    // world_viewport(): there is nothing to cut. Said here because the
+    // comparisons below are all false against a NaN.
+    if (!(screen.x > 0) || !(screen.y > 0) || !std::isfinite(screen.x) ||
+        !std::isfinite(screen.y)) {
+        return std::nullopt;
+    }
+    const Rectangle area = rmp::app::detail::world_viewport(mode, screen).area;
+    // Each edge rounded on its own, so the clip is the area to the nearest
+    // pixel on every side: no half pixel of the world on a bar, none cut off
+    // the game. lround and not a cast: truncating moves both edges the same
+    // way, and one bar ends up a pixel wider than the other.
+    const auto left = static_cast<int>(std::lround(area.x));
+    const auto top = static_cast<int>(std::lround(area.y));
+    const auto right = static_cast<int>(std::lround(area.x + area.width));
+    const auto bottom = static_cast<int>(std::lround(area.y + area.height));
+    // No bar wide enough to be a pixel: the world covers the window, and the
+    // draw stays exactly what it is without a stretch.
+    if (left <= 0 && top <= 0 && static_cast<float>(right) >= screen.x &&
+        static_cast<float>(bottom) >= screen.y) {
+        return std::nullopt;
+    }
+    return WorldClip{ left, top, right - left, bottom - top };
+}
+
+std::optional<WindowSize> parse_test_window(const std::string_view text) {
+    // Digits and nothing else, read by hand: "12abc", " 12", "+12", "1e3" and
+    // "-12" are each nothing here, not the 12 or 1 or wrap-around that atoi
+    // and friends make of them. Five digits at most, which is past 16384 and
+    // far short of what an int holds.
+    const auto side = [](const std::string_view digits) -> std::optional<int> {
+        if (digits.empty() || digits.size() > 5) return std::nullopt;
+        int value = 0;
+        for (const char c : digits) {
+            if (c < '0' || c > '9') return std::nullopt;
+            value = value * 10 + (c - '0');
+        }
+        if (value < 16 || value > 16384) return std::nullopt;
+        return value;
+    };
+    const size_t cross = text.find('x');
+    if (cross == std::string_view::npos) return std::nullopt;
+    const std::optional<int> width = side(text.substr(0, cross));
+    const std::optional<int> height = side(text.substr(cross + 1));
+    if (!width || !height) return std::nullopt;
+    return WindowSize{ *width, *height };
 }
 
 void apply_pending() {

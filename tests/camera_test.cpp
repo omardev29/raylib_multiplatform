@@ -16,11 +16,13 @@
 #include "../src/rmp/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
+#include <rmp/app.h>
 #include <rmp/input.h>
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -90,6 +92,31 @@ bool near(Vector2 a, Vector2 b) {
     return a.x == doctest::Approx(b.x).epsilon(0.001) &&
         a.y == doctest::Approx(b.y).epsilon(0.001);
 }
+
+// A screen of this size, in this [window] stretch, for one test -- no window:
+// the screen is a number handed to the camera -- and the design size and the
+// mode the test found put back however it ends.
+struct Screen {
+    rmp::app::Stretch was = rmp::app::stretch();
+    Screen(float width, float height, rmp::app::Stretch mode) {
+        rmp::objects::detail::set_test_screen(width, height);
+        rmp::app::set_stretch(mode);
+    }
+    Screen(const Screen &) = delete;
+    Screen &operator=(const Screen &) = delete;
+    Screen(Screen &&) = delete;
+    Screen &operator=(Screen &&) = delete;
+    ~Screen() {
+        rmp::objects::detail::set_test_screen(0, 0);
+        rmp::app::set_stretch(was);
+    }
+};
+
+// The game's area on the screen, where the design-size world is drawn.
+Rectangle game_area() { return rmp::app::detail::world_viewport().area; }
+
+constexpr auto MODES = std::to_array(
+    { rmp::app::Stretch::NONE, rmp::app::Stretch::LETTERBOX, rmp::app::Stretch::EXPAND });
 
 } // namespace
 
@@ -688,5 +715,264 @@ TEST_SUITE("camera") {
         // And it is not where the unshaken camera would have drawn it.
         CHECK(on_screen.x == doctest::Approx(world_point.x - off.x).epsilon(0.001));
         CHECK(on_screen.y == doctest::Approx(world_point.y - off.y).epsilon(0.001));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// [window] stretch: the camera on a screen that is not the design size. The
+// numbers come from world_viewport() (tests/stretch_test.cpp pins them); what
+// is pinned here is that the camera, the pointer, a click and the default
+// bounds all go through them -- and that NONE is still exactly what the
+// camera did before there was a choice.
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("camera: stretch") {
+    using rmp::app::Stretch;
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "NONE on a 1600x900 screen is what the camera always did") {
+        // Before [window] stretch, the camera centred its position on the
+        // window and drew at its own zoom: a bigger window showed more.
+        const Screen screen(1600, 900, Stretch::NONE);
+        World world;
+        world.camera.position = Vector2{ 1000, 600 };
+        world.camera.zoom = 1.5f;
+        const Camera2D drawn = world.camera.raylib();
+        CHECK(drawn.offset.x == 800);
+        CHECK(drawn.offset.y == 450);
+        CHECK(drawn.zoom == 1.5f);
+        CHECK(drawn.target.x == 1000);
+        CHECK(drawn.target.y == 600);
+        const Rectangle v = world.camera.view();
+        CHECK(v.width == doctest::Approx(1600 / 1.5f));
+        CHECK(v.height == doctest::Approx(900 / 1.5f));
+        CHECK(v.x == doctest::Approx(1000 - 800 / 1.5f));
+        CHECK(v.y == doctest::Approx(600 - 450 / 1.5f));
+        CHECK(near(world.camera.to_screen(Vector2{ 1000, 600 }), Vector2{ 800, 450 }));
+    }
+
+    TEST_CASE_FIXTURE(
+        Fixture, "LETTERBOX at twice the design size: zoom 2, the view is the design") {
+        const Screen screen(2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::LETTERBOX);
+        World world; // a camera nobody touched: centred on the design
+        const Camera2D drawn = world.camera.raylib();
+        CHECK(drawn.zoom == doctest::Approx(2));
+        CHECK(drawn.offset.x == doctest::Approx(SCREEN_WIDTH));
+        CHECK(drawn.offset.y == doctest::Approx(SCREEN_HEIGHT));
+        const Rectangle v = world.camera.view();
+        CHECK(v.x == doctest::Approx(0));
+        CHECK(v.y == doctest::Approx(0));
+        CHECK(v.width == doctest::Approx(SCREEN_WIDTH));
+        CHECK(v.height == doctest::Approx(SCREEN_HEIGHT));
+        // The design's corners are the window's corners: one world unit is
+        // two pixels, and the whole design shows.
+        CHECK(near(world.camera.to_screen(Vector2{ 0, 0 }), Vector2{ 0, 0 }));
+        CHECK(near(world.camera.to_screen(Vector2{ SCREEN_WIDTH, SCREEN_HEIGHT }),
+                   Vector2{ 2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT }));
+
+        SUBCASE("and the camera's own zoom on top of it") {
+            world.camera.zoom = 2;
+            CHECK(world.camera.raylib().zoom == doctest::Approx(4));
+            CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH / 2));
+            CHECK(world.camera.view().height == doctest::Approx(SCREEN_HEIGHT / 2));
+        }
+    }
+
+    TEST_CASE_FIXTURE(
+        Fixture, "a phone held upright, LETTERBOX: the view's corners are the area's") {
+        const Screen screen(1080, 2400, Stretch::LETTERBOX);
+        const Rectangle area = game_area();
+        // A strip across the middle of the phone, the design's shape.
+        REQUIRE(area.y > 0);
+        REQUIRE(area.width == doctest::Approx(1080));
+        World world;
+        for (const float zoom : { 1.0f, 1.5f, 0.5f }) {
+            CAPTURE(zoom);
+            world.camera.position = Vector2{ 1000, 700 };
+            world.camera.zoom = zoom;
+            const Rectangle v = world.camera.view();
+            // The same part of the world a design-size window shows.
+            CHECK(v.width == doctest::Approx(SCREEN_WIDTH / zoom));
+            CHECK(v.height == doctest::Approx(SCREEN_HEIGHT / zoom));
+            CHECK(near(world.camera.to_screen(Vector2{ v.x, v.y }),
+                       Vector2{ area.x, area.y }));
+            CHECK(near(world.camera.to_screen(Vector2{ v.x + v.width, v.y + v.height }),
+                       Vector2{ area.x + area.width, area.y + area.height }));
+            // The camera's position is the middle of the area, not of the phone
+            // -- which happen to be the same point, because the area is centred.
+            CHECK(near(world.camera.to_screen(world.camera.position),
+                       Vector2{ 540, 1200 }));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "EXPAND shows more of the world along the longer side") {
+        const World world;
+        SUBCASE("a phone held upright: the design's width, and more height") {
+            const Screen screen(1080, 2400, Stretch::EXPAND);
+            const float s = 1080 / SCREEN_WIDTH;
+            const Rectangle v = world.camera.view();
+            CHECK(v.width == doctest::Approx(SCREEN_WIDTH));
+            CHECK(v.height == doctest::Approx(2400 / s));
+            CHECK(v.height > SCREEN_HEIGHT);
+            CHECK(world.camera.raylib().zoom == doctest::Approx(s));
+            // Centred where it was, and no bars: the screen's corners are the
+            // view's.
+            CHECK(v.x + v.width / 2 == doctest::Approx(SCREEN_WIDTH / 2));
+            CHECK(v.y + v.height / 2 == doctest::Approx(SCREEN_HEIGHT / 2));
+            CHECK(near(world.camera.to_world(Vector2{ 0, 0 }), Vector2{ v.x, v.y }));
+            CHECK(near(world.camera.to_world(Vector2{ 1080, 2400 }),
+                       Vector2{ v.x + v.width, v.y + v.height }));
+        }
+        SUBCASE("a wide window: the design's height, and more width") {
+            const Screen screen(3 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::EXPAND);
+            const Rectangle v = world.camera.view();
+            CHECK(v.width == doctest::Approx(1.5f * SCREEN_WIDTH));
+            CHECK(v.height == doctest::Approx(SCREEN_HEIGHT));
+            CHECK(world.camera.raylib().zoom == doctest::Approx(2));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "to_world(to_screen(p)) is p in every mode, size and zoom") {
+        World world;
+        world.camera.position = Vector2{ 640, -120 };
+        world.camera.rotation = 30;
+        for (const Vector2 size : { Vector2{ 1600, 900 }, Vector2{ 1080, 2400 },
+                                    Vector2{ 333, 777 }, Vector2{ 3000, 500 } }) {
+            for (const Stretch mode : MODES) {
+                const Screen screen(size.x, size.y, mode);
+                for (const float zoom : { 1.0f, 2.5f, 0.25f }) {
+                    world.camera.zoom = zoom;
+                    for (const Vector2 p :
+                         { Vector2{ 0, 0 }, Vector2{ 1234, -50 }, Vector2{ -3, 999 } }) {
+                        CAPTURE(size.x);
+                        CAPTURE(size.y);
+                        CAPTURE(static_cast<int>(mode));
+                        CAPTURE(zoom);
+                        const Vector2 back =
+                            world.camera.to_world(world.camera.to_screen(p));
+                        CHECK(back.x == doctest::Approx(p.x).epsilon(1e-4).scale(100));
+                        CHECK(back.y == doctest::Approx(p.y).epsilon(1e-4).scale(100));
+                    }
+                }
+            }
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a shake never draws past the limits under a stretch") {
+        // The clamp is against view(), and view() is what the stretch shows:
+        // with LETTERBOX on a big window the view is the design, so limits the
+        // design's size pin the camera and a shake does not move what is drawn.
+        SUBCASE("LETTERBOX: limits the design's size pin it") {
+            const Screen screen(2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::LETTERBOX);
+            World world;
+            world.camera.limits = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+            world.camera.shake(30, 0.5f);
+            for (int i = 0; i < 10; ++i) {
+                world.camera.detail_settle(1.0f / 60);
+                CHECK(near(world.camera.to_world(Vector2{ 0, 0 }), Vector2{ 0, 0 }));
+                CHECK(near(
+                    world.camera.to_world(Vector2{ 2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT }),
+                    Vector2{ SCREEN_WIDTH, SCREEN_HEIGHT }));
+            }
+        }
+        SUBCASE("EXPAND: the wider view still never shows past them") {
+            // s = 2: the view is a design and a half wide and one design tall.
+            const Screen screen(3 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::EXPAND);
+            World world;
+            world.camera.limits = { 0, 0, SCREEN_WIDTH * 4, SCREEN_HEIGHT * 2 };
+            world.camera.position = { 0, 0 }; // pinned into the top-left corner
+            world.camera.detail_settle(0.0f);
+            world.camera.shake(40, 0.5f);
+            bool inward = false;
+            for (int i = 0; i < 30; ++i) {
+                world.camera.detail_settle(1.0f / 60);
+                for (const Vector2 corner :
+                     { Vector2{ 0, 0 },
+                       Vector2{ 3 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT } }) {
+                    const Vector2 seen = world.camera.to_world(corner);
+                    CHECK(seen.x >= -1e-2f);
+                    CHECK(seen.y >= -1e-2f);
+                    CHECK(seen.x <= SCREEN_WIDTH * 4 + 1e-2f);
+                    CHECK(seen.y <= SCREEN_HEIGHT * 2 + 1e-2f);
+                }
+                if (world.camera.raylib().target.x > world.camera.position.x + 0.5f) {
+                    inward = true;
+                }
+            }
+            CHECK(inward); // the shake still shows, inwards
+            // And the view the clamp used is the stretched one -- a design and
+            // a half by one -- not the window's three by two.
+            CHECK(world.camera.position.x == doctest::Approx(0.75f * SCREEN_WIDTH));
+            CHECK(world.camera.position.y == doctest::Approx(0.5f * SCREEN_HEIGHT));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "the pointer and a click go through the stretch") {
+        const Screen screen(3 * SCREEN_WIDTH, SCREEN_HEIGHT, Stretch::LETTERBOX);
+        // Bars of one design width on each side; the game in the middle.
+        REQUIRE(game_area().x == doctest::Approx(SCREEN_WIDTH));
+        const Stack stack;
+        rmp::scenes::detail::start(std::make_unique<World>());
+        rmp::Scene &scene = rmp::Scene::current();
+        int clicks = 0;
+        rmp::Object &button =
+            scene.spawn({ .position = { 100, 100 }, .shape = rmp::rect({ 40, 40 }) });
+        button.on_click([&clicks](rmp::Object &) { ++clicks; });
+
+        // World (100, 100) is drawn one design width to the right.
+        fake.devices.pointer = Vector2{ SCREEN_WIDTH + 100, 100 };
+        rmp::input::detail::begin_frame();
+        CHECK(near(rmp::input::pointer(), Vector2{ 100, 100 }));
+        fake.devices.mouse[MOUSE_BUTTON_LEFT] = true;
+        frame(scene);
+        fake.devices.mouse[MOUSE_BUTTON_LEFT] = false;
+        frame(scene);
+        CHECK(clicks == 1);
+
+        SUBCASE("and the same pixels without the stretch miss it") {
+            fake.devices.pointer = Vector2{ 100, 100 }; // the left bar
+            fake.devices.mouse[MOUSE_BUTTON_LEFT] = true;
+            frame(scene);
+            fake.devices.mouse[MOUSE_BUTTON_LEFT] = false;
+            frame(scene);
+            CHECK(clicks == 1);
+            CHECK(rmp::input::pointer().x < 0); // on the bar: left of the world
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "empty bounds keep an object inside what the stretch shows") {
+        World world;
+        rmp::Object &box =
+            world.spawn({ .position = { SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 },
+                          .shape = rmp::rect({ 20, 20 }) });
+        box.edges = rmp::Edge::CLAMP;
+        SUBCASE("LETTERBOX on a big window: the design, not the window") {
+            const Screen screen(2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::LETTERBOX);
+            box.velocity = Vector2{ 100000, 100000 };
+            frame(world);
+            CHECK(box.position.x == doctest::Approx(SCREEN_WIDTH - 10));
+            CHECK(box.position.y == doctest::Approx(SCREEN_HEIGHT - 10));
+        }
+        SUBCASE("EXPAND on a wide window: as far as the wider view") {
+            const Screen screen(3 * SCREEN_WIDTH, SCREEN_HEIGHT, Stretch::EXPAND);
+            box.velocity = Vector2{ 100000, 0 };
+            frame(world);
+            const Rectangle v = world.camera.view();
+            CHECK(v.width == doctest::Approx(3 * SCREEN_WIDTH));
+            CHECK(box.position.x == doctest::Approx(v.x + v.width - 10));
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a mode set mid-game is the camera's at once") {
+        const Screen screen(2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::NONE);
+        const World world;
+        CHECK(world.camera.view().width == doctest::Approx(2 * SCREEN_WIDTH));
+        rmp::app::set_stretch(Stretch::LETTERBOX);
+        CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH));
+        rmp::app::set_stretch(Stretch::EXPAND);
+        CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH));
+        CHECK(world.camera.raylib().zoom == doctest::Approx(2));
     }
 }

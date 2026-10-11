@@ -10,7 +10,7 @@
 
 #include <rmp/scene.h>
 
-#include "object_internal.h"
+#include "internal.h"
 
 #include <raylib.h>
 
@@ -20,11 +20,23 @@ namespace rmp {
 
 namespace {
 
-// The screen the camera projects onto: the window when there is one, the
-// design size when there is not (tests, and the first frame).
-Vector2 screen_size() {
-    const Rectangle r = rmp::objects::detail::view_rect();
-    return Vector2{ r.width, r.height };
+// How many pixels one world unit is on screen: the camera's own zoom on top of
+// the scale [window] stretch gives the design -- 1 under NONE, so there the
+// zoom is the camera's alone, as it always was. A zoom that is not positive is
+// 1, as it always was.
+float pixels_per_unit(float zoom, float scale) {
+    return (zoom > 0 ? zoom : 1.0f) * scale;
+}
+
+// What a camera at `centre` shows of the world: the game's area on the screen,
+// in world units. Under NONE the area is the whole window and this is the
+// window divided by the zoom; under LETTERBOX it is the design divided by the
+// zoom whatever the window; under EXPAND the design, and more of the world
+// along the window's longer side.
+Rectangle view_around(Vector2 centre, const Rectangle &area, float ppu) {
+    const float w = area.width / ppu;
+    const float h = area.height / ppu;
+    return Rectangle{ centre.x - w / 2, centre.y - h / 2, w, h };
 }
 
 // Where a view of `view_w` x `view_h` centred on `p` may be so that it shows
@@ -48,29 +60,34 @@ Vector2 clamp_to(Vector2 p, const Rectangle &limits, float view_w, float view_h)
 } // namespace
 
 Camera2D Camera::raylib() const {
-    const Vector2 screen = screen_size();
+    // Where on the screen the world goes, and at what scale: the window at 1:1
+    // under NONE, the design fitted into it otherwise. The design size at 1:1
+    // with no window (tests, and the first frame).
+    const rmp::app::detail::WorldViewport fit = rmp::app::detail::world_viewport();
+    const float ppu = pixels_per_unit(zoom, fit.scale);
     // The shake goes HERE and in nothing that gameplay reads: this is what is
     // drawn, and to_screen/to_world below go through it so a click lands on
     // what is under the pointer. view() and position do not see it. It is
     // clamped to the limits like the position is -- "never show outside this
     // rectangle" holds while shaking too -- so near an edge only the part of
     // the shake that points inwards shows.
-    const Rectangle v = view();
+    const Rectangle v = view_around(position, fit.area, ppu);
     const Vector2 shaken =
         clamp_to(Vector2{ position.x + _shake_now.x, position.y + _shake_now.y }, limits,
                  v.width, v.height);
-    return Camera2D{ .offset = Vector2{ screen.x / 2, screen.y / 2 },
+    // The position at the middle of the game's area -- of the window, unless
+    // LETTERBOX left bars -- so the stretch moves and scales the world and
+    // nothing else, and to_screen()/to_world() carry it with them.
+    return Camera2D{ .offset = Vector2{ fit.area.x + fit.area.width / 2,
+                                        fit.area.y + fit.area.height / 2 },
                      .target = shaken,
                      .rotation = rotation,
-                     .zoom = zoom > 0 ? zoom : 1.0f };
+                     .zoom = ppu };
 }
 
 Rectangle Camera::view() const {
-    const Vector2 screen = screen_size();
-    const float z = zoom > 0 ? zoom : 1.0f;
-    const float w = screen.x / z;
-    const float h = screen.y / z;
-    return Rectangle{ position.x - w / 2, position.y - h / 2, w, h };
+    const rmp::app::detail::WorldViewport fit = rmp::app::detail::world_viewport();
+    return view_around(position, fit.area, pixels_per_unit(zoom, fit.scale));
 }
 
 Vector2 Camera::to_screen(Vector2 world) const {

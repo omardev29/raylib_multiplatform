@@ -93,6 +93,13 @@ struct {
     bool quit_requested = false;
 } loop;
 
+// RAY_TEST_WINDOW, when the smoke test was handed one it could not read: the
+// boot is not reported, so a typo in a CI step fails it instead of booting at
+// the design size, where every [window] stretch draws the same picture.
+struct {
+    bool refused = false;
+} test_window;
+
 #if RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
     !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(PLATFORM_IOS)
 // Where the executable is, or an empty path where the system will not say.
@@ -313,6 +320,7 @@ void after_ready() {
     const bool save_test =
         SmokeTest_maxFrames > 0 || (asked != nullptr && asked[0] == '1');
     if (save_test && !smoke_save_round_trip()) return;
+    if (test_window.refused) return; // start() said why, with RAY_TEST_BOOT_FAIL
     SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
 }
 
@@ -446,7 +454,33 @@ void start(std::unique_ptr<rmp::Scene> first) {
     // would only stall it.
     if (RMP_WINDOW_FPS > 0) SetTargetFPS(RMP_WINDOW_FPS);
 #endif
-    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
+    // RAY_TEST_WINDOW=WxH: under the CI smoke test, and only there, the window
+    // opens at another size, so a [window] stretch can be booted on a screen
+    // of another shape -- at the design size every mode is the same picture.
+    // RAY_TEST_MAX_FRAMES is what turns the smoke test on, and no shipped run
+    // sets it.
+    int width = RMP_WINDOW_WIDTH;
+    int height = RMP_WINDOW_HEIGHT;
+    std::string window;
+    if (SmokeTest_maxFrames > 0) {
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): what getenv() hands back, copied at once
+        const char *asked = std::getenv("RAY_TEST_WINDOW");
+        if (asked != nullptr) window = asked;
+    }
+    if (!window.empty()) {
+        if (const auto size = rmp::scenes::detail::parse_test_window(window)) {
+            width = size->width;
+            height = size->height;
+            TraceLog(LOG_INFO, "RAY_TEST_WINDOW %dx%d", width, height);
+        } else {
+            test_window.refused = true;
+            TraceLog(LOG_ERROR,
+                     "RAY_TEST_BOOT_FAIL RAY_TEST_WINDOW=\"%s\" is not WIDTHxHEIGHT, two "
+                     "whole numbers 16..16384 joined by an x -- 1080x2400, say",
+                     window.c_str());
+        }
+    }
+    InitWindow(width, height, RMP_WINDOW_TITLE);
     rmp::scenes::detail::start(std::move(first));
 }
 
