@@ -42,6 +42,7 @@
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rmp {
@@ -114,6 +115,28 @@ Rectangle view_rect() {
 }
 
 bool empty_rect(const Rectangle &r) { return r.width <= 0 || r.height <= 0; }
+
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+// A box whose four edges are numbers: x, y, its size, and where it ends.
+bool finite_box(const Rectangle &r) {
+    return std::isfinite(r.x) && std::isfinite(r.y) && std::isfinite(r.width) &&
+        std::isfinite(r.height) && std::isfinite(r.x + r.width) &&
+        std::isfinite(r.y + r.height);
+}
+
+// One line for every way a motion stops being a number -- a NaN force, an
+// impulse into infinity, a frame that would carry an object past FLT_MAX --
+// keyed by which, because they are the same mistake seen from three places
+// and the first of them is the one worth reading.
+void refuse_motion(std::string_view what, Vector2 v) {
+    const std::string key(what); // %s and the key want the NUL a view does not promise
+    RMP_REPORT_ONCE_KEYED(key.c_str(),
+                          "OBJECT: %s (%g, %g) would leave the object somewhere no float "
+                          "can say; refused. A NaN here is usually a division by zero.",
+                          key.c_str(), static_cast<double>(v.x),
+                          static_cast<double>(v.y));
+}
 
 } // namespace
 
@@ -266,14 +289,26 @@ void Object::set_entered_bounds(bool entered) { _entered_bounds = entered; }
 // ---------------------------------------------------------------------------
 
 void Object::apply_force(Vector2 force) {
-    _pending_force.x += force.x;
-    _pending_force.y += force.y;
+    // Refused whole when it is not a number, or when what has built up this
+    // frame stops being one: a NaN pushed into the accumulator came out as the
+    // velocity at the end of the frame, and from there it was the position.
+    const Vector2 total{ _pending_force.x + force.x, _pending_force.y + force.y };
+    if (!finite(total)) {
+        refuse_motion("apply_force", force);
+        return;
+    }
+    _pending_force = total;
 }
 
 void Object::apply_impulse(Vector2 impulse) {
     const float m = mass > 0 ? mass : 1.0f;
-    velocity.x += impulse.x / m;
-    velocity.y += impulse.y / m;
+    const Vector2 after{ velocity.x + impulse.x / m, velocity.y + impulse.y / m };
+    // The same refusal, at once: an impulse IS the velocity it leaves.
+    if (!finite(after)) {
+        refuse_motion("apply_impulse", impulse);
+        return;
+    }
+    velocity = after;
 }
 
 Rectangle Object::world_bounds() const {
@@ -308,8 +343,11 @@ Rectangle Object::world_bounds() const {
     }
     switch (shape.kind) {
         case ShapeKind::RECTANGLE: {
-            const float w = shape.size.x * scale.x;
-            const float h = shape.size.y * scale.y;
+            // A mirrored scale, or a negative size, is still a size -- the box
+            // the drawing covers and the collider collides as. Signed, it was a
+            // box of negative width, which Edge::CLAMP read backwards.
+            const float w = std::fabs(shape.size.x * scale.x);
+            const float h = std::fabs(shape.size.y * scale.y);
             return Rectangle{ position.x + shape.offset.x - w / 2,
                               position.y + shape.offset.y - h / 2, w, h };
         }
@@ -484,6 +522,24 @@ bool apply_edges(Object &object) {
     if (empty_rect(area) && scene && scene->map.valid()) area = scene->map.bounds();
     if (empty_rect(area)) area = scene ? scene->camera.view() : view_rect();
     const Rectangle box = object.world_bounds();
+    // An object somewhere no float can say is nowhere, and has no edge to
+    // reach -- at infinity, CLAMP's correction was inf - inf. And an area no
+    // float can say is a mistake in the game: its edges are not where it
+    // meant them, and a correction towards one is a jump to infinity.
+    if (!finite_box(box)) return false;
+    if (!finite_box(area)) {
+        RMP_REPORT_ONCE("OBJECT: an edge rule's bounds (%g, %g, %g, %g) are not a box a "
+                        "float can say; the rule does nothing.",
+                        static_cast<double>(area.x), static_cast<double>(area.y),
+                        static_cast<double>(area.width),
+                        static_cast<double>(area.height));
+        return false;
+    }
+    // Every correction below is a difference of two finite numbers, which can
+    // still be past FLT_MAX: a box at -3e38 clamped into bounds at 3e38. Such
+    // a correction is not made.
+    const Vector2 was = object.position;
+    const Vector2 was_moving = object.velocity;
 
     const float left = area.x;
     const float right = area.x + area.width;
@@ -547,6 +603,10 @@ bool apply_edges(Object &object) {
                 object.position.y += top - (box.y + box.height);
                 wrapped = true;
             }
+            if (!finite(object.position)) {
+                object.position = was;
+                return false;
+            }
             return wrapped;
         }
         case Edge::DESTROY: {
@@ -574,6 +634,10 @@ bool apply_edges(Object &object) {
         case Edge::NONE:
         default:
             break;
+    }
+    if (!finite(object.position)) {
+        object.position = was;
+        object.velocity = was_moving;
     }
     return false;
 }
@@ -772,17 +836,28 @@ void update(const Scene &scene, float delta) {
             acceleration.x += scene.gravity.x * object->gravity_scale;
             acceleration.y += scene.gravity.y * object->gravity_scale;
 
-            object->velocity.x += acceleration.x * delta;
-            object->velocity.y += acceleration.y * delta;
-            const Vector2 step{ object->velocity.x * delta, object->velocity.y * delta };
-            // Solid and free to move: the map stops it (see move_through_map).
-            // Anything else -- a coin, a trigger, a bullet, a platform the
-            // game moves by hand -- goes where its velocity says.
-            if (object->solid && !object->immovable && scene.map.valid()) {
-                move_through_map(*object, scene.map, step);
+            const Vector2 moving{ object->velocity.x + acceleration.x * delta,
+                                  object->velocity.y + acceleration.y * delta };
+            const Vector2 step{ moving.x * delta, moving.y * delta };
+            const Vector2 to{ object->position.x + step.x, object->position.y + step.y };
+            if (!finite(moving) || !finite(to)) {
+                // A speed, a gravity or a mass that carries it past what a float
+                // holds -- or a NaN in any of them. It stops where it is: a NaN
+                // velocity kept is a NaN position next frame, and that spreads
+                // to whatever it touches.
+                refuse_motion("a frame's velocity", moving);
+                object->velocity = Vector2{};
             } else {
-                object->position.x += step.x;
-                object->position.y += step.y;
+                object->velocity = moving;
+                // Solid and free to move: the map stops it (see
+                // move_through_map). Anything else -- a coin, a trigger, a
+                // bullet, a platform the game moves by hand -- goes where its
+                // velocity says.
+                if (object->solid && !object->immovable && scene.map.valid()) {
+                    move_through_map(*object, scene.map, step);
+                } else {
+                    object->position = to;
+                }
             }
         }
 

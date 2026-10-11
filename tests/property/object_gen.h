@@ -244,3 +244,20 @@ inline std::vector<std::pair<int, int>> pairs_of(const rmp::Scene &scene, bool u
 }
 
 } // namespace rmp::test::world
+
+namespace rmp {
+
+// NOLINTNEXTLINE(readability-identifier-naming): RapidCheck's name
+inline void showValue(Edge edge, std::ostream &os) {
+    constexpr std::array<std::string_view, 5> NAMES{ "NONE", "CLAMP", "BOUNCE", "WRAP",
+                                                     "DESTROY" };
+    os << "Edge::" << NAMES[static_cast<std::size_t>(edge)];
+}
+
+} // namespace rmp
+
+// raylib's, so RapidCheck looks for it where raylib's types are.
+// NOLINTNEXTLINE(readability-identifier-naming): RapidCheck's name
+inline void showValue(const Rectangle &r, std::ostream &os) {
+    os << "{" << r.x << ", " << r.y << ", " << r.width << ", " << r.height << "}";
+}

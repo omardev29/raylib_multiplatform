@@ -19,6 +19,8 @@
 #include <rmp/object.h>
 #include <rmp/scene.h>
 
+#include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -1330,5 +1332,153 @@ TEST_CASE_FIXTURE(Fixture, "a scaled circle is one size, not three") {
         coin.scale = { -2, 1 };
         CHECK(coin.world_bounds().width == doctest::Approx(32));
         CHECK(coin.world_collider().width == doctest::Approx(32));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Numbers a game hands over by mistake. What tests/property/object_prop.cpp
+// found, one case each.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr float NAN_F = std::numeric_limits<float>::quiet_NaN();
+constexpr float INF_F = std::numeric_limits<float>::infinity();
+
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+} // namespace
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a force or an impulse that is not a number is refused, said once") {
+    // object_prop.cpp's first counterexample: an impulse of (NaN, -inf) left
+    // a velocity of (NaN, -inf) at once, and a force of the same left it at
+    // the end of the frame -- and the frame after, the position.
+    World world;
+    auto &object = world.spawn({ .velocity = { 10, -3000 } });
+    rmp::detail::reset_reports_for_tests();
+    object.apply_impulse({ NAN_F, -INF_F });
+    CHECK(object.velocity.x == 10);
+    CHECK(object.velocity.y == -3000);
+    object.apply_force({ INF_F, 0 });
+    rmp::objects::detail::update(world, 1.0f / 60);
+    CHECK(object.velocity.x == doctest::Approx(10));
+    CHECK(finite(object.position));
+    const int said = rmp::detail::report_count();
+    CHECK(said == 2); // one line for each of the two, and no more
+    object.apply_impulse({ NAN_F, 0 });
+    object.apply_force({ NAN_F, 0 });
+    CHECK(rmp::detail::report_count() == said);
+    // Forces that only overflow TOGETHER are refused at the one that does.
+    object.apply_force({ 3e38f, 0 });
+    object.apply_force({ 3e38f, 0 });
+    rmp::objects::detail::update(world, 1.0f / 60);
+    CHECK(finite(object.velocity));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a frame that would carry an object past FLT_MAX stops it instead") {
+    // object_prop.cpp's counterexample: a gravity of 1e38 is a finite number,
+    // and a thirtieth of a second of it on a gravity_scale of -3000 is not.
+    World world;
+    world.gravity = { -3000, 1e38f };
+    auto &object =
+        world.spawn({ .position = { -3000, -3000 }, .velocity = { -3000, -3000 } });
+    object.gravity_scale = -3000;
+    rmp::detail::reset_reports_for_tests();
+    rmp::objects::detail::update(world, 1.0f / 30);
+    CHECK(finite(object.position));
+    CHECK(finite(object.velocity));
+    CHECK(object.position.x == -3000); // it stopped where it was
+    CHECK(object.velocity.x == 0);
+    CHECK(rmp::detail::report_count() == 1);
+    // A speed near FLT_MAX for a whole second is past it too.
+    world.gravity = {};
+    object.velocity = { 3e38f, 0 };
+    object.position = { 2e38f, 0 };
+    rmp::objects::detail::update(world, 1.0f);
+    CHECK(finite(object.position));
+    // And a NaN velocity the game wrote stops rather than spreading.
+    object.velocity = { NAN_F, 0 };
+    object.position = { 0, 0 };
+    rmp::objects::detail::update(world, 1.0f / 60);
+    CHECK(object.position.x == 0);
+    CHECK(object.velocity.x == 0);
+}
+
+TEST_CASE_FIXTURE(
+    Fixture, "a mirrored box is the same box, and CLAMP reads it the right way round") {
+    // A rectangle with a negative scale or size had a box of negative width:
+    // world_bounds said so, and Edge::CLAMP compared the wrong edges.
+    World world;
+    auto &mirrored = world.spawn(
+        { .position = { 50, 50 }, .shape = rmp::rect({ 20, 10 }), .scale = { -1, -2 } });
+    const Rectangle box = mirrored.world_bounds();
+    CHECK(box.x == doctest::Approx(40));
+    CHECK(box.y == doctest::Approx(40));
+    CHECK(box.width == doctest::Approx(20));
+    CHECK(box.height == doctest::Approx(20));
+    auto &negative =
+        world.spawn({ .position = { 5, 5 }, .shape = rmp::rect({ -20, 10 }) });
+    negative.edges = rmp::Edge::CLAMP;
+    negative.bounds = { 0, 0, 100, 100 };
+    frame(world, 1.0f / 60);
+    CHECK(negative.position.x == doctest::Approx(10)); // pushed right, in
+    CHECK(negative.position.y == doctest::Approx(5));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "an edge rule with bounds a float cannot say does nothing, said once") {
+    World world;
+    rmp::detail::reset_reports_for_tests();
+    for (const Rectangle bounds :
+         { Rectangle{ NAN_F, 0, 100, 100 }, Rectangle{ 0, 0, INF_F, 100 },
+           Rectangle{ 3e38f, 0, 3e38f, 100 } }) {
+        auto &object =
+            world.spawn({ .position = { -50, 50 }, .shape = rmp::rect({ 10, 10 }) });
+        object.edges = rmp::Edge::CLAMP;
+        object.bounds = bounds;
+        frame(world, 1.0f / 60);
+        CHECK(object.position.x == -50);
+        CHECK(object.position.y == 50);
+    }
+    CHECK(rmp::detail::report_count() == 1);
+}
+
+TEST_CASE_FIXTURE(Fixture, "an object at infinity has no edge to reach") {
+    // object_prop.cpp's counterexample: a box with an infinite scale has an
+    // infinite box, and WRAP's correction of it was 0 - (inf + -inf): NaN.
+    for (const rmp::Edge edge :
+         { rmp::Edge::CLAMP, rmp::Edge::BOUNCE, rmp::Edge::WRAP, rmp::Edge::DESTROY }) {
+        CAPTURE(static_cast<int>(edge));
+        World world;
+        auto &object = world.spawn({ .position = { -1.5e38f, -400 },
+                                     .shape = rmp::rect({ -1.5e6f, 1 }),
+                                     .scale = { INF_F, 1 } });
+        object.edges = edge;
+        object.bounds = { 0, 0, 800, 450 };
+        frame(world, 1.0f / 60);
+        CHECK(finite(object.position));
+        CHECK(object.position.x == -1.5e38f);
+    }
+}
+
+TEST_CASE_FIXTURE(Fixture, "an edge correction that would cross the floats is not made") {
+    // A finite box and finite bounds, at opposite ends of the floats: the
+    // correction between them, 3e38 - -3e38, is past FLT_MAX. WRAP returns
+    // from the middle of the rules, so it is held on its own.
+    for (const rmp::Edge edge :
+         { rmp::Edge::CLAMP, rmp::Edge::BOUNCE, rmp::Edge::WRAP }) {
+        CAPTURE(static_cast<int>(edge));
+        World world;
+        auto &object = world.spawn({ .position = { -3e38f, 0 },
+                                     .shape = rmp::rect({ 10, 10 }),
+                                     .velocity = { -1, 0 } });
+        object.edges = edge;
+        object.bounds = { 3e38f, -10, 1e37f, 20 };
+        frame(world, 1.0f / 60);
+        CHECK(finite(object.position));
+        CHECK(object.position.x == -3e38f);
+        CHECK(object.velocity.x == -1);
     }
 }
