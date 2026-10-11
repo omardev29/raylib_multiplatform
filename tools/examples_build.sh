@@ -58,9 +58,16 @@ case "$ONLY" in
   *) echo "usage: tools/examples_build.sh [e2e]"; exit 2 ;;
 esac
 
-# macOS has no `timeout`; there the run simply has no ceiling.
+# macOS has no `timeout`; there the run simply has no ceiling. A script plays
+# far longer than a boot -- a whole game, won and lost, is minutes under ASan
+# with raylib at -O0 -- so an e2e run has a ceiling of its own, and a stuck one
+# still ends.
 LIMIT=""
-if command -v timeout >/dev/null 2>&1; then LIMIT="timeout 180"; fi
+E2E_LIMIT=""
+if command -v timeout >/dev/null 2>&1; then
+  LIMIT="timeout 180"
+  E2E_LIMIT="timeout 600"
+fi
 
 # What says this is the pinned build image; tools/versions_check.sh reads it
 # too. The e2e goldens are compared exactly, so one compiler, one libm and one
@@ -104,6 +111,8 @@ configure_examples() {
 play_e2e() {
   echo "== examples: e2e, played from tests/e2e/ =="
   local scripts nscripts e2e_targets nmade played e2e_failed t status out ok
+  # A script's own ceiling (above), for every launch in here.
+  local LIMIT="$E2E_LIMIT"
   scripts=$(find tests/e2e -name '*.e2e' | sort)
   nscripts=$(printf '%s\n' "$scripts" | grep -c . || true)
   e2e_targets=$(cat "$BUILD/e2e_targets.txt")

@@ -65,7 +65,13 @@ public:
             spawn({ .position = { 400, 380 },
                     .shape = rmp::circle(7),
                     .bounds = { 0, 0, RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT + 300.0f } });
-        ball.add<rmp::behavior::Ball>({ .speed = 320, .speed_up = 1.03f });
+        // speed_up is per bounce off anything solid, and every brick is: at 1 %
+        // the ball is about twice its serve by the last of fifty. At 3 % it was
+        // four times its serve by the thirtieth brick, far faster than the
+        // paddle, and even a bot that knew where every ball would come down lost
+        // its three balls with bricks left (tests/e2e/games/02_breakout.e2e
+        // clears the wall at 1 %).
+        ball.add<rmp::behavior::Ball>({ .speed = 320, .speed_up = 1.01f });
         _ball = ball.handle();
         serve();
 

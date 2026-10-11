@@ -5,7 +5,6 @@
 # (delete the line), and the list may not be longer than PENDING_CEILING
 # there -- which only goes down. Adding an example to one of those areas
 # means writing its script, not a line here.
-games/02_breakout
 games/03_space_invaders
 games/04_top_down
 games/05_endless_runner
