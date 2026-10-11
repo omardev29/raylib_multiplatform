@@ -254,6 +254,58 @@ void untouched_without_an_overlay() {
     }
 }
 
+// Two scroll areas, one inside the other: what is drawn inside the
+// inner one is clipped to both, and what follows it in the outer one is still
+// clipped to the outer one. raylib has ONE scissor: the inner area used to
+// replace the outer clip, and its end switched clipping off for the rest.
+void nested_scrolls_clip_to_both() {
+    auto draw = [] {
+        ClearBackground(BLACK);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 0 });
+        rmp::ui::scroll({ .horizontal = true,
+                          .gap = 0,
+                          .grow_x = false,
+                          .width = 200,
+                          .grow_y = false,
+                          .height = 100,
+                          .id = "outer" },
+                        [] {
+                            rmp::ui::scroll({ .horizontal = true,
+                                              .gap = 0,
+                                              .grow_x = false,
+                                              .width = 300,
+                                              .grow_y = false,
+                                              .height = 300,
+                                              .id = "inner" },
+                                            [] {
+                                                rmp::ui::panel({ .box = { .width = 400,
+                                                                          .height = 400 },
+                                                                 .background = RED },
+                                                               [] {});
+                                            });
+                            // Below the inner area, wholly past the outer one.
+                            rmp::ui::panel({ .box = { .width = 400, .height = 400 },
+                                             .background = GREEN },
+                                           [] {});
+                        });
+        rmp::ui::end();
+    };
+    frame(draw); // the areas' sizes are known from the second frame on
+    frame(draw);
+    const Shot shot = frame(draw);
+    // A point of the design, in the picture's pixels.
+    const float s = rmp::ui::scale();
+    auto at = [&](float x, float y) {
+        return shot.at(static_cast<int>(x * s), static_cast<int>(y * s));
+    };
+    check(same(at(50, 25), RED), "inside both areas, the inner one's content shows");
+    check(same(at(250, 75), BLACK) && same(at(100, 150), BLACK),
+          "inside the inner area and past the outer one, beside it or below: clipped");
+    check(same(at(100, 320), BLACK),
+          "after the inner area's end, what follows in the outer one is still clipped");
+    rmp::ui::shutdown();
+}
+
 // blur 0 is a rectangle of the veil at dim's alpha over the frame, and not a
 // pixel more: the same picture as drawing that rectangle by hand.
 void blur_zero_is_the_veil() {
@@ -927,6 +979,7 @@ int main() {
     set_transition(0);
 
     untouched_without_an_overlay();
+    nested_scrolls_clip_to_both();
     blur_zero_is_the_veil();
     dim_half_is_half();
     using rmp::ui::detail::Glsl;
