@@ -103,11 +103,19 @@ def basis(kind: str, log: str) -> str:
     if m:
         return "runtime error in " + (" < ".join(our_frames(log)) or m.group(1)[:80])
     if kind == "property":
-        case = re.search(r"^TEST CASE:\s+(.+)$", log, re.M)
-        falsified = re.search(r"^(RC_ASSERT.*|RC_.*\(.*\))$", log, re.M)
-        if case:
+        # doctest prints one block per failing test case, between lines of
+        # `=`: the case and what failed in it are read from the same block --
+        # the first case of the log with the second case's RC_ASSERT is a
+        # failure that never happened.
+        for block in re.split(r"^={20,}$", log, flags=re.M):
+            case = re.search(r"^TEST CASE:\s+(.+)$", block, re.M)
+            if not case:
+                continue
+            falsified = re.search(r"^(RC_ASSERT.*|RC_.*\(.*\))$", block, re.M)
+            check = re.search(r": ERROR: (\w+\(.*\)) is NOT correct!", block)
+            what = falsified or check
             return "property: " + case.group(1).strip() + (
-                " / " + falsified.group(1).strip() if falsified else "")
+                " / " + what.group(1).strip()[:120] if what else "")
     if kind == "hypothesis":
         tests = sorted(set(re.findall(r"^(?:FAIL|ERROR): (\S+ \(\S+\))", log, re.M)))
         if tests:

@@ -48,9 +48,13 @@ on:
 permissions:
   contents: read
 
-# One run of each mode at a time; never cancel one, it may have found something.
+# One run at a time, and never cancel one: it may have found something. One
+# group for every trigger: keyed by the schedule, a nightly dispatched by
+# hand would run beside the scheduled one, and both would open an issue for
+# the same signature, each having listed none. A Sunday's mutation run waits
+# for that night's fuzzing.
 concurrency:
-  group: deep-${{ github.event.schedule || inputs.mode }}
+  group: deep
   cancel-in-progress: false
 
 env:

@@ -746,6 +746,35 @@ class FindingTest(unittest.TestCase):
             with self.subTest(says=says):
                 self.assertEqual(self.finding.signature(kind, target, log)[1], says)
 
+    def test_a_property_is_its_own_case_and_its_own_assertion(self):
+        """property_test's log as doctest prints it, one block a failing case:
+        the case and what failed in it come from the same block. Read as one
+        text, the first case went with the second case's RC_ASSERT -- a
+        failure that never happened, filed under a signature nobody can
+        find again (seen with the property of gen_prop.cpp made to fail)."""
+        rule = "=" * 79
+        log = (f"[doctest] doctest version is \"2.5.0\"\n{rule}\n"
+               "/w/tests/property/gen_prop.cpp:113:\nTEST SUITE: property: gen\n"
+               "TEST CASE:  value() reaches past what a save reads back, and no further\n\n"
+               "/w/tests/property/gen_prop.cpp:124: ERROR: CHECK( std::ranges::all_of(drawn, f) )"
+               " is NOT correct!\n  values: CHECK( false )\n\n"
+               f"Using configuration: max_success=200 seed=20261010\n{rule}\n"
+               "/w/tests/property/gen_prop.cpp:140:\nTEST SUITE: property: gen\n"
+               "TEST CASE:  a drawn Value is the tree depth() measures, through a copy\n\n"
+               "/w/tests/property/check.h:43: ERROR: CHECK( held ) is NOT correct!\n"
+               "  values: CHECK( false )\n  logged: a copy has the same type, size and depth\n"
+               "Falsifiable after 4 tests and 35 shrinks\n\n/w/tests/property/gen_prop.cpp:149:\n"
+               "RC_ASSERT(rmp::test::gen::depth(v) <= rmp::test::gen::DEEPEST)\n\n"
+               f"Expands to:\n66 <= 65\n\n{rule}\n"
+               "[doctest] test cases:  6 |  4 passed | 2 failed | 0 skipped\n")
+        self.assertEqual(self.finding.signature("property", "rapidcheck", log)[1],
+                         "property: value() reaches past what a save reads back, and no further"
+                         " / CHECK( std::ranges::all_of(drawn, f) )")
+        second = log[log.index("Using configuration"):]
+        self.assertEqual(self.finding.signature("property", "rapidcheck", second)[1],
+                         "property: a drawn Value is the tree depth() measures, through a copy"
+                         " / RC_ASSERT(rmp::test::gen::depth(v) <= rmp::test::gen::DEEPEST)")
+
     def test_one_issue_per_signature(self):
         """`report` against a stand-in gh: a new signature is an issue, one
         that is open already is a comment on it."""
@@ -900,6 +929,11 @@ def deep_workflow_problems(workflow: dict, script_text: str) -> list[str]:
         condition = " ".join(str(job.get("if", "")).split())
         if "always()" in condition and "needs.plan.result == 'success'" not in condition:
             out.append(f"job {name} runs always(), past a skipped plan")
+    concurrency = workflow.get("concurrency") or {}
+    if concurrency.get("group") != "deep" or concurrency.get("cancel-in-progress") is not False:
+        out.append("the runs do not share one concurrency group that cancels nothing: two "
+                   "at once open two issues for one signature, and a cancelled one loses "
+                   "what it found")
     crons = [entry.get("cron") for entry in on.get("schedule") or []]
     weekly = re.findall(r"\$SCHEDULE\" = '([^']+)' \]; then MODE=weekly", script_text)
     if len(weekly) != 1 or weekly[0] not in crons:
@@ -910,7 +944,8 @@ def deep_workflow_problems(workflow: dict, script_text: str) -> list[str]:
 class DeepWorkflowTest(unittest.TestCase):
     """deep.yml runs on this repository and nowhere else -- a repository made
     from this one is a copy, not a fork, and would open issues on itself --
-    and its Sunday schedule is the one the plan reads as weekly."""
+    and its Sunday schedule is the one the plan reads as weekly; and one run
+    at a time, none cancelled."""
 
     def load(self):
         try:
@@ -935,6 +970,10 @@ class DeepWorkflowTest(unittest.TestCase):
              "job report runs always(), past a skipped plan"),
             ("    - cron: '30 4 * * 0'", "    - cron: '30 5 * * 0'",
              "weekly cron ['30 4 * * 0'] is not one of the schedules"),
+            ("  group: deep\n", "  group: deep-${{ github.event.schedule || inputs.mode }}\n",
+             "do not share one concurrency group"),
+            ("  cancel-in-progress: false\n", "  cancel-in-progress: true\n",
+             "do not share one concurrency group"),
         ]
         for before, after, says in cases:
             with self.subTest(says=says):
