@@ -144,6 +144,7 @@ TEST_SUITE("property: object") {
                     bool alive;
                 };
                 std::vector<Spawned> model;
+                bool poked = false;
                 const int steps = *rc::gen::inRange(1, 80);
                 for (int step = 0; step < steps; ++step) {
                     const int op = *rc::gen::inRange(0, 7);
@@ -177,12 +178,19 @@ TEST_SUITE("property: object") {
                         // wrapped once (a spawn adds one and the collect
                         // another): an odd one would be a slot 2^32 reuses
                         // old, which a 32-bit generation does not promise.
+                        // And ONCE a case: a second poke, after a wrap, moves
+                        // the counter back over generations already handed
+                        // out -- a spawn at UINT_MAX, then the slot poked
+                        // from 3 back to UINT_MAX - 3 and spawned twice, gave
+                        // the dead handle's generation to a new object: the
+                        // same 2^32 reuses, by another road.
                         rmp::objects::detail::collect();
                         const unsigned edge =
                             *rc::gen::element(UINT_MAX - 1, UINT_MAX - 3);
                         bool any_alive = false;
                         for (const Spawned &s : model) any_alive = any_alive || s.alive;
-                        if (!any_alive) {
+                        if (!any_alive && !poked) {
+                            poked = true;
                             for (int i = 0; i < rmp::objects::detail::slot_count(); ++i)
                                 rmp::objects::detail::set_generation_for_tests(
                                     static_cast<unsigned>(i), edge);
