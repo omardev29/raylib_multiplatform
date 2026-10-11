@@ -445,11 +445,10 @@ TEST_SUITE("property: input") {
                 const Devices devices;
                 fake.devices = draw_devices();
                 frame();
-                // No NUL: the report is keyed by the name as a C string, and
-                // two names that differ only past a NUL are one key (said in
-                // the commit that added this; report.cpp is not this file's).
-                std::string name = *rmp::test::gen::hostile_string();
-                std::erase(name, '\0');
+                // NUL and all: the report is keyed by the whole name, so a
+                // name that differs from it only past a NUL is a second
+                // mistake, and said -- as C strings the two were one key.
+                const std::string name = *rmp::test::gen::hostile_string();
                 RC_PRE(name.rfind("move_", 0) != 0 && name.rfind("ui_", 0) != 0);
                 for (int again = 0; again < 2; ++again) {
                     RC_ASSERT(!rmp::input::pressed(name));
@@ -461,6 +460,10 @@ TEST_SUITE("property: input") {
                     RC_ASSERT(v.y == 0.0f);
                 }
                 RC_ASSERT(rmp::detail::report_count() == 2); // false, and 0
+                const std::string past_a_nul = name + std::string("\0x", 2);
+                RC_ASSERT(!rmp::input::pressed(past_a_nul));
+                RC_ASSERT(rmp::input::axis(past_a_nul, past_a_nul) == 0.0f);
+                RC_ASSERT(rmp::detail::report_count() == 4);
             });
 
         rmp::test::check("stick() is one half of one axis for any sign", [] {
