@@ -520,17 +520,37 @@ def measured_in(text: str) -> tuple[dict[str, Measured], str]:
     return found, (shas.pop() if shas else "")
 
 
+# The top of a budget --update starts: a game has none until its first run,
+# and this is how it makes one. The rule in short; the framework's own file
+# says it at length.
+NEW_BUDGET = """# The size of each binary this game ships, held by tools/size_check.py in a
+# step of every release job: within 1.5% of its line, either way, it passes in
+# silence; past that it passes with a warning; past 10% it fails. A line is
+#     binary  kind  unpacked  packed  # measured at <commit>
+# and after a CI run this writes the new numbers:
+#     gh run view <run> --log | python3 tools/size_check.py --update -
+"""
+
+
 def update(path: Path, logs: list[str]) -> int:
     text = "".join(sys.stdin.read() if log == "-" else Path(log).read_text(
         encoding="utf-8", errors="replace") for log in logs)
     try:
-        lines = load(path)
         found, sha = measured_in(text)
     except BudgetError as e:
         print(f"FAIL: {e}")
         return 1
     if not found:
         print("FAIL: no measured line in the log. Each one ends in \"# measured at <commit>\"")
+        return 1
+    if not path.exists():
+        # A game's first budget: it starts here, from its first run's log.
+        path.write_text(NEW_BUDGET, encoding="utf-8")
+        print(f"  new   {path.name}: started from this log")
+    try:
+        lines = load(path)
+    except BudgetError as e:
+        print(f"FAIL: {e}")
         return 1
     out = path.read_text(encoding="utf-8").splitlines()
     changed = []

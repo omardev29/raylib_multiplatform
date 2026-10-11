@@ -96,6 +96,36 @@ class Case(unittest.TestCase):
         return built, self.file("shipped", upx(ELF), packed)
 
 
+class AGameStartsItsBudgetTest(Case):
+    """A game has no tools/size_budget.txt until it asks for one, and --update
+    with its first run's log is how it asks: the file is made, with the rule at
+    its top and the measured lines under it, and it then holds the game."""
+
+    def test_update_makes_the_file_a_game_does_not_have_yet(self):
+        self.budget.unlink()
+        log = self.tmp / "run.log"
+        log.write_text("2026-10-11T00:00:00Z linux-x64-glibc        elf       100000     40000"
+                       "  # measured at abc1234\n")
+        code, out = self.run_main("--update", log, mode="game")
+        self.assertEqual(code, 0, out)
+        self.assertIn("started from this log", out)
+        text = self.budget.read_text()
+        self.assertTrue(text.startswith("# The size of each binary this game ships"), text)
+        self.assertIn("linux-x64-glibc        elf       100000     40000  # measured at abc1234",
+                      text)
+        code, out = self.check("linux-x64-glibc", *self.linux(100000, 40000), mode="game")
+        self.assertEqual(code, 0, out)
+        self.assertIn("  ok    linux-x64-glibc", out)
+
+    def test_a_log_with_nothing_measured_makes_no_file(self):
+        self.budget.unlink()
+        log = self.tmp / "run.log"
+        log.write_text("nothing here\n")
+        code, out = self.run_main("--update", log, mode="game")
+        self.assertEqual(code, 1, out)
+        self.assertFalse(self.budget.exists())
+
+
 class TheBudgetHoldsTest(Case):
     """Omar's rule of 2026-10-11, at every edge and for both columns: within
     1.5 % of its line a binary passes in silence; one byte past that it passes
