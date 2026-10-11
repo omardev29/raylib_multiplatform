@@ -166,7 +166,9 @@ void unguard_terminal() {
 
 void guard_console() {
 #if defined(RMP_TARGET_DRM)
-    if (!guard_terminal(STDIN_FILENO)) return;
+    // Started from no terminal at all -- a service, a pipe -- there is
+    // nothing to guard, and nothing is installed.
+    guard_terminal(STDIN_FILENO);
     // A plain log, not RMP_REPORT_ONCE: being root is the machine, not a
     // mistake in the game, and [dev] strict must not abort it.
     const std::string sudo_user = from_environment("SUDO_USER");
