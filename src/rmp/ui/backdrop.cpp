@@ -42,8 +42,8 @@
 // of the frame to the screen, behind the backdrop's back.
 //
 // Nothing here runs without a window. The unit tests have none: the GPU half
-// is between RMP_COVERAGE_OFF and RMP_COVERAGE_ON, and the pure half --
-// glsl_for(), blur_shader_source(), plan_blur() -- is theirs.
+// is marked out of their coverage, and the pure half -- glsl_for(),
+// blur_shader_source(), plan_blur() -- is theirs.
 // ===========================================================================
 
 #include "backdrop.h"
@@ -367,8 +367,8 @@ void begin_backdrop() {
     if (!ready()) return;
     BeginTextureMode(gpu.scene);
     backdrop.redirected = true;
-    // RMP_COVERAGE_ON
 }
+// RMP_COVERAGE_ON
 
 void blur_backdrop(const float blur) {
     // 0 is no blur, and the next frame is not redirected. Anything that is
@@ -399,8 +399,8 @@ void blur_backdrop(const float blur) {
     const float amount = ease_towards(true);
     draw_blurred(blur * ui_scale() * amount);
     backdrop.blurred = true;
-    // RMP_COVERAGE_ON
 }
+// RMP_COVERAGE_ON
 
 void finish_backdrop() {
     backdrop.in_app_frame = false;
@@ -416,8 +416,8 @@ void finish_backdrop() {
             copy(gpu.scene, static_cast<float>(frame.width),
                  static_cast<float>(frame.height));
         }
-        // RMP_COVERAGE_ON
     }
+    // RMP_COVERAGE_ON
     // A frame with no blur on screen lets the ease go back towards none, so
     // the next overlay blurs in from sharp -- or from where the last one left
     // it, when it comes back within a transition.
@@ -430,8 +430,8 @@ void release_backdrop() {
         // rmp::ui::shutdown() in the middle of a redirected frame: the rest
         // of it goes to the screen.
         EndTextureMode();
-        // RMP_COVERAGE_ON
     }
+    // RMP_COVERAGE_ON
     // Not in_app_frame: the frame this may be called in is still the app's.
     backdrop.asked = false;
     backdrop.redirected = false;

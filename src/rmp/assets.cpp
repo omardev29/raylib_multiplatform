@@ -69,8 +69,8 @@ rmp::RenderTexture make_render_texture(const int width, const int height) {
                                                 raw) };
     if (!made.valid()) UnloadRenderTexture(raw);
     return made;
-    // RMP_COVERAGE_ON
 }
+// RMP_COVERAGE_ON
 
 rmp::Shader make_shader(const std::string_view vertex, const std::string_view fragment) {
     if (fragment.empty()) return rmp::Shader{};
@@ -91,8 +91,8 @@ rmp::Shader make_shader(const std::string_view vertex, const std::string_view fr
     rmp::Shader made{ rmp::detail::adopt(rmp::detail::ResourceKind::SHADER, raw) };
     if (!made.valid()) UnloadShader(raw);
     return made;
-    // RMP_COVERAGE_ON
 }
+// RMP_COVERAGE_ON
 } // namespace detail
 
 namespace {
