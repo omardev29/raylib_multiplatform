@@ -1,9 +1,9 @@
 # tools/cpp_text.py: the scanner the text gates read C++ through. Measured in
-# the image on 2026-10-11, mutmut 3.8.0: 287 mutants, 196 detected (174
-# killed, 22 timed out), 50 survived, 41 with no test -- tree() and Lines are
-# not called by tests/cpp_text_property_test.py -- = 68.29%. 8 min with 4
-# children.
+# the image on 2026-10-11, mutmut 3.8.0: 287 mutants, 235 detected = 81.88%,
+# 12 min 44 s with 3 children -- after its Lines and tree() got properties of
+# their own (WP0's pilot, without them: 196 detected, 41 with no test at all,
+# 68.29%, floor 65).
 kind     py
 sources  tools/cpp_text.py
 tests    tests/cpp_text_property_test.py
-floor    65
+floor    80

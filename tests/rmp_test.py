@@ -1333,6 +1333,23 @@ class DeployTest(unittest.TestCase):
         (self.repo.root / "notes.txt").write_text("x")
         self.assertEqual(self.repo.rmp("deploy", "1.0.0").returncode, 0)
 
+    def test_a_version_typed_in_bytes_that_are_not_utf8_is_said_not_a_traceback(self):
+        """Found by tests/rmp_property_test.py: Python reads a byte that is not
+        UTF-8 in argv as a lone surrogate, and stdout on a UTF-8 terminal
+        (en_US.UTF-8, es_ES.UTF-8: not C.UTF-8, where Python picks
+        surrogateescape) is strict -- so the FAIL that named the tag raised
+        UnicodeEncodeError instead. PYTHONIOENCODING makes that terminal here,
+        on any machine. The byte is said back as an escape, and the exit is 1."""
+        tag = b"v\xff1.0"
+        subprocess.run(["git", "tag", tag], cwd=self.repo.root, env=self.repo.env, check=True)
+        got = subprocess.run([sys.executable, str(RMP_PY), "deploy", b"\xff1.0"],
+                             cwd=self.repo.root,
+                             env=dict(self.repo.env, PYTHONIOENCODING="utf-8:strict"),
+                             capture_output=True)
+        self.assertNotIn(b"Traceback", got.stderr, got.stderr.decode(errors="replace"))
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn(b"FAIL: the tag v\\udcff1.0 already exists here", got.stdout)
+
     def test_a_tag_that_exists_here_or_there_is_refused(self):
         self.repo.git("tag", "v2.0.0")
         got = self.repo.rmp("deploy", "2.0.0")
@@ -1446,6 +1463,20 @@ class PushTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0)
         self.assertIn("gh is not installed", got.stdout)
         self.assertTrue(self.pushed())
+
+    def test_gh_answering_json_that_is_no_list_of_runs_pushes_with_a_warning(self):
+        """Found by tests/rmp_property_test.py: an answer that IS JSON but not
+        a list of runs -- a number in it, an object -- was an AttributeError
+        out of `r.get`. It is the same case as an answer that is not JSON:
+        nothing could be checked, and that is said."""
+        for answer in ([1], {"runs": []}, ["in_progress"]):
+            with self.subTest(answer=answer):
+                self.fake_gh(answer)
+                got = self.push()
+                self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+                self.assertIn("warning: gh answered something that is not a list of runs",
+                              got.stdout)
+                self.assertNotIn("Traceback", got.stderr)
 
     def test_a_failing_gh_pushes_with_a_warning(self):
         self.fake_gh(exit_code=1)
@@ -1845,6 +1876,33 @@ class StagesAgreeWithLintTest(unittest.TestCase):
                           "does not in a game"])
 
 
+class EveryTestModuleRunsTest(unittest.TestCase):
+    """A file of tests that no stage runs is tests that never run: it passes
+    in silence, everywhere, for good -- the 105-test suite that quietly ran
+    72, one file at a time. Every tests/*_test.py is found by the discover
+    pattern of a stage of `rmp test`, and StagesAgreeWithLintTest holds that
+    stage to its CI job. Seen red on tests/gates_red_test.py, which had no
+    stage the day it was written."""
+
+    @staticmethod
+    def patterns() -> list[str]:
+        out = []
+        for stage in rmp.STAGES:
+            for step in stage.steps:
+                argv = step[1] if step[0] == "run" else []
+                if "discover" in argv and "-p" in argv:
+                    out.append(argv[argv.index("-p") + 1])
+        return out
+
+    def test_every_test_module_is_some_stages(self):
+        import fnmatch
+        patterns = self.patterns()
+        self.assertIn("rmp_test.py", patterns, "the scan found no stage's pattern")
+        modules = sorted(p.name for p in (REPO / "tests").glob("*_test.py"))
+        self.assertEqual([m for m in modules
+                          if not any(fnmatch.fnmatch(m, p) for p in patterns)], [])
+
+
 class PropertyStageTest(unittest.TestCase):
     """`rmp test property` reads the public headers with clang -- the
     resilience list of tests/campaign_test.py -- and they include
@@ -2062,6 +2120,19 @@ class MachineReadableTest(unittest.TestCase):
         self.assertIn("thirdparty/raylib_multiplatform/LICENSE", listed)
         self.assertNotIn("LICENSE", listed)
         self.assertNotIn("tests/configure_test.py", listed)
+
+    def test_new_list_refuses_a_file_nobody_classified(self):
+        """Found by tests/rmp_property_test.py: `rmp new --list` with a tracked
+        file the manifest does not classify -- the moment a framework
+        developer adds one, and asks what a game would get -- was a TypeError.
+        It refuses as `rmp new` does, naming the file."""
+        listed = [("100644", "0" * 40, "CMakeLists.txt"), ("100644", "0" * 40, "notes.txt")]
+        with unittest.mock.patch.object(rmp, "tracked", lambda framework: listed):
+            code, out, err = call(["new", "--list"])
+        self.assertEqual(code, rmp.FAILED, out + err)
+        self.assertIn("notes.txt is not in rmp new's manifest. This is a bug in the framework.",
+                      out)
+        self.assertNotIn("CMakeLists.txt\n", out)
 
     def test_a_closed_pipe_is_not_a_traceback(self):
         got = subprocess.run(f"{sys.executable} {RMP_PY} new --list | head -1", shell=True,
@@ -2730,6 +2801,148 @@ class NewRefusesTest(unittest.TestCase):
                         self.assertEqual(os.listdir(target), [])
                     else:
                         self.assertFalse(target.exists())
+
+
+class CopyManifestTest(unittest.TestCase):
+    """copy_manifest(), the part of `rmp new` that copies the framework's
+    files into the game."""
+
+    def test_two_files_for_one_place_in_the_game_are_refused(self):
+        """Found by tests/rmp_property_test.py: LICENSE goes to
+        thirdparty/raylib_multiplatform/LICENSE (RENAME), and a framework that
+        also tracked a file there gave the game whichever was copied last, in
+        silence. Refused, naming both."""
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "framework", Path(tmp) / "game"
+            renamed = rmp.RENAME["LICENSE"]
+            for path in ("LICENSE", renamed):
+                (source / path).parent.mkdir(parents=True, exist_ok=True)
+                (source / path).write_text(path)
+            target.mkdir()
+            entries = [("100644", "0" * 40, "LICENSE"), ("100644", "0" * 40, renamed)]
+            with self.assertRaises(rmp.Refused) as said:
+                rmp.copy_manifest(source, target, entries)
+            self.assertIn(f"LICENSE and {renamed} would both be {renamed} in the game",
+                          str(said.exception))
+
+
+class MakeGameInProcessTest(unittest.TestCase):
+    """make_game() itself, called in-process on a framework made here: the
+    real .toml and licence records, a few files of each kind, and stand-ins
+    for the two checks a new game must pass. NewTest makes a game from this
+    framework with the real rmp as a program; this is the same promise where
+    a test can see each line of make_game() run -- mutmut follows calls
+    in-process, and found 242 of its mutants that no test reached."""
+
+    FILES = {"src/main.cpp": "100644", "src/scenes/main_menu.cpp": "100644",
+             "rmp": "100755", "tools/rmp.py": "100755", "LICENSE": "100644",
+             "README.md": "100644", "tests/configure_test.py": "100644",
+             "thirdparty/rapidcheck/LICENSE.md": "100644", "examples/a/src/main.cpp": "100644",
+             "tools/fuzz.sh": "100755"}
+    RECORDS = (rmp.TOML, "THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md")
+
+    def setUp(self):
+        if shutil.which("git") is None:
+            self.skipTest("make_game makes a git repository")
+        tmp = Path(tempfile.mkdtemp(prefix="rmp-make-game-"))
+        self.addCleanup(shutil.rmtree, tmp)
+        self.framework, self.game = tmp / "framework", tmp / "space_rocks"
+        for rel in (*self.FILES, *self.RECORDS):
+            (self.framework / rel).parent.mkdir(parents=True, exist_ok=True)
+            source = REPO / rel
+            (self.framework / rel).write_bytes(source.read_bytes() if source.is_file()
+                                               else f"{rel}\n".encode())
+        # The two checks make_game runs on the game it made, as stand-ins.
+        for check in ("tools/configure.py", "tools/license_db.py"):
+            (self.framework / check).write_text("import sys\nsys.exit(0)\n")
+        self.entries = [(mode, "0" * 40, rel) for rel, mode in self.FILES.items()]
+        self.entries += [("100644", "0" * 40, rel) for rel in self.RECORDS]
+        self.entries += [("100644", "0" * 40, c) for c in ("tools/configure.py",
+                                                           "tools/license_db.py")]
+        self.entries.append(("160000", "a" * 40, rmp.GITLINKS[0]))
+        self.game.mkdir()
+        env = {"GIT_CONFIG_GLOBAL": str(tmp / "none"), "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t"}
+        with environment(**env), quiet():
+            rmp.make_game(self.framework, self.game, "space_rocks", "com.example.space_rocks",
+                          "com.example.space-rocks", self.entries)
+        self.index = subprocess.run(["git", "-C", str(self.game), "ls-files", "-s"],
+                                    capture_output=True, text=True, check=True).stdout
+
+    def text(self, rel):
+        return (self.game / rel).read_text(encoding="utf-8")
+
+    def test_the_index_is_the_manifest_with_its_modes(self):
+        paths = sorted(line.split("\t", 1)[1] for line in self.index.splitlines())
+        self.assertEqual(paths, rmp.new_game_paths(self.entries))
+        modes = {line.split("\t", 1)[1]: line.split()[0] for line in self.index.splitlines()}
+        self.assertEqual(modes["rmp"], "100755")
+        self.assertEqual(modes["tools/rmp.py"], "100755")
+        self.assertEqual(modes["src/main.cpp"], "100644")
+        self.assertEqual(modes[rmp.GITLINKS[0]], "160000")
+        self.assertTrue((self.game / rmp.GITLINKS[0]).is_dir())
+        for gone in ("tests/configure_test.py", "tools/fuzz.sh",
+                     "thirdparty/rapidcheck/LICENSE.md", "examples/a/src/main.cpp"):
+            self.assertFalse((self.game / gone).exists(), gone)
+        self.assertEqual((self.game / "thirdparty/raylib_multiplatform/LICENSE").read_bytes(),
+                         (REPO / "LICENSE").read_bytes())
+
+    def test_the_toml_is_this_game(self):
+        toml = self.text(rmp.TOML)
+        framework = (REPO / rmp.TOML).read_text(encoding="utf-8")
+        for key, value in (("name", '"space_rocks"'), ("title", '"space_rocks"'),
+                           ("application_id", '"com.example.space_rocks"'),
+                           ("bundle_id", '"com.example.space-rocks"')):
+            with self.subTest(key=key):
+                self.assertRegex(toml, rf"(?m)^{key}\s*= {re.escape(value)}")
+        password = re.search(r'(?m)^rres_password\s*= "([^"]*)"', toml).group(1)
+        self.assertNotEqual(password, re.search(r'(?m)^rres_password\s*= "([^"]*)"',
+                                                framework).group(1))
+        self.assertGreaterEqual(len(password), 20)
+        self.assertRegex(toml.split("[android.admob]")[1].split("\n[")[0],
+                         r"(?m)^enabled\s*= false")
+        self.assertRegex(toml.split("\n[android]")[1].split("\n[")[0],
+                         r'(?m)^gl_version\s*= "ES20"')
+        self.assertRegex(toml.split("\n[dev]")[1].split("\n[")[0], r"(?m)^sanitize\s*= \[\]")
+        # Nothing else moved: every other line is the framework's.
+        changed = [a for a, b in zip(framework.splitlines(), toml.splitlines()) if a != b]
+        self.assertEqual(len(framework.splitlines()), len(toml.splitlines()))
+        self.assertEqual(len(changed), 8, changed)
+
+    def test_the_licence_records_credit_the_framework_and_forget_rapidcheck(self):
+        licences = self.text("THIRD_PARTY_LICENSES.md")
+        self.assertRegex(licences, r"(?m)^raylib_multiplatform\s+thirdparty/raylib_multiplatform")
+        self.assertNotIn("thirdparty/rapidcheck", licences)
+        # Its paragraph, every line of it: the bullet and the lines under it.
+        framework = (REPO / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8").splitlines()
+        first = next(i for i, line in enumerate(framework) if line.startswith("- **rapidcheck**"))
+        paragraph = [framework[first]]
+        for line in framework[first + 1:]:
+            if not line.startswith("  "):
+                break
+            paragraph.append(line)
+        self.assertGreater(len(paragraph), 1, "the paragraph is one line: this checks less")
+        for line in paragraph:
+            self.assertNotIn(line, licences.splitlines())
+        self.assertEqual(len(framework) - len(licences.splitlines()), len(paragraph) + 1)
+        frozen = self.text("thirdparty/FROZEN_VERSIONS.md")
+        self.assertNotIn("sha256_rapidcheck", frozen)
+        self.assertNotIn("| rapidcheck |", frozen)
+        self.assertIn("rapidcheck", (REPO / "thirdparty/FROZEN_VERSIONS.md").read_text())
+
+    def test_the_readme_is_the_games(self):
+        self.assertEqual(self.text("README.md"), rmp.game_readme("space_rocks"))
+
+    def test_a_check_the_game_fails_is_refused(self):
+        (self.framework / "tools" / "license_db.py").write_text(
+            "print('a licence row with no files')\nraise SystemExit(1)\n")
+        again = self.game.parent / "again"
+        again.mkdir()
+        with self.assertRaises(rmp.Refused) as said, quiet():
+            rmp.make_game(self.framework, again, "again", "com.example.again",
+                          "com.example.again", self.entries)
+        self.assertIn("the new game failed tools/license_db.py --check", str(said.exception))
+        self.assertIn("a licence row with no files", str(said.exception))
 
 
 class StripComponentsTest(unittest.TestCase):

@@ -1,0 +1,13 @@
+# tools/header_cost.py (package P9): what each public header costs, and the
+# budget file it is held to. The property test reaches the budget file's
+# reader and writer, main()'s verdict with measure() stood in for, and
+# measure() with the compiler stood in for, and a header the compiler
+# refuses. Measured in the image on 2026-10-11, mutmut 3.8.0: 288 mutants,
+# 176 detected = 61.11%, about 10 min with 3 children (56.37%, floor 55,
+# before the review's compile failures; 12.74% with the budget file's tests
+# alone; 41.31% with the verdict's). What is left: argparse's help,
+# compiler(), the words main() prints, and --write-budget's message.
+kind     py
+sources  tools/header_cost.py
+tests    tests/header_cost_property_test.py tests/gates_red_test.py::HeaderCostCounterexamplesTest
+floor    60

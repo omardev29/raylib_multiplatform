@@ -128,6 +128,12 @@ def u32(data: bytes, at: int) -> int:
     return struct.unpack_from("<I", data, at)[0]
 
 
+def u64(data: bytes, at: int) -> int:
+    if at < 0 or at + 8 > len(data):
+        raise NotReadable(f"truncated at offset {at:#x}")
+    return struct.unpack_from("<Q", data, at)[0]
+
+
 def cstring(data: bytes, at: int) -> str:
     end = data.find(b"\0", at)
     if at < 0 or at >= len(data) or end < 0:
@@ -155,7 +161,7 @@ class Pe:
             self.image_base = u32(data, opt + 28)
             count_at, dirs = opt + 92, opt + 96
         elif magic == 0x20B:    # PE32+
-            self.image_base = struct.unpack_from("<Q", data, opt + 24)[0]
+            self.image_base = u64(data, opt + 24)
             count_at, dirs = opt + 108, opt + 112
         else:
             raise NotReadable(f"unknown optional header magic {magic:#x}")
@@ -395,8 +401,10 @@ def slices(data: bytes) -> list[tuple[str, tuple[int, int, int] | None, str]]:
 
 
 def parse_version(text: str) -> tuple[int, int, int]:
+    # ASCII digits only: int() also reads Arabic-Indic and full-width ones,
+    # and a version a person cannot read as written is no version.
     parts = text.strip().split(".")
-    if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+    if not 1 <= len(parts) <= 3 or not all(p.isascii() and p.isdigit() for p in parts):
         raise ValueError(text)
     nums = [int(p) for p in parts] + [0] * (3 - len(parts))
     return (nums[0], nums[1], nums[2])
@@ -640,8 +648,12 @@ def check_elf(paths: list[str], pie: bool = False, musl: bool = False) -> int:
     worst = 0
     hardening = needs = False
     for path in paths:
+        # Everything that reads the file, inside the catch: the dynamic
+        # section is read for BIND_NOW, and a file cut inside it is exit 2,
+        # not a traceback.
         try:
             elf = Elf(Path(path).read_bytes())
+            hardened = elf_findings(elf)
             libraries = musl_findings(elf) if musl else []
         except (OSError, NotReadable) as e:
             print(f"FAIL: {path}: {e}")
@@ -649,7 +661,7 @@ def check_elf(paths: list[str], pie: bool = False, musl: bool = False) -> int:
             continue
         print(f"== {path} ({'64' if elf.wide else '32'}-bit ELF)")
         failed = 0
-        for i, (holds, sentence) in enumerate(elf_findings(elf)):
+        for i, (holds, sentence) in enumerate(hardened):
             if i == 0 and not pie and not holds:
                 print(f"  --    {sentence} (not required: no --pie)")
                 continue

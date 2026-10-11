@@ -108,5 +108,60 @@ class BlankTest(unittest.TestCase):
         self.assertEqual(cpp_text.blank(text), expected)
 
 
+class LinesTest(unittest.TestCase):
+    """Lines(text).of(offset) is the 1-based line an offset is on: one more
+    than the newlines before it -- what every gate prints after `file:`."""
+
+    @given(SOURCE, st.data())
+    def test_the_line_of_every_offset(self, text, data):
+        offset = data.draw(st.integers(0, len(text)))
+        self.assertEqual(cpp_text.Lines(text).of(offset), text.count("\n", 0, offset) + 1)
+
+    @given(SOURCE)
+    def test_blanking_moves_no_line(self, text):
+        lines, blanked_lines = cpp_text.Lines(text), cpp_text.Lines(cpp_text.blank(text))
+        for offset in range(len(text) + 1):
+            self.assertEqual(lines.of(offset), blanked_lines.of(offset))
+
+
+# A tree of files: a root, folders that tree() skips and folders it reads,
+# and names with every suffix it takes and a few it does not.
+ROOTS = ("include", "src", "tests", "examples")
+FOLDERS = st.sampled_from(["", "rmp/", "rmp/generated/", "fixtures/", "fixtures/ldtk/",
+                           "game/", "a/b/", "generated_not/"])
+FILES = st.lists(st.tuples(st.sampled_from(ROOTS + ("thirdparty", "tools")), FOLDERS,
+                           st.sampled_from(["x", "y_z", "main"]),
+                           st.sampled_from([".h", ".hpp", ".c", ".cpp", ".cc", ".py", ".txt",
+                                            ".H", ""])),
+                 max_size=12)
+
+
+class TreeTest(unittest.TestCase):
+    """tree(): our C and C++ under the roots, in order, minus generated
+    headers and tests/fixtures/ -- whatever else the folders hold."""
+
+    @given(FILES, st.sampled_from([ROOTS, ("include", "src", "examples"), ("src",)]))
+    def test_exactly_our_sources(self, files, roots):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            made = set()
+            for root, folder, name, suffix in files:
+                rel = f"{root}/{folder}{name}{suffix}"
+                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / rel).write_text("")
+                made.add(rel)
+            here = os.getcwd()
+            os.chdir(tmp)
+            try:
+                got = [p.as_posix() for p in cpp_text.tree(roots)]
+            finally:
+                os.chdir(here)
+        want = [rel for root in roots for rel in sorted(made)
+                if rel.startswith(root + "/") and Path(rel).suffix in (".h", ".hpp", ".c", ".cpp")
+                and "/generated/" not in rel and not rel.startswith("tests/fixtures/")]
+        self.assertEqual(got, want)
+
+
 if __name__ == "__main__":
     unittest.main()

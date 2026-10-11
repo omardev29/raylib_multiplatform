@@ -1,5 +1,34 @@
-# tools/rmp.py (package P9).
+# tools/rmp.py (package P9): the one command. mutmut follows calls in-process,
+# so these are the classes of rmp_test.py that call rmp.py's functions -- not
+# the ones that start it as a program against a real git (deploy, push,
+# install, update, a console in CI: they count for nothing here, and some
+# copy rmp.py somewhere a Python without mutmut runs it, and fail), not the ones
+# that need a git checkout, which mutmut's copy of the tree is not (the
+# manifest read from the index, `rmp new`, the launchers, CiModeTest, DocsTest),
+# and not the ones that read rmp.py's text, which in the copy holds every
+# mutant inline (BuildLayoutGateTest, SourceTest) -- each runs on every push
+# anyway. tests/rmp_property_test.py reaches main() on a made-up machine.
+# Measured in the image on 2026-10-11, mutmut 3.8.0: 3739 mutants, 2340
+# detected = 62.58%, 94 min with 3 children (45.52% before the deploy,
+# update, push, .toml-line and startup-file properties and make_game() run
+# in-process). What is left is mostly what only a real git reaches in-process
+# past cmd_new's clone check (171 of cmd_new's 194), the words update and
+# deploy print, find_bash()'s Windows half (unreachable off Windows), fmt(),
+# cmd_android() and load_configure().
 kind     py
 sources  tools/rmp.py
-tests    tests/rmp_test.py
-floor    -
+tests    tests/rmp_property_test.py
+tests    tests/rmp_test.py::HelpTest tests/rmp_test.py::DispatchTest
+tests    tests/rmp_test.py::RootTest tests/rmp_test.py::DelegationTest
+tests    tests/rmp_test.py::CommandSequenceTest tests/rmp_test.py::SmokeStepTest
+tests    tests/rmp_test.py::RetireOldBuildTest tests/rmp_test.py::CleanTest
+tests    tests/rmp_test.py::EveryTestModuleRunsTest tests/rmp_test.py::PropertyStageTest
+tests    tests/rmp_test.py::CopyManifestTest tests/rmp_test.py::StripComponentsTest
+tests    tests/rmp_test.py::MakeGameInProcessTest
+tests    tests/rmp_test.py::MachineReadableTest::test_help_json_is_every_command_and_stage
+tests    tests/rmp_test.py::GameUnitStageTest tests/rmp_test.py::ModeTest
+tests    tests/rmp_test.py::GlobalCommandsTest tests/rmp_test.py::InstallCommandTest
+tests    tests/rmp_test.py::SessionTest tests/rmp_test.py::TerminalNameTest
+tests    tests/rmp_test.py::ConsoleFoldersTest tests/rmp_test.py::ConsoleDevicesTest
+tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTest
+floor    60

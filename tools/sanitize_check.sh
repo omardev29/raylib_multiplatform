@@ -67,16 +67,20 @@ cmake --build "$BUILD" --target unit_test ui_layout_test > "$BUILD.build.log" 2>
 if [ -d build/test-locales ]; then export LOCPATH="$PWD/build/test-locales"; fi
 status=0
 out=$(RMP_REQUIRE_SANITIZERS=1 "$BUILD/unit_test" --test-suite-exclude="audio: device" 2>&1 < /dev/null) || status=$?
+# What the run said that matters, or nothing: under set -e and pipefail, a
+# grep that finds none of it -- a test binary that died before printing a
+# line -- ended the script there, red and silent, before its FAIL.
+said() { printf '%s\n' "$out" | grep -E "$1" | head -60 || true; }
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q 'Status: SUCCESS'; then
-  printf '%s\n' "$out" | grep -E 'runtime error|ERROR: AddressSanitizer|ERROR: LeakSanitizer|SUMMARY|#[0-9]+ |Status|ERROR:' | head -60
+  said 'runtime error|ERROR: AddressSanitizer|ERROR: LeakSanitizer|SUMMARY|#[0-9]+ |Status|ERROR:'
   echo "FAIL: the unit tests are not clean under ASan and UBSan (exit $status)"
   exit 1
 fi
-printf '%s\n' "$out" | grep -E '^\[doctest\] test cases' | sed 's/^/  /'
+said '^\[doctest\] test cases' | sed 's/^/  /'
 status=0
 out=$(RMP_REQUIRE_SANITIZERS=1 "$BUILD/ui_layout_test" 2>&1 < /dev/null) || status=$?
 if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -qx 'PASS'; then
-  printf '%s\n' "$out" | grep -E 'runtime error|ERROR: AddressSanitizer|ERROR: LeakSanitizer|SUMMARY|#[0-9]+ |FAIL' | head -60
+  said 'runtime error|ERROR: AddressSanitizer|ERROR: LeakSanitizer|SUMMARY|#[0-9]+ |FAIL'
   echo "FAIL: the UI layout test is not clean under ASan and UBSan (exit $status)"
   exit 1
 fi

@@ -70,13 +70,44 @@ fi
 
 # objdump over readelf: readelf's output for version requirements is laid out
 # differently between binutils versions, and objdump -T is one line per symbol
-# on every one of them.
-command -v objdump > /dev/null 2>&1 || {
-  echo "  skip  objdump not installed"; exit 0; }
+# on every one of them. Inside the pinned build image -- where CI runs this --
+# it is there, and its absence is a failure: a skip there would be a release
+# job that read nothing and said ok.
+if ! command -v objdump > /dev/null 2>&1; then
+  if [ -f /etc/raylib-build-image.json ]; then
+    echo "FAIL: objdump is not installed, inside the build image: this check reads"
+    echo "      nothing without it. The image ships binutils."
+    exit 1
+  fi
+  echo "  skip  objdump not installed"
+  exit 0
+fi
 
-VERSIONS=$(objdump -T "$BINARY" 2>/dev/null | grep -oE "GLIBC_[0-9]+\.[0-9]+" | sort -uV)
+# What objdump says, and whether it could say it. A static program is "not a
+# dynamic object" and needs nothing from glibc; anything else objdump cannot
+# read -- a zip, a packed binary, a download cut short -- is no program this
+# can judge, and saying "ok" of it was a gate that passed garbage. In English
+# whatever the machine speaks: binutils translates that sentence, and on a
+# Spanish desktop a static program was a FAIL.
+if ! DUMP=$(LC_ALL=C objdump -T "$BINARY" 2>&1); then
+  case "$DUMP" in
+    *"not a dynamic object"*)
+      echo "  ok    $BINARY is statically linked: it imports nothing from glibc"
+      exit 0
+      ;;
+  esac
+  if [ "$REPORT" -eq 1 ]; then
+    echo "  info  objdump cannot read $BINARY as a program, so there is nothing to report"
+    exit 0
+  fi
+  echo "  FAIL  objdump cannot read $BINARY as a program:"
+  printf '%s\n' "$DUMP" | head -3 | sed 's/^/          /'
+  exit 1
+fi
+
+VERSIONS=$(printf '%s\n' "$DUMP" | grep -oE "GLIBC_[0-9]+\.[0-9]+" | sort -uV || true)
 if [ -z "$VERSIONS" ]; then
-  echo "  ok    $BINARY imports no versioned glibc symbols at all (static?)"
+  echo "  ok    $BINARY imports no versioned glibc symbols at all"
   exit 0
 fi
 
@@ -105,7 +136,7 @@ echo "        The symbols asking for it:"
 # comparison. sort -V knows; awk does not.
 # objdump prints the version in parentheses -- "(GLIBC_2.43) asinf" -- so the
 # two fields to take are the last two, with the brackets stripped.
-objdump -T "$BINARY" 2>/dev/null | grep "(GLIBC_" \
+printf '%s\n' "$DUMP" | grep "(GLIBC_" \
   | awk '{ v = $(NF-1); gsub(/[()]/, "", v); print v, $NF }' | sort -u \
   | while read -r ver sym; do
       top=$(printf '%s\n%s\n' "$WANT" "${ver#GLIBC_}" | sort -V | tail -1)

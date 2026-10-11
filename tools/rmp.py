@@ -863,6 +863,12 @@ STAGES = [
           [("run", ["bash", "tools/header_check.sh"])]),
     Stage("cost", "what each public header costs to include",
           [("run", ["bash", "tools/header_cost_check.sh"])]),
+    # The gates above, each seen red: copied with what it reads into a scratch
+    # tree, a mistake of its kind planted, and FAIL said and named -- and
+    # green on the tree as it is (tests/gates_red_test.py lists every one).
+    Stage("gates", "each tools/*_check.sh seen red on a planted mistake",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "gates_red_test.py"])]),
     Stage("configure", "tools/configure.py, every rejection",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "configure_test.py"])]),
@@ -1167,6 +1173,11 @@ def live_runs(ctx) -> list[dict]:
         runs = json.loads(got.stdout or "[]")
     except json.JSONDecodeError:
         print("  warning: gh answered something that is not JSON; pushing without checking")
+        return []
+    # JSON of another shape is the same case: nothing could be checked.
+    if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
+        print("  warning: gh answered something that is not a list of runs; "
+              "pushing without checking")
         return []
     return [r for r in runs if r.get("status") != "completed"]
 
@@ -1508,8 +1519,9 @@ def cmd_new(_ctx, args):
         raise Refused(f"this rmp belongs to the game in {framework}; `rmp new` needs the "
                       "framework's rmp on PATH")
     if args == ["--list"]:
-        # What a new game gets, without making one.
-        for path in new_game_paths(tracked(framework)):
+        # What a new game gets, without making one -- or, as below, the file
+        # nobody classified, which is what a framework developer asks it for.
+        for path in new_game_paths(classified(tracked(framework))):
             print(path)
         return OK
     if shutil.which("git") is None:
@@ -1542,10 +1554,7 @@ def cmd_new(_ctx, args):
     bundle_id = "com.example." + name.lower().replace("_", "-")
     assert configure.APPID_RE.match(app_id) and configure.BUNDLE_RE.match(bundle_id)
 
-    entries = tracked(framework)
-    for _mode, _sha, path in entries:
-        if classify(path) is None:
-            raise Refused(f"{path} is not in rmp new's manifest. This is a bug in the framework.")
+    entries = classified(tracked(framework))
 
     created = not target.exists()
     target.mkdir(parents=True, exist_ok=True)
@@ -1583,6 +1592,14 @@ def cmd_new(_ctx, args):
     return OK
 
 
+def classified(entries):
+    """The index, once every path in it is known to the manifest."""
+    for _mode, _sha, path in entries:
+        if classify(path) is None:
+            raise Refused(f"{path} is not in rmp new's manifest. This is a bug in the framework.")
+    return entries
+
+
 def new_game_paths(entries) -> list[str]:
     """Every path a new game's index holds: the manifest's, renamed where it
     says, plus the README rmp new writes and the submodule."""
@@ -1591,14 +1608,24 @@ def new_game_paths(entries) -> list[str]:
     return sorted(want)
 
 
-def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: str,
-              entries) -> None:
+def copy_manifest(framework: Path, target: Path, entries) -> list[str]:
+    """Copy what the manifest gives a game -- INCLUDE, and RENAME under its
+    new name -- from the framework's checkout into `target`; the paths of the
+    executable ones, as the game will track them."""
     executable = []
+    # Where each file lands: two of them in one place would leave the game
+    # whichever was copied last.
+    landed: dict[str, str] = {}
     for mode, _sha, path in entries:
         kind, _pattern = classify(path)
         if kind not in ("include", "rename"):
             continue
-        dest = target / (RENAME[path] if kind == "rename" else path)
+        rel = RENAME[path] if kind == "rename" else path
+        if rel in landed:
+            raise Refused(f"rmp new: {landed[rel]} and {path} would both be {rel} in the game. "
+                          "This is a bug in the framework's manifest.")
+        landed[rel] = path
+        dest = target / rel
         source = framework / path
         if not source.is_file():
             raise Refused(f"{path} is tracked and missing from the framework's checkout:\n"
@@ -1607,6 +1634,12 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         shutil.copy2(source, dest)
         if mode == "100755":
             executable.append(dest.relative_to(target).as_posix())
+    return executable
+
+
+def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: str,
+              entries) -> None:
+    executable = copy_manifest(framework, target, entries)
 
     edit_lines(target / TOML, [
         (setting("name"), assign(name)),
@@ -2324,10 +2357,20 @@ def main(argv: list[str], cwd: Path | None = None) -> int:
         return INTERRUPTED
 
 
+def streams() -> None:
+    """stdout as rmp writes it: line by line, so what rmp says and what the
+    tools it runs say come out in the order they happened; and anything at
+    all, so that saying it is never the error. A byte typed that is not
+    UTF-8 reaches argv as a lone surrogate (surrogateescape), and rmp says
+    words back -- `rmp deploy` the tag. Python opens stdout strict on a UTF-8
+    terminal, and the sentence that should have said FAIL was a
+    UnicodeEncodeError instead; backslashreplace, which stderr already has,
+    writes it as an escape."""
+    sys.stdout.reconfigure(line_buffering=True, errors="backslashreplace")
+
+
 if __name__ == "__main__":
-    # Line by line, so what rmp says and what the tools it runs say come out in
-    # the order they happened.
-    sys.stdout.reconfigure(line_buffering=True)
+    streams()
     try:
         sys.exit(main(sys.argv[1:]))
     except KeyboardInterrupt:

@@ -27,7 +27,9 @@ image is the toolchain the one the budget was written against, so on a laptop
 those two report and exit 0 unless --strict is given.
 
 What does NOT depend on the toolchain fails everywhere: a header with no line
-in the budget, and a line in the budget for a header that no longer exists.
+in the budget, a line in the budget for a header that no longer exists, and
+a header that does not compile with the include list below (what the
+compiler said is printed under its name, and --write-budget writes nothing).
 rmp/audio.h reached CI with no budget, because `rmp test` on a laptop only
 reported it -- and whether a name is in a file is the same on every machine.
 """
@@ -81,17 +83,46 @@ def measure(cxx: str, header: Path, runs: int = 5) -> tuple[int, float]:
     return lines, best
 
 
-def read_budget() -> dict[str, int]:
+class BudgetError(Exception):
+    """tools/header_budget.txt says something that is not a budget. The
+    message names the line."""
+
+
+HEADER = "# Preprocessed lines of code per public header (blank lines and line\n" \
+         "# markers not counted), measured by tools/header_cost.py\n" \
+         "# inside the pinned build image. --check fails when a header grows past\n" \
+         f"# this by more than {int(BUDGET_TOLERANCE * 100)}%, or shrinks under it by as much.\n"
+
+
+def format_budget(rows) -> str:
+    """The file --write-budget writes: a header comment, then `name lines`."""
+    return HEADER + "".join(f"{name:16} {lines}\n" for name, lines in rows)
+
+
+def parse_budget(text: str) -> dict[str, int]:
+    """name -> lines for every `name lines` line; blank lines and `#` lines
+    are ignored, and anything else is a BudgetError naming its line -- a
+    note after the number included, which is how a hand edit annotates it."""
     budget: dict[str, int] = {}
-    if not BUDGET.is_file():
-        return budget
-    for line in BUDGET.read_text().splitlines():
-        line = line.strip()
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        name, value = line.split()
-        budget[name] = int(value)
+        words = line.split()
+        if len(words) != 2 or not words[1].isascii() or not words[1].isdigit():
+            raise BudgetError(f"tools/header_budget.txt:{number}: {raw.strip()!r} is not "
+                              "`<header> <lines>` -- a name and a count, and nothing after")
+        if words[0] in budget:
+            raise BudgetError(f"tools/header_budget.txt:{number}: {words[0]} has a budget "
+                              "already, on an earlier line: one line a header")
+        budget[words[0]] = int(words[1])
     return budget
+
+
+def read_budget() -> dict[str, int]:
+    if not BUDGET.is_file():
+        return {}
+    return parse_budget(BUDGET.read_text(encoding="utf-8"))
 
 
 def main(argv: list[str]) -> int:
@@ -102,13 +133,38 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     cxx = compiler()
-    budget = read_budget()
+    try:
+        budget = read_budget()
+    except BudgetError as e:
+        # Before any compiler runs: nothing measured can be compared with it.
+        print(f"FAIL: {e}")
+        return 1
     in_image = IMAGE_MANIFEST.is_file()
     gate = args.check and (in_image or args.strict)
     fails = 0
+    broken = 0
     rows = []
     for header in headers():
-        lines, ms = measure(cxx, header)
+        try:
+            lines, ms = measure(cxx, header)
+        except OSError as e:
+            # No compiler to start: nothing can be measured, once.
+            print(f"FAIL: {cxx} could not be started: {e}")
+            return 1
+        except subprocess.CalledProcessError as e:
+            # A header the compiler refuses with INCLUDES and DEFINES above --
+            # a vendored folder CMake has and this list lacks -- measures
+            # nothing, on every machine; what the compiler said is the
+            # reason, and a traceback left it out.
+            said = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) \
+                else (e.stderr or "")
+            print(f"  FAIL  rmp/{header.name:14} does not compile with {cxx} and the include "
+                  "list of tools/header_cost.py:")
+            for line in said.strip().splitlines()[:8]:
+                print(f"          {line}")
+            fails += 1
+            broken += 1
+            continue
         rows.append((header.name, lines, ms))
         want = budget.get(header.name)
         verdict = ""
@@ -132,13 +188,13 @@ def main(argv: list[str]) -> int:
                   "remove the line")
             fails += 1
 
-    if args.write_budget:
-        text = "# Preprocessed lines of code per public header (blank lines and line\n"
-        text += "# markers not counted), measured by tools/header_cost.py\n"
-        text += "# inside the pinned build image. --check fails when a header grows past\n"
-        text += f"# this by more than {int(BUDGET_TOLERANCE * 100)}%, or shrinks under it by as much.\n"
-        text += "".join(f"{name:16} {lines}\n" for name, lines, _ in rows)
-        BUDGET.write_text(text)
+    if args.write_budget and broken:
+        # Written without them, the next --check would say NO BUDGET of a
+        # header that has one; the file stays as it was.
+        print(f"not written: {BUDGET.relative_to(REPO)} keeps its lines while a header "
+              "does not compile")
+    elif args.write_budget:
+        BUDGET.write_text(format_budget((name, lines) for name, lines, _ in rows))
         print(f"wrote {BUDGET.relative_to(REPO)}")
 
     if args.check and not gate:

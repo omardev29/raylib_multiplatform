@@ -39,13 +39,34 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # every headless path has to be able to answer without one.
 PATTERN='GetFrameTime|GetTime\(\)|GetMousePosition|GetMouseWheelMove|GetTouch[A-Za-z]*|IsKeyDown|IsKeyPressed|IsKeyReleased|IsMouseButtonDown|IsMouseButtonPressed|IsMouseButtonReleased|GetRandomValue|SetRandomSeed|GetScreenWidth|GetScreenHeight|GetGamepad[A-Za-z]*|IsGamepadButton[A-Za-z]*|GetCharPressed|IsWindowReady'
 
-# Comments do not count. Naming a call in the note that explains why it is not
-# used is not using it, and the alternative is that the explanation cannot be
-# written next to the code it explains -- four public headers and random.cpp
-# do exactly that, and before this they were hits. `// ...` to end of line and
-# a leading `*` continuation line are stripped; line numbers survive, because
-# sed substitutes rather than deletes.
-strip_comments() { sed -e 's|//.*||' -e 's|^[[:space:]]*\*.*||' -- "$1"; }
+# Comments and strings do not count. Naming a call in the note that explains
+# why it is not used is not using it, and the alternative is that the
+# explanation cannot be written next to the code it explains -- four public
+# headers and random.cpp do exactly that, and before this they were hits.
+# Every file is read once through tools/cpp_text.py, the scanner the other
+# text gates share, into a mirror of the tree with its comments and literals
+# turned into spaces; line numbers survive. It was sed's `//.*`, which took a
+# URL in a string for a comment -- and the call after it on the same line with
+# it: "https://x"; return GetTime(); passed.
+BLANKED=$(mktemp -d)
+trap 'rm -rf "$BLANKED"' EXIT
+python3 - "$BLANKED" <<'PY' || { echo "  FAIL  tools/cpp_text.py could not read the sources"; exit 1; }
+import pathlib
+import sys
+
+sys.path.insert(0, "tools")
+from cpp_text import blank  # noqa: E402
+
+out = pathlib.Path(sys.argv[1])
+for root in ("src/rmp", "include/rmp"):
+    for path in pathlib.Path(root).rglob("*"):
+        if path.suffix in (".cpp", ".h") and path.is_file():
+            mirror = out / path
+            mirror.parent.mkdir(parents=True, exist_ok=True)
+            mirror.write_text(blank(path.read_text(encoding="utf-8", errors="replace")),
+                              encoding="utf-8")
+PY
+strip_comments() { cat -- "$BLANKED/$1"; }
 
 # `grep -c` and not `grep -q`, and it is not a style choice: `grep -q` exits the
 # moment it matches, sed on the other side of the pipe takes SIGPIPE, and with

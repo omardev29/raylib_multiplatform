@@ -1,0 +1,13 @@
+# tools/android_release_check.py (package P9): the Android job's proof that the
+# release variant was compiled as a release. Its rule over a model of every
+# entry, and anything a database can hold, in the property test; the
+# counterexamples, named, beside the gates. Measured in the image on
+# 2026-10-11, mutmut 3.8.0: 151 mutants, 124 detected = 82.12%, 112 s with
+# 3 children, once each rule decided alone in some example and an unreadable
+# database sat beside one that passes (72.85%, floor 70, before: the -DDEBUG
+# rule and the exit of an unreadable database were among the survivors);
+# what is left is mostly the words of its sentences.
+kind     py
+sources  tools/android_release_check.py
+tests    tests/android_release_check_property_test.py tests/gates_red_test.py::AndroidReleaseCheckCounterexamplesTest
+floor    80

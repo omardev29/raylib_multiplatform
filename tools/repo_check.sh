@@ -35,11 +35,17 @@ PATTERNS='(^|/)CMakeCache\.txt$
 (^|/)\.DS_Store$
 (^|/)Thumbs\.db$'
 
+# git ls-files is the index, which is the only thing that matters here --
+# read with -z, because without it git QUOTES a path with a byte that is not
+# ASCII or a tab in it ("out/m\303\263dulo.o", closing quote and all), and no
+# pattern ending in `$` matched that. A newline inside a name splits it into
+# two lines, either of which can still match: that errs on the side of red.
+INDEX=$(git ls-files -z | tr '\0' '\n')
+
 FOUND=0
 while IFS= read -r pat; do
   [ -n "$pat" ] || continue
-  # git ls-files is the index, which is the only thing that matters here.
-  HITS=$(git ls-files | grep -E "$pat" || true)
+  HITS=$(printf '%s\n' "$INDEX" | grep -E "$pat" || true)
   if [ -n "$HITS" ]; then
     if [ "$FOUND" -eq 0 ]; then
       echo "FAIL: the repository tracks files that a build produces."
@@ -62,7 +68,11 @@ EOF
 # combination is always a mistake -- either it was added before the rule existed
 # (and git keeps tracking it, ignore rules do not apply to tracked files), or
 # the rule is wrong. Both need a person, and neither announces itself.
-IGNORED_BUT_TRACKED=$(git ls-files --cached --ignored --exclude-standard || true)
+# The repository's .gitignore files and nothing else: --exclude-standard also
+# read the person's own ignore file and .git/info/exclude, so a tracked file
+# somebody ignores everywhere was red on their machine and green in CI.
+IGNORED_BUT_TRACKED=$(git ls-files -z --cached --ignored --exclude-per-directory=.gitignore \
+                      | tr '\0' '\n' || true)
 if [ -n "$IGNORED_BUT_TRACKED" ]; then
   echo "FAIL: these files are tracked AND matched by .gitignore."
   echo "      Ignore rules do not apply to files git already tracks, so this"
@@ -71,4 +81,4 @@ if [ -n "$IGNORED_BUT_TRACKED" ]; then
   exit 1
 fi
 
-echo "  ok    the index holds no build output ($(git ls-files | wc -l | tr -d ' ') files tracked)"
+echo "  ok    the index holds no build output ($(printf '%s\n' "$INDEX" | grep -c .) files tracked)"

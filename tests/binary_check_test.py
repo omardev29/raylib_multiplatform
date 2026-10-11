@@ -348,6 +348,10 @@ class WindowsTest(Files, unittest.TestCase):
             "MZ and nothing else": b"MZ",
             "no PE signature": b"MZ" + b"\0" * 0x3A + struct.pack("<I", 0x40) + b"XX\0\0",
             "cut after the headers": good[:SECTION_RAW + 4],
+            # Found by tests/binary_check_property_test.py: a PE32+ cut just
+            # after its optional header's magic, before the 8-byte image base
+            # -- struct.error, a traceback in place of exit 2.
+            "a PE32+ cut inside its image base": good[:0x40 + 24 + 2],
         }
         for what, data in cases.items():
             with self.subTest(what=what):
@@ -623,7 +627,13 @@ class ElfTest(Files, unittest.TestCase):
         cases = {"a PE": b"MZ" + b"\0" * 100, "empty": b"", "cut short": whole[:30],
                  # e_phnum, at 56 in a 64-bit header, set to 0
                  "an object file": whole[:56] + struct.pack("<H", 0) + whole[58:],
-                 "program headers cut short": whole[:80]}
+                 "program headers cut short": whole[:80],
+                 # Found by tests/binary_check_property_test.py: the program
+                 # headers whole and the dynamic section cut inside its first
+                 # entry. Read for BIND_NOW after the check had stopped
+                 # catching, so NotReadable escaped as a traceback -- without
+                 # --musl, which reads it earlier, inside the catch.
+                 "the dynamic section cut short": whole[:64 + 56 * 5 + 6]}
         for what, data in cases.items():
             with self.subTest(what=what):
                 code, out = self.check(data)
@@ -763,6 +773,107 @@ class ElfMuslTest(Files, unittest.TestCase):
         code, out = self.check(bytes(data))
         self.assertEqual(code, 2, out)
         self.assertIn("is in no PT_LOAD segment", out)
+
+
+# ---------------------------------------------------------------------------
+# What a refusal says
+# ---------------------------------------------------------------------------
+
+class RefusalsSayWhyTest(Files, unittest.TestCase):
+    """Exit 2 is half of a refusal; the sentence after `FAIL: <file>:` is the
+    other half, and it is all the CI log has to say which damage it was. Each
+    reader's every refusal, on a file made to deserve it."""
+
+    def said(self, argv_of, data):
+        path = self.file(data)
+        code, out = self.run_main(argv_of(path))
+        self.assertEqual(code, 2, out)
+        return out.split(f"FAIL: {path}: ", 1)[1].strip()
+
+    def test_windows(self):
+        good = pe(MINGW_STATIC)
+        no_section = bytearray(good)
+        # The import directory's RVA, moved past every section.
+        at = no_section.find(struct.pack("<II", SECTION_VA, 20 * (len(MINGW_STATIC) + 1)))
+        struct.pack_into("<I", no_section, at, 0x9000)
+        cases = {
+            b"": "no MZ header: not a Windows executable",
+            b"MZ": "truncated at offset 0x3c",
+            b"MZ" + b"\0" * 0x3A + struct.pack("<I", 0x40) + b"XX\0\0": "no PE signature",
+            good[:0x40 + 24 + 2]: "truncated at offset 0x70",
+            good[:0x58] + b"\x0c\x01" + good[0x5A:]: "unknown optional header magic 0x10c",
+            bytes(no_section): "RVA 0x9000 is in no section",
+            good[:SECTION_RAW + 4]: "truncated at offset",
+        }
+        for data, says in cases.items():
+            with self.subTest(says=says):
+                self.assertTrue(self.said(lambda p: ["windows", p], data).startswith(says))
+
+    def test_macos(self):
+        ok = thin(X86_64, [build_version("10.15")])
+        tiny = thin(X86_64, [(0x2A, b""), build_version("10.15")])
+        cases = {
+            b"\0" * 7: "too short to be a Mach-O",
+            struct.pack(">II", 0xCAFEBABE, 0): "a fat header with no slices",
+            struct.pack(">II", 0xCAFEBABE, 2) + b"\0" * 10: "fat header truncated",
+            struct.pack(">II", 0xCAFEBABF, 1) + b"\0" * 10: "fat header truncated",
+            b"\x7fELF" + b"\0" * 60: "no Mach-O header at offset 0x0",
+            ok[:32] + struct.pack("<II", 0x19, 4) + ok[40:]: "load command of size 4 at offset 0x20",
+        }
+        for data, says in cases.items():
+            with self.subTest(says=says):
+                self.assertEqual(self.said(lambda p: ["macos", p, "--min-os", "10.15"], data),
+                                 says)
+        # A load command of exactly 8 bytes is a command with nothing after
+        # its size, and the walk goes past it to the version.
+        code, out = self.run_main(["macos", self.file(tiny), "--min-os", "10.15"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("ok    x86_64: macOS 10.15 (LC_BUILD_VERSION)", out)
+        code, out = self.run_main(["macos", self.file(thin(X86_64, [version_min("10.13")])),
+                                   "--min-os", "10.15"])
+        self.assertIn("ok    x86_64: macOS 10.13 (LC_VERSION_MIN_MACOSX)", out)
+
+    def test_elf(self):
+        whole = elf(**MUSL_RELEASE)
+        moved = bytearray(whole)
+        # DT_STRTAB's value, in the dynamic section after the five program
+        # headers: an address below the one PT_LOAD.
+        dynamic = 64 + 56 * 5
+        at = next(dynamic + 16 * i for i in range(16)
+                  if struct.unpack_from("<q", whole, dynamic + 16 * i)[0] == bc.DT_STRTAB)
+        struct.pack_into("<Q", moved, at + 8, 0x10)
+        cases = {
+            b"MZ" + b"\0" * 100: "not an ELF file",
+            b"\x7fELF" + b"\3" * 60: "an ELF header this does not read",
+            b"\x7fELF\x02\x01" + b"\0" * 46: "truncated at offset 0x36",
+            whole[:56] + struct.pack("<H", 0) + whole[58:]:
+                "no program headers: an object file, not a program",
+            elf(needed=["libc.so"], strtab=False):
+                "DT_NEEDED with no DT_STRTAB to read the names from",
+            bytes(moved): "address 0x10 is in no PT_LOAD segment",
+            whole[:-4]: "unterminated string at offset",
+        }
+        for data, says in cases.items():
+            with self.subTest(says=says):
+                self.assertTrue(self.said(lambda p: ["elf", "--musl", p], data).startswith(says))
+
+    def test_a_min_os_that_is_no_version(self):
+        code, out = self.run_main(["macos", self.file(thin(X86_64, [])), "--min-os", "ten"])
+        self.assertEqual(code, 2, out)
+        self.assertEqual(out, "FAIL: --min-os 'ten' is not a version like 10.15 -- the "
+                              "deployment target was not found where it should be\n")
+
+    def test_a_min_os_in_digits_that_are_not_ascii(self):
+        """Found by tests/binary_check_property_test.py: isdigit() and int()
+        read Arabic-Indic and full-width digits, so `--min-os \u0661\u0661.\u0660`
+        was macOS 11.0. A version is ASCII digits, as the budget file's counts
+        and a tag's are."""
+        for text in ("\u0661\u0661.\u0660", "\uff11\uff11.0", "11.\u0660"):
+            with self.subTest(text=text):
+                code, out = self.run_main(["macos", self.file(thin(X86_64, [])),
+                                           "--min-os", text])
+                self.assertEqual(code, 2, out)
+                self.assertIn(f"FAIL: --min-os {text!r} is not a version like 10.15", out)
 
 
 if __name__ == "__main__":
