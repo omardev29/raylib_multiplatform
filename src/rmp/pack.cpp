@@ -104,9 +104,7 @@ bool is_type(const std::array<char, 4> &type, std::string_view four) {
 
 std::optional<ChunkInfo> read_info(Source &pack, std::uint64_t at) {
     std::array<std::uint8_t, INFO_SIZE> bytes{};
-    if (pack.size() < at || pack.size() - at < INFO_SIZE || !pack.read(at, bytes)) {
-        return std::nullopt;
-    }
+    if (!pack.read(at, bytes)) return std::nullopt; // past the end of the pack
     ChunkInfo info;
     std::copy_n(bytes.begin(), 4, info.type.begin());
     info.id = u32_at(bytes, 4);
@@ -115,11 +113,9 @@ std::optional<ChunkInfo> read_info(Source &pack, std::uint64_t at) {
     info.packed_size = u32_at(bytes, 12);
     info.base_size = u32_at(bytes, 16);
     info.crc = u32_at(bytes, 28);
-    // Its bytes have to be there, and small enough to check.
-    if (info.packed_size > CHUNK_LIMIT || info.base_size > CHUNK_LIMIT ||
-        pack.size() - at - INFO_SIZE < info.packed_size) {
-        return std::nullopt;
-    }
+    // Its bytes have to be there too (the read says the info is, so this
+    // does not wrap).
+    if (pack.size() - at - INFO_SIZE < info.packed_size) return std::nullopt;
     return info;
 }
 
@@ -377,8 +373,8 @@ std::optional<Chunk> find(const Index &index, std::string_view name) {
 std::optional<Contents> open_chunk(Source &pack, const Chunk &chunk,
                                    std::string_view password, Stretch stretch) {
     const ChunkInfo &info = chunk.info;
-    if (info.packed_size > CHUNK_LIMIT || info.base_size > CHUNK_LIMIT)
-        return std::nullopt;
+    // A base size past it is refused below: what comes out never matches.
+    if (info.packed_size > CHUNK_LIMIT) return std::nullopt;
     Bytes bytes(info.packed_size);
     if (!pack.read(chunk.data, bytes)) return std::nullopt;
     if (rresComputeCRC32(bytes.data(), static_cast<int>(bytes.size())) != info.crc) {
@@ -474,9 +470,9 @@ public:
         _size = end > 0 ? static_cast<std::uint64_t>(end) : 0;
     }
     [[nodiscard]] std::uint64_t size() override { return _size; }
+    // A pack is read until a read fails, and then not at all: a stream that
+    // failed stays failed, which is all a caller here needs of it.
     [[nodiscard]] bool read(std::uint64_t offset, std::span<std::uint8_t> out) override {
-        if (!_file || offset > _size || _size - offset < out.size()) return false;
-        _file.clear();
         _file.seekg(static_cast<std::streamoff>(offset));
         _file.read(reinterpret_cast<char *>(out.data()),
                    static_cast<std::streamsize>(out.size()));

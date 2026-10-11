@@ -525,6 +525,38 @@ TEST_SUITE("assets: pack") {
     }
 
     TEST_CASE(
+        "a chunk opens to its properties and its data, and not one byte past them") {
+        const auto opened = [](const pack::Bytes &text) {
+            const auto size = static_cast<std::uint32_t>(text.size());
+            const pack::Bytes bytes =
+                pack::write_chunks({ { "a", "RAWD", 0, 0, text, size } });
+            rres::MemorySource memory(bytes);
+            const auto index = rres::read_index(memory);
+            const auto chunk = index ? rres::find(*index, "a") : std::nullopt;
+            REQUIRE(chunk.has_value());
+            return rres::open_chunk(memory, *chunk, RMP_RRES_PASSWORD, cheap);
+        };
+        // Its count and nothing else: no properties, no data -- and so no file.
+        const rres::Contents bare =
+            opened(pack::plain({}, {})).value_or(rres::Contents{ { '?' } });
+        CHECK(bare.type[0] == 'R');
+        CHECK(bare.props.empty());
+        CHECK(bare.data.empty());
+        CHECK_FALSE(rres::file_of(bare).has_value());
+        // Two properties and a byte, counted exactly...
+        const rres::Contents two =
+            opened(pack::plain({ 1, 7 }, pack::bytes_of("x"))).value_or(rres::Contents{});
+        CHECK(two.props == std::vector<std::uint32_t>{ 1, 7 });
+        CHECK(two.data == pack::bytes_of("x"));
+        // ...and a count one past what the chunk holds.
+        pack::Bytes past = pack::plain({ 1, 7 }, {});
+        pack::set_u32(past, 0, 3);
+        CHECK_FALSE(opened(past).has_value());
+        // Three bytes are not even a count.
+        CHECK_FALSE(opened(pack::bytes_of("abc")).has_value());
+    }
+
+    TEST_CASE(
         "a pack cut short anywhere is refused whole, and the game reads loose files") {
         const pack::Bytes bytes = pack::write(three());
         REQUIRE(readable(bytes));
@@ -709,6 +741,9 @@ TEST_SUITE("assets: pack") {
         pack::Bytes version = good;
         version[4] = 101;
         CHECK_FALSE(readable(version));
+        version[4] = 100; // and 356: the version is two bytes, little-endian
+        version[5] = 1;
+        CHECK_FALSE(readable(version));
         pack::Bytes no_directory = good;
         pack::set_u32(no_directory, 8, 0);
         CHECK_FALSE(readable(no_directory));
@@ -744,6 +779,19 @@ TEST_SUITE("assets: pack") {
         CHECK(image.width == 2);
         CHECK(image.height == 2);
         UnloadImage(image);
+        // Three properties are enough: its size and the two words of its
+        // extension -- the fourth, reserved, is not read.
+        pack::Bytes three_props = pack::plain({ static_cast<std::uint32_t>(bytes.size()),
+                                                pack::extension_word("dot.png", 0),
+                                                pack::extension_word("dot.png", 4) },
+                                              bytes);
+        const auto size_of = static_cast<std::uint32_t>(three_props.size());
+        const ::Image three =
+            memory_image(pack::write_chunks({ { "dot.png", "RAWD", 0, 0,
+                                                std::move(three_props), size_of } }),
+                         "dot.png");
+        CHECK(three.width == 2);
+        UnloadImage(three);
         // The same bytes under another extension are not a PNG to raylib.
         CHECK(memory_image(pack::write({ { "dot.txt", bytes } }), "dot.txt").data ==
               nullptr);
@@ -824,11 +872,17 @@ TEST_SUITE("assets: pack, Argon2i") {
                                  std::istreambuf_iterator<char>() };
         REQUIRE_FALSE(loose.empty());
         const AtRoot at(folder);
+        rresSetCipherPassword("not the game's");
         const OpenPack open;
         REQUIRE(open.opened);
-        rresSetCipherPassword("fixture-password"); // open_pack() set the game's
-        CHECK(text_of(rmp::assets::load_data("hello.txt")) == loose);
+        // open_pack() sets the game's password...
+        CHECK(std::string_view(rresGetCipherPassword()) == RMP_RRES_PASSWORD);
+        // ...and this pack was made with another. Read from the pack, not
+        // from the loose hello.txt beside it, which a refusal falls back to.
+        rresSetCipherPassword("fixture-password");
+        CHECK(pack_bytes("hello.txt") == loose);
         rresSetCipherPassword(RMP_RRES_PASSWORD);
+        CHECK_FALSE(pack_bytes("hello.txt").has_value());
     }
 }
 
