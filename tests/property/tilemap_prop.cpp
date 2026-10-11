@@ -6,6 +6,8 @@
 //     rectangle COVERS, the right and bottom edges open, a rectangle with no
 //     area asking about the cell its corner is in -- checked against a model
 //     on maps whose every division is exact (map_gen.h's nice_grid());
+//   - a box that only touches a cell of a size that does not divide is not
+//     in it, and a quarter pixel more is -- every case on that edge;
 //   - a rectangle inside another is never solid where the other is not, at
 //     origins near float's end too (hostile_grid());
 //   - solid_at(), solid_in() and tile_at() take anything: NaN, the
@@ -297,6 +299,70 @@ TEST_SUITE("property: tilemap") {
                 const Box box = *rmp::test::maps::touching_box(grid);
                 const rmp::Tilemap map = rmp::test::maps::to_map(grid);
                 RC_ASSERT(map.solid_in(box.r) == model_solid_in(grid, box.r));
+            });
+    }
+
+    TEST_CASE("a rectangle that only touches a cell is not in it") {
+        // The edge the model above reaches in one seed of forty: one solid
+        // cell of a size that does not divide, and a box that ends exactly
+        // where it starts, or starts exactly where it ends -- resting on a
+        // floor, flush against a wall. Every case is that edge. The cell is
+        // near the grid's start and the box up to eight cells long, so the
+        // box starts before the grid: rounded quotients bigger than the
+        // answer are what summed past it (-37/12 + 49/12 = 1.0000001 in
+        // float), and solid_in() deciding from them is red at every seed of
+        // twenty, at the default seed after 44 cases.
+        rmp::test::check(
+            "a box touching a cell's side is not in it, and a quarter pixel more is", [] {
+                Grid grid;
+                grid.origin_x = *rmp::test::maps::detail::quarter(512);
+                grid.origin_y = *rmp::test::maps::detail::quarter(512);
+                GridLayer layer;
+                layer.cell_w = *rc::gen::element(3, 5, 7, 10, 12, 20, 24, 33, 48);
+                layer.cell_h = *rc::gen::element(3, 5, 7, 10, 12, 20, 24, 33, 48);
+                layer.offset_x = *rmp::test::maps::detail::quarter(64);
+                layer.offset_y = *rmp::test::maps::detail::quarter(64);
+                layer.width = 8;
+                layer.height = 8;
+                layer.solid.assign(64, false);
+                layer.gids.assign(64, 0);
+                const int column = *rc::gen::inRange(1, 3);
+                const int row = *rc::gen::inRange(1, 3);
+                layer.solid[static_cast<std::size_t>((row * 8) + column)] = true;
+                grid.layers.push_back(layer);
+                const rmp::Tilemap map = rmp::test::maps::to_map(grid);
+
+                // The cell's sides, and a place and an extent inside it on
+                // the other axis, all on quarter pixels: exact in a float.
+                const auto cell_w = static_cast<float>(layer.cell_w);
+                const auto cell_h = static_cast<float>(layer.cell_h);
+                const float left = grid.origin_x + layer.offset_x +
+                    (static_cast<float>(column) * cell_w);
+                const float top =
+                    grid.origin_y + layer.offset_y + (static_cast<float>(row) * cell_h);
+                const auto quarters = [](float most) {
+                    return static_cast<float>(
+                               *rc::gen::inRange(1, static_cast<int>(most * 4) + 1)) /
+                        4.0f;
+                };
+                const bool across = *rc::gen::arbitrary<bool>(); // x, or y
+                const bool before = *rc::gen::arbitrary<bool>(); // ends at its start
+                const float along = across ? cell_w : cell_h;
+                const float other = across ? cell_h : cell_w;
+                const float start = across ? left : top;
+                const float size = quarters(along * 8);
+                const float at = before ? start - size : start + along;
+                const float side_at = (across ? top : left) + quarters(other) - 0.25f;
+                const float side_size = quarters(other * 2) - 0.25f;
+                const auto box = [&](float from, float extent) {
+                    return across ? Rectangle{ from, side_at, extent, side_size }
+                                  : Rectangle{ side_at, from, side_size, extent };
+                };
+                const Rectangle touching = box(at, size);
+                const Rectangle into =
+                    before ? box(at, size + 0.25f) : box(at - 0.25f, size);
+                RC_ASSERT(!map.solid_in(touching));
+                RC_ASSERT(map.solid_in(into));
             });
     }
 
