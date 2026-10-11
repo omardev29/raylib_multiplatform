@@ -1,5 +1,19 @@
 # rmp::Value: the tree, its reads that create nothing, ==, Ref (package P1).
+# Killed by either program is killed: save_test's Value suite, and the value
+# properties -- == against a canonical form, every read through const and
+# through Refs, writes against a model of where they land -- with the save
+# properties, which round-trip every Value through ==.
+#
+# Measured in the image on 2026-10-11 (Mull 0.34.1, clang 18.1.3): 126 mutants,
+# 121 detected, the 5 below equivalent = 100%. Mull's ids carry the line: an
+# edit above one moves it, and the line here goes with it.
 kind     cxx
 sources  src/rmp/value.cpp
 tests    unit_test -sf=*save_test.cpp
-floor    -
+tests    property_test -sf=*value_prop.cpp,*save_prop.cpp
+floor    100
+equivalent cxx_ge_to_gt:src/rmp/value.cpp:67:17 INT_MAX is a double exactly, and cast to int it is INT_MAX: `>=` and `>` give the same at the one value they differ on
+equivalent cxx_le_to_lt:src/rmp/value.cpp:68:17 INT_MIN is a double exactly, and cast to int it is INT_MIN: `<=` and `<` give the same at the one value they differ on
+equivalent cxx_remove_void_call:src/rmp/value.cpp:205:5 the one variant Mull can run removes ~Step() of the temporary moved into extend(), which owns nothing by then (its other variants share the id and are never reached: seen in the binary)
+equivalent cxx_remove_void_call:src/rmp/value.cpp:211:5 as at 205: ~Step() of a moved-from temporary, the only variant that runs
+equivalent cxx_remove_void_call:src/rmp/value.cpp:329:38 the variant that runs removes ~Value() of the moved-from parameter, not the push (seen in the binary): nothing left to free

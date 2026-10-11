@@ -5,7 +5,6 @@
 rmp::Object::_draw()
 rmp::Tilemap::Tilemap(Tilemap &&)
 rmp::Tilemap::operator bool() const
-rmp::Value::Ref::key(int) const
 rmp::ads::is_interstitial_loaded()
 rmp::ads::is_rewarded_loaded()
 rmp::ads::request_interstitial()

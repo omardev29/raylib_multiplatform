@@ -192,50 +192,6 @@ rmp::random::range(int, int)
 rmp::random::seed(uint64_t)
 rmp::random::value()
 
-# include/rmp/save.h: P1
-rmp::Value::Ref::as_bool(bool) const
-rmp::Value::Ref::as_float(float) const
-rmp::Value::Ref::as_int(int) const
-rmp::Value::Ref::as_string(std::string_view) const
-rmp::Value::Ref::contains(std::string_view) const
-rmp::Value::Ref::erase(std::string_view)
-rmp::Value::Ref::get() const
-rmp::Value::Ref::key(int) const
-rmp::Value::Ref::operator const rmp::Value &() const
-rmp::Value::Ref::operator=(Ref &&)
-rmp::Value::Ref::operator=(Value)
-rmp::Value::Ref::operator=(const Ref &)
-rmp::Value::Ref::operator[](int) const
-rmp::Value::Ref::operator[](std::string_view) const
-rmp::Value::Ref::push(Value)
-rmp::Value::Ref::size() const
-rmp::Value::Ref::type() const
-rmp::Value::Value [template]
-rmp::Value::as_bool(bool) const
-rmp::Value::as_float(float) const
-rmp::Value::as_int(int) const
-rmp::Value::as_string(std::string_view) const
-rmp::Value::contains(std::string_view) const
-rmp::Value::erase(std::string_view)
-rmp::Value::key(int) const
-rmp::Value::list()
-rmp::Value::object()
-rmp::Value::operator[](int)
-rmp::Value::operator[](int) const
-rmp::Value::operator[](std::string_view)
-rmp::Value::operator[](std::string_view) const
-rmp::Value::push(Value)
-rmp::Value::size() const
-rmp::Value::type() const
-rmp::Value::version() const
-rmp::operator==(const Value &, const Value &)
-rmp::save::Result::operator bool() const
-rmp::save::directory()
-rmp::save::exists(std::string_view)
-rmp::save::read(std::string_view, Value &, const ReadOptions &)
-rmp::save::remove(std::string_view)
-rmp::save::write(std::string_view, const Value &, const WriteOptions &)
-
 # include/rmp/scene.h: P6, after Stage D; rmp::Camera is P3's, after Stage D
 rmp::Camera::detail_settle(float)
 rmp::Camera::raylib() const

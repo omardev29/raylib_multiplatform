@@ -43,6 +43,7 @@
 #include <random>
 #include <string>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 
 #if defined(_WIN32)
@@ -107,11 +108,26 @@ std::string format_number(double n) {
 }
 
 // Why a Value cannot be saved, or nullptr. Checked before anything is written,
-// so write() can say which of the two it is.
+// so write() can say which it is. `depth` is the lists and objects above `v`.
 const char *unsavable(const Value &v, int depth) {
-    // Deeper than the parser reads back (cjson_impl.c sets its limit to the
-    // same number): a save that writes and never reads back is the worst kind.
-    if (depth > MAX_DEPTH) return "it is nested deeper than rmp::save reads back";
+    // More lists and objects inside each other than the parser reads back
+    // (cjson_impl.c sets its limit to the same number): a save that writes and
+    // never reads back is the worst kind. The parser counts CONTAINERS: this
+    // counted levels down to a value, and 65 containers with an empty one at
+    // the bottom -- no value under it to count -- were written and read back
+    // UNREADABLE (tests/save_test.cpp, "nesting counts containers").
+    const bool container =
+        v.type() == Value::Type::LIST || v.type() == Value::Type::OBJECT;
+    if (container && depth >= MAX_DEPTH)
+        return "it is nested deeper than rmp::save reads back";
+    // JSON has no NaN and no infinity, and a save holds only what it can give
+    // back (Omar, 2026-10-10): written as null, a NaN read back as nothing,
+    // and the file no longer said what the game had saved.
+    if (v.type() == Value::Type::NUMBER &&
+        !std::isfinite(rmp::detail::ValueAccess::number(v))) {
+        return "a number in it is not finite (a NaN or an infinity), which JSON cannot "
+               "hold";
+    }
     if (v.type() == Value::Type::STRING &&
         v.as_string().find('\0') != std::string_view::npos) {
         // JSON can say \u0000, but cJSON reads strings as C strings and would
@@ -119,15 +135,18 @@ const char *unsavable(const Value &v, int depth) {
         // it was given, without a word.
         return "a string in it contains a NUL character";
     }
-    for (int i = 0; i < v.size(); ++i) {
+    // One pass over the members as stored (see ValueAccess::keys): a member
+    // holding nothing is not there, and is not written.
+    const std::vector<Value> &items = rmp::detail::ValueAccess::items(v);
+    const std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(v);
+    for (std::size_t i = 0; i < items.size(); ++i) {
         if (v.type() == Value::Type::OBJECT) {
-            if (v.key(i).find('\0') != std::string_view::npos) {
+            if (items[i].type() == Value::Type::NONE) continue;
+            if (keys[i].find('\0') != std::string::npos) {
                 return "a key in it contains a NUL character";
             }
-            if (const char *why = unsavable(v[v.key(i)], depth + 1)) return why;
-        } else if (const char *why = unsavable(v[i], depth + 1)) {
-            return why;
         }
+        if (const char *why = unsavable(items[i], depth + 1)) return why;
     }
     return nullptr;
 }
@@ -142,22 +161,19 @@ Json to_cjson(const Value &v) {
             return Json(cJSON_CreateNull());
         case Value::Type::BOOL:
             return Json(cJSON_CreateBool(v.as_bool() ? 1 : 0));
-        case Value::Type::NUMBER: {
-            // JSON has no NaN and no infinity; they are written as null and so
-            // read back as the default, which is what they meant anyway.
-            const double n = rmp::detail::ValueAccess::number(v);
-            if (!std::isfinite(n)) return Json(cJSON_CreateNull());
-            // Raw: printed exactly as format_number() wrote it. cJSON's parser
-            // reads it back with strtod, which is exact.
-            return Json(cJSON_CreateRaw(format_number(n).c_str()));
-        }
+        case Value::Type::NUMBER:
+            // Finite: unsavable() refused the rest. Raw: printed exactly as
+            // format_number() wrote it. cJSON's parser reads it back with
+            // strtod, which is exact.
+            return Json(cJSON_CreateRaw(
+                format_number(rmp::detail::ValueAccess::number(v)).c_str()));
         case Value::Type::STRING:
             return Json(cJSON_CreateString(std::string(v.as_string()).c_str()));
         case Value::Type::LIST: {
             Json list(cJSON_CreateArray());
             if (!list) return nullptr;
-            for (int i = 0; i < v.size(); ++i) {
-                Json item = to_cjson(v[i]);
+            for (const Value &element : rmp::detail::ValueAccess::items(v)) {
+                Json item = to_cjson(element);
                 if (!item) return nullptr;
                 cJSON_AddItemToArray(list.get(), item.release());
             }
@@ -166,19 +182,31 @@ Json to_cjson(const Value &v) {
         case Value::Type::OBJECT: {
             Json object(cJSON_CreateObject());
             if (!object) return nullptr;
-            for (int i = 0; i < v.size(); ++i) {
-                const std::string_view key = v.key(i);
-                const Value &item = v[key];
-                if (item.type() == Value::Type::NONE) continue;
-                Json node = to_cjson(item);
+            const std::vector<Value> &items = rmp::detail::ValueAccess::items(v);
+            const std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(v);
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (items[i].type() == Value::Type::NONE) continue;
+                Json node = to_cjson(items[i]);
                 if (!node) return nullptr;
-                cJSON_AddItemToObject(object.get(), std::string(key).c_str(),
-                                      node.release());
+                cJSON_AddItemToObject(object.get(), keys[i].c_str(), node.release());
             }
             return object;
         }
     }
     return nullptr;
+}
+
+// Whether every number in a parsed tree is finite. cJSON reads a number too
+// large for a double -- 1e400, which JSON allows -- as strtod's infinity, and a
+// save cannot hold one: it would be written back as nothing, so the file read
+// is not the file written. Such a text is no save at all. Recursive like the
+// parse, and as deep: CJSON_NESTING_LIMIT.
+bool finite_numbers(const cJSON *node) {
+    if (cJSON_IsNumber(node)) return std::isfinite(node->valuedouble);
+    for (const cJSON *child = node->child; child != nullptr; child = child->next) {
+        if (!finite_numbers(child)) return false;
+    }
+    return true;
 }
 
 Value from_cjson(const cJSON *node) {
@@ -196,10 +224,23 @@ Value from_cjson(const cJSON *node) {
         return list;
     }
     if (cJSON_IsObject(node)) {
+        // Built in one pass (see ValueAccess::keys), a key that comes twice
+        // found through a table: it keeps its first place and takes its last
+        // value, as object[key] = ... gave it.
         Value object = Value::object();
+        std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(object);
+        std::vector<Value> &items = rmp::detail::ValueAccess::items(object);
+        std::unordered_map<std::string_view, std::size_t>
+            place; // views into cJSON's keys
         for (const cJSON *child = node->child; child != nullptr; child = child->next) {
             if (child->string == nullptr || cJSON_IsNull(child)) continue;
-            object[child->string] = from_cjson(child);
+            const auto [at, added] = place.try_emplace(child->string, keys.size());
+            if (added) {
+                keys.emplace_back(child->string);
+                items.push_back(from_cjson(child));
+            } else {
+                items[at->second] = from_cjson(child);
+            }
         }
         return object;
     }
@@ -315,7 +356,7 @@ bool from_json(std::string_view json, Value *out) {
     const std::string text(json);
     const CNumbers c_numbers;
     const Json tree(cJSON_ParseWithLengthOpts(text.c_str(), text.size() + 1, nullptr, 1));
-    if (!tree) return false;
+    if (!tree || !finite_numbers(tree.get())) return false;
     *out = from_cjson(tree.get());
     return true;
 }

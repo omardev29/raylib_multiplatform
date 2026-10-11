@@ -21,10 +21,12 @@
 
 #include <rmp/save.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <chrono>
 #include <climits>
+#include <cstdarg>
 #include <clocale>
 #include <cmath>
 #include <cstdio>
@@ -37,9 +39,15 @@
 #include <numbers>
 #include <random>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <csignal>
+#include <sys/resource.h>
+#endif
 
 namespace fs = std::filesystem;
 using rmp::Value;
@@ -171,6 +179,16 @@ Bytes with_fixed_crc(Bytes file) {
     return file;
 }
 
+// A plain save around any payload, its CRC right: what someone who knows the
+// format writes by hand.
+Bytes plain_file(std::string_view json) {
+    const std::string head =
+        "rmp-save 1 1 plain " + std::to_string(json.size()) + " 00000000\n";
+    Bytes file(head.begin(), head.end());
+    file.insert(file.end(), json.begin(), json.end());
+    return with_fixed_crc(file);
+}
+
 std::string file_text(const fs::path &path) {
     std::ifstream in(path, std::ios::binary);
     return { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
@@ -179,6 +197,39 @@ std::string file_text(const fs::path &path) {
 struct {
     int stops = 0;
 } strict;
+
+// What raylib's log said while a test listened, one formatted line each.
+struct {
+    std::vector<std::string> lines;
+} heard;
+
+// NOLINTNEXTLINE(custom-rmp-raw-pointer): raylib's TraceLogCallback, a C signature
+void hear(int /*level*/, const char *text, va_list args) {
+    std::array<char, 512> line{};
+    std::vsnprintf(line.data(), line.size(), text, args);
+    heard.lines.emplace_back(line.data());
+}
+
+// How many lines heard so far contain `what`.
+int heard_lines_with(std::string_view what) {
+    return static_cast<int>(
+        std::ranges::count_if(heard.lines, [what](const std::string &line) {
+            return line.find(what) != std::string::npos;
+        }));
+}
+
+#if defined(__linux__)
+// The descriptors this process has open, as the kernel lists them.
+int open_descriptors() {
+    int count = 0;
+    std::error_code error;
+    for (fs::directory_iterator at("/proc/self/fd", error), end; !error && at != end;
+         at.increment(error)) {
+        ++count;
+    }
+    return count;
+}
+#endif
 
 } // namespace
 
@@ -491,6 +542,21 @@ TEST_SUITE("save: Value") {
         CHECK_FALSE(v.erase("cleared")); // nothing was there
     }
 
+    TEST_CASE("a Ref walks the keys of the object it names, and creates nothing") {
+        Value v;
+        v["player"]["hp"] = 3;
+        v["player"]["name"] = "Omar";
+        v["player"]["gone"] = Value{};
+        CHECK(v["player"].key(0) == "hp");
+        CHECK(v["player"].key(1) == "name");
+        CHECK(v["player"].key(2).empty()); // a member holding nothing is not there
+        CHECK(v["player"].key(-1).empty());
+        CHECK(v["player"]["hp"].key(0).empty()); // a number has no keys
+        CHECK(v["missing"]["deeper"].key(0).empty());
+        CHECK_FALSE(v.contains("missing"));
+        CHECK(v.size() == 1);
+    }
+
     TEST_CASE("equality: same type and contents, keys in any order, version ignored") {
         Value a;
         a["x"] = 1;
@@ -515,6 +581,40 @@ TEST_SUITE("save: Value") {
         CHECK(sample() == sample());
         CHECK(a["x"] == Value(1)); // through a Ref, both ways
         CHECK(Value(1) == a["x"]);
+    }
+
+    TEST_CASE("== is a true equality: a NaN equals a NaN, anywhere in the tree") {
+        // IEEE's == made a Value holding a NaN unequal to itself and to every
+        // copy of it (defect 8 of the deep campaign; Omar, 2026-10-10: NaN ==
+        // NaN). Found by tests/property/value_prop.cpp.
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const Value alone = nan;
+        CHECK(alone == alone);
+        CHECK(Value(nan) == Value(-nan)); // whatever its sign or payload
+        Value tree;
+        tree["list"].push(1);
+        tree["list"].push(nan);
+        const Value copy = tree; // NOLINT(performance-unnecessary-copy-initialization)
+        CHECK(tree == copy);
+        CHECK(copy == tree);
+        CHECK_FALSE(Value(nan) == Value(0.0)); // and still only a NaN
+        CHECK_FALSE(Value(0.0) == Value(nan));
+        CHECK(Value(0.0) == Value(-0.0)); // the two zeros stay equal
+    }
+
+    TEST_CASE("as_float clamps to float's range, as as_int does to int's") {
+        // 1e300 in a save reads fine, and a plain cast to float made it an
+        // infinity: a finite number in the file became a speed that was not.
+        // Found by tests/property/value_prop.cpp.
+        constexpr double DOUBLE_MAX = std::numeric_limits<double>::max();
+        CHECK(Value(1e300).as_float() == std::numeric_limits<float>::max());
+        CHECK(Value(-DOUBLE_MAX).as_float() == -std::numeric_limits<float>::max());
+        CHECK(Value(3.5e38).as_float() == std::numeric_limits<float>::max());
+        CHECK(Value(0.1).as_float() == 0.1F);
+        CHECK(Value(5e-324).as_float() == 0.0F);
+        // An infinity a game put there itself is what it reads.
+        CHECK(std::isinf(Value(std::numeric_limits<double>::infinity()).as_float()));
+        CHECK(Value(std::nan("")).as_float(4.0F) == 4.0F);
     }
 
     TEST_CASE("a Value made in code is of this build's version") {
@@ -649,18 +749,58 @@ TEST_SUITE("save: format") {
         std::setlocale(LC_NUMERIC, was.c_str());
     }
 
-    TEST_CASE("NaN and infinity are written as nothing, and read as the default") {
-        Value v;
-        v["nan"] = std::nan("");
-        v["inf"] = std::numeric_limits<double>::infinity();
-        v["list"].push(-std::numeric_limits<double>::infinity());
+    TEST_CASE("a number that is not finite is refused, never written as nothing") {
+        // JSON has no NaN and no infinity. They were written as null, so the
+        // save read back as something else than what was saved -- a NaN as
+        // nothing at all (Omar, 2026-10-10: no non-finite number enters a
+        // save). Found by tests/property/save_prop.cpp.
+        for (const double n :
+             { std::nan(""), -std::nan(""), std::numeric_limits<double>::infinity(),
+               -std::numeric_limits<double>::infinity() }) {
+            CAPTURE(n);
+            Value v;
+            v["fine"] = 1;
+            v["list"].push(n);
+            Bytes out = { 9 };
+            CHECK_FALSE(rmp::save::detail::encode(v, 1, false, &out));
+            CHECK_FALSE(rmp::save::detail::encode(v, 1, true, &out));
+            CHECK(out == Bytes{ 9 }); // left as it was
+            CHECK(rmp::save::detail::to_json(v).empty());
+            CHECK_FALSE(rmp::save::detail::encode(Value(n), 1, false, &out));
+        }
+        // The largest finite numbers are numbers like any other.
+        Value big;
+        big.push(std::numeric_limits<double>::max());
+        big.push(-std::numeric_limits<double>::max());
         Value back;
-        REQUIRE(decode(encoded(v, false), &back) == Status::OK);
-        CHECK(back["nan"].as_float(1.0f) == doctest::Approx(1.0));
-        CHECK_FALSE(back.contains("nan"));
-        CHECK(back["inf"].as_int(2) == 2);
-        CHECK(back["list"].size() == 1); // its place kept, as NONE
-        CHECK(back["list"][0].type() == Value::Type::NONE);
+        REQUIRE(decode(encoded(big, false), &back) == Status::OK);
+        CHECK(back == big);
+    }
+
+    TEST_CASE("a JSON number too large for a double is no save: 1e400 is UNREADABLE") {
+        // strtod reads 1e400 as infinity, and it came in as a NUMBER that was
+        // written back as null: decode(encode(decode(x))) != decode(x).
+        // Found by tests/property/save_prop.cpp and fuzz_value_json;
+        // tests/fuzz/regressions/value_json/1e400 replays it.
+        const std::vector<std::string> texts = {
+            "1e400", "-1e400", "[1E+309]", R"({"coins":1e400})",
+            R"({"a":[1,{"b":-17976931348623159e292}]})"
+        };
+        for (const std::string &text : texts) {
+            CAPTURE(text);
+            Value v = 5;
+            CHECK_FALSE(rmp::save::detail::from_json(text, &v));
+            CHECK(v == Value(5));
+            CHECK(decode(plain_file(text), &v) == Status::UNREADABLE);
+            CHECK(v == Value(5));
+        }
+        // Past the largest double by rounding only, and below the smallest:
+        // finite, and read.
+        Value v;
+        CHECK(rmp::save::detail::from_json("1.7976931348623157e308", &v));
+        CHECK(rmp::detail::ValueAccess::number(v) == std::numeric_limits<double>::max());
+        CHECK(rmp::save::detail::from_json("1e-400", &v));
+        CHECK(std::isfinite(rmp::detail::ValueAccess::number(v)));
     }
 
     TEST_CASE("strings: quotes, backslashes, control characters, UTF-8, empty") {
@@ -692,6 +832,26 @@ TEST_SUITE("save: format") {
         v["apple"] = 2;
         v["mango"] = 3;
         CHECK(rmp::save::detail::to_json(v) == R"({"zebra":1,"apple":2,"mango":3})");
+    }
+
+    TEST_CASE("a key twice in a file keeps its first place and takes its last value") {
+        // What object[key] = ... gave each member when the reader added them
+        // one by one. The reader adds them in one pass now and finds a key it
+        // has seen through a table of places; every repeated key written at
+        // place 0 survived the hundred-thousand-key case, whose repeated key
+        // IS at place 0 (review of P1, hand mutation). A null is nothing, and
+        // replaces nothing, as before.
+        Value v;
+        REQUIRE(rmp::save::detail::from_json(
+            R"({"a":1,"b":2,"c":3,"b":-2,"a":null,"c":{"d":4}})", &v));
+        CHECK(v.size() == 3);
+        CHECK(v.key(0) == "a");
+        CHECK(v.key(1) == "b");
+        CHECK(v.key(2) == "c");
+        CHECK(v["a"].as_int() == 1);
+        CHECK(v["b"].as_int() == -2);
+        CHECK(v["c"]["d"].as_int() == 4);
+        CHECK(rmp::save::detail::to_json(v) == R"({"a":1,"b":-2,"c":{"d":4}})");
     }
 
     TEST_CASE("the JSON has to be one value and nothing after it") {
@@ -745,6 +905,89 @@ TEST_SUITE("save: format") {
         CHECK_FALSE(rmp::save::detail::from_json(arrays(LIMIT + 1), &v));
     }
 
+    TEST_CASE("nesting counts containers: 65 is refused even with nothing in the last") {
+        // The parser counts containers. The writer counted levels down to a
+        // value, so 65 lists or objects with an empty one at the bottom --
+        // nothing under it to count -- were written, and read back UNREADABLE:
+        // a save that write() said was saved, lost. Found by
+        // tests/property/save_prop.cpp: a spine whose innermost object holds
+        // nothing.
+        constexpr int LIMIT = rmp::save::detail::MAX_DEPTH;
+        const auto containers = [](int count, bool lists) {
+            Value inner = lists ? Value::list() : Value::object();
+            for (int i = 1; i < count; ++i) {
+                Value outer = lists ? Value::list() : Value::object();
+                if (lists) {
+                    outer.push(std::move(inner));
+                } else {
+                    outer["d"] = std::move(inner);
+                }
+                inner = std::move(outer);
+            }
+            return inner;
+        };
+        for (const bool lists : { true, false }) {
+            CAPTURE(lists);
+            Bytes out;
+            REQUIRE(rmp::save::detail::encode(containers(LIMIT, lists), 1, false, &out));
+            Value back;
+            CHECK(decode(out, &back) == Status::OK);
+            CHECK(back == containers(LIMIT, lists));
+            CHECK_FALSE(
+                rmp::save::detail::encode(containers(LIMIT + 1, lists), 1, false, &out));
+            CHECK(rmp::save::detail::to_json(containers(LIMIT + 1, lists)).empty());
+        }
+        // An object whose one member holds nothing is an empty object too.
+        Value spine = containers(LIMIT, false);
+        Value outer;
+        outer["d"] = std::move(spine);
+        Bytes out;
+        CHECK_FALSE(rmp::save::detail::encode(outer, 1, false, &out));
+        Value holds_nothing;
+        holds_nothing["gone"] = Value();
+        Value deep = holds_nothing;
+        for (int i = 1; i <= LIMIT; ++i) {
+            Value up;
+            up["d"] = std::move(deep);
+            deep = std::move(up);
+        }
+        CHECK_FALSE(rmp::save::detail::encode(deep, 1, false, &out));
+    }
+
+    TEST_CASE("a save of a hundred thousand keys reads and writes in a moment") {
+        // Each key of an object was added through object[key], which walks
+        // every key before it, and written through key(i) and v[key], which do
+        // too: a file of a million keys -- 12 MB, well under the 64 MB a save
+        // may be -- took hours to read, and a hand-edited save hung a game at
+        // its loading screen (the deep campaign's R5: bounded time). Now one
+        // pass each way.
+        constexpr int KEYS = 100000;
+        std::string json = "{";
+        for (int i = 0; i < KEYS; ++i)
+            json += "\"k" + std::to_string(i) + "\":" + std::to_string(i) + ",";
+        json += R"("k0":-1,"gone":null})"; // a key twice: its first place, its last value
+        const auto start = std::chrono::steady_clock::now();
+        Value v;
+        REQUIRE(rmp::save::detail::from_json(json, &v));
+        const std::string again = rmp::save::detail::to_json(v);
+        const double seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+                .count();
+        MESSAGE(KEYS << " keys read and written in " << seconds << " s");
+        CHECK(v.size() == KEYS);
+        CHECK(v.key(0) == "k0");
+        CHECK(v["k0"].as_int() == -1);
+        CHECK(v.key(KEYS - 1) == "k99999");
+        CHECK_FALSE(v.contains("gone"));
+        CHECK(again.starts_with(R"({"k0":-1,"k1":1,)"));
+        CHECK(again.ends_with(R"("k99999":99999})"));
+#if defined(RMP_SANITIZE)
+        CHECK(seconds < 20.0); // ASan and UBSan cost several times the time
+#else
+        CHECK(seconds < 3.0);
+#endif
+    }
+
     TEST_CASE("a string or a key with a NUL in it is refused, not cut short") {
         // cJSON reads strings as C strings: "ab\0cd" came back as "ab", OK.
         Value v;
@@ -758,6 +1001,28 @@ TEST_SUITE("save: format") {
         Value fine;
         fine["s"] = "no nul here";
         CHECK(rmp::save::detail::encode(fine, 1, false, &out));
+    }
+
+    TEST_CASE(
+        "a member holding nothing is not written, and a NUL in its key stops nothing") {
+        // A member assigned nothing is not there, so neither is its key: one
+        // with a NUL in it is not a key the save holds, and must not refuse the
+        // write. unsavable() checking the key before skipping the member passed
+        // tests/property/save_prop.cpp's 200 cases -- gen.h draws such a member
+        // in about one tree in three hundred (review of P1, hand mutation).
+        Value v;
+        v["coins"] = 5;
+        v[std::string("a\0b", 3)] = Value();
+        Bytes out;
+        REQUIRE(rmp::save::detail::encode(v, 1, false, &out));
+        CHECK(rmp::save::detail::to_json(v) == R"({"coins":5})");
+        Value back;
+        CHECK(decode(out, &back) == Status::OK);
+        CHECK(back == v);
+        CHECK(back.size() == 1);
+        Value deeper;
+        deeper["list"].push(v);
+        CHECK(rmp::save::detail::encode(deeper, 1, true, &out));
     }
 
     TEST_CASE("a plain save is readable text: a header line, then the JSON") {
@@ -790,6 +1055,55 @@ TEST_SUITE("save: format") {
         CHECK(decode(a, &va) == Status::OK);
         CHECK(decode(b, &vb) == Status::OK);
         CHECK(va == vb);
+    }
+
+    TEST_CASE("a seal's nonce is random, not a counter: every four bytes of it differ") {
+        // 24 bytes of std::random_device, four at a time, and a counter mixed
+        // into the last eight. A fill loop that ran once, or not at all, left
+        // a nonce that was the counter and zeros -- still different every
+        // time, so the case above passed -- and with a key in every copy of the
+        // game, a predictable nonce is the one thing XChaCha20 cannot afford.
+        // Found by Mull (save.cpp's nonce loop, mutated, survived).
+        const Bytes a = encoded(sample(), true);
+        const Bytes b = encoded(sample(), true);
+        const std::size_t at = header_end(a) + 1;
+        REQUIRE(header_end(b) + 1 == at);
+        for (std::size_t chunk = 0; chunk < 16; chunk += 4) {
+            CAPTURE(chunk);
+            CHECK(std::memcmp(a.data() + at + chunk, b.data() + at + chunk, 4) != 0);
+        }
+    }
+
+    TEST_CASE(
+        "a save sealed by this framework still opens: the key is derived as it was") {
+        // Bytes sealed with [project] name = "ray_test" when this case was
+        // written. A change to the key's derivation -- its material, its
+        // length -- passes every round trip, which seals and opens with the
+        // same new key, and turns every save a player has into MODIFIED.
+        // Found by Mull (crypto_blake2b's sizes, mutated, survived). Renaming
+        // [project] name changes the key on purpose (the .toml says so): then
+        // this case fails, and the bytes are sealed again. It fails rather
+        // than skips: tests/ is the framework's alone, whose name is ray_test,
+        // and a reminder that passes is one nobody reads (review of P1).
+        const std::string hex =
+            "726d702d7361766520312032207365616c65642035382032366263623564390a"
+            "27931c6c32802925128b55b81746b54ea4dbb66998c03c9275f73f3d12b9438"
+            "17fa58d93b1c70e126c361f0b5f15e3511a793ef4713db77e3f56";
+        Bytes file;
+        for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+            file.push_back(
+                static_cast<unsigned char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+        REQUIRE_MESSAGE(std::string_view(RMP_PROJECT_NAME) == "ray_test",
+                        "[project] name is no longer ray_test: seal these bytes again "
+                        "with the new name's key");
+        Value back;
+        REQUIRE(rmp::save::detail::decode(file, &back, true) == Status::OK);
+        Value expected = Value::list();
+        expected.push(1e300);
+        expected.push(Value());
+        expected.push(true);
+        CHECK(back == expected);
+        CHECK(back.version() == 2);
     }
 
     // -----------------------------------------------------------------------
@@ -980,6 +1294,20 @@ TEST_SUITE("save: format") {
         CHECK(decode(with_fixed_crc(file)) != Status::OK);
     }
 
+    TEST_CASE("a header line longer than any we write is UNREADABLE, not TRUNCATED") {
+        // The header is read up to its 128th byte. 128 bytes that start like
+        // ours and have no '\n' were cut short; 129 are not a header of ours.
+        // Found by Mull (the `< 128`, mutated to `<= 128`, survived).
+        const std::string start = "rmp-save ";
+        const auto file_of = [&start](std::size_t size) {
+            std::string text = start + std::string(size - start.size(), '1');
+            return Bytes(text.begin(), text.end());
+        };
+        CHECK(decode(file_of(128)) == Status::TRUNCATED);
+        CHECK(decode(file_of(129)) == Status::UNREADABLE);
+        CHECK(decode(file_of(400)) == Status::UNREADABLE);
+    }
+
     TEST_CASE("not a save, or a newer format: UNREADABLE") {
         const auto bytes = [](const std::string &s) { return Bytes(s.begin(), s.end()); };
         CHECK(decode(bytes("{\"coins\": 5}")) == Status::UNREADABLE);
@@ -1057,6 +1385,9 @@ TEST_SUITE("save: files") {
         const std::string where = rmp::save::directory();
         CHECK(fs::equivalent(fs::path(where), dir.path));
         CHECK((where.back() == '/' || where.back() == '\\'));
+        // No portable folder, so nothing to give up on (Mull: the portable
+        // probe forced on, survived).
+        CHECK(rmp::save::detail::fallbacks() == 0);
     }
 
     TEST_CASE_FIXTURE(Fixture, "the default of write() is [save] encrypt") {
@@ -1190,6 +1521,26 @@ TEST_SUITE("save: files") {
         CHECK(rmp::save::read("huge", v).status == Status::UNREADABLE);
     }
 
+    TEST_CASE_FIXTURE(Fixture,
+                      "a file of exactly 64 MB is still read: the cap is past it") {
+        // The other side of the cap: read whole, its CRC does not match, so
+        // MODIFIED -- refused for its size, it would say UNREADABLE (Mull: the
+        // `size > MAX_FILE`, mutated to `>=`, survived).
+        const std::uintmax_t size = std::uintmax_t{ 64 } * 1024 * 1024;
+        std::string head;
+        std::uintmax_t payload = size;
+        for (int pass = 0; pass < 3; ++pass) {
+            head = "rmp-save 1 1 plain " + std::to_string(payload) + " 00000000\n";
+            payload = size - head.size();
+        }
+        const fs::path file = dir.path / "edge.save";
+        std::ofstream(file, std::ios::binary) << head;
+        fs::resize_file(file, size);
+        Value v = 3;
+        CHECK(rmp::save::read("edge", v).status == Status::MODIFIED);
+        CHECK(v == Value(3));
+    }
+
     TEST_CASE_FIXTURE(
         Fixture, "a folder that cannot be written: write says false, nothing crashes") {
         // Under a regular FILE, so creating the folder fails even for root --
@@ -1197,10 +1548,104 @@ TEST_SUITE("save: files") {
         const fs::path blocker = dir.path / "a_file";
         std::ofstream(blocker) << "x";
         rmp::save::detail::set_folders_for_tests("", (blocker / "saves").string());
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
         CHECK_FALSE(rmp::save::write("slot", sample()));
+        CHECK_FALSE(rmp::save::write("slot", sample()));
+        SetTraceLogCallback(nullptr);
+        // The machine, not the game: a plain log, every time, never once
+        // (Mull: the log line removed, survived).
+        CHECK(heard_lines_with("SAVE: could not write") == 2);
+        CHECK(rmp::detail::report_count() == 0);
         Value v;
         CHECK(rmp::save::read("slot", v).status == Status::MISSING);
     }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "with no portable folder, a save where the game runs is not read") {
+        // A read looks in the user's folder and, with [save] portable, in the
+        // portable one too. With no portable folder there is no second place
+        // -- and "" for one is the working directory, where a file called
+        // slot.save is nobody's save (Mull: the empty() check replaced,
+        // survived; review of P1).
+        const TempDir elsewhere;
+        const Bytes bytes = encoded(sample(), false);
+        std::ofstream(elsewhere.path / "slot.save", std::ios::binary)
+            .write(reinterpret_cast<const char *>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
+        const fs::path was = fs::current_path();
+        fs::current_path(elsewhere.path);
+        Value v = 3;
+        const Status status = rmp::save::read("slot", v).status;
+        const bool there = rmp::save::exists("slot");
+        fs::current_path(was);
+        CHECK(status == Status::MISSING);
+        CHECK_FALSE(there);
+        CHECK(v == Value(3));
+    }
+
+#if defined(__linux__)
+    TEST_CASE_FIXTURE(Fixture, "what a write and a read open, they close") {
+        // Every file rmp::save opens is closed by its handle. Without the
+        // close, each write and each read left a descriptor open -- a long
+        // session runs out of them, and on Windows a file still open cannot
+        // be renamed over or removed -- and no test saw it: Mull's mutant was
+        // listed as equivalent (review of P1). Linux lists them in
+        // /proc/self/fd.
+        REQUIRE(rmp::save::write("slot", sample())); // the folder made once
+        const int before = open_descriptors();
+        REQUIRE(before > 0);
+        for (int i = 0; i < 4; ++i) {
+            REQUIRE(rmp::save::write("slot", sample(), { .encrypted = i % 2 == 0 }));
+            Value back;
+            REQUIRE(rmp::save::read("slot", back));
+            CHECK(rmp::save::exists("slot"));
+        }
+        CHECK(open_descriptors() == before);
+        CHECK(rmp::save::remove("slot"));
+        CHECK(open_descriptors() == before);
+    }
+#endif
+
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    TEST_CASE_FIXTURE(
+        Fixture,
+        "a write the disk refuses half way keeps the old save, and no temporary") {
+        // The file opened and its bytes did not land: a full disk, a quota.
+        // RLIMIT_FSIZE at 0 refuses every byte written into a file (EFBIG,
+        // SIGXFSZ ignored while it lasts) -- a full disk a test can arrange.
+        // write() says false and removes its temporary, and the save already
+        // there is the one read. The removal taken out survived Mull, listed
+        // as a full disk no test can arrange (review of P1).
+        Value old;
+        old["level"] = 3;
+        REQUIRE(rmp::save::write("slot", old));
+        rlimit was{};
+        REQUIRE(getrlimit(RLIMIT_FSIZE, &was) == 0);
+        rlimit full = was;
+        full.rlim_cur = 0;
+        struct sigaction ignore{};
+        ignore.sa_handler = SIG_IGN;
+        struct sigaction before{};
+        REQUIRE(sigaction(SIGXFSZ, &ignore, &before) == 0);
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
+        const bool limited = setrlimit(RLIMIT_FSIZE, &full) == 0;
+        const bool wrote = limited && rmp::save::write("slot", sample());
+        const bool restored = setrlimit(RLIMIT_FSIZE, &was) == 0;
+        SetTraceLogCallback(nullptr);
+        sigaction(SIGXFSZ, &before, nullptr);
+        REQUIRE(limited);
+        REQUIRE(restored);
+        CHECK_FALSE(wrote);
+        CHECK(heard_lines_with("SAVE: could not write") == 1);
+        CHECK(rmp::detail::report_count() == 0);
+        CHECK_FALSE(fs::exists(dir.path / "slot.save.tmp"));
+        Value back;
+        REQUIRE(rmp::save::read("slot", back));
+        CHECK(back == old);
+    }
+#endif
 }
 
 TEST_SUITE("save: portable") {
@@ -1286,6 +1731,26 @@ TEST_SUITE("save: portable") {
         rmp::save::detail::reset_for_tests();
     }
 
+    TEST_CASE("giving up on the portable folder is said in the log, once") {
+        // The fallback's line is the player's only clue that the saves moved
+        // (Mull: the line removed, survived): a plain log, never
+        // RMP_REPORT_ONCE -- a read-only folder is the machine, and [dev]
+        // strict must not abort a correct game over it.
+        const TempDir portable;
+        const TempDir user;
+        fs::create_directories(portable.path / "slot.save" / "in_the_way");
+        rmp::save::detail::set_folders_for_tests(portable.str(), user.str());
+        rmp::detail::reset_reports_for_tests();
+        heard.lines.clear();
+        SetTraceLogCallback(hear);
+        CHECK(rmp::save::write("slot", sample()));
+        CHECK(rmp::save::write("other", sample()));
+        SetTraceLogCallback(nullptr);
+        CHECK(heard_lines_with("SAVE: cannot write in") == 1);
+        CHECK(rmp::detail::report_count() == 0);
+        rmp::save::detail::reset_for_tests();
+    }
+
     TEST_CASE("a writable portable folder is used") {
         const TempDir portable;
         const TempDir user;
@@ -1298,6 +1763,33 @@ TEST_SUITE("save: portable") {
         CHECK(rmp::save::detail::fallbacks() == 0);
         // The probe cleaned up after itself.
         CHECK_FALSE(fs::exists(portable.path / "saves" / ".rmp-write-test"));
+        rmp::save::detail::reset_for_tests();
+    }
+
+    TEST_CASE(
+        "a save next to the game is still read after its folder stops taking writes") {
+        // The game moved somewhere read-only -- Program Files -- with its saves
+        // next to it: this session writes to the user's folder, and the save
+        // the player already has is in the portable one. Looking in the chosen
+        // folder twice, it was not found (Mull: `f.chosen == f.user` replaced,
+        // survived). A folder in the probe file's place refuses the probe even
+        // for root, which is what CI runs as.
+        const TempDir portable;
+        const TempDir user;
+        Value progress;
+        progress["level"] = 12;
+        Bytes bytes;
+        REQUIRE(rmp::save::detail::encode(progress, 1, false, &bytes));
+        std::ofstream(portable.path / "slot.save", std::ios::binary)
+            .write(reinterpret_cast<const char *>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
+        fs::create_directories(portable.path / ".rmp-write-test" / "in_the_way");
+        rmp::save::detail::set_folders_for_tests(portable.str(), user.str());
+        REQUIRE(fs::equivalent(fs::path(rmp::save::directory()), user.path));
+        Value back;
+        REQUIRE(rmp::save::read("slot", back));
+        CHECK(back["level"].as_int() == 12);
+        CHECK(rmp::save::exists("slot"));
         rmp::save::detail::reset_for_tests();
     }
 
@@ -1377,6 +1869,13 @@ TEST_SUITE("save: where, on this platform") {
         unsetenv("XDG_DATA_HOME");
         CHECK(rmp::save::detail::user_folder() ==
               "/home/player/.local/share/" RMP_PROJECT_NAME "/");
+        // No home at all -- a service, a stripped environment: relative to
+        // where the game runs, and no crash on an empty path (Mull: the
+        // empty() check in with_separator(), mutated, survived).
+        unsetenv("HOME");
+        CHECK(rmp::save::detail::user_folder() == ".local/share/" RMP_PROJECT_NAME "/");
+        setenv("HOME", "", 1);
+        CHECK(rmp::save::detail::user_folder() == ".local/share/" RMP_PROJECT_NAME "/");
 
         if (old_xdg != nullptr) {
             setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);

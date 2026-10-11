@@ -1,0 +1,4 @@
+# libFuzzer flags for fuzz_value_json, one a line: tools/fuzz.sh run and merge pass them.
+# A save's JSON; 2048 bytes hold 64 levels of nesting with room to spare, and keep
+# the merged corpus small (tests/campaign_test.py holds the whole corpus under 2 MB).
+-max_len=2048
