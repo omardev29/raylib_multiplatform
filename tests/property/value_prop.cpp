@@ -251,9 +251,12 @@ bool same_float(float a, float b) {
         : std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b);
 }
 
-// One of every type, around a hostile number and a hostile string.
+// One of every type, around a hostile number and a hostile string -- each
+// as likely at any size: through inRange() the first cases of a run were all
+// NONE, and an as_float() that clamped an infinity to FLT_MAX survived the
+// run (review of P1, hand mutation).
 Value any_type(double n, const std::string &s, bool b) {
-    const int kind = *rc::gen::inRange(0, 6);
+    const int kind = pick(6);
     switch (kind) {
         case 0:
             return {};
@@ -298,6 +301,30 @@ TEST_SUITE("property: value") {
                 RC_ASSERT((near == v) == same);
                 const Value further = perturbed(near, *rc::gen::arbitrary<bool>());
                 if (v == near && near == further) RC_ASSERT(v == further);
+            });
+        rmp::test::check(
+            "two numbers are == exactly when they are one number: every NaN one, the "
+            "two zeros one",
+            [] {
+                // Leaf against leaf, at the edges: in a tree, a zero met the
+                // other zero too rarely for 200 cases, and an == that told
+                // them apart survived the tree property (review of P1, hand
+                // mutation).
+                const double a = *rmp::test::gen::hostile_double();
+                const double b = *rc::gen::weightedOneOf<double>(
+                    { { 1, rc::gen::just(a) },
+                      { 2, rc::gen::just(-a) },
+                      { 1, rc::gen::just(std::nextafter(a, 0.0)) },
+                      { 2, rmp::test::gen::hostile_double() } });
+                const bool same =
+                    model::canonical(Value(a)) == model::canonical(Value(b));
+                RC_ASSERT((Value(a) == Value(b)) == same);
+                RC_ASSERT((Value(b) == Value(a)) == same);
+                Value in_a;
+                in_a["n"].push(a);
+                Value in_b;
+                in_b["n"].push(b);
+                RC_ASSERT((in_a == in_b) == same);
             });
     }
 
@@ -353,16 +380,18 @@ TEST_SUITE("property: value") {
                          "int, else the fallback",
                          [](int fallback, bool b) {
                              const double n = *rmp::test::gen::hostile_double();
-                             const Value v = any_type(n, "7", b);
-                             const int got = v.as_int(fallback);
-                             if (v.type() != Type::NUMBER || std::isnan(n)) {
-                                 RC_ASSERT(got == fallback);
-                             } else if (n >= static_cast<double>(INT_MAX)) {
-                                 RC_ASSERT(got == INT_MAX);
-                             } else if (n <= static_cast<double>(INT_MIN)) {
-                                 RC_ASSERT(got == INT_MIN);
-                             } else {
-                                 RC_ASSERT(static_cast<double>(got) == std::trunc(n));
+                             // The number itself every case, and any type.
+                             for (const Value &v : { Value(n), any_type(n, "7", b) }) {
+                                 const int got = v.as_int(fallback);
+                                 if (v.type() != Type::NUMBER || std::isnan(n)) {
+                                     RC_ASSERT(got == fallback);
+                                 } else if (n >= static_cast<double>(INT_MAX)) {
+                                     RC_ASSERT(got == INT_MAX);
+                                 } else if (n <= static_cast<double>(INT_MIN)) {
+                                     RC_ASSERT(got == INT_MIN);
+                                 } else {
+                                     RC_ASSERT(static_cast<double>(got) == std::trunc(n));
+                                 }
                              }
                          });
         rmp::test::check("as_float is the nearest float clamped to float's range, the "
@@ -370,13 +399,15 @@ TEST_SUITE("property: value") {
                          [](bool b) {
                              const double n = *rmp::test::gen::hostile_double();
                              const float fallback = *rmp::test::gen::hostile_float();
-                             const Value v = any_type(n, "7", b);
-                             const float got = v.as_float(fallback);
-                             if (v.type() != Type::NUMBER || std::isnan(n)) {
-                                 RC_ASSERT(same_float(got, fallback));
-                             } else {
-                                 RC_ASSERT(same_float(got, expected_float(n)));
-                                 if (std::isfinite(n)) RC_ASSERT(std::isfinite(got));
+                             // The number itself every case, and any type.
+                             for (const Value &v : { Value(n), any_type(n, "7", b) }) {
+                                 const float got = v.as_float(fallback);
+                                 if (v.type() != Type::NUMBER || std::isnan(n)) {
+                                     RC_ASSERT(same_float(got, fallback));
+                                 } else {
+                                     RC_ASSERT(same_float(got, expected_float(n)));
+                                     if (std::isfinite(n)) RC_ASSERT(std::isfinite(got));
+                                 }
                              }
                          });
         rmp::test::check(
