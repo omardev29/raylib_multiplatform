@@ -670,7 +670,12 @@ Each of these was a real bug, found by reproducing rather than by reading.
   init there: five seconds instead of a job timeout. Found by running the
   workflow step itself under podman; `RunJobsStartTheShippedBinaryTest` keeps it.
   The init is the engine's own (docker-init; podman's catatonit), so
-  `raylib-run-alpine` does not carry one.
+  `raylib-run-alpine` does not carry one. A game as PID 1 is the same trap, and
+  it came back twice in one day (drm-x64-run's new steps, musl's headless
+  boot), so `GameContainersHaveAnInitTest` now holds every container a
+  workflow starts a game in to `--init` -- and a `podman run` typed at a
+  prompt needs it as much: `bash -c '... && xvfb-run ...'` hung three agents'
+  runs on 2026-10-11, one for 70 minutes.
 - **A probe proves only what it exercises.** The sanitizer probe linked a C++
   program with no polymorphic type, so it never asked for UBSan's vptr handler
   -- which NetBSD 10's GCC 10.5 runtime does not have -- said "address,
