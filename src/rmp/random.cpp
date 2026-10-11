@@ -19,6 +19,8 @@
 
 #include <rmp/random.h>
 
+#include "internal.h"
+
 #include <array>
 #include <cmath>
 
@@ -102,23 +104,74 @@ float value() {
     return static_cast<float>(next_u32() >> 8) * (1.0f / 16777216.0f);
 }
 
-float range(float min, float max) { return min + (max - min) * value(); }
+float range(float min, float max) {
+    // One number, whatever the ends are, so where the sequence goes next never
+    // depends on whether a call was valid.
+    const float v = value();
+    if (!std::isfinite(min) || !std::isfinite(max)) {
+        RMP_REPORT_ONCE("RANDOM: range(%g, %g) has an end that is not a number; "
+                        "answering %s. A NaN here is usually a division by zero.",
+                        static_cast<double>(min), static_cast<double>(max),
+                        std::isfinite(min) ? "min" : (std::isfinite(max) ? "max" : "0"));
+        if (std::isfinite(min)) return min;
+        return std::isfinite(max) ? max : 0.0f;
+    }
+    float drawn = min + (max - min) * v;
+    // max - min is past what a float holds when the ends are far apart --
+    // -FLT_MAX and FLT_MAX -- and then inf * 0 is NaN. A double holds the
+    // difference of any two floats, and what comes back lies between them.
+    // Only then: the float arithmetic above is the sequence every game seeded
+    // before this was written, and it has to stay the same numbers.
+    if (!std::isfinite(drawn)) {
+        drawn = static_cast<float>(static_cast<double>(min) +
+                                   (static_cast<double>(max) - static_cast<double>(min)) *
+                                       static_cast<double>(v));
+    }
+    // Rounding can land ON max, or a float past it: -FLT_MIN to 0 at the
+    // largest v rounds to -0, which is 0. "Never reaching max" is the promise,
+    // so it is the nearest float short of max -- or min, for an empty range.
+    if (min < max ? drawn >= max : drawn <= max) {
+        drawn = min == max ? min : std::nextafter(max, min);
+    }
+    if (min < max ? drawn < min : drawn > min) drawn = min;
+    return drawn;
+}
 
 int range(int min, int max) {
     if (max <= min) return min;
     // Inclusive at both ends, matching raylib's GetRandomValue so that swapping
     // one for the other does not silently change a game's behaviour.
-    const uint32_t span = static_cast<uint32_t>(max - min) + 1u;
-    return min + static_cast<int>(next_u32() % span);
+    //
+    // In unsigned arithmetic, which wraps where int's overflows: max - min of
+    // INT_MAX and INT_MIN is past what an int holds (undefined behaviour), and
+    // the span of every int is 2^32, which a uint32_t holds as 0 -- `% 0`
+    // traps. That span is the whole word, as it comes.
+    const uint32_t gap = static_cast<uint32_t>(max) - static_cast<uint32_t>(min);
+    const uint32_t word = next_u32();
+    const uint32_t offset = gap == UINT32_MAX ? word : word % (gap + 1u);
+    return static_cast<int>(static_cast<uint32_t>(min) + offset);
 }
 
-bool chance(float probability) { return value() < probability; }
+bool chance(float probability) {
+    const float v = value();
+    if (std::isnan(probability)) {
+        RMP_REPORT_ONCE("RANDOM: chance(NaN) is never true. A NaN here is usually "
+                        "a division by zero.");
+        return false;
+    }
+    return v < probability;
+}
 
 Vector2 in_circle(float radius) {
     // sqrt on the radius, and it is not decoration: without it the points bunch
     // up in the middle, because a ring at radius r has area proportional to r.
     const float r = radius * std::sqrt(value());
     const float a = range(0.0f, 6.2831853f);
+    if (!std::isfinite(radius)) {
+        RMP_REPORT_ONCE("RANDOM: in_circle(%g) is not a disc; answering the centre.",
+                        static_cast<double>(radius));
+        return Vector2{ 0, 0 };
+    }
     return Vector2{ r * std::cos(a), r * std::sin(a) };
 }
 

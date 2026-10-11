@@ -176,17 +176,6 @@ rmp::circle(float)
 rmp::operator== [template]
 rmp::rect(Vector2)
 
-# include/rmp/random.h: P5
-rmp::random::chance(float)
-rmp::random::current_seed()
-rmp::random::direction()
-rmp::random::in_circle(float)
-rmp::random::index(int)
-rmp::random::range(float, float)
-rmp::random::range(int, int)
-rmp::random::seed(uint64_t)
-rmp::random::value()
-
 # include/rmp/save.h: P1
 rmp::Value::Ref::as_bool(bool) const
 rmp::Value::Ref::as_float(float) const

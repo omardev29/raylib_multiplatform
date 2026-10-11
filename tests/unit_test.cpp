@@ -17,11 +17,16 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
+#include "../src/rmp/internal.h"
+
 #include <rmp/assets.h>
 #include <rmp/random.h>
 
+#include <array>
+#include <climits>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -201,6 +206,190 @@ TEST_SUITE("random") {
         for (float expected : START.values) {
             CHECK(rmp::random::value() == doctest::Approx(expected));
         }
+    }
+
+    // --- what tests/property/random_prop.cpp found, and the mutants Mull's
+    // pilot left alive, each as a case of its own ------------------------------
+
+    TEST_CASE("the sequence is xoshiro128++ seeded through SplitMix64, word for word") {
+        // The reference's words, from the published algorithms (and
+        // tests/property/random_prop.cpp's Reference, which checks every seed).
+        // range(INT_MIN, INT_MAX) is every int, so it hands back the whole
+        // word: nothing else checks the generator's arithmetic bit for bit, and
+        // Mull's pilot changed a shift or an xor of it and nothing noticed.
+        struct Known {
+            uint64_t seed;
+            std::array<uint32_t, 6> words;
+        };
+        const std::array<Known, 5> known{ {
+            { 0,
+              { 0x478c88ae, 0x87f2cdc9, 0x42b83207, 0x651b850f, 0xe3827e2e,
+                0x0374b568 } },
+            { 1,
+              { 0xf6e46bed, 0x9afad234, 0x924aca21, 0x069ee6f4, 0x96ba1e8a,
+                0x8cd49558 } },
+            { 12345,
+              { 0xb5d9ed7f, 0x3a7e17c3, 0xc8843f4a, 0x7ec6aff0, 0xc4c569f8,
+                0xf791d9a3 } },
+            { 0x2545F4914F6CDD1Dull, // the default seed
+              { 0x336368ab, 0x6dab09b5, 0x13684162, 0xde84d920, 0xb741dae2,
+                0x11136b8d } },
+            { UINT64_MAX,
+              { 0xe06be31f, 0xba268ab5, 0xb25635ec, 0xc7abea61, 0xc3d151ba,
+                0xfef50fc4 } },
+        } };
+        for (const Known &k : known) {
+            CAPTURE(k.seed);
+            rmp::random::seed(k.seed);
+            for (const uint32_t word : k.words) {
+                CHECK((static_cast<uint32_t>(rmp::random::range(INT_MIN, INT_MAX)) ^
+                       0x80000000u) == word);
+            }
+            rmp::random::seed(k.seed);
+            for (const uint32_t word : k.words) {
+                CHECK(rmp::random::value() ==
+                      static_cast<float>(word >> 8) / 16777216.0f);
+            }
+        }
+        CHECK(START.seed == 0x2545F4914F6CDD1Dull);
+    }
+
+    TEST_CASE("range(int) over its widest spans: no overflow, and every int is one") {
+        // max - min of INT_MAX and INT_MIN was signed overflow, undefined
+        // behaviour -- UBSan's first report in random_prop.cpp -- and the span
+        // of every int wrapped to 0 in a uint32_t, so `% span` was a division
+        // by zero.
+        rmp::random::seed(1);
+        CHECK(rmp::random::range(INT_MIN, INT_MAX) == 0x76e46bed);
+        for (int i = 0; i < 2000; ++i) {
+            const int wide = rmp::random::range(INT_MIN + 1, INT_MAX);
+            REQUIRE(wide >= INT_MIN + 1);
+            const int low = rmp::random::range(INT_MIN, -1);
+            REQUIRE(low < 0);
+            const int high = rmp::random::range(-1, INT_MAX);
+            REQUIRE(high >= -1);
+            const int top = rmp::random::range(INT_MAX - 1, INT_MAX);
+            REQUIRE(top >= INT_MAX - 1);
+            const int bottom = rmp::random::range(INT_MIN, INT_MIN + 1);
+            REQUIRE(bottom <= INT_MIN + 1);
+        }
+    }
+
+    TEST_CASE("range(int) with max == min moves nothing, and one with room moves once") {
+        // `max <= min` and not `<`: equal ends answer without drawing. Mull's
+        // pilot changed it to `<`, which draws a number for (4, 4) and answers
+        // 4 all the same -- only the NEXT number tells.
+        rmp::random::seed(99);
+        const float first = rmp::random::value();
+        const float second = rmp::random::value();
+        rmp::random::seed(99);
+        CHECK(rmp::random::range(4, 4) == 4);
+        CHECK(rmp::random::range(9, 2) == 9);
+        CHECK(rmp::random::value() == first);
+        rmp::random::seed(99);
+        (void)rmp::random::range(4, 5);
+        CHECK(rmp::random::value() == second);
+    }
+
+    TEST_CASE("range(float) never lands on max, even where rounding puts it there") {
+        // random_prop.cpp's counterexample: the seed whose first value() is
+        // the largest, 1 - 2^-24, and -FLT_MIN to 0 -- whose answer rounded to
+        // -0, which IS 0, which is max.
+        rmp::random::seed(12415944);
+        CHECK(rmp::random::value() == 16777215.0f / 16777216.0f);
+        rmp::random::seed(12415944);
+        const float drawn = rmp::random::range(-std::numeric_limits<float>::min(), 0.0f);
+        CHECK(drawn < 0.0f);
+        CHECK(drawn >= -std::numeric_limits<float>::min());
+        // And the other way round: from 0 down to -FLT_MIN never lands on it.
+        rmp::random::seed(12415944);
+        CHECK(rmp::random::range(0.0f, -std::numeric_limits<float>::min()) >
+              -std::numeric_limits<float>::min());
+        // A gap rounding pushed one float PAST max: -(2^24 + 2) to 1, whose
+        // difference rounds up to 2^24 + 4.
+        rmp::random::seed(12415944);
+        CHECK(rmp::random::range(-16777218.0f, 1.0f) < 1.0f);
+    }
+
+    TEST_CASE("range(float) from -FLT_MAX to FLT_MAX is a number between them") {
+        // max - min is infinite in a float, and inf * 0 is NaN: at the seed
+        // whose first value() is exactly 0 the answer was NaN, and at any
+        // other seed it was infinity.
+        const float lo = -std::numeric_limits<float>::max();
+        const float hi = std::numeric_limits<float>::max();
+        rmp::random::seed(1319552);
+        CHECK(rmp::random::value() == 0.0f);
+        rmp::random::seed(1319552);
+        CHECK(rmp::random::range(lo, hi) == lo);
+        // At the largest value(), 1 - 2^-24: two floats short of FLT_MAX.
+        rmp::random::seed(12415944);
+        const float top = rmp::random::range(lo, hi);
+        CHECK(top < hi);
+        CHECK(top == std::nextafter(std::nextafter(hi, 0.0f), 0.0f));
+        rmp::random::seed(3);
+        for (int i = 0; i < 2000; ++i) {
+            const float drawn = rmp::random::range(lo, hi);
+            REQUIRE(std::isfinite(drawn));
+            const float down = rmp::random::range(hi, lo);
+            REQUIRE(std::isfinite(down));
+            REQUIRE(down > lo);
+        }
+    }
+
+    TEST_CASE("range(float) with an end that is not a number: min, max or 0, said once") {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        rmp::detail::reset_reports_for_tests();
+        CHECK(rmp::random::range(nan, 1.0f) == 1.0f);
+        CHECK(rmp::random::range(2.0f, nan) == 2.0f);
+        CHECK(rmp::random::range(-inf, 3.0f) == 3.0f);
+        CHECK(rmp::random::range(4.0f, inf) == 4.0f);
+        CHECK(rmp::random::range(inf, 1e30f) == 1e30f); // was NaN
+        CHECK(rmp::random::range(nan, -inf) == 0.0f);
+        CHECK(rmp::detail::report_count() == 1);
+        // And it still takes its one number, so the run goes on the same.
+        rmp::random::seed(5);
+        (void)rmp::random::value();
+        const float second = rmp::random::value();
+        rmp::random::seed(5);
+        (void)rmp::random::range(nan, nan);
+        CHECK(rmp::random::value() == second);
+    }
+
+    TEST_CASE("chance(0) at a value() of exactly 0 is still never") {
+        // `<` and not `<=`: Mull's pilot changed it, and chance(0) then came
+        // true one time in 2^24 -- on the seed whose first value() is 0.
+        rmp::random::seed(1319552);
+        CHECK(rmp::random::value() == 0.0f);
+        rmp::random::seed(1319552);
+        CHECK_FALSE(rmp::random::chance(0.0f));
+        rmp::random::seed(1319552);
+        CHECK(rmp::random::chance(std::numeric_limits<float>::denorm_min()));
+    }
+
+    TEST_CASE("chance(NaN) is never, and said once") {
+        rmp::detail::reset_reports_for_tests();
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        rmp::random::seed(1319552);
+        CHECK_FALSE(rmp::random::chance(nan));
+        CHECK_FALSE(rmp::random::chance(nan));
+        CHECK(rmp::detail::report_count() == 1);
+    }
+
+    TEST_CASE("in_circle() of a radius that is not a number is the centre, said once") {
+        rmp::detail::reset_reports_for_tests();
+        for (const float radius : { std::numeric_limits<float>::quiet_NaN(),
+                                    std::numeric_limits<float>::infinity(),
+                                    -std::numeric_limits<float>::infinity() }) {
+            const Vector2 p = rmp::random::in_circle(radius);
+            CHECK(p.x == 0.0f);
+            CHECK(p.y == 0.0f);
+        }
+        CHECK(rmp::detail::report_count() == 1);
+        rmp::random::seed(8);
+        const Vector2 far = rmp::random::in_circle(std::numeric_limits<float>::max());
+        CHECK(std::isfinite(far.x));
+        CHECK(std::isfinite(far.y));
     }
 
 } // TEST_SUITE
