@@ -5663,6 +5663,9 @@ class ConfigureNotANumberTest(unittest.TestCase):
         clang (-Wliteral-range) and gcc (-Woverflow) warn about the literal,
         an error under -Werror. Found by tests/configure_property_test.py,
         ToolsReadBackTest, once every define was read by the compiler."""
+        then = {"scale": "Use 0 for that, or a scale the eye can see, like 0.5.",
+                "deadzone": "Use 0 to turn it off, or a fraction a stick can feel, like 0.1.",
+                "audio": "Use 0 for silent."}
         for section, key, means in (("ui", "scale", "derive it from the window"),
                                     ("input", "deadzone", "no deadzone"),
                                     ("audio", "master", "silent"), ("audio", "music", "silent"),
@@ -5673,9 +5676,10 @@ class ConfigureNotANumberTest(unittest.TestCase):
                                                        **{key: tiny})})
                     with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
                         cfgmod.validate(cfg, False)
-                    message = str(caught.exception)
-                    self.assertIn(f"[{section}] {key} = {tiny!r} {self.TOO_CLOSE} {means}",
-                                  message)
+                    self.assertEqual(str(caught.exception),
+                                     f"[{section}] {key} = {tiny!r} {self.TOO_CLOSE} {means} -- "
+                                     "and the compiler warns about it.\n"
+                                     + then.get(key, then["audio"]))
                     self.assertIsNotNone(cfgmod.locate_from(caught.exception))
         # The smallest a float holds, and 0, are what they say.
         for value in (1e-40, 7.1e-46, 0, 0.0):
@@ -5687,7 +5691,10 @@ class ConfigureNotANumberTest(unittest.TestCase):
         for bad in (1e-50, 7e-46, 1e39, -1e39, 10**400):
             with self.subTest(value=bad), self.assertRaises(cfgmod.ConfigError) as caught:
                 cfgmod._c_float(bad)
-            self.assertIn("is not a number rmp/config.h can hold", str(caught.exception))
+            self.assertEqual(str(caught.exception),
+                             f"{bad!r} is not a number rmp/config.h can hold: C has no literal "
+                             "for nan or an infinity, and a float holds neither a number past "
+                             "its range nor one this close to 0.")
         self.assertEqual(cfgmod._c_float(1e-40), "1e-40f")
         self.assertEqual(cfgmod._c_float(3.4e38), "3.4e+38f")
         self.assertEqual(cfgmod._c_float(-0.0), "-0.0f")
@@ -5909,8 +5916,10 @@ class ConfigureUnreadableTomlTest(unittest.TestCase):
         """An editor that saved it as Latin-1: UnicodeDecodeError from inside
         tomllib, and a traceback."""
         message = self.refusal('# ok\n[window]\ntitle = "Café"\n'.encode("latin-1"))
-        self.assertIn("raylib_multiplatform.toml is not UTF-8: byte 0xe9 on line 3", message)
-        self.assertIn("Save the file as UTF-8", message)
+        self.assertEqual(message, "raylib_multiplatform.toml is not UTF-8: byte 0xe9 on line 3 "
+                                  "is not a character in it.\nTOML files are UTF-8. Save the "
+                                  "file as UTF-8 -- most editors have it under \"Save with "
+                                  "encoding\".")
         self.assertIsNone(cfgmod.locate("window", "title"), "no line in a file it cannot read")
 
     def test_a_toml_that_cannot_be_opened_says_why(self):
@@ -5928,8 +5937,10 @@ class ConfigureUnreadableTomlTest(unittest.TestCase):
         for data in (b"[window]\ntitle = " + b"[" * 2000 + b"]" * 2000 + b"\n",
                      b"a = " + b"{b = " * 1500 + b"1" + b"}" * 1500 + b"\n"):
             with self.subTest(data=data[:24]):
-                self.assertIn("raylib_multiplatform.toml nests arrays or inline tables deeper "
-                              "than it can be read", self.refusal(data))
+                self.assertEqual(self.refusal(data),
+                                 "raylib_multiplatform.toml nests arrays or inline tables deeper "
+                                 "than it can be read.\nNo setting nests them more than a level "
+                                 "or two; look for a long run of [ or {.")
 
 
 class ConfigureLineTest(unittest.TestCase):
@@ -7903,8 +7914,12 @@ class ConfigureRresPasswordTest(unittest.TestCase):
                 cfg = base_config(resources={"rres_password": bad})
                 with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
                     cfgmod.validate(cfg, False)
-                self.assertIn(f"[resources] rres_password = {bad!r} holds a control character",
-                              str(caught.exception))
+                self.assertEqual(str(caught.exception),
+                                 f"[resources] rres_password = {bad!r} holds a control "
+                                 "character. The packer takes the password on a command line, "
+                                 "which cannot carry one: the pack would be sealed with another "
+                                 "password than the game opens it with.\nUse printable "
+                                 "characters only.")
                 self.assertEqual(caught.exception.where, ("resources", "rres_password"))
         for good in ("pa${x}ss", "two words", "é日😀", "semi;colon", "\u0085 and \u2028"):
             with self.subTest(password=good), quiet():
