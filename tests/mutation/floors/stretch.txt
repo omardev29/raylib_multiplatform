@@ -1,0 +1,7 @@
+# The world's area in the window, and rmp::app::stretch() (Stage D):
+# src/rmp/stretch.cpp. world_viewport() is pure, so its own tests are the
+# whole of what can kill a mutant there.
+kind     cxx
+sources  src/rmp/stretch.cpp
+tests    unit_test -sf=*stretch_test.cpp
+floor    -
