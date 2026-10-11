@@ -29,6 +29,7 @@
 #include <rmp/scene.h>
 
 #include "internal.h" // RMP_REPORT_ONCE_KEYED, loads.failed
+#include "json_internal.h" // CNumbers
 #include "tilemap_internal.h"
 
 #include <cute_tiled.h>
@@ -217,6 +218,11 @@ namespace tilemap::detail {
 MapPtr parse_tiled(const void *bytes, int size, const char *name) {
     if (bytes == nullptr || size <= 0) return { nullptr, &free_map };
 
+    // Every number of the map -- and of an external tileset, read below -- in
+    // the "C" locale: cute_tiled reads them with strtod, which follows
+    // LC_NUMERIC, so under a German interface "1.5" was 1 and a '.' it could
+    // not place, and since every map says "version":"1.5", no map loaded.
+    const rmp::detail::CNumbers c_numbers;
     cute_tiled_map_t *raw = cute_tiled_load_map_from_memory(bytes, size, nullptr);
     if (raw == nullptr) {
         const char *why =

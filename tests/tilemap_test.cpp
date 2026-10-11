@@ -26,11 +26,13 @@
 #include <rmp/tilemap.h>
 
 #include <array>
+#include <clocale>
 #include <cmath>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <initializer_list>
@@ -302,6 +304,46 @@ TEST_CASE("base64 fails, and the message names the setting to change") {
     CHECK_FALSE(loaded.map.valid());
     CHECK(loaded.map.layer_count() == 0);
     CHECK(loaded.map.object_count() == 0);
+}
+
+TEST_CASE("a map reads the same under a locale with a decimal comma") {
+    // cute_tiled reads every number with strtod, which follows LC_NUMERIC: a
+    // game that sets a German locale for its interface read "1.5" as 1 and
+    // stopped at the '.', and since every map says "version":"1.5" and
+    // cute_tiled reads that as a number too, NO map loaded at all. The LDtk
+    // reader had the guard (tests/ldtk_test.cpp); this reader did not.
+    const std::array names{ "rmp_comma", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8",
+                            "es_ES.UTF-8" };
+    const std::string was = std::setlocale(LC_NUMERIC, nullptr);
+    const char *found = nullptr;
+    for (const char *name : names) {
+        if (std::setlocale(LC_NUMERIC, name) != nullptr) {
+            found = name;
+            break;
+        }
+    }
+    if (found == nullptr) {
+        const char *must = std::getenv("RMP_REQUIRE_TEST_LOCALES");
+        if (must != nullptr && std::string(must) == "1") {
+            FAIL_CHECK("no locale with a decimal comma: run tools/test_locales.sh and "
+                       "set LOCPATH");
+        } else {
+            MESSAGE("no locale with a decimal comma here: skipped");
+        }
+        return;
+    }
+    std::array<char, 16> raw{};
+    std::snprintf(raw.data(), raw.size(), "%g", 0.5);
+    const bool comma = std::string(raw.data()) != "0.5"; // or this tests nothing
+    const Parsed p("map_minimal.json");
+    const std::string during = std::setlocale(LC_NUMERIC, nullptr);
+    std::setlocale(LC_NUMERIC, was.c_str());
+    CHECK(comma);
+    REQUIRE(p.map.valid());
+    const rmp::MapObject *goblin = rmp::tilemap::detail::object_at(p.data, 0);
+    REQUIRE(goblin != nullptr);
+    CHECK(goblin->property_float("speed") == doctest::Approx(1.5));
+    CHECK(during.find(found) != std::string::npos); // the game's locale, given back
 }
 
 TEST_CASE("rubbish is refused rather than half-read") {
