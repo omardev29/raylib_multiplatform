@@ -223,6 +223,13 @@ def session_of(env, system: str, terminal) -> Session:
     return Session(False)
 
 
+def drm_line(session: Session) -> str:
+    """What rmp says when it builds for DRM/KMS -- and what the drm-x64-run
+    CI job looks for to know it did."""
+    return (f"{session.why}: building for DRM/KMS, in {DEBUG_DRM_DIR} and {RELEASE_DRM_DIR} "
+            f"({DRM_ENV}=0 for the desktop)")
+
+
 def terminal_name():
     """The terminal rmp was started from: stdin's, or else the controlling
     terminal's, which `rmp run < /dev/null > log` still has. None when there
@@ -294,8 +301,7 @@ class Ctx:
         if self._session is None:
             self._session = session_of(os.environ, system_name(), terminal_name())
             if self._session.drm:
-                print(f"  console  {self._session.why}: building for DRM/KMS, in "
-                      f"{DEBUG_DRM_DIR} and {RELEASE_DRM_DIR} ({DRM_ENV}=0 for the desktop)")
+                print(f"  console  {drm_line(self._session)}")
             elif self._session.note:
                 print(f"  note     {self._session.note}")
         return self._session

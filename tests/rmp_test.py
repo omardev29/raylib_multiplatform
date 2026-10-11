@@ -4632,5 +4632,70 @@ class TerminalRestoreTest(unittest.TestCase):
                       "Ctrl+C), its flags (O_NONBLOCK) -- and rmp put it back", out.getvalue())
 
 
+class ConsoleInCiTest(unittest.TestCase):
+    """drm-x64-run runs rmp the way somebody at a console does, on the vkms
+    card, and checks that it decided DRM/KMS by itself, built build/debug-drm
+    and booted it through `rmp run`'s own path. What it greps for is what rmp
+    says, read from rmp here, so a sentence reworded in one place is red.
+    Seen red with the step's XDG_SESSION_TYPE taken out, and with an
+    RMP_DRM=1 put in (the override would hide the detection)."""
+
+    def step(self, workflow=None):
+        jobs = (workflow or load_workflow(self, "_linux.yml"))["jobs"]
+        steps = [s for s in jobs["drm-x64-run"]["steps"] if "./rmp run" in str(s.get("run", ""))]
+        self.assertEqual(len(steps), 1, "drm-x64-run has no step that runs ./rmp run")
+        return code_lines(steps[0]["run"]), jobs["drm-x64-run"]
+
+    def problems(self, run: str) -> list[str]:
+        said = rmp.drm_line(rmp.session_of({"XDG_SESSION_TYPE": "tty"}, "Linux", None))
+        with tempfile.TemporaryDirectory() as tmp:
+            note = rmp.device_access(fake_dev(Path(tmp) / "dev", events=0)).notes[0]
+        note = note.replace(tmp + "/dev", "/dev")
+        wanted = {
+            "the build image": '"${{ inputs.build_image }}"',
+            "the card": "--device /dev/dri",
+            "no network": "--network none",
+            "a console's session": "-e XDG_SESSION_TYPE=tty",
+            "ten frames": "-e RAY_TEST_MAX_FRAMES=10",
+            "sanitizers required": "-e RMP_REQUIRE_SANITIZERS=1",
+            "rmp run itself": "./rmp run 2>&1 < /dev/null",
+            "the decision, as rmp says it": said.split(" and ")[0],
+            "PLATFORM=DRM in CMake": "=== PLATFORM: DRM/KMS, no X11 and no Wayland ===",
+            "sanitized": "=== SANITIZERS: address, undefined ===",
+            "the folder": 'test -x "build/debug-drm/$NAME"',
+            "not the desktop's": "test ! -e build/debug ",
+            "the cache": "PLATFORM:STRING=DRM",
+            "libdrm linked": "grep -q libdrm ldd.txt",
+            "no X11 linked": "libX11|libwayland",
+            "the device check": note.split(" of the terminal")[0],
+            "booted": "RAY_TEST_BOOT_OK assets_failed=0 ",
+            "drew": "RAY_TEST_RENDER_OK",
+            "ended": "RAY_TEST_DONE_FRAMES",
+            "no sanitizer report": "ERROR: (Address|Leak)Sanitizer|runtime error:",
+            "its status": 'test "$RC" -eq 0',
+        }
+        found = [f"missing {what}: {text}" for what, text in wanted.items() if text not in run]
+        for forbidden in ("RMP_DRM", "-e DISPLAY", "WAYLAND_DISPLAY", "SSH_"):
+            if forbidden in run:
+                found.append(f"{forbidden} in the step: the detection is what is under test")
+        return found
+
+    def test_the_step_runs_rmp_on_a_console_and_checks_what_it_did(self):
+        run, job = self.step()
+        self.assertEqual(self.problems(run), [])
+        self.assertGreaterEqual(job["timeout-minutes"], 30, "a sanitized debug build needs time")
+        self.assertEqual(job["needs"], "drm-x64")
+
+    def test_the_check_sees_what_it_is_for(self):
+        run, _ = self.step()
+        for broken in (run.replace("-e XDG_SESSION_TYPE=tty", ""),
+                       run.replace("./rmp run", "-e RMP_DRM=1 ./rmp run"),
+                       run.replace("build/debug-drm/$NAME", "build/debug/$NAME"),
+                       run.replace("there is no /dev/input/event*", "no input"),
+                       run.replace("--device /dev/dri", "")):
+            with self.subTest():
+                self.assertNotEqual(self.problems(broken), [])
+
+
 if __name__ == "__main__":
     unittest.main()

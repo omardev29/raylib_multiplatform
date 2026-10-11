@@ -901,7 +901,8 @@ jobs:
     needs: drm-x64
     if: inputs.full && contains(fromJSON(inputs.targets), 'linux-x64-glibc-drm')
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 15 for the boot, and the rest for the last step's sanitized debug build.
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: read
@@ -974,6 +975,58 @@ jobs:
           echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || { echo "FAIL: it died before the end"; exit 1; }
           test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
           echo "PASS: booted and rendered through DRM/KMS"
+
+      # rmp itself, the way somebody at a Linux console with no desktop runs it
+      # (Stage G): no DISPLAY, no WAYLAND_DISPLAY, XDG_SESSION_TYPE=tty -- what
+      # logind sets for a text login -- and `./rmp run`, which has to decide
+      # DRM/KMS on its own (no RMP_DRM: the detection is what is under test),
+      # configure and build build/debug-drm, sanitized like every framework
+      # Debug build, ask /dev/dri and /dev/input before it starts the game, and
+      # start it on the vkms card. In the build image, which has every DRM
+      # header; as its root, who has nobody behind it and needs no sudo for
+      # the card. No /dev/input is handed in, so the run says the game reads
+      # only its terminal's keys -- the device check's own line, and the proof
+      # that the game was started by `rmp run` and not around it.
+      - name: rmp run on a console -- chose DRM/KMS, built, booted
+        run: |
+          set -euo pipefail
+          NAME="${{ inputs.project_name }}"
+          if OUT=$(docker run --rm --network none --device /dev/dri \
+            -v "$PWD:/work" -w /work \
+            -e XDG_SESSION_TYPE=tty \
+            -e RAY_TEST_MAX_FRAMES=10 \
+            -e LIBGL_ALWAYS_SOFTWARE=1 \
+            -e RMP_REQUIRE_SANITIZERS=1 \
+            -e CMAKE_BUILD_PARALLEL_LEVEL=4 \
+            "${{ inputs.build_image }}" \
+            ./rmp run 2>&1 < /dev/null); then RC=0; else RC=$?; fi
+          echo "$OUT" | tail -60
+          fail() { echo "FAIL: $*"; exit 1; }
+          echo "$OUT" | grep -qF "XDG_SESSION_TYPE=tty: building for DRM/KMS, in build/debug-drm" \
+            || fail "rmp did not decide DRM/KMS on a console"
+          echo "$OUT" | grep -qF "=== PLATFORM: DRM/KMS, no X11 and no Wayland ===" \
+            || fail "CMake did not configure PLATFORM=DRM"
+          echo "$OUT" | grep -qF "=== SANITIZERS: address, undefined ===" \
+            || fail "the debug build was not sanitized"
+          test -x "build/debug-drm/$NAME" || fail "no build/debug-drm/$NAME"
+          test ! -e build/debug || fail "the desktop's build/debug was touched"
+          grep -qx 'PLATFORM:STRING=DRM' build/debug-drm/CMakeCache.txt \
+            || fail "build/debug-drm's cache is not PLATFORM=DRM"
+          docker run --rm --network none -v "$PWD:/work" -w /work --entrypoint ldd \
+            "${{ inputs.build_image }}" "build/debug-drm/$NAME" > ldd.txt
+          grep -q libdrm ldd.txt || { cat ldd.txt; fail "not linked against libdrm"; }
+          if grep -qE "libX11|libwayland" ldd.txt; then cat ldd.txt; fail "a windowing system was linked"; fi
+          echo "$OUT" | grep -qF "there is no /dev/input/event*: the game reads the keys" \
+            || fail "rmp run did not check /dev before it started the game"
+          echo "$OUT" | grep -q "RAY_TEST_BOOT_OK assets_failed=0 " \
+            || fail "it did not boot through rmp run, or an asset failed to load"
+          echo "$OUT" | grep -q RAY_TEST_RENDER_OK || fail "it drew nothing"
+          echo "$OUT" | grep -q RAY_TEST_DONE_FRAMES || fail "it died before the end"
+          if echo "$OUT" | grep -qE "ERROR: (Address|Leak)Sanitizer|runtime error:"; then
+            fail "a sanitizer reported the run above"
+          fi
+          test "$RC" -eq 0 || fail "rmp run exited with status $RC"
+          echo "PASS: rmp chose DRM/KMS on a console, built build/debug-drm and booted it"
 
 
   drm-arm64:
