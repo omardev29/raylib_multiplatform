@@ -2,4 +2,5 @@
 kind     cxx
 sources  src/rmp/object.cpp
 tests    unit_test -sf=*object_test.cpp
+tests    property_test -ts=*object
 floor    -

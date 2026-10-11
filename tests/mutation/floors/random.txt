@@ -5,4 +5,5 @@
 kind     cxx
 sources  src/rmp/random.cpp
 tests    unit_test -ts=random
+tests    property_test -ts=*random
 floor    80
