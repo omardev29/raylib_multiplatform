@@ -1,6 +1,13 @@
 # rmp::Object and its handles (package P5; the test-screen seam is Stage D's).
 kind     cxx
 sources  src/rmp/object.cpp
-tests    unit_test -sf=*object_test.cpp
+# Every suite that drives object.cpp's passes, not only its own: the map steps
+# (move_through_map, push_out) are map_collision_test's, a wrap's re-marking
+# is collision_test's, the behaviors' place in the frame behavior_test's and
+# the animation clock's animation_test's -- with object_test alone, 44.64%
+# (225 of 504, in the image). Without the cases that time themselves: their
+# ceilings are an unsanitized build's, which Mull's -O0 build with every
+# mutant compiled in does not meet on a loaded machine.
+tests    unit_test -sf=*object_test.cpp,*collision_test.cpp,*map_collision_test.cpp,*behavior_test.cpp,*behaviors_test.cpp,*animation_test.cpp -tce=*cheap,*fraction?of?a?frame,*four?times*
 tests    property_test -ts=*object
 floor    -
