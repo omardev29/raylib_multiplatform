@@ -36,13 +36,17 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
@@ -3426,6 +3430,66 @@ TEST_CASE("a dropdown written in place, with options") {
     check(rmp::ui::detail::bounds_of("quality", 0, 0, &b) && b.width > 120,
           "the row is laid out, its field the width asked for");
     rmp::ui::set_scale(0);
+}
+
+// A layout either finishes, or the program says what did not and ends: a
+// hang is otherwise a test that never reports.
+class Watchdog {
+public:
+    Watchdog(std::chrono::seconds limit, std::string what)
+        : _what(std::move(what)), _thread([this, limit] { watch(limit); }) {}
+    ~Watchdog() {
+        {
+            const std::lock_guard<std::mutex> lock(_mutex);
+            _done = true;
+        }
+        _woken.notify_one();
+        _thread.join();
+    }
+    Watchdog(const Watchdog &) = delete;
+    Watchdog &operator=(const Watchdog &) = delete;
+
+private:
+    void watch(std::chrono::seconds limit) {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_woken.wait_for(lock, limit, [this] { return _done; })) return;
+        std::fprintf(stderr, "FAIL  %s did not finish in %lld s\n", _what.c_str(),
+                     static_cast<long long>(limit.count()));
+        std::fflush(stderr);
+        std::_Exit(1);
+    }
+    std::string _what;
+    std::mutex _mutex;
+    std::condition_variable _woken;
+    bool _done = false;
+    std::thread _thread;
+};
+
+// Found by tests/property/ui_prop.cpp: Clay's sizing went round forever.
+// Squeezing what does not fit, it takes a little at a time from the largest
+// children, and from a box 250000 pixels tall a little is less than a float
+// can take away: nothing changed, and it went round again -- here an image
+// 62500 design units tall, at the scale of a 3300x2206 window, in a column
+// beside a stack. thirdparty/clay/clay.h stops a pass that moves nothing
+// (PATCHES.md); until that patch is in, this hangs, and is skipped. With it
+// the layout is laid out at once.
+TEST_CASE("an image too tall for any window lays out" * doctest::skip()) {
+    const Watchdog watchdog(std::chrono::seconds(20),
+                            "the layout of an image 250000 pixels tall");
+    rmp::ui::detail::set_test_viewport(3300, 2206);
+    const Texture2D texture{};
+    rmp::ui::begin();
+    rmp::ui::center([] { rmp::ui::button("Above"); });
+    rmp::ui::column({ .grow_x = true }, [&] {
+        rmp::ui::text("a\nb");
+        rmp::ui::image(texture, { .width = 56, .height = 62500 });
+    });
+    rmp::ui::stack(
+        [&] { rmp::ui::layer([&] { rmp::ui::image(texture, { .grow = true }); }); });
+    rmp::ui::end();
+    Clay_BoundingBox b{};
+    check(rmp::ui::detail::bounds_of("Above", 0, 0, &b) && std::isfinite(b.y),
+          "and what is beside it is somewhere");
 }
 
 TEST_CASE("scale limits") {
