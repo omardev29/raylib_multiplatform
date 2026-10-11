@@ -1,5 +1,13 @@
-# rmp::Camera (package P3, after Stage D).
+# rmp::Camera (package P3b): following, limits, the shake, and the two
+# conversions through the [window] stretch. Killed by either program is
+# killed: camera_test -- the cases, and the counterexamples of the properties
+# by name -- and tests/property/camera_prop.cpp, which holds the projection to
+# a model of the stretch written from app.h, the limits and the shake to their
+# promises, the smoothing to its rate, and every field a game sets to what a
+# number that is not finite may do. Unmeasured: the lead measures it in the
+# weekly deep run at the end of the plan.
 kind     cxx
 sources  src/rmp/camera.cpp
 tests    unit_test -sf=*camera_test.cpp
+tests    property_test -ts=*camera
 floor    -

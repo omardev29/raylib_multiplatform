@@ -88,6 +88,28 @@ struct {
     int stops = 0;
 } strictness;
 
+// The camera's reports for one test, counted from none, with [dev] strict on
+// and its stops counted instead of aborting -- and both put back however the
+// test ends.
+struct Reports {
+    rmp::detail::StrictHandler previous = nullptr;
+    Reports() {
+        rmp::detail::reset_reports_for_tests();
+        rmp::detail::set_strict(true);
+        previous = rmp::detail::set_strict_handler([] { ++strictness.stops; });
+        strictness.stops = 0;
+    }
+    Reports(const Reports &) = delete;
+    Reports &operator=(const Reports &) = delete;
+    Reports(Reports &&) = delete;
+    Reports &operator=(Reports &&) = delete;
+    ~Reports() {
+        rmp::detail::set_strict(false);
+        rmp::detail::set_strict_handler(previous);
+        rmp::detail::reset_reports_for_tests();
+    }
+};
+
 bool near(Vector2 a, Vector2 b) {
     return a.x == doctest::Approx(b.x).epsilon(0.001) &&
         a.y == doctest::Approx(b.y).epsilon(0.001);
@@ -1100,5 +1122,238 @@ TEST_SUITE("camera: stretch") {
         rmp::app::set_stretch(Stretch::EXPAND);
         CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH));
         CHECK(world.camera.raylib().zoom == doctest::Approx(2));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The counterexamples tests/property/camera_prop.cpp found, each by name: a
+// number that is not one -- NaN, an infinity, a float at the end of its range
+// -- in anything a game hands the camera, and the whole way of a smoothed
+// follow. Each of these was red before src/rmp/camera.cpp said otherwise.
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("camera: numbers that are not numbers") {
+    using rmp::app::Stretch;
+    constexpr float INF = std::numeric_limits<float>::infinity();
+    constexpr float NOT_A_NUMBER = std::numeric_limits<float>::quiet_NaN();
+    constexpr float LARGEST = std::numeric_limits<float>::max();
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "the whole way of a smoothed follow is the target itself") {
+        // From -25421.14 the float sum landed at -399.7793, a thousandth PAST
+        // a target at -399.7803; and from 1e30 it landed on 0, not on -0.06.
+        World world;
+        rmp::Object &target = world.spawn({ .position = { -25421.14258f, 1e30f } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 35.63616562f;
+        world.camera.detail_settle(0.0f); // acquires it: a snap
+        target.position = { -399.7802734f, -0.06103516f };
+        world.camera.detail_settle(0.5f); // e^-17.8 of the way left: none, in a float
+        CHECK(world.camera.position.x == -399.7802734f);
+        CHECK(world.camera.position.y == -0.06103516f);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a way longer than a float holds is followed, not made infinite") {
+        World world;
+        rmp::Object &target = world.spawn({ .position = { -LARGEST, LARGEST } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 2;
+        world.camera.detail_settle(0.0f);
+        target.position = { LARGEST, -LARGEST };
+        world.camera.detail_settle(1.0f / 60);
+        // A thirtieth of the way from one end of the floats to the other.
+        const double t = 1 - std::exp(-2.0 / 60);
+        CHECK(std::isfinite(world.camera.position.x));
+        CHECK(std::isfinite(world.camera.position.y));
+        CHECK(world.camera.position.x ==
+              doctest::Approx(-double{ LARGEST } + (2 * double{ LARGEST } * t)));
+        CHECK(world.camera.position.y ==
+              doctest::Approx(double{ LARGEST } - (2 * double{ LARGEST } * t)));
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a target that is not a number is waited for, and followed again") {
+        // A smoothed camera took the infinity in, and NaN plus anything is
+        // NaN: it never drew again, whatever the target did next.
+        World world;
+        rmp::Object &target = world.spawn({ .position = { 100, 50 } });
+        world.camera.follow = target.handle();
+        world.camera.smoothing = 5;
+        world.camera.detail_settle(1.0f / 60);
+        const Reports reports;
+        for (const Vector2 lost : { Vector2{ INF, 50 }, Vector2{ 100, NOT_A_NUMBER },
+                                    Vector2{ -INF, -INF } }) {
+            target.position = lost;
+            world.camera.detail_settle(1.0f / 60);
+            // It waits where it was, on each axis it cannot follow.
+            CHECK(world.camera.position.x == 100);
+            CHECK(world.camera.position.y == 50);
+        }
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK(strictness.stops == 1);
+        target.position = { 400, 50 };
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.position.x > 100);
+        CHECK(world.camera.position.x < 400);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a position that is not a number goes back to the middle of the "
+                      "design") {
+        World world;
+        const Reports reports;
+        world.camera.position = { INF, 0 }; // the property's counterexample
+        // A read draws from the middle of the design, and says nothing.
+        CHECK(world.camera.raylib().target.x == SCREEN_WIDTH / 2);
+        CHECK(world.camera.raylib().target.y == 0);
+        CHECK(world.camera.view().x == doctest::Approx(0));
+        CHECK(rmp::detail::report_count() == 0);
+        // The settle puts it there, and says so once.
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.position.x == SCREEN_WIDTH / 2);
+        CHECK(world.camera.position.y == 0);
+        world.camera.position.y = NOT_A_NUMBER;
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.position.x == SCREEN_WIDTH / 2);
+        CHECK(world.camera.position.y == SCREEN_HEIGHT / 2);
+        CHECK(rmp::detail::report_count() == 1);
+        CHECK(strictness.stops == 1);
+
+        SUBCASE("and a smoothed camera that follows joins its target at once") {
+            rmp::Object &target = world.spawn({ .position = { 700, -300 } });
+            world.camera.follow = target.handle();
+            world.camera.smoothing = 3;
+            world.camera.detail_settle(1.0f / 60); // acquires it
+            target.position = { 710, -290 };
+            world.camera.position = { NOT_A_NUMBER, -INF };
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(world.camera.position.x == 710);
+            CHECK(world.camera.position.y == -290);
+        }
+    }
+
+    TEST_CASE_FIXTURE(Fixture, "a rotation that is not a number draws unturned") {
+        World world;
+        const Reports reports;
+        for (const float bad : { NOT_A_NUMBER, INF, -INF }) {
+            CAPTURE(bad);
+            world.camera.rotation = bad;
+            CHECK(world.camera.raylib().rotation == 0);
+            CHECK(near(world.camera.to_world(world.camera.to_screen(Vector2{ 123, 45 })),
+                       Vector2{ 123, 45 }));
+            world.camera.detail_settle(1.0f / 60);
+        }
+        CHECK(rmp::detail::report_count() == 1);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a limit that is not a number bounds nothing on its axis") {
+        // The property's counterexample: a NaN edge on a limit narrower than
+        // the view put NaN into the position -- and an infinite edge infinity.
+        World world;
+        const Reports reports;
+        world.camera.position = { 640, 5000 };
+        world.camera.limits = { NOT_A_NUMBER, 0, 119, 900 };
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.position.x == 640); // unbounded
+        CHECK(world.camera.position.y == doctest::Approx(900 - SCREEN_HEIGHT / 2));
+        for (const Rectangle bad :
+             { Rectangle{ INF, 0, 2000, 0 }, Rectangle{ 0, -INF, 0, 100 },
+               Rectangle{ 0, 0, INF, NOT_A_NUMBER } }) {
+            world.camera.position = { 640, 5000 };
+            world.camera.limits = bad;
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(world.camera.position.x == 640);
+            CHECK(world.camera.position.y == 5000);
+        }
+        CHECK(rmp::detail::report_count() == 1);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "an infinite zoom is 1, and one past 1024 either way stops there") {
+        // An infinite zoom drew at an infinite scale; the largest float, times
+        // a stretch of 2, did too; and the smallest made the view infinite.
+        const Screen screen(2 * SCREEN_WIDTH, 2 * SCREEN_HEIGHT, Stretch::LETTERBOX);
+        World world;
+        const Reports reports;
+        world.camera.zoom = INF;
+        CHECK(world.camera.raylib().zoom == 2);
+        CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH));
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(rmp::detail::report_count() == 1);
+        // Finite, and only too far: stopped there, in silence.
+        for (const float big : { 1e30f, LARGEST, 1025.0f }) {
+            world.camera.zoom = big;
+            CHECK(world.camera.raylib().zoom == 2048);
+            CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH / 1024));
+        }
+        for (const float small : { 1e-30f, std::numeric_limits<float>::denorm_min() }) {
+            world.camera.zoom = small;
+            CHECK(world.camera.raylib().zoom == doctest::Approx(2.0 / 1024));
+            CHECK(world.camera.view().width == doctest::Approx(SCREEN_WIDTH * 1024));
+            CHECK(near(world.camera.to_world(world.camera.to_screen(Vector2{ 123, 45 })),
+                       Vector2{ 123, 45 }));
+        }
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(rmp::detail::report_count() == 1);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a shake at the end of the floats shows only what a float holds") {
+        // The largest position plus a shake that points outwards was infinity
+        // in the drawn camera; inwards it still shows.
+        World world;
+        world.camera.position = { LARGEST, -LARGEST };
+        world.camera.shake(LARGEST, 1);
+        bool shook = false;
+        for (int i = 0; i < 30; ++i) {
+            world.camera.detail_settle(1.0f / 60);
+            const Camera2D drawn = world.camera.raylib();
+            CHECK(std::isfinite(drawn.target.x));
+            CHECK(std::isfinite(drawn.target.y));
+            if (drawn.target.x != LARGEST) shook = true;
+        }
+        CHECK(shook);
+    }
+
+    TEST_CASE_FIXTURE(Fixture,
+                      "a shake or a smoothing that is not a number is refused, and said "
+                      "once") {
+        World world;
+        const Reports reports;
+        world.camera.shake(NOT_A_NUMBER, 0.5f);
+        world.camera.shake(INF, 0.5f);
+        CHECK(rmp::detail::report_count() == 1);
+        world.camera.shake(5, -INF);
+        world.camera.shake(5, NOT_A_NUMBER);
+        CHECK(rmp::detail::report_count() == 2);
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.shake_offset().x == 0.0f);
+        CHECK(world.camera.shake_offset().y == 0.0f);
+        // Zero and less is nothing to shake, refused in silence.
+        world.camera.shake(0, 0.5f);
+        world.camera.shake(-3, 0.5f);
+        world.camera.shake(5, 0);
+        world.camera.shake(5, -1);
+        CHECK(rmp::detail::report_count() == 2);
+
+        rmp::Object &target = world.spawn({ .position = { 300, 100 } });
+        world.camera.follow = target.handle();
+        world.camera.detail_settle(0.0f);
+        target.position = { 500, 100 };
+        world.camera.smoothing = INF; // a snap, as it always was: not said
+        world.camera.detail_settle(1.0f / 60);
+        CHECK(world.camera.position.x == 500);
+        CHECK(rmp::detail::report_count() == 2);
+        for (const float bad : { NOT_A_NUMBER, -INF }) {
+            CAPTURE(bad);
+            target.position.x += 100;
+            world.camera.smoothing = bad;
+            world.camera.detail_settle(1.0f / 60);
+            CHECK(world.camera.position.x == target.position.x); // it snaps
+        }
+        CHECK(rmp::detail::report_count() == 3);
+        CHECK(strictness.stops == 3);
     }
 }
