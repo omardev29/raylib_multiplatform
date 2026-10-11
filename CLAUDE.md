@@ -170,8 +170,8 @@ here so that nobody "fixes" one back.
   is news about the game: Breakout's ball outran the paddle and Invaders' last
   alien landed before a ship could reach it, and both were fixed in the game.
   An e2e run's ceiling is 600 s (`E2E_LIMIT` in `examples_build.sh`), a boot's
-  180, and the scripts are played side by side, one per processor, the most
-  frames first -- each has its own folder, and a frame is 1/60 s whatever the
+  180, and the scripts are played side by side, one per processor (or
+  `CMAKE_BUILD_PARALLEL_LEVEL` of them, when it is set), the most frames first -- each has its own folder, and a frame is 1/60 s whatever the
   load, so that changes the wait and nothing drawn.
 - **Coverage is a ratchet, measured in the image.** `rmp test coverage`
   (`tools/coverage_check.sh`; the framework-only `coverage` job, which a release

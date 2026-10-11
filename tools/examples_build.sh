@@ -142,15 +142,22 @@ play_e2e() {
   else
     echo "  outside the pinned build image: a difference is reported, not enforced"
   fi
-  # Played side by side, as many at once as the machine has processors. Each
-  # script is a process of its own, with its own folder under $BUILD/e2e/ and
-  # its own saves, and every frame is exactly 1/60 s whatever else the machine
-  # is doing -- so playing them together cannot change what they draw, only
-  # how long this waits: one after another they took about twelve minutes in
-  # the image, the platformer's alone about four. The scripts with the most
-  # frames start first, so the longest is not the last to begin. A target is
+  # Played side by side, as many at once as the machine has processors -- or
+  # as the build may compile at once, when CMAKE_BUILD_PARALLEL_LEVEL says so:
+  # several builds sharing one machine lower it, and every script is a
+  # sanitized process of a few hundred megabytes. Each script is a process of
+  # its own, with its own folder under $BUILD/e2e/ and its own saves, and every
+  # frame is exactly 1/60 s whatever else the machine is doing -- so playing
+  # them together cannot change what they draw, only how long this waits: one
+  # after another they took about twelve minutes in the image, the
+  # platformer's alone about four. The scripts with the most frames start
+  # first, so the longest is not the last to begin. A target is
   # e2e_<area>_<name>, from tests/e2e/<area>/<name>.e2e (CMakeLists.txt).
   slots=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+  case "${CMAKE_BUILD_PARALLEL_LEVEL:-}" in
+    '' | *[!0-9]* | 0) ;;
+    *) slots=$CMAKE_BUILD_PARALLEL_LEVEL ;;
+  esac
   logs="$BUILD/e2e-logs"
   rm -rf "$logs"
   mkdir -p "$logs"
