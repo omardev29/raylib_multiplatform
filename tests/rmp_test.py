@@ -2765,8 +2765,11 @@ class NewRefusesTest(unittest.TestCase):
             self.assertEqual(os.listdir(Path(tmp) / "full"), [".hidden"])
 
     def test_names_that_cannot_build(self):
+        # "game\n": configure's NAME_RE ended in `$`, which matches before a
+        # trailing newline, so the newline went into the executable's name.
+        # It ends in \Z now. Seen red with `$` put back.
         with tempfile.TemporaryDirectory() as tmp:
-            for name in ("2048", "my game", "rmp", "con", "unit_test"):
+            for name in ("2048", "my game", "rmp", "con", "unit_test", "game\n"):
                 with self.subTest(name=name):
                     got = self.new(tmp, name)
                     self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
