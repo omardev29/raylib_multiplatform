@@ -12,7 +12,10 @@
 # The keys are tools/coverage_report.py's, as tools/untested_api.txt spells them.
 #
 # Measured 2026-10-11 against main 0b80c3f: 296 functions. Each block says which
-# package of Stage E takes it.
+# package of Stage E takes it. Stage D's eight -- rmp::app::stretch() and
+# set_stretch(), and rmp::ui's at, overlay, tooltip and notify -- were written in
+# by hand at its merge, into the blocks of the packages that take their headers
+# after Stage D: none of them had a property yet, as no function of theirs did.
 
 # include/rmp/ads.h: P6 (stub cases)
 rmp::ads::is_interstitial_loaded()
@@ -27,6 +30,8 @@ rmp::ads::take_reward_earned()
 # include/rmp/app.h: P6, after Stage D
 rmp::app::quit()
 rmp::app::quit_requested()
+rmp::app::set_stretch(Stretch)
+rmp::app::stretch()
 rmp::global [template]
 
 # include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's
@@ -286,6 +291,7 @@ rmp::Tilemap::valid() const
 rmp::Tilemap::~Tilemap()
 
 # include/rmp/ui.h: P7, after Stage D
+rmp::ui::at [template]
 rmp::ui::begin()
 rmp::ui::begin(const FrameOptions &)
 rmp::ui::button(std::string_view)
@@ -310,6 +316,9 @@ rmp::ui::image(const Texture2D &)
 rmp::ui::image(const Texture2D &, const ImageOptions &)
 rmp::ui::layer [template]
 rmp::ui::navigation_enabled()
+rmp::ui::notify(std::string_view)
+rmp::ui::notify(std::string_view, const NotifyOptions &)
+rmp::ui::overlay [template]
 rmp::ui::panel [template]
 rmp::ui::progress(float)
 rmp::ui::progress(float, const ProgressOptions &)
@@ -331,5 +340,7 @@ rmp::ui::text_input(std::string_view, std::string &)
 rmp::ui::text_input(std::string_view, std::string &, const TextInputOptions &)
 rmp::ui::theme_dark()
 rmp::ui::theme_light()
+rmp::ui::tooltip(std::string_view)
+rmp::ui::tooltip(std::string_view, const TooltipOptions &)
 rmp::ui::wants_keyboard()
 rmp::ui::wants_pointer()
