@@ -9,6 +9,7 @@
 // ===========================================================================
 
 #include <raylib.h>
+#include <rlgl.h> // rlGetShaderIdDefault(): what a shader that failed comes back as
 
 #include <optional>
 #include <string>
@@ -48,16 +49,49 @@ void set_resources_root(const char *root) {
     resources.root = root;
 }
 
-// The backdrop's render target and shader (rmp/assets.h). Neither makes
-// anything: the backdrop draws no blur, so nothing asks for one. Empty is also
-// the answer for a texture with no area and a shader with no fragment source,
-// whatever is made here.
-rmp::RenderTexture make_render_texture(int /*width*/, int /*height*/) {
-    return rmp::RenderTexture{};
+// The backdrop's render target and shader (rmp/assets.h): what
+// src/rmp/ui/backdrop.cpp draws overlay()'s blur with. Each is empty, and
+// touches no GPU, when there is nothing to make -- which is everything a test
+// with no window can ask for. With something to make there has to be a
+// window: raylib's GL calls have nowhere to go before InitWindow(), and the
+// backdrop asks only when there is one.
+rmp::RenderTexture make_render_texture(const int width, const int height) {
+    if (width <= 0 || height <= 0) return rmp::RenderTexture{};
+    // RMP_COVERAGE_OFF(on the GPU: the unit tests have no window; tests/ui_render_test.cpp makes one)
+    const RenderTexture2D raw = LoadRenderTexture(width, height);
+    // A framebuffer the driver would not complete is as good as none, and
+    // raylib only says so in the log.
+    if (!IsRenderTextureValid(raw)) {
+        UnloadRenderTexture(raw);
+        return rmp::RenderTexture{};
+    }
+    rmp::RenderTexture made{ rmp::detail::adopt(rmp::detail::ResourceKind::RENDER_TEXTURE,
+                                                raw) };
+    if (!made.valid()) UnloadRenderTexture(raw);
+    return made;
+    // RMP_COVERAGE_ON
 }
 
-rmp::Shader make_shader(std::string_view /*vertex*/, std::string_view /*fragment*/) {
-    return rmp::Shader{};
+rmp::Shader make_shader(const std::string_view vertex, const std::string_view fragment) {
+    if (fragment.empty()) return rmp::Shader{};
+    // RMP_COVERAGE_OFF(on the GPU: the unit tests have no window; tests/ui_render_test.cpp makes one)
+    // raylib reads C strings; an empty vertex source is its own default one.
+    const std::string vs(vertex);
+    const std::string fs(fragment);
+    const ::Shader raw =
+        LoadShaderFromMemory(vs.empty() ? nullptr : vs.c_str(), fs.c_str());
+    // A shader that does not compile or link comes back as 0, or as raylib's
+    // default program standing in for it -- which would draw, and draw the
+    // wrong thing. Neither is what was asked for: empty, as a file that does
+    // not decode is. raylib has logged why.
+    if (raw.id == 0 || raw.id == rlGetShaderIdDefault()) {
+        UnloadShader(raw); // frees nothing of raylib's own, and the locations of a 0
+        return rmp::Shader{};
+    }
+    rmp::Shader made{ rmp::detail::adopt(rmp::detail::ResourceKind::SHADER, raw) };
+    if (!made.valid()) UnloadShader(raw);
+    return made;
+    // RMP_COVERAGE_ON
 }
 } // namespace detail
 
