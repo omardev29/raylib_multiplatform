@@ -1493,6 +1493,35 @@ TEST_SUITE("ui: floating") {
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,
+                      "a thousand different notices, one after another, "
+                      "are each measured and drawn") {
+        // What a long session says: a line, gone before the next. Clay lets
+        // go of a line it measured only when another lands in the same one of
+        // its buckets, and the notices' context visits a bucket or two a
+        // frame -- it was full after about 150 lines, and from then on, every
+        // so often, a new one came out as nothing: a box with no text in it
+        // (67 of these 1000).
+        rmp::ui::detail::set_test_frame_time(1.0f / 60.0f);
+        float one_line = -1;
+        int unmeasured = 0;
+        for (int i = 0; i < 1000; ++i) {
+            rmp::ui::notify("Score " + std::to_string(i * 7919), { .seconds = 0.05f });
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::draw_notices();
+            rmp::ui::detail::end_frame();
+            const int newest = rmp::ui::detail::notice_count() - 1;
+            REQUIRE(newest >= 0);
+            // Every one of them a line of text: the first one's height.
+            const float height = rmp::ui::detail::notice_at(newest).box.height;
+            if (one_line < 0) one_line = height;
+            if (height != one_line) ++unmeasured;
+        }
+        CHECK(one_line > rmp::ui::detail::px(rmp::ui::current_theme().padding_y));
+        CHECK(unmeasured == 0);
+        CHECK(rmp::ui::detail::notice_layout_errors() == 0);
+    }
+
+    TEST_CASE_FIXTURE(HeadlessUi,
                       "a notice nobody could read is reported, and queues nothing") {
         rmp::detail::reset_reports_for_tests();
         rmp::ui::notify("");

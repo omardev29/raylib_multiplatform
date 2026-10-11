@@ -138,6 +138,10 @@ Color role_color(const Theme &t, ColorRole role) {
 // and eight notices of NOTICE_MAX_CHARS are at most a thousand words.
 constexpr int LAYOUT_ELEMENTS = 64;
 constexpr int LAYOUT_WORDS = 2048;
+// Clay picks a line's bucket out of LAYOUT_WORDS / 32 and keeps the buckets
+// in an array of LAYOUT_ELEMENTS: more words than that is a write past the
+// array, inside the arena, where no sanitizer sees it.
+static_assert(LAYOUT_WORDS / 32 <= LAYOUT_ELEMENTS);
 
 // The Clay context the notices are laid out in, its memory, and what went
 // wrong in it. Clay_Context is Clay's type; the pointer is Clay's API and
@@ -197,6 +201,13 @@ void lay_out_and_draw() {
     const Clay_Dimensions screen = detail::viewport();
     Clay_SetLayoutDimensions(screen);
     const Theme &t = current_theme();
+    // What Clay remembers measuring, forgotten: it keeps a line it has not
+    // seen for a while until another line lands in the same one of its 64
+    // buckets, and a context that lays out a notice or two a frame visits few
+    // of them -- after about 150 different notices it was full, and a new one
+    // was measured as nothing and drawn as an empty box. Measuring what is on
+    // screen again, at most eight lines, is cheaper than that.
+    Clay_ResetMeasureTextCache();
 
     Clay_BeginLayout();
     Clay_ElementDeclaration root{};
