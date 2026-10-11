@@ -581,6 +581,9 @@ TEST_SUITE("property: collision") {
     }
 
     // covers: rmp::RayHit::operator bool() const
+    // covers: rmp::Scene::raycast(Vector2, Vector2) const
+    // covers: rmp::Scene::raycast(const RayQuery &) const
+    // covers: rmp::Scene::raycast_all(const RayQuery &, std::span<RayHit>) const
     TEST_CASE("the grid's ray is every object's ray, for any ray") {
         const world::Hushed hushed;
         rmp::test::check(

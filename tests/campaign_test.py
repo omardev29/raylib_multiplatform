@@ -605,8 +605,9 @@ class FloorsTest(unittest.TestCase):
                 self.assertEqual(doctest_filter_problems("x", program, REPO), [])
 
     def test_the_measured_floor_is_the_pilots(self):
-        """random was measured in the image on 2026-10-11: 51 of 62 (82.26%)."""
-        self.assertEqual(mr.load_floors()["random"].floor, 80)
+        """random was measured in the image on 2026-10-11: 51 of 62 (82.26%) in the pilot,
+        81 of 81 after P5; a floor only rises."""
+        self.assertGreaterEqual(mr.load_floors()["random"].floor, 80)
 
 
 GOOD = """# a module
