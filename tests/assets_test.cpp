@@ -1244,7 +1244,16 @@ TEST_SUITE("assets: loads") {
         const rmp::SpriteSheet sheet = rmp::assets::load_sheet("anim.aseprite");
         CHECK(sheet.valid());
         CHECK(rmp::detail::ref_count("anim.aseprite") == 1);
-        CHECK(rmp::assets::load_image("rabbit.png").valid());
+        const rmp::Image rabbit = rmp::assets::load_image("rabbit.png");
+        CHECK(rabbit.valid());
+        // And with them in the table, the names cut short find them there:
+        // load_sheet() read its bytes through load_data(), which refused,
+        // and still asked the table first (Mull: load_sheet()'s refusal gone,
+        // survived until this).
+        CHECK_FALSE(rmp::assets::load_sheet(cut("anim.aseprite")).valid());
+        CHECK_FALSE(rmp::assets::load_image(cut("rabbit.png")).valid());
+        CHECK(rmp::detail::ref_count("anim.aseprite") == 1);
+        CHECK(rmp::detail::ref_count("rabbit.png") == 1);
         CHECK(rmp::detail::report_count() == 5);
         rmp::detail::reset_reports_for_tests();
         rmp::detail::release_all();
