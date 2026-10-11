@@ -577,14 +577,17 @@ class StartupFileTest(unittest.TestCase):
 
     @given(st.text(max_size=80), st.sampled_from(sorted(rmp.RC_LINES)))
     def test_once_and_after_what_is_there(self, before, flavour):
+        def read(path):  # every byte, line endings as written (3.12 has no read_text(newline))
+            with open(path, encoding="utf-8", newline="") as f:
+                return f.read()
         with tempfile.TemporaryDirectory() as tmp:
             rc = Path(tmp) / "conf" / "rc"
             rc.parent.mkdir()
             rc.write_text(before, encoding="utf-8", newline="")
             first = rmp.add_rc_block(rc, flavour)
-            after = rc.read_text(encoding="utf-8", newline="")
+            after = read(rc)
             second = rmp.add_rc_block(rc, flavour)
-            self.assertEqual(rc.read_text(encoding="utf-8", newline=""), after)
+            self.assertEqual(read(rc), after)
             self.assertFalse(second)
             if rmp.RC_BEGIN in before:
                 self.assertFalse(first)
