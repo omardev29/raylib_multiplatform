@@ -976,6 +976,8 @@ Each of these was a real bug, found by reproducing rather than by reading.
 below), `rmp test` locally (format, config, the gates — seam, workflows,
 portable, shell patterns, naming, style, ownership, pointers, headers, header cost, licences,
 repo, size budget, and cppcheck where it is installed (CI requires it) —
+each of those gates seen red on a planted copy of the tree (`gates`: `tests/gates_red_test.py`,
+whose `GATES` names every `tools/*_check.sh` and fails on a new one until it is planted) —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
 real mixer for about a second, only in the first), headless layout, the properties (the
 campaign's gates, RapidCheck at its seed, Hypothesis derandomized), the UI on a real GPU

@@ -312,6 +312,15 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: python3 -m unittest discover -s tests -p 'binary_check_test.py' -v
 
+      # Every tools/*_check.sh seen red: each copied with what it reads into a
+      # scratch tree, a mistake of its kind planted there, and the check made
+      # to say FAIL and name it -- and green on the tree as it is.
+      # tests/gates_red_test.py lists every gate; a new one fails there until
+      # it is planted.
+      - name: Every gate seen red
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'gates_red_test.py' -v
+
       # tools/size_budget.txt, on every push: well-formed, a line for every
       # binary an enabled target ships, the packed column exactly where [upx]
       # packs. Every release job holds its binary to its line; this notices a

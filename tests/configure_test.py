@@ -8410,6 +8410,7 @@ class SeamCheckTakesNoDebtTest(unittest.TestCase):
             root = Path(tmp)
             (root / "tools").mkdir()
             shutil.copy(REPO / "tools" / "seam_check.sh", root / "tools")
+            shutil.copy(REPO / "tools" / "cpp_text.py", root / "tools")
             shutil.copytree(REPO / "src" / "rmp", root / "src" / "rmp")
             shutil.copytree(REPO / "include" / "rmp", root / "include" / "rmp")
             controls = root / "src" / "rmp" / "ui" / "controls.cpp"

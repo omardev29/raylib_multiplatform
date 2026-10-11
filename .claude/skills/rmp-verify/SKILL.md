@@ -26,6 +26,9 @@ rmp test coverage     # the tests under clang's coverage: every src/rmp file aga
                       # against tools/untested_api.txt (only shrinks). Gates only in the pinned image:
                       # tools/dev_shell.sh bash tools/coverage_check.sh [--update]. After adding or
                       # testing framework code -- a floor two points behind fails too.
+rmp test gates        # (in `rmp test`) each tools/*_check.sh seen red: copied into a scratch tree with
+                      # a mistake of its kind planted, and FAIL said and named (tests/gates_red_test.py,
+                      # whose GATES names every one: a new gate fails there until it is planted)
 rmp test property     # (in `rmp test`) the campaign's gates, RapidCheck at its fixed seed, Hypothesis
                       # derandomized -- skipped with a message without hypothesis installed.
 rmp test fuzz         # every fuzz target built in build/fuzz (libFuzzer where clang has compiler-rt)
