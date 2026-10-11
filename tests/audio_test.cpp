@@ -332,17 +332,16 @@ TEST_SUITE("audio") {
         // tests/property/audio_prop.cpp's counterexample: the report was keyed
         // by the name as a C string, so "\0" and "\0a" -- or "jump\0" and
         // "jump\0x" -- were one line, and the second mistake was never said.
-        using namespace std::string_literals;
         rmp::detail::reset_reports_for_tests();
         rmp::audio::detail::set_device_opener(fake_device);
-        rmp::audio::play("\0"s);
-        rmp::audio::play("\0a"s);
+        rmp::audio::play(std::string("\0", 1));
+        rmp::audio::play(std::string("\0a", 2));
         CHECK(rmp::detail::report_count() == 2);
-        rmp::audio::music("jump\0"s);
-        rmp::audio::music("jump\0x"s);
+        rmp::audio::music(std::string("jump\0", 5));
+        rmp::audio::music(std::string("jump\0x", 6));
         CHECK(rmp::detail::report_count() == 4);
-        rmp::audio::play("\0a"s); // said already
-        rmp::audio::music("jump\0x"s);
+        rmp::audio::play(std::string("\0a", 2)); // said already
+        rmp::audio::music(std::string("jump\0x", 6));
         CHECK(rmp::detail::report_count() == 4);
         rmp::detail::reset_reports_for_tests();
     }

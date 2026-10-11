@@ -124,13 +124,14 @@ int bus_index(Bus bus) {
 // matter -- the same bytes up to a NUL, an extension in another case, an
 // extension in the path rather than the file.
 rc::Gen<std::string> sound_name() {
-    using namespace std::string_literals;
     return rc::gen::weightedOneOf<std::string>({
         { 2, rmp::test::gen::hostile_string() },
         { 3,
-          rc::gen::element<std::string>("a"s, "a\0b"s, "a\0c"s, "coin"s, "coin.ogg"s,
-                                        "COIN.OGG"s, ".wav"s, "x.v1/coin"s, "ui.click"s,
-                                        "\\"s, "/"s, ""s) },
+          rc::gen::element<std::string>(
+              std::string("a"), std::string("a\0b", 3), std::string("a\0c", 3),
+              std::string("coin"), std::string("coin.ogg"), std::string("COIN.OGG"),
+              std::string(".wav"), std::string("x.v1/coin"), std::string("ui.click"),
+              std::string("\\"), std::string("/"), std::string("")) },
     });
 }
 
@@ -402,12 +403,13 @@ TEST_SUITE("property: audio") {
                 };
                 const int steps = *rc::gen::inRange(1, 12);
                 for (int i = 0; i < steps; ++i) {
-                    using namespace std::string_literals;
                     const std::string name = *rc::gen::weightedOneOf<std::string>({
                         { 4,
-                          rc::gen::element<std::string>("tone"s, "tone.wav"s,
-                                                        "tone.wav\0x"s, "tone\0"s,
-                                                        "tone.wav\0.wav"s, "missing"s) },
+                          rc::gen::element<std::string>(
+                              std::string("tone"), std::string("tone.wav"),
+                              std::string("tone.wav\0x", 10), std::string("tone\0", 5),
+                              std::string("tone.wav\0.wav", 13),
+                              std::string("missing")) },
                         { 1, sound_name() },
                     });
                     switch (*rc::gen::inRange(0, 4)) {

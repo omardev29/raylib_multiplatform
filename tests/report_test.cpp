@@ -101,13 +101,12 @@ TEST_SUITE("report_once") {
         // A name the game chose can hold a NUL, and two that differ only after
         // it are two mistakes: tests/property/audio_prop.cpp found a missing
         // sound and a missing song keyed by their C strings, one line for two.
-        using namespace std::string_view_literals;
         static const char SITE = 0;
-        rmp::detail::report_once_keyed(&SITE, "a\0b"sv, "first");
-        rmp::detail::report_once_keyed(&SITE, "a\0c"sv, "second");
-        rmp::detail::report_once_keyed(&SITE, "a"sv, "third");
+        rmp::detail::report_once_keyed(&SITE, std::string_view("a\0b", 3), "first");
+        rmp::detail::report_once_keyed(&SITE, std::string_view("a\0c", 3), "second");
+        rmp::detail::report_once_keyed(&SITE, std::string_view("a"), "third");
         CHECK(rmp::detail::report_count() == 3);
-        rmp::detail::report_once_keyed(&SITE, "a\0b"sv, "again");
+        rmp::detail::report_once_keyed(&SITE, std::string_view("a\0b", 3), "again");
         CHECK(rmp::detail::report_count() == 3);
         // A C string is the same key as its bytes up to its end; none at all
         // is the empty one, which is the plain form's.

@@ -264,14 +264,13 @@ TEST_SUITE("audio: device") {
         // "short.wav\0x" was opened as the C string "short.wav" and played it
         // (tests/property/audio_prop.cpp). No file is called what the game
         // asked for, and that is said.
-        using namespace std::string_literals;
         const Device device;
         if (!device.ok) return;
         rmp::detail::reset_reports_for_tests();
-        CHECK(energy_of_play("short.wav\0x"s, {}).total() == 0);
-        CHECK(energy_of_play("short\0"s, {}).total() == 0);
+        CHECK(energy_of_play(std::string("short.wav\0x", 11), {}).total() == 0);
+        CHECK(energy_of_play(std::string("short\0", 6), {}).total() == 0);
         CHECK(rmp::detail::report_count() == 2);
-        rmp::audio::music("long.wav\0"s);
+        rmp::audio::music(std::string("long.wav\0", 9));
         CHECK_FALSE(rmp::audio::music_playing());
         CHECK(rmp::detail::report_count() == 3);
         rmp::detail::reset_reports_for_tests();

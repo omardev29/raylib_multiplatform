@@ -93,7 +93,6 @@ std::string filed_as(const Said &said) {
 }
 
 rc::Gen<Said> any_report() {
-    using namespace std::string_literals;
     return rc::gen::exec([] {
         Said said;
         said.site = *rc::gen::inRange(0, static_cast<int>(SITES.size()));
@@ -102,8 +101,9 @@ rc::Gen<Said> any_report() {
         said.key = *rc::gen::weightedOneOf<std::string>({
             { 1, rmp::test::gen::hostile_string() },
             { 2,
-              rc::gen::element<std::string>(""s, "a"s, "a\0b"s, "a\0c"s, "\0"s,
-                                            "jump"s) },
+              rc::gen::element<std::string>(
+                  std::string(""), std::string("a"), std::string("a\0b", 3),
+                  std::string("a\0c", 3), std::string("\0", 1), std::string("jump")) },
         });
         said.text = *rc::gen::weightedOneOf<std::string>({
             { 3, rmp::test::gen::hostile_string() },
