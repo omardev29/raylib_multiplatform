@@ -49,7 +49,7 @@ custom-rmp-raw-pointer  src/rmp/ui/render.cpp                                 2
 custom-rmp-raw-pointer  src/rmp/value.cpp                                     13
 custom-rmp-raw-pointer  tests/animation_test.cpp                              2
 custom-rmp-raw-pointer  tests/assets_test.cpp                                 7
-custom-rmp-raw-pointer  tests/audio_device_test.cpp                           4
+custom-rmp-raw-pointer  tests/audio_device_test.cpp                           3
 custom-rmp-raw-pointer  tests/audio_test.cpp                                  3
 custom-rmp-raw-pointer  tests/behavior_test.cpp                               6
 custom-rmp-raw-pointer  tests/behaviors_test.cpp                              2

@@ -237,7 +237,7 @@ void report_once_keyed(const void *site, const char *key, const char *fmt, ...)
 // The same, keyed by every byte of `key`: a name the game chose -- a sound, a
 // song -- can hold a NUL, and two names that differ only after it are two
 // mistakes. As a C string they were one line (audio's property found it).
-// NOLINTNEXTLINE(modernize-avoid-variadic-functions)
+// NOLINTNEXTLINE(modernize-avoid-variadic-functions,custom-rmp-raw-pointer): the site is an address and the format printf's, as in the C string form above
 void report_once_keyed(const void *site, std::string_view key, const char *fmt, ...)
     RMP_PRINTF_FORMAT(3, 4);
 

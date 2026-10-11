@@ -39,6 +39,8 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <functional>
+#include <optional>
 #include <ostream>
 #include <set>
 #include <string>
@@ -114,17 +116,17 @@ rc::Gen<Said> any_report() {
 }
 
 void say(const Said &said) {
-    const void *site = &SITES.at(static_cast<std::size_t>(said.site));
+    const char &site = SITES.at(static_cast<std::size_t>(said.site));
     switch (said.form) {
         case Form::PLAIN:
-            rmp::detail::report_once(site, "%s", said.text.c_str());
+            rmp::detail::report_once(&site, "%s", said.text.c_str());
             break;
         case Form::C_STRING:
-            rmp::detail::report_once_keyed(site, said.key.c_str(), "%s",
+            rmp::detail::report_once_keyed(&site, said.key.c_str(), "%s",
                                            said.text.c_str());
             break;
         case Form::BYTES:
-            rmp::detail::report_once_keyed(site, std::string_view(said.key), "%s",
+            rmp::detail::report_once_keyed(&site, std::string_view(said.key), "%s",
                                            said.text.c_str());
             break;
     }
@@ -163,10 +165,13 @@ int &value_of(int which) {
     if (which == 1) return rmp::global<B>().value;
     return rmp::global<C>().value;
 }
-const void *address_of(int which) {
-    if (which == 0) return &rmp::global<A>();
-    if (which == 1) return &rmp::global<B>();
-    return &rmp::global<C>();
+
+// The order a shutdown destroys them in: the reverse of first use.
+std::string destroyed(const std::vector<int> &first_use) {
+    std::string out;
+    for (const int which : first_use) out += static_cast<char>('a' + which);
+    std::ranges::reverse(out);
+    return out;
 }
 
 } // namespace
@@ -229,7 +234,7 @@ TEST_SUITE("property: core") {
 
                 std::vector<int> order; // first use, since the last shutdown
                 std::array<int, 3> model{};
-                std::array<const void *, 3> where{};
+                std::array<std::optional<std::reference_wrapper<int>>, 3> where{};
                 std::string built;
                 std::string gone;
                 const int steps = *rc::gen::inRange(1, 30);
@@ -237,9 +242,7 @@ TEST_SUITE("property: core") {
                     const int which = *rc::gen::inRange(0, 4);
                     if (which == 3) {
                         rmp::app::detail::shutdown_globals();
-                        for (auto it = order.rbegin(); it != order.rend(); ++it) {
-                            gone += static_cast<char>('a' + *it);
-                        }
+                        gone += destroyed(order);
                         order.clear();
                         model = {};
                         where = {};
@@ -252,10 +255,10 @@ TEST_SUITE("property: core") {
                         built += static_cast<char>('a' + which);
                         // Built by default, the first time it is asked for.
                         RC_ASSERT(value_of(which) == 0);
-                        where.at(slot) = address_of(which);
+                        where.at(slot) = std::ref(value_of(which));
                     }
                     RC_ASSERT(life.built == built);
-                    const bool same = address_of(which) == where.at(slot);
+                    const bool same = &where.at(slot)->get() == &value_of(which);
                     RC_ASSERT(same);
                     RC_ASSERT(value_of(which) == model.at(slot));
                     const int next = *rc::gen::arbitrary<int>();
@@ -263,9 +266,7 @@ TEST_SUITE("property: core") {
                     model.at(slot) = next;
                 }
                 rmp::app::detail::shutdown_globals();
-                for (auto it = order.rbegin(); it != order.rend(); ++it) {
-                    gone += static_cast<char>('a' + *it);
-                }
+                gone += destroyed(order);
                 RC_ASSERT(life.gone == gone);
                 RC_ASSERT(life.built.size() == life.gone.size());
             });
