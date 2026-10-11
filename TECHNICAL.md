@@ -1199,7 +1199,13 @@ the driver fails a control the example laid out outside its window and in no scr
 found that the arrows moved both paddles; the UI's found the settings screen's Apply button and
 half the style page below the bottom of their own window, a list whose focus walked out of
 sight, a tap on a button that reached the game underneath it as well, and two examples that read
-the keyboard and the mouse from raylib where no script, and no gamepad, could press them.
+the keyboard and the mouse from raylib where no script, and no gamepad, could press them. The
+games' scripts, recorded from bots that tried every move, found a Breakout nobody could win (the
+ball was four times its serve by the thirtieth brick), a Space Invaders whose last alien landed
+before a ship could get under it, and raylib's software renderer reading one texel past a texture
+(`thirdparty/raylib/PATCHES.md`). `examples_build.sh` plays the scripts side by side, as many as
+the machine has processors, the longest first: each has its own folder, and a frame is 1/60 s
+whatever the load, so that changes how long it waits and nothing it draws.
 
 **Sanitized** — every Debug build of the framework runs under AddressSanitizer (with
 LeakSanitizer on Linux) and UndefinedBehaviorSanitizer, every report fatal: `[dev] sanitize` in

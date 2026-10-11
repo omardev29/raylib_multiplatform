@@ -140,9 +140,11 @@ here so that nobody "fixes" one back.
   lose, play again -- or it does not belong there. The job boots them all and
   the screenshot says whether they look like games; four of the six sat broken
   for a phase behind a syntax-only check, and that is what this rule is for.
-- **The games are played from scripts, and their frames compared exactly.**
+- **The games, menus, scenes and input are played from scripts, and their
+  frames compared exactly.**
   `tests/e2e/<area>/<name>.e2e` is what a player presses, frame by frame
-  (`press`/`release`/`tap KEY_*`, `click x y`), what the screen must show
+  (`press`/`release`/`tap KEY_*` or `GAMEPAD_BUTTON_*`, `click x y`), what the
+  screen must show
   (`shot <name>`) and which scene is on top (`expect scene <Class>`), to `end`.
   `e2e_<area>_<name>` is the example as it ships plus `tests/e2e/driver.cpp`,
   which installs itself before `main()`: every frame exactly 1/60 s and
@@ -157,10 +159,20 @@ here so that nobody "fixes" one back.
   uploads. Goldens come from the image only -- `tools/dev_shell.sh bash -c
   'python3 tools/configure.py && ./rmp test e2e-update'`; the script and the
   driver refuse it elsewhere -- and every picture that changed is looked at
-  before it is committed. Every game has a script or a line in
-  `tests/e2e/pending.txt`, which only shrinks (`E2eScriptsTest`,
-  `PENDING_CEILING`); every shot has a golden, every golden a shot, and CMake
-  refuses a script that plays no example.
+  before it is committed. Every example of `games/`, `ui/`, `scenes/` and
+  `input/` has a script or a line in `tests/e2e/pending.txt`, which only shrinks
+  (`E2eScriptsTest`, `PENDING_CEILING`, 0 since every one has a script);
+  `ads/`, `assets/`, `platform/` and `plain_c/` are `NOT_PLAYED` with the reason
+  in the test, and a new area is one or the other. On every frame the driver
+  fails a control the example laid out outside its window and in no scroll area
+  (`controls_out_of_reach()`). Every shot has a golden, every golden a shot, and
+  CMake refuses a script that plays no example. A script that cannot win a game
+  is news about the game: Breakout's ball outran the paddle and Invaders' last
+  alien landed before a ship could reach it, and both were fixed in the game.
+  An e2e run's ceiling is 600 s (`E2E_LIMIT` in `examples_build.sh`), a boot's
+  180, and the scripts are played side by side, one per processor, the most
+  frames first -- each has its own folder, and a frame is 1/60 s whatever the
+  load, so that changes the wait and nothing drawn.
 - **Coverage is a ratchet, measured in the image.** `rmp test coverage`
   (`tools/coverage_check.sh`; the framework-only `coverage` job, which a release
   waits for) builds the unit tests, the layout test and `tests/input_play.cpp`
@@ -475,18 +487,41 @@ here so that nobody "fixes" one back.
   cannot be scripted -- the platformer's flag did.
 - **A script can press only what the game reads through rmp::input or
   rmp::ui.** Under PLATFORM=Memory raylib's own key and mouse state never
-  changes: `examples/ui/01_menu` (Escape), `ui/05_inventory`
-  (`IsMouseButtonPressed`), `assets/01_loading` and `ads/01_interstitial` read
-  raylib directly, and the text field reads `GetCharPressed()` and blinks on
-  `GetTime()`. `nav_from_keys()` (`ui/internal.h`) is the one keyboard mapping,
-  shared by `nav_from_raylib()` and the driver.
+  changes: `assets/01_loading` and `ads/01_interstitial` read raylib directly
+  (neither is played: `NOT_PLAYED` says why), the text field reads
+  `GetCharPressed()` (phase 14), and the UI reads the wheel itself, so a script
+  scrolls a list by moving the focus. `nav_from_keys()` and `nav_from_pad()`
+  (`ui/internal.h`) are the one keyboard and gamepad mapping, shared by
+  `nav_from_raylib()` and the driver. Space and Enter press the focused control
+  of a menu on top: a script that taps a game's Space under a pause menu
+  resumes it. `seam_check.sh` holds a DEBT file to the calls it is in debt for
+  (`DEBT_CALLS`): `ui/controls.cpp` may call `GetCharPressed` and
+  `IsKeyPressed`, and `GetTime()` there is red.
 - **The input of frame N+1 is set at the end of frame N, and frame 0 has no
   edges.** So a script's input starts at frame 1, and a tapped key needs a frame
   up before it can go down again; the grammar refuses each of these with its
   line.
 - **A frame under the software renderer and ASan costs 30-45 ms** (raylib is
-  -O0 in Debug). A Pong point is 75 frames; Pong's script plays in ~46 s in the
-  image. A script proves its paths and stops.
+  -O0 in Debug) -- a game's, in the image; a UI frame 60-150 ms, and the
+  platformer's, top-down's and the runner's 125-160. A Pong point is 75 frames;
+  Pong's script plays in ~46 s, the platformer's in ~244 s, the nine UI, scene
+  and input scripts in ~67 s together. A script proves its paths and stops.
+- **`wants_pointer()` is asked before the frame's UI exists, and answers for
+  the pointer now.** A scene's `_update()`, an action by name, and an
+  RMP_ENTRY_POINT's code above `begin()` all ask first. It answered with last
+  frame's answer -- where the pointer was -- so a finger that lands without
+  hovering reached the game through a button (`ui/05_inventory`'s script). Each
+  pass records where it takes the pointer (`claims`, `ui/context.cpp`);
+  `run_pointer_lands_on_interface` holds it.
+- **A UI taller than its window is a bug at every size.** The scale keeps
+  proportions, so `ui/04_settings`' Apply and half of `ui/06_style` were
+  unreachable on any 16:9 window. Lay out in two columns, or put the page in a
+  `scroll()`, which follows the focus once per move.
+- **A test that does not draw cannot find a renderer's bug.** The platformer's
+  bot plays its levels without drawing them, so nothing had drawn a bat under
+  ASan until its e2e script did: raylib's software renderer read one texel past
+  a texture at u or v of exactly 1 (`rlsw.h`, our own patch, PATCHES.md;
+  `tests/rlsw_test.cpp`).
 - **llvm-cov has two line counts.** `llvm-cov report` and the html index count
   a line once per function that maps it -- a lambda's lines twice -- while the
   per-line export counts each line of a file once, and a macro's lines in the
