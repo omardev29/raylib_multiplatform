@@ -121,6 +121,11 @@ struct HeadlessUi {
         // A focus some other test showed would show this one's tooltips.
         rmp::ui::focus("");
         rmp::ui::detail::set_focus_visible(false);
+        // And keys another test read outside any frame would make the first
+        // frame here a HUD over a game, whose controls wait for Tab: a
+        // behaviour's test that reads the jump key, run just before (the
+        // unit tests' random order, seed 1337), took the focus a frame late.
+        (void)rmp::ui::detail::take_game_keys();
     }
     HeadlessUi(const HeadlessUi &) = delete;
     HeadlessUi &operator=(const HeadlessUi &) = delete;
