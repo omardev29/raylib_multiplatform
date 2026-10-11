@@ -257,6 +257,20 @@ here so that nobody "fixes" one back.
   **both** `ci.yml` and `thirdparty/FROZEN_VERSIONS.md` — `versions_check.sh`
   fails if they disagree. `tools/` scripts use the image's copy when it is on
   `PATH` and download only as a fallback, so they still work on a laptop.
+  The same rule covers what a job STARTS a binary on: `musl-x64-run` boots the
+  musl build on `ghcr.io/omardev29/raylib-run-alpine` (`alpine/` in the image
+  repo: Alpine 3.20.10 by digest, Xvfb, Mesa's llvmpipe and the X libraries
+  GLFW opens, amd64 only, proved at build time by drawing a triangle under
+  xvfb-run), never on Docker Hub's `alpine` with an `apk add` at job time, and
+  every container there runs with `--network none`. Its digest lives in TWO
+  places -- `RUN_IMAGE` in `_linux.yml`'s `musl-x64-run` and
+  `run_alpine_digest` in `thirdparty/FROZEN_VERSIONS.md` -- and
+  `versions_check.sh` fails if they disagree; bumping it is a push to `alpine/`
+  on the image repo's main, which `alpine-image.yaml` builds, verifies at its
+  digest and only then tags. No workflow pulls from anywhere but ghcr.io:
+  `NoDockerHubImageTest` reads every `image:`, `container:`, `uses: docker://`
+  and `docker`/`podman` run/pull/create (a `$VAR` followed to where the file
+  sets it), and an image from elsewhere needs an `ALLOWED` entry that says why.
 - **Test exhaustively, to the point of paranoia. Assume nothing.** Anything
   that can be tested is tested, and the test asserts what actually happened and
   not that a command exited 0 — this repository has shipped a job that went
@@ -476,12 +490,24 @@ Each of these was a real bug, found by reproducing rather than by reading.
   `thirdparty/` holding a header, and the bare root, must appear in all four,
   and `ci.yml`/`tools/rmp.py` may not grow their own `-I` list again.
 - **`xvfb-run` must not be a container's PID 1.** `sh -c 'a && b'` execs `b`, so
-  in `docker run alpine sh -c 'apk add ... && xvfb-run game'` xvfb-run was PID 1
+  in `docker run alpine sh -c 'apk add ... && xvfb-run game'` (how `musl-x64-run`
+  used to start it) xvfb-run was PID 1
   and hung: Xvfb came up and the game never started (xvfb-run waits for Xvfb's
   SIGUSR1), and `timeout` could not end it, because busybox's execs what it runs
   and PID 1 ignores a SIGTERM it has no handler for. `docker run --init` puts an
   init there: five seconds instead of a job timeout. Found by running the
   workflow step itself under podman; `RunJobsStartTheShippedBinaryTest` keeps it.
+  The init is the engine's own (docker-init; podman's catatonit), so
+  `raylib-run-alpine` does not carry one.
+- **A boot proves what the machine had, not what the binary needs.**
+  `musl-x64-run` called booting the headless build in a bare Alpine "the proof
+  that it needs nothing but musl"; that build is a static PIE (zig links it
+  static when nothing dynamic is linked) and would have booted on any Linux.
+  What a binary asks the system for is written in it: `binary_check.py elf
+  --musl` reads PT_INTERP and every DT_NEEDED -- musl's loader for the machine
+  and musl's `libc.so`, or static and neither -- on the headless build before
+  it boots, and on the dynamic release in `musl-x64` before UPX packs it (a
+  packed ELF has UPX's headers, not the linker's).
 - **A boot gate that ignores the exit status passes a leak.** LeakSanitizer
   reports when the process exits -- after the game has printed
   `RAY_TEST_DONE_FRAMES` and every marker a gate greps for -- and a sanitizer
@@ -552,9 +578,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
   a connector and no hardware behind them. Two things it needs, and both were
   found the hard way: the runners' Azure kernel does **not** ship the module
   (`modprobe: FATAL: Module vkms not found`), so `linux-modules-extra-$(uname -r)`
-  has to be installed -- one of the two places a Linux job is allowed to download
-  (the other is `musl-x64-run`, which installs Alpine's X server and Mesa to
-  start the shipped musl binary),
+  has to be installed -- the one place a Linux job is allowed to download,
   because nothing depends on that job and the binary is already built and
   uploaded when it starts; and Mesa needs **`LIBGL_ALWAYS_SOFTWARE=1`**, not
   `MESA_LOADER_DRIVER_OVERRIDE=kms_swrast`, which left EGL saying only "Failed
