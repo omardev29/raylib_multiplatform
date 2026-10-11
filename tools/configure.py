@@ -712,8 +712,50 @@ APP_CATEGORIES = {"game", "audio", "video", "image", "social", "news",
 
 
 def validate(cfg: dict, strict_release: bool) -> None:
-    # The lists, first and together. expand_targets() and the module loop below
-    # both ITERATE what they are given, so a non-list reaches them as a
+    """Every rejection a .toml can earn, a table at a time.
+
+    In the order they have always been checked, because with two mistakes
+    in one .toml the first one is the one reported -- so a table checked in
+    two places is two functions: [dev]'s compiler near the top and the
+    toolchain it implies near the end, [android]'s ids before [ios] and its
+    SDK levels after it. A function a table, and not one validate(), for
+    tools/mutation.sh: mutmut writes a whole copy of a function for every
+    mutant in it, and at 614 lines this was a 64.5 MB file it never finished
+    generating. tests/configure_test.py reads every validate_*() validate()
+    calls as validate()'s own.
+    """
+    validate_lists(cfg)
+    validate_upx(cfg)
+    validate_windows(cfg)
+    validate_linux(cfg)
+    validate_dev_compiler(cfg)
+    validate_web(cfg)
+    validate_project(cfg)
+    validate_window(cfg)
+    validate_app(cfg)
+    validate_android(cfg)
+    validate_admob(cfg)
+    validate_application_id(cfg)
+    validate_ios(cfg)
+    validate_android_sdk(cfg)
+    validate_raylib(cfg)
+    validate_dev_toolchain(cfg)
+    validate_sanitize(cfg)
+    validate_icon(cfg)
+    validate_resources(cfg)
+    validate_deploy(cfg)
+    validate_ci(cfg)
+    validate_input(cfg)
+    validate_audio(cfg)
+    validate_save(cfg)
+    validate_ui(cfg)
+    validate_targets(cfg, strict_release)
+
+
+def validate_lists(cfg: dict) -> None:
+    """[targets], [upx] and [raylib]: the lists are lists of strings, before anything iterates one."""
+    # The lists, first and together. expand_targets() and validate_raylib()'s
+    # module loop both ITERATE what they are given, so a non-list reaches them as a
     # TypeError from three frames away rather than as a sentence naming the key.
     for key in ("enabled", "disabled"):
         list_of_strings(cfg["targets"][key], f"[targets] {key}",
@@ -722,6 +764,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
     list_of_strings(cfg["raylib"]["disabled_modules"], "[raylib] disabled_modules",
                     "Optional modules are: " + ", ".join(sorted(OPTIONAL_MODULES)) + ".")
 
+
+def validate_upx(cfg: dict) -> None:
+    """[upx]: the names, and the size it gives up at."""
     # The names in [upx]. Refused HERE, and not only in expand_upx(): that one
     # runs when the packaging step asks (--print-upx), so `configure.py --check`
     # passed `enabled = ["macos"]` and the release failed at its last step.
@@ -753,7 +798,14 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "UPX itself refuses to go past, so the packer would fail the build "
             "instead of skipping the file. Lower it.")
 
+
+def validate_windows(cfg: dict) -> None:
+    """[windows] backend."""
     one_of(cfg["windows"]["backend"], WINDOWS_BACKENDS, "[windows] backend")
+
+
+def validate_linux(cfg: dict) -> None:
+    """[linux]: the backend, Wayland, and the oldest glibc a binary may need."""
     # Combinations. Each of these is a pair of keys that are individually valid
     # and cannot both be honoured, so the build would silently do one of the two
     # things you asked for. Caught here rather than in CMake, because a
@@ -790,6 +842,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "nothing in particular.\n"
             "2.17 is RHEL 7, 2.28 is RHEL 8 and Debian 10, 2.31 is Ubuntu 20.04, "
             "Debian 11 and Steam's sniper runtime.")
+
+
+def validate_dev_compiler(cfg: dict) -> None:
+    """[dev] compiler and strict. The toolchain the compiler implies is validate_dev_toolchain()'s."""
     one_of(cfg["dev"]["compiler"], COMPILERS, "[dev] compiler")
     if not isinstance(cfg["dev"]["strict"], bool):
         raise ConfigError(
@@ -797,6 +853,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "true makes a framework warning fatal in a debug build; release builds never "
             "read it.")
 
+
+def validate_web(cfg: dict) -> None:
+    """[web]: memory, growth and the backend."""
     web_memory = cfg["web"]["memory"]
     if not isinstance(web_memory, int) or web_memory < 16 or web_memory > 4096:
         raise ConfigError(
@@ -819,6 +878,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
            "It names what raylib talks to, not what compiles the code — Emscripten "
            "compiles it either way.")
 
+
+def validate_project(cfg: dict) -> None:
+    """[project] name: a file name on every system, and nobody else's target."""
     name = cfg["project"]["name"]
     a_string(name, "[project] name")
     if not NAME_RE.match(name):
@@ -835,6 +897,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"[project] name = {name!r} is a device name on Windows, which will not create\n"
             "  a file called that with any extension. Call it anything else.")
 
+
+def validate_window(cfg: dict) -> None:
+    """[window]: title, orientation, size, and how the frame is paced."""
     a_string(cfg["window"]["title"], "[window] title")
     if "\n" in cfg["window"]["title"] or "\r" in cfg["window"]["title"]:
         raise ConfigError("[window] title must be a single line: it becomes a Java "
@@ -846,7 +911,8 @@ def validate(cfg: dict, strict_release: bool) -> None:
 
     # one_of() and not `not in ORIENTATIONS`: a membership test raises TypeError
     # on a list or a table, and `orientation = ["landscape"]` answered with a
-    # traceback. The same went for gl_version and linker below.
+    # traceback. The same went for gl_version and linker (validate_android_sdk(),
+    # validate_dev_toolchain()).
     one_of(cfg["window"]["orientation"], ORIENTATIONS, "[window] orientation")
     for k in ("width", "height"):
         v = cfg["window"][k]
@@ -869,6 +935,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"[window] fps = {fps!r} has to be between 0 and 1000. Above 1000 a frame is\n"
             "  shorter than the millisecond the timer can wait; 0 is no cap.")
 
+
+def validate_app(cfg: dict) -> None:
+    """[app] max_delta, alone and against [window] fps."""
+    fps = cfg["window"]["fps"]
     # [app] max_delta -- the longest step the game logic is ever handed.
     #
     # GetFrameTime() returns real elapsed time, and real elapsed time is not
@@ -911,6 +981,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"  game would run at {fps * md:.0%} speed forever. Raise fps to {lowest} or\n"
             f"  more, raise max_delta to {1.0 / fps:.4g} or more, or set max_delta = 0.")
 
+
+def validate_android(cfg: dict) -> None:
+    """[android]: the category and every switch."""
     # android:appCategory, which is how Play files your app. These are the only
     # values Android accepts; anything else makes the manifest merger fail deep
     # inside the Gradle build with a message nobody can act on.
@@ -949,6 +1022,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "true or false.\n"
             "true builds Android in CI from the Gradle the build image carries, with "
             "--offline; false lets Gradle download what the image does not have.")
+
+
+def validate_admob(cfg: dict) -> None:
+    """[android.admob]: the three ids, and their shape while AdMob is on."""
     # The three ids go into the manifest and into the SDK as they are written,
     # and the Google Mobile Ads SDK stops an app at startup over an app id it
     # cannot read. `app_id = 5` and `app_id = ""` both used to pass. The type is
@@ -977,6 +1054,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
                 + "\nCopy it from the AdMob console, or set [android.admob] enabled = false.",
                 ("android.admob", key))
 
+
+def validate_application_id(cfg: dict) -> None:
+    """[android] application_id: a Java package name, and not raymob's."""
     appid = cfg["android"]["application_id"]
     a_string(appid, "[android] application_id")
     if not APPID_RE.match(appid):
@@ -1007,6 +1087,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "Gradle rewrites and then reverts that exact string in the raymob sources; "
             "an id containing it corrupts them.")
 
+
+def validate_ios(cfg: dict) -> None:
+    """[ios]: the bundle id and the deployment target."""
     bundle = cfg["ios"]["bundle_id"]
     a_string(bundle, "[ios] bundle_id")
     if not BUNDLE_RE.match(bundle):
@@ -1027,6 +1110,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "rmp::save uses std::filesystem, which Apple's C++ library only has from iOS 13. "
             "Use 13.0 or later; the default, 15.6, covers every iPhone Apple still updates.")
 
+
+def validate_android_sdk(cfg: dict) -> None:
+    """[android] gl_version and min_sdk: what a device must have to install the game."""
     # ES31 and ES32 were accepted and changed only the manifest: raylib has an
     # ES 3.0 path and no 3.1 or 3.2 one, so they compiled ES 3.0 and hid the
     # game from more devices. isinstance first: one_of() below says the rest.
@@ -1042,6 +1128,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if not isinstance(min_sdk, int) or not (21 <= min_sdk <= 36):
         raise ConfigError(f"[android] min_sdk = {min_sdk!r} must be an integer between 21 and 36.")
 
+
+def validate_raylib(cfg: dict) -> None:
+    """[raylib] disabled_modules: only the optional ones."""
     for mod in cfg["raylib"]["disabled_modules"]:
         if mod in PROTECTED_MODULES:
             raise ConfigError(
@@ -1052,7 +1141,10 @@ def validate(cfg: dict, strict_release: bool) -> None:
                 f"[raylib] disabled_modules: unknown module {mod!r}. "
                 f"Optional modules are: {', '.join(sorted(OPTIONAL_MODULES))}.")
 
-    # [dev] compiler is checked at the top of this function, against COMPILERS.
+
+def validate_dev_toolchain(cfg: dict) -> None:
+    """[dev] linker, and the compiler and linker against the machine they would run on."""
+    # [dev] compiler is checked in validate_dev_compiler(), against COMPILERS.
     # There used to be a second check here allowing only clang/gcc/default, and
     # the two disagreed the moment mingw and msvc were added — which is exactly
     # what tests/configure_test.py caught.
@@ -1090,6 +1182,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "--help lists elf32-i386, elf64-x86-64 and friends, and no PE/COFF or Mach-O.\n"
             "Use \"lld\", or \"auto\" to let the build pick whatever actually links here.")
 
+
+def validate_sanitize(cfg: dict) -> None:
+    """[dev] sanitize: the names, then what this compiler and machine can do with them."""
     # [dev] sanitize: the names first, then what this compiler and this machine
     # can do with them. A compiler that has no runtime for one is not a
     # mistake in the .toml -- that is cmake/sanitize.cmake's probe, which runs
@@ -1133,6 +1228,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "the compiler refuses -fsanitize=address for an OpenBSD target.\n"
             'Use sanitize = ["undefined"] or [] on OpenBSD.')
 
+
+def validate_icon(cfg: dict) -> None:
+    """[icon]: the source and the adaptive background."""
     # [icon] source had no check at all: `source = 5` passed and died in
     # generate_icons() with a TypeError, and "" named the repository itself.
     icon = cfg["icon"]["source"]
@@ -1148,6 +1246,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
     if bg and not re.match(r"^#[0-9a-fA-F]{6}$", bg):
         raise ConfigError(f"[icon] adaptive_background = {bg!r} must be #RRGGBB, or \"\".")
 
+
+def validate_resources(cfg: dict) -> None:
+    """[resources] rres_password."""
     # [resources] rres_password. One of exactly two config values that end up
     # INSIDE the shipped binary (the other is the title), and it had no
     # validation at all: `rres_password = 5` passed validate() and then died in
@@ -1166,6 +1267,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "an archive whose resources/ holds PACK_SKIPPED.txt.",
             ("resources", "rres_password"))
 
+
+def validate_deploy(cfg: dict) -> None:
+    """[deploy]: the notice, and what reaches the workflows as job outputs."""
     if not isinstance(cfg["deploy"]["licenses"], bool):
         raise ConfigError(f"[deploy] licenses = {cfg['deploy']['licenses']!r} must be true "
                           "or false.")
@@ -1216,6 +1320,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             f"Set {missing}, or clear both to turn itch.io deployment off.",
             ("deploy.itch", missing))
 
+
+def validate_ci(cfg: dict) -> None:
+    """[ci] on_push."""
     # [ci] on_push writes the triggers of ci.yml (sync_ci_triggers), and a
     # string there would be truthy: "false" would keep every push running.
     if not isinstance(cfg["ci"]["on_push"], bool):
@@ -1224,6 +1331,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "true runs CI on every push to main and on every pull request; false only "
             "on a tag v* and by hand, with gh workflow run ci.yml.")
 
+
+def validate_input(cfg: dict) -> None:
+    """[input] deadzone."""
     dead = cfg["input"]["deadzone"]
     if isinstance(dead, bool) or not isinstance(dead, (int, float)):
         raise ConfigError(f"[input] deadzone = {dead!r} has to be a number between 0 and 0.95.")
@@ -1234,6 +1344,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "which on a worn controller means the character walks on its own; past 0.95 "
             "there is almost no travel left to read.")
 
+
+def validate_audio(cfg: dict) -> None:
+    """[audio]: the three buses."""
     # [audio] -- the three buses a settings screen offers. Each one is a
     # fraction, 0 to 1: MASTER scales everything, MUSIC and SFX scale their own
     # on top of it. A value above 1 is not "louder", it is clipping, and
@@ -1253,6 +1366,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
                 "and a negative volume means nothing. Use 1 for full.",
                 ("audio", key))
 
+
+def validate_save(cfg: dict) -> None:
+    """[save]: where, sealed or not, and the format's version."""
     # [save] -- where the saves go, whether they are sealed, and the version
     # this build writes them as. Two switches and a counter, and a wrong type
     # in any of them is a typo that would otherwise become a C++ error about
@@ -1284,6 +1400,9 @@ def validate(cfg: dict, strict_release: bool) -> None:
             "It is a counter that only goes up, starting at 1; it is stored as an int.",
             ("save", "version"))
 
+
+def validate_ui(cfg: dict) -> None:
+    """[ui]: theme, font, scale and the layout arena."""
     ui = cfg["ui"]
     one_of(ui["theme"], UI_THEMES, "[ui] theme",
            "It only picks which one the app starts with — rmp::ui::set_theme() "
@@ -1301,6 +1420,11 @@ def validate(cfg: dict, strict_release: bool) -> None:
                           "16 and 65536. It sizes the layout arena, so a large value costs memory "
                           "on every platform including phones.")
 
+
+def validate_targets(cfg: dict, strict_release: bool) -> None:
+    """[targets]: what is built, and what a release of it must not carry."""
+    appid = cfg["android"]["application_id"]
+    bundle = cfg["ios"]["bundle_id"]
     targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
 
     if cfg["raylib"]["disabled_modules"] and "ios" in targets:
@@ -1325,6 +1449,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
                 + "\n  ".join(bad)
                 + "\n\nA Google Play application id is PERMANENT: once published you can never "
                   "change it.\nSet real values in raylib_multiplatform.toml before tagging.")
+
 
 
 # ---------------------------------------------------------------------------
@@ -1606,7 +1731,14 @@ set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
     # on user.github.io -- share one database and each other's slots.
     write(REPO / "cmake" / "generated" / "rmp_web_name.js",
           f"// {GEN_HEADER}\nModule['rmpSaveName'] = {json.dumps(name)};\n")
+    gen_raylib_flags(cfg)
+    gen_dev_toolchain(cfg)
+    gen_dev_linker(cfg)
+    gen_dev_sanitize(cfg)
 
+
+def gen_raylib_flags(cfg: dict) -> None:
+    """raylib_flags.cmake: every SUPPORT_* flag, and the stubs a module needs."""
     defs, stubs = raylib_defs(cfg)
     stub_path = REPO / "cmake" / "generated" / "module_stubs.c"
     if stubs:
@@ -1626,6 +1758,9 @@ set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
         '${CMAKE_CURRENT_LIST_DIR}/module_stubs.c' if stubs else ""))
     write(REPO / "cmake" / "generated" / "raylib_flags.cmake", "\n".join(lines) + "\n")
 
+
+def gen_dev_toolchain(cfg: dict) -> None:
+    """dev_toolchain.cmake: [dev] compiler, for the Debug builds on this machine."""
     # Dev toolchain. Only ever included for non-production builds, so CI (which
     # builds `release`/`web`) is untouched by anything in [dev].
     dev = [f"# {GEN_HEADER}",
@@ -1681,8 +1816,6 @@ set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
             "",
         ]
     write(REPO / "cmake" / "generated" / "dev_toolchain.cmake", "\n".join(dev) + "\n")
-    gen_dev_linker(cfg)
-    gen_dev_sanitize(cfg)
 
 
 def gen_dev_sanitize(cfg: dict) -> None:
@@ -2394,7 +2527,8 @@ def generate_icons(cfg: dict, required: bool) -> None:
         return
 
     try:
-        from PIL import Image, ImageDraw
+        # Both here, where a missing Pillow is said: draw_android_icons() draws.
+        from PIL import Image, ImageDraw  # noqa: F401
     except ImportError:
         # Only Android and iOS consume the generated icons, and those two jobs
         # ask for them explicitly. Everywhere else — the lint job, a macOS or
@@ -2416,6 +2550,13 @@ def generate_icons(cfg: dict, required: bool) -> None:
     if source.width < 512:
         warn(f"[icon] {cfg['icon']['source']} is only {source.width}px; "
              "1024x1024 is recommended or the largest densities will look soft.")
+    draw_android_icons(cfg, source, res)
+    marker.write_text(want + "\n")
+
+
+def draw_android_icons(cfg: dict, source, res: Path) -> None:
+    """Android's launcher icons, every density, from the square `source`."""
+    from PIL import Image, ImageDraw
 
     def scaled(px: int) -> "Image.Image":
         return source.resize((px, px), Image.LANCZOS)
@@ -2462,8 +2603,6 @@ def generate_icons(cfg: dict, required: bool) -> None:
     (values / "ic_launcher_background.xml").write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
         f'    <color name="ic_launcher_background">{bg or "#000000"}</color>\n</resources>\n')
-
-    marker.write_text(want + "\n")
 
 
 def make_default_icon(dest: Path) -> None:
@@ -2784,7 +2923,8 @@ def schema() -> list[dict]:
     return out
 
 
-def main(argv: list[str]) -> int:
+def argument_parser() -> argparse.ArgumentParser:
+    """Every flag main() reads, and its help."""
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true", help="validate only, write nothing")
@@ -2833,44 +2973,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--require-notices", action="store_true",
                     help="fail if a LICENSES.txt for an enabled family cannot be written "
                          "(the iOS job: the raylib-iOS submodule has to be checked out)")
-    args = ap.parse_args(argv)
+    return ap
 
-    if args.config is not None:
-        # Another .toml, for checking it: the docs site runs every .toml it
-        # shows through here. Generating from it would overwrite the project's
-        # build files with a stranger's, so only --check and --print-* may.
-        global TOML
-        TOML = args.config.resolve()
-        if not TOML.is_file():
-            raise ConfigError(f"--config {args.config}: no such file")
-        asked = args.check or any(v for k, v in vars(args).items() if k.startswith("print_"))
-        if not asked:
-            raise ConfigError("--config is for --check and the --print-* flags; it never "
-                              "generates the project's build files.")
-    if args.print_schema:
-        print(json.dumps(schema(), indent=1, ensure_ascii=False))
-        return 0
-    if args.print_targets_table:
-        print(json.dumps([{"id": t, "family": f, "name": label,
-                           "groups": sorted(g for g, ids in GROUPS.items() if t in ids)}
-                          for t, (f, label) in TARGETS.items()], indent=1))
-        return 0
-    cfg = load_config()
-    if args.make_default_icon:
-        make_default_icon(REPO / cfg["icon"]["source"])
-        return 0
 
-    validate(cfg, strict_release=args.strict_release)
-    targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
-
-    # ci.yml's triggers, before anything is printed: the CI config job reads
-    # --print-name first, so a run that disagrees with the .toml stops there.
-    # Written only when generating on a machine; never for --config, which
-    # reads somebody else's .toml against this project's files.
-    if args.config is None:
-        asked = args.check or any(v for k, v in vars(args).items() if k.startswith("print_"))
-        sync_ci_triggers(cfg, write_it=not asked and not os.environ.get("GITHUB_ACTIONS"))
-
+def answer(args: argparse.Namespace, cfg: dict, targets: list[str]) -> int | None:
+    """What a --print-* flag or --check asks for, printed, and the exit status;
+    None when nothing was asked, and the build files are to be generated."""
     if args.print_defines:
         print(json.dumps(app_defines(cfg), indent=1, ensure_ascii=False))
         return 0
@@ -2943,7 +3051,11 @@ def main(argv: list[str]) -> int:
     if args.check:
         print(f"configure: OK — {cfg['project']['name']}, {len(targets)} target(s)")
         return 0
+    return None
 
+
+def generate(cfg: dict, targets: list[str], args: argparse.Namespace) -> None:
+    """Every build file the .toml decides, and the stamp CMake compares."""
     gen_cmake(cfg)
     gen_app_config(cfg)
     if gen_licenses(cfg, targets, require_notices=args.require_notices):
@@ -2964,6 +3076,52 @@ def main(argv: list[str]) -> int:
         # Repeated at the end because the individual warnings scroll past in the
         # middle of CMake's own output, where nobody sees them.
         print(f"configure: {len(_warnings)} warning(s) above", file=sys.stderr)
+
+
+def main(argv: list[str]) -> int:
+    ap = argument_parser()
+    args = ap.parse_args(argv)
+
+    if args.config is not None:
+        # Another .toml, for checking it: the docs site runs every .toml it
+        # shows through here. Generating from it would overwrite the project's
+        # build files with a stranger's, so only --check and --print-* may.
+        global TOML
+        TOML = args.config.resolve()
+        if not TOML.is_file():
+            raise ConfigError(f"--config {args.config}: no such file")
+        asked = args.check or any(v for k, v in vars(args).items() if k.startswith("print_"))
+        if not asked:
+            raise ConfigError("--config is for --check and the --print-* flags; it never "
+                              "generates the project's build files.")
+    if args.print_schema:
+        print(json.dumps(schema(), indent=1, ensure_ascii=False))
+        return 0
+    if args.print_targets_table:
+        print(json.dumps([{"id": t, "family": f, "name": label,
+                           "groups": sorted(g for g, ids in GROUPS.items() if t in ids)}
+                          for t, (f, label) in TARGETS.items()], indent=1))
+        return 0
+    cfg = load_config()
+    if args.make_default_icon:
+        make_default_icon(REPO / cfg["icon"]["source"])
+        return 0
+
+    validate(cfg, strict_release=args.strict_release)
+    targets = expand_targets(cfg["targets"]["enabled"], cfg["targets"]["disabled"])
+
+    # ci.yml's triggers, before anything is printed: the CI config job reads
+    # --print-name first, so a run that disagrees with the .toml stops there.
+    # Written only when generating on a machine; never for --config, which
+    # reads somebody else's .toml against this project's files.
+    if args.config is None:
+        asked = args.check or any(v for k, v in vars(args).items() if k.startswith("print_"))
+        sync_ci_triggers(cfg, write_it=not asked and not os.environ.get("GITHUB_ACTIONS"))
+
+    code = answer(args, cfg, targets)
+    if code is not None:
+        return code
+    generate(cfg, targets, args)
     return 0
 
 

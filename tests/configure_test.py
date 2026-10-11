@@ -6822,7 +6822,9 @@ class RresPackTest(unittest.TestCase):
 
 
 def validate_rejections(source: str) -> list[tuple[int, str]]:
-    """(line, key phrase) for every `raise ConfigError` lexically in validate().
+    """(line, key phrase) for every `raise ConfigError` lexically in validate()
+    or in a validate_<table>() it calls -- one function a table, so that
+    mutmut can mutate it (tools/mutation.sh).
 
     Parsed, not grepped, so a `raise` inside a nested `if` or a loop counts the
     same as one at the top, and a ConfigError raised from somewhere else in the
@@ -6831,8 +6833,12 @@ def validate_rejections(source: str) -> list[tuple[int, str]]:
     as in `f"[android.{table}] {k} = ..."` -- the first literal sentence long
     enough to be distinctive.
     """
-    fn = next(n for n in ast.parse(source).body
-              if isinstance(n, ast.FunctionDef) and n.name == "validate")
+    functions = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+    called = [node.func.id for node in ast.walk(functions["validate"])
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+              and node.func.id.startswith("validate_") and node.func.id in functions]
+    fn = ast.Module(body=[functions["validate"], *(functions[name] for name in called)],
+                    type_ignores=[])
     hole = "\x00"
 
     def literal(node):
