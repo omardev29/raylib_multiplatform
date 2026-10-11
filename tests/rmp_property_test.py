@@ -335,7 +335,7 @@ def _command_test(name: str):
         machine = Machine(data, spec)
         holds_its_exit_promise(self, argv, machine, *run_main(machine, argv))
     test.__name__ = f"test_rmp_{name}"
-    test.__doc__ = f"`rmp {name}` and any words after it."
+    test.__doc__ = f"The command {name!r}, and any words after it."
     return test
 
 
