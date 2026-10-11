@@ -23,6 +23,7 @@
 
 #include <doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -240,6 +241,259 @@ TEST_SUITE("property: collision") {
                 RC_ASSERT(world::finite(mover.velocity));
                 RC_ASSERT(world::finite(still.velocity));
                 RC_ASSERT(world::finite(mover.position));
+            });
+    }
+
+    TEST_CASE("the narrow phase, against a reference in double") {
+        const world::Hushed hushed;
+        rmp::test::check(
+            "collision: a solid shape pushed out of another moves by the shortest way "
+            "out, and loses the speed it had into the contact",
+            [] {
+                const world::Fresh fresh;
+                world::World scene;
+                // In quarters, so the reference below meets the same numbers.
+                const auto quarters = [](int lo, int hi) {
+                    return static_cast<float>(*rc::gen::inRange(lo * 4, hi * 4)) / 4;
+                };
+                struct Shape {
+                    bool round;
+                    float hw, hh, r; // half sizes, radius
+                };
+                const auto draw_shape = [&] {
+                    Shape s{ *rc::gen::arbitrary<bool>(), quarters(2, 40),
+                             quarters(2, 40), quarters(2, 40) };
+                    return s;
+                };
+                const Shape still_shape = draw_shape();
+                const Shape mover_shape = draw_shape();
+                const Vector2 offset{ quarters(-10, 10), quarters(-10, 10) };
+                const Vector2 at{ quarters(-60, 60), quarters(-60, 60) };
+                const Vector2 moving{ quarters(-100, 100), quarters(-100, 100) };
+                const bool still_first = *rc::gen::arbitrary<bool>();
+                const bool both_move = *rc::gen::arbitrary<bool>();
+
+                // The reference: where the mover's shape is, and the push that
+                // separates it from the still one, pointing at the mover.
+                const double cx = at.x + offset.x;
+                const double cy = at.y + offset.y;
+                double push_x = 0;
+                double push_y = 0;
+                bool touching = false;
+                // Ties between two ways out are left out: either is right.
+                bool clear_cut = true;
+                const auto rect_rect = [&](double ax, double ay, double ahw, double ahh,
+                                           double bhw, double bhh) {
+                    // a's push out of a box at the origin.
+                    const double px = ahw + bhw - std::fabs(ax);
+                    const double py = ahh + bhh - std::fabs(ay);
+                    if (px <= 0 || py <= 0) return;
+                    touching = true;
+                    clear_cut = std::fabs(px - py) > 0.01 && ax != 0 && ay != 0;
+                    if (px < py) {
+                        push_x = ax < 0 ? -px : px;
+                    } else {
+                        push_y = ay < 0 ? -py : py;
+                    }
+                };
+                const auto disc_rect = [&](double ax, double ay, double r, double bhw,
+                                           double bhh, double sign) {
+                    // A disc at (ax, ay) pushed out of a box at the origin;
+                    // `sign` -1 turns it into the box's push out of the disc.
+                    const double nx = std::clamp(ax, -bhw, bhw);
+                    const double ny = std::clamp(ay, -bhh, bhh);
+                    const double dx = ax - nx;
+                    const double dy = ay - ny;
+                    const double d = std::hypot(dx, dy);
+                    if (d > 0.01) {
+                        if (d >= r - 0.01) return;
+                        touching = true;
+                        push_x = sign * dx / d * (r - d);
+                        push_y = sign * dy / d * (r - d);
+                        return;
+                    }
+                    if (d > 0) {
+                        clear_cut = false;
+                        touching = true;
+                        return;
+                    }
+                    touching = true;
+                    const std::array<double, 4> ways{ ax + bhw, bhw - ax, ay + bhh,
+                                                      bhh - ay };
+                    std::array<double, 4> sorted = ways;
+                    std::ranges::sort(sorted);
+                    clear_cut = sorted[1] - sorted[0] > 0.01;
+                    const auto best = static_cast<std::size_t>(
+                        std::ranges::min_element(ways) - ways.begin());
+                    const double out = ways[best] + r;
+                    const std::array<Vector2, 4> dirs{
+                        { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }
+                    };
+                    push_x = sign * dirs[best].x * out;
+                    push_y = sign * dirs[best].y * out;
+                };
+                if (!still_shape.round && !mover_shape.round) {
+                    rect_rect(cx, cy, mover_shape.hw, mover_shape.hh, still_shape.hw,
+                              still_shape.hh);
+                } else if (still_shape.round && mover_shape.round) {
+                    const double d = std::hypot(cx, cy);
+                    const double sum = still_shape.r + mover_shape.r;
+                    if (d < sum - 0.01) {
+                        touching = true;
+                        clear_cut = d > 0.01;
+                        if (clear_cut) {
+                            push_x = cx / d * (sum - d);
+                            push_y = cy / d * (sum - d);
+                        }
+                    } else if (d < sum + 0.01) {
+                        clear_cut = false;
+                    }
+                } else if (mover_shape.round) {
+                    disc_rect(cx, cy, mover_shape.r, still_shape.hw, still_shape.hh, 1);
+                } else {
+                    // The still disc pushed out of the moving box, from the
+                    // box's point of view, and turned round.
+                    disc_rect(-cx, -cy, still_shape.r, mover_shape.hw, mover_shape.hh,
+                              -1);
+                }
+                RC_PRE(clear_cut);
+
+                const auto make = [&](const Shape &s, Vector2 position, Vector2 off,
+                                      Vector2 v) -> rmp::Object & {
+                    rmp::Shape shape =
+                        s.round ? rmp::circle(s.r) : rmp::rect({ 2 * s.hw, 2 * s.hh });
+                    shape.offset = off;
+                    auto &o = scene.spawn(
+                        { .position = position, .shape = shape, .velocity = v });
+                    o.solid = true;
+                    return o;
+                };
+                rmp::Handle<rmp::Object> made_still;
+                if (still_first)
+                    made_still = make(still_shape, { 0, 0 }, {}, {}).handle();
+                const rmp::Handle<rmp::Object> made_mover =
+                    make(mover_shape, at, offset, moving).handle();
+                if (!still_first)
+                    made_still = make(still_shape, { 0, 0 }, {}, {}).handle();
+                rmp::Object &still = *made_still;
+                const rmp::Object &mover = *made_mover;
+                still.immovable = !both_move;
+
+                rmp::objects::detail::collide(scene);
+
+                const double share = both_move ? 0.5 : 1.0;
+                const double tolerance =
+                    1e-3 * (1 + std::fabs(push_x) + std::fabs(push_y));
+                RC_ASSERT(std::fabs(mover.position.x - (at.x + share * push_x)) <=
+                          tolerance);
+                RC_ASSERT(std::fabs(mover.position.y - (at.y + share * push_y)) <=
+                          tolerance);
+                RC_ASSERT(std::fabs(still.position.x + ((1 - share) * push_x)) <=
+                          tolerance);
+                RC_ASSERT(std::fabs(still.position.y + ((1 - share) * push_y)) <=
+                          tolerance);
+                // The velocity into the contact is taken away, and nothing else.
+                double vx = moving.x;
+                double vy = moving.y;
+                const double length = std::hypot(push_x, push_y);
+                if (touching && length > 0) {
+                    const double ox = push_x / length;
+                    const double oy = push_y / length;
+                    const double into = (vx * ox) + (vy * oy);
+                    if (into < 0) {
+                        vx -= ox * into;
+                        vy -= oy * into;
+                    }
+                }
+                RC_ASSERT(std::fabs(mover.velocity.x - vx) <= 1e-3 * (1 + std::fabs(vx)));
+                RC_ASSERT(std::fabs(mover.velocity.y - vy) <= 1e-3 * (1 + std::fabs(vy)));
+            });
+        rmp::test::check(
+            "collision: a ray aimed through a shape hits its edge where the reference "
+            "does, with the outward normal there",
+            [] {
+                const world::Fresh fresh;
+                world::World scene;
+                const auto quarters = [](int lo, int hi) {
+                    return static_cast<float>(*rc::gen::inRange(lo * 4, hi * 4)) / 4;
+                };
+                const bool round = *rc::gen::arbitrary<bool>();
+                const float hw = quarters(2, 40);
+                const float hh = quarters(2, 40);
+                const float r = quarters(2, 40);
+                const Vector2 c{ quarters(-50, 50), quarters(-50, 50) };
+                scene.spawn(
+                    { .position = c,
+                      .shape = round ? rmp::circle(r) : rmp::rect({ 2 * hw, 2 * hh }) });
+                // Through a point well inside the shape, from anywhere, and on
+                // past it: a ray that must hit.
+                const float fx = static_cast<float>(*rc::gen::inRange(-8, 9)) / 10;
+                const float fy = static_cast<float>(*rc::gen::inRange(-8, 9)) / 10;
+                const Vector2 inside = round
+                    ? Vector2{ c.x + fx * r * 0.7F, c.y + fy * r * 0.7F }
+                    : Vector2{ c.x + fx * hw, c.y + fy * hh };
+                const Vector2 from{ quarters(-150, 150), quarters(-150, 150) };
+                const Vector2 to{ from.x + (inside.x - from.x) * 3,
+                                  from.y + (inside.y - from.y) * 3 };
+                const double dx = to.x - from.x;
+                const double dy = to.y - from.y;
+                RC_PRE(std::hypot(dx, dy) > 1);
+
+                // The reference, in double: where the segment meets the edge.
+                double t = 0;
+                double nx = 0;
+                double ny = 0;
+                bool starts_inside = false;
+                if (round) {
+                    const double mx = from.x - c.x;
+                    const double my = from.y - c.y;
+                    const double a = (dx * dx) + (dy * dy);
+                    const double b = 2 * ((mx * dx) + (my * dy));
+                    const double k = (mx * mx) + (my * my) - (static_cast<double>(r) * r);
+                    const double root = std::sqrt((b * b) - (4 * a * k));
+                    starts_inside = k < 0;
+                    t = starts_inside ? (-b + root) / (2 * a) : (-b - root) / (2 * a);
+                    // Too close to the edge to say which side: either is right.
+                    RC_PRE(std::fabs(k) > 0.05 * r);
+                    const double px = from.x + dx * t - c.x;
+                    const double py = from.y + dy * t - c.y;
+                    nx = px / r;
+                    ny = py / r;
+                } else {
+                    starts_inside =
+                        std::fabs(from.x - c.x) < hw && std::fabs(from.y - c.y) < hh;
+                    RC_PRE(std::fabs(std::fabs(from.x - c.x) - hw) > 0.05 &&
+                           std::fabs(std::fabs(from.y - c.y) - hh) > 0.05);
+                    if (starts_inside) {
+                        const double len = std::hypot(dx, dy);
+                        nx = -dx / len;
+                        ny = -dy / len;
+                    } else {
+                        const double tx = dx > 0
+                            ? (c.x - hw - from.x) / dx
+                            : (dx < 0 ? (c.x + hw - from.x) / dx : -1e9);
+                        const double ty = dy > 0
+                            ? (c.y - hh - from.y) / dy
+                            : (dy < 0 ? (c.y + hh - from.y) / dy : -1e9);
+                        RC_PRE(std::fabs(tx - ty) > 1e-3);
+                        if (tx > ty) {
+                            t = tx;
+                            nx = dx > 0 ? -1 : 1;
+                        } else {
+                            t = ty;
+                            ny = dy > 0 ? -1 : 1;
+                        }
+                    }
+                }
+                const rmp::RayHit hit = scene.raycast(from, to);
+                RC_ASSERT(static_cast<bool>(hit));
+                const double tolerance = 1e-3 * (1 + std::hypot(dx, dy));
+                RC_ASSERT(std::fabs(hit.point.x - (from.x + dx * t)) <= tolerance);
+                RC_ASSERT(std::fabs(hit.point.y - (from.y + dy * t)) <= tolerance);
+                RC_ASSERT(std::fabs(hit.distance - (t * std::hypot(dx, dy))) <=
+                          tolerance);
+                RC_ASSERT(std::fabs(hit.normal.x - nx) <= 1e-3);
+                RC_ASSERT(std::fabs(hit.normal.y - ny) <= 1e-3);
             });
     }
 
