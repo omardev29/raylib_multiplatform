@@ -170,12 +170,15 @@ private:
     int _right_score = 0;
 };
 
+// An overlay, and not begin()/end(): a frame of its own in front of everything
+// drawn before it, which it dims -- most of the way to black here, so that the
+// words read over the court -- and whose first button has the focus, so Enter
+// plays again too. A pause menu is the same call with a Resume button in it.
 void OverScene::_draw() {
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Color{ 0, 0, 0, 190 });
-    rmp::ui::begin();
-    rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
-    if (rmp::ui::button("Play again")) rmp::Scene::change<PongScene>();
-    rmp::ui::end();
+    rmp::ui::overlay({ .dim = 0.75f }, [this] {
+        rmp::ui::text(_said, { .size = rmp::ui::Size::LARGE });
+        if (rmp::ui::button("Play again")) rmp::Scene::change<PongScene>();
+    });
 }
 
 } // namespace
