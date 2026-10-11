@@ -1,7 +1,12 @@
 # tools/binary_check.py (package P9): the readers that judge a shipped .exe,
 # Mac binary and ELF. Its unit tests build binaries byte by byte; the
-# property test cuts, pokes and extends them.
+# property test cuts, pokes and extends them. Measured in the image on
+# 2026-10-11, mutmut 3.8.0: 1532 mutants, 1274 detected, 258 not -- main()'s
+# argparse help (42), the words each check prints and the sentences
+# elf_findings() writes, and fields a valid binary never reaches (a PE32+
+# image base, read only by the old delay-load format, which no 64-bit
+# linker writes) = 83.16%. 5 min 22 s with 3 children.
 kind     py
 sources  tools/binary_check.py
 tests    tests/binary_check_test.py tests/binary_check_property_test.py
-floor    -
+floor    80
