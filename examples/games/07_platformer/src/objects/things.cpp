@@ -207,12 +207,17 @@ void Goal::_ready() {
     collision_mask = layer::PLAYER;
 }
 
+// The flag's clock is the delta it is handed, not GetTime(): the game's time
+// is what the scene stack says it is, which is what lets a paused scene stop
+// waving and a scripted run (tests/e2e/) draw the same flag every time.
+void Goal::_update(float delta) { _waving += delta; }
+
 void Goal::_draw() {
     // The pole in the bottom cell, the flag waving in the top one.
     const Rectangle box = world_collider();
     const float left = position.x - (TILE / 2);
     draw_tile(tiles::POLE, { left, box.y + box.height - TILE });
-    const int wave = static_cast<int>(GetTime() * 4) % 2; // four times a second
+    const int wave = static_cast<int>(_waving * 4) % 2; // four times a second
     draw_tile(tiles::FLAG + wave, { left, box.y + box.height - (2 * TILE) });
 }
 

@@ -138,8 +138,10 @@ Clay_Dimensions viewport();
 bool test_mode();
 
 // Seconds since the last frame, or 0 in test mode — a headless run has no frame
-// time and has to produce the same numbers every time. The one place the UI
-// reads raylib's clock; everything else takes it from here.
+// time and has to produce the same numbers every time. It is the game's clock:
+// what step_delta() handed the scenes this frame (rmp::app::detail::
+// frame_delta(), src/rmp/clock.cpp), so a fixed step fixes the menus too.
+// Everything in the UI that animates takes its time from here.
 float frame_time();
 
 // Pixels to keep clear at the edge of the screen. [android.display]

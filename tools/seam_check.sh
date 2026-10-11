@@ -9,9 +9,9 @@
 # to ignore the colour red. This is that rule, enforced.
 #
 # HOW IT IS ENFORCED. Not as "zero occurrences": a seam has to touch the real
-# thing, and that is its job -- the game's clock in app.cpp, the devices in
-# input.cpp, the UI's own pointer, keys and clock (frame_time()) in
-# ui/context.cpp. And one file is still debt: the text field in
+# thing, and that is its job -- the clock in clock.cpp, the devices in
+# input.cpp, the UI's own pointer and keys in ui/context.cpp. And one file is
+# still debt: the text field in
 # ui/controls.cpp reads the character queue, backspace and the clock for its
 # caret itself. So this is a RATCHET. The files below are the ones allowed, the
 # debt among them is marked, and the list may only get shorter. Any OTHER file
@@ -64,23 +64,26 @@ count_hits() { strip_comments "$1" | grep -cE "$PATTERN"; }
 #   cannot drive it without a window. The note below the list says why the
 #   UI's reads stay in the UI and not in rmp::input.
 ALLOWED=(
-  "src/rmp/app.cpp"           # THE seam for the game's time: step_delta() is
-                             # the one GetFrameTime() the game's code sees, and
-                             # every runner in rmp/app.h goes through it so that
-                             # [app] max_delta applies to all of them. Scenes,
-                             # objects and behaviors are handed a delta, which is
-                             # what makes their tests able to run a frame of
-                             # exactly 1/30. The UI's clock is the other seam,
-                             # frame_time() in ui/context.cpp, below.
+  "src/rmp/clock.cpp"         # THE seam for time: step_delta() is the one
+                             # GetFrameTime() in the framework, and every runner
+                             # in rmp/app.h goes through it so that [app]
+                             # max_delta applies to all of them. Scenes, objects
+                             # and behaviors are handed its delta, which is what
+                             # makes their tests able to run a frame of exactly
+                             # 1/30; the UI reads the same number back through
+                             # frame_delta(), and a test can fix it
+                             # (set_fixed_delta), which is what lets
+                             # tests/e2e/ play a game twice and get the same
+                             # pixels.
   "src/rmp/input.cpp"         # THE seam: sample_with_raylib() is the provider a
                              # test replaces, and the only place the devices are
                              # read at all. Everything else asks rmp::input.
-  "src/rmp/ui/context.cpp"    # the seam: read_pointer(), read_nav() and
-                             # frame_time() -- the mouse, the keyboard and the
-                             # gamepad the UI navigates itself with, and the
-                             # clock -- frame_time(), which the transitions in
-                             # style.cpp read too -- each sampled once at the
-                             # frame boundary through a provider a test replaces
+  "src/rmp/ui/context.cpp"    # the seam: read_pointer() and read_nav() --
+                             # the mouse, the keyboard and the gamepad the UI
+                             # navigates itself with -- each sampled once at the
+                             # frame boundary through a provider a test
+                             # replaces, and the viewport. Its clock,
+                             # frame_time(), is the game's: clock.cpp, above.
   "src/rmp/object.cpp"        # THE seam for the viewport: view_rect() falls back
                              # to the screen for an object with empty bounds, and
                              # GetScreenWidth()/GetScreenHeight() are what "the

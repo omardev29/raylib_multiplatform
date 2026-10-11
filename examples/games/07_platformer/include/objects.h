@@ -159,8 +159,12 @@ private:
 class Goal : public rmp::Object {
 public:
     void _ready() override;
+    void _update(float delta) override;
     void _draw() override;
     void _collision(rmp::Object &other) override;
+
+private:
+    float _waving = 0; // seconds, the flag's own clock
 };
 
 } // namespace game

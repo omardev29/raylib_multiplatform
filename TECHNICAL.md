@@ -41,7 +41,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── main.cpp              # RMP_GAME(MainMenuScene); and nothing else
 │   ├── scenes/               # your scenes, one per file
 │   └── rmp/                  # THE framework's implementation, compiled once into `rmp` -- not yours
-│       ├── internal.h        #   private seams: report_once, the resources root, the pack
+│       ├── internal.h        #   private seams: the clock, report_once, the resources root, the pack
+│       ├── clock.cpp         #   the one GetFrameTime(): step_delta(), and a test's fixed step and seed
 │       ├── report.cpp        #   RMP_REPORT_ONCE: one line per mistake, [dev] strict
 │       ├── app.cpp           #   rmp::app -- the frame, quit(), compiled into EACH executable
 │       ├── global.cpp        #   rmp::global<T>() registry and its destruction order

@@ -637,7 +637,7 @@ void end_frame() {
 
 void set_pass_input(bool reachable) { this_pass.input = reachable; }
 
-float frame_time() { return test_mode() ? 0.0f : GetFrameTime(); }
+float frame_time() { return test_mode() ? 0.0f : rmp::app::detail::frame_delta(); }
 
 // ---------------------------------------------------------------------------
 // Identity

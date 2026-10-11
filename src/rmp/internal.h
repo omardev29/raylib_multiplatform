@@ -9,6 +9,46 @@
 
 #include <raylib.h>
 
+#include <cstdint>
+#include <optional>
+
+namespace rmp {
+template <class... A> class Callback; // rmp/object.h
+} // namespace rmp
+
+namespace rmp::app::detail {
+
+// --- clock.cpp -------------------------------------------------------------
+// The framework's one clock. step_delta() (rmp/app.h) is what every runner
+// hands the game, and frame_delta() is what it handed this frame -- which is
+// what rmp::ui animates and repeat-scrolls by, so the menus and the game
+// cannot disagree about how long a frame was. A test can fix the step and
+// the seed and be told when a frame ends: that is the whole of what
+// tests/e2e/driver.cpp needs to play a game and get the same pixels twice.
+//
+// The storage behind these is constant-initialised, so a test's static
+// initializer may call them before main() in any order.
+
+// What step_delta() returned this frame: 0 before the first one.
+float frame_delta();
+
+// More than 0: every frame advances exactly `seconds` -- still clamped by
+// [app] max_delta -- whatever the machine took. 0 goes back to the real clock.
+void set_fixed_delta(float seconds);
+
+// What begin_run() seeds rmp::random with, instead of the wall clock. nullopt
+// goes back to the wall clock.
+void set_test_seed(std::optional<std::uint64_t> seed);
+std::optional<std::uint64_t> test_seed();
+
+// Called by end_frame(), last, once a frame -- after EndDrawing(), when the
+// frame's pixels are still in a software framebuffer and the scenes it queued
+// have been applied. An empty callback removes it.
+void set_frame_observer(rmp::Callback<> on_frame_end);
+void frame_ended();
+
+} // namespace rmp::app::detail
+
 namespace rmp::assets::detail {
 
 // --- pack.cpp --------------------------------------------------------------

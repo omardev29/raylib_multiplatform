@@ -250,15 +250,17 @@ void begin_run() {
     // the game's. Told before anything is loaded, so an example with its own
     // resources/ reads its own. See resources_root() in internal.h.
     rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
-    // The one place rmp::random is seeded, and the reason it is HERE: a test
-    // never comes through the entry point, so a headless run keeps the fixed
-    // default seed and stays reproducible, while a shipped game gets a
-    // different sequence every launch. current_seed() names either one.
+    // The one place rmp::random is seeded, and the reason it is HERE: a unit
+    // test never comes through the entry point, so a headless run keeps the
+    // fixed default seed and stays reproducible, while a shipped game gets a
+    // different sequence every launch. current_seed() names either one. A test
+    // that does come through it -- tests/e2e/driver.cpp, which plays a game --
+    // names its seed with set_test_seed(): the same seed, the same run.
     //
     // The wall clock and not GetTime(), which is seconds since InitWindow() and
     // is therefore about the same small number on every launch.
-    rmp::random::seed(static_cast<uint64_t>(
-        std::chrono::system_clock::now().time_since_epoch().count()));
+    rmp::random::seed(test_seed().value_or(static_cast<uint64_t>(
+        std::chrono::system_clock::now().time_since_epoch().count())));
     // [dev] strict: a framework warning aborts instead of scrolling past. Debug
     // builds only -- NDEBUG is what every release configuration on every
     // platform defines, so a shipped binary can never carry it.
@@ -320,16 +322,7 @@ bool keep_running() {
     return !closed && !SmokeTest_Done() && !quit_requested();
 }
 
-float step_delta() {
-    const float raw = GetFrameTime();
-    // 0 switches the clamp off, and so does a negative reading, which no
-    // platform should produce but a monotonic clock going backwards on a
-    // suspend/resume is not unheard of -- and a negative step would run the
-    // whole world in reverse for one frame.
-    if (raw < 0) return 0;
-    if (RMP_MAX_DELTA <= 0) return raw;
-    return raw > RMP_MAX_DELTA ? RMP_MAX_DELTA : raw;
-}
+// step_delta() is in src/rmp/clock.cpp, with the rest of the clock.
 
 // The frame boundary, and it belongs to the RUNNER, not to frame(). It used
 // to be the first line of frame(), which only RMP_GAME calls, so a game with
@@ -353,6 +346,11 @@ void end_frame() {
     // not fed runs dry and stutters. It keeps playing under a pause menu that
     // freezes the scene below. A no-op with no music or no device.
     rmp::audio::detail::update();
+
+    // Last, so that whoever is watching sees the frame finished: drawn, its
+    // scene changes applied. Nobody is, unless a test installed an observer
+    // (tests/e2e/driver.cpp plays a game through it).
+    frame_ended();
 }
 
 // Everything that owns something on the GPU is released HERE, before the stop

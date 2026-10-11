@@ -5356,7 +5356,9 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         app_h = (REPO / "include" / "rmp" / "app.h").read_text()
         self.assertNotIn("FRAME(GetFrameTime())", app_h)
         self.assertEqual(app_h.count("FRAME(rmp::app::detail::step_delta())"), 3)
-        self.assertIn("RMP_MAX_DELTA", (REPO / "src" / "rmp" / "app.cpp").read_text())
+        # In the library, with the rest of the clock: src/rmp/clock.cpp.
+        self.assertIn("RMP_MAX_DELTA", (REPO / "src" / "rmp" / "clock.cpp").read_text())
+        self.assertNotIn("float step_delta()", (REPO / "src" / "rmp" / "app.cpp").read_text())
 
 
 def load_license_db():
