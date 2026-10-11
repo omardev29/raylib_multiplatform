@@ -1,31 +1,24 @@
-# tools/rmp.py (package P9): the one command. mutmut copies what git tracks into
-# a folder that is no git checkout, so the classes of rmp_test.py that read the
-# index or make a game from it are left out -- CiModeTest, DocsTest,
-# GameOnPushTest, InstallerContractTest, LauncherTest, MachineReadableTest,
-# ManifestTest, NewRefusesTest, NewTest -- and StagesAgreeWithLintTest, which
-# holds the stages to ci.yml; and BuildLayoutGateTest and SourceTest, which
-# read rmp.py's text, and mutmut's copy of it holds every mutant inline. Each
-# runs on every push anyway. What reaches
-# rmp.py only as a program (push, deploy, install against a real git) is in,
-# and counts for nothing: mutmut follows calls in-process.
-# tests/rmp_property_test.py reaches main() on a made-up machine.
+# tools/rmp.py (package P9): the one command. mutmut follows calls in-process,
+# so these are the classes of rmp_test.py that call rmp.py's functions -- not
+# the ones that start it as a program against a real git (deploy, push,
+# install, update: they count for nothing here, and the install tests copy
+# rmp.py somewhere a Python without mutmut runs it, and fail), not the ones
+# that need a git checkout, which mutmut's copy of the tree is not (the
+# manifest read from the index, `rmp new`, the launchers, CiModeTest, DocsTest),
+# and not the ones that read rmp.py's text, which in the copy holds every
+# mutant inline (BuildLayoutGateTest, SourceTest) -- each runs on every push
+# anyway. tests/rmp_property_test.py reaches main() on a made-up machine.
 kind     py
 sources  tools/rmp.py
 tests    tests/rmp_property_test.py
 tests    tests/rmp_test.py::HelpTest tests/rmp_test.py::DispatchTest
 tests    tests/rmp_test.py::RootTest tests/rmp_test.py::DelegationTest
 tests    tests/rmp_test.py::CommandSequenceTest tests/rmp_test.py::SmokeStepTest
-tests    tests/rmp_test.py::RetireOldBuildTest tests/rmp_test.py::PresetsTest
-tests    tests/rmp_test.py::BuildFoldersInCMakeTest tests/rmp_test.py::CleanTest
-tests    tests/rmp_test.py::DeployTest
-tests    tests/rmp_test.py::PushTest tests/rmp_test.py::FirstPushTest
+tests    tests/rmp_test.py::RetireOldBuildTest tests/rmp_test.py::CleanTest
 tests    tests/rmp_test.py::EveryTestModuleRunsTest tests/rmp_test.py::PropertyStageTest
-tests    tests/rmp_test.py::WindowsCheckoutTest tests/rmp_test.py::CopyManifestTest
-tests    tests/rmp_test.py::StripComponentsTest tests/rmp_test.py::GameUnitStageTest
-tests    tests/rmp_test.py::ModeTest
-tests    tests/rmp_test.py::InstallTest tests/rmp_test.py::InstallPs1UnderIexTest
-tests    tests/rmp_test.py::UpdateTest tests/rmp_test.py::GlobalCommandsTest
-tests    tests/rmp_test.py::InstallCommandTest tests/rmp_test.py::InstallerCiTest
+tests    tests/rmp_test.py::CopyManifestTest tests/rmp_test.py::StripComponentsTest
+tests    tests/rmp_test.py::GameUnitStageTest tests/rmp_test.py::ModeTest
+tests    tests/rmp_test.py::GlobalCommandsTest tests/rmp_test.py::InstallCommandTest
 tests    tests/rmp_test.py::SessionTest tests/rmp_test.py::TerminalNameTest
 tests    tests/rmp_test.py::ConsoleFoldersTest tests/rmp_test.py::ConsoleDevicesTest
 tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTest
