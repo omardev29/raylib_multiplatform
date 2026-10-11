@@ -580,17 +580,18 @@ TEST_SUITE("ui: overlay") {
         CHECK(rmp::detail::report_count() == 0);
         // The app's frame, which can be redirected: not a mistake, and with no
         // window nothing is redirected all the same.
+        // Whether a frame is redirected is asked while it is drawn: by the
+        // time the app's frame ends, finish_backdrop() has ended it.
         for (int frame = 0; frame < 60; ++frame) {
             app_frame([] {
+                CHECK_FALSE(rmp::ui::detail::backdrop_redirected());
                 rmp::ui::overlay({ .blur = 6 }, [] { rmp::ui::button("Resume"); });
             });
-            CHECK_FALSE(rmp::ui::detail::backdrop_redirected());
             CHECK_FALSE(rmp::ui::detail::backdrop_blurred());
         }
         CHECK(rmp::detail::report_count() == 0);
         // And an app frame with no overlay in it after them.
-        app_frame([] {});
-        CHECK_FALSE(rmp::ui::detail::backdrop_redirected());
+        app_frame([] { CHECK_FALSE(rmp::ui::detail::backdrop_redirected()); });
     }
 
     TEST_CASE_FIXTURE(HeadlessUi,

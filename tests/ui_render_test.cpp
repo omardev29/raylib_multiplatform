@@ -235,8 +235,12 @@ int ramp_width(const std::vector<int> &line) {
 // Through the backdrop's hooks, as rmp::app::detail::frame() calls them, with
 // no overlay anywhere: the frame is exactly what was drawn.
 void untouched_without_an_overlay() {
-    const Shot shot = frame([] { draw_split(true); });
-    check(!rmp::ui::detail::backdrop_redirected(),
+    bool redirected = true;
+    const Shot shot = frame([&] {
+        redirected = rmp::ui::detail::backdrop_redirected();
+        draw_split(true);
+    });
+    check(!redirected,
           "no overlay asked for a blur, so the frame was drawn straight to the screen");
     check(shot.width() > 0 && shot.height() > 0, "the frame reads back");
     if (shot.width() > 0 && shot.height() > 0) {
@@ -252,15 +256,26 @@ void untouched_without_an_overlay() {
 // blur 0 is a rectangle of the veil at dim's alpha over the frame, and not a
 // pixel more: the same picture as drawing that rectangle by hand.
 void blur_zero_is_the_veil() {
-    const Shot veiled = split_under({ .blur = 0, .dim = 0.45f }, true);
-    check(!rmp::ui::detail::backdrop_redirected() && !rmp::ui::detail::backdrop_blurred(),
-          "blur 0: nothing redirected, nothing blurred");
     const Shot by_hand = split_under_rectangle(115); // 0.45 x 255, rounded
-    check(identical(veiled, by_hand, "blur0_veil"),
+    // Frame after frame of it: whether each one was drawn into the backdrop
+    // is asked while it is drawn, finish_backdrop() having put every frame
+    // back on screen by the time frame() returns.
+    bool redirected = false;
+    bool blurred = false;
+    bool all_veil = true;
+    for (int i = 0; i < 3; ++i) {
+        const Shot veiled = frame([&] {
+            redirected = redirected || rmp::ui::detail::backdrop_redirected();
+            draw_split(true);
+            rmp::ui::overlay({ .blur = 0, .dim = 0.45f }, [] {});
+        });
+        blurred = blurred || rmp::ui::detail::backdrop_blurred();
+        all_veil = identical(veiled, by_hand, "blur0_veil") && all_veil;
+    }
+    check(!redirected && !blurred,
+          "blur 0, frame after frame: nothing redirected, nothing blurred");
+    check(all_veil,
           "blur 0, dim 0.45: exactly the split under a rectangle of black at alpha 115");
-    const Shot next = split_under({ .blur = 0, .dim = 0.45f }, true);
-    check(!rmp::ui::detail::backdrop_redirected(),
-          "...and the frame after it is not redirected either");
 }
 
 // dim is how far towards the veil: half way turns white into half white.
@@ -367,12 +382,20 @@ void blurs_in(std::optional<rmp::ui::detail::ShaderSource> source,
         ramp_is_a_blur(blurred, across, label);
         // A frame no overlay asks for again: drawn into the backdrop once
         // more, and put on screen exactly as drawn.
-        const Shot after = frame([&] { draw_split(across); });
-        check(identical(after, plain, label + "_untaken"),
+        // Whether a frame is drawn into the backdrop is asked while it is
+        // drawn: by the time frame() returns, it is back on screen.
+        bool redirected = false;
+        const auto plain_frame = [&] {
+            return frame([&] {
+                redirected = rmp::ui::detail::backdrop_redirected();
+                draw_split(across);
+            });
+        };
+        const Shot after = plain_frame();
+        check(redirected && identical(after, plain, label + "_untaken"),
               label + ": a redirected frame no overlay took is the frame, exactly");
-        const Shot settled = frame([&] { draw_split(across); });
-        check(!rmp::ui::detail::backdrop_redirected(),
-              label + ": and then nothing is redirected");
+        plain_frame();
+        check(!redirected, label + ": and then nothing is redirected");
     }
 }
 
