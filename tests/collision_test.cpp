@@ -925,6 +925,28 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(hit.distance == doctest::Approx(0));
 }
 
+TEST_CASE_FIXTURE(
+    Fixture, "a ray that starts inside a disc hits it where it leaves, or not at all") {
+    // What rmp-docs' collision page says, and the box above does not do: from
+    // inside a circle the hit is the way out, with the normal outwards there,
+    // and a ray that ends inside the circle too misses it. collision_prop.cpp's
+    // ray property assumed every ray through a shape hits, and at seed 11 its
+    // 470th case was one from just inside a disc of 19.25 to inside it again.
+    World world;
+    auto &disc = world.spawn({ .position = { 0, 0 }, .shape = rmp::circle(20) });
+    const rmp::RayHit out = world.raycast({ 5, 0 }, { 100, 0 });
+    REQUIRE(static_cast<bool>(out));
+    CHECK(out.object == disc.handle());
+    CHECK(out.point.x == doctest::Approx(20));
+    CHECK(out.distance == doctest::Approx(15));
+    CHECK(out.normal.x == doctest::Approx(1));
+    CHECK_FALSE(world.raycast({ 5, 0 }, { 10, 0 }));
+    // The property's own counterexample, alone in a world of its own.
+    World other;
+    other.spawn({ .position = { -14.75f, -48.25f }, .shape = rmp::circle(19.25f) });
+    CHECK_FALSE(other.raycast({ -32.5f, -55.5f }, { -3.505f, -41.835f }));
+}
+
 TEST_CASE_FIXTURE(Fixture, "a ray of zero length is not a crash") {
     World world;
     world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });

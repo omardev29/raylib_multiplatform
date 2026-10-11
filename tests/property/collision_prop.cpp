@@ -428,8 +428,8 @@ TEST_SUITE("property: collision") {
                 RC_ASSERT(std::fabs(mover.velocity.y - vy) <= 1e-3 * (1 + std::fabs(vy)));
             });
         rmp::test::check(
-            "collision: a ray aimed through a shape hits its edge where the reference "
-            "does, with the outward normal there",
+            "collision: a ray aimed through a shape hits it, or misses it, where and as "
+            "the documented reference does",
             [] {
                 const world::Fresh fresh;
                 world::World scene;
@@ -445,39 +445,54 @@ TEST_SUITE("property: collision") {
                     { .position = c,
                       .shape = round ? rmp::circle(r) : rmp::rect({ 2 * hw, 2 * hh }) });
                 // Through a point well inside the shape, from anywhere, and on
-                // past it: a ray that must hit.
-                const float fx = static_cast<float>(*rc::gen::inRange(-8, 9)) / 10;
-                const float fy = static_cast<float>(*rc::gen::inRange(-8, 9)) / 10;
-                const Vector2 inside = round
-                    ? Vector2{ c.x + fx * r * 0.7F, c.y + fy * r * 0.7F }
-                    : Vector2{ c.x + fx * hw, c.y + fy * hh };
-                const Vector2 from{ quarters(-150, 150), quarters(-150, 150) };
+                // past it: a ray that hits, but for one that starts inside a
+                // circle and ends inside it too. One time in three it starts
+                // inside -- drawn from anywhere, a ray starts inside a disc
+                // about one time in a hundred: none of a run's 200 cases did,
+                // and at seed 11 the 470th was one that ended inside as well.
+                const auto well_inside = [&] {
+                    const float fx = static_cast<float>(*rc::gen::inRange(-8, 9)) / 10;
+                    const float fy = static_cast<float>(*rc::gen::inRange(-8, 9)) / 10;
+                    return round ? Vector2{ c.x + fx * r * 0.7F, c.y + fy * r * 0.7F }
+                                 : Vector2{ c.x + fx * hw, c.y + fy * hh };
+                };
+                const Vector2 inside = well_inside();
+                const Vector2 from = *rc::gen::inRange(0, 3) == 0
+                    ? well_inside()
+                    : Vector2{ quarters(-150, 150), quarters(-150, 150) };
                 const Vector2 to{ from.x + (inside.x - from.x) * 3,
                                   from.y + (inside.y - from.y) * 3 };
                 const double dx = to.x - from.x;
                 const double dy = to.y - from.y;
                 RC_PRE(std::hypot(dx, dy) > 1);
 
-                // The reference, in double: where the segment meets the edge.
+                // The reference, in double: where the segment meets the edge,
+                // as rmp-docs' collision page says it does (and gates on
+                // ray_circle()'s line): a ray that starts inside a box hits it
+                // at once, with the normal back down the ray; one that starts
+                // inside a circle hits it where it leaves, with the normal
+                // outwards there -- and misses it when it ends inside too.
                 double t = 0;
                 double nx = 0;
                 double ny = 0;
                 bool starts_inside = false;
+                bool misses = false;
                 if (round) {
                     const double mx = from.x - c.x;
                     const double my = from.y - c.y;
                     const double a = (dx * dx) + (dy * dy);
                     const double b = 2 * ((mx * dx) + (my * dy));
                     const double k = (mx * mx) + (my * my) - (static_cast<double>(r) * r);
-                    const double root = std::sqrt((b * b) - (4 * a * k));
-                    starts_inside = k < 0;
-                    t = starts_inside ? (-b + root) / (2 * a) : (-b - root) / (2 * a);
                     // Too close to the edge to say which side: either is right.
                     RC_PRE(std::fabs(k) > 0.05 * r);
-                    const double px = from.x + dx * t - c.x;
-                    const double py = from.y + dy * t - c.y;
-                    nx = px / r;
-                    ny = py / r;
+                    starts_inside = k < 0;
+                    const double root = std::sqrt((b * b) - (4 * a * k));
+                    t = starts_inside ? (-b + root) / (2 * a) : (-b - root) / (2 * a);
+                    // Leaving right at the end of the segment: either is right.
+                    RC_PRE(std::fabs(t - 1) > 1e-3);
+                    misses = t > 1;
+                    nx = (from.x + dx * t - c.x) / r;
+                    ny = (from.y + dy * t - c.y) / r;
                 } else {
                     starts_inside =
                         std::fabs(from.x - c.x) < hw && std::fabs(from.y - c.y) < hh;
@@ -505,6 +520,10 @@ TEST_SUITE("property: collision") {
                     }
                 }
                 const rmp::RayHit hit = scene.raycast(from, to);
+                if (misses) {
+                    RC_ASSERT(!hit);
+                    return;
+                }
                 RC_ASSERT(static_cast<bool>(hit));
                 const double tolerance = 1e-3 * (1 + std::hypot(dx, dy));
                 RC_ASSERT(std::fabs(hit.point.x - (from.x + dx * t)) <= tolerance);
