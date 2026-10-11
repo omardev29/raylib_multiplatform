@@ -8155,6 +8155,54 @@ class SeamCheckHoldsItsDebtTest(unittest.TestCase):
         self.assertIn("no longer calls GetCharPressed: take it off its DEBT_CALLS line", out)
 
 
+class GameContainersHaveAnInitTest(unittest.TestCase):
+    """A container that starts a game has an init as its PID 1.
+
+    The game, or xvfb-run, as PID 1 ignores every signal it has no handler
+    for: `timeout` cannot end it and a hung game holds its job until the job's
+    own timeout. musl-x64-run lost a job that way (CLAUDE.md, the xvfb-run
+    caveat), and on 2026-10-11 the drm-x64-run steps G added did it again --
+    the reviewer found them, not a gate. So every `docker run` / `podman run`
+    in a workflow that starts a game -- one that sets RAY_TEST_MAX_FRAMES, runs
+    xvfb-run or runs `./rmp run` -- carries `--init`."""
+
+    STARTS_A_GAME = re.compile(r"RAY_TEST_MAX_FRAMES=|\bxvfb-run\b|\./rmp run\b")
+    RUN = re.compile(r"\b(?:docker|podman)\s+run\b")
+
+    @classmethod
+    def without_init(cls, text: str) -> list[int]:
+        """The first line of each container start in `text` that starts a game
+        and has no --init."""
+        return [n for n, line in logical_lines(without_comments(text))
+                if cls.RUN.search(line) and cls.STARTS_A_GAME.search(line)
+                and not re.search(r"\s--init\b", line)]
+
+    def test_every_container_that_starts_a_game_has_an_init(self):
+        seen = 0
+        for wf in sorted(WORKFLOW_DIR.glob("*.yml")):
+            text = wf.read_text()
+            seen += sum(1 for _, line in logical_lines(without_comments(text))
+                        if self.RUN.search(line) and self.STARTS_A_GAME.search(line))
+            for n in self.without_init(text):
+                with self.subTest(at=f"{wf.name}:{n}"):
+                    self.fail(f"{wf.name}:{n} starts a game in a container with no --init")
+        # musl-x64-run, and drm-x64-run's boot and its `rmp run`, at least.
+        self.assertGreaterEqual(seen, 3, "the scan found almost no game containers")
+
+    def test_a_missing_init_is_found(self):
+        """Seen red: each way a game is started, without the init; a container
+        that starts no game needs none; a comment is not a start."""
+        boot = ('          if OUT=$(docker run --rm --device /dev/dri \\\n'
+                '            -e RAY_TEST_MAX_FRAMES=10 \\\n'
+                '            "$IMAGE" /app/game 2>&1); then RC=0; else RC=$?; fi\n')
+        self.assertEqual(self.without_init(boot), [1])
+        self.assertEqual(self.without_init(boot.replace("--rm", "--rm --init")), [])
+        self.assertEqual(self.without_init('docker run --rm "$I" xvfb-run -a ./game\n'), [1])
+        self.assertEqual(self.without_init('podman run --rm "$I" ./rmp run\n'), [1])
+        self.assertEqual(self.without_init('docker run --rm --entrypoint ldd "$I" game\n'), [])
+        self.assertEqual(self.without_init('# docker run "$I" ./rmp run\n'), [])
+
+
 class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
     """A game a script starts reads nothing from the script's stdin.
 

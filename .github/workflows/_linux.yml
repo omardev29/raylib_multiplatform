@@ -504,6 +504,9 @@ jobs:
         run: python3 tools/binary_check.py elf --musl "musl-bin/${{ inputs.project_name }}"
 
       - name: Boot and render the headless build on Alpine
+        # --init: the game is not PID 1, where a SIGTERM it has no handler for
+        # is ignored and a hang holds the job (GameContainersHaveAnInitTest).
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           chmod +x "musl-bin/${{ inputs.project_name }}"
@@ -517,7 +520,7 @@ jobs:
           cp -r resources musl-bin/resources
           # Started from / and not from /app: a release has to find the
           # resources/ next to itself, wherever it is started from.
-          if OUT=$(docker run --rm --network none \
+          if OUT=$(docker run --rm --init --network none \
             -v "$PWD/musl-bin:/app:ro" \
             -w / -e RAY_TEST_MAX_FRAMES=10 \
             "$RUN_IMAGE" \
