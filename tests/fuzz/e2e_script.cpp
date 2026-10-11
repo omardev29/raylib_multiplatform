@@ -36,6 +36,28 @@ namespace {
 
 using rmp::test::fuzz::require;
 
+// A codepoint as UTF-8: what the grammar's `type "..."` holds between its quotes.
+std::string utf8(int cp) {
+    std::string out;
+    const auto byte = [&out](int b) { out += static_cast<char>(b); };
+    if (cp < 0x80) {
+        byte(cp);
+    } else if (cp < 0x800) {
+        byte(0xC0 | (cp >> 6));
+        byte(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        byte(0xE0 | (cp >> 12));
+        byte(0x80 | ((cp >> 6) & 0x3F));
+        byte(0x80 | (cp & 0x3F));
+    } else {
+        byte(0xF0 | (cp >> 18));
+        byte(0x80 | ((cp >> 12) & 0x3F));
+        byte(0x80 | ((cp >> 6) & 0x3F));
+        byte(0x80 | (cp & 0x3F));
+    }
+    return out;
+}
+
 // A step as the grammar writes it, from what parse() made of it.
 std::string written(const e2e::Step &step) {
     const std::string out = std::to_string(step.frame) + " ";
@@ -50,6 +72,14 @@ std::string written(const e2e::Step &step) {
             return out + "tap " + key;
         case e2e::Verb::CLICK:
             return out + "click " + std::to_string(step.x) + " " + std::to_string(step.y);
+        case e2e::Verb::TYPE: {
+            // No escape exists or is needed: the grammar refuses a `"`, a `#`
+            // and a control character between the quotes, so what parsed
+            // holds none of them.
+            std::string typed;
+            for (const int cp : step.typed) typed += utf8(cp);
+            return out + "type \"" + typed + "\"";
+        }
         case e2e::Verb::SHOT:
             return out + "shot " + step.name;
         case e2e::Verb::EXPECT_SCENE:
@@ -71,7 +101,8 @@ bool same(const e2e::Script &a, const e2e::Script &b) {
     return std::ranges::equal(
         a.steps, b.steps, [](const e2e::Step &x, const e2e::Step &y) {
             return x.frame == y.frame && x.verb == y.verb && x.key == y.key &&
-                x.pad == y.pad && x.x == y.x && x.y == y.y && x.name == y.name;
+                x.pad == y.pad && x.x == y.x && x.y == y.y && x.name == y.name &&
+                x.typed == y.typed;
         });
 }
 
