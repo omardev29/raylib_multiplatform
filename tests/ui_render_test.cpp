@@ -422,6 +422,26 @@ void untaken_translucent() {
     frame(draw);
 }
 
+// rmp::ui::shutdown() in the middle of a redirected frame lets the texture go
+// with the rest of the UI: what was drawn into it so far goes on screen
+// first, and what is drawn after it goes straight there.
+void shut_down_mid_frame() {
+    rmp::ui::detail::set_test_blur_shader(std::nullopt);
+    const Shot plain = frame([] { draw_split(true); });
+    split_under({ .blur = 8, .dim = 0 }, true); // asks
+    bool redirected = false;
+    const Shot shot = frame([&] {
+        ClearBackground(BLACK);
+        redirected = rmp::ui::detail::backdrop_redirected();
+        rmp::ui::shutdown();
+        DrawRectangle(WIDTH / 2, 0, WIDTH - WIDTH / 2, HEIGHT, WHITE);
+    });
+    check(
+        redirected && identical(shot, plain, "shutdown_mid_frame"),
+        "rmp::ui::shutdown() in a redirected frame: the frame is all there, both halves");
+    frame([] { draw_split(true); });
+}
+
 // The game's blend factors are the game's: raylib keeps one set, which
 // BLEND_CUSTOM draws with, and a frame the backdrop drew leaves it as it was.
 void leaves_the_blend_factors() {
@@ -914,6 +934,7 @@ int main() {
     keeps_every_pixel();
     scales_with_the_interface();
     untaken_translucent();
+    shut_down_mid_frame();
     leaves_the_blend_factors();
     blur_under_a_veil();
     eases_in();

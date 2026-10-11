@@ -340,6 +340,14 @@ void copy(const rmp::RenderTexture &from, float width, float height) {
          width, height);
 }
 
+// The frame drawn into gpu.scene, on screen as it was drawn: what no overlay
+// took, or what was drawn before the UI shut down.
+void back_on_screen() {
+    EndTextureMode();
+    const Texture2D &frame = gpu.scene.raw().texture;
+    copy(gpu.scene, static_cast<float>(frame.width), static_cast<float>(frame.height));
+}
+
 // One pass of the blur, from `part` of `from` into all of `into`:
 // `direction` in `from`'s texture coordinates per tap.
 void blur_pass(const rmp::RenderTexture &from, const Rectangle part,
@@ -491,10 +499,7 @@ void finish_backdrop() {
         if (escaped()) {
             report_escape();
         } else {
-            EndTextureMode();
-            const Texture2D &frame = gpu.scene.raw().texture;
-            copy(gpu.scene, static_cast<float>(frame.width),
-                 static_cast<float>(frame.height));
+            back_on_screen();
         }
     }
     // RMP_COVERAGE_ON
@@ -505,11 +510,12 @@ void finish_backdrop() {
 }
 
 void release_backdrop() {
-    if (backdrop.redirected) {
+    if (backdrop.redirected && !escaped()) {
         // RMP_COVERAGE_OFF(on the GPU: the unit tests have no window; tests/ui_render_test.cpp draws every line)
-        // rmp::ui::shutdown() in the middle of a redirected frame: the rest
-        // of it goes to the screen.
-        EndTextureMode();
+        // rmp::ui::shutdown() in the middle of a redirected frame: what was
+        // drawn so far goes on screen before its texture goes, and the rest
+        // of the frame after it.
+        back_on_screen();
     }
     // RMP_COVERAGE_ON
     // Not in_app_frame: the frame this may be called in is still the app's.
