@@ -2643,8 +2643,11 @@ def narrow_to(value: str, targets: list[str]) -> list[str]:
             known = ", ".join(sorted(set(GROUPS) | set(TARGETS)))
             hint = ""
             if len(name.split()) > 1:
+                # The whole value as it was meant, every name once: a value
+                # that is read when it is pasted back, not this item alone.
+                meant = dict.fromkeys(word for item in items for word in item.split())
                 hint = ("\nThe names are separated by commas, not spaces: "
-                        f"--only {','.join(name.split())}")
+                        f"--only {','.join(meant)}")
             raise ConfigError(
                 f"--only {name!r} is not a target or a group{where}.{hint}\nKnown: {known}")
         mine = [t for t in targets if t in group]

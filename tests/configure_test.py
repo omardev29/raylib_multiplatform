@@ -5090,6 +5090,25 @@ class ConfigureOnlyListTest(unittest.TestCase):
         self.assertIsNotNone(exc)
         self.assertIn("(item 2 of 2 in 'macos,linux-x64-glibc windows-x64')", str(exc))
 
+    def test_the_value_the_hint_offers_is_one_that_is_read(self):
+        """The hint is the whole value as it was meant -- every name once, with
+        commas -- so pasting it back works: it used to offer item 2 alone
+        (dropping macos) and `macos,macos`, which is refused as a name twice."""
+        for value, meant in (("linux-x64-glibc windows-x64", "linux-x64-glibc,windows-x64"),
+                             ("macos,linux-x64-glibc windows-x64",
+                              "macos,linux-x64-glibc,windows-x64"),
+                             ("macos macos", "macos"),
+                             ("linux-x64-glibc  windows-x64\tmacos",
+                              "linux-x64-glibc,windows-x64,macos")):
+            with self.subTest(only=value):
+                _, exc = self.only(value)
+                self.assertIsNotNone(exc)
+                self.assertIn(f"separated by commas, not spaces: --only {meant}\nKnown: ",
+                              str(exc))
+                got, exc = self.only(meant)
+                self.assertIsNone(exc, f"the hint {meant!r} is refused: {exc}")
+                self.assertTrue(got)
+
     def test_an_empty_item_is_refused_saying_which(self):
         for value, position, count in (("macos,,windows-x64", 2, 3), (",macos", 1, 2),
                                        ("macos,", 2, 2), ("macos, ,windows-x64", 2, 3),
@@ -8449,6 +8468,7 @@ class RaylibOptimizedTest(unittest.TestCase):
         block = self.block()
         self.assertIn('if(PRODUCTION_BUILD OR NOT PLATFORM STREQUAL "Memory")', block)
         self.assertIn("message(FATAL_ERROR", block)
+
 
 class RenderCheckReadsTheExitTest(unittest.TestCase):
     """tools/render_check.sh ended its launch in `|| true` and judged the run
