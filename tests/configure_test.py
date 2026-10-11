@@ -2316,6 +2316,64 @@ class SmokeReportsCountTheLastFrameTest(unittest.TestCase):
         self.assertEqual(body.count("SmokeTest_Tick()"), 1)
 
 
+class ExamplesReportNoMistakeTest(unittest.TestCase):
+    """tools/examples_build.sh holds every example it boots to
+    RAY_TEST_REPORTS=0 -- no mistake of the game's said by the framework
+    (RMP_REPORT_ONCE) -- but the plain C ones, which have no framework; and
+    boots scenes/02_stretch letterboxed in two windows of another shape, read
+    back against the clear colour the example sets. Seen red with a widget
+    called from a scene's _update() and with the example in EXPAND."""
+
+    SCRIPT = REPO / "tools" / "examples_build.sh"
+    STRETCH = REPO / "examples" / "scenes" / "02_stretch" / "src" / "main.cpp"
+
+    def problems(self, text):
+        found = []
+        boot = text[text.index('echo "== examples: boot =="'):
+                    text.index('echo "PASS: $ran examples booted')]
+        if "grep -q 'RAY_TEST_REPORTS=0$' || reported=1" not in boot:
+            found.append("the boot does not require RAY_TEST_REPORTS=0")
+        if '[ "$ok" -eq 1 ] && [ "$reported" -eq 0 ] && [ "$status" -eq 0 ]' not in boot:
+            found.append("a report does not fail the boot")
+        if "find examples -path '*/src/main.c'" not in boot:
+            found.append("the examples spared the count are not the plain C ones")
+        at = text.find('echo "== examples: scenes/02_stretch')
+        if at < 0:
+            return [*found, "02_stretch is not booted in another shape at all"]
+        stretch = text[at:]
+        stretch = stretch[:stretch.find("\ndone\n")]
+        if "for size in 450x800 1280x450; do" not in stretch:
+            found.append("02_stretch is not booted upright and wide")
+        for marker in ("RAY_TEST_REPORTS=0$", "RAY_TEST_BOOT_OK assets_failed=0 ",
+                       'RAY_TEST_WINDOW="$size"', "RAY_TEST_WINDOW $size\\$"):
+            if marker not in stretch:
+                found.append(f"02_stretch's boots do not require {marker}")
+        clear = re.search(r"^STRETCH_CLEAR=(\d+),(\d+),(\d+)$", stretch, re.M)
+        source = re.search(r"background = Color\{ (\d+), (\d+), (\d+), 255 \};",
+                           self.STRETCH.read_text())
+        if not clear or not source or clear.groups() != source.groups():
+            found.append("STRETCH_CLEAR is not 02_stretch's background")
+        if "fail(" not in stretch or "<<'PY' || exit 1" not in stretch:
+            found.append("the picture is not read back, or what it finds does not fail")
+        return found
+
+    def test_every_example_is_held_to_no_report(self):
+        self.assertEqual(self.problems(self.SCRIPT.read_text()), [])
+
+    def test_the_check_sees_what_it_is_for(self):
+        text = self.SCRIPT.read_text()
+        for broken in (text.replace("grep -q 'RAY_TEST_REPORTS=0$' || reported=1", "true"),
+                       text.replace('[ "$reported" -eq 0 ] && ', ""),
+                       text.replace("'*/src/main.c'", "'*/src/main.c*'"),
+                       text.replace("for size in 450x800 1280x450; do", "for size in 800x450; do"),
+                       text.replace("RAY_TEST_REPORTS=0$'; do", "RAY_TEST_REPORTS'; do"),
+                       text.replace("STRETCH_CLEAR=8,8,12", "STRETCH_CLEAR=18,18,22"),
+                       text.replace("<<'PY' || exit 1", "<<'PY' || true")):
+            with self.subTest():
+                self.assertNotEqual(broken, text, "the mutation did not apply")
+                self.assertNotEqual(self.problems(broken), [])
+
+
 class ConfigureWindowStretchTest(unittest.TestCase):
     """[window] stretch: how the world fits a window that is not the design
     size (rmp::app::stretch(), src/rmp/stretch.cpp). Every value it takes, every
@@ -8621,7 +8679,16 @@ case " $* " in
         e2e_*) printf '#!/bin/sh\necho "RAY_TEST_BOOT_OK assets_failed=0 x"\necho "E2E PASS"\necho %s >> "$PLAY_LOG"\n' "$t" > "$B/$t" ;;
         platformer_play) printf '#!/bin/sh\necho "PLAY PASS"\n' > "$B/$t" ;;
         input_play) printf '#!/bin/sh\necho "INPUT PASS"\n' > "$B/$t" ;;
-        *) printf '#!/bin/sh\necho "RAY_TEST_BOOT_OK assets_failed=0 x"\necho "RAY_TEST_RENDER_OK pixels=1 ratio=0.1"\necho "RAY_TEST_DONE_FRAMES"\necho png > "$RAY_TEST_SCREENSHOT"\necho %s >> "$BOOT_LOG"\n' "$t" > "$B/$t" ;;
+        *) printf '#!/bin/sh\necho "RAY_TEST_BOOT_OK assets_failed=0 x"\necho "RAY_TEST_RENDER_OK pixels=1 ratio=0.1"\necho "RAY_TEST_DONE_FRAMES"\necho png > "$RAY_TEST_SCREENSHOT"\necho "%s${RAY_TEST_WINDOW:+ at $RAY_TEST_WINDOW}" >> "$BOOT_LOG"\n' "$t" > "$B/$t"
+           # Every example on the framework counts the mistakes it made; the
+           # plain C one has no framework. And scenes/02_stretch, opened at
+           # another size, draws a letterbox (FAKE_LETTERBOX).
+           case "$t" in
+             example_plain_c) ;;
+             example_scenes_02_stretch)
+               printf 'if [ -n "$RAY_TEST_WINDOW" ]; then\n  echo "RAY_TEST_WINDOW $RAY_TEST_WINDOW"\n  "$FAKE_PYTHON" "$FAKE_LETTERBOX" "$RAY_TEST_SCREENSHOT" "$RAY_TEST_WINDOW" || exit 1\nfi\necho "RAY_TEST_REPORTS=${FAKE_REPORTS:-0}"\n' >> "$B/$t" ;;
+             *) printf 'echo "RAY_TEST_REPORTS=${FAKE_REPORTS:-0}"\n' >> "$B/$t" ;;
+           esac ;;
       esac
       chmod +x "$B/$t"
     done
@@ -8630,6 +8697,30 @@ esac
 mkdir -p "$B"
 printf '%s\n' $EXAMPLE_TARGETS > "$B/example_targets.txt"
 printf '%s\n' $E2E_TARGETS > "$B/e2e_targets.txt"
+"""
+
+# What scenes/02_stretch draws, letterboxed, at the size it is opened in: the
+# stand-in program's picture, for the probe tools/examples_build.sh reads it
+# with. The clear colour outside the design's area, scaled to fit and centred,
+# the grass inside it, and a white line down the middle. STRETCH_FAULT draws
+# it wrong: the world over the bars, or a line that reaches further right of
+# the middle than left.
+FAKE_LETTERBOX = r"""import os, struct, sys, zlib
+path, size = sys.argv[1], sys.argv[2]
+w, h = (int(v) for v in size.split("x"))
+fault = os.environ.get("STRETCH_FAULT", "")
+scale = min(w / 800, h / 450)
+left, top = round((w - 800 * scale) / 2), round((h - 450 * scale) / 2)
+bar = bytes((52, 64, 92) if fault == "bars" else (8, 8, 12))
+line, thick = w // 2 - 1, 22 if fault == "off_centre" else 2
+inside = bar * left + bytes((46, 125, 60)) * (line - left) + bytes((255, 255, 255)) * thick + \
+    bytes((46, 125, 60)) * (w - left - line - thick) + bar * left
+rows = [b"\0" + (inside if top <= y < h - top else bar * w) for y in range(h)]
+def chunk(kind, body):
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+with open(path, "wb") as f:
+    f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b""))
 """
 
 
@@ -8676,12 +8767,21 @@ class ExamplesBuildModesTest(unittest.TestCase):
         fake.mkdir()
         (fake / "cmake").write_text(FAKE_EXAMPLES_CMAKE)
         (fake / "cmake").chmod(0o755)
+        (fake / "letterbox.py").write_text(FAKE_LETTERBOX)
+        # What the stretch probe reads the design size and the mode from.
+        generated = root / "include" / "rmp" / "generated"
+        generated.mkdir(parents=True)
+        (generated / "config.h").write_text("#define RMP_WINDOW_WIDTH    800\n"
+                                            "#define RMP_WINDOW_HEIGHT   450\n"
+                                            "#define RMP_WINDOW_STRETCH  1\n")
         logs = {name: root / f"{name}.log" for name in ("cmake", "boot", "play")}
         env = dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}",
                    CMAKE_LOG=str(logs["cmake"]), BOOT_LOG=str(logs["boot"]),
                    PLAY_LOG=str(logs["play"]), HEADER_ONLY=" ".join(self.header_only),
                    EXAMPLE_TARGETS=" ".join(self.booted + self.header_only),
-                   E2E_TARGETS=" ".join(self.played), CMAKE_BUILD_PARALLEL_LEVEL="4")
+                   E2E_TARGETS=" ".join(self.played), CMAKE_BUILD_PARALLEL_LEVEL="4",
+                   FAKE_PYTHON=sys.executable, FAKE_LETTERBOX=str(fake / "letterbox.py"),
+                   **self.fault)
         env.pop("RMP_E2E_UPDATE", None)
         got = subprocess.run(["bash", "tools/examples_build.sh", *mode], cwd=root, env=env,
                              capture_output=True, text=True, timeout=300)
@@ -8690,18 +8790,46 @@ class ExamplesBuildModesTest(unittest.TestCase):
             return path.read_text().splitlines() if path.exists() else []
         return got, lines("cmake"), sorted(lines("boot")), sorted(lines("play"))
 
+    # What the stand-in programs get wrong, for the tests that want them to.
+    fault: dict = {}
+
     def builds(self, calls):
         return [c for c in calls if c.startswith("--build ")]
+
+    def test_boot_fails_an_example_the_framework_reported_a_mistake_in(self):
+        self.fault = {"FAKE_REPORTS": "1"}
+        got, _, _, _ = self.run_script("boot")
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("the framework reported a mistake in it, and an example makes none",
+                      got.stdout)
+        self.assertIn("  FAIL  example_ui_01_menu", got.stdout)
+        self.assertNotIn("  FAIL  example_plain_c", got.stdout)
+
+    def test_boot_reads_the_letterbox_off_the_picture(self):
+        got, _, _, _ = self.run_script("boot")
+        self.assertIn("example_scenes_02_stretch-450x800.png: a 450x253.125 area", got.stdout)
+        self.assertIn("example_scenes_02_stretch-1280x450.png: a 800x450 area", got.stdout)
+        for fault, said in (("bars", "are not the clear colour (8, 8, 12)"),
+                            ("off_centre", "the court is not centred")):
+            with self.subTest(fault=fault):
+                self.fault = {"STRETCH_FAULT": fault}
+                got, _, _, _ = self.run_script("boot")
+                self.assertEqual(got.returncode, 1, got.stdout)
+                self.assertIn(said, got.stdout)
+                self.assertNotIn("PLAY PASS", got.stdout)
 
     def test_the_tree_has_what_this_test_counts(self):
         self.assertGreaterEqual(len(self.booted), 20)
         self.assertGreaterEqual(len(self.played), 16)
         self.assertEqual(len(self.header_only), 1)
 
+    # scenes/02_stretch, booted once more in each of two other shapes.
+    STRETCHED = ["example_scenes_02_stretch at 1280x450", "example_scenes_02_stretch at 450x800"]
+
     def test_boot_builds_and_boots_everything_and_plays_no_script(self):
         got, calls, booted, played = self.run_script("boot")
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
-        self.assertEqual(booted, sorted(self.booted))
+        self.assertEqual(booted, sorted(self.booted + self.STRETCHED))
         self.assertEqual(played, [], "the boot half played e2e scripts")
         # One build, of `all` -- out of which the e2e targets are.
         self.assertEqual(self.builds(calls), ["--build build/examples-check"])
@@ -8723,7 +8851,7 @@ class ExamplesBuildModesTest(unittest.TestCase):
     def test_the_whole_script_is_the_two_halves(self):
         got, calls, booted, played = self.run_script()
         self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
-        self.assertEqual(booted, sorted(self.booted))
+        self.assertEqual(booted, sorted(self.booted + self.STRETCHED))
         self.assertEqual(played, self.played)
         builds = self.builds(calls)
         self.assertEqual(len(builds), 2, builds)

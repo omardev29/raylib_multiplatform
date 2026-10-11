@@ -791,7 +791,23 @@ def run_step(ctx: Ctx, step) -> None:
         if "RAY_TEST_RENDER_OK" not in out:
             sys.stdout.write(out)
             raise Refused("the game booted and drew nothing")
-        print("  ok    booted and rendered")
+        # The mistakes of the game's that the framework said once
+        # (RMP_REPORT_ONCE: a widget outside begin()/end(), an action nobody
+        # defined...), counted and printed after the last frame. A report is
+        # by definition a mistake in the game, in a game made with `rmp new`
+        # as in the framework (Omar, 2026-10-11): it fails here. A game in
+        # plain C -- examples/plain_c's recipe takes src/rmp/ away -- has no
+        # framework to report anything, and prints no count.
+        if not (ctx.root / "src" / "rmp").is_dir():
+            print("  ok    booted and rendered (plain C: no framework to report a mistake)")
+            return
+        if not re.search(r"RAY_TEST_REPORTS=0$", out, re.M):
+            sys.stdout.write("".join(line for line in out.splitlines(keepends=True)
+                                     if "WARNING" in line or "RAY_TEST_REPORTS" in line))
+            raise Refused("the framework reported a mistake in the game (the WARNING lines "
+                          "above, said once each) -- or the run printed no RAY_TEST_REPORTS "
+                          "line at all")
+        print("  ok    booted and rendered, and the framework reported no mistake in it")
     elif kind == "fmt-check":
         fmt(ctx, check=True)
     elif kind == "render":
