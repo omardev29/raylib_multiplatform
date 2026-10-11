@@ -1115,6 +1115,9 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
 // Providers (swapped out by the headless layout tests)
 // ---------------------------------------------------------------------------
 
+// What measure_text() rounds a width up to a multiple of: see its end.
+constexpr float QUANTUM = 64.0f;
+
 // What render.cpp's DrawTextEx() will draw, measured the way it draws it, a
 // piece at a time -- which is how Clay asks. Clay measures a text word by word
 // and a space on its own, once, and adds them up (Clay__MeasureTextCached);
@@ -1140,9 +1143,6 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
 // glyph with no advance taking its rectangle's width, and raylib's font when
 // this one has no texture. tests/property/ui_text_prop.cpp holds it to
 // DrawTextEx() over random fonts, sizes and lines.
-// What measure_text() rounds a width up to a multiple of: see its end.
-constexpr float QUANTUM = 64.0f;
-
 Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size) {
     const ::Font f = face.texture.id != 0 ? face : GetFontDefault();
     // A font with nothing in it -- raylib's, before there is a window -- is
