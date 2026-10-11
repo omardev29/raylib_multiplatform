@@ -32,7 +32,12 @@
 // runs, or the image and a laptop, compare by those), `E2E FAIL <line>:
 // <reason>` for every check that failed, and `E2E PASS` at `end` when none
 // did; the exit status is not 0 when one did, or when the game stopped
-// before `end`.
+// before `end`. A mistake of the game's that the framework reported during
+// the run (RMP_REPORT_ONCE: a widget outside begin()/end(), an action nobody
+// defined) fails it too, at `end`, a line each, in the log's own words: the
+// run that said it is not the run the script describes, whatever its
+// pictures look like -- and a game made from it says the same thing in a
+// player's log.
 //
 // THREE MODES, from the environment, which tools/examples_build.sh sets:
 //
@@ -70,6 +75,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -129,6 +135,74 @@ struct {
 void fail(int line, const std::string &why) {
     ++run.failures;
     std::printf("E2E FAIL %d: %s\n", line, why.c_str());
+}
+
+// ---- the ears ------------------------------------------------------------------
+
+// What the framework said about the game's mistakes, in the log's words. A
+// report is a WARNING (an ERROR under [dev] strict) logged right after
+// rmp::detail::report_count() went up (src/rmp/report.cpp), so the log line
+// that finds the count higher than the last one did is the report.
+struct {
+    int heard = 0; // report_count() at the last report line
+    std::vector<std::string> lines;
+} said;
+
+std::string_view log_prefix(int level) {
+    switch (level) {
+        case LOG_TRACE:
+            return "TRACE: ";
+        case LOG_DEBUG:
+            return "DEBUG: ";
+        case LOG_INFO:
+            return "INFO: ";
+        case LOG_WARNING:
+            return "WARNING: ";
+        case LOG_ERROR:
+            return "ERROR: ";
+        case LOG_FATAL:
+            return "FATAL: ";
+        default:
+            return "";
+    }
+}
+
+// raylib's TraceLogCallback. A callback replaces raylib's printing, so this
+// prints what raylib would have (utils.c, TraceLog()) -- and ends the program
+// on a FATAL, which raylib skips when there is a callback.
+// NOLINTBEGIN(custom-rmp-raw-pointer,cppcoreguidelines-pro-type-vararg): raylib's signature
+void hear(int level, const char *format, va_list args) {
+    // NOLINTEND(custom-rmp-raw-pointer,cppcoreguidelines-pro-type-vararg)
+    va_list counting;
+    va_copy(counting, args);
+    const int length = std::vsnprintf(nullptr, 0, format, counting);
+    va_end(counting);
+    std::string message(static_cast<std::size_t>(std::max(length, 0)), '\0');
+    std::vsnprintf(message.data(), message.size() + 1, format, args);
+    const std::string line = std::string(log_prefix(level)) + message;
+    std::printf("%s\n", line.c_str());
+    std::fflush(stdout);
+    if (level >= LOG_WARNING && rmp::detail::report_count() > said.heard) {
+        said.heard = rmp::detail::report_count();
+        said.lines.push_back(line);
+    }
+    if (level == LOG_FATAL) std::exit(EXIT_FAILURE);
+}
+
+// Every report of the run is a failure at `line`: the run is over.
+void reported(int line) {
+    const int count = rmp::detail::report_count();
+    for (const std::string &heard : said.lines) {
+        fail(line,
+             "the framework reported a mistake of the game's during the run: " + heard);
+    }
+    // Said where the log could not be heard: the count is the proof.
+    if (count > static_cast<int>(said.lines.size())) {
+        fail(line,
+             "the framework reported " +
+                 std::to_string(count - static_cast<int>(said.lines.size())) +
+                 " more mistake(s) of the game's during the run; the log has them");
+    }
 }
 
 // Read twice rather than kept: the driver holds no C string, and getenv()
@@ -322,6 +396,7 @@ void expect_scene(const e2e::Step &step) {
 
 void finish(const e2e::Step &step) {
     run.ended = true;
+    reported(step.line);
     const std::chrono::duration<double> took =
         std::chrono::steady_clock::now().time_since_epoch() - run.started;
     std::printf("E2E %s: %d check(s) over %d frame(s), %d failed, in %.1f s\n",
@@ -385,6 +460,7 @@ void at_exit() {
         fail(end.line,
              "the game stopped after " + std::to_string(run.frame) +
                  " frame(s), before `end` at frame " + std::to_string(end.frame));
+        reported(end.line);
     }
     if (run.failures > 0) {
         std::fflush(stdout);
@@ -413,6 +489,7 @@ void clear_pictures(const fs::path &dir) {
 
 void install() {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    SetTraceLogCallback(hear);
 
     const std::string script(e2e::target::SCRIPT);
     const std::ifstream file(script, std::ios::binary);
