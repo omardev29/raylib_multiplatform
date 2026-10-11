@@ -20,14 +20,19 @@ does, on a machine made up for each example:
 and with the rules CLAUDE.md states as rules: rmp never runs sudo unless
 `sudo` was typed; under sudo it refuses every command but help and clean
 before running anything; `rmp push` does not push over a CI run in flight.
+And the safety rules of the commands that write somebody's history, each a
+model of its checks over what git answers: `rmp deploy` tags only what can
+ship, `rmp update` only ever fast-forwards, the first `rmp push` of a branch
+sets its upstream.
 
 Then the manifest `rmp new` copies from: classify() is the longest pattern
 that matches, and a game gets exactly the INCLUDE paths -- no FRAMEWORK_ONLY
-one, whatever the framework tracks. And `rmp install`'s line in a startup
-file goes in once, after what is there.
+one, whatever the framework tracks; the lines of the .toml it rewrites keep
+their key and comment. And `rmp install`'s line goes in once, after what is
+there, in the file the login shell reads.
 
-Every property was seen red; the commit that added this file says how, and
-each counterexample is a named case in tests/rmp_test.py.
+Every property was seen red; the commits that added them say how, and each
+counterexample is a named case in tests/rmp_test.py.
 """
 
 from __future__ import annotations
