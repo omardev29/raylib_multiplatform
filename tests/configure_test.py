@@ -2384,7 +2384,7 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
 
     def test_the_check_starts_it_from_a_folder_with_no_resources(self):
         script = (REPO / "tools" / "shipped_check.sh").read_text()
-        self.assertIn('cd "$BUILD/elsewhere"\nRAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME"', script)
+        self.assertIn('cd "$BUILD/elsewhere"\nif RAY_TEST_MAX_FRAMES=5 "$ROOT/$SHIP/$NAME"', script)
         self.assertIn('grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$LOG"', script)
         self.assertIn("-DPRODUCTION_BUILD=ON", script)
 
