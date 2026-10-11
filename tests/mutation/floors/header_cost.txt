@@ -1,8 +1,7 @@
 # tools/header_cost.py (package P9): what each public header costs, and the
 # budget file it is held to. The property test reaches the budget file's
-# reader and writer, and main()'s verdict with measure() stood in for;
-# measure() itself compiles headers, and runs only as a program
-# (tests/gates_red_test.py), which mutmut does not see.
+# reader and writer, main()'s verdict with measure() stood in for, and
+# measure() with the compiler stood in for.
 kind     py
 sources  tools/header_cost.py
 tests    tests/header_cost_property_test.py tests/gates_red_test.py::HeaderCostCounterexamplesTest

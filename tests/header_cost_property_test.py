@@ -80,6 +80,43 @@ class BudgetFileTest(unittest.TestCase):
             self.assertRegex(text, rf"(^|\n)\s*{re.escape(name)}\s+0*{lines}\s*(\n|$)")
 
 
+class MeasureTest(unittest.TestCase):
+    """measure(): the number the budget holds is the lines of CODE the
+    preprocessor emits -- `-E`, without blank lines and line markers -- not
+    `-E | wc -l`, which counted the blank line every comment leaves (ten
+    lines of documentation put rmp/ads.h 23% over its budget). A compiler
+    stood in for, which prints what the example says for `-E`."""
+
+    LINE = st.one_of(
+        st.just(""), st.sampled_from(["   ", "\t"]),
+        st.builds(lambda n, f: f'# {n} "{f}"', st.integers(1, 999), NAMES),
+        st.sampled_from(["#pragma once", "# 1 \"<built-in>\" 3"]),
+        st.text(alphabet="abcxyz_;(){}=+ <>:", min_size=1, max_size=20).filter(
+            lambda line: line.strip() != ""))
+
+    @given(st.lists(LINE, max_size=30))
+    def test_the_lines_of_code_and_nothing_else(self, emitted):
+        import os
+        import stat
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "preprocessed.txt"
+            out.write_text("\n".join(emitted) + "\n")
+            cxx = Path(tmp) / "c++"
+            cxx.write_text("#!/bin/sh\n"
+                           'for a in "$@"; do [ "$a" = -E ] && exec cat "$STUB_OUT"; done\n'
+                           "exit 0\n")
+            cxx.chmod(cxx.stat().st_mode | stat.S_IEXEC)
+            os.environ["STUB_OUT"] = str(out)
+            try:
+                lines, ms = hc.measure(str(cxx), Path("include/rmp/random.h"), runs=2)
+            finally:
+                del os.environ["STUB_OUT"]
+        self.assertEqual(lines, sum(1 for line in emitted
+                                    if line.strip() and not line.startswith("#")))
+        self.assertGreaterEqual(ms, 0)
+
+
 class VerdictTest(unittest.TestCase):
     """main()'s verdict, with the compiler stood in for: for any headers
     measured at any size, any budget, inside the image or not, --check and
