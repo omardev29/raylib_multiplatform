@@ -185,7 +185,7 @@ void begin_focus_frame() {
     // logic on top of those numbers, which is what makes a controller testable
     // without a controller.
     NavState nav{};
-    read_nav(&nav);
+    read_nav(nav);
     navigation.submit_pending = nav.submit;
     navigation.cancel_pending = nav.cancel;
 

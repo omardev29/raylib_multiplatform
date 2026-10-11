@@ -70,9 +70,9 @@ Clay_Dimensions measure_stub(Clay_StringSlice text, Clay_TextElementConfig *conf
 }
 
 // No pointer at all, so nothing is ever hovered and no click is ever reported.
-void pointer_stub(Clay_Vector2 *position, bool *down) {
-    *position = Clay_Vector2{ -1.0f, -1.0f };
-    *down = false;
+void pointer_stub(Clay_Vector2 &position, bool &down) {
+    position = Clay_Vector2{ -1.0f, -1.0f };
+    down = false;
 }
 
 // One frame of the menu from src/main.cpp.
@@ -235,9 +235,9 @@ struct {
     bool down = false;
 } fake_pointer;
 
-void pointer_scripted(Clay_Vector2 *position, bool *down) {
-    *position = fake_pointer.position;
-    *down = fake_pointer.down;
+void pointer_scripted(Clay_Vector2 &position, bool &down) {
+    position = fake_pointer.position;
+    down = fake_pointer.down;
 }
 
 // The keyboard and the gamepad, through the same kind of seam: what the player
@@ -248,7 +248,7 @@ struct {
     rmp::ui::detail::NavState state{};
 } fake_nav;
 
-void nav_scripted(rmp::ui::detail::NavState *out) { *out = fake_nav.state; }
+void nav_scripted(rmp::ui::detail::NavState &out) { out = fake_nav.state; }
 
 void run_interaction() {
     std::printf("\n--- interaction ---\n");

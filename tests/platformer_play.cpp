@@ -66,10 +66,10 @@ struct {
 // The seams' signatures, which write through `out`.
 void sample(rmp::input::detail::DeviceState &out) { out = fake.devices; }
 
-void navigate(rmp::ui::detail::NavState *out) {
-    out->x = 0;
-    out->y = fake.devices.keys[KEY_DOWN] ? 1 : (fake.devices.keys[KEY_UP] ? -1 : 0);
-    out->activate = fake.devices.keys[KEY_ENTER] && !fake.enter_was;
+void navigate(rmp::ui::detail::NavState &out) {
+    out.x = 0;
+    out.y = fake.devices.keys[KEY_DOWN] ? 1 : (fake.devices.keys[KEY_UP] ? -1 : 0);
+    out.activate = fake.devices.keys[KEY_ENTER] && !fake.enter_was;
     fake.enter_was = fake.devices.keys[KEY_ENTER];
 }
 

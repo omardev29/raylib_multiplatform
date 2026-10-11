@@ -117,9 +117,9 @@ struct {
     bool down = false;
 } fake_pointer;
 
-void pointer_stub(Clay_Vector2 *position, bool *down) {
-    *position = fake_pointer.position;
-    *down = fake_pointer.down;
+void pointer_stub(Clay_Vector2 &position, bool &down) {
+    position = fake_pointer.position;
+    down = fake_pointer.down;
 }
 
 // Headless UI for the duration of a test, and raylib's own providers back

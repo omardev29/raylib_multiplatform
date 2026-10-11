@@ -734,29 +734,23 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
     return Clay_Dimensions{ m.x, m.y };
 }
 
-void pointer_from_raylib(Clay_Vector2 *position, bool *down) {
+void pointer_from_raylib(Clay_Vector2 &position, bool &down) {
     const Vector2 p = GetMousePosition();
-    *position = Clay_Vector2{ p.x, p.y };
-    *down = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    position = Clay_Vector2{ p.x, p.y };
+    down = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 }
 
 // Down/Up on the keyboard, the d-pad, or the left stick pushed far enough to
 // be deliberate; Left/Right the same way; the press that means "do it", and
 // the one that means "never mind" (Escape, the B button).
 // This function is the whole of what the UI reads from the keyboard and the
-// gamepad -- everything else works from the NavState it fills in.
-void nav_from_raylib(NavState *out) {
-    int y = 0;
-    if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_TAB)) y += 1;
-    if (IsKeyDown(KEY_UP)) y -= 1;
-    int x = 0;
-    if (IsKeyDown(KEY_RIGHT)) x += 1;
-    if (IsKeyDown(KEY_LEFT)) x -= 1;
-
-    bool submit = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
-    bool cancel = IsKeyPressed(KEY_ESCAPE);
-
-    if (IsGamepadAvailable(0)) {
+// gamepad -- everything else works from the NavState it fills in. The
+// keyboard's half is nav_from_keys(), in internal.h.
+void nav_from_raylib(NavState &out) {
+    const auto down = [](int key) { return IsKeyDown(key); };
+    const auto pressed = [](int key) { return IsKeyPressed(key); };
+    const auto pad = [](int &x, int &y, bool &submit, bool &cancel) {
+        if (!IsGamepadAvailable(0)) return;
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) y += 1;
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) y -= 1;
         if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) x += 1;
@@ -769,24 +763,11 @@ void nav_from_raylib(NavState *out) {
         if (lx < -0.5f) x -= 1;
         submit = submit || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
         cancel = cancel || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
-    }
-
-    // Shift+Tab is "backwards", which is the one convention people expect
-    // without being told.
-    if (y > 0 && IsKeyDown(KEY_TAB) &&
-        (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
-        y = -1;
-    }
-
-    out->x = x > 0 ? 1 : (x < 0 ? -1 : 0);
-    out->y = y > 0 ? 1 : (y < 0 ? -1 : 0);
-    // Space activates like Enter, and is the one a text field types instead.
-    out->activate = submit || IsKeyPressed(KEY_SPACE);
-    out->submit = submit;
-    out->cancel = cancel;
+    };
+    out = nav_from_keys(down, pressed, pad);
 }
 
-void read_nav(NavState *out) { providers.nav(out); }
+void read_nav(NavState &out) { providers.nav(out); }
 
 void set_nav_provider(NavFn fn) {
     providers.nav = (fn != nullptr) ? fn : nav_from_raylib;
@@ -846,7 +827,7 @@ void reset_clay_errors_for_tests() {
     clay.first_error = CLAY_ERROR_TYPE_INTERNAL_ERROR;
 }
 
-void read_pointer(Clay_Vector2 *position, bool *down) {
+void read_pointer(Clay_Vector2 &position, bool &down) {
     providers.pointer(position, down);
 }
 
@@ -861,7 +842,7 @@ struct {
 
 void update_pointer() {
     pointer.was_down = pointer.down;
-    read_pointer(&pointer.position, &pointer.down);
+    read_pointer(pointer.position, pointer.down);
     // A touch screen has no pointer when no finger is on it: the coordinates
     // stay wherever the last tap ended, and a button under them would sit lit
     // up forever.

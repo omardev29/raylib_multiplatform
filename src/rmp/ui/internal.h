@@ -46,7 +46,7 @@ float ui_scale();
 void set_scale_override(float s); // 0 = automatic
 
 // The pointer, through whichever provider is installed.
-void read_pointer(Clay_Vector2 *position, bool *down);
+void read_pointer(Clay_Vector2 &position, bool &down);
 
 // What the UI's own keyboard and gamepad handling needs, and all of it: which
 // way the player is pushing, and whether they pressed the button that means
@@ -66,7 +66,7 @@ struct NavState {
     // keyboard back and closes an open dropdown without picking anything.
     bool cancel = false;
 };
-void read_nav(NavState *out);
+void read_nav(NavState &out);
 
 // Pointer state for this frame, sampled once at the FRAME boundary so that two
 // scenes drawing in the same frame cannot disagree about where the mouse is.
@@ -405,8 +405,8 @@ const char *cstr(Clay_StringSlice slice);
 // possible (tests/ui_layout_test.cpp).
 
 using MeasureFn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
-using PointerFn = void (*)(Clay_Vector2 *position, bool *down);
-using NavFn = void (*)(NavState *out);
+using PointerFn = void (*)(Clay_Vector2 &position, bool &down);
+using NavFn = void (*)(NavState &out);
 using FontFn = rmp::Font (*)(const char *name, int pixel_size);
 
 void set_measure_provider(MeasureFn fn);
@@ -451,8 +451,39 @@ const void *last_image_data();
 // The defaults, exposed so a test can put them back.
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void *user);
-void pointer_from_raylib(Clay_Vector2 *position, bool *down);
-void nav_from_raylib(NavState *out);
+void pointer_from_raylib(Clay_Vector2 &position, bool &down);
+void nav_from_raylib(NavState &out);
+
+// What the keyboard means to navigation, on any keyboard: `down(key)` and
+// `pressed(key)` answer for a raylib KeyboardKey, and `more(x, y, submit,
+// cancel)` adds whatever else pushes -- the gamepad, in nav_from_raylib().
+// One function, so the keys a player navigates with and the keys a scripted
+// run presses (tests/e2e/driver.cpp) cannot drift apart. Down and Tab push
+// down, Up up, Left and Right sideways; Shift+Tab goes back; Enter submits
+// and activates, Space only activates (a text field types it); Escape
+// cancels.
+template <class Down, class Pressed, class More>
+NavState nav_from_keys(Down down, Pressed pressed, More more) {
+    int y = 0;
+    if (down(KEY_DOWN) || down(KEY_TAB)) y += 1;
+    if (down(KEY_UP)) y -= 1;
+    int x = 0;
+    if (down(KEY_RIGHT)) x += 1;
+    if (down(KEY_LEFT)) x -= 1;
+    bool submit = pressed(KEY_ENTER) || pressed(KEY_KP_ENTER);
+    bool cancel = pressed(KEY_ESCAPE);
+    more(x, y, submit, cancel);
+    // Shift+Tab is "backwards", which is the one convention people expect
+    // without being told.
+    if (y > 0 && down(KEY_TAB) && (down(KEY_LEFT_SHIFT) || down(KEY_RIGHT_SHIFT))) y = -1;
+    NavState out;
+    out.x = x > 0 ? 1 : (x < 0 ? -1 : 0);
+    out.y = y > 0 ? 1 : (y < 0 ? -1 : 0);
+    out.activate = submit || pressed(KEY_SPACE);
+    out.submit = submit;
+    out.cancel = cancel;
+    return out;
+}
 
 // --- shared conversions ----------------------------------------------------
 

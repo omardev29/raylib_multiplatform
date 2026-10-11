@@ -604,9 +604,9 @@ TEST_SUITE("input consumption, against the real UI") {
     // The UI reads the pointer through its own provider, and rmp::input through
     // its sample provider. They have to agree or the test is measuring nothing —
     // so both come from the same fake.devices the test writes.
-    void ui_pointer(Clay_Vector2 *position, bool *down) {
-        *position = Clay_Vector2{ fake.devices.pointer.x, fake.devices.pointer.y };
-        *down = fake.devices.mouse[MOUSE_BUTTON_LEFT];
+    void ui_pointer(Clay_Vector2 &position, bool &down) {
+        position = Clay_Vector2{ fake.devices.pointer.x, fake.devices.pointer.y };
+        down = fake.devices.mouse[MOUSE_BUTTON_LEFT];
     }
 
     struct HeadlessUi {
