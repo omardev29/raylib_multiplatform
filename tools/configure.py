@@ -743,6 +743,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     validate_admob(cfg)
     validate_application_id(cfg)
     validate_ios(cfg)
+    validate_ios_settings(cfg)
     validate_android_sdk(cfg)
     validate_raylib(cfg)
     validate_dev_toolchain(cfg)
@@ -1123,6 +1124,21 @@ def validate_ios(cfg: dict) -> None:
             f"[ios] deployment_target = {cfg['ios']['deployment_target']!r} is below 13.0.\n"
             "rmp::save uses std::filesystem, which Apple's C++ library only has from iOS 13. "
             "Use 13.0 or later; the default, 15.6, covers every iPhone Apple still updates.")
+
+
+def validate_ios_settings(cfg: dict) -> None:
+    """[ios.settings]: Xcode build settings, copied verbatim -- the names are
+    not policed, the values have to be something a build setting holds."""
+    def holds(value) -> bool:
+        return isinstance(value, (str, int, float))   # a bool is an int
+    for key, value in cfg["ios"]["settings"].items():
+        if holds(value) or (isinstance(value, list) and all(holds(v) for v in value)):
+            continue
+        # A table was written into project.yml as the text of a Python dict.
+        raise ConfigError(
+            f"[ios.settings] {key} = {value!r} is not something an Xcode build setting holds.\n"
+            "A setting is a string, a number, true or false, or a list of those -- e.g. "
+            'OTHER_LDFLAGS = ["-ObjC", "-lz"].', ("ios.settings", key))
 
 
 def validate_android_sdk(cfg: dict) -> None:
@@ -1733,7 +1749,10 @@ def write(path: Path, content: str) -> bool:
 
 
 def cmake_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    """`value` inside a CMake quoted argument. `$` too: `set(X "pa${x}ss")`
+    expands ${x}, and the pack was sealed with "pass" while the game, reading
+    RMP_RRES_PASSWORD from rmp/config.h, tried "pa${x}ss"."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
 
 
 def gen_cmake(cfg: dict) -> None:
@@ -2094,13 +2113,32 @@ def gen_gradle_properties(cfg: dict, targets: list[str]) -> None:
         # --offline. Here because this is the file that job already has.
         "gradle.offline": str(a["gradle_offline"]).lower(),
     }
-    # Java .properties treats a backslash as an escape, so an unescaped one in
-    # a window title would silently mangle the Android app label.
-    def esc(v) -> str:
-        return str(v).replace("\\", "\\\\")
-
-    body = "\n".join(f"{k}={esc(v)}" for k, v in props.items())
+    body = "\n".join(f"{k}={_java_property(v)}" for k, v in props.items())
     write(REPO / "raymob" / "generated.properties", f"# {GEN_HEADER}\n{body}\n")
+
+
+def _java_property(value) -> str:
+    """`value` as a .properties value that java.util.Properties.load() reads
+    back -- which is how raymob/settings.gradle reads generated.properties,
+    from an InputStream, so as ISO-8859-1. A backslash is doubled (an
+    unescaped one in a title mangled the Android app label), a blank that
+    starts the value is escaped (load() skips it), a control character is its
+    escape, and everything outside ASCII is \\uXXXX -- UTF-16, a pair above
+    U+FFFF. Written raw, `title = "Café"` was the Android app "CafÃ©"."""
+    out = []
+    for i, c in enumerate(str(value)):
+        if c == "\\":
+            out.append("\\\\")
+        elif c in "\t\n\r\f":
+            out.append("\\" + "tnrf"["\t\n\r\f".index(c)])
+        elif c == " " and i == 0:
+            out.append("\\ ")
+        elif " " <= c <= "~":
+            out.append(c)
+        else:
+            units = c.encode("utf-16-be")
+            out.extend(f"\\u{units[j]:02X}{units[j + 1]:02X}" for j in range(0, len(units), 2))
+    return "".join(out)
 
 
 MANIFEST_TEMPLATE = REPO / "raymob" / "app" / "AndroidManifest.template.xml"
@@ -2195,14 +2233,29 @@ IOS_STRICT_CXX_FLAGS = "-Werror=reorder-init-list"
 
 
 def yaml_scalar(v) -> str:
+    """`v` as YAML that reads back as `v`. A string is always double-quoted,
+    with every character YAML would not keep as it is escaped: plain, a
+    scalar is read by its type -- a title "true" was a boolean, "1.5" a
+    number, "*x" an alias of nothing -- and a control character, or a line
+    separator that YAML folds, is not kept inside quotes either. A list is a
+    flow sequence of the same."""
     if isinstance(v, bool):
         return "YES" if v else "NO"
     if isinstance(v, (int, float)):
         return str(v)
-    s = str(v)
-    if s == "" or re.search(r'[:#\[\]{}",\'\n]', s) or s != s.strip():
-        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    return s
+    if isinstance(v, list):
+        return "[" + ", ".join(yaml_scalar(x) for x in v) + "]"
+    out = []
+    for c in str(v):
+        code = ord(c)
+        if c in '"\\':
+            out.append("\\" + c)
+        elif c in "\u2028\u2029\ufeff" or not (0x20 <= code <= 0x7E or 0xA0 <= code <= 0xD7FF
+                                              or 0xE000 <= code <= 0xFFFD or code >= 0x10000):
+            out.append(f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}")
+        else:
+            out.append(c)
+    return '"' + "".join(out) + '"'
 
 
 def gen_ios_project(cfg: dict) -> None:
@@ -2226,8 +2279,11 @@ def gen_ios_project(cfg: dict) -> None:
     settings = dict(ios["settings"])
     cxx_flags = "$(inherited) " + IOS_STRICT_CXX_FLAGS
     if "OTHER_CPLUSPLUSFLAGS" in settings:
-        cxx_flags += " " + str(settings.pop("OTHER_CPLUSPLUSFLAGS"))
-    extra = "".join(f"        {k}: {yaml_scalar(v)}\n" for k, v in settings.items())
+        flags = settings.pop("OTHER_CPLUSPLUSFLAGS")
+        cxx_flags += " " + (" ".join(map(str, flags)) if isinstance(flags, list) else str(flags))
+    # The names quoted too: they are the game's, "copied verbatim", and a `:`
+    # or a `#` in one broke the YAML around it.
+    extra = "".join(f"        {yaml_scalar(k)}: {yaml_scalar(v)}\n" for k, v in settings.items())
     notice = ""
     if cfg["deploy"]["licenses"] and LICENSE_FILES["ios"].is_file():
         # LICENSES.txt at the bundle root: the third-party notice for the iOS

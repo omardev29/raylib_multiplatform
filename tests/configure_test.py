@@ -1895,7 +1895,10 @@ class ConfigureHelpersTest(unittest.TestCase):
         self.assertEqual(cfgmod.yaml_scalar(True), "YES")
         self.assertEqual(cfgmod.yaml_scalar(False), "NO")
         self.assertEqual(cfgmod.yaml_scalar(15), "15")
-        self.assertEqual(cfgmod.yaml_scalar("plain"), "plain")
+        # Every string is quoted: plain, YAML reads one by its type, and "true",
+        # "1.5" and "*x" needed quotes that no character in them asked for
+        # (ConfigureReadBackTest).
+        self.assertEqual(cfgmod.yaml_scalar("plain"), '"plain"')
         for needs_quotes in ("", "a: b", "#hash", "[list]", "with, comma", " padded "):
             with self.subTest(value=needs_quotes):
                 self.assertTrue(cfgmod.yaml_scalar(needs_quotes).startswith('"'))
@@ -5723,6 +5726,91 @@ class ConfigureWholeValueTest(unittest.TestCase):
                         cfgmod.load_config()
                     self.assertIn("unknown key [zzz]", str(caught.exception))
                     self.assertEqual(cfgmod.locate_from(caught.exception), line)
+
+
+class ConfigureReadBackTest(unittest.TestCase):
+    """What a build system reads back is what the .toml said. Found by
+    tests/configure_property_test.py, each one seen red there and here."""
+
+    def generated(self, cfg) -> dict:
+        captured = {}
+        original = cfgmod.write
+        cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+                cfgmod.gen_cmake(cfg)
+                cfgmod.gen_gradle_properties(cfg, ["android"])
+                cfgmod.gen_ios_project(cfg)
+        finally:
+            cfgmod.write = original
+        return captured
+
+    def test_gradle_reads_a_title_in_any_language(self):
+        """raymob/settings.gradle reads generated.properties with
+        Properties.load(InputStream), which is ISO-8859-1, and only the
+        backslash was escaped: `title = "Café"` was the Android app "CafÃ©".
+        A leading blank is skipped by load() unless it is escaped."""
+        for value, written in (("Café", "Caf\\u00E9"), ("日本", "\\u65E5\\u672C"),
+                               ("😀", "\\uD83D\\uDE00"), (" lead", "\\ lead"),
+                               ("\ttab", "\\ttab"), ("a\\b", "a\\\\b"), ("plain = 1: #!", "plain = 1: #!"),
+                               ("a\nb\rc\fd", "a\\nb\\rc\\fd"), ("bell\x07", "bell\\u0007")):
+            with self.subTest(value=value):
+                self.assertEqual(cfgmod._java_property(value), written)
+        cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="Café"))
+        self.assertIn("\napp.name=Caf\\u00E9\n", self.generated(cfg)["generated.properties"])
+
+    def test_cmake_reads_a_password_with_a_dollar_as_written(self):
+        """`set(X "pa${x}ss")` expands ${x}: the pack was sealed with "pass"
+        and the game, reading RMP_RRES_PASSWORD, tried "pa${x}ss"."""
+        self.assertEqual(cfgmod.cmake_escape("pa${x}ss"), "pa\\${x}ss")
+        self.assertEqual(cfgmod.cmake_escape('$ENV{HOME} "\\'), '\\$ENV{HOME} \\"\\\\')
+        cfg = base_config(resources={"rres_password": "pa${x}ss"})
+        self.assertIn('set(TEMPLATE_RRES_PASSWORD "pa\\${x}ss")',
+                      self.generated(cfg)["project.cmake"])
+
+    def test_xcodegen_reads_a_title_as_a_string(self):
+        """A plain YAML scalar is read by type: a title "true" was a boolean,
+        "1.5" a number, "*x" an alias of nothing, and a control character
+        inside quotes is not YAML at all."""
+        for value, written in (("true", '"true"'), ("1.5", '"1.5"'), ("*x", '"*x"'),
+                               ("a\x07b", '"a\\x07b"'), ("line sep", '"line\\u2028sep"'),
+                               ('say "hi"\\', '"say \\"hi\\"\\\\"'), ("日本", '"日本"')):
+            with self.subTest(value=value):
+                self.assertEqual(cfgmod.yaml_scalar(value), written)
+        self.assertEqual(cfgmod.yaml_scalar(True), "YES")
+        self.assertEqual(cfgmod.yaml_scalar(["-ObjC", "-lz"]), '["-ObjC", "-lz"]')
+        yaml = require_yaml(self)
+        cfg = base_config(window=dict(copy.deepcopy(cfgmod.DEFAULTS["window"]), title="true"))
+        cfg["ios"]["settings"] = {"OTHER_LDFLAGS": ["-ObjC", "-lz"], "A B: c": "x",
+                                  "OTHER_CPLUSPLUSFLAGS": ["-DONE", "-DTWO"]}
+        spec = yaml.safe_load(self.generated(cfg)["project.yml"])
+        base = spec["targets"][cfg["project"]["name"]]["settings"]["base"]
+        self.assertEqual(base["INFOPLIST_KEY_CFBundleDisplayName"], "true")
+        self.assertEqual(base["OTHER_LDFLAGS"], ["-ObjC", "-lz"])
+        self.assertEqual(base["A B: c"], "x")
+        self.assertEqual(base["OTHER_CPLUSPLUSFLAGS"],
+                         f"$(inherited) {cfgmod.IOS_STRICT_CXX_FLAGS} -DONE -DTWO")
+
+    def test_an_xcode_setting_holds_a_string_a_number_a_switch_or_a_list(self):
+        """A table, a date or a list of lists is no build setting: refused,
+        where it used to reach Xcode as the text of a Python dict."""
+        for value in ({"a": 1}, [["x"]], [{"a": 1}]):
+            with self.subTest(value=value):
+                cfg = base_config()
+                cfg["ios"]["settings"] = {"OTHER_LDFLAGS": value}
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn("is not something an Xcode build setting holds", str(caught.exception))
+                self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+        import datetime
+        cfg = base_config()
+        cfg["ios"]["settings"] = {"WHEN": datetime.date(2026, 10, 11)}
+        with self.assertRaises(cfgmod.ConfigError), quiet():
+            cfgmod.validate(cfg, False)
+        cfg["ios"]["settings"] = {"A": "x", "B": 2, "C": 1.5, "D": True, "E": ["x", 1, False]}
+        with quiet():
+            cfgmod.validate(cfg, False)
 
 
 def load_license_db():
