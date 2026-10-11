@@ -197,7 +197,7 @@ void focus_entry(const Entry &entry) {
 
 // `entering`: Tab, or the keys are already the interface's -- the steps that
 // may walk into a HUD over a game being played. The arrows alone pass it by.
-void move_focus(int delta, bool entering) {
+void move_focus(const int delta, const bool entering) {
     // A local, clamped count. lists.previous_count cannot exceed the array,
     // but reading it into a bounded local is what makes every index below
     // provably inside lists.previous[] from this function alone, rather than from

@@ -103,7 +103,7 @@ bool navigates_ui(const detail::Binding &binding) {
 // binding that answered first does not make the others unread. A HUD the
 // player has walked into with Tab takes the keys (wants_keyboard()), and the
 // game reading them all the same is what keeps it a game being played.
-void note_read(bool touches_ui) {
+void note_read(const bool touches_ui) {
     if (touches_ui) rmp::ui::detail::note_game_keys();
 }
 
