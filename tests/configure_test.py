@@ -9934,7 +9934,12 @@ jobs:
     def test_a_build_sent_to_dev_null_is_red(self):
         for line in ("cmake --build --preset debug --target unit_test > /dev/null",
                      "cmake --build b >/dev/null 2>&1", "cmake --build b &> /dev/null",
-                     "cmake --build b 1>/dev/null", "ninja -C build/x > /dev/null"):
+                     "cmake --build b 1>/dev/null", "ninja -C build/x > /dev/null",
+                     # A command continued with `\` is one command: the
+                     # redirection on its last line is the build's.
+                     "cmake --build --preset debug --target unit_test \\\n"
+                     "            > /dev/null",
+                     "ninja -C build/x \\\n            -j4 \\\n            >/dev/null 2>&1"):
             with self.subTest(line=line):
                 got = self.run_check(line)
                 self.assertEqual(got.returncode, 1, got.stdout)
@@ -9945,7 +9950,9 @@ jobs:
                      "cmake --build b 2> /dev/null",
                      "cmake --build b > build/b.log 2>&1 || { tail -60 build/b.log; exit 1; }",
                      "cmake --build b && echo built > /dev/null",
-                     "if ninja -C b -t targets all | grep -E '^fuzz_' > /dev/null; then exit 1; fi"):
+                     "if ninja -C b -t targets all | grep -E '^fuzz_' > /dev/null; then exit 1; fi",
+                     # The command after a continued build is another one.
+                     "cmake --build b \\\n            --target x\n          echo built > /dev/null"):
             with self.subTest(line=line):
                 got = self.run_check(line)
                 self.assertEqual(got.returncode, 0, got.stdout)

@@ -161,7 +161,8 @@ for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
 # after one makes a file that does not compile a red step with nothing in its
 # log -- the deep job's property_test build was written that way, and so were
 # three of the lint job's. Keep the output, or send it to a log the step
-# prints when the build fails.
+# prints when the build fails. A command continued with `\` is read as the one
+# command it is: its redirection on the last line is the build's.
 SILENT_BUILD = re.compile(r"(?:\bcmake\s+--build\b|^\s*ninja\b)(?:(?!&&)[^|;\n])*?"
                           r"(?:&>|\b1>|(?<![0-9&])>)\s*/dev/null")
 builds = 0
@@ -169,7 +170,8 @@ for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
     flow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     for job_name, job in (flow.get("jobs") or {}).items():
         for step in job.get("steps") or []:
-            for line in str(step.get("run", "")).splitlines():
+            script = re.sub(r"\\\n\s*", " ", str(step.get("run", "")))
+            for line in script.splitlines():
                 if re.search(r"\bcmake\s+--build\b|^\s*ninja\b", line):
                     builds += 1
                 if SILENT_BUILD.search(line):
