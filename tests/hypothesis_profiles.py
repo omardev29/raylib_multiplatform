@@ -12,8 +12,11 @@ Two profiles, chosen by RMP_HYPOTHESIS_PROFILE:
             deadline (ASan and a loaded runner make timings meaningless), and
             the blob that reproduces a failure printed with it.
   nightly   .github/workflows/deep.yml: 5000 examples, random, and the
-            database under build/hypothesis/, which the nightly job keeps
-            between runs -- a counterexample found once is tried first again.
+            database under build/hypothesis/ -- where a counterexample found
+            once is tried first on the next run in the same checkout. The
+            nightly job starts from a fresh one every time (nothing carries
+            build/ from one run to the next); what it finds reaches the issue
+            as the @reproduce_failure blob print_blob prints.
 
 Without Hypothesis -- `pip install hypothesis`, the version in
 thirdparty/FROZEN_VERSIONS.md -- a property test module says so and is

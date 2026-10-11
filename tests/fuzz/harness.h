@@ -55,11 +55,16 @@ inline void count_abort() { ++strict.aborts_asked; }
 // game's resources/, which would make a replay depend on the checkout -- and
 // [dev] strict off with its abort counted instead: an abort is what libFuzzer
 // reports as a crash, and a report_once() on a WRITE is allowed.
+//
+// The folder is emptied here, not trusted to be empty: whatever an earlier
+// run left in it would be found by the next one's loads. So a harness never
+// writes into it -- one that needs a file on disk makes a folder of its own.
 inline void initialize() {
     SetTraceLogLevel(LOG_NONE);
     std::error_code error;
     const std::filesystem::path empty =
         std::filesystem::temp_directory_path(error) / "rmp-fuzz-empty-resources";
+    std::filesystem::remove_all(empty, error);
     std::filesystem::create_directories(empty, error);
     const std::string root = (empty / "").string();
     rmp::assets::detail::set_resources_root(root.c_str());

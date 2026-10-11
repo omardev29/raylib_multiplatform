@@ -928,8 +928,8 @@ below), `rmp test` locally (format, config, the gates — seam, workflows,
 portable, shell patterns, naming, style, ownership, pointers, headers, header cost, licences,
 repo, size budget, and cppcheck where it is installed (CI requires it) —
 the configure tests, the unit tests in two orders (the `audio: device` suite, which listens to the
-real mixer for about a second, only in the first), headless layout, render
-and smoke), `rmp test examples` before touching the public API (it builds
+real mixer for about a second, only in the first), headless layout, the properties (the
+campaign's gates, RapidCheck at its seed, Hypothesis derandomized), render and smoke), `rmp test examples` before touching the public API (it builds
 and boots all of them with a screenshot each, plays the platformer to the flag at 60 and
 240 Hz, and plays `tests/e2e/` -- compared exactly only inside the image), `rmp test coverage`
 after adding or testing framework code, `rmp test fuzz` after touching a parser (every committed input replayed under libFuzzer and the
