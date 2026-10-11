@@ -339,30 +339,67 @@ class CheckTest(unittest.TestCase):
                                       "LICENSES.txt, so that family ships no third-party notice")
         self.assertEqual((ok, fails), (expected_ok, expected_fails))
 
+    @staticmethod
+    def true_record(root: Path, components: dict):
+        """The rows and pins that say what each component built under `root` is."""
+        family = {MIT: "MIT", ZLIB: "zlib", GPL: "GPL"}
+        rows, pins = [], {}
+        for name, text in sorted(components.items()):
+            stem = name.removesuffix(".h")
+            modified = "yes" if name == "mod" else "no"
+            rows.append(ldb.Row(name=stem, path=f"thirdparty/{name}", licences=family[text],
+                                elect="-", modified=modified, linked="all",
+                                evidence="header" if name.endswith(".h") else "file"))
+            if modified == "no":
+                path = root / name
+                pins[f"sha256_{stem}"] = ldb.pin_of(ldb.pinned_sources(path),
+                                                    path if path.is_dir() else None)
+        return rows, pins
+
     @given(trees())
     def test_a_true_record_of_a_tree_passes(self, components):
         """Every component with the row that says what it is, the zlib ones
         pinned: no failure, and a line for each."""
-        family = {MIT: "MIT", ZLIB: "zlib", GPL: "GPL"}
-        rows, pins = [], {}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "thirdparty"
             root.mkdir()
             build(root, components)
-            for name, text in sorted(components.items()):
-                stem = name.removesuffix(".h")
-                modified = "yes" if name == "mod" else "no"
-                rows.append(ldb.Row(name=stem, path=f"thirdparty/{name}", licences=family[text],
-                                    elect="-", modified=modified, linked="all",
-                                    evidence="header" if name.endswith(".h") else "file"))
-                if modified == "no":
-                    path = root / name
-                    pins[f"sha256_{stem}"] = ldb.pin_of(ldb.pinned_sources(path),
-                                                        path if path.is_dir() else None)
+            rows, pins = self.true_record(root, components)
             ok, fails = ldb.check(rows, pins, repo=Path(tmp), root=root, families=set())
         refused = {row["name"] for row in rows if row.elected in ldb.REFUSED}
         self.assertEqual([line for line in fails if line.split(":")[0] not in refused], [])
         self.assertEqual(len(ok), len(rows) - len(refused))
+
+    @given(trees().filter(lambda c: any(text != GPL for text in c.values())), st.data())
+    def test_one_lie_in_a_true_record_fails_its_row_and_no_other(self, components, data):
+        """A true record with one thing in one row made false -- a pin that is
+        not the files', a pin missing, a change nobody marked, a licence the
+        text does not say -- fails that row, and only that row. Every rule of
+        (2)-(5) is one of the lies."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "thirdparty"
+            root.mkdir()
+            build(root, components)
+            rows, pins = self.true_record(root, components)
+            liar = data.draw(st.sampled_from([r for r in rows if r.elected not in ldb.REFUSED]))
+            key = f"sha256_{liar['name']}"
+            lies = ["licence"] + (["pin", "unpinned", "unmarked"] if key in pins else [])
+            lie = data.draw(st.sampled_from(lies))
+            if lie == "pin":
+                pins[key] = "0" * 64
+            elif lie == "unpinned":
+                del pins[key]
+            elif lie == "unmarked":
+                liar["modified"] = data.draw(st.sampled_from(["yes", "subset"]))
+            else:
+                text = components[Path(liar["path"]).name]
+                liar["licences"] = data.draw(st.sampled_from(
+                    [f for f in FAMILIES if f not in ldb.classify(text) and f not in ldb.REFUSED]))
+            ok, fails = ldb.check(rows, pins, repo=Path(tmp), root=root, families=set())
+        refused = {row["name"] for row in rows if row.elected in ldb.REFUSED}
+        about = [line for line in fails if line.split(":")[0] not in refused]
+        self.assertTrue(about, f"{lie} in {liar['name']} failed nothing")
+        self.assertEqual({line.split(":")[0] for line in about}, {liar["name"]}, (lie, about))
 
 
 class MainTest(unittest.TestCase):
