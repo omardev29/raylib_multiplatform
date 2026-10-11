@@ -18,10 +18,12 @@
 #include <rmp/input.h>
 
 #include "internal.h"
+#include "ui_internal.h" // note_game_keys(), and the keys it is about
 
 #include <rmp/scene.h> // Scene::current().camera, for pointer() in world units
 #include <rmp/ui.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -38,6 +40,10 @@ struct Action {
     std::string name;
     std::array<detail::Binding, MAX_BINDINGS> bindings{};
     int count = 0;
+    // One of the bindings is a key the interface navigates with: reading
+    // this action is a game being played. Worked out when it is defined, so
+    // a read costs one bool.
+    bool ui_keys = false;
 };
 
 // The file's state, one struct per concern; the dot says "file state", and a
@@ -68,6 +74,38 @@ struct {
 
 // One warning per unknown name for the life of the run. The alternative is
 // sixty lines a second, which is the same as no warning at all.
+
+// Is this binding one of the keys, buttons or sticks the interface navigates
+// with (rmp::ui::detail::UI_KEYS and the two pad lists)? A game that reads one
+// is being played, and its HUD waits for Tab rather than taking Space: see
+// FrameOptions::focus_first. The pointer is never one of them.
+bool navigates_ui(const detail::Binding &binding) {
+    const auto listed = [&binding](const auto &list) {
+        return std::any_of(list.begin(), list.end(), [&binding](auto item) {
+            return static_cast<int>(item) == binding.code;
+        });
+    };
+    switch (binding.device) {
+        case detail::Device::KEY:
+            return listed(rmp::ui::detail::UI_KEYS);
+        case detail::Device::PAD_BUTTON:
+            return listed(rmp::ui::detail::UI_PAD_BUTTONS);
+        case detail::Device::PAD_AXIS:
+            return listed(rmp::ui::detail::UI_PAD_AXES);
+        case detail::Device::MOUSE:
+            return false;
+    }
+    return false;
+}
+
+// The game asked about one of them: rmp::ui is told, whatever the answer --
+// a read that something above consumed is still the game reading it, and a
+// binding that answered first does not make the others unread. A HUD the
+// player has walked into with Tab takes the keys (wants_keyboard()), and the
+// game reading them all the same is what keeps it a game being played.
+void note_read(bool touches_ui) {
+    if (touches_ui) rmp::ui::detail::note_game_keys();
+}
 
 Action *find(std::string_view name) {
     for (Action &action : registry.actions) {
@@ -146,6 +184,7 @@ bool action_state(std::string_view name, Edge edge) {
                               key.c_str(), key.c_str());
         return false;
     }
+    note_read(action->ui_keys);
 
     for (int i = 0; i < action->count; ++i) {
         const detail::Binding &binding = action->bindings[i];
@@ -184,6 +223,7 @@ float action_amount(std::string_view name) {
                               key.c_str(), key.c_str());
         return 0.0f;
     }
+    note_read(action->ui_keys);
     float best = 0.0f;
     for (int i = 0; i < action->count; ++i) {
         const detail::Binding &binding = action->bindings[i];
@@ -199,6 +239,7 @@ bool raw_down(detail::Device device, int code, const detail::DeviceState &state)
 }
 
 bool raw_edge(detail::Device device, int code, Edge edge) {
+    note_read(navigates_ui(detail::Binding{ device, static_cast<int16_t>(code), 0 }));
     const bool now = raw_down(device, code, frames.now);
     const bool before = frames.have_previous && raw_down(device, code, frames.before);
     switch (edge) {
@@ -257,10 +298,12 @@ void define(std::string_view name, std::initializer_list<Binding> bindings) {
     Action &slot = existing != nullptr ? *existing : registry.actions.emplace_back();
     slot.name.assign(name);
     slot.count = count;
+    slot.ui_keys = false;
     int i = 0;
     for (const Binding &binding : bindings) {
         if (i == count) break;
         slot.bindings[i++] = binding;
+        slot.ui_keys = slot.ui_keys || navigates_ui(binding);
     }
 }
 
@@ -297,6 +340,11 @@ void begin_frame() {
     frames.before = frames.now;
     reading.layer_input = true;
     frames.sample(frames.now);
+    // What the last frame read of the interface's keys was that frame's. The
+    // scene stack takes the note around each scene's update; a game without
+    // scenes is judged on the frame's own reads, and a frame the UI did not
+    // run in has nobody else to forget them.
+    (void)rmp::ui::detail::take_game_keys();
 
     // THE FIRST FRAME HAS NO EDGES, and it takes a line to say so. Without it
     // the previous frame is a zeroed struct, so anything already held when the
@@ -363,6 +411,8 @@ bool just_released(::GamepadButton button) {
 
 float axis_value(::GamepadAxis which) {
     const int index = static_cast<int>(which);
+    note_read(navigates_ui(
+        detail::Binding{ detail::Device::PAD_AXIS, static_cast<int16_t>(index), 0 }));
     if (!in_range(index, detail::DeviceState::AXES)) return 0.0f;
     const float raw = frames.now.axes[index];
     if (std::fabs(raw) < reading.deadzone) return 0.0f;

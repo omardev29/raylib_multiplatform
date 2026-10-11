@@ -21,6 +21,7 @@
 #include <rmp/input.h>
 #include <rmp/ui.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -768,6 +769,215 @@ TEST_SUITE("input, hostile values") {
         CHECK(length(rmp::input::vector()) == doctest::Approx(0.0f));
         CHECK(!rmp::input::pointer_down());
         CHECK(rmp::input::pointer_delta().x == doctest::Approx(0.0f));
+    }
+
+} // TEST_SUITE
+
+// ---------------------------------------------------------------------------
+// The keys the interface navigates with. A scene that reads one of them is a
+// game being played, and its HUD waits for Tab (rmp::ui's FrameOptions::
+// focus_first): rmp::input is where that is found out, on every read that
+// touches one -- by action or by device, consumed or not -- and the note is
+// rmp::ui's (take_game_keys(), src/rmp/ui_internal.h).
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("input, the keys the interface navigates with") {
+    namespace {
+
+    // What was read since the last time this asked, and forget it.
+    bool noted() { return rmp::ui::detail::take_game_keys(); }
+
+    template <class List> bool listed(const List &list, int code) {
+        return std::any_of(list.begin(), list.end(),
+                           [code](auto item) { return static_cast<int>(item) == code; });
+    }
+
+    // An action with one binding of any code, without a cast to the enum: a
+    // code no enumerator names is still a code a config can hold.
+    void probe(rmp::input::detail::Device device, int code, int sign = 0) {
+        rmp::input::detail::define(
+            "probe",
+            { rmp::input::detail::Binding{ device, static_cast<int16_t>(code),
+                                           static_cast<int8_t>(sign) } });
+    }
+
+    } // namespace
+
+    TEST_CASE("an action bound to one of them is noted, by every kind of binding") {
+        const Fixture fix;
+        frame();
+        using rmp::input::detail::Device;
+        for (int key = 0; key < rmp::input::detail::DeviceState::KEYS; ++key) {
+            probe(Device::KEY, key);
+            (void)noted();
+            (void)rmp::input::pressed("probe");
+            CHECK_MESSAGE(noted() == listed(rmp::ui::detail::UI_KEYS, key), "key ", key);
+        }
+        for (int button = 0; button < rmp::input::detail::DeviceState::PAD_BUTTONS;
+             ++button) {
+            probe(Device::PAD_BUTTON, button);
+            (void)noted();
+            (void)rmp::input::pressed("probe");
+            CHECK_MESSAGE(noted() == listed(rmp::ui::detail::UI_PAD_BUTTONS, button),
+                          "pad button ", button);
+        }
+        for (int axis = 0; axis < rmp::input::detail::DeviceState::AXES; ++axis) {
+            for (const int sign : { -1, 1 }) {
+                probe(Device::PAD_AXIS, axis, sign);
+                (void)noted();
+                (void)rmp::input::pressed("probe");
+                CHECK_MESSAGE(noted() == listed(rmp::ui::detail::UI_PAD_AXES, axis),
+                              "axis ", axis, " half ", sign);
+            }
+        }
+        // The pointer is never one of them: a click is not a key the HUD takes.
+        for (int button = 0; button < rmp::input::detail::DeviceState::MOUSE_BUTTONS;
+             ++button) {
+            probe(Device::MOUSE, button);
+            (void)noted();
+            (void)rmp::input::pressed("probe");
+            CHECK_MESSAGE(!noted(), "mouse button ", button);
+        }
+    }
+
+    TEST_CASE("every way of reading an action notes it") {
+        const Fixture fix;
+        frame();
+        rmp::input::action("jump", KEY_SPACE);
+        (void)noted();
+        (void)rmp::input::pressed("jump");
+        CHECK(noted());
+        (void)rmp::input::just_pressed("jump");
+        CHECK(noted());
+        (void)rmp::input::just_released("jump");
+        CHECK(noted());
+        (void)rmp::input::axis("nothing_yet", "jump");
+        CHECK(noted());
+        (void)rmp::input::vector("jump", "nothing_yet", "nothing_yet", "nothing_yet");
+        CHECK(noted());
+        // And the factory set: vector() is the arrows, the d-pad and the stick.
+        (void)rmp::input::vector();
+        CHECK(noted());
+        (void)rmp::input::axis();
+        CHECK(noted());
+        // Reading an action nobody defined touches no key at all.
+        (void)rmp::input::pressed("nothing_yet");
+        CHECK(!noted());
+        // Escape is "ui_cancel", and a pause bound to it is not a game being played.
+        (void)rmp::input::just_pressed("ui_cancel");
+        CHECK(!noted());
+    }
+
+    TEST_CASE(
+        "it is the game asking: noted when the answer is consumed, and when another "
+        "binding answered first") {
+        const Fixture fix;
+        rmp::input::action("jump", KEY_W, KEY_SPACE);
+        hold(KEY_W);
+        frame();
+        (void)noted();
+        // W is held and answers before Space is looked at; the action is still
+        // bound to Space, so the game is still reading it.
+        CHECK(rmp::input::pressed("jump"));
+        CHECK(noted());
+        // A layer input cannot reach hears nothing, and asked all the same.
+        rmp::input::detail::set_layer_input(false);
+        CHECK(!rmp::input::pressed("jump"));
+        CHECK(noted());
+        CHECK(rmp::input::axis("nothing_yet", "jump") == doctest::Approx(0.0f));
+        CHECK(noted());
+        rmp::input::detail::set_layer_input(true);
+    }
+
+    TEST_CASE("by device: the interface's keys, buttons and stick are noted, and nothing "
+              "else") {
+        const Fixture fix;
+        frame();
+        for (int key = 0; key < rmp::input::detail::DeviceState::KEYS; ++key) {
+            const auto k = static_cast<::KeyboardKey>(key);
+            (void)noted();
+            (void)rmp::input::pressed(k);
+            const bool held = noted();
+            (void)rmp::input::just_pressed(k);
+            const bool down = noted();
+            (void)rmp::input::just_released(k);
+            const bool up = noted();
+            const bool expected = listed(rmp::ui::detail::UI_KEYS, key);
+            CHECK_MESSAGE((held == expected && down == expected && up == expected),
+                          "key ", key);
+        }
+        for (int button = 0; button < rmp::input::detail::DeviceState::PAD_BUTTONS;
+             ++button) {
+            const auto b = static_cast<::GamepadButton>(button);
+            (void)noted();
+            (void)rmp::input::pressed(b);
+            const bool held = noted();
+            (void)rmp::input::just_pressed(b);
+            const bool down = noted();
+            (void)rmp::input::just_released(b);
+            const bool up = noted();
+            const bool expected = listed(rmp::ui::detail::UI_PAD_BUTTONS, button);
+            CHECK_MESSAGE((held == expected && down == expected && up == expected),
+                          "pad button ", button);
+        }
+        for (int axis = 0; axis < rmp::input::detail::DeviceState::AXES; ++axis) {
+            (void)noted();
+            (void)rmp::input::axis_value(static_cast<::GamepadAxis>(axis));
+            CHECK_MESSAGE(noted() == listed(rmp::ui::detail::UI_PAD_AXES, axis), "axis ",
+                          axis);
+        }
+        for (int button = 0; button < rmp::input::detail::DeviceState::MOUSE_BUTTONS;
+             ++button) {
+            const auto b = static_cast<::MouseButton>(button);
+            (void)rmp::input::pressed(b);
+            (void)rmp::input::just_pressed(b);
+            (void)rmp::input::just_released(b);
+            CHECK_MESSAGE(!noted(), "mouse button ", button);
+        }
+        (void)rmp::input::pointer_down();
+        (void)rmp::input::pointer_pressed();
+        (void)rmp::input::pointer_released();
+        (void)rmp::input::pointer();
+        CHECK(!noted());
+    }
+
+    TEST_CASE("redefining an action changes what reading it notes") {
+        const Fixture fix;
+        frame();
+        rmp::input::action("jump", KEY_W);
+        (void)noted();
+        (void)rmp::input::pressed("jump");
+        CHECK(!noted());
+        rmp::input::action("jump", KEY_W, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+        (void)rmp::input::pressed("jump");
+        CHECK(noted());
+        rmp::input::action("jump", KEY_W);
+        (void)rmp::input::pressed("jump");
+        CHECK(!noted());
+        // A factory action like any other: move_left is A, Left, the d-pad and
+        // the stick, and redefined to A alone it reads nothing of the interface's.
+        (void)rmp::input::pressed("move_left");
+        CHECK(noted());
+        rmp::input::action("move_left", KEY_A);
+        (void)rmp::input::pressed("move_left");
+        CHECK(!noted());
+        rmp::input::action("move_left", rmp::input::stick(GAMEPAD_AXIS_RIGHT_X, -1));
+        (void)rmp::input::axis();
+        // move_right still has the arrows; asked on its own, move_left does not.
+        CHECK(noted());
+        (void)rmp::input::pressed("move_left");
+        CHECK(!noted());
+        rmp::input::action("move_left", rmp::input::stick(GAMEPAD_AXIS_LEFT_X, -1));
+        (void)rmp::input::pressed("move_left");
+        CHECK(noted());
+    }
+
+    TEST_CASE("a new frame of input forgets what the last one read") {
+        const Fixture fix;
+        frame();
+        (void)rmp::input::pressed(KEY_SPACE);
+        frame();
+        CHECK(!noted());
     }
 
 } // TEST_SUITE

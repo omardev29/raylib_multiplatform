@@ -13,6 +13,9 @@
 
 #include "internal.h"
 
+#include "../scene_internal.h" // running(): which of the two says who is playing
+
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <optional>
@@ -35,6 +38,9 @@ using Name = std::array<char, 48>;
 struct Entry {
     uint32_t id = 0;
     Name name{};
+    // Declared in a HUD over a game being played: the arrows, Enter, Space and
+    // the A button pass it by, and only Tab walks in. See `hud`.
+    bool guarded = false;
 };
 
 // The file's state, one struct per concern: the dot at every use says "this
@@ -56,10 +62,27 @@ struct {
 // keyboard or the gamepad is used -- which is the moment it starts meaning
 // something -- and goes away again on a click. The browsers' :focus-visible,
 // for the same reason.
+//
+// And whether the interface has the KEYS. A focus in a HUD over a game being
+// played is one the player chose -- Tab walked into it -- or the game did,
+// with focus(); either way the keyboard is the interface's until Escape, the B
+// button or a click elsewhere gives it back (wants_keyboard()). A focus nobody
+// chose never rests in such a HUD: its pass gives none by itself, and one it
+// had before the game started being played is dropped.
+enum class Choice : uint8_t {
+    NONE, // a menu's focus, or nobody's
+    ASKED, // focus() named it; chosen if the control turns out to be in a HUD
+    CHOSEN, // in a HUD over a game, and the keys are the interface's
+};
+
 struct {
     uint32_t id = 0;
     Name name{};
     bool visible = false;
+    Choice choice = Choice::NONE;
+    // The pointer went down this frame, and on the focused control: a click
+    // ON it keeps the keys, a click anywhere else gives them back.
+    bool pressed_on = false;
 } target;
 
 // A focus() asked for between frames -- a pushed scene's _ready() runs after
@@ -122,7 +145,25 @@ struct {
     bool game_keys = false;
     bool pass_playing = false;
     std::optional<bool> pass_focus_first;
+    // What begin_pass_focus() made of the three for the pass being described:
+    // a HUD over a game, whose controls take no focus by themselves and wait
+    // for Tab -- or, false, a menu, whose first control takes the focus.
+    bool guarded = false;
 } hud;
+
+// The pointer went down this frame: read once, at the frame's start, where no
+// pass has said yet that input cannot reach it.
+struct {
+    bool pressed = false;
+} press;
+
+// Widget scratch: see state_for().
+struct Scratch {
+    static constexpr int SLOTS = 64;
+    std::array<detail::WidgetState, SLOTS> slots{};
+    int next = 0;
+};
+Scratch scratch;
 
 constexpr float REPEAT_DELAY = 0.45f;
 constexpr float REPEAT_INTERVAL = 0.09f;
@@ -142,29 +183,54 @@ int index_of(uint32_t id) {
     return -1;
 }
 
-void move_focus(int delta) {
+// Nothing has the focus, and the keys are nobody's.
+void drop_focus() {
+    target.id = 0;
+    target.name[0] = '\0';
+    target.choice = Choice::NONE;
+}
+
+void focus_entry(const Entry &entry) {
+    target.id = entry.id;
+    copy_name(target.name, view(entry.name));
+}
+
+// `entering`: Tab, or the keys are already the interface's -- the steps that
+// may walk into a HUD over a game being played. The arrows alone pass it by.
+void move_focus(int delta, bool entering) {
     // A local, clamped count. lists.previous_count cannot exceed the array,
     // but reading it into a bounded local is what makes every index below
     // provably inside lists.previous[] from this function alone, rather than from
     // an invariant kept somewhere else in the file.
     const int count =
         lists.previous_count < MAX_FOCUSABLES ? lists.previous_count : MAX_FOCUSABLES;
-    if (count <= 0) return;
+    const auto reachable = [entering](const Entry &e) { return entering || !e.guarded; };
+    if (count <= 0 ||
+        std::none_of(lists.previous.begin(), lists.previous.begin() + count, reachable)) {
+        return;
+    }
 
     const int at = index_of(target.id);
-    int next;
+    const int dir = delta > 0 ? 1 : -1;
+    int steps = delta > 0 ? delta : -delta;
+    int next = at;
     if (at < 0 || at >= count) {
         // Nothing focused, or what was focused has gone. Entering from the top
-        // going down, from the bottom going up, is what a person expects.
-        next = delta > 0 ? 0 : count - 1;
-    } else {
-        // The positive-modulo idiom, rather than adding the count once: that
-        // only wraps for a delta of -1, and nothing here says delta is +/-1.
-        next = (at + delta) % count;
-        if (next < 0) next += count;
+        // going down, from the bottom going up, is what a person expects: one
+        // step from just outside either end.
+        next = dir > 0 ? -1 : count;
+        steps = 1;
     }
-    target.id = lists.previous[next].id;
-    copy_name(target.name, view(lists.previous[next].name));
+    // One entry at a time, wrapping, counting only the ones that may be
+    // landed on -- there is at least one, so this ends inside `count` turns a
+    // step. The positive-modulo idiom, so it wraps either way.
+    while (steps > 0) {
+        next = ((next + dir) % count + count) % count;
+        if (reachable(lists.previous[next])) --steps;
+    }
+    focus_entry(lists.previous[next]);
+    // Into a HUD over a game, it was chosen; anywhere else it is a menu's.
+    target.choice = lists.previous[next].guarded ? Choice::CHOSEN : Choice::NONE;
     // The player moved it here, so a text field it lands on is the one they
     // are about to type into. Anything else holding this id never asks.
     capture.keyboard_id = target.id;
@@ -176,6 +242,8 @@ namespace detail {
 
 void begin_focus_frame() {
     lists.current_count = 0;
+    target.pressed_on = false;
+    press.pressed = pointer_just_pressed();
     navigation.x = 0;
     navigation.y = 0;
     const uint32_t vertical = capture.vertical_id;
@@ -225,7 +293,9 @@ void begin_focus_frame() {
     if (step != 0 && vertical != 0 && vertical == target.id) {
         navigation.y = step;
     } else if (step != 0) {
-        move_focus(step);
+        // Only Tab walks into a HUD over a game being played; once in, the
+        // arrows walk on from there, as in any menu.
+        move_focus(step, nav.tab || target.choice == Choice::CHOSEN);
     }
     // Left and right belong to the text while a field is typing; for
     // everything else they are a slider's.
@@ -236,7 +306,7 @@ void begin_focus_frame() {
     // Touching the keyboard or the stick is what makes the focus worth showing;
     // going back to the mouse is what stops it.
     if (nav.x != 0 || nav.y != 0 || nav.activate) target.visible = true;
-    if (pointer_just_pressed()) target.visible = false;
+    if (press.pressed) target.visible = false;
 }
 
 void end_focus_frame() {
@@ -262,12 +332,35 @@ void end_focus_frame() {
         capture.keyboard_id = 0;
     }
 
-    // If whatever had the focus is no longer on screen, hand it to the first
-    // thing that is, rather than leaving a controller with nowhere to go.
-    if (target.id != 0 && index_of(target.id) < 0 && lists.previous_count > 0) {
-        target.id = lists.previous[0].id;
-        copy_name(target.name, view(lists.previous[0].name));
+    // The keys go back to the game: on Escape or the B button that nothing
+    // else took this frame -- a text field and an open list take theirs
+    // first -- and on a press anywhere but on the focused control.
+    if (target.choice == Choice::CHOSEN &&
+        (navigation.cancel_pending || (press.pressed && !target.pressed_on))) {
+        drop_focus();
     }
+
+    // If whatever had the focus is no longer on screen, hand it to the first
+    // thing that is, rather than leaving a controller with nowhere to go --
+    // but never to a HUD over a game being played: popping a pause menu does
+    // not land the focus on the HUD underneath, where Space would press it.
+    if (target.id != 0 && index_of(target.id) < 0) {
+        target.choice = Choice::NONE;
+        if (lists.previous_count > 0) {
+            int open = -1;
+            for (int i = 0; i < lists.previous_count && open < 0; ++i) {
+                if (!lists.previous[i].guarded) open = i;
+            }
+            if (open >= 0) {
+                focus_entry(lists.previous[open]);
+            } else {
+                drop_focus();
+            }
+        }
+    }
+
+    // A game without scenes is judged on the frame's own reads.
+    hud.game_keys = false;
 }
 
 bool focusable(Clay_ElementId id, std::string_view name) {
@@ -278,8 +371,10 @@ bool focusable(Clay_ElementId id, std::string_view name) {
     if (!pass_input()) return false;
 
     if (lists.current_count < MAX_FOCUSABLES) {
-        lists.current[lists.current_count].id = id.id;
-        copy_name(lists.current[lists.current_count].name, name);
+        Entry &entry = lists.current[lists.current_count];
+        entry.id = id.id;
+        copy_name(entry.name, name);
+        entry.guarded = hud.guarded;
         ++lists.current_count;
     }
     // The first control carrying a name focus() asked for between frames.
@@ -289,8 +384,23 @@ bool focusable(Clay_ElementId id, std::string_view name) {
         id.id == peek_element_id(view(asked.name), 0, current_pass()).id) {
         asked.waiting = false;
         focus_by_id(id.id, name);
+        target.choice = Choice::ASKED;
     }
-    return navigation.enabled && target.id == id.id;
+    if (target.id != id.id) return false;
+    // A focus nobody chose, in a HUD over a game being played: the pass it
+    // was a menu's focus in has started being played, and this frame's Space
+    // is the game's. It goes before the control can be pressed with it.
+    if (hud.guarded && target.choice == Choice::NONE) {
+        drop_focus();
+        return false;
+    }
+    if (target.choice == Choice::ASKED) {
+        target.choice = hud.guarded ? Choice::CHOSEN : Choice::NONE;
+    }
+    if (target.choice == Choice::CHOSEN && press.pressed && pointer_over(id)) {
+        target.pressed_on = true;
+    }
+    return navigation.enabled;
 }
 
 // --- the default focus -----------------------------------------------------
@@ -302,7 +412,8 @@ bool focusable(Clay_ElementId id, std::string_view name) {
 // calling rmp::ui::focus() in _ready().
 //
 // So: a pass that declares focusable widgets and has no focus of its own takes
-// its FIRST one. "Of its own" is the whole subtlety -- the focus is per frame
+// its FIRST one -- unless it is a HUD over a game being played (`hud`), where
+// Enter and Space are the game's, and nothing is focused until Tab. "Of its own" is the whole subtlety -- the focus is per frame
 // but the passes are not, so what decides is whether the focused element has
 // been declared by ANY pass so far this frame, or was on screen last frame and
 // may yet be declared by a pass still to come. A pause menu over a HUD that
@@ -311,7 +422,17 @@ bool focusable(Clay_ElementId id, std::string_view name) {
 // so the menu cannot steal the focus back every frame, and the HUD cannot
 // steal back a focus Tab has walked up into the menu.
 
-void begin_pass_focus() { lists.pass_first = lists.current_count; }
+void begin_pass_focus() {
+    lists.pass_first = lists.current_count;
+    // Over a game being played: what the scene stack said of the scene
+    // drawing this pass, or, with no scenes, what the frame itself read. That
+    // is the guess; FrameOptions::focus_first, when the game set it, is the
+    // answer -- true a menu whatever is underneath, false a HUD whatever the
+    // game reads (a game that reads raylib's keys itself is never noticed).
+    const bool playing =
+        rmp::scenes::detail::running() ? hud.pass_playing : hud.game_keys;
+    hud.guarded = !hud.pass_focus_first.value_or(!playing);
+}
 
 void end_pass_focus() {
     // Every control of the pass takes the pointer where it was drawn, for a
@@ -320,6 +441,7 @@ void end_pass_focus() {
         claim_control(lists.current[i].id);
     }
     if (!navigation.enabled) return;
+    if (hud.guarded) return; // a HUD over a game: it waits for Tab
     if (lists.current_count <= lists.pass_first) return; // nothing focusable in it
     for (int i = 0; i < lists.current_count; ++i) {
         if (lists.current[i].id == target.id) return; // already somebody's
@@ -330,8 +452,8 @@ void end_pass_focus() {
     // took the focus back every frame, and with input_below the player could
     // never walk up out of the scene below.
     if (index_of(target.id) >= 0) return;
-    target.id = lists.current[lists.pass_first].id;
-    copy_name(target.name, view(lists.current[lists.pass_first].name));
+    focus_entry(lists.current[lists.pass_first]);
+    target.choice = Choice::NONE;
 }
 
 bool take_activate() {
@@ -395,9 +517,8 @@ uint32_t focused_id() { return target.id; }
 
 // --- over a game being played ------------------------------------------------
 //
-// The note, and what the scene stack and begin() hand over, are kept here.
-// The focus does nothing with them: every pass is a menu, and its first
-// control takes the focus.
+// The note, and what the scene stack and begin() hand over. begin_pass_focus()
+// makes of them whether the pass is a HUD over a game (`hud`).
 
 void note_game_keys() { hud.game_keys = true; }
 
@@ -414,7 +535,20 @@ void set_pass_focus_first(const std::optional<bool> first) {
     hud.pass_focus_first = first;
 }
 
-void forget_focus() {}
+void forget_focus() {
+    // Everything but whether navigation is on at all, which is the game's
+    // setting and not something the focus learnt.
+    const bool enabled = navigation.enabled;
+    lists = {};
+    target = {};
+    asked = {};
+    capture = {};
+    navigation = {};
+    navigation.enabled = enabled;
+    hud = {};
+    press = {};
+    scratch = Scratch{};
+}
 
 std::vector<std::string> controls_out_of_reach() {
     // Half a pixel either way: a box that ends exactly on the window's edge
@@ -440,6 +574,7 @@ std::vector<std::string> controls_out_of_reach() {
 void focus_by_id(uint32_t id, std::string_view name) {
     target.id = id;
     copy_name(target.name, name);
+    target.choice = Choice::NONE;
     // Moved there on purpose, by the game or a click: a text field takes the
     // keyboard with it, exactly as when the player navigates onto it.
     capture.keyboard_id = id;
@@ -448,13 +583,10 @@ void focus_by_id(uint32_t id, std::string_view name) {
 // --- widget scratch --------------------------------------------------------
 
 WidgetState *state_for(uint32_t id) {
-    constexpr int SLOTS = 64;
-    static std::array<WidgetState, SLOTS> slots;
-    static int next = 0;
-    for (auto &slot : slots) {
+    for (auto &slot : scratch.slots) {
         if (slot.id == id) return &slot;
     }
-    for (auto &slot : slots) {
+    for (auto &slot : scratch.slots) {
         if (slot.id == 0) {
             slot = WidgetState{};
             slot.id = id;
@@ -463,8 +595,8 @@ WidgetState *state_for(uint32_t id) {
     }
     // Full. Evicting round-robin loses one dropdown's open flag rather than
     // refusing to draw it, which is the right way round for a UI.
-    WidgetState *s = &slots[next];
-    next = (next + 1) % SLOTS;
+    WidgetState *s = &scratch.slots[scratch.next];
+    scratch.next = (scratch.next + 1) % Scratch::SLOTS;
     *s = WidgetState{};
     s->id = id;
     return s;
@@ -486,7 +618,12 @@ bool wants_pointer() {
     }
     return detail::pointer_claimed_now();
 }
-bool wants_keyboard() { return detail::keyboard_captured(); }
+// A text field typing, or a HUD over a game that the player walked into with
+// Tab: until Escape, the B button or a click elsewhere, the keys are its own.
+bool wants_keyboard() {
+    return detail::keyboard_captured() ||
+        (navigation.enabled && target.id != 0 && target.choice == Choice::CHOSEN);
+}
 
 void focus(std::string_view id) {
     asked.waiting = false;
@@ -510,6 +647,9 @@ void focus(std::string_view id) {
     // occurrence of itself, so the widget it is trying to focus would come out
     // as the NEXT one and the two ids could never match.
     detail::focus_by_id(detail::peek_element_id(id).id, id);
+    // Deliberate, too: a control in a HUD over a game is chosen by it, as by
+    // Tab. Settled when the control is declared (focusable()).
+    target.choice = Choice::ASKED;
 }
 
 std::string_view focused() { return view(target.name); }
