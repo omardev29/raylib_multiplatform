@@ -1296,6 +1296,23 @@ class DeployTest(unittest.TestCase):
         (self.repo.root / "notes.txt").write_text("x")
         self.assertEqual(self.repo.rmp("deploy", "1.0.0").returncode, 0)
 
+    def test_a_version_typed_in_bytes_that_are_not_utf8_is_said_not_a_traceback(self):
+        """Found by tests/rmp_property_test.py: Python reads a byte that is not
+        UTF-8 in argv as a lone surrogate, and stdout on a UTF-8 terminal
+        (en_US.UTF-8, es_ES.UTF-8: not C.UTF-8, where Python picks
+        surrogateescape) is strict -- so the FAIL that named the tag raised
+        UnicodeEncodeError instead. PYTHONIOENCODING makes that terminal here,
+        on any machine. The byte is said back as an escape, and the exit is 1."""
+        tag = b"v\xff1.0"
+        subprocess.run(["git", "tag", tag], cwd=self.repo.root, env=self.repo.env, check=True)
+        got = subprocess.run([sys.executable, str(RMP_PY), "deploy", b"\xff1.0"],
+                             cwd=self.repo.root,
+                             env=dict(self.repo.env, PYTHONIOENCODING="utf-8:strict"),
+                             capture_output=True)
+        self.assertNotIn(b"Traceback", got.stderr, got.stderr.decode(errors="replace"))
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn(b"FAIL: the tag v\\udcff1.0 already exists here", got.stdout)
+
     def test_a_tag_that_exists_here_or_there_is_refused(self):
         self.repo.git("tag", "v2.0.0")
         got = self.repo.rmp("deploy", "2.0.0")
@@ -1409,6 +1426,20 @@ class PushTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0)
         self.assertIn("gh is not installed", got.stdout)
         self.assertTrue(self.pushed())
+
+    def test_gh_answering_json_that_is_no_list_of_runs_pushes_with_a_warning(self):
+        """Found by tests/rmp_property_test.py: an answer that IS JSON but not
+        a list of runs -- a number in it, an object -- was an AttributeError
+        out of `r.get`. It is the same case as an answer that is not JSON:
+        nothing could be checked, and that is said."""
+        for answer in ([1], {"runs": []}, ["in_progress"]):
+            with self.subTest(answer=answer):
+                self.fake_gh(answer)
+                got = self.push()
+                self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+                self.assertIn("warning: gh answered something that is not a list of runs",
+                              got.stdout)
+                self.assertNotIn("Traceback", got.stderr)
 
     def test_a_failing_gh_pushes_with_a_warning(self):
         self.fake_gh(exit_code=1)
@@ -2025,6 +2056,19 @@ class MachineReadableTest(unittest.TestCase):
         self.assertIn("thirdparty/raylib_multiplatform/LICENSE", listed)
         self.assertNotIn("LICENSE", listed)
         self.assertNotIn("tests/configure_test.py", listed)
+
+    def test_new_list_refuses_a_file_nobody_classified(self):
+        """Found by tests/rmp_property_test.py: `rmp new --list` with a tracked
+        file the manifest does not classify -- the moment a framework
+        developer adds one, and asks what a game would get -- was a TypeError.
+        It refuses as `rmp new` does, naming the file."""
+        listed = [("100644", "0" * 40, "CMakeLists.txt"), ("100644", "0" * 40, "notes.txt")]
+        with unittest.mock.patch.object(rmp, "tracked", lambda framework: listed):
+            code, out, err = call(["new", "--list"])
+        self.assertEqual(code, rmp.FAILED, out + err)
+        self.assertIn("notes.txt is not in rmp new's manifest. This is a bug in the framework.",
+                      out)
+        self.assertNotIn("CMakeLists.txt\n", out)
 
     def test_a_closed_pipe_is_not_a_traceback(self):
         got = subprocess.run(f"{sys.executable} {RMP_PY} new --list | head -1", shell=True,
@@ -2690,6 +2734,29 @@ class NewRefusesTest(unittest.TestCase):
                         self.assertEqual(os.listdir(target), [])
                     else:
                         self.assertFalse(target.exists())
+
+
+class CopyManifestTest(unittest.TestCase):
+    """copy_manifest(), the part of `rmp new` that copies the framework's
+    files into the game."""
+
+    def test_two_files_for_one_place_in_the_game_are_refused(self):
+        """Found by tests/rmp_property_test.py: LICENSE goes to
+        thirdparty/raylib_multiplatform/LICENSE (RENAME), and a framework that
+        also tracked a file there gave the game whichever was copied last, in
+        silence. Refused, naming both."""
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "framework", Path(tmp) / "game"
+            renamed = rmp.RENAME["LICENSE"]
+            for path in ("LICENSE", renamed):
+                (source / path).parent.mkdir(parents=True, exist_ok=True)
+                (source / path).write_text(path)
+            target.mkdir()
+            entries = [("100644", "0" * 40, "LICENSE"), ("100644", "0" * 40, renamed)]
+            with self.assertRaises(rmp.Refused) as said:
+                rmp.copy_manifest(source, target, entries)
+            self.assertIn(f"LICENSE and {renamed} would both be {renamed} in the game",
+                          str(said.exception))
 
 
 class StripComponentsTest(unittest.TestCase):
