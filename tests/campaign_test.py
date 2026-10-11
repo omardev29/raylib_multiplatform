@@ -38,6 +38,7 @@ Standard library only; the resilience list reads the headers with clang++
 
 from __future__ import annotations
 
+import fnmatch
 import importlib.util
 import json
 import os
@@ -425,6 +426,33 @@ def framework_sources(root: Path) -> list[str]:
                   if p.suffix in (".cpp", ".c") and p.is_file())
 
 
+def doctest_filter_problems(name: str, program: list[str], root: Path) -> list[str]:
+    """A doctest filter of a floor's test program that selects nothing: the
+    program runs no test, passes, and every mutant survives -- read as a
+    module nobody tested rather than as a filter that names a file renamed
+    away. doctest matches -sf against the source path and -ts against the
+    suite names, with wildcards and without case, a comma between choices."""
+    tests = root / "tests"
+    files = [path.relative_to(root).as_posix().lower() for path in tests.rglob("*.cpp")]
+    suites = {suite.lower() for path in tests.rglob("*.cpp")
+              for suite in re.findall(r'TEST_SUITE(?:_BEGIN)?\(\s*"([^"]*)"',
+                                      path.read_text(encoding="utf-8", errors="replace"))}
+    out = []
+    for arg in program[1:]:
+        flag, _, value = arg.partition("=")
+        if flag in ("-sf", "--source-file"):
+            what, names = "source file", files
+        elif flag in ("-ts", "--test-suite"):
+            what, names = "TEST_SUITE", sorted(suites)
+        else:
+            continue
+        for choice in value.split(","):
+            if not any(fnmatch.fnmatchcase(n, choice.lower()) for n in names):
+                out.append(f"{name}: tests {program[0]} {flag}={choice} matches no {what} under "
+                           "tests/: the program would run nothing and every mutant survive")
+    return out
+
+
 def floor_problems(floors: dict[str, mr.Floor], sources: list[str], root: Path) -> list[str]:
     out = []
     owner: dict[str, str] = {}
@@ -441,6 +469,8 @@ def floor_problems(floors: dict[str, mr.Floor], sources: list[str], root: Path) 
             if floor.kind == "cxx" and program[0] not in TEST_PROGRAMS:
                 out.append(f"{name}: tests {program[0]} is not a test program "
                            f"({', '.join(sorted(TEST_PROGRAMS))})")
+            if floor.kind == "cxx":
+                out.extend(doctest_filter_problems(name, program, root))
             if floor.kind == "py":
                 # A file, or a pytest node id in one: tests/x_test.py::SomeTest.
                 for path in program:
@@ -481,6 +511,16 @@ class FloorsTest(unittest.TestCase):
              "tests tests/gone_test.py::SomeTest does not exist"),
             ("a vendored unit", lambda f: f[some].sources.append("src/rmp/tiled_impl.cpp"),
              "only compiles a vendored library"),
+            ("a source filter that matches no file",
+             lambda f: f["random"].tests.append(["unit_test", "-sf=*randum_test.cpp"]),
+             "random: tests unit_test -sf=*randum_test.cpp matches no source file"),
+            ("one of two source filters that matches nothing",
+             lambda f: f["random"].tests.append(["unit_test",
+                                                 "-sf=*save_test.cpp,*gone_test.cpp"]),
+             "-sf=*gone_test.cpp matches no source file"),
+            ("a suite filter that matches no suite",
+             lambda f: f["random"].tests.append(["unit_test", "-ts=randon"]),
+             "random: tests unit_test -ts=randon matches no TEST_SUITE"),
         ]
         for what, break_it, says in cases:
             with self.subTest(what):
