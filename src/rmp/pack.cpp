@@ -466,6 +466,9 @@ namespace {
 // .wasm (+19 % each, the size budget's fast lane on merge-e1), for a seek and
 // a read.
 class FileSource final : public rres::Source {
+    static constexpr auto LONG_OFFSET =
+        static_cast<std::uint64_t>(std::numeric_limits<long>::max());
+
 public:
     explicit FileSource(const std::string &path) : _file(std::fopen(path.c_str(), "rb")) {
         if (!_file || std::fseek(_file.get(), 0, SEEK_END) != 0) return;
@@ -476,12 +479,9 @@ public:
     // Exactly out.size() bytes or false; a pack no `long` can seek in is a
     // pack this does not read (a chunk is under 2 GiB, CHUNK_LIMIT).
     [[nodiscard]] bool read(std::uint64_t offset, std::span<std::uint8_t> out) override {
-        if (!_file ||
-            offset > static_cast<std::uint64_t>(std::numeric_limits<long>::max()))
-            return false;
-        if (std::fseek(_file.get(), static_cast<long>(offset), SEEK_SET) != 0)
-            return false;
-        return std::fread(out.data(), 1, out.size(), _file.get()) == out.size();
+        const bool there = _file && offset <= LONG_OFFSET &&
+            std::fseek(_file.get(), static_cast<long>(offset), SEEK_SET) == 0;
+        return there && std::fread(out.data(), 1, out.size(), _file.get()) == out.size();
     }
 
 private:
