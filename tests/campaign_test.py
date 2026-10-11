@@ -248,6 +248,28 @@ class FuzzReplayCountsTest(unittest.TestCase):
         self.assertEqual(code, 2, out)
         self.assertIn("no fuzz target called 'nope'", out)
 
+    def test_a_target_that_is_not_the_last_is_known(self):
+        """The name is looked for in the whole list of targets. Asked of a
+        `targets | grep -q` under pipefail, grep stopped at the first match
+        and the next name was written into a closed pipe: every target but
+        the last read as "no fuzz target called ..." -- the nightly job's
+        run and merge with them (seen: 200 of 200 with ten harnesses)."""
+        fuzz = self.root / "tests" / "fuzz"
+        for other in ("y", "z"):
+            (fuzz / f"{other}.cpp").write_text("// another harness\n")
+        self.target(self.EVERY)
+        for _ in range(3):
+            code, out = self.fuzz("replay", "x")
+            self.assertEqual(code, 0, out)
+            self.assertIn("ok    x: 3 input(s)", out)
+        self.target('echo "$@"\n', engine="libfuzzer")
+        code, out = self.fuzz("run", "x", "1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("-max_total_time=1", out)
+        code, out = self.fuzz("replay", "w")
+        self.assertEqual(code, 2, out)
+        self.assertIn("no fuzz target called 'w'", out)
+
     def test_a_target_with_nothing_to_replay_fails(self):
         for f in (self.root / "tests" / "fuzz").rglob("*"):
             if f.is_file() and f.parent.name == "x":

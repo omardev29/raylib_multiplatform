@@ -56,12 +56,17 @@ targets() {
   done
 }
 
+# Compared name by name, never `targets | grep -q`: under pipefail grep stops
+# at the first match, the next name goes into a closed pipe, and every target
+# but the last read as unknown.
 known_target() {
-  if ! targets | grep -qx -- "$1"; then
-    echo "FAIL: no fuzz target called '$1': there is no $FUZZ/$1.cpp. The targets:"
-    targets | sed 's/^/        /'
-    exit 2
-  fi
+  local name
+  for name in $(targets); do
+    if [ "$name" = "$1" ]; then return 0; fi
+  done
+  echo "FAIL: no fuzz target called '$1': there is no $FUZZ/$1.cpp. The targets:"
+  targets | sed 's/^/        /'
+  exit 2
 }
 
 # Called in the script's own shell, never inside $(...): an exit there would
