@@ -47,6 +47,7 @@ import os
 import platform
 import re
 import shutil
+import struct
 import sys
 import tomllib
 from pathlib import Path
@@ -104,36 +105,68 @@ def locate(section: str, key: str | None) -> tuple[int, str] | None:
     if not TOML.exists():
         return None
     try:
-        lines = TOML.read_text(encoding="utf-8").splitlines()
-    except OSError:
+        text = TOML.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
         return None
+    # Lines as TOML counts them, LF or CRLF -- the bytes, not read_text(),
+    # which takes a lone CR for a line too. splitlines() also broke at U+2028,
+    # U+0085 and others a TOML string or comment holds as they are, and every
+    # line after one was reported one too far down.
+    lines = [line.removesuffix("\r") for line in text.split("\n")]
 
-    # "" before the first header, so a key written above every section -- the
+    # () before the first header, so a key written above every section -- the
     # top level of the file -- can be located as section "".
-    here = ""
+    target = tuple(section.split(".")) if section else ()
+    here: tuple[str, ...] = ()
     header_at = None
+    # A key whose value is a table may be written as one: [section.key], or a
+    # table under it. Without its own line, that header is where it is.
+    table_at = None
     for i, raw in enumerate(lines, start=1):
         line = raw.strip()
-        if line.startswith("[") and "]" in line:
-            here = line[1:line.index("]")].strip()
-            if here == section:
+        header = _header_of(line)
+        if header is not None:
+            here = header
+            if here == target:
                 header_at = (i, raw)
+            elif key is not None and table_at is None and here[:len(target) + 1] == (*target, key):
+                table_at = (i, raw)
             continue
-        if here != section or key is None or not line or line.startswith("#"):
+        if here != target or key is None or not line or line.startswith("#"):
             continue
         if _key_of(line) == key:
             return (i, raw)
-    return header_at
+    return table_at or header_at
+
+
+def _header_of(line: str) -> tuple[str, ...] | None:
+    """The names of the table a `[header]` or `[[header]]` line opens,
+    unquoted -- `[ios.settings."A.B"]` is ("ios", "settings", "A.B"); None
+    for any other line, `[1, 2]` of an array among them."""
+    if not line.startswith("["):
+        return None
+    try:
+        node = tomllib.loads(line)
+    except tomllib.TOMLDecodeError:
+        return None
+    names: list[str] = []
+    while isinstance(node, dict) and len(node) == 1:
+        ((name, node),) = node.items()
+        names.append(name)
+    return tuple(names)
 
 
 # `key =` as TOML writes it: bare, "basic" or 'literal'. A quoted one is how an
 # Xcode setting with a condition has to be written -- the name was the text
 # before the first `=`, so its quotes never matched, and `[sdk=...]` cut it.
-_KEY_RE = re.compile(r"""\s*([A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*')\s*=""")
+# A dotted key, `title.x = 1`, is written on the line of its first name.
+_KEY = r"""[A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*'"""
+_KEY_RE = re.compile(rf"\s*({_KEY})(?:\s*\.\s*(?:{_KEY}))*\s*=")
 
 
 def _key_of(line: str) -> str | None:
-    """The name a `key = value` line gives, unquoted; None for any other line."""
+    """The name a `key = value` line gives, unquoted -- the first of a dotted
+    key's; None for any other line."""
     m = _KEY_RE.match(line)
     if m is None:
         return None
@@ -511,11 +544,12 @@ def deep_merge(base: dict, over: dict, path: str = "") -> dict:
     for k, v in over.items():
         here = f"{path}.{k}" if path else k
         if k not in base:
-            # Above every section, a table is found by its [header] and a value
-            # by its line in section "": (k, None) looked for a header nobody
-            # wrote, and `zzz = 1` pointed nowhere.
-            where = (path, k) if path else ((k, None) if isinstance(v, dict) else ("", k))
-            raise ConfigError(f"unknown key [{here}] in raylib_multiplatform.toml", where)
+            # (path, k), "" being the top of the file: locate() finds the line
+            # that writes it, or the [header] of a table written as one. (k,
+            # None) looked for a header nobody wrote, so `zzz = 1` above every
+            # section pointed nowhere, and [window.zzz] pointed at [window], or
+            # nowhere without one.
+            raise ConfigError(f"unknown key [{here}] in raylib_multiplatform.toml", (path, k))
         # A value where a table goes -- `audio = 0.5` above every section, or
         # `admob = true` inside [android] -- used to be stored as it was, and
         # the first check to index it died with "'float' object is not
@@ -539,11 +573,29 @@ def load_config() -> dict:
              "         Create it to name your game and set your app ids. "
              "See README.md.")
         return json.loads(json.dumps(DEFAULTS))
-    with TOML.open("rb") as fh:
-        try:
-            user = tomllib.load(fh)
-        except tomllib.TOMLDecodeError as e:
-            raise ConfigError(f"raylib_multiplatform.toml is not valid TOML: {e}") from None
+    try:
+        data = TOML.read_bytes()
+    except OSError as e:   # a folder of that name, a file nobody may read
+        raise ConfigError(f"raylib_multiplatform.toml cannot be read: {e.strerror}.") from None
+    try:
+        user = tomllib.loads(data.decode("utf-8"))
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"raylib_multiplatform.toml is not valid TOML: {e}") from None
+    except UnicodeDecodeError as e:
+        # TOML is UTF-8, and an editor that saved the file as Latin-1 -- a
+        # title with an accent -- was a traceback from inside tomllib.
+        line = data[:e.start].count(b"\n") + 1
+        raise ConfigError(
+            f"raylib_multiplatform.toml is not UTF-8: byte 0x{data[e.start]:02x} on line {line} "
+            "is not a character in it.\nTOML files are UTF-8. Save the file as UTF-8 -- "
+            "most editors have it under \"Save with encoding\".") from None
+    except RecursionError:
+        # tomllib reads a nested array or inline table by recursing, and a
+        # few hundred levels of them were a RecursionError: a traceback.
+        raise ConfigError(
+            "raylib_multiplatform.toml nests arrays or inline tables deeper than it can be "
+            "read.\nNo setting nests them more than a level or two; look for a long run of "
+            "[ or {.") from None
     return deep_merge(DEFAULTS, user)
 
 
@@ -1313,6 +1365,17 @@ def validate_resources(cfg: dict) -> None:
             "reads loose files only where no pack was built -- a development build, or "
             "an archive whose resources/ holds PACK_SKIPPED.txt.",
             ("resources", "rres_password"))
+    # The packer takes it on a command line that CMake writes: a NUL does not
+    # survive CMake, and a newline ended the build's command where it stood --
+    # the pack sealed with part of the password, or not built at all, while
+    # the game opened it with all of it.
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in password):
+        raise ConfigError(
+            f"[resources] rres_password = {password!r} holds a control character. The "
+            "packer takes the password on a command line, which cannot carry one: the pack "
+            "would be sealed with another password than the game opens it with.\nUse "
+            "printable characters only.",
+            ("resources", "rres_password"))
 
 
 def validate_deploy(cfg: dict) -> None:
@@ -1390,6 +1453,11 @@ def validate_input(cfg: dict) -> None:
             "It is the fraction of a stick's travel that reads as zero. 0 turns it off, "
             "which on a worn controller means the character walks on its own; past 0.95 "
             "there is almost no travel left to read.")
+    if _c_float_lost(dead):
+        raise ConfigError(
+            f"[input] deadzone = {dead!r} is too close to 0 for a C float, which holds it as 0 "
+            "-- no deadzone -- and the compiler warns about it.\nUse 0 to turn it off, or a "
+            "fraction a stick can feel, like 0.1.")
 
 
 def validate_audio(cfg: dict) -> None:
@@ -1411,6 +1479,11 @@ def validate_audio(cfg: dict) -> None:
                 f"[audio] {key} = {value} has to be between 0 and 1.\n"
                 "It is a fraction of full volume, not a gain: past 1 is clipping, "
                 "and a negative volume means nothing. Use 1 for full.",
+                ("audio", key))
+        if _c_float_lost(value):
+            raise ConfigError(
+                f"[audio] {key} = {value!r} is too close to 0 for a C float, which holds it as "
+                "0 -- silent -- and the compiler warns about it.\nUse 0 for silent.",
                 ("audio", key))
 
 
@@ -1463,6 +1536,10 @@ def validate_ui(cfg: dict) -> None:
             or ui["scale"] != ui["scale"] or ui["scale"] < 0 or ui["scale"] > 8:
         raise ConfigError(f"[ui] scale = {ui['scale']!r} must be a number between 0 and 8 "
                           "(0 = derive it from [window] and the real window size).")
+    if _c_float_lost(ui["scale"]):
+        raise ConfigError(f"[ui] scale = {ui['scale']!r} is too close to 0 for a C float, which "
+                          "holds it as 0 -- derive it from the window -- and the compiler warns "
+                          "about it.\nUse 0 for that, or a scale the eye can see, like 0.5.")
     if not isinstance(ui["max_elements"], int) or not (16 <= ui["max_elements"] <= 65536):
         raise ConfigError(f"[ui] max_elements = {ui['max_elements']!r} must be an integer between "
                           "16 and 65536. It sizes the layout arena, so a large value costs memory "
@@ -1986,15 +2063,30 @@ def _c_string(value: str) -> str:
     return '"' + "".join(out) + '"'
 
 
+def _c_float_lost(value) -> bool:
+    """True when C's float cannot hold `value` as a number of the same kind:
+    nan, an infinity, past the largest float, or a number other than 0 that
+    rounds to 0. Each of the last two is a literal compilers warn about
+    (clang -Wliteral-range, gcc -Woverflow) -- an error under the framework's
+    -Werror -- and 1e-50 for [ui] scale was 0, which there means automatic."""
+    try:
+        number = float(value)
+        single = struct.unpack("<f", struct.pack("<f", number))[0]
+    except OverflowError:   # an int past a double, or a double past a float
+        return True
+    return not math.isfinite(number) or (single == 0 and number != 0)
+
+
 def _c_float(value) -> str:
     """A C float literal of `value`. C has none for nan or an infinity, and
     `nanf` is a header that does not compile: validate() refuses them at their
-    line first, and this refuses whatever else would reach the header."""
-    number = float(value)
-    if not math.isfinite(number):
+    line first, and this refuses whatever else would reach the header -- a
+    float C's float cannot hold, too (_c_float_lost())."""
+    if _c_float_lost(value):
         raise ConfigError(f"{value!r} is not a number rmp/config.h can hold: C has no "
-                          "literal for nan or an infinity.")
-    return f"{number}f"
+                          "literal for nan or an infinity, and a float holds neither a "
+                          "number past its range nor one this close to 0.")
+    return f"{float(value)}f"
 
 
 def _c_bool(value) -> str:

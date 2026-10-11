@@ -30,8 +30,10 @@ import importlib.util
 import io
 import math
 import os
+import random
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -235,38 +237,61 @@ def toml_value(value) -> str:
     return "{" + ", ".join(f"{toml_key(k)} = {toml_value(v)}" for k, v in value.items()) + "}"
 
 
-def is_table(path: tuple, value) -> bool:
-    """A table the schema has, written as a [section] -- every other table is
-    a value, written inline."""
-    if not isinstance(value, dict):
-        return False
+def known_table(path: tuple) -> bool:
+    """A table the schema has."""
     node = configure.DEFAULTS
     for step in path:
         if not isinstance(node, dict) or step not in node:
-            return len(path) == 1   # an unknown top-level table: [name]
+            return False
         node = node[step]
     return isinstance(node, dict)
 
 
-def toml_document(user: dict) -> tuple[str, dict]:
+def first(path: tuple, choices: list[str]) -> str:
+    return choices[0]
+
+
+def toml_document(user: dict, pick=first) -> tuple[str, dict]:
     """The .toml a person writes for `user`: values above every section, then a
-    [section] per table with its keys under it. And the line of every key,
-    as (section, key) -> line, and of every header, as (section, None)."""
+    [section] per table with its keys under it. A table the schema does not
+    have is written as `pick(path, choices)` says: a [section] of its own, a
+    value inline, `{...}`, or dotted keys, `name.key = value` -- by default the
+    first of them. And the line of every key, as (section, key) -> line --
+    a dotted table's first -- and of every header, as (section, None)."""
     lines: list[str] = []
     where: dict = {}
+
+    def dotted(prefix: tuple, node: dict, spot: tuple):
+        for key, value in node.items():
+            here = prefix + (key,)
+            if isinstance(value, dict) and value and pick(here, ["inline", "dotted"]) == "dotted":
+                dotted(here, value, spot)
+                continue
+            lines.append(f"{'.'.join(toml_key(p) for p in here)} = {toml_value(value)}")
+            where.setdefault(spot, len(lines))
 
     def table(path: tuple, node: dict):
         name = ".".join(path)
         if path:
             lines.append(f"[{'.'.join(toml_key(p) for p in path)}]")
             where[(name, None)] = len(lines)
+            # The line that writes key path[-1] of the table above, too.
+            where.setdefault((".".join(path[:-1]), path[-1]), len(lines))
         subtables = []
         for key, value in node.items():
-            if is_table(path + (key,), value):
+            here = path + (key,)
+            style = "inline"
+            if isinstance(value, dict):
+                style = "header" if known_table(here) else pick(here, (
+                    ["header", "inline"] if not path else ["inline", "header"])
+                    + (["dotted"] if value else []))
+            if style == "header":
                 subtables.append(key)
-                continue
-            lines.append(f"{toml_key(key)} = {toml_value(value)}")
-            where[(name, key)] = len(lines)
+            elif style == "dotted":
+                dotted((key,), value, (name, key))
+            else:
+                lines.append(f"{toml_key(key)} = {toml_value(value)}")
+                where[(name, key)] = len(lines)
         for key in subtables:
             table(path + (key,), node[key])
 
@@ -313,6 +338,18 @@ def c_string(literal: str) -> bytes:
         else:
             raise AssertionError(f"unknown escape \\{e} in {literal!r}")
     return bytes(out)
+
+
+def c_float_of(value) -> float | None:
+    """What C's float makes of `value`: None for nan, an infinity or a number
+    beyond its range, none of which is a float. A number this close to 0 is 0
+    -- and a compiler warns about the literal (clang -Wliteral-range, gcc
+    -Woverflow), which the framework's -Werror makes an error."""
+    try:
+        number = float(value)
+        return struct.unpack("<f", struct.pack("<f", number))[0] if math.isfinite(number) else None
+    except OverflowError:
+        return None
 
 
 C_FLOAT = re.compile(r"(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?f|[0-9]+[eE][-+]?[0-9]+f")
@@ -463,8 +500,8 @@ def changed_configs(draw) -> dict:
         path = draw(st.one_of(st.sampled_from(FREE), st.sampled_from(sorted(LEAVES))))
         put(cfg, path, draw(near(path)))
     cfg["ios"]["settings"] = draw(st.dictionaries(
-        SETTING, st.one_of(TEXT, st.booleans(), st.integers(-5, 5), st.lists(TEXT, max_size=3)),
-        max_size=3))
+        SETTING, st.one_of(TEXT, st.booleans(), st.integers(-5, 5), st.lists(TEXT, max_size=3),
+                           VALUE), max_size=3))
     return cfg
 
 
@@ -491,8 +528,9 @@ class TotalTest(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
-    def run_toml(self, user: dict, strict: bool):
-        text, where = toml_document(user)
+    def run_toml(self, user: dict, strict: bool, seed: int = 0):
+        chooser = random.Random(seed)
+        text, where = toml_document(user, lambda path, choices: chooser.choice(choices))
         self.assertTrue(same(tomllib.loads(text), user), f"the test's writer:\n{text}")
         self.toml.write_text(text, encoding="utf-8")
         with mock.patch.object(configure, "TOML", self.toml), mock.patch.dict(os.environ, NO_TAG), \
@@ -508,11 +546,24 @@ class TotalTest(unittest.TestCase):
                 return refused, configure.locate_from(refused), where, text
         return None, None, where, text
 
-    @example(user={"zzz": 1})
-    @example(user={"app": {"max_delta": math.nan}})
-    @given(user_tomls())
-    def test_any_toml_is_refused_at_its_line_or_taken(self, user):
-        refused, spot, where, text = self.run_toml(user, strict=False)
+    @example(user={"zzz": 1}, seed=0)
+    @example(user={"app": {"max_delta": math.nan}}, seed=0)
+    # Tables nobody's schema has, written each way TOML has: [window.zzz]
+    # pointed at [window] -- or nowhere, with no [window] in the file --
+    # `zzz.a = 1` and `title.x = 1` nowhere.
+    @example(user={"window": {"zzz": {"a": 1}}}, seed=0)               # [window.zzz]
+    @example(user={"android": {"admob": {"zzz": {"a": 1}}}}, seed=0)   # [android.admob.zzz]
+    @example(user={"zzz": {"a": 1}}, seed=5)                           # zzz.a = 1
+    # U+0085 in a string: splitlines() broke the line there, and the error
+    # under it pointed one line too far down.
+    @example(user={"android": {"admob": {"app_id": "\x85"}}, "deploy": {"licenses": False}},
+             seed=0)
+    # A header's names are TOML's: [ios.settings.":"] was the text `ios.settings.":"`.
+    @example(user={"ios": {"settings": {":": {}}}}, seed=0)
+    @example(user={"window": {"title": {"x": 1}}}, seed=5)             # title.x = 1
+    @given(user_tomls(), st.integers(0, 2**32))
+    def test_any_toml_is_refused_at_its_line_or_taken(self, user, seed):
+        refused, spot, where, text = self.run_toml(user, strict=False, seed=seed)
         if refused is None:
             return
         self.assertIsNotNone(spot, f"refused with no line to point at:\n{refused}\n---\n{text}")
@@ -525,9 +576,39 @@ class TotalTest(unittest.TestCase):
                              f"{refused}\npointed at line {spot[0]}, and the key is on line "
                              f"{where[named]}:\n{text}")
 
-    @given(user_tomls())
-    def test_a_release_check_is_total_too(self, user):
-        self.run_toml(user, strict=True)
+    @given(user_tomls(), st.integers(0, 2**32))
+    def test_a_release_check_is_total_too(self, user, seed):
+        self.run_toml(user, strict=True, seed=seed)
+
+    # A .toml an editor saved as Latin-1 -- or anything else that is not
+    # UTF-8 -- was a UnicodeDecodeError, and arrays nested deeper than
+    # tomllib's recursion a RecursionError: both a traceback.
+    @example(data='[window]\ntitle = "Café"\n'.encode("latin-1"))
+    @example(data=b"[window]\ntitle = " + b"[" * 2000 + b"]" * 2000 + b"\n")
+    @example(data=b"a = " + b"{b = " * 1500 + b"1" + b"}" * 1500 + b"\n")
+    @given(st.one_of(
+        st.binary(max_size=64),
+        st.tuples(user_tomls(), st.integers(0, 2**16), st.binary(min_size=1, max_size=2)).map(
+            lambda t: (lambda text: text[:t[1] % (len(text) + 1)] + t[2]
+                       + text[t[1] % (len(text) + 1):])(toml_document(t[0])[0].encode("utf-8")))))
+    def test_any_bytes_are_refused_or_read(self, data):
+        """Whatever the file holds, load_config() reads it or refuses it, and
+        the refusal is reported -- report() reads the file again to point at
+        the line."""
+        self.toml.write_bytes(data)
+        with mock.patch.object(configure, "TOML", self.toml), quiet():
+            try:
+                configure.load_config()
+            except configure.ConfigError as refused:
+                configure.report(refused)
+
+
+def config_with(path: tuple, value) -> dict:
+    """A valid config but for `path`, which holds `value`."""
+    cfg = base_config()
+    cfg["deploy"]["itch"].update(user="me", game="game")   # a pair, or neither
+    put(cfg, path, value)
+    return cfg
 
 
 class TakenTest(unittest.TestCase):
@@ -547,7 +628,17 @@ class TakenTest(unittest.TestCase):
         ("deploy", "firebase", "device"): r"[A-Za-z0-9_.,=-]*",
     }
 
-    @example(cfg=dict(base_config(), project={"name": "game\n"}))
+    # Each shape's value with a newline after it: `$` took every one of them.
+    @example(cfg=config_with(("project", "name"), "game\n"))
+    @example(cfg=config_with(("android", "application_id"), "com.real.game\n"))
+    @example(cfg=config_with(("ios", "bundle_id"), "com.real.game\n"))
+    @example(cfg=config_with(("ios", "deployment_target"), "15.6\n"))
+    @example(cfg=config_with(("linux", "glibc"), "2.28\n"))
+    @example(cfg=config_with(("icon", "adaptive_background"), "#3DDC84\n"))
+    @example(cfg=config_with(("deploy", "itch", "user"), "me\n"))
+    @example(cfg=config_with(("deploy", "itch", "game"), "game\n"))
+    @example(cfg=config_with(("deploy", "firebase", "project_id"), "my-project\n"))
+    @example(cfg=config_with(("deploy", "firebase", "device"), "model=x\n"))
     @given(changed_configs())
     def test_what_is_taken_has_its_shape(self, cfg):
         if not taken(cfg):
@@ -564,6 +655,8 @@ class BuildFilesTest(unittest.TestCase):
 
     @example(cfg=dict(base_config(), app={"max_delta": math.nan}))
     @example(cfg=dict(base_config(), ui=dict(base_config()["ui"], scale=math.nan)))
+    @example(cfg=config_with(("ui", "scale"), 1e-50))
+    @example(cfg=config_with(("input", "deadzone"), 5e-324))
     @given(changed_configs())
     def test_config_h_holds_every_value(self, cfg):
         if not taken(cfg):
@@ -579,6 +672,9 @@ class BuildFilesTest(unittest.TestCase):
             elif render is configure._c_float:
                 self.assertRegex(literal, rf"\A-?(?:{C_FLOAT.pattern})\Z", name)
                 self.assertEqual(float(literal[:-1]), float(value), name)
+                single = c_float_of(literal[:-1])
+                self.assertIsNotNone(single, f"{name}: C's float cannot hold {literal}")
+                self.assertEqual(single == 0, value == 0, f"{name}: C reads {literal} as 0")
             elif render is configure._c_int:
                 self.assertRegex(literal, r"\A-?[0-9]+\Z", name)
                 self.assertEqual(int(literal), value, name)
@@ -619,6 +715,9 @@ class BuildFilesTest(unittest.TestCase):
     @unittest.skipUnless(yaml is not None or IN_BUILD_IMAGE, "PyYAML is not installed")
     @example(cfg=dict(base_config(), window=dict(base_config()["window"], title="true")))
     @example(cfg=dict(base_config(), window=dict(base_config()["window"], title="*x")))
+    # No build setting: a table reached Xcode as the text of a Python dict.
+    @example(cfg=config_with(("ios", "settings"), {"OTHER_LDFLAGS": {"a": 1}}))
+    @example(cfg=config_with(("ios", "settings"), {"WHEN": datetime.date(2026, 10, 11)}))
     @given(changed_configs())
     def test_xcodegen_reads_back_the_project(self, cfg):
         self.assertIsNotNone(yaml, "PyYAML is missing inside the build image")
@@ -637,10 +736,7 @@ class BuildFilesTest(unittest.TestCase):
             if key == "OTHER_CPLUSPLUSFLAGS":
                 continue
             self.assertIn(key, base)
-            if isinstance(value, bool):
-                self.assertIs(base[key], value, key)
-            elif isinstance(value, (str, list)):
-                self.assertEqual(base[key], value, key)
+            self.assertEqual(as_setting(base[key]), as_setting(value), key)
 
     @given(changed_configs())
     def test_the_manifest_is_xml(self, cfg):
@@ -648,6 +744,19 @@ class BuildFilesTest(unittest.TestCase):
             return
         root = ElementTree.fromstring(generate(cfg)["raymob/app/generated/AndroidManifest.xml"])
         self.assertEqual(root.tag, "manifest")
+
+
+def as_setting(value):
+    """What an Xcode build setting holds of `value`: text, YES or NO, or a
+    list of those -- a number is its text, whichever way YAML typed it. A
+    table or a date stays what it is, and equals no setting."""
+    if isinstance(value, bool):
+        return "YES" if value else "NO"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return [as_setting(v) for v in value]
+    return value
 
 
 # A compiler and CMake are started once an example; fewer of them.
@@ -718,6 +827,7 @@ class ToolsReadBackTest(unittest.TestCase):
 
     @FEWER
     @example(cfg=dict(base_config(), resources={"rres_password": "a\nb\x00c"}))
+    @example(cfg=config_with(("ui", "scale"), 1e-50))
     @given(changed_configs())
     def test_the_compiler_reads_config_h_as_written(self, cfg):
         if self.cxx is None:
@@ -729,12 +839,21 @@ class ToolsReadBackTest(unittest.TestCase):
                                            encoding="utf-8")
         checks = []
         for entry in configure.APP_DEFINES:
-            if isinstance(entry, str) or entry[2] is not configure._c_string:
+            if isinstance(entry, str):
                 continue
-            name, key, _ = entry
-            data = configure.setting(cfg, key).encode("utf-8") + b"\0"
-            checks.append(f"static_assert(sizeof({name}) == {len(data)} && "
-                          f"same({name}, {octal(data)}, {len(data)}), \"{name}\");")
+            name, key, render = entry
+            value = configure.setting(cfg, key)
+            if render is configure._c_string:
+                data = value.encode("utf-8") + b"\0"
+                checks.append(f"static_assert(sizeof({name}) == {len(data)} && "
+                              f"same({name}, {octal(data)}, {len(data)}), \"{name}\");")
+            elif render is configure._c_float:
+                # A use, or the literal is never read: a float the type cannot
+                # hold is a warning there, an error under -Werror.
+                checks.append(f"static_assert(({name} != 0.0f) == {str(value != 0).lower()}, "
+                              f"\"{name}\");")
+            else:
+                checks.append(f"static_assert({name} == {int(value)}, \"{name}\");")
         (self.dir / "check.cpp").write_text(
             '#include "config.h"\n'
             "constexpr bool same(const char *a, const char *b, unsigned long n) {\n"
@@ -763,6 +882,7 @@ class ToolsReadBackTest(unittest.TestCase):
 
     @FEWER
     @example(cfg=dict(base_config(), resources={"rres_password": "pa${x}ss"}))
+    @example(cfg=dict(base_config(), resources={"rres_password": "a\x00b"}))
     @given(changed_configs())
     def test_cmake_reads_project_cmake_as_written(self, cfg):
         if self.cmake is None:
@@ -791,13 +911,20 @@ class EncodersTest(unittest.TestCase):
 
     @example(value=math.nan)
     @example(value=math.inf)
+    @example(value=1e-50)
+    @example(value=1e39)
+    @example(value=1e-40)
     @given(st.one_of(st.floats(), st.integers(-2**63, 2**63 - 1)))
     def test_a_float_is_a_c_float_or_refused(self, value):
+        """Refused exactly when C's float cannot hold it, or holds 0 for it."""
+        single = c_float_of(value)
+        lost = single is None or (single == 0) != (value == 0)
         try:
             literal = configure._c_float(value)
         except configure.ConfigError:
-            self.assertFalse(math.isfinite(float(value)))
+            self.assertTrue(lost, f"refused {value!r}, which a float holds as {single!r}")
             return
+        self.assertFalse(lost, f"wrote {literal}, which a float holds as {single!r}")
         self.assertRegex(literal, rf"\A-?(?:{C_FLOAT.pattern})\Z")
         self.assertEqual(float(literal[:-1]), float(value))
 
@@ -916,7 +1043,11 @@ class ReadersTest(unittest.TestCase):
 
     def point(self, text: str, where):
         self.toml.write_text(text, encoding="utf-8")
-        lines = self.toml.read_text(encoding="utf-8").splitlines()
+        # As TOML counts lines: LF or CRLF, and nothing else -- read_text()
+        # takes a lone CR for a line, and splitlines() U+2028 too, which a
+        # TOML string or comment holds as it is.
+        lines = [line.removesuffix("\r")
+                 for line in self.toml.read_bytes().decode("utf-8").split("\n")]
         with mock.patch.object(configure, "TOML", self.toml):
             spot = where()
         if spot is not None:
@@ -937,12 +1068,14 @@ class ReadersTest(unittest.TestCase):
     @given(st.text(alphabet="abcdefghij_.", min_size=1, max_size=8).filter(
                lambda s: s.strip(".") == s and ".." not in s),
            st.text(alphabet="abcdefghij_-0123", min_size=1, max_size=8), TOML_TEXT, TOML_TEXT)
+    @example(section="window", key="title", before="# a\u2028b\nx = 'c\u0085d'", after="")
+    @example(section="_", key="0", before="\r0", after="")   # read_text() made the CR a line
     def test_a_key_written_in_its_section_is_found_on_its_line(self, section, key, before, after):
         """Whatever comes before the section (but another header) and after
         it: the first line that writes the key in it is the one."""
-        before = "\n".join(line for line in before.splitlines() if not line.lstrip().startswith("["))
+        before = "\n".join(line for line in before.split("\n") if not line.lstrip().startswith("["))
         text = f"{before}\n[{section}]\n{key} = 1\n{after}"
-        number = len(f"{before}\n[{section}]\n".splitlines()) + 1
+        number = f"{before}\n[{section}]\n".count("\n") + 1
         self.assertEqual(self.point(text, lambda: configure.locate(section, key)),
                          (number, f"{key} = 1"))
 

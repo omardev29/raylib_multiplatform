@@ -5641,7 +5641,9 @@ class ConfigureNotANumberTest(unittest.TestCase):
         self.assertEqual(cfgmod._c_string("\x00" + "7"), '"\\0007"')
         self.assertEqual(cfgmod._c_string("tab\there\x7f"), '"tab\\011here\\177"')
         self.assertEqual(cfgmod._c_string('say "hi" \\ é'), '"say \\"hi\\" \\\\ é"')
-        cfg = base_config(resources={"rres_password": "line one\nline two"})
+        # [ui] font, a string nothing refuses a control character in: the
+        # password does now (ConfigureRresPasswordTest).
+        cfg = base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]), font="line one\nline two"))
         captured = {}
         original = cfgmod.write
         cfgmod.write = lambda path, content: captured.__setitem__(Path(path).name, content)
@@ -5651,7 +5653,44 @@ class ConfigureNotANumberTest(unittest.TestCase):
                 cfgmod.gen_app_config(cfg)
         finally:
             cfgmod.write = original
-        self.assertIn('#define RMP_RRES_PASSWORD   "line one\\012line two"\n', captured["config.h"])
+        self.assertIn('#define RMP_UI_FONT         "line one\\012line two"\n', captured["config.h"])
+
+    TOO_CLOSE = "is too close to 0 for a C float, which holds it as 0 --"
+
+    def test_a_number_a_float_holds_as_0_is_refused_at_its_line(self):
+        """`[ui] scale = 1e-50` passed 0 <= scale <= 8 and reached config.h as
+        `1e-50f`: C's float holds that as 0 -- automatic, for a scale -- and
+        clang (-Wliteral-range) and gcc (-Woverflow) warn about the literal,
+        an error under -Werror. Found by tests/configure_property_test.py,
+        ToolsReadBackTest, once every define was read by the compiler."""
+        for section, key, means in (("ui", "scale", "derive it from the window"),
+                                    ("input", "deadzone", "no deadzone"),
+                                    ("audio", "master", "silent"), ("audio", "music", "silent"),
+                                    ("audio", "sfx", "silent")):
+            for tiny in (1e-50, 5e-324, 7e-46):
+                with self.subTest(key=f"{section}.{key}", value=tiny):
+                    cfg = base_config(**{section: dict(copy.deepcopy(cfgmod.DEFAULTS[section]),
+                                                       **{key: tiny})})
+                    with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                        cfgmod.validate(cfg, False)
+                    message = str(caught.exception)
+                    self.assertIn(f"[{section}] {key} = {tiny!r} {self.TOO_CLOSE} {means}",
+                                  message)
+                    self.assertIsNotNone(cfgmod.locate_from(caught.exception))
+        # The smallest a float holds, and 0, are what they say.
+        for value in (1e-40, 7.1e-46, 0, 0.0):
+            with self.subTest(value=value), quiet():
+                cfgmod.validate(base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]),
+                                                    scale=value)), False)
+
+    def test_the_writer_refuses_a_number_a_float_does_not_hold(self):
+        for bad in (1e-50, 7e-46, 1e39, -1e39, 10**400):
+            with self.subTest(value=bad), self.assertRaises(cfgmod.ConfigError) as caught:
+                cfgmod._c_float(bad)
+            self.assertIn("is not a number rmp/config.h can hold", str(caught.exception))
+        self.assertEqual(cfgmod._c_float(1e-40), "1e-40f")
+        self.assertEqual(cfgmod._c_float(3.4e38), "3.4e+38f")
+        self.assertEqual(cfgmod._c_float(-0.0), "-0.0f")
 
 
 class ConfigureWholeValueTest(unittest.TestCase):
@@ -5844,6 +5883,114 @@ class ConfigureReadBackTest(unittest.TestCase):
         cfg["ios"]["settings"] = {"A": "x", "B": 2, "C": 1.5, "D": True, "E": ["x", 1, False]}
         with quiet():
             cfgmod.validate(cfg, False)
+
+
+class ConfigureUnreadableTomlTest(unittest.TestCase):
+    """A .toml tomllib cannot even read is a ConfigError too, never a
+    traceback (R7 of the phase 16 design). Found by
+    tests/configure_property_test.py, TotalTest.test_any_bytes_are_refused_or_read."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        cfgmod.TOML = Path(self._tmp.name) / "raylib_multiplatform.toml"
+
+    def refusal(self, data: bytes) -> str:
+        cfgmod.TOML.write_bytes(data)
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            cfgmod.load_config()
+        with quiet():
+            cfgmod.report(caught.exception)   # it reads the file again
+        return str(caught.exception)
+
+    def test_a_file_that_is_not_utf8_says_which_byte_on_which_line(self):
+        """An editor that saved it as Latin-1: UnicodeDecodeError from inside
+        tomllib, and a traceback."""
+        message = self.refusal('# ok\n[window]\ntitle = "Café"\n'.encode("latin-1"))
+        self.assertIn("raylib_multiplatform.toml is not UTF-8: byte 0xe9 on line 3", message)
+        self.assertIn("Save the file as UTF-8", message)
+        self.assertIsNone(cfgmod.locate("window", "title"), "no line in a file it cannot read")
+
+    def test_a_toml_that_cannot_be_opened_says_why(self):
+        """A folder called raylib_multiplatform.toml: IsADirectoryError (a
+        PermissionError on Windows), a traceback."""
+        cfgmod.TOML.mkdir()
+        with self.assertRaises(cfgmod.ConfigError) as caught:
+            cfgmod.load_config()
+        self.assertRegex(str(caught.exception),
+                         r"\Araylib_multiplatform\.toml cannot be read: \S.*\.\Z")
+
+    def test_nesting_deeper_than_tomllib_reads_is_refused(self):
+        """tomllib recurses into a nested array or inline table, and a few
+        hundred levels were a RecursionError."""
+        for data in (b"[window]\ntitle = " + b"[" * 2000 + b"]" * 2000 + b"\n",
+                     b"a = " + b"{b = " * 1500 + b"1" + b"}" * 1500 + b"\n"):
+            with self.subTest(data=data[:24]):
+                self.assertIn("raylib_multiplatform.toml nests arrays or inline tables deeper "
+                              "than it can be read", self.refusal(data))
+
+
+class ConfigureLineTest(unittest.TestCase):
+    """The line an error points at is the line that says it, however TOML
+    lets it be written. Each was found by tests/configure_property_test.py,
+    TotalTest or ReadersTest, once the test's writer wrote tables each way
+    TOML has and its lines were counted as TOML counts them."""
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(setattr, cfgmod, "TOML", cfgmod.TOML)
+        cfgmod.TOML = Path(self._tmp.name) / "raylib_multiplatform.toml"
+
+    def pointed(self, text: str) -> tuple[int, str] | None:
+        cfgmod.TOML.write_bytes(text.encode("utf-8"))
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfgmod.load_config(), False)
+        return cfgmod.locate_from(caught.exception)
+
+    def test_a_table_nobody_has_is_found_on_its_own_header(self):
+        """[window.zzz] pointed at [window], and at nothing with no [window]
+        in the file; [android.admob.zzz] at nothing."""
+        for text, line in (('[project]\nname = "game"\n\n[window.zzz]\na = 1\n', 4),
+                           ('[window]\ntitle = "x"\n[window.zzz]\na = 1\n', 3),
+                           ("[android.admob.zzz]\na = 1\n", 1),
+                           ("[ios]\n[ios.settings]\n[ios.settings.\":\"]\n", 3)):
+            with self.subTest(text=text):
+                self.assertEqual(self.pointed(text)[0], line)
+
+    def test_a_dotted_key_is_found_on_its_line(self):
+        """`zzz.a = 1` above every section pointed nowhere, and `title.x = 1`
+        at [window]: the name was the text before the `=`, dots and all."""
+        self.assertEqual(self.pointed("# c\nzzz.a = 1\n"), (2, "zzz.a = 1"))
+        self.assertEqual(self.pointed("[window]\n# c\ntitle.x = 1\n"), (3, "title.x = 1"))
+        self.assertEqual(self.pointed('[window]\ntitle . "x" = 1\n'), (2, 'title . "x" = 1'))
+
+    def test_lines_are_counted_as_toml_counts_them(self):
+        """splitlines() breaks at U+2028, U+2029 and U+0085, which a TOML
+        comment or string holds as they are, and every line under one was
+        reported a line too far down; read_text() takes a lone CR for a line."""
+        for odd in ("\u2028", "\u2029", "\u0085"):
+            with self.subTest(character=odd):
+                self.assertEqual(self.pointed(f"[window]\n# a{odd}b\ntitle = 'x{odd}'\nwidth = 1\n"),
+                                 (4, "width = 1"))
+        cfgmod.TOML.write_bytes(b"[window]\r\n# a\rb\r\nwidth = 1\r\n")
+        self.assertEqual(cfgmod.locate("window", "width"), (3, "width = 1"))
+
+    def test_a_header_is_read_as_toml_reads_it(self):
+        """Quoted, spaced and doubled headers name their table; `[1, 2]` on a
+        line of its own is an array, not a section."""
+        cfgmod.TOML.write_text('[ deploy . "itch" ] # c\nuser = "a"\n[window]\nx = [\n[1, 2]\n]\n'
+                               "width = 1\n[[arr]]\nwidth = 2\n")
+        self.assertEqual(cfgmod.locate("deploy.itch", "user"), (2, 'user = "a"'))
+        self.assertEqual(cfgmod.locate("window", "width"), (7, "width = 1"))
+        self.assertEqual(cfgmod.locate("arr", None), (8, "[[arr]]"))
+        self.assertEqual(cfgmod._header_of('[ios.settings."A.B"]'), ("ios", "settings", "A.B"))
+        for line in ("[1, 2]", "[", "title = 1", "[window] x = 1"):
+            with self.subTest(line=line):
+                self.assertIsNone(cfgmod._header_of(line))
 
 
 def load_license_db():
@@ -7743,6 +7890,25 @@ class ConfigureRresPasswordTest(unittest.TestCase):
     def test_the_default_password_reaches_the_generated_header(self):
         with generated_header(base_config()) as text:
             self.assertIn("RMP_RRES_PASSWORD", text)
+
+    def test_a_control_character_is_refused_at_its_line(self):
+        """The packer takes the password on the command line CMake writes for
+        it. `rres_password = "a\u0000b"` did not survive CMake (a parse error
+        on the host's, the NUL dropped in the image's), and a newline ended
+        the command where it stood: Unix Makefiles failed the build, Ninja
+        sealed the pack with "nlx" while the game opened it with "nl\nx".
+        Found by tests/configure_property_test.py, ToolsReadBackTest."""
+        for bad in ("a\x00b", "nl\nx", "cr\rx", "tab\tx", "del\x7f", "\x1b[0m"):
+            with self.subTest(password=bad):
+                cfg = base_config(resources={"rres_password": bad})
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                self.assertIn(f"[resources] rres_password = {bad!r} holds a control character",
+                              str(caught.exception))
+                self.assertEqual(caught.exception.where, ("resources", "rres_password"))
+        for good in ("pa${x}ss", "two words", "é日😀", "semi;colon", "\u0085 and \u2028"):
+            with self.subTest(password=good), quiet():
+                cfgmod.validate(base_config(resources={"rres_password": good}), False)
 
 
 class ConfigureVersionCodeCeilingTest(unittest.TestCase):
