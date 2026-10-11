@@ -21,6 +21,7 @@
 
 #include <raylib.h>
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -42,16 +43,7 @@ struct {
 // How long the frame took: what raylib timed, or the step a test fixed.
 float raw_delta() { return timing.fixed > 0 ? timing.fixed : GetFrameTime(); }
 
-// A frame of `raw` seconds as the game is handed it. RMP_MAX_DELTA = 0
-// switches the clamp off. A negative reading becomes 0: no platform should
-// produce one, but a monotonic clock going backwards on a suspend/resume is
-// not unheard of -- and a negative step would run the whole world in reverse
-// for one frame.
-float clamped(const float raw) {
-    if (raw < 0) return 0.0f;
-    if (RMP_MAX_DELTA > 0 && raw > RMP_MAX_DELTA) return RMP_MAX_DELTA;
-    return raw;
-}
+float clamped(const float raw) { return clamp_delta(raw, RMP_MAX_DELTA); }
 
 // Behind a function, so it is built on first use: rmp::Callback is not a
 // literal type, and a namespace-scope one would be initialised in an order
@@ -62,6 +54,21 @@ rmp::Callback<> &observer() {
 }
 
 } // namespace
+
+// Every comparison is written so that a NaN fails it: `raw >= 0` is false for
+// NaN, where `raw < 0` would have let it through -- and a NaN step makes every
+// position it touches NaN for the rest of the run.
+float clamp_delta(const float raw, const float max) {
+    // A ceiling that is not a positive number of seconds is no ceiling.
+    const bool ceiling = max > 0 && std::isfinite(max);
+    if (ceiling && raw > max) return max; // +inf included
+    // A negative reading becomes 0: no platform should produce one, but a
+    // monotonic clock going backwards on a suspend/resume is not unheard of --
+    // and a negative step would run the whole world in reverse for one frame.
+    // NaN is no time at all, and so is +inf with nothing to cut it to.
+    if (!(raw >= 0) || !std::isfinite(raw)) return 0.0f;
+    return raw;
+}
 
 float step_delta() {
     timing.last = clamped(raw_delta());
@@ -79,7 +86,11 @@ void forget_steps_for_tests() {
     timing.last = 0;
 }
 
-void set_fixed_delta(float seconds) { timing.fixed = seconds > 0 ? seconds : 0; }
+// Not a positive number of seconds -- 0, negative, NaN, infinite -- is the
+// real clock again.
+void set_fixed_delta(float seconds) {
+    timing.fixed = seconds > 0 && std::isfinite(seconds) ? seconds : 0;
+}
 
 void set_test_seed(std::optional<std::uint64_t> seed) { timing.seed = seed; }
 

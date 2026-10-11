@@ -30,8 +30,6 @@ rmp::ads::take_reward_earned()
 # include/rmp/app.h: P6, after Stage D
 rmp::app::quit()
 rmp::app::quit_requested()
-rmp::app::set_stretch(Stretch)
-rmp::app::stretch()
 rmp::global [template]
 
 # include/rmp/assets.h: P4; load_map is P2's, load_sheet and the sheet types P3's

@@ -307,6 +307,15 @@ std::optional<WorldClip> world_clip(const rmp::app::Stretch mode, const Vector2 
         !std::isfinite(screen.y)) {
         return std::nullopt;
     }
+    // A scissor is whole pixels in ints. A screen under a pixel has none to
+    // cut, and past 2^24 a float stops counting every pixel and the edges
+    // below leave what an int can say: no machine makes such a window, only
+    // a test hands one in, and the world is left uncut.
+    constexpr auto MOST_PIXELS = static_cast<float>(1 << 24);
+    if (!(screen.x >= 1) || !(screen.y >= 1) || screen.x > MOST_PIXELS ||
+        screen.y > MOST_PIXELS) {
+        return std::nullopt;
+    }
     const Rectangle area = rmp::app::detail::world_viewport(mode, screen).area;
     // Each edge rounded on its own, so the clip is the area to the nearest
     // pixel on every side: no half pixel of the world on a bar, none cut off
