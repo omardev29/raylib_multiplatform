@@ -24,6 +24,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
+#include <string_view>
 
 namespace {
 
@@ -128,6 +130,33 @@ TEST_SUITE("input actions") {
         CHECK(edges == 1);
     }
 
+    TEST_CASE(
+        "an action is one boolean: a second binding is no second press, and letting "
+        "one go while another is held no release") {
+        // tests/property/input_prop.cpp's counterexample: an action held by
+        // one binding read just_pressed again when another went down -- Space
+        // held and W tapped was a second jump -- and just_released while still
+        // held when one of two came up.
+        const Fixture fix;
+        rmp::input::action("jump", KEY_SPACE, KEY_W);
+        frame();
+        hold(KEY_SPACE);
+        frame();
+        CHECK(rmp::input::just_pressed("jump"));
+        hold(KEY_W);
+        frame();
+        CHECK(rmp::input::pressed("jump"));
+        CHECK_FALSE(rmp::input::just_pressed("jump"));
+        hold(KEY_SPACE, false);
+        frame();
+        CHECK(rmp::input::pressed("jump"));
+        CHECK_FALSE(rmp::input::just_released("jump"));
+        hold(KEY_W, false);
+        frame();
+        CHECK_FALSE(rmp::input::pressed("jump"));
+        CHECK(rmp::input::just_released("jump"));
+    }
+
     TEST_CASE("the very first frame has no edges, because there is no frame before it") {
         const Fixture fix;
         rmp::input::action("fire", KEY_F);
@@ -209,6 +238,27 @@ TEST_SUITE("input actions") {
         hold(KEY_L);
         frame();
         CHECK(!rmp::input::pressed("many"));
+    }
+
+    TEST_CASE("more bindings than the table holds is a mistake said once per action") {
+        // It went to the log as a plain line every time a scene's _ready()
+        // defined the action again; it is the game's mistake, so it is
+        // RMP_REPORT_ONCE's, keyed by the action.
+        const Fixture fix;
+        rmp::detail::reset_reports_for_tests();
+        const auto nine = [](std::string_view name) {
+            rmp::input::action(name, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE,
+                               KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE);
+        };
+        nine("many");
+        CHECK(rmp::detail::report_count() == 1);
+        nine("many");
+        CHECK(rmp::detail::report_count() == 1);
+        nine("more");
+        CHECK(rmp::detail::report_count() == 2);
+        rmp::input::action("few", KEY_ONE, KEY_TWO);
+        CHECK(rmp::detail::report_count() == 2);
+        rmp::detail::reset_reports_for_tests();
     }
 
     TEST_CASE("an empty name is a name, and behaves like any other unknown one") {
@@ -483,6 +533,24 @@ TEST_SUITE("input dead zone") {
         CHECK(rmp::input::vector().x > 0.0f);
     }
 
+    TEST_CASE("a dead zone that is not a number changes nothing, and is said once") {
+        // It was kept: a stick that counted as pushed at any reading, and an
+        // axis_value() of NaN.
+        const Fixture fix;
+        rmp::detail::reset_reports_for_tests();
+        rmp::input::set_deadzone(0.5f);
+        rmp::input::set_deadzone(std::numeric_limits<float>::quiet_NaN());
+        CHECK(rmp::input::deadzone() == 0.5f);
+        rmp::input::set_deadzone(std::numeric_limits<float>::quiet_NaN());
+        CHECK(rmp::input::deadzone() == 0.5f);
+        CHECK(rmp::detail::report_count() == 1);
+        push(GAMEPAD_AXIS_LEFT_X, 0.3f);
+        frame();
+        CHECK(rmp::input::axis_value(GAMEPAD_AXIS_LEFT_X) == 0.0f);
+        CHECK_FALSE(rmp::input::pressed("move_right"));
+        rmp::detail::reset_reports_for_tests();
+    }
+
     TEST_CASE("stick() clamps its sign to one of two halves") {
         const Fixture fix;
         rmp::input::set_deadzone(0.0f);
@@ -755,6 +823,76 @@ TEST_SUITE("input, hostile values") {
         frame();
         CHECK(rmp::input::pressed("move_right"));
         CHECK(length(rmp::input::vector()) <= doctest::Approx(1.0f).epsilon(0.001));
+    }
+
+    TEST_CASE("a stick past its end reads its end, whatever the dead zone") {
+        // A driver at 4 was an axis() of 4.75 with the default dead zone --
+        // and a bigger dead zone read MORE: (4 - dz) / (1 - dz) grows with dz.
+        const Fixture fix;
+        for (const float zone : { 0.0f, 0.2f, 0.95f }) {
+            rmp::input::set_deadzone(zone);
+            for (const float far : { 4.0f, 1e30f, std::numeric_limits<float>::max() }) {
+                push(GAMEPAD_AXIS_LEFT_X, far);
+                frame();
+                CHECK(rmp::input::axis() == 1.0f);
+                CHECK(rmp::input::axis_value(GAMEPAD_AXIS_LEFT_X) == 1.0f);
+                push(GAMEPAD_AXIS_LEFT_X, -far);
+                frame();
+                CHECK(rmp::input::axis() == -1.0f);
+                CHECK(rmp::input::axis_value(GAMEPAD_AXIS_LEFT_X) == -1.0f);
+            }
+        }
+    }
+
+    TEST_CASE(
+        "a stick at infinity is a direction, and one that is not a number is at rest") {
+        // An infinite stick was an infinite amount, and vector() divided it by
+        // its infinite length: NaN, which every position it touched kept. A
+        // NaN stick was an axis_value() of NaN.
+        const Fixture fix;
+        const float inf = std::numeric_limits<float>::infinity();
+        push(GAMEPAD_AXIS_LEFT_X, inf);
+        push(GAMEPAD_AXIS_LEFT_Y, -inf);
+        frame();
+        const Vector2 v = rmp::input::vector();
+        CHECK(std::isfinite(v.x));
+        CHECK(std::isfinite(v.y));
+        CHECK(length(v) == doctest::Approx(1.0f));
+        CHECK(v.x > 0.0f);
+        CHECK(v.y < 0.0f);
+        push(GAMEPAD_AXIS_LEFT_X, std::numeric_limits<float>::quiet_NaN());
+        push(GAMEPAD_AXIS_LEFT_Y, 0.0f);
+        frame();
+        CHECK(rmp::input::axis_value(GAMEPAD_AXIS_LEFT_X) == 0.0f);
+        CHECK(rmp::input::axis() == 0.0f);
+        CHECK_FALSE(rmp::input::pressed("move_right"));
+        CHECK_FALSE(rmp::input::pressed("move_left"));
+    }
+
+    TEST_CASE(
+        "a pointer that is not a number stays where it was, and one past 2^24 pixels "
+        "is held there") {
+        // Both went through as they came: a NaN pointer, and a delta of inf
+        // between -FLT_MAX and FLT_MAX.
+        const Fixture fix;
+        fake.devices.pointer = Vector2{ 100, 200 };
+        frame();
+        fake.devices.pointer = Vector2{ std::numeric_limits<float>::quiet_NaN(), 250 };
+        frame();
+        CHECK(rmp::input::pointer_screen().x == 100.0f);
+        CHECK(rmp::input::pointer_screen().y == 250.0f);
+        CHECK(rmp::input::pointer_delta().x == 0.0f);
+        CHECK(rmp::input::pointer_delta().y == 50.0f);
+        const float most = std::numeric_limits<float>::max();
+        fake.devices.pointer = Vector2{ -most, 2.2e9f };
+        frame();
+        fake.devices.pointer = Vector2{ most, -std::numeric_limits<float>::infinity() };
+        frame();
+        CHECK(rmp::input::pointer_screen().x == 16777216.0f);
+        CHECK(rmp::input::pointer_screen().y == -16777216.0f);
+        CHECK(std::isfinite(rmp::input::pointer_delta().x));
+        CHECK(std::isfinite(rmp::input::pointer_delta().y));
+        CHECK(rmp::input::pointer_delta().x == 2 * 16777216.0f);
     }
 
     TEST_CASE(

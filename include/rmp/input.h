@@ -114,6 +114,11 @@ void action(std::string_view name, First first, Rest... rest) {
 //
 //     if (!rmp::ui::wants_pointer() && IsMouseButtonPressed(0)) shoot();
 //
+// An action is ONE boolean: held while any of its bindings is down, and the
+// edges are that boolean's. Space held and W pressed on top of it is no second
+// just_pressed("jump"), and Space let go while W is still down no
+// just_released.
+//
 // An action nobody has defined answers false and says so once, rather than
 // every frame for the rest of the run.
 // ---------------------------------------------------------------------------
@@ -134,7 +139,9 @@ bool just_released(::KeyboardKey key);
 bool just_released(::MouseButton button);
 bool just_released(::GamepadButton button);
 
-// The raw position of an analogue axis, -1..+1, with the dead zone applied.
+// The raw position of an analogue axis, -1..+1, with the dead zone applied. A
+// stick that reports past its end reads its end, and one that reports
+// something that is not a number reads 0.
 float axis_value(::GamepadAxis which);
 
 // ---------------------------------------------------------------------------
@@ -197,7 +204,8 @@ bool pointer_released();
 
 // The dead zone below which a stick reads as zero. From [input] deadzone in
 // raylib_multiplatform.toml; set it here to change it at runtime, clamped to
-// 0..0.95 so a slider cannot switch the sticks off.
+// 0..0.95 so a slider cannot switch the sticks off. NaN changes nothing, and
+// is said once.
 float deadzone();
 void set_deadzone(float value);
 
