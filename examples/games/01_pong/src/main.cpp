@@ -70,6 +70,15 @@ public:
         // nobody defined is silent, which is how these two went missing.
         rmp::input::action("p2_up", KEY_UP);
         rmp::input::action("p2_down", KEY_DOWN);
+        // And the arrows are player two's ALONE. move_up and move_down come
+        // bound to W/S and to the arrows, so as they came, Up moved both
+        // paddles; tests/e2e/games/01_pong.e2e played it and saw them go
+        // together. Defining a name again replaces it: player one keeps W, S,
+        // the d-pad and the stick.
+        rmp::input::action("move_up", KEY_W, GAMEPAD_BUTTON_LEFT_FACE_UP,
+                           rmp::input::stick(GAMEPAD_AXIS_LEFT_Y, -1));
+        rmp::input::action("move_down", KEY_S, GAMEPAD_BUTTON_LEFT_FACE_DOWN,
+                           rmp::input::stick(GAMEPAD_AXIS_LEFT_Y, 1));
 
         const rmp::ui::Theme &theme = rmp::ui::current_theme();
         auto &left = spawn<Paddle>({ .position = { 40, MID_Y } });
