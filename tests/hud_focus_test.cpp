@@ -254,7 +254,7 @@ void play(Read read, std::optional<bool> focus_first = std::nullopt) {
     run_frames(2);
 }
 
-// One frame with these pressed, then one with nothing.
+// One frame with these pressed; the next starts with nothing pressed.
 void press(const NavState &nav) {
     feed.nav = nav;
     run_frame();
