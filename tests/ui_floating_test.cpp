@@ -771,8 +771,8 @@ TEST_SUITE("ui: floating") {
         rmp::ui::detail::close_frame(false);
         CHECK_FALSE(rmp::ui::detail::frame_open());
         rmp::ui::begin();
-        std::vector<int16_t> own;
-        for (int i = 0; i < 6; ++i) own.push_back(rmp::ui::detail::next_layer_z());
+        std::array<int16_t, 6> own{};
+        for (int16_t &z : own) z = rmp::ui::detail::next_layer_z();
         for (const int16_t z : own) {
             CAPTURE(z);
             CHECK_FALSE(rmp::ui::detail::world_passthrough(command_at_z(z)));
