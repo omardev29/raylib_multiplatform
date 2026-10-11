@@ -1,8 +1,12 @@
 # The rres pack reader (package P4): assets_test.cpp's pack suites -- the
 # real Argon2i fixture included, the one test of argon2i() -- and the
-# properties of the reader and of a release against the loose files.
+# properties of the reader that fit in Mull's warm-up.
+# Measured 2026-10-11 in the image (Mull 0.34.1, cxx_all): 228 of 259
+# detected, 88.03%. Alive: bounds at limits no file reaches (2 GiB), the
+# checks a later one repeats where reading past them is undefined behaviour
+# only a sanitizer sees, crypto_wipe(), and the log lines.
 kind     cxx
 sources  src/rmp/pack.cpp
 tests    unit_test -sf=*assets_test.cpp
 tests    property_test -tc=the?pack?reader*
-floor    -
+floor    85

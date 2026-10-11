@@ -1,8 +1,13 @@
 # Shared resources: reference counting, release_all (package P4). The table's
 # cases in unit_test (the "resources" suite and assets_test.cpp's "resources:
 # table") and the handles played against a model in property_test.
+# Measured 2026-10-11 in the image (Mull 0.34.1, cxx_all): 29 of 41 detected,
+# 70.73%. The twelve alive are the Unload* of each kind and the call that
+# makes them -- what they free no test can see without a GPU, a sound device
+# or LeakSanitizer, which Mull's build does not have -- and the vector growing
+# when no slot is free.
 kind     cxx
 sources  src/rmp/resource.cpp
 tests    unit_test -ts=resources*
 tests    property_test -tc=the?resource?table*
-floor    -
+floor    70

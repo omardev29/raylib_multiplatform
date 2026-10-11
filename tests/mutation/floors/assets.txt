@@ -1,7 +1,12 @@
 # rmp::assets (package P4): assets_test.cpp, tilemap_test.cpp for load_map(), and
 # the properties that fit in Mull's warm-up.
+# Measured 2026-10-11 in the image (Mull 0.34.1, cxx_all): 49 of 78 detected,
+# 62.82%. Alive: load_sound()'s pack path and its device (the "audio: device"
+# suite, too slow for Mull's warm-up, is where a sound is decoded), a texture
+# and a font that reach no GPU here, the Unload* of what was copied, and the
+# log lines.
 kind     cxx
 sources  src/rmp/assets.cpp
 tests    unit_test -sf=*assets_test.cpp,*tilemap_test.cpp
 tests    property_test -tc=the?loaders*,a?font?size*
-floor    -
+floor    60
