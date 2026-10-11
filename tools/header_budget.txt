@@ -6,12 +6,12 @@ ads.h            11
 app.h            38097
 assets.h         41066
 audio.h          13082
-behavior.h       42523
+behavior.h       42524
 input.h          15496
 math.h           32571
-object.h         41420
+object.h         41421
 random.h         2076
 save.h           25626
-scene.h          42329
-tilemap.h        41483
+scene.h          42330
+tilemap.h        41484
 ui.h             24628

@@ -7852,6 +7852,19 @@ class CppcheckCheckTest(unittest.TestCase):
                                                 or before[-1].strip().startswith('"')),
                                     "a suppression with no reason above it")
 
+    def test_no_public_header_is_excused_from_the_list(self):
+        """A finding in include/rmp/ is fixed, or suppressed INLINE with its
+        reason, where whoever reads the header sees it -- never by file in the
+        script, which nobody reading the header opens. Three were, until the
+        code could say two of them and the third went inline."""
+        text = self.SCRIPT.read_text()
+        block = re.search(r"^SUPPRESS=\(\n(.*?)^\)", text, re.S | re.M).group(1)
+        entries = [l.strip() for l in block.splitlines() if l.strip().startswith('"')]
+        self.assertTrue(entries, "the SUPPRESS list was not found")
+        for entry in entries:
+            with self.subTest(entry=entry):
+                self.assertNotIn("include/rmp", entry)
+
     def test_it_is_wired_into_rmp_test_and_the_lint_job(self):
         self.assertIn('"tools/cppcheck_check.sh"', (REPO / "tools" / "rmp.py").read_text())
         lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")

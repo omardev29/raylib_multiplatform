@@ -340,7 +340,8 @@ public:
     explicit operator bool() const { return _target != nullptr; }
     // What it refers to -- or, empty, the stand-in above, and a line in the log.
     T &operator*() const {
-        return _target != nullptr ? *_target : rmp::detail::stand_in<T>();
+        if (_target != nullptr) return *_target;
+        return rmp::detail::stand_in<T>();
     }
     T *operator->() const { return &**this; }
 

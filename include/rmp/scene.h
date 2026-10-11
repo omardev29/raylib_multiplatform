@@ -246,7 +246,7 @@ public:
 
     // The framing. See rmp::Camera above; a scene that never touches it draws
     // in screen units, exactly as before it existed.
-    Camera camera;
+    Camera camera{};
 
     // -----------------------------------------------------------------------
     // Objects.
@@ -277,6 +277,9 @@ public:
         std::unique_ptr<T> made = std::make_unique<T>();
         T &ref = *made;
         detail_spawn(std::move(made), options);
+        // `ref` names the object, which the scene now keeps: not the local
+        // unique_ptr that carried it there, which is what cppcheck sees.
+        // cppcheck-suppress returnReference ; the scene owns what `ref` names
         return ref;
     }
 

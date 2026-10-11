@@ -66,15 +66,9 @@ SUPPRESS=(
   # tests/smoke_test.h is C99 -- examples/plain_c compiles it -- and a C cast
   # is the language there.
   "cstyleCast:*tests/smoke_test.h"
-  # Three false positives in public headers, which take no comment without a
-  # review of the header; each would be an inline suppression there.
-  #   spawn<T>(): `T &ref = *made` refers to the object the scene keeps, not
-  #   to the local unique_ptr it came out of.
-  "returnReference:*include/rmp/scene.h"
-  #   Ref::operator*: stand_in<T>() returns a static, not a temporary.
-  "returnTempReference:*include/rmp/object.h"
-  #   Scene::camera: every member of rmp::Camera has its initialiser.
-  "uninitMemberVar:*include/rmp/scene.h"
+  # Nothing in include/rmp/: a finding in a public header is fixed, or
+  # suppressed inline where the header's reader sees it (configure_test.py's
+  # CppcheckCheckTest says so).
 )
 
 # Every suppression in our code says why. Text, so it runs with no cppcheck.
