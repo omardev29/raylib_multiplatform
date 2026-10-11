@@ -162,22 +162,29 @@ float axis(std::string_view negative, std::string_view positive);
 Vector2 vector(std::string_view left, std::string_view right, std::string_view up,
                std::string_view down);
 
-// The same two, using the actions that come defined out of the box:
+// The movement every game starts with, already bound: axis() is
+// axis("move_left", "move_right"), and vector() is vector("move_left",
+// "move_right", "move_up", "move_down"). A game that never calls action()
+// moves with the keyboard, a d-pad and a stick at once, because these come
+// defined out of the box:
 //
-//     move_left  A  <-  d-pad left   left stick -X
-//     move_right D  ->  d-pad right  left stick +X
-//     move_up    W  ^   d-pad up     left stick -Y
-//     move_down  S  v   d-pad down   left stick +Y
-//     ui_accept  Enter, Space        bottom face button
-//     ui_cancel  Escape              right face button
+//     move_left   KEY_A, KEY_LEFT        d-pad left    left stick -X
+//     move_right  KEY_D, KEY_RIGHT       d-pad right   left stick +X
+//     move_up     KEY_W, KEY_UP          d-pad up      left stick -Y
+//     move_down   KEY_S, KEY_DOWN        d-pad down    left stick +Y
+//     ui_accept   KEY_ENTER, KEY_SPACE   bottom face button
+//     ui_cancel   KEY_ESCAPE             right face button
 //
-// They are ordinary actions and can be redefined like any other.
+// They are ordinary actions: action("move_left", ...) replaces one, and
+// axis() and vector() read what it was given from then on.
 float axis();
 Vector2 vector();
 
 // ---------------------------------------------------------------------------
-// The pointer. Mouse and finger are the same pointer, which is what lets the
-// same code work on every target without an #ifdef.
+// The pointer
+//
+// Mouse and finger are the same pointer, which is what lets the same code work
+// on every target without an #ifdef.
 // ---------------------------------------------------------------------------
 
 Vector2 pointer_screen(); // in pixels, top-left origin
@@ -197,9 +204,11 @@ bool pointer_pressed();
 bool pointer_released();
 
 // ---------------------------------------------------------------------------
-// Escape hatches. These exist because "I want to decide for myself" is a real
-// answer. rmp::ui::wants_pointer() and rmp::ui::wants_keyboard() are the UI's
-// half of what consumed_pointer() and consumed_keyboard() answer.
+// Escape hatches
+//
+// These exist because "I want to decide for myself" is a real answer.
+// rmp::ui::wants_pointer() and rmp::ui::wants_keyboard() are the UI's half of
+// what consumed_pointer() and consumed_keyboard() answer.
 // ---------------------------------------------------------------------------
 
 // The dead zone below which a stick reads as zero. From [input] deadzone in

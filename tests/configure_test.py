@@ -2756,6 +2756,52 @@ class EscapeIsTheGamesKeyTest(unittest.TestCase):
         self.assertTrue(closing.search(bad) and "exitKey" not in bad)
 
 
+def factory_actions_problems(header: str, source: str) -> list[str]:
+    """What rmp/input.h's table of the actions that come defined out of the
+    box says against what install_factory_actions() in src/rmp/input.cpp
+    binds: every action in both, and the same keyboard keys, in order."""
+    table = {}
+    for m in re.finditer(r"^//\s+(move_\w+|ui_\w+)\s+((?:KEY_\w+(?:,\s*)?)+)", header, re.M):
+        table[m.group(1)] = re.findall(r"KEY_\w+", m.group(2))
+    body = source[source.index("void install_factory_actions()"):]
+    body = body[:body.index("\n}")]
+    bound = {}
+    for m in re.finditer(r'action\("(\w+)",([^;]*)\);', body):
+        bound[m.group(1)] = re.findall(r"KEY_\w+", m.group(2))
+    out = []
+    for name in sorted(set(table) | set(bound)):
+        if name not in bound:
+            out.append(f"rmp/input.h lists {name}, which install_factory_actions() does not define")
+        elif name not in table:
+            out.append(f"install_factory_actions() defines {name}, which rmp/input.h does not list")
+        elif table[name] != bound[name]:
+            out.append(f"{name}: rmp/input.h says {table[name]}, input.cpp binds {bound[name]}")
+    return out
+
+
+class FactoryActionsAreDocumentedTest(unittest.TestCase):
+    """A game that never calls action() still moves: axis() and vector() read
+    actions the framework defines before the first frame. Which ones, and on
+    which keys, is a table in rmp/input.h -- what the reference shows a
+    reader -- and it is held here to the bindings themselves."""
+
+    def test_the_header_table_is_what_input_cpp_binds(self):
+        header = (REPO / "include" / "rmp" / "input.h").read_text()
+        source = (REPO / "src" / "rmp" / "input.cpp").read_text()
+        self.assertEqual(factory_actions_problems(header, source), [])
+
+    def test_the_check_sees_each_kind_of_drift(self):
+        header = (REPO / "include" / "rmp" / "input.h").read_text()
+        source = (REPO / "src" / "rmp" / "input.cpp").read_text()
+        for planted, said in (
+                (source.replace("KEY_A, KEY_LEFT", "KEY_Q, KEY_LEFT"), "move_left: rmp/input.h says"),
+                (source.replace('action("ui_cancel"', 'action("ui_back"'), "does not define"),
+                (source.replace('    action("ui_accept"', '    action("pause", KEY_P);\n'
+                                '    action("ui_accept"'), "which rmp/input.h does not list")):
+            with self.subTest(said=said):
+                self.assertIn(said, "\n".join(factory_actions_problems(header, planted)))
+
+
 class InputIsSampledOncePerFrameTest(unittest.TestCase):
     """rmp::input reads devices once per frame, at the frame boundary, and the
     boundary used to be inside rmp::app::detail::frame() -- which only RMP_GAME

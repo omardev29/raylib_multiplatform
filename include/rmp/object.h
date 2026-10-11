@@ -51,8 +51,10 @@ class Object;
 class Scene;
 
 // ---------------------------------------------------------------------------
-// Shapes: what gets drawn when there is no sprite, and what collides. Two of
-// them, and not five.
+// Shapes
+//
+// What gets drawn when there is no sprite, and what collides. Two of them, and
+// not five.
 //
 // RECTANGLE and CIRCLE are the two the collision layer can genuinely resolve
 // against each other: rect-rect, circle-circle and circle-rect are three cases
@@ -89,8 +91,10 @@ Shape rect(Vector2 size);
 Shape circle(float radius);
 
 // ---------------------------------------------------------------------------
-// A sprite: a picture and how to put it on screen. A loose texture, or an
-// .aseprite sheet, which brings its frames, tags and per-frame durations.
+// Sprites
+//
+// A picture and how to put it on screen. A loose texture, or an .aseprite
+// sheet, which brings its frames, tags and per-frame durations.
 // ---------------------------------------------------------------------------
 
 // What an Object draws in place of its shape when it has one: a texture or a
@@ -140,8 +144,10 @@ struct Sprite {
 };
 
 // ---------------------------------------------------------------------------
-// What happens at the edge of the world. Five answers to one question, so it is
-// one field rather than five flags.
+// The edge of the world
+//
+// What happens there: five answers to one question, so it is one field rather
+// than five flags.
 // ---------------------------------------------------------------------------
 
 // What an object does at the edge of its `bounds` -- the map's, or the view's,
@@ -356,8 +362,10 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// A handle: index plus generation, and the answer to "I want to remember this
-// object between frames".
+// Handles
+//
+// Index plus generation, and the answer to "I want to remember this object
+// between frames".
 //
 //     Within a frame, a reference. Across frames, a handle.
 //
@@ -429,8 +437,10 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// The behavior engine's erased half. Everything here is called by the templates
-// at the bottom of this file and by nothing else.
+// The behavior engine's erased half
+//
+// Everything here is called by the templates at the bottom of this file and by
+// nothing else.
 // ---------------------------------------------------------------------------
 
 namespace detail {
@@ -495,9 +505,11 @@ void detach(Object &self, int type);
 } // namespace detail
 
 // ---------------------------------------------------------------------------
-// Raycasting. In Godot it is one line and here it has to be one too: right now
-// the alternative is CheckCollisionLines against every object by hand, and that
-// is not acceptable for something every game with a gun, a line of sight or a
+// Raycasting
+//
+// In Godot it is one line and here it has to be one too: right now the
+// alternative is CheckCollisionLines against every object by hand, and that is
+// not acceptable for something every game with a gun, a line of sight or a
 // ground check needs.
 //
 //     if (auto hit = scene().raycast(muzzle, muzzle + aim * 400)) {

@@ -49,11 +49,12 @@
 namespace rmp {
 
 // ---------------------------------------------------------------------------
-// The camera. Owned by the scene, because the framing is a property of the
-// context and not of any one object. Four things in this framework depend on
-// it -- the default `bounds`, rmp::input::pointer() in world units, the hit
-// test behind on_click, and rmp::behavior::Parallax -- and they all read it
-// from here.
+// The camera
+//
+// Owned by the scene, because the framing is a property of the context and not
+// of any one object. Four things in this framework depend on it -- the default
+// `bounds`, rmp::input::pointer() in world units, the hit test behind on_click,
+// and rmp::behavior::Parallax -- and they all read it from here.
 //
 //     camera.follow = player.handle();
 //     camera.limits = map.bounds();     // never shows the void outside the map
@@ -207,8 +208,10 @@ public:
     Scene &operator=(const Scene &) = delete;
 
     // -----------------------------------------------------------------------
-    // What you override. Every one of them has an empty implementation, so a
-    // scene that only draws overrides only _draw().
+    // What you override
+    //
+    // Every one of them has an empty implementation, so a scene that only draws
+    // overrides only _draw().
     // -----------------------------------------------------------------------
 
     // Once, when the scene enters the stack. The window exists by now, so this
@@ -322,8 +325,10 @@ public:
     [[nodiscard]] int object_count() const;
 
     // -----------------------------------------------------------------------
-    // Raycasting. See the block above RayQuery in rmp/object.h for what it is for
-    // and why it walks the collision grid instead of the object list.
+    // Raycasting
+    //
+    // See the block above RayQuery in rmp/object.h for what it is for and why
+    // it walks the collision grid instead of the object list.
     //
     //     if (auto hit = raycast(muzzle, muzzle + aim * 400)) { ... }
     //     auto hit = raycast({ .from = muzzle, .to = target,
@@ -341,8 +346,10 @@ public:
     int raycast_all(const RayQuery &query, std::span<RayHit> out) const;
 
     // -----------------------------------------------------------------------
-    // Navigation. All of it is DEFERRED: these record what to do and return,
-    // and the change happens at the end of the frame.
+    // Navigation
+    //
+    // All of it is DEFERRED: these record what to do and return, and the change
+    // happens at the end of the frame.
     //
     // That is not an optimisation. Half of these calls happen from inside the
     // very scene that is about to be destroyed — `if (button("Play"))
