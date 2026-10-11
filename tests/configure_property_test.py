@@ -964,6 +964,210 @@ class ReadersTest(unittest.TestCase):
                          "\n".join(x for x in (said.rstrip(), "trailing") if x))
 
 
+class Scratch(unittest.TestCase):
+    """A repository of the test's own, emptied before each example, that
+    configure.py is pointed at."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def fresh(self) -> Path:
+        repo = Path(self._tmp.name) / "repo"
+        shutil.rmtree(repo, ignore_errors=True)
+        repo.mkdir()
+        return repo
+
+
+FLAG = st.text(alphabet="ABCDEFGHIJ_", min_size=1, max_size=8).map(lambda s: "SUPPORT_" + s)
+GUARD_NOISE = st.sampled_from(["", "// a note", "//#define SUPPORT_COMMENTED 1", "#if defined(X)",
+                               "#endif", "    ", "#undef SUPPORT_X"])
+
+
+class RepoFilesTest(Scratch):
+    """What configure.py reads from the repository, from any such file."""
+
+    def config_h(self, repo: Path, text: str) -> None:
+        header = repo / "thirdparty" / "raylib" / "src" / "config.h"
+        header.parent.mkdir(parents=True)
+        header.write_text(text)
+
+    @given(st.dictionaries(FLAG, st.integers(-5, 70000), max_size=5), st.lists(GUARD_NOISE, max_size=4),
+           st.sampled_from(["none", "no value", "hex", "missing module", "no guard"]))
+    def test_raylib_flags_are_the_defines_inside_the_guard(self, flags, noise, broken):
+        flags = dict(flags, **{name: 1 for name in configure.MODULE_FLAG.values()})
+        inside = [f"#define {k} {v}" + (" // why" if v % 2 else "") for k, v in flags.items()]
+        if broken == "no value":
+            inside.append("#define SUPPORT_EMPTY")
+        if broken == "hex":
+            inside.append("#define SUPPORT_HEX 0x10")
+        if broken == "missing module":
+            gone = sorted(configure.MODULE_FLAG.values())[0]
+            inside = [line for line in inside if not line.startswith(f"#define {gone} ")]
+            del flags[gone]
+        guard = [] if broken == "no guard" else ["#if !defined(EXTERNAL_CONFIG_FLAGS)"]
+        end = [] if broken == "no guard" else ["#endif // !EXTERNAL_CONFIG_FLAGS"]
+        text = "\n".join(["#define OUTSIDE_BEFORE 7", *guard, *noise, *inside, *end,
+                          "#define OUTSIDE_AFTER 9", ""])
+        repo = self.fresh()
+        self.config_h(repo, text)
+        with mock.patch.object(configure, "REPO", repo):
+            try:
+                got = configure.parse_raylib_config()
+            except configure.ConfigError as refused:
+                says = {"no guard": "could not find the EXTERNAL_CONFIG_FLAGS guard",
+                        "no value": "SUPPORT_EMPTY", "hex": "SUPPORT_HEX",
+                        "missing module": "raylib's layout changed"}[broken]
+                self.assertIn(says, str(refused))
+                return
+        self.assertEqual(broken, "none", "it took what it has to refuse")
+        self.assertEqual(got, flags)
+
+    @given(st.lists(st.sampled_from(sorted(configure.OPTIONAL_MODULES)), unique=True), st.booleans())
+    def test_the_raylib_flags_file_has_every_flag_and_the_stubs_it_needs(self, disabled, stale):
+        repo = self.fresh()
+        flags = {name: 1 for name in configure.MODULE_FLAG.values()} | {"SUPPORT_OTHER": 3}
+        self.config_h(repo, "#if !defined(EXTERNAL_CONFIG_FLAGS)\n"
+                      + "".join(f"#define {k} {v}\n" for k, v in flags.items())
+                      + "#endif // !EXTERNAL_CONFIG_FLAGS\n")
+        stub = repo / "cmake" / "generated" / "module_stubs.c"
+        if stale:
+            stub.parent.mkdir(parents=True)
+            stub.write_text("old")
+        cfg = base_config()
+        cfg["raylib"]["disabled_modules"] = list(disabled)
+        with mock.patch.object(configure, "REPO", repo):
+            configure.gen_raylib_flags(cfg)
+        cmake = (repo / "cmake" / "generated" / "raylib_flags.cmake").read_text()
+        values = dict(flags, **{configure.MODULE_FLAG[m]: 0 for m in disabled})
+        listed = re.findall(r"^    (\S+)$", cmake, re.M)
+        self.assertEqual(listed, ["EXTERNAL_CONFIG_FLAGS"] + [f"{k}={v}" for k, v in sorted(values.items())])
+        self.assertIn("set(RAYLIB_CONFIG_DEFS\n", cmake)
+        stubs = "raudio" in disabled
+        self.assertIn('set(RAYLIB_STUB_SOURCES "{}")'.format(
+            "${CMAKE_CURRENT_LIST_DIR}/module_stubs.c" if stubs else ""), cmake)
+        self.assertEqual(stub.is_file(), stubs)
+        if stubs:
+            self.assertIn("bool IsAudioDeviceReady(void) { return false; }", stub.read_text())
+
+    @given(st.dictionaries(st.text(alphabet="abcdef_0123", min_size=1, max_size=8),
+                           st.text(alphabet="abc 0123:/@._-", min_size=1, max_size=16)
+                           .map(str.strip).filter(bool), max_size=5),
+           st.lists(st.sampled_from(["", "# a comment", "  ", "lonely"]), max_size=3))
+    def test_the_pins_are_the_versions_block_and_only_it(self, pins, noise):
+        repo = self.fresh()
+        (repo / "thirdparty").mkdir()
+        lines = ["outside value", "```versions", *noise, *(f"{k}   {v}" for k, v in pins.items()),
+                 "```", "after value"]
+        (repo / "thirdparty" / "FROZEN_VERSIONS.md").write_text("\n".join(lines) + "\n")
+        with mock.patch.object(configure, "REPO", repo):
+            if not pins:
+                with self.assertRaises(configure.ConfigError) as refused:
+                    configure.frozen_versions()
+                self.assertIn("no ```versions block found", str(refused.exception))
+                return
+            self.assertEqual(configure.frozen_versions(), pins)
+
+    @given(st.integers(0, 2), st.integers(0, 2), st.booleans(), st.booleans(), st.booleans(),
+           st.lists(st.sampled_from(["name: CI", "on:", "  workflow_dispatch:", "jobs: {}", ""]),
+                    max_size=3))
+    def test_ci_yml_gets_the_triggers_on_push_writes_or_a_refusal(self, begins, ends, reversed_,
+                                                                 on_push, write_it, outside):
+        repo = self.fresh()
+        workflow = repo / configure.CI_WORKFLOW
+        begin, end = f"  {configure.CI_BEGIN}: edit", f"  {configure.CI_END}"
+        markers = [begin] * begins + ["  push: old"] + [end] * ends
+        if reversed_ and begins == ends == 1:
+            markers = [end, "  push: old", begin]
+        text = "\n".join(outside + markers + ["jobs:", "  x: {}"]) + "\n"
+        cfg = base_config()
+        cfg["ci"]["on_push"] = on_push
+        with mock.patch.object(configure, "REPO", repo), quiet():
+            self.assertFalse(configure.sync_ci_triggers(cfg, write_it), "no ci.yml, nothing to sync")
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(text)
+            try:
+                wrote = configure.sync_ci_triggers(cfg, write_it)
+            except configure.ConfigError as refused:
+                once_each = begins == ends == 1 and not reversed_
+                self.assertIn("are not the ones it writes" if once_each else "between two lines",
+                              str(refused))
+                self.assertEqual(refused.where, ("ci", "on_push"))
+                self.assertEqual(workflow.read_text(), text, "a refusal writes nothing")
+                return
+            want = ("\n".join(outside) + ("\n" if outside else "")
+                    + configure.ci_trigger_block(cfg) + "jobs:\n  x: {}\n")
+            self.assertTrue(wrote)
+            self.assertTrue(write_it)
+            self.assertEqual(workflow.read_text(), want)
+            self.assertFalse(configure.sync_ci_triggers(cfg, False), "written, it agrees")
+
+    @unittest.skipUnless(yaml is not None or IN_BUILD_IMAGE, "PyYAML is not installed")
+    @given(st.booleans())
+    def test_the_triggers_are_what_on_push_says(self, on_push):
+        self.assertIsNotNone(yaml, "PyYAML is missing inside the build image")
+        cfg = base_config()
+        cfg["ci"]["on_push"] = on_push
+        block = configure.ci_trigger_block(cfg)
+        self.assertTrue(block.startswith(f"  {configure.CI_BEGIN}"))
+        self.assertTrue(block.endswith(f"  {configure.CI_END}\n"))
+        triggers = yaml.safe_load("triggers:\n" + block)["triggers"]
+        ignore = ["**.md", "LICENSE"]
+        self.assertEqual(triggers, {"push": {"branches": ["main"], "tags": ["v*"],
+                                             "paths-ignore": ignore},
+                                    "pull_request": {"paths-ignore": ignore}} if on_push
+                         else {"push": {"tags": ["v*"]}})
+
+
+COMMENT = st.text(alphabet=st.characters(exclude_characters="\r\n\x0b\x0c\x1c\x1d\x1e\x85"
+                                         "\u2028\u2029", exclude_categories=["Cs"]), max_size=12)
+
+
+@st.composite
+def documents(draw) -> tuple[str, dict]:
+    """A .toml with comments where the framework's has them -- above a
+    section, above a key, above a run of keys, at the end of a line -- and
+    the comment toml_comments() owes each name."""
+    lines, owed = [], {}
+    for section in draw(st.lists(st.text(alphabet="abcdefgh_.", min_size=1, max_size=6),
+                                 unique=True, max_size=3)):
+        above = draw(st.lists(COMMENT, max_size=2))
+        lines += [f"# {c}" for c in above] + [f"[{section}]"]
+        owed[section] = "\n".join(c.rstrip() for c in above).strip()
+        keys = draw(st.lists(st.text(alphabet="abcxyz_-019", min_size=1, max_size=5), unique=True,
+                             max_size=5))
+        run = ""
+        for key in keys:
+            if draw(st.booleans()):
+                lines.append("")
+                run = ""
+            said = draw(st.lists(COMMENT, max_size=2))
+            lines += [f"# {c}" for c in said]
+            if said:
+                run = "\n".join(c.rstrip() for c in said).strip("\n")
+            value = draw(st.sampled_from(["1", '"a#b"', "'x#y'", "[1, 2]"]))
+            trailing = draw(st.one_of(st.just(""), COMMENT.filter(lambda c: "#" not in c)))
+            lines.append(f"{key} = {value}" + (f"  # {trailing}" if trailing else ""))
+            owed[f"{section}.{key}"] = "\n".join(x for x in (run, trailing.strip()) if x)
+        if draw(st.booleans()):   # a section may end right where the next begins
+            lines.append("")
+    return "\n".join(lines), owed
+
+
+class CommentsTest(Scratch):
+
+    @given(documents())
+    def test_each_name_has_the_comment_written_for_it(self, document):
+        text, owed = document
+        path = self.fresh() / "raylib_multiplatform.toml"
+        path.write_text(text, encoding="utf-8")
+        self.assertEqual(configure.toml_comments(path), owed, text)
+
+
 TARGET_NAMES = sorted(set(configure.GROUPS) | set(configure.TARGETS))
 ENABLED = st.lists(st.sampled_from(list(configure.TARGETS)), min_size=1, unique=True).map(
     lambda ts: [t for t in configure.TARGETS if t in ts])
@@ -977,7 +1181,8 @@ class TargetsTest(unittest.TestCase):
         value = comma.join(names)
         try:
             got = configure.narrow_to(value, targets)
-        except configure.ConfigError:
+        except configure.ConfigError as refused:
+            self.assertIn(self.why_not(value, targets), str(refused))
             return
         self.assertTrue(got)
         self.assertEqual(got, [t for t in targets if t in got])
@@ -988,12 +1193,39 @@ class TargetsTest(unittest.TestCase):
             named |= set(configure.GROUPS.get(name.strip(), [name.strip()]))
         self.assertEqual(set(got), named & set(targets))
 
+    @staticmethod
+    def why_not(value: str, targets: list[str]) -> str:
+        """What narrow_to() has to say about a value it refuses: the first
+        item that is wrong, in the order the items are read."""
+        if not value.strip():
+            return "--only was given an empty value"
+        seen = set()
+        for raw in value.split(","):
+            name = raw.strip()
+            if not name:
+                return "is empty -- a comma too many"
+            if name in seen:
+                return f"{name!r} is named twice"
+            seen.add(name)
+            group = configure.GROUPS.get(name, [name] if name in configure.TARGETS else None)
+            if group is None:
+                return ("The names are separated by commas, not spaces" if len(name.split()) > 1
+                        else f"--only {name!r} is not a target or a group")
+            if not set(group) & set(targets):
+                return f"--only {name!r} leaves nothing to build"
+        raise AssertionError(f"{value!r} should have been taken")
+
     @given(st.lists(st.one_of(st.sampled_from(TARGET_NAMES), TEXT), max_size=4),
            st.lists(st.one_of(st.sampled_from(TARGET_NAMES), TEXT), max_size=4))
     def test_targets_expand_or_refuse(self, enabled, disabled):
         try:
             got = configure.expand_targets(enabled, disabled)
-        except configure.ConfigError:
+        except configure.ConfigError as refused:
+            known = set(configure.GROUPS) | set(configure.TARGETS)
+            first = next((("enabled", n) for n in enabled if n not in known),
+                         next((("disabled", n) for n in disabled if n not in known), None))
+            self.assertIn(f"[targets] {first[0]}: unknown target or group {first[1]!r}" if first
+                          else "[targets]: nothing left to build", str(refused))
             return
 
         def resolved(names):
@@ -1009,8 +1241,11 @@ class TargetsTest(unittest.TestCase):
         cfg = {"upx": {"enabled": enabled, "disabled": disabled}}
         try:
             got = configure.expand_upx(cfg, targets)
-        except configure.ConfigError:
-            self.assertTrue(set(enabled) - set(configure.UPX_GROUPS) - set(configure.UPX_TARGETS))
+        except configure.ConfigError as refused:
+            first = next(n for n in enabled
+                         if n not in configure.UPX_GROUPS and n not in configure.UPX_TARGETS)
+            self.assertIn(f"{first!r} cannot be compressed" if first in configure.UPX_REFUSED
+                          else f"unknown target or group {first!r}", str(refused))
             return
 
         def resolved(names):
