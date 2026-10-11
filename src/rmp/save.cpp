@@ -43,6 +43,7 @@
 #include <random>
 #include <string>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 
 #if defined(_WIN32)
@@ -134,15 +135,18 @@ const char *unsavable(const Value &v, int depth) {
         // it was given, without a word.
         return "a string in it contains a NUL character";
     }
-    for (int i = 0; i < v.size(); ++i) {
+    // One pass over the members as stored (see ValueAccess::keys): a member
+    // holding nothing is not there, and is not written.
+    const std::vector<Value> &items = rmp::detail::ValueAccess::items(v);
+    const std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(v);
+    for (std::size_t i = 0; i < items.size(); ++i) {
         if (v.type() == Value::Type::OBJECT) {
-            if (v.key(i).find('\0') != std::string_view::npos) {
+            if (items[i].type() == Value::Type::NONE) continue;
+            if (keys[i].find('\0') != std::string::npos) {
                 return "a key in it contains a NUL character";
             }
-            if (const char *why = unsavable(v[v.key(i)], depth + 1)) return why;
-        } else if (const char *why = unsavable(v[i], depth + 1)) {
-            return why;
         }
+        if (const char *why = unsavable(items[i], depth + 1)) return why;
     }
     return nullptr;
 }
@@ -168,8 +172,8 @@ Json to_cjson(const Value &v) {
         case Value::Type::LIST: {
             Json list(cJSON_CreateArray());
             if (!list) return nullptr;
-            for (int i = 0; i < v.size(); ++i) {
-                Json item = to_cjson(v[i]);
+            for (const Value &element : rmp::detail::ValueAccess::items(v)) {
+                Json item = to_cjson(element);
                 if (!item) return nullptr;
                 cJSON_AddItemToArray(list.get(), item.release());
             }
@@ -178,14 +182,13 @@ Json to_cjson(const Value &v) {
         case Value::Type::OBJECT: {
             Json object(cJSON_CreateObject());
             if (!object) return nullptr;
-            for (int i = 0; i < v.size(); ++i) {
-                const std::string_view key = v.key(i);
-                const Value &item = v[key];
-                if (item.type() == Value::Type::NONE) continue;
-                Json node = to_cjson(item);
+            const std::vector<Value> &items = rmp::detail::ValueAccess::items(v);
+            const std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(v);
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (items[i].type() == Value::Type::NONE) continue;
+                Json node = to_cjson(items[i]);
                 if (!node) return nullptr;
-                cJSON_AddItemToObject(object.get(), std::string(key).c_str(),
-                                      node.release());
+                cJSON_AddItemToObject(object.get(), keys[i].c_str(), node.release());
             }
             return object;
         }
@@ -221,10 +224,23 @@ Value from_cjson(const cJSON *node) {
         return list;
     }
     if (cJSON_IsObject(node)) {
+        // Built in one pass (see ValueAccess::keys), a key that comes twice
+        // found through a table: it keeps its first place and takes its last
+        // value, as object[key] = ... gave it.
         Value object = Value::object();
+        std::vector<std::string> &keys = rmp::detail::ValueAccess::keys(object);
+        std::vector<Value> &items = rmp::detail::ValueAccess::items(object);
+        std::unordered_map<std::string_view, std::size_t>
+            place; // views into cJSON's keys
         for (const cJSON *child = node->child; child != nullptr; child = child->next) {
             if (child->string == nullptr || cJSON_IsNull(child)) continue;
-            object[child->string] = from_cjson(child);
+            const auto [at, added] = place.try_emplace(child->string, keys.size());
+            if (added) {
+                keys.emplace_back(child->string);
+                items.push_back(from_cjson(child));
+            } else {
+                items[at->second] = from_cjson(child);
+            }
         }
         return object;
     }

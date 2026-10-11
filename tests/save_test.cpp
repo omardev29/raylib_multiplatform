@@ -894,6 +894,40 @@ TEST_SUITE("save: format") {
         CHECK_FALSE(rmp::save::detail::encode(deep, 1, false, &out));
     }
 
+    TEST_CASE("a save of a hundred thousand keys reads and writes in a moment") {
+        // Each key of an object was added through object[key], which walks
+        // every key before it, and written through key(i) and v[key], which do
+        // too: a file of a million keys -- 12 MB, well under the 64 MB a save
+        // may be -- took hours to read, and a hand-edited save hung a game at
+        // its loading screen (the deep campaign's R5: bounded time). Now one
+        // pass each way.
+        constexpr int KEYS = 100000;
+        std::string json = "{";
+        for (int i = 0; i < KEYS; ++i)
+            json += "\"k" + std::to_string(i) + "\":" + std::to_string(i) + ",";
+        json += R"("k0":-1,"gone":null})"; // a key twice: its first place, its last value
+        const auto start = std::chrono::steady_clock::now();
+        Value v;
+        REQUIRE(rmp::save::detail::from_json(json, &v));
+        const std::string again = rmp::save::detail::to_json(v);
+        const double seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+                .count();
+        MESSAGE(KEYS << " keys read and written in " << seconds << " s");
+        CHECK(v.size() == KEYS);
+        CHECK(v.key(0) == "k0");
+        CHECK(v["k0"].as_int() == -1);
+        CHECK(v.key(KEYS - 1) == "k99999");
+        CHECK_FALSE(v.contains("gone"));
+        CHECK(again.starts_with(R"({"k0":-1,"k1":1,)"));
+        CHECK(again.ends_with(R"("k99999":99999})"));
+#if defined(RMP_SANITIZE)
+        CHECK(seconds < 20.0); // ASan and UBSan cost several times the time
+#else
+        CHECK(seconds < 3.0);
+#endif
+    }
+
     TEST_CASE("a string or a key with a NUL in it is refused, not cut short") {
         // cJSON reads strings as C strings: "ab\0cd" came back as "ab", OK.
         Value v;
