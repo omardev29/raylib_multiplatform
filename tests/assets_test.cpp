@@ -1195,6 +1195,61 @@ TEST_SUITE("assets: loads") {
         CHECK(rmp::detail::report_count() == 0);
     }
 
+    TEST_CASE("a name with a NUL in it is no file: every loader refuses it, counts it, "
+              "and says it once") {
+        // Everything that opens a file reads its name as a C string, and every
+        // loader handed it one: load_sheet("anim.aseprite\0x") loaded
+        // anim.aseprite and cached it under the name cut short. Each file here
+        // is there under the name before the NUL, so a loader that cut the
+        // name would find it.
+        rmp::detail::release_all();
+        const Scratch folder("nul-names");
+        const std::filesystem::path examples =
+            RMP_TEST_FIXTURES "../../examples/assets/01_loading/resources/";
+        std::error_code error;
+        for (const auto &[from, name] :
+             { std::pair{ examples / "rabbit.png", "rabbit.png" },
+               std::pair{ examples / "ui.ttf", "ui.ttf" },
+               std::pair{ examples / "jump.wav", "jump.wav" },
+               std::pair{ std::filesystem::path(RMP_TEST_FIXTURES "anim.aseprite"),
+                          "anim.aseprite" },
+               std::pair{ std::filesystem::path(RMP_TEST_FIXTURES "map_minimal.json"),
+                          "map_minimal.json" } }) {
+            REQUIRE(std::filesystem::copy_file(from, folder.path() / name, error));
+        }
+        const AtRoot at(folder.root());
+        const auto cut = [](std::string_view name) {
+            return std::string(name) + std::string("\0x", 2);
+        };
+        rmp::detail::reset_reports_for_tests();
+        for (int again = 0; again < 2; ++again) {
+            CAPTURE(again);
+            const Counts before;
+            CHECK(rmp::assets::load_data(cut("anim.aseprite")).empty());
+            CHECK_FALSE(rmp::assets::load_image(cut("rabbit.png")).valid());
+            CHECK_FALSE(rmp::assets::load_texture(cut("rabbit.png")).valid());
+            CHECK_FALSE(rmp::assets::load_font(cut("ui.ttf"), 16).valid());
+            CHECK_FALSE(rmp::assets::load_sound(cut("jump.wav")).valid());
+            CHECK_FALSE(rmp::assets::load_sheet(cut("anim.aseprite")).valid());
+            CHECK_FALSE(rmp::assets::load_map(cut("map_minimal.json")).valid());
+            CHECK_FALSE(
+                rmp::assets::load_map(cut("map_minimal.json"), "Level_0").valid());
+            CHECK(before.more_requested() == 8);
+            CHECK(before.more_failed() == 8);
+            // One report per name, however many loaders and times it came by.
+            CHECK(rmp::detail::report_count() == 5);
+        }
+        // Nothing was cached under the name cut short: the file itself is
+        // loaded now, for the first time.
+        const rmp::SpriteSheet sheet = rmp::assets::load_sheet("anim.aseprite");
+        CHECK(sheet.valid());
+        CHECK(rmp::detail::ref_count("anim.aseprite") == 1);
+        CHECK(rmp::assets::load_image("rabbit.png").valid());
+        CHECK(rmp::detail::report_count() == 5);
+        rmp::detail::reset_reports_for_tests();
+        rmp::detail::release_all();
+    }
+
     TEST_CASE(
         "load_data hands back a file's bytes, and nothing for a name that is nowhere") {
         const Scratch loose("load-data");
