@@ -42,6 +42,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -279,11 +280,18 @@ void dim_half_is_half() {
     check(same(colour_at(full, 0.75f, 0.5f), BLACK) &&
               same(colour_at(full, 0.25f, 0.5f), BLACK),
           "dim 7 is dim 1: the veil all over");
+    // Not a number at all is the default dim: the veil the game did not
+    // change, not none.
+    const Shot nan_dim =
+        split_under({ .blur = 0, .dim = std::numeric_limits<float>::quiet_NaN() }, true);
+    const Shot default_dim = split_under({ .blur = 0 }, true);
+    check(identical(nan_dim, default_dim, "dim_nan"),
+          "dim NaN is the default dim, 0.45: the same picture");
     const Shot none = split_under({ .blur = 0, .dim = -1 }, true);
     const Shot plain = frame([] { draw_split(true); });
     check(identical(none, plain, "dim_negative"), "dim -1 is dim 0: the frame untouched");
     check(rmp::detail::report_count() == reports + 1,
-          "...and the two out-of-range dims are one report");
+          "...and the three dims that are not one are one report");
 }
 
 // What a blur of 8 design units -- 4 pixels here, the UI's scale being its
@@ -508,6 +516,27 @@ void keeps_every_pixel() {
     }
     frame([] { draw_split(true); });
     frame([] { draw_split(true); });
+}
+
+// The blur is in design units, as every size of the interface is: the same
+// blur at twice the scale is twice as wide on screen.
+void scales_with_the_interface() {
+    rmp::ui::detail::set_test_blur_shader(std::nullopt);
+    auto width_at = [](float scale) {
+        rmp::ui::set_scale(scale);
+        split_under({ .blur = 8, .dim = 0 }, true); // asks
+        const Shot shot = split_under({ .blur = 8, .dim = 0 }, true);
+        return ramp_width(shot.line(true));
+    };
+    const int half = width_at(0.5f);
+    const int whole = width_at(1.0f);
+    rmp::ui::set_scale(0);
+    frame([] { draw_split(true); });
+    frame([] { draw_split(true); });
+    std::printf("      blur 8: a ramp %d pixels wide at scale 0.5, %d at 1\n", half,
+                whole);
+    check(half > 0 && 2 * whole >= 3 * half && whole <= 3 * half,
+          "the blur is in design units: twice the scale, about twice as wide");
 }
 
 // dim and blur together: the blur under the veil.
@@ -767,6 +796,7 @@ int main() {
     blurs_in(rmp::ui::detail::blur_shader_source(Glsl::CORE_330), "GLSL 330");
     blurs_in(std::nullopt, "rlGetVersion()'s");
     keeps_every_pixel();
+    scales_with_the_interface();
     untaken_translucent();
     leaves_the_blend_factors();
     blur_under_a_veil();

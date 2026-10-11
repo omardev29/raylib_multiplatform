@@ -21,6 +21,7 @@
 #include "../src/rmp/scene_internal.h"
 #include "../src/rmp/ui/backdrop.h"
 #include "../src/rmp/ui/internal.h"
+#include "../src/rmp/ui_internal.h"
 
 #include <raylib.h>
 #include <rlgl.h> // the RL_OPENGL_* a context is named by
@@ -425,6 +426,35 @@ TEST_SUITE("ui: overlay") {
         draw(true);
         CHECK(resume == 1);
         CHECK(play == 0);
+    }
+
+    TEST_CASE_FIXTURE(
+        HeadlessUi, "over a game being played, its first control still takes the focus") {
+        // An in-scene "Really quit?": the overlay is described in a frame
+        // where the game read its own keys -- Space to jump -- and a pass
+        // over a game being played takes no focus by default (a HUD waits
+        // for Tab). An overlay is a menu whatever is underneath: it says so
+        // with FrameOptions::focus_first.
+        int quit = 0;
+        auto draw = [&] {
+            rmp::ui::detail::begin_frame();
+            rmp::ui::detail::note_game_keys();
+            rmp::ui::detail::set_pass_playing(true);
+            rmp::ui::overlay([&] {
+                if (rmp::ui::button("Quit")) ++quit;
+                rmp::ui::button("Stay");
+            });
+            rmp::ui::detail::set_pass_playing(false);
+            rmp::ui::detail::end_frame();
+        };
+        draw();
+        draw();
+        CHECK(rmp::ui::focused() == "Quit");
+        fake_keys.enter = true;
+        draw();
+        fake_keys.enter = false;
+        draw();
+        CHECK(quit == 1);
     }
 
     TEST_CASE_FIXTURE(
