@@ -80,18 +80,31 @@ namespace rmp {
 //   - Smoothing is a rate with delta in the exponent, not a lerp per frame,
 //     and shake is a separate offset that decays on its own and never touches
 //     `position`. Both are explained where they are declared below.
+//
+// A number that is not finite -- NaN or an infinity, the mark of a division by
+// zero somewhere in the game -- in a field below, an argument of shake() or
+// the position of the object it follows never reaches what it draws or where
+// it is: the camera uses the safe value the field names, and says so once in
+// the log ([dev] strict stops a debug build there).
 // ---------------------------------------------------------------------------
 class Camera {
 public:
     // The world point at the centre of the view. While `follow` has a target
-    // the camera writes it every frame, and `limits` clamp it.
+    // the camera writes it every frame, and `limits` clamp it. One that is not
+    // a finite number goes back to the middle of the design -- or to the
+    // target it follows -- on the next frame.
     Vector2 position{ RMP_WINDOW_WIDTH / 2.0f, RMP_WINDOW_HEIGHT / 2.0f };
-    float zoom = 1.0f; // 2 = everything twice as big, on top of the stretch
-    float rotation = 0; // degrees, clockwise, like raylib's Camera2D
+    // 2 = everything twice as big, on top of the stretch. From 1/1024 to 1024:
+    // past either end it stops there, and one that is not a positive number
+    // is 1.
+    float zoom = 1.0f;
+    // Degrees, clockwise, like raylib's Camera2D. Not a number: unturned.
+    float rotation = 0;
 
     // Follow this object: every frame, after it has moved, the camera centres
     // on it. Empty = the camera stays where you left it. A handle, so a target
-    // that dies simply stops being followed.
+    // that dies simply stops being followed. A target whose position is not a
+    // finite number is waited for: not followed on that axis until it is.
     Handle<Object> follow;
 
     // How fast `follow` catches up, per second. 0 = it snaps, which is the
@@ -105,7 +118,8 @@ public:
     //
     // A NEW target is snapped to, not glided to: a level that opens with the
     // camera drifting in from the middle of the screen is the other half of
-    // the same classic bug.
+    // the same classic bug. An infinite rate snaps too, and so does one that
+    // is negative or not a number.
     float smoothing = 0;
 
     // Never show outside this rectangle, in world units. One axis at a time:
@@ -113,7 +127,8 @@ public:
     // runner pins y with `{ 0, 0, 0, RMP_WINDOW_HEIGHT }` and follows x freely.
     // Empty = no limits. A limit narrower than the view centres the view on it.
     // Applied AFTER the smoothing, so a smoothed camera still never shows the
-    // void past the edge of the level.
+    // void past the edge of the level. An axis whose edge or size is not a
+    // finite number is unbounded.
     Rectangle limits{};
 
     // Shake the view: up to `strength` world units, fading to nothing over
@@ -133,7 +148,8 @@ public:
     // started at -- rather than adding them, so a burst of hits cannot build
     // a shake that throws the screen across the room. A short strong hit on
     // a long shake lasts at least as long as the long one had left. A
-    // strength or duration that is not a positive finite number is ignored.
+    // strength or duration that is not a positive finite number is ignored,
+    // and one that is not a finite number at all is said once.
     void shake(float strength, float seconds = 0.3f);
 
     // How far the shake asks to move the view right now; {0,0} when still.
