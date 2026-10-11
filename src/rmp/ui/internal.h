@@ -668,6 +668,7 @@ Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float fo
 // The space render.cpp draws between two letters of a text `font_size` pixels
 // tall, and the one every measurement counts.
 inline float letter_spacing(float font_size) { return font_size / 10.0f; }
+
 void pointer_from_raylib(Clay_Vector2 &position, bool &down);
 void nav_from_raylib(NavState &out);
 void typed_from_raylib(Typed &out);
