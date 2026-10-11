@@ -466,21 +466,23 @@ namespace {
 // .wasm (+19 % each, the size budget's fast lane on merge-e1), for a seek and
 // a read.
 class FileSource final : public rres::Source {
+    // What fseek() and ftell() take and give, whatever the platform spells it.
+    using Offset = decltype(std::ftell(nullptr));
     static constexpr auto LONG_OFFSET =
-        static_cast<std::uint64_t>(std::numeric_limits<long>::max());
+        static_cast<std::uint64_t>(std::numeric_limits<Offset>::max());
 
 public:
     explicit FileSource(const std::string &path) : _file(std::fopen(path.c_str(), "rb")) {
         if (!_file || std::fseek(_file.get(), 0, SEEK_END) != 0) return;
-        const long end = std::ftell(_file.get());
+        const Offset end = std::ftell(_file.get());
         _size = end > 0 ? static_cast<std::uint64_t>(end) : 0;
     }
     [[nodiscard]] std::uint64_t size() override { return _size; }
-    // Exactly out.size() bytes or false; a pack no `long` can seek in is a
+    // Exactly out.size() bytes or false; a pack no Offset can seek in is a
     // pack this does not read (a chunk is under 2 GiB, CHUNK_LIMIT).
     [[nodiscard]] bool read(std::uint64_t offset, std::span<std::uint8_t> out) override {
         const bool there = _file && offset <= LONG_OFFSET &&
-            std::fseek(_file.get(), static_cast<long>(offset), SEEK_SET) == 0;
+            std::fseek(_file.get(), static_cast<Offset>(offset), SEEK_SET) == 0;
         return there && std::fread(out.data(), 1, out.size(), _file.get()) == out.size();
     }
 
@@ -488,7 +490,7 @@ private:
     // The C library's handle, closed with it. stdio's own pointer, owned by
     // the unique_ptr around it.
     struct Close {
-        // NOLINTNEXTLINE(custom-rmp-raw-pointer)
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer,cppcoreguidelines-owning-memory)
         void operator()(std::FILE *file) const { std::fclose(file); }
     };
     std::unique_ptr<std::FILE, Close> _file;
