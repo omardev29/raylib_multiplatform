@@ -662,6 +662,15 @@ Each of these was a real bug, found by reproducing rather than by reading.
   and with both halves one version, Mesa takes GLSL ES 1.00 and 3.00 under the
   desktop's context, which is how `ui_render_test` builds and draws the shader
   a phone and a browser use, on llvmpipe.
+- **On Android and DRM, `[window] stretch` is raylib's letterbox whatever it
+  says.** raylib keeps `GetScreenWidth()` at the size `InitWindow()` asked for
+  and scales that to the display itself (`SetupFramebuffer()` in
+  `rcore_android.c` and `rcore_drm.c`), so the framework never sees a window of
+  another shape there: EXPAND does not expand, and NONE is letterboxed too. The
+  desktop and the web follow the mode. Written down, not changed, until Omar
+  decides. And raylib has one scissor: an object's own
+  `BeginScissorMode()`/`EndScissorMode()` in its `_draw()` ends LETTERBOX's cut
+  (`world_clip()`, `src/rmp/scene.cpp`) for the rest of that scene's world.
 - **`rlGetActiveFramebuffer()` answers 0 under OpenGL ES 2.0, whatever is
   bound.** It asks for `GL_DRAW_FRAMEBUFFER_BINDING`, which ES 2.0 has not.
   `ui/backdrop.cpp` asks `GL_FRAMEBUFFER_BINDING` itself in an ES 2.0 build

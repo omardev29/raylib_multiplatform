@@ -287,6 +287,7 @@ get indexed). It requires the NDK:
 | `RMP_RRES_PASSWORD` | from `[resources]` | rres decryption password (see below) |
 | `RMP_PROJECT_NAME`, `RMP_WINDOW_TITLE`, `RMP_WINDOW_WIDTH/HEIGHT` | from `[project]` / `[window]` | Your identity and design resolution |
 | `RMP_WINDOW_VSYNC`, `RMP_WINDOW_FPS` | from `[window]` | Wait for the screen's refresh; cap the frame rate (0 = none, ignored on the web and iOS) |
+| `RMP_WINDOW_STRETCH` | from `[window] stretch` | How the world fits a window of another size, where `rmp::app::stretch()` starts: `0` NONE, `1` LETTERBOX, `2` EXPAND -- the order of `rmp::app::Stretch` |
 | `RMP_UI_FONT`, `RMP_UI_FONT_SIZE`, `RMP_UI_SCALE`, `RMP_UI_MAX_ELEMENTS` | from `[ui]` | What `rmp::ui` starts with |
 | `RMP_INPUT_DEADZONE` | from `[input]` | The stick travel that reads as zero |
 | `RMP_AUDIO_MASTER`, `RMP_AUDIO_MUSIC`, `RMP_AUDIO_SFX` | from `[audio]` | What the three `rmp::audio` buses start at |
@@ -747,6 +748,26 @@ clamps at both ends. Those are the things a person verifies once by hand and the
 ## `rmp::app`
 
 Documented on the site: [The app](https://omardev29.github.io/rmp-docs/manual/core/app.html), [why quit() returns](https://omardev29.github.io/rmp-docs/framework/why/no-exceptions.html) and [iOS](https://omardev29.github.io/rmp-docs/manual/platforms/ios.html).
+
+**`[window] stretch`** -- how the world fits a window that is not the design size: `none` (1:1
+around the camera, what every game got before there was a choice; the default of a `.toml`
+without the key), `letterbox` (the design scaled to fit and centred, bars of the clear colour
+around it; the framework's `.toml`, and so every game `rmp new` makes) or `expand` (scaled the
+same, no bars, more of the world the way the window is longer than the design). It is
+`RMP_WINDOW_STRETCH`, where `rmp::app::stretch()` starts, and `set_stretch()` changes it at once.
+The arithmetic is one pure function, `world_viewport()` in `src/rmp/stretch.cpp`; the camera
+(`raylib()`, `view()`, `to_world()`), the pointer and rmp::ui's insets all go through it, and
+under NONE it is the old arithmetic bit for bit. LETTERBOX cuts the map and the objects to the
+game's area with a scissor (`world_clip()`, `src/rmp/scene.cpp`); the scene's own `_draw()` is
+not cut. Two limits, written down and not fixed:
+
+- **On Android and DRM every mode draws raylib's own letterbox.** There raylib keeps
+  `GetScreenWidth()` at the size `InitWindow()` asked for and scales that to the display itself
+  (`SetupFramebuffer()` in `rcore_android.c` and `rcore_drm.c`), so the framework never sees a
+  window of another shape: EXPAND does not expand, and NONE is letterboxed too. The desktop and
+  the web follow the mode.
+- **An object's own `BeginScissorMode()`/`EndScissorMode()` in its `_draw()` ends the letterbox
+  cut** for the rest of that scene's world: raylib has one scissor and no stack of them.
 
 ## `rmp::audio`
 
@@ -1286,6 +1307,14 @@ and signature).
 | Windows x64 | on the real runner, with Mesa's software rasteriser staged next to the `.exe` |
 | Web | headless Chromium; the composited canvas is screenshotted and measured |
 | iOS | *(disabled)* — written, but the `macos-26` simulator will not boot under `simctl`. Set `vars.IOS_SIMULATOR_TEST=true` to try it. |
+
+`RAY_TEST_WINDOW=WxH` opens the window at another size, so a `[window] stretch` can be booted on a
+screen of another shape -- at the design size every mode is the same picture. It is read only
+under the smoke test (`RAY_TEST_MAX_FRAMES`) and only by `RMP_GAME`'s window
+(`read_test_window()`, `src/rmp/scene.cpp`), and logs `RAY_TEST_WINDOW WxH`. A value that is not
+two whole numbers from 16 to 16384 joined by an `x` logs `RAY_TEST_BOOT_FAIL` with the reason,
+and `RAY_TEST_BOOT_OK` is not printed; empty counts as unset, like the other `RAY_TEST_`
+variables.
 
 Booting is not the interesting part. A broken shader, a lost texture binding or a draw call
 that silently no-ops still boots, still exits 0, and used to pass. So each of these asserts
