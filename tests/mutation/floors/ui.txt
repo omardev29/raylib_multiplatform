@@ -1,6 +1,15 @@
-# rmp::ui (package P7, after Stage D: src/rmp/ui/ is Stage D's).
+# rmp::ui (package P7). Killed by any of three programs is killed: the layout
+# test (its own program, doctest, the cases in order), the unit tests that
+# reach the interface through scenes, input and its floating parts, and the
+# ui properties -- any program of calls with any input laid out somewhere,
+# trees arranged in any viewport, Tab, the UTF-8 a field edits, and text
+# measured as DrawTextEx() draws it.
+#
+# Unmeasured (Omar, 2026-10-11: no Mull in the packages): the lead measures
+# every floor once in the weekly deep run at the end of the plan.
 kind     cxx
 sources  src/rmp/ui/at.cpp src/rmp/ui/backdrop.cpp src/rmp/ui/containers.cpp src/rmp/ui/context.cpp src/rmp/ui/controls.cpp src/rmp/ui/focus.cpp src/rmp/ui/notify.cpp src/rmp/ui/overlay.cpp src/rmp/ui/render.cpp src/rmp/ui/style.cpp src/rmp/ui/theme.cpp src/rmp/ui/tooltip.cpp src/rmp/ui/widgets.cpp
 tests    ui_layout_test
 tests    unit_test -sf=*scene_test.cpp,*input_test.cpp,*hud_focus_test.cpp,*ui_overlay_test.cpp,*ui_floating_test.cpp
+tests    property_test -sf=*ui_prop.cpp,*ui_text_prop.cpp
 floor    -
