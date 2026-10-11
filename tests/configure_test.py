@@ -2977,9 +2977,12 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
         text = (self.WORKFLOWS / "_linux.yml").read_text()
         self.assertNotIn("-w /app", text)
         # Three: musl's headless build and its shipped archive on Alpine, and
-        # the DRM archive on vkms.
+        # the DRM archive on vkms -- which starts a fourth time, with no card,
+        # to fail its boot (AFailedBootFailsTheRunTest).
         self.assertEqual(text.count("            -w / -e RAY_TEST_MAX_FRAMES=10"), 3)
-        self.assertEqual(text.count('"/app/${{ inputs.project_name }}" 2>&1'), 3)
+        self.assertEqual(text.count('"/app/${{ inputs.project_name }}" 2>&1'), 4)
+        self.assertEqual(text.count('-v "$PWD/drm-bin:/app:ro" -w / -e RAY_TEST_MAX_FRAMES=10'),
+                         1)
 
     def test_windows_starts_the_exe_from_another_folder_next_to_its_pack(self):
         text = (self.WORKFLOWS / "_windows.yml").read_text()
@@ -9394,7 +9397,11 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
                     if re.match(r"^\s*- (name|uses):", later):
                         break
                     rest.append(later)
-                if not re.search(r'"\$RC"\s+-(eq|ne)\s+0', "\n".join(rest)):
+                # 0 either way, or the one failing status a step expects
+                # (drm-x64-run's boot with no card, 1); a timeout's 124 alone
+                # reads only the timeout.
+                if not re.search(r'"\$RC"\s+-(?:(?:eq|ne)\s+0|eq\s+[1-9][0-9]*)\b',
+                                 "\n".join(rest)):
                     out.append((n, "keeps the game's exit status in RC and never reads it"))
         return out
 
@@ -9415,6 +9422,9 @@ class GameLaunchesReadNothingFromStdinTest(unittest.TestCase):
         self.assertEqual(find(kept),
                          [(3, "keeps the game's exit status in RC and never reads it")])
         self.assertEqual(find(read), [])
+        self.assertEqual(find(kept + '          test "$RC" -eq 1 || exit 1\n'), [])
+        self.assertEqual(find(kept + '          test "$RC" -ne 124 || exit 1\n'),
+                         [(3, "keeps the game's exit status in RC and never reads it")])
         self.assertEqual(find(read_late),
                          [(3, "keeps the game's exit status in RC and never reads it")])
         # A comment that says `|| true` is not a launch.
