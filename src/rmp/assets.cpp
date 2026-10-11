@@ -401,7 +401,7 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level_view) {
     const std::vector<unsigned char> bytes = load_data(name);
     if (bytes.empty()) return map;
     auto parsed = rmp::tilemap::detail::parse_map(
-        bytes.data(), static_cast<int>(bytes.size()), key.c_str(), level.c_str());
+        bytes.data(), static_cast<int>(bytes.size()), key.c_str(), level);
     if (parsed == nullptr) ++detail::loads.failed;
     // Owned by the map from here. A map is not a cached resource the way a
     // texture is: one scene owns one map, the factories on it are that

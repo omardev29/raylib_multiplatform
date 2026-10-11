@@ -4148,26 +4148,51 @@ class SanitizerSuppressionsTest(unittest.TestCase):
                 self.assertRegex(body[at:body.index("\n", at)], r"/\*.+\*/",
                                  "each suppression carries the run that reported it")
 
+    @staticmethod
+    def ignorelist_problems(entries, ours):
+        """What is wrong with each -fsanitize-ignorelist line: a src: line must
+        be under thirdparty/, and a fun: line must not match a function we
+        define (`ours` is the text of src/ and include/)."""
+        problems = []
+        for entry in entries:
+            kind, _, pattern = entry.partition(":")
+            if kind not in ("fun", "src"):
+                problems.append(f"{entry}: not a fun: or src: line")
+            elif kind == "src":
+                if "thirdparty/" not in pattern:
+                    problems.append(f"{entry}: a src: line outside thirdparty/")
+            elif not pattern.strip("*"):
+                problems.append(f"{entry}: matches every function")
+            else:
+                literal = pattern.strip("*")
+                if re.findall(rf"\b\w*{re.escape(literal)}\w*\s*\([^;{{}}]*\)\s*\{{", ours):
+                    problems.append(f"{entry} matches a function of ours")
+        return problems
+
+    def ours(self):
+        return "\n".join((REPO / p).read_text(errors="replace") for p in our_paths()
+                         if p.endswith((".c", ".cpp", ".h")) and p.startswith(("src/", "include/")))
+
     def test_the_ignorelist_names_vendored_code_only(self):
-        """Clang's -fsanitize-ignorelist: a src: line must be under thirdparty/,
-        and a fun: line must not match a function we define."""
+        """Empty since cute_tiled was patched instead of ignored (phase 16), and
+        held to vendored code whenever a line comes back."""
         text = (REPO / "cmake" / "sanitize_ignore.txt").read_text()
         entries = [line.strip() for line in text.splitlines()
                    if line.strip() and not line.startswith("#")]
-        self.assertGreater(len(entries), 0)
-        ours = "\n".join((REPO / p).read_text(errors="replace") for p in our_paths()
-                         if p.endswith((".c", ".cpp", ".h")) and p.startswith(("src/", "include/")))
-        for entry in entries:
-            kind, _, pattern = entry.partition(":")
-            with self.subTest(entry=entry):
-                self.assertIn(kind, ("fun", "src"))
-                if kind == "src":
-                    self.assertIn("thirdparty/", pattern)
-                    continue
-                literal = pattern.strip("*")
-                self.assertTrue(literal)
-                defined = re.findall(rf"\b\w*{re.escape(literal)}\w*\s*\([^;{{}}]*\)\s*\{{", ours)
-                self.assertEqual(defined, [], f"{entry} matches a function of ours")
+        self.assertEqual(self.ignorelist_problems(entries, self.ours()), [])
+
+    def test_the_ignorelist_check_sees_each_kind_of_mistake(self):
+        """The real list is empty, so the loop above proves nothing on it: each
+        mistake is planted here instead."""
+        ours = self.ours()
+        for line, said in (("fun:*solid_in*", "matches a function of ours"),
+                           ("src:src/rmp/app.cpp", "outside thirdparty/"),
+                           ("fun:*", "matches every function"),
+                           ("type:Foo", "not a fun: or src: line")):
+            with self.subTest(line=line):
+                self.assertIn(said, "\n".join(self.ignorelist_problems([line], ours)))
+        self.assertEqual(self.ignorelist_problems(
+            ["fun:*cute_tiled_*", "src:*/thirdparty/cute_tiled/*"], ours), [])
 
     def test_it_reaches_the_build_from_cmake_and_not_from_tools(self):
         """It sat under tools/, which rmp new does not copy, so a game built

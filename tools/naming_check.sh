@@ -82,7 +82,7 @@ FOREIGN_TRAILING = {"class_"}
 # that compiles it. Listed by file, so the same name anywhere else still fails.
 VENDOR_KNOBS = {
     "src/rmp/aseprite_impl.cpp": {"CUTE_ASEPRITE_IMPLEMENTATION"},
-    "src/rmp/tiled_impl.cpp": {"CUTE_TILED_IMPLEMENTATION",
+    "src/rmp/tiled_impl.cpp": {"CUTE_TILED_IMPLEMENTATION", "CUTE_TILED_WARNING",
                                "CUTE_TILED_NO_EXTERNAL_TILESET_WARNING"},
     "src/rmp/rres_impl.cpp": {"RRES_IMPLEMENTATION", "RRES_RAYLIB_IMPLEMENTATION",
                               "RRES_SUPPORT_ENCRYPTION_AES",
