@@ -485,6 +485,10 @@ here so that nobody "fixes" one back.
   `rmp::detail::report_once()` in `src/rmp/internal.h`, keyed by call site
   (and by value with `RMP_REPORT_ONCE_KEYED`), never through a hand-rolled
   `warned` flag. `[dev] strict = true` makes the first one abort a debug build.
+  A debug build also draws each one on screen as a `rmp::ui::notify()` (the
+  report sink `begin_run()` installs) -- in an e2e shot too -- and a boot that
+  reported one fails: `rmp test smoke`, a game's included, and every boot in
+  `examples_build.sh` require `RAY_TEST_REPORTS=0`.
   **That is for mistakes in the GAME.** A condition of the MACHINE -- no sound
   device, a portable build in a read-only folder, a disk that refused a write --
   is a plain `TraceLog`, said once by the state that remembers it (`attempted`,
@@ -580,14 +584,14 @@ here so that nobody "fixes" one back.
   build (`examples_build.sh`, and nothing else) compiles raylib's renderer --
   `rcore.c`, which carries rlgl and rlsw, `rshapes.c`, `rtext.c` -- at -O2
   `-ffp-contract=off`, still sanitized (`RMP_RAYLIB_OPTIMIZED`): a frame costs
-  about a fifth, and every one of the 72 e2e shots is byte for byte what -O0
-  draws. Pong's script took 85 s at -O0 and 17 s this way, in the image; the
-  platformer's took 527 s on the runner at -O0, near its 600 s ceiling, and
-  143-174 s this way on a loaded machine. `-ffp-contract=off` is not optional:
-  without it -O2 may fuse a multiply and an add, rounded once, where -O0
-  rounds twice. Every other Debug build -- the render check's golden hash
-  included -- is -O0 throughout. A Pong point is 75 frames. A script proves its
-  paths and stops.
+  about a fifth, and every one of the 72 e2e shots it was measured on was byte
+  for byte what -O0 draws. Pong's script took 85 s at -O0 and 17 s this way,
+  in the image; the platformer's took 527 s on the runner at -O0, near its
+  600 s ceiling, and 143-174 s this way on a loaded machine.
+  `-ffp-contract=off` is not optional: without it -O2 may fuse a multiply and
+  an add, rounded once, where -O0 rounds twice. Every other Debug build -- the
+  render check's golden hash included -- is -O0 throughout. A Pong point is 75
+  frames. A script proves its paths and stops.
 - **`wants_pointer()` is asked before the frame's UI exists, and answers for
   the pointer now.** A scene's `_update()`, an action by name, and an
   RMP_ENTRY_POINT's code above `begin()` all ask first. It answered with last
@@ -672,6 +676,10 @@ Each of these was a real bug, found by reproducing rather than by reading.
   phone. And raylib has one scissor: an object's own
   `BeginScissorMode()`/`EndScissorMode()` in its `_draw()` ends LETTERBOX's cut
   (`world_clip()`, `src/rmp/scene.cpp`) for the rest of that scene's world.
+  And `Camera::zoom` multiplies the stretch's scale: a zoom worked out from
+  `GetScreenHeight()` every frame scales the world twice under LETTERBOX and
+  EXPAND -- the site's tutorial did it in five pages, in a game `rmp new`
+  letterboxes. A constant zoom and the stretch (the platformer) is the shape.
 - **`rlGetActiveFramebuffer()` answers 0 under OpenGL ES 2.0, whatever is
   bound.** It asks for `GL_DRAW_FRAMEBUFFER_BINDING`, which ES 2.0 has not.
   `ui/backdrop.cpp` asks `GL_FRAMEBUFFER_BINDING` itself in an ES 2.0 build

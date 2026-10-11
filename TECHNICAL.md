@@ -720,6 +720,20 @@ What floats, and why each is where it is:
   taking the wheel while a notice showed. `RMP_GAME` draws them after the last scene; a game with
   its own frame hook, after its frame's first `begin()`/`end()`.
 
+**A HUD's focus is read, not declared.** A pass's first control takes the focus (`end_pass_focus()`
+in `focus.cpp`) unless the pass is a HUD over a game being played -- or its
+`FrameOptions::focus_first` says otherwise, either way. "Played" is what the game read: `rmp::input`
+tells the UI when a read touches a key the interface navigates with (`note_game_keys()` in
+`src/rmp/input.cpp`; the keys are `UI_KEYS`, `UI_PAD_BUTTONS` and `UI_PAD_AXES` in
+`src/rmp/ui_internal.h`, without Escape and B, so a pause on Escape stays a menu), the scene stack
+keeps what each scene read in its update, its objects' included (`scene.cpp`), and
+`begin_pass_focus()` makes that the default of `focus_first` for the passes the scene draws --
+without scenes, what the frame read. A game that reads raylib's keys itself is never noticed, which
+is what `focus_first` is for. Only Tab walks into such a pass; from then the keys are the
+interface's (`wants_keyboard()`), so the game's actions read nothing, until Escape, B or a click
+elsewhere hands them back. The three-function menu never meets any of it: a scene that only draws a
+menu reads none of those keys.
+
 Two details from that boundary that are worth knowing:
 
 - **Element identity.** Elements are identified by their label, which would make two "Back" buttons
@@ -1315,6 +1329,13 @@ under the smoke test (`RAY_TEST_MAX_FRAMES`) and only by `RMP_GAME`'s window
 two whole numbers from 16 to 16384 joined by an `x` logs `RAY_TEST_BOOT_FAIL` with the reason,
 and `RAY_TEST_BOOT_OK` is not printed; empty counts as unset, like the other `RAY_TEST_`
 variables.
+
+`RAY_TEST_REPORTS=<n>` is printed after the budget's last frame (`end_frame()` in
+`src/rmp/app.cpp`): how many of the game's mistakes the framework said once (`RMP_REPORT_ONCE`).
+`rmp test smoke` requires `RAY_TEST_REPORTS=0` -- in a game `rmp new` makes as in the framework --
+and prints the `WARNING` lines when it is not; every boot in `tools/examples_build.sh` and the
+coverage boot (`tools/coverage_check.sh`) require it too. A game in plain C has no framework to
+report anything, prints no count, and is not asked for one.
 
 Booting is not the interesting part. A broken shader, a lost texture binding or a draw call
 that silently no-ops still boots, still exits 0, and used to pass. So each of these asserts
