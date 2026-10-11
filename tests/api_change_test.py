@@ -217,7 +217,7 @@ class ChangesTest(Fixture):
         for what, files in cases.items():
             with self.subTest(what), self.assertRaises(api.Unsure):
                 self.changes(files)
-        with self.assertRaises(api.Unsure):
+        with self.assertRaisesRegex(api.Unsure, "no-such-branch is not a commit"):
             api.changes("main", "no-such-branch", cwd=str(self.repo.root))
 
 

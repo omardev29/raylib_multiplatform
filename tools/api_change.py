@@ -139,7 +139,10 @@ def changes(base: str, head: str, cwd: str | None = None) -> list[str]:
     """What `head` changes of the API since its merge base with `base`, one
     line each; [] when nothing."""
     for rev in (base, head):
-        git("rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", cwd=cwd)
+        got = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"],
+                             cwd=cwd, capture_output=True, text=True)
+        if got.returncode != 0:
+            raise Unsure(f"{rev} is not a commit of this repository (fetched deep enough?)")
     since = git("merge-base", base, head, cwd=cwd).strip()
     out = []
     for line in git("diff", "--name-status", "-M", since, head, "--", PUBLIC,
