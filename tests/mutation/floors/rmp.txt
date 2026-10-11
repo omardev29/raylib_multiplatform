@@ -3,7 +3,9 @@
 # index or make a game from it are left out -- CiModeTest, DocsTest,
 # GameOnPushTest, InstallerContractTest, LauncherTest, MachineReadableTest,
 # ManifestTest, NewRefusesTest, NewTest -- and StagesAgreeWithLintTest, which
-# holds the stages to ci.yml; each runs on every push anyway. What reaches
+# holds the stages to ci.yml; and BuildLayoutGateTest and SourceTest, which
+# read rmp.py's text, and mutmut's copy of it holds every mutant inline. Each
+# runs on every push anyway. What reaches
 # rmp.py only as a program (push, deploy, install against a real git) is in,
 # and counts for nothing: mutmut follows calls in-process.
 # tests/rmp_property_test.py reaches main() on a made-up machine.
@@ -15,12 +17,12 @@ tests    tests/rmp_test.py::RootTest tests/rmp_test.py::DelegationTest
 tests    tests/rmp_test.py::CommandSequenceTest tests/rmp_test.py::SmokeStepTest
 tests    tests/rmp_test.py::RetireOldBuildTest tests/rmp_test.py::PresetsTest
 tests    tests/rmp_test.py::BuildFoldersInCMakeTest tests/rmp_test.py::CleanTest
-tests    tests/rmp_test.py::BuildLayoutGateTest tests/rmp_test.py::DeployTest
+tests    tests/rmp_test.py::DeployTest
 tests    tests/rmp_test.py::PushTest tests/rmp_test.py::FirstPushTest
 tests    tests/rmp_test.py::EveryTestModuleRunsTest tests/rmp_test.py::PropertyStageTest
 tests    tests/rmp_test.py::WindowsCheckoutTest tests/rmp_test.py::CopyManifestTest
 tests    tests/rmp_test.py::StripComponentsTest tests/rmp_test.py::GameUnitStageTest
-tests    tests/rmp_test.py::SourceTest tests/rmp_test.py::ModeTest
+tests    tests/rmp_test.py::ModeTest
 tests    tests/rmp_test.py::InstallTest tests/rmp_test.py::InstallPs1UnderIexTest
 tests    tests/rmp_test.py::UpdateTest tests/rmp_test.py::GlobalCommandsTest
 tests    tests/rmp_test.py::InstallCommandTest tests/rmp_test.py::InstallerCiTest
