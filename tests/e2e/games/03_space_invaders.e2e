@@ -1,0 +1,155 @@
+# examples/games/03_space_invaders, played: shot down, then every alien.
+#
+# The ship is on the arrows, at 360 px/s, and fires on Space (ui_accept), one
+# shot a press. Each alien's gun is a Timer whose period rmp::random drew when
+# the alien was made, from seed 1 -- so the second game's aliens, made after
+# the first game's drew theirs, fire on a schedule of their own, and every
+# run of this script is the same run. See tests/e2e/script.h for the grammar.
+
+# --- the failure path: three hits -----------------------------------------------
+
+# The ship goes and stands under the aliens' shots: the first lands in frame
+# 333, the second in 454 -- the ship is safe for 1.2 s after each -- and the
+# third ends the game.
+298 press KEY_LEFT
+314 release KEY_LEFT
+334 press KEY_RIGHT
+340 release KEY_RIGHT
+368 press KEY_RIGHT
+399 release KEY_RIGHT
+425 press KEY_LEFT
+452 release KEY_LEFT
+490 press KEY_LEFT
+512 release KEY_LEFT
+520 press KEY_LEFT
+526 release KEY_LEFT
+532 expect scene InvadersScene
+533 expect scene OverScene
+536 shot game_over
+
+# Play again, with the mouse: down on 545, up on 546, the new game from 547.
+545 click 400 245
+545 expect scene OverScene
+546 expect scene InvadersScene
+
+# --- the happy path: forty-four aliens -----------------------------------------
+
+# A player's pace: a shot at most every eighth frame, 7.5 a second, each one
+# where an alien will be when it gets there, and out of the way of what comes
+# down. Recorded, not written by hand: a bot that knows the formation's rule
+# chose each press -- 44 shots, not one wasted. With the block allowed to
+# speed up without limit (the game as it was), the last alien came down at
+# over 300 px/s, and at this pace the bot shot every alien but that one.
+547 tap KEY_SPACE
+547 press KEY_RIGHT
+555 tap KEY_SPACE
+563 tap KEY_SPACE
+566 release KEY_RIGHT
+569 tap KEY_RIGHT
+571 tap KEY_SPACE
+572 press KEY_RIGHT
+579 tap KEY_SPACE
+587 tap KEY_SPACE
+587 release KEY_RIGHT
+588 press KEY_RIGHT
+595 tap KEY_SPACE
+595 release KEY_RIGHT
+596 press KEY_LEFT
+603 tap KEY_SPACE
+611 tap KEY_SPACE
+619 tap KEY_SPACE
+627 tap KEY_SPACE
+635 tap KEY_SPACE
+643 tap KEY_SPACE
+647 release KEY_LEFT
+649 tap KEY_LEFT
+651 tap KEY_SPACE
+652 press KEY_LEFT
+659 tap KEY_SPACE
+667 tap KEY_SPACE
+675 tap KEY_SPACE
+683 tap KEY_SPACE
+684 tap KEY_RIGHT
+684 release KEY_LEFT
+688 tap KEY_RIGHT
+691 tap KEY_SPACE
+692 press KEY_RIGHT
+699 tap KEY_SPACE
+
+# The bottom row is gone, and the block is a step higher for it.
+705 shot bottom_row_gone
+707 tap KEY_SPACE
+715 tap KEY_SPACE
+723 tap KEY_SPACE
+729 release KEY_RIGHT
+731 tap KEY_SPACE
+731 press KEY_RIGHT
+739 tap KEY_SPACE
+746 release KEY_RIGHT
+747 tap KEY_SPACE
+748 press KEY_RIGHT
+756 tap KEY_SPACE
+764 tap KEY_SPACE
+771 release KEY_RIGHT
+772 tap KEY_SPACE
+772 press KEY_LEFT
+774 release KEY_LEFT
+776 tap KEY_LEFT
+779 tap KEY_LEFT
+780 tap KEY_SPACE
+781 press KEY_LEFT
+788 tap KEY_SPACE
+796 tap KEY_SPACE
+806 tap KEY_SPACE
+814 tap KEY_SPACE
+820 release KEY_LEFT
+822 tap KEY_SPACE
+822 press KEY_LEFT
+827 tap KEY_RIGHT
+827 release KEY_LEFT
+828 tap KEY_LEFT
+829 tap KEY_RIGHT
+830 tap KEY_SPACE
+830 tap KEY_LEFT
+831 tap KEY_RIGHT
+832 tap KEY_LEFT
+833 tap KEY_RIGHT
+834 tap KEY_LEFT
+835 tap KEY_RIGHT
+836 tap KEY_LEFT
+837 tap KEY_RIGHT
+838 tap KEY_SPACE
+838 tap KEY_LEFT
+839 tap KEY_RIGHT
+840 tap KEY_LEFT
+841 tap KEY_RIGHT
+842 tap KEY_LEFT
+843 tap KEY_RIGHT
+844 press KEY_LEFT
+854 tap KEY_SPACE
+862 tap KEY_SPACE
+862 release KEY_LEFT
+863 press KEY_LEFT
+868 release KEY_LEFT
+870 tap KEY_SPACE
+871 press KEY_RIGHT
+878 tap KEY_SPACE
+882 release KEY_RIGHT
+883 tap KEY_LEFT
+885 tap KEY_LEFT
+886 tap KEY_SPACE
+887 press KEY_RIGHT
+935 tap KEY_SPACE
+951 tap KEY_SPACE
+952 release KEY_RIGHT
+
+# The last alien.
+971 expect scene InvadersScene
+972 expect scene OverScene
+975 shot you_win
+
+# Play again, from the keyboard: the button has the focus.
+985 tap KEY_ENTER
+985 expect scene InvadersScene
+987 shot again
+987 end

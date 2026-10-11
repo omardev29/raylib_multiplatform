@@ -91,8 +91,12 @@ public:
 
         // The formation. Every alien moves as one, turns at the wall and drops
         // a step, and the block speeds up as it thins: with half of them left
-        // it moves twice as fast.
-        const float alive = static_cast<float>(std::max(_alive, 1));
+        // it moves twice as fast, and with a quarter four times -- and no
+        // faster. The block turns every MARCH * 2 units, so its pace is also
+        // how fast it comes down: uncapped, the last alien moved 44 times as
+        // fast, came down at over 300 units a second and landed before a ship
+        // could get under it (tests/e2e/games/03_space_invaders.e2e).
+        const float alive = static_cast<float>(std::max(_alive, ALIENS / 4));
         _march += _march_speed * delta * static_cast<float>(ALIENS) / alive;
         if (_march > MARCH || _march < -MARCH) {
             _march_speed = -_march_speed;
