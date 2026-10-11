@@ -401,26 +401,27 @@ struct Packed {
     std::vector<pack::File> files;
 };
 
-rc::Gen<pack::File> packed_file() {
-    return rc::gen::build<pack::File>(
-        rc::gen::set(&pack::File::name,
-                     rc::gen::nonEmpty(rc::gen::container<std::string>(rc::gen::suchThat(
-                         rc::gen::arbitrary<char>(), [](char c) { return c != '\0'; })))),
-        rc::gen::set(&pack::File::bytes, rc::gen::arbitrary<pack::Bytes>()),
-        rc::gen::set(&pack::File::cipher,
-                     rc::gen::element(pack::CIPHER_NONE, pack::CIPHER_AES,
-                                      pack::CIPHER_XCHACHA20_POLY1305)));
+// A name the packer could have written: not empty, no NUL.
+rc::Gen<std::string> file_name() {
+    return rc::gen::nonEmpty(rc::gen::container<std::string>(
+        rc::gen::suchThat(rc::gen::arbitrary<char>(), [](char c) { return c != '\0'; })));
 }
 
+// Up to eight files with names of their own -- a pack is read once per file,
+// so a hundred of them made the reader's properties a twenty-second run --
+// each with any bytes at all, plain or encrypted either way rres reads.
 rc::Gen<std::vector<pack::File>> packed_files() {
-    return rc::gen::suchThat(rc::gen::container<std::vector<pack::File>>(packed_file()),
-                             [](const std::vector<pack::File> &all) {
-                                 for (std::size_t i = 0; i < all.size(); ++i) {
-                                     for (std::size_t j = i + 1; j < all.size(); ++j)
-                                         if (all[i].name == all[j].name) return false;
-                                 }
-                                 return true;
-                             });
+    return rc::gen::exec([] {
+        const auto names =
+            *rc::gen::resize(8, rc::gen::unique<std::vector<std::string>>(file_name()));
+        std::vector<pack::File> out;
+        for (const std::string &name : names) {
+            out.push_back({ name, *rc::gen::arbitrary<pack::Bytes>(),
+                            *rc::gen::element(pack::CIPHER_NONE, pack::CIPHER_AES,
+                                              pack::CIPHER_XCHACHA20_POLY1305) });
+        }
+        return out;
+    });
 }
 
 // The bytes `name` reads to from memory with `password`, or nullopt.

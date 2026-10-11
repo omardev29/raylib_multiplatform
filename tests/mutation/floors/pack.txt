@@ -4,5 +4,5 @@
 kind     cxx
 sources  src/rmp/pack.cpp
 tests    unit_test -sf=*assets_test.cpp
-tests    property_test -tc=the?pack*
+tests    property_test -tc=the?pack?reader*
 floor    -

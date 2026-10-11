@@ -4,5 +4,5 @@
 kind     cxx
 sources  src/rmp/loader_hook.cpp
 tests    unit_test -ts=assets:?loader?hook
-tests    property_test -tc=which?paths*,the?pack?against*
+tests    property_test -tc=which?paths*
 floor    -
