@@ -211,19 +211,30 @@ TEST_SUITE("property: collision") {
     TEST_CASE("a push against a speed near FLT_MAX") {
         const world::Hushed hushed;
         rmp::test::check(
-            "collision: a slanted push takes away a speed near FLT_MAX and leaves a "
-            "number",
+            "collision: a slanted push against a speed near FLT_MAX, whichever way the "
+            "speed points, leaves a number",
             [] {
                 const world::Fresh fresh;
                 world::World scene;
                 // Two discs touching on a slant, as small as a game's: only the
-                // speed is past anything sensible, and the speed INTO the
-                // contact -- its two halves added -- is past what a float holds.
+                // speed is past anything sensible. Straight into the contact,
+                // the speed INTO it -- its two halves added -- is past what a
+                // float holds; across it, that speed is a number and the
+                // velocity left once it is taken away is not: (FLT_MAX,
+                // -FLT_MAX) against a contact along (3, 4) keeps 1.12 FLT_MAX
+                // of x.
                 const float r = static_cast<float>(*rc::gen::inRange(2, 21));
                 const float gap = static_cast<float>(*rc::gen::inRange(1, 10)) / 10;
-                const Vector2 slant{ static_cast<float>(*rc::gen::element(-1, 1)),
-                                     static_cast<float>(*rc::gen::element(-1, 1)) };
-                const float reach = (2 * r - gap) / std::numbers::sqrt2_v<float>;
+                const std::pair<int, int> leg = *rc::gen::element(
+                    std::pair{ 1, 1 }, std::pair{ 3, 4 }, std::pair{ 4, 3 },
+                    std::pair{ 1, 2 }, std::pair{ 5, 12 });
+                const float sx = static_cast<float>(*rc::gen::element(-1, 1));
+                const float sy = static_cast<float>(*rc::gen::element(-1, 1));
+                const float hyp = std::hypot(static_cast<float>(leg.first),
+                                             static_cast<float>(leg.second));
+                const Vector2 slant{ sx * static_cast<float>(leg.first) / hyp,
+                                     sy * static_cast<float>(leg.second) / hyp };
+                const float reach = 2 * r - gap;
                 auto &still = scene.spawn<world::Tagged>(
                     { .position = { 0, 0 }, .shape = rmp::circle(r) });
                 still.id = 0;
@@ -231,12 +242,20 @@ TEST_SUITE("property: collision") {
                 still.immovable = *rc::gen::arbitrary<bool>();
                 const float fast =
                     *rc::gen::element(3e38F, std::numeric_limits<float>::max());
+                const bool into_it = *rc::gen::arbitrary<bool>();
+                const Vector2 velocity = into_it
+                    ? Vector2{ -slant.x * fast, -slant.y * fast }
+                    : Vector2{ *rc::gen::element(-fast, -fast / 2, 0.0F, fast / 2, fast),
+                               *rc::gen::element(-fast, -fast / 2, 0.0F, fast / 2,
+                                                 fast) };
                 auto &mover = scene.spawn<world::Tagged>(
                     { .position = { slant.x * reach, slant.y * reach },
                       .shape = rmp::circle(r),
-                      .velocity = { -slant.x * fast, -slant.y * fast } });
+                      .velocity = velocity });
                 mover.id = 1;
                 mover.solid = true;
+                const std::vector<std::pair<int, int>> touching{ { 0, 1 } };
+                RC_ASSERT(world::pairs_of(scene, true) == touching);
                 rmp::objects::detail::collide(scene);
                 RC_ASSERT(world::finite(mover.velocity));
                 RC_ASSERT(world::finite(still.velocity));

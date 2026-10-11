@@ -1456,6 +1456,33 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(finite(mover.position));
 }
 
+TEST_CASE_FIXTURE(Fixture, "a push across a speed near FLT_MAX leaves a number too") {
+    // collision_prop.cpp's counterexample, once its speed could point any
+    // way: the speed into a contact along (3, 4) is a number, -0.2 FLT_MAX,
+    // and taking it away from (FLT_MAX, -FLT_MAX) kept 1.12 FLT_MAX of x --
+    // infinity. A removal that would leave no number is not made.
+    World world;
+    auto &still = world.spawn<Probe>({ .position = { 0, 0 }, .shape = rmp::circle(10) });
+    still.solid = true;
+    still.immovable = true;
+    auto &mover = world.spawn<Probe>({ .position = { 6, 8 },
+                                       .shape = rmp::circle(10),
+                                       .velocity = { TOP_F, -TOP_F } });
+    mover.solid = true;
+    rmp::objects::detail::collide(world);
+    CHECK(mover.hits == 1);
+    CHECK(finite(mover.velocity));
+    CHECK(finite(mover.position));
+    CHECK(mover.velocity.x == TOP_F); // kept, as it came
+    // And the ordinary speed across the same contact still loses its part
+    // going in: (10, -20) along (0.6, 0.8) goes in at 10, and keeps (16, -12).
+    mover.position = { 6, 8 };
+    mover.velocity = { 10, -20 };
+    rmp::objects::detail::collide(world);
+    CHECK(mover.velocity.x == doctest::Approx(16));
+    CHECK(mover.velocity.y == doctest::Approx(-12));
+}
+
 TEST_CASE_FIXTURE(Fixture, "an object whose last position was NaN is not swept from it") {
     // The game's _update left a NaN in a position, and something after it --
     // a _late_update, the scene's own _update -- wrote over it before the
