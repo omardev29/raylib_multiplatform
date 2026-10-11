@@ -8,6 +8,13 @@
 # and not the ones that read rmp.py's text, which in the copy holds every
 # mutant inline (BuildLayoutGateTest, SourceTest) -- each runs on every push
 # anyway. tests/rmp_property_test.py reaches main() on a made-up machine.
+# Measured in the image on 2026-10-11, mutmut 3.8.0: 3739 mutants, 2340
+# detected = 62.58%, 94 min with 3 children (45.52% before the deploy,
+# update, push, .toml-line and startup-file properties and make_game() run
+# in-process). What is left is mostly what only a real git reaches in-process
+# past cmd_new's clone check (171 of cmd_new's 194), the words update and
+# deploy print, find_bash()'s Windows half (unreachable off Windows), fmt(),
+# cmd_android() and load_configure().
 kind     py
 sources  tools/rmp.py
 tests    tests/rmp_property_test.py
@@ -24,4 +31,4 @@ tests    tests/rmp_test.py::GlobalCommandsTest tests/rmp_test.py::InstallCommand
 tests    tests/rmp_test.py::SessionTest tests/rmp_test.py::TerminalNameTest
 tests    tests/rmp_test.py::ConsoleFoldersTest tests/rmp_test.py::ConsoleDevicesTest
 tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTest
-floor    -
+floor    60
