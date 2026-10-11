@@ -13,7 +13,6 @@ custom-rmp-raw-pointer  examples/games/05_endless_runner/src/main.cpp         3
 custom-rmp-raw-pointer  examples/games/06_tetris/src/main.cpp                 2
 custom-rmp-raw-pointer  examples/games/07_platformer/include/objects.h        2
 custom-rmp-raw-pointer  examples/games/07_platformer/src/objects/enemies.cpp  1
-custom-rmp-raw-pointer  examples/ui/05_inventory/include/inventory.h          1
 custom-rmp-raw-pointer  examples/ui/07_responsive/src/main.cpp                1
 custom-rmp-raw-pointer  include/rmp/app.h                                     1
 custom-rmp-raw-pointer  include/rmp/assets.h                                  2
