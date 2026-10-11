@@ -11,9 +11,11 @@
 #include <array>
 #include <cstddef>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace e2e {
 
@@ -165,7 +167,8 @@ std::optional<int> named(std::span<const KeyName> table, std::string_view name) 
     return std::nullopt;
 }
 
-constexpr std::string_view VERBS = "press, release, tap, click, shot, expect or end";
+constexpr std::string_view VERBS =
+    "press, release, tap, click, type, shot, expect or end";
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
 
@@ -254,6 +257,7 @@ private:
     bool key_step(Verb verb, std::string_view verb_word,
                   const std::vector<std::string_view> &args);
     bool click(const std::vector<std::string_view> &args);
+    bool type(std::string_view rest);
     bool shot(const std::vector<std::string_view> &args);
     bool expect(const std::vector<std::string_view> &args);
     bool end(const std::vector<std::string_view> &args);
@@ -271,6 +275,7 @@ private:
     std::map<std::string, Down, std::less<>> _down;
     std::map<std::string, Down, std::less<>> _released;
     Down _mouse; // the last click
+    Down _typed; // the last type
     std::map<std::string, int, std::less<>> _shots; // name -> line
     bool _checks = false;
     int _end_line = 0;
@@ -374,6 +379,84 @@ bool Parser::click(const std::vector<std::string_view> &args) {
     return true;
 }
 
+// UTF-8 to codepoints, or nothing when it is not UTF-8: a continuation byte
+// where a character starts, one missing, an overlong form, a surrogate, past
+// U+10FFFF.
+std::optional<std::vector<int>> codepoints(std::string_view text) {
+    std::vector<int> out;
+    std::size_t i = 0;
+    while (i < text.size()) {
+        const auto lead = static_cast<unsigned char>(text[i]);
+        int extra = 0;
+        int cp = 0;
+        if (lead < 0x80U) {
+            cp = lead;
+        } else if ((lead & 0xE0U) == 0xC0U) {
+            extra = 1;
+            cp = lead & 0x1F;
+        } else if ((lead & 0xF0U) == 0xE0U) {
+            extra = 2;
+            cp = lead & 0x0F;
+        } else if ((lead & 0xF8U) == 0xF0U) {
+            extra = 3;
+            cp = lead & 0x07;
+        } else {
+            return std::nullopt;
+        }
+        if (i + static_cast<std::size_t>(extra) >= text.size()) return std::nullopt;
+        for (int k = 1; k <= extra; ++k) {
+            const auto next =
+                static_cast<unsigned char>(text[i + static_cast<std::size_t>(k)]);
+            if ((next & 0xC0U) != 0x80U) return std::nullopt;
+            cp = (cp << 6) | (next & 0x3F);
+        }
+        constexpr std::array<int, 4> LEAST{ 0, 0x80, 0x800, 0x10000 };
+        if (cp < LEAST[static_cast<std::size_t>(extra)] || cp > 0x10FFFF ||
+            (cp >= 0xD800 && cp <= 0xDFFF))
+            return std::nullopt;
+        out.push_back(cp);
+        i += static_cast<std::size_t>(extra) + 1;
+    }
+    return out;
+}
+
+// `rest` is the line after the verb, its comment gone: one double-quoted run
+// of characters. Not split into words like the others, so a space is one.
+bool Parser::type(std::string_view rest) {
+    while (!rest.empty() && is_space(rest.front())) rest.remove_prefix(1);
+    while (!rest.empty() && is_space(rest.back())) rest.remove_suffix(1);
+    constexpr std::string_view HOW = R"(: `type "what is typed"`, between double quotes)";
+    if (rest.empty()) return fail("type needs the characters" + std::string(HOW));
+    if (rest.size() < 2 || rest.front() != '"' || rest.back() != '"')
+        return fail("type takes one quoted run of characters" + std::string(HOW));
+    const std::string_view inside = rest.substr(1, rest.size() - 2);
+    if (inside.empty()) return fail("type \"\" types nothing" + std::string(HOW));
+    if (inside.find('"') != std::string_view::npos)
+        return fail("a `\"` cannot be typed: it ends the characters" + std::string(HOW));
+    const std::optional<std::vector<int>> typed = codepoints(inside);
+    if (!typed) return fail("type " + std::string(rest) + " is not UTF-8");
+    for (const int cp : *typed) {
+        if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0))
+            return fail("type " + std::string(rest) +
+                        " holds a control character, which no text field takes");
+    }
+    if (static_cast<int>(typed->size()) > MAX_TYPED_PER_FRAME) {
+        return fail("type " + std::string(rest) + " is " + std::to_string(typed->size()) +
+                    " characters, and a frame takes " +
+                    std::to_string(MAX_TYPED_PER_FRAME) +
+                    " at most: type the rest in the next frame");
+    }
+    if (!no_input_at_the_start("type")) return false;
+    if (_typed.frame == _frame) {
+        return fail("this frame is already typed into, on line " +
+                    std::to_string(_typed.line) + ": put it all in one `type`");
+    }
+    _typed = Down{ _line, _frame, false };
+    _steps.push_back(
+        Step{ .line = _line, .frame = _frame, .verb = Verb::TYPE, .typed = *typed });
+    return true;
+}
+
 bool Parser::shot(const std::vector<std::string_view> &args) {
     if (args.empty())
         return fail("shot needs a name: the golden's file name, without .png");
@@ -458,6 +541,14 @@ bool Parser::line(int number_of_line, std::string_view text) {
     if (verb == "release") return key_step(Verb::RELEASE, verb, args);
     if (verb == "tap") return key_step(Verb::TAP, verb, args);
     if (verb == "click") return click(args);
+    if (verb == "type") {
+        // The rest of the line as written, comment gone: after the verb word.
+        const std::size_t hash = text.find('#');
+        const std::string_view code = text.substr(0, hash);
+        const auto after =
+            static_cast<std::size_t>(verb.data() + verb.size() - text.data());
+        return type(code.substr(after < code.size() ? after : code.size()));
+    }
     if (verb == "shot") return shot(args);
     if (verb == "expect") return expect(args);
     if (verb == "end") return end(args);

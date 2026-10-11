@@ -23,6 +23,7 @@
 #include <string_view>
 #include <system_error>
 #include <typeinfo>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -286,6 +287,48 @@ TEST_SUITE("e2e: the script") {
                 "the button is already down: clicked on line 1");
         refuses("1 click 1 1\n2 click 2 2\n", 2,
                 "the click on line 1 lets go at this frame: click again from frame 3");
+    }
+
+    TEST_CASE("type: what a text field takes, in the frame it is typed") {
+        e2e::Script script;
+        e2e::ParseError error;
+        REQUIRE(e2e::parse("5 type \"Ana Ruiz\"   # a space is a character\n"
+                           "6 type \"\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80\"\n"
+                           "7 tap KEY_BACKSPACE\n"
+                           "8 type \"0123456789abcdef\"\n"
+                           "9 shot typed\n"
+                           "9 end\n",
+                           script, error));
+        REQUIRE(script.steps.size() == 6);
+        CHECK(script.steps[0].verb == e2e::Verb::TYPE);
+        CHECK(script.steps[0].frame == 5);
+        CHECK(script.steps[0].typed ==
+              std::vector<int>{ 'A', 'n', 'a', ' ', 'R', 'u', 'i', 'z' });
+        CHECK(script.steps[1].typed == std::vector<int>{ 0xE9, 0x20AC, 0x1F600 });
+        CHECK(script.steps[2].key == KEY_BACKSPACE);
+        CHECK(script.steps[3].typed.size() == e2e::MAX_TYPED_PER_FRAME);
+    }
+
+    TEST_CASE("type") {
+        refuses("1 type\n", 1, "type needs the characters");
+        refuses("1 type   # nothing\n", 1, "type needs the characters");
+        refuses("1 type Ana\n", 1, "type takes one quoted run of characters");
+        refuses("1 type \"Ana\n", 1, "type takes one quoted run of characters");
+        refuses("1 type \"Ana\" \"Bo\"\n", 1, "a `\"` cannot be typed");
+        refuses("1 type \"\"\n", 1, "types nothing");
+        refuses("1 type \"a#b\"\n", 1, "type takes one quoted run");
+        refuses("1 type \"\xC3\"\n", 1, "is not UTF-8");
+        refuses("1 type \"\x80\"\n", 1, "is not UTF-8");
+        refuses("1 type \"\xC0\xAF\"\n", 1, "is not UTF-8"); // an overlong '/'
+        refuses("1 type \"\xED\xA0\x80\"\n", 1, "is not UTF-8"); // a surrogate
+        refuses("1 type \"\xF4\x90\x80\x80\"\n", 1, "is not UTF-8"); // past U+10FFFF
+        refuses("1 type \"a\tb\"\n", 1, "holds a control character");
+        refuses("1 type \"\xC2\x85\"\n", 1, "holds a control character"); // NEL
+        refuses("1 type \"0123456789abcdefg\"\n", 1,
+                "is 17 characters, and a frame takes 16 at most");
+        refuses("0 type \"a\"\n", 1, "type at frame 0");
+        refuses("1 type \"a\"\n1 type \"b\"\n", 2,
+                "this frame is already typed into, on line 1");
     }
 
     TEST_CASE("shot") {

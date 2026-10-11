@@ -115,12 +115,15 @@ struct {
 } run;
 
 // What the script holds down: this frame's devices, the last frame's (a
-// press is the difference), and what lets go on its own next frame.
+// press is the difference), and what lets go on its own next frame -- and
+// what it typed this frame, which a text field takes as it reads it, the way
+// raylib's character queue empties.
 struct {
     rmp::input::detail::DeviceState now;
     rmp::input::detail::DeviceState before;
     std::vector<e2e::Step> tapped;
     bool clicked = false;
+    std::vector<int> typed;
 } hands;
 
 void fail(int line, const std::string &why) {
@@ -175,6 +178,19 @@ void navigate(rmp::ui::detail::NavState &out) {
         });
 }
 
+// What the text field that has the keyboard types: this frame's `type`, and
+// one Backspace for a tap of KEY_BACKSPACE -- the UI's seam for it,
+// read_typed() (src/rmp/ui/internal.h), which reads raylib's queue in a game.
+void typing(rmp::ui::detail::Typed &out) {
+    out = rmp::ui::detail::Typed{};
+    for (const int cp : hands.typed) {
+        if (out.count < rmp::ui::detail::MAX_TYPED)
+            out.codepoints[static_cast<std::size_t>(out.count++)] = cp;
+    }
+    hands.typed.clear();
+    out.backspaces = pressed(KEY_BACKSPACE) ? 1 : 0;
+}
+
 void point(Clay_Vector2 &position, bool &button) {
     position = Clay_Vector2{ hands.now.pointer.x, hands.now.pointer.y };
     button = hands.now.mouse[MOUSE_BUTTON_LEFT];
@@ -193,6 +209,7 @@ void hands_for(int frame) {
         hands.now.mouse[MOUSE_BUTTON_LEFT] = false;
         hands.clicked = false;
     }
+    hands.typed.clear(); // what nothing read is gone, as from raylib's queue
     const std::vector<e2e::Step> &steps = run.script.steps;
     while (run.next_input < steps.size() && steps[run.next_input].frame <= frame) {
         const e2e::Step &step = steps[run.next_input];
@@ -213,6 +230,9 @@ void hands_for(int frame) {
                     Vector2{ static_cast<float>(step.x), static_cast<float>(step.y) };
                 hands.now.mouse[MOUSE_BUTTON_LEFT] = true;
                 hands.clicked = true;
+                break;
+            case e2e::Verb::TYPE:
+                hands.typed = step.typed;
                 break;
             case e2e::Verb::SHOT:
             case e2e::Verb::EXPECT_SCENE:
@@ -427,6 +447,7 @@ void install() {
     rmp::input::detail::set_sample_provider(sample);
     rmp::ui::detail::set_nav_provider(navigate);
     rmp::ui::detail::set_pointer_provider(point);
+    rmp::ui::detail::set_text_provider(typing);
     rmp::audio::detail::set_device_opener(no_sound);
     rmp::save::detail::set_folders_for_tests("", (run.out / "save").string());
     std::atexit(at_exit);

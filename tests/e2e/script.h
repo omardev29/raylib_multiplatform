@@ -14,6 +14,10 @@
 //     <frame> click 400 300         the left button, down for this one frame
 //                                   at x, y in window pixels; the pointer
 //                                   stays there
+//     <frame> type "Ana"            characters typed in this frame, into the
+//                                   text field that has the keyboard (tap
+//                                   KEY_BACKSPACE takes one off); between
+//                                   double quotes, so a space is a character
 //     <frame> shot over             the picture this frame drew, against
 //                                   tests/e2e/golden/<area>/<example>/over.png
 //     <frame> expect scene OverScene
@@ -33,6 +37,9 @@
 //     it went down, or pressed again in the frame it is released or the
 //     frame after its tap -- it would never come up, so the second press
 //     would be no press at all; the same for a click after a click;
+//   - a `type` with no quotes, nothing between them, a `"` inside, a byte
+//     that is not UTF-8, a control character, more than 16 characters (a
+//     frame's queue holds 16) or a second one in the same frame;
 //   - a shot name that is not lower case, digits and `_` (it is a file
 //     name), or that is used twice;
 //   - no `end`, anything after it, or a script that checks nothing (no
@@ -46,7 +53,7 @@
 
 namespace e2e {
 
-enum class Verb { PRESS, RELEASE, TAP, CLICK, SHOT, EXPECT_SCENE, END };
+enum class Verb { PRESS, RELEASE, TAP, CLICK, TYPE, SHOT, EXPECT_SCENE, END };
 
 // One line of a script that does something.
 struct Step {
@@ -58,6 +65,7 @@ struct Step {
     int x = 0; // CLICK
     int y = 0;
     std::string name; // SHOT: the golden's name; EXPECT_SCENE: the class
+    std::vector<int> typed; // TYPE: the characters, as codepoints, in order
 };
 
 // Every step in the order written, which is frame order; the last is END.
@@ -69,6 +77,10 @@ struct ParseError {
     int line = 0;
     std::string reason;
 };
+
+// The most characters one `type` may give a frame: raylib's character queue
+// holds 16, and rmp::ui's text field reads no more (ui/internal.h, MAX_TYPED).
+inline constexpr int MAX_TYPED_PER_FRAME = 16;
 
 // The longest a script may run. Ten minutes at 60 Hz: a script longer than
 // that is a typo in a frame number, and under the software renderer it would
