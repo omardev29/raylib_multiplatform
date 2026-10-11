@@ -4146,6 +4146,23 @@ class SessionTest(unittest.TestCase):
             self.assertIn("RMP_DRM='maybe'", err.getvalue())
             self.assertEqual(rec.calls, [])
 
+    def test_only_linux_is_asked_for_its_terminal(self):
+        """Windows has no os.ttyname(): asking it there was an AttributeError out
+        of every `rmp build`. Seen red with the terminal asked before the system."""
+        def no_terminal():
+            raise AssertionError("the terminal was asked on a system that is not Linux")
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            for system in ("Windows", "Darwin", "FreeBSD"):
+                with self.subTest(system=system), console(drm=None, system=system), \
+                        unittest.mock.patch.object(rmp, "terminal_name", no_terminal), \
+                        recording(CommandSequenceTest.NAME) as rec, quiet():
+                    self.assertEqual(rmp.main(["build"], cwd=game), 0)
+                    self.assertEqual(rec.calls[0][0], ["cmake", "--preset", "debug"])
+        with unittest.mock.patch.object(rmp.os, "ttyname", None, create=True):
+            del rmp.os.ttyname
+            self.assertIsNone(rmp.terminal_name())
+
     def test_the_decision_is_said_once_and_only_when_it_is_news(self):
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")

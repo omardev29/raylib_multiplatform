@@ -234,6 +234,8 @@ def terminal_name():
     """The terminal rmp was started from: stdin's, or else the controlling
     terminal's, which `rmp run < /dev/null > log` still has. None when there
     is neither -- CI, a service, `setsid`."""
+    if not hasattr(os, "ttyname"):
+        return None
     try:
         if os.isatty(0):
             return os.ttyname(0)
@@ -299,7 +301,10 @@ class Ctx:
     def session(self) -> Session:
         """Desktop or DRM/KMS, decided once per command and said once."""
         if self._session is None:
-            self._session = session_of(os.environ, system_name(), terminal_name())
+            system = system_name()
+            # The terminal is asked of Linux only: Windows has no ttyname().
+            terminal = terminal_name() if system == "Linux" else None
+            self._session = session_of(os.environ, system, terminal)
             if self._session.drm:
                 print(f"  console  {drm_line(self._session)}")
             elif self._session.note:
