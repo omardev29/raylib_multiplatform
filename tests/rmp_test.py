@@ -4378,7 +4378,7 @@ class ConsoleDevicesTest(unittest.TestCase):
             code, out, started, _ = self.run_game(dev=dev)
         self.assertEqual(code, 1)
         self.assertEqual(started, [])
-        self.assertIn("/dri/card*, so no screen a game can draw on", out)
+        self.assertIn("/dri/card0, card1 or card2, so no screen a game can draw on", out)
         self.assertIn("--device /dev/dri", out)
         self.assertNotIn("usermod", out, "no group gives a card that is not there")
 
@@ -4387,18 +4387,57 @@ class ConsoleDevicesTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(started, [])
         self.assertIn("something else draws on the screen: it is the DRM master of", out)
-        self.assertIn("/dri/card0", out)
+        self.assertIn("/dri/card1,", out, "card1 is the one raylib takes first")
         self.assertIn("sudo does not help", out)
         self.assertIn("RMP_DRM=0", out)
         self.assertNotIn("usermod", out)
 
-    def test_one_screen_free_or_one_that_cannot_be_told_starts_it(self):
-        for master in (lambda card: card.name == "card1", lambda card: None,
-                       lambda card: None if card.name == "card0" else False):
-            with self.subTest():
-                code, out, started, _ = self.run_game(master=master)
-                self.assertEqual(code, 0, out)
-                self.assertTrue(started)
+    def test_the_card_raylib_takes_is_the_one_that_counts(self):
+        """card1 before card0, as raylib opens them: a free card0 beside a held
+        card1 is a game that fails to set a mode -- a Raspberry Pi's card0 is
+        its 3D engine, with no screen."""
+        asked = []
+
+        def master(card, answers):
+            asked.append(card.name)
+            return answers.get(card.name)
+        for answers, starts in (({"card1": True, "card0": False}, True),
+                                ({"card1": None, "card0": False}, True),
+                                ({"card1": False, "card0": True}, False)):
+            with self.subTest(answers=answers):
+                asked.clear()
+                code, out, started, _ = self.run_game(master=lambda c, a=answers: master(c, a))
+                self.assertEqual(code, 0 if starts else 1, out)
+                self.assertEqual(bool(started), starts)
+                self.assertEqual(asked, ["card1"])
+        # A card1 this user cannot open: card0 is the one raylib gets.
+        asked.clear()
+        code, out, started, _ = self.run_game(
+            access=lambda path, mode: Path(path).name != "card1",
+            master=lambda c: master(c, {"card0": False}))
+        self.assertEqual(code, 1)
+        self.assertEqual(asked, ["card0"])
+
+    def test_the_cards_are_the_ones_raylib_opens_in_its_order(self):
+        """RAYLIB_CARDS is read back out of raylib's InitPlatform: a card it
+        stops trying would otherwise be one rmp still vouches for."""
+        source = (REPO / "thirdparty" / "raylib" / "src" / "platforms" / "rcore_drm.c").read_text()
+        body = source[source.index("int InitPlatform(void)"):]
+        body = body[:body.index("if (platform.fd == -1)\n")]
+        opened = re.findall(r'open\("/dev/(dri/[\w/-]+)", O_RDWR\)', body)
+        self.assertEqual(tuple(opened), rmp.RAYLIB_CARDS)
+        with tempfile.TemporaryDirectory() as tmp:
+            dev = fake_dev(Path(tmp) / "dev", cards=("card3", "card4"))
+            found = rmp.device_access(dev)
+            self.assertIn("there is no", found.missing)
+            self.assertIn("(this machine has card3, card4, which raylib never tries)",
+                          found.missing)
+            # A by-path link to card1 and card1 are one card, asked about once.
+            dev = fake_dev(Path(tmp) / "dev2", cards=("card1",))
+            (dev / "dri" / "by-path" / "platform-gpu-card").symlink_to(dev / "dri" / "card1")
+            with unittest.mock.patch.object(rmp, "node_access", lambda p, m: False):
+                found = rmp.device_access(dev)
+            self.assertEqual(len([b for b in found.blocked if "draw" in b]), 1, found.blocked)
 
     def test_no_input_at_all_starts_it_and_says_what_it_reads(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4408,7 +4447,7 @@ class ConsoleDevicesTest(unittest.TestCase):
         self.assertTrue(started)
         self.assertIn("/input/event*: the game reads the keys of the terminal it runs on", out)
 
-    def test_the_cards_and_events_in_numeric_order_and_nothing_else(self):
+    def test_events_in_numeric_order_and_nothing_else(self):
         with tempfile.TemporaryDirectory() as tmp:
             dev = fake_dev(Path(tmp) / "dev", cards=("card10", "card2", "card0"))
             self.assertEqual([p.name for p in rmp.numbered(dev / "dri", "card")],

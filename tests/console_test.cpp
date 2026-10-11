@@ -92,6 +92,19 @@ bool handler_is_ours(int signal) {
     return (now.sa_flags & SA_SIGINFO) != 0;
 }
 
+// A handler of the test's own, standing where ASan's or the default would: it
+// counts, and the test goes on.
+struct Caught {
+    volatile std::sig_atomic_t count = 0;
+    volatile std::sig_atomic_t signal = 0;
+};
+Caught caught;
+
+void catch_it(int signal) {
+    caught.count = caught.count + 1;
+    caught.signal = signal;
+}
+
 // Whatever a failed REQUIRE leaves, the guard does not outlive the case: its
 // fd would be a closed one, or somebody else's.
 struct Unguard {
@@ -200,6 +213,38 @@ TEST_SUITE("console") {
         CHECK(now.sa_handler == was);
         CHECK_FALSE(handler_is_ours(SIGTERM));
         sigaction(SIGHUP, &hangup, nullptr);
+    }
+
+    TEST_CASE("the handler puts it back, and hands the signal to the one before it") {
+        // In this process: the handler before ours is the test's, which only
+        // counts. A signal somebody sent (raise, kill) is raised again for it;
+        // a fault the kernel raised would happen again by itself.
+        for (const int signal : std::array{ SIGTERM, SIGSEGV, SIGABRT }) {
+            CAPTURE(signal);
+            struct sigaction mine{};
+            mine.sa_handler = catch_it;
+            sigemptyset(&mine.sa_mask);
+            struct sigaction before{};
+            sigaction(signal, &mine, &before);
+            {
+                const Pty pty;
+                const Unguard unguard;
+                const Seen clean = seen(pty.sub_fd);
+                REQUIRE(rmp::app::detail::guard_terminal(pty.sub_fd));
+                break_like_raylib(pty.sub_fd);
+                caught.count = 0;
+                caught.signal = 0;
+                std::raise(signal);
+                CHECK(caught.count == 1);
+                CHECK(caught.signal == signal);
+                CHECK(seen(pty.sub_fd) == clean);
+                // Ours stepped aside for it: the next one goes straight there.
+                struct sigaction now{};
+                sigaction(signal, nullptr, &now);
+                CHECK(now.sa_handler == catch_it);
+            }
+            sigaction(signal, &before, nullptr);
+        }
     }
 
 #if defined(RMP_CONSOLE_CANARY)

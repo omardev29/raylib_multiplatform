@@ -457,6 +457,13 @@ def node_access(path: Path, mode: int) -> bool:
     anything whatever its mode says."""
     return os.access(path, mode)
 
+
+# The cards raylib's DRM backend opens, in its order (InitPlatform in
+# rcore_drm.c; tests/rmp_test.py reads them back out of it): the first it can
+# open and set a mode on is the screen. card1 before card0 because on a
+# Raspberry Pi card0 is the 3D engine and card1 the display.
+RAYLIB_CARDS = ("dri/by-path/platform-gpu-card", "dri/card1", "dri/card0", "dri/card2")
+
 # DRM_IOCTL_AUTH_MAGIC, _IOW('d', 0x11, struct drm_auth): only a DRM master may
 # ask it, so anyone else gets EACCES, and the master EINVAL for magic 0. It is
 # how libdrm's own drmIsMaster() tells. The number is asm-generic's encoding,
@@ -531,17 +538,27 @@ class Devices:
 
 def device_access(dev: Path) -> Devices:
     found = Devices()
-    cards = numbered(dev / "dri", "card")
+    # A by-path link and the card it names are one card.
+    cards = []
+    for rel in RAYLIB_CARDS:
+        card = dev / rel
+        if card.exists() and all(not card.samefile(c) for c in cards):
+            cards.append(card)
     if not cards:
-        found.missing = (f"there is no {dev}/dri/card*, so no screen a game can draw on: no display "
-                         "driver with modesetting has loaded -- a virtual machine without a "
-                         "display device, or a container started without --device /dev/dri")
+        others = [p.name for p in numbered(dev / "dri", "card")]
+        found.missing = (f"there is no {dev}/dri/card0, card1 or card2, so no screen a game can "
+                         "draw on: no display driver with modesetting has loaded -- a virtual "
+                         "machine without a display device, or a container started without "
+                         "--device /dev/dri")
+        if others:
+            found.missing += f" (this machine has {', '.join(others)}, which raylib never tries)"
     else:
         usable = [c for c in cards if node_access(c, os.R_OK | os.W_OK)]
         if not usable:
             found.blocked += [f"{c}  {describe_node(c)}: you cannot open it to draw" for c in cards]
-        elif all(drm_master(c) is False for c in usable):
-            found.held = usable
+        elif drm_master(usable[0]) is False:
+            # The one raylib will take: the first of its cards this user can open.
+            found.held = [usable[0]]
     events = numbered(dev / "input", "event")
     if not events:
         found.notes.append(f"there is no {dev}/input/event*: the game reads the keys of the "
