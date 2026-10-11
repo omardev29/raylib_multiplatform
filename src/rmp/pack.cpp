@@ -467,7 +467,7 @@ namespace {
 // a read.
 class FileSource final : public rres::Source {
     // What fseek() and ftell() take and give, whatever the platform spells it.
-    using Offset = decltype(std::ftell(nullptr));
+    using Offset = decltype(std::ftell(std::declval<std::FILE *>()));
     static constexpr auto LONG_OFFSET =
         static_cast<std::uint64_t>(std::numeric_limits<Offset>::max());
 
