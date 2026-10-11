@@ -5,9 +5,10 @@
 # 76.67%. Alive: two sizes pack_read() sets before anything reads them, the
 # installed flag and the unhooking in remove_loader_hook() -- a hook left in
 # place after the pack closes answers from the disk, which is what no hook
-# does -- and the log line.
+# does -- and the log line. The weekly run of 2026-10-11 on GitHub
+# (38173980700, main 5900e98): 25 of 30, 83.33%.
 kind     cxx
 sources  src/rmp/loader_hook.cpp
 tests    unit_test -ts=assets:?loader?hook
 tests    property_test -tc=which?paths*
-floor    75
+floor    80

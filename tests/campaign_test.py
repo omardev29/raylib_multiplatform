@@ -854,6 +854,20 @@ class MutationScriptTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("no mull-runner here", out)
 
+    def test_a_mutant_cannot_take_the_machine(self):
+        """A mutant that takes a bound away grows without end, and on GitHub's
+        runner two shards lost the runner itself that way. Mull and mutmut
+        start under `bounded`, an address-space limit per process -- and the
+        limit is real: a program past it dies."""
+        text = (TOOLS / "mutation.sh").read_text()
+        self.assertRegex(text, r'(?m)^bounded\(\) \{ \(ulimit -v "\$MUTANT_MEMORY_KB" && "\$@"\); \}$')
+        self.assertIn('bounded "$MULL_RUNNER"', text)
+        self.assertIn("bounded mutmut run", text)
+        got = subprocess.run(["bash", "-c", 'ulimit -v 262144 && python3 -c "bytearray(1 << 30)"'],
+                             capture_output=True, text=True)
+        self.assertNotEqual(got.returncode, 0)
+        self.assertIn("MemoryError", got.stderr)
+
     def test_the_warm_up_run_has_time_for_property_test(self):
         """mull-runner's warm-up run -- the program unmutated -- times out at
         3 s unless told otherwise, and property_test takes 5 at Mull's -O0:

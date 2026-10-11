@@ -45,6 +45,17 @@ FLOORS="tests/mutation/floors"
 
 report() { python3 tools/mutation_report.py "$@"; }
 
+# Every program a mutant runs in is held to an address space of its own: a
+# mutant that takes a bound away -- a loop that never stops growing a vector --
+# otherwise takes the machine with it. On GitHub's runner the core and console
+# shards of the weekly run lost their runner that way ("The hosted runner lost
+# communication with the server", 38173980700), with no log and no score. Under
+# the limit the mutant's program dies, which is a mutant detected. Per process:
+# mull-runner's workers and mutmut's children are each held to it, and the
+# builds are not sanitized (ASan reserves terabytes of address space).
+MUTANT_MEMORY_KB=${RMP_MUTANT_MEMORY_KB:-3145728}  # 3 GiB
+bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && "$@"); }
+
 usage() {
   echo "usage: bash tools/mutation.sh modules | run MODULE | check MODULE | update MODULE | all"
   exit 2
@@ -154,7 +165,7 @@ run_cxx() {
     # default is 3 s, and property_test takes 5 at Mull's -O0: "Original test
     # failed (warmup run)"); each mutant's own limit stays the larger of ten
     # warm-ups and --minimum-timeout.
-    "$MULL_RUNNER" --reporters Elements --report-dir "$dir/report" --report-name "$module-$i" \
+    bounded "$MULL_RUNNER" --reporters Elements --report-dir "$dir/report" --report-name "$module-$i" \
       --allow-surviving --workers "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" --timeout 120000 --minimum-timeout 10000 \
       "$dir/$program" "$@" < /dev/null > "$dir/report/$module-$i.log" 2>&1 \
       || { tail -30 "$dir/report/$module-$i.log"; echo "FAIL: mull-runner did not finish"; exit 1; }
@@ -230,7 +241,7 @@ PY
   # mutation_report.py fails a mutant it never got to. It is printed.
   local status=0
   # shellcheck disable=SC2086  # selects are words on purpose, and none means all
-  (cd "$dir"; mutmut run --max-children "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" $selects < /dev/null) \
+  (cd "$dir"; bounded mutmut run --max-children "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" $selects < /dev/null) \
     > "$dir.log" 2>&1 || status=$?
   tail -5 "$dir.log" | sed 's/^/  /'
   echo "  mutmut exited $status"
