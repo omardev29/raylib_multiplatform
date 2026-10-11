@@ -327,6 +327,8 @@ TEST_SUITE("assets: loader hook") {
         CHECK(raylib_read(release.root() + "same.txt") == "packed");
         CHECK(raylib_read(release.root() + "./same.txt") == "packed");
         CHECK(raylib_read(release.root() + "sub/same.txt") == "shipped beside the pack");
+        // A miss handed to raylib's own reader hands the hook back after it.
+        CHECK(raylib_read(release.root() + "same.txt") == "packed");
         CHECK(raylib_text(release.root() + "sub/same.txt") == "shipped beside the pack");
         CHECK(raylib_text(release.root() + "same.txt") == "packed");
         rmp::assets::shutdown();
@@ -1150,6 +1152,15 @@ TEST_SUITE("assets: loads") {
         CHECK(rmp::detail::report_count() == 1); // one name, said once
         CHECK_FALSE(rmp::assets::load_font("other.ttf", -1).valid());
         CHECK(rmp::detail::report_count() == 2);
+        // 1 and 1024 are sizes: a name that is nowhere is a failed load, and
+        // no more is said.
+        for (const int size : { 1, 1024 }) {
+            CAPTURE(size);
+            const Counts before;
+            CHECK_FALSE(rmp::assets::load_font("nowhere.ttf", size).valid());
+            CHECK(before.more_failed() == 1);
+        }
+        CHECK(rmp::detail::report_count() == 2);
     }
 
     TEST_CASE("an image that decodes is not a failed load") {
@@ -1215,9 +1226,34 @@ TEST_SUITE("assets: loads") {
         rmp::assets::init(); // twice is harmless
         CHECK(rmp::assets::using_pack());
         CHECK(text_of(rmp::assets::load_data("a.txt")) == "packed");
+        ::Image marked{};
+        marked.width = 3;
+        const rmp::Image held{ rmp::detail::adopt_named(rmp::detail::ResourceKind::IMAGE,
+                                                        "held.png", 0, marked) };
         rmp::assets::shutdown();
         CHECK_FALSE(rmp::assets::using_pack());
         CHECK(rmp::assets::load_data("a.txt").empty()); // the pack is gone with it
+        CHECK(held.raw().width == 0); // and what was held, before the window goes
+    }
+
+    TEST_CASE("resource_exists() asks, and finds a name the way a load would") {
+        // rmp::audio probes coin.wav, coin.ogg... in turn with it: a name in
+        // the pack or a loose file is there, a folder or nothing is not.
+        const Scratch release("exists");
+        release.put_pack(pack::write({ { "packed.wav", pack::bytes_of("w") } }));
+        release.put("loose.ogg", "o");
+        const AtRoot at(release.root());
+        using rmp::assets::detail::resource_exists;
+        CHECK(resource_exists("loose.ogg"));
+        CHECK_FALSE(
+            resource_exists("packed.wav")); // no pack open yet: a loose file or nothing
+        const OpenPack open;
+        REQUIRE(open.opened);
+        CHECK(resource_exists("packed.wav"));
+        CHECK(resource_exists("loose.ogg"));
+        CHECK_FALSE(resource_exists("missing.mp3"));
+        CHECK_FALSE(resource_exists(""));
+        CHECK_FALSE(resource_exists(nullptr));
     }
 
     TEST_CASE(
