@@ -1146,6 +1146,14 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/script.cpp"
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/compare.cpp")
   endif()
+  # raylib's software renderer, called below its API for tests/rlsw_test.cpp.
+  # C, because rlsw.h is; compiled quietly, like the raylib target, because
+  # all of rlsw.h comes in with it.
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/rlsw_sample.c")
+    target_sources(unit_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests/rlsw_sample.c")
+    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/tests/rlsw_sample.c"
+      PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+  endif()
   # SYSTEM for doctest, so its 9 000 lines of macros are not ours to fix.
   target_include_directories(unit_test SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/doctest"

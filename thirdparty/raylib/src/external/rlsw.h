@@ -2412,6 +2412,13 @@ static inline void sw_texture_sample_nearest(float *SW_RESTRICT color, const sw_
     int x = u*tex->width;
     int y = v*tex->height;
 
+    // PATCHED (raylib_multiplatform): sw_saturate() returns 1.0 for the far
+    // edge, and 1.0*width is texel `width`, one past the row: the next row's
+    // first texel, or past the end of the last row. Clamped to the edge texel,
+    // as GL_CLAMP_TO_EDGE does. Not upstream (master samples the same way).
+    if (x > tex->wMinus1) x = tex->wMinus1;
+    if (y > tex->hMinus1) y = tex->hMinus1;
+
     tex->readColor(color, tex->pixels, y*tex->width + x);
 }
 

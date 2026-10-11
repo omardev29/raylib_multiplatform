@@ -47,8 +47,9 @@ raylib-ios                  thirdparty/raylib-ios                               
 angle                       ios/ANGLE-LICENSE.txt                                   BSD-3                    -              no        ios       file
 # What raylib bundles under src/external/. Statically linked into every binary
 # that uses the module they back. One of them is modified by us, rlsw (a
-# backport of upstream's scissor fix, named in raylib's PATCHES.md), and its
-# row says yes; the rest are recorded as raylib ships them.
+# backport of upstream's scissor fix and a texel clamp of our own, both named
+# in raylib's PATCHES.md), and its row says yes; the rest are recorded as
+# raylib ships them.
 glfw                        thirdparty/raylib/src/external/glfw                     zlib                     -              no        desktop   file
 RGFW                        thirdparty/raylib/src/external/RGFW                     zlib                     -              no        desktop   header
 RGFW.h                      thirdparty/raylib/src/external/RGFW.h                   zlib                     -              no        desktop   header
@@ -118,7 +119,7 @@ every change is commented at its site:
 
 | Component | Mark |
 |---|---|
-| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, three memory fixes in `raudio.c` and the software renderer's scissor in `src/external/rlsw.h`, all backported from upstream; no signature changed |
+| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, three memory fixes in `raudio.c` and the software renderer's scissor in `src/external/rlsw.h`, backported from upstream, and a texel clamp of our own in the same renderer's nearest-texel lookup; no signature changed |
 | Clay 0.14 | [`thirdparty/clay/PATCHES.md`](thirdparty/clay/PATCHES.md) -- one line, the C++ version guard |
 | cute_tiled | [`thirdparty/cute_tiled/PATCHES.md`](thirdparty/cute_tiled/PATCHES.md) -- unknown JSON keys are skipped instead of failing the load |
 | raylib-cpp 6.0.3 | [`thirdparty/raylib-cpp/PATCHES.md`](thirdparty/raylib-cpp/PATCHES.md) -- a partial copy, the math headers only |
