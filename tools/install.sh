@@ -18,7 +18,8 @@
 # `rmp update` instead. It needs git and a Python 3.11+ and stops, saying how
 # to get them, without either. It never uses sudo and never installs a
 # package: what a build still needs -- CMake, Ninja, a C++ compiler, the X11
-# headers on Linux -- is listed at the end with the command for this system.
+# headers on Linux, or on a Linux console with no desktop the DRM/KMS ones --
+# is listed at the end with the command for this system.
 #
 # RMP_INSTALL_SOURCE and RMP_INSTALL_BRANCH clone from somewhere else: the
 # tests install from a local clone.
@@ -81,8 +82,9 @@ main() {
         root='doas '
     fi
     # One package name per need; the X11 lists are the README's (apt) and the
-    # FreeBSD job's (.github/workflows/_bsd.yml). OpenBSD and NetBSD ship X11
-    # and a compiler in their base sets.
+    # FreeBSD job's (.github/workflows/_bsd.yml), and the DRM/KMS ones (libdrm,
+    # gbm, EGL, GLES) the build image's, which the DRM targets build against.
+    # OpenBSD and NetBSD ship X11 and a compiler in their base sets.
     package() {
         case $manager:$1 in
             apt-get:python) say python3 ;;
@@ -91,19 +93,23 @@ main() {
             apt-get:cxx) say g++ ;;
             apt-get:x11) say libx11-dev libxrandr-dev libxi-dev libxcursor-dev \
                 libxinerama-dev libgl1-mesa-dev ;;
+            apt-get:drm) say libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev ;;
             dnf:python) say python3 ;;
             dnf:python-new) say python3.11 ;;
             dnf:ninja) say ninja-build ;;
             dnf:cxx) say gcc-c++ ;;
             dnf:x11) say libX11-devel libXrandr-devel libXi-devel libXcursor-devel \
                 libXinerama-devel mesa-libGL-devel ;;
+            dnf:drm) say libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel ;;
             pacman:python | pacman:python-new) say python ;;
             pacman:cxx) say gcc ;;
             pacman:x11) say libx11 libxrandr libxi libxcursor libxinerama mesa ;;
+            pacman:drm) say libdrm mesa libglvnd ;;
             zypper:python | zypper:python-new) say python311 ;;
             zypper:cxx) say gcc-c++ ;;
             zypper:x11) say libX11-devel libXrandr-devel libXi-devel libXcursor-devel \
                 libXinerama-devel Mesa-libGL-devel ;;
+            zypper:drm) say libdrm-devel libgbm-devel Mesa-libEGL-devel Mesa-libGLESv2-devel ;;
             brew:python | brew:python-new) say python ;;
             pkg:python | pkg:python-new) say python311 ;;
             pkg:x11) say libX11 libXrandr libXi libXcursor libXinerama libglvnd mesa-libs ;;
@@ -229,22 +235,66 @@ main() {
     if ! have c++ && ! have g++ && ! have clang++; then
         need "a C++ compiler" "$(package cxx)"
     fi
-    case $system in
-        Linux | FreeBSD)
-            x11=yes
-            if have pkg-config; then
-                pkg-config --exists x11 xrandr xi xcursor xinerama gl < /dev/null || x11=
-            else
-                for h in X11/Xlib.h X11/extensions/Xrandr.h X11/extensions/XInput2.h \
-                    X11/Xcursor/Xcursor.h X11/extensions/Xinerama.h GL/gl.h; do
-                    if [ ! -f "/usr/include/$h" ] && [ ! -f "/usr/local/include/$h" ]; then
-                        x11=
+    # A Linux console with no desktop: rmp builds for DRM/KMS there, which
+    # needs libdrm, gbm, EGL and GLES and none of X11. The same rule as
+    # session_of() in tools/rmp.py -- RMP_DRM=1 or 0 first; then a display or
+    # SSH means the desktop; then XDG_SESSION_TYPE=tty, or a controlling
+    # terminal that is a virtual console. Asked of ps and not of stdin, which
+    # under `curl | sh` is this script.
+    console=
+    if [ "$system" = Linux ]; then
+        case ${RMP_DRM:-} in
+            1) console=yes ;;
+            0) ;;
+            *)
+                if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] &&
+                    [ -z "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ]; then
+                    if [ "${XDG_SESSION_TYPE:-}" = tty ]; then
+                        console=yes
+                    else
+                        term=$(ps -o tty= -p "$$" < /dev/null 2> /dev/null) || term=
+                        case $term in
+                            tty[0-9] | tty[0-9][0-9] | tty[0-9]" "* | tty[0-9][0-9]" "*)
+                                console=yes ;;
+                        esac
                     fi
-                done
-            fi
-            if [ -z "$x11" ]; then need "the X11 development headers" "$(package x11)"; fi ;;
-    esac
+                fi ;;
+        esac
+    fi
+    if [ -n "$console" ]; then
+        drm=yes
+        if have pkg-config; then
+            pkg-config --exists libdrm gbm egl glesv2 < /dev/null || drm=
+        else
+            for h in xf86drm.h gbm.h EGL/egl.h GLES2/gl2.h; do
+                if [ ! -f "/usr/include/$h" ] && [ ! -f "/usr/local/include/$h" ]; then
+                    drm=
+                fi
+            done
+        fi
+        if [ -z "$drm" ]; then need "the DRM/KMS development headers" "$(package drm)"; fi
+    else
+        case $system in
+            Linux | FreeBSD)
+                x11=yes
+                if have pkg-config; then
+                    pkg-config --exists x11 xrandr xi xcursor xinerama gl < /dev/null || x11=
+                else
+                    for h in X11/Xlib.h X11/extensions/Xrandr.h X11/extensions/XInput2.h \
+                        X11/Xcursor/Xcursor.h X11/extensions/Xinerama.h GL/gl.h; do
+                        if [ ! -f "/usr/include/$h" ] && [ ! -f "/usr/local/include/$h" ]; then
+                            x11=
+                        fi
+                    done
+                fi
+                if [ -z "$x11" ]; then need "the X11 development headers" "$(package x11)"; fi ;;
+        esac
+    fi
     say ""
+    if [ -n "$console" ]; then
+        say "This is a Linux console with no desktop: rmp builds games for DRM/KMS here,"
+        say "straight to the screen and with no X11 (RMP_DRM=0 builds for a desktop)."
+    fi
     if [ -z "$missing" ]; then
         say "Everything a build needs is here: CMake, Ninja and a C++ compiler."
         return 0

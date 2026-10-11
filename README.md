@@ -63,6 +63,15 @@ X11 development libraries too:
 sudo apt install libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev
 ```
 
+On a Linux console with no desktop, `rmp` builds for DRM/KMS instead -- straight to the screen,
+no X11 -- and needs the DRM headers in their place. The game reads `/dev/dri` and `/dev/input`:
+`rmp run` says how to let it, `rmp run sudo` starts it as root, and `RMP_DRM=0` or `1` overrides
+what `rmp` decides:
+
+```bash
+sudo apt install libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev
+```
+
 Then open `raylib_multiplatform.toml` in the new game, set your name and app ids, and build again.
 `rmp new` fills the ids with `com.example.` placeholders, and `rmp deploy` refuses to tag a release
 while they are: a Google Play id can never change once it is published.

@@ -3280,6 +3280,89 @@ class InstallTest(InstallFixture):
                 self.assertTrue(got.stdout.decode().endswith(says), self.said(got))
 
 
+    def test_on_a_linux_console_it_names_the_drm_headers_and_never_x11(self):
+        """Stage G: on a console with no desktop rmp builds for DRM/KMS, so what
+        a build needs there is libdrm, gbm, EGL and GLES, per system, and no
+        X11. Decided the way session_of() decides it. Seen red with the
+        console branch taken out: every case below named the X11 headers."""
+        if platform_system() != "Linux":
+            self.skipTest("uname says Linux here only on Linux")
+        yes, no = "#!/bin/sh\nexit 0\n", "#!/bin/sh\nexit 1\n"
+
+        def ps(tty):
+            # Only the question install.sh asks: the controlling terminal of $$.
+            return (f'#!/bin/sh\n[ "$1 $2 $3" = "-o tty= -p" ] && [ -n "$4" ] || exit 9\n'
+                    f'echo "{tty}"\n')
+        note = ("This is a Linux console with no desktop: rmp builds games for DRM/KMS here,\n"
+                "straight to the screen and with no X11 (RMP_DRM=0 builds for a desktop).\n")
+        apt_drm = "libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev"
+        apt_x11 = ("libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev "
+                   "libgl1-mesa-dev")
+        cases = [
+            ("logind's tty", {"apt-get": yes, "sudo": yes, "pkg-config": no},
+             {"XDG_SESSION_TYPE": "tty"},
+             note + "To build a game, this machine still needs: CMake, Ninja, a C++ compiler, "
+             "the DRM/KMS development headers.\nInstall them with:\n  sudo apt install cmake "
+             f"ninja-build g++ {apt_drm}\n"),
+            ("a virtual console, no logind", {"dnf": yes, "pkg-config": no, "ps": ps("tty3")},
+             {}, note + "To build a game, this machine still needs: CMake, Ninja, a C++ "
+             "compiler, the DRM/KMS development headers.\nInstall them, as root, with:\n"
+             "  dnf install cmake ninja-build gcc-c++ libdrm-devel mesa-libgbm-devel "
+             "mesa-libEGL-devel mesa-libGLES-devel\n"),
+            ("tty12, as ps pads it", {"pacman": yes, "doas": yes, "pkg-config": no,
+                                      "cmake": yes, "ninja": yes, "c++": yes,
+                                      "ps": ps("tty12   ")},
+             {}, note + "To build a game, this machine still needs: the DRM/KMS development "
+             "headers.\nInstall them with:\n  doas pacman -S --needed libdrm mesa libglvnd\n"),
+            ("RMP_DRM=1 on a desktop", {"zypper": yes, "pkg-config": no, "cmake": yes,
+                                        "ninja": yes, "g++": yes},
+             {"RMP_DRM": "1", "DISPLAY": ":0"},
+             note + "To build a game, this machine still needs: the DRM/KMS development "
+             "headers.\nInstall them, as root, with:\n  zypper install libdrm-devel "
+             "libgbm-devel Mesa-libEGL-devel Mesa-libGLESv2-devel\n"),
+            ("everything there", {"pkg-config": yes, "cmake": yes, "ninja": yes, "g++": yes},
+             {"XDG_SESSION_TYPE": "tty"},
+             "\n" + note + "Everything a build needs is here: CMake, Ninja and a C++ compiler.\n"),
+            # And the desktop, as before, whatever the console's word says.
+            ("a display", {"apt-get": yes, "sudo": yes, "pkg-config": no},
+             {"XDG_SESSION_TYPE": "tty", "DISPLAY": ":0"},
+             "\nTo build a game, this machine still needs: CMake, Ninja, a C++ compiler, the "
+             "X11 development headers.\nInstall them with:\n  sudo apt install cmake "
+             f"ninja-build g++ {apt_x11}\n"),
+            ("a Wayland display", {"apt-get": yes, "sudo": yes, "pkg-config": no, "ps": ps("tty2")},
+             {"WAYLAND_DISPLAY": "wayland-0"}, f"g++ {apt_x11}\n"),
+            ("SSH", {"apt-get": yes, "sudo": yes, "pkg-config": no, "ps": ps("tty2")},
+             {"XDG_SESSION_TYPE": "tty", "SSH_CONNECTION": "10.0.0.2 1 10.0.0.1 22"},
+             f"g++ {apt_x11}\n"),
+            ("RMP_DRM=0", {"apt-get": yes, "sudo": yes, "pkg-config": no, "ps": ps("tty2")},
+             {"XDG_SESSION_TYPE": "tty", "RMP_DRM": "0"}, f"g++ {apt_x11}\n"),
+            ("a pts", {"apt-get": yes, "sudo": yes, "pkg-config": no, "ps": ps("pts/0")},
+             {}, f"g++ {apt_x11}\n"),
+            ("a serial line", {"apt-get": yes, "sudo": yes, "pkg-config": no,
+                               "ps": ps("ttyS0")}, {}, f"g++ {apt_x11}\n"),
+            ("no terminal", {"apt-get": yes, "sudo": yes, "pkg-config": no, "ps": ps("?")},
+             {}, f"g++ {apt_x11}\n"),
+            ("FreeBSD's tty", {"uname": "#!/bin/sh\necho FreeBSD\n", "pkg-config": no,
+                               "cmake": yes, "ps": ps("ttyv0")},
+             {"XDG_SESSION_TYPE": "tty"}, "libXinerama libglvnd mesa-libs\n"),
+        ]
+        for name, stubs, env, says in cases:
+            with self.subTest(case=name):
+                folder = tool_folder(self.tmp / f"console{self.count}",
+                                     without=("uname",) if "uname" in stubs else (), stubs=stubs)
+                type(self).count += 1
+                home = self.fresh()
+                got = self.install(home, path=folder, **env)
+                self.assertEqual(got.returncode, 0, self.said(got))
+                out = got.stdout.decode()
+                self.assertTrue(out.endswith(says), self.said(got))
+                if "DRM/KMS" in says:
+                    self.assertNotIn("X11 development", out)
+                    self.assertNotIn("libx11", out.lower())
+                else:
+                    self.assertNotIn("DRM/KMS", out)
+
+
 def platform_system() -> str:
     import platform
     return platform.system()
@@ -3344,6 +3427,23 @@ class InstallerContractTest(unittest.TestCase):
         self.assertEqual(lines[-1], 'main "$@"')
         self.assertTrue(all(line == "" or line.startswith("    ") for line in lines[start + 1:end]),
                         "a line inside main() is not indented: is main() closed early?")
+
+    def test_the_readme_and_install_sh_name_the_same_apt_packages(self):
+        """The README shows the apt lines a person copies, install.sh prints the
+        same lists: X11's for a desktop, DRM/KMS's on a console. Seen red with
+        one package changed in either file."""
+        readme = re.findall(r"(?m)^sudo apt install (.+)$", (REPO / "README.md").read_text())
+        text = INSTALL_SH.read_text().replace("\\\n", " ")
+        lists = {}
+        for need in ("x11", "drm"):
+            m = re.search(rf"apt-get:{need}\) say ([^;]+);;", text)
+            self.assertIsNotNone(m, f"install.sh has no apt-get:{need} list")
+            lists[need] = " ".join(m.group(1).split())
+        self.assertEqual([" ".join(line.split()) for line in readme],
+                         [lists["x11"], lists["drm"]])
+        for package in ("libdrm-dev", "libgbm-dev", "libegl1-mesa-dev", "libgles2-mesa-dev"):
+            self.assertIn(package, lists["drm"].split())
+        self.assertNotIn("x11", lists["drm"].lower())
 
     def test_every_shell_parses_install_sh(self):
         for shell in LauncherTest.shells(self):
