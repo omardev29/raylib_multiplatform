@@ -44,7 +44,7 @@ freebsd-x64            elf       783848         -  # measured at 029b2c0
 freebsd-arm64          elf       694632         -  # measured at 029b2c0
 openbsd-x64            elf       847040         -  # measured at 029b2c0
 openbsd-arm64          elf       843556         -  # estimate: 840656 at ce0beac x openbsd-x64's growth to 029b2c0 (timed out there)
-netbsd-x64             elf       948353         -  # estimate: 922104 at ce0beac x freebsd-x64's growth to 029b2c0 (did not link there)
+netbsd-x64             elf       937744         -  # measured at 150325d
 web                    wasm      477952         -  # measured at 029b2c0
 android/arm64-v8a      so       2327472         -  # measured at 029b2c0
 android/armeabi-v7a    so       1728772         -  # measured at 029b2c0

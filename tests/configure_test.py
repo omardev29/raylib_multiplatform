@@ -3894,6 +3894,34 @@ os.execv(real, [real] + args)
         self.assertRegex(self.ninja, r"-fsanitize=address,undefined,float-cast-overflow")
 
 
+class NetbsdAsanRunsWithoutAslrTest(unittest.TestCase):
+    """NetBSD's ASan will not start in a process with ASLR ("This sanitizer is
+    not compatible with enabled ASLR ... run paxctl +a"), and NetBSD gives a
+    program ASLR unless its ELF note says otherwise. The framework's Debug
+    build linked and died at boot in the VM. Both halves are needed: paxctl
+    after every sanitized executable's link, and on the probe before it runs
+    -- without the second the probe can say yes about a program the game is
+    not. Only the NetBSD job can run them; this holds the text to both."""
+
+    TEXT = (REPO / "cmake" / "sanitize.cmake").read_text()
+
+    def test_paxctl_is_found_only_on_netbsd(self):
+        self.assertRegex(self.TEXT, r'if\(CMAKE_SYSTEM_NAME STREQUAL "NetBSD" AND NOT '
+                                    r'CMAKE_CROSSCOMPILING\)\s*\n\s*find_program\(RMP_PAXCTL_PROGRAM paxctl')
+
+    def test_every_sanitized_executable_gets_it_after_its_link(self):
+        body = self.TEXT[self.TEXT.index("function(rmp_apply_debug_checks"):]
+        self.assertRegex(body, r'add_custom_command\(TARGET \$\{target\} POST_BUILD\s*\n\s*'
+                               r'COMMAND "\$\{RMP_PAXCTL\}" \+a "\$<TARGET_FILE:\$\{target\}>"')
+
+    def test_the_probe_gets_it_before_it_runs(self):
+        body = self.TEXT[self.TEXT.index("function(_rmp_sanitize_probe"):]
+        body = body[:body.index("endfunction()")]
+        paxctl = body.index('COMMAND "${RMP_PAXCTL}" +a "${_exe}"')
+        run = body.index('COMMAND "${_exe}" RESULT_VARIABLE _ran')
+        self.assertLess(paxctl, run)
+
+
 class FrameworkDebugIsSanitizedTest(unittest.TestCase):
     """The framework's Debug builds ALWAYS run under ASan and UBSan, and
     "always" is a set of things that can each be undone by an edit nobody

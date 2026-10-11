@@ -507,6 +507,12 @@ Each of these was a real bug, found by reproducing rather than by reading.
   now, and a runtime without the C++ half keeps the rest of UBSan with
   `-fno-sanitize=vptr` and says so; `SanitizerProbeReachesVptrTest` builds that
   runtime on Linux, a stub of libubsan without the vptr symbols.
+- **NetBSD's ASan will not start with ASLR on.** "This sanitizer is not
+  compatible with enabled ASLR", at boot, after a clean link -- NetBSD gives a
+  program ASLR unless its ELF note says otherwise. `cmake/sanitize.cmake` runs
+  `paxctl +a` on every sanitized executable after its link and on the probe
+  before it runs (`NetbsdAsanRunsWithoutAslrTest` holds both halves; the NetBSD
+  job is what proves them).
 - **A boot proves what the machine had, not what the binary needs.**
   `musl-x64-run` called booting the headless build in a bare Alpine "the proof
   that it needs nothing but musl"; that build is a static PIE (zig links it
