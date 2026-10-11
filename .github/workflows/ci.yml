@@ -11,8 +11,11 @@
 # runner time. Paying that on every commit means either a slow loop or (much
 # worse) people learning to ignore CI. The subset below covers the four targets
 # that catch most regressions, beside the framework's own jobs (lint, tidy,
-# examples, e2e, coverage, docs, rmp_new), every one of them side by side and
-# none of them over about eight minutes.
+# examples, e2e, coverage, deep, docs, rmp_new), every one of them side by
+# side. None takes over about seven minutes on the runner -- at c93818c
+# (runs 38140549914 and 38140551313) lint and tidy about six, deep three to
+# five -- and each job's timeout-minutes is a ceiling well above that, from 5
+# for config to 25 for deep.
 #
 # Every platform lives in its own `_*.yml` reusable workflow. Three things
 # routinely go wrong when splitting workflows this way, so they are worth
