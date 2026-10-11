@@ -1086,6 +1086,9 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
 // glyph with no advance taking its rectangle's width, and raylib's font when
 // this one has no texture. tests/property/ui_text_prop.cpp holds it to
 // DrawTextEx() over random fonts, sizes and lines.
+// What measure_text() rounds a width up to a multiple of: see its end.
+constexpr float QUANTUM = 64.0f;
+
 Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size) {
     const ::Font f = face.texture.id != 0 ? face : GetFontDefault();
     // A font with nothing in it -- raylib's, before there is a window -- is
@@ -1118,6 +1121,15 @@ Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float fo
     const char *before = text.chars;
     while (before > text.baseChars && before[-1] == ' ') --before;
     if (space || (before > text.baseChars && before[-1] != '\n')) width += spacing;
+
+    // Up to the next 64th of a pixel, which a float holds exactly: Clay adds
+    // the pieces up, adds a padding and takes it off again, and with widths
+    // like 222.6 (letter_spacing() of 14 pixels is 1.4) the sum came back
+    // 222.59999 -- narrower than the text in it, which then wrapped
+    // (scenes/02_stretch's '800x450, designed for 800x450'). Exact sums need
+    // exact pieces; a 64th more each is never narrower than what is drawn.
+    if (!std::isfinite(width)) return Clay_Dimensions{ 0, font_size };
+    width = std::ceil(width * QUANTUM) / QUANTUM;
     return Clay_Dimensions{ width, font_size };
 }
 

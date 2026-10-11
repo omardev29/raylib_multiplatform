@@ -10,13 +10,17 @@
 // a menu's two-word line ran 29 pixels past the buttons under it. Held here:
 //
 //   - a line laid out without wrapping is as wide as DrawTextEx() draws it,
-//     to float rounding, for any words, spaces, UTF-8 (broken too) and font:
+//     to a 64th of a pixel a piece (measure_text() says why), for any words,
+//     spaces, UTF-8 (broken too) and font:
 //     a line that starts with a space by one letter spacing at most, and
 //     never less (measure_text() in src/rmp/ui/context.cpp says why);
 //   - wrapped into any width, no line is drawn wider than the width its
 //     command says it has, nor than the box it was wrapped into -- unless it
 //     is one word wider than the box, which Clay puts on a line of its own
 //     and the box grows to (with a spacing: measure_text() says why);
+//   - a panel that fits a line of text keeps it on one line, at any
+//     padding and scale: Clay adds the pieces up and takes the padding off
+//     again, and that has to come back to exactly the line;
 //   - text with a NUL inside is drawn no wider than its box either: the
 //     draw stops at the NUL and the measurement may count past it;
 //   - measure_text() reads nothing outside the slice it is handed (ASan);
@@ -185,6 +189,14 @@ float drawn_width(const ::Font &f, std::string_view line, float size) {
 // Float rounding: the pieces are added in another order than the letters.
 float tolerance(float width) { return 1e-3f + 1e-4f * std::fabs(width); }
 
+// What measure_text() rounds each piece of a line up by, at most: a 64th of a
+// pixel, so that Clay adds them up exactly. A line is at most twice as many
+// pieces as it has spaces, and one more.
+float rounding(std::string_view line) {
+    const auto spaces = static_cast<float>(std::ranges::count(line, ' '));
+    return (2 * spaces + 1) / 64.0f;
+}
+
 // The font the layout measures with, for the measurement provider below.
 struct {
     ::Font face{};
@@ -304,10 +316,11 @@ TEST_SUITE("property: ui text") {
                              << "\n";
                     RC_ASSERT(line.width >= drawn - tolerance(drawn));
                     // One letter spacing more at most, and only for a line that
-                    // starts with a space.
+                    // starts with a space; and a 64th a piece.
                     const float over =
                         line.text.starts_with(' ') ? line.size / 10.0f : 0.0f;
-                    RC_ASSERT(line.width <= drawn + over + tolerance(drawn));
+                    RC_ASSERT(line.width <=
+                              drawn + over + rounding(line.text) + tolerance(drawn));
                 }
             });
     }
@@ -361,6 +374,31 @@ TEST_SUITE("property: ui text") {
                     if (!lone) RC_ASSERT(drawn <= room + tolerance(drawn));
                 }
             });
+    }
+
+    TEST_CASE("a box that fits its text") {
+        rmp::test::check("ui: a panel that fits a line of text never wraps it", [] {
+            const FakeFont font = *fake_font(true);
+            const std::string text = *text_line();
+            RC_PRE(!text.empty());
+            const float size = *design_size();
+            const float padding = static_cast<float>(*rc::gen::inRange(0, 50));
+            const HeadlessText ui(font.font());
+            // Any scale: the padding goes on in pixels, whatever it is in units.
+            rmp::ui::set_scale(*some_scale());
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::panel({ .box = { .padding = padding } }, [&] {
+                    rmp::ui::text(text, { .size = size, .wrap = true });
+                });
+                rmp::ui::end();
+            }
+            const std::vector<Line> lines = drawn_lines();
+            for (const Line &line : lines)
+                RC_LOG() << "line " << shown(line.text) << "\n";
+            RC_ASSERT(lines.size() == 1U);
+            RC_ASSERT(lines[0].text == text);
+        });
     }
 
     TEST_CASE("a NUL inside a text") {

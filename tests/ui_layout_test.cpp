@@ -3222,6 +3222,73 @@ TEST_CASE("text is laid out as wide as DrawTextEx draws it") {
     check(d.width == 0, "a slice of one newline measures 0");
 }
 
+// raylib's own font, as far as a measurement can tell: the widths of its
+// printable ASCII (rtext.c, LoadFontDefault()), at a base size of 10, with no
+// advances of their own.
+constexpr std::array RAYLIB_WIDTHS{
+    3, 1, 4, 6, 5, 7, 6, 2, 3, 3, 5, 5, 2, 4, 1, 7, 5, 2, 5, 5, 5, 5, 5, 5,
+    5, 5, 1, 1, 3, 4, 3, 6, 7, 6, 6, 6, 6, 6, 6, 6, 6, 3, 5, 6, 5, 7, 6, 6,
+    6, 6, 6, 6, 7, 6, 7, 7, 6, 6, 6, 2, 7, 2, 3, 5, 2, 5, 5, 5, 5, 5, 4, 5,
+    5, 1, 2, 5, 2, 5, 5, 5, 5, 5, 5, 5, 4, 5, 5, 5, 5, 5, 5, 3, 1, 3, 4, 4,
+};
+
+struct {
+    std::vector<GlyphInfo> glyphs;
+    std::vector<Rectangle> recs;
+    ::Font face{};
+} raylib_font;
+
+// NOLINTBEGIN(custom-rmp-raw-pointer): Clay's signature, not ours to choose
+Clay_Dimensions measure_raylib_font(Clay_StringSlice text, Clay_TextElementConfig *config,
+                                    void * /*user*/) {
+    // NOLINTEND(custom-rmp-raw-pointer)
+    if (raylib_font.glyphs.empty()) {
+        for (std::size_t i = 0; i < RAYLIB_WIDTHS.size(); ++i) {
+            raylib_font.glyphs.push_back(GlyphInfo{ .value = 32 + static_cast<int>(i) });
+            raylib_font.recs.push_back(
+                Rectangle{ 0, 0, static_cast<float>(RAYLIB_WIDTHS[i]), 10 });
+        }
+        raylib_font.face.baseSize = 10;
+        raylib_font.face.glyphCount = static_cast<int>(raylib_font.glyphs.size());
+        raylib_font.face.texture.id = 1;
+        raylib_font.face.recs = raylib_font.recs.data();
+        raylib_font.face.glyphs = raylib_font.glyphs.data();
+    }
+    return rmp::ui::detail::measure_text(raylib_font.face, text,
+                                         static_cast<float>(config->fontSize));
+}
+
+// scenes/02_stretch's panel, which fits what is in it. At 14 pixels the letter
+// spacing is 1.4, and the muted line measured 222.6: the panel was that plus its
+// padding, and Clay took the padding off again to size the line -- 222.59999,
+// narrower than the line, which wrapped after "for".
+TEST_CASE("a panel that fits its text keeps it on one line") {
+    rmp::ui::detail::set_test_viewport(800, 450);
+    rmp::ui::detail::set_measure_provider(measure_raylib_font);
+    for (int frame = 0; frame < 2; ++frame) {
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::panel([] {
+            rmp::ui::text("Stretch: NONE");
+            rmp::ui::text("800x450, designed for 800x450",
+                          { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
+            (void)rmp::ui::button("Next mode", { .size = rmp::ui::Size::SMALL });
+        });
+        rmp::ui::end();
+    }
+    std::vector<std::string> lines;
+    const Clay_RenderCommandArray commands = rmp::ui::detail::last_pass_commands();
+    for (int32_t i = 0; i < commands.length; ++i) {
+        const Clay_RenderCommand &cmd = commands.internalArray[i];
+        if (cmd.commandType != CLAY_RENDER_COMMAND_TYPE_TEXT) continue;
+        const Clay_StringSlice &line = cmd.renderData.text.stringContents;
+        lines.emplace_back(line.chars, static_cast<std::size_t>(line.length));
+    }
+    check(lines.size() == 3, "three lines: the title, the muted line and the button's");
+    check(std::ranges::find(lines, "800x450, designed for 800x450") != lines.end(),
+          "the muted line, whole");
+    rmp::ui::detail::set_measure_provider(measure_stub);
+}
+
 // Found by tests/property/ui_text_prop.cpp. Clay wraps a word too wide for its
 // box onto a line of its own, space after it included, and then takes that
 // space off the NEXT line -- the newline's, which has nothing on it -- and
