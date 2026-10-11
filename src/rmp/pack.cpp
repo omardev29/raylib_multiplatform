@@ -46,7 +46,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstring>
-#include <fstream>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <string>
@@ -460,27 +460,38 @@ namespace rmp::assets::detail {
 
 namespace {
 
-// resources.rres, read where it is, a range at a time.
+// resources.rres, read where it is, a range at a time -- through C's stdio
+// and not <fstream>: std::ifstream brought the whole of iostreams into every
+// release, about 240 KB of a static libc++ on linux-x64 and 90 KB of the web's
+// .wasm (+19 % each, the size budget's fast lane on merge-e1), for a seek and
+// a read.
 class FileSource final : public rres::Source {
 public:
-    explicit FileSource(const std::string &path) : _file(path, std::ios::binary) {
-        if (!_file) return;
-        _file.seekg(0, std::ios::end);
-        const std::streamoff end = _file.tellg();
+    explicit FileSource(const std::string &path) : _file(std::fopen(path.c_str(), "rb")) {
+        if (!_file || std::fseek(_file.get(), 0, SEEK_END) != 0) return;
+        const long end = std::ftell(_file.get());
         _size = end > 0 ? static_cast<std::uint64_t>(end) : 0;
     }
     [[nodiscard]] std::uint64_t size() override { return _size; }
-    // A pack is read until a read fails, and then not at all: a stream that
-    // failed stays failed, which is all a caller here needs of it.
+    // Exactly out.size() bytes or false; a pack no `long` can seek in is a
+    // pack this does not read (a chunk is under 2 GiB, CHUNK_LIMIT).
     [[nodiscard]] bool read(std::uint64_t offset, std::span<std::uint8_t> out) override {
-        _file.seekg(static_cast<std::streamoff>(offset));
-        _file.read(reinterpret_cast<char *>(out.data()),
-                   static_cast<std::streamsize>(out.size()));
-        return _file.good() && std::cmp_equal(_file.gcount(), out.size());
+        if (!_file ||
+            offset > static_cast<std::uint64_t>(std::numeric_limits<long>::max()))
+            return false;
+        if (std::fseek(_file.get(), static_cast<long>(offset), SEEK_SET) != 0)
+            return false;
+        return std::fread(out.data(), 1, out.size(), _file.get()) == out.size();
     }
 
 private:
-    std::ifstream _file;
+    // The C library's handle, closed with it. stdio's own pointer, owned by
+    // the unique_ptr around it.
+    struct Close {
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer)
+        void operator()(std::FILE *file) const { std::fclose(file); }
+    };
+    std::unique_ptr<std::FILE, Close> _file;
     std::uint64_t _size = 0;
 };
 
