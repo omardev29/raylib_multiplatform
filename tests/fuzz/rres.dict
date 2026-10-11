@@ -1,0 +1,15 @@
+# The words of an rres pack, for fuzz_rres: its magic, its chunk types, and
+# the extensions rres_pack writes into a RAWD chunk's properties.
+"rres"
+"d\x00"
+"RAWD"
+"IMGE"
+"CDIR"
+"LINK"
+"TEXT"
+"NULL"
+".png"
+".txt"
+"\x1e"
+"I"
+"\x0a"

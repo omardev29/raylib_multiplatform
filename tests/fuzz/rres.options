@@ -1,0 +1,4 @@
+# libFuzzer flags for fuzz_rres, one a line: tools/fuzz.sh run and merge pass them.
+# A mode byte and a pack: 4 KiB holds a directory and a few chunks of each kind,
+# and keeps the merged corpus small (tests/campaign_test.py: under 2 MB in all).
+-max_len=4096

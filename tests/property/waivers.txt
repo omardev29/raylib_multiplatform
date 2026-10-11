@@ -34,19 +34,9 @@ rmp::SheetData::frame(int) const
 rmp::SheetData::frame_count() const
 rmp::SheetData::tag(int) const
 rmp::SheetData::tag_count() const
-rmp::assets::failed_loads()
-rmp::assets::init()
-rmp::assets::load_data(std::string_view)
-rmp::assets::load_font(std::string_view, int)
-rmp::assets::load_image(std::string_view)
 rmp::assets::load_map(std::string_view)
 rmp::assets::load_map(std::string_view, std::string_view)
 rmp::assets::load_sheet(std::string_view)
-rmp::assets::load_sound(std::string_view)
-rmp::assets::load_texture(std::string_view)
-rmp::assets::requested_loads()
-rmp::assets::shutdown()
-rmp::assets::using_pack()
 
 # include/rmp/audio.h: P6
 rmp::audio::available()

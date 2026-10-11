@@ -1,5 +1,8 @@
-# The rres pack reader (package P4).
+# The rres pack reader (package P4): assets_test.cpp's pack suites -- the
+# real Argon2i fixture included, the one test of argon2i() -- and the
+# properties of the reader and of a release against the loose files.
 kind     cxx
 sources  src/rmp/pack.cpp
-tests    unit_test -tse=*device*
+tests    unit_test -sf=*assets_test.cpp
+tests    property_test -tc=the?pack*
 floor    -

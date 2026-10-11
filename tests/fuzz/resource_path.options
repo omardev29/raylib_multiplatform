@@ -1,0 +1,3 @@
+# libFuzzer flags for fuzz_resource_path, one a line: tools/fuzz.sh run and merge pass them.
+# A root and a path: 256 bytes hold every way to spell one.
+-max_len=256

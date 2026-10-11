@@ -1,5 +1,6 @@
-# rmp::assets (package P4).
+# rmp::assets (package P4): assets_test.cpp, and its properties.
 kind     cxx
 sources  src/rmp/assets.cpp
 tests    unit_test -sf=*assets_test.cpp
+tests    property_test -ts=property:?assets
 floor    -

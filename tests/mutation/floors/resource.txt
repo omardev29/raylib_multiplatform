@@ -1,5 +1,8 @@
-# Shared resources: reference counting, release_all (package P4).
+# Shared resources: reference counting, release_all (package P4). The table's
+# cases in unit_test (the "resources" suite and assets_test.cpp's "resources:
+# table") and the handles played against a model in property_test.
 kind     cxx
 sources  src/rmp/resource.cpp
-tests    unit_test -ts=resources
+tests    unit_test -ts=resources*
+tests    property_test -tc=the?resource?table*
 floor    -
