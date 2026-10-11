@@ -9900,6 +9900,59 @@ jobs:
         self.assertIn("1 pwsh step(s) that expect a failure end with exit 0", got.stdout)
 
 
+class BuildOutputIsKeptTest(unittest.TestCase):
+    """ninja prints a compiler's error on STDOUT, so `cmake --build ... >
+    /dev/null` turns a file that does not compile into a red step with an
+    empty log. The deep job's property_test build was written that way, and
+    so were three builds of the lint job; tools/workflow_check.sh refuses it."""
+
+    FLOW = """
+name: Flow
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Build
+        run: |
+          cmake --preset debug > /dev/null
+%s
+"""
+
+    def run_check(self, line):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as root:
+            flows = Path(root) / ".github" / "workflows"
+            flows.mkdir(parents=True)
+            (flows / "flow.yml").write_text(self.FLOW % ("          " + line))
+            got = subprocess.run(["bash", str(REPO / "tools" / "workflow_check.sh"), root],
+                                 capture_output=True, text=True)
+        if "skip  PyYAML" in got.stdout:
+            self.skipTest("PyYAML not installed")
+        return got
+
+    def test_a_build_sent_to_dev_null_is_red(self):
+        for line in ("cmake --build --preset debug --target unit_test > /dev/null",
+                     "cmake --build b >/dev/null 2>&1", "cmake --build b &> /dev/null",
+                     "cmake --build b 1>/dev/null", "ninja -C build/x > /dev/null"):
+            with self.subTest(line=line):
+                got = self.run_check(line)
+                self.assertEqual(got.returncode, 1, got.stdout)
+                self.assertIn("build / Build sends a build's output to /dev/null", got.stdout)
+
+    def test_a_build_that_keeps_its_output_is_green(self):
+        for line in ("cmake --build --preset debug --target unit_test",
+                     "cmake --build b 2> /dev/null",
+                     "cmake --build b > build/b.log 2>&1 || { tail -60 build/b.log; exit 1; }",
+                     "cmake --build b && echo built > /dev/null",
+                     "if ninja -C b -t targets all | grep -E '^fuzz_' > /dev/null; then exit 1; fi"):
+            with self.subTest(line=line):
+                got = self.run_check(line)
+                self.assertEqual(got.returncode, 0, got.stdout)
+                self.assertIn("ok    ", got.stdout)
+                self.assertIn("build command(s), none with its output thrown away", got.stdout)
+
+
 class ThisFileRunsWholeTest(unittest.TestCase):
     """`python3 tests/configure_test.py` used to run 108 of these tests.
 

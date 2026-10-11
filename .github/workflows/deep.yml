@@ -209,15 +209,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: RapidCheck, at a random seed
-        id: rapidcheck
+      # Its own step: a property_test that does not build is a red job, with
+      # the compiler's error in the log (ninja prints it on stdout), and not a
+      # finding -- ci.yml's deep job builds the same on every push.
+      - name: Build the properties
         env:
           RMP_REQUIRE_SANITIZERS: "1"
         run: |
           set -euo pipefail
           python3 tools/configure.py > /dev/null
           cmake --preset debug -DBUILD_TESTS=ON > /dev/null
-          cmake --build --preset debug --target property_test > /dev/null
+          cmake --build --preset debug --target property_test
+
+      - name: RapidCheck, at a random seed
+        id: rapidcheck
+        run: |
+          set -euo pipefail
           seed=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
           echo "RC_PARAMS=\"seed=$seed max_success=5000\""
           mkdir -p build/findings

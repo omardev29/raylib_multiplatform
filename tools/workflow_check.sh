@@ -156,6 +156,29 @@ for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
                 print("        so the step prints its PASS and fails.")
                 fails += 1
 
+# A build's errors are on its STDOUT: ninja prints the failed command and what
+# the compiler said there, and `cmake --build` passes it on. `> /dev/null`
+# after one makes a file that does not compile a red step with nothing in its
+# log -- the deep job's property_test build was written that way, and so were
+# three of the lint job's. Keep the output, or send it to a log the step
+# prints when the build fails.
+SILENT_BUILD = re.compile(r"(?:\bcmake\s+--build\b|^\s*ninja\b)(?:(?!&&)[^|;\n])*?"
+                          r"(?:&>|\b1>|(?<![0-9&])>)\s*/dev/null")
+builds = 0
+for path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+    flow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for job_name, job in (flow.get("jobs") or {}).items():
+        for step in job.get("steps") or []:
+            for line in str(step.get("run", "")).splitlines():
+                if re.search(r"\bcmake\s+--build\b|^\s*ninja\b", line):
+                    builds += 1
+                if SILENT_BUILD.search(line):
+                    print(f"  FAIL  {path.name}: {job_name} / {step.get('name', '?')} sends a "
+                          f"build's output to /dev/null: {line.strip()}")
+                    print("        A compile error is printed on stdout; the step would fail "
+                          "and say nothing.")
+                    fails += 1
+
 if fails:
     print()
     print(f"FAIL: {fails} problem(s), each one something GitHub reports late: a")
@@ -163,4 +186,5 @@ if fails:
     sys.exit(1)
 print(f"  ok    {checked} reusable-workflow call(s): permissions, inputs and secrets agree")
 print(f"  ok    {pwsh_steps} pwsh step(s) that expect a failure end with exit 0")
+print(f"  ok    {builds} build command(s), none with its output thrown away")
 PY

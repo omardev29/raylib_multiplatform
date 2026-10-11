@@ -448,7 +448,7 @@ jobs:
           # RMP_WERROR: a warning in the framework or its tests is an error
           # here, as it is in `rmp test unit`.
           cmake --preset debug -DBUILD_TESTS=ON -DRMP_WERROR=ON > /dev/null
-          cmake --build --preset debug --target unit_test > /dev/null
+          cmake --build --preset debug --target unit_test
           # The locale tests and the audio device tests skip where they cannot
           # run -- on a laptop that is honest, here it would be a gate that
           # passes by not looking. Both are required in this job: the locales
@@ -478,7 +478,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_UI_TESTS=ON > /dev/null
-          cmake --build --preset debug --target ui_layout_test > /dev/null
+          cmake --build --preset debug --target ui_layout_test
           ./build/debug/ui_layout_test
 
       # A game's own tests: tests/game/, built with its src/ into game_test and
@@ -498,7 +498,7 @@ jobs:
             exit 0
           fi
           cmake --preset debug -DBUILD_TESTS=ON > /dev/null
-          cmake --build --preset debug --target game_test > /dev/null
+          cmake --build --preset debug --target game_test
           ./build/debug/game_test
 
       # raylib's SOFTWARE renderer: no GPU, no window, no display server, and
@@ -1042,14 +1042,17 @@ jobs:
           bash tools/sanitize_check.sh
 
       # A Debug build, so sanitized like every other; RMP_REQUIRE_SANITIZERS
-      # fails a configure that could not instrument it.
+      # fails a configure that could not instrument it. The build's output is
+      # kept: ninja prints a compiler's error on stdout, and with it sent to
+      # /dev/null a property file that does not compile is a red step that
+      # says nothing at all.
       - name: Properties (RapidCheck, at its fixed seed)
         env:
           RMP_REQUIRE_SANITIZERS: "1"
         run: |
           set -euo pipefail
           cmake --preset debug -DBUILD_TESTS=ON -DRMP_WERROR=ON > /dev/null
-          cmake --build --preset debug --target property_test > /dev/null
+          cmake --build --preset debug --target property_test
           ./build/debug/property_test
 
       # The image has hypothesis, so a module that skips here is a failure.
