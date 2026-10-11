@@ -568,8 +568,9 @@ int cell_h(const MapData &data, const Layer &layer) {
 // a cell that is not a power of two rounds, and the sum of two rounded
 // quotients -- solid_in() made its far edge as left + width / cell -- landed
 // past a cell boundary the edge only touched: a box resting on a floor of 12
-// px cells was IN the floor. Every float, and every sum of two of them, is
-// exact in a double.
+// px cells was IN the floor. A float is exact in a double, and so is the sum
+// of a level's coordinate and a size: one division rounds, once, and never
+// across a boundary an edge only touches.
 double cell_coordinate(double world, double origin, double offset, int cell) {
     return (world - origin - offset) / cell;
 }

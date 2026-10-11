@@ -1234,6 +1234,135 @@ TEST_SUITE("ldtk") {
         CHECK_FALSE(rmp::assets::load_map("no_such_world.ldtk", "Next").valid());
     }
 
+    // -----------------------------------------------------------------------
+    // What Mull found no test holding (tests/mutation/floors/ldtk.txt): each
+    // case below kills mutants that survived every test before it.
+    // -----------------------------------------------------------------------
+
+    TEST_CASE("an entity on an offset layer of a level away from the origin") {
+        // The level's place and the layer's offset add up on both axes: the
+        // y half of that sum could be a difference and nothing said so.
+        const Quiet quiet;
+        const std::string doc =
+            R"({"worldLayout":"Free","defs":{"tilesets":[]},"levels":[{"identifier":"L",)"
+            R"("worldX":100,"worldY":200,"pxWid":64,"pxHei":64,"layerInstances":[)"
+            R"({"__type":"Entities","__gridSize":16,"__pxTotalOffsetX":3,)"
+            R"("__pxTotalOffsetY":5,"entityInstances":[{"__identifier":"Thing",)"
+            R"("width":16,"height":16,"__pivot":[0.5,1],"px":[8,16]}]}]}]})";
+        const Parsed p(doc, "offset.ldtk");
+        const rmp::MapObject &o = the_object(*p.data, "Thing");
+        CHECK(o.position.x == doctest::Approx(111));
+        CHECK(o.position.y == doctest::Approx(213));
+    }
+
+    TEST_CASE(
+        "the map's grid is its first layer's, else the project's default, else 16") {
+        const Quiet quiet;
+        const auto grid_of = [](const std::string &defaults, const std::string &layers) {
+            const std::string doc = "{" + defaults +
+                R"("defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":32,)"
+                R"("pxHei":32,"layerInstances":[)" +
+                layers + "]}]}";
+            const Parsed p(doc, "grid.ldtk");
+            REQUIRE(p.map.valid());
+            return p.map.tile_size().x;
+        };
+        CHECK(grid_of(R"("defaultGridSize":8,)", "") == doctest::Approx(8));
+        CHECK(grid_of(R"("defaultGridSize":0,)", "") == doctest::Approx(16));
+        CHECK(grid_of(R"("defaultGridSize":-4,)", "") == doctest::Approx(16));
+        CHECK(grid_of("", "") == doctest::Approx(16));
+        const std::string layer =
+            R"({"__type":"IntGrid","__gridSize":4,"__cWid":8,"__cHei":8,"intGridCsv":[]})";
+        CHECK(grid_of(R"("defaultGridSize":16,)", layer) == doctest::Approx(4));
+        // A layer with no grid is no layer: left out, and not the map's grid.
+        const std::string none =
+            R"({"__type":"IntGrid","__gridSize":0,"__cWid":8,"__cHei":8,"intGridCsv":[1]},)"
+            R"({"__type":"Entities","__gridSize":0,"entityInstances":[)"
+            R"({"__identifier":"Thing","width":8,"height":8}]})";
+        const Parsed p(
+            R"({"defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":32,)"
+            R"("pxHei":32,"layerInstances":[)" +
+                none + "]}]}",
+            "none.ldtk");
+        REQUIRE(p.map.valid());
+        CHECK(p.map.layer_count() == 0);
+        CHECK(p.map.object_count() == 0);
+    }
+
+    TEST_CASE("a tile tagged solid is solid from the first id of its tileset") {
+        const Quiet quiet;
+        const auto solid_with = [](int id) {
+            const std::string doc =
+                R"({"defs":{"tilesets":[{"uid":1,"__cWid":2,"__cHei":2,"tileGridSize":16,)"
+                R"("enumTags":[{"enumValueId":"Solid","tileIds":[0,4]}]}]},"levels":[)"
+                R"({"identifier":"L","pxWid":16,"pxHei":16,"layerInstances":[)"
+                R"({"__type":"Tiles","__gridSize":16,"__cWid":1,"__cHei":1,)"
+                R"("__tilesetDefUid":1,"gridTiles":[{"px":[0,0],"t":)" +
+                std::to_string(id) + "}]}]}]}";
+            const Parsed p(doc, "tagged.ldtk");
+            REQUIRE(p.map.layer_count() == 1);
+            return p.map.solid_at({ 8, 8 });
+        };
+        CHECK(solid_with(0)); // the first tile of the set
+        CHECK_FALSE(solid_with(1));
+        CHECK_FALSE(solid_with(3)); // 4 is past the set: tagged, and no tile
+    }
+
+    TEST_CASE("an IntGrid value 0 is empty, whatever it is called") {
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[],"layers":[{"uid":3,"intGridValues":[)"
+            R"({"value":0,"identifier":"Solid"},{"value":2,"identifier":"Solid"}]}]},)"
+            R"("levels":[{"identifier":"L","pxWid":32,"pxHei":16,"layerInstances":[)"
+            R"({"__type":"IntGrid","__gridSize":16,"__cWid":2,"__cHei":1,"layerDefUid":3,)"
+            R"("intGridCsv":[0,2]}]}]})";
+        const Parsed p(doc, "zero.ldtk");
+        CHECK_FALSE(p.map.solid_at({ 8, 8 }));
+        CHECK(p.map.solid_at({ 24, 8 }));
+    }
+
+    TEST_CASE("a Point field without both its cell's coordinates is no point") {
+        const Quiet quiet;
+        const std::string doc =
+            R"({"defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":32,"pxHei":32,)"
+            R"("layerInstances":[{"__type":"Entities","__gridSize":16,"entityInstances":[)"
+            R"({"__identifier":"Thing","width":16,"height":16,"fieldInstances":[)"
+            R"({"__identifier":"x","__type":"Point","__value":{"cx":1}},)"
+            R"({"__identifier":"y","__type":"Point","__value":{"cy":1}},)"
+            R"({"__identifier":"s","__type":"Point","__value":{"cx":"1","cy":1}}]}]}]}]})";
+        const Parsed p(doc, "point.ldtk");
+        const rmp::MapObject &o = the_object(*p.data, "Thing");
+        for (const std::string_view key : { "x", "y", "s" }) {
+            CAPTURE(key);
+            CHECK(o.property_count(key) == 0);
+            CHECK(o.property_point(key, Vector2{ -1, -1 }).x == doctest::Approx(-1));
+        }
+    }
+
+    TEST_CASE(
+        "a project saved before LDtk 1.5 is said once, and a current one not at all") {
+        const Quiet quiet;
+        const auto reports_for = [](const std::string &version) {
+            rmp::detail::reset_reports_for_tests();
+            const std::string doc = R"({"jsonVersion":")" + version +
+                R"(","defs":{"tilesets":[]},"levels":[{"identifier":"L","pxWid":8,)"
+                R"("pxHei":8,"layerInstances":[]}]})";
+            const Parsed p(doc, "version.ldtk");
+            REQUIRE(p.map.valid()); // read anyway
+            return rmp::detail::report_count();
+        };
+        for (const std::string old : { "1.4.3", "0.9.3", "1.0", "1" }) {
+            CAPTURE(old);
+            CHECK(reports_for(old) == 1);
+        }
+        for (const std::string current :
+             { "1.5.0", "1.5.3", "1.10.1", "2.0.0", "", "abc" }) {
+            CAPTURE(current);
+            CHECK(reports_for(current) == 0);
+        }
+        rmp::detail::reset_reports_for_tests();
+    }
+
     TEST_CASE("load_map picks the reader by the extension") {
         const Quiet quiet;
         // The same LDtk text named .json goes to the Tiled reader, which

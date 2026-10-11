@@ -456,10 +456,7 @@ TEST_SUITE("property: ldtk") {
     TEST_CASE("neighbour_at is the first other level that holds the point") {
         SetTraceLogLevel(LOG_NONE);
         rmp::test::check(
-            "neighbour_at is \"\" inside the level, else the first other level holding "
-            "the "
-            "point",
-            [] {
+            "neighbour_at is \"\" inside the level, else the first other one there", [] {
                 WorldSpec world = *world_of(grid_number(), grid_size());
                 world.layout = *rc::gen::element<std::string>("Free", "GridVania");
                 const std::string text = to_json(world);
