@@ -521,7 +521,10 @@ here so that nobody "fixes" one back.
   bot plays its levels without drawing them, so nothing had drawn a bat under
   ASan until its e2e script did: raylib's software renderer read one texel past
   a texture at u or v of exactly 1 (`rlsw.h`, our own patch, PATCHES.md;
-  `tests/rlsw_test.cpp`).
+  `tests/rlsw_test.cpp`). That test compiles a second copy of rlsw, and the
+  coverage build -- the one `unit_test` whose raylib is PLATFORM=Memory, and so
+  carries rlsw too -- links both: the copy's two functions rlsw.h defines
+  without `SWAPI` are renamed in `tests/rlsw_sample.c`, or the link fails.
 - **llvm-cov has two line counts.** `llvm-cov report` and the html index count
   a line once per function that maps it -- a lambda's lines twice -- while the
   per-line export counts each line of a file once, and a macro's lines in the

@@ -7,12 +7,22 @@
  * nothing clashes with the copy inside raylib when raylib is the PLATFORM=Memory
  * build, and its static helpers -- sw_texture_sample_nearest among them -- can
  * be called by name. Built quietly, like raylib itself (CMakeLists.txt).
+ *
+ * Two of its functions are defined without SWAPI, so SWAPI cannot make them
+ * static, and they are renamed here instead: the coverage build links this
+ * file with raylib's PLATFORM=Memory archive, which defines both too, and
+ * failed with "multiple definition of `swGetIntegerv'" -- the one build of
+ * unit_test whose raylib carries the software renderer.
  * ------------------------------------------------------------------------- */
 
 /* rlsw's own knobs, under their own names. */
 #define SWAPI static /* NOLINT(readability-identifier-naming): rlsw.h reads SWAPI */
 /* NOLINTNEXTLINE(readability-identifier-naming): rlsw.h reads RLSW_IMPLEMENTATION */
 #define RLSW_IMPLEMENTATION
+/* NOLINTNEXTLINE(readability-identifier-naming): renames rlsw.h's swGetIntegerv */
+#define swGetIntegerv rmp_test_sw_get_integerv
+/* NOLINTNEXTLINE(readability-identifier-naming): renames rlsw.h's swTexStorage2D */
+#define swTexStorage2D rmp_test_sw_tex_storage_2d
 #include "external/rlsw.h"
 
 int rmp_test_rlsw_nearest(const unsigned char *rgba, int width, int height, float u,

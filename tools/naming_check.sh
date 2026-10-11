@@ -90,7 +90,8 @@ VENDOR_KNOBS = {
     "src/rmp/cjson_impl.c": {"CJSON_NESTING_LIMIT"},
     "src/rmp/ui/clay_impl.cpp": {"CLAY_IMPLEMENTATION"},
     "tests/unit_test.cpp": {"DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN"},
-    "tests/rlsw_sample.c": {"SWAPI", "RLSW_IMPLEMENTATION"},
+    "tests/rlsw_sample.c": {"SWAPI", "RLSW_IMPLEMENTATION", "swGetIntegerv",
+                            "swTexStorage2D"},
 }
 
 # R6: every macro the vendored headers define, read live so an update brings
