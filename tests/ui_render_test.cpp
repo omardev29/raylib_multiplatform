@@ -725,6 +725,51 @@ void follows_a_resize() {
     frame([] { draw_split(true); });
 }
 
+// A size no divisor goes into: the small pictures are made from the frame as
+// if it were a little larger, its edge going on, and cut back to it on the way
+// to the screen. Cut wrong, the picture would be squeezed or stretched, and
+// the blurred edge would no longer sit where the edge was.
+void follows_an_odd_size() {
+    constexpr int ODD_WIDTH = 333;
+    constexpr int ODD_HEIGHT = 187;
+    SetWindowSize(ODD_WIDTH, ODD_HEIGHT);
+    if (!check(window_is(ODD_WIDTH, ODD_HEIGHT), "the window took an odd size")) return;
+    for (const bool across : { true, false }) {
+        const int edge = (across ? ODD_WIDTH : ODD_HEIGHT) / 2; // the first white pixel
+        auto split = [&] {
+            ClearBackground(BLACK);
+            if (across) {
+                DrawRectangle(edge, 0, ODD_WIDTH - edge, ODD_HEIGHT, WHITE);
+            } else {
+                DrawRectangle(0, edge, ODD_WIDTH, ODD_HEIGHT - edge, WHITE);
+            }
+            rmp::ui::overlay({ .blur = 8, .dim = 0 }, [] {});
+        };
+        frame(split);
+        const Shot shot = frame(split);
+        const int length = across ? ODD_WIDTH : ODD_HEIGHT;
+        auto level = [&](int i) {
+            return across ? shot.at(i, ODD_HEIGHT / 2).r : shot.at(ODD_WIDTH / 2, i).r;
+        };
+        const int before = level(edge - 1);
+        const int after = level(edge);
+        const std::string name = std::string("odd size ") + (across ? "across" : "down");
+        std::printf("      %s: %d | %d at the edge, %d and %d at the ends\n",
+                    name.c_str(), before, after, level(0), level(length - 1));
+        if (!check(shot.width() == ODD_WIDTH && rmp::ui::detail::backdrop_blurred() &&
+                       std::abs(before + after - 255) <= 12 && level(0) <= 2 &&
+                       level(length - 1) >= 253,
+                   name +
+                       ": blurred, centred on the edge, black and white to the ends")) {
+            save(shot, across ? "odd_across" : "odd_down", "actual");
+        }
+    }
+    SetWindowSize(WIDTH, HEIGHT);
+    check(window_is(WIDTH, HEIGHT), "and back");
+    frame([] { draw_split(true); });
+    frame([] { draw_split(true); });
+}
+
 // The two GPU objects rmp::assets makes for the backdrop.
 void what_assets_makes() {
     const rmp::RenderTexture texture = rmp::assets::detail::make_render_texture(16, 8);
@@ -804,6 +849,7 @@ int main() {
     a_shader_that_fails();
     a_scene_with_its_own_texture();
     follows_a_resize();
+    follows_an_odd_size();
     what_assets_makes();
 
     rmp::ui::detail::set_test_blur_shader(std::nullopt);
