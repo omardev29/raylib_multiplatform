@@ -1300,6 +1300,11 @@ FRAMEWORK_ONLY = {
                              "prints the lines that would start a budget",
     "tools/install.sh": "the installer: rmp goes on PATH from the framework, never from a game",
     "tools/install.ps1": "the installer for Windows; a game is never what gets installed",
+    # Longer than thirdparty/, which INCLUDE takes whole, so it wins; and
+    # ManifestTest cannot notice it missing, because thirdparty/ already
+    # classifies every file in it. NewTest looks for it in a made game.
+    "thirdparty/rapidcheck/": "the property-testing library of the framework's deep tests "
+                              "(tests/deep.cmake); no game builds them",
 }
 
 
@@ -1624,9 +1629,10 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
 
 def framework_only_components() -> list[str]:
     """The vendored components a game does not get: FRAMEWORK_ONLY's entries
-    under thirdparty/, which INCLUDE takes whole. None today -- doctest ships,
-    so a game's tests/game/ builds -- and the next test-only library is one
-    line in FRAMEWORK_ONLY, with its record taken out below."""
+    under thirdparty/, which INCLUDE takes whole -- rapidcheck, which only the
+    framework's property tests build. doctest ships, so a game's tests/game/
+    builds. The next test-only library is one line in FRAMEWORK_ONLY, and its
+    record is taken out below."""
     return [p.rstrip("/") for p in FRAMEWORK_ONLY
             if p.startswith("thirdparty/") and p.endswith("/")]
 

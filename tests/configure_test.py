@@ -6233,7 +6233,10 @@ class VendoredHeaderPathsTest(unittest.TestCase):
     # headers are reached through a path prefix, or that hold no header at all.
     # raylib-cpp is reached as <raylib-cpp/Vector2.hpp> through the BARE
     # thirdparty root, which the second test below checks for by itself.
-    NOT_INCLUDE_ROOTS = {"raylib", "raylib-ios", "raylib-cpp", "raymob", "doctest"}
+    # rapidcheck is the framework's property tests' alone (tests/deep.cmake
+    # adds its include/ to property_test and nothing else): no game, Android,
+    # iOS or MSVC build ever includes it.
+    NOT_INCLUDE_ROOTS = {"raylib", "raylib-ios", "raylib-cpp", "raymob", "doctest", "rapidcheck"}
 
     BUILDS = {
         "CMakeLists.txt": "CMakeLists.txt",

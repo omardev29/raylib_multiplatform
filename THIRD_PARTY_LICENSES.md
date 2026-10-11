@@ -43,6 +43,7 @@ lz4                         thirdparty/rres/external/lz4.c                      
 qoi                         thirdparty/rres/external/qoi.h                          MIT                      -              no        all       header
 raymob                      thirdparty/raymob                                       MIT                      -              yes       android   file
 doctest                     thirdparty/doctest                                      MIT                      -              no        none      file
+rapidcheck                  thirdparty/rapidcheck                                   BSD-2                    -              no        none      file
 raylib-ios                  thirdparty/raylib-ios                                   zlib                     -              no        ios       file
 angle                       ios/ANGLE-LICENSE.txt                                   BSD-3                    -              no        ios       file
 # What raylib bundles under src/external/. Statically linked into every binary
@@ -178,6 +179,13 @@ changing fails the build.
 - **doctest** (Viktor Kirilov, MIT) is compiled into `unit_test` and into
   `game_test`, a game's own tests in `tests/game/`, neither of which is ever
   shipped; it is in no release artefact and in no `LICENSES.txt`.
+- **rapidcheck** (Emil Eriksson, BSD-2-Clause) is the property-based testing
+  library of the framework's own deep tests: compiled into `property_test`
+  (`tests/deep.cmake`) and nothing else, never shipped, in no `LICENSES.txt`.
+  The framework's alone: `rmp new` leaves it out of a game, with this
+  paragraph, its row and its pin. Its `RC_ASSERT` throws, and that is the one
+  place exceptions are thrown on purpose -- in a test binary, never under
+  `src/rmp/`.
 - **raylib's bundled dependencies** (`thirdparty/raylib/src/external/`): the
   audio decoders (miniaudio, dr_flac, dr_mp3, dr_wav, stb_vorbis, qoa, jar_mod,
   jar_xm), the image and font code (stb_image, stb_image_write,

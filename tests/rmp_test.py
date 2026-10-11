@@ -2439,7 +2439,9 @@ class NewTest(unittest.TestCase):
         self.assertRegex(got.stdout, r"(?m)^  unit +your tests in tests/game/")
 
     def test_untransformed_files_are_byte_for_byte_the_frameworks(self):
-        changed = {rmp.TOML, "THIRD_PARTY_LICENSES.md"}
+        # The .toml and the two licence records: rmp new writes them, the
+        # records without the FRAMEWORK_ONLY components (StripComponentsTest).
+        changed = {rmp.TOML, "THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"}
         for _, _, path in rmp.tracked(REPO):
             kind = rmp.classify(path)[0]
             if kind not in ("include", "rename") or path in changed:
@@ -2512,6 +2514,17 @@ class NewTest(unittest.TestCase):
                              env=dict(os.environ, GITHUB_REF_TYPE="tag", GITHUB_REF_NAME="v1.0.0"))
         self.assertNotEqual(got.returncode, 0)
         self.assertIn("placeholder identifiers", got.stdout + got.stderr)
+
+    def test_rapidcheck_leaves_no_trace(self):
+        """thirdparty/ goes to a game whole, so rapidcheck is taken out by
+        FRAMEWORK_ONLY -- and with it its row, its paragraph and its pin, or
+        the game's own license_db.py --check fails on a row with no files."""
+        self.assertFalse((self.game / "thirdparty" / "rapidcheck").exists())
+        self.assertTrue((REPO / "thirdparty" / "rapidcheck" / "include" / "rapidcheck.h").is_file())
+        for rel in ("THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"):
+            with self.subTest(file=rel):
+                self.assertIn("rapidcheck", (REPO / rel).read_text())
+                self.assertNotIn("rapidcheck", (self.game / rel).read_text().lower())
 
     def test_the_licences_credit_the_framework_and_keep_doctest_unshipped(self):
         """doctest is the game's now -- tests/game/ is built with it -- so its
@@ -2608,9 +2621,9 @@ class NewRefusesTest(unittest.TestCase):
 class StripComponentsTest(unittest.TestCase):
     """What FRAMEWORK_ONLY keeps under thirdparty/ leaves no record in a game:
     a licence row whose files are not there, or a pin with no row, fails the
-    game's own license_db.py --check. Nothing is kept back today -- doctest
-    ships, for tests/game/ -- so the strip is run here on a copy, with doctest
-    standing in for the next test-only library."""
+    game's own license_db.py --check. rapidcheck is kept back -- only the
+    framework's property tests build it -- and doctest ships, for tests/game/.
+    The strip is run here on a copy of the two records."""
 
     def copy(self, root: Path) -> Path:
         (root / "thirdparty").mkdir(parents=True)
@@ -2620,19 +2633,25 @@ class StripComponentsTest(unittest.TestCase):
         return root
 
     def test_every_trace_goes_and_nothing_else(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = self.copy(Path(tmp))
-            rmp.strip_components(root, ["thirdparty/doctest"])
-            for rel in ("THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"):
-                with self.subTest(file=rel):
-                    after = (root / rel).read_text().splitlines()
-                    before = (REPO / rel).read_text().splitlines()
-                    self.assertNotIn("doctest", "\n".join(after))
-                    # Lines taken out, none changed or added.
-                    gone = [line for line in before if line not in after]
-                    self.assertEqual(len(before) - len(after), len(gone))
-                    self.assertTrue(all("doctest" in line or line.startswith("  ")
-                                        for line in gone), gone)
+        for component, word in (("thirdparty/rapidcheck", "rapidcheck"),
+                                ("thirdparty/doctest", "doctest")):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = self.copy(Path(tmp))
+                rmp.strip_components(root, [component])
+                for rel in ("THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md"):
+                    with self.subTest(component=component, file=rel):
+                        after = (root / rel).read_text().splitlines()
+                        before = (REPO / rel).read_text().splitlines()
+                        self.assertIn(word, "\n".join(before))
+                        self.assertNotIn(f"**{word}**", "\n".join(after))
+                        self.assertNotIn(f"sha256_{word}", "\n".join(after))
+                        self.assertFalse(any(line.split()[:2] == [word, component]
+                                             for line in after if line.split()))
+                        # Lines taken out, none changed or added.
+                        gone = [line for line in before if line not in after]
+                        self.assertEqual(len(before) - len(after), len(gone))
+                        self.assertTrue(all(word in line or line.startswith("  ")
+                                            for line in gone), gone)
 
     def test_a_record_that_is_not_there_is_a_bug_said_so(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2640,16 +2659,18 @@ class StripComponentsTest(unittest.TestCase):
             with self.assertRaises(rmp.Refused) as caught:
                 rmp.strip_components(root, ["thirdparty/nothing_here"])
             self.assertIn("bug in the framework", str(caught.exception))
-            rmp.strip_components(root, ["thirdparty/doctest"])
+            rmp.strip_components(root, ["thirdparty/rapidcheck"])
             with self.assertRaises(rmp.Refused):
-                rmp.strip_components(root, ["thirdparty/doctest"])
+                rmp.strip_components(root, ["thirdparty/rapidcheck"])
 
     def test_the_components_are_read_from_framework_only(self):
-        self.assertEqual(rmp.framework_only_components(), [])
+        self.assertEqual(rmp.framework_only_components(), ["thirdparty/rapidcheck"])
         saved = dict(rmp.FRAMEWORK_ONLY)
         try:
-            rmp.FRAMEWORK_ONLY["thirdparty/rapidcheck/"] = "a test-only library"
-            self.assertEqual(rmp.framework_only_components(), ["thirdparty/rapidcheck"])
+            del rmp.FRAMEWORK_ONLY["thirdparty/rapidcheck/"]
+            self.assertEqual(rmp.framework_only_components(), [])
+            rmp.FRAMEWORK_ONLY["thirdparty/other_test_lib/"] = "a test-only library"
+            self.assertEqual(rmp.framework_only_components(), ["thirdparty/other_test_lib"])
         finally:
             rmp.FRAMEWORK_ONLY.clear()
             rmp.FRAMEWORK_ONLY.update(saved)
