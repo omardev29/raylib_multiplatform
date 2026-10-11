@@ -45,6 +45,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── clock.cpp         #   the one GetFrameTime(): step_delta(), and a test's fixed step and seed
 │       ├── report.cpp        #   RMP_REPORT_ONCE: one line per mistake, [dev] strict
 │       ├── app.cpp           #   rmp::app -- the frame, quit(), compiled into EACH executable
+│       ├── console.cpp       #   a Linux console's terminal back, however a DRM/KMS game ends
 │       ├── global.cpp        #   rmp::global<T>() registry and its destruction order
 │       ├── scene.cpp         #   the scene stack, transitions, the frame order
 │       ├── scene_internal.h

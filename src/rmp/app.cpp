@@ -268,6 +268,7 @@ void begin_run() {
     rmp::detail::set_strict(true);
 #endif
     SmokeTest_Begin();
+    guard_console(); // DRM/KMS: the terminal back however the game ends (console.cpp)
 #if defined(PLATFORM_IOS)
     ChangeDirectory(GetApplicationDirectory());
 #elif RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \

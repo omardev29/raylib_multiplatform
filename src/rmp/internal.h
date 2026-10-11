@@ -47,6 +47,19 @@ std::optional<std::uint64_t> test_seed();
 void set_frame_observer(rmp::Callback<> on_frame_end);
 void frame_ended();
 
+// --- console.cpp -----------------------------------------------------------
+// The Linux console back, however a DRM/KMS game ends. guard_console() runs
+// before InitWindow: on a DRM/KMS build it remembers the terminal raylib is
+// about to change and puts it back on a fatal signal, on a sanitizer's way out
+// and at exit; on anything else it does nothing.
+void guard_console();
+
+// The same, for any terminal: false, and nothing installed, when `fd` is not
+// one. tests/console_test.cpp and tests/console_canary.cpp call these.
+bool guard_terminal(int fd);
+void restore_terminal();
+void unguard_terminal();
+
 } // namespace rmp::app::detail
 
 namespace rmp::assets::detail {

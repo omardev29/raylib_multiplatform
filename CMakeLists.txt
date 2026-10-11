@@ -19,6 +19,7 @@ if(_rmp_binary_dir STREQUAL _rmp_build_root)
     "build/ holds one folder per build and is not a build itself:\n"
     "    cmake --preset debug      ->  build/debug     (rmp build, rmp run, rmp test)\n"
     "    cmake --preset release    ->  build/release   (rmp build release)\n"
+    "    and on a Linux console, debug-drm and release-drm -> build/debug-drm, build/release-drm\n"
     "  A CMakeCache.txt at the top of build/ is left from a checkout older than\n"
     "  that, or from configuring build/ itself by hand, and nothing reads it now.\n"
     "  `rmp clean` deletes it with the rest of build/, and so does any rmp\n"
@@ -49,10 +50,14 @@ endif()
 
 option(PRODUCTION_BUILD "Make this a production build" OFF)
 
-# DRM/KMS. Passed by the linux-drm CI job and by anyone building for a TTY:
+# DRM/KMS. The debug-drm and release-drm presets turn it on, in folders of
+# their own -- `rmp` picks them on a Linux console with no desktop (session_of()
+# in tools/rmp.py; RMP_DRM=1 or 0 overrides it) -- and the drm-* CI jobs pass it
+# to the release preset:
 #   cmake --preset release -DRMP_TARGET_DRM=ON
-# It picks raylib's PLATFORM=DRM below, which needs libdrm on the build machine
-# and /dev/dri on the machine that runs it.
+# It picks raylib's PLATFORM=DRM below, which needs libdrm, gbm, EGL and GLES on
+# the build machine and none of X11, and /dev/dri and /dev/input on the machine
+# that runs it.
 option(RMP_TARGET_DRM "Build for DRM/KMS: no X11, no Wayland, straight to the screen" OFF)
 
 # Every example under examples/ as its own executable, next to the game. Off by
@@ -747,6 +752,11 @@ target_include_directories(rmp SYSTEM PUBLIC
 # live in CMake's cache and never reach the preprocessor. What the C++ sees is
 # ours, and ours is RMP_.
 target_compile_definitions(rmp PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
+# What src/rmp/console.cpp asks: whether raylib changes the terminal the game
+# is started from, which only its DRM backend does.
+if(RMP_TARGET_DRM)
+  target_compile_definitions(rmp PRIVATE RMP_TARGET_DRM=1)
+endif()
 if(PRODUCTION_BUILD)
   target_compile_definitions(rmp PUBLIC RMP_PRODUCTION_BUILD=1)
 else()
@@ -1273,6 +1283,22 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
     add_dependencies(unit_test sanitizer_canary)
     target_compile_definitions(unit_test PRIVATE
       RMP_SANITIZER_CANARY="$<TARGET_FILE:sanitizer_canary>")
+  endif()
+
+  # A DRM/KMS game's ways of ending -- a crash, abort(), a kill, a sanitizer's
+  # report -- on a pseudo-terminal tests/console_test.cpp makes, to see that
+  # src/rmp/console.cpp puts the terminal back after each. Linux's, like the
+  # terminal it guards; with the framework, and the flags of everything else.
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/console_canary.cpp"
+     AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(console_canary "${CMAKE_CURRENT_SOURCE_DIR}/tests/console_canary.cpp")
+    set_property(TARGET console_canary PROPERTY CXX_STANDARD 20)
+    rmp_link_framework(console_canary)
+    rmp_apply_compile_flags(console_canary)
+    rmp_apply_warnings(console_canary)
+    add_dependencies(unit_test console_canary)
+    target_compile_definitions(unit_test PRIVATE
+      RMP_CONSOLE_CANARY="$<TARGET_FILE:console_canary>")
   endif()
 endif()
 
