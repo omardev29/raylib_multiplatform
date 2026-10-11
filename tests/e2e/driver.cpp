@@ -181,6 +181,10 @@ void navigate(rmp::ui::detail::NavState &out) {
 // What the text field that has the keyboard types: this frame's `type`, and
 // one Backspace for a tap of KEY_BACKSPACE -- the UI's seam for it,
 // read_typed() (src/rmp/ui/internal.h), which reads raylib's queue in a game.
+// Everything a `type` may hold has to fit what the field reads in a frame, or
+// the end of one would be dropped below without a word.
+static_assert(e2e::MAX_TYPED_PER_FRAME <= rmp::ui::detail::MAX_TYPED,
+              "a `type` the grammar allows must fit in what the text field reads");
 void typing(rmp::ui::detail::Typed &out) {
     out = rmp::ui::detail::Typed{};
     for (const int cp : hands.typed) {
