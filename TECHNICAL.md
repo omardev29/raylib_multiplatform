@@ -64,7 +64,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── ads.cpp           #   rmp::ads -- the one file that includes <admob.h>
 │       ├── assets.cpp        #   rmp::assets -- the public surface, with the loose-file fallback
 │       ├── resource.cpp      #   the counted resource slots behind rmp::Texture and friends
-│       ├── pack.cpp          #   open/close resources.rres, read one entry
+│       ├── pack.cpp          #   reads resources.rres itself, every field checked; one entry
+│       ├── pack_internal.h   #   the pack's reader in pieces, and the one rule for a name in it
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
 │       ├── rres_impl.cpp     #   compiles rres once (container + AES + Argon2i + QOI)
 │       ├── animation.cpp     #   rmp::Sprite playback from an Aseprite sheet
@@ -432,6 +433,14 @@ What it writes, per file:
 Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `rmp::assets::` can resolve
 a name to an id without knowing the password up front.
 
+`src/rmp/pack.cpp` reads the container itself, every field checked against the bytes there are
+(rres's own readers believe every field): a pack cut short or with a corrupt directory is refused
+whole at `init()` -- `ASSETS: ... is cut short or corrupt, using loose files` -- and a chunk that
+does not open falls back to its loose file. It reads `RAWD` and `IMGE` chunks, unencrypted, AES and
+XChaCha20-Poly1305; compressed chunks (DEFLATE, LZ4, QOI) and `LINK` chunks are refused, because
+raylib's inflater is undefined behaviour on a corrupt stream (`tests/fuzz/regressions/rres/deflate_*`)
+and `rres_pack` writes none of them.
+
 The packer emits standard rres containers, so the official rrespacker can open them — but nothing
 in this framework requires it.
 
@@ -470,9 +479,10 @@ Three details make the hook safe rather than clever:
   filesystem behind it. So a miss has to delegate by hand, and the exact way to delegate is to
   *unhook, call raylib, hook back*. That runs raylib's own reader, including the Android one, where
   `fopen` is redirected into the APK's asset manager and stdio of our own would find nothing.
-- **It only answers for files under `RMP_RESOURCES_PATH`.** The pack is keyed by bare file name, so
-  matching on the name alone would let a save file called `level1.json` anywhere on disk be
-  answered with the packed `level1.json`.
+- **It only answers for files directly in `RMP_RESOURCES_PATH`.** The pack is keyed by bare file
+  name, so matching on the name alone would let a save file called `level1.json` anywhere on disk be
+  answered with the packed `level1.json`. The pack is flat, so `resources/sub/x.png` is read from
+  the disk; `./` and `..` are taken lexically, and `\` is a separator on Windows only.
 - **Models come along for free.** `rmodels.c` loads `.obj` with `LoadFileText` and
   `.gltf`/`.glb`/`.iqm`/`.vox`/`.m3d` with `LoadFileData`, and it resolves the sibling files an
   `.obj` or `.gltf` refers to — the `.mtl`, the `.bin` buffers, the textures named inside the

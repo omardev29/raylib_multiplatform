@@ -51,9 +51,6 @@ ALLOWED = {
         # raylib's LoadFileData contract: the buffer is RL_MALLOC'd by us and
         # RL_FREE'd by raylib's caller. C ABI, not ours to own.
         "src/rmp/loader_hook.cpp",
-        # The same contract on the way out of the pack: pack_read() returns
-        # bytes UnloadFileData() frees.
-        "src/rmp/pack.cpp",
     },
     "O2": {
         # The loaders: every resource rmp::assets hands out is made here, into

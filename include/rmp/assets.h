@@ -300,7 +300,9 @@ rmp::Texture load_texture(std::string_view name);
 rmp::Sound load_sound(std::string_view name);
 
 // font_size is the baked glyph size, and it is part of the cache key: the same
-// font at 16 and at 32 is two resources, because it is two textures.
+// font at 16 and at 32 is two resources, because it is two textures. It is 1 to
+// 1024: anything else is an empty font, a failed load and one warning -- a
+// negative size aborted inside stb_truetype.
 rmp::Font load_font(std::string_view name, int font_size);
 
 // An .aseprite or .ase from resources/. Every frame is packed into one texture
