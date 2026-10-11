@@ -303,6 +303,13 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: python3 -m unittest discover -s tests -p 'rmp_test.py' -v
 
+      # tools/api_change.py, the `api` job's judge, against scratch
+      # repositories and a stand-in gh -- and that job's own step, played on
+      # a merge commit as GitHub checks a pull request out.
+      - name: The API-change gate
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'api_change_test.py' -v
+
       # tools/binary_check.py judges what the Windows and macOS jobs ship, on
       # runners where nothing else would notice a DLL the player lacks or a
       # macOS the player does not have. Its readers are tested here against
@@ -1152,6 +1159,51 @@ jobs:
         if: steps.docs.outcome == 'failure'
         run: |
           echo "::warning title=docs::rmp-docs does not pass against this commit; a tag of it would not be released. The step above says which page and why."
+
+  # The API-change gate. main changes only by pull request, and a pull
+  # request that changes the API -- any change to a public header under
+  # include/, a comment too, or a key of the .toml: a key or a default of
+  # DEFAULTS in tools/configure.py, a key of raylib_multiplatform.toml -- is
+  # labelled api-change here and fails until it also carries api-approved,
+  # which only the repository's owner, Omar, adds: tools/api_change.py asks
+  # the pull request's events who added it. A label starts no run, so the
+  # job is re-run after he adds it. A push, a tag and a dispatch have no pull
+  # request and skip the job, which a required check counts as passed; in a
+  # game every step is skipped. The base's own copy of the script judges: a
+  # pull request cannot change the judge it is judged by.
+  api:
+    needs: config
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write  # the api-change label
+      issues: read          # the events that say who added api-approved
+    steps:
+      # A pull request is checked out as the merge GitHub makes of it: HEAD^1
+      # is the base branch as it is now, HEAD the two merged.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: needs.config.outputs.framework == 'true'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: An API change waits for Omar
+        if: needs.config.outputs.framework == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          judge="$RUNNER_TEMP/api_change.py"
+          if git cat-file -e HEAD^1:tools/api_change.py 2>/dev/null; then
+            git show HEAD^1:tools/api_change.py > "$judge"
+          else
+            echo "The base has no tools/api_change.py: the pull request's own copy judges."
+            cp tools/api_change.py "$judge"
+          fi
+          python3 "$judge" --base HEAD^1 --head HEAD --pr "$PR"
 
   linux:
     needs: config

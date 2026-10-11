@@ -12,6 +12,55 @@ among them `../next_architecture/` (where the framework is going, and the
 authority on it), `../PROGRESS.md` (the live state of execution: **start every
 cold session there**) and `../rmp-docs/` (the documentation site).
 
+## How an agent works here
+
+Many agents work on this repository at once -- in the cloud, at any hour -- and
+`main` changes only by pull request.
+
+- **One task, one branch, one worktree.** A branch off the current
+  `origin/main`, named for the task, in a working tree no other session uses
+  (`git worktree add`; "One session per working tree" below says why). The
+  branch's diff is that task and nothing else.
+- **Issues labelled `nightly-finding` come first.** `deep.yml` opens one per
+  signature with the command that replays it (`tools/finding.py`). Replay it,
+  make it a named case that is red before the fix (the `rmp-verify` skill says
+  where each kind goes), and close it from the pull request: `Fixes #N`.
+- **The ladder before the pull request, and the pull request says what it
+  showed.** `rmp fmt check`, `rmp lint` and `rmp test`, always; `rmp test
+  examples` when the public API, an example, a scene, the input or the UI
+  changed; `rmp test sanitize` when something parses, casts or frees; `rmp test
+  fuzz` when a parser changed; `rmp test coverage` in the pinned image when
+  `src/rmp` changed. `.github/pull_request_template.md` asks for each stage and
+  where it ran -- the laptop or the pinned image -- what was seen red first, and
+  what is not verified. A pull request is ready when its required checks are
+  green, not before.
+- **What needs Omar, and nobody else:**
+  - **An API change**: any change to a public header under `include/`, a
+    comment included, or to a key of the `.toml` -- a key or a default of
+    `DEFAULTS` in `tools/configure.py`, a key of `raylib_multiplatform.toml`.
+    The `api` job (`tools/api_change.py`) labels the pull request `api-change`
+    and fails until it also carries `api-approved`, which only Omar adds -- it
+    reads who added it. An agent never adds or removes `api-approved`; the pull
+    request says why the API has to change.
+  - **A decision this file calls his** -- "Omar, <date>", "by Omar's
+    decision". Changing one, or working around one, is his call.
+  - **Secrets and GitHub's settings**: secrets, tokens, repository variables,
+    branch protection, labels, a workflow's `permissions:`.
+
+  Say what is needed in the pull request, and stop there.
+- **Never push to `main`**, and never force-push a branch that is not yours.
+- **Never weaken a gate to get green.** A floor lowered, a list that only
+  shrinks grown (`tools/lint_debt.txt`, `tools/pointer_ratchet.txt`,
+  `tools/untested_api.txt`, `tests/property/waivers.txt`,
+  `tests/e2e/pending.txt`), a test skipped or deleted, a tolerance on a golden,
+  a `NOLINT` or a suppression without its reason, a `continue-on-error`, an `||
+  true` after a check: none of it is a fix. A gate that is wrong is fixed in
+  the gate, with the test that shows it was wrong -- or the pull request says
+  why, and Omar decides.
+- **In the cloud only this repository is checked out.** `../PROGRESS.md`,
+  `../next_architecture/` and `../rmp-docs/` are not there: the pull request's
+  description is the report, and what the docs need is written in it.
+
 ## What the project is
 
 A C++20 **framework** (it used to call itself a template) for shipping raylib

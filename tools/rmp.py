@@ -875,6 +875,10 @@ STAGES = [
     Stage("rmp", "this command itself",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "rmp_test.py"])]),
+    # tools/api_change.py, the judge of the `api` job of ci.yml.
+    Stage("api", "the API-change gate: what a pull request changes of the API",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "api_change_test.py"])]),
     Stage("binaries", "the readers that judge a shipped .exe and Mac binary",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "binary_check_test.py"])]),
@@ -1347,6 +1351,8 @@ FRAMEWORK_ONLY = {
     ".claude/": "the framework's agent skills",
     ".clang-tidy": "the framework's lint rules, run by its own tidy job",
     ".github/dependabot.yml": "bumps the framework's pins; a game takes them from the framework",
+    ".github/pull_request_template.md": "the framework's pull-request checklist: its ladder, "
+                                        "its gates and its labels",
     ".github/known-breakage.md": "the framework's canary",
     ".github/scripts/": "the framework's canary scripts",
     ".github/workflows/": "the framework's canary, autofix and web-backends workflows",
