@@ -134,7 +134,7 @@ function(_rmp_sanitize_probe names result why)
   file(SHA256 "${RMP_SANITIZER_HOOKS}" _hooks_hash)
   string(CONCAT _key "${CMAKE_C_COMPILER}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_CXX_COMPILER}|"
          "${CMAKE_CXX_COMPILER_VERSION}|${_flags}|${_link}|${_hooks_hash}|${CMAKE_C_FLAGS}|"
-         "${CMAKE_CXX_FLAGS}|${CMAKE_EXE_LINKER_FLAGS}|${CMAKE_CROSSCOMPILING}")
+         "${CMAKE_CXX_FLAGS}|${CMAKE_EXE_LINKER_FLAGS}|${CMAKE_CROSSCOMPILING}|${RMP_PAXCTL}")
   string(SHA256 _key "${_key}")
   string(MAKE_C_IDENTIFIER "RMP_SANITIZE_RAN_${names}" _remembered)
   if("${${_remembered}}" STREQUAL "${_key}")
@@ -192,6 +192,27 @@ int main(void) {
                   LINK_OPTIONS ${_link}
                   OUTPUT_VARIABLE _out)
       set(_ran 0)
+    elseif(RMP_PAXCTL AND "address" IN_LIST names)
+      # NetBSD: the probe is given the same `paxctl +a` every sanitized
+      # executable gets after its link (below), and only then run -- so it runs
+      # what the game will, and a NetBSD whose ASan cannot start even so says no.
+      set(_exe "${_dir}/probe_${_lang}")
+      file(REMOVE "${_exe}")
+      try_compile(_built SOURCES "${_src}" "${RMP_SANITIZER_HOOKS}"
+                  COMPILE_DEFINITIONS ${_compile}
+                  LINK_OPTIONS ${_link}
+                  OUTPUT_VARIABLE _out
+                  COPY_FILE "${_exe}")
+      set(_ran 1)
+      set(_run_out "")
+      if(_built)
+        execute_process(COMMAND "${RMP_PAXCTL}" +a "${_exe}"
+                        RESULT_VARIABLE _ran OUTPUT_VARIABLE _run_out ERROR_VARIABLE _run_out)
+        if(_ran EQUAL 0)
+          execute_process(COMMAND "${_exe}" RESULT_VARIABLE _ran
+                          OUTPUT_VARIABLE _run_out ERROR_VARIABLE _run_out)
+        endif()
+      endif()
     else()
       try_run(_ran _built SOURCES "${_src}" "${RMP_SANITIZER_HOOKS}"
               COMPILE_DEFINITIONS ${_compile}
@@ -219,6 +240,20 @@ int main(void) {
   set(${_remembered} "${_key}" CACHE INTERNAL "what the sanitizer probe for ${names} ran with")
   set(${result} TRUE PARENT_SCOPE)
 endfunction()
+
+# NetBSD gives a program ASLR unless its ELF note says otherwise, and its ASan
+# will not start in a process that has it: "This sanitizer is not compatible
+# with enabled ASLR ... run paxctl +a". The framework's Debug build linked and
+# then died at boot in the NetBSD VM. paxctl writes that note: every sanitized
+# executable gets `paxctl +a` after its link (rmp_apply_debug_checks), and the
+# probe gets it before it runs. A NetBSD without paxctl does not get ASan.
+set(RMP_PAXCTL "")
+if(CMAKE_SYSTEM_NAME STREQUAL "NetBSD" AND NOT CMAKE_CROSSCOMPILING)
+  find_program(RMP_PAXCTL_PROGRAM paxctl PATHS /usr/sbin /sbin)
+  if(RMP_PAXCTL_PROGRAM)
+    set(RMP_PAXCTL "${RMP_PAXCTL_PROGRAM}")
+  endif()
+endif()
 
 if(RMP_SANITIZE_WANTED)
   if(MSVC)
@@ -327,5 +362,11 @@ function(rmp_apply_debug_checks target)
   endif()
   if(_type STREQUAL "EXECUTABLE")
     target_link_options(${target} PRIVATE ${RMP_SANITIZE_LINK_FLAGS})
+    if(RMP_PAXCTL AND "address" IN_LIST RMP_SANITIZE_APPLIED)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${RMP_PAXCTL}" +a "$<TARGET_FILE:${target}>"
+        COMMENT "NetBSD: ASLR off for ${target}, or its ASan will not start (paxctl +a)"
+        VERBATIM)
+    endif()
   endif()
 endfunction()
