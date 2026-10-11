@@ -401,8 +401,10 @@ def slices(data: bytes) -> list[tuple[str, tuple[int, int, int] | None, str]]:
 
 
 def parse_version(text: str) -> tuple[int, int, int]:
+    # ASCII digits only: int() also reads Arabic-Indic and full-width ones,
+    # and a version a person cannot read as written is no version.
     parts = text.strip().split(".")
-    if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+    if not 1 <= len(parts) <= 3 or not all(p.isascii() and p.isdigit() for p in parts):
         raise ValueError(text)
     nums = [int(p) for p in parts] + [0] * (3 - len(parts))
     return (nums[0], nums[1], nums[2])

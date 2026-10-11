@@ -863,6 +863,18 @@ class RefusalsSayWhyTest(Files, unittest.TestCase):
         self.assertEqual(out, "FAIL: --min-os 'ten' is not a version like 10.15 -- the "
                               "deployment target was not found where it should be\n")
 
+    def test_a_min_os_in_digits_that_are_not_ascii(self):
+        """Found by tests/binary_check_property_test.py: isdigit() and int()
+        read Arabic-Indic and full-width digits, so `--min-os \u0661\u0661.\u0660`
+        was macOS 11.0. A version is ASCII digits, as the budget file's counts
+        and a tag's are."""
+        for text in ("\u0661\u0661.\u0660", "\uff11\uff11.0", "11.\u0660"):
+            with self.subTest(text=text):
+                code, out = self.run_main(["macos", self.file(thin(X86_64, [])),
+                                           "--min-os", text])
+                self.assertEqual(code, 2, out)
+                self.assertIn(f"FAIL: --min-os {text!r} is not a version like 10.15", out)
+
 
 if __name__ == "__main__":
     unittest.main()

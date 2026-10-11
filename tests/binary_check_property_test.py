@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import struct
 import sys
 import tempfile
@@ -215,6 +216,39 @@ class ChecksAlwaysGiveAVerdictTest(unittest.TestCase):
         holds_its_exit_promise(self, *verdict(bc.check_elf, data, pie, musl))
 
 
+class EveryCutIsAVerdictTest(unittest.TestCase):
+    """The commonest damage there is, a download that stopped, at EVERY
+    length of every binary built here -- not the cuts a search happens to
+    draw. The ci profile's 200 draws, a quarter of them cuts and those spread
+    over a megabyte, reached a 64-bit ELF cut inside its dynamic section
+    without --musl -- the traceback 075803f fixed -- in none: with the fix
+    taken back out, ChecksAlwaysGiveAVerdictTest stayed green."""
+
+    def every_cut(self, seeds, check, *flags):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "game"
+            for s, seed in enumerate(seeds):
+                for n in range(len(seed) + 1):
+                    path.write_bytes(seed[:n])
+                    for args in flags:
+                        target = str(path) if check is bc.check_macos else [str(path)]
+                        out = io.StringIO()
+                        with contextlib.redirect_stdout(out):
+                            code = check(target, *args)
+                        said = out.getvalue().replace(str(path), "game")
+                        with self.subTest(seed=s, cut=n, args=args):
+                            holds_its_exit_promise(self, code, said)
+
+    def test_windows(self):
+        self.every_cut(PES, bc.check_windows, (False,), (True,))
+
+    def test_macos(self):
+        self.every_cut(MACHOS, bc.check_macos, ("10.15",))
+
+    def test_elf(self):
+        self.every_cut(ELFS, bc.check_elf, (True, False), (True, True), (False, False))
+
+
 # What can follow a binary: anything, zeros, and bytes shaped like the records
 # a reader walks -- a Mach-O load command (a version one among them), an ELF
 # dynamic entry -- so that a reader that walked on would find something.
@@ -252,24 +286,40 @@ class TrailingBytesChangeNothingTest(unittest.TestCase):
                          verdict(bc.check_elf, data + tail, True, musl))
 
 
+# A version as a person or a script writes one wrong: what int() takes and a
+# version does not (a sign, an underscore, digits of another script), what
+# isdigit() takes and int() does not (a superscript), one part too many.
+NEAR_VERSIONS = st.sampled_from([
+    "10.15", " 10.15 ", "+10.15", "10.+15", "-1", "1_0.15", "10..15", "10.15.", ".10",
+    "10.15.1.2", "", " ", "\u0661\u0660.\u0661\u0665", "10.\u0661\u0665", "\uff11\uff10",
+    "10\u00b2", "\u00b2", "10.15\n", "10,15"])
+
+
 class MinOsTest(unittest.TestCase):
     """--min-os is read or refused, never half-read: a version comes back as
     the numbers written, and anything else is a ValueError, which the check
-    turns into exit 2."""
+    turns into exit 2. A version is one to three groups of ASCII digits:
+    the same word tools/header_budget.txt holds a count to, and P8's for a
+    tag -- int() reads Arabic-Indic and full-width digits, and a version a
+    person cannot read as written is no version."""
 
     @given(st.lists(st.integers(0, 10**6), min_size=1, max_size=3))
     def test_a_version_reads_as_written(self, parts):
         text = ".".join(map(str, parts))
         self.assertEqual(bc.parse_version(text), tuple(parts + [0] * (3 - len(parts))))
 
-    @given(st.text(alphabet="0123456789.-+_ \t", max_size=12) | st.text(max_size=12))
+    @given(NEAR_VERSIONS | st.text(alphabet="0123456789.-+_ \t\u0661\u00b2", max_size=12)
+           | st.text(max_size=12))
     def test_anything_else_is_a_value_error(self, text):
+        written = re.fullmatch(r"[0-9]+(\.[0-9]+){0,2}", text.strip())
         try:
             got = bc.parse_version(text)
         except ValueError:
+            self.assertIsNone(written, f"{text!r} is a version and was refused")
             return
-        self.assertEqual(len(got), 3)
-        self.assertTrue(all(isinstance(n, int) and n >= 0 for n in got))
+        self.assertIsNotNone(written, f"{text!r} is no version and read as {got}")
+        parts = [int(p) for p in text.strip().split(".")]
+        self.assertEqual(got, tuple(parts + [0] * (3 - len(parts))))
 
 
 if __name__ == "__main__":
