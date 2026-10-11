@@ -114,12 +114,12 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
-      # The lint job compiles every example with GCC. This one covers the
-      # compiler most likely to disagree, and it exists for one claim in
-      # particular: that a user can drop to Clay's own macros from their game
-      # code. Those macros are designated initialisers inside a for-loop block,
-      # which is the shape MSVC has historically been fussiest about, so the
-      # claim gets checked here instead of assumed.
+      # The examples job builds every example with the image's clang. This one
+      # covers the compiler most likely to disagree, and it exists for one
+      # claim in particular: that a user can drop to Clay's own macros from
+      # their game code. Those macros are designated initialisers inside a
+      # for-loop block, which is the shape MSVC has historically been fussiest
+      # about, so the claim gets checked here instead of assumed.
       #
       # /Zs is syntax-only: no objects, no linking, seconds. The MSVC
       # environment is imported into this step only, so nothing after it sees a

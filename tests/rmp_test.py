@@ -1537,6 +1537,13 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         "examples": "examples",  # every example built and booted: its own runner
         "coverage": "coverage",  # a second build of every test, instrumented
     }
+    # The steps of a stage that run in a job other than the stage's own, each
+    # with why. A step is named by its token: the script and the words after it.
+    STEP_JOBS = {
+        # the examples played from tests/e2e/, beside the examples job: the
+        # platformer's script alone was most of that job's fourteen minutes
+        "tools/examples_build.sh e2e": "e2e",
+    }
     # The stages no CI job runs, each with why.
     NOT_A_CHECK = {"render-update": "a recording of the golden hash, not a check",
                    "e2e-update": "a recording of the e2e goldens, not a check"}
@@ -1545,12 +1552,20 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         out = []
         for step in stage.steps:
             if step[0] == "run":
-                for a in step[1]:
+                argv = step[1]
+                for i, a in enumerate(argv):
                     if a.startswith(("tools/", "build/")) or a.endswith("_test.py"):
                         # Whole: the lint job has to run build/debug/unit_test from
                         # that folder, not merely build a target of that name --
-                        # which is all a bare `unit_test` asked of it.
-                        out.append(a)
+                        # which is all a bare `unit_test` asked of it. And a
+                        # script with the words that say what part of it runs:
+                        # `examples_build.sh boot` is not `examples_build.sh e2e`.
+                        words = []
+                        for w in argv[i + 1:]:
+                            if w.startswith("-"):
+                                break
+                            words.append(w)
+                        out.append(" ".join([a, *words]) if a.startswith("tools/") else a)
             elif step[0] == "build" and step[1]:
                 out.append(step[1])
             elif step[0] in self.COVERED_BY:
@@ -1565,15 +1580,17 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         for stage in stages:
             if stage.name in self.NOT_A_CHECK:
                 continue
-            name = self.JOBS.get(stage.name, "lint")
-            if name not in jobs:
-                out.append(f"`rmp test {stage.name}` belongs to the CI job `{name}`, "
-                           "and ci.yml has none")
-                continue
-            # A stage the game runs too needs a step the game's CI runs.
-            usable = [code for is_gated, code in job_steps(jobs, name)
-                      if not is_gated or stage.scope == "framework"]
             for token in self.tokens(stage):
+                name = self.STEP_JOBS.get(token, self.JOBS.get(stage.name, "lint"))
+                if name not in jobs:
+                    gap = (f"`rmp test {stage.name}` belongs to the CI job `{name}`, "
+                           "and ci.yml has none")
+                    if gap not in out:
+                        out.append(gap)
+                    continue
+                # A stage the game runs too needs a step the game's CI runs.
+                usable = [code for is_gated, code in job_steps(jobs, name)
+                          if not is_gated or stage.scope == "framework"]
                 if not any(token in code for code in usable):
                     out.append(f"`rmp test {stage.name}` runs {token} and the CI job "
                                f"`{name}` does not" +
@@ -1591,6 +1608,25 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         names = {s.name for s in rmp.STAGES}
         self.assertEqual(set(self.JOBS) - names, set())
         self.assertEqual(set(self.NOT_A_CHECK) - names, set())
+        steps = {token for s in rmp.STAGES if s.name not in self.NOT_A_CHECK
+                 for token in self.tokens(s)}
+        self.assertEqual(set(self.STEP_JOBS) - steps, set(),
+                         "STEP_JOBS names a step no stage of `rmp test` runs")
+
+    def test_the_examples_stage_is_its_two_halves_in_their_two_jobs(self):
+        """`rmp test examples` plays everything; CI splits it over two jobs, and
+        neither may do the other's half too -- the boot run does not play the
+        scripts, and the e2e job does not boot the examples a second time."""
+        jobs = load_workflow(self, "ci.yml")["jobs"]
+        stage = next(s for s in rmp.STAGES if s.name == "examples")
+        self.assertEqual([t for t in self.tokens(stage) if "examples_build" in t],
+                         ["tools/examples_build.sh boot", "tools/examples_build.sh e2e"])
+        def runs(job):
+            return [code for _, code in job_steps(jobs, job) if "examples_build.sh" in code]
+        self.assertEqual(len(runs("examples")), 1)
+        self.assertEqual(len(runs("e2e")), 1)
+        self.assertRegex(runs("examples")[0], r"tools/examples_build\.sh boot\s*$")
+        self.assertRegex(runs("e2e")[0], r"tools/examples_build\.sh e2e\s*$")
 
     def test_a_stage_whose_step_left_its_job_is_a_gap(self):
         """Seen red, each way it can go wrong: the coverage step taken out of
@@ -1625,6 +1661,32 @@ class StagesAgreeWithLintTest(unittest.TestCase):
         self.assertEqual(self.gaps(jobs, rmp.STAGES),
                          ["`rmp test seam` runs tools/seam_check.sh and the CI job `lint` "
                           "does not"])
+
+        # A step the map sends to a job of its own: the e2e half, gone from
+        # its job, moved into the examples job's, and its job deleted.
+        jobs = without("e2e", "tools/examples_build.sh e2e")
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test examples` runs tools/examples_build.sh e2e and the CI "
+                          "job `e2e` does not"])
+        jobs["examples"]["steps"].append({"run": "bash tools/examples_build.sh e2e"})
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test examples` runs tools/examples_build.sh e2e and the CI "
+                          "job `e2e` does not"])
+        jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
+        del jobs["e2e"]
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test examples` belongs to the CI job `e2e`, and ci.yml has "
+                          "none"])
+
+        # The examples job back to the whole script: it would play the scripts
+        # as well, and it no longer runs the half the map gives it.
+        jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
+        for step in jobs["examples"]["steps"]:
+            if "examples_build.sh" in str(step.get("run", "")):
+                step["run"] = "bash tools/examples_build.sh"
+        self.assertEqual(self.gaps(jobs, rmp.STAGES),
+                         ["`rmp test examples` runs tools/examples_build.sh boot and the CI "
+                          "job `examples` does not"])
 
         # A stage a game runs, whose step only the framework runs.
         jobs = copy.deepcopy(load_workflow(self, "ci.yml")["jobs"])
@@ -1724,7 +1786,7 @@ class CiModeTest(unittest.TestCase):
         # Every job of the framework's own, read off the file: a new one that
         # the release does not wait for is a check a tag can skip.
         own = sorted(name for name, job in jobs.items() if gated(job.get("if")))
-        self.assertEqual(own, ["coverage", "docs", "examples", "rmp_new"])
+        self.assertEqual(own, ["coverage", "docs", "e2e", "examples", "rmp_new", "tidy"])
         for name in own:
             with self.subTest(job=name):
                 self.assertTrue(gated(jobs[name].get("if")))

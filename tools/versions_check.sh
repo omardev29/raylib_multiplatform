@@ -108,8 +108,8 @@ check "gradle sha256" gradle_sha256 "$(sed -nE 's/^distributionSha256Sum=(.*)$/\
 # and every diff becomes noise. Skipped where the tools are not installed —
 # most jobs have no reason to.
 echo "== clang tooling (if installed) =="
-# The framework's own pin: its lint job formats and lints with exactly this
-# version. A game made with `rmp new` formats with whatever clang-format its
+# The framework's own pin: its lint job formats and its tidy job lints with
+# exactly this version. A game made with `rmp new` formats with whatever clang-format its
 # author has -- a Windows runner, or a laptop, ships another one -- so there
 # the pin is not the game's to keep. tests/configure_test.py is how rmp tells
 # the framework from a game, and this asks the same question.
@@ -218,7 +218,7 @@ if [ -r "$IMAGE_MANIFEST" ]; then
     check "image actionlint"          actionlint          "$(m actionlint)"
     check "image butler"              butler              "$(m butler)"
     # One value, two names: the image calls the clang bundle clang_tools, the
-    # frozen block names the two binaries the lint job actually runs.
+    # frozen block names the two binaries the lint and tidy jobs actually run.
     check "image clang tooling"       clang_format        "$(m clang_tools)"
 
     # ZIG_WARM_GLIBC is not a pin of its own -- it is a COPY of [linux] glibc,

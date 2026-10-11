@@ -7726,6 +7726,20 @@ class CiRequiresSanitizersTest(unittest.TestCase):
         smoke = step_block(examples, "Smoke on X11 and Mesa (xvfb)")
         self.assertIn("xvfb-run -a ./rmp test smoke", smoke)
 
+    def test_the_e2e_job_requires_them_and_keeps_its_pictures(self):
+        """The e2e half of tools/examples_build.sh, in a job of its own: the
+        same sanitized Debug build, and the expected/actual/diff of a shot
+        that differed uploaded whatever the outcome."""
+        e2e = job_block(self.CI, "e2e")
+        head = e2e[:e2e.index("    steps:")]
+        self.assertIn('RMP_REQUIRE_SANITIZERS: "1"', head)
+        self.assertIn("run: bash tools/examples_build.sh e2e\n",
+                      step_block(e2e, "Play every e2e script (software renderer)"))
+        pictures = step_block(e2e, "E2e pictures")
+        self.assertIn("if: always()", pictures)
+        self.assertIn("path: build/examples-check/e2e/", pictures)
+        self.assertNotIn("e2e-pictures", job_block(self.CI, "examples"))
+
     def test_the_gcc_run_requires_them_itself(self):
         script = (REPO / "tools" / "sanitize_check.sh").read_text()
         self.assertIn("RMP_REQUIRE_SANITIZERS=1 cmake", script)
@@ -8242,6 +8256,167 @@ exit "$STUB_STATUS"
 GAME
 chmod +x build/memory/game
 """
+
+
+# Stands in for cmake under tools/examples_build.sh: every call is written to
+# $CMAKE_LOG; a configure writes the two target lists the real one writes; a
+# build writes, for each target it was asked for (or for `all`: every example
+# but the header-only ones, and the two players -- never an e2e target, which
+# is out of `all`), a program that prints what the script looks for.
+FAKE_EXAMPLES_CMAKE = r"""#!/bin/sh
+echo "$*" >> "$CMAKE_LOG"
+B=build/examples-check
+case " $* " in
+  *" --build "*)
+    targets=$(printf '%s\n' "$@" | awk 'prev == "--target" { print } { prev = $0 }')
+    if [ -z "$targets" ]; then
+      targets="platformer_play input_play"
+      for t in $(cat "$B/example_targets.txt"); do
+        case " $HEADER_ONLY " in *" $t "*) ;; *) targets="$targets $t" ;; esac
+      done
+    fi
+    for t in $targets; do
+      case "$t" in
+        e2e_*) printf '#!/bin/sh\necho "RAY_TEST_BOOT_OK assets_failed=0 x"\necho "E2E PASS"\necho %s >> "$PLAY_LOG"\n' "$t" > "$B/$t" ;;
+        platformer_play) printf '#!/bin/sh\necho "PLAY PASS"\n' > "$B/$t" ;;
+        input_play) printf '#!/bin/sh\necho "INPUT PASS"\n' > "$B/$t" ;;
+        *) printf '#!/bin/sh\necho "RAY_TEST_BOOT_OK assets_failed=0 x"\necho "RAY_TEST_RENDER_OK pixels=1 ratio=0.1"\necho "RAY_TEST_DONE_FRAMES"\necho png > "$RAY_TEST_SCREENSHOT"\necho %s >> "$BOOT_LOG"\n' "$t" > "$B/$t" ;;
+      esac
+      chmod +x "$B/$t"
+    done
+    exit 0 ;;
+esac
+mkdir -p "$B"
+printf '%s\n' $EXAMPLE_TARGETS > "$B/example_targets.txt"
+printf '%s\n' $E2E_TARGETS > "$B/e2e_targets.txt"
+"""
+
+
+class ExamplesBuildModesTest(unittest.TestCase):
+    """tools/examples_build.sh in its three modes, in a copy of the tree,
+    against a cmake that writes stand-in programs. CI runs `boot` in the
+    examples job and `e2e` in the e2e job, side by side; `rmp test examples`
+    runs the whole script. Each half builds what it runs and nothing else, the
+    boot half plays no script and the e2e half boots no example, and together
+    they are exactly what the whole script does."""
+
+    @classmethod
+    def setUpClass(cls):
+        examples = REPO / "examples"
+        mains = sorted({m.parent.parent for pattern in ("*/*/src/main.c*", "*/src/main.c*")
+                        for m in examples.glob(pattern)})
+        cls.booted = ["example_" + d.relative_to(examples).as_posix().replace("/", "_")
+                      for d in mains]
+        header_only = []
+        for src in sorted(list(examples.glob("*/*/src")) + list(examples.glob("*/src"))):
+            if not any((src / m).exists() for m in ("main.cpp", "main.c")) and \
+                    any(src.rglob("*.cpp")):
+                rel = src.parent.relative_to(examples).as_posix()
+                header_only.append("example_" + rel.replace("/", "_"))
+        cls.header_only = header_only
+        cls.played = sorted("e2e_" + s.relative_to(REPO / "tests" / "e2e").with_suffix("")
+                            .as_posix().replace("/", "_")
+                            for s in (REPO / "tests" / "e2e").rglob("*.e2e"))
+
+    def run_script(self, *mode):
+        import shutil
+        import subprocess
+        if sys.platform == "win32" or shutil.which("bash") is None:
+            self.skipTest("examples_build.sh is bash")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "tools").mkdir()
+        for name in ("examples_build.sh", "examples_check.sh"):
+            shutil.copy(REPO / "tools" / name, root / "tools" / name)
+        shutil.copytree(REPO / "examples", root / "examples")
+        shutil.copytree(REPO / "tests" / "e2e", root / "tests" / "e2e")
+        fake = root / "fake"
+        fake.mkdir()
+        (fake / "cmake").write_text(FAKE_EXAMPLES_CMAKE)
+        (fake / "cmake").chmod(0o755)
+        logs = {name: root / f"{name}.log" for name in ("cmake", "boot", "play")}
+        env = dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}",
+                   CMAKE_LOG=str(logs["cmake"]), BOOT_LOG=str(logs["boot"]),
+                   PLAY_LOG=str(logs["play"]), HEADER_ONLY=" ".join(self.header_only),
+                   EXAMPLE_TARGETS=" ".join(self.booted + self.header_only),
+                   E2E_TARGETS=" ".join(self.played), CMAKE_BUILD_PARALLEL_LEVEL="4")
+        env.pop("RMP_E2E_UPDATE", None)
+        got = subprocess.run(["bash", "tools/examples_build.sh", *mode], cwd=root, env=env,
+                             capture_output=True, text=True, timeout=300)
+        def lines(name):
+            path = logs[name]
+            return path.read_text().splitlines() if path.exists() else []
+        return got, lines("cmake"), sorted(lines("boot")), sorted(lines("play"))
+
+    def builds(self, calls):
+        return [c for c in calls if c.startswith("--build ")]
+
+    def test_the_tree_has_what_this_test_counts(self):
+        self.assertGreaterEqual(len(self.booted), 20)
+        self.assertGreaterEqual(len(self.played), 16)
+        self.assertEqual(len(self.header_only), 1)
+
+    def test_boot_builds_and_boots_everything_and_plays_no_script(self):
+        got, calls, booted, played = self.run_script("boot")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(booted, sorted(self.booted))
+        self.assertEqual(played, [], "the boot half played e2e scripts")
+        # One build, of `all` -- out of which the e2e targets are.
+        self.assertEqual(self.builds(calls), ["--build build/examples-check"])
+        self.assertIn("PLAY PASS", got.stdout)
+        self.assertIn("INPUT PASS", got.stdout)
+        self.assertNotIn("e2e", got.stdout.split("== examples: the input")[1])
+
+    def test_e2e_builds_and_plays_every_script_and_boots_nothing(self):
+        got, calls, booted, played = self.run_script("e2e")
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(played, self.played)
+        self.assertEqual(booted, [], "the e2e half booted the examples")
+        (build,) = self.builds(calls)
+        asked = build.split("--target ")[1:]
+        self.assertEqual(sorted(a.strip() for a in asked), self.played)
+        self.assertNotIn("== examples: boot ==", got.stdout)
+        self.assertIn(f"PASS: {len(self.played)} script(s) played to their end", got.stdout)
+
+    def test_the_whole_script_is_the_two_halves(self):
+        got, calls, booted, played = self.run_script()
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertEqual(booted, sorted(self.booted))
+        self.assertEqual(played, self.played)
+        builds = self.builds(calls)
+        self.assertEqual(len(builds), 2, builds)
+        self.assertEqual(builds[0], "--build build/examples-check")
+        self.assertEqual(sorted(a.strip() for a in builds[1].split("--target ")[1:]),
+                         self.played)
+
+    def test_every_configure_asks_for_the_optimized_renderer(self):
+        """The examples' build -- boots, the platformer's bot, the e2e
+        scripts -- and no other: the render check's golden hash is drawn at
+        -O0 everywhere it is compared."""
+        for mode in ((), ("boot",), ("e2e",)):
+            with self.subTest(mode=mode):
+                _, calls, _, _ = self.run_script(*mode)
+                configures = [c for c in calls if not c.startswith("--build ")]
+                self.assertTrue(configures)
+                for call in configures:
+                    self.assertIn("-DPLATFORM=Memory", call)
+                    self.assertIn("-DRMP_RAYLIB_OPTIMIZED=ON", call)
+                    self.assertIn("-DCMAKE_BUILD_TYPE=Debug", call)
+        for script in ("render_check.sh", "coverage_check.sh", "sanitize_check.sh",
+                       "header_check.sh", "shipped_check.sh"):
+            with self.subTest(script=script):
+                self.assertNotIn("RMP_RAYLIB_OPTIMIZED", (REPO / "tools" / script).read_text())
+        for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn("RMP_RAYLIB_OPTIMIZED", workflow.read_text())
+        self.assertNotIn("RMP_RAYLIB_OPTIMIZED", (REPO / "tools" / "rmp.py").read_text())
+
+    def test_an_unknown_mode_is_refused(self):
+        got, calls, _, _ = self.run_script("boots")
+        self.assertEqual(got.returncode, 2)
+        self.assertIn("usage: tools/examples_build.sh [boot | e2e]", got.stdout)
+        self.assertEqual(calls, [])
 
 
 class RaylibOptimizedTest(unittest.TestCase):
@@ -9397,17 +9572,37 @@ class LintDebtTest(unittest.TestCase):
 
 
 class LintWiringTest(unittest.TestCase):
-    """`rmp lint` and the CI lint job run the same script over the same three
+    """`rmp lint` and the CI tidy job run the same script over the same three
     folders, against a compile database of their own."""
 
     def test_both_call_the_script(self):
         rmp = (REPO / "tools" / "rmp.py").read_text()
-        lint = job_block(REPO / ".github" / "workflows" / "ci.yml", "lint")
+        ci = REPO / ".github" / "workflows" / "ci.yml"
+        tidy = job_block(ci, "tidy")
         self.assertIn('"tools/lint.sh"', rmp)
-        self.assertIn("bash tools/lint.sh", lint)
+        self.assertIn("run: bash tools/lint.sh\n", tidy)
         # Nobody calls clang-tidy around it any more: one list of files.
-        self.assertNotIn("clang-tidy -p", lint)
+        for job in ("tidy", "lint"):
+            with self.subTest(job=job):
+                self.assertNotIn("clang-tidy -p", job_block(ci, job))
         self.assertNotIn('"clang-tidy"', rmp)
+
+    def test_clang_tidy_runs_once_on_a_push_in_a_job_of_its_own(self):
+        """It was a step of the lint job, 6m57s of its 14m30s on the push of
+        ed7e5fb against a 15-minute timeout. Moved, not copied: a second run
+        in the lint job would put that job back where it was. Framework only,
+        as the step was -- a game has no .clang-tidy -- and the release waits
+        for it (CiModeTest)."""
+        yaml = require_yaml(self)
+        jobs = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
+        runs = [name for name, job in jobs.items() for step in job.get("steps", [])
+                if "tools/lint.sh" in str(step.get("run", ""))]
+        self.assertEqual(runs, ["tidy"])
+        tidy = jobs["tidy"]
+        self.assertEqual(tidy["if"], "needs.config.outputs.framework == 'true'")
+        self.assertEqual(tidy["container"]["image"], "${{ needs.config.outputs.build_image }}")
+        self.assertEqual(tidy["needs"], "config")
+        self.assertIn("timeout-minutes", tidy)
 
     def test_the_script_lints_src_tests_and_examples(self):
         text = (REPO / "tools" / "lint.sh").read_text()

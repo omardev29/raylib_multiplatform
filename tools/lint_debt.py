@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """clang-tidy over the files tools/lint.sh lists, held to tools/lint_debt.txt.
 
-    python3 tools/lint_debt.py check FILE...   the gate (`rmp lint`, the CI lint job)
+    python3 tools/lint_debt.py check FILE...   the gate (`rmp lint`, the CI tidy job)
     python3 tools/lint_debt.py lower FILE...   the same, and tools/lint_debt.txt
                                                rewritten with what is left
 

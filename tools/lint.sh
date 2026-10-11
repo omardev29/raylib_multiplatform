@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # clang-tidy over src/, tests/ and examples/ -- the same run on a laptop and in
-# the CI lint job, which both call this.
+# the CI tidy job, which both call this.
 #
 # The compile database is build/lint/, from the configure-only `lint` preset:
 # tests and examples ON, nothing built. A separate directory, because turning

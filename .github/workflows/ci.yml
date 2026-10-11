@@ -3,12 +3,16 @@
 #   push / pull_request  ->  fast lane: Linux x64, Web, Android, Windows x64
 #                            (none at all with [ci] on_push = false in the .toml)
 #   tag v*               ->  all 17 targets, then Release and itch.io
-#   workflow_dispatch    ->  either, via the `full` input
+#   workflow_dispatch    ->  either, via the `full` input, or exactly the targets
+#                            and groups `targets` lists, comma-separated: the
+#                            debug lane, -f targets=linux-x64-glibc,windows-x64,macos
 #
 # Why a fast lane: the full matrix spends about an hour of BSD QEMU and macOS
 # runner time. Paying that on every commit means either a slow loop or (much
 # worse) people learning to ignore CI. The subset below covers the four targets
-# that catch most regressions, in about ten minutes.
+# that catch most regressions, beside the framework's own jobs (lint, tidy,
+# examples, e2e, coverage, docs, rmp_new), every one of them side by side and
+# none of them over about eight minutes.
 #
 # Every platform lives in its own `_*.yml` reusable workflow. Three things
 # routinely go wrong when splitting workflows this way, so they are worth
@@ -186,10 +190,11 @@ jobs:
   lint:
     needs: config
     runs-on: ubuntu-24.04
-    # 15, not 10: the unit tests, the layout test and the render check are
-    # instrumented by ASan and UBSan now (several times slower), and the gcc
-    # build of the unit tests follows them. It took 5m25s before that.
-    timeout-minutes: 15
+    # 12: 7m33s on the push of ed7e5fb without clang-tidy (14m30s with it,
+    # of its 15), which is the `tidy` job's now. The unit tests, the layout
+    # test and the render check are instrumented by ASan and UBSan, and the gcc
+    # build of the unit tests follows them.
+    timeout-minutes: 12
     permissions:
       contents: read
       packages: read
@@ -471,11 +476,11 @@ jobs:
 
       # The headless UI layout assertions: four resolutions, no window, no GPU,
       # and the thing phases 1-4 of the UI architecture are gated on. It was
-      # CONFIGURED in this job (the clang-tidy step's preset turns
-      # BUILD_UI_TESTS on so the file gets a real compile_commands.json entry)
-      # and never built or run -- so for four phases it ran on developer
-      # machines only. StagesAgreeWithLintTest in tests/rmp_test.py is what
-      # stops a stage of `rmp test` existing in one place and not the other.
+      # only ever CONFIGURED in CI (clang-tidy's preset turns BUILD_UI_TESTS on
+      # so the file gets a real compile_commands.json entry) and never built or
+      # run -- so for four phases it ran on developer machines only.
+      # StagesAgreeWithLintTest in tests/rmp_test.py is what stops a stage of
+      # `rmp test` existing in one place and not the other.
       - name: UI layout tests (headless)
         if: needs.config.outputs.framework == 'true'
         env:
@@ -554,18 +559,6 @@ jobs:
           [ "$FAILED" -eq 0 ] || { echo "FAIL: run \`rmp fmt\` and commit the result."; exit 1; }
           echo "PASS: clang-format clean"
 
-      # clang-tidy needs a compile database, so the project is CONFIGURED here
-      # but never built -- the database is a by-product of configuring and
-      # costs a couple of seconds.
-      # src/, tests/ and examples/ -- examples with their own .clang-tidy:
-      # the framework's names and every bug-finding check, without the
-      # modernize/readability ones. Against build/lint, a configure-only
-      # preset, and failing on any file that has no compile command, because
-      # clang-tidy would otherwise guess its flags. Same script as `rmp lint`.
-      - name: clang-tidy
-        if: needs.config.outputs.framework == 'true'
-        run: bash tools/lint.sh
-
       # The second static analyser: cppcheck reads src/rmp with its own value
       # flow, not clang's, and found what clang-tidy had let through -- a
       # struct nothing used, an unsigned count tested for `<= 0`. Zero
@@ -577,6 +570,51 @@ jobs:
         env:
           RMP_REQUIRE_CPPCHECK: "1"
         run: bash tools/cppcheck_check.sh
+
+  # clang-tidy over src/, tests/ and examples/ -- examples with their own
+  # .clang-tidy: the framework's names and every bug-finding check, without the
+  # modernize/readability ones -- held to tools/lint_debt.txt: a warning it
+  # does not owe fails, and so does a count that grew or one above what is
+  # left. Same script as `rmp lint`, with --experimental-custom-checks inside
+  # it. It needs a compile database, so the project is CONFIGURED (the `lint`
+  # preset, build/lint) but never built, and a file with no compile command
+  # fails rather than letting clang-tidy guess its flags.
+  #
+  # Its own job, not a step of `lint`: it was 6m57s of that job's 14m30s on
+  # the push of ed7e5fb, the one thing between it and its timeout, and nothing
+  # in it waits for anything else there. One clang-tidy per file, as many at
+  # once as the runner has processors, the costliest first, and one verdict
+  # over all of them: a header two files include is one warning, not two.
+  tidy:
+    needs: config
+    if: needs.config.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    # 12: the step took 6m57s of the lint job on the push of ed7e5fb. In the
+    # pinned image on four processors the same 104 files took 519 s in path
+    # order, and 369 s on a machine twice as loaded with the costliest first
+    # and the e2e driver read once instead of sixteen times; with the image's
+    # ~90 s to start, about six minutes.
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The lint preset includes the generated rmp/config.h and cmake files.
+      - name: Generate configuration
+        run: |
+          set -euo pipefail
+          python3 tools/configure.py
+          clang-tidy --version | head -2
+
+      - name: clang-tidy
+        run: bash tools/lint.sh
 
   # examples/ is documentation with code in it, and documentation rots quietly.
   # It already has, twice: the header unification removed the `inlining` macro
@@ -592,15 +630,19 @@ jobs:
   # on the critical path of the build they are waiting for. It also keeps it off
   # developers' machines — `rmp test` does not run it by default. In the pinned
   # image like every other Linux job, so the compiler is the one CI ships with.
+  #
+  # The e2e scripts are the `e2e` job's, beside this one: the two halves of
+  # tools/examples_build.sh, which `rmp test examples` runs one after the other.
   examples:
     needs: config
     if: needs.config.outputs.framework == 'true'
     runs-on: ubuntu-24.04
-    # 25, not 15: every example is a Debug build of the framework, so every
-    # boot runs under ASan and UBSan, and the desktop smoke below builds raylib
-    # once more with GLFW. It took 2m22s uninstrumented; locally the
-    # instrumented `rmp test examples` takes about three times as long.
-    timeout-minutes: 25
+    # 10: on the push of ed7e5fb the build, the boots, the platformer's bot and
+    # the input took 199 s of the step, the e2e scripts 527 s more, and the
+    # smoke 34 s. Without the scripts, and with raylib's renderer at -O2: 152 s
+    # in the pinned image on four processors on a loaded machine, against 254 s
+    # for the same at -O0 -- about four minutes with the image's ~90 s to start.
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -624,11 +666,12 @@ jobs:
 
       # Shape, build, boot, play: the script asserts the count of examples it
       # found against the count it built and the count it ran, so a glob that
-      # stops matching cannot look like a folder where everything passes -- and
-      # the same for the e2e scripts, whose goldens are compared exactly here,
-      # in the image they were recorded in.
+      # stops matching cannot look like a folder where everything passes. Then
+      # the platformer played to the end by its bot, and rmp::input read both
+      # ways a game is written. `boot`: everything but the e2e scripts, which
+      # the e2e job builds and plays.
       - name: Build, boot and play every example (software renderer)
-        run: bash tools/examples_build.sh
+        run: bash tools/examples_build.sh boot
 
       # The game on a real window system: GLFW over X11 on Xvfb, Mesa's
       # llvmpipe for GL -- the libraries LeakSanitizer would report if they
@@ -645,6 +688,50 @@ jobs:
           name: example-screenshots
           path: build/examples-check/screenshots/
           if-no-files-found: warn
+
+  # tests/e2e/: the examples PLAYED from a script, frame by frame, and every
+  # shot compared with its golden exactly -- here, in the image the goldens
+  # were recorded in, where tools/examples_build.sh sets RMP_E2E_COMPARE=1.
+  # The second half of that script, `e2e`: it builds the e2e targets and plays
+  # them, as many at once as the runner has processors, the longest first; the
+  # examples job builds and boots everything else, and plays none of them.
+  #
+  # Its own job because it is the longest thing CI runs on a push: the
+  # platformer's script alone took 527 s of the examples job's 726 s step on
+  # the push of ed7e5fb, at -O0 under ASan, against a 600 s ceiling per script.
+  e2e:
+    needs: config
+    if: needs.config.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    # 15: above the build and one script's own 600 s ceiling (E2E_LIMIT in the
+    # script), so a script that hangs is ended by examples_build.sh, which says
+    # which. In the pinned image on four processors on a loaded machine: the
+    # e2e targets built in 105 s and the 16 scripts played in 175 s, the
+    # platformer's the longest (527 s on the runner at -O0) -- about five
+    # minutes with the image's ~90 s to start.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.config.outputs.build_image }}
+    defaults:
+      run:
+        shell: bash
+    # Debug builds of the framework, like the examples job's, instrumented by
+    # [dev] sanitize; one that could not be is a failure here.
+    env:
+      RMP_REQUIRE_SANITIZERS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Generate configuration
+        run: python3 tools/configure.py
+
+      # The script asserts as many scripts as e2e targets as runs, so a script
+      # that stopped being played cannot look like one that passed.
+      - name: Play every e2e script (software renderer)
+        run: bash tools/examples_build.sh e2e
 
       # What tests/e2e/ left behind: for every shot that differed from its
       # golden, the expected picture, the actual one and the difference. A
@@ -1041,19 +1128,23 @@ jobs:
   # [targets] reports `skipped`, and demanding success would mean disabling any
   # platform silently disables releases too.
   #
-  # examples, rmp_new, coverage and docs are the framework's own; a game skips them. Skipped
-  # passes ONLY in a game: in the framework a skipped job is one that did not
+  # tidy, examples, e2e, rmp_new, coverage and docs are the framework's own; a game skips
+  # them. Skipped passes ONLY in a game: in the framework a skipped job is one that did not
   # run, and a release it did not check.
   # ---------------------------------------------------------------------------
   release:
-    needs: [config, lint, examples, rmp_new, coverage, docs, linux, web, windows, android, apple,
-            bsd]
+    needs: [config, lint, tidy, examples, e2e, rmp_new, coverage, docs, linux, web, windows,
+            android, apple, bsd]
     if: >
       always() &&
       github.ref_type == 'tag' &&
       needs.lint.result == 'success' &&
+      (needs.tidy.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.tidy.result == 'skipped')) &&
       (needs.examples.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.examples.result == 'skipped')) &&
+      (needs.e2e.result == 'success' ||
+       (needs.config.outputs.framework == 'false' && needs.e2e.result == 'skipped')) &&
       (needs.rmp_new.result == 'success' ||
        (needs.config.outputs.framework == 'false' && needs.rmp_new.result == 'skipped')) &&
       (needs.coverage.result == 'success' ||

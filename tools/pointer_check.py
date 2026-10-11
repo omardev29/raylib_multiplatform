@@ -35,7 +35,7 @@ WHERE IT IS ALLOWED, and nowhere else:
                the list cannot keep a debt that was paid.
 
 Bodies are not read: a pointer inside an inline function is implementation,
-and the lint job's clang-tidy is what looks there.
+and the tidy job's clang-tidy is what looks there.
 
 Exit: 0 clean (or no clang++ to read with, said so -- RMP_REQUIRE_CLANG=1 makes
 that a failure, as CI sets it); 1 a finding, a dead ratchet line, or a header

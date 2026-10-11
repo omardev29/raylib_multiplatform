@@ -391,9 +391,12 @@ STAGES = [
           [("render", "check")], scope="both"),
     Stage("smoke", "build the game, boot it, see it draw",
           [("configure", []), ("build", None), ("smoke",)], scope="both"),
+    # The two halves of the script, one after the other: CI runs them side by
+    # side, `boot` in the examples job and `e2e` in a job of its own.
     Stage("examples", "boot every example, play the platformer and the e2e scripts",
           [("run", ["{python}", "tools/configure.py"]),
-           ("run", ["bash", "tools/examples_build.sh"])], in_all=False),
+           ("run", ["bash", "tools/examples_build.sh", "boot"]),
+           ("run", ["bash", "tools/examples_build.sh", "e2e"])], in_all=False),
     Stage("sanitize", "the unit tests again under ASan and UBSan",
           [("run", ["bash", "tools/test_locales.sh", "build/test-locales"]),
            ("run", ["bash", "tools/sanitize_check.sh"])], in_all=False),
@@ -793,7 +796,7 @@ FRAMEWORK_ONLY = {
     "TECHNICAL.md": "the framework's notes for whoever maintains it",
     "CLAUDE.md": "the framework's instructions for an agent working on it",
     ".claude/": "the framework's agent skills",
-    ".clang-tidy": "the framework's lint rules, run by its own lint job",
+    ".clang-tidy": "the framework's lint rules, run by its own tidy job",
     ".github/dependabot.yml": "bumps the framework's pins; a game takes them from the framework",
     ".github/known-breakage.md": "the framework's canary",
     ".github/scripts/": "the framework's canary scripts",

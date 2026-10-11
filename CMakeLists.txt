@@ -961,6 +961,10 @@ message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 # the tree; tools/examples_build.sh runs what e2e_targets.txt lists. Framework
 # only: a game made with `rmp new` has no tests/e2e/.
 #
+# And out of `all`: `tools/examples_build.sh boot` builds everything else and
+# plays none of these, and its `e2e` half builds exactly these by name -- two
+# CI jobs side by side, neither building what the other runs.
+#
 # The driver, the script reader and the comparison are compiled ONCE, into
 # rmp_e2e_driver, an object library -- objects, not an archive, or the linker
 # would leave out the driver, which nothing calls: it installs itself. What
@@ -969,6 +973,7 @@ message(STATUS "=== RESOURCES PATH: ${RESOURCES_PATH} ===")
 # e2e build and had clang-tidy read it sixteen times.
 function(rmp_add_e2e NAME DIR REL)
   rmp_add_game(${NAME} "${DIR}")
+  set_property(TARGET ${NAME} PROPERTY EXCLUDE_FROM_ALL TRUE)
   if(NOT TARGET rmp_e2e_driver)
     add_library(rmp_e2e_driver OBJECT
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/driver.cpp"

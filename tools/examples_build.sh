@@ -29,6 +29,12 @@
 #      pinned build image; reported and not enforced anywhere else. As many
 #      scripts as e2e targets as runs. See tests/e2e/driver.cpp.
 #
+# 1-4 are `boot` and 5 is `e2e`, and with no argument it is both, one after
+# the other -- `rmp test examples`. CI runs the two halves in two jobs side by
+# side (`examples` and `e2e` in ci.yml), each building what it runs: the e2e
+# targets are out of the build's `all` (CMakeLists.txt, rmp_add_e2e), so the
+# boot run neither builds nor plays them.
+#
 # raylib's renderer -- rcore.c, which carries the rasteriser, rshapes.c and
 # rtext.c -- is compiled at -O2 -ffp-contract=off here, still under ASan and
 # UBSan, and everything else at -O0 like every Debug build
@@ -45,8 +51,10 @@
 # from the entry point -- it used to be skipped for having no frame budget,
 # which meant the one file people copy to leave the framework was never run.
 #
-# Usage: tools/examples_build.sh                 (from the repo root)
+# Usage: tools/examples_build.sh                 (from the repo root) 1-5
 #        RMP_EXAMPLE_FRAMES=60 tools/examples_build.sh
+#        tools/examples_build.sh boot            1-4: shape, build, boot, the
+#                                                 platformer and the input
 #        tools/examples_build.sh e2e             5. alone: builds the e2e
 #                                                 targets and plays them
 #        RMP_E2E_UPDATE=1 tools/examples_build.sh e2e
@@ -64,8 +72,8 @@ SHOTS="$BUILD/screenshots"
 FRAMES="${RMP_EXAMPLE_FRAMES:-30}"
 ONLY="${1:-all}"
 case "$ONLY" in
-  all | e2e) ;;
-  *) echo "usage: tools/examples_build.sh [e2e]"; exit 2 ;;
+  all | boot | e2e) ;;
+  *) echo "usage: tools/examples_build.sh [boot | e2e]"; exit 2 ;;
 esac
 
 # macOS has no `timeout`; there the run simply has no ceiling. A script plays
@@ -113,6 +121,16 @@ configure_examples() {
         -DPLATFORM=Memory -DRMP_BUILD_EXAMPLES=ON -DRMP_RAYLIB_OPTIMIZED=ON \
         > "$BUILD.configure.log" 2>&1 \
     || { cat "$BUILD.configure.log"; echo "FAIL: the examples did not configure"; exit 1; }
+}
+
+# The e2e targets, which are out of the build's `all`: the boot run builds
+# everything else, and this is the rest.
+build_e2e() {
+  echo "== examples: build the e2e targets =="
+  # shellcheck disable=SC2046  # one --target per line of the file, by design
+  cmake --build "$BUILD" $(sed 's/^/--target /' "$BUILD/e2e_targets.txt") \
+        > "$BUILD.build.log" 2>&1 \
+    || { tail -60 "$BUILD.build.log"; echo "FAIL: an e2e target did not build"; exit 1; }
 }
 
 # One e2e target, started in the background by play_e2e: its output and its
@@ -239,12 +257,8 @@ play_e2e() {
 }
 
 if [ "$ONLY" = e2e ]; then
-  echo "== examples: build the e2e targets =="
   configure_examples
-  # shellcheck disable=SC2046  # one --target per line of the file, by design
-  cmake --build "$BUILD" $(sed 's/^/--target /' "$BUILD/e2e_targets.txt") \
-        > "$BUILD.build.log" 2>&1 \
-    || { tail -60 "$BUILD.build.log"; echo "FAIL: an e2e target did not build"; exit 1; }
+  build_e2e
   play_e2e
   exit 0
 fi
@@ -361,4 +375,8 @@ if [ "$status" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '^INPUT PASS$'; then
 fi
 echo "PASS: a press is seen once, by a game's own hook and by a scene"
 
+if [ "$ONLY" = boot ]; then
+  exit 0
+fi
+build_e2e
 play_e2e
