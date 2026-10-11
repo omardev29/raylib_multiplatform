@@ -3428,6 +3428,36 @@ class InstallerContractTest(unittest.TestCase):
         self.assertTrue(all(line == "" or line.startswith("    ") for line in lines[start + 1:end]),
                         "a line inside main() is not indented: is main() closed early?")
 
+    def test_the_drm_probe_asks_for_what_raylib_builds_drm_against(self):
+        """install.sh decides "the DRM/KMS headers are here" by pkg-config, or
+        by headers without it, and either way must ask for every library
+        raylib's PLATFORM=DRM links (find_library in its CMake) and a header
+        of each that raylib includes -- or it says "everything is here" to a
+        console that cannot build. Seen red with glesv2 left out of the
+        pkg-config list, and with GLES2/gl2.h left out of the headers."""
+        cmake = (REPO / "thirdparty" / "raylib" / "cmake" /
+                 "LibraryConfigurations.cmake").read_text()
+        branch = cmake[cmake.index('elseif ("${PLATFORM}" STREQUAL "DRM")'):]
+        branch = branch[:branch.index("elseif", 10)]
+        libraries = set(re.findall(r"find_library\(\w+ (\w+)\)", branch))
+        # Each library raylib links, as pkg-config and a header name it.
+        known = {"drm": ("libdrm", "xf86drm.h"), "gbm": ("gbm", "gbm.h"),
+                 "EGL": ("egl", "EGL/egl.h"), "GLESv2": ("glesv2", "GLES2/gl2.h")}
+        self.assertEqual(libraries, set(known), "raylib's DRM build links another library: "
+                                                "name it here and in install.sh's probe")
+        text = INSTALL_SH.read_text()
+        probe = re.search(r"pkg-config --exists (libdrm[^<]*?) <", text)
+        self.assertIsNotNone(probe, "install.sh has no pkg-config probe for the DRM headers")
+        self.assertEqual(set(probe.group(1).split()), {pc for pc, _ in known.values()})
+        headers = re.search(r"for h in (xf86drm\.h[^;]*); do", text)
+        self.assertIsNotNone(headers, "install.sh has no header probe for the DRM headers")
+        self.assertEqual(set(headers.group(1).split()), {h for _, h in known.values()})
+        included = ((REPO / "thirdparty" / "raylib" / "src" / "platforms" / "rcore_drm.c")
+                    .read_text() + (REPO / "thirdparty" / "raylib" / "src" / "rlgl.h").read_text())
+        for _, header in known.values():
+            self.assertRegex(included, rf'#include [<"]{re.escape(header)}[>"]',
+                             f"raylib does not include {header}")
+
     def test_the_readme_and_install_sh_name_the_same_apt_packages(self):
         """The README shows the apt lines a person copies, install.sh prints the
         same lists: X11's for a desktop, DRM/KMS's on a console. Seen red with
