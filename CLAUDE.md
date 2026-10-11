@@ -835,6 +835,15 @@ Each of these was a real bug, found by reproducing rather than by reading.
   in `tools/` and in `rmp`, the launcher; the Linux jobs cannot notice, having
   GNU everything, and the macOS job runs `rmp test config` under `/bin/bash` --
   which reaches only the scripts that stage calls.
+- **No iostreams in the library.** One `std::ifstream` in `src/rmp/pack.cpp`
+  (Stage E) brought all of iostreams into every release: +19 % on
+  linux-x64, +18 % on the web's `.wasm`, +22-26 % per Android ABI, against a
+  static libc++. The size budget caught it; C's stdio in a `unique_ptr` reads
+  the pack now. Files go through stdio or raylib, never `<fstream>`.
+- **cute_aseprite trusts the file.** It asserts on a broken one, leaks on some
+  real ones and loops on linked cels that link in a circle;
+  `src/rmp/aseprite.cpp`'s `prepare_aseprite()` walks every chunk first, and
+  nothing hands cute_aseprite bytes that did not go through it.
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
