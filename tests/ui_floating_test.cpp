@@ -1065,6 +1065,35 @@ TEST_SUITE("ui: floating") {
         CHECK(rmp::detail::report_count() == 1);
     }
 
+    TEST_CASE_FIXTURE(
+        HeadlessUi, "a tooltip after a control that declared nothing is about nothing") {
+        // A slider with no range and a dropdown with no items are no control:
+        // the tooltip after each is said, and not worn by the button before
+        // it -- which has the focus, shown, so a tooltip of its would show.
+        float volume = 0.5f;
+        int quality = 0;
+        const std::vector<std::string_view> none;
+        keys.x = 1; // a key touched: the focus is shown, and does not move
+        for (int which = 0; which < 2; ++which) {
+            CAPTURE(which);
+            rmp::detail::reset_reports_for_tests();
+            for (int frame = 0; frame < 2; ++frame) {
+                rmp::ui::begin();
+                rmp::ui::button("Sell");
+                if (which == 0) {
+                    CHECK_FALSE(rmp::ui::slider("Volume", volume, 1, 1));
+                } else {
+                    CHECK_FALSE(rmp::ui::dropdown("Quality", quality, none));
+                }
+                rmp::ui::tooltip("About the control that is not there");
+                rmp::ui::end();
+            }
+            CHECK(rmp::ui::focused() == "Sell");
+            CHECK_FALSE(tooltip_shown("Sell"));
+            CHECK(rmp::detail::report_count() == 1);
+        }
+    }
+
     TEST_CASE_FIXTURE(HeadlessUi, "a tooltip goes on the side it is asked for") {
         // Each side, where Clay put it, against where place_tooltip() says.
         rmp::ui::detail::set_test_frame_time(0.125f);

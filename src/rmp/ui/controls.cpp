@@ -180,7 +180,13 @@ bool slider(std::string_view label, float &value, float min, float max) {
 
 bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o) {
-    if (!detail::frame_ready("slider", label) || max <= min) return false;
+    if (!detail::frame_ready("slider", label)) return false;
+    if (max <= min) {
+        // No slider, so nothing for a tooltip() after it to be about: not the
+        // control before it either, which would wear this one's tooltip.
+        (void)detail::take_last_control();
+        return false;
+    }
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -338,7 +344,12 @@ bool dropdown(std::string_view label, int &selected,
 
 bool dropdown(std::string_view label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o) {
-    if (!detail::frame_ready("dropdown", label) || items.empty()) return false;
+    if (!detail::frame_ready("dropdown", label)) return false;
+    if (items.empty()) {
+        // No dropdown: as for a slider with no range, above.
+        (void)detail::take_last_control();
+        return false;
+    }
     const Theme &t = current_theme();
     // An int, because that is what a game keeps; a list longer than an int
     // counts is not a dropdown anyone can use.
