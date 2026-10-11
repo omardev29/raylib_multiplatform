@@ -36,6 +36,7 @@ import difflib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import textwrap
@@ -58,6 +59,15 @@ OK, FAILED, USAGE, INTERRUPTED = 0, 1, 2, 130
 BUILD_ROOT = "build"
 DEBUG_DIR = "build/debug"
 RELEASE_DIR = "build/release"
+# The same two for a Linux console with no desktop, DRM/KMS: raylib's
+# PLATFORM=DRM instead of GLFW, so neither X11 nor Wayland is asked for. In
+# folders of their own for the reason above -- a console and a desktop session
+# on one machine would otherwise take turns reconfiguring one cache -- and in
+# presets of their own, debug-drm and release-drm. session_of() says which.
+DEBUG_DRM_DIR = "build/debug-drm"
+RELEASE_DRM_DIR = "build/release-drm"
+EXAMPLES_DIR = "build/examples"
+EXAMPLES_DRM_DIR = "build/examples-drm"
 
 # Every folder anything here writes under build/, and what writes it. The
 # layout gate in tests/rmp_test.py fails on a workflow, a tool or a page that
@@ -66,12 +76,15 @@ RELEASE_DIR = "build/release"
 BUILD_DIRS = {
     "debug": "the debug preset: rmp build, rmp run, rmp test",
     "release": "the release preset: rmp build release, and every release CI ships",
+    "debug-drm": "the debug-drm preset: rmp build, rmp run, rmp test on a Linux console",
+    "release-drm": "the release-drm preset: rmp build release on a Linux console",
     "web": "the web preset: rmp web",
     "memory": "the memory preset, tools/render_check.sh, the musl job's headless build",
     "lint": "the lint preset: the compile database clang-tidy reads",
     "sanitize": "tools/sanitize_check.sh: the unit tests under gcc's ASan and UBSan",
     "coverage": "tools/coverage_check.sh: the tests under clang's coverage, and its report",
     "examples": "rmp example",
+    "examples-drm": "rmp example on a Linux console",
     "examples-check": "tools/examples_build.sh: every example, built, booted and played",
     "memory-release": "tools/shipped_check.sh: a release, started from another folder",
     "test-locales": "tools/test_locales.sh: the locales the unit tests read",
@@ -123,6 +136,148 @@ def on_windows() -> bool:
     return os.name == "nt" or system.startswith(("MSYS", "MINGW", "CYGWIN"))
 
 
+# ---------------------------------------------------------------------------
+# A Linux console with no desktop: DRM/KMS instead of a window
+# ---------------------------------------------------------------------------
+#
+# On a bare virtual console there is no X11 and no Wayland for GLFW to open a
+# window on, and often no X11 headers to build GLFW against. raylib's DRM
+# backend draws straight to the screen through the kernel instead. So rmp
+# decides, once per command, which of the two it builds for (session_of()),
+# and every debug and release build follows: build/debug-drm and
+# build/release-drm on a console, build/debug and build/release otherwise.
+
+# The override, both ways, for a person and for CI: 1 builds for DRM/KMS, 0
+# for the desktop, whatever rmp would have decided. Empty is unset.
+DRM_ENV = "RMP_DRM"
+
+# A login over SSH sets these, and logind calls that session a "tty" too.
+SSH_VARS = ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")
+
+
+class Session:
+    """What rmp builds for here: `drm` is True for DRM/KMS. `why` is what
+    decided it, when that is worth saying, and `note` a sentence for someone
+    who might have expected the other."""
+
+    def __init__(self, drm: bool, why: str = "", note: str = ""):
+        self.drm = drm
+        self.why = why
+        self.note = note
+
+    def __repr__(self) -> str:
+        return f"Session(drm={self.drm}, why={self.why!r}, note={self.note!r})"
+
+
+def is_virtual_console(name) -> bool:
+    """/dev/tty1, /dev/tty2 ...: a Linux virtual console. Not /dev/pts/N (a
+    terminal window, SSH, tmux), not /dev/ttyS0 (a serial line), not
+    /dev/console or /dev/tty (aliases that name no console of their own)."""
+    return bool(name) and re.fullmatch(r"/dev/tty[0-9]+", name) is not None
+
+
+def session_of(env, system: str, terminal) -> Session:
+    """Desktop or DRM/KMS, from the environment, the system and the name of the
+    terminal rmp was started from (None when there is none). In this order:
+
+    1. RMP_DRM=1 or 0 decides, whatever else is true. Anything else in it is
+       refused, rather than read as one of the two.
+    2. Not Linux: the desktop. DRM/KMS is a Linux backend.
+    3. DISPLAY or WAYLAND_DISPLAY set: the desktop, there is one to open a
+       window on. Before XDG_SESSION_TYPE, because startx keeps the console's
+       "tty" in a desktop it starts.
+    4. SSH: the desktop, as before, and saying so. logind calls an SSH login a
+       "tty" session too, and the screen of a machine somebody is logged into
+       from elsewhere is not theirs to take.
+    5. XDG_SESSION_TYPE=tty: DRM/KMS. logind's word for a text login.
+    6. The terminal is a virtual console (/dev/ttyN): DRM/KMS, for a console
+       logind did not set up (no systemd, a getty of its own).
+    7. Otherwise the desktop; with a terminal but no display, saying so."""
+    forced = env.get(DRM_ENV, "")
+    if forced:
+        if forced not in ("0", "1"):
+            raise Usage(f"{DRM_ENV}={forced!r}: 1 builds for DRM/KMS (a Linux console with no "
+                        "desktop), 0 for the desktop; unset, rmp decides")
+        if forced == "0":
+            return Session(False, f"{DRM_ENV}=0")
+        if system != "Linux":
+            raise Usage(f"{DRM_ENV}=1: DRM/KMS is a Linux backend, and this is {system}")
+        return Session(True, f"{DRM_ENV}=1")
+    if system != "Linux":
+        return Session(False)
+    if env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"):
+        return Session(False)
+    ssh = next((name for name in SSH_VARS if env.get(name)), "")
+    if ssh:
+        return Session(False, note=f"logged in over SSH ({ssh} is set), with no display: "
+                                   f"building for the desktop, as before. On the machine's own "
+                                   f"console, or with {DRM_ENV}=1, rmp builds for DRM/KMS.")
+    if env.get("XDG_SESSION_TYPE") == "tty":
+        return Session(True, "XDG_SESSION_TYPE=tty")
+    if is_virtual_console(terminal):
+        return Session(True, f"{terminal} is a virtual console")
+    if terminal:
+        return Session(False, note=f"no display, and {terminal} is not a virtual console: "
+                                   f"building for the desktop, as before. {DRM_ENV}=1 builds "
+                                   f"for DRM/KMS.")
+    return Session(False)
+
+
+def terminal_name():
+    """The terminal rmp was started from: stdin's, or else the controlling
+    terminal's, which `rmp run < /dev/null > log` still has. None when there
+    is neither -- CI, a service, `setsid`."""
+    try:
+        if os.isatty(0):
+            return os.ttyname(0)
+    except OSError:
+        pass
+    return controlling_terminal()
+
+
+def controlling_terminal(stat: Path = Path("/proc/self/stat")):
+    """The controlling terminal by name, from its device number in
+    /proc/self/stat (tty_nr): ttyname() of an open /dev/tty only says
+    "/dev/tty". Virtual consoles are major 4, minors 1-63; pseudo-terminals
+    136-143. None with no controlling terminal, or no /proc to ask."""
+    try:
+        fields = stat.read_text().rsplit(")", 1)[1].split()
+        number = int(fields[4])
+    except (OSError, IndexError, ValueError):
+        return None
+    if number == 0:
+        return None
+    major, minor = os.major(number), os.minor(number)
+    if major == 4 and 1 <= minor <= 63:
+        return f"/dev/tty{minor}"
+    if 136 <= major <= 143:
+        return f"/dev/pts/{(major - 136) * 256 + minor}"
+    return f"/dev/char/{major}:{minor}"
+
+
+def system_name() -> str:
+    """platform.system(), behind a door the tests can stand in for."""
+    return platform.system()
+
+
+def effective_uid() -> int:
+    """The user rmp runs as; -1 where there are no users of that kind."""
+    return os.geteuid() if hasattr(os, "geteuid") else -1
+
+
+def refuse_building_as_root(env) -> None:
+    """`sudo rmp ...` would build as root, and leave build/ to root: the next
+    `rmp build` as yourself could not write it, and `rmp clean` could not
+    remove it. A root that came through sudo is refused; root on its own -- a
+    container, CI -- is somebody who has no other user, and builds."""
+    sudo_user = env.get("SUDO_USER", "")
+    if effective_uid() == 0 and sudo_user and sudo_user != "root":
+        raise Refused(f"rmp is running as root through sudo, and would build as root: build/ "
+                      f"would be root's, and the next `rmp build` as {sudo_user} could not "
+                      "write it. Run rmp as yourself. On a console, `rmp run sudo` builds as "
+                      "you and starts only the game with sudo.")
+
+
 class Ctx:
     """The project rmp is working on, and the one door every command goes
     through to run something -- which is what lets the tests record what a
@@ -132,6 +287,28 @@ class Ctx:
         self.root = root
         self.mode = mode_of(root)
         self.python = sys.executable
+        self._session = None
+
+    def session(self) -> Session:
+        """Desktop or DRM/KMS, decided once per command and said once."""
+        if self._session is None:
+            self._session = session_of(os.environ, system_name(), terminal_name())
+            if self._session.drm:
+                print(f"  console  {self._session.why}: building for DRM/KMS, in "
+                      f"{DEBUG_DRM_DIR} and {RELEASE_DRM_DIR} ({DRM_ENV}=0 for the desktop)")
+            elif self._session.note:
+                print(f"  note     {self._session.note}")
+        return self._session
+
+    def preset(self, release: bool = False) -> str:
+        """The configure and build preset of a debug or release build here."""
+        name = "release" if release else "debug"
+        return name + "-drm" if self.session().drm else name
+
+    def build_dir(self, release: bool = False) -> str:
+        if self.session().drm:
+            return RELEASE_DRM_DIR if release else DEBUG_DRM_DIR
+        return RELEASE_DIR if release else DEBUG_DIR
 
     def run(self, argv, cwd=None, env=None, check=True, capture=False):
         full_env = dict(os.environ)
@@ -211,8 +388,9 @@ def retire_old_build(ctx: Ctx) -> None:
 
 def configure(ctx: Ctx, preset: str, *extra: str, capture: bool = False) -> None:
     """`cmake --preset`, the one way rmp configures: the preset says the
-    folder, and CMakePresets.json says the same ones as DEBUG_DIR and
-    RELEASE_DIR."""
+    folder, and CMakePresets.json says the same ones as DEBUG_DIR,
+    RELEASE_DIR and their -drm twins (ctx.preset() picks)."""
+    refuse_building_as_root(os.environ)
     retire_old_build(ctx)
     ctx.run(["cmake", "--preset", preset, *extra], capture=capture)
 
@@ -235,10 +413,11 @@ def remove_tree(path: Path) -> None:
 
 def build(ctx: Ctx, release: bool = False) -> str:
     """Configure and build the game: debug in DEBUG_DIR, release in
-    RELEASE_DIR. Neither ever configures the other's folder, so a release
-    never inherits the [dev] compiler a debug configure FORCEd into its cache,
-    and switching between them rebuilds nothing."""
-    preset = "release" if release else "debug"
+    RELEASE_DIR (on a Linux console, DEBUG_DRM_DIR and RELEASE_DRM_DIR).
+    None ever configures another's folder, so a release never inherits the
+    [dev] compiler a debug configure FORCEd into its cache, and switching
+    between them rebuilds nothing."""
+    preset = ctx.preset(release)
     configure(ctx, preset)
     name = ctx.name()
     # --target is not a detail: without it this builds whatever else the
@@ -246,6 +425,270 @@ def build(ctx: Ctx, release: bool = False) -> str:
     # binary in a release tree cannot read raylib's LTO archive.
     ctx.run(["cmake", "--build", "--preset", preset, "--target", name])
     return name
+
+
+# ---------------------------------------------------------------------------
+# Starting the game on a Linux console
+# ---------------------------------------------------------------------------
+#
+# A DRM/KMS game opens the screen through /dev/dri/card*, which it has to be
+# able to read and write and be the DRM master of -- the kernel makes the
+# first program to open a card nobody else draws on its master -- and reads
+# the keyboard, the mouse and the gamepads from /dev/input/event*. Those are
+# root's and a group's (video, input), and logind lets the user at the console
+# open the card but not read the keyboard. The game finds out after the screen
+# has gone black; rmp asks first, and says what to do.
+
+DEV = Path("/dev")
+
+# The terminal the game is started on: rmp's own stdin, which it inherits.
+GAME_STDIN = 0
+
+
+def node_access(path: Path, mode: int) -> bool:
+    """Whether this user may open `path` so -- os.access, which asks with the
+    real user, and a door the tests can stand in for, since root may open
+    anything whatever its mode says."""
+    return os.access(path, mode)
+
+# DRM_IOCTL_AUTH_MAGIC, _IOW('d', 0x11, struct drm_auth): only a DRM master may
+# ask it, so anyone else gets EACCES, and the master EINVAL for magic 0. It is
+# how libdrm's own drmIsMaster() tells. The number is asm-generic's encoding,
+# which these machines use; powerpc, mips and sparc encode it differently.
+DRM_IOCTL_AUTH_MAGIC = 0x40046411
+GENERIC_IOCTL_MACHINES = ("x86_64", "amd64", "i386", "i686", "aarch64", "arm64", "armv6l",
+                          "armv7l", "riscv64")
+
+# <linux/kd.h>: get and set a virtual console's keyboard mode.
+KDGKBMODE, KDSKBMODE = 0x4B44, 0x4B45
+
+
+def drm_master(card: Path):
+    """True when opening `card` makes this process its DRM master -- nothing
+    else draws on that screen -- False when something else is its master, None
+    when that cannot be told. Closing it gives the mastery back up."""
+    if platform.machine().lower() not in GENERIC_IOCTL_MACHINES:
+        return None
+    import errno
+    import fcntl
+    try:
+        fd = os.open(card, os.O_RDWR | os.O_CLOEXEC | os.O_NOCTTY)
+    except OSError:
+        return None
+    try:
+        fcntl.ioctl(fd, DRM_IOCTL_AUTH_MAGIC, bytearray(4))
+    except OSError as e:
+        return {errno.EACCES: False, errno.EINVAL: True}.get(e.errno)
+    finally:
+        os.close(fd)
+    return None
+
+
+def describe_node(path: Path) -> str:
+    """A device node as `ls -l` says who may use it: crw-rw---- root:video."""
+    import grp
+    import pwd
+    import stat
+    try:
+        st = path.stat()
+    except OSError as e:
+        return e.strerror or "cannot be read"
+    try:
+        owner = pwd.getpwuid(st.st_uid).pw_name
+    except KeyError:
+        owner = str(st.st_uid)
+    try:
+        group = grp.getgrgid(st.st_gid).gr_name
+    except KeyError:
+        group = str(st.st_gid)
+    return f"{stat.filemode(st.st_mode)} {owner}:{group}"
+
+
+def numbered(folder: Path, prefix: str) -> list[Path]:
+    """folder/prefix0, prefix1 ... prefix10, in that order."""
+    found = [p for p in folder.glob(prefix + "*") if re.fullmatch(prefix + r"[0-9]+", p.name)]
+    return sorted(found, key=lambda p: int(p.name[len(prefix):]))
+
+
+class Devices:
+    """What a DRM/KMS game would meet on this machine. `missing` and `held`
+    are reasons it cannot start whoever runs it; `blocked` are the nodes this
+    user cannot open, which root or the video and input groups can; `notes`
+    are true and do not stop it."""
+
+    def __init__(self):
+        self.missing = ""
+        self.held: list[Path] = []
+        self.blocked: list[str] = []
+        self.notes: list[str] = []
+
+
+def device_access(dev: Path) -> Devices:
+    found = Devices()
+    cards = numbered(dev / "dri", "card")
+    if not cards:
+        found.missing = (f"there is no {dev}/dri/card*, so no screen a game can draw on: no display "
+                         "driver with modesetting has loaded -- a virtual machine without a "
+                         "display device, or a container started without --device /dev/dri")
+    else:
+        usable = [c for c in cards if node_access(c, os.R_OK | os.W_OK)]
+        if not usable:
+            found.blocked += [f"{c}  {describe_node(c)}: you cannot open it to draw" for c in cards]
+        elif all(drm_master(c) is False for c in usable):
+            found.held = usable
+    events = numbered(dev / "input", "event")
+    if not events:
+        found.notes.append(f"there is no {dev}/input/event*: the game reads the keys of the "
+                           "terminal it runs on, and no mouse or gamepad")
+    else:
+        unreadable = [e for e in events if not node_access(e, os.R_OK)]
+        if unreadable:
+            more = f", and {len(unreadable) - 1} more" if len(unreadable) > 1 else ""
+            found.blocked.append(f"{unreadable[0]}  {describe_node(unreadable[0])}: you cannot "
+                                 f"read it{more} -- the keyboard, the mouse and the gamepads")
+    return found
+
+
+def quoted(path) -> str:
+    import shlex
+    return shlex.quote(str(path))
+
+
+def refuse_devices(found: Devices, exe: Path) -> None:
+    """Refused, saying what to do, when the game would start blind."""
+    if found.missing:
+        raise Refused(found.missing + ".")
+    if found.held:
+        raise Refused(
+            f"something else draws on the screen: it is the DRM master of {found.held[0]}, and "
+            "a game can only take a screen nobody holds. A desktop, most likely, on another "
+            "virtual console: log out of it or stop it. sudo does not help -- root cannot take "
+            f"the screen from it either. Inside that desktop, {DRM_ENV}=0 builds a game that "
+            "opens a window.")
+    if found.blocked:
+        user = os.environ.get("USER") or os.environ.get("LOGNAME") or "$USER"
+        raise Refused("\n".join([
+            "the game could not reach the screen and the keyboard from here (DRM/KMS):",
+            *("  " + line for line in found.blocked),
+            "Start it as root, this once:",
+            f"  sudo {quoted(exe)}",
+            "  (`rmp run sudo` does that: it builds as you and starts only the game with sudo.)",
+            "Or, once and for good, put yourself in the video and input groups, then log out",
+            "and in again, and `rmp run` starts it as you, without root:",
+            f"  sudo usermod -aG video,input {user}"]))
+
+
+class TerminalState:
+    """The terminal the game shares with rmp, as it was before the game: its
+    termios settings, its file status flags and, on a virtual console, its
+    keyboard mode. raylib's DRM backend changes all three (InitKeyboard in
+    rcore_drm.c: no echo, no line editing, no Ctrl+C, O_NONBLOCK, K_XLATE) and
+    puts them back from an atexit handler, which a crash, a sanitizer's report
+    or a kill never runs -- and the shell after it is left with no echo and
+    no Ctrl+C. src/rmp/console.cpp puts them back from inside the game; this
+    is what still does it after a SIGKILL, which nothing inside can catch."""
+
+    def __init__(self, fd: int, attrs, flags: int, kbmode):
+        self.fd = fd
+        self.attrs = attrs
+        self.flags = flags
+        self.kbmode = kbmode
+
+    @classmethod
+    def save(cls, fd: int = 0):
+        """The state of `fd`, or None when it is not a terminal."""
+        if os.name == "nt":
+            return None
+        import fcntl
+        import termios
+        try:
+            if not os.isatty(fd):
+                return None
+            attrs = termios.tcgetattr(fd)
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        except (OSError, termios.error):
+            return None
+        return cls(fd, attrs, flags, cls.keyboard_mode(fd))
+
+    @staticmethod
+    def keyboard_mode(fd: int):
+        """A virtual console's keyboard mode; None on any other terminal."""
+        import fcntl
+        mode = bytearray(4)
+        try:
+            fcntl.ioctl(fd, KDGKBMODE, mode)
+        except OSError:
+            return None
+        return int.from_bytes(mode, sys.byteorder)
+
+    def restore(self) -> list[str]:
+        """Put it back. What had changed, by name; empty when nothing had."""
+        import fcntl
+        import termios
+        changed = []
+        try:
+            if termios.tcgetattr(self.fd) != self.attrs:
+                termios.tcsetattr(self.fd, termios.TCSANOW, self.attrs)
+                changed.append("its settings (echo, line editing, Ctrl+C)")
+            if fcntl.fcntl(self.fd, fcntl.F_GETFL) != self.flags:
+                fcntl.fcntl(self.fd, fcntl.F_SETFL, self.flags)
+                changed.append("its flags (O_NONBLOCK)")
+            if self.kbmode is not None and self.keyboard_mode(self.fd) != self.kbmode:
+                fcntl.ioctl(self.fd, KDSKBMODE, self.kbmode)
+                changed.append("its keyboard mode")
+        except (OSError, termios.error):
+            pass
+        return changed
+
+
+def sudo_argv(exe: Path) -> list[str]:
+    """`sudo -- GAME`, said before it runs: root for the game and nothing
+    else. Never asked for by rmp on its own -- `rmp run sudo` is typed."""
+    if effective_uid() == 0:
+        print("  sudo     rmp is root already: starting the game as it is")
+        return [str(exe)]
+    if shutil.which("sudo") is None:
+        raise Refused(f"there is no sudo here. Start the game as root some other way:\n"
+                      f"  {quoted(exe)}")
+    print("  sudo     starting the game, and only the game, as root:")
+    print(f"           sudo -- {quoted(exe)}")
+    print("  note     as root, the game saves in root's home folder and not in yours: with")
+    print("           sudo's defaults, /root/.local/share/. The video and input groups avoid it.")
+    return ["sudo", "--", str(exe)]
+
+
+def refuse_sudo_for_a_window(ctx: Ctx) -> None:
+    if not ctx.session().drm:
+        raise Usage(f"sudo is for a game built for a Linux console (DRM/KMS), which takes the "
+                    f"screen and the keyboard from /dev; a window needs no root. {DRM_ENV}=1 "
+                    "builds for DRM/KMS.")
+
+
+def start_game(ctx: Ctx, exe: Path, env=None, capture: bool = False, sudo: bool = False):
+    """Start a game the debug build made, and hand back how it ended. On a
+    Linux console, ask first whether it can reach the screen and the keyboard
+    -- refused, with what to do, when it cannot -- and put the terminal back
+    afterwards, whatever the game did to it."""
+    if sudo:
+        refuse_sudo_for_a_window(ctx)
+    if not ctx.session().drm:
+        return ctx.run([exe], env=env, check=False, capture=capture)
+    if sudo:
+        argv = sudo_argv(exe)
+    else:
+        found = device_access(DEV)
+        refuse_devices(found, exe)
+        for note in found.notes:
+            print(f"  note     {note}")
+        argv = [str(exe)]
+    terminal = TerminalState.save(GAME_STDIN)
+    try:
+        return ctx.run(argv, env=env, check=False, capture=capture)
+    finally:
+        changed = terminal.restore() if terminal is not None else []
+        if changed:
+            print(f"  console  the game left the terminal changed -- {', '.join(changed)} -- "
+                  "and rmp put it back")
 
 
 # ---------------------------------------------------------------------------
@@ -269,20 +712,22 @@ def run_step(ctx: Ctx, step) -> None:
     if kind == "run":
         argv = [ctx.python if a == "{python}" else ctx.bash() if a == "bash" else a
                 for a in step[1]]
-        # A program the debug build made: .exe on Windows.
-        argv = [str(ctx.exe(a)) if isinstance(a, str) and a.startswith(DEBUG_DIR + "/") else a
-                for a in argv]
+        # A program the debug build made: .exe on Windows, and the one in
+        # build/debug-drm on a Linux console.
+        argv = [str(ctx.exe(ctx.build_dir() + a[len(DEBUG_DIR):]))
+                if isinstance(a, str) and a.startswith(DEBUG_DIR + "/") else a for a in argv]
         env = step[2] if len(step) > 2 else None
         ctx.run(argv, env=env)
     elif kind == "configure":
-        configure(ctx, "debug", *step[1], capture=True)
+        configure(ctx, ctx.preset(), *step[1], capture=True)
     elif kind == "build":
-        ctx.run(["cmake", "--build", "--preset", "debug",
+        ctx.run(["cmake", "--build", "--preset", ctx.preset(),
                  *(["--target", step[1]] if step[1] else [])], capture=True)
     elif kind == "smoke":
         name = ctx.name()
-        got = ctx.run([ctx.exe(f"{DEBUG_DIR}/{name}")], env={"RAY_TEST_MAX_FRAMES": "10"},
-                      check=False, capture=True)
+        # On a console the boot is on its screen, and asks what `rmp run` asks.
+        got = start_game(ctx, ctx.exe(f"{ctx.build_dir()}/{name}"),
+                         env={"RAY_TEST_MAX_FRAMES": "10"}, capture=True)
         out = got.stdout or ""
         # The report and the exit status first, and both are verdicts: the
         # markers are printed before the process ends, and LeakSanitizer
@@ -442,17 +887,19 @@ def one_of(args, allowed, default):
 
 
 def cmd_run(ctx, args):
-    no_args(args)
+    sudo = one_of(args, ("sudo",), "") == "sudo"
+    if sudo:
+        # Before the build, not after it: nothing is built for a refusal.
+        refuse_sudo_for_a_window(ctx)
     name = build(ctx)
     # The game's own exit code is rmp's: a crash is not a success.
-    return ctx.run([ctx.exe(f"{DEBUG_DIR}/{name}")], check=False).returncode
+    return start_game(ctx, ctx.exe(f"{ctx.build_dir()}/{name}"), sudo=sudo).returncode
 
 
 def cmd_build(ctx, args):
     release = one_of(args, ("release",), "debug") == "release"
     name = build(ctx, release)
-    folder = RELEASE_DIR if release else DEBUG_DIR
-    print(f"  built  {ctx.exe(f'{folder}/{name}').relative_to(ctx.root)}")
+    print(f"  built  {ctx.exe(f'{ctx.build_dir(release)}/{name}').relative_to(ctx.root)}")
     return OK
 
 
@@ -492,8 +939,8 @@ def cmd_android(ctx, args):
 
 def cmd_pack(ctx, args):
     no_args(args)
-    configure(ctx, "debug")
-    ctx.run(["cmake", "--build", "--preset", "debug", "--target", "pack_resources"])
+    configure(ctx, ctx.preset())
+    ctx.run(["cmake", "--build", "--preset", ctx.preset(), "--target", "pack_resources"])
     return OK
 
 
@@ -604,13 +1051,16 @@ def cmd_example(ctx, args):
         raise Refused(f"no single example called {args[0]!r}. These exist:\n  "
                       + "\n  ".join(every))
     target = "example_" + matches[0].replace("/", "_")
+    refuse_building_as_root(os.environ)
     retire_old_build(ctx)
-    ctx.run(["cmake", "-S", ".", "-B", "build/examples", "-G", "Ninja",
-             "-DCMAKE_BUILD_TYPE=Debug", "-DPRODUCTION_BUILD=OFF", "-DRMP_BUILD_EXAMPLES=ON"],
-            capture=True)
-    ctx.run(["cmake", "--build", "build/examples", "--target", target])
-    print(f"  built  build/examples/{target}")
-    return ctx.run([ctx.exe(f"build/examples/{target}")], check=False).returncode
+    # On a Linux console, for DRM/KMS and in a folder of its own, like the game.
+    folder, drm = (EXAMPLES_DRM_DIR, ["-DRMP_TARGET_DRM=ON"]) if ctx.session().drm \
+        else (EXAMPLES_DIR, [])
+    ctx.run(["cmake", "-S", ".", "-B", folder, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
+             "-DPRODUCTION_BUILD=OFF", "-DRMP_BUILD_EXAMPLES=ON", *drm], capture=True)
+    ctx.run(["cmake", "--build", folder, "--target", target])
+    print(f"  built  {folder}/{target}")
+    return start_game(ctx, ctx.exe(f"{folder}/{target}")).returncode
 
 
 def live_runs(ctx) -> list[dict]:
@@ -1525,9 +1975,14 @@ class Command:
 
 COMMANDS = {
     "run": Command(
-        "run", "build the game (debug) and play it",
-        "Build the game in debug, then play it; only what changed is compiled again.",
+        "run [sudo]", "build the game (debug) and play it",
+        "Build the game in debug, then play it; only what changed is compiled again. "
+        "On a Linux console with no desktop it builds for DRM/KMS (build/debug-drm/) "
+        "and first checks that the game can open the screen and read the keyboard, "
+        "saying what to do when it cannot; sudo builds as you and starts only the "
+        "game as root. RMP_DRM=1 or 0 overrides what rmp decides.",
         [("rmp run", "build, then start the game"),
+         ("rmp run sudo", "on a console: the game as root, the build as you"),
          ("rmp build release", "the optimised build players get"),
          ("rmp clean", "if a build goes strange, start from nothing")],
         cmd_run),
@@ -1537,7 +1992,8 @@ COMMANDS = {
         "or release into build/release/ (optimised, reading ./resources/: the one "
         "next to the executable when there is one, as in a shipped package, and the "
         "working directory's otherwise -- so run it from the project folder). Each "
-        "has its folder: switching between them rebuilds nothing.",
+        "has its folder: switching between them rebuilds nothing. On a Linux console "
+        "with no desktop, build/debug-drm/ and build/release-drm/, for DRM/KMS.",
         [("rmp build", "writes build/debug/<name>"),
          ("rmp build release", "writes build/release/<name>, as CI ships it")],
         cmd_build),

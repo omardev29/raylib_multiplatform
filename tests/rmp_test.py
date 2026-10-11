@@ -614,10 +614,31 @@ class PresetsTest(unittest.TestCase):
                                  f"{seen.get(folder)}")
                 seen[folder] = preset["name"]
 
+    def test_the_drm_presets_are_debug_and_release_for_drm_in_folders_of_their_own(self):
+        """A console and a desktop on one machine never share a cache: seen red
+        with debug-drm's binaryDir left to the debug preset it inherits."""
+        presets = {p["name"]: p for p in self.presets()["configurePresets"]}
+        for name, base, folder in (("debug-drm", "debug", rmp.DEBUG_DRM_DIR),
+                                   ("release-drm", "release", rmp.RELEASE_DRM_DIR)):
+            with self.subTest(preset=name):
+                preset = presets[name]
+                self.assertEqual(preset["inherits"], base)
+                self.assertEqual(preset["binaryDir"], "${sourceDir}/" + folder)
+                self.assertEqual(preset["cacheVariables"], {"RMP_TARGET_DRM": "ON"})
+                self.assertNotIn("RMP_TARGET_DRM", presets[base].get("cacheVariables", {}))
+        self.assertEqual((rmp.DEBUG_DRM_DIR, rmp.RELEASE_DRM_DIR, rmp.EXAMPLES_DRM_DIR),
+                         ("build/debug-drm", "build/release-drm", "build/examples-drm"))
+        for folder in ("debug-drm", "release-drm", "examples-drm"):
+            self.assertIn(folder, rmp.BUILD_DIRS)
+        # Nothing else asks for DRM/KMS: the other presets are the desktop's.
+        others = [n for n, p in presets.items()
+                  if "RMP_TARGET_DRM" in p.get("cacheVariables", {}) and not n.endswith("-drm")]
+        self.assertEqual(others, [])
+
     def test_the_build_presets_name_their_configure_preset(self):
         configure = {p["name"] for p in self.presets()["configurePresets"]}
         build = {p["name"]: p["configurePreset"] for p in self.presets()["buildPresets"]}
-        for name in ("debug", "release", "web"):
+        for name in ("debug", "release", "debug-drm", "release-drm", "web"):
             self.assertEqual(build.get(name), name, "rmp builds with --build --preset " + name)
         self.assertLessEqual(set(build.values()), configure)
 
@@ -667,6 +688,25 @@ class BuildFoldersInCMakeTest(unittest.TestCase):
         # And by hand: a release configured into the debug folder.
         cls.by_hand = cls.cmake("-S", ".", "-B", "build/debug", "-DCMAKE_BUILD_TYPE=Release",
                                 "-DPRODUCTION_BUILD=ON")
+        # A Linux console's two, with X11 made impossible to find: a configure
+        # that asks for it fails. The desktop's debug build in a folder of its
+        # own is the control -- it asks for X11, and must fail the same way.
+        cls.drm_skip = None
+        if platform_system() != "Linux":
+            cls.drm_skip = "DRM/KMS is Linux's"
+        elif subprocess.run(["pkg-config", "--exists", "libdrm", "gbm", "egl", "glesv2"],
+                            capture_output=True).returncode != 0 if shutil.which("pkg-config") \
+                else True:
+            if IN_BUILD_IMAGE:
+                raise AssertionError("the build image has libdrm, gbm, EGL and GLES")
+            cls.drm_skip = "libdrm, gbm, EGL or GLES is not installed here"
+        if cls.drm_skip is None:
+            no_x11 = "-DCMAKE_DISABLE_FIND_PACKAGE_X11=ON"
+            cls.debug_drm = cls.cmake("--preset", "debug-drm", no_x11)
+            cls.release_drm = cls.cmake("--preset", "release-drm", no_x11)
+            cls.x11_control = cls.cmake("-S", ".", "-B", "build/x11-control", "-G", "Ninja",
+                                        "-DCMAKE_BUILD_TYPE=Debug", "-DPRODUCTION_BUILD=OFF",
+                                        no_x11)
 
     @classmethod
     def cmake(cls, *argv):
@@ -732,6 +772,30 @@ class BuildFoldersInCMakeTest(unittest.TestCase):
             self.assertEqual(self.debug_cache["CMAKE_C_COMPILER"], dev)
             self.assertNotEqual(self.release_cache.get("CMAKE_C_COMPILER"), dev,
                                 "the release took the [dev] compiler")
+
+    def test_a_console_build_never_asks_for_x11(self):
+        """Stage G: on a console X11 is not asked for, by CMake either. Seen red
+        with the desktop's configure, which needs it (the control below)."""
+        if self.drm_skip:
+            self.skipTest(self.drm_skip)
+        code, out = self.x11_control
+        self.assertNotEqual(code, 0, "the control configured without X11: the probe proves nothing")
+        self.assertIn("X11", out)
+        for name, (code, out), release in (("debug-drm", self.debug_drm, False),
+                                           ("release-drm", self.release_drm, True)):
+            with self.subTest(preset=name):
+                self.assertEqual(code, 0, out[-3000:])
+                self.assertIn("=== PLATFORM: DRM/KMS, no X11 and no Wayland ===", out)
+                cache = self.cache(name)
+                self.assertEqual(cache.get("CMAKE_CACHEFILE_DIR"),
+                                 (self.src / "build" / name).as_posix())
+                self.assertEqual(cache.get("PLATFORM"), "DRM")
+                self.assertEqual(cache.get("RMP_TARGET_DRM"), "ON")
+                self.assertEqual(cache.get("PRODUCTION_BUILD"), "ON" if release else "OFF")
+                self.assertFalse([k for k in cache if k.startswith("X11_")], "X11 was looked for")
+        # And the desktop's caches never learned of it.
+        self.assertNotEqual(self.debug_cache.get("RMP_TARGET_DRM"), "ON")
+        self.assertNotEqual(self.release_cache.get("RMP_TARGET_DRM"), "ON")
 
     def test_a_release_configured_by_hand_into_the_debug_folder_is_refused(self):
         if "RMP_DEV_COMPILER" not in self.debug_cache:
@@ -3769,6 +3833,703 @@ class InstallerCiTest(unittest.TestCase):
                        "HKCU:\\Environment", "GetValueKind", "cmd /c rmp help", "where rmp"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, run)
+
+
+# ---------------------------------------------------------------------------
+# A Linux console with no desktop: DRM/KMS instead of a window
+# ---------------------------------------------------------------------------
+
+def setUpModule():
+    """Every test that builds decides desktop or DRM/KMS for itself. Without
+    this they would follow the session they run in, and `rmp test` started
+    from a console would expect build/debug-drm everywhere a test says
+    build/debug."""
+    global _DRM_BEFORE
+    _DRM_BEFORE = os.environ.get(rmp.DRM_ENV)
+    os.environ[rmp.DRM_ENV] = "0"
+
+
+def tearDownModule():
+    if _DRM_BEFORE is None:
+        os.environ.pop(rmp.DRM_ENV, None)
+    else:
+        os.environ[rmp.DRM_ENV] = _DRM_BEFORE
+
+
+_DRM_BEFORE = None
+
+
+@contextlib.contextmanager
+def console(drm="1", system="Linux", euid=1000, dev=None, master=lambda card: True,
+            access=lambda path, mode: True, terminal=None, stdin=None):
+    """main() on a Linux console: RMP_DRM decides (None: unset, and then
+    `terminal` and the environment do), with a /dev of the test's making and
+    the doors to the real one stood in for."""
+    with tempfile.TemporaryDirectory() as tmp, environment(**{rmp.DRM_ENV: drm}), \
+            unittest.mock.patch.object(rmp, "system_name", lambda: system), \
+            unittest.mock.patch.object(rmp, "effective_uid", lambda: euid), \
+            unittest.mock.patch.object(rmp, "terminal_name", lambda: terminal), \
+            unittest.mock.patch.object(rmp, "drm_master", master), \
+            unittest.mock.patch.object(rmp, "node_access", access), \
+            unittest.mock.patch.object(rmp, "GAME_STDIN", -1 if stdin is None else stdin):
+        root = Path(tmp) / "dev"
+        if dev is None:
+            dev = fake_dev(root)
+        with unittest.mock.patch.object(rmp, "DEV", dev):
+            yield dev
+
+
+def fake_dev(root: Path, cards=("card0", "card1"), events=12) -> Path:
+    """A /dev with the nodes a DRM/KMS game opens, as plain files: the cards,
+    a render node and by-path links that are not cards, and event devices
+    beside the mouse0 and js0 that are not events."""
+    (root / "dri" / "by-path").mkdir(parents=True)
+    (root / "input" / "by-id").mkdir(parents=True)
+    for name in (*cards, "renderD128"):
+        (root / "dri" / name).write_text("")
+    if cards:
+        (root / "dri" / "by-path" / "pci-0000:00:02.0-card").symlink_to(root / "dri" / cards[0])
+    for n in range(events):
+        (root / "input" / f"event{n}").write_text("")
+    (root / "input" / "mouse0").write_text("")
+    (root / "input" / "js0").write_text("")
+    return root
+
+
+class SessionTest(unittest.TestCase):
+    """Desktop or DRM/KMS: Omar's rule (2026-10-11) -- a console when
+    XDG_SESSION_TYPE=tty, or with no DISPLAY and no WAYLAND_DISPLAY on a
+    virtual console; never over SSH; RMP_DRM=1 or 0 whatever else is true --
+    over every combination of what decides it. Seen red with each rule taken
+    out of session_of() in turn: SSH, the display before XDG_SESSION_TYPE,
+    the empty values, the VT names, the system."""
+
+    VALUES = {
+        "DISPLAY": (None, "", ":0", "localhost:10.0"),
+        "WAYLAND_DISPLAY": (None, "", "wayland-0"),
+        "XDG_SESSION_TYPE": (None, "", "tty", "x11", "wayland", "TTY", "unspecified"),
+        "SSH": (None, "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"),
+        rmp.DRM_ENV: (None, "", "0", "1"),
+    }
+    # Every terminal name a session can have, and the three that are a virtual
+    # console -- written out, not a pattern, so the test is not the code again.
+    TERMINALS = (None, "", "/dev/tty1", "/dev/tty2", "/dev/tty63", "/dev/pts/0",
+                 "/dev/pts/12", "/dev/ttyS0", "/dev/ttyUSB0", "/dev/ttyAMA0", "/dev/console",
+                 "/dev/tty", "/dev/tty1x", "/dev/vc/1", "tty2")
+    VIRTUAL = {"/dev/tty1", "/dev/tty2", "/dev/tty63"}
+    SYSTEMS = ("Linux", "Darwin", "FreeBSD", "Windows")
+
+    def expected(self, env, system, terminal):
+        """The rule, as the plan states it: True for DRM/KMS, False for the
+        desktop, "usage" for a refusal."""
+        forced = env.get(rmp.DRM_ENV) or ""
+        if forced == "1":
+            return True if system == "Linux" else "usage"
+        if forced == "0":
+            return False
+        if system != "Linux":
+            return False
+        if env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"):
+            return False
+        if env.get("SSH_CONNECTION") or env.get("SSH_CLIENT") or env.get("SSH_TTY"):
+            return False
+        if env.get("XDG_SESSION_TYPE") == "tty":
+            return True
+        return terminal in self.VIRTUAL
+
+    def test_every_combination(self):
+        import itertools
+        keys = list(self.VALUES)
+        cases = wrong = 0
+        report = []
+        for values in itertools.product(*self.VALUES.values()):
+            env = {}
+            for key, value in zip(keys, values):
+                if key == "SSH":
+                    if value:
+                        env[value] = "10.0.0.2 51000 10.0.0.1 22"
+                elif value is not None:
+                    env[key] = value
+            for system in self.SYSTEMS:
+                for terminal in self.TERMINALS:
+                    cases += 1
+                    want = self.expected(env, system, terminal)
+                    try:
+                        got = rmp.session_of(env, system, terminal)
+                    except rmp.Usage:
+                        got = None
+                    ok = (got is None) if want == "usage" else (
+                        got is not None and got.drm is want)
+                    # What decided it is said when it is DRM/KMS; and SSH with no
+                    # display is said too, because it may surprise.
+                    if ok and got is not None and got.drm:
+                        ok = bool(got.why)
+                    if ok and got is not None and want is False and system == "Linux" and \
+                            not env.get(rmp.DRM_ENV) and not env.get("DISPLAY") and \
+                            not env.get("WAYLAND_DISPLAY") and \
+                            any(env.get(v) for v in rmp.SSH_VARS):
+                        ok = "SSH" in got.note and f"{rmp.DRM_ENV}=1" in got.note
+                    if not ok:
+                        wrong += 1
+                        if len(report) < 10:
+                            report.append(f"{env} {system} {terminal!r}: want {want}, got {got}")
+        self.assertEqual(wrong, 0, "\n".join(report))
+        self.assertEqual(cases, 4 * 3 * 7 * 4 * 4 * len(self.SYSTEMS) * len(self.TERMINALS))
+
+    def test_the_sessions_people_have(self):
+        S = rmp.session_of
+        tty = {"XDG_SESSION_TYPE": "tty"}
+        # Omar at Ctrl+Alt+F3, logged in by logind.
+        got = S(dict(tty, TERM="linux"), "Linux", "/dev/tty3")
+        self.assertTrue(got.drm)
+        self.assertEqual(got.why, "XDG_SESSION_TYPE=tty")
+        # A console with no logind: a getty of its own, a minimal system.
+        got = S({}, "Linux", "/dev/tty2")
+        self.assertTrue(got.drm)
+        self.assertIn("/dev/tty2 is a virtual console", got.why)
+        # tmux started on that console: a pts, and logind's word still says tty.
+        self.assertTrue(S(dict(tty, TMUX="/tmp/tmux-1000/default,1,0"), "Linux",
+                          "/dev/pts/4").drm)
+        # A terminal on a Wayland or X11 desktop.
+        for env in ({"XDG_SESSION_TYPE": "wayland", "WAYLAND_DISPLAY": "wayland-1",
+                     "DISPLAY": ":1"}, {"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0"}):
+            got = S(env, "Linux", "/dev/pts/2")
+            self.assertFalse(got.drm)
+            self.assertEqual(got.note, "")
+        # startx from a console keeps XDG_SESSION_TYPE=tty inside X.
+        self.assertFalse(S(dict(tty, DISPLAY=":0"), "Linux", "/dev/pts/0").drm)
+        # SSH: logind says tty for it too, and it is not a console.
+        got = S(dict(tty, SSH_CONNECTION="10.0.0.2 51000 10.0.0.1 22",
+                     SSH_TTY="/dev/pts/0"), "Linux", "/dev/pts/0")
+        self.assertFalse(got.drm)
+        self.assertIn("logged in over SSH (SSH_CONNECTION is set), with no display", got.note)
+        self.assertIn("RMP_DRM=1", got.note)
+        # SSH with X forwarding has a display, and says nothing.
+        got = S(dict(tty, SSH_CONNECTION="x", DISPLAY="localhost:10.0"), "Linux", "/dev/pts/0")
+        self.assertFalse(got.drm)
+        self.assertEqual(got.note, "")
+        # CI: no terminal, no display, nothing to say.
+        got = S({}, "Linux", None)
+        self.assertFalse(got.drm)
+        self.assertEqual(got.note, "")
+        # A container started with -t: a pts and no display.
+        got = S({}, "Linux", "/dev/pts/0")
+        self.assertFalse(got.drm)
+        self.assertIn("/dev/pts/0 is not a virtual console", got.note)
+        # The override, both ways, and for CI.
+        got = S({rmp.DRM_ENV: "1"}, "Linux", None)
+        self.assertTrue(got.drm)
+        self.assertEqual(got.why, "RMP_DRM=1")
+        self.assertTrue(S(dict(tty, SSH_TTY="x", DISPLAY=":0", RMP_DRM="1"), "Linux", None).drm)
+        self.assertFalse(S(dict(tty, RMP_DRM="0"), "Linux", "/dev/tty1").drm)
+        self.assertFalse(S({rmp.DRM_ENV: "0"}, "Darwin", None).drm)
+        self.assertFalse(S({rmp.DRM_ENV: ""}, "Linux", "/dev/pts/1").drm)
+
+    def test_an_override_that_is_neither_is_refused_by_value(self):
+        for value in ("yes", "true", "on", "2", " 1", "1 ", "drm", "-1", "01"):
+            with self.subTest(value=value):
+                with self.assertRaises(rmp.Usage) as caught:
+                    rmp.session_of({rmp.DRM_ENV: value}, "Linux", "/dev/tty1")
+                self.assertIn(repr(value), str(caught.exception))
+                self.assertIn("1 builds for DRM/KMS", str(caught.exception))
+        with self.assertRaises(rmp.Usage) as caught:
+            rmp.session_of({rmp.DRM_ENV: "1"}, "Darwin", None)
+        self.assertIn("DRM/KMS is a Linux backend, and this is Darwin", str(caught.exception))
+        # Through main(): exit 2, said once, and nothing built.
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            with console(drm="maybe"), recording() as rec, quiet():
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = rmp.main(["build"], cwd=game)
+            self.assertEqual(code, 2)
+            self.assertIn("RMP_DRM='maybe'", err.getvalue())
+            self.assertEqual(rec.calls, [])
+
+    def test_the_decision_is_said_once_and_only_when_it_is_news(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            with console(drm=None, terminal="/dev/tty2"), environment(
+                    DISPLAY=None, WAYLAND_DISPLAY=None, XDG_SESSION_TYPE="tty",
+                    SSH_CONNECTION=None, SSH_CLIENT=None, SSH_TTY=None), \
+                    recording(CommandSequenceTest.NAME), quiet() as out:
+                self.assertEqual(rmp.main(["run"], cwd=game), 0)
+            said = out.getvalue()
+            self.assertEqual(said.count("  console  "), 1, said)
+            self.assertIn("XDG_SESSION_TYPE=tty: building for DRM/KMS, in build/debug-drm and "
+                          "build/release-drm (RMP_DRM=0 for the desktop)", said)
+            with console(drm=None, terminal="/dev/pts/1"), environment(
+                    DISPLAY=":0", XDG_SESSION_TYPE="x11"), \
+                    recording(CommandSequenceTest.NAME), quiet() as out:
+                self.assertEqual(rmp.main(["build"], cwd=game), 0)
+            self.assertNotIn("console", out.getvalue())
+            self.assertNotIn("note", out.getvalue())
+
+
+class TerminalNameTest(unittest.TestCase):
+    """The terminal rmp was started from, read off a real pseudo-terminal: a
+    pts here, since nothing in a test may be a virtual console."""
+
+    SCRIPT = ("import importlib.util, sys\n"
+              "spec = importlib.util.spec_from_file_location('r', sys.argv[1])\n"
+              "r = importlib.util.module_from_spec(spec); spec.loader.exec_module(r)\n"
+              "print(repr(r.terminal_name()))\n")
+
+    def ask(self, stdin, controlling=None):
+        def setup():
+            os.setsid()
+            if controlling is not None:
+                # The first terminal a session leader opens is its controlling one.
+                os.close(os.open(controlling, os.O_RDWR))
+        got = subprocess.run([sys.executable, "-c", self.SCRIPT, str(RMP_PY)], stdin=stdin,
+                             capture_output=True, text=True, preexec_fn=setup, timeout=30)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        return got.stdout.strip()
+
+    def setUp(self):
+        if os.name == "nt":
+            self.skipTest("no terminals of this kind on Windows")
+
+    def test_stdin_first_then_the_controlling_terminal_then_none(self):
+        main, sub = os.openpty()
+        try:
+            name = os.ttyname(sub)
+            self.assertEqual(self.ask(sub), repr(name))
+            with open(os.devnull, "rb") as null:
+                self.assertEqual(self.ask(null), "None")
+                # `rmp run < /dev/null` on a console still has the console.
+                self.assertEqual(self.ask(null, controlling=name), repr(name))
+        finally:
+            os.close(main)
+            os.close(sub)
+
+
+    def test_the_controlling_terminal_is_named_from_its_device_number(self):
+        """/proc/self/stat's tty_nr, the seventh field -- after a name that may
+        hold spaces and parentheses of its own."""
+        cases = ((os.makedev(4, 3), "/dev/tty3"), (os.makedev(4, 63), "/dev/tty63"),
+                 (os.makedev(4, 64), "/dev/char/4:64"),  # ttyS0: a serial line, not a VT
+                 (os.makedev(136, 5), "/dev/pts/5"), (os.makedev(137, 2), "/dev/pts/258"),
+                 (os.makedev(5, 1), "/dev/char/5:1"), (0, None))
+        with tempfile.TemporaryDirectory() as tmp:
+            stat = Path(tmp) / "stat"
+            for number, want in cases:
+                with self.subTest(want=want):
+                    stat.write_text(f"4242 (my game) (x)) S 1 4242 4242 {number} 4242 4194560 0\n")
+                    self.assertEqual(rmp.controlling_terminal(stat), want)
+            for text in ("", "4242 (rmp", "4242 (rmp) S 1 2 3\n", "4242 (rmp) S 1 2 3 x 5\n"):
+                with self.subTest(text=text):
+                    stat.write_text(text)
+                    self.assertIsNone(rmp.controlling_terminal(stat))
+            self.assertIsNone(rmp.controlling_terminal(Path(tmp) / "nothing"))
+        for number, want in cases:
+            if want and want.startswith("/dev/tty"):
+                self.assertTrue(rmp.is_virtual_console(want), want)
+            elif want:
+                self.assertFalse(rmp.is_virtual_console(want), want)
+
+
+class ConsoleFoldersTest(unittest.TestCase):
+    """On a console every debug and release build is the -drm one: its preset,
+    its folder, the programs it made. Seen red with build() still asking for
+    the debug preset, and with run_step's build/debug/ not rewritten."""
+
+    def run_cmd(self, argv, drm="1", cwd=REPO, **kw):
+        with console(drm=drm, **kw), windows(False), \
+                recording(CommandSequenceTest.NAME) as rec, quiet() as out, \
+                unittest.mock.patch.object(rmp, "find_bash", lambda: "bash"):
+            code = rmp.main(argv, cwd=cwd)
+        return code, [c for c, _ in rec.calls if "--print-name" not in " ".join(c)], \
+            out.getvalue()
+
+    def test_build_run_pack_and_release_each_in_its_drm_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            code, calls, out = self.run_cmd(["build"], cwd=game)
+            self.assertEqual(code, 0, out)
+            self.assertEqual(calls, [["cmake", "--preset", "debug-drm"],
+                                     ["cmake", "--build", "--preset", "debug-drm", "--target",
+                                      "demo"]])
+            self.assertIn("built  build/debug-drm/demo", out)
+            _, calls, out = self.run_cmd(["build", "release"], cwd=game)
+            self.assertEqual(calls, [["cmake", "--preset", "release-drm"],
+                                     ["cmake", "--build", "--preset", "release-drm", "--target",
+                                      "demo"]])
+            self.assertIn("built  build/release-drm/demo", out)
+            _, calls, _ = self.run_cmd(["run"], cwd=game)
+            self.assertEqual(calls, [["cmake", "--preset", "debug-drm"],
+                                     ["cmake", "--build", "--preset", "debug-drm", "--target",
+                                      "demo"],
+                                     [str(game.resolve() / "build" / "debug-drm" / "demo")]])
+            _, calls, _ = self.run_cmd(["pack"], cwd=game)
+            self.assertEqual(calls, [["cmake", "--preset", "debug-drm"],
+                                     ["cmake", "--build", "--preset", "debug-drm", "--target",
+                                      "pack_resources"]])
+            # And the desktop's, with the override the other way.
+            _, calls, out = self.run_cmd(["build"], drm="0", cwd=game)
+            self.assertEqual(calls[0], ["cmake", "--preset", "debug"])
+            self.assertNotIn("drm", out)
+
+    def test_the_test_stages_build_and_run_in_the_drm_folder(self):
+        debug = REPO / "build" / "debug-drm"
+        code, calls, out = self.run_cmd(["test", "layout"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls, [["cmake", "--preset", "debug-drm", "-DBUILD_UI_TESTS=ON"],
+                                 ["cmake", "--build", "--preset", "debug-drm", "--target",
+                                  "ui_layout_test"],
+                                 [str(debug / "ui_layout_test")]])
+        _, calls, _ = self.run_cmd(["test", "unit"])
+        self.assertIn([str(debug / "unit_test")], calls)
+        self.assertIn([str(debug / "game_test")], calls)
+        self.assertFalse([c for c in calls if any("build/debug/" in a or a.endswith("build/debug")
+                                                  for a in c)], calls)
+
+    def test_an_example_has_a_drm_folder_too(self):
+        code, calls, out = self.run_cmd(["example", "games/01_pong"])
+        self.assertEqual(calls[0][:5], ["cmake", "-S", ".", "-B", "build/examples-drm"])
+        self.assertIn("-DRMP_TARGET_DRM=ON", calls[0])
+        self.assertEqual(calls[1], ["cmake", "--build", "build/examples-drm", "--target",
+                                    "example_games_01_pong"])
+        self.assertEqual(calls[2], [str(REPO / "build" / "examples-drm" /
+                                        "example_games_01_pong")])
+        _, calls, _ = self.run_cmd(["example", "games/01_pong"], drm="0")
+        self.assertEqual(calls[0][:5], ["cmake", "-S", ".", "-B", "build/examples"])
+        self.assertNotIn("-DRMP_TARGET_DRM=ON", calls[0])
+
+    def test_the_smoke_boots_from_the_drm_folder_after_the_same_check(self):
+        booted = SmokeStepTest.BOOTED
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            answers = {"tools/configure.py --print-name": (0, "demo\n"),
+                       str(Path("build") / "debug-drm" / "demo"): (0, booted)}
+            with console(), windows(False), recording(answers) as rec, quiet() as out:
+                self.assertEqual(rmp.main(["test", "smoke"], cwd=game), 0, )
+            self.assertIn("booted and rendered", out.getvalue())
+            self.assertEqual(rec.calls[-1], ([str(game.resolve() / "build" / "debug-drm" / "demo")],
+                                             {"RAY_TEST_MAX_FRAMES": "10"}))
+            with tempfile.TemporaryDirectory() as empty:
+                with console(dev=Path(empty)), windows(False), recording(answers) as rec, \
+                        quiet() as out:
+                    self.assertEqual(rmp.main(["test", "smoke"], cwd=game), 1)
+            self.assertIn("there is no", out.getvalue())
+            self.assertFalse([c for c, _ in rec.calls if c[0].endswith("demo")])
+
+
+class ConsoleDevicesTest(unittest.TestCase):
+    """`rmp run` on a console asks /dev before it starts the game, and when the
+    game would start blind it is refused, saying how to get it to start --
+    sudo this once, or the video and input groups for good. Every refusal seen
+    red with its check taken out: the game was started, and its screen went
+    black on a real console."""
+
+    def run_game(self, **kw):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = fake_project(Path(tmp) / "g")
+            with console(**kw), windows(False), environment(USER="omar"), \
+                    recording(CommandSequenceTest.NAME) as rec, quiet() as out:
+                code = rmp.main(["run"], cwd=game)
+            started = [c for c, _ in rec.calls if c[-1].endswith("/demo")]
+            return code, out.getvalue(), started, game.resolve() / "build" / "debug-drm" / "demo"
+
+    def test_everything_within_reach_starts_it(self):
+        code, out, started, exe = self.run_game()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(started, [[str(exe)]])
+        self.assertNotIn("FAIL", out)
+
+    def test_cards_nobody_can_open_are_refused_with_both_ways_out(self):
+        def access(path, mode):
+            return "dri" not in str(path)
+        code, out, started, exe = self.run_game(access=access)
+        self.assertEqual(code, 1)
+        self.assertEqual(started, [], "the game was started anyway")
+        self.assertIn("the game could not reach the screen and the keyboard from here", out)
+        self.assertIn("/dri/card0  ", out)
+        self.assertIn("/dri/card1  ", out)
+        self.assertIn("you cannot open it to draw", out)
+        self.assertNotIn("renderD128", out)
+        self.assertIn(f"  sudo {exe}\n", out)
+        self.assertIn("`rmp run sudo`", out)
+        self.assertIn("  sudo usermod -aG video,input omar", out)
+        self.assertIn("log out\nand in again", out)
+
+    def test_one_card_within_reach_is_enough(self):
+        def access(path, mode):
+            return Path(path).name != "card0"
+        code, out, started, _ = self.run_game(access=access)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(started)
+
+    def test_input_nobody_can_read_is_refused_and_counted(self):
+        def access(path, mode):
+            return Path(path).name not in ("event3", "event7", "event10")
+        code, out, started, _ = self.run_game(access=access)
+        self.assertEqual(code, 1)
+        self.assertEqual(started, [])
+        self.assertIn("/input/event3  ", out)
+        self.assertIn("you cannot read it, and 2 more -- the keyboard, the mouse and the gamepads",
+                      out)
+        self.assertNotIn("event7  ", out)
+        self.assertNotIn("card", out.split("FAIL:", 1)[1].split("Start it")[0])
+
+    def test_no_card_at_all_is_refused_and_says_why(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dev = fake_dev(Path(tmp) / "dev", cards=())
+            code, out, started, _ = self.run_game(dev=dev)
+        self.assertEqual(code, 1)
+        self.assertEqual(started, [])
+        self.assertIn("/dri/card*, so no screen a game can draw on", out)
+        self.assertIn("--device /dev/dri", out)
+        self.assertNotIn("usermod", out, "no group gives a card that is not there")
+
+    def test_a_screen_something_else_holds_is_refused_and_sudo_is_not_offered(self):
+        code, out, started, _ = self.run_game(master=lambda card: False)
+        self.assertEqual(code, 1)
+        self.assertEqual(started, [])
+        self.assertIn("something else draws on the screen: it is the DRM master of", out)
+        self.assertIn("/dri/card0", out)
+        self.assertIn("sudo does not help", out)
+        self.assertIn("RMP_DRM=0", out)
+        self.assertNotIn("usermod", out)
+
+    def test_one_screen_free_or_one_that_cannot_be_told_starts_it(self):
+        for master in (lambda card: card.name == "card1", lambda card: None,
+                       lambda card: None if card.name == "card0" else False):
+            with self.subTest():
+                code, out, started, _ = self.run_game(master=master)
+                self.assertEqual(code, 0, out)
+                self.assertTrue(started)
+
+    def test_no_input_at_all_starts_it_and_says_what_it_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dev = fake_dev(Path(tmp) / "dev", events=0)
+            code, out, started, _ = self.run_game(dev=dev)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(started)
+        self.assertIn("/input/event*: the game reads the keys of the terminal it runs on", out)
+
+    def test_the_cards_and_events_in_numeric_order_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dev = fake_dev(Path(tmp) / "dev", cards=("card10", "card2", "card0"))
+            self.assertEqual([p.name for p in rmp.numbered(dev / "dri", "card")],
+                             ["card0", "card2", "card10"])
+            self.assertEqual([p.name for p in rmp.numbered(dev / "input", "event")],
+                             [f"event{n}" for n in range(12)])
+            self.assertEqual(rmp.numbered(dev / "nothing", "card"), [])
+
+    def test_a_node_is_described_as_ls_would(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node = Path(tmp) / "card0"
+            node.write_text("")
+            node.chmod(0o660)
+            said = rmp.describe_node(node)
+            self.assertTrue(said.startswith("-rw-rw---- "), said)
+            self.assertEqual(said.count(":"), 1)
+            self.assertIn("No such file", rmp.describe_node(Path(tmp) / "nothing"))
+
+    def test_the_master_probe_reads_what_the_kernel_answers(self):
+        """drm_master() against a stand-in for the ioctl: EINVAL is the master,
+        EACCES is not, anything else cannot be told; and the number it asks is
+        DRM_IOCTL_AUTH_MAGIC's."""
+        import errno
+        asked = []
+        with tempfile.TemporaryDirectory() as tmp:
+            card = Path(tmp) / "card0"
+            card.write_text("")
+            for err, want in ((errno.EINVAL, True), (errno.EACCES, False),
+                              (errno.ENOTTY, None), (errno.EIO, None)):
+                def ioctl(fd, request, arg, err=err):
+                    asked.append((request, bytes(arg)))
+                    raise OSError(err, os.strerror(err))
+                with self.subTest(errno=errno.errorcode[err]), \
+                        unittest.mock.patch("fcntl.ioctl", ioctl), \
+                        unittest.mock.patch.object(rmp.platform, "machine", lambda: "x86_64"):
+                    self.assertIs(rmp.drm_master(card), want)
+            with unittest.mock.patch("fcntl.ioctl", lambda *a: 0), \
+                    unittest.mock.patch.object(rmp.platform, "machine", lambda: "x86_64"):
+                self.assertIsNone(rmp.drm_master(card), "an answer that is not an error")
+            with unittest.mock.patch.object(rmp.platform, "machine", lambda: "ppc64le"):
+                self.assertIsNone(rmp.drm_master(card), "another ioctl encoding")
+            self.assertIsNone(rmp.drm_master(Path(tmp) / "nothing"))
+        # _IOW('d', 0x11, 4 bytes): write, size 4, type 'd', number 0x11.
+        self.assertEqual(rmp.DRM_IOCTL_AUTH_MAGIC, (1 << 30) | (4 << 16) | (ord("d") << 8) | 0x11)
+        self.assertEqual(asked[0], (rmp.DRM_IOCTL_AUTH_MAGIC, b"\0\0\0\0"))
+
+
+class ConsoleSudoTest(unittest.TestCase):
+    """`rmp run sudo`: the build as you, the game alone as root, the command
+    said before it runs. rmp never asks for sudo by itself, never on a
+    desktop, and never builds as root."""
+
+    def run_cmd(self, argv, euid=1000, sudo="/usr/bin/sudo", drm="1", env=None, cwd=None, **kw):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = cwd or fake_project(Path(tmp) / "g")
+            which = shutil.which
+
+            def fake_which(name, *a, **k):
+                return sudo if name == "sudo" else which(name, *a, **k)
+            with console(drm=drm, euid=euid, **kw), windows(False), \
+                    environment(**(env or {})), \
+                    unittest.mock.patch.object(rmp.shutil, "which", fake_which), \
+                    recording(CommandSequenceTest.NAME) as rec, quiet() as out:
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = rmp.main(argv, cwd=game)
+            calls = [c for c, _ in rec.calls if "--print-name" not in " ".join(c)]
+            return code, calls, out.getvalue() + err.getvalue(), \
+                game.resolve() / "build" / "debug-drm" / "demo"
+
+    def test_the_game_alone_goes_through_sudo_and_the_build_does_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # A /dev the game could not use: sudo is how it gets there, so
+            # nothing is checked first.
+            code, calls, out, exe = self.run_cmd(["run", "sudo"],
+                                                 dev=fake_dev(Path(tmp) / "dev", cards=()))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls, [["cmake", "--preset", "debug-drm"],
+                                 ["cmake", "--build", "--preset", "debug-drm", "--target",
+                                  "demo"],
+                                 ["sudo", "--", str(exe)]])
+        self.assertIn(f"sudo -- {exe}", out)
+        self.assertIn("the game, and only the game, as root", out)
+        self.assertIn("root's home folder", out)
+
+    def test_on_a_desktop_it_is_refused_before_anything_is_built(self):
+        code, calls, out, _ = self.run_cmd(["run", "sudo"], drm="0")
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+        self.assertIn("a window needs no root", out)
+
+    def test_root_already_needs_no_sudo_and_no_sudo_is_said(self):
+        code, calls, out, exe = self.run_cmd(["run", "sudo"], euid=0)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls[-1], [str(exe)])
+        self.assertIn("rmp is root already", out)
+        code, calls, out, exe = self.run_cmd(["run", "sudo"], sudo=None)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls[-1][:2], ["cmake", "--build"], "the game was started")
+        self.assertIn(f"there is no sudo here. Start the game as root some other way:\n  {exe}",
+                      out)
+
+    def test_run_takes_sudo_and_nothing_else(self):
+        code, calls, _, _ = self.run_cmd(["run", "root"])
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+
+    def test_rmp_under_sudo_never_builds(self):
+        """Seen red: `sudo rmp build` configured and built build/ as root."""
+        for argv in (["build"], ["build", "release"], ["run"], ["run", "sudo"], ["pack"],
+                     ["test", "smoke"]):
+            with self.subTest(argv=argv):
+                code, calls, out, _ = self.run_cmd(argv, euid=0, env={"SUDO_USER": "omar"})
+                self.assertEqual(code, 1, out)
+                self.assertEqual(calls, [])
+                self.assertIn("rmp is running as root through sudo, and would build as root", out)
+        code, calls, out, _ = self.run_cmd(["example", "01_pong"], euid=0,
+                                           env={"SUDO_USER": "omar"}, cwd=REPO)
+        self.assertEqual(code, 1, out)
+        self.assertIn("would build as root", out)
+        self.assertNotIn("cmake", " ".join(" ".join(c) for c in calls))
+        # Root with nobody behind it -- a container, CI -- builds; so does a
+        # user who came through sudo as themselves.
+        for euid, env in ((0, {"SUDO_USER": None}), (0, {"SUDO_USER": "root"}),
+                          (1000, {"SUDO_USER": "omar"})):
+            with self.subTest(euid=euid, env=env):
+                code, calls, out, _ = self.run_cmd(["build"], euid=euid, env=env)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(calls[0], ["cmake", "--preset", "debug-drm"])
+
+
+class TerminalRestoreTest(unittest.TestCase):
+    """What raylib's DRM backend does to the terminal, done to a real
+    pseudo-terminal, and put back. Seen red with restore() a no-op: the
+    terminal stayed with no echo, no line editing, no Ctrl+C and O_NONBLOCK."""
+
+    def setUp(self):
+        if os.name == "nt":
+            self.skipTest("POSIX terminals")
+        import termios
+        self.termios = termios
+        self.main, self.sub = os.openpty()
+
+    def tearDown(self):
+        os.close(self.main)
+        os.close(self.sub)
+
+    def break_it(self, fd):
+        """InitKeyboard in rcore_drm.c: ICANON, ECHO and ISIG off, O_NONBLOCK on."""
+        import fcntl
+        t = self.termios
+        attrs = t.tcgetattr(fd)
+        attrs[3] &= ~(t.ICANON | t.ECHO | t.ISIG)
+        t.tcsetattr(fd, t.TCSANOW, attrs)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+
+    def test_what_the_game_changed_comes_back(self):
+        import fcntl
+        before = (self.termios.tcgetattr(self.sub), fcntl.fcntl(self.sub, fcntl.F_GETFL))
+        saved = rmp.TerminalState.save(self.sub)
+        self.assertIsNotNone(saved)
+        self.assertIsNone(saved.kbmode, "a pts has no keyboard mode")
+        self.assertEqual(saved.restore(), [], "nothing had changed")
+        self.break_it(self.sub)
+        self.assertNotEqual(self.termios.tcgetattr(self.sub), before[0])
+        self.assertEqual(saved.restore(), ["its settings (echo, line editing, Ctrl+C)",
+                                           "its flags (O_NONBLOCK)"])
+        self.assertEqual((self.termios.tcgetattr(self.sub), fcntl.fcntl(self.sub, fcntl.F_GETFL)),
+                         before)
+
+    def test_the_keyboard_mode_of_a_virtual_console(self):
+        modes = iter([3, 1])  # K_UNICODE when saved, K_XLATE after the game
+        set_to = []
+
+        def ioctl(fd, request, arg=0, *rest):
+            set_to.append((request, arg))
+            return 0
+        with unittest.mock.patch.object(rmp.TerminalState, "keyboard_mode",
+                                        staticmethod(lambda fd: next(modes))):
+            saved = rmp.TerminalState.save(self.sub)
+            with unittest.mock.patch("fcntl.ioctl", ioctl):
+                self.assertEqual(saved.restore(), ["its keyboard mode"])
+        self.assertEqual(set_to, [(rmp.KDSKBMODE, 3)])
+        self.assertEqual((rmp.KDGKBMODE, rmp.KDSKBMODE), (0x4B44, 0x4B45))
+
+    def test_what_is_not_a_terminal_is_left_alone(self):
+        read, write = os.pipe()
+        try:
+            self.assertIsNone(rmp.TerminalState.save(read))
+        finally:
+            os.close(read)
+            os.close(write)
+        self.assertIsNone(rmp.TerminalState.save(-1))
+
+    def test_run_puts_back_what_a_crashed_game_left(self):
+        """`rmp run` on a console, with a game that breaks the terminal and dies
+        the way a crash does -- before raylib's atexit could put it back."""
+        broke = []
+
+        def game(ctx, argv, cwd=None, env=None, check=True, capture=False):
+            argv = [str(a) for a in argv]
+            if argv[-1].endswith("/demo"):
+                self.break_it(self.sub)
+                broke.append(argv)
+                return subprocess.CompletedProcess(argv, -11, "", "")
+            return subprocess.CompletedProcess(argv, 0, "demo\n", "")
+        with tempfile.TemporaryDirectory() as tmp:
+            game_dir = fake_project(Path(tmp) / "g")
+            before = self.termios.tcgetattr(self.sub)
+            original = rmp.Ctx.run
+            rmp.Ctx.run = lambda self_, *a, **k: game(self_, *a, **k)
+            try:
+                with console(stdin=self.sub), windows(False), quiet() as out:
+                    code = rmp.main(["run"], cwd=game_dir)
+            finally:
+                rmp.Ctx.run = original
+        self.assertEqual(code, -11, "the game's own status is rmp's")
+        self.assertTrue(broke)
+        self.assertEqual(self.termios.tcgetattr(self.sub), before)
+        self.assertIn("the game left the terminal changed -- its settings (echo, line editing, "
+                      "Ctrl+C), its flags (O_NONBLOCK) -- and rmp put it back", out.getvalue())
 
 
 if __name__ == "__main__":

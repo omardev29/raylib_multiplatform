@@ -30,6 +30,24 @@
             }
         },
         {
+            "name": "debug-drm",
+            "displayName": "Debug, DRM/KMS (a Linux console: no X11, no Wayland)",
+            "inherits": "debug",
+            "binaryDir": "${sourceDir}/build/debug-drm",
+            "cacheVariables": {
+                "RMP_TARGET_DRM": "ON"
+            }
+        },
+        {
+            "name": "release-drm",
+            "displayName": "Release, DRM/KMS (a Linux console: no X11, no Wayland)",
+            "inherits": "release",
+            "binaryDir": "${sourceDir}/build/release-drm",
+            "cacheVariables": {
+                "RMP_TARGET_DRM": "ON"
+            }
+        },
+        {
             "name": "web",
             "displayName": "Web (Emscripten)",
             "inherits": "base",
@@ -74,6 +92,14 @@
         {
             "name": "release",
             "configurePreset": "release"
+        },
+        {
+            "name": "debug-drm",
+            "configurePreset": "debug-drm"
+        },
+        {
+            "name": "release-drm",
+            "configurePreset": "release-drm"
         },
         {
             "name": "web",
