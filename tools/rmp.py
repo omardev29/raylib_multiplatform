@@ -847,6 +847,12 @@ STAGES = [
           [("run", ["bash", "tools/header_check.sh"])]),
     Stage("cost", "what each public header costs to include",
           [("run", ["bash", "tools/header_cost_check.sh"])]),
+    # The gates above, each seen red: copied with what it reads into a scratch
+    # tree, a mistake of its kind planted, and FAIL said and named -- and
+    # green on the tree as it is (tests/gates_red_test.py lists every one).
+    Stage("gates", "each tools/*_check.sh seen red on a planted mistake",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "gates_red_test.py"])]),
     Stage("configure", "tools/configure.py, every rejection",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "configure_test.py"])]),

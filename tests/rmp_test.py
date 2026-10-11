@@ -1839,6 +1839,33 @@ class StagesAgreeWithLintTest(unittest.TestCase):
                           "does not in a game"])
 
 
+class EveryTestModuleRunsTest(unittest.TestCase):
+    """A file of tests that no stage runs is tests that never run: it passes
+    in silence, everywhere, for good -- the 105-test suite that quietly ran
+    72, one file at a time. Every tests/*_test.py is found by the discover
+    pattern of a stage of `rmp test`, and StagesAgreeWithLintTest holds that
+    stage to its CI job. Seen red on tests/gates_red_test.py, which had no
+    stage the day it was written."""
+
+    @staticmethod
+    def patterns() -> list[str]:
+        out = []
+        for stage in rmp.STAGES:
+            for step in stage.steps:
+                argv = step[1] if step[0] == "run" else []
+                if "discover" in argv and "-p" in argv:
+                    out.append(argv[argv.index("-p") + 1])
+        return out
+
+    def test_every_test_module_is_some_stages(self):
+        import fnmatch
+        patterns = self.patterns()
+        self.assertIn("rmp_test.py", patterns, "the scan found no stage's pattern")
+        modules = sorted(p.name for p in (REPO / "tests").glob("*_test.py"))
+        self.assertEqual([m for m in modules
+                          if not any(fnmatch.fnmatch(m, p) for p in patterns)], [])
+
+
 class PropertyStageTest(unittest.TestCase):
     """`rmp test property` reads the public headers with clang -- the
     resilience list of tests/campaign_test.py -- and they include

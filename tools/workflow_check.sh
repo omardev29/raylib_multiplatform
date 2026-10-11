@@ -52,6 +52,70 @@ except ImportError:
 # refuses to start the run.
 DEFAULTED = {"contents", "metadata"}
 
+# A permission is a LEVEL, and GitHub refuses a called workflow that asks for
+# more than its caller allows: `packages: write` under a caller's `packages:
+# read` is the same startup failure as no `packages` at all -- and the names
+# of the scopes alone could not see it. `permissions:` is a map, or one of the
+# two strings read-all and write-all (a traceback here before), and a job that
+# says nothing has its workflow's.
+LEVELS = {"none": 0, "read": 1, "write": 2}
+WORD = {0: "none", 1: "read", 2: "write"}
+ALL = {"read-all": 1, "write-all": 2}
+
+
+def declared(job, workflow):
+    """The permissions a caller's job runs with: its own, else its workflow's,
+    else None -- nothing declared, and the repository's default applies."""
+    if "permissions" in job:
+        return job["permissions"]
+    return workflow.get("permissions")
+
+
+def level(permissions, scope):
+    """What `permissions` lets `scope` do, 0 to 2."""
+    if permissions is None:
+        return 1 if scope in DEFAULTED else 0
+    if isinstance(permissions, str):
+        return ALL.get(permissions, 0)
+    if not isinstance(permissions, dict):
+        return 0
+    if scope == "metadata":
+        return max(1, LEVELS.get(str(permissions.get(scope)), 0))
+    return LEVELS.get(str(permissions.get(scope)), 0)
+
+
+def asked(permissions, into):
+    """Add what `permissions` asks for to `into`, scope -> level; a string
+    asks for every scope, as "*"."""
+    if isinstance(permissions, str):
+        into["*"] = max(into.get("*", 0), ALL.get(permissions, 0))
+    elif isinstance(permissions, dict):
+        for scope, value in permissions.items():
+            into[scope] = max(into.get(scope, 0), LEVELS.get(str(value), 0))
+
+
+def short_of(granted, wanted):
+    """(scope, level) for each scope the caller grants less of than asked."""
+    out = []
+    for scope, want in sorted(wanted.items()):
+        if scope == "*":
+            # Every scope: only the same string, or more, grants that.
+            have = ALL.get(granted, 0) if isinstance(granted, str) else 0
+        else:
+            have = level(granted, scope)
+        if have < want:
+            out.append((scope, want))
+    return out
+
+
+def workflow_call(callee):
+    """The callee's `on: workflow_call:` block, {} when it has nothing under
+    it -- which is a reusable workflow GitHub runs, and was a traceback here."""
+    on = callee.get("on") or callee.get(True) or {}
+    if not isinstance(on, dict):
+        return {}
+    return on.get("workflow_call") or {}
+
 fails = 0
 checked = 0
 for caller_path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
@@ -67,28 +131,35 @@ for caller_path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
             continue
         callee = yaml.safe_load(callee_path.read_text(encoding="utf-8")) or {}
 
-        wanted = set((callee.get("permissions") or {}).keys())
+        wanted: dict = {}
+        asked(callee.get("permissions"), wanted)
         for sub in (callee.get("jobs") or {}).values():
-            wanted |= set((sub.get("permissions") or {}).keys())
-        granted = set((job.get("permissions") or {}).keys())
-        missing = (wanted - granted) - DEFAULTED
+            asked(sub.get("permissions"), wanted)
+        granted = declared(job, caller)
+        missing = short_of(granted, wanted)
         checked += 1
         if missing:
+            said = sorted(f"{WORD[want]}-all" if scope == "*" else f"{scope}: {WORD[want]}"
+                          for scope, want in missing)
             print(f"  FAIL  {caller_path.name}: job '{job_name}' calls {callee_path.name}, "
-                  f"which asks for {sorted(missing)} and is not granted it")
-            print(f"        add to that job:  permissions:\n"
-                  f"                            "
-                  + "\n                            ".join(f"{k}: read" for k in sorted(granted | missing)))
+                  f"which asks for {said} and is not granted it")
+            fix = {scope: want for scope, want in wanted.items() if scope != "*"}
+            for scope in (granted if isinstance(granted, dict) else {}):
+                fix[scope] = max(fix.get(scope, 0), level(granted, scope))
+            if "*" in wanted:
+                print(f"        give that job:  permissions: {WORD[wanted['*']]}-all")
+            else:
+                print("        give that job:  permissions:\n                          "
+                      + "\n                          ".join(f"{k}: {WORD[v]}"
+                                                           for k, v in sorted(fix.items())))
             fails += 1
 
         # And the inputs, which actionlint does check but only sometimes.
-        declared = set(((callee.get("on") or callee.get(True) or {})
-                        .get("workflow_call", {}).get("inputs") or {}))
-        required = {k for k, v in (((callee.get("on") or callee.get(True) or {})
-                    .get("workflow_call", {}).get("inputs") or {}).items())
-                    if v and v.get("required")}
+        inputs = workflow_call(callee).get("inputs") or {}
+        names = set(inputs)
+        required = {k for k, v in inputs.items() if isinstance(v, dict) and v.get("required")}
         passed = set((job.get("with") or {}).keys())
-        unknown = passed - declared
+        unknown = passed - names
         absent = required - passed
         if unknown:
             print(f"  FAIL  {caller_path.name}: job '{job_name}' passes {sorted(unknown)} "
@@ -108,8 +179,7 @@ for caller_path in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
         callee_text = callee_path.read_text(encoding="utf-8")
         used = sorted({m for m in re.findall(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", callee_text)
                        if m != "GITHUB_TOKEN"})  # always present, never inherited
-        declared_secrets = set(((callee.get("on") or callee.get(True) or {})
-                                .get("workflow_call", {}).get("secrets") or {}))
+        declared_secrets = set(workflow_call(callee).get("secrets") or {})
         needed = sorted(set(used) | declared_secrets)
         if needed:
             given = job.get("secrets")

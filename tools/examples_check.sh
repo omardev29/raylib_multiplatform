@@ -33,7 +33,12 @@ fail() {
   FAILED=1
 }
 
-for f in $(find examples -name '*.cpp' | sort); do
+# Every file an example is made of -- C and C++, sources and headers: a second
+# C example, or a header an example includes, teaches what it holds as much as
+# a .cpp does. The opt-out alone may write its own main() and loop.
+for f in $(find examples \( -name '*.cpp' -o -name '*.c' -o -name '*.h' -o -name '*.hpp' \) \
+             | sort); do
+  if [ "$f" = "$OPT_OUT" ]; then continue; fi
   if grep -qE '^[[:space:]]*int[[:space:]]+main[[:space:]]*\(' "$f"; then
     fail "$f writes its own int main()." \
          "Use RMP_ENTRY_POINT(on_ready, on_frame, on_exit) or RMP_GAME(Scene). It is the same three hooks, and it is what makes the example true on iOS and Web."
