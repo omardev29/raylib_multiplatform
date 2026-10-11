@@ -187,9 +187,11 @@ class Machine:
     def __init__(self, data, spec, answers=None):
         self.data = data
         self.spec = spec
-        # A program's answers of the test's own choosing, by program name.
+        # A program's answers of the test's own choosing: by program name, or
+        # a function of the whole command line (None: the usual answer).
         self.answers = answers or {}
         self.calls: list[tuple[list[str], int, str]] = []
+        self.envs: list[dict] = []
 
     @contextlib.contextmanager
     def up(self):
@@ -253,13 +255,15 @@ class Machine:
         program = Path(argv[0]).name
         game = program in ("demo", "game", "my_game") or program.startswith("example_") \
             or argv[:2] == ["sudo", "--"]
-        if program in self.answers:
-            code, out = self.data.draw(self.answers[program], label=" ".join(argv))
+        chosen = self.answers(argv) if callable(self.answers) else self.answers.get(program)
+        if chosen is not None:
+            code, out = self.data.draw(chosen, label=" ".join(argv))
         elif game:
             code, out = self.data.draw(st.tuples(GAME_CODES, SHORT), label=" ".join(argv))
         else:
             code, out = self.data.draw(answers_for(argv), label=" ".join(argv))
         self.calls.append((argv, code, out))
+        self.envs.append(dict(kwargs.get("env") or {}))
         captured = kwargs.get("capture_output") or kwargs.get("stdout") == subprocess.PIPE
         return subprocess.CompletedProcess(argv, code, out if captured else None,
                                            "" if captured else None)
@@ -451,23 +455,52 @@ class SudoRulesTest(unittest.TestCase):
             self.assertEqual(machine.calls, [], f"{argv!r} ran something as root")
 
 
+def push_answers(argv):
+    words = " ".join(argv)
+    if argv[0] == "gh":
+        # gh answering, mostly, with runs.
+        return st.tuples(st.sampled_from([0, 0, 0, 1]),
+                         st.lists(RUN, max_size=3).map(json.dumps) | GH_LIST)
+    if argv[0] != "git":
+        return None
+    if "symbolic-ref" in words:
+        return st.tuples(st.just(0), st.sampled_from(["main\n", "main\n", "feature\n", ""]))
+    if argv[1:2] == ["config"]:
+        return st.tuples(st.sampled_from([0, 1]), st.just(""))
+    if argv[1:] == ["remote"]:
+        return st.tuples(st.just(0), st.sampled_from(["origin\n", "origin\nfork\n", "fork\n",
+                                                      ""]))
+    return None
+
+
 class PushTest(unittest.TestCase):
     """`rmp push` does not push while a CI run is in flight: pushing cancels
     it. Whatever gh answers, a push happens only where gh could not be asked,
-    could not answer, or named no run that is not completed."""
+    could not answer, or named no run that is not completed. And the first
+    push of a branch sets its upstream on origin -- or, with no remote at
+    all, says how to add one -- while any other push is a plain `git push`."""
 
     @given(st.sampled_from([["push"], ["push"], ["push", "force"]]), machines(), st.data())
     def test_no_push_over_a_live_run(self, argv, spec, data):
         spec["where"] = "game"
         spec["installed"] |= {"git", "gh"}
-        # gh answering, mostly, with runs.
-        machine = Machine(data, spec, answers={"gh": st.tuples(
-            st.sampled_from([0, 0, 0, 1]),
-            st.lists(RUN, max_size=3).map(json.dumps) | GH_LIST)})
-        run_main(machine, argv)
-        pushed = any(a[:2] == ["git", "push"] for a, _c, _o in machine.calls)
+        machine = Machine(data, spec, answers=push_answers)
+        code, out, err = run_main(machine, argv)
+        pushes = [a for a, _c, _o in machine.calls if a[:2] == ["git", "push"]]
+        self.assertLessEqual(len(pushes), 1, pushes)
+        if pushes:
+            branch = answered(machine, "symbolic-ref", "-q", "--short", "HEAD")[1].strip()
+            config = answered(machine, "config", f"branch.{branch}.merge") if branch else None
+            remotes = answered(machine, "git", "remote")
+            if config is not None and config[0] != 0 and "origin" in remotes[1].split():
+                self.assertEqual(pushes[0], ["git", "push", "-u", "origin", branch])
+            else:
+                self.assertEqual(pushes[0], ["git", "push"])
+        elif ran(machine, "symbolic-ref") and code == rmp.FAILED and "no remote" in out:
+            remotes = answered(machine, "git", "remote")
+            self.assertEqual(remotes[1].split(), [], out)
         asked = [(c, o) for a, c, o in machine.calls if Path(a[0]).name == "gh"]
-        if not pushed or argv == ["push", "force"] or not asked:
+        if not pushes or argv == ["push", "force"] or not asked:
             return
         code, out = asked[0]
         try:
@@ -478,6 +511,153 @@ class PushTest(unittest.TestCase):
             return   # nothing could be checked, and that is said (LiveRunsTest)
         live = [r for r in runs if r.get("status") != "completed"]
         self.assertEqual(live, [], f"pushed over {live} (gh answered {out!r})")
+
+
+def answered(machine, *words):
+    """(code, stdout) of the first call holding `words` in order, or None."""
+    for argv, code, out in machine.calls:
+        joined = " " + " ".join(argv) + " "
+        if " " + " ".join(words) + " " in joined:
+            return code, out
+    return None
+
+
+def ran(machine, *words) -> bool:
+    return answered(machine, *words) is not None
+
+
+# What git answers, one subcommand at a time, for deploy and update: mostly
+# what lets the command go on, so that every check is the one that decides
+# in some example.
+COMMIT = st.sampled_from(["4f1c2a9\n", "4f1c2a9\n", "b07e3d1\n"])
+
+
+def deploy_answers(argv):
+    words = " ".join(argv)
+    if argv[0] != "git":
+        if "--print-config" in argv:
+            return st.tuples(st.sampled_from([0, 0, 0, 1]), SHORT)
+        return None
+    if "diff --quiet" in words or "diff --cached --quiet" in words:
+        return st.tuples(st.sampled_from([0, 0, 0, 0, 1]), st.just(""))
+    if "--verify refs/tags/" in words:
+        return st.tuples(st.sampled_from([1, 1, 1, 0]), st.just(""))
+    if "ls-remote" in words:
+        return st.tuples(st.sampled_from([2, 2, 2, 0, 128]), SHORT)
+    if "--abbrev-ref HEAD" in words:
+        return st.tuples(st.just(0), st.sampled_from(["main\n", "main\n", "release\n"]))
+    if "-q --verify origin/" in words:
+        return st.tuples(st.sampled_from([0, 0, 0, 1]), st.just(""))
+    if argv[1:3] == ["rev-parse", "HEAD"] or (argv[1] == "rev-parse" and "origin/" in words):
+        return st.tuples(st.just(0), COMMIT)
+    if argv[1:3] == ["tag", "-a"]:
+        return st.tuples(st.sampled_from([0, 0, 0, 1]), st.just(""))
+    return st.tuples(st.sampled_from([0, 0, 0, 1]), SHORT)
+
+
+class DeployTest(unittest.TestCase):
+    """`rmp deploy VERSION` tags and pushes only a release that can ship
+    (cmd_deploy's comments say why each): a tree with nothing uncommitted, a
+    tag that exists neither here nor on origin -- whose `ls-remote
+    --exit-code` says 2, "no such ref", and nothing else -- a branch origin
+    has, at the commit HEAD is, and a configure that passes the tag CI will
+    see, strict in a game. Whatever git answers, the tag is made exactly
+    then, pushed exactly when made, and the exit says which."""
+
+    @given(st.sampled_from(["1.2.0", "v1.2.0", "0.0.1", "v10.0.0-rc1"]) | TYPED.filter(bool),
+           st.sampled_from(["framework", "game"]), machines(), st.data())
+    def test_a_tag_only_for_what_can_ship(self, version, where, spec, data):
+        spec.update(where=where, euid=1000)
+        spec["env"].pop("SUDO_USER", None)
+        spec["installed"] |= {"git"}
+        machine = Machine(data, spec, answers=deploy_answers)
+        code, out, err = run_main(machine, ["deploy", version])
+        tag = version if version.startswith("v") else "v" + version
+        head, upstream = answered(machine, "rev-parse", "HEAD"), None
+        branch = answered(machine, "--abbrev-ref", "HEAD")
+        if branch:
+            upstream = answered(machine, "rev-parse", f"origin/{branch[1].strip()}")
+        checks = [answered(machine, "diff", "--quiet"), answered(machine, "--cached", "--quiet"),
+                  answered(machine, f"refs/tags/{tag}"),
+                  answered(machine, "ls-remote", "--exit-code", "--tags", "origin", tag),
+                  answered(machine, "-q", "--verify", f"origin/{branch[1].strip()}")
+                  if branch else None]
+        configure = answered(machine, "--print-config")
+        ships = (None not in checks and checks[0][0] == 0 and checks[1][0] == 0
+                 and checks[2][0] != 0 and checks[3][0] == 2 and checks[4][0] == 0
+                 and head is not None and upstream is not None
+                 and head[1].strip() == upstream[1].strip()
+                 and configure is not None and configure[0] == 0)
+        tagged = answered(machine, "tag", "-a", tag)
+        self.assertEqual(tagged is not None, ships, f"{version!r}: {machine.calls}")
+        pushed = answered(machine, "push", "origin", tag)
+        self.assertEqual(pushed is not None, ships and tagged[0] == 0)
+        self.assertEqual(code, 0 if pushed is not None and pushed[0] == 0 else 1, out + err)
+        if configure is not None:
+            argv, env = next((a, e) for (a, _c, _o), e in zip(machine.calls, machine.envs)
+                             if "--print-config" in a)
+            self.assertEqual((env.get("GITHUB_REF_TYPE"), env.get("GITHUB_REF_NAME")),
+                             ("tag", tag))
+            self.assertEqual("--strict-release" in argv, where == "game")
+        for argv, _c, _o in machine.calls:
+            self.assertNotIn(argv[1:2], (["reset"], ["stash"], ["checkout"]), argv)
+
+
+def update_answers(argv):
+    if argv[0] != "git":
+        return None
+    words = " ".join(argv)
+    if "--show-toplevel" in words:
+        return st.tuples(st.just(0), st.sampled_from([f"{FRAMEWORK}\n"] * 4 + ["/elsewhere\n"]))
+    if "symbolic-ref" in words:
+        return st.tuples(st.just(0), st.sampled_from(["main\n", "main\n", "main\n", "dev\n",
+                                                      ""]))
+    if argv[3:4] == ["remote"]:
+        return st.tuples(st.just(0), st.sampled_from(["origin\n", "origin\n", "upstream\n",
+                                                      ""]))
+    if "status --porcelain" in words:
+        return st.tuples(st.just(0), st.sampled_from(["", "", "", " M tools/rmp.py\n"]))
+    if "rev-parse --short HEAD" in words:
+        return st.tuples(st.just(0), COMMIT)
+    if "rev-list --count" in words:
+        return st.tuples(st.just(0), st.sampled_from(["0\n", "3\n"]))
+    return st.tuples(st.sampled_from([0, 0, 0, 1]), SHORT)
+
+
+class UpdateTest(unittest.TestCase):
+    """`rmp update` moves the framework's own clone forward, and nothing
+    else: it fast-forwards main from origin's main exactly when the clone is
+    the framework's, on main, with an origin, nothing of its own changed,
+    the fetch worked and HEAD is an ancestor of what came -- and it never
+    merges otherwise, never resets, stashes or checks anything out."""
+
+    @given(machines(), st.data())
+    def test_a_fast_forward_or_nothing(self, spec, data):
+        spec.update(euid=1000)
+        spec["env"].pop("SUDO_USER", None)
+        spec["installed"] |= {"git"}
+        machine = Machine(data, spec, answers=update_answers)
+        code, out, err = run_main(machine, ["update"])
+        top = answered(machine, "--show-toplevel")
+        branch = answered(machine, "symbolic-ref")
+        remotes = answered(machine, str(FRAMEWORK), "remote")
+        changed = answered(machine, "status", "--porcelain")
+        fetched = answered(machine, "fetch", "--quiet", "origin", "main")
+        ancestor = answered(machine, "merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")
+        should = (top is not None and Path(top[1].strip()) == FRAMEWORK
+                  and branch is not None and branch[1].strip() == "main"
+                  and remotes is not None and "origin" in remotes[1].split()
+                  and changed is not None and not changed[1].strip()
+                  and fetched is not None and fetched[0] == 0
+                  and ancestor is not None and ancestor[0] == 0)
+        merged = answered(machine, "merge", "--ff-only", "--quiet", "FETCH_HEAD")
+        self.assertEqual(merged is not None, should, f"{machine.calls}")
+        self.assertEqual(code, 0 if merged is not None and merged[0] == 0 else 1, out + err)
+        for argv, _c, _o in machine.calls:
+            self.assertEqual(argv[:3], ["git", "-C", str(FRAMEWORK)], argv)
+            self.assertNotIn(argv[3], ("reset", "stash", "checkout", "pull", "rebase", "push"))
+            if argv[3] == "merge":
+                self.assertIn("--ff-only", argv)
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +745,55 @@ class ManifestCopyTest(unittest.TestCase):
                 dest = rmp.RENAME.get(path, path)
                 self.assertEqual((target / dest).read_text(), f"{path} {mode}\n")
                 self.assertEqual(dest in executable, mode == "100755", dest)
+
+
+# ---------------------------------------------------------------------------
+# rmp new: the lines of the .toml it rewrites
+# ---------------------------------------------------------------------------
+
+KEY = st.from_regex(r"[a-z_]{1,12}", fullmatch=True)
+PAD = st.sampled_from(["", " ", "  ", "\t"])
+COMMENT = st.text(alphabet=st.characters(exclude_characters="\r\n#"), max_size=15)
+QUOTED = st.text(alphabet=st.characters(exclude_characters='"\r\n'), max_size=12)
+
+
+class TomlLineTest(unittest.TestCase):
+    """make_game() rewrites one line per setting of a game's .toml: the value
+    changes, and the key, its alignment and any comment after it stay."""
+
+    @given(KEY, PAD, st.sampled_from(["true", "1", '["address"]']), st.sampled_from(
+        ["false", "[]", "0"]), st.none() | COMMENT, st.booleans())
+    def test_a_bare_value_is_replaced_and_its_comment_kept(self, key, pad, old, new, comment,
+                                                           newline):
+        tail = f"  # {comment}" if comment is not None else ""
+        line = f"{key}{pad} = {old}{tail}" + ("\n" if newline else "")
+        got = rmp.assign_raw(new)(line)
+        want = f"{key}{pad} = {new}" + ("  " + f"# {comment}".rstrip() if comment is not None
+                                        else "") + ("\n" if newline else "")
+        self.assertEqual(got, want)
+        self.assertTrue(rmp.setting(key)(line))
+
+    @given(KEY, PAD, QUOTED, QUOTED, st.none() | COMMENT)
+    def test_a_quoted_value_is_replaced_and_the_rest_kept(self, key, pad, old, new, comment):
+        tail = f"  # {comment}\n" if comment is not None else "\n"
+        line = f'{key}{pad} = "{old}"{tail}'
+        self.assertEqual(rmp.assign(new)(line), f'{key}{pad} = "{new}"{tail}')
+
+    @given(KEY, KEY, PAD)
+    def test_a_setting_is_its_key_and_no_other(self, key, other, pad):
+        self.assertEqual(rmp.setting(key)(f"{other}{pad}= 1\n"), other == key)
+        self.assertFalse(rmp.setting(key)(f"# {key} = 1\n"))
+        self.assertFalse(rmp.setting(key)(f"{key}\n"))
+
+    @given(st.lists(st.sampled_from(["[dev]", "[android]", "[android.admob]", "[targets]"]),
+                    min_size=1, max_size=6), st.sampled_from(["dev", "android", "android.admob"]))
+    def test_a_setting_in_a_table_is_found_there_only(self, tables, wanted):
+        lines = []
+        for table in tables:
+            lines += [table + "\n", "enabled = true\n"]
+        match = rmp.setting_in(wanted, "enabled")
+        hits = [i for i, line in enumerate(lines) if match(line)]
+        self.assertEqual(hits, [i + 1 for i, line in enumerate(lines) if line == f"[{wanted}]\n"])
 
 
 # ---------------------------------------------------------------------------

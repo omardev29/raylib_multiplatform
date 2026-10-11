@@ -2786,6 +2786,125 @@ class CopyManifestTest(unittest.TestCase):
                           str(said.exception))
 
 
+class MakeGameInProcessTest(unittest.TestCase):
+    """make_game() itself, called in-process on a framework made here: the
+    real .toml and licence records, a few files of each kind, and stand-ins
+    for the two checks a new game must pass. NewTest makes a game from this
+    framework with the real rmp as a program; this is the same promise where
+    a test can see each line of make_game() run -- mutmut follows calls
+    in-process, and found 242 of its mutants that no test reached."""
+
+    FILES = {"src/main.cpp": "100644", "src/scenes/main_menu.cpp": "100644",
+             "rmp": "100755", "tools/rmp.py": "100755", "LICENSE": "100644",
+             "README.md": "100644", "tests/configure_test.py": "100644",
+             "thirdparty/rapidcheck/LICENSE.md": "100644", "examples/a/src/main.cpp": "100644",
+             "tools/fuzz.sh": "100755"}
+    RECORDS = (rmp.TOML, "THIRD_PARTY_LICENSES.md", "thirdparty/FROZEN_VERSIONS.md")
+
+    def setUp(self):
+        if shutil.which("git") is None:
+            self.skipTest("make_game makes a git repository")
+        tmp = Path(tempfile.mkdtemp(prefix="rmp-make-game-"))
+        self.addCleanup(shutil.rmtree, tmp)
+        self.framework, self.game = tmp / "framework", tmp / "space_rocks"
+        for rel in (*self.FILES, *self.RECORDS):
+            (self.framework / rel).parent.mkdir(parents=True, exist_ok=True)
+            source = REPO / rel
+            (self.framework / rel).write_bytes(source.read_bytes() if source.is_file()
+                                               else f"{rel}\n".encode())
+        # The two checks make_game runs on the game it made, as stand-ins.
+        for check in ("tools/configure.py", "tools/license_db.py"):
+            (self.framework / check).write_text("import sys\nsys.exit(0)\n")
+        self.entries = [(mode, "0" * 40, rel) for rel, mode in self.FILES.items()]
+        self.entries += [("100644", "0" * 40, rel) for rel in self.RECORDS]
+        self.entries += [("100644", "0" * 40, c) for c in ("tools/configure.py",
+                                                           "tools/license_db.py")]
+        self.entries.append(("160000", "a" * 40, rmp.GITLINKS[0]))
+        self.game.mkdir()
+        env = {"GIT_CONFIG_GLOBAL": str(tmp / "none"), "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t"}
+        with environment(**env), quiet():
+            rmp.make_game(self.framework, self.game, "space_rocks", "com.example.space_rocks",
+                          "com.example.space-rocks", self.entries)
+        self.index = subprocess.run(["git", "-C", str(self.game), "ls-files", "-s"],
+                                    capture_output=True, text=True, check=True).stdout
+
+    def text(self, rel):
+        return (self.game / rel).read_text(encoding="utf-8")
+
+    def test_the_index_is_the_manifest_with_its_modes(self):
+        paths = sorted(line.split("\t", 1)[1] for line in self.index.splitlines())
+        self.assertEqual(paths, rmp.new_game_paths(self.entries))
+        modes = {line.split("\t", 1)[1]: line.split()[0] for line in self.index.splitlines()}
+        self.assertEqual(modes["rmp"], "100755")
+        self.assertEqual(modes["tools/rmp.py"], "100755")
+        self.assertEqual(modes["src/main.cpp"], "100644")
+        self.assertEqual(modes[rmp.GITLINKS[0]], "160000")
+        self.assertTrue((self.game / rmp.GITLINKS[0]).is_dir())
+        for gone in ("tests/configure_test.py", "tools/fuzz.sh",
+                     "thirdparty/rapidcheck/LICENSE.md", "examples/a/src/main.cpp"):
+            self.assertFalse((self.game / gone).exists(), gone)
+        self.assertEqual((self.game / "thirdparty/raylib_multiplatform/LICENSE").read_bytes(),
+                         (REPO / "LICENSE").read_bytes())
+
+    def test_the_toml_is_this_game(self):
+        toml = self.text(rmp.TOML)
+        framework = (REPO / rmp.TOML).read_text(encoding="utf-8")
+        for key, value in (("name", '"space_rocks"'), ("title", '"space_rocks"'),
+                           ("application_id", '"com.example.space_rocks"'),
+                           ("bundle_id", '"com.example.space-rocks"')):
+            with self.subTest(key=key):
+                self.assertRegex(toml, rf"(?m)^{key}\s*= {re.escape(value)}")
+        password = re.search(r'(?m)^rres_password\s*= "([^"]*)"', toml).group(1)
+        self.assertNotEqual(password, re.search(r'(?m)^rres_password\s*= "([^"]*)"',
+                                                framework).group(1))
+        self.assertGreaterEqual(len(password), 20)
+        self.assertRegex(toml.split("[android.admob]")[1].split("\n[")[0],
+                         r"(?m)^enabled\s*= false")
+        self.assertRegex(toml.split("\n[android]")[1].split("\n[")[0],
+                         r'(?m)^gl_version\s*= "ES20"')
+        self.assertRegex(toml.split("\n[dev]")[1].split("\n[")[0], r"(?m)^sanitize\s*= \[\]")
+        # Nothing else moved: every other line is the framework's.
+        changed = [a for a, b in zip(framework.splitlines(), toml.splitlines()) if a != b]
+        self.assertEqual(len(framework.splitlines()), len(toml.splitlines()))
+        self.assertEqual(len(changed), 8, changed)
+
+    def test_the_licence_records_credit_the_framework_and_forget_rapidcheck(self):
+        licences = self.text("THIRD_PARTY_LICENSES.md")
+        self.assertRegex(licences, r"(?m)^raylib_multiplatform\s+thirdparty/raylib_multiplatform")
+        self.assertNotIn("thirdparty/rapidcheck", licences)
+        # Its paragraph, every line of it: the bullet and the lines under it.
+        framework = (REPO / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8").splitlines()
+        first = next(i for i, line in enumerate(framework) if line.startswith("- **rapidcheck**"))
+        paragraph = [framework[first]]
+        for line in framework[first + 1:]:
+            if not line.startswith("  "):
+                break
+            paragraph.append(line)
+        self.assertGreater(len(paragraph), 1, "the paragraph is one line: this checks less")
+        for line in paragraph:
+            self.assertNotIn(line, licences.splitlines())
+        self.assertEqual(len(framework) - len(licences.splitlines()), len(paragraph) + 1)
+        frozen = self.text("thirdparty/FROZEN_VERSIONS.md")
+        self.assertNotIn("sha256_rapidcheck", frozen)
+        self.assertNotIn("| rapidcheck |", frozen)
+        self.assertIn("rapidcheck", (REPO / "thirdparty/FROZEN_VERSIONS.md").read_text())
+
+    def test_the_readme_is_the_games(self):
+        self.assertEqual(self.text("README.md"), rmp.game_readme("space_rocks"))
+
+    def test_a_check_the_game_fails_is_refused(self):
+        (self.framework / "tools" / "license_db.py").write_text(
+            "print('a licence row with no files')\nraise SystemExit(1)\n")
+        again = self.game.parent / "again"
+        again.mkdir()
+        with self.assertRaises(rmp.Refused) as said, quiet():
+            rmp.make_game(self.framework, again, "again", "com.example.again",
+                          "com.example.again", self.entries)
+        self.assertIn("the new game failed tools/license_db.py --check", str(said.exception))
+        self.assertIn("a licence row with no files", str(said.exception))
+
+
 class StripComponentsTest(unittest.TestCase):
     """What FRAMEWORK_ONLY keeps under thirdparty/ leaves no record in a game:
     a licence row whose files are not there, or a pin with no row, fails the

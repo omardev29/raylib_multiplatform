@@ -17,6 +17,7 @@ tests    tests/rmp_test.py::CommandSequenceTest tests/rmp_test.py::SmokeStepTest
 tests    tests/rmp_test.py::RetireOldBuildTest tests/rmp_test.py::CleanTest
 tests    tests/rmp_test.py::EveryTestModuleRunsTest tests/rmp_test.py::PropertyStageTest
 tests    tests/rmp_test.py::CopyManifestTest tests/rmp_test.py::StripComponentsTest
+tests    tests/rmp_test.py::MakeGameInProcessTest
 tests    tests/rmp_test.py::GameUnitStageTest tests/rmp_test.py::ModeTest
 tests    tests/rmp_test.py::GlobalCommandsTest tests/rmp_test.py::InstallCommandTest
 tests    tests/rmp_test.py::SessionTest tests/rmp_test.py::TerminalNameTest
