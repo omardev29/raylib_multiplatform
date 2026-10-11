@@ -10,4 +10,8 @@ sources  src/rmp/object.cpp
 # mutant compiled in does not meet on a loaded machine.
 tests    unit_test -sf=*object_test.cpp,*collision_test.cpp,*map_collision_test.cpp,*behavior_test.cpp,*behaviors_test.cpp,*animation_test.cpp -tce=*cheap,*fraction?of?a?frame,*four?times*
 tests    property_test -ts=*object
-floor    -
+# Measured in the image on 2026-10-11 (P5): 311 of 504 detected, 61.71%. Of
+# the rest, draw_one() and sprite_source() (76) draw through raylib and need
+# a window no unit test opens, and world_bounds()' sprite and sheet halves
+# need a texture; view_rect() is Stage D's.
+floor    60
