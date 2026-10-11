@@ -1,0 +1,4 @@
+# libFuzzer flags for fuzz_save_decode, one a line: tools/fuzz.sh run and merge pass them.
+# A whole save file: a header of under 128 bytes and its payload. 2048 bytes hold
+# every path through the header and the parser, and keep the merged corpus small.
+-max_len=2048

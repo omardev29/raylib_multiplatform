@@ -1,0 +1,4 @@
+# libFuzzer flags for fuzz_save_sealed_flip, one a line: tools/fuzz.sh run and merge pass them.
+# One byte that picks the save, then edits of four bytes: 64 edits are far more
+# than a property needs to see a seal hold.
+-max_len=257
