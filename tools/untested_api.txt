@@ -15,8 +15,6 @@ rmp::ads::reward_amount()
 rmp::ads::show_interstitial()
 rmp::ads::show_rewarded()
 rmp::ads::take_reward_earned()
-rmp::assets::load_map(std::string_view)
-rmp::assets::load_map(std::string_view, std::string_view)
 rmp::behavior::Runner::ducking() const
 rmp::behavior::Tween::restart()
 rmp::input::just_pressed(::GamepadButton)
