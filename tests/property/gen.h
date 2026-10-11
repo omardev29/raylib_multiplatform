@@ -213,8 +213,10 @@ inline rc::Gen<rmp::Value> value() {
 }
 
 // How deep a Value nests: 0 for a leaf or an empty container, one more for
-// each container on the way down -- the count rmp::save checks against
-// MAX_DEPTH.
+// each container on the way down. Close to what rmp::save checks against
+// MAX_DEPTH, and not the same: the parser counts containers, so an empty one
+// at the bottom counts too (tests/property/value_model.h's nesting()) -- a
+// spine SAVE_DEPTH deep whose innermost object holds only NONE is one past it.
 inline int depth(const rmp::Value &v) {
     int deepest = 0;
     for (int i = 0; i < v.size(); ++i) {

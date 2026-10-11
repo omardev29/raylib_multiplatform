@@ -853,6 +853,17 @@ class MutationScriptTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("no mull-runner here", out)
 
+    def test_the_warm_up_run_has_time_for_property_test(self):
+        """mull-runner's warm-up run -- the program unmutated -- times out at
+        3 s unless told otherwise, and property_test takes 5 at Mull's -O0:
+        the weekly value and save shards could not have measured anything."""
+        text = (TOOLS / "mutation.sh").read_text()
+        call = text[text.index('"$MULL_RUNNER"'):]
+        call = call[:call.index("< /dev/null")]
+        timeout = re.search(r"(?<![\w-])--timeout (\d+)", call)
+        self.assertIsNotNone(timeout, "mull-runner is called without --timeout")
+        self.assertGreaterEqual(int(timeout.group(1)), 60000)
+
 
 # ---------------------------------------------------------------------------
 # The resilience list: every public function held by a property, or waived

@@ -150,8 +150,12 @@ run_cxx() {
     program="$1"
     shift
     echo "== mutation: $module, $program $* =="
+    # --timeout bounds the warm-up run, the unmutated program (mull-runner's
+    # default is 3 s, and property_test takes 5 at Mull's -O0: "Original test
+    # failed (warmup run)"); each mutant's own limit stays the larger of ten
+    # warm-ups and --minimum-timeout.
     "$MULL_RUNNER" --reporters Elements --report-dir "$dir/report" --report-name "$module-$i" \
-      --allow-surviving --workers "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" --minimum-timeout 10000 \
+      --allow-surviving --workers "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" --timeout 120000 --minimum-timeout 10000 \
       "$dir/$program" "$@" < /dev/null > "$dir/report/$module-$i.log" 2>&1 \
       || { tail -30 "$dir/report/$module-$i.log"; echo "FAIL: mull-runner did not finish"; exit 1; }
     grep -E 'Surviving mutants|Mutation score|Total execution' "$dir/report/$module-$i.log" \
