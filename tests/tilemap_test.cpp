@@ -312,19 +312,20 @@ TEST_CASE("a map reads the same under a locale with a decimal comma") {
     // stopped at the '.', and since every map says "version":"1.5" and
     // cute_tiled reads that as a number too, NO map loaded at all. The LDtk
     // reader had the guard (tests/ldtk_test.cpp); this reader did not.
-    const std::array names{ "rmp_comma", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8",
-                            "es_ES.UTF-8" };
+    const std::array<std::string, 5> names{ "rmp_comma", "de_DE.UTF-8", "de_DE.utf8",
+                                            "fr_FR.UTF-8", "es_ES.UTF-8" };
     const std::string was = std::setlocale(LC_NUMERIC, nullptr);
-    const char *found = nullptr;
-    for (const char *name : names) {
-        if (std::setlocale(LC_NUMERIC, name) != nullptr) {
+    std::string found;
+    for (const std::string &name : names) {
+        if (std::setlocale(LC_NUMERIC, name.c_str()) != nullptr) {
             found = name;
             break;
         }
     }
-    if (found == nullptr) {
+    if (found.empty()) {
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): getenv's answer, read on the next line
         const char *must = std::getenv("RMP_REQUIRE_TEST_LOCALES");
-        if (must != nullptr && std::string(must) == "1") {
+        if (must != nullptr && std::string_view(must) == "1") {
             FAIL_CHECK("no locale with a decimal comma: run tools/test_locales.sh and "
                        "set LOCPATH");
         } else {
@@ -340,9 +341,9 @@ TEST_CASE("a map reads the same under a locale with a decimal comma") {
     std::setlocale(LC_NUMERIC, was.c_str());
     CHECK(comma);
     REQUIRE(p.map.valid());
-    const rmp::MapObject *goblin = rmp::tilemap::detail::object_at(p.data, 0);
-    REQUIRE(goblin != nullptr);
-    CHECK(goblin->property_float("speed") == doctest::Approx(1.5));
+    REQUIRE(p.map.object_count() == 2);
+    const rmp::MapObject &goblin = p.data->objects.front(); // the first in the file
+    CHECK(goblin.property_float("speed") == doctest::Approx(1.5));
     CHECK(during.find(found) != std::string::npos); // the game's locale, given back
 }
 

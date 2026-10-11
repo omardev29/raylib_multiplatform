@@ -328,7 +328,8 @@ TEST_SUITE("property: tilemap") {
                 layer.gids.assign(64, 0);
                 const int column = *rc::gen::inRange(1, 3);
                 const int row = *rc::gen::inRange(1, 3);
-                layer.solid[static_cast<std::size_t>((row * 8) + column)] = true;
+                layer.solid[(static_cast<std::size_t>(row) * 8) +
+                            static_cast<std::size_t>(column)] = true;
                 grid.layers.push_back(layer);
                 const rmp::Tilemap map = rmp::test::maps::to_map(grid);
 
