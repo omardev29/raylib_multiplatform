@@ -109,10 +109,10 @@ float range(float min, float max) {
     // depends on whether a call was valid.
     const float v = value();
     if (!std::isfinite(min) || !std::isfinite(max)) {
-        RMP_REPORT_ONCE("RANDOM: range(%g, %g) has an end that is not a number; "
-                        "answering %s. A NaN here is usually a division by zero.",
-                        static_cast<double>(min), static_cast<double>(max),
-                        std::isfinite(min) ? "min" : (std::isfinite(max) ? "max" : "0"));
+        RMP_REPORT_ONCE("RANDOM: range(%g, %g) has an end that is not a number; the "
+                        "answer is min, or max when min is the one, or 0. A NaN here is "
+                        "usually a division by zero.",
+                        static_cast<double>(min), static_cast<double>(max));
         if (std::isfinite(min)) return min;
         return std::isfinite(max) ? max : 0.0f;
     }

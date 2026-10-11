@@ -12,7 +12,7 @@ src/rmp/behavior.cpp             100
 src/rmp/behaviors.cpp            91
 src/rmp/camera.cpp               100
 src/rmp/clock.cpp                95
-src/rmp/collision.cpp            96
+src/rmp/collision.cpp            97
 src/rmp/console.cpp              94
 src/rmp/global.cpp               100
 src/rmp/input.cpp                85
@@ -20,7 +20,7 @@ src/rmp/internal.h               100
 src/rmp/json_internal.h          100
 src/rmp/ldtk.cpp                 96
 src/rmp/loader_hook.cpp          36
-src/rmp/object.cpp               76
+src/rmp/object.cpp               78
 src/rmp/object_internal.h        100
 src/rmp/pack.cpp                 34
 src/rmp/random.cpp               100

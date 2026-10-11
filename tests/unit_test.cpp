@@ -291,6 +291,24 @@ TEST_SUITE("random") {
         CHECK(rmp::random::value() == second);
     }
 
+    TEST_CASE("range(float) is the float arithmetic every seeded game was built on") {
+        // min + (max - min) * value(), in float: the double that the
+        // overflowing case falls back to rounds differently, and taking it
+        // for an ordinary range would move every seeded run by an ulp.
+        rmp::random::seed(1);
+        const float v = static_cast<float>(0xf6e46bedu >> 8) / 16777216.0f;
+        CHECK(rmp::random::range(-3.0f, 5.0f) == -3.0f + (8.0f * v));
+        for (int i = 0; i < 2000; ++i) {
+            const float lo = (static_cast<float>(i) * 0.37f) - 300.0f;
+            const float hi = lo + (static_cast<float>(i % 97) * 1.3f) + 0.1f;
+            const uint64_t seed = 1000 + static_cast<uint64_t>(i);
+            rmp::random::seed(seed);
+            const float u = rmp::random::value();
+            rmp::random::seed(seed);
+            REQUIRE(rmp::random::range(lo, hi) == lo + ((hi - lo) * u));
+        }
+    }
+
     TEST_CASE("range(float) never lands on max, even where rounding puts it there") {
         // random_prop.cpp's counterexample: the seed whose first value() is
         // the largest, 1 - 2^-24, and -FLT_MIN to 0 -- whose answer rounded to

@@ -217,6 +217,24 @@ TEST_SUITE("property: random") {
                     }
                 }
             });
+        rmp::test::check(
+            "random: range(float) is min + (max - min) * value() in float arithmetic, "
+            "wherever that is a number short of max",
+            [](uint64_t seed) {
+                // The sequence every seeded game was built on: the double
+                // arithmetic of the overflowing case rounds differently, and
+                // must be taken only where the float one is not a number.
+                const float min = *finite_float();
+                const float max = *finite_float();
+                const float v = value_after(seed, 0);
+                const float expected = min + ((max - min) * v);
+                RC_PRE(std::isfinite(expected));
+                const bool short_of_max =
+                    min < max ? expected < max : (min == max || expected > max);
+                RC_PRE(short_of_max);
+                rmp::random::seed(seed);
+                RC_ASSERT(rmp::random::range(min, max) == expected);
+            });
         rmp::test::check("random: range(float) with a NaN or infinite end is a finite "
                          "answer, said once",
                          [] {
