@@ -574,17 +574,16 @@ class BuildFilesTest(unittest.TestCase):
                 continue
             name, key, render = entry
             value, literal = configure.setting(cfg, key), defines[name]
-            with self.subTest(name=name):
-                if render is configure._c_string:
-                    self.assertEqual(c_string(literal), value.encode("utf-8"))
-                elif render is configure._c_float:
-                    self.assertRegex(literal, rf"\A-?(?:{C_FLOAT.pattern})\Z")
-                    self.assertEqual(float(literal[:-1]), float(value))
-                elif render is configure._c_int:
-                    self.assertRegex(literal, r"\A-?[0-9]+\Z")
-                    self.assertEqual(int(literal), value)
-                else:
-                    self.assertEqual(literal, "1" if value else "0")
+            if render is configure._c_string:
+                self.assertEqual(c_string(literal), value.encode("utf-8"), name)
+            elif render is configure._c_float:
+                self.assertRegex(literal, rf"\A-?(?:{C_FLOAT.pattern})\Z", name)
+                self.assertEqual(float(literal[:-1]), float(value), name)
+            elif render is configure._c_int:
+                self.assertRegex(literal, r"\A-?[0-9]+\Z", name)
+                self.assertEqual(int(literal), value, name)
+            else:
+                self.assertEqual(literal, "1" if value else "0", name)
 
     @example(cfg=dict(base_config(), window=dict(base_config()["window"], title="Café")))
     @given(changed_configs())
@@ -637,12 +636,11 @@ class BuildFilesTest(unittest.TestCase):
         for key, value in cfg["ios"]["settings"].items():
             if key == "OTHER_CPLUSPLUSFLAGS":
                 continue
-            with self.subTest(setting=key):
-                self.assertIn(key, base)
-                if isinstance(value, bool):
-                    self.assertIs(base[key], value)
-                elif isinstance(value, (str, list)):
-                    self.assertEqual(base[key], value)
+            self.assertIn(key, base)
+            if isinstance(value, bool):
+                self.assertIs(base[key], value, key)
+            elif isinstance(value, (str, list)):
+                self.assertEqual(base[key], value, key)
 
     @given(changed_configs())
     def test_the_manifest_is_xml(self, cfg):
