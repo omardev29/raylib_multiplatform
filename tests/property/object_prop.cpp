@@ -625,7 +625,14 @@ TEST_SUITE("property: object") {
             [] {
                 const world::Fresh fresh;
                 world::World scene;
-                const world::Thing t = *world::thing(false);
+                world::Thing t = *world::thing(false);
+                // thing() draws a size and a radius of 1 to 80, and only the
+                // scale with a sign: either sign of each, here.
+                const auto either = [](float f) {
+                    return *rc::gen::arbitrary<bool>() ? -f : f;
+                };
+                t.size = { either(t.size.x), either(t.size.y) };
+                t.radius = either(t.radius);
                 auto &object = world::spawn(scene, t, 0);
                 const Rectangle box = object.world_bounds();
                 const float cx = t.position.x + t.offset.x;

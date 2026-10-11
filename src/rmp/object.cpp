@@ -357,8 +357,10 @@ Rectangle Object::world_bounds() const {
             // ellipse's -- width from x and height from y -- so a coin squashed
             // for a squash-and-stretch effect drew one size, collided at a
             // second and reported a third, and Edge::CLAMP (which reads this)
-            // stopped it short of the floor with nothing to explain why.
-            const float d = shape.radius * 2 * circle_scale(scale);
+            // stopped it short of the floor with nothing to explain why. And a
+            // negative radius is a disc that size, as the collider's is: signed,
+            // the box ran backwards and Edge::CLAMP read it the wrong way round.
+            const float d = std::fabs(shape.radius) * 2 * circle_scale(scale);
             return Rectangle{ position.x + shape.offset.x - d / 2,
                               position.y + shape.offset.y - d / 2, d, d };
         }

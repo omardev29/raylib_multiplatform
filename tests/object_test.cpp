@@ -1427,6 +1427,29 @@ TEST_CASE_FIXTURE(
     CHECK(negative.position.y == doctest::Approx(5));
 }
 
+TEST_CASE_FIXTURE(Fixture, "a disc of negative radius is the same disc, edges included") {
+    // object_prop.cpp's counterexample once its sizes could be negative: the
+    // collider of circle(-10) was the disc -- placed_of() takes the radius's
+    // size -- and world_bounds() was a box of -20 by -20 running backwards
+    // from the far corner, so the two disagreed and Edge::CLAMP left the
+    // disc across the edge.
+    World world;
+    auto &disc = world.spawn({ .position = { 5, 50 }, .shape = rmp::circle(-10) });
+    const Rectangle box = disc.world_bounds();
+    const Rectangle collider = disc.world_collider();
+    CHECK(box.x == doctest::Approx(-5));
+    CHECK(box.y == doctest::Approx(40));
+    CHECK(box.width == doctest::Approx(20));
+    CHECK(box.height == doctest::Approx(20));
+    CHECK(collider.x == box.x);
+    CHECK(collider.width == box.width);
+    disc.edges = rmp::Edge::CLAMP;
+    disc.bounds = { 0, 0, 100, 100 };
+    frame(world, 1.0f / 60);
+    CHECK(disc.position.x == doctest::Approx(10)); // pushed right, in
+    CHECK(disc.position.y == doctest::Approx(50));
+}
+
 TEST_CASE_FIXTURE(Fixture,
                   "an edge rule with bounds a float cannot say does nothing, said once") {
     World world;
