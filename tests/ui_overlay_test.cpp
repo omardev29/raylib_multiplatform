@@ -836,8 +836,8 @@ TEST_SUITE("ui: backdrop") {
     TEST_CASE("a blur is cut into passes that reach three sigmas a texel at a time") {
         using rmp::ui::detail::BLUR_MAX_DIVISOR;
         using rmp::ui::detail::BLUR_TAPS;
-        constexpr int SCREEN = 1920;
-        const auto plan_blur = [](float px, int size = SCREEN) {
+        // Over a 1920-pixel screen, unless said otherwise.
+        const auto plan_blur = [](float px, int size = 1920) {
             return rmp::ui::detail::plan_blur(px, size);
         };
         // Nothing to blur: not a distance, or under half a pixel.
@@ -884,7 +884,8 @@ TEST_SUITE("ui: backdrop") {
             CHECK(plan.sigma * static_cast<float>(plan.divisor) == doctest::Approx(px));
             CHECK(3.0f * plan.sigma <= static_cast<float>(BLUR_TAPS) + 1e-4f);
             CHECK((plan.divisor <= 4 ||
-                   3.0f * px > static_cast<float>(BLUR_TAPS * (plan.divisor / 2))));
+                   3.0f * px > static_cast<float>(BLUR_TAPS) *
+                           static_cast<float>(plan.divisor) / 2.0f));
         }
     }
 }
