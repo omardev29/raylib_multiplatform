@@ -59,6 +59,24 @@ main() {
     fi
     dest=$HOME/.local/share/rmp
 
+    # RMP_DRM as rmp reads it (session_of() in tools/rmp.py), and refused in
+    # rmp's words: 1 or 0, or unset or empty; anything else by its value, and
+    # 1 where DRM/KMS is not. Read as unset, a typo listed the X11 headers on a
+    # console, for an rmp that then refused every build.
+    case ${RMP_DRM:-} in
+        '' | 0) ;;
+        1)
+            if [ "$system" != Linux ]; then
+                fail "RMP_DRM=1: DRM/KMS is a Linux backend, and this is $system"
+                say "Nothing was installed."
+                return 1
+            fi ;;
+        *)
+            fail "RMP_DRM='$RMP_DRM': 1 builds for DRM/KMS (a Linux console with no desktop), 0 for the desktop; unset, rmp decides"
+            say "Nothing was installed."
+            return 1 ;;
+    esac
+
     # What to tell somebody to type. The package manager is the system's, and
     # the command is run by them, as root, never by this script.
     manager=
@@ -237,10 +255,11 @@ main() {
     fi
     # A Linux console with no desktop: rmp builds for DRM/KMS there, which
     # needs libdrm, gbm, EGL and GLES and none of X11. The same rule as
-    # session_of() in tools/rmp.py -- RMP_DRM=1 or 0 first; then a display or
-    # SSH means the desktop; then XDG_SESSION_TYPE=tty, or a controlling
-    # terminal that is a virtual console. Asked of ps and not of stdin, which
-    # under `curl | sh` is this script.
+    # session_of() in tools/rmp.py -- RMP_DRM=1 or 0 first (any other value
+    # was refused at the top); then a display or SSH means the desktop; then
+    # XDG_SESSION_TYPE=tty, or a controlling terminal that is a virtual
+    # console. Asked of ps and not of stdin, which under `curl | sh` is this
+    # script.
     console=
     if [ "$system" = Linux ]; then
         case ${RMP_DRM:-} in

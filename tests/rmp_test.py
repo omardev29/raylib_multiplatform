@@ -3530,6 +3530,46 @@ class InstallTest(InstallFixture):
                     home, self.install(home, path=folder),
                     "irm https://omardev29.github.io/rmp-docs/install.ps1 | iex")
 
+    @staticmethod
+    def rmp_refuses(env: dict, system: str) -> str:
+        """What rmp says of this RMP_DRM: session_of()'s own words."""
+        try:
+            rmp.session_of(env, system, None)
+        except rmp.Usage as e:
+            return str(e)
+        raise AssertionError(f"rmp takes {env} on {system}")
+
+    def test_an_rmp_drm_rmp_refuses_is_refused_in_its_words_and_nothing_is_cloned(self):
+        """session_of() refuses an RMP_DRM that is not 1 or 0, by its value,
+        and RMP_DRM=1 where there is no DRM/KMS; install.sh read the first as
+        unset -- the X11 headers on a console whose rmp then refused every
+        build -- and the second as nothing. Seen red: both installed, and
+        said nothing of it."""
+        for value in ("2", "yes", "true", "on", "01", " 1", "1 ", "-1"):
+            with self.subTest(value=value):
+                home = self.fresh()
+                says = self.rmp_refuses({rmp.DRM_ENV: value}, "Linux")
+                self.assert_refused_and_nothing_installed(
+                    home, self.install(home, RMP_DRM=value), f"FAIL: {says}\n",
+                    "Nothing was installed.")
+        folder = tool_folder(self.tmp / f"bsd-drm{self.count}", without=("uname",),
+                             stubs={"uname": "#!/bin/sh\necho FreeBSD\n"})
+        home = self.fresh()
+        says = self.rmp_refuses({rmp.DRM_ENV: "1"}, "FreeBSD")
+        self.assert_refused_and_nothing_installed(
+            home, self.install(home, path=folder, RMP_DRM="1"), f"FAIL: {says}\n")
+        # What rmp takes, it takes too: 0 anywhere, and empty is unset.
+        for system, value in (("FreeBSD", "0"), ("FreeBSD", ""), (platform_system(), "")):
+            with self.subTest(system=system, value=value):
+                self.assertEqual(rmp.session_of({rmp.DRM_ENV: value}, system, None).drm, False)
+                folder = tool_folder(self.tmp / f"drm-ok{self.count}", without=("uname",),
+                                     stubs={"uname": f"#!/bin/sh\necho {system}\n"})
+                type(self).count += 1
+                home = self.fresh()
+                got = self.install(home, path=folder, RMP_DRM=value)
+                self.assertEqual(got.returncode, 0, self.said(got))
+                self.assertNotIn("RMP_DRM", self.said(got).replace("(RMP_DRM=0 builds", ""))
+
     def strip_dev_null(self) -> Path:
         text = INSTALL_SH.read_text()
         stripped, count = re.subn(r"[ \t]*<[ \t]*/dev/null", "", text)
