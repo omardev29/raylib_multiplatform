@@ -313,6 +313,13 @@ TEST_SUITE("property: collision") {
                 const rmp::RayHit first = scene.raycast(query);
                 RC_ASSERT(static_cast<bool>(first) == (found > 0));
                 if (found > 0) RC_ASSERT(same(first, grid[0]));
+                // The two-point form is the query with nothing filtered.
+                std::array<rmp::RayHit, 1> unfiltered{};
+                const int any =
+                    scene.raycast_all({ .from = query.from, .to = query.to }, unfiltered);
+                const rmp::RayHit plain = scene.raycast(query.from, query.to);
+                RC_ASSERT(static_cast<bool>(plain) == (any > 0));
+                if (any > 0) RC_ASSERT(same(plain, unfiltered[0]));
             });
         rmp::test::check(
             "collision: a hit is a finite point on the ray, nearest first, on an object "
