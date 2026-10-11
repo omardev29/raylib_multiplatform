@@ -290,9 +290,10 @@ void set_scale(float s);
 // is wide), MEDIUM from 1 up to 1.6, EXPANDED at 1.6 and wider.
 enum class Breakpoint { COMPACT, MEDIUM, EXPANDED };
 
-// Which Breakpoint the screen is right now. It reads the window's size when it
-// is called, so it needs no begin() first; a window with no height yet is
-// MEDIUM.
+// Which Breakpoint the game's area is right now: the window, or under
+// rmp::app::Stretch::LETTERBOX the world inside its bars -- the design's
+// shape, whatever the window does. It reads the size when it is called, so it
+// needs no begin() first; a window with no height yet is MEDIUM.
 Breakpoint current_breakpoint();
 
 // Shorthand for the case that comes up: current_breakpoint() == Breakpoint::COMPACT.
@@ -373,8 +374,9 @@ void end();
 // How overlay() covers what is under it, and where its content goes.
 struct OverlayOptions {
     Align placement = Align::CENTER; // where its content sits, as FrameOptions::placement
-    // How far to blur what is underneath, in design units; 0 = no blur, which
-    // costs one rectangle. A real blur on every GPU raylib drives, OpenGL ES
+    // How far to blur what is underneath: the Gaussian's standard deviation in
+    // design units, as CSS's blur() means it; 0 = no blur, which costs one
+    // rectangle. A real blur on every GPU raylib drives, OpenGL ES
     // 2.0 and WebGL included. raylib's software renderer has no shaders, so
     // there -- and wherever a shader cannot be built -- the veil comes alone.
     float blur = 0;
@@ -619,7 +621,8 @@ template <class Body> void layer(Body &&body) {
 //         rmp::ui::text("999");
 //     });
 void spacer();
-void spacer(float fixed); // or just a gap of a given size
+// Or a gap of a given size, along its container: down a column, across a row.
+void spacer(float fixed);
 
 // ---------------------------------------------------------------------------
 // More widgets
@@ -931,7 +934,10 @@ struct NotifyOptions {
 // "Saved", "Achievement unlocked". Call it from anywhere -- _update(), a
 // callback, a frame with no UI -- because it only queues: the framework draws
 // what is queued over everything else, and it never takes the pointer or the
-// focus. The newest few are shown, one above the other.
+// focus. The newest few are shown, one above the other. (In a game with its
+// own frame hook they are drawn over the frame's first begin()/end(), there
+// being no telling which end() is the last; and a frame of its that describes
+// no interface draws none, so they wait, no older, for the next one that does.)
 //
 // In a debug build the framework's own warnings arrive here too: a mistake it
 // reports once in the log (an action nobody defined, a widget outside
@@ -969,7 +975,10 @@ bool wants_pointer();
 
 // A text field has the keyboard, so the keys are its own: see text_input().
 // Having the focus is not enough -- a field the player pressed Enter on keeps
-// the focus and gives the keyboard back.
+// the focus and gives the keyboard back. And a HUD over a game being played
+// that the player walked into with Tab, or whose control the game chose with
+// focus(), has the keys until Escape, the B button, a click elsewhere or
+// set_navigation_enabled(false): see FrameOptions::focus_first.
 bool wants_keyboard();
 
 // ---------------------------------------------------------------------------
@@ -1012,14 +1021,18 @@ bool wants_keyboard();
 // Outside begin()/end() -- in a scene's _ready(), say -- it waits for the next
 // frame that draws controls and lands on the first one carrying that name,
 // whichever scene draws it; if that frame has none, the request is dropped and
-// the screen keeps its own default.
+// the screen keeps its own default. On a HUD over a game being played it is
+// the game choosing that control, as Tab would be: the keys are the
+// interface's until Escape, the B button or a click elsewhere.
 void focus(std::string_view id);
 
 // What has the focus right now, or "" if nothing does.
 std::string_view focused();
 
 // Turn keyboard and gamepad navigation off if your game drives focus itself, and
-// ask whether it is on. It starts on.
+// ask whether it is on. It starts on. Turning it off also gives back the keys
+// of a HUD the player walked into with Tab, and turning it on again does not
+// take them back.
 void set_navigation_enabled(bool on);
 bool navigation_enabled();
 

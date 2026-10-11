@@ -346,8 +346,10 @@ namespace detail {
 // nowhere else -- tools/ownership_check.sh -- so the backdrop asks here, and
 // gets a handle that unloads itself like every other one. Each is empty, and
 // touches no GPU, when there is nothing to make: a texture with no area, a
-// shader with no fragment source. An empty `vertex` is raylib's default
-// vertex shader.
+// shader with no fragment source. Empty too when the driver refuses it -- a
+// framebuffer it will not complete, a shader that does not compile or link --
+// and never raylib's default shader in its place. An empty `vertex` is
+// raylib's default vertex shader.
 rmp::RenderTexture make_render_texture(int width, int height);
 rmp::Shader make_shader(std::string_view vertex, std::string_view fragment);
 } // namespace detail

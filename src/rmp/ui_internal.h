@@ -84,9 +84,11 @@ void finish_backdrop();
 
 // --- notices (ui/notify.cpp) -----------------------------------------------
 // rmp::app::detail::frame() calls draw_notices() after everything else has
-// drawn and before the frame is read back: what rmp::ui::notify() queued, as a
-// pass of its own that takes no input. It starts nothing when nothing is
-// queued, so a game that never notifies never starts the UI.
+// drawn and before the frame is read back: what rmp::ui::notify() queued,
+// laid out apart from the game's passes -- in a Clay context of the notices'
+// own (ui/notify.cpp says why) -- taking no input and no focus. It starts
+// nothing when nothing is queued, so a game that never notifies never starts
+// the UI.
 void draw_notices();
 
 // The report sink a debug build installs (rmp::detail::set_report_sink, in
