@@ -8115,16 +8115,19 @@ class E2eScriptsTest(unittest.TestCase):
                               f"tests/e2e/golden/{golden} is no shot of any script: delete it")
 
 
-class SeamCheckHoldsItsDebtTest(unittest.TestCase):
-    """tools/seam_check.sh holds a DEBT file to the calls it is in debt for.
+class SeamCheckTakesNoDebtTest(unittest.TestCase):
+    """tools/seam_check.sh allows the seams themselves, and nothing else.
 
-    ui/controls.cpp is on the list for the text field's character queue and
-    backspace (phase 14). Its caret blinked on GetTime() -- the wall clock --
-    as well, and the file being allowed meant nothing said so, until an e2e
-    script could not draw the same caret twice. Run on a copy of src/rmp and
-    include/rmp with one line changed."""
+    ui/controls.cpp was DEBT until phase 14: the text field read the character
+    queue and Backspace itself, and the check held the file to those two calls
+    -- its caret had blinked on GetTime(), the wall clock, until an e2e script
+    could not draw the same caret twice. The field types through read_typed()
+    in ui/context.cpp now, so the file is off the list, and any read of the
+    clock, the devices or the screen there is red, those two included. Run on
+    a copy of src/rmp and include/rmp with one line changed."""
 
     CARET = "const bool caret_on = typing && std::fmod(caret.f, 1.0f) < 0.5f;"
+    TYPED = "detail::read_typed(typed);"
 
     def run_on(self, old, new):
         import shutil
@@ -8153,14 +8156,26 @@ class SeamCheckHoldsItsDebtTest(unittest.TestCase):
             self.CARET,
             "const bool caret_on = typing && (static_cast<int>(GetTime() * 2.0) % 2) == 0;")
         self.assertEqual(code, 1, out)
-        self.assertIn("src/rmp/ui/controls.cpp is on the list for GetCharPressed|IsKeyPressed, "
-                      "and reads something else too", out)
-        self.assertRegex(out, r":GetTime\(\)")
+        self.assertIn("src/rmp/ui/controls.cpp reads time, input, randomness or the screen "
+                      "directly", out)
+        self.assertRegex(out, r"\d+:.*GetTime\(\)")
 
-    def test_a_debt_paid_off_comes_off_its_line(self):
-        code, out = self.run_on("GetCharPressed()) != 0", "next_character()) != 0")
-        self.assertEqual(code, 1, out)
-        self.assertIn("no longer calls GetCharPressed: take it off its DEBT_CALLS line", out)
+    def test_the_character_queue_back_in_the_field_fails(self):
+        """The two calls it was in debt for are as red as any other now."""
+        for call in ("GetCharPressed()", "IsKeyPressed(KEY_BACKSPACE)",
+                     "IsKeyPressedRepeat(KEY_BACKSPACE)"):
+            with self.subTest(call=call):
+                code, out = self.run_on(self.TYPED, f"{self.TYPED} (void){call};")
+                self.assertEqual(code, 1, out)
+                self.assertIn("src/rmp/ui/controls.cpp reads time, input, randomness or "
+                              "the screen directly", out)
+                self.assertRegex(out, r"\d+:.*" + re.escape(call))
+
+    def test_the_list_keeps_no_debt(self):
+        seam = (REPO / "tools" / "seam_check.sh").read_text()
+        code = "\n".join(l.split("#")[0] for l in seam.splitlines())
+        self.assertNotIn('"src/rmp/ui/controls.cpp"', code)
+        self.assertNotIn("DEBT_CALLS", code)
 
 
 class DrmCardProbeTest(unittest.TestCase):
@@ -9067,10 +9082,11 @@ class StyleCheckTest(unittest.TestCase):
                           "void later() {", "    int x = 0;",
                           "    if (!frame_open()) return;", "}")
 
-    def test_s7_holds_the_tree_to_its_debt_both_ways(self):
-        """A name in SILENT_DEBT is owed; one that speaks now has to come off,
-        and a silent one not on it fails like any other. Run on a copy of
-        src/rmp/ui with one function changed each way."""
+    def test_s7_holds_the_whole_tree(self):
+        """Phase 14 paid S7's debt: no entry point of src/rmp/ui is silent
+        outside a frame, and the list of owed ones (SILENT_DEBT) is gone with
+        it. One that goes silent again fails, and so does a new one. Run on a
+        copy of src/rmp/ui with one function changed each way."""
         import shutil
         import subprocess
 
@@ -9085,27 +9101,28 @@ class StyleCheckTest(unittest.TestCase):
                 return subprocess.run(["bash", str(root / "tools" / "style_check.sh")],
                                       capture_output=True, text=True, cwd=root)
 
-        def speak(ui):
+        def silent_again(ui):
             path = ui / "containers.cpp"
             text = path.read_text()
-            old = "void image(const Texture2D &texture, const ImageOptions &o) {\n" \
-                  "    if (!detail::frame_open()) return;"
+            old = 'if (!detail::frame_ready("image", {})) return;'
             self.assertIn(old, text, "image() changed: find its first line again")
-            path.write_text(text.replace(old, old.replace(
-                "detail::frame_open()", 'detail::frame_ready("image", "")')))
+            path.write_text(text.replace(old, "if (!detail::frame_open()) return;"))
 
         def new_silent(ui):
             path = ui / "widgets.cpp"
             path.write_text(path.read_text() + "\nvoid hush() {\n    if (!frame_open()) return;\n}\n")
 
         self.assertEqual(run(lambda ui: None).returncode, 0)
-        got = run(speak)
+        got = run(silent_again)
         self.assertEqual(got.returncode, 1, got.stdout)
-        self.assertIn("S7 image() speaks now: take it off SILENT_DEBT", got.stdout)
+        self.assertIn("containers.cpp", got.stdout)
+        self.assertIn("S7 image()", got.stdout)
         got = run(new_silent)
         self.assertEqual(got.returncode, 1, got.stdout)
         self.assertIn("widgets.cpp", got.stdout)
         self.assertIn("S7 hush()", got.stdout)
+        script = (REPO / "tools" / "style_check.sh").read_text()
+        self.assertNotIn("SILENT_DEBT", script)
 
     def test_c_is_c(self):
         """tests/smoke_test.h and the .c files are compiled as C, where a cast,
