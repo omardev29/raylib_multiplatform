@@ -182,6 +182,7 @@ inline rc::Seq<rmp::Value> smaller(const rmp::Value &v) {
     const bool object = v.type() == rmp::Value::Type::OBJECT;
     const int count = v.size();
     std::vector<rmp::Value> out;
+    out.reserve(2 * static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) out.push_back(object ? v[v.key(i)] : v[i]);
     for (int skip = 0; skip < count; ++skip) {
         rmp::Value fewer = object ? rmp::Value::object() : rmp::Value::list();
