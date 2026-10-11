@@ -489,6 +489,58 @@ TEST_SUITE("ui: overlay") {
         CHECK(rmp::detail::report_count() == reports + 1);
     }
 
+    TEST_CASE_FIXTURE(
+        HeadlessUi, "inside an open frame, the passes before that frame are behind it") {
+        // The layer's veil is over the whole viewport, a HUD described before
+        // the frame included: what it covers for the eye it covers for the
+        // pointer, as an overlay of its own would.
+        int under = 0;
+        bool reachable = true;
+        // 0: the HUD alone; 1: a menu frame after it too; 2: and in that
+        // frame, an overlay.
+        auto draw = [&](int what) {
+            return [&, what] {
+                rmp::ui::detail::begin_frame();
+                rmp::ui::begin();
+                reachable = rmp::ui::detail::pass_input();
+                if (rmp::ui::button("Under")) ++under;
+                rmp::ui::end();
+                if (what > 0) {
+                    rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_RIGHT });
+                    rmp::ui::button("Menu");
+                    if (what > 1) {
+                        rmp::ui::overlay({ .placement = rmp::ui::Align::TOP_LEFT },
+                                         [] { rmp::ui::button("Inside"); });
+                    }
+                    rmp::ui::end();
+                }
+                rmp::ui::detail::end_frame();
+            };
+        };
+        // Where Under is: Clay remembers the last pass of a frame, so a frame
+        // of the HUD alone says.
+        draw(0)();
+        draw(0)();
+        const Clay_Vector2 hud = middle_of("Under", 0);
+        REQUIRE(hud.x > 400);
+        // A frame after it with no overlay leaves it as it was.
+        click(hud, draw(1));
+        CHECK(reachable);
+        REQUIRE(under == 1);
+        // From the frame after the overlay first says so, the HUD is behind
+        // it: no input, no click.
+        draw(2)();
+        click(hud, draw(2));
+        CHECK_FALSE(reachable);
+        CHECK(under == 1);
+        // Gone, and a frame later the HUD takes input again.
+        draw(1)();
+        draw(1)();
+        CHECK(reachable);
+        click(hud, draw(1));
+        CHECK(under == 2);
+    }
+
     TEST_CASE_FIXTURE(HeadlessUi,
                       "its content goes where placement says, in a frame or a layer") {
         for (const Placed &p : PLACEMENTS) {
