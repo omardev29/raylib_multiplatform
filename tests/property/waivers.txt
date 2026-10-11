@@ -190,14 +190,8 @@ rmp::random::range(int, int)
 rmp::random::seed(uint64_t)
 rmp::random::value()
 
-# include/rmp/scene.h: P6, after Stage D; rmp::Camera is P3's, after Stage D
-rmp::Camera::detail_settle(float)
-rmp::Camera::raylib() const
-rmp::Camera::shake(float, float)
-rmp::Camera::shake_offset() const
-rmp::Camera::to_screen(Vector2) const
-rmp::Camera::to_world(Vector2) const
-rmp::Camera::view() const
+# include/rmp/scene.h: P6, after Stage D (rmp::Camera's are held by
+# tests/property/camera_prop.cpp, P3b)
 rmp::Scene::_draw()
 rmp::Scene::_end()
 rmp::Scene::_ready()
