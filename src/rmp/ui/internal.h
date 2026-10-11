@@ -658,6 +658,15 @@ const void *last_image_data();
 // The defaults, exposed so a test can put them back.
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void *user);
+
+// What measure_with_raylib() measures a piece of text with, `face` being the
+// font ui_font() gives for `font_size`: apart, so that a test can hand it a
+// font of its own making -- baking one needs a GL context.
+Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size);
+
+// The space render.cpp draws between two letters of a text `font_size` pixels
+// tall, and the one every measurement counts.
+inline float letter_spacing(float font_size) { return font_size / 10.0f; }
 void pointer_from_raylib(Clay_Vector2 &position, bool &down);
 void nav_from_raylib(NavState &out);
 void typed_from_raylib(Typed &out);

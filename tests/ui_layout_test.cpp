@@ -3145,6 +3145,83 @@ TEST_CASE("shutdown() forgets the frame, the font and the transitions") {
 }
 TEST_CASE("the text field types what the provider says") { run_typed(); }
 
+// The text, measured the way render.cpp's DrawTextEx() draws it: a font like
+// raylib's own, every glyph 6 wide at its base size of 10 with no advance of its
+// own, drawn at 20 -- 12 a letter, and a letter spacing of 2 between two.
+// tests/property/ui_text_prop.cpp holds it over any font, size and line; these
+// are the counterexamples it shrank the old measurement to.
+struct {
+    std::vector<GlyphInfo> glyphs;
+    std::vector<Rectangle> recs;
+    ::Font face{};
+} plain_font;
+
+const ::Font &make_plain_font() {
+    if (plain_font.glyphs.empty()) {
+        for (int c = 32; c < 127; ++c) {
+            plain_font.glyphs.push_back(GlyphInfo{ .value = c });
+            plain_font.recs.push_back(Rectangle{ 0, 0, 6, 10 });
+        }
+        plain_font.face.baseSize = 10;
+        plain_font.face.glyphCount = static_cast<int>(plain_font.glyphs.size());
+        plain_font.face.texture.id = 1; // never drawn: "a font that was loaded"
+        plain_font.face.recs = plain_font.recs.data();
+        plain_font.face.glyphs = plain_font.glyphs.data();
+    }
+    return plain_font.face;
+}
+
+// NOLINTBEGIN(custom-rmp-raw-pointer): Clay's signature, not ours to choose
+Clay_Dimensions measure_plain(Clay_StringSlice text, Clay_TextElementConfig *config,
+                              void * /*user*/) {
+    // NOLINTEND(custom-rmp-raw-pointer)
+    return rmp::ui::detail::measure_text(make_plain_font(), text,
+                                         static_cast<float>(config->fontSize));
+}
+
+// The width Clay lays the one line of `s` out at, in the plain font at 20.
+float laid_out_width(std::string_view s) {
+    rmp::ui::detail::set_measure_provider(measure_plain);
+    for (int frame = 0; frame < 2; ++frame) {
+        rmp::ui::begin();
+        rmp::ui::text(s, { .size = 20, .wrap = false });
+        rmp::ui::end();
+    }
+    float width = -1;
+    const Clay_RenderCommandArray commands = rmp::ui::detail::last_pass_commands();
+    for (int32_t i = 0; i < commands.length; ++i) {
+        const Clay_RenderCommand &cmd = commands.internalArray[i];
+        if (cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT)
+            width = cmd.boundingBox.width;
+    }
+    rmp::ui::detail::set_measure_provider(measure_stub);
+    return width;
+}
+
+TEST_CASE("text is laid out as wide as DrawTextEx draws it") {
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::set_scale(1);
+    // Three letters, two spacings: 12 + 2 + 12 + 2 + 12. raylib's
+    // MeasureTextEx() of each piece said 36: the spacings around a space lost.
+    check_near(laid_out_width("a b"), 40, 0.01f, "two words and the space between them");
+    check_near(laid_out_width("Really quit?"), 12 * 12 + 11 * 2, 0.01f,
+               "ui/01_menu's two words, which ran past the buttons");
+    // Drawn: 12 + 2 + 12. A line that starts with a space is a spacing wider
+    // than that, never narrower: the old measurement gave 24.
+    check_near(laid_out_width("  "), 28, 0.01f, "two spaces: one spacing over");
+    // Drawn up to the NUL, as cstr() hands it to DrawTextEx(): " !" is 26.
+    check_near(laid_out_width(std::string_view(" !\0!!", 5)), 26, 0.01f,
+               "a NUL inside: what is drawn, the space before it too");
+    rmp::ui::set_scale(0);
+
+    // Clay never asks about a newline; asked anyway, it is nothing -- never
+    // less (MeasureTextEx() of "\n" is minus one spacing).
+    const char *const newline = "\n!!!!!";
+    const Clay_Dimensions d =
+        rmp::ui::detail::measure_text(make_plain_font(), { 1, newline, newline }, 20);
+    check(d.width == 0, "a slice of one newline measures 0");
+}
+
 // Found by tests/property/ui_text_prop.cpp. Clay wraps a word too wide for its
 // box onto a line of its own, space after it included, and then takes that
 // space off the NEXT line -- the newline's, which has nothing on it -- and

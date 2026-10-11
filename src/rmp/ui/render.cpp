@@ -249,7 +249,7 @@ void draw(Clay_RenderCommandArray commands) {
                 auto size = static_cast<float>(t.fontSize);
                 const ::Font f = ui_font(size); // baked at exactly this size: sharp
                 DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
-                           size / 10.0f, from_clay(t.textColor));
+                           letter_spacing(size), from_clay(t.textColor));
                 break;
             }
 

@@ -1061,12 +1061,70 @@ Clay_ElementId element_id(std::string_view label, std::string_view explicit_id) 
 // Providers (swapped out by the headless layout tests)
 // ---------------------------------------------------------------------------
 
+// What render.cpp's DrawTextEx() will draw, measured the way it draws it, a
+// piece at a time -- which is how Clay asks. Clay measures a text word by word
+// and a space on its own, once, and adds them up (Clay__MeasureTextCached);
+// DrawTextEx() draws a whole line and puts letter_spacing() between every two
+// of its letters, the spaces' included. raylib's MeasureTextEx() counts the
+// spacing only inside what it is given, so every space lost the two around
+// it: a two-word line was laid out four pixels narrower than it was drawn at
+// 20 pixels, and a menu's longer lines ran past the buttons under them.
+//
+// So each letter brings the spacing BEFORE it, but the first letter of its
+// line: a word does when there is a letter before it on its line (Clay hands
+// the whole string over with the word, so that is a look back), and a space,
+// which Clay measures once without saying where it is, always does. Added
+// up, a line is exactly as wide as it is drawn -- unless it starts with a
+// space, which brought a spacing nothing is before; then it is one spacing
+// wider, never narrower. A line that Clay wraps is one spacing wider too,
+// past the first, for the same reason: its first word was measured with the
+// space before it. Wider is a box with a little room in it; narrower is text
+// running out of its box.
+//
+// Letter for letter as DrawTextEx() goes: the bytes cstr() copies -- up to a
+// NUL, as it reads them --, raylib's own UTF-8 decoding and glyph lookup, a
+// glyph with no advance taking its rectangle's width, and raylib's font when
+// this one has no texture. tests/property/ui_text_prop.cpp holds it to
+// DrawTextEx() over random fonts, sizes and lines.
+Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size) {
+    const ::Font f = face.texture.id != 0 ? face : GetFontDefault();
+    // A font with nothing in it -- raylib's, before there is a window -- is
+    // nothing DrawTextEx() could draw either.
+    if (!IsFontValid(f) || text.length <= 0) return Clay_Dimensions{ 0, 0 };
+    const float scale = font_size / static_cast<float>(f.baseSize);
+    const float spacing = letter_spacing(font_size);
+
+    const char *const s = cstr(text);
+    if (s[0] == '\0') return Clay_Dimensions{ 0, 0 }; // what MeasureTextEx() said
+    float width = 0;
+    int letters = 0;
+    for (int i = 0; s[i] != '\0';) {
+        int bytes = 0;
+        const int codepoint = GetCodepointNext(&s[i], &bytes);
+        i += bytes;
+        if (codepoint == '\n') continue; // a line ends there: not Clay's to ask
+        const int index = GetGlyphIndex(f, codepoint);
+        const int advance = f.glyphs[index].advanceX;
+        width +=
+            (advance == 0 ? f.recs[index].width : static_cast<float>(advance)) * scale;
+        ++letters;
+    }
+    if (letters == 0) return Clay_Dimensions{ 0, font_size };
+    width += static_cast<float>(letters - 1) * spacing;
+
+    // The spacing before it. A space: always. A word: when a letter is before
+    // it on its line, spaces between them.
+    const bool space = text.length == 1 && text.chars[0] == ' ';
+    const char *before = text.chars;
+    while (before > text.baseChars && before[-1] == ' ') --before;
+    if (space || (before > text.baseChars && before[-1] != '\n')) width += spacing;
+    return Clay_Dimensions{ width, font_size };
+}
+
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void * /*unused*/) {
     auto size = static_cast<float>(config->fontSize);
-    const ::Font f = ui_font(size);
-    const Vector2 m = MeasureTextEx(f, cstr(text), size, size / 10.0f);
-    return Clay_Dimensions{ m.x, m.y };
+    return measure_text(ui_font(size), text, size);
 }
 
 void pointer_from_raylib(Clay_Vector2 &position, bool &down) {
@@ -1118,16 +1176,22 @@ void set_nav_provider(NavFn fn) {
     providers.nav = (fn != nullptr) ? fn : nav_from_raylib;
 }
 
+// Both of these forget what Clay measured: it keeps a text's measurement for as
+// long as the text is on screen, and one taken with another font, or another
+// measurement, would lay the next frame out at the old width.
 void set_font_provider(FontFn fn, const char *name) {
     providers.font = (fn != nullptr) ? fn : load_ui_font;
     providers.font_name = name;
     release_fonts();
     font.failed = false;
+    if (context.started) Clay_ResetMeasureTextCache();
 }
 
 void set_measure_provider(MeasureFn fn) {
     providers.measure = (fn != nullptr) ? fn : measure_with_raylib;
-    if (context.started) Clay_SetMeasureTextFunction(providers.measure, nullptr);
+    if (!context.started) return;
+    Clay_SetMeasureTextFunction(providers.measure, nullptr);
+    Clay_ResetMeasureTextCache();
 }
 
 // Both of these throw away what the UI thinks about the pointer, and they have
