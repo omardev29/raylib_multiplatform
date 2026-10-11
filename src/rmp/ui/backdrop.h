@@ -52,16 +52,20 @@ ShaderSource blur_shader_source(Glsl glsl);
 void set_test_blur_shader(std::optional<ShaderSource> source);
 
 // How a Gaussian blur of `sigma_px` pixels -- the standard deviation, as CSS's
-// blur() means it -- is drawn: at 1/divisor of the screen's resolution, with
-// BLUR_TAPS taps either side of each pixel, `step` texels of the small
-// picture apart, weighted by a Gaussian of `sigma` taps. divisor 0: too small
-// to show, and copied as it is.
+// blur() means it -- is drawn over a frame whose longer side is `frame_size`
+// pixels: at 1/divisor of its resolution, with BLUR_TAPS taps either side of
+// each pixel, one texel of that small picture apart, weighted by a Gaussian
+// of `sigma` of its texels. The divisor is a power of two: 2 below 3 pixels,
+// 4 from there, and past what the taps reach at three sigmas, the next power
+// that they do -- never the taps spread apart, which skip texels and draw
+// stripes -- until the small picture is one texel across, and never past
+// BLUR_MAX_DIVISOR. divisor 0: too small to show, and copied as it is.
 inline constexpr int BLUR_TAPS = 8;
+inline constexpr int BLUR_MAX_DIVISOR = 4096;
 struct BlurPlan {
     int divisor = 0;
-    float step = 1;
     float sigma = 0;
 };
-BlurPlan plan_blur(float sigma_px);
+BlurPlan plan_blur(float sigma_px, int frame_size);
 
 } // namespace rmp::ui::detail

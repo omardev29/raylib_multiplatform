@@ -179,11 +179,14 @@ void draw_split(bool across) {
 
 // One frame: the UI's frame boundary, BeginDrawing(), the backdrop's two
 // hooks around what `draw` draws -- the scenes, in an app -- and the picture
-// read back before EndDrawing().
+// read back before EndDrawing(). The screen holds something else when the
+// frame starts, as a back buffer after a swap does: magenta, which no check
+// expects to see.
 template <class Draw> Shot frame(Draw &&draw) {
     rmp::app::detail::step_delta();
     rmp::ui::detail::begin_frame();
     BeginDrawing();
+    ClearBackground(MAGENTA);
     rmp::ui::detail::begin_backdrop();
     draw();
     rmp::ui::detail::finish_backdrop();
@@ -363,6 +366,148 @@ void blurs_in(std::optional<rmp::ui::detail::ShaderSource> source,
         check(!rmp::ui::detail::backdrop_redirected(),
               label + ": and then nothing is redirected");
     }
+}
+
+// A redirected frame no overlay took goes on screen as it was drawn, the
+// pixels drawn see-through included: a copy that blended them over the screen
+// would show what the screen held before through them.
+void untaken_translucent() {
+    rmp::ui::detail::set_test_blur_shader(std::nullopt);
+    auto draw = [] {
+        draw_split(true);
+        DrawRectangle(WIDTH / 4, HEIGHT / 4, WIDTH / 2, HEIGHT / 2,
+                      Color{ 255, 0, 0, 128 });
+    };
+    const Shot plain = frame(draw);
+    split_under({ .blur = 8, .dim = 0 }, true); // asks
+    bool redirected = false;
+    const Shot after = frame([&] {
+        redirected = rmp::ui::detail::backdrop_redirected();
+        draw();
+    });
+    check(redirected && identical(after, plain, "untaken_translucent"),
+          "a redirected frame no overlay took: its see-through pixels exactly as drawn");
+    frame(draw);
+}
+
+// The game's blend factors are the game's: raylib keeps one set, which
+// BLEND_CUSTOM draws with, and a frame the backdrop drew leaves it as it was.
+void leaves_the_blend_factors() {
+    rmp::ui::detail::set_test_blur_shader(std::nullopt);
+    // Multiply: black stays black, white turns the grey drawn over it.
+    rlSetBlendFactors(RL_DST_COLOR, RL_ZERO, RL_FUNC_ADD);
+    auto draw = [] {
+        draw_split(true);
+        BeginBlendMode(BLEND_CUSTOM);
+        DrawRectangle(0, 0, WIDTH, HEIGHT, Color{ 128, 128, 128, 255 });
+        EndBlendMode();
+    };
+    const Shot before = frame(draw);
+    check(colour_at(before, 0.25f, 0.5f).r == 0 &&
+              colour_at(before, 0.75f, 0.5f).r == 128,
+          "the game's BLEND_CUSTOM multiplies (the check below means something)");
+    split_under({ .blur = 8, .dim = 0 }, true); // asks
+    split_under({ .blur = 8, .dim = 0 }, true); // blurred
+    const bool blurred = rmp::ui::detail::backdrop_blurred();
+    const Shot after = frame(draw); // redirected, and taken by no overlay
+    const Shot settled = frame(draw);
+    check(blurred && identical(after, before, "blend_factors_redirected") &&
+              identical(settled, before, "blend_factors_after"),
+          "after a blurred frame the game's BLEND_CUSTOM still multiplies");
+    rlSetBlendFactors(RL_SRC_ALPHA, RL_ONE_MINUS_SRC_ALPHA, RL_FUNC_ADD);
+}
+
+// One-pixel white lines on black, `every` pixels apart from `phase`: upright
+// for a blur across, lying for one down.
+void draw_lines(int every, int phase, bool across) {
+    ClearBackground(BLACK);
+    const int length = across ? WIDTH : HEIGHT;
+    for (int at = phase; at < length; at += every) {
+        if (across) {
+            DrawRectangle(at, 0, 1, HEIGHT, WHITE);
+        } else {
+            DrawRectangle(0, at, WIDTH, 1, WHITE);
+        }
+    }
+}
+
+// A blur loses nothing: lines one pixel wide come out as their average grey,
+// wherever they fall. The small pictures the blur is drawn at must be made
+// from every pixel of the frame -- read sparsely, a line on one pixel
+// vanished and the same line one pixel over came out twice as bright -- and
+// their taps must be one texel apart: spread further, a wide blur over lines
+// 16 pixels apart came out in stripes from 2 to 35 where it is 16 all over.
+struct LinesUnder {
+    float blur; // design units: half that in pixels, the scale being 0.5
+    int every;
+    int phase_step;
+};
+constexpr std::array<LinesUnder, 6> LINES_UNDER{
+    LinesUnder{ 4, 2, 1 }, // 2 px: drawn at half the resolution
+    LinesUnder{ 8, 4, 1 }, // 4 px: at a quarter
+    LinesUnder{ 24, 16, 5 }, // 12 px and up: smaller still
+    LinesUnder{ 40, 16, 5 }, LinesUnder{ 80, 16, 5 }, LinesUnder{ 160, 16, 5 },
+};
+
+void keeps_every_pixel() {
+    rmp::ui::detail::set_test_blur_shader(std::nullopt);
+    for (const LinesUnder &u : LINES_UNDER) {
+        const float blur = u.blur;
+        const int every = u.every;
+        const int expected = 255 / every;
+        for (const bool across : { true, false }) {
+            for (int phase = 0; phase < every; phase += u.phase_step) {
+                const std::string name = "lines_" +
+                    std::to_string(static_cast<int>(blur)) + "_" + std::to_string(every) +
+                    "_" + std::to_string(phase) + (across ? "_across" : "_down");
+                auto draw = [&] {
+                    draw_lines(every, phase, across);
+                    rmp::ui::overlay({ .blur = blur, .dim = 0 }, [] {});
+                };
+                frame(draw); // asks
+                const Shot shot = frame(draw);
+                int low = 255;
+                int high = 0;
+                for (int y = HEIGHT / 4; y < 3 * HEIGHT / 4; ++y) {
+                    for (int x = WIDTH / 4; x < 3 * WIDTH / 4; ++x) {
+                        const int v = shot.at(x, y).r;
+                        low = v < low ? v : low;
+                        high = v > high ? v : high;
+                    }
+                }
+                std::printf("      %s: %d..%d, the lines' average %d\n", name.c_str(),
+                            low, high, expected);
+                const int tolerance = every > 4 ? 4 : 10;
+                const bool kept = rmp::ui::detail::backdrop_blurred() &&
+                    low >= expected - tolerance && high <= expected + tolerance;
+                if (!check(kept, name + ": the lines come out as their average grey")) {
+                    save(shot, name, "actual");
+                }
+            }
+        }
+    }
+    // Wider than the screen: the frame halved down to one texel, and that
+    // one colour all over.
+    auto widest = [] {
+        draw_split(true);
+        rmp::ui::overlay({ .blur = 1.0e6f, .dim = 0 }, [] {});
+    };
+    frame(widest); // asks
+    const Shot flat = frame(widest);
+    const Color corner = flat.at(0, 0);
+    bool one_colour = rmp::ui::detail::backdrop_blurred();
+    for (int y = 0; y < HEIGHT; y += 7) {
+        for (int x = 0; x < WIDTH; x += 7) {
+            if (std::abs(flat.at(x, y).r - corner.r) > 1) one_colour = false;
+        }
+    }
+    std::printf("      a blur wider than the screen: %d all over\n", corner.r);
+    if (!check(one_colour && corner.r > 32 && corner.r < 223,
+               "a blur wider than the screen: one grey all over")) {
+        save(flat, "widest", "actual");
+    }
+    frame([] { draw_split(true); });
+    frame([] { draw_split(true); });
 }
 
 // dim and blur together: the blur under the veil.
@@ -621,6 +766,9 @@ int main() {
     blurs_in(rmp::ui::detail::blur_shader_source(Glsl::ES_300), "GLSL ES 3.00");
     blurs_in(rmp::ui::detail::blur_shader_source(Glsl::CORE_330), "GLSL 330");
     blurs_in(std::nullopt, "rlGetVersion()'s");
+    keeps_every_pixel();
+    untaken_translucent();
+    leaves_the_blend_factors();
     blur_under_a_veil();
     eases_in();
     a_shader_that_fails();

@@ -14,8 +14,10 @@
 // the theme's transition (ease_towards()). Every frame after that it is drawn
 // in three steps:
 //
-//   1. the frame, across: into a texture 1/2 or 1/4 of its size, each pixel
-//      the Gaussian-weighted sum of BLUR_TAPS taps either side of it;
+//   1. the frame, across: into a texture 1/2, 1/4 or less of its size
+//      (plan_blur()), each pixel the Gaussian-weighted sum of BLUR_TAPS taps
+//      either side of it -- read, below a half, from the frame halved down to
+//      twice that size first, so that every pixel of it counts;
 //   2. that, down: the same sum, vertically, into a second small texture;
 //   3. that, on screen: stretched back to the screen's size, which bilinear
 //      filtering smooths.
@@ -54,6 +56,8 @@
 #include <raylib.h>
 #include <rlgl.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -87,10 +91,17 @@ struct BackdropState {
 };
 BackdropState backdrop;
 
-// What the blur is drawn with: the frame, the two small textures, the
-// shader and its two uniforms. Made when first needed, released with the UI.
+// The halvings of the frame a blur at BLUR_MAX_DIVISOR is read from: the
+// last is twice the small picture.
+constexpr int MAX_HALVINGS = 11;
+static_assert((2 << MAX_HALVINGS) == BLUR_MAX_DIVISOR);
+
+// What the blur is drawn with: the frame, the frame halved as many times as
+// a blur needs, the two small textures, the shader and its two uniforms.
+// Made when first needed, released with the UI.
 struct Gpu {
     rmp::RenderTexture scene;
+    std::array<rmp::RenderTexture, MAX_HALVINGS> halves;
     rmp::RenderTexture across;
     rmp::RenderTexture down;
     rmp::Shader shader;
@@ -295,60 +306,128 @@ bool ready() {
     return true;
 }
 
-// Draw `from` onto what is bound, the whole of it over `width` x `height`,
+// Draw `part` of `from` onto what is bound, over `width` x `height`,
 // replacing what is there instead of blending with it: a copy of the frame is
-// the frame, its alpha included. A render texture is upside down, so the
-// source rectangle's height is negative.
-void copy(const rmp::RenderTexture &from, float width, float height) {
+// the frame, its alpha included. `part` is in texels from the top-left corner
+// of the picture as it was drawn, and may reach past its right and bottom
+// edges, where the edge texels go on (every texture here is clamped). A
+// render texture is stored upside down, so the source rectangle raylib is
+// handed is measured from the bottom, with a negative height.
+//
+// Blending off for this one quad, and not BLEND_CUSTOM with ONE and ZERO:
+// rlgl keeps one set of custom factors, and it is the game's -- set once,
+// it is what every BLEND_CUSTOM of the game draws with. rlgl batches, so
+// what is queued is drawn first, with blending, and the quad alone without.
+void copy(const rmp::RenderTexture &from, const Rectangle part, float width,
+          float height) {
     const Texture2D &t = from.raw().texture;
-    rlSetBlendFactors(RL_ONE, RL_ZERO, RL_FUNC_ADD);
-    BeginBlendMode(BLEND_CUSTOM);
-    DrawTexturePro(
-        t, Rectangle{ 0, 0, static_cast<float>(t.width), -static_cast<float>(t.height) },
-        Rectangle{ 0, 0, width, height }, Vector2{ 0, 0 }, 0, WHITE);
-    EndBlendMode();
+    const Rectangle source{ part.x, static_cast<float>(t.height) - part.y - part.height,
+                            part.width, -part.height };
+    rlDrawRenderBatchActive();
+    rlDisableColorBlend();
+    DrawTexturePro(t, source, Rectangle{ 0, 0, width, height }, Vector2{ 0, 0 }, 0,
+                   WHITE);
+    rlDrawRenderBatchActive();
+    rlEnableColorBlend();
 }
 
-// One pass of the blur, from `from` into `into`: `direction` in `from`'s
-// texture coordinates per tap.
-void blur_pass(const rmp::RenderTexture &from, const rmp::RenderTexture &into,
-               Vector2 direction, float sigma) {
+// All of `from`, over `width` x `height`.
+void copy(const rmp::RenderTexture &from, float width, float height) {
+    const Texture2D &t = from.raw().texture;
+    copy(from,
+         Rectangle{ 0, 0, static_cast<float>(t.width), static_cast<float>(t.height) },
+         width, height);
+}
+
+// One pass of the blur, from `part` of `from` into all of `into`:
+// `direction` in `from`'s texture coordinates per tap.
+void blur_pass(const rmp::RenderTexture &from, const Rectangle part,
+               const rmp::RenderTexture &into, Vector2 direction, float sigma) {
     const Texture2D &target = into.raw().texture;
     BeginTextureMode(into);
     BeginShaderMode(gpu.shader);
     SetShaderValue(gpu.shader, gpu.direction, &direction, SHADER_UNIFORM_VEC2);
     SetShaderValue(gpu.shader, gpu.sigma, &sigma, SHADER_UNIFORM_FLOAT);
-    copy(from, static_cast<float>(target.width), static_cast<float>(target.height));
+    copy(from, part, static_cast<float>(target.width), static_cast<float>(target.height));
     EndShaderMode();
     EndTextureMode();
 }
 
+// The frame, or its halving number `halvings` (1 is half of it).
+const rmp::RenderTexture &halved(int halvings) {
+    return halvings == 0 ? gpu.scene : gpu.halves.at(static_cast<size_t>(halvings - 1));
+}
+
 // The frame in gpu.scene, on screen, blurred by `sigma_px` pixels.
+//
+// Each step reads a picture exactly twice the size of the one it draws, at
+// the texel centres of the one it draws: there bilinear filtering averages
+// the two by two texels around each, so every pixel of the frame counts, and
+// counts once. Read from further than twice -- the frame straight into a
+// quarter of it -- a line one pixel wide vanished, or came out twice as
+// bright, by which pixel it fell on; read from not quite twice -- 45 rows
+// into 23 -- the texel centres drifted off the boundaries, and the lines came
+// out half as bright again. So the frame is halved down to twice the small
+// picture first, and is taken to be as large as the small picture times the
+// divisor -- its last row and column going on into what it lacks, as the
+// blur's clamped edges do anyway -- and cut back to its own size on the way
+// back to the screen.
 void draw_blurred(float sigma_px) {
     const Texture2D &frame = gpu.scene.raw().texture;
     const auto width = static_cast<float>(frame.width);
     const auto height = static_cast<float>(frame.height);
-    const BlurPlan plan = plan_blur(sigma_px);
+    const BlurPlan plan = plan_blur(sigma_px, std::max(frame.width, frame.height));
     if (plan.divisor == 0) {
         copy(gpu.scene, width, height);
         return;
     }
     const int small_width = (frame.width + plan.divisor - 1) / plan.divisor;
     const int small_height = (frame.height + plan.divisor - 1) / plan.divisor;
-    if (!fit(gpu.across, small_width, small_height) ||
-        !fit(gpu.down, small_width, small_height)) {
+    const auto give_up_and_copy = [&] {
         give_up("no render texture for the blur");
         copy(gpu.scene, width, height);
+    };
+    // The frame as large as the small picture times the divisor, and its
+    // halvings: each of the size of the part the next one reads.
+    int part_width = small_width * plan.divisor;
+    int part_height = small_height * plan.divisor;
+    int halvings = 0;
+    for (; part_width > 2 * small_width; ++halvings) {
+        const Rectangle part{ 0, 0, static_cast<float>(part_width),
+                              static_cast<float>(part_height) };
+        part_width /= 2;
+        part_height /= 2;
+        rmp::RenderTexture &into = gpu.halves.at(static_cast<size_t>(halvings));
+        if (!fit(into, part_width, part_height)) {
+            give_up_and_copy();
+            return;
+        }
+        BeginTextureMode(into);
+        copy(halved(halvings), part, static_cast<float>(part_width),
+             static_cast<float>(part_height));
+        EndTextureMode();
+    }
+    if (!fit(gpu.across, small_width, small_height) ||
+        !fit(gpu.down, small_width, small_height)) {
+        give_up_and_copy();
         return;
     }
-    // Across, reading the frame: a tap is `step` small texels, which is
-    // step x divisor of the frame's.
-    blur_pass(gpu.scene, gpu.across,
-              Vector2{ plan.step * static_cast<float>(plan.divisor) / width, 0 },
+    // A tap is a texel of the small picture: two of its source's, and one of
+    // its own.
+    const rmp::RenderTexture &source = halved(halvings);
+    blur_pass(source,
+              Rectangle{ 0, 0, static_cast<float>(part_width),
+                         static_cast<float>(part_height) },
+              gpu.across,
+              Vector2{ 2.0f / static_cast<float>(source.raw().texture.width), 0 },
               plan.sigma);
-    blur_pass(gpu.across, gpu.down,
-              Vector2{ 0, plan.step / static_cast<float>(small_height) }, plan.sigma);
-    copy(gpu.down, width, height);
+    const auto small_w = static_cast<float>(small_width);
+    const auto small_h = static_cast<float>(small_height);
+    blur_pass(gpu.across, Rectangle{ 0, 0, small_w, small_h }, gpu.down,
+              Vector2{ 0, 1.0f / small_h }, plan.sigma);
+    // Back up to the screen, the frame's own part of it.
+    const auto divisor = static_cast<float>(plan.divisor);
+    copy(gpu.down, Rectangle{ 0, 0, width / divisor, height / divisor }, width, height);
 }
 
 // RMP_COVERAGE_ON
@@ -439,6 +518,7 @@ void release_backdrop() {
     backdrop.off = false;
     backdrop.eased = 0;
     gpu.scene = rmp::RenderTexture{};
+    for (rmp::RenderTexture &half : gpu.halves) half = rmp::RenderTexture{};
     gpu.across = rmp::RenderTexture{};
     gpu.down = rmp::RenderTexture{};
     gpu.shader = rmp::Shader{};
@@ -491,17 +571,20 @@ void set_test_blur_shader(std::optional<ShaderSource> source) {
     gpu.test_source = std::move(source);
 }
 
-BlurPlan plan_blur(const float sigma_px) {
+BlurPlan plan_blur(const float sigma_px, const int frame_size) {
     if (!(sigma_px >= SMALLEST_SIGMA) || !std::isfinite(sigma_px)) return BlurPlan{};
     BlurPlan plan;
     plan.divisor = sigma_px < QUARTER_FROM ? 2 : 4;
-    const float small = sigma_px / static_cast<float>(plan.divisor);
-    // The kernel reaches three sigmas: one texel apart while that fits in
-    // BLUR_TAPS, further apart past it -- never more than a sigma apart, so
-    // the Gaussian is still sampled, only more coarsely.
-    const float reach = 3.0f * small / static_cast<float>(BLUR_TAPS);
-    plan.step = reach > 1.0f ? reach : 1.0f;
-    plan.sigma = small / plan.step;
+    // The kernel reaches three sigmas with taps one texel apart: past what
+    // BLUR_TAPS of them reach, the picture is halved again. Spreading the
+    // taps instead skips texels, and a blur that skips them draws stripes.
+    // Until it is one texel across: halving that makes nothing smaller, and
+    // only pads the frame it is made from.
+    while (3.0f * sigma_px > static_cast<float>(BLUR_TAPS * plan.divisor) &&
+           plan.divisor < frame_size && plan.divisor < BLUR_MAX_DIVISOR) {
+        plan.divisor *= 2;
+    }
+    plan.sigma = sigma_px / static_cast<float>(plan.divisor);
     return plan;
 }
 

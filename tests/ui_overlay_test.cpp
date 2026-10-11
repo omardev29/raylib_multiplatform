@@ -740,8 +740,13 @@ TEST_SUITE("ui: backdrop") {
         CHECK(none.fragment.empty());
     }
 
-    TEST_CASE("a blur is cut into passes that reach three sigmas and sample each one") {
-        using rmp::ui::detail::plan_blur;
+    TEST_CASE("a blur is cut into passes that reach three sigmas a texel at a time") {
+        using rmp::ui::detail::BLUR_MAX_DIVISOR;
+        using rmp::ui::detail::BLUR_TAPS;
+        constexpr int SCREEN = 1920;
+        const auto plan_blur = [](float px, int size = SCREEN) {
+            return rmp::ui::detail::plan_blur(px, size);
+        };
         // Nothing to blur: not a distance, or under half a pixel.
         for (const float none :
              { std::numeric_limits<float>::quiet_NaN(),
@@ -750,34 +755,43 @@ TEST_SUITE("ui: backdrop") {
             CAPTURE(none);
             CHECK(plan_blur(none).divisor == 0);
         }
-        // Small: at half the resolution, one texel a tap.
+        // Small: at half the resolution.
         CHECK(plan_blur(0.5f).divisor == 2);
         CHECK(plan_blur(2.9f).divisor == 2);
-        CHECK(plan_blur(2.0f).step == doctest::Approx(1.0f));
         CHECK(plan_blur(2.0f).sigma == doctest::Approx(1.0f));
         // From three pixels: at a quarter.
         CHECK(plan_blur(3.0f).divisor == 4);
-        CHECK(plan_blur(4.0f).step == doctest::Approx(1.0f));
         CHECK(plan_blur(4.0f).sigma == doctest::Approx(1.0f));
-        // Large: the taps spread, and the Gaussian spreads with them.
+        CHECK(plan_blur(10.0f).divisor == 4);
+        // Wider: a smaller picture, the taps still a texel apart.
+        CHECK(plan_blur(11.0f).divisor == 8);
         const auto wide = plan_blur(40.0f);
-        CHECK(wide.divisor == 4);
-        CHECK(wide.step == doctest::Approx(3.75f));
-        CHECK(wide.sigma == doctest::Approx(8.0f / 3.0f));
-        // Over every blur from half a pixel to two hundred: the plan is the
-        // blur asked for, the kernel reaches three sigmas, the taps are never
-        // closer than a texel nor further apart than a sigma.
-        for (int step = 0; step < 90; ++step) {
-            const float px = 0.5f * std::pow(1.07f, static_cast<float>(step)); // to 200
+        CHECK(wide.divisor == 16);
+        CHECK(wide.sigma == doctest::Approx(2.5f));
+        // However wide, no smaller than one texel across the frame...
+        CHECK(plan_blur(1.0e30f).divisor == 2048);
+        CHECK(plan_blur(std::numeric_limits<float>::max(), 320).divisor == 512);
+        CHECK(plan_blur(1.0e30f, 512).divisor == 512);
+        CHECK(plan_blur(1.0e30f, 1).divisor == 4);
+        CHECK(plan_blur(1.0f, 1).divisor == 2);
+        CHECK(plan_blur(1.0e30f, 0).divisor == 4);
+        // ...and never past the most it is drawn with.
+        CHECK(plan_blur(1.0e30f, 1 << 20).divisor == BLUR_MAX_DIVISOR);
+        CHECK(plan_blur(1.0e30f, 1 << 20).sigma == doctest::Approx(1.0e30f / 4096.0f));
+        // Over every blur from half a pixel to two thousand: the plan is the
+        // blur asked for, at a power of two, the kernel reaches three sigmas,
+        // and the picture is no smaller than that takes.
+        for (int step = 0; step < 125; ++step) {
+            const float px = 0.5f * std::pow(1.07f, static_cast<float>(step)); // to 2200
             CAPTURE(px);
-            const auto plan = plan_blur(px);
-            const float small = px / static_cast<float>(plan.divisor);
-            CHECK(plan.sigma * plan.step * static_cast<float>(plan.divisor) ==
-                  doctest::Approx(px));
-            CHECK(static_cast<float>(rmp::ui::detail::BLUR_TAPS) * plan.step >=
-                  3.0f * small - 1e-3f);
-            CHECK(plan.step >= 1.0f);
-            CHECK(plan.step <= (small > 1.0f ? small : 1.0f) + 1e-4f);
+            const auto plan = plan_blur(px, 1 << 16);
+            CHECK(plan.divisor >= 2);
+            CHECK((plan.divisor & (plan.divisor - 1)) == 0);
+            CHECK((plan.divisor == 2) == (px < 3.0f));
+            CHECK(plan.sigma * static_cast<float>(plan.divisor) == doctest::Approx(px));
+            CHECK(3.0f * plan.sigma <= static_cast<float>(BLUR_TAPS) + 1e-4f);
+            CHECK((plan.divisor <= 4 ||
+                   3.0f * px > static_cast<float>(BLUR_TAPS * (plan.divisor / 2))));
         }
     }
 }
