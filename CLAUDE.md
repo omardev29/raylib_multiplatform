@@ -56,8 +56,9 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
     under `thirdparty/` or its licence row.
   - **A change a player can see** (`behaviour-approved`): any e2e golden, the
     render hash, a default of the framework.
-  - **A sweep** (`sweep-approved`): a pull request that makes the same kind of
-    change in more than 40 files and is not an approved API batch.
+  - **A sweep** (`sweep-approved`): a pull request that changes more than 40
+    files and is not an approved API batch. Counted, not judged (Omar,
+    2026-10-12): a large pull request that is not a sweep asks too.
   - **An architectural decision** of any size: a new module or header, a new
     layer, a change to how two parts talk, a new kind of file the project
     keeps. When in doubt, it is one.
@@ -259,15 +260,26 @@ here so that nobody "fixes" one back.
   - **The API is the same**, and as simple as the 2D one. What only r3d or Jolt
     can do is API too: under the other backend it **fails to compile**, with a
     message naming the `[3d]` key to set. It never does nothing in silence.
+  - **An example that needs r3d or Jolt is a project of its own**, with its
+    own `.toml`, built from an `rmp new` copy in a job of its own and played
+    there by an e2e script, never a target of the framework's tree, whose
+    `.toml` stays on rmp3d and arcade. The tests that need r3d or Jolt build
+    in a second tree.
 - **Example games and templates are data-driven, and their code is the simplest
   there is** (Omar, 2026-10-12). The platformer (`examples/games/07_platformer`)
   is the model: an enemy, a coin, a door or a moving platform is placed,
   linked and tuned in the editor (LDtk for 2D; Blender's custom properties for
   3D), and the code holds the behaviour, never the content.
-  - **No hard-coded positions or level parameters** in `examples/games/` and
-    `templates/`: no spawn at a literal position, no enemy tuned in code, no
-    path typed as numbers. Every entity type the editor offers has its factory,
-    and every factory a type in the editor.
+  - **No hard-coded positions or level parameters** in the games of
+    `examples/games/` and in `templates/`: the positions, sizes, speeds,
+    lives, waves and paths of the entities come from the editor, and every
+    entity type the editor offers has its factory, and every factory a type in
+    the editor. Other numbers -- the UI's layout, a colour, an animation's
+    timing -- are named constants.
+  - **The six 2D games that came before the rule are exempt, by name** (Omar,
+    2026-10-12): `01_pong` to `06_tetris` stay as they are. The rule holds the
+    platformer and every game and template added after it; the gate's list of
+    the exempt only shrinks.
   - **The framework before raylib:** `rmp::input`, `rmp::assets`, sprites,
     `rmp::ui` and `delta`, never the raylib call they wrap.
   - **The code reads like a description of the game:** small files, small
