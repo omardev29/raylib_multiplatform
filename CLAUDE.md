@@ -602,6 +602,52 @@ here so that nobody "fixes" one back.
   this repo says those are cheap to fix once and never come back. Running the
   whole matrix between every phase costs more time than the PSBs do.
 
+## Open problems
+
+Each entry is a problem nobody has solved yet: what is known, what was ruled
+out, and how to go about it. **When one is solved, its entry is deleted from
+this file in the same pull request** -- a caveat below is only kept when the
+lesson outlives the fix.
+
+- **The `console` and `core` mutation shards lose GitHub's runner.** Every
+  weekly `deep.yml` run (`38173980700`, `38182204715`), both shards work for
+  about 50 minutes and then the job dies with "The hosted runner lost
+  communication with the server ... terminates the runner process, starves it
+  for CPU/Memory" (`console`) or "The runner has received a shutdown signal"
+  (`core`). The step's log is never uploaded and the steps after `Mutate`
+  never run, so nothing says which mutant was running. Both modules are
+  `floor -` until this is found; the other 28 have floors.
+  - **What the shards run.** `console` mutates `src/rmp/console.cpp` and runs
+    `tests/console_test.cpp`, which installs signal handlers in-process and
+    starts `console_canary` -- linked with the same mutated file -- through
+    `popen` and `sh` on a pseudo-terminal, dying every way (segfault, abort,
+    kill, stack overflow, sanitizer reports). `core` mutates `report.cpp`,
+    `global.cpp` and `ads.cpp` against the whole `unit_test`, the console
+    tests included.
+  - **Ruled out: memory per process.** `tools/mutation.sh` holds every program
+    a mutant runs in to 3 GiB of address space (`bounded`, seen working), and
+    the second run died the same way.
+  - **The likeliest cause, not verified: orphans that eat the CPU.** On a
+    timeout mull-runner kills the program it started, not its descendants; the
+    canary is a grandchild. A mutant of the fatal-signal handler -- inverting
+    `faults_again()`, say -- makes it return from a SIGSEGV, the kernel
+    re-runs the faulting instruction, and the canary spins at 100 % for ever;
+    a few dozen of them on a 4-core runner starve the runner's own process.
+    For `core` it may also be the disk: a mutant that turns off "report once"
+    makes a loop of reports millions of log lines, which Mull keeps per mutant.
+  - **How to find it, without losing a machine.** Run the shard in a container
+    with hard limits (`--cpus`, `--pids-limit`, `--memory`, a size-limited
+    volume for `build/`), `--workers 1`, and a watcher that lists every 30 s
+    the processes older than the mutant timeout and the disk used. Orphans
+    show at once; so does a disk filling. Not on a developer's own machine
+    without those limits: what takes a 16 GB runner down takes a laptop down.
+  - **When it is solved:** fix the cause (if it is orphans, start each canary
+    in a process group of its own and kill the group when its test ends or
+    times out), let a weekly run measure both modules and set their floors,
+    drop the sentence about it from `tools/mutation.sh`'s comment and the
+    paragraph on rmp-docs' `framework/security.html` ("The console and the
+    core without a mutation score"), and **delete this entry**.
+
 ## Caveats that have already cost time
 
 - **riscv64 runs under QEMU, in the build image.** There is no riscv64 runner,
