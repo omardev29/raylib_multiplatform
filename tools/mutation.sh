@@ -47,12 +47,14 @@ report() { python3 tools/mutation_report.py "$@"; }
 
 # Every program a mutant runs in is held to an address space of its own: a
 # mutant that takes a bound away -- a loop that never stops growing a vector --
-# otherwise takes the machine with it. On GitHub's runner the core and console
-# shards of the weekly run lost their runner that way ("The hosted runner lost
-# communication with the server", 38173980700), with no log and no score. Under
-# the limit the mutant's program dies, which is a mutant detected. Per process:
-# mull-runner's workers and mutmut's children are each held to it, and the
-# builds are not sanitized (ASan reserves terabytes of address space).
+# would otherwise take the machine with it; under the limit the mutant's
+# program dies, which is a mutant detected. Per process: mull-runner's workers
+# and mutmut's children are each held to it, and the builds are not sanitized
+# (ASan reserves terabytes of address space). It is NOT what loses GitHub's
+# runner in the core and console shards of the weekly run ("The hosted runner
+# lost communication with the server" in 38173980700, and again with this
+# limit in 38182204715, no log and no score): that is still open, and those two
+# modules have no floor until it is found.
 MUTANT_MEMORY_KB=${RMP_MUTANT_MEMORY_KB:-3145728}  # 3 GiB
 bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && "$@"); }
 
