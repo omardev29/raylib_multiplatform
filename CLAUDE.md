@@ -44,10 +44,30 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
     request says why the API has to change.
   - **A decision this file calls his** -- "Omar, <date>", "by Omar's
     decision". Changing one, or working around one, is his call.
+  - **A rule, or a gate** (`rules-approved`): this file, `.claude/` (the
+    skills), `../next_architecture/`, `.clang-tidy`, `.clang-format`, every
+    `tools/*_check.*` and `tools/lint*`, every list that only shrinks, and every
+    test that enforces a rule rather than a behaviour. See "Rules are Omar's"
+    below.
+  - **What a target ships** (`target-approved`): a target added or removed;
+    what is packaged, published or how (`_release.yml`, `_itch.yml`, the
+    packaging steps); the release flags; `tools/size_budget.txt`;
+    `thirdparty/FROZEN_VERSIONS.md` and any image digest; a new dependency
+    under `thirdparty/` or its licence row.
+  - **A change a player can see** (`behaviour-approved`): any e2e golden, the
+    render hash, a default of the framework.
+  - **A sweep** (`sweep-approved`): a pull request that makes the same kind of
+    change in more than 40 files and is not an approved API batch.
+  - **An architectural decision** of any size: a new module or header, a new
+    layer, a change to how two parts talk, a new kind of file the project
+    keeps. When in doubt, it is one.
   - **Secrets and GitHub's settings**: secrets, tokens, repository variables,
     branch protection, labels, a workflow's `permissions:`.
 
-  Say what is needed in the pull request, and stop there.
+  Say what is needed in the pull request, and stop there. The labels above are
+  Omar's alone, like `api-approved`. An agent never adds or removes one. Until
+  the job that checks them exists (task H7 of `../next_architecture/08-plan.md`),
+  the pull request names the label it needs in its first line and waits.
 - **Never push to `main`**, and never force-push a branch that is not yours.
 - **Never weaken a gate to get green.** A floor lowered, a list that only
   shrinks grown (`tools/lint_debt.txt`, `tools/pointer_ratchet.txt`,
@@ -57,9 +77,29 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   true` after a check: none of it is a fix. A gate that is wrong is fixed in
   the gate, with the test that shows it was wrong -- or the pull request says
   why, and Omar decides.
-- **In the cloud only this repository is checked out.** `../PROGRESS.md`,
-  `../next_architecture/` and `../rmp-docs/` are not there: the pull request's
-  description is the report, and what the docs need is written in it.
+- **Rules are Omar's.** An agent never adds, changes or removes a rule --
+  here, in a skill, in `../next_architecture/`, or in a gate -- without his
+  approval (`rules-approved`, above). That includes "small" ones: a new ban, a
+  stricter lint, an exception list, a sentence that tells the next agent what
+  to avoid. **A bug is fixed in the code that has it, never by a rule that bans
+  what the bug touched.** The case this exists for came from another project.
+  An agent working in C++26 hit a bug with the standard library's modules,
+  wrote a rule into its CLAUDE.md that banned every STL module, and rewrote the
+  whole codebase to obey it. Nobody had asked, and nobody noticed for a long
+  time. A rule is a decision about the whole codebase, so it is Omar's. When a
+  rule seems needed, the pull request proposes it, with the evidence, and
+  stops.
+- **Decisions are written down where they bind.** Every architectural or
+  behavioural decision Omar takes goes into this file, with "Omar, <date>", in
+  the same pull request that implements it. A decision that lives only in a
+  pull request's thread is lost to the next agent.
+- **In the cloud, the metarepo is checked out around this repository**
+  (Omar, 2026-10-12): `../next_architecture/` (the plan and `DECISIONS.md`),
+  `../CLAUDE.md` and `../PROGRESS.md` are there, as on Omar's machine. Read the
+  plan's task card and the design sections it names before starting. The pull
+  request's description is still the report. A cloud task does not edit
+  `../PROGRESS.md`, and changes `../next_architecture/` only through a pull
+  request of its own to the metarepo, which needs `rules-approved`.
 
 ## What the project is
 
@@ -173,6 +213,69 @@ here so that nobody "fixes" one back.
   comments too.
 
 ## Standing rules from Omar
+
+- **A 2D game pays nothing for 3D** (Omar, 2026-10-12). A Pong's release
+  binary contains not one line of rmp3d, r3d, Jolt, the 3D physics, raylib's
+  model loaders or a 3D shader, and weighs what it weighs today: a few hundred
+  KB packed. A 3D game may weigh a gigabyte and use every renderer and physics
+  engine there is; a 2D game is not charged for the possibility. How it holds:
+  - the 3D code lives in libraries of its own, and **the core never names a 3D
+    symbol** (`src/rmp` outside the 3D modules refers to nothing in them, not
+    through a hook, not through shutdown, not through input);
+  - a static archive gives the linker only the objects something references,
+    and `-ffunction-sections`, gc-sections and LTO drop what is left unused. So
+    a 2D game that includes a 3D header by mistake and never uses it gets
+    nothing from it. A header's declarations, inline functions it does not call
+    and templates it does not instantiate emit no code;
+  - **no static initialiser in 3D code**, since an object with a constructor at
+    namespace scope is kept for its constructor's sake;
+  - optional 3D parts (r3d, Jolt, the image codecs) are linked only into a game
+    whose `.toml` asks for them, through generated code, never by `#if` in the
+    core.
+
+  The guards are task H8 of `../next_architecture/08-plan.md`:
+  - a symbol test on the release binaries of the demo game and of
+    `examples/games/01_pong`, which fails on any 3D symbol;
+  - their size-budget lines;
+  - a layering check of `librmp.a`'s undefined symbols;
+  - a probe that builds a 2D game with every 3D header included and unused,
+    and must come out byte for byte the size of the same game without them.
+
+  Until they exist, every pull request that touches 3D says how it kept this.
+- **Every target runs 2D and 3D** (Omar, 2026-10-12). rmp3d, the framework's
+  own 3D renderer, and the arcade 3D physics run on all of them: desktop, web,
+  Android, iOS, DRM, the BSDs, and the universal `.run` down to its software
+  binary. There is no 2D-only target. A target that cannot run them is a
+  problem to solve, and **changing what a target ships, or dropping a target,
+  is Omar's decision** (`target-approved`).
+- **Two 3D renderers and two physics engines, one API** (Omar, 2026-10-12).
+  - **rmp3d and the arcade physics are ours:** as simple and as light as they
+    can be, with the features `../next_architecture/04-3d.md` and
+    `05-physics-terrain.md` list and **not one more**. Adding a feature or a
+    touch of realism to either is Omar's decision.
+  - **r3d (the renderer) and Jolt (the physics) are for realism**, and only on
+    `linux-x64-glibc`, `windows-x64` and `macos`. `configure.py` refuses them
+    with any other target enabled.
+  - **The API is the same**, and as simple as the 2D one. What only r3d or Jolt
+    can do is API too: under the other backend it **fails to compile**, with a
+    message naming the `[3d]` key to set. It never does nothing in silence.
+- **Example games and templates are data-driven, and their code is the simplest
+  there is** (Omar, 2026-10-12). The platformer (`examples/games/07_platformer`)
+  is the model: an enemy, a coin, a door or a moving platform is placed,
+  linked and tuned in the editor (LDtk for 2D; Blender's custom properties for
+  3D), and the code holds the behaviour, never the content.
+  - **No hard-coded positions or level parameters** in `examples/games/` and
+    `templates/`: no spawn at a literal position, no enemy tuned in code, no
+    path typed as numbers. Every entity type the editor offers has its factory,
+    and every factory a type in the editor.
+  - **The framework before raylib:** `rmp::input`, `rmp::assets`, sprites,
+    `rmp::ui` and `delta`, never the raylib call they wrap.
+  - **The code reads like a description of the game:** small files, small
+    functions, names that explain, few comments, and a result that looks good.
+    The platformer's effects are the bar.
+
+  The first two points get a gate each (task H9); the third is the reviewer's,
+  and the templates' code is the first thing a newcomer reads.
 
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
