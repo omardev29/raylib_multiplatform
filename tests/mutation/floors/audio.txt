@@ -1,6 +1,10 @@
 # rmp::audio (package P6).
+# Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
+# 57 of 137, 41.61%. Most survivors are in what a device that is not there
+# would do: the property runs with no sound device and with miniaudio's null
+# one.
 kind     cxx
 sources  src/rmp/audio.cpp
 tests    unit_test -sf=*audio_test.cpp
 tests    property_test -sf=*audio_prop.cpp
-floor    -
+floor    40

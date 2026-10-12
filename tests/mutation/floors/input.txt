@@ -1,7 +1,9 @@
 # rmp::input (package P6, after Stage D).
+# Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
+# 143 of 198, 72.22%.
 kind     cxx
 sources  src/rmp/input.cpp
 tests    unit_test -sf=*input_test.cpp
 # Any device state, dead zone and binding, against a model of an action's frames.
 tests    property_test -ts=*input
-floor    -
+floor    70

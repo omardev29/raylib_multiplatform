@@ -1,4 +1,5 @@
 # Collision: the grid, raycasts, sweeps (package P5).
+# The weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300): 497 of 708, 70.20%.
 kind     cxx
 sources  src/rmp/collision.cpp
 # Without the hundred-raycast timing case: its 20 ms ceiling is a build's
@@ -11,4 +12,4 @@ tests    property_test -ts=*collision
 # double. Most of the rest are comparisons at their edge in the broad phase
 # and the walk, which only ever make a candidate list longer or shorter by
 # a cell the narrow phase then decides about.
-floor    65
+floor    70

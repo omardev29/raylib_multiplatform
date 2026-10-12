@@ -1,9 +1,11 @@
 # The world's area in the window, and rmp::app::stretch() (Stage D):
 # src/rmp/stretch.cpp. world_viewport() is pure, so its own tests are the
 # whole of what can kill a mutant there.
+# Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
+# 18 of 21, 85.71%.
 kind     cxx
 sources  src/rmp/stretch.cpp
 tests    unit_test -sf=*stretch_test.cpp
 # world_viewport() over any screen and mode, set_stretch() over any int.
 tests    property_test -ts=*app
-floor    -
+floor    85

@@ -3,8 +3,10 @@
 # Killed by the cases of tests/animation_test.cpp -- every refusal of the
 # walk, the deflate decoder's included, has one -- and by the properties of
 # tests/property/animation_prop.cpp.
+# Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
+# 625 of 752, 83.11%.
 kind     cxx
 sources  src/rmp/animation.cpp src/rmp/aseprite.cpp
 tests    unit_test -sf=*animation_test.cpp
 tests    property_test -ts=*animation
-floor    -
+floor    80

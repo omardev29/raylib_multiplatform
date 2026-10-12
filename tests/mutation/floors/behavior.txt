@@ -1,6 +1,12 @@
 # The behaviour engine and the thirteen behaviours (package P6).
+# Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
+# 422 of 663, 63.65%. The run before, at 5900e98 (38173980700), said 534 of
+# 663: the four-times-the-objects ratio in behavior_test.cpp measured the wall
+# clock then, and failed for a mutant that only made the engine slower. It
+# reads the thread's CPU time now (package F3b), and those mutants survive --
+# what is left is what the tests check.
 kind     cxx
 sources  src/rmp/behavior.cpp src/rmp/behaviors.cpp
 tests    unit_test -sf=*behavior_test.cpp,*behaviors_test.cpp
 tests    property_test -sf=*behavior_prop.cpp
-floor    -
+floor    60
