@@ -59,10 +59,13 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   - **What a target ships** (`target-approved`): a target added or removed;
     what is packaged, published or how (`_release.yml`, `_itch.yml`, the
     packaging steps); the release flags; a new dependency under `thirdparty/`,
-    a version of one changed in `thirdparty/FROZEN_VERSIONS.md`, and its
-    licence row; the glibc floor of a Linux binary.
+    a vendored library's version in `thirdparty/FROZEN_VERSIONS.md`, and its
+    licence row; the glibc floor of a Linux binary; a line of
+    `tools/size_budget.txt` not measured in the pinned image (Windows, macOS,
+    the BSDs).
   - **A change a player can see** (`behaviour-approved`): an existing e2e
-    golden that moves, the render hash, a default of the framework.
+    golden that moves, a project's under `projects/` too; the render hash; a
+    default of the framework.
   - **An architectural decision the plan has not made**, of any size: a new
     module or header, a new layer, a change to how two parts talk, a new kind
     of file the project keeps. When in doubt, it is one. What
@@ -89,8 +92,9 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   - a line of `tools/size_budget.txt` measured in the pinned image, with its
     delta and its reason in the pull request. A 2D line that grows because of
     3D is not a measurement: it breaks "A 2D game pays nothing for 3D", below;
-  - an image digest, once the image repository's verify workflow is green on
-    both architectures;
+  - an image a card of the plan builds, once the image repository's verify
+    workflow is green on every architecture it builds, and the pull request
+    that pins its digest and the versions of the tools it carries;
   - a list a card asks for in its pull request (the MSVC warnings left, say);
   - generated music, which ships tagged `unreviewed` until Omar has listened;
   - the boot screenshots of the 3D examples and games, looked at by the
@@ -101,10 +105,13 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   Claude Code Review app once it is installed -- against the card, the ladder
   and this file, with its findings posted on the pull request. A blocking
   finding is fixed, or answered with why not. A task never reviews its own
-  pull request. **The merge** is GitHub's auto-merge once the required checks
-  are green, and they include `api` and H7's `approvals`, so a pull request
-  that needs a label cannot merge without it. Until auto-merge is on, Omar
-  merges.
+  pull request, or turns on its auto-merge. **The merge**: the reviewer turns
+  on GitHub's auto-merge once no blocking finding is open (a task that pushes
+  after that turns it off first, and the review is read again), and it waits
+  for the required checks,
+  which include `api` and H7's `approvals`, so a pull request that needs a
+  label cannot merge without it. Auto-merge exists only once H7 has merged,
+  and never in the metarepo; until then, and there, Omar merges.
 - **Never push to `main`**, and never force-push a branch that is not yours.
 - **Never weaken a gate to get green.** A floor lowered, a list that only
   shrinks grown (`tools/lint_debt.txt`, `tools/pointer_ratchet.txt`,
