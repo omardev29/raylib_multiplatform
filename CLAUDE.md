@@ -34,41 +34,84 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   where it ran -- the laptop or the pinned image -- what was seen red first, and
   what is not verified. A pull request is ready when its required checks are
   green, not before.
-- **What needs Omar, and nobody else:**
+- **What needs Omar, and nobody else** (narrowed by Omar, 2026-10-13, to what
+  only he may approve; `../next_architecture/08-plan.md` §1.4 says how it falls
+  on the plan's cards):
   - **An API change**: any change to a public header under `include/`, a
     comment included, or to a key of the `.toml` -- a key or a default of
     `DEFAULTS` in `tools/configure.py`, a key of `raylib_multiplatform.toml`.
     The `api` job (`tools/api_change.py`) labels the pull request `api-change`
     and fails until it also carries `api-approved`, which only Omar adds -- it
     reads who added it. An agent never adds or removes `api-approved`; the pull
-    request says why the API has to change.
+    request says why the API has to change. A header that
+    `../next_architecture/` designs word for word is a design he already
+    approved: it still carries `api-approved`, and his review is whether it
+    matches the section that designs it.
   - **A decision this file calls his** -- "Omar, <date>", "by Omar's
     decision". Changing one, or working around one, is his call.
-  - **A rule, or a gate** (`rules-approved`): this file, `.claude/` (the
-    skills), `../next_architecture/`, `.clang-tidy`, `.clang-format`, every
+  - **A rule or a gate loosened, or one nobody specified**
+    (`rules-approved`): this file, `.claude/` (the skills),
+    `../next_architecture/`, `.clang-tidy`, `.clang-format`, every
     `tools/*_check.*` and `tools/lint*`, every list that only shrinks, and every
-    test that enforces a rule rather than a behaviour. See "Rules are Omar's"
-    below.
+    test that enforces a rule rather than a behaviour -- whenever the change
+    loosens or removes one, or adds or words one that no card of the plan
+    specifies. See "Rules are Omar's" below.
   - **What a target ships** (`target-approved`): a target added or removed;
     what is packaged, published or how (`_release.yml`, `_itch.yml`, the
-    packaging steps); the release flags; `tools/size_budget.txt`;
-    `thirdparty/FROZEN_VERSIONS.md` and any image digest; a new dependency
-    under `thirdparty/` or its licence row.
-  - **A change a player can see** (`behaviour-approved`): any e2e golden, the
-    render hash, a default of the framework.
-  - **A sweep** (`sweep-approved`): a pull request that changes more than 40
-    files and is not an approved API batch. Counted, not judged (Omar,
-    2026-10-12): a large pull request that is not a sweep asks too.
-  - **An architectural decision** of any size: a new module or header, a new
-    layer, a change to how two parts talk, a new kind of file the project
-    keeps. When in doubt, it is one.
+    packaging steps); the release flags; a new dependency under `thirdparty/`,
+    a vendored library's version in `thirdparty/FROZEN_VERSIONS.md`, and its
+    licence row; the glibc floor of a Linux binary; a line of
+    `tools/size_budget.txt` not measured in the pinned image (Windows, macOS,
+    the BSDs).
+  - **A change a player can see** (`behaviour-approved`): an existing e2e
+    golden that moves, a project's under `projects/` too; the render hash; a
+    default of the framework.
+  - **An architectural decision the plan has not made**, of any size: a new
+    module or header, a new layer, a change to how two parts talk, a new kind
+    of file the project keeps. When in doubt, it is one. What
+    `../next_architecture/` designs is decided; a design found wrong goes back
+    to him, through a pull request to the metarepo.
+  - **A release tag.** Only Omar tags a release.
   - **Secrets and GitHub's settings**: secrets, tokens, repository variables,
-    branch protection, labels, a workflow's `permissions:`.
+    branch protection, rulesets, labels, Pages, a workflow's `permissions:`.
 
   Say what is needed in the pull request, and stop there. The labels above are
   Omar's alone, like `api-approved`. An agent never adds or removes one. Until
   the job that checks them exists (task H7 of `../next_architecture/08-plan.md`),
   the pull request names the label it needs in its first line and waits.
+- **What does not wait for him** (Omar, 2026-10-13): everything else merges
+  when its required checks are green and **an agent that did not write it has
+  reviewed it**. That includes what used to wait for a label:
+  - a pull request of more than 40 files;
+  - the goldens of a **new** example, game or template, recorded in the pinned
+    image, every picture looked at by the author and by the reviewer and
+    described in the pull request;
+  - a gate, a rule or a test that enforces a rule, added as a card of the plan
+    specifies it, and a change to this file or a skill that a card names and
+    words;
+  - a line of `tools/size_budget.txt` measured in the pinned image, with its
+    delta and its reason in the pull request. A 2D line that grows because of
+    3D is not a measurement: it breaks "A 2D game pays nothing for 3D", below;
+  - an image a card of the plan builds, once the image repository's verify
+    workflow is green on every architecture it builds, and the pull request
+    that pins its digest and the versions of the tools it carries;
+  - a list a card asks for in its pull request (the MSVC warnings left, say);
+  - generated music, which ships tagged `unreviewed` until Omar has listened;
+  - the boot screenshots of the 3D examples and games, looked at by the
+    reviewer; Omar looks at them himself before he tags.
+
+  **The review** is a reading by a fresh agent that did not write the change --
+  a subagent given only the card, the design sections and the diff, or the
+  Claude Code Review app once it is installed -- against the card, the ladder
+  and this file, with its findings posted on the pull request. A blocking
+  finding is fixed, or answered with why not. A task never reviews its own
+  pull request, or turns on its auto-merge. **The merge**: the reviewer turns
+  on GitHub's auto-merge once no blocking finding is open (a task that pushes
+  after that turns it off first, and the review is read again), and it waits
+  for the required checks,
+  which include `api` and H7's `approvals`, so a pull request that needs a
+  label cannot merge without it. Auto-merge exists only once H7 has merged,
+  and never in the metarepo; until then, and there, Omar merges.
 - **Never push to `main`**, and never force-push a branch that is not yours.
 - **Never weaken a gate to get green.** A floor lowered, a list that only
   shrinks grown (`tools/lint_debt.txt`, `tools/pointer_ratchet.txt`,
@@ -80,10 +123,12 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   why, and Omar decides.
 - **Rules are Omar's.** An agent never adds, changes or removes a rule --
   here, in a skill, in `../next_architecture/`, or in a gate -- without his
-  approval (`rules-approved`, above). That includes "small" ones: a new ban, a
-  stricter lint, an exception list, a sentence that tells the next agent what
-  to avoid. **A bug is fixed in the code that has it, never by a rule that bans
-  what the bug touched.** The case this exists for came from another project.
+  approval (`rules-approved`, above), unless a card of the plan specifies it;
+  the plan is his, and that is where he approved it. That includes "small"
+  ones: a new ban, a stricter lint, an exception list, a sentence that tells
+  the next agent what to avoid. **A bug is fixed in the code that has it,
+  never by a rule that bans what the bug touched.** The case this exists for
+  came from another project.
   An agent working in C++26 hit a bug with the standard library's modules,
   wrote a rule into its CLAUDE.md that banned every STL module, and rewrote the
   whole codebase to obey it. Nobody had asked, and nobody noticed for a long
@@ -94,13 +139,18 @@ Many agents work on this repository at once -- in the cloud, at any hour -- and
   behavioural decision Omar takes goes into this file, with "Omar, <date>", in
   the same pull request that implements it. A decision that lives only in a
   pull request's thread is lost to the next agent.
-- **In the cloud, the metarepo is checked out around this repository**
-  (Omar, 2026-10-12): `../next_architecture/` (the plan and `DECISIONS.md`),
-  `../CLAUDE.md` and `../PROGRESS.md` are there, as on Omar's machine. Read the
-  plan's task card and the design sections it names before starting. The pull
-  request's description is still the report. A cloud task does not edit
-  `../PROGRESS.md`, and changes `../next_architecture/` only through a pull
-  request of its own to the metarepo, which needs `rules-approved`.
+- **In the cloud, the metarepo is checked out with this repository**
+  (Omar, 2026-10-12). On Omar's machine this repository sits inside it, so
+  the plan and `DECISIONS.md` are `../next_architecture/`, beside
+  `../CLAUDE.md` and `../PROGRESS.md`. The cloud clones the repositories side
+  by side (seen 2026-10-13), so there they are
+  `../project_raylib/next_architecture/`, `../project_raylib/CLAUDE.md` and
+  `../project_raylib/PROGRESS.md`; every `../next_architecture/` in this file
+  means that. Read the plan's task card and the design sections it names
+  before starting. The pull request's description is still the report. A
+  cloud task does not edit `../PROGRESS.md`, and changes
+  `../next_architecture/` only through a pull request of its own to the
+  metarepo, which needs `rules-approved` unless a card words the change.
 
 ## What the project is
 
@@ -251,9 +301,10 @@ here so that nobody "fixes" one back.
   is Omar's decision** (`target-approved`).
 - **Two 3D renderers and two physics engines, one API** (Omar, 2026-10-12).
   - **rmp3d and the arcade physics are ours:** as simple and as light as they
-    can be, with the features `../next_architecture/04-3d.md` and
-    `05-physics-terrain.md` list and **not one more**. Adding a feature or a
-    touch of realism to either is Omar's decision.
+    can be, with the features `../next_architecture/04-3d.md` and the arcade
+    physics' design list and **not one more** (`09-arcade-physics.md`, which
+    task D2-arcade writes and Omar merges). Adding a feature or a touch of
+    realism to either is Omar's decision.
   - **r3d (the renderer) and Jolt (the physics) are for realism**, and only on
     `linux-x64-glibc`, `windows-x64` and `macos`. `configure.py` refuses them
     with any other target enabled.
