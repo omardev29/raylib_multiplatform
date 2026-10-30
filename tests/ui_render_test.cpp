@@ -953,6 +953,165 @@ void what_assets_makes() {
           "two halves that do not link (ES 1.00 and 330): empty, not raylib's default");
 }
 
+
+// --- looks: the TTF's letters, nine-slices, shadows, outlines, skins ---------
+
+// A texture of the framework's own: an image made here, handed to the
+// resource table so it unloads itself when the last handle goes.
+rmp::Texture texture_of(const ::Image &image) {
+    const Texture2D t = LoadTextureFromImage(image);
+    SetTextureFilter(t, TEXTURE_FILTER_POINT);
+    return rmp::Texture{ rmp::detail::adopt(rmp::detail::ResourceKind::TEXTURE, t) };
+}
+
+// Where the last pass drew its first command of `type`.
+Rectangle drawn(Clay_RenderCommandType type) {
+    const Clay_RenderCommandArray a = rmp::ui::detail::last_pass_commands();
+    for (int32_t i = 0; i < a.length; ++i) {
+        const Clay_RenderCommand &c = a.internalArray[i];
+        if (c.commandType == type)
+            return Rectangle{ c.boundingBox.x, c.boundingBox.y, c.boundingBox.width,
+                              c.boundingBox.height };
+    }
+    return Rectangle{};
+}
+
+// The bug a .ttf had: raylib bakes ASCII alone when it is handed no list of
+// letters, so n with a tilde, the accents and the inverted question mark were
+// drawn as '?'. The example's DejaVu subset has them all.
+void a_ttf_has_its_latin_letters() {
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH "../examples/assets/01_loading/resources/");
+    const rmp::Font font = rmp::assets::load_font("ui.ttf", 32);
+    check(font.valid(), "the example's ui.ttf loads");
+    if (font.valid()) {
+        const ::Font &f = font.raw();
+        for (const int c : { 0xF1, 0xE1, 0xBF, 0xA1, 0xFC }) {
+            const int index = GetGlyphIndex(f, c);
+            check(f.glyphs[index].value == c && f.recs[index].width > 0,
+                  "the .ttf is baked with a letter past ASCII: n with a tilde, an accent, the "
+                  "inverted marks, a diaeresis");
+        }
+    }
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
+}
+
+// A nine-slice: 24 by 24, its eight-pixel corners red, its edges green, its
+// middle blue, stretched to 200 by 120 -- the corners stay eight pixels a
+// side (times the scale), the edges stretch along, the middle both ways.
+void a_nine_slice_keeps_its_corners() {
+    ::Image img = GenImageColor(24, 24, BLUE);
+    ImageDrawRectangle(&img, 8, 0, 8, 24, GREEN);
+    ImageDrawRectangle(&img, 0, 8, 24, 8, GREEN);
+    ImageDrawRectangle(&img, 8, 8, 8, 8, BLUE);
+    for (const int x : { 0, 16 })
+        for (const int y : { 0, 16 }) ImageDrawRectangle(&img, x, y, 8, 8, RED);
+    const rmp::Texture art = texture_of(img);
+    UnloadImage(img);
+    const rmp::ui::NineSlice frame_slice{ .texture = art, .left = 8, .top = 8, .right = 8,
+                                          .bottom = 8, .scale = 1 };
+    const auto draw = [&] {
+        ClearBackground(BLACK);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 0 });
+        rmp::ui::image(frame_slice, { .width = 200, .height = 120 });
+        rmp::ui::end();
+    };
+    frame(draw);
+    const Shot shot = frame(draw);
+    const Rectangle r = drawn(CLAY_RENDER_COMMAND_TYPE_IMAGE);
+    const float corner = 8 * rmp::ui::scale();
+    auto at = [&](float x, float y) { return shot.at(static_cast<int>(r.x + x), static_cast<int>(r.y + y)); };
+    check(r.width > 2 * corner, "the nine-slice is wider than its two corners");
+    check(same(at(corner * 0.5f, corner * 0.5f), RED) &&
+              same(at(r.width - corner * 0.5f, r.height - corner * 0.5f), RED),
+          "its corners are the source's corners");
+    check(same(at(r.width * 0.5f, corner * 0.5f), GREEN) &&
+              same(at(corner * 0.5f, r.height * 0.5f), GREEN),
+          "its edges are the source's edges, stretched along");
+    check(same(at(corner + 2, corner * 0.5f), GREEN),
+          "and a corner ends where the source's does: eight pixels, times the scale");
+    check(same(at(r.width * 0.5f, r.height * 0.5f), BLUE), "its middle is the source's middle");
+    rmp::ui::shutdown();
+}
+
+// A shadow falls where it is told, under the box, and nowhere else.
+void a_shadow_falls_under_its_box() {
+    rmp::ui::Panel card{ .box = { .width = 120, .height = 60 },
+                         .style = { .background = RED,
+                                    .shadow = rmp::ui::Shadow{ .offset = { 0, 20 }, .blur = 0,
+                                                               .color = BLACK } } };
+    const auto draw = [&] {
+        ClearBackground(WHITE);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 10 });
+        card.show([] {});
+        rmp::ui::end();
+    };
+    frame(draw);
+    const Shot shot = frame(draw);
+    const Rectangle r = drawn(CLAY_RENDER_COMMAND_TYPE_RECTANGLE);
+    const float below = 10 * rmp::ui::scale();
+    const Color under = shot.at(static_cast<int>(r.x + r.width * 0.5f),
+                                static_cast<int>(r.y + r.height + below));
+    const Color inside = shot.at(static_cast<int>(r.x + r.width * 0.5f),
+                                 static_cast<int>(r.y + r.height * 0.5f));
+    const Color away = shot.at(shot.width() - 2, shot.height() - 2);
+    check(same(under, BLACK), "below the box, the shadow");
+    check(same(inside, RED), "the box is drawn over its shadow");
+    check(same(away, WHITE), "and nowhere else");
+    rmp::ui::shutdown();
+}
+
+// An outline around a letter: copies of it in another colour, around it.
+void an_outline_goes_around_the_letters() {
+    const auto white_in = [](const Shot &shot, Rectangle r) {
+        int n = 0;
+        for (int y = static_cast<int>(r.y); y < static_cast<int>(r.y + r.height); ++y)
+            for (int x = static_cast<int>(r.x); x < static_cast<int>(r.x + r.width); ++x)
+                n += same(shot.at(x, y), WHITE) ? 1 : 0;
+        return n;
+    };
+    int plain = 0;
+    int outlined = 0;
+    for (const bool with : { false, true }) {
+        rmp::ui::Label title{ .text = "OHO", .size = 40,
+                              .style = { .text = BLACK } };
+        if (with) title.style.text_outline = rmp::ui::TextOutline{ .width = 2, .color = WHITE };
+        const auto draw = [&] {
+            ClearBackground(BLACK);
+            rmp::ui::begin();
+            title.show();
+            rmp::ui::end();
+        };
+        frame(draw);
+        const Shot shot = frame(draw);
+        const Rectangle r = drawn(CLAY_RENDER_COMMAND_TYPE_TEXT);
+        (with ? outlined : plain) = white_in(shot, r);
+        rmp::ui::shutdown();
+    }
+    check(plain == 0, "black text on black: nothing white");
+    check(outlined > 20, "with a white outline, white around every letter");
+}
+
+// A skin is the box: its picture, not the theme's fill.
+void a_skin_is_the_box() {
+    ::Image img = GenImageColor(8, 8, GREEN);
+    const rmp::Texture art = texture_of(img);
+    UnloadImage(img);
+    rmp::ui::Button play{ .text = "Play", .style = { .skin = rmp::ui::Skin{ .normal = art } } };
+    const auto draw = [&] {
+        ClearBackground(BLACK);
+        rmp::ui::begin();
+        play.show();
+        rmp::ui::end();
+    };
+    frame(draw);
+    const Shot shot = frame(draw);
+    const Rectangle r = drawn(CLAY_RENDER_COMMAND_TYPE_IMAGE);
+    check(r.width > 0, "the skinned button draws its picture");
+    check(same(shot.at(static_cast<int>(r.x + 2), static_cast<int>(r.y + 2)), GREEN),
+          "and its box is the picture, not the theme's surface");
+    rmp::ui::shutdown();
+}
+
 } // namespace
 
 int main() {
@@ -999,6 +1158,11 @@ int main() {
     follows_a_resize();
     follows_an_odd_size();
     what_assets_makes();
+    a_ttf_has_its_latin_letters();
+    a_nine_slice_keeps_its_corners();
+    a_shadow_falls_under_its_box();
+    an_outline_goes_around_the_letters();
+    a_skin_is_the_box();
 
     rmp::ui::detail::set_test_blur_shader(std::nullopt);
     rmp::ui::shutdown();
