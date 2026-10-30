@@ -26,6 +26,8 @@
 #include <rmp/ui.h>
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <cmath>
 #include <span>
 #include <string>
@@ -175,11 +177,17 @@ const Clay_RenderCommand *text_command(std::string_view s) {
     return nullptr;
 }
 
+// How many records the last pass carried: an element's commands (its fill, its
+// border) share one, so each is counted once.
 int records() {
-    int n = 0;
-    for (const Clay_RenderCommand &c : commands())
-        n += (record_of(c) != nullptr || text_record_of(c) != nullptr) ? 1 : 0;
-    return n;
+    std::vector<const void *> seen;
+    for (const Clay_RenderCommand &c : commands()) {
+        const void *r = record_of(c) != nullptr
+            ? static_cast<const void *>(record_of(c))
+            : static_cast<const void *>(text_record_of(c));
+        if (r != nullptr && std::ranges::find(seen, r) == seen.end()) seen.push_back(r);
+    }
+    return static_cast<int>(seen.size());
 }
 
 bool same(Color a, Color b) {
@@ -227,6 +235,7 @@ rmp::SpriteSheet fake_sheet() {
     data.height = 8;
     data.frames = { rmp::SheetFrame{ Rectangle{ 0, 0, 8, 8 }, 0.1f },
                     rmp::SheetFrame{ Rectangle{ 8, 0, 8, 8 }, 0.1f } };
+    data.tags = { rmp::SheetTag{ "spin", 0, 1, false, false } };
     data.slices = { rmp::SheetSlice{ "coin", Rectangle{ 1, 1, 4, 4 }, false, {} },
                     rmp::SheetSlice{ "frame", Rectangle{ 8, 0, 8, 8 }, true,
                                      Rectangle{ 2, 3, 3, 2 } } };
@@ -1152,5 +1161,406 @@ TEST_SUITE("ui: events and kept widgets") {
         const ui::Style quiet{ .sounds = { .click = "" } };
         const detail::LookScope a(ui::WidgetKind::BUTTON, &quiet);
         CHECK(detail::look().sounds.click->empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("ui: the arithmetic of the looks") {
+    TEST_CASE("a picture is one part stretched, or nine with their corners kept") {
+        detail::DrawRecord r;
+        r.source = Rectangle{ 0, 0, 24, 24 };
+        detail::PictureParts parts{};
+        CHECK(detail::picture_parts(r, Rectangle{ 10, 10, 100, 50 }, parts) == 1);
+        CHECK(parts[0].dest.width == 100);
+        CHECK(detail::picture_parts(r, Rectangle{ 0, 0, 0, 50 }, parts) == 0);
+
+        r.left = r.top = r.right = r.bottom = 8;
+        r.slice_px = 2; // a source pixel is two on screen
+        REQUIRE(detail::picture_parts(r, Rectangle{ 0, 0, 100, 60 }, parts) == 9);
+        CHECK(parts[0].source.width == 8); // the top-left corner, from the source
+        CHECK(parts[0].dest.width == 16); // drawn at twice its size
+        CHECK(parts[1].dest.width == 100 - 32); // the top edge, stretched along
+        CHECK(parts[4].source.x == 8); // the middle
+        CHECK(parts[8].dest.x == 100 - 16); // the bottom-right corner, at the far edge
+
+        // Too small a box for the corners: they shrink together, and the edges
+        // and the middle, of no size, are left out.
+        const int n = detail::picture_parts(r, Rectangle{ 0, 0, 20, 20 }, parts);
+        CHECK(n == 4);
+        CHECK(parts[0].dest.width == doctest::Approx(10));
+    }
+
+    TEST_CASE("a shadow is six rounded layers, biggest first, or one hard copy") {
+        detail::DrawRecord r;
+        r.shadow_color = Color{ 0, 0, 0, 120 };
+        r.shadow_offset = Vector2{ 0, 4 };
+        r.radius = 4;
+        const Clay_BoundingBox box{ 10, 10, 100, 40 };
+        detail::ShadowLayers layers{};
+        CHECK(detail::shadow_layers(r, box, 1.0f, layers) == 1); // no blur: one copy
+        CHECK(layers[0].rect.y == 14);
+        CHECK(layers[0].color.a == 120);
+        r.shadow_blur = 12;
+        REQUIRE(detail::shadow_layers(r, box, 1.0f, layers) == detail::SHADOW_LAYERS);
+        CHECK(layers[0].rect.width > layers[5].rect.width);
+        CHECK(layers[0].radius > layers[5].radius);
+        CHECK(layers[0].color.a == 20); // 120 shared out
+        detail::shadow_layers(r, box, 0.5f, layers);
+        CHECK(layers[0].color.a == 10); // faded with what it is under
+        r.shadow_blur = 0;
+        r.shadow_spread = -100; // a shadow smaller than nothing is none
+        CHECK(detail::shadow_layers(r, box, 1.0f, layers) == 0);
+    }
+
+    TEST_CASE("an outline is eight copies around a letter, sixteen past two pixels") {
+        detail::OutlineOffsets o{};
+        CHECK(detail::outline_offsets(1.0f, o) == 8);
+        CHECK(o[0].x == doctest::Approx(1.0f));
+        CHECK(o[2].y == doctest::Approx(1.0f));
+        CHECK(detail::outline_offsets(3.0f, o) == 16);
+        for (int i = 0; i < 16; ++i)
+            CHECK(std::hypot(o[static_cast<size_t>(i)].x, o[static_cast<size_t>(i)].y) ==
+                  doctest::Approx(3.0f));
+    }
+
+    TEST_CASE("faded, inside, and the records told from anything else") {
+        CHECK(same(detail::faded(RED, 1.0f), RED));
+        CHECK(detail::faded(RED, 0.5f).a == 128);
+        CHECK(detail::faded(RED, -1.0f).a == 0);
+        CHECK(detail::inside(Clay_BoundingBox{ 1, 1, 5, 5 },
+                             Clay_BoundingBox{ 0, 0, 10, 10 }));
+        CHECK(detail::inside(Clay_BoundingBox{ -0.4f, 0, 10.4f, 10 },
+                             Clay_BoundingBox{ 0, 0, 10, 10 }));
+        CHECK_FALSE(detail::inside(Clay_BoundingBox{ 8, 8, 5, 5 },
+                                   Clay_BoundingBox{ 0, 0, 10, 10 }));
+        detail::DrawRecord draw;
+        detail::TextRecord text;
+        std::array<uint32_t, 4> other{ 1, 2, 3, 4 };
+        CHECK(detail::draw_record(&draw) == &draw);
+        CHECK(detail::draw_record(other.data()) == nullptr);
+        CHECK(detail::draw_record(nullptr) == nullptr);
+        CHECK(detail::text_record(&text) == &text);
+        CHECK(detail::text_record(other.data()) == nullptr);
+        CHECK(detail::text_record(nullptr) == nullptr);
+    }
+
+    TEST_CASE("what moves pushes a matrix while its box holds what is drawn") {
+        detail::Motions m;
+        detail::DrawRecord still;
+        CHECK_FALSE(m.enter(Clay_BoundingBox{ 0, 0, 100, 100 }, still)); // nothing moves
+        CHECK(m.depth() == 0);
+        detail::DrawRecord grows;
+        grows.scale = 1.1f;
+        grows.alpha = 0.5f;
+        CHECK(m.enter(Clay_BoundingBox{ 0, 0, 100, 100 }, grows));
+        CHECK(m.alpha() == 0.5f);
+        detail::DrawRecord fades;
+        fades.alpha = 0.5f;
+        CHECK_FALSE(
+            m.enter(Clay_BoundingBox{ 10, 10, 20, 20 }, fades)); // no matrix: only a fade
+        CHECK(m.depth() == 2);
+        CHECK(m.alpha() == 0.25f);
+        CHECK(m.matrices() == 1);
+        CHECK(m.leave(Clay_BoundingBox{ 12, 12, 5, 5 }) == 0); // still inside both
+        CHECK(m.leave(Clay_BoundingBox{ 50, 50, 5, 5 }) == 0); // out of the fade only
+        CHECK(m.depth() == 1);
+        CHECK(m.leave(Clay_BoundingBox{ 500, 500, 5, 5 }) == 1); // out of the growing one
+        CHECK(m.depth() == 0);
+        CHECK(m.alpha() == 1.0f);
+        for (int i = 0; i < detail::MAX_MOTIONS + 3; ++i)
+            m.enter(Clay_BoundingBox{ 0, 0, 10, 10 }, grows);
+        CHECK(m.depth() == detail::MAX_MOTIONS);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("ui: every kept widget's state and shake") {
+    TEST_CASE("each kept widget answers what it is doing, and shakes") {
+        const HeadlessUi headless;
+        const FakeTexture art(61, 16, 16);
+        ui::Label label{ .text = "label" };
+        ui::Image image{ .picture = art.handle(), .id = "image" };
+        ui::Panel panel{ .id = "panel" };
+        ui::Checkbox box{ .text = "box" };
+        ui::Slider slider{ .text = "slider" };
+        ui::Dropdown drop{ .text = "drop", .items = { "a" } };
+        ui::TextInput field{ .text = "field" };
+        ui::ProgressBar bar{ .value = 0.5f, .width = 100, .id = "bar" };
+        label.shake();
+        image.shake();
+        panel.shake();
+        box.shake();
+        slider.shake();
+        drop.shake();
+        field.shake();
+        bar.shake();
+        const auto draw = [&] {
+            label.show();
+            image.show();
+            panel.show([] {});
+            box.show();
+            slider.show();
+            drop.show();
+            field.show();
+            bar.show();
+        };
+        frame(draw);
+        frame(draw);
+        CHECK(count(ui::EventKind::SHAKE) == 8);
+        CHECK_FALSE(label.hovered());
+        CHECK_FALSE(image.hovered());
+        CHECK_FALSE(image.pressed());
+        CHECK_FALSE(panel.hovered());
+        CHECK_FALSE(panel.pressed());
+        CHECK_FALSE(box.hovered());
+        CHECK_FALSE(slider.hovered());
+        CHECK_FALSE(drop.hovered());
+        CHECK_FALSE(field.hovered());
+        CHECK_FALSE(bar.hovered());
+        pointer.position = middle_of("bar");
+        frame(draw);
+        CHECK(bar.hovered());
+        // The focus: the first control of the screen takes it.
+        const int focused = (box.focused() ? 1 : 0) + (slider.focused() ? 1 : 0) +
+            (drop.focused() ? 1 : 0) + (field.focused() ? 1 : 0);
+        CHECK(focused <= 1);
+    }
+
+    TEST_CASE("a kept Image plays its sprite's animation") {
+        const HeadlessUi headless;
+        ui::Image spinner{ .id = "spinner" };
+        spinner.sprite.sheet = fake_sheet();
+        spinner.sprite.play("spin");
+        // Frames of 0.1 s: one step of 0.11 s is on the second frame, a second
+        // step loops back to the first.
+        detail::set_test_frame_time(0.11f);
+        frame([&] { spinner.show(); });
+        CHECK(spinner.sprite.frame_index() == 1);
+        frame([&] { spinner.show(); });
+        CHECK(spinner.sprite.frame_index() == 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("ui: the looks of the immediate widgets") {
+    TEST_CASE("image() of a Picture or an rmp::Texture, with and without options") {
+        const HeadlessUi headless;
+        const FakeTexture art(71, 20, 10);
+        frame([&] {
+            ui::image(ui::Picture(art.handle()));
+            ui::image(art.handle(), { .width = 40 });
+        });
+        int images = 0;
+        for (const Clay_RenderCommand &c : commands())
+            images += c.commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE ? 1 : 0;
+        CHECK(images == 2);
+    }
+
+    TEST_CASE("an image with a style: tinted, framed by a skin, shadowed") {
+        const HeadlessUi headless;
+        const FakeTexture art(72, 16, 16);
+        const FakeTexture frame_art(73, 24, 24);
+        ui::Image framed{ .picture = art.handle(),
+                          .id = "framed",
+                          .style = { .skin = ui::Skin{ .normal = frame_art.handle() },
+                                     .tint = Color{ 128, 128, 128, 255 },
+                                     .padding_x = 4,
+                                     .padding_y = 4 } };
+        frame([&] { framed.show(); });
+        std::vector<unsigned> ids;
+        for (const Clay_RenderCommand &c : commands())
+            if (const detail::DrawRecord *r = record_of(c)) ids.push_back(r->raw.id);
+        CHECK(std::ranges::find(ids, 73u) != ids.end()); // the frame
+        CHECK(std::ranges::find(ids, 72u) != ids.end()); // the picture inside it
+        for (const Clay_RenderCommand &c : commands()) {
+            const detail::DrawRecord *r = record_of(c);
+            if (r != nullptr && r->raw.id == 72) CHECK(r->tint.r == 128);
+        }
+    }
+
+    TEST_CASE("a panel's border: its own, its style's, the light theme's") {
+        const HeadlessUi headless;
+        const auto borders = [] {
+            int n = 0;
+            for (const Clay_RenderCommand &c : commands())
+                n += c.commandType == CLAY_RENDER_COMMAND_TYPE_BORDER ? 1 : 0;
+            return n;
+        };
+        frame([] { ui::panel({ .border = RED, .border_width = 2 }, [] {}); });
+        CHECK(borders() == 1);
+        ui::Panel styled{ .style = { .border = BLUE, .border_width = 3 } };
+        frame([&] { styled.show([] {}); });
+        CHECK(borders() == 1);
+        ui::set_theme(ui::theme_light());
+        frame([] { ui::panel([] {}); });
+        CHECK(borders() == 1);
+        ui::Theme t = ui::theme_dark();
+        t.styles.panel.shadow = ui::Shadow{};
+        ui::set_theme(t);
+        frame([] { ui::panel([] {}); });
+        CHECK(records() == 1); // Theme::styles.panel: a shadow, through a record
+    }
+
+    TEST_CASE(
+        "a progress bar with a style: its border, its shadow; and without one, none") {
+        const HeadlessUi headless;
+        frame([] { ui::progress(0.5f, { .id = "plain" }); });
+        CHECK(records() == 0);
+        ui::Theme t = ui::theme_dark();
+        t.styles.progress = { .border = WHITE,
+                              .border_width = 1,
+                              .shadow = ui::Shadow{} };
+        ui::set_theme(t);
+        frame([] { ui::progress(0.5f); });
+        CHECK(records() == 1);
+        int borders = 0;
+        for (const Clay_RenderCommand &c : commands())
+            borders += c.commandType == CLAY_RENDER_COMMAND_TYPE_BORDER ? 1 : 0;
+        CHECK(borders == 1);
+    }
+
+    TEST_CASE("only a hover or a press colour, without a background, is used alone") {
+        const HeadlessUi headless;
+        const ui::Style s{ .background_hover = GOLD, .background_press = MAROON };
+        const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+        CHECK(same(ui::current_theme().surface_hover, GOLD));
+        CHECK(same(ui::current_theme().surface_press, MAROON));
+        CHECK(same(ui::current_theme().surface, ui::theme_dark().surface));
+        CHECK(detail::look_kind() == ui::WidgetKind::BUTTON);
+    }
+
+    TEST_CASE("outside any widget the look is empty") {
+        const HeadlessUi headless;
+        CHECK_FALSE(detail::look().background);
+        CHECK_FALSE(detail::look().motion);
+        CHECK(detail::look_kind() == ui::WidgetKind::BUTTON);
+        CHECK(detail::look_theme() == nullptr);
+    }
+
+    TEST_CASE("a style of numbers that are none is said once, and drawn as none") {
+        const HeadlessUi headless;
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const ui::Style s{ .font_size = nan, .motion = ui::Motion{ .hover_scale = nan } };
+        {
+            const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+            CHECK(ui::current_theme().font_size == ui::theme_dark().font_size);
+        }
+        CHECK(rmp::detail::report_count() == 1);
+        ui::Button b{ .text = "b", .style = s };
+        frame([&] { b.show(); });
+        CHECK(rmp::detail::report_count() == 2); // the motion's, once
+    }
+
+    TEST_CASE("a skin with no press picture is the normal one, darker, while held") {
+        const HeadlessUi headless;
+        const FakeTexture art(74, 24, 24);
+        ui::Button b{ .text = "Hold",
+                      .style = { .skin = ui::Skin{ .normal = art.handle() } } };
+        const auto draw = [&] { b.show(); };
+        frame(draw);
+        pointer.position = middle_of("Hold");
+        frame(draw);
+        pointer.down = true;
+        frame(draw);
+        for (const Clay_RenderCommand &c : commands()) {
+            const detail::DrawRecord *r = record_of(c);
+            if (r != nullptr && r->has_picture) {
+                CHECK(r->raw.id == 74);
+                CHECK(r->tint.r < 255);
+            }
+        }
+    }
+
+    TEST_CASE("a picture's part that is no rectangle is the whole texture, said once") {
+        const HeadlessUi headless;
+        const FakeTexture art(75, 30, 20);
+        const float inf = std::numeric_limits<float>::infinity();
+        frame([&] { ui::image(ui::Picture(art.handle(), Rectangle{ inf, 0, 5, 5 })); });
+        for (const Clay_RenderCommand &c : commands()) {
+            if (const detail::DrawRecord *r = record_of(c)) CHECK(r->source.width == 30);
+        }
+        CHECK(rmp::detail::report_count() == 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_SUITE("ui: fonts by id") {
+    TEST_CASE(
+        "a style's font is baked from its own file, and one that fails is said once") {
+        const HeadlessUi headless;
+        detail::set_measure_provider(detail::measure_with_raylib);
+        std::vector<std::string> asked;
+        static std::vector<std::string> *log = nullptr;
+        log = &asked;
+        detail::set_font_provider(
+            [](const char *name, int size, std::span<const int>) {
+                log->emplace_back(name);
+                if (std::string_view(name) == "broken.ttf") return rmp::Font{};
+                ::Font face{};
+                face.baseSize = size;
+                face.glyphCount = 1;
+                return rmp::Font{ rmp::detail::adopt(rmp::detail::ResourceKind::FONT,
+                                                     face) };
+            },
+            "global.ttf");
+        const rmp::Font title{ rmp::detail::adopt_named(rmp::detail::ResourceKind::FONT,
+                                                        "title.ttf", 30, ::Font{}) };
+        const rmp::Font broken{ rmp::detail::adopt_named(rmp::detail::ResourceKind::FONT,
+                                                         "broken.ttf", 30, ::Font{}) };
+        ui::Label a{ .text = "a", .style = { .font = title } };
+        ui::Label b{ .text = "b", .style = { .font = broken } };
+        frame([&] {
+            a.show();
+            b.show();
+            ui::text("c");
+        });
+        CHECK(std::ranges::find(asked, "title.ttf") != asked.end());
+        CHECK(std::ranges::find(asked, "global.ttf") != asked.end());
+        CHECK(std::ranges::count(asked, "broken.ttf") == 1);
+        frame([&] { b.show(); });
+        CHECK(std::ranges::count(asked, "broken.ttf") == 1); // not asked again
+        CHECK(rmp::detail::report_count() == 1);
+        detail::set_font_provider(nullptr, nullptr);
+    }
+
+    TEST_CASE("past the most letters a font is baked with, the rest are said once") {
+        const HeadlessUi headless;
+        detail::set_measure_provider(detail::measure_with_raylib);
+        detail::set_font_provider(
+            [](const char *, int size, std::span<const int>) {
+                ::Font face{};
+                face.baseSize = size;
+                face.glyphCount = 1;
+                return rmp::Font{ rmp::detail::adopt(rmp::detail::ResourceKind::FONT,
+                                                     face) };
+            },
+            "many.ttf");
+        std::string text;
+        for (int c = 0x4E00; c < 0x4E00 + 8400; ++c) {
+            // UTF-8 of a CJK ideograph: three bytes.
+            text += static_cast<char>(0xE0 | (c >> 12));
+            text += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+            text += static_cast<char>(0x80 | (c & 0x3F));
+        }
+        frame([&] { ui::text(text); });
+        CHECK(rmp::detail::report_count() >= 1);
+        detail::set_font_provider(nullptr, nullptr);
+    }
+
+    TEST_CASE("load_font_glyphs() refuses what load_font() refuses") {
+        const int before = rmp::assets::failed_loads();
+        const std::array<int, 3> letters{ 'a', 'b', 0xF1 };
+        CHECK_FALSE(rmp::assets::detail::load_font_glyphs("", 20, letters).valid());
+        CHECK_FALSE(rmp::assets::detail::load_font_glyphs("ui.ttf", 0, letters).valid());
+        CHECK_FALSE(
+            rmp::assets::detail::load_font_glyphs("ui.ttf", 5000, letters).valid());
+        CHECK_FALSE(rmp::assets::detail::load_font_glyphs("missing-font.ttf", 20, letters)
+                        .valid());
+        CHECK(rmp::assets::failed_loads() > before);
+        rmp::detail::reset_reports_for_tests();
     }
 }

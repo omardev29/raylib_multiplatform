@@ -195,17 +195,15 @@ const char *cstr(Clay_StringSlice slice) {
     return scratch.text.data();
 }
 
-namespace {
+// --- the arithmetic of the looks: pure, and tested without a GPU ------------
 
-// What a styled element asked for (src/rmp/ui/look.cpp), or nullptr: the
-// magic number tells our record from a pointer a game driving Clay put there.
 DrawRecord *draw_record(void *user) {
     if (user == nullptr) return nullptr;
     auto *r = static_cast<DrawRecord *>(user);
     return r->magic == DRAW_MAGIC ? r : nullptr;
 }
 
-const TextRecord *text_record(void *user) {
+const TextRecord *text_record(const void *user) {
     if (user == nullptr) return nullptr;
     const auto *r = static_cast<const TextRecord *>(user);
     return r->magic == TEXT_MAGIC ? r : nullptr;
@@ -217,70 +215,60 @@ Color faded(Color c, float alpha) {
     return Color{ c.r, c.g, c.b, static_cast<unsigned char>(std::lround(a)) };
 }
 
-// A picture in a box: stretched whole, or by its middle when it has
-// nine-slice margins, whose corners keep their size -- shrunk together when
-// the box is too small for them.
-void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
-    if (r.raw.id == 0 || dest.width <= 0 || dest.height <= 0) return;
+int picture_parts(const DrawRecord &r, Rectangle dest, PictureParts &out) {
+    if (dest.width <= 0 || dest.height <= 0) return 0;
     const Rectangle src = r.source;
     const bool nine = r.left > 0 || r.top > 0 || r.right > 0 || r.bottom > 0;
     if (!nine) {
-        DrawTexturePro(r.raw, src, dest, Vector2{ 0, 0 }, 0.0f, tint);
-    } else {
-        float l = r.left * r.slice_px;
-        float rt = r.right * r.slice_px;
-        float t = r.top * r.slice_px;
-        float b = r.bottom * r.slice_px;
-        if (l + rt > dest.width && l + rt > 0) {
-            const float k = dest.width / (l + rt);
-            l *= k;
-            rt *= k;
-        }
-        if (t + b > dest.height && t + b > 0) {
-            const float k = dest.height / (t + b);
-            t *= k;
-            b *= k;
-        }
-        const std::array<float, 4> sx{ src.x, src.x + r.left, src.x + src.width - r.right,
-                                       src.x + src.width };
-        const std::array<float, 4> sy{ src.y, src.y + r.top,
-                                       src.y + src.height - r.bottom,
-                                       src.y + src.height };
-        const std::array<float, 4> dx{ dest.x, dest.x + l, dest.x + dest.width - rt,
-                                       dest.x + dest.width };
-        const std::array<float, 4> dy{ dest.y, dest.y + t, dest.y + dest.height - b,
-                                       dest.y + dest.height };
-        for (std::size_t row = 0; row < 3; ++row) {
-            for (std::size_t col = 0; col < 3; ++col) {
-                const Rectangle part{ sx[col], sy[row], sx[col + 1] - sx[col],
-                                      sy[row + 1] - sy[row] };
-                const Rectangle to{ dx[col], dy[row], dx[col + 1] - dx[col],
-                                    dy[row + 1] - dy[row] };
-                if (part.width <= 0 || part.height <= 0 || to.width <= 0 ||
-                    to.height <= 0)
-                    continue;
-                DrawTexturePro(r.raw, part, to, Vector2{ 0, 0 }, 0.0f, tint);
-            }
+        out[0] = PicturePart{ src, dest };
+        return 1;
+    }
+    // The corners at their size, shrunk together when the box is too small
+    // for them; the edges stretch along, the middle both ways.
+    float l = r.left * r.slice_px;
+    float rt = r.right * r.slice_px;
+    float t = r.top * r.slice_px;
+    float b = r.bottom * r.slice_px;
+    if (l + rt > dest.width) {
+        const float k = dest.width / (l + rt);
+        l *= k;
+        rt *= k;
+    }
+    if (t + b > dest.height) {
+        const float k = dest.height / (t + b);
+        t *= k;
+        b *= k;
+    }
+    const std::array<float, 4> sx{ src.x, src.x + r.left, src.x + src.width - r.right,
+                                   src.x + src.width };
+    const std::array<float, 4> sy{ src.y, src.y + r.top, src.y + src.height - r.bottom,
+                                   src.y + src.height };
+    const std::array<float, 4> dx{ dest.x, dest.x + l, dest.x + dest.width - rt,
+                                   dest.x + dest.width };
+    const std::array<float, 4> dy{ dest.y, dest.y + t, dest.y + dest.height - b,
+                                   dest.y + dest.height };
+    int n = 0;
+    for (std::size_t row = 0; row < 3; ++row) {
+        for (std::size_t col = 0; col < 3; ++col) {
+            const Rectangle part{ sx[col], sy[row], sx[col + 1] - sx[col],
+                                  sy[row + 1] - sy[row] };
+            const Rectangle to{ dx[col], dy[row], dx[col + 1] - dx[col],
+                                dy[row + 1] - dy[row] };
+            if (part.width <= 0 || part.height <= 0 || to.width <= 0 || to.height <= 0)
+                continue;
+            out[static_cast<std::size_t>(n++)] = PicturePart{ part, to };
         }
     }
-    if (r.brighten > 0) {
-        // Lit, not tinted: the same picture again, added on top.
-        BeginBlendMode(BLEND_ADDITIVE);
-        DrawRecord again = r;
-        again.brighten = 0;
-        const auto a = static_cast<unsigned char>(
-            std::lround(255.0f * r.brighten * tint.a / 255.0f));
-        draw_picture(again, dest, Color{ 255, 255, 255, a });
-        EndBlendMode();
-    }
+    return n;
 }
 
-// A soft shadow: the box, grown and offset, drawn a few times fainter and
-// bigger, so that the edges add up to a fade. `blur` 0 is one hard copy.
-void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
-    const int layers = r.shadow_blur > 0 ? 6 : 1;
+int shadow_layers(const DrawRecord &r, Clay_BoundingBox box, float alpha,
+                  ShadowLayers &out) {
+    const int layers = r.shadow_blur > 0 ? SHADOW_LAYERS : 1;
     const Color c = faded(r.shadow_color, alpha);
     const float share = static_cast<float>(c.a) / static_cast<float>(layers);
+    int n = 0;
+    // Biggest and faintest first, so the edges add up to a fade.
     for (int i = layers - 1; i >= 0; --i) {
         const float grow = r.shadow_spread +
             r.shadow_blur * static_cast<float>(i + 1) / static_cast<float>(layers) -
@@ -291,12 +279,95 @@ void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
         if (rect.width <= 0 || rect.height <= 0) continue;
         const Color layer{ c.r, c.g, c.b,
                            static_cast<unsigned char>(std::clamp(share, 1.0f, 255.0f)) };
-        const float radius = std::max(0.0f, r.radius + grow);
-        const float half = std::min(rect.width, rect.height) * 0.5f;
-        if (radius > 0 && half > 0) {
-            DrawRectangleRounded(rect, std::min(1.0f, radius / half), 8, layer);
+        out[static_cast<std::size_t>(n++)] =
+            ShadowLayer{ rect, std::max(0.0f, r.radius + grow), layer };
+    }
+    return n;
+}
+
+int outline_offsets(float width, OutlineOffsets &out) {
+    // Eight copies around a letter, and eight more between them past two
+    // pixels, where gaps between the first eight would show.
+    const int steps = width > 2.0f ? 16 : 8;
+    for (int i = 0; i < steps; ++i) {
+        const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) /
+            static_cast<float>(steps);
+        out[static_cast<std::size_t>(i)] =
+            Vector2{ std::cos(angle) * width, std::sin(angle) * width };
+    }
+    return steps;
+}
+
+bool inside(Clay_BoundingBox inner, Clay_BoundingBox outer) {
+    constexpr float SLACK = 0.5f;
+    return inner.x >= outer.x - SLACK && inner.y >= outer.y - SLACK &&
+        inner.x + inner.width <= outer.x + outer.width + SLACK &&
+        inner.y + inner.height <= outer.y + outer.height + SLACK;
+}
+
+int Motions::leave(Clay_BoundingBox box) {
+    int left = 0;
+    while (_depth > 0 && !inside(box, _boxes[static_cast<std::size_t>(_depth - 1)].box)) {
+        left += _boxes[static_cast<std::size_t>(_depth - 1)].matrix ? 1 : 0;
+        --_depth;
+    }
+    return left;
+}
+
+float Motions::alpha() const {
+    return _depth > 0 ? _boxes[static_cast<std::size_t>(_depth - 1)].alpha : 1.0f;
+}
+
+bool Motions::enter(Clay_BoundingBox box, const DrawRecord &r) {
+    const bool matrix = r.scale != 1.0f || r.offset.x != 0.0f || r.offset.y != 0.0f;
+    if ((!matrix && r.alpha == 1.0f) || _depth >= MAX_MOTIONS) return false;
+    _boxes[static_cast<std::size_t>(_depth++)] = Moving{ box, alpha() * r.alpha, matrix };
+    return matrix;
+}
+
+int Motions::depth() const { return _depth; }
+
+int Motions::matrices() const {
+    int n = 0;
+    for (int i = 0; i < _depth; ++i)
+        n += _boxes[static_cast<std::size_t>(i)].matrix ? 1 : 0;
+    return n;
+}
+
+namespace {
+
+// A picture in a box, by its parts; lit by drawing it again, added on top.
+void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
+    if (r.raw.id == 0) return;
+    PictureParts parts{};
+    const int n = picture_parts(r, dest, parts);
+    for (int i = 0; i < n; ++i) {
+        const PicturePart &p = parts[static_cast<std::size_t>(i)];
+        DrawTexturePro(r.raw, p.source, p.dest, Vector2{ 0, 0 }, 0.0f, tint);
+    }
+    if (r.brighten > 0) {
+        BeginBlendMode(BLEND_ADDITIVE);
+        const auto a = static_cast<unsigned char>(
+            std::lround(255.0f * r.brighten * tint.a / 255.0f));
+        for (int i = 0; i < n; ++i) {
+            const PicturePart &p = parts[static_cast<std::size_t>(i)];
+            DrawTexturePro(r.raw, p.source, p.dest, Vector2{ 0, 0 }, 0.0f,
+                           Color{ 255, 255, 255, a });
+        }
+        EndBlendMode();
+    }
+}
+
+void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
+    ShadowLayers layers{};
+    const int n = shadow_layers(r, box, alpha, layers);
+    for (int i = 0; i < n; ++i) {
+        const ShadowLayer &l = layers[static_cast<std::size_t>(i)];
+        const float half = std::min(l.rect.width, l.rect.height) * 0.5f;
+        if (l.radius > 0 && half > 0) {
+            DrawRectangleRounded(l.rect, std::min(1.0f, l.radius / half), 8, l.color);
         } else {
-            DrawRectangleRec(rect, layer);
+            DrawRectangleRec(l.rect, l.color);
         }
     }
 }
@@ -310,37 +381,16 @@ void draw_text(const ::Font &f, const char *text, Vector2 at, float size, Color 
                    spacing, faded(extra->shadow_color, alpha));
     }
     if (extra != nullptr && extra->outline) {
-        const float w = extra->outline_px;
+        OutlineOffsets offsets{};
+        const int n = outline_offsets(extra->outline_px, offsets);
         const Color c = faded(extra->outline_color, alpha);
-        // Eight copies around it, and eight more between them past two pixels,
-        // where gaps between the first eight would show.
-        const int steps = w > 2.0f ? 16 : 8;
-        for (int i = 0; i < steps; ++i) {
-            const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) /
-                static_cast<float>(steps);
-            DrawTextEx(f, text,
-                       Vector2{ at.x + std::cos(angle) * w, at.y + std::sin(angle) * w },
-                       size, spacing, c);
+        for (int i = 0; i < n; ++i) {
+            const Vector2 o = offsets[static_cast<std::size_t>(i)];
+            DrawTextEx(f, text, Vector2{ at.x + o.x, at.y + o.y }, size, spacing, c);
         }
     }
     DrawTextEx(f, text, at, size, spacing, faded(color, alpha));
 }
-
-bool inside(Clay_BoundingBox inner, Clay_BoundingBox outer) {
-    constexpr float SLACK = 0.5f;
-    return inner.x >= outer.x - SLACK && inner.y >= outer.y - SLACK &&
-        inner.x + inner.width <= outer.x + outer.width + SLACK &&
-        inner.y + inner.height <= outer.y + outer.height + SLACK;
-}
-
-// An element that moves, grows or fades, and everything drawn inside its box
-// after it: its own commands and its children's, which Clay lists after it.
-struct Moving {
-    Clay_BoundingBox box{};
-    float alpha = 1;
-    bool matrix = false;
-};
-constexpr int MAX_MOVING = 16;
 
 } // namespace
 
@@ -350,51 +400,33 @@ void draw(Clay_RenderCommandArray commands) {
         BeginScissorMode(static_cast<int>(b.x), static_cast<int>(b.y),
                          static_cast<int>(b.width), static_cast<int>(b.height));
     };
-    std::array<Moving, MAX_MOVING> moving{};
-    int depth = 0;
-    const auto pop = [&] {
-        if (moving[static_cast<std::size_t>(depth - 1)].matrix) rlPopMatrix();
-        --depth;
-    };
+    Motions moving;
     // Already sorted by z order, so drawing them in sequence is correct.
     for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
         const Rectangle rect = to_rect(cmd.boundingBox);
 
         // Out of the box of what was moving: no longer inside it.
-        while (depth > 0 &&
-               !inside(cmd.boundingBox, moving[static_cast<std::size_t>(depth - 1)].box))
-            pop();
-        float alpha =
-            depth > 0 ? moving[static_cast<std::size_t>(depth - 1)].alpha : 1.0f;
+        for (int left = moving.leave(cmd.boundingBox); left > 0; --left) rlPopMatrix();
 
         DrawRecord *rec = cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT
             ? nullptr
             : draw_record(cmd.userData);
         if (rec != nullptr && !rec->shadow_drawn) {
-            // The first command of a styled element: its shadow under it, and
-            // its motion on from here.
+            // The first command of a styled element: its motion on from here,
+            // with everything drawn inside its box, and its shadow under it.
             rec->shadow_drawn = true;
-            const bool moves = rec->scale != 1.0f || rec->offset.x != 0.0f ||
-                rec->offset.y != 0.0f || rec->alpha != 1.0f;
-            if (moves && depth < MAX_MOVING) {
-                Moving &m = moving[static_cast<std::size_t>(depth++)];
-                m.box = cmd.boundingBox;
-                m.alpha = alpha * rec->alpha;
-                m.matrix =
-                    rec->scale != 1.0f || rec->offset.x != 0.0f || rec->offset.y != 0.0f;
-                if (m.matrix) {
-                    const float cx = rect.x + rect.width * 0.5f;
-                    const float cy = rect.y + rect.height * 0.5f;
-                    rlPushMatrix();
-                    rlTranslatef(cx + rec->offset.x, cy + rec->offset.y, 0.0f);
-                    rlScalef(rec->scale, rec->scale, 1.0f);
-                    rlTranslatef(-cx, -cy, 0.0f);
-                }
-                alpha = m.alpha;
+            if (moving.enter(cmd.boundingBox, *rec)) {
+                const float cx = rect.x + rect.width * 0.5f;
+                const float cy = rect.y + rect.height * 0.5f;
+                rlPushMatrix();
+                rlTranslatef(cx + rec->offset.x, cy + rec->offset.y, 0.0f);
+                rlScalef(rec->scale, rec->scale, 1.0f);
+                rlTranslatef(-cx, -cy, 0.0f);
             }
-            if (rec->has_shadow) draw_shadow(*rec, cmd.boundingBox, alpha);
+            if (rec->has_shadow) draw_shadow(*rec, cmd.boundingBox, moving.alpha());
         }
+        const float alpha = moving.alpha();
 
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
@@ -490,7 +522,7 @@ void draw(Clay_RenderCommandArray commands) {
                 break;
         }
     }
-    while (depth > 0) pop();
+    for (int left = moving.matrices(); left > 0; --left) rlPopMatrix();
     // A list that ended with one still open -- Clay pairs them, so never --
     // must not leave the rest of the game clipped.
     if (scissors.depth > 0) EndScissorMode();

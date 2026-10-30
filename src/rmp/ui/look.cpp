@@ -489,7 +489,13 @@ Style resolve(WidgetKind kind, const Style *own) {
     const Theme &t = base_theme();
     Style r;
     r.sounds = t.sounds;
-    r.motion = t.motion;
+    // The theme's motion only when it moves something: a Motion{} left as it
+    // is in theme_dark() is no motion, and a widget with none is drawn as it
+    // always was -- no record, no id of its own.
+    if (moves(t.motion) || t.motion.shake != Motion{}.shake ||
+        t.motion.shake_strength != Motion{}.shake_strength ||
+        t.motion.speed != Motion{}.speed)
+        r.motion = t.motion;
     merge(r, kind_style(t, kind));
     if (!looks.inherited.empty()) merge(r, looks.inherited.back());
     if (own != nullptr) merge(r, *own);

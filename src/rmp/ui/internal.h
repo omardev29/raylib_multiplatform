@@ -881,6 +881,69 @@ struct TextRecord {
     Color shadow_color{};
 };
 
+// --- render.cpp: the arithmetic of the looks, without a GPU -----------------
+
+// A styled element's record out of a render command's userData, or nullptr:
+// the magic number tells ours from a pointer a game driving Clay put there.
+DrawRecord *draw_record(void *user);
+const TextRecord *text_record(const void *user);
+// `c` with its alpha times `alpha` (0..1).
+Color faded(Color c, float alpha);
+
+// Where each part of a picture goes: the whole of it stretched, or the nine
+// parts of a nine-slice, whose corners keep their size -- shrunk together when
+// the box is too small for them. Parts of no size are left out.
+struct PicturePart {
+    Rectangle source;
+    Rectangle dest;
+};
+using PictureParts = std::array<PicturePart, 9>;
+int picture_parts(const DrawRecord &r, Rectangle dest, PictureParts &out);
+
+// A soft shadow as the rounded rectangles that draw it, biggest first; one
+// hard copy when it does not blur.
+inline constexpr int SHADOW_LAYERS = 6;
+struct ShadowLayer {
+    Rectangle rect;
+    float radius;
+    Color color;
+};
+using ShadowLayers = std::array<ShadowLayer, SHADOW_LAYERS>;
+int shadow_layers(const DrawRecord &r, Clay_BoundingBox box, float alpha,
+                  ShadowLayers &out);
+
+// Where the copies of a letter go to outline it `width` pixels wide.
+using OutlineOffsets = std::array<Vector2, 16>;
+int outline_offsets(float width, OutlineOffsets &out);
+
+// Whether `inner` lies in `outer`, half a pixel either way.
+bool inside(Clay_BoundingBox inner, Clay_BoundingBox outer);
+
+// The elements that move, grow or fade, innermost last, while their commands
+// and their children's are drawn: what draw() pushes on rlgl's matrix stack.
+inline constexpr int MAX_MOTIONS = 16;
+class Motions {
+public:
+    // Leaves every element `box` is not inside; how many matrices to pop.
+    int leave(Clay_BoundingBox box);
+    // Enters an element with this record; true when it needs a matrix pushed.
+    bool enter(Clay_BoundingBox box, const DrawRecord &r);
+    // The alpha everything drawn now is faded by.
+    [[nodiscard]] float alpha() const;
+    [[nodiscard]] int depth() const;
+    // The matrices still pushed, for the end of the list.
+    [[nodiscard]] int matrices() const;
+
+private:
+    struct Moving {
+        Clay_BoundingBox box{};
+        float alpha = 1;
+        bool matrix = false;
+    };
+    std::array<Moving, MAX_MOTIONS> _boxes{};
+    int _depth = 0;
+};
+
 // What a control is doing this frame, for decorate() and track().
 struct Interaction {
     bool over = false; // the pointer is on it
