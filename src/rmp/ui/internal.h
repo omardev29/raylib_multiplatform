@@ -616,7 +616,8 @@ void read_typed(Typed &out);
 using MeasureFn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
 using PointerFn = void (*)(Clay_Vector2 &position, bool &down);
 using NavFn = void (*)(NavState &out);
-using FontFn = rmp::Font (*)(const char *name, int pixel_size, std::span<const int> glyphs);
+using FontFn = rmp::Font (*)(const char *name, int pixel_size,
+                             std::span<const int> glyphs);
 using TextFn = void (*)(Typed &out);
 
 void set_measure_provider(MeasureFn fn);
@@ -901,8 +902,8 @@ struct Edges {
 // it always was.
 // `into`: a record the element already has -- an image's picture -- to put the
 // shadow and the motion on, instead of a skin.
-DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id, const Interaction &now,
-                     DrawRecord *into = nullptr);
+DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
+                     const Interaction &now, DrawRecord *into = nullptr);
 // A record that draws `picture` in its element's box, tinted: image() and
 // friends. nullptr for an empty picture.
 DrawRecord *picture_record(const Picture &picture, Color tint);
@@ -912,7 +913,8 @@ void open_text(Clay_String text, Clay_TextElementConfig config);
 // The events of a control, out of what it is doing now against what it was
 // doing the last frame it was declared: its sounds, the on_event() hook, and
 // what changed, for a kept widget's callbacks.
-Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name, const Interaction &now);
+Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name,
+            const Interaction &now);
 // One event, now: its sound from look(), then the hook.
 void emit(EventKind kind, WidgetKind widget, std::string_view name);
 // Start shaking the element with this id (its look's Motion), now.

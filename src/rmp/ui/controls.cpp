@@ -147,7 +147,8 @@ bool detail::checkbox_with(std::string_view label, bool &value, const CheckboxOp
     now.disabled = !o.enabled;
     now.clicked = toggled;
     now.changed = toggled;
-    report(x, detail::track(id, WidgetKind::CHECKBOX, o.id.empty() ? label : o.id, now), id);
+    report(x, detail::track(id, WidgetKind::CHECKBOX, o.id.empty() ? label : o.id, now),
+           id);
     detail::decorate(row, id, now);
 
     Clay__OpenElementWithId(id);
@@ -336,7 +337,8 @@ bool detail::slider_with(std::string_view label, float &value, float min, float 
     now.focused = has_focus;
     now.disabled = !o.enabled;
     now.changed = value != before;
-    report(x, detail::track(id, WidgetKind::SLIDER, o.id.empty() ? label : o.id, now), id);
+    report(x, detail::track(id, WidgetKind::SLIDER, o.id.empty() ? label : o.id, now),
+           id);
 
     const Clay_ElementDeclaration row = control_row(has_focus);
     Clay__OpenElementWithId(id);
@@ -419,8 +421,8 @@ bool dropdown(std::string_view label, int &selected,
 }
 
 bool detail::dropdown_with(std::string_view label, int &selected,
-                           std::span<const std::string_view> items, const DropdownOptions &o,
-                           const Extra &x) {
+                           std::span<const std::string_view> items,
+                           const DropdownOptions &o, const Extra &x) {
     if (!detail::frame_ready("dropdown", label)) return false;
     const detail::LookScope scope(WidgetKind::DROPDOWN, x.own);
     if (items.empty()) {
@@ -702,7 +704,8 @@ bool detail::text_input_with(std::string_view label, std::string &value,
     now.focused = has_focus;
     now.disabled = !o.enabled;
     now.changed = changed;
-    report(x, detail::track(id, WidgetKind::TEXT_INPUT, o.id.empty() ? label : o.id, now), id);
+    report(x, detail::track(id, WidgetKind::TEXT_INPUT, o.id.empty() ? label : o.id, now),
+           id);
 
     const Clay_ElementDeclaration row = control_row(has_focus);
     Clay__OpenElementWithId(id);

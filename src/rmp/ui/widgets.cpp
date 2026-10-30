@@ -295,10 +295,12 @@ namespace {
 // progress. Sized in design units, and drawn by its record.
 void picture_element(const Picture &picture, float width, float height, Color tint) {
     Clay_ElementDeclaration d{};
-    d.layout.sizing.width = Clay_SizingAxis{ .size = { .minMax = { px(width), px(width) } },
-                                             .type = CLAY__SIZING_TYPE_FIXED };
-    d.layout.sizing.height = Clay_SizingAxis{ .size = { .minMax = { px(height), px(height) } },
-                                              .type = CLAY__SIZING_TYPE_FIXED };
+    d.layout.sizing.width =
+        Clay_SizingAxis{ .size = { .minMax = { px(width), px(width) } },
+                         .type = CLAY__SIZING_TYPE_FIXED };
+    d.layout.sizing.height =
+        Clay_SizingAxis{ .size = { .minMax = { px(height), px(height) } },
+                         .type = CLAY__SIZING_TYPE_FIXED };
     if (detail::DrawRecord *rec = detail::picture_record(picture, tint)) {
         d.image.imageData = &rec->raw;
         d.userData = rec;
@@ -318,8 +320,8 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     const bool icon_only = label.empty() && x.icon != nullptr;
     // A picture has no label to be told apart by: the unnamed ones are counted
     // as "image_button", the way two "Play" buttons are counted.
-    const Clay_ElementId id =
-        detail::element_id(label.empty() ? std::string_view("image_button") : label, o.id);
+    const Clay_ElementId id = detail::element_id(
+        label.empty() ? std::string_view("image_button") : label, o.id);
     detail::note_control(id);
 
     // Hit-testing uses the geometry this element had LAST frame — this one has
@@ -337,7 +339,8 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
 
     // Keyboard and gamepad get here without the widget knowing how: it declares
     // itself focusable and asks whether it is the one.
-    const bool has_focus = o.enabled && detail::focusable(id, label.empty() ? o.id : label);
+    const bool has_focus =
+        o.enabled && detail::focusable(id, label.empty() ? o.id : label);
     if (has_focus && detail::take_activate()) clicked = true;
 
     detail::Interaction now;
@@ -405,7 +408,8 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     // A picture-only button with no skin and no fill of its own is the
     // picture: no flat box behind it.
     const Style &look = detail::look();
-    if (icon_only && !look.background && !look.skin) background = detail::clear_alpha(background);
+    if (icon_only && !look.background && !look.skin)
+        background = detail::clear_alpha(background);
 
     // Size. The type step drives everything else, so a large button is large
     // all over rather than a normal one with bigger letters in it.
@@ -466,7 +470,8 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     if (x.icon != nullptr && !x.icon->empty()) {
         const Vector2 size = x.icon->size();
         const float h = x.icon_size > 0 ? x.icon_size : (icon_only ? size.y : font_units);
-        const float w = (x.width > 0 && icon_only) ? x.width : (size.y > 0 ? h * size.x / size.y : h);
+        const float w =
+            (x.width > 0 && icon_only) ? x.width : (size.y > 0 ? h * size.x / size.y : h);
         Color tint = look.tint.value_or(WHITE);
         if (!o.enabled) tint = detail::mix_color(tint, Color{ 120, 120, 128, 200 }, 0.5f);
         picture_element(*x.icon, w, x.height > 0 && icon_only ? x.height : h, tint);
@@ -485,7 +490,9 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
 
 void text(std::string_view s) { text(s, TextOptions{}); }
 
-void text(std::string_view s, const TextOptions &o) { detail::text_with(s, o, detail::Extra{}); }
+void text(std::string_view s, const TextOptions &o) {
+    detail::text_with(s, o, detail::Extra{});
+}
 
 void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x) {
     if (!detail::frame_ready("text", s)) return;
@@ -525,8 +532,10 @@ void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x)
         now.over = detail::pointer_over(id);
         if (now.over && detail::pointer_just_pressed()) detail::set_press_id(id.id);
         now.down = now.over && detail::pointer_down() && detail::press_id() == id.id;
-        now.clicked = now.over && detail::pointer_released() && detail::press_id() == id.id;
-        const detail::Edges edges = detail::track(id, WidgetKind::LABEL, x.id.empty() ? s : x.id, now);
+        now.clicked =
+            now.over && detail::pointer_released() && detail::press_id() == id.id;
+        const detail::Edges edges =
+            detail::track(id, WidgetKind::LABEL, x.id.empty() ? s : x.id, now);
         if (x.edges != nullptr) *x.edges = edges;
         if (x.element != nullptr) *x.element = id.id;
         Clay_ElementDeclaration box{};

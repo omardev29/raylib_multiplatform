@@ -180,10 +180,9 @@ const void *payload(const Slot *slot) {
     return reinterpret_cast<const SlotData *>(slot)->payload.get();
 }
 
-std::string_view name_of(const Slot *slot) {
-    if (slot == nullptr) return {};
-    const auto *data = reinterpret_cast<const SlotData *>(slot);
-    return data->named ? std::string_view(data->name) : std::string_view{};
+std::string_view name_of(const Slot &slot) {
+    const auto &data = reinterpret_cast<const SlotData &>(slot);
+    return data.named ? std::string_view(data.name) : std::string_view{};
 }
 
 int live_count() {

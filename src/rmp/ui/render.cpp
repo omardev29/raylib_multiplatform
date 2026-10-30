@@ -243,7 +243,8 @@ void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
         }
         const std::array<float, 4> sx{ src.x, src.x + r.left, src.x + src.width - r.right,
                                        src.x + src.width };
-        const std::array<float, 4> sy{ src.y, src.y + r.top, src.y + src.height - r.bottom,
+        const std::array<float, 4> sy{ src.y, src.y + r.top,
+                                       src.y + src.height - r.bottom,
                                        src.y + src.height };
         const std::array<float, 4> dx{ dest.x, dest.x + l, dest.x + dest.width - rt,
                                        dest.x + dest.width };
@@ -255,7 +256,8 @@ void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
                                       sy[row + 1] - sy[row] };
                 const Rectangle to{ dx[col], dy[row], dx[col + 1] - dx[col],
                                     dy[row + 1] - dy[row] };
-                if (part.width <= 0 || part.height <= 0 || to.width <= 0 || to.height <= 0)
+                if (part.width <= 0 || part.height <= 0 || to.width <= 0 ||
+                    to.height <= 0)
                     continue;
                 DrawTexturePro(r.raw, part, to, Vector2{ 0, 0 }, 0.0f, tint);
             }
@@ -266,7 +268,8 @@ void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
         BeginBlendMode(BLEND_ADDITIVE);
         DrawRecord again = r;
         again.brighten = 0;
-        const auto a = static_cast<unsigned char>(std::lround(255.0f * r.brighten * tint.a / 255.0f));
+        const auto a = static_cast<unsigned char>(
+            std::lround(255.0f * r.brighten * tint.a / 255.0f));
         draw_picture(again, dest, Color{ 255, 255, 255, a });
         EndBlendMode();
     }
@@ -282,8 +285,9 @@ void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
         const float grow = r.shadow_spread +
             r.shadow_blur * static_cast<float>(i + 1) / static_cast<float>(layers) -
             (layers > 1 ? r.shadow_blur * 0.5f : 0.0f);
-        const Rectangle rect{ box.x + r.shadow_offset.x - grow, box.y + r.shadow_offset.y - grow,
-                              box.width + 2 * grow, box.height + 2 * grow };
+        const Rectangle rect{ box.x + r.shadow_offset.x - grow,
+                              box.y + r.shadow_offset.y - grow, box.width + 2 * grow,
+                              box.height + 2 * grow };
         if (rect.width <= 0 || rect.height <= 0) continue;
         const Color layer{ c.r, c.g, c.b,
                            static_cast<unsigned char>(std::clamp(share, 1.0f, 255.0f)) };
@@ -301,7 +305,8 @@ void draw_text(const ::Font &f, const char *text, Vector2 at, float size, Color 
                const TextRecord *extra, float alpha) {
     const float spacing = letter_spacing(size);
     if (extra != nullptr && extra->shadow) {
-        DrawTextEx(f, text, Vector2{ at.x + extra->shadow_px.x, at.y + extra->shadow_px.y }, size,
+        DrawTextEx(f, text,
+                   Vector2{ at.x + extra->shadow_px.x, at.y + extra->shadow_px.y }, size,
                    spacing, faded(extra->shadow_color, alpha));
     }
     if (extra != nullptr && extra->outline) {
@@ -313,7 +318,8 @@ void draw_text(const ::Font &f, const char *text, Vector2 at, float size, Color 
         for (int i = 0; i < steps; ++i) {
             const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) /
                 static_cast<float>(steps);
-            DrawTextEx(f, text, Vector2{ at.x + std::cos(angle) * w, at.y + std::sin(angle) * w },
+            DrawTextEx(f, text,
+                       Vector2{ at.x + std::cos(angle) * w, at.y + std::sin(angle) * w },
                        size, spacing, c);
         }
     }
@@ -356,9 +362,11 @@ void draw(Clay_RenderCommandArray commands) {
         const Rectangle rect = to_rect(cmd.boundingBox);
 
         // Out of the box of what was moving: no longer inside it.
-        while (depth > 0 && !inside(cmd.boundingBox, moving[static_cast<std::size_t>(depth - 1)].box))
+        while (depth > 0 &&
+               !inside(cmd.boundingBox, moving[static_cast<std::size_t>(depth - 1)].box))
             pop();
-        float alpha = depth > 0 ? moving[static_cast<std::size_t>(depth - 1)].alpha : 1.0f;
+        float alpha =
+            depth > 0 ? moving[static_cast<std::size_t>(depth - 1)].alpha : 1.0f;
 
         DrawRecord *rec = cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT
             ? nullptr
@@ -373,7 +381,8 @@ void draw(Clay_RenderCommandArray commands) {
                 Moving &m = moving[static_cast<std::size_t>(depth++)];
                 m.box = cmd.boundingBox;
                 m.alpha = alpha * rec->alpha;
-                m.matrix = rec->scale != 1.0f || rec->offset.x != 0.0f || rec->offset.y != 0.0f;
+                m.matrix =
+                    rec->scale != 1.0f || rec->offset.x != 0.0f || rec->offset.y != 0.0f;
                 if (m.matrix) {
                     const float cx = rect.x + rect.width * 0.5f;
                     const float cy = rect.y + rect.height * 0.5f;
@@ -455,7 +464,8 @@ void draw(Clay_RenderCommandArray commands) {
                 const auto *tex = static_cast<const Texture2D *>(img.imageData);
                 const Rectangle src{ 0, 0, static_cast<float>(tex->width),
                                      static_cast<float>(tex->height) };
-                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f, faded(WHITE, alpha));
+                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f,
+                               faded(WHITE, alpha));
                 break;
             }
 

@@ -412,8 +412,8 @@ std::span<const int> detail::default_codepoints() {
         std::vector<int> v;
         for (int c = 32; c <= 126; ++c) v.push_back(c);
         for (int c = 160; c <= 383; ++c) v.push_back(c);
-        for (const int c : { 0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D, 0x201E,
-                             0x2022, 0x2026, 0x20AC, 0x2122 })
+        for (const int c : { 0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D,
+                             0x201E, 0x2022, 0x2026, 0x20AC, 0x2122 })
             v.push_back(c);
         return v;
     }();

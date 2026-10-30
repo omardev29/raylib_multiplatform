@@ -1538,3 +1538,111 @@ TEST_CASE("a ping-pong tag brings back a frame set outside it") {
     step(sprite, 0.125f);
     CHECK(sprite.frame_index() == 1);
 }
+
+// ---------------------------------------------------------------------------
+// Slices: read by the walk, which keeps them away from cute_aseprite (it leaks
+// their names), into SheetData::slices -- where rmp::ui::slice() and
+// rmp::ui::nine_slice() find an icon of an atlas, or the frame of a button.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a slice is read with its bounds in the packed texture and its centre") {
+    ase::File file = two_frames();
+    file.frames[0].chunks.push_back(
+        ase::slice_key({ .name = "coin", .x = 1, .y = 2, .w = 2, .h = 2 }));
+    file.frames[1].chunks.push_back(ase::slice_key({ .name = "frame",
+                                                     .frame = 1,
+                                                     .w = 4,
+                                                     .h = 4,
+                                                     .nine = true,
+                                                     .cx = 1,
+                                                     .cy = 1,
+                                                     .cw = 2,
+                                                     .ch = 2,
+                                                     .pivot = true }));
+    rmp::SheetData sheet;
+    REQUIRE(reads(file.bytes(), sheet));
+    REQUIRE(sheet.slice_count() == 2);
+    const rmp::SheetSlice &coin = sheet.slice("coin");
+    CHECK(coin.name == "coin");
+    CHECK(coin.bounds.x == 1);
+    CHECK(coin.bounds.y == 2);
+    CHECK(coin.bounds.width == 2);
+    CHECK(coin.bounds.height == 2);
+    CHECK_FALSE(coin.nine);
+    // On the second frame: four pixels further along the row the frames are
+    // packed in.
+    const rmp::SheetSlice &frame = sheet.slice("frame");
+    CHECK(frame.bounds.x == 4);
+    CHECK(frame.nine);
+    CHECK(frame.center.x == 1);
+    CHECK(frame.center.y == 1);
+    CHECK(frame.center.width == 2);
+    CHECK(frame.center.height == 2);
+    // A name that is not there is the empty slice, not a crash.
+    CHECK(sheet.slice("nope").name.empty());
+    CHECK(sheet.slice("nope").bounds.width == 0);
+    // The pictures are what they were without the slices.
+    CHECK(pictures(file.bytes()) == pictures(two_frames().bytes()));
+}
+
+TEST_CASE("a slice that is not on the canvas, or does not read whole, is left out") {
+    ase::File file = two_frames();
+    SUBCASE("past the right edge") {
+        file.frames[0].chunks.push_back(
+            ase::slice_key({ .name = "wide", .x = 2, .w = 3 }));
+    }
+    SUBCASE("of no size") {
+        file.frames[0].chunks.push_back(ase::slice_key({ .name = "none", .w = 0 }));
+    }
+    SUBCASE("at a negative place") {
+        file.frames[0].chunks.push_back(
+            ase::slice_key({ .name = "left", .x = -1, .w = 1 }));
+    }
+    SUBCASE("on a frame the file does not have") {
+        file.frames[0].chunks.push_back(ase::slice_key({ .name = "later", .frame = 9 }));
+    }
+    SUBCASE("cut short") {
+        ase::Chunk cut = ase::slice_key({ .name = "cut" });
+        cut.body.resize(cut.body.size() - 3);
+        file.frames[0].chunks.push_back(cut);
+    }
+    SUBCASE("with no key") {
+        ase::Chunk none = ase::slice_key({ .name = "keyless" });
+        none.body[0] = 0;
+        file.frames[0].chunks.push_back(none);
+    }
+    rmp::SheetData sheet;
+    REQUIRE(reads(file.bytes(), sheet));
+    CHECK(sheet.slice_count() == 0);
+}
+
+TEST_CASE("a 9-slices centre outside its slice keeps the slice and drops the centre") {
+    ase::File file = two_frames();
+    file.frames[0].chunks.push_back(ase::slice_key({ .name = "bad",
+                                                     .w = 4,
+                                                     .h = 4,
+                                                     .nine = true,
+                                                     .cx = 3,
+                                                     .cy = 0,
+                                                     .cw = 2,
+                                                     .ch = 2 }));
+    rmp::SheetData sheet;
+    REQUIRE(reads(file.bytes(), sheet));
+    REQUIRE(sheet.slice_count() == 1);
+    CHECK_FALSE(sheet.slice("bad").nine);
+}
+
+TEST_CASE("no more slices than MAX_SLICES are kept, and a refused file has none") {
+    ase::File file = two_frames();
+    for (std::size_t i = 0; i < rmp::animation::detail::MAX_SLICES + 5; ++i)
+        file.frames[0].chunks.push_back(ase::slice_key({ .name = "s" }));
+    std::vector<unsigned char> copy;
+    std::vector<rmp::SheetSlice> slices;
+    CHECK(rmp::animation::detail::prepare_aseprite(file.bytes(), copy, slices).empty());
+    CHECK(slices.size() == rmp::animation::detail::MAX_SLICES);
+
+    const std::vector<unsigned char> junk{ 1, 2, 3 };
+    slices.push_back(rmp::SheetSlice{});
+    CHECK_FALSE(rmp::animation::detail::prepare_aseprite(junk, copy, slices).empty());
+    CHECK(slices.empty());
+}

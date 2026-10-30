@@ -146,7 +146,8 @@ void ensure_glyphs() {
     const std::span<const int> start = rmp::assets::detail::default_codepoints();
     font.glyph_list.assign(start.begin(), start.end());
     font.glyph_known.assign(0x110000, false);
-    for (const int c : font.glyph_list) font.glyph_known[static_cast<std::size_t>(c)] = true;
+    for (const int c : font.glyph_list)
+        font.glyph_known[static_cast<std::size_t>(c)] = true;
 }
 
 // Every letter of `text` that no face has been baked with, added: the next
@@ -158,15 +159,18 @@ void want_glyphs(std::string_view text) {
         int bytes = 0;
         const int c = GetCodepointNext(text.data() + i, &bytes);
         i += static_cast<std::size_t>(bytes > 0 ? bytes : 1);
-        if (c < 32 || c > 0x10FFFF || font.glyph_known[static_cast<std::size_t>(c)]) continue;
+        if (c < 32 || c > 0x10FFFF || font.glyph_known[static_cast<std::size_t>(c)])
+            continue;
         if (font.glyph_list.size() >= MOST_GLYPHS) {
-            RMP_REPORT_ONCE("UI: more than %d different letters drawn with a [ui] font; the "
-                            "ones past that are drawn as '?'",
-                            static_cast<int>(MOST_GLYPHS));
+            RMP_REPORT_ONCE(
+                "UI: more than %d different letters drawn with a [ui] font; the "
+                "ones past that are drawn as '?'",
+                static_cast<int>(MOST_GLYPHS));
             break;
         }
         font.glyph_known[static_cast<std::size_t>(c)] = true;
-        font.glyph_list.insert(std::upper_bound(font.glyph_list.begin(), font.glyph_list.end(), c), c);
+        font.glyph_list.insert(
+            std::upper_bound(font.glyph_list.begin(), font.glyph_list.end(), c), c);
         added = true;
     }
     if (added) ++font.glyph_generation;
@@ -485,6 +489,10 @@ void shutdown_context() {
     forget_frame();
     font.failed = false;
     font.failed_ids.clear();
+    // The letters go with the faces: the next UI starts from the default list.
+    font.glyph_list.clear();
+    font.glyph_known.clear();
+    ++font.glyph_generation;
     forget_transitions();
     forget_looks();
     begin_pass_containers();
@@ -715,7 +723,8 @@ void set_font_failed(uint16_t id) {
         if (face.frame != font.frame && (stale == nullptr || face.frame < stale->frame))
             stale = &face;
         if (face.id == id &&
-            (nearest == nullptr || std::abs(face.size - wanted) < std::abs(nearest->size - wanted)))
+            (nearest == nullptr ||
+             std::abs(face.size - wanted) < std::abs(nearest->size - wanted)))
             nearest = &face;
     }
     if (room == nullptr) room = free_slot != nullptr ? free_slot : stale;
@@ -728,8 +737,8 @@ void set_font_failed(uint16_t id) {
 
     const rmp::Font baked = providers.font(file, wanted, font.glyph_list);
     if (baked.raw().glyphCount <= 0) {
-        RMP_REPORT_ONCE_KEYED(file, "UI: font '%s' could not be loaded; using the built-in font",
-                              file);
+        RMP_REPORT_ONCE_KEYED(
+            file, "UI: font '%s' could not be loaded; using the built-in font", file);
         set_font_failed(id); // say it once, then stop asking
         for (FontFace &face : font.faces) {
             if (face.id == id) face = FontFace{};
@@ -738,7 +747,8 @@ void set_font_failed(uint16_t id) {
     }
     // Whatever the old atlas still has waiting in raylib's batch is drawn now:
     // assigning over the face releases it, and the table unloads it.
-    if (room->size != 0 && room->frame == font.frame) rlDrawRenderBatchActive();
+    if (room->size != 0 && room->frame == font.frame && !test_mode())
+        rlDrawRenderBatchActive();
     room->size = wanted;
     room->id = id;
     room->glyphs = font.glyph_generation;
@@ -765,7 +775,7 @@ void set_global_font(std::string_view name) {
     // Clay keeps, taken with it.
     for (FontFace &face : font.faces) {
         if (face.id == 0) {
-            if (face.frame == font.frame) rlDrawRenderBatchActive();
+            if (face.frame == font.frame && !test_mode()) rlDrawRenderBatchActive();
             face = FontFace{};
         }
     }

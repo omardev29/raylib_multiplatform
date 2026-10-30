@@ -1551,7 +1551,8 @@ struct Image {
 struct Panel {
     bool row = false; // children left to right; false = top to bottom
     BoxOptions box{}; // its layout, as panel() takes it
-    bool background = true; // false: a bare row or column, which still styles its children
+    bool background =
+        true; // false: a bare row or column, which still styles its children
     std::string id{};
     Style style{};
     Style children{};
@@ -1672,7 +1673,8 @@ struct ProgressBar {
     float height = -1; // -1 = from the type size
     float radius = -1; // -1 = round ends
     Color fill = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's primary
-    Picture fill_picture{}; // the filled part as a picture: a nine-slice stretches with it
+    Picture
+        fill_picture{}; // the filled part as a picture: a nine-slice stretches with it
     std::string id{};
     Style style{};
     rmp::Callback<> on_hover;

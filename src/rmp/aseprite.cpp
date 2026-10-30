@@ -551,8 +551,9 @@ private:
                 std::int64_t{ cx } + cw <= w && std::int64_t{ cy } + ch <= h;
             if (inside) {
                 slice.nine = true;
-                slice.center = Rectangle{ static_cast<float>(cx), static_cast<float>(cy),
-                                          static_cast<float>(cw), static_cast<float>(ch) };
+                slice.center =
+                    Rectangle{ static_cast<float>(cx), static_cast<float>(cy),
+                               static_cast<float>(cw), static_cast<float>(ch) };
             }
         }
         if (!c.ok() || w == 0 || h == 0 || x < 0 || y < 0) return;

@@ -269,6 +269,42 @@ inline Chunk slice(std::string_view name, int count) {
     return { SLICE, std::move(body.data) };
 }
 
+// One slice with one key, where Aseprite puts it: on `frame`, at x, y, w by
+// h; with a 9-slices centre when `nine` is given (cx, cy, cw, ch, relative to
+// the slice), and a pivot when `pivot`.
+struct SliceKey {
+    std::string_view name;
+    std::uint32_t frame = 0;
+    int x = 0;
+    int y = 0;
+    std::uint32_t w = 4;
+    std::uint32_t h = 4;
+    bool nine = false;
+    int cx = 0;
+    int cy = 0;
+    std::uint32_t cw = 0;
+    std::uint32_t ch = 0;
+    bool pivot = false;
+};
+
+inline Chunk slice_key(const SliceKey &k) {
+    Bytes body;
+    body.u32(1).u32((k.nine ? 1U : 0U) | (k.pivot ? 2U : 0U)).u32(0).string(k.name);
+    body.u32(k.frame)
+        .u32(static_cast<std::uint32_t>(k.x))
+        .u32(static_cast<std::uint32_t>(k.y))
+        .u32(k.w)
+        .u32(k.h);
+    if (k.nine) {
+        body.u32(static_cast<std::uint32_t>(k.cx))
+            .u32(static_cast<std::uint32_t>(k.cy))
+            .u32(k.cw)
+            .u32(k.ch);
+    }
+    if (k.pivot) body.u32(1).u32(1);
+    return { SLICE, std::move(body.data) };
+}
+
 // An embedded ICC profile of `length` bytes.
 inline Chunk icc_profile(std::uint32_t length) {
     Bytes body;

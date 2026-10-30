@@ -107,7 +107,7 @@ void retain(Slot *slot);
 void release(Slot *slot);
 const void *payload(const Slot *slot);
 // The name a resource was loaded under, or "" for one adopted without one.
-std::string_view name_of(const Slot *slot);
+std::string_view name_of(const Slot &slot);
 
 // For tests, and for a debug overlay. How many distinct resources are loaded,
 // and how many references exist to a given name.
@@ -153,7 +153,9 @@ public:
 
     // The name it was loaded under -- "ui.ttf", "player.aseprite" -- or "" for
     // an empty handle. Valid while this handle holds it.
-    [[nodiscard]] std::string_view name() const { return name_of(_slot); }
+    [[nodiscard]] std::string_view name() const {
+        return _slot != nullptr ? name_of(*_slot) : std::string_view{};
+    }
 
     // An empty resource yields a zeroed raylib struct rather than a crash.
     // raylib draws nothing for one of those, which is the behaviour a missing

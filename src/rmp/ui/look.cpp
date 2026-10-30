@@ -36,7 +36,8 @@ namespace rmp::ui {
 
 Picture::Picture(const rmp::Texture &whole) : texture(whole) {}
 
-Picture::Picture(const rmp::Texture &atlas, Rectangle part) : texture(atlas), source(part) {}
+Picture::Picture(const rmp::Texture &atlas, Rectangle part)
+    : texture(atlas), source(part) {}
 
 Picture::Picture(const rmp::Sprite &sprite) {
     if (sprite.sheet.valid()) {
@@ -59,7 +60,8 @@ bool Picture::empty() const {
 }
 
 Vector2 Picture::size() const {
-    if (source.width > 0 && source.height > 0) return Vector2{ source.width, source.height };
+    if (source.width > 0 && source.height > 0)
+        return Vector2{ source.width, source.height };
     const Texture2D &t = texture.valid() ? texture.raw() : sheet.raw().texture;
     return Vector2{ static_cast<float>(t.width), static_cast<float>(t.height) };
 }
@@ -73,8 +75,9 @@ const SheetSlice *find_slice(const rmp::SpriteSheet &sheet, std::string_view nam
                              const char *who) {
     const SheetSlice &found = sheet.raw().slice(name);
     if (found.bounds.width > 0) return &found;
-    RMP_REPORT_ONCE_KEYED(name, "UI: rmp::ui::%s(sheet, \"%.*s\"): the sheet has no slice by that name",
-                          who, static_cast<int>(name.size()), name.data());
+    RMP_REPORT_ONCE_KEYED(
+        name, "UI: rmp::ui::%s(sheet, \"%.*s\"): the sheet has no slice by that name",
+        who, static_cast<int>(name.size()), name.data());
     return nullptr;
 }
 
@@ -102,10 +105,11 @@ NineSlice nine_slice(const rmp::SpriteSheet &sheet, std::string_view name) {
     n.sheet = sheet;
     n.source = s->bounds;
     if (!s->nine) {
-        RMP_REPORT_ONCE_KEYED(name,
-                              "UI: rmp::ui::nine_slice(sheet, \"%.*s\"): the slice has no "
-                              "9-slices; it stretches whole",
-                              static_cast<int>(name.size()), name.data());
+        RMP_REPORT_ONCE_KEYED(
+            name,
+            "UI: rmp::ui::nine_slice(sheet, \"%.*s\"): the slice has no "
+            "9-slices; it stretches whole",
+            static_cast<int>(name.size()), name.data());
         return n;
     }
     n.left = s->center.x;
@@ -130,6 +134,29 @@ namespace detail {
 namespace {
 
 // --- resolving a look -------------------------------------------------------
+
+// The most a length of a look can be, in design units, and a time, in seconds:
+// past them is a screen of nothing already, as set_theme() has it.
+constexpr float MOST_UNITS = 4096.0f;
+constexpr float MOST_SECONDS = 60.0f;
+constexpr float MOST_SCALE = 16.0f;
+
+// `v` if it is a number from `lo` to `hi`; otherwise the game's mistake, said
+// once by its name, and `fallback` in its place -- so a look of NaN draws the
+// way no look would, instead of drawing NaN.
+float usable(float v, float fallback, float lo, float hi, const char *what) {
+    if (std::isfinite(v) && v >= lo && v <= hi) return v;
+    RMP_REPORT_ONCE_KEYED(what, "UI: a Style's %s of %g is not from %g to %g; %g is used",
+                          what, static_cast<double>(v), static_cast<double>(lo),
+                          static_cast<double>(hi), static_cast<double>(fallback));
+    return fallback;
+}
+
+// A length: below 0 is 0, asked for or not -- a border of -4 is no border.
+float length(float v, const char *what) {
+    if (std::isfinite(v) && v < 0) return 0.0f;
+    return usable(v, 0.0f, 0.0f, MOST_UNITS, what);
+}
 
 template <class T> void over(std::optional<T> &base, const std::optional<T> &top) {
     if (top) base = top;
@@ -263,16 +290,18 @@ void apply(Theme &t, const Style &s) {
     if (s.text) t.text = t.text_on_accent = *s.text;
     if (s.text_disabled) t.disabled_text = *s.text_disabled;
     if (s.border) t.border = *s.border;
-    if (s.border_width) t.border_width = std::max(0.0f, *s.border_width);
-    if (s.radius) t.corner_radius = std::max(0.0f, *s.radius);
-    if (s.padding_x) t.padding_x = t.panel_padding = std::max(0.0f, *s.padding_x);
-    if (s.padding_y) t.padding_y = std::max(0.0f, *s.padding_y);
-    if (s.gap) t.gap = std::max(0.0f, *s.gap);
-    if (s.font_size && *s.font_size > 0) {
-        const float ratio = *s.font_size / (t.font_size > 0 ? t.font_size : 1.0f);
-        t.font_size = *s.font_size;
-        t.font_size_small *= ratio;
-        t.font_size_large *= ratio;
+    if (s.border_width) t.border_width = length(*s.border_width, "border_width");
+    if (s.radius) t.corner_radius = length(*s.radius, "radius");
+    if (s.padding_x) t.padding_x = t.panel_padding = length(*s.padding_x, "padding_x");
+    if (s.padding_y) t.padding_y = length(*s.padding_y, "padding_y");
+    if (s.gap) t.gap = length(*s.gap, "gap");
+    if (s.font_size) {
+        const float size =
+            usable(*s.font_size, t.font_size, 1.0f, MOST_UNITS, "font_size");
+        const float ratio = size / (t.font_size > 0 ? t.font_size : 1.0f);
+        t.font_size = size;
+        t.font_size_small = std::min(t.font_size_small * ratio, MOST_UNITS);
+        t.font_size_large = std::min(t.font_size_large * ratio, MOST_UNITS);
     }
 }
 
@@ -287,7 +316,8 @@ struct LookFrame {
 // is while more are added. Emptied at the frame boundary, after they were
 // drawn -- which is when the textures they hold may go.
 struct {
-    std::vector<Style> inherited; // cumulative: each entry is the one below with a `children` over it
+    std::vector<Style>
+        inherited; // cumulative: each entry is the one below with a `children` over it
     std::deque<LookFrame> stack; // the widgets being declared, innermost last
     std::deque<DrawRecord> draws;
     std::deque<TextRecord> texts;
@@ -324,9 +354,9 @@ float ease(float t) {
 
 float lerp(float a, float b, float t) { return a + (b - a) * t; }
 
-// The seconds of this frame, for ages and shakes: 0 headless, where an
-// animation is complete the moment it starts.
-float frame_seconds() { return test_mode() ? 0.0f : frame_time(); }
+// The seconds of this frame, for ages and shakes: the game's step, or what a
+// headless test set (0 unless it set one).
+float frame_seconds() { return frame_time(); }
 
 Memory &remember(uint32_t element) {
     Memory &m = memory()[element];
@@ -341,7 +371,24 @@ Memory &remember(uint32_t element) {
     return m;
 }
 
-Motion motion_of(const Style &s) { return s.motion.value_or(Motion{}); }
+// A Motion as it is played: every number one, each in its range.
+Motion motion_of(const Style &s) {
+    Motion m = s.motion.value_or(Motion{});
+    m.hover_scale = usable(m.hover_scale, 1.0f, 0.0f, MOST_SCALE, "motion.hover_scale");
+    m.press_scale = usable(m.press_scale, 1.0f, 0.0f, MOST_SCALE, "motion.press_scale");
+    m.hover_lift =
+        usable(m.hover_lift, 0.0f, -MOST_UNITS, MOST_UNITS, "motion.hover_lift");
+    m.speed = usable(m.speed, 0.12f, 0.0f, MOST_SECONDS, "motion.speed");
+    m.appear = usable(m.appear, 0.0f, 0.0f, MOST_SECONDS, "motion.appear");
+    m.appear_offset =
+        usable(m.appear_offset, 0.0f, -MOST_UNITS, MOST_UNITS, "motion.appear_offset");
+    m.appear_scale =
+        usable(m.appear_scale, 1.0f, 0.0f, MOST_SCALE, "motion.appear_scale");
+    m.shake = usable(m.shake, 0.4f, 0.0f, MOST_SECONDS, "motion.shake");
+    m.shake_strength =
+        usable(m.shake_strength, 8.0f, -MOST_UNITS, MOST_UNITS, "motion.shake_strength");
+    return m;
+}
 
 bool moves(const Motion &m) {
     return m.hover_scale != 1 || m.press_scale != 1 || m.hover_lift != 0 || m.appear > 0;
@@ -385,11 +432,28 @@ void fill_picture(DrawRecord &r, const Picture &p) {
     r.raw = p.texture.valid() ? p.texture.raw() : p.sheet.raw().texture;
     const Vector2 size = p.size();
     r.source = Rectangle{ p.source.x, p.source.y, size.x, size.y };
-    r.left = p.left;
-    r.top = p.top;
-    r.right = p.right;
-    r.bottom = p.bottom;
-    r.slice_px = px(p.slice_scale > 0 ? p.slice_scale : 1.0f);
+    // A part that is no part -- NaN, past what a texture can be -- is the
+    // whole picture; a margin that is no margin is none.
+    const auto part = [](float v) { return std::isfinite(v) && std::fabs(v) <= 1.0e6f; };
+    if (!part(r.source.x) || !part(r.source.y) || !part(r.source.width) ||
+        !part(r.source.height)) {
+        RMP_REPORT_ONCE("UI: a Picture's source is not a rectangle of numbers; the whole "
+                        "texture is drawn");
+        r.source = Rectangle{ 0, 0, static_cast<float>(r.raw.width),
+                              static_cast<float>(r.raw.height) };
+    }
+    const auto margin = [](float v) {
+        if (std::isfinite(v) && v < 0) return 0.0f;
+        return usable(v, 0.0f, 0.0f, 1.0e6f, "nine-slice margin");
+    };
+    r.left = margin(p.left);
+    r.top = margin(p.top);
+    r.right = margin(p.right);
+    r.bottom = margin(p.bottom);
+    const float scale = p.slice_scale == 0
+        ? 1.0f
+        : usable(p.slice_scale, 1.0f, 0.0f, 64.0f, "nine-slice scale");
+    r.slice_px = px(scale);
 }
 
 std::optional<std::string> sound_for(const Sounds &s, EventKind kind) {
@@ -453,7 +517,9 @@ LookScope::~LookScope() {
     if (!looks.stack.empty()) looks.stack.pop_back();
 }
 
-const Style &look() { return looks.stack.empty() ? empty_style() : looks.stack.back().style; }
+const Style &look() {
+    return looks.stack.empty() ? empty_style() : looks.stack.back().style;
+}
 
 const Theme *look_theme() {
     if (looks.stack.empty() || !looks.stack.back().themed) return nullptr;
@@ -506,8 +572,8 @@ void forget_looks() {
 // Records
 // ---------------------------------------------------------------------------
 
-DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id, const Interaction &now,
-                     DrawRecord *into) {
+DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
+                     const Interaction &now, DrawRecord *into) {
     const Style &s = look();
     const Motion m = motion_of(s);
     Memory &mem = remember(id.id);
@@ -557,11 +623,19 @@ DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id, const Intera
     }
 
     if (s.shadow) {
+        const Shadow &sh = *s.shadow;
+        const float ox =
+            usable(sh.offset.x, 0.0f, -MOST_UNITS, MOST_UNITS, "shadow.offset");
+        const float oy =
+            usable(sh.offset.y, 0.0f, -MOST_UNITS, MOST_UNITS, "shadow.offset");
+        const float blur = length(sh.blur, "shadow.blur");
+        const float spread =
+            usable(sh.spread, 0.0f, -MOST_UNITS, MOST_UNITS, "shadow.spread");
         r.has_shadow = true;
-        r.shadow_offset = Vector2{ px(s.shadow->offset.x), px(s.shadow->offset.y) + lift };
-        r.shadow_blur = px(std::max(0.0f, s.shadow->blur)) + lift;
-        r.shadow_spread = px(s.shadow->spread);
-        r.shadow_color = s.shadow->color;
+        r.shadow_offset = Vector2{ px(ox), px(oy) + std::fabs(lift) };
+        r.shadow_blur = px(blur) + std::fabs(lift);
+        r.shadow_spread = px(spread);
+        r.shadow_color = sh.color;
     }
 
     d.userData = &r;
@@ -580,7 +654,8 @@ DrawRecord *raw_record(const Texture2D &texture, Color tint) {
     DrawRecord &r = looks.draws.emplace_back();
     r.has_picture = true;
     r.raw = texture;
-    r.source = Rectangle{ 0, 0, static_cast<float>(texture.width), static_cast<float>(texture.height) };
+    r.source = Rectangle{ 0, 0, static_cast<float>(texture.width),
+                          static_cast<float>(texture.height) };
     r.tint = tint;
     return &r;
 }
@@ -590,14 +665,24 @@ void open_text(Clay_String text, Clay_TextElementConfig config) {
     if (s.font.valid()) config.fontId = font_id_of(s.font);
     if (s.text_outline || s.text_shadow) {
         TextRecord &t = looks.texts.emplace_back();
-        if (s.text_outline && s.text_outline->width > 0) {
-            t.outline = true;
-            t.outline_px = std::max(1.0f, px(s.text_outline->width));
-            t.outline_color = s.text_outline->color;
+        if (s.text_outline) {
+            const float w =
+                std::isfinite(s.text_outline->width) && s.text_outline->width <= 0
+                ? 0.0f
+                : usable(s.text_outline->width, 0.0f, 0.0f, 64.0f, "text_outline.width");
+            if (w > 0) {
+                t.outline = true;
+                t.outline_px = std::max(1.0f, px(w));
+                t.outline_color = s.text_outline->color;
+            }
         }
         if (s.text_shadow) {
+            const Vector2 o = s.text_shadow->offset;
             t.shadow = true;
-            t.shadow_px = Vector2{ px(s.text_shadow->offset.x), px(s.text_shadow->offset.y) };
+            t.shadow_px = Vector2{
+                px(usable(o.x, 0.0f, -MOST_UNITS, MOST_UNITS, "text_shadow.offset")),
+                px(usable(o.y, 0.0f, -MOST_UNITS, MOST_UNITS, "text_shadow.offset"))
+            };
             t.shadow_color = s.text_shadow->color;
         }
         config.userData = &t;
@@ -615,7 +700,10 @@ void emit(EventKind kind, WidgetKind widget, std::string_view name) {
     const Style &s = scoped ? look() : resolved;
     if (const std::optional<std::string> sound = sound_for(s.sounds, kind);
         sound && !sound->empty()) {
-        rmp::audio::play(*sound, rmp::audio::PlayOptions{ .volume = s.sounds.volume.value_or(1.0f) });
+        rmp::audio::play(*sound,
+                         rmp::audio::PlayOptions{
+                             .volume = usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f,
+                                              1.0f, "sounds.volume") });
     }
     if (looks.hook) {
         const Event e{ kind, widget, name };
@@ -623,7 +711,8 @@ void emit(EventKind kind, WidgetKind widget, std::string_view name) {
     }
 }
 
-Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name, const Interaction &now) {
+Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name,
+            const Interaction &now) {
     Memory &m = remember(id.id);
     Edges e;
     e.hover = now.over && !m.over;

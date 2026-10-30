@@ -196,7 +196,9 @@ void open_column(const BoxOptions &o) {
     open_with_id(o.id, d);
 }
 
-void open_panel(const PanelOptions &o) { open_panel_with(o, nullptr, {}, nullptr, false, false); }
+void open_panel(const PanelOptions &o) {
+    open_panel_with(o, nullptr, {}, nullptr, false, false);
+}
 
 void open_panel_with(const PanelOptions &o, const Style *own, Clay_ElementId kept,
                      const Interaction *now, bool row, bool bare) {
@@ -208,8 +210,9 @@ void open_panel_with(const PanelOptions &o, const Style *own, Clay_ElementId kep
     Clay_ElementDeclaration d{};
     // A panel pads itself by default; a bare row or column does not. That is
     // the difference between the two, along with having a background.
-    d.layout = layout_of(o.box, row ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM,
-                         o.box.padding < 0 ? (bare ? 0.0f : t.panel_padding) : o.box.padding);
+    d.layout =
+        layout_of(o.box, row ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM,
+                  o.box.padding < 0 ? (bare ? 0.0f : t.panel_padding) : o.box.padding);
     if (o.box.gap < 0 && look.gap) d.layout.childGap = px16(*look.gap);
     d.backgroundColor = to_clay(transparent(o.background) ? t.panel : o.background);
     if (bare && !look.background) d.backgroundColor = Clay_Color{ 0, 0, 0, 0 };
@@ -246,8 +249,8 @@ void open_panel_with(const PanelOptions &o, const Style *own, Clay_ElementId kep
     }
     if (look.skin || look.shadow || look.motion) {
         // Styled through Theme::styles.panel: an id to keep its motion by.
-        const Clay_ElementId id = !o.box.id.empty() ? element_id(o.box.id, o.box.id)
-                                                    : element_id("panel", {});
+        const Clay_ElementId id =
+            !o.box.id.empty() ? element_id(o.box.id, o.box.id) : element_id("panel", {});
         decorate(d, id, Interaction{});
         Clay__OpenElementWithId(id);
         Clay__ConfigureOpenElement(d);
@@ -510,7 +513,9 @@ void image(const Picture &picture, const ImageOptions &o) {
 
 void image(const rmp::Texture &texture) { image(Picture(texture), ImageOptions{}); }
 
-void image(const rmp::Texture &texture, const ImageOptions &o) { image(Picture(texture), o); }
+void image(const rmp::Texture &texture, const ImageOptions &o) {
+    image(Picture(texture), o);
+}
 
 void detail::image_with(const Picture &picture, const ImageOptions &o, const Extra &x,
                         std::string_view id_name, const Texture2D *raw) {
@@ -565,13 +570,15 @@ void detail::image_with(const Picture &picture, const ImageOptions &o, const Ext
     detail::Interaction now;
     Clay_ElementId id{};
     if (kept || look.shadow || look.motion || look.skin) {
-        id = detail::element_id(id_name.empty() ? std::string_view("image") : id_name, x.id);
+        id = detail::element_id(id_name.empty() ? std::string_view("image") : id_name,
+                                x.id);
         if (kept) {
             now.over = detail::pointer_over(id);
             if (now.over) detail::set_pointer_over_ui();
             if (now.over && detail::pointer_just_pressed()) detail::set_press_id(id.id);
             now.down = now.over && detail::pointer_down() && detail::press_id() == id.id;
-            now.clicked = now.over && detail::pointer_released() && detail::press_id() == id.id;
+            now.clicked =
+                now.over && detail::pointer_released() && detail::press_id() == id.id;
             const detail::Edges edges = detail::track(id, WidgetKind::IMAGE, x.id, now);
             if (x.edges != nullptr) *x.edges = edges;
             if (x.element != nullptr) *x.element = id.id;
@@ -649,11 +656,13 @@ void detail::progress_with(float fraction, const ProgressOptions &o, const Pictu
 
     const bool styled = x.state != nullptr || look.skin || look.shadow || look.motion;
     if (styled) {
-        const Clay_ElementId id = element_id(o.id.empty() ? std::string_view("progress") : o.id, o.id);
+        const Clay_ElementId id =
+            element_id(o.id.empty() ? std::string_view("progress") : o.id, o.id);
         detail::Interaction now;
         if (x.state != nullptr) {
             now.over = detail::pointer_over(id);
-            const detail::Edges edges = detail::track(id, WidgetKind::PROGRESS, o.id, now);
+            const detail::Edges edges =
+                detail::track(id, WidgetKind::PROGRESS, o.id, now);
             if (x.edges != nullptr) *x.edges = edges;
             if (x.element != nullptr) *x.element = id.id;
         }
@@ -676,7 +685,8 @@ void detail::progress_with(float fraction, const ProgressOptions &o, const Pictu
         bar.cornerRadius = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
         if (fill != nullptr && !fill->empty()) {
             // The filled part as a picture: a nine-slice stretches with it.
-            if (detail::DrawRecord *rec = detail::picture_record(*fill, look.tint.value_or(WHITE))) {
+            if (detail::DrawRecord *rec =
+                    detail::picture_record(*fill, look.tint.value_or(WHITE))) {
                 bar.backgroundColor = Clay_Color{ 0, 0, 0, 0 };
                 bar.image.imageData = &rec->raw;
                 bar.userData = rec;

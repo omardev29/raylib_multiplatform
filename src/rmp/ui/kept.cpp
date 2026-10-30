@@ -137,7 +137,8 @@ bool Image::show() {
     x.height = height;
     // A sprite plays: one step of its clock per frame shown, the game's step.
     const bool animated = sprite.sheet.valid() || sprite.texture.valid();
-    if (sprite.sheet.valid()) rmp::animation::detail::advance(sprite, detail::frame_time());
+    if (sprite.sheet.valid())
+        rmp::animation::detail::advance(sprite, detail::frame_time());
     const Picture shown = animated ? Picture(sprite) : picture;
     detail::image_with(shown, ImageOptions{ .grow = grow }, x, id.empty() ? "image" : id);
     keep(ours, e);
@@ -160,9 +161,9 @@ bool open_kept_panel(Panel &panel) {
         open_panels().push_back(false);
         return false;
     }
-    const Clay_ElementId id =
-        element_id(panel.id.empty() ? std::string_view("panel") : std::string_view(panel.id),
-                   panel.id);
+    const Clay_ElementId id = element_id(panel.id.empty() ? std::string_view("panel")
+                                                          : std::string_view(panel.id),
+                                         panel.id);
     Interaction now;
     now.over = pointer_over(id);
     const bool clickable = static_cast<bool>(panel.on_click);
@@ -204,8 +205,8 @@ bool Checkbox::show() {
     detail::Edges e;
     uint32_t element = 0;
     const detail::Extra x = extra_for(style, ours, e, element, id);
-    const bool changed =
-        detail::checkbox_with(text, checked, CheckboxOptions{ .enabled = enabled, .id = id }, x);
+    const bool changed = detail::checkbox_with(
+        text, checked, CheckboxOptions{ .enabled = enabled, .id = id }, x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::CHECKBOX, name_of(text, id));
     pointer_calls(e, on_hover, on_unhover);
@@ -222,8 +223,11 @@ bool Slider::show() {
     detail::Edges e;
     uint32_t element = 0;
     const detail::Extra x = extra_for(style, ours, e, element, id);
-    const SliderOptions o{ .width = width, .step = step, .enabled = enabled,
-                           .show_value = show_value, .id = id };
+    const SliderOptions o{ .width = width,
+                           .step = step,
+                           .enabled = enabled,
+                           .show_value = show_value,
+                           .id = id };
     const bool changed = detail::slider_with(text, value, min, max, o, x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::SLIDER, name_of(text, id));
@@ -243,7 +247,8 @@ bool Dropdown::show() {
     const detail::Extra x = extra_for(style, ours, e, element, id);
     std::vector<std::string_view> views(items.begin(), items.end());
     const bool changed = detail::dropdown_with(
-        text, selected, views, DropdownOptions{ .width = width, .enabled = enabled, .id = id }, x);
+        text, selected, views,
+        DropdownOptions{ .width = width, .enabled = enabled, .id = id }, x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::DROPDOWN, name_of(text, id));
     pointer_calls(e, on_hover, on_unhover);
@@ -260,8 +265,11 @@ bool TextInput::show() {
     detail::Edges e;
     uint32_t element = 0;
     const detail::Extra x = extra_for(style, ours, e, element, id);
-    const TextInputOptions o{ .width = width, .enabled = enabled, .placeholder = placeholder,
-                              .id = id, .max_length = max_length };
+    const TextInputOptions o{ .width = width,
+                              .enabled = enabled,
+                              .placeholder = placeholder,
+                              .id = id,
+                              .max_length = max_length };
     const bool changed = detail::text_input_with(text, value, o, x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::TEXT_INPUT, name_of(text, id));
@@ -279,8 +287,9 @@ void ProgressBar::show() {
     detail::Edges e;
     uint32_t element = 0;
     const detail::Extra x = extra_for(style, ours, e, element, id);
-    const ProgressOptions o{ .width = width, .height = height, .radius = radius, .fill = fill,
-                             .id = id };
+    const ProgressOptions o{
+        .width = width, .height = height, .radius = radius, .fill = fill, .id = id
+    };
     detail::progress_with(value, o, fill_picture.empty() ? nullptr : &fill_picture, x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::PROGRESS, id);
