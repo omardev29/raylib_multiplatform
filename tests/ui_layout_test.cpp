@@ -43,6 +43,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <span>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -2407,26 +2408,32 @@ void run_frame_grow() {
 // came out blurry. Baking needs a GL context, so the test hands the UI a font
 // that "bakes" without one and watches which sizes it is asked for.
 struct {
-    std::array<int, 32> sizes{};
+    std::array<int, 64> sizes{};
     int count = 0;
     int refused = 0; // asked for while failing: a font that will not load
     bool failing = false;
+    std::vector<int> last_glyphs; // the letters the last face was baked with
+    std::string last_name; // and the file it was baked from
 } font_bakes;
 
-rmp::Font fake_bake(const char *name, int pixel_size) {
+rmp::Font fake_bake(const char *name, int pixel_size, std::span<const int> glyphs) {
     if (font_bakes.failing) {
         ++font_bakes.refused;
         return rmp::Font{};
     }
-    if (font_bakes.count < 32) font_bakes.sizes[font_bakes.count++] = pixel_size;
+    if (font_bakes.count < 64) font_bakes.sizes[font_bakes.count++] = pixel_size;
+    font_bakes.last_glyphs.assign(glyphs.begin(), glyphs.end());
+    font_bakes.last_name = name;
     // texture.id 0 is what lets this live and die with no GL context: raylib's
     // UnloadFont leaves alone a font whose texture is the default font's, and
     // with no window that id is 0 too.
     ::Font face{};
     face.baseSize = pixel_size;
     face.glyphCount = 1;
-    return rmp::Font{ rmp::detail::adopt_named(rmp::detail::ResourceKind::FONT, name,
-                                               pixel_size, face) };
+    // Adopted, not named: a face is the UI's own bake, as load_font_glyphs()
+    // makes it, and two of them with the same name and size can be alive at
+    // once while one replaces the other.
+    return rmp::Font{ rmp::detail::adopt(rmp::detail::ResourceKind::FONT, face) };
 }
 
 bool baked(int pixel_size) {
@@ -2438,6 +2445,7 @@ bool baked(int pixel_size) {
 void run_font_sizes() {
     rmp::ui::detail::set_test_viewport(1280, 720);
     rmp::ui::detail::set_measure_provider(rmp::ui::detail::measure_with_raylib);
+    const int live_before = rmp::detail::live_count();
     rmp::ui::detail::set_font_provider(fake_bake, "fake-ui.ttf");
     font_bakes.count = 0;
 
@@ -2471,23 +2479,23 @@ void run_font_sizes() {
                   .baseSize == pixels(t.font_size_large),
           "LARGE is drawn and measured with the face baked at its own size");
 
-    // Eight faces at most. More sizes than that in ONE frame bake no more --
+    // Sixteen faces at most. More sizes than that in ONE frame bake no more --
     // the faces already drawn may still be in raylib's batch -- and the next
     // frame makes room by letting go of the one used longest ago.
     const int before = font_bakes.count;
     rmp::ui::detail::begin_frame();
-    for (int px = 60; px < 70; ++px) rmp::ui::detail::ui_font(static_cast<float>(px));
+    for (int px = 60; px < 80; ++px) rmp::ui::detail::ui_font(static_cast<float>(px));
     rmp::ui::detail::end_frame();
-    check(font_bakes.count - before == 8,
-          "eight faces at most, however many sizes a frame asks for");
-    check(rmp::ui::detail::ui_font(69).baseSize != 69,
+    check(font_bakes.count - before == 16,
+          "sixteen faces at most, however many sizes a frame asks for");
+    check(rmp::ui::detail::ui_font(79).baseSize != 79,
           "and a size past that in the same frame borrows the closest face");
     rmp::ui::detail::begin_frame();
-    check(rmp::ui::detail::ui_font(69).baseSize == 69, "which the next frame bakes");
+    check(rmp::ui::detail::ui_font(79).baseSize == 79, "which the next frame bakes");
     rmp::ui::detail::end_frame();
 
     rmp::ui::shutdown();
-    check(rmp::detail::ref_count("fake-ui.ttf") == 0, "shutdown() lets every face go");
+    check(rmp::detail::live_count() == live_before, "shutdown() lets every face go");
 
     // raylib's own font is not baked at all, at any size.
     rmp::ui::detail::set_font_provider(fake_bake, nullptr); // [ui] font = ""

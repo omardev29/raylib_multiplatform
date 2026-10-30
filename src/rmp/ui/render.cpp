@@ -13,6 +13,8 @@
 
 #include "internal.h"
 
+#include <rlgl.h> // rlPushMatrix(): a moving element and what is inside it
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -193,52 +195,235 @@ const char *cstr(Clay_StringSlice slice) {
     return scratch.text.data();
 }
 
+namespace {
+
+// What a styled element asked for (src/rmp/ui/look.cpp), or nullptr: the
+// magic number tells our record from a pointer a game driving Clay put there.
+DrawRecord *draw_record(void *user) {
+    if (user == nullptr) return nullptr;
+    auto *r = static_cast<DrawRecord *>(user);
+    return r->magic == DRAW_MAGIC ? r : nullptr;
+}
+
+const TextRecord *text_record(void *user) {
+    if (user == nullptr) return nullptr;
+    const auto *r = static_cast<const TextRecord *>(user);
+    return r->magic == TEXT_MAGIC ? r : nullptr;
+}
+
+Color faded(Color c, float alpha) {
+    if (alpha >= 1.0f) return c;
+    const float a = static_cast<float>(c.a) * std::clamp(alpha, 0.0f, 1.0f);
+    return Color{ c.r, c.g, c.b, static_cast<unsigned char>(std::lround(a)) };
+}
+
+// A picture in a box: stretched whole, or by its middle when it has
+// nine-slice margins, whose corners keep their size -- shrunk together when
+// the box is too small for them.
+void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
+    if (r.raw.id == 0 || dest.width <= 0 || dest.height <= 0) return;
+    const Rectangle src = r.source;
+    const bool nine = r.left > 0 || r.top > 0 || r.right > 0 || r.bottom > 0;
+    if (!nine) {
+        DrawTexturePro(r.raw, src, dest, Vector2{ 0, 0 }, 0.0f, tint);
+    } else {
+        float l = r.left * r.slice_px;
+        float rt = r.right * r.slice_px;
+        float t = r.top * r.slice_px;
+        float b = r.bottom * r.slice_px;
+        if (l + rt > dest.width && l + rt > 0) {
+            const float k = dest.width / (l + rt);
+            l *= k;
+            rt *= k;
+        }
+        if (t + b > dest.height && t + b > 0) {
+            const float k = dest.height / (t + b);
+            t *= k;
+            b *= k;
+        }
+        const std::array<float, 4> sx{ src.x, src.x + r.left, src.x + src.width - r.right,
+                                       src.x + src.width };
+        const std::array<float, 4> sy{ src.y, src.y + r.top, src.y + src.height - r.bottom,
+                                       src.y + src.height };
+        const std::array<float, 4> dx{ dest.x, dest.x + l, dest.x + dest.width - rt,
+                                       dest.x + dest.width };
+        const std::array<float, 4> dy{ dest.y, dest.y + t, dest.y + dest.height - b,
+                                       dest.y + dest.height };
+        for (std::size_t row = 0; row < 3; ++row) {
+            for (std::size_t col = 0; col < 3; ++col) {
+                const Rectangle part{ sx[col], sy[row], sx[col + 1] - sx[col],
+                                      sy[row + 1] - sy[row] };
+                const Rectangle to{ dx[col], dy[row], dx[col + 1] - dx[col],
+                                    dy[row + 1] - dy[row] };
+                if (part.width <= 0 || part.height <= 0 || to.width <= 0 || to.height <= 0)
+                    continue;
+                DrawTexturePro(r.raw, part, to, Vector2{ 0, 0 }, 0.0f, tint);
+            }
+        }
+    }
+    if (r.brighten > 0) {
+        // Lit, not tinted: the same picture again, added on top.
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawRecord again = r;
+        again.brighten = 0;
+        const auto a = static_cast<unsigned char>(std::lround(255.0f * r.brighten * tint.a / 255.0f));
+        draw_picture(again, dest, Color{ 255, 255, 255, a });
+        EndBlendMode();
+    }
+}
+
+// A soft shadow: the box, grown and offset, drawn a few times fainter and
+// bigger, so that the edges add up to a fade. `blur` 0 is one hard copy.
+void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
+    const int layers = r.shadow_blur > 0 ? 6 : 1;
+    const Color c = faded(r.shadow_color, alpha);
+    const float share = static_cast<float>(c.a) / static_cast<float>(layers);
+    for (int i = layers - 1; i >= 0; --i) {
+        const float grow = r.shadow_spread +
+            r.shadow_blur * static_cast<float>(i + 1) / static_cast<float>(layers) -
+            (layers > 1 ? r.shadow_blur * 0.5f : 0.0f);
+        const Rectangle rect{ box.x + r.shadow_offset.x - grow, box.y + r.shadow_offset.y - grow,
+                              box.width + 2 * grow, box.height + 2 * grow };
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const Color layer{ c.r, c.g, c.b,
+                           static_cast<unsigned char>(std::clamp(share, 1.0f, 255.0f)) };
+        const float radius = std::max(0.0f, r.radius + grow);
+        const float half = std::min(rect.width, rect.height) * 0.5f;
+        if (radius > 0 && half > 0) {
+            DrawRectangleRounded(rect, std::min(1.0f, radius / half), 8, layer);
+        } else {
+            DrawRectangleRec(rect, layer);
+        }
+    }
+}
+
+void draw_text(const ::Font &f, const char *text, Vector2 at, float size, Color color,
+               const TextRecord *extra, float alpha) {
+    const float spacing = letter_spacing(size);
+    if (extra != nullptr && extra->shadow) {
+        DrawTextEx(f, text, Vector2{ at.x + extra->shadow_px.x, at.y + extra->shadow_px.y }, size,
+                   spacing, faded(extra->shadow_color, alpha));
+    }
+    if (extra != nullptr && extra->outline) {
+        const float w = extra->outline_px;
+        const Color c = faded(extra->outline_color, alpha);
+        // Eight copies around it, and eight more between them past two pixels,
+        // where gaps between the first eight would show.
+        const int steps = w > 2.0f ? 16 : 8;
+        for (int i = 0; i < steps; ++i) {
+            const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) /
+                static_cast<float>(steps);
+            DrawTextEx(f, text, Vector2{ at.x + std::cos(angle) * w, at.y + std::sin(angle) * w },
+                       size, spacing, c);
+        }
+    }
+    DrawTextEx(f, text, at, size, spacing, faded(color, alpha));
+}
+
+bool inside(Clay_BoundingBox inner, Clay_BoundingBox outer) {
+    constexpr float SLACK = 0.5f;
+    return inner.x >= outer.x - SLACK && inner.y >= outer.y - SLACK &&
+        inner.x + inner.width <= outer.x + outer.width + SLACK &&
+        inner.y + inner.height <= outer.y + outer.height + SLACK;
+}
+
+// An element that moves, grows or fades, and everything drawn inside its box
+// after it: its own commands and its children's, which Clay lists after it.
+struct Moving {
+    Clay_BoundingBox box{};
+    float alpha = 1;
+    bool matrix = false;
+};
+constexpr int MAX_MOVING = 16;
+
+} // namespace
+
 void draw(Clay_RenderCommandArray commands) {
     ScissorStack scissors{};
     const auto clip_to = [](Clay_BoundingBox b) {
         BeginScissorMode(static_cast<int>(b.x), static_cast<int>(b.y),
                          static_cast<int>(b.width), static_cast<int>(b.height));
     };
+    std::array<Moving, MAX_MOVING> moving{};
+    int depth = 0;
+    const auto pop = [&] {
+        if (moving[static_cast<std::size_t>(depth - 1)].matrix) rlPopMatrix();
+        --depth;
+    };
     // Already sorted by z order, so drawing them in sequence is correct.
     for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
         const Rectangle rect = to_rect(cmd.boundingBox);
 
+        // Out of the box of what was moving: no longer inside it.
+        while (depth > 0 && !inside(cmd.boundingBox, moving[static_cast<std::size_t>(depth - 1)].box))
+            pop();
+        float alpha = depth > 0 ? moving[static_cast<std::size_t>(depth - 1)].alpha : 1.0f;
+
+        DrawRecord *rec = cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT
+            ? nullptr
+            : draw_record(cmd.userData);
+        if (rec != nullptr && !rec->shadow_drawn) {
+            // The first command of a styled element: its shadow under it, and
+            // its motion on from here.
+            rec->shadow_drawn = true;
+            const bool moves = rec->scale != 1.0f || rec->offset.x != 0.0f ||
+                rec->offset.y != 0.0f || rec->alpha != 1.0f;
+            if (moves && depth < MAX_MOVING) {
+                Moving &m = moving[static_cast<std::size_t>(depth++)];
+                m.box = cmd.boundingBox;
+                m.alpha = alpha * rec->alpha;
+                m.matrix = rec->scale != 1.0f || rec->offset.x != 0.0f || rec->offset.y != 0.0f;
+                if (m.matrix) {
+                    const float cx = rect.x + rect.width * 0.5f;
+                    const float cy = rect.y + rect.height * 0.5f;
+                    rlPushMatrix();
+                    rlTranslatef(cx + rec->offset.x, cy + rec->offset.y, 0.0f);
+                    rlScalef(rec->scale, rec->scale, 1.0f);
+                    rlTranslatef(-cx, -cy, 0.0f);
+                }
+                alpha = m.alpha;
+            }
+            if (rec->has_shadow) draw_shadow(*rec, cmd.boundingBox, alpha);
+        }
+
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
                 const auto &r = cmd.renderData.rectangle;
+                const Color fill = faded(from_clay(r.backgroundColor), alpha);
                 const Corners corners = corners_of(r.cornerRadius, cmd.boundingBox);
                 // Four equal corners -- everything rmp::ui draws -- go through
                 // raylib's own call, exactly as they always have. Only a box
                 // given different corners, from Clay directly, is drawn here.
                 if (!same_corners(corners)) {
-                    fill_box(cmd.boundingBox, corners, from_clay(r.backgroundColor));
+                    fill_box(cmd.boundingBox, corners, fill);
                     break;
                 }
                 const float rn = roundness(corners, cmd.boundingBox);
                 if (rn > 0.0f) {
-                    DrawRectangleRounded(rect, rn, 8, from_clay(r.backgroundColor));
+                    DrawRectangleRounded(rect, rn, 8, fill);
                 } else {
-                    DrawRectangleRec(rect, from_clay(r.backgroundColor));
+                    DrawRectangleRec(rect, fill);
                 }
                 break;
             }
 
             case CLAY_RENDER_COMMAND_TYPE_BORDER: {
                 const auto &b = cmd.renderData.border;
+                const Color color = faded(from_clay(b.color), alpha);
                 const Corners corners = corners_of(b.cornerRadius, cmd.boundingBox);
                 // The same, and the same for the widths: raylib's outline has
                 // one width, and Clay gives each side its own.
                 if (!same_corners(corners) || !same_sides(b.width)) {
-                    stroke_box(cmd.boundingBox, corners, b.width, from_clay(b.color));
+                    stroke_box(cmd.boundingBox, corners, b.width, color);
                     break;
                 }
                 const float rn = roundness(corners, cmd.boundingBox);
                 auto w = static_cast<float>(b.width.left);
                 if (rn > 0.0f) {
-                    DrawRectangleRoundedLinesEx(rect, rn, 8, w, from_clay(b.color));
+                    DrawRectangleRoundedLinesEx(rect, rn, 8, w, color);
                 } else {
-                    DrawRectangleLinesEx(rect, w, from_clay(b.color));
+                    DrawRectangleLinesEx(rect, w, color);
                 }
                 break;
             }
@@ -247,32 +432,30 @@ void draw(Clay_RenderCommandArray commands) {
                 const auto &t = cmd.renderData.text;
                 if (t.stringContents.length <= 0) break; // see cstr()
                 auto size = static_cast<float>(t.fontSize);
-                const ::Font f = ui_font(size); // baked at exactly this size: sharp
-                DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
-                           letter_spacing(size), from_clay(t.textColor));
+                // Baked at exactly this size, in the font this text asked for: sharp.
+                const ::Font f = ui_font(size, t.fontId);
+                draw_text(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
+                          from_clay(t.textColor), text_record(cmd.userData), alpha);
                 break;
             }
 
             case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
-                // imageData is a pointer the element declaration passed through
-                // untouched, so the contract is simply: point it at a Texture2D
-                // you own and keep alive for the frame.
-                //
-                // rmp::ui::image() produces these, and so can a game that
-                // drops to Clay directly: both point imageData at a Texture2D.
+                // A picture of ours -- image(), an icon, a skin -- comes with
+                // its record: the part of the texture, the nine-slice margins,
+                // the tint, the handles that keep it loaded.
+                if (rec != nullptr && rec->has_picture) {
+                    draw_picture(*rec, rect, faded(rec->tint, alpha));
+                    break;
+                }
+                // Anything else is a game driving Clay itself, and its
+                // imageData is a pointer to a Texture2D it keeps alive for the
+                // frame: drawn whole, untinted.
                 const auto &img = cmd.renderData.image;
                 if (img.imageData == nullptr) break;
                 const auto *tex = static_cast<const Texture2D *>(img.imageData);
                 const Rectangle src{ 0, 0, static_cast<float>(tex->width),
                                      static_cast<float>(tex->height) };
-                // The tint comes through userData as an optional Color*, not
-                // through backgroundColor: a background on an image element
-                // makes Clay emit a RECTANGLE as well, after the IMAGE, which
-                // paints a flat square over the picture. Null means untinted.
-                auto tint = WHITE;
-                if (cmd.userData != nullptr)
-                    tint = *static_cast<const Color *>(cmd.userData);
-                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f, tint);
+                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f, faded(WHITE, alpha));
                 break;
             }
 
@@ -297,6 +480,7 @@ void draw(Clay_RenderCommandArray commands) {
                 break;
         }
     }
+    while (depth > 0) pop();
     // A list that ended with one still open -- Clay pairs them, so never --
     // must not leave the rest of the game clipped.
     if (scissors.depth > 0) EndScissorMode();

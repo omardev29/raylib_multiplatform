@@ -15,6 +15,9 @@
 #include <rmp/assets.h>
 #include <rmp/config.h>
 
+#include <rlgl.h> // rlDrawRenderBatchActive(): the batch drawn before an atlas goes
+
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -22,6 +25,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -90,9 +95,21 @@ struct {
 // the one used longest ago makes room, but never one drawn THIS frame: its
 // glyphs may still be waiting in raylib's batch, and unloading the texture
 // under them would draw garbage.
-constexpr int FONT_FACES = 8;
+//
+// Faces are per FONT too: id 0 is the global one ([ui] font, or set_font()),
+// and every other id is a file a Style named (font_id_of()). And per set of
+// LETTERS: every face is baked with the same codepoints, Latin-1 and Latin
+// Extended-A to start with, and a text that asks for one more -- a Japanese
+// name, a Russian menu -- adds it, so the next time a face is asked for it
+// is baked again with it. The batch is drawn out first, so the old atlas is
+// never unloaded under glyphs still waiting to be drawn.
+constexpr int FONT_FACES = 16;
+// The most letters a face is baked with: a CJK game's menus, with room left.
+constexpr std::size_t MOST_GLYPHS = 8192;
 struct FontFace {
     int size = 0; // the pixel size it was baked at; 0 = a free slot
+    uint16_t id = 0; // which font: 0 = the global one
+    unsigned glyphs = 0; // the glyph generation it was baked with
     rmp::Font handle; // counted, like every other resource: emptying it unloads it
     unsigned frame = 0; // the last frame it was asked for
 };
@@ -101,8 +118,17 @@ struct {
     unsigned frame = 0; // counted at every frame boundary, for FontFace::frame
     // A configured font that cannot be loaded is a one-time problem, not a
     // per-draw one. Without this we would go back to the filesystem and log the
-    // same warning for every piece of text, every frame.
-    bool failed = false;
+    // same warning for every piece of text, every frame. Per font id.
+    std::vector<bool> failed_ids;
+    bool failed = false; // the global one's, which tests read
+    // The files of fonts 1, 2, ...: index + 1 is the id.
+    std::vector<std::string> files;
+    // set_font(): the global font, over [ui] font. Unset = [ui] font.
+    std::optional<std::string> global;
+    // The letters every face is baked with, sorted, and whether one is in it.
+    std::vector<int> glyph_list;
+    std::vector<bool> glyph_known;
+    unsigned glyph_generation = 1;
 } font;
 
 // Everything a frame leaves behind, gone: the UI is shutting down. Defined at
@@ -112,6 +138,38 @@ void forget_frame();
 // Every face goes: the UI is shutting down, or the font is another one.
 void release_fonts() {
     for (FontFace &face : font.faces) face = FontFace{};
+}
+
+// The letters faces start with, once: what rmp::assets bakes a .ttf with.
+void ensure_glyphs() {
+    if (!font.glyph_list.empty()) return;
+    const std::span<const int> start = rmp::assets::detail::default_codepoints();
+    font.glyph_list.assign(start.begin(), start.end());
+    font.glyph_known.assign(0x110000, false);
+    for (const int c : font.glyph_list) font.glyph_known[static_cast<std::size_t>(c)] = true;
+}
+
+// Every letter of `text` that no face has been baked with, added: the next
+// face asked for is baked with them. Said once when the table is full.
+void want_glyphs(std::string_view text) {
+    ensure_glyphs();
+    bool added = false;
+    for (std::size_t i = 0; i < text.size();) {
+        int bytes = 0;
+        const int c = GetCodepointNext(text.data() + i, &bytes);
+        i += static_cast<std::size_t>(bytes > 0 ? bytes : 1);
+        if (c < 32 || c > 0x10FFFF || font.glyph_known[static_cast<std::size_t>(c)]) continue;
+        if (font.glyph_list.size() >= MOST_GLYPHS) {
+            RMP_REPORT_ONCE("UI: more than %d different letters drawn with a [ui] font; the "
+                            "ones past that are drawn as '?'",
+                            static_cast<int>(MOST_GLYPHS));
+            break;
+        }
+        font.glyph_known[static_cast<std::size_t>(c)] = true;
+        font.glyph_list.insert(std::upper_bound(font.glyph_list.begin(), font.glyph_list.end(), c), c);
+        added = true;
+    }
+    if (added) ++font.glyph_generation;
 }
 
 // Text arena. Clay keeps pointers into whatever we hand it and reads them at
@@ -270,8 +328,8 @@ struct {
 
 // Where measuring, the pointer and navigation come from: raylib, unless a test
 // has swapped one out.
-rmp::Font load_ui_font(const char *name, int pixel_size) {
-    return rmp::assets::load_font(name, pixel_size);
+rmp::Font load_ui_font(const char *name, int pixel_size, std::span<const int> glyphs) {
+    return rmp::assets::detail::load_font_glyphs(name, pixel_size, glyphs);
 }
 
 struct {
@@ -284,7 +342,14 @@ struct {
 } providers;
 
 const char *configured_font() {
-    return providers.font_name != nullptr ? providers.font_name : RMP_UI_FONT;
+    if (providers.font_name != nullptr) return providers.font_name;
+    return font.global ? font.global->c_str() : RMP_UI_FONT;
+}
+
+// The file of font `id`: 0 is the global one.
+const char *font_file(uint16_t id) {
+    if (id == 0 || id > font.files.size()) return configured_font();
+    return font.files[id - 1U].c_str();
 }
 
 // Test viewport. 0 means "ask raylib", which is every real run.
@@ -419,7 +484,9 @@ void shutdown_context() {
     // where it stopped.
     forget_frame();
     font.failed = false;
+    font.failed_ids.clear();
     forget_transitions();
+    forget_looks();
     begin_pass_containers();
     forget_focus();
     if (!context.started) return;
@@ -603,9 +670,27 @@ void set_scale_override(float s) {
     if (context.started) update_scale();
 }
 
-::Font ui_font(float pixel_size) {
-    const bool builtin = (configured_font()[0] == '\0');
-    if (builtin || font.failed) return GetFontDefault();
+::Font ui_font(float pixel_size) { return ui_font(pixel_size, 0); }
+
+bool font_failed(uint16_t id) {
+    if (id == 0) return font.failed;
+    return id < font.failed_ids.size() && font.failed_ids[id];
+}
+
+void set_font_failed(uint16_t id) {
+    if (id == 0) {
+        font.failed = true;
+        return;
+    }
+    if (font.failed_ids.size() <= id) font.failed_ids.resize(id + 1U, false);
+    font.failed_ids[id] = true;
+}
+
+::Font ui_font(float pixel_size, uint16_t id) {
+    const char *file = font_file(id);
+    const bool builtin = (file[0] == '\0');
+    if (builtin || font_failed(id)) return GetFontDefault();
+    ensure_glyphs();
 
     int wanted = static_cast<int>(std::lround(pixel_size));
     if (wanted < 1) wanted = 1;
@@ -615,10 +700,13 @@ void set_scale_override(float s) {
     FontFace *free_slot = nullptr;
     FontFace *stale = nullptr;
     const FontFace *nearest = nullptr;
+    FontFace *room = nullptr;
     for (FontFace &face : font.faces) {
-        if (face.size == wanted) {
+        if (face.size == wanted && face.id == id) {
             face.frame = font.frame;
-            return face.handle.raw();
+            if (face.glyphs == font.glyph_generation) return face.handle.raw();
+            room = &face; // baked before a letter it now needs: again, in place
+            break;
         }
         if (face.size == 0) {
             if (free_slot == nullptr) free_slot = &face;
@@ -626,11 +714,11 @@ void set_scale_override(float s) {
         }
         if (face.frame != font.frame && (stale == nullptr || face.frame < stale->frame))
             stale = &face;
-        if (nearest == nullptr ||
-            std::abs(face.size - wanted) < std::abs(nearest->size - wanted))
+        if (face.id == id &&
+            (nearest == nullptr || std::abs(face.size - wanted) < std::abs(nearest->size - wanted)))
             nearest = &face;
     }
-    FontFace *room = free_slot != nullptr ? free_slot : stale;
+    if (room == nullptr) room = free_slot != nullptr ? free_slot : stale;
     // Every face was drawn this frame and none is this size: more sizes in one
     // frame than there are faces. The closest one, stretched, is a soft letter
     // where the alternative is a texture pulled out from under the batch. (A
@@ -638,20 +726,54 @@ void set_scale_override(float s) {
     if (room == nullptr)
         return nearest != nullptr ? nearest->handle.raw() : GetFontDefault();
 
-    const rmp::Font baked = providers.font(configured_font(), wanted);
+    const rmp::Font baked = providers.font(file, wanted, font.glyph_list);
     if (baked.raw().glyphCount <= 0) {
-        RMP_REPORT_ONCE("UI: [ui] font '%s' could not be loaded; using the built-in font",
-                        configured_font());
-        font.failed = true; // say it once, then stop asking
-        release_fonts();
+        RMP_REPORT_ONCE_KEYED(file, "UI: font '%s' could not be loaded; using the built-in font",
+                              file);
+        set_font_failed(id); // say it once, then stop asking
+        for (FontFace &face : font.faces) {
+            if (face.id == id) face = FontFace{};
+        }
         return GetFontDefault(); // a missing font must not switch the UI off
     }
-    // Assigning over an old face releases it; the resource table unloads it.
+    // Whatever the old atlas still has waiting in raylib's batch is drawn now:
+    // assigning over the face releases it, and the table unloads it.
+    if (room->size != 0 && room->frame == font.frame) rlDrawRenderBatchActive();
     room->size = wanted;
+    room->id = id;
+    room->glyphs = font.glyph_generation;
     room->handle = baked;
     room->frame = font.frame;
     return room->handle.raw();
 }
+
+uint16_t font_id_of(const rmp::Font &face) {
+    const std::string_view file = face.name();
+    if (file.empty()) return 0;
+    if (file == configured_font()) return 0;
+    for (std::size_t i = 0; i < font.files.size(); ++i) {
+        if (font.files[i] == file) return static_cast<uint16_t>(i + 1);
+    }
+    if (font.files.size() >= 0xFFFE) return 0;
+    font.files.emplace_back(file);
+    return static_cast<uint16_t>(font.files.size());
+}
+
+void set_global_font(std::string_view name) {
+    font.global = std::string(name);
+    // The faces of the old global font go -- and with them the measurements
+    // Clay keeps, taken with it.
+    for (FontFace &face : font.faces) {
+        if (face.id == 0) {
+            if (face.frame == font.frame) rlDrawRenderBatchActive();
+            face = FontFace{};
+        }
+    }
+    font.failed = false;
+    if (context.started) Clay_ResetMeasureTextCache();
+}
+
+std::string_view global_font_name() { return configured_font(); }
 
 // ---------------------------------------------------------------------------
 // Frame arena
@@ -725,6 +847,7 @@ void begin_pass() {
     this_pass.behind = this_pass.index < modality.last_frame;
     reset_id_counters();
     begin_pass_containers();
+    begin_pass_looks();
     begin_pass_focus();
     // The first pass of the frame is where wants_pointer() and wants_keyboard()
     // start again from nothing. See begin_capture_frame().
@@ -847,6 +970,7 @@ void prepare_frame() {
     reset_frame_arena();
     update_scale();
     anim_begin_frame();
+    begin_frame_looks();
     ++font.frame; // what "drawn this frame" means to the font faces
 
     Clay_SetLayoutDimensions(viewport());
@@ -1191,7 +1315,11 @@ Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float fo
 Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfig *config,
                                     void * /*unused*/) {
     auto size = static_cast<float>(config->fontSize);
-    return measure_text(ui_font(size), text, size);
+    // Measured before it is drawn, so this is where a letter no face has yet
+    // is noticed: the face below is baked with it.
+    if (font_file(config->fontId)[0] != '\0' && text.length > 0)
+        want_glyphs(std::string_view(text.chars, static_cast<std::size_t>(text.length)));
+    return measure_text(ui_font(size, config->fontId), text, size);
 }
 
 void pointer_from_raylib(Clay_Vector2 &position, bool &down) {

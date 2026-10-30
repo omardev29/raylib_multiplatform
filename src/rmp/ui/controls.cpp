@@ -70,7 +70,7 @@ void label_text(std::string_view s, Color c, float size) {
     tc.textColor = to_clay(c);
     tc.fontSize = font_px(size);
     tc.wrapMode = CLAY_TEXT_WRAP_NONE;
-    Clay__OpenTextElement(detail::intern(s), tc);
+    detail::open_text(detail::intern(s), tc);
 }
 
 // The row every one of these controls sits in: label on the left, the control
@@ -78,6 +78,8 @@ void label_text(std::string_view s, Color c, float size) {
 // The sub-id of a dropdown's open list. Far away from the items, which take 1
 // to count: a list of nine things would otherwise collide with it.
 constexpr uint32_t MENU_SUB = 0x10000u;
+// The sub-id of a dropdown's or a text input's field, past the menu's.
+constexpr uint32_t FIELD_SUB = 0x20000u;
 
 Clay_ElementDeclaration control_row(bool has_focus) {
     const Theme &t = current_theme();
@@ -96,6 +98,12 @@ Clay_ElementDeclaration control_row(bool has_focus) {
     return d;
 }
 
+// What a kept widget asked to be told: the edges and the element.
+void report(const detail::Extra &x, const detail::Edges &e, Clay_ElementId id) {
+    if (x.edges != nullptr) *x.edges = e;
+    if (x.element != nullptr) *x.element = id.id;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -107,7 +115,13 @@ bool checkbox(std::string_view label, bool &value) {
 }
 
 bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
+    return detail::checkbox_with(label, value, o, detail::Extra{});
+}
+
+bool detail::checkbox_with(std::string_view label, bool &value, const CheckboxOptions &o,
+                           const Extra &x) {
     if (!detail::frame_ready("checkbox", label)) return false;
+    const detail::LookScope scope(WidgetKind::CHECKBOX, x.own);
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -126,6 +140,15 @@ bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
     row.backgroundColor = to_clay(
         detail::state_color(id, detail::clear_alpha(t.surface_hover), t.surface_hover,
                             t.surface_press, over, over && detail::pointer_down()));
+    detail::Interaction now;
+    now.over = over;
+    now.down = over && detail::pointer_down() && detail::press_id() == id.id;
+    now.focused = has_focus;
+    now.disabled = !o.enabled;
+    now.clicked = toggled;
+    now.changed = toggled;
+    report(x, detail::track(id, WidgetKind::CHECKBOX, o.id.empty() ? label : o.id, now), id);
+    detail::decorate(row, id, now);
 
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
@@ -181,7 +204,13 @@ bool slider(std::string_view label, float &value, float min, float max) {
 
 bool slider(std::string_view label, float &value, float min, float max,
             const SliderOptions &o) {
+    return detail::slider_with(label, value, min, max, o, detail::Extra{});
+}
+
+bool detail::slider_with(std::string_view label, float &value, float min, float max,
+                         const SliderOptions &o, const Extra &x) {
     if (!detail::frame_ready("slider", label)) return false;
+    const detail::LookScope scope(WidgetKind::SLIDER, x.own);
     // A range that is no range of numbers -- NaN or an infinity at either end,
     // or ends so far apart that the distance is one -- is the game's mistake:
     // said once, and no slider, as for max <= min.
@@ -301,6 +330,14 @@ bool slider(std::string_view label, float &value, float min, float max,
 
     const float fraction = (value - min) / span;
 
+    detail::Interaction now;
+    now.over = o.enabled && detail::pointer_over(track_id, px(8));
+    now.down = st->flag;
+    now.focused = has_focus;
+    now.disabled = !o.enabled;
+    now.changed = value != before;
+    report(x, detail::track(id, WidgetKind::SLIDER, o.id.empty() ? label : o.id, now), id);
+
     const Clay_ElementDeclaration row = control_row(has_focus);
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
@@ -312,6 +349,9 @@ bool slider(std::string_view label, float &value, float min, float max,
         track.layout.sizing.height = fixed(t.control_size);
         track.layout.childAlignment =
             Clay_ChildAlignment{ CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER };
+        // A skin, a shadow or motion of the slider's style is on the track: the
+        // part that is the slider, without its label.
+        detail::decorate(track, track_id, now);
         Clay__OpenElementWithId(track_id);
         Clay__ConfigureOpenElement(track);
         {
@@ -375,7 +415,14 @@ bool dropdown(std::string_view label, int &selected,
 
 bool dropdown(std::string_view label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o) {
+    return detail::dropdown_with(label, selected, items, o, detail::Extra{});
+}
+
+bool detail::dropdown_with(std::string_view label, int &selected,
+                           std::span<const std::string_view> items, const DropdownOptions &o,
+                           const Extra &x) {
     if (!detail::frame_ready("dropdown", label)) return false;
+    const detail::LookScope scope(WidgetKind::DROPDOWN, x.own);
     if (items.empty()) {
         // No dropdown: as for a slider with no range, above.
         (void)detail::take_last_control();
@@ -414,6 +461,7 @@ bool dropdown(std::string_view label, int &selected,
     // st->flag is open or closed; st->i is the item the keyboard or the
     // gamepad is on while it is open, starting from the value.
     bool changed = false;
+    const bool was_open = st->flag;
     const bool field_clicked = clicked(id, over);
     // Escape or B: closed, and nothing picked. Ahead of everything else.
     const bool cancelled = st->flag && has_focus && detail::take_cancel();
@@ -447,6 +495,17 @@ bool dropdown(std::string_view label, int &selected,
         if (st->i >= count) st->i = count - 1;
     }
 
+    const std::string_view name = o.id.empty() ? label : o.id;
+    detail::Interaction now;
+    now.over = over;
+    now.down = over && detail::pointer_down() && detail::press_id() == id.id;
+    now.focused = has_focus;
+    now.disabled = !o.enabled;
+    now.changed = changed;
+    report(x, detail::track(id, WidgetKind::DROPDOWN, name, now), id);
+    if (st->flag && !was_open) detail::emit(EventKind::OPEN, WidgetKind::DROPDOWN, name);
+    if (!st->flag && was_open) detail::emit(EventKind::CLOSE, WidgetKind::DROPDOWN, name);
+
     const Clay_ElementDeclaration row = control_row(has_focus);
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
@@ -466,8 +525,11 @@ bool dropdown(std::string_view label, int &selected,
                                 t.surface_press, over, over && detail::pointer_down()));
         const float r = px(t.corner_radius);
         field.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+        // A skin, a shadow or motion of the dropdown's style is on the field.
+        const Clay_ElementId field_id = detail::sub_id(id, FIELD_SUB);
+        detail::decorate(field, field_id, now);
 
-        Clay__OpenElement();
+        Clay__OpenElementWithId(field_id);
         Clay__ConfigureOpenElement(field);
         {
             label_text(items[static_cast<std::size_t>(selected)],
@@ -558,7 +620,13 @@ bool text_input(std::string_view label, std::string &value) {
 }
 
 bool text_input(std::string_view label, std::string &value, const TextInputOptions &o) {
+    return detail::text_input_with(label, value, o, detail::Extra{});
+}
+
+bool detail::text_input_with(std::string_view label, std::string &value,
+                             const TextInputOptions &o, const Extra &x) {
     if (!detail::frame_ready("text_input", label)) return false;
+    const detail::LookScope scope(WidgetKind::TEXT_INPUT, x.own);
     const Theme &t = current_theme();
 
     const Clay_ElementId id = detail::element_id(label, o.id);
@@ -628,6 +696,14 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
         }
     }
 
+    detail::Interaction now;
+    now.over = over;
+    now.down = over && detail::pointer_down() && detail::press_id() == id.id;
+    now.focused = has_focus;
+    now.disabled = !o.enabled;
+    now.changed = changed;
+    report(x, detail::track(id, WidgetKind::TEXT_INPUT, o.id.empty() ? label : o.id, now), id);
+
     const Clay_ElementDeclaration row = control_row(has_focus);
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
@@ -647,8 +723,11 @@ bool text_input(std::string_view label, std::string &value, const TextInputOptio
         field.backgroundColor = to_clay(o.enabled ? t.surface : t.disabled);
         const float r = px(t.corner_radius);
         field.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+        // A skin, a shadow or motion of the field's style is on the field.
+        const Clay_ElementId field_id = detail::sub_id(id, FIELD_SUB);
+        detail::decorate(field, field_id, now);
 
-        Clay__OpenElement();
+        Clay__OpenElementWithId(field_id);
         Clay__ConfigureOpenElement(field);
         {
             if (value.empty() && !o.placeholder.empty() && !typing) {

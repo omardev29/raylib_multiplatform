@@ -21,6 +21,8 @@
 
 #include <rmp/ui.h>
 
+#include "internal.h" // look_theme(), base_theme()
+
 #include <rmp/config.h>
 
 #include <cmath>
@@ -112,7 +114,14 @@ void keep(float &metric, float fallback, float most, const std::string &name) {
 
 } // namespace
 
-const Theme &current_theme() { return active(); }
+// Inside a widget whose style sets colours or metrics, the Theme with them in
+// it (src/rmp/ui/look.cpp); everywhere else, the one set_theme() stored.
+const Theme &current_theme() {
+    if (const Theme *styled = detail::look_theme()) return *styled;
+    return active();
+}
+
+const Theme &detail::base_theme() { return active(); }
 
 void set_theme(const Theme &t) {
     Theme kept = t;

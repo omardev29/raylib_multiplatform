@@ -8,9 +8,11 @@
 // ---------------------------------------------------------------------------
 
 #include <raylib.h>
+#include <rmp/assets.h> // rmp::Font, which assets::detail::load_font_glyphs() returns
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -189,6 +191,17 @@ extern LoadCounts loads;
 // Always ends in a separator or is empty, exactly like the macro.
 const char *resources_root();
 void set_resources_root(const char *root);
+
+// The glyphs every .ttf is baked with unless the caller names its own:
+// printable ASCII, Latin-1, Latin Extended-A and the common typography.
+// raylib's own default is ASCII alone.
+std::span<const int> default_codepoints();
+
+// A font baked with exactly `codepoints` (empty: default_codepoints()), NOT
+// cached under its name: rmp::ui bakes a file again when a text asks for a
+// letter the atlas does not have, and that atlas is no one else's.
+rmp::Font load_font_glyphs(std::string_view name, int font_size,
+                           std::span<const int> codepoints);
 
 } // namespace rmp::assets::detail
 

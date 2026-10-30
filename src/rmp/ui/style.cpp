@@ -76,8 +76,11 @@ void anim_begin_frame() {
 }
 
 float anim_value(Clay_ElementId id, uint32_t channel, bool on) {
+    return anim_value(id, channel, on, current_theme().transition);
+}
+
+float anim_value(Clay_ElementId id, uint32_t channel, bool on, float duration) {
     const float target = on ? 1.0f : 0.0f;
-    const float duration = current_theme().transition;
 
     // transition = 0 is the reduce-motion setting, and it is also what the
     // headless test runs with. No table lookup, no state: the answer is the

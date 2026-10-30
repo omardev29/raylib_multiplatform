@@ -50,9 +50,9 @@ constexpr int PING_PONG_REVERSE = 3;
 // What cute_aseprite reads of a file prepare_aseprite() accepted, or null --
 // and why not, logged, when the file is refused. Freed with
 // cute_aseprite_free().
-ase_t *load(std::span<const unsigned char> file) {
+ase_t *load(std::span<const unsigned char> file, std::vector<SheetSlice> &slices) {
     std::vector<unsigned char> safe;
-    const std::string_view why = prepare_aseprite(file, safe);
+    const std::string_view why = prepare_aseprite(file, safe, slices);
     if (!why.empty()) {
         // A file is the game's to fix, and the load says which one: the asset
         // layer logs its name next, and counts it in failed_loads().
@@ -68,11 +68,14 @@ ase_t *load(std::span<const unsigned char> file) {
 
 bool parse_sheet(const void *bytes, int size, SheetData *out) {
     if (bytes == nullptr || size <= 0 || out == nullptr) return false;
+    std::vector<SheetSlice> slices;
     ase_t *ase = load(
-        { static_cast<const unsigned char *>(bytes), static_cast<std::size_t>(size) });
+        { static_cast<const unsigned char *>(bytes), static_cast<std::size_t>(size) },
+        slices);
     if (ase == nullptr) return false;
 
     *out = SheetData{};
+    out->slices = std::move(slices);
     out->width = ase->w;
     out->height = ase->h;
 
@@ -121,8 +124,10 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
     // the pixel buffers and frees them with the ase_t, so holding them across
     // the call would mean either leaking the whole document or copying every
     // frame twice. Parsing a sprite sheet costs microseconds and happens once.
+    std::vector<SheetSlice> unused;
     ase_t *ase = load(
-        { static_cast<const unsigned char *>(bytes), static_cast<std::size_t>(size) });
+        { static_cast<const unsigned char *>(bytes), static_cast<std::size_t>(size) },
+        unused);
     if (ase == nullptr) return empty;
     // These bytes, and the sheet they were parsed into: anything else would
     // read frames the file does not have.

@@ -17,6 +17,7 @@
 
 namespace rmp {
 struct SheetData;
+struct SheetSlice;
 struct Sprite;
 } // namespace rmp
 
@@ -40,6 +41,13 @@ inline constexpr std::int64_t MAX_BLEND_PIXELS = std::int64_t{ 1 } << 26;
 // the file only where no pixel depends on it; the file comment says where.
 std::string_view prepare_aseprite(std::span<const unsigned char> file,
                                   std::vector<unsigned char> &out);
+// The same, and the file's slices -- which cute_aseprite never reads -- in
+// `slices`: every one that reads whole and sits on the canvas, at most
+// MAX_SLICES, in the file's order. Empty when the file is refused.
+std::string_view prepare_aseprite(std::span<const unsigned char> file,
+                                  std::vector<unsigned char> &out,
+                                  std::vector<SheetSlice> &slices);
+inline constexpr std::size_t MAX_SLICES = 256;
 
 // The bytes of a .aseprite or .ase into frames, durations and tags. Returns
 // false, and logs why, for a file prepare_aseprite() refuses. The texture is

@@ -106,6 +106,8 @@ void release_all();
 void retain(Slot *slot);
 void release(Slot *slot);
 const void *payload(const Slot *slot);
+// The name a resource was loaded under, or "" for one adopted without one.
+std::string_view name_of(const Slot *slot);
 
 // For tests, and for a debug overlay. How many distinct resources are loaded,
 // and how many references exist to a given name.
@@ -148,6 +150,10 @@ public:
     // load, was never assigned, or was moved from; `if (texture)` asks the same.
     bool valid() const { return _slot != nullptr; }
     explicit operator bool() const { return valid(); }
+
+    // The name it was loaded under -- "ui.ttf", "player.aseprite" -- or "" for
+    // an empty handle. Valid while this handle holds it.
+    [[nodiscard]] std::string_view name() const { return name_of(_slot); }
 
     // An empty resource yields a zeroed raylib struct rather than a crash.
     // raylib draws nothing for one of those, which is the behaviour a missing
@@ -217,6 +223,17 @@ struct SheetTag {
     bool reverse = false; // Aseprite's "Reverse" direction: last frame first
 };
 
+// One slice of the .aseprite: a named rectangle the artist drew with the slice
+// tool -- an icon of an atlas, the frame of a button. With "9-Slices" ticked in
+// Aseprite it also has a centre, which is what makes it a nine-slice
+// (rmp::ui::nine_slice()). Read from the first frame the slice has a key on.
+struct SheetSlice {
+    std::string name; // the slice's name in Aseprite
+    Rectangle bounds{}; // where it is in the PACKED texture, in pixels
+    bool nine = false; // it has 9-slices: `center` is its middle
+    Rectangle center{}; // the middle, relative to `bounds`; only when `nine`
+};
+
 // Everything read out of an .aseprite: the packed texture, the frames and the
 // tags. The tables are vectors and the sheet owns them: a resource slot holds
 // the whole SheetData behind a shared_ptr, so the language frees them with it
@@ -230,6 +247,7 @@ struct SheetData {
     int height = 0; // one frame's height, which is the packed texture's too
     std::vector<SheetFrame> frames; // in the file's order
     std::vector<SheetTag> tags; // in the file's order
+    std::vector<SheetSlice> slices; // in the file's order
 
     // How many frames and tags the file had.
     [[nodiscard]] int frame_count() const { return static_cast<int>(frames.size()); }
@@ -239,6 +257,16 @@ struct SheetData {
         static const SheetFrame EMPTY{};
         if (index < 0 || index >= frame_count()) return EMPTY;
         return frames[static_cast<std::size_t>(index)];
+    }
+    // How many slices the file had.
+    [[nodiscard]] int slice_count() const { return static_cast<int>(slices.size()); }
+    // The slice called `name`, or an empty one (no name, no bounds) when there
+    // is none. The first one, when two share a name.
+    [[nodiscard]] const SheetSlice &slice(std::string_view name) const {
+        static const SheetSlice EMPTY{};
+        for (const SheetSlice &one : slices)
+            if (one.name == name) return one;
+        return EMPTY;
     }
     // The tag at `index`, or an empty one (no name, frames 0 to 0) out of range.
     [[nodiscard]] const SheetTag &tag(int index) const {

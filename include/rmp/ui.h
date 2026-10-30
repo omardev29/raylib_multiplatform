@@ -40,6 +40,13 @@
 // [ui] rather than a number baked into this header.
 #include <rmp/config.h>
 
+// The one place ui.h includes another header of ours, and why it cannot be
+// avoided: a Style holds an rmp::Font and a Picture an rmp::Texture BY VALUE
+// (rmp/assets.h), a Picture is made from an rmp::Sprite, and every widget you
+// keep carries its callbacks as rmp::Callback (both rmp/object.h, which
+// includes rmp/assets.h). A forward declaration cannot hold a value.
+#include <rmp/object.h>
+
 // The standard library this header pays for, measured in tools/header_budget.txt:
 // <string_view> for every label, <string> for the text a text_input() edits,
 // <span> and <initializer_list> for a dropdown's items, <optional> for a
@@ -49,6 +56,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #ifndef RMP_UI_FONT_SIZE
 // [ui] font_size in design units. This 20 is only the fallback for a
@@ -119,6 +127,236 @@ struct Sizing {
     constexpr Sizing(ui::Size s) : step(s), named(true) {}
 };
 } // namespace detail
+
+// ---------------------------------------------------------------------------
+// Pictures
+//
+// Everything in rmp::ui that shows an image -- image(), an icon on a button,
+// a skin behind a button or a panel -- takes a Picture, and a Picture is made
+// from whatever you have:
+//
+//     rmp::ui::image(logo);                                    // an rmp::Texture
+//     rmp::ui::image({ atlas, Rectangle{ 32, 0, 16, 16 } });   // a part of one
+//     rmp::ui::image(player.sprite);                           // a Sprite's frame
+//     rmp::ui::image(rmp::ui::slice(icons, "coin"));           // an Aseprite slice
+//     rmp::ui::Style s{ .skin = rmp::ui::Skin{ .normal = frame } }; // a NineSlice
+//
+// It holds counted handles, so the texture stays loaded for as long as a
+// Picture that shows it exists -- a temporary is safe.
+// ---------------------------------------------------------------------------
+
+// A picture that stretches without stretching its corners: the classic
+// "9-patch". The four margins cut the source into a 3x3 grid; the corners are
+// drawn at their size, the edges stretch along one axis and the middle along
+// both. That is how one small frame becomes a button of any length.
+//
+//     rmp::ui::NineSlice frame{ .texture = ui_art, .source = { 0, 0, 24, 24 },
+//                               .left = 8, .top = 8, .right = 8, .bottom = 8 };
+//
+// Or read from Aseprite, where an artist draws it: a slice with 9-slices on
+// gives its own margins -- rmp::ui::nine_slice(sheet, "button").
+struct NineSlice {
+    rmp::Texture texture; // the picture
+    rmp::SpriteSheet sheet; // or an Aseprite sheet's, when `texture` is empty
+    Rectangle source{}; // the part of it to cut; {0,0,0,0} = all of it
+    float left = 0; // the margins, in pixels of the SOURCE
+    float top = 0;
+    float right = 0;
+    float bottom = 0;
+    // How big a source pixel is drawn, in design units: the corners are
+    // left * scale design units wide, and grow with the UI's scale like
+    // everything else. 0 = 1, so a 24-pixel frame is drawn as drawn. Pixel art
+    // wants a whole number: 2, 3, 4.
+    float scale = 0;
+};
+
+// Anything rmp::ui can show. See above.
+struct Picture {
+    // The pixels, and the part of them that is this picture. Normally you do
+    // not set these yourself: one of the constructors below does.
+    rmp::Texture texture; // a loose texture
+    rmp::SpriteSheet sheet; // or an Aseprite sheet, which owns its texture
+    Rectangle source{}; // {0,0,0,0} = the whole texture
+    // Nine-slice margins, in source pixels, and the size of one source pixel
+    // in design units (0 = 1). All four 0: the picture simply stretches.
+    float left = 0;
+    float top = 0;
+    float right = 0;
+    float bottom = 0;
+    float slice_scale = 0;
+
+    // No picture at all: draws nothing, takes no room.
+    Picture() = default;
+    // The whole texture.
+    // NOLINTNEXTLINE(google-explicit-constructor): `.icon = coin_texture`
+    Picture(const rmp::Texture &whole);
+    // A part of it: an atlas, a sprite sheet laid out by hand.
+    Picture(const rmp::Texture &atlas, Rectangle part);
+    // What the sprite shows right now: its texture or its sheet's current frame,
+    // `source` if it sets one. A Picture is a snapshot, so to see the sprite
+    // animate, make one each frame -- or keep an rmp::ui::Image, which plays it.
+    // NOLINTNEXTLINE(google-explicit-constructor): `rmp::ui::image(hero.sprite)`
+    Picture(const rmp::Sprite &sprite);
+    // A nine-slice: stretches by its middle.
+    // NOLINTNEXTLINE(google-explicit-constructor): `.normal = frame`
+    Picture(const NineSlice &nine);
+
+    // True when there is nothing to draw: no texture, or one that did not load.
+    [[nodiscard]] bool empty() const;
+    // The size of the picture in source pixels: its part, or the whole texture.
+    [[nodiscard]] Vector2 size() const;
+    // True when it has nine-slice margins.
+    [[nodiscard]] bool sliced() const;
+};
+
+// A named slice of an Aseprite file, as a Picture: the part of the first
+// frame the slice covers, with its 9-slice margins when the slice has them.
+// This is how one .aseprite becomes an atlas of icons, by name:
+//
+//     static rmp::SpriteSheet icons = rmp::assets::load_sheet("icons.aseprite");
+//     rmp::ui::image(rmp::ui::slice(icons, "coin"));
+//
+// A name the sheet does not have is an empty Picture, said once.
+Picture slice(const rmp::SpriteSheet &sheet, std::string_view name);
+
+// The same slice as a NineSlice, to change its scale or hand it on. A slice
+// without 9-slices comes back with all four margins 0, said once.
+NineSlice nine_slice(const rmp::SpriteSheet &sheet, std::string_view name);
+
+// ---------------------------------------------------------------------------
+// Looks: shadows, outlines, skins, sounds and motion
+//
+// Plain data, all of it, used by Style below and by the Theme.
+// ---------------------------------------------------------------------------
+
+// A soft shadow under a box: under a button, a panel, an image. Drawn as a few
+// rounded rectangles that get fainter outwards, which reads as blurred on
+// every target -- the software renderer and OpenGL ES 2.0 included -- and
+// costs a handful of rectangles. Sizes are in design units.
+struct Shadow {
+    Vector2 offset{ 0, 4 }; // where it falls: down a little, as light from above
+    float blur = 8; // how far it fades out past the box; 0 = a hard shadow
+    float spread = 0; // how much bigger than the box it is before it fades
+    Color color = CLITERAL(Color){ 0, 0, 0, 90 };
+};
+
+// An outline around every letter, so a title reads over any background. In
+// design units; drawn as copies of the text around it, so keep it small: 1 to 3.
+struct TextOutline {
+    float width = 1;
+    Color color = CLITERAL(Color){ 0, 0, 0, 255 };
+};
+
+// A copy of the text under it, offset: the shadow of a letter.
+struct TextShadow {
+    Vector2 offset{ 1, 2 }; // design units
+    Color color = CLITERAL(Color){ 0, 0, 0, 160 };
+};
+
+// Pictures instead of a flat colour, one per state. Only `normal` is needed:
+// a state without its own picture shows `normal`, tinted the way the colours
+// of that state would be -- lighter under the pointer, darker pressed, grey
+// disabled. Give the others when the artist drew them.
+struct Skin {
+    Picture normal; // at rest
+    Picture hover; // under the pointer
+    Picture press; // held down
+    Picture disabled; // enabled = false
+    Picture focus; // has the keyboard or gamepad focus (the ring is still drawn)
+};
+
+// Sounds, by the names rmp::audio::play() takes ("click" is click.wav,
+// click.ogg...). Each event has its own; one that is not set is inherited from
+// what is around it and, at the end, from the Theme. An EMPTY name is silence:
+// `.hover = ""` turns off a hover sound set further out.
+struct Sounds {
+    std::optional<std::string> hover; // the pointer arrives on a control
+    std::optional<std::string> press; // the pointer goes down on it
+    std::optional<std::string> release; // ...and comes up
+    std::optional<std::string> click; // it was pressed: pointer, Enter, the A button
+    std::optional<std::string> focus; // the keyboard or gamepad focus arrives
+    std::optional<std::string> change; // a checkbox, slider, dropdown or field changed
+    std::optional<std::string> open; // a dropdown opened
+    std::optional<std::string> close; // ...and closed
+    std::optional<std::string> shake; // shake(): "no", a wrong password
+    std::optional<float> volume; // 0..1, for all of them; 1 when nobody sets it
+};
+
+// Movement, which the framework's own themes leave all off: a button that
+// grows under the pointer is a choice of style, and a game that wants it says
+// so here. Nothing here moves the LAYOUT: a control is drawn bigger, lifted or
+// sliding, but it is laid out -- and clicked -- where it always was.
+struct Motion {
+    float hover_scale = 1; // 1.05: 5% bigger under the pointer
+    float press_scale = 1; // 0.95: 5% smaller while held down
+    // How far the box rises under the pointer, in design units, its shadow
+    // falling further below it: a card lifting off the table.
+    float hover_lift = 0;
+    // How long hover and press take to get there, in seconds.
+    float speed = 0.12f;
+    // Arriving: the first frame a box is drawn, it fades in over `appear`
+    // seconds, sliding up from `appear_offset` design units below and growing
+    // from `appear_scale`. 0 = it is simply there. Panels and overlays are
+    // where this is for.
+    float appear = 0;
+    float appear_offset = 0;
+    float appear_scale = 1;
+    // shake(): how long, and how far side to side, in design units.
+    float shake = 0.4f;
+    float shake_strength = 8;
+};
+
+// How ONE thing looks: a button, a panel, a label. Every field is optional,
+// and one that is not set comes from around it: the `children` style of the
+// containers it is in (the nearest wins), then the Theme's style for its kind
+// (theme.styles.button, theme.styles.panel...), then the Theme's colours and metrics.
+//
+//     const rmp::ui::Style gold{
+//         .background = GOLD, .text = BLACK, .radius = 0,
+//         .shadow = rmp::ui::Shadow{}, .text_outline = rmp::ui::TextOutline{ .color = WHITE },
+//     };
+//     rmp::ui::Button buy{ .text = "Buy", .style = gold };
+//
+// Theme::styles holds one for every kind of widget, under them all.
+//
+// Written in the order you would think of them: the box, its spacing, its
+// text, and how it feels. Designated initialisers have to follow that order.
+struct Style {
+    // --- the box ----------------------------------------------------------
+    // Its fill. On a button, checkbox, dropdown or field, the hover and press
+    // colours are worked out from it -- a little lighter, a little darker --
+    // unless you give them.
+    std::optional<Color> background;
+    std::optional<Color> background_hover;
+    std::optional<Color> background_press;
+    std::optional<Color> background_disabled;
+    // Pictures instead of the fill, per state. See Skin.
+    std::optional<Skin> skin;
+    // Multiplies the colours of a skin or an image: WHITE leaves them as drawn.
+    std::optional<Color> tint;
+    std::optional<Color> border; // the outline's colour; shown when border_width > 0
+    std::optional<float> border_width; // design units; 0 = none
+    std::optional<float> radius; // of the corners, design units; 0 = square
+    std::optional<Shadow> shadow; // under the box
+    // --- spacing ----------------------------------------------------------
+    std::optional<float> padding_x; // inside, left and right
+    std::optional<float> padding_y; // inside, above and below
+    std::optional<float> gap; // between the children of a container
+    // --- text -------------------------------------------------------------
+    std::optional<Color> text;
+    std::optional<Color> text_disabled;
+    // A font you loaded: `.font = rmp::assets::load_font("title.ttf", 32)`.
+    // The interface draws with that FILE, baked by itself at every size it
+    // needs, with any letter a text asks for -- so the size you loaded it at
+    // does not matter, and the text stays sharp. Empty = inherited.
+    rmp::Font font;
+    std::optional<float> font_size; // design units: what Size::MEDIUM is here
+    std::optional<TextOutline> text_outline;
+    std::optional<TextShadow> text_shadow;
+    // --- feel -------------------------------------------------------------
+    std::optional<Motion> motion;
+    Sounds sounds; // per event; see Sounds
+};
 
 // ---------------------------------------------------------------------------
 // The theme
@@ -218,6 +456,29 @@ struct Theme {
     // 48dp — it is the difference between a menu you can use with a thumb and
     // one you cannot.
     float min_touch_size = 44;
+
+    // --- feel, for every control ------------------------------------------
+    // Sounds and motion every widget starts from. Both empty in theme_dark()
+    // and theme_light(): silent and still, as they always were.
+    Sounds sounds{};
+    Motion motion{};
+
+    // --- one Style per kind of widget ---------------------------------------
+    // What every widget of that kind looks like before its own style: give
+    // `styles.button` a skin and every button of the game wears it, the ones
+    // written as rmp::ui::button("Play") included. Empty in the framework's
+    // themes.
+    struct Styles {
+        Style button{}; // button(), image_button(), Button
+        Style label{}; // text(), Label
+        Style image{}; // image(), Image
+        Style panel{}; // panel(), Panel
+        Style checkbox{}; // checkbox(), Checkbox
+        Style slider{}; // slider(), Slider
+        Style dropdown{}; // dropdown(), Dropdown
+        Style text_input{}; // text_input(), TextInput
+        Style progress{}; // progress(), ProgressBar
+    } styles{};
 };
 
 // The theme every widget is drawn with: current_theme() reads it, set_theme()
@@ -241,6 +502,27 @@ void set_theme(const Theme &t);
 // They return a copy, so the usual copy-modify-set still applies on top.
 Theme theme_dark();
 Theme theme_light();
+
+// ---------------------------------------------------------------------------
+// Fonts
+//
+// [ui] font in raylib_multiplatform.toml is only where the game starts. The
+// global font can change at any time -- a language with other letters, an
+// accessibility setting -- and one widget, or everything inside a container,
+// can have its own through Style::font.
+//
+// Every letter a text uses is baked the first time it is drawn: Spanish,
+// Polish, Russian, Japanese, whatever the .ttf has. Latin-1 and Latin
+// Extended-A are there from the start.
+// ---------------------------------------------------------------------------
+
+// The global font, by its name in resources/ ("" = raylib's built-in one).
+void set_font(std::string_view name);
+// The same, from a font you loaded: the interface uses that font's file and
+// bakes it itself at every size. An empty or failed one is the built-in font.
+void set_font(const rmp::Font &font);
+// The global font's name right now: the last set_font(), or [ui] font.
+std::string_view font_name();
 
 // ---------------------------------------------------------------------------
 // Scale
@@ -449,6 +731,26 @@ struct TextOptions {
 bool button(std::string_view label);
 bool button(std::string_view label, const ButtonOptions &o);
 
+// How image_button() is sized, and whether it can be pressed. Sizes are in
+// design units.
+struct ImageButtonOptions {
+    float width = 0; // 0 = the picture's own width, scaled
+    float height = 0; // 0 = the picture's own height, scaled
+    bool enabled = true; // false = the disabled tint; no press, no focus
+    // It has no label to be told apart by, so two image buttons that come and
+    // go are told apart by this. Empty = by its order among the unnamed ones.
+    std::string_view id{};
+};
+
+// A button that is a picture: an icon, an inventory slot, a skinned "Play"
+// drawn by your artist. Pressed like button(), focusable like button(), and it
+// wears theme.styles.button -- its skin behind the picture, its sounds.
+//
+//     if (rmp::ui::image_button(gear)) open_settings();
+//
+bool image_button(const Picture &picture);
+bool image_button(const Picture &picture, const ImageButtonOptions &o);
+
 // The string is copied immediately, so a temporary is safe:
 //
 //     rmp::ui::text(std::to_string(score));
@@ -643,6 +945,13 @@ void spacer(float fixed);
 // scaled with the rest of the UI.
 void image(const Texture2D &texture);
 void image(const Texture2D &texture, const ImageOptions &o);
+// Any Picture: a part of an atlas, a sprite's frame, a nine-slice stretched to
+// the size you give it. It holds its texture, so a temporary is fine here.
+void image(const Picture &picture);
+void image(const Picture &picture, const ImageOptions &o);
+// An rmp::Texture, which would otherwise be both a Texture2D and a Picture.
+void image(const rmp::Texture &texture);
+void image(const rmp::Texture &texture, const ImageOptions &o);
 
 // A bar. `fraction` is 0..1 and is clamped; NaN -- hp / max_hp with no
 // max_hp -- is an empty bar, said once.
@@ -1049,6 +1358,353 @@ std::string_view focused();
 // take them back.
 void set_navigation_enabled(bool on);
 bool navigation_enabled();
+
+// ---------------------------------------------------------------------------
+// Events
+//
+// Everything a control does, as it happens: the pointer arriving and leaving,
+// a press, a click, the focus coming and going, a value changing. The sounds
+// of the theme and of a Style play on these; on_event() is for the rest -- a
+// vibration on a phone, a particle, a counter:
+//
+//     rmp::ui::on_event([](const rmp::ui::Event &e) {
+//         if (e.kind == rmp::ui::EventKind::CLICK) rmp::app::vibrate(10);
+//     });
+//
+// Every control has them, the ones written as rmp::ui::button("Play") too.
+// ---------------------------------------------------------------------------
+
+enum class EventKind {
+    HOVER, // the pointer arrived on it
+    UNHOVER, // ...and left
+    PRESS, // the pointer went down on it
+    RELEASE, // the pointer came up after a PRESS, on it or not
+    CLICK, // it was pressed: released on it, or Enter or the A button with the focus
+    FOCUS, // the keyboard or gamepad focus arrived
+    BLUR, // ...and left
+    CHANGE, // a checkbox, slider, dropdown or text field changed its value
+    OPEN, // a dropdown opened its list
+    CLOSE, // ...and closed it
+    SHAKE, // shake() was called on it
+};
+
+// Which kind of widget an event came from.
+enum class WidgetKind {
+    BUTTON,
+    LABEL,
+    IMAGE,
+    PANEL,
+    CHECKBOX,
+    SLIDER,
+    DROPDOWN,
+    TEXT_INPUT,
+    PROGRESS,
+};
+
+// One event. `name` is the control's label, or its id when it has one; it is
+// valid during the call only.
+struct Event {
+    EventKind kind = EventKind::CLICK;
+    WidgetKind widget = WidgetKind::BUTTON;
+    std::string_view name{};
+};
+
+// The one hook every event goes to, after its sound. Setting it again
+// replaces it; an empty one -- `rmp::ui::on_event({})` -- turns it off.
+void on_event(rmp::Callback<const Event &> hook);
+
+// ---------------------------------------------------------------------------
+// Widgets you keep
+//
+// Everything above is immediate: a call each frame, and nothing to keep. That
+// is the simple way, and the three-function menu stays exactly that.
+//
+// For a screen that is designed rather than written -- each button with its
+// own look, an icon, sounds and something to run when it is clicked, hovered
+// or focused -- there are widgets you KEEP, the way a Godot scene keeps its
+// nodes: members of your scene, set up once, each with its own style and its
+// own callbacks, and shown each frame where they go:
+//
+//     struct Menu : rmp::Scene {
+//         rmp::ui::Button play{
+//             .text = "Play",
+//             .icon = rmp::assets::load_texture("play.png"),
+//             .style = { .background = DARKGREEN, .shadow = rmp::ui::Shadow{} },
+//             .on_click = [this] { change<Game>(); },
+//         };
+//         void _draw() override {
+//             rmp::ui::begin();
+//             play.show();
+//             rmp::ui::end();
+//         }
+//     };
+//
+// show() puts it in the layout like any immediate call -- between begin() and
+// end(), in a row, a column, a panel -- and the callbacks run inside show(),
+// on the frame it happens. A widget kept and not shown is not on screen.
+//
+// Each one remembers what it is doing (`ours`, public only so the struct stays
+// one you can write with designated initialisers: read it with the methods)
+// and cannot be copied, because its callbacks cannot; keep it where it lives.
+// Every config field can be changed between frames: `play.text = "Continue"`.
+// ---------------------------------------------------------------------------
+
+// What a kept widget remembers between frames.
+struct KeptState {
+    bool hovered = false;
+    bool pressed = false;
+    bool focused = false;
+    int shakes = 0; // shake() calls not yet started
+};
+
+// A button: text, an icon, or both.
+struct Button {
+    std::string text; // the label; empty for an icon-only button
+    Picture icon{}; // shown before the label, or alone
+    // The icon's height in design units; 0 = the label's type size (or the
+    // picture's own height when there is no label).
+    float icon_size = 0;
+    bool icon_above = false; // true: the icon over the label, as a toolbar tile
+    Variant variant = Variant::NORMAL; // as ButtonOptions::style
+    detail::Sizing size{}; // a step or design units, as ButtonOptions::size
+    float width = 0; // > 0 = a fixed width; 0 = as the immediate one
+    float height = 0; // > 0 = a fixed height
+    bool enabled = true;
+    std::string id{}; // as ButtonOptions::id: only for two with one label
+    Style style{};
+    rmp::Callback<> on_click;
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_press;
+    rmp::Callback<> on_release;
+    rmp::Callback<> on_focus;
+    rmp::Callback<> on_blur;
+
+    // Lays it out here, runs the callbacks of what happened, and says whether
+    // it was clicked -- `if (play.show())` works as well as on_click.
+    bool show();
+    // Shakes it side to side (its style's Motion), plays its `shake` sound and
+    // sends EventKind::SHAKE: "that did not work". Starts at the next show().
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool pressed() const { return ours.pressed; }
+    [[nodiscard]] bool focused() const { return ours.focused; }
+
+    KeptState ours;
+};
+
+// Text, as text() draws it, with a style of its own: a title in another font,
+// with an outline. Clickable when it has an on_click.
+struct Label {
+    std::string text;
+    ColorRole color = ColorRole::TEXT; // used when the style sets no text colour
+    detail::Sizing size{};
+    bool wrap = true;
+    std::string id{};
+    Style style{};
+    rmp::Callback<> on_click;
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+
+    bool show(); // true on the frame it was clicked
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+
+    KeptState ours;
+};
+
+// A picture with a style -- a frame, a shadow -- that can be clicked. With a
+// sprite that has a sheet, it plays the sprite's animation: `sprite.play("idle")`.
+struct Image {
+    Picture picture{}; // what it shows, unless `sprite` has something
+    rmp::Sprite sprite{}; // an animated picture, advanced every show()
+    bool grow = false; // as ImageOptions
+    float width = 0;
+    float height = 0;
+    bool enabled = true;
+    std::string id{};
+    Style style{}; // tint, skin behind it, shadow, border
+    rmp::Callback<> on_click;
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_press;
+    rmp::Callback<> on_release;
+
+    bool show();
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool pressed() const { return ours.pressed; }
+
+    KeptState ours;
+};
+
+// A container: a panel with a look of its own (`style`), and a look for
+// everything inside it (`children`), which every descendant inherits -- the
+// nearest container's wins. Clickable as a whole when it has an on_click:
+// an inventory slot, a card.
+//
+//     rmp::ui::Panel shop{
+//         .style = { .background = DARKBROWN, .shadow = rmp::ui::Shadow{} },
+//         .children = { .text = GOLD, .font = title_font },
+//     };
+//     shop.show([&] { buy.show(); sell.show(); });
+struct Panel {
+    bool row = false; // children left to right; false = top to bottom
+    BoxOptions box{}; // its layout, as panel() takes it
+    bool background = true; // false: a bare row or column, which still styles its children
+    std::string id{};
+    Style style{};
+    Style children{};
+    rmp::Callback<> on_click;
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_press;
+    rmp::Callback<> on_release;
+
+    // Lays it out with `body` inside it; true on the frame it was clicked.
+    template <class Body> bool show(Body &&body);
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool pressed() const { return ours.pressed; }
+
+    KeptState ours;
+};
+
+// A checkbox that holds its own value.
+struct Checkbox {
+    std::string text;
+    bool checked = false;
+    bool enabled = true;
+    std::string id{};
+    Style style{};
+    rmp::Callback<bool> on_change; // the new value
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_focus;
+    rmp::Callback<> on_blur;
+
+    bool show(); // true on the frame it changed
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool focused() const { return ours.focused; }
+
+    KeptState ours;
+};
+
+// A slider that holds its own value.
+struct Slider {
+    std::string text;
+    float value = 0;
+    float min = 0;
+    float max = 1;
+    float step = 0; // as SliderOptions
+    float width = 0;
+    bool show_value = true;
+    bool enabled = true;
+    std::string id{};
+    Style style{};
+    rmp::Callback<float> on_change; // the new value
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_focus;
+    rmp::Callback<> on_blur;
+
+    bool show(); // true on any frame that changed it
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool focused() const { return ours.focused; }
+
+    KeptState ours;
+};
+
+// A dropdown that holds its items and its choice.
+struct Dropdown {
+    std::string text;
+    std::vector<std::string> items;
+    int selected = 0;
+    float width = 0;
+    bool enabled = true;
+    std::string id{};
+    Style style{};
+    rmp::Callback<int> on_change; // the new index
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_focus;
+    rmp::Callback<> on_blur;
+
+    bool show(); // true on the frame `selected` changed
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool focused() const { return ours.focused; }
+
+    KeptState ours;
+};
+
+// A text field that holds its own text.
+struct TextInput {
+    std::string text; // the label
+    std::string value; // what is typed
+    std::string placeholder{};
+    int max_length = 0; // in characters; 0 = no limit
+    float width = 0;
+    bool enabled = true;
+    std::string id{};
+    Style style{};
+    rmp::Callback<std::string_view> on_change; // the text, after the change
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+    rmp::Callback<> on_focus;
+    rmp::Callback<> on_blur;
+
+    bool show(); // true on any frame the text changed
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    [[nodiscard]] bool focused() const { return ours.focused; }
+
+    KeptState ours;
+};
+
+// A progress bar with a look of its own: the style is the track's (its
+// background, its skin), `fill` and `fill_picture` the bar's.
+struct ProgressBar {
+    float value = 0; // 0..1, clamped
+    float width = 0; // 0 = the space available
+    float height = -1; // -1 = from the type size
+    float radius = -1; // -1 = round ends
+    Color fill = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's primary
+    Picture fill_picture{}; // the filled part as a picture: a nine-slice stretches with it
+    std::string id{};
+    Style style{};
+    rmp::Callback<> on_hover;
+    rmp::Callback<> on_unhover;
+
+    void show();
+    void shake();
+    [[nodiscard]] bool hovered() const { return ours.hovered; }
+
+    KeptState ours;
+};
+
+namespace detail {
+// Not for you: the halves of Panel::show() that are not a template.
+bool open_kept_panel(Panel &panel);
+void close_kept_panel();
+
+// Closes a kept panel even if the body throws, as Closer does.
+struct KeptPanelCloser {
+    KeptPanelCloser() = default;
+    ~KeptPanelCloser() { close_kept_panel(); }
+    KeptPanelCloser(const KeptPanelCloser &) = delete;
+    KeptPanelCloser &operator=(const KeptPanelCloser &) = delete;
+};
+} // namespace detail
+
+template <class Body> bool Panel::show(Body &&body) {
+    const bool clicked = detail::open_kept_panel(*this);
+    const detail::KeptPanelCloser close;
+    body();
+    return clicked;
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
