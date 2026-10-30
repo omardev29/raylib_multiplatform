@@ -426,13 +426,15 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     Clay_ElementDeclaration decl{};
     // GROW inside the FIT column from begin(): the column takes the width of
     // its widest child, then every button expands to match it.
-    decl.layout.sizing.width = x.width > 0
+    // A picture-only button's width and height are its picture's: the button
+    // fits around it, padding and all.
+    decl.layout.sizing.width = x.width > 0 && !icon_only
         ? Clay_SizingAxis{ .size = { .minMax = { px(x.width), px(x.width) } },
                            .type = CLAY__SIZING_TYPE_FIXED }
         : (icon_only ? size_fit() : size_grow());
     // min_touch_size is the whole reason a short label still makes a button a
     // thumb can hit.
-    decl.layout.sizing.height = x.height > 0
+    decl.layout.sizing.height = x.height > 0 && !icon_only
         ? Clay_SizingAxis{ .size = { .minMax = { px(x.height), px(x.height) } },
                            .type = CLAY__SIZING_TYPE_FIXED }
         : size_fit_min(px(min_height));

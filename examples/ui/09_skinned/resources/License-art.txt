@@ -1,0 +1,10 @@
+skin.aseprite, spinner.aseprite, click.wav, hover.wav and nope.wav
+
+Drawn and synthesized for this repository by tools/make_skinned_art.py: the
+skin's frames, panel, icons and bar with Pillow's shapes, the spinner as four
+frames of a turning star, and the sounds as square waves at 22050 Hz, 16-bit
+mono, with a 2 ms attack and a quadratic decay (click 720 Hz for 50 ms, hover
+1200 Hz for 20 ms, nope 220 Hz then 160 Hz, 80 ms each).
+
+Dedicated to the public domain under CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
