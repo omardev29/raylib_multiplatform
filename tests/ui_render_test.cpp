@@ -953,7 +953,6 @@ void what_assets_makes() {
           "two halves that do not link (ES 1.00 and 330): empty, not raylib's default");
 }
 
-
 // --- looks: the TTF's letters, nine-slices, shadows, outlines, skins ---------
 
 // A texture of the framework's own: an image made here, handed to the
@@ -980,7 +979,8 @@ Rectangle drawn(Clay_RenderCommandType type) {
 // letters, so n with a tilde, the accents and the inverted question mark were
 // drawn as '?'. The example's DejaVu subset has them all.
 void a_ttf_has_its_latin_letters() {
-    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH "../examples/assets/01_loading/resources/");
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH
+                                            "../examples/assets/01_loading/resources/");
     const rmp::Font font = rmp::assets::load_font("ui.ttf", 32);
     check(font.valid(), "the example's ui.ttf loads");
     if (font.valid()) {
@@ -988,7 +988,8 @@ void a_ttf_has_its_latin_letters() {
         for (const int c : { 0xF1, 0xE1, 0xBF, 0xA1, 0xFC }) {
             const int index = GetGlyphIndex(f, c);
             check(f.glyphs[index].value == c && f.recs[index].width > 0,
-                  "the .ttf is baked with a letter past ASCII: n with a tilde, an accent, the "
+                  "the .ttf is baked with a letter past ASCII: n with a tilde, an "
+                  "accent, the "
                   "inverted marks, a diaeresis");
         }
     }
@@ -1007,8 +1008,9 @@ void a_nine_slice_keeps_its_corners() {
         for (const int y : { 0, 16 }) ImageDrawRectangle(&img, x, y, 8, 8, RED);
     const rmp::Texture art = texture_of(img);
     UnloadImage(img);
-    const rmp::ui::NineSlice frame_slice{ .texture = art, .left = 8, .top = 8, .right = 8,
-                                          .bottom = 8, .scale = 1 };
+    const rmp::ui::NineSlice frame_slice{
+        .texture = art, .left = 8, .top = 8, .right = 8, .bottom = 8, .scale = 1
+    };
     const auto draw = [&] {
         ClearBackground(BLACK);
         rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 0 });
@@ -1019,7 +1021,9 @@ void a_nine_slice_keeps_its_corners() {
     const Shot shot = frame(draw);
     const Rectangle r = drawn(CLAY_RENDER_COMMAND_TYPE_IMAGE);
     const float corner = 8 * rmp::ui::scale();
-    auto at = [&](float x, float y) { return shot.at(static_cast<int>(r.x + x), static_cast<int>(r.y + y)); };
+    auto at = [&](float x, float y) {
+        return shot.at(static_cast<int>(r.x + x), static_cast<int>(r.y + y));
+    };
     check(r.width > 2 * corner, "the nine-slice is wider than its two corners");
     check(same(at(corner * 0.5f, corner * 0.5f), RED) &&
               same(at(r.width - corner * 0.5f, r.height - corner * 0.5f), RED),
@@ -1029,7 +1033,8 @@ void a_nine_slice_keeps_its_corners() {
           "its edges are the source's edges, stretched along");
     check(same(at(corner + 2, corner * 0.5f), GREEN),
           "and a corner ends where the source's does: eight pixels, times the scale");
-    check(same(at(r.width * 0.5f, r.height * 0.5f), BLUE), "its middle is the source's middle");
+    check(same(at(r.width * 0.5f, r.height * 0.5f), BLUE),
+          "its middle is the source's middle");
     rmp::ui::shutdown();
 }
 
@@ -1037,7 +1042,8 @@ void a_nine_slice_keeps_its_corners() {
 void a_shadow_falls_under_its_box() {
     rmp::ui::Panel card{ .box = { .width = 120, .height = 60 },
                          .style = { .background = RED,
-                                    .shadow = rmp::ui::Shadow{ .offset = { 0, 20 }, .blur = 0,
+                                    .shadow = rmp::ui::Shadow{ .offset = { 0, 20 },
+                                                               .blur = 0,
                                                                .color = BLACK } } };
     const auto draw = [&] {
         ClearBackground(WHITE);
@@ -1072,9 +1078,9 @@ void an_outline_goes_around_the_letters() {
     int plain = 0;
     int outlined = 0;
     for (const bool with : { false, true }) {
-        rmp::ui::Label title{ .text = "OHO", .size = 40,
-                              .style = { .text = BLACK } };
-        if (with) title.style.text_outline = rmp::ui::TextOutline{ .width = 2, .color = WHITE };
+        rmp::ui::Label title{ .text = "OHO", .size = 40, .style = { .text = BLACK } };
+        if (with)
+            title.style.text_outline = rmp::ui::TextOutline{ .width = 2, .color = WHITE };
         const auto draw = [&] {
             ClearBackground(BLACK);
             rmp::ui::begin();
@@ -1096,7 +1102,8 @@ void a_skin_is_the_box() {
     ::Image img = GenImageColor(8, 8, GREEN);
     const rmp::Texture art = texture_of(img);
     UnloadImage(img);
-    rmp::ui::Button play{ .text = "Play", .style = { .skin = rmp::ui::Skin{ .normal = art } } };
+    rmp::ui::Button play{ .text = "Play",
+                          .style = { .skin = rmp::ui::Skin{ .normal = art } } };
     const auto draw = [&] {
         ClearBackground(BLACK);
         rmp::ui::begin();

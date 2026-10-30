@@ -45,7 +45,7 @@
 // (rmp/assets.h), a Picture is made from an rmp::Sprite, and every widget you
 // keep carries its callbacks as rmp::Callback (both rmp/object.h, which
 // includes rmp/assets.h). A forward declaration cannot hold a value.
-#include <rmp/object.h>
+#include <rmp/object.h> // rmp::Sprite, rmp::Callback, and rmp/assets.h's handles by value
 
 // The standard library this header pays for, measured in tools/header_budget.txt:
 // <string_view> for every label, <string> for the text a text_input() edits,

@@ -88,7 +88,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │           ├── internal.h    #     the only place Clay is allowed to exist
 │           ├── context.cpp   #     lazy start, scale, font, text arena, element ids, passes
 │           ├── widgets.cpp   #     begin / end / button / text
-│           ├── containers.cpp #    row / column / panel / stack / grid / scroll / image
+│           ├── containers.cpp #    row / column / panel / stack / grid / scroll / image / progress
 │           ├── controls.cpp  #     checkbox / slider / dropdown / text_input
 │           ├── focus.cpp     #     keyboard and gamepad navigation, the capture flags, HUD focus
 │           ├── overlay.cpp   #     overlay(): a frame of its own in front of the rest
@@ -99,7 +99,9 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │           ├── notify.cpp    #     notify(), and a debug build's warnings on screen
 │           ├── floating.h    #     the private half of at(), tooltip() and notify()
 │           ├── style.cpp     #     variants, sizes, transitions
-│           ├── render.cpp    #     draw commands -> raylib calls
+│           ├── look.cpp      #     Style resolved, pictures, skins, shadows, motion, events
+│           ├── kept.cpp      #     the widgets you keep: Button, Panel, Slider... show()
+│           ├── render.cpp    #     draw commands -> raylib calls, records, nine-slices
 │           └── theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)
 │   └── rmp/                  # THE framework's headers -- one per module, include what you use
