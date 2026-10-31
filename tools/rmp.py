@@ -1669,6 +1669,7 @@ FRAMEWORK_ONLY = {
     ".github/pull_request_template.md": "the framework's pull-request checklist: its ladder, "
                                         "its gates and its labels",
     ".github/known-breakage.md": "the framework's canary",
+    ".github/img/": "the framework README's screenshots; a game gets its own README",
     ".github/scripts/": "the framework's canary scripts",
     ".github/workflows/": "the framework's canary, autofix and web-backends workflows",
     "examples/": "the framework's examples",
