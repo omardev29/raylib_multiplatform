@@ -14,6 +14,7 @@
 #include "object_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
+#include "tilemap_internal.h"
 #include "ui_internal.h"
 
 #include <rmp/app.h>
@@ -279,7 +280,14 @@ void draw() {
         rmp::ui::detail::set_phase(rmp::ui::detail::Phase::WORLD);
         if (clip) BeginScissorMode(clip->x, clip->y, clip->width, clip->height);
         if (window) BeginMode2D(camera);
-        scene.map.draw();
+        // Only what the camera shows (the window's corners through the camera
+        // that draws, its shake and rotation included). With no window
+        // nothing is drawn anyway, and every tile is asked for.
+        if (window) {
+            scene.map.draw(rmp::tilemap::detail::visible_area(camera));
+        } else {
+            scene.map.draw();
+        }
         rmp::objects::detail::draw(scene);
         if (window) EndMode2D();
         if (clip) EndScissorMode();

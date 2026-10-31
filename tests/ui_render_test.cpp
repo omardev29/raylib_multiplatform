@@ -31,12 +31,14 @@
 
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/backdrop.h"
+#include "../src/rmp/tilemap_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <raylib.h>
 #include <rlgl.h>
 #include <rmp/app.h>
 #include <rmp/assets.h>
+#include <rmp/tilemap.h>
 #include <rmp/ui.h>
 
 #include <array>
@@ -1024,6 +1026,63 @@ void a_texture_reloads_in_place() {
 #endif
 }
 
+// A map drawn only where the camera looks is the same picture as the whole
+// map drawn: the platformer's world, under cameras moved, zoomed and turned,
+// both ways, compared pixel for pixel. And the culled draw looks at a fraction
+// of the tiles.
+void a_culled_map_is_the_same_picture() {
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH
+                                            "../examples/games/07_platformer/resources/");
+    const rmp::Tilemap map = rmp::assets::load_map("world.ldtk");
+    check(map.valid(), "the platformer's world loads");
+    if (map.valid()) {
+        const Rectangle b = map.bounds();
+        const std::array<Camera2D, 5> cameras{ {
+            { .offset = { 0, 0 }, .target = { b.x, b.y }, .rotation = 0, .zoom = 1 },
+            { .offset = { 160, 90 }, .target = { b.x + 300, b.y + 120 }, .rotation = 0,
+              .zoom = 2 },
+            { .offset = { 160, 90 }, .target = { b.x + 500, b.y + 200 }, .rotation = 30,
+              .zoom = 1.5f },
+            { .offset = { 160, 90 }, .target = { b.x + 50, b.y + 50 }, .rotation = 0,
+              .zoom = 0.25f },
+            { .offset = { 0, 0 }, .target = { b.x - 400, b.y - 400 }, .rotation = 0,
+              .zoom = 1 },
+        } };
+        int index = 0;
+        int differ = 0;
+        int fewer = 0;
+        for (const Camera2D &camera : cameras) {
+            const Shot whole = frame([&] {
+                BeginMode2D(camera);
+                map.draw();
+                EndMode2D();
+            });
+            const int all = rmp::tilemap::detail::tiles_considered();
+            const Shot culled = frame([&] {
+                BeginMode2D(camera);
+                map.draw(rmp::tilemap::detail::visible_area(camera));
+                EndMode2D();
+            });
+            const int seen = rmp::tilemap::detail::tiles_considered();
+            if (seen < all) ++fewer;
+            for (int y = 0; y < HEIGHT; ++y) {
+                for (int x = 0; x < WIDTH; ++x) {
+                    if (!same(whole.at(x, y), culled.at(x, y))) {
+                        ++differ;
+                        std::printf("      camera %d differs at %d,%d\n", index, x, y);
+                        x = WIDTH;
+                        y = HEIGHT;
+                    }
+                }
+            }
+            ++index;
+        }
+        check(differ == 0, "every camera: the culled map is the whole map's picture");
+        check(fewer >= 4, "and all but the zoomed-out one look at fewer tiles");
+    }
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
+}
+
 // The bug a .ttf had: raylib bakes ASCII alone when it is handed no list of
 // letters, so n with a tilde, the accents and the inverted question mark were
 // drawn as '?'. The example's DejaVu subset has them all.
@@ -1265,6 +1324,7 @@ int main() {
     what_assets_makes();
     a_ttf_has_its_latin_letters();
     a_texture_reloads_in_place();
+    a_culled_map_is_the_same_picture();
     a_nine_slice_keeps_its_corners();
     a_shadow_falls_under_its_box();
     an_outline_goes_around_the_letters();

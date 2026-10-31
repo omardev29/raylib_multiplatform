@@ -110,6 +110,23 @@ struct Layer {
     std::vector<PlacedTile> placed;
     // LDtk's IntGrid, one per cell: painted with the value called `solid`.
     std::vector<bool> solid_cells;
+
+    // Built once the map is read (index_map()), and never changed after: a
+    // map's tiles do not change while it is loaded.
+    //
+    // Whether each cell stops you, every way a cell can be solid folded into
+    // one byte -- the IntGrid, a solid layer, a tile its tileset marks -- so
+    // solid_in(), asked many times a frame, reads one byte a cell.
+    std::vector<unsigned char> solid;
+    // LDtk's placed tiles by where they are: the map cut into squares of
+    // CHUNK_CELLS cells, each holding the indices into `placed` of every tile
+    // that overlaps it, ascending. Drawing what the camera sees gathers the
+    // chunks under it instead of walking every tile of the level.
+    int chunk_columns = 0;
+    int chunk_rows = 0;
+    float chunk_width = 0; // in pixels
+    float chunk_height = 0;
+    std::vector<std::vector<std::uint32_t>> chunks;
 };
 
 // A custom property of an object, whichever editor wrote it. Kept here as
@@ -185,6 +202,24 @@ struct Access {
 // -- and empty means the first; Tiled has no levels and ignores it. Returns nullptr
 // and says why. TAKES no ownership of `bytes`; the caller owns the result and
 // frees it with free_map.
+// Builds the indexes a Layer keeps for collision and drawing (`solid`, the
+// chunks of its placed tiles) from what the reader filled in. The Tilemap calls
+// it when it takes a map, so every map is indexed however it was made.
+void index_map(MapData &data);
+
+// The world rectangle the window shows through `camera`: the four corners of
+// the screen taken back into the world, rotation and all. What the scene hands
+// Tilemap::draw(area).
+Rectangle visible_area(const Camera2D &camera);
+
+// How many tiles the last Tilemap::draw() looked at -- every tile of a draw(),
+// the ones in view of a draw(area) -- whether or not their texture is there.
+// For the tests that hold the culling to its word.
+int tiles_considered();
+
+// How many cells a side of one drawing chunk is (Layer::chunks).
+inline constexpr int CHUNK_CELLS = 16;
+
 MapPtr parse_map(const void *bytes, int size, const char *name,
                  std::string_view level = {});
 
