@@ -1,0 +1,18 @@
+# examples/games/08_dungeon, played: the title, into the Crypt, a few steps and
+# a swing, the pause, and the HUD.
+#
+# The arrows walk, Space strikes, Escape pauses. See tests/e2e/script.h for
+# the grammar.
+
+15 shot title
+18 expect scene TitleScene
+19 tap KEY_ENTER
+19 expect scene LevelScene
+60 shot crypt
+61 press KEY_RIGHT
+120 release KEY_RIGHT
+121 press KEY_DOWN
+150 release KEY_DOWN
+151 tap KEY_SPACE
+155 shot swing
+200 end
