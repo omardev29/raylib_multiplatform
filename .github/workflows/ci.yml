@@ -114,7 +114,7 @@ jobs:
           # the raylib-build-image repo. Pinned by DIGEST, never by tag: a tag
           # can be moved, so `:latest` would let an unrelated rebuild silently
           # change what every Linux job compiles with.
-          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f'
+          PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0'
           OVERRIDE: ${{ inputs.image_digest }}
           # Through the environment and never interpolated into the script: this
           # one is a free-text box on a web page, and `${{ }}` inside a `run:`

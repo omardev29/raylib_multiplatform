@@ -248,6 +248,18 @@ if [ -r "$IMAGE_MANIFEST" ]; then
     check "image mutmut"              mutmut              "$(m mutmut)"
     check "image pytest"              pytest              "$(m pytest)"
 
+    # The toolchains of tcc's Debug C and of the Windows build made on Linux.
+    check "image tcc commit"          tcc_commit          "$(m tcc_commit)"
+    check "image tcc"                 tcc                 "$(m tcc)"
+    check "image mingw gcc"           mingw_gcc           "$(m mingw_gcc)"
+    check "image lld"                 lld                 "$(m lld)"
+    check "image xwin"                xwin                "$(m xwin)"
+    if [ "$(m arch)" = amd64 ]; then
+        check "image wine"                wine                "$(m wine)"
+    else
+        printf '  skip  %-26s Wine is amd64-only; this image is %s\n' "image wine" "$(m arch)"
+    fi
+
     # The Gradle home the Android job builds --offline from, warmed for this
     # wrapper, this AGP and this AdMob SDK -- amd64 only, where the Android
     # job runs. A pin bumped here and not in the image is a build that would

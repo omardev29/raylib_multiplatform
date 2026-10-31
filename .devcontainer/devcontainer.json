@@ -7,7 +7,7 @@
 // image, so `./rmp run`, `./rmp test` and `./rmp build windows` work at once.
 {
   "name": "raylib_multiplatform",
-  "image": "ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f",
+  "image": "ghcr.io/omardev29/raylib-build@sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0",
   "features": {
     "ghcr.io/devcontainers/features/desktop-lite:1": {
       "password": "vscode",

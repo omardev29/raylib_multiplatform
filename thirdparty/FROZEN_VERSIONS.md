@@ -13,7 +13,7 @@ CI checks is documentation that stays true.
 
 ```versions
 # key                     value
-build_image_digest        sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f
+build_image_digest        sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0
 # The Alpine musl-x64-run starts the musl binary on: ghcr.io/omardev29/
 # raylib-run-alpine, built from alpine/ in the image repository (Alpine 3.20.10
 # by digest, Xvfb, Mesa, the X libraries GLFW opens), amd64 only. Pinned here
@@ -45,6 +45,17 @@ mull                      0.34.1
 hypothesis                6.168.5
 mutmut                    3.8.0
 pytest                    9.1.1
+# The toolchains of a Debug build's C and of the Windows build made on Linux:
+# tcc 0.9.28rc built from one commit of its repository (the commit is the pin),
+# MinGW-w64's GCC and LLVM 18's lld-link (clang-cl is LLVM 18's, the llvm row),
+# xwin, which downloads Microsoft's CRT and SDK on the developer's machine, and
+# Wine to start the .exe (amd64 only). Compared with the image's manifest.
+tcc_commit                e23dabed154a8495f3ac1ff3cc9d04fa1c207893
+tcc                       0.9.28rc
+mingw_gcc                 13-posix
+lld                       18.1.3
+xwin                      0.10.0
+wine                      9.0
 # Runner images and host toolchains. These live here rather than in the
 # workflow YAML for two reasons: the weekly canary overrides them with floating
 # values to find out what is about to break, and the autofix agent can only
@@ -144,6 +155,7 @@ sha256_cjson              5dbda89922a5a3970a9a701341190ac805fc2a0c9ffe16a735cd6b
 | Build image | digest above | `ghcr.io/omardev29/raylib-build@sha256:…`, built from the [raylib-build-image](https://github.com/omardev29/raylib-build-image) repo. Digest, never `:latest`. |
 | Ubuntu / apt (in image) | snapshot `20260801T000000Z` | Every apt source points at `snapshot.ubuntu.com`, so package resolution is frozen in time. |
 | CMake / Ninja / Emscripten (in image) | 3.30.3 / 1.12.1 / 3.1.61 | Downloaded with hard-coded sha256; emsdk fetched by commit, not tag. |
+| tcc / MinGW-w64 / lld / xwin / Wine (in image) | 0.9.28rc at `e23dabed` / GCC 13 / 18.1.3 / 0.10.0 / 9.0 | tcc built from one commit of its repository; xwin's release tarball by sha256 per architecture; the rest from the image's apt snapshot. Microsoft's CRT and SDK are never in the image: xwin downloads them on the developer's machine, once they accept the licence. |
 | Ninja (macOS/Windows jobs) | 1.13.2 | GitHub release asset + sha256. Replaces `brew install ninja`. |
 | XcodeGen | 2.46.0 | GitHub release asset + sha256. Replaces `brew install xcodegen`. |
 | Xcode | 26.6 on `macos-26` | Selected explicitly with `xcode-select`, with a guard that fails if the pin is gone. |
