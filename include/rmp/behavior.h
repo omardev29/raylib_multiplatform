@@ -69,7 +69,8 @@ namespace rmp {
 // How rmp::find_path() looks for a way through a map.
 struct PathOptions {
     bool diagonal = true; // eight directions; false = four. A corner is never cut
-    float clearance = 0; // keeps this many units from every solid cell: half the walker's width
+    float clearance =
+        0; // keeps this many units from every solid cell: half the walker's width
 };
 
 // The way from `from` to `to` across the map's cells, around its solid ones:
@@ -590,11 +591,13 @@ struct Area {
 // From the editor: "damage" (Int), "knockback" (Float).
 struct Hitbox {
     int damage = 1; // what one hit costs
-    unsigned hits = 0xFFFFFFFFu; // the layers it hurts; the collision layers decide who it touches
+    unsigned hits =
+        0xFFFFFFFFu; // the layers it hurts; the collision layers decide who it touches
     float knockback = 0; // the impulse that pushes the one hit away from it
     bool destroy_on_hit = false; // discarded after its first hit, landed or not: a bullet
     bool once_per_target = false; // hits each object once at most: a sword's one swing
-    Callback<Object &, Object &> on_hit; // (the hitbox, who it hurt), when the damage landed
+    Callback<Object &, Object &>
+        on_hit; // (the hitbox, who it hurt), when the damage landed
 
     [[nodiscard]] static Hitbox from(const MapObject &object);
 

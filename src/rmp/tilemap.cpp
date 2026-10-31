@@ -639,7 +639,8 @@ int gid_at(const Layer &layer, int column, int row) {
 // Whether one cell of one layer stops you, worked out from what the reader
 // left: the IntGrid, a solid layer, the tile's own flag in its tileset.
 // index_map() asks it once a cell; solid_cell() below reads the answer.
-bool solid_cell_from_source(const MapData &data, const Layer &layer, int column, int row) {
+bool solid_cell_from_source(const MapData &data, const Layer &layer, int column,
+                            int row) {
     if (column < 0 || row < 0 || column >= layer.width || row >= layer.height)
         return false;
     // LDtk's IntGrid: the cells painted with the value called `solid`.
@@ -688,9 +689,12 @@ bool chunk_span(const Layer &layer, Rectangle r, int &c0, int &r0, int &c1, int 
     if (!(r.width >= 0) || !(r.height >= 0)) return false;
     const double x0 = std::floor(r.x / layer.chunk_width);
     const double y0 = std::floor(r.y / layer.chunk_height);
-    const double x1 = std::floor((static_cast<double>(r.x) + r.width) / layer.chunk_width);
-    const double y1 = std::floor((static_cast<double>(r.y) + r.height) / layer.chunk_height);
-    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) || !std::isfinite(y1))
+    const double x1 =
+        std::floor((static_cast<double>(r.x) + r.width) / layer.chunk_width);
+    const double y1 =
+        std::floor((static_cast<double>(r.y) + r.height) / layer.chunk_height);
+    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) ||
+        !std::isfinite(y1))
         return false;
     const double cols = layer.chunk_columns - 1;
     const double rows = layer.chunk_rows - 1;
@@ -718,7 +722,8 @@ void tilemap::detail::index_map(MapData &data) {
                 const auto column = static_cast<int>(at % width);
                 const auto row = static_cast<int>(at / width);
                 if (row >= layer.height) break;
-                layer.solid[at] = solid_cell_from_source(data, layer, column, row) ? 1 : 0;
+                layer.solid[at] =
+                    solid_cell_from_source(data, layer, column, row) ? 1 : 0;
             }
         }
 
@@ -763,14 +768,15 @@ void tilemap::detail::index_map(MapData &data) {
             int r0 = 0;
             int c1 = 0;
             int r1 = 0;
-            if (!chunk_span(layer, placed_extent(data, layer, layer.placed[i]), c0, r0, c1,
-                            r1))
+            if (!chunk_span(layer, placed_extent(data, layer, layer.placed[i]), c0, r0,
+                            c1, r1))
                 continue;
             for (int cr = r0; cr <= r1; ++cr) {
                 for (int cc = c0; cc <= c1; ++cc) {
-                    layer.chunks[(static_cast<std::size_t>(cr) *
-                                  static_cast<std::size_t>(layer.chunk_columns)) +
-                                 static_cast<std::size_t>(cc)]
+                    layer
+                        .chunks[(static_cast<std::size_t>(cr) *
+                                 static_cast<std::size_t>(layer.chunk_columns)) +
+                                static_cast<std::size_t>(cc)]
                         .push_back(static_cast<std::uint32_t>(i));
                 }
             }
@@ -998,7 +1004,8 @@ bool visible_cells(const MapData &data, const Layer &layer, Vector2 base, Rectan
         std::floor((static_cast<double>(area.x) + area.width - base.x + reach_x) / w);
     const double y1 =
         std::floor((static_cast<double>(area.y) + area.height - base.y + reach_y) / h);
-    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) || !std::isfinite(y1))
+    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) ||
+        !std::isfinite(y1))
         return false;
     const double cols = layer.width - 1;
     const double rows = layer.height - 1;
@@ -1018,10 +1025,12 @@ void draw_map(const MapData &data, std::optional<Rectangle> area) {
     draw_scratch.considered = 0;
     for (const Layer &layer : data.layers) {
         if (!layer.visible || layer.opacity <= 0) continue;
-        const Vector2 base{ data.origin.x + layer.offset.x, data.origin.y + layer.offset.y };
+        const Vector2 base{ data.origin.x + layer.offset.x,
+                            data.origin.y + layer.offset.y };
         const auto alpha = [&](float a) {
             const float value = layer.opacity * a * 255.0f;
-            return static_cast<unsigned char>(value < 0 ? 0 : (value > 255 ? 255 : value));
+            return static_cast<unsigned char>(value < 0 ? 0
+                                                        : (value > 255 ? 255 : value));
         };
         const auto draw_placed = [&](const tilemap::detail::PlacedTile &tile) {
             ++draw_scratch.considered;
@@ -1031,7 +1040,8 @@ void draw_map(const MapData &data, std::optional<Rectangle> area) {
             // A negative source size is how raylib mirrors a region.
             if (tile.flip_x) src.width = -src.width;
             if (tile.flip_y) src.height = -src.height;
-            DrawTextureRec(set->texture, src, Vector2{ base.x + tile.at.x, base.y + tile.at.y },
+            DrawTextureRec(set->texture, src,
+                           Vector2{ base.x + tile.at.x, base.y + tile.at.y },
                            Color{ 255, 255, 255, alpha(tile.alpha) });
         };
 
@@ -1039,7 +1049,8 @@ void draw_map(const MapData &data, std::optional<Rectangle> area) {
             // LDtk: every tile where it was put, bottom to top, each flipped
             // and faded on its own.
             if (!area || layer.chunks.empty()) {
-                for (const tilemap::detail::PlacedTile &tile : layer.placed) draw_placed(tile);
+                for (const tilemap::detail::PlacedTile &tile : layer.placed)
+                    draw_placed(tile);
                 continue;
             }
             int c0 = 0;

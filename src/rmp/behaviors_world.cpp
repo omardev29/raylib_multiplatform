@@ -22,6 +22,7 @@
 #include "object_internal.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
@@ -226,7 +227,9 @@ void Collectible::_collision(Object &self, Object &other) {
     self.collision_mask = 0;
     self.gravity_scale = 0;
     const bool lingers = vanish_seconds > 0 && std::isfinite(vanish_seconds);
-    self.velocity = lingers ? Vector2{ 0, -VANISH_RISE / vanish_seconds } : Vector2{};
+    self.velocity = Vector2{};
+    if (lingers)
+        put(self.velocity, Vector2{ 0, -VANISH_RISE / vanish_seconds }, "Collectible");
     if (!sound.empty()) rmp::audio::play(sound);
     on_collect(self, other);
     if (!lingers && self.alive()) self.destroy();
@@ -234,15 +237,18 @@ void Collectible::_collision(Object &self, Object &other) {
 
 void Collectible::_update(Object &self, float delta) {
     const float seconds = seconds_of(delta);
-    say_nan("Collectible", { { "magnet", magnet },
-                             { "magnet_speed", magnet_speed },
-                             { "vanish_seconds", vanish_seconds } });
+    say_nan("Collectible",
+            { { "magnet", magnet },
+              { "magnet_speed", magnet_speed },
+              { "vanish_seconds", vanish_seconds } });
     if (ours.collected) {
         ours.vanished += seconds;
-        const float t =
-            vanish_seconds > 0 ? std::clamp(ours.vanished / vanish_seconds, 0.0f, 1.0f) : 1.0f;
+        const float t = vanish_seconds > 0
+            ? std::clamp(ours.vanished / vanish_seconds, 0.0f, 1.0f)
+            : 1.0f;
         put(self.scale, times(ours.scale, 1 + VANISH_GROWTH * t), "Collectible");
-        set_alpha(self, static_cast<unsigned char>(static_cast<float>(ours.alpha) * (1 - t)));
+        set_alpha(self,
+                  static_cast<unsigned char>(static_cast<float>(ours.alpha) * (1 - t)));
         if (t >= 1) self.destroy();
         return;
     }
@@ -253,10 +259,12 @@ void Collectible::_update(Object &self, float delta) {
     float best = magnet;
     Vector2 towards{};
     bool found = false;
-    for (const Object *other : objects::detail::live_objects(*scene)) {
-        if (other == &self || !other->alive()) continue;
-        if ((other->collision_layer & collected_by) == 0) continue;
-        const Vector2 to = minus(other->position, self.position);
+    const std::vector<Object *> everyone = objects::detail::live_objects(*scene);
+    for (const auto &entry : everyone) {
+        const Object &other = *entry;
+        if (&other == &self || !other.alive()) continue;
+        if ((other.collision_layer & collected_by) == 0) continue;
+        const Vector2 to = minus(other.position, self.position);
         const float d = length_of(to);
         if (d <= best) {
             best = d;
@@ -289,10 +297,11 @@ Shooter Shooter::from(const MapObject &object) {
 }
 
 bool Shooter::fire(Object &self) {
-    say_nan("Shooter", { { "every", every },
-                         { "speed", speed },
-                         { "spread", spread },
-                         { "rotate_per_shot", rotate_per_shot } });
+    say_nan("Shooter",
+            { { "every", every },
+              { "speed", speed },
+              { "spread", spread },
+              { "rotate_per_shot", rotate_per_shot } });
     if (ours.cooldown > 0) return false;
     const Ref<Scene> scene = Storage::spawned_in(self);
     if (!scene) return false;
@@ -344,7 +353,8 @@ bool Shooter::fire(Object &self) {
         // The Hitbox first: the Projectile's _collision destroys the bullet,
         // and a behavior after it would not be told of the touch at all.
         bullet.add<Hitbox>({ .damage = damage, .hits = mask, .destroy_on_hit = true });
-        bullet.add<Projectile>({ .speed = 0, .destroy_on_hit = true, .destroy_on_wall = true });
+        bullet.add<Projectile>(
+            { .speed = 0, .destroy_on_hit = true, .destroy_on_wall = true });
         bullet.add<Lifespan>({ .seconds = bullet_life });
     }
     if (std::isfinite(rotate_per_shot)) {
@@ -381,9 +391,10 @@ Orbit Orbit::from(const MapObject &object) {
 
 void Orbit::_late_update(Object &self, float delta) {
     const float seconds = seconds_of(delta);
-    say_nan("Orbit", { { "radius", radius },
-                       { "degrees_per_second", degrees_per_second },
-                       { "angle", angle } });
+    say_nan("Orbit",
+            { { "radius", radius },
+              { "degrees_per_second", degrees_per_second },
+              { "angle", angle } });
     Vector2 around = point;
     if (centre != Handle<Object>{}) {
         const Ref<Object> c = centre.get();
@@ -392,7 +403,8 @@ void Orbit::_late_update(Object &self, float delta) {
     }
     const float turned = angle + degrees_per_second * seconds;
     if (std::isfinite(turned)) angle = std::fmod(turned, 360.0f);
-    const float share = of > 1 ? 360.0f * static_cast<float>(index) / static_cast<float>(of) : 0;
+    const float share =
+        of > 1 ? 360.0f * static_cast<float>(index) / static_cast<float>(of) : 0;
     const float radians = (angle + share) / DEGREES;
     const Vector2 out{ std::cos(radians), std::sin(radians) };
     put(self.position, Vector2{ around.x + out.x * radius, around.y + out.y * radius },
@@ -430,11 +442,13 @@ void Animator::_late_update(Object &self, float delta) {
             return std::fabs(self.velocity.y) > moving_at;
         }();
         const bool moving = length_of(self.velocity) > moving_at;
-        const std::string_view order[] = {
+        const std::array<std::string_view, 6> order{
             health && health->dead() ? std::string_view(die) : std::string_view(),
-            health && health->invulnerable() ? std::string_view(hurt) : std::string_view(),
+            health && health->invulnerable() ? std::string_view(hurt)
+                                             : std::string_view(),
             airborne && self.velocity.y < 0 ? std::string_view(jump) : std::string_view(),
-            airborne && self.velocity.y >= 0 ? std::string_view(fall) : std::string_view(),
+            airborne && self.velocity.y >= 0 ? std::string_view(fall)
+                                             : std::string_view(),
             moving ? std::string_view(run) : std::string_view(),
             std::string_view(idle),
         };
@@ -531,8 +545,10 @@ void Draggable::_update(Object &self, float delta) {
         self.velocity = times(self.velocity, keep);
         if (length_of(self.velocity) < 1) self.velocity = Vector2{};
         if (has_box(bounds) && !contains_point(bounds, self.position)) {
-            self.position.x = std::clamp(self.position.x, bounds.x, bounds.x + bounds.width);
-            self.position.y = std::clamp(self.position.y, bounds.y, bounds.y + bounds.height);
+            self.position.x =
+                std::clamp(self.position.x, bounds.x, bounds.x + bounds.width);
+            self.position.y =
+                std::clamp(self.position.y, bounds.y, bounds.y + bounds.height);
             self.velocity = Vector2{};
         }
     }
@@ -544,24 +560,28 @@ void Draggable::drop(Object &self) {
     ours.dragged = Vector2{};
     // The Area it was let go over: the one whose collider holds its centre,
     // nearest centre first when two do.
-    Object *landing = nullptr;
-    if (const Ref<Scene> scene = Storage::spawned_in(self)) {
-        float best = 0;
-        for (Object *other : objects::detail::live_objects(*scene)) {
-            if (other == &self || !other->alive() || !other->has<Area>()) continue;
-            if ((other->collision_layer & drop_on) == 0) continue;
-            if (!contains_point(other->world_collider(), self.position)) continue;
-            const float d = length_of(minus(other->position, self.position));
-            if (landing == nullptr || d < best) {
-                landing = other;
-                best = d;
-            }
+    const std::vector<Object *> everyone = [&] {
+        const Ref<Scene> scene = Storage::spawned_in(self);
+        return scene ? objects::detail::live_objects(*scene) : std::vector<Object *>{};
+    }();
+    std::size_t landing = everyone.size();
+    float best = 0;
+    for (std::size_t i = 0; i < everyone.size(); ++i) {
+        const Object &other = *everyone[i];
+        if (&other == &self || !other.alive() || !other.has<Area>()) continue;
+        if ((other.collision_layer & drop_on) == 0) continue;
+        if (!contains_point(other.world_collider(), self.position)) continue;
+        const float d = length_of(minus(other.position, self.position));
+        if (landing == everyone.size() || d < best) {
+            landing = i;
+            best = d;
         }
     }
-    if (landing != nullptr && (!accepts || accepts(self, *landing))) {
-        if (centre_on_drop) self.position = landing->position;
+    if (landing < everyone.size() && (!accepts || accepts(self, *everyone[landing]))) {
+        Object &area = *everyone[landing];
+        if (centre_on_drop) self.position = area.position;
         self.velocity = Vector2{};
-        on_drop(self, *landing);
+        on_drop(self, area);
         return;
     }
     on_reject(self);
@@ -570,8 +590,13 @@ void Draggable::drop(Object &self) {
         return;
     }
     if (snap.x > 0 || snap.y > 0) {
-        if (snap.x > 0) self.position.x = std::round(self.position.x / snap.x) * snap.x;
-        if (snap.y > 0) self.position.y = std::round(self.position.y / snap.y) * snap.y;
+        say_nan("Draggable", { { "snap.x", snap.x }, { "snap.y", snap.y } });
+        if (snap.x > 0)
+            put(self.position.x, std::round(self.position.x / snap.x) * snap.x,
+                "Draggable");
+        if (snap.y > 0)
+            put(self.position.y, std::round(self.position.y / snap.y) * snap.y,
+                "Draggable");
         self.velocity = Vector2{};
         return;
     }

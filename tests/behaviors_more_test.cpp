@@ -29,6 +29,7 @@
 #include <cmath>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <numbers>
 #include <string>
 #include <utility>
@@ -36,7 +37,25 @@
 
 namespace {
 
-using namespace rmp::behavior; // NOLINT(google-build-using-namespace): the catalogue, read as its names
+using rmp::behavior::AnimationRule;
+using rmp::behavior::Animator;
+using rmp::behavior::Area;
+using rmp::behavior::Chase;
+using rmp::behavior::Collectible;
+using rmp::behavior::Draggable;
+using rmp::behavior::Face;
+using rmp::behavior::Health;
+using rmp::behavior::Hitbox;
+using rmp::behavior::kinds;
+using rmp::behavior::Lifespan;
+using rmp::behavior::Orbit;
+using rmp::behavior::Pathfind;
+using rmp::behavior::Patrol;
+using rmp::behavior::Projectile;
+using rmp::behavior::Shooter;
+using rmp::behavior::State;
+using rmp::behavior::StateMachine;
+using rmp::behavior::Transition;
 
 class World : public rmp::Scene {
 public:
@@ -117,14 +136,16 @@ std::string tiled(const std::vector<std::string> &rows) {
 void give_map(rmp::Tilemap &map, const std::vector<std::string> &rows) {
     const std::string text = tiled(rows);
     rmp::tilemap::detail::Access::adopt(
-        map, rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
-                                             "test.json", ""));
+        map,
+        rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
+                                        "test.json", ""));
     REQUIRE(map.valid());
 }
 
 // The centre of a cell of those maps.
 Vector2 cell(int column, int row) {
-    return Vector2{ static_cast<float>(column) * 16 + 8, static_cast<float>(row) * 16 + 8 };
+    return Vector2{ static_cast<float>(column) * 16 + 8,
+                    static_cast<float>(row) * 16 + 8 };
 }
 
 float distance(Vector2 a, Vector2 b) { return std::hypot(a.x - b.x, a.y - b.y); }
@@ -137,9 +158,10 @@ rmp::SpriteSheet sheet_with(const std::vector<std::string> &names) {
     data.frames[0].seconds = 0.1f;
     data.tags.resize(names.size());
     for (std::size_t i = 0; i < names.size(); ++i) data.tags[i].name = names[i];
-    auto *slot = rmp::detail::adopt(rmp::detail::ResourceKind::SHEET, std::move(data));
-    REQUIRE(slot != nullptr);
-    return rmp::SpriteSheet{ slot };
+    rmp::SpriteSheet sheet{ rmp::detail::adopt(rmp::detail::ResourceKind::SHEET,
+                                               std::move(data)) };
+    REQUIRE(sheet.valid());
+    return sheet;
 }
 
 // A behavior that counts its hooks.
@@ -149,16 +171,38 @@ struct Counter {
     int draws = 0;
     int hits = 0;
     int ends = 0;
-    void _update(rmp::Object &, float) { ++updates; }
-    void _late_update(rmp::Object &, float) { ++lates; }
-    void _draw(rmp::Object &) { ++draws; }
-    void _collision(rmp::Object &, rmp::Object &) { ++hits; }
-    void _end(rmp::Object &) { ++ends; }
+    void _update(rmp::Object &self, float delta) {
+        (void)self;
+        (void)delta;
+        ++updates;
+    }
+    void _late_update(rmp::Object &self, float delta) {
+        (void)self;
+        (void)delta;
+        ++lates;
+    }
+    void _draw(rmp::Object &self) {
+        (void)self;
+        ++draws;
+    }
+    void _collision(rmp::Object &self, rmp::Object &other) {
+        (void)self;
+        (void)other;
+        ++hits;
+    }
+    void _end(rmp::Object &self) {
+        (void)self;
+        ++ends;
+    }
 };
 
 struct Other {
     int updates = 0;
-    void _update(rmp::Object &, float) { ++updates; }
+    void _update(rmp::Object &self, float delta) {
+        (void)self;
+        (void)delta;
+        ++updates;
+    }
 };
 
 } // namespace
@@ -167,7 +211,8 @@ struct Other {
 // enable<B>() and Condition
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "enable<B>(false) stops every hook but _end, and keeps the state") {
+TEST_CASE_FIXTURE(Fixture,
+                  "enable<B>(false) stops every hook but _end, and keeps the state") {
     World world;
     rmp::Object &a = box(world, { 0, 0 }, { 10, 10 });
     box(world, { 2, 0 }, { 10, 10 });
@@ -200,7 +245,8 @@ TEST_CASE_FIXTURE(Fixture, "enable<B>(false) stops every hook but _end, and keep
     CHECK_FALSE(a.has<Counter>());
 }
 
-TEST_CASE_FIXTURE(Fixture, "enable<B>() of a behavior the object has not got does nothing") {
+TEST_CASE_FIXTURE(Fixture,
+                  "enable<B>() of a behavior the object has not got does nothing") {
     World world;
     rmp::Object &a = box(world, { 0, 0 }, { 10, 10 });
     a.enable<Counter>(false);
@@ -219,7 +265,7 @@ TEST_CASE_FIXTURE(Fixture, "enable<B>() of a behavior the object has not got doe
 }
 
 TEST_CASE("a Condition answers its function, and an empty one false") {
-    rmp::Condition<int> empty;
+    const rmp::Condition<int> empty;
     CHECK_FALSE(static_cast<bool>(empty));
     CHECK_FALSE(empty(3));
     rmp::Condition<int> odd = [](int n) { return n % 2 == 1; };
@@ -228,11 +274,14 @@ TEST_CASE("a Condition answers its function, and an empty one false") {
     CHECK_FALSE(odd(4));
     rmp::Condition<int> moved = std::move(odd);
     CHECK(moved(5));
-    CHECK_FALSE(static_cast<bool>(odd)); // NOLINT(bugprone-use-after-move): what a move leaves
+    // What a move leaves: nothing.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move): what a move leaves
+    CHECK_FALSE(static_cast<bool>(odd));
     rmp::Condition<int> again;
     again = std::move(moved);
     CHECK(again(7));
-    CHECK_FALSE(moved(7)); // NOLINT(bugprone-use-after-move): what a move leaves
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move): what a move leaves
+    CHECK_FALSE(moved(7));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +325,8 @@ TEST_CASE_FIXTURE(Fixture, "Area: enter, stay, inside, outside and exit, in orde
     CHECK(zone.get<Area>()->overlapping().empty());
 }
 
-TEST_CASE_FIXTURE(Fixture, "Area: a jump from wholly inside to gone is outside, then exit") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Area: a jump from wholly inside to gone is outside, then exit") {
     World world;
     rmp::Object &zone = box(world, { 0, 0 }, { 100, 100 });
     std::vector<std::string> said;
@@ -326,15 +376,17 @@ TEST_CASE_FIXTURE(Fixture, "Area: it sees only what its object collides with") {
 // Hitbox, and Health not counting it twice
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "Hitbox: one touch costs damage once, though the Health is hurt_by it") {
+TEST_CASE_FIXTURE(
+    Fixture, "Hitbox: one touch costs damage once, though the Health is hurt_by it") {
     World world;
     rmp::Object &spike = box(world, { 0, 0 }, { 10, 10 });
     spike.collision_layer = 4;
     int hit = 0;
-    spike.add<Hitbox>({ .damage = 2,
-                        .on_hit = [&](rmp::Object &, rmp::Object &) { ++hit; } });
+    spike.add<Hitbox>(
+        { .damage = 2, .on_hit = [&](rmp::Object &, rmp::Object &) { ++hit; } });
     rmp::Object &player = box(world, { 4, 0 }, { 10, 10 });
-    player.add<Health>({ .hp = 10, .invulnerable_for = 1, .hurt_by = 4, .damage_on_hit = 5 });
+    player.add<Health>(
+        { .hp = 10, .invulnerable_for = 1, .hurt_by = 4, .damage_on_hit = 5 });
     frame(world);
     CHECK(player.get<Health>()->hp == 8);
     CHECK(hit == 1);
@@ -343,20 +395,21 @@ TEST_CASE_FIXTURE(Fixture, "Hitbox: one touch costs damage once, though the Heal
     CHECK(hit == 1);
 }
 
-TEST_CASE_FIXTURE(Fixture, "Hitbox: knockback pushes away from it; hits picks the layers") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Hitbox: knockback pushes away from it; hits picks the layers") {
     World world;
     rmp::Object &sword = box(world, { 0, 0 }, { 10, 10 });
     sword.add<Hitbox>({ .damage = 1, .hits = 2, .knockback = 100 });
     rmp::Object &enemy = box(world, { 6, 0 }, { 10, 10 });
     enemy.collision_layer = 2;
     enemy.add<Health>({ .hp = 3, .invulnerable_for = 0 });
-    rmp::Object &friend_ = box(world, { -6, 0 }, { 10, 10 }); // NOLINT(readability-identifier-naming): `friend` is a keyword
-    friend_.collision_layer = 1;
-    friend_.add<Health>({ .hp = 3, .invulnerable_for = 0 });
+    rmp::Object &ally = box(world, { -6, 0 }, { 10, 10 });
+    ally.collision_layer = 1;
+    ally.add<Health>({ .hp = 3, .invulnerable_for = 0 });
     frame(world);
     CHECK(enemy.get<Health>()->hp == 2);
     CHECK(enemy.velocity.x > 0);
-    CHECK(friend_.get<Health>()->hp == 3);
+    CHECK(ally.get<Health>()->hp == 3);
 }
 
 TEST_CASE_FIXTURE(Fixture, "Hitbox: once_per_target and destroy_on_hit") {
@@ -390,13 +443,15 @@ TEST_CASE_FIXTURE(Fixture, "Hitbox: once_per_target and destroy_on_hit") {
 // Collectible
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "Collectible: picked up once, stops colliding, vanishes, goes") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Collectible: picked up once, stops colliding, vanishes, goes") {
     World world;
     rmp::Object &coin = box(world, { 0, 0 }, { 8, 8 });
     int collected = 0;
-    coin.add<Collectible>({ .collected_by = 2,
-                            .vanish_seconds = 0.5f,
-                            .on_collect = [&](rmp::Object &, rmp::Object &) { ++collected; } });
+    coin.add<Collectible>(
+        { .collected_by = 2,
+          .vanish_seconds = 0.5f,
+          .on_collect = [&](rmp::Object &, rmp::Object &) { ++collected; } });
     rmp::Object &other = box(world, { 2, 0 }, { 8, 8 });
     other.collision_layer = 1;
     frame(world);
@@ -418,11 +473,12 @@ TEST_CASE_FIXTURE(Fixture, "Collectible: picked up once, stops colliding, vanish
     CHECK_FALSE(coin.alive());
 }
 
-TEST_CASE_FIXTURE(Fixture, "Collectible: a magnet pulls it to the nearest collector in reach") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Collectible: a magnet pulls it to the nearest collector in reach") {
     World world;
     rmp::Object &coin = box(world, { 0, 0 }, { 8, 8 });
-    coin.add<Collectible>({ .collected_by = 2, .magnet = 50, .magnet_speed = 100,
-                            .vanish_seconds = 0 });
+    coin.add<Collectible>(
+        { .collected_by = 2, .magnet = 50, .magnet_speed = 100, .vanish_seconds = 0 });
     rmp::Object &far = box(world, { 200, 0 }, { 8, 8 });
     far.collision_layer = 2;
     frame(world);
@@ -449,12 +505,13 @@ TEST_CASE_FIXTURE(Fixture, "Shooter: a volley spreads its bullets, and waits `ev
     gun.collision_layer = 1;
     gun.collision_mask = 1 | 2;
     std::vector<Vector2> shot;
-    gun.add<Shooter>({ .every = 1,
-                       .direction = { 1, 0 },
-                       .speed = 100,
-                       .count = 3,
-                       .spread = 90,
-                       .on_shoot = [&](rmp::Scene &, Vector2, Vector2 v) { shot.push_back(v); } });
+    gun.add<Shooter>(
+        { .every = 1,
+          .direction = { 1, 0 },
+          .speed = 100,
+          .count = 3,
+          .spread = 90,
+          .on_shoot = [&](rmp::Scene &, Vector2, Vector2 v) { shot.push_back(v); } });
     const rmp::Ref<Shooter> s = gun.get<Shooter>();
     REQUIRE(s->fire(gun));
     REQUIRE(shot.size() == 3);
@@ -468,18 +525,20 @@ TEST_CASE_FIXTURE(Fixture, "Shooter: a volley spreads its bullets, and waits `ev
     CHECK(s->shots() == 2);
 }
 
-TEST_CASE_FIXTURE(Fixture, "Shooter: all around, turned after each volley, and automatic") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Shooter: all around, turned after each volley, and automatic") {
     World world;
     rmp::Object &boss = box(world, { 0, 0 }, { 10, 10 });
     std::vector<Vector2> shot;
-    boss.add<Shooter>({ .automatic = true,
-                        .every = 0.5f,
-                        .direction = { 1, 0 },
-                        .speed = 10,
-                        .count = 4,
-                        .spread = 360,
-                        .rotate_per_shot = 45,
-                        .on_shoot = [&](rmp::Scene &, Vector2, Vector2 v) { shot.push_back(v); } });
+    boss.add<Shooter>(
+        { .automatic = true,
+          .every = 0.5f,
+          .direction = { 1, 0 },
+          .speed = 10,
+          .count = 4,
+          .spread = 360,
+          .rotate_per_shot = 45,
+          .on_shoot = [&](rmp::Scene &, Vector2, Vector2 v) { shot.push_back(v); } });
     frame(world);
     REQUIRE(shot.size() == 4);
     CHECK(shot[1].y == doctest::Approx(10).epsilon(0.001));
@@ -497,29 +556,27 @@ TEST_CASE_FIXTURE(Fixture, "Shooter: the default bullet, aimed at a target, in r
     rmp::Object &player = box(world, { 0, 300 }, { 10, 10 });
     player.collision_layer = 1;
     player.add<Health>({ .hp = 3 });
-    turret.add<Shooter>({ .automatic = true, .every = 10, .target = player.handle<>(),
-                          .range = 100 });
+    turret.add<Shooter>(
+        { .automatic = true, .every = 10, .target = player.handle<>(), .range = 100 });
     frame(world);
     CHECK(turret.get<Shooter>()->shots() == 0); // out of range
     player.position = { 0, 80 };
     frame(world);
     REQUIRE(turret.get<Shooter>()->shots() == 1);
-    rmp::Object *bullet = nullptr;
-    for (rmp::Object *o : rmp::objects::detail::live_objects(world)) {
-        if (o->has<Projectile>()) bullet = o;
-    }
-    REQUIRE(bullet != nullptr);
-    CHECK(bullet->velocity.y > 0);
-    CHECK(bullet->has<Lifespan>());
-    CHECK(bullet->has<Hitbox>());
-    CHECK(bullet->collision_layer == 0);
-    CHECK(bullet->collision_mask == 1); // its mask, less its own layer
+    const auto everyone = rmp::objects::detail::live_objects(world);
+    const auto found = std::ranges::find_if(
+        everyone, [](const auto &o) { return o->template has<Projectile>(); });
+    REQUIRE(found != everyone.end());
+    const rmp::Object &bullet = **found;
+    CHECK(bullet.velocity.y > 0);
+    CHECK(bullet.has<Lifespan>());
+    CHECK(bullet.has<Hitbox>());
+    CHECK(bullet.collision_layer == 0);
+    CHECK(bullet.collision_mask == 1); // its mask, less its own layer
     frames(world, 30);
     CHECK(player.get<Health>()->hp == 2);
     player.destroy();
     frames(world, 2);
-    rmp::Object &later = box(world, { 0, 10 }, { 1, 1 });
-    (void)later;
     turret.get<Shooter>()->ours.cooldown = 0;
     CHECK_FALSE(turret.get<Shooter>()->fire(turret)); // its target is gone
 }
@@ -530,8 +587,9 @@ TEST_CASE_FIXTURE(Fixture, "Shooter: on its action, and the way it faces") {
     rmp::Object &hero = box(world, { 0, 0 }, { 10, 10 });
     hero.flip_x = true;
     std::vector<Vector2> shot;
-    hero.add<Shooter>({ .action = "fire",
-                        .on_shoot = [&](rmp::Scene &, Vector2, Vector2 v) { shot.push_back(v); } });
+    hero.add<Shooter>(
+        { .action = "fire",
+          .on_shoot = [&](rmp::Scene &, Vector2, Vector2 v) { shot.push_back(v); } });
     frame(world);
     CHECK(shot.empty());
     fake.devices.keys[KEY_X] = true;
@@ -544,15 +602,24 @@ TEST_CASE_FIXTURE(Fixture, "Shooter: on its action, and the way it faces") {
 // Orbit
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "Orbit: circles its centre, spread among `of`, facing as told") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Orbit: circles its centre, spread among `of`, facing as told") {
     World world;
     rmp::Object &sun = box(world, { 100, 100 }, { 10, 10 });
     rmp::Object &a = box(world, { 0, 0 }, { 4, 4 });
     rmp::Object &b = box(world, { 0, 0 }, { 4, 4 });
-    a.add<Orbit>({ .centre = sun.handle<>(), .radius = 50, .degrees_per_second = 90,
-                   .face = Face::CENTRE, .index = 0, .of = 2 });
-    b.add<Orbit>({ .centre = sun.handle<>(), .radius = 50, .degrees_per_second = 90,
-                   .face = Face::OUTWARD, .index = 1, .of = 2 });
+    a.add<Orbit>({ .centre = sun.handle<>(),
+                   .radius = 50,
+                   .degrees_per_second = 90,
+                   .face = Face::CENTRE,
+                   .index = 0,
+                   .of = 2 });
+    b.add<Orbit>({ .centre = sun.handle<>(),
+                   .radius = 50,
+                   .degrees_per_second = 90,
+                   .face = Face::OUTWARD,
+                   .index = 1,
+                   .of = 2 });
     frames(world, 60);
     CHECK(distance(a.position, sun.position) == doctest::Approx(50));
     CHECK(a.position.y == doctest::Approx(150).epsilon(0.01)); // 90 degrees on
@@ -575,7 +642,8 @@ TEST_CASE_FIXTURE(Fixture, "Orbit: circles its centre, spread among `of`, facing
 // Animator
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "Animator: idle, run, flip, hurt and die, skipping what is not there") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Animator: idle, run, flip, hurt and die, skipping what is not there") {
     World world;
     rmp::Object &hero = box(world, { 0, 0 }, { 10, 10 });
     hero.sprite.sheet = sheet_with({ "idle", "run", "die" });
@@ -639,7 +707,8 @@ void let_go() { fake.devices.mouse[0] = false; }
 
 } // namespace
 
-TEST_CASE_FIXTURE(Fixture, "Draggable: follows the pointer, and lands on an Area that takes it") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Draggable: follows the pointer, and lands on an Area that takes it") {
     World world;
     rmp::Object &slot = box(world, { 100, 0 }, { 40, 40 });
     slot.add<Area>();
@@ -683,7 +752,8 @@ TEST_CASE_FIXTURE(Fixture, "Draggable: rejected, it flies back where it was pick
 TEST_CASE_FIXTURE(Fixture, "Draggable: snapped, bounded, and thrown") {
     World world;
     rmp::Object &tile = box(world, { 0, 0 }, { 10, 10 });
-    tile.add<Draggable>({ .snap = { 32, 32 }, .bounds = { -100, -100, 200, 200 },
+    tile.add<Draggable>({ .snap = { 32, 32 },
+                          .bounds = { -100, -100, 200, 200 },
                           .return_if_rejected = false });
     drag(tile, { 500, 37 });
     frame(world);
@@ -713,8 +783,8 @@ TEST_CASE_FIXTURE(Fixture, "Draggable: snapped, bounded, and thrown") {
 TEST_CASE_FIXTURE(Fixture, "Patrol: waypoints in a loop, waiting at each") {
     World world;
     rmp::Object &bat = box(world, { 0, 0 }, { 8, 8 });
-    bat.add<Patrol>({ .waypoints = { { 0, 0 }, { 60, 0 }, { 60, 60 } }, .speed = 60,
-                      .wait = 0.5f });
+    bat.add<Patrol>(
+        { .waypoints = { { 0, 0 }, { 60, 0 }, { 60, 60 } }, .speed = 60, .wait = 0.5f });
     frame(world); // at the first: waits
     CHECK(bat.get<Patrol>()->heading_for() == 1);
     frames(world, 30);
@@ -729,7 +799,8 @@ TEST_CASE_FIXTURE(Fixture, "Patrol: ping_pong turns back at each end, and flips"
     World world;
     rmp::Object &bat = box(world, { 0, 0 }, { 8, 8 });
     bat.sprite.sheet = sheet_with({ "walk", "idle" });
-    bat.add<Patrol>({ .waypoints = { { 0, 0 }, { 30, 0 }, { 60, 0 } }, .speed = 120,
+    bat.add<Patrol>({ .waypoints = { { 0, 0 }, { 30, 0 }, { 60, 0 } },
+                      .speed = 120,
                       .ping_pong = true });
     std::vector<int> heading;
     for (int i = 0; i < 120; ++i) {
@@ -746,14 +817,16 @@ TEST_CASE_FIXTURE(Fixture, "Patrol: ping_pong turns back at each end, and flips"
     CHECK(bat.sprite.playing() == "walk");
 }
 
-TEST_CASE_FIXTURE(Fixture, "Patrol: walking the floor turns at a wall and before a ledge") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Patrol: walking the floor turns at a wall and before a ledge") {
     World world;
-    give_map(world.map, {
-                            "..........",
-                            "..........",
-                            "#........#",
-                            "######....",
-                        });
+    give_map(world.map,
+             {
+                 "..........",
+                 "..........",
+                 "#........#",
+                 "######....",
+             });
     rmp::Object &goomba = box(world, cell(2, 2), { 14, 14 });
     goomba.add<Patrol>({ .speed = 60 });
     float right_most = 0;
@@ -785,11 +858,12 @@ TEST_CASE_FIXTURE(Fixture, "Patrol: walking the floor turns at a wall and before
 
 TEST_CASE_FIXTURE(Fixture, "find_path: around a wall, never through a corner") {
     World world;
-    give_map(world.map, {
-                            "......",
-                            ".####.",
-                            "......",
-                        });
+    give_map(world.map,
+             {
+                 "......",
+                 ".####.",
+                 "......",
+             });
     const auto path = rmp::find_path(world.map, cell(0, 0), cell(5, 2));
     REQUIRE_FALSE(path.empty());
     CHECK(path.back().x == doctest::Approx(cell(5, 2).x));
@@ -819,11 +893,12 @@ TEST_CASE_FIXTURE(Fixture, "find_path: around a wall, never through a corner") {
 
 TEST_CASE_FIXTURE(Fixture, "find_path: the ends, no way, and clearance") {
     World world;
-    give_map(world.map, {
-                            "..#...",
-                            "..#...",
-                            "..#...",
-                        });
+    give_map(world.map,
+             {
+                 "..#...",
+                 "..#...",
+                 "..#...",
+             });
     CHECK(rmp::find_path(world.map, cell(0, 0), cell(5, 0)).empty()); // no way
     CHECK(rmp::find_path(world.map, cell(0, 0), cell(2, 0)).empty()); // into a wall
     CHECK(rmp::find_path(world.map, { -50, 0 }, cell(1, 1)).empty()); // outside
@@ -831,29 +906,33 @@ TEST_CASE_FIXTURE(Fixture, "find_path: the ends, no way, and clearance") {
     const auto here = rmp::find_path(world.map, cell(0, 0), { 3, 4 });
     REQUIRE(here.size() == 1);
     CHECK(here[0].x == 3);
-    rmp::Tilemap none;
+    const rmp::Tilemap none;
     CHECK(rmp::find_path(none, { 0, 0 }, { 1, 1 }).empty());
 
     World corridor;
-    give_map(corridor.map, {
-                               "#########",
-                               "#.......#",
-                               "####.####",
-                               "#.......#",
-                               "#########",
-                           });
+    give_map(corridor.map,
+             {
+                 "#########",
+                 "#.......#",
+                 "####.####",
+                 "#.......#",
+                 "#########",
+             });
     CHECK_FALSE(rmp::find_path(corridor.map, cell(1, 1), cell(1, 3)).empty());
     // Wider than the gap: no way through it.
-    CHECK(rmp::find_path(corridor.map, cell(1, 1), cell(1, 3), { .clearance = 10 }).empty());
+    CHECK(rmp::find_path(corridor.map, cell(1, 1), cell(1, 3), { .clearance = 10 })
+              .empty());
 }
 
-TEST_CASE_FIXTURE(Fixture, "Pathfind: walks round the wall to its goal, and to a target") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Pathfind: walks round the wall to its goal, and to a target") {
     World world;
-    give_map(world.map, {
-                            "........",
-                            ".######.",
-                            "........",
-                        });
+    give_map(world.map,
+             {
+                 "........",
+                 ".######.",
+                 "........",
+             });
     rmp::Object &rat = box(world, cell(0, 2), { 8, 8 });
     rat.add<Pathfind>({ .goal = cell(7, 0), .speed = 120 });
     for (int i = 0; i < 240 && !rat.get<Pathfind>()->arrived(); ++i) {
@@ -883,13 +962,15 @@ TEST_CASE_FIXTURE(Fixture, "Pathfind: walks round the wall to its goal, and to a
 // Chase
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "Chase: spots in sight, pauses the Patrol, gives up and goes home") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Chase: spots in sight, pauses the Patrol, gives up and goes home") {
     World world;
-    give_map(world.map, {
-                            "....................",
-                            "....................",
-                            "....................",
-                        });
+    give_map(world.map,
+             {
+                 "....................",
+                 "....................",
+                 "....................",
+             });
     rmp::Object &player = box(world, cell(18, 1), { 8, 8 });
     rmp::Object &guard = box(world, cell(2, 1), { 8, 8 });
     int spots = 0;
@@ -911,7 +992,7 @@ TEST_CASE_FIXTURE(Fixture, "Chase: spots in sight, pauses the Patrol, gives up a
     CHECK_FALSE(guard.enabled<Patrol>());
     frames(world, 10);
     CHECK(guard.velocity.x > 0);
-    player.position = cell(19, 1) ; // out of sight
+    player.position = cell(19, 1); // out of sight
     player.position.y += 100;
     frames(world, 40);
     CHECK(loses == 1);
@@ -922,11 +1003,12 @@ TEST_CASE_FIXTURE(Fixture, "Chase: spots in sight, pauses the Patrol, gives up a
 
 TEST_CASE_FIXTURE(Fixture, "Chase: a wall hides the target, and so does its back") {
     World world;
-    give_map(world.map, {
-                            "..........",
-                            ".....#....",
-                            "..........",
-                        });
+    give_map(world.map,
+             {
+                 "..........",
+                 ".....#....",
+                 "..........",
+             });
     rmp::Object &player = box(world, cell(8, 1), { 8, 8 });
     rmp::Object &guard = box(world, cell(2, 1), { 8, 8 });
     guard.add<Chase>({ .target = player.handle<>(), .sight = 0 });
@@ -949,16 +1031,20 @@ TEST_CASE_FIXTURE(Fixture, "Chase: a wall hides the target, and so does its back
 
 TEST_CASE_FIXTURE(Fixture, "Chase: steers a Pathfind round the wall when it has one") {
     World world;
-    give_map(world.map, {
-                            "..........",
-                            "..#######.",
-                            "..........",
-                        });
-    rmp::Object &player = box(world, cell(9, 2), { 8, 8 });
+    give_map(world.map,
+             {
+                 "..........",
+                 "..#######.",
+                 "..........",
+             });
+    const rmp::Object &player = box(world, cell(9, 2), { 8, 8 });
     rmp::Object &hound = box(world, cell(9, 0), { 8, 8 });
     hound.add<Pathfind>();
-    hound.add<Chase>({ .target = player.handle<>(), .speed = 90, .sight = 0,
-                       .line_of_sight = false, .stop_distance = 4 });
+    hound.add<Chase>({ .target = player.handle<>(),
+                       .speed = 90,
+                       .sight = 0,
+                       .line_of_sight = false,
+                       .stop_distance = 4 });
     for (int i = 0; i < 120; ++i) {
         frame(world);
         CHECK_FALSE(world.map.solid_at(hound.position));
@@ -970,7 +1056,8 @@ TEST_CASE_FIXTURE(Fixture, "Chase: steers a Pathfind round the wall when it has 
 // StateMachine
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "StateMachine: initial, transitions, go(), and what each enables") {
+TEST_CASE_FIXTURE(Fixture,
+                  "StateMachine: initial, transitions, go(), and what each enables") {
     World world;
     rmp::Object &enemy = box(world, { 0, 0 }, { 8, 8 });
     enemy.add<Counter>();
@@ -987,16 +1074,15 @@ TEST_CASE_FIXTURE(Fixture, "StateMachine: initial, transitions, go(), and what e
         State{ .name = "idle",
                .on_enter = [&](rmp::Object &) { said.emplace_back("enter idle"); },
                .on_exit = [&](rmp::Object &) { said.emplace_back("exit idle"); } });
-    machine->states.push_back(State{
-        .name = "chase",
-        .on_enter = [&](rmp::Object &) { said.emplace_back("enter chase"); },
-        .on_update = [&](rmp::Object &, float) { said.emplace_back("chasing"); },
-        .enables = kinds<Other>() });
-    machine->transitions.push_back(
-        Transition{ .from = "idle", .to = "chase", .when = [&](rmp::Object &) { return alarmed; } });
+    machine->states.push_back(
+        State{ .name = "chase",
+               .on_enter = [&](rmp::Object &) { said.emplace_back("enter chase"); },
+               .on_update = [&](rmp::Object &, float) { said.emplace_back("chasing"); },
+               .enables = kinds<Other>() });
     machine->transitions.push_back(Transition{
-        .to = "patrol",
-        .when = [&](rmp::Object &self) {
+        .from = "idle", .to = "chase", .when = [&](rmp::Object &) { return alarmed; } });
+    machine->transitions.push_back(Transition{
+        .to = "patrol", .when = [&](rmp::Object &self) {
             return self.get<StateMachine>()->seconds_in_state() > 0.5f && !alarmed;
         } });
     CHECK(machine->state().empty());
@@ -1009,7 +1095,9 @@ TEST_CASE_FIXTURE(Fixture, "StateMachine: initial, transitions, go(), and what e
     CHECK(machine->state() == "chase");
     CHECK(enemy.enabled<Other>());
     CHECK_FALSE(enemy.enabled<Counter>());
-    CHECK(said == std::vector<std::string>{ "enter idle", "exit idle", "enter chase", "chasing" });
+    CHECK(
+        said ==
+        std::vector<std::string>{ "enter idle", "exit idle", "enter chase", "chasing" });
     alarmed = false;
     frames(world, 40);
     CHECK(machine->state() == "patrol");
@@ -1024,7 +1112,8 @@ TEST_CASE_FIXTURE(Fixture, "StateMachine: initial, transitions, go(), and what e
     CHECK(machine->state() == "idle");
 }
 
-TEST_CASE_FIXTURE(Fixture, "StateMachine: no states does nothing; an unknown initial is the first") {
+TEST_CASE_FIXTURE(
+    Fixture, "StateMachine: no states does nothing; an unknown initial is the first") {
     World world;
     rmp::Object &a = box(world, { 0, 0 }, { 8, 8 });
     a.add<StateMachine>();
@@ -1041,14 +1130,18 @@ TEST_CASE_FIXTURE(Fixture, "StateMachine: no states does nothing; an unknown ini
 // From the editor
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(Fixture, "B::from(MapObject) reads the documented fields, and only those") {
-    std::ifstream in(std::string(RMP_TEST_FIXTURES) + "ldtk/behaviors.ldtk", std::ios::binary);
-    const std::string text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+TEST_CASE_FIXTURE(Fixture,
+                  "B::from(MapObject) reads the documented fields, and only those") {
+    std::ifstream in(std::string(RMP_TEST_FIXTURES) + "ldtk/behaviors.ldtk",
+                     std::ios::binary);
+    const std::string text{ std::istreambuf_iterator<char>(in),
+                            std::istreambuf_iterator<char>() };
     REQUIRE_FALSE(text.empty());
     World world;
     rmp::tilemap::detail::Access::adopt(
-        world.map, rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
-                                                   "behaviors.ldtk", ""));
+        world.map,
+        rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
+                                        "behaviors.ldtk", ""));
     REQUIRE(world.map.valid());
     int seen = 0;
     world.map.on_object("Bat", [&](rmp::Scene &, const rmp::MapObject &o) {
@@ -1116,9 +1209,10 @@ TEST_CASE_FIXTURE(Fixture, "B::from(MapObject) reads the documented fields, and 
 
 TEST_CASE_FIXTURE(Fixture, "Projectile: destroy_on_wall ends it in a solid cell") {
     World world;
-    give_map(world.map, {
-                            "....#",
-                        });
+    give_map(world.map,
+             {
+                 "....#",
+             });
     rmp::Object &shot = box(world, cell(0, 0), { 2, 2 });
     shot.add<Projectile>({ .destroy_on_wall = true });
     shot.velocity = { 120, 0 };
@@ -1130,4 +1224,41 @@ TEST_CASE_FIXTURE(Fixture, "Projectile: destroy_on_wall ends it in a solid cell"
     frames(world, 30);
     CHECK_FALSE(shot.alive());
     CHECK(ghost.alive());
+}
+
+// ---------------------------------------------------------------------------
+// What the property found
+// ---------------------------------------------------------------------------
+
+TEST_CASE_FIXTURE(Fixture,
+                  "found: a snap that is not a number leaves the position alone") {
+    World world;
+    rmp::Object &tile = box(world, { 10, 20 }, { 10, 10 });
+    tile.add<Draggable>({ .snap = { std::numeric_limits<float>::infinity(), 1e-42f },
+                          .return_if_rejected = false });
+    drag(tile, { 3, 3 });
+    frame(world);
+    let_go();
+    frame(world);
+    CHECK(std::isfinite(tile.position.x));
+    CHECK(std::isfinite(tile.position.y));
+}
+
+TEST_CASE_FIXTURE(Fixture, "found: a vanish of a denormal's length is no infinite rise") {
+    World world;
+    rmp::Object &coin = box(world, { 0, 0 }, { 8, 8 });
+    coin.add<Collectible>({ .vanish_seconds = 1e-42f });
+    box(world, { 2, 0 }, { 8, 8 });
+    frame(world);
+    CHECK(std::isfinite(coin.velocity.y));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "found: a clearance wider than any map is searched in bounded time") {
+    World world;
+    give_map(world.map, { "....", ".#..", "...." });
+    // Every cell is too near the wall but the two ends: no way between them.
+    CHECK(rmp::find_path(world.map, cell(0, 0), cell(3, 2),
+                         { .clearance = std::numeric_limits<float>::max() })
+              .empty());
 }

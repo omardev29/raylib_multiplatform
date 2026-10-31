@@ -117,15 +117,16 @@ bool build_grid(const Tilemap &map, float clearance, Grid &grid) {
     const double rows = std::floor(grid.bounds.height / grid.cell.y);
     if (!(columns >= 1) || !(rows >= 1)) return false;
     if (columns * rows > static_cast<double>(MOST_CELLS)) {
-        RMP_REPORT_ONCE("PATH: the map has %.0f cells, and a path is searched over %lld at "
-                        "most. Nothing was found.",
-                        columns * rows, static_cast<long long>(MOST_CELLS));
+        RMP_REPORT_ONCE(
+            "PATH: the map has %.0f cells, and a path is searched over %lld at "
+            "most. Nothing was found.",
+            columns * rows, static_cast<long long>(MOST_CELLS));
         return false;
     }
     grid.columns = static_cast<int>(columns);
     grid.rows = static_cast<int>(rows);
-    const std::size_t cells = static_cast<std::size_t>(grid.columns) *
-        static_cast<std::size_t>(grid.rows);
+    const std::size_t cells =
+        static_cast<std::size_t>(grid.columns) * static_cast<std::size_t>(grid.rows);
     grid.solid.assign(cells, 0);
     for (int r = 0; r < grid.rows; ++r) {
         for (int c = 0; c < grid.columns; ++c) {
@@ -137,8 +138,12 @@ bool build_grid(const Tilemap &map, float clearance, Grid &grid) {
 
     // A cell is blocked when a solid cell comes nearer its centre than the
     // clearance: a walker that wide, centred there, would touch it.
-    const int reach_x = static_cast<int>(std::ceil(clearance / grid.cell.x));
-    const int reach_y = static_cast<int>(std::ceil(clearance / grid.cell.y));
+    // Never further than the grid: a clearance wider than the map blocks it
+    // all, and a reach past int's range was undefined.
+    const int reach_x = static_cast<int>(
+        std::min(std::ceil(clearance / grid.cell.x), static_cast<float>(grid.columns)));
+    const int reach_y = static_cast<int>(
+        std::min(std::ceil(clearance / grid.cell.y), static_cast<float>(grid.rows)));
     for (int r = 0; r < grid.rows; ++r) {
         for (int c = 0; c < grid.columns; ++c) {
             if (grid.solid[grid.at(c, r)] != 0) continue;
@@ -148,13 +153,16 @@ bool build_grid(const Tilemap &map, float clearance, Grid &grid) {
                 for (int dc = -reach_x; dc <= reach_x && !near; ++dc) {
                     const int nc = c + dc;
                     const int nr = r + dr;
-                    if (!grid.inside(nc, nr) || grid.solid[grid.at(nc, nr)] == 0) continue;
-                    const float left = grid.bounds.x + static_cast<float>(nc) * grid.cell.x;
-                    const float top = grid.bounds.y + static_cast<float>(nr) * grid.cell.y;
-                    const float dx =
-                        std::max({ left - middle.x, 0.0f, middle.x - (left + grid.cell.x) });
-                    const float dy =
-                        std::max({ top - middle.y, 0.0f, middle.y - (top + grid.cell.y) });
+                    if (!grid.inside(nc, nr) || grid.solid[grid.at(nc, nr)] == 0)
+                        continue;
+                    const float left =
+                        grid.bounds.x + static_cast<float>(nc) * grid.cell.x;
+                    const float top =
+                        grid.bounds.y + static_cast<float>(nr) * grid.cell.y;
+                    const float dx = std::max(
+                        { left - middle.x, 0.0f, middle.x - (left + grid.cell.x) });
+                    const float dy = std::max(
+                        { top - middle.y, 0.0f, middle.y - (top + grid.cell.y) });
                     near = dx * dx + dy * dy < clearance * clearance;
                 }
             }
@@ -174,10 +182,11 @@ bool clear_line(const Tilemap &map, Vector2 a, Vector2 b) {
     const float d = length_of(minus(b, a));
     if (!std::isfinite(d)) return false;
     constexpr float MOST_SAMPLES = 4096;
-    const float samples = std::min(std::ceil(d / step), MOST_SAMPLES);
-    for (float i = 1; i < samples; ++i) {
-        const float t = i / samples;
-        if (map.solid_at(Vector2{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t })) return false;
+    const int samples = static_cast<int>(std::min(std::ceil(d / step), MOST_SAMPLES));
+    for (int i = 1; i < samples; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(samples);
+        if (map.solid_at(Vector2{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t }))
+            return false;
     }
     return true;
 }
@@ -243,8 +252,9 @@ std::vector<Vector2> find_path(const Tilemap &map, Vector2 from, Vector2 to,
                 if (!grid.inside(nc, nr) || grid.blocked[grid.at(nc, nr)] != 0) continue;
                 // A diagonal step never cuts a corner: both cells beside it
                 // must be open too.
-                if (diagonal && (grid.blocked[grid.at(c + dc, r)] != 0 ||
-                                 grid.blocked[grid.at(c, r + dr)] != 0)) {
+                if (diagonal &&
+                    (grid.blocked[grid.at(c + dc, r)] != 0 ||
+                     grid.blocked[grid.at(c, r + dr)] != 0)) {
                     continue;
                 }
                 const std::size_t next = grid.at(nc, nr);
@@ -261,9 +271,10 @@ std::vector<Vector2> find_path(const Tilemap &map, Vector2 from, Vector2 to,
     if (done[goal] == 0) return {};
 
     std::vector<Vector2> path;
-    for (int at = static_cast<int>(goal); at != static_cast<int>(start);
-         at = came[static_cast<std::size_t>(at)]) {
-        path.push_back(grid.centre(at % grid.columns, at / grid.columns));
+    const auto columns = static_cast<std::size_t>(grid.columns);
+    for (std::size_t at = goal; at != start; at = static_cast<std::size_t>(came[at])) {
+        path.push_back(
+            grid.centre(static_cast<int>(at % columns), static_cast<int>(at / columns)));
     }
     std::ranges::reverse(path);
     path.back() = to;
@@ -326,8 +337,8 @@ void Patrol::_update(Object &self, float delta) {
         // Along the floor: turn at a wall, before a drop, or when something
         // stopped it -- a solid object the map does not know.
         if (!ours.started) ours.way = self.flip_x ? -1.0f : 1.0f;
-        bool turn =
-            ours.walked && seconds > 0 && std::fabs(self.position.x - ours.was_x) < NEAR_ZERO;
+        bool turn = ours.walked && seconds > 0 &&
+            std::fabs(self.position.x - ours.was_x) < NEAR_ZERO;
         const Ref<Scene> scene = Storage::spawned_in(self);
         const Rectangle box = self.world_collider();
         if (!turn && scene && scene->map.valid() && box.width > 0 && box.height > 2) {
@@ -335,7 +346,8 @@ void Patrol::_update(Object &self, float delta) {
             const float front = ours.way > 0 ? box.x + box.width + 1 : box.x - 1;
             const bool wall = map.solid_in(Rectangle{ ours.way > 0 ? front - 1 : front,
                                                       box.y + 1, 1, box.height - 2 });
-            const bool grounded = map.solid_in(Rectangle{ box.x, box.y + box.height, box.width, 2 });
+            const bool grounded =
+                map.solid_in(Rectangle{ box.x, box.y + box.height, box.width, 2 });
             const bool ledge = turn_at_ledges && grounded &&
                 !map.solid_at(Vector2{ front, box.y + box.height + 2 });
             turn = wall || ledge;
@@ -359,7 +371,9 @@ void Patrol::_update(Object &self, float delta) {
 void Pathfind::_update(Object &self, float delta) {
     const float seconds = seconds_of(delta);
     say_nan("Pathfind",
-            { { "speed", speed }, { "clearance", clearance }, { "repath_every", repath_every } });
+            { { "speed", speed },
+              { "clearance", clearance },
+              { "repath_every", repath_every } });
     std::optional<Vector2> where = goal;
     if (target != Handle<Object>{}) {
         const Ref<Object> t = target.get();
@@ -381,8 +395,9 @@ void Pathfind::_update(Object &self, float delta) {
     if (spent || (ours.since >= repath_every && !same_place(*where, ours.aimed))) {
         const Ref<Scene> scene = Storage::spawned_in(self);
         if (scene && scene->map.valid()) {
-            ours.path = find_path(scene->map, self.position, *where,
-                                  PathOptions{ .diagonal = diagonal, .clearance = clearance });
+            ours.path =
+                find_path(scene->map, self.position, *where,
+                          PathOptions{ .diagonal = diagonal, .clearance = clearance });
         } else {
             ours.path = { *where };
         }
@@ -397,8 +412,8 @@ void Pathfind::_update(Object &self, float delta) {
     }
     const float reach = std::max(2.0f, speed * seconds);
     while (static_cast<std::size_t>(ours.next) < ours.path.size() &&
-           length_of(minus(ours.path[static_cast<std::size_t>(ours.next)], self.position)) <=
-               reach) {
+           length_of(minus(ours.path[static_cast<std::size_t>(ours.next)],
+                           self.position)) <= reach) {
         ++ours.next;
     }
     if (static_cast<std::size_t>(ours.next) >= ours.path.size()) {
@@ -407,7 +422,8 @@ void Pathfind::_update(Object &self, float delta) {
         return;
     }
     ours.arrived = false;
-    const Vector2 to = minus(ours.path[static_cast<std::size_t>(ours.next)], self.position);
+    const Vector2 to =
+        minus(ours.path[static_cast<std::size_t>(ours.next)], self.position);
     put(self.velocity, times(normalised(to), speed), "Pathfind");
 }
 
@@ -417,7 +433,8 @@ void Pathfind::_update(Object &self, float delta) {
 
 namespace {
 
-bool can_see(const Chase &chase, const Object &self, const Object &target, Vector2 facing) {
+bool can_see(const Chase &chase, const Object &self, const Object &target,
+             Vector2 facing) {
     const Vector2 to = minus(target.position, self.position);
     const float d = length_of(to);
     if (!std::isfinite(d)) return false;
@@ -429,7 +446,8 @@ bool can_see(const Chase &chase, const Object &self, const Object &target, Vecto
     }
     if (chase.line_of_sight) {
         const Ref<Scene> scene = Storage::spawned_in(self);
-        if (scene && !clear_line(scene->map, self.position, target.position)) return false;
+        if (scene && !clear_line(scene->map, self.position, target.position))
+            return false;
     }
     return true;
 }
@@ -475,11 +493,12 @@ void Chase::_ready(Object &self) {
 
 void Chase::_update(Object &self, float delta) {
     const float seconds = seconds_of(delta);
-    say_nan("Chase", { { "speed", speed },
-                       { "sight", sight },
-                       { "fov", fov },
-                       { "lose_after", lose_after },
-                       { "stop_distance", stop_distance } });
+    say_nan("Chase",
+            { { "speed", speed },
+              { "sight", sight },
+              { "fov", fov },
+              { "lose_after", lose_after },
+              { "stop_distance", stop_distance } });
     const Vector2 moving = normalised(self.velocity);
     if (moving.x != 0 || moving.y != 0) {
         ours.facing = moving;
@@ -569,7 +588,8 @@ void enter(StateMachine &machine, Object &self, int index) {
     const std::vector<int> &on = machine.states[at].enables;
     for (const State &state : machine.states) {
         for (const int kind : state.enables) {
-            (void)rmp::detail::set_enabled(self, kind, std::ranges::find(on, kind) != on.end());
+            (void)rmp::detail::set_enabled(self, kind,
+                                           std::ranges::find(on, kind) != on.end());
         }
     }
     machine.states[at].on_enter(self);
@@ -578,7 +598,8 @@ void enter(StateMachine &machine, Object &self, int index) {
 } // namespace
 
 std::string_view StateMachine::state() const {
-    if (ours.current < 0 || static_cast<std::size_t>(ours.current) >= states.size()) return {};
+    if (ours.current < 0 || static_cast<std::size_t>(ours.current) >= states.size())
+        return {};
     return states[static_cast<std::size_t>(ours.current)].name;
 }
 

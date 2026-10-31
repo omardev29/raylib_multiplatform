@@ -39,8 +39,9 @@ struct Parsed {
         const std::string text = read(std::string(RMP_TEST_FIXTURES) + file);
         REQUIRE_FALSE(text.empty());
         rmp::tilemap::detail::Access::adopt(
-            map, rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
-                                                 file.c_str(), level));
+            map,
+            rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
+                                            file.c_str(), level));
         data = rmp::tilemap::detail::Access::data(map);
         REQUIRE(data != nullptr);
     }
@@ -49,7 +50,8 @@ struct Parsed {
 int placed_total(const MapData &data) {
     int n = 0;
     for (const Layer &layer : data.layers) {
-        if (layer.visible && layer.opacity > 0) n += static_cast<int>(layer.placed.size());
+        if (layer.visible && layer.opacity > 0)
+            n += static_cast<int>(layer.placed.size());
     }
     return n;
 }
@@ -67,7 +69,8 @@ int drawn_all(const rmp::Tilemap &map) {
 } // namespace
 
 TEST_SUITE("tilemap: culling") {
-    TEST_CASE("an LDtk level draws every tile with no area, and one screen of it with one") {
+    TEST_CASE(
+        "an LDtk level draws every tile with no area, and one screen of it with one") {
         const Parsed p("ldtk/Typical_2D_platformer_example.ldtk");
         const int total = placed_total(*p.data);
         REQUIRE(total > 500);
@@ -75,8 +78,9 @@ TEST_SUITE("tilemap: culling") {
         // The whole level in view: every tile, none twice.
         const Rectangle b = p.map.bounds();
         CHECK(drawn(p.map, b) == total);
-        CHECK(drawn(p.map, Rectangle{ b.x - 1000, b.y - 1000, b.width + 2000,
-                                      b.height + 2000 }) == total);
+        CHECK(drawn(p.map,
+                    Rectangle{ b.x - 1000, b.y - 1000, b.width + 2000,
+                               b.height + 2000 }) == total);
         // A corner of it: a fraction, and never nothing.
         const int corner = drawn(p.map, Rectangle{ b.x, b.y, 160, 90 });
         CHECK(corner > 0);
@@ -115,15 +119,17 @@ TEST_SUITE("tilemap: culling") {
         const Parsed p("ldtk/Typical_2D_platformer_example.ldtk");
         const Rectangle b = p.map.bounds();
         // Past its far corner the edge chunk is asked, and only that.
-        CHECK(drawn(p.map, Rectangle{ b.x + b.width + 5000, b.y + b.height + 5000, 10, 10 }) <
+        CHECK(drawn(p.map,
+                    Rectangle{ b.x + b.width + 5000, b.y + b.height + 5000, 10, 10 }) <
               placed_total(*p.data) / 4);
         // A rectangle that is not one draws nothing.
         CHECK(drawn(p.map, Rectangle{ NAN, 0, 10, 10 }) == 0);
         CHECK(drawn(p.map, Rectangle{ 0, 0, -5, 10 }) == 0);
     }
 
-    TEST_CASE("a Tiled layer draws its cells in view, and a tile taller than its cell from "
-              "below") {
+    TEST_CASE(
+        "a Tiled layer draws its cells in view, and a tile taller than its cell from "
+        "below") {
         const Parsed p("map_tall_tiles.json");
         const int all = drawn_all(p.map);
         REQUIRE(all > 0);
@@ -142,25 +148,28 @@ TEST_SUITE("tilemap: culling") {
         // samples use their IntGrids for other things; Tiled marks tiles.
         for (const std::string file :
              { "../../examples/games/07_platformer/resources/world.ldtk",
-               "ldtk/Typical_2D_platformer_example.ldtk", "ldtk/Typical_TopDown_example.ldtk",
-               "map_minimal.json" }) {
+               "ldtk/Typical_2D_platformer_example.ldtk",
+               "ldtk/Typical_TopDown_example.ldtk", "map_minimal.json" }) {
             CAPTURE(file);
             const Parsed p(file);
             int solid = 0;
             for (const Layer &layer : p.data->layers) {
                 REQUIRE(layer.solid.size() >= layer.solid_cells.size());
                 for (std::size_t at = 0; at < layer.solid.size(); ++at) {
-                    const bool intgrid = at < layer.solid_cells.size() && layer.solid_cells[at];
+                    const bool intgrid =
+                        at < layer.solid_cells.size() && layer.solid_cells[at];
                     const int gid = at < layer.gids.size() ? layer.gids[at] : 0;
                     bool tile = false;
                     for (const auto &set : p.data->tilesets) {
                         if (gid >= set.first_gid && gid <= set.last_gid) {
-                            const auto local = static_cast<std::size_t>(gid - set.first_gid);
+                            const auto local =
+                                static_cast<std::size_t>(gid - set.first_gid);
                             tile = local < set.solid.size() && set.solid[local];
                             break;
                         }
                     }
-                    const bool expected = intgrid || (gid != 0 && (layer.solid_layer || tile));
+                    const bool expected =
+                        intgrid || (gid != 0 && (layer.solid_layer || tile));
                     CHECK((layer.solid[at] != 0) == expected);
                     solid += layer.solid[at];
                 }

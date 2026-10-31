@@ -122,7 +122,6 @@ void put(Vector2 &slot, Vector2 value, std::string_view who) {
     not_written(who, std::isfinite(value.x) ? value.y : value.x);
 }
 
-
 // A field that is NaN is said once, by name. Every comparison with one is
 // false, so it quietly turns a behavior off -- a Timer that never fires, a
 // Lifespan that never ends -- or would reach the object through what the
@@ -153,7 +152,6 @@ float approach(float current, float target, float rate, float delta) {
 namespace {
 
 using detail::approach;
-using detail::Field;
 using detail::finite;
 using detail::length_of;
 using detail::NEAR_ZERO;

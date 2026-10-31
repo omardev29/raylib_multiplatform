@@ -277,19 +277,8 @@ public:
     ~Condition() = default;
     Condition(const Condition &) = delete;
     Condition &operator=(const Condition &) = delete;
-    Condition(Condition &&other) noexcept : _state(other._state), _test(other._test) {
-        other._state.reset();
-        other._test = nullptr;
-    }
-    Condition &operator=(Condition &&other) noexcept {
-        if (this != &other) {
-            _state = other._state;
-            _test = other._test;
-            other._state.reset();
-            other._test = nullptr;
-        }
-        return *this;
-    }
+    Condition(Condition &&) noexcept = default;
+    Condition &operator=(Condition &&) noexcept = default;
 
     // So that a lambda can be written straight into a designated initialiser.
     template <class F>
@@ -301,22 +290,24 @@ public:
                       "a condition takes the arguments it is asked with and answers "
                       "something that converts to bool -- a transition's `when` and an "
                       "animation rule's are bool(rmp::Object &)");
-        _state = std::make_shared<Fn>(static_cast<F &&>(fn));
-        _test = [](void *state, A... args) -> bool {
-            return static_cast<bool>((*static_cast<Fn *>(state))(args...));
-        };
+        // A Callback that writes its answer where it is told: the erasure,
+        // the ownership and the moves are Callback's.
+        _ask.set([test = Fn(static_cast<F &&>(fn))](bool &answer, A... args) mutable {
+            answer = static_cast<bool>(test(args...));
+        });
     }
 
     // Whether a function is stored.
-    explicit operator bool() const { return _test != nullptr; }
+    explicit operator bool() const { return static_cast<bool>(_ask); }
     // The stored function's answer; an empty Condition answers false.
     bool operator()(A... args) const {
-        return _test != nullptr && _test(_state.get(), args...);
+        bool answer = false;
+        _ask(answer, args...);
+        return answer;
     }
 
 private:
-    std::shared_ptr<void> _state;
-    bool (*_test)(void *, A...) = nullptr;
+    Callback<bool &, A...> _ask;
 };
 
 // ---------------------------------------------------------------------------

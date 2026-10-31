@@ -1039,13 +1039,21 @@ void a_culled_map_is_the_same_picture() {
         const Rectangle b = map.bounds();
         const std::array<Camera2D, 5> cameras{ {
             { .offset = { 0, 0 }, .target = { b.x, b.y }, .rotation = 0, .zoom = 1 },
-            { .offset = { 160, 90 }, .target = { b.x + 300, b.y + 120 }, .rotation = 0,
+            { .offset = { 160, 90 },
+              .target = { b.x + 300, b.y + 120 },
+              .rotation = 0,
               .zoom = 2 },
-            { .offset = { 160, 90 }, .target = { b.x + 500, b.y + 200 }, .rotation = 30,
+            { .offset = { 160, 90 },
+              .target = { b.x + 500, b.y + 200 },
+              .rotation = 30,
               .zoom = 1.5f },
-            { .offset = { 160, 90 }, .target = { b.x + 50, b.y + 50 }, .rotation = 0,
+            { .offset = { 160, 90 },
+              .target = { b.x + 50, b.y + 50 },
+              .rotation = 0,
               .zoom = 0.25f },
-            { .offset = { 0, 0 }, .target = { b.x - 400, b.y - 400 }, .rotation = 0,
+            { .offset = { 0, 0 },
+              .target = { b.x - 400, b.y - 400 },
+              .rotation = 0,
               .zoom = 1 },
         } };
         int index = 0;

@@ -11,6 +11,8 @@ src/rmp/assets.cpp               81
 src/rmp/audio.cpp                97
 src/rmp/behavior.cpp             100
 src/rmp/behaviors.cpp            93
+src/rmp/behaviors_ai.cpp         80
+src/rmp/behaviors_world.cpp      80
 src/rmp/camera.cpp               100
 src/rmp/clock.cpp                100
 src/rmp/collision.cpp            97
