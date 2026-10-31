@@ -11,6 +11,7 @@
 #include <rmp/ui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace game {
@@ -27,7 +28,8 @@ const Color HEALTH = { 214, 64, 64, 255 };
 rmp::ui::Picture icon(int tile) {
     return { rmp::assets::load_texture("tiles.png"),
              Rectangle{ static_cast<float>(tile % COLUMNS) * TILE,
-                        static_cast<float>(tile / COLUMNS) * TILE, TILE, TILE } };
+                        std::floor(static_cast<float>(tile) / COLUMNS) * TILE, TILE,
+                        TILE } };
 }
 
 // The torchlight's edge: the screen darkens towards its borders.
@@ -39,11 +41,11 @@ void shade_edges() {
     const float dx = w * SHADE_SHARE;
     const float dy = h * SHADE_SHARE;
     DrawRectangleGradientV(0, 0, static_cast<int>(w), static_cast<int>(dy), dark, clear);
-    DrawRectangleGradientV(0, static_cast<int>(h - dy), static_cast<int>(w), static_cast<int>(dy),
-                           clear, dark);
+    DrawRectangleGradientV(0, static_cast<int>(h - dy), static_cast<int>(w),
+                           static_cast<int>(dy), clear, dark);
     DrawRectangleGradientH(0, 0, static_cast<int>(dx), static_cast<int>(h), dark, clear);
-    DrawRectangleGradientH(static_cast<int>(w - dx), 0, static_cast<int>(dx), static_cast<int>(h),
-                           clear, dark);
+    DrawRectangleGradientH(static_cast<int>(w - dx), 0, static_cast<int>(dx),
+                           static_cast<int>(h), clear, dark);
 }
 
 } // namespace
@@ -120,7 +122,8 @@ void LevelScene::_draw() {
     rmp::ui::panel([] {
         rmp::ui::row([] {
             rmp::ui::image(icon(tiles::POTION), { .width = 24, .height = 24 });
-            rmp::ui::progress(static_cast<float>(run().hp) / static_cast<float>(run().max_hp),
+            rmp::ui::progress(static_cast<float>(run().hp) /
+                                  static_cast<float>(run().max_hp),
                               { .width = 120, .fill = HEALTH });
             rmp::ui::text(TextFormat("%d/%d", run().hp, run().max_hp), { .wrap = false });
         });

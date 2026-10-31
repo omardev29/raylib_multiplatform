@@ -30,7 +30,8 @@ void TitleScene::_update(float delta) {
     _clock += delta;
     const Rectangle b = map.bounds();
     camera.position = { b.x + (b.width / 2) + (std::sin(_clock * DRIFT) * b.width / 3),
-                        b.y + (b.height / 2) + (std::cos(_clock * DRIFT * 0.7f) * b.height / 4) };
+                        b.y + (b.height / 2) +
+                            (std::cos(_clock * DRIFT * 0.7f) * b.height / 4) };
 }
 
 void TitleScene::_draw() {
@@ -40,11 +41,11 @@ void TitleScene::_draw() {
                               .size = 44,
                               .wrap = false,
                               .style = { .text = TITLE,
-                                         .text_outline = rmp::ui::TextOutline{ .width = 2,
-                                                                               .color = SHADOW } } };
+                                         .text_outline = rmp::ui::TextOutline{
+                                             .width = 2, .color = SHADOW } } };
         title.show();
-        rmp::ui::text("A crypt, a cyclops, and you", { .color = rmp::ui::ColorRole::MUTED,
-                                                        .wrap = false });
+        rmp::ui::text("A crypt, a cyclops, and you",
+                      { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
         if (_best >= 0) {
             rmp::ui::text(TextFormat("Most gems carried out: %d", _best),
                           { .color = rmp::ui::ColorRole::MUTED, .wrap = false });

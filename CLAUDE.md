@@ -371,6 +371,21 @@ here so that nobody "fixes" one back.
   `.devcontainer/devcontainer.json` is the pinned image plus a noVNC desktop,
   copied into every game by `rmp new`; `versions_check.sh` holds its digest to
   the workflows'.
+- **A map draws what the camera shows, and nothing is baked** (Omar,
+  2026-10-31). `Scene` hands `Tilemap::draw(area)` its camera's view: LDtk's
+  tiles through 16x16-cell chunks, a Tiled layer through its range of cells;
+  solidity is one table folded from every source when the map is read. No
+  render-texture baking. Measured on a 400x400 map: 87 ms a frame whole, 0.25 ms
+  culled, the same pixels (`ui_render_test`).
+- **The behavior catalogue takes the game's common pieces, and the editor
+  configures them** (Omar, 2026-10-31): Area, Hitbox, Collectible, Shooter,
+  Orbit, Animator, Draggable, Patrol, Pathfind (and `rmp::find_path()`), Chase
+  and StateMachine, with these rules: `object.enable<B>(false)` pauses a
+  behavior's hooks but `_end`; an Area tells enter, stay, exit, inside and
+  outside; a Hitbox does the damage, and a Health's `hurt_by` does not count an
+  object that has one; the behaviors a level designer places have
+  `B::from(const MapObject &)` reading fixed field names, written above each in
+  `rmp/behavior.h`.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.

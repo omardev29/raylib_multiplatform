@@ -8,6 +8,8 @@
 #include <rmp/save.h>
 #include <rmp/ui.h>
 
+#include <cmath>
+
 namespace game {
 
 namespace {
@@ -66,16 +68,22 @@ void set_look() {
     look.sounds = { .hover = "hover", .click = "click", .volume = 0.6f };
     look.styles.panel = {
         .skin = rmp::ui::Skin{ .normal = frame("panel.png") },
-        .shadow = rmp::ui::Shadow{ .offset = { 0, 8 }, .blur = 14, .color = { 0, 0, 0, 140 } },
+        .shadow =
+            rmp::ui::Shadow{ .offset = { 0, 8 }, .blur = 14, .color = { 0, 0, 0, 140 } },
         .padding_x = 28,
         .padding_y = 24,
         .gap = 14,
-        .text_shadow = rmp::ui::TextShadow{ .offset = { 0, 2 }, .color = { 30, 14, 10, 200 } },
-        .motion = rmp::ui::Motion{ .appear = 0.22f, .appear_offset = 14, .appear_scale = 0.97f },
+        .text_shadow =
+            rmp::ui::TextShadow{ .offset = { 0, 2 }, .color = { 30, 14, 10, 200 } },
+        .motion = rmp::ui::Motion{ .appear = 0.22f,
+                                   .appear_offset = 14,
+                                   .appear_scale = 0.97f },
     };
     look.styles.button = {
-        .skin = rmp::ui::Skin{ .normal = frame("button.png"), .press = frame("button_down.png") },
-        .shadow = rmp::ui::Shadow{ .offset = { 0, 4 }, .blur = 6, .color = { 0, 0, 0, 120 } },
+        .skin = rmp::ui::Skin{ .normal = frame("button.png"),
+                               .press = frame("button_down.png") },
+        .shadow =
+            rmp::ui::Shadow{ .offset = { 0, 4 }, .blur = 6, .color = { 0, 0, 0, 120 } },
         .padding_x = 26,
         .padding_y = 12,
         .text = INK,
@@ -90,7 +98,8 @@ void set_look() {
 void draw_tile(int index, Vector2 at, Color tint, float scale, float rotation) {
     const Texture2D &tiles = rmp::global<Art>().tiles;
     const Rectangle source{ static_cast<float>(index % COLUMNS) * TILE,
-                            static_cast<float>(index / COLUMNS) * TILE, TILE, TILE };
+                            std::floor(static_cast<float>(index) / COLUMNS) * TILE, TILE,
+                            TILE };
     const float size = TILE * scale;
     DrawTexturePro(tiles, source, Rectangle{ at.x, at.y, size, size },
                    Vector2{ size / 2, size / 2 }, rotation, tint);

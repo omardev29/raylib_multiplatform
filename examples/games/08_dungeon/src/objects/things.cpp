@@ -34,7 +34,8 @@ const Color FLAME = { 255, 140, 40, 120 };
 Rectangle tile_rect(int index) {
     constexpr int COLUMNS = 12;
     return Rectangle{ static_cast<float>(index % COLUMNS) * TILE,
-                      static_cast<float>(index / COLUMNS) * TILE, TILE, TILE };
+                      std::floor(static_cast<float>(index) / COLUMNS) * TILE, TILE,
+                      TILE };
 }
 
 // An object drawn as one tile of tiles.png.
@@ -47,7 +48,6 @@ rmp::Object &thing(rmp::Scene &s, Vector2 at, int tile, int draw_layer = 2) {
     t.collision_mask = layer::HERO;
     return t;
 }
-
 
 // Slows what was thrown to a stop: a gem out of a chest.
 struct Slide {
@@ -78,7 +78,8 @@ void gem(rmp::Scene &s, Vector2 at, Vector2 velocity = {}) {
 void spill_gems(rmp::Scene &s, Vector2 at, int count) {
     for (int i = 0; i < count; ++i) {
         const float angle = rmp::random::range(0.0f, 6.2831f);
-        gem(s, at, Vector2{ std::cos(angle) * SPILL_SPEED, std::sin(angle) * SPILL_SPEED });
+        gem(s, at,
+            Vector2{ std::cos(angle) * SPILL_SPEED, std::sin(angle) * SPILL_SPEED });
     }
 }
 
@@ -89,7 +90,8 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
     (void)hero;
     gates.clear();
 
-    map.on_object("Gem", [](rmp::Scene &s, const rmp::MapObject &o) { gem(s, o.position); });
+    map.on_object("Gem",
+                  [](rmp::Scene &s, const rmp::MapObject &o) { gem(s, o.position); });
 
     map.on_object("Potion", [](rmp::Scene &s, const rmp::MapObject &o) {
         auto &p = thing(s, o.position, tiles::POTION, 3);
@@ -97,7 +99,8 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
         p.add<b::Collectible>({ .collected_by = layer::HERO,
                                 .sound = "potion",
                                 .on_collect = [](rmp::Object &self, rmp::Object &) {
-                                    run().hp = std::min(run().max_hp, run().hp + POTION_HEALS);
+                                    run().hp =
+                                        std::min(run().max_hp, run().hp + POTION_HEALS);
                                     float_text(self.scene(), self.position, "+2",
                                                Color{ 255, 110, 110, 255 });
                                 } });
@@ -114,7 +117,8 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
         auto &chest = thing(s, o.position, tiles::CHEST);
         const int count = o.property_int("gems", 5);
         chest.add<b::Area>({ .on_enter = [count](rmp::Object &self, rmp::Object &who) {
-            if (!is_hero(who) || self.sprite.source.x == tile_rect(tiles::CHEST_OPEN).x) return;
+            if (!is_hero(who) || self.sprite.source.x == tile_rect(tiles::CHEST_OPEN).x)
+                return;
             self.sprite.source = tile_rect(tiles::CHEST_OPEN);
             rmp::audio::play("chest");
             spill_gems(self.scene(), self.position, count);
@@ -135,8 +139,10 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
     map.on_object("Lever", [&scene](rmp::Scene &s, const rmp::MapObject &o) {
         auto &lever = thing(s, o.position, tiles::LEVER);
         const std::string opens(o.property_string("opens"));
-        lever.add<b::Area>({ .on_enter = [&scene, opens](rmp::Object &self, rmp::Object &who) {
-            if (!is_hero(who) || self.sprite.source.x == tile_rect(tiles::LEVER_PULLED).x) return;
+        lever.add<b::Area>({ .on_enter = [&scene, opens](rmp::Object &self,
+                                                         rmp::Object &who) {
+            if (!is_hero(who) || self.sprite.source.x == tile_rect(tiles::LEVER_PULLED).x)
+                return;
             self.sprite.source = tile_rect(tiles::LEVER_PULLED);
             rmp::audio::play("door");
             scene.camera.shake(2, 0.4f);
@@ -156,11 +162,12 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
         spikes.collision_layer = layer::TRAP;
         spikes.add(b::Hitbox::from(o));
         // Up and down: a Timer flips the Hitbox on and off, and the tile with it.
-        spikes.add<b::Timer>({ .seconds = SPIKES_EVERY, .on_timeout = [](rmp::Object &self) {
-            const bool up = !self.enabled<b::Hitbox>();
-            self.enable<b::Hitbox>(up);
-            self.sprite.tint = up ? WHITE : Color{ 120, 110, 110, 255 };
-        } });
+        spikes.add<b::Timer>(
+            { .seconds = SPIKES_EVERY, .on_timeout = [](rmp::Object &self) {
+                 const bool up = !self.enabled<b::Hitbox>();
+                 self.enable<b::Hitbox>(up);
+                 self.sprite.tint = up ? WHITE : Color{ 120, 110, 110, 255 };
+             } });
     });
 
     map.on_object("Blades", [](rmp::Scene &s, const rmp::MapObject &o) {
@@ -179,7 +186,7 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
             orbit.face = b::Face::OUTWARD;
             orbit.index = i;
             orbit.of = count;
-            blade.add(std::move(orbit));
+            blade.add(orbit);
             blade.add<Light>({ .radius = 9, .color = Color{ 220, 230, 255, 70 } });
         }
     });
@@ -228,11 +235,11 @@ void add_things(LevelScene &scene, rmp::Handle<rmp::Object> hero) {
         exit.add<Light>({ .radius = 36, .color = Color{ 255, 220, 120, 130 } });
         exit.enable<Light>(false);
         exit.add<b::Timer>({ .seconds = 0.25f, .on_timeout = [](rmp::Object &self) {
-            if (self.visible || boss_lives()) return;
-            self.visible = true;
-            self.enable<Light>(true);
-            sparks(self.scene(), self.position, SHINE, 24);
-        } });
+                                if (self.visible || boss_lives()) return;
+                                self.visible = true;
+                                self.enable<Light>(true);
+                                sparks(self.scene(), self.position, SHINE, 24);
+                            } });
     });
 }
 

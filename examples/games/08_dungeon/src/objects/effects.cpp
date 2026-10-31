@@ -40,7 +40,8 @@ struct Words {
         const Font &font = rmp::global<Letters>().font;
         const float fade = 1 - (elapsed / TEXT_LIFE);
         const Vector2 size = MeasureTextEx(font, text.c_str(), TEXT_SIZE, 0);
-        const Vector2 at{ self.position.x - (size.x / 2), self.position.y - (size.y / 2) };
+        const Vector2 at{ self.position.x - (size.x / 2),
+                          self.position.y - (size.y / 2) };
         DrawTextEx(font, text.c_str(), Vector2{ at.x + 1, at.y + 1 }, TEXT_SIZE, 0,
                    Fade(BLACK, fade * 0.7f));
         DrawTextEx(font, text.c_str(), at, TEXT_SIZE, 0, Fade(color, fade));
@@ -60,7 +61,7 @@ struct Dark {
         (void)delta;
     }
     void _draw(rmp::Object &self) {
-        Rectangle view = self.scene().camera.view();
+        const Rectangle view = self.scene().camera.view();
         DrawRectangleRec(Rectangle{ view.x - TILE, view.y - TILE, view.width + (2 * TILE),
                                     view.height + (2 * TILE) },
                          NIGHT);
@@ -70,7 +71,8 @@ struct Dark {
             if (!object->visible || !object->enabled<Light>()) continue;
             const Light &light = *object->get<Light>();
             const float breath = light.flicker
-                ? 1 + (0.08f * std::sin(light.clock * 7.3f)) + (0.05f * std::sin(light.clock * 13.1f))
+                ? 1 + (0.08f * std::sin(light.clock * 7.3f)) +
+                    (0.05f * std::sin(light.clock * 13.1f))
                 : 1;
             draw_glow(object->position, light.radius * breath, light.color);
         }
@@ -98,8 +100,10 @@ void sparks(rmp::Scene &scene, Vector2 at, Color color, int count) {
     for (int i = 0; i < count; ++i) {
         const Vector2 velocity{ rmp::random::range(-SPARK_SPEED, SPARK_SPEED),
                                 rmp::random::range(-SPARK_SPEED, SPARK_SPEED) };
-        auto &spark = scene.spawn({ .position = at, .size = { SPARK_SIZE, SPARK_SIZE },
-                                    .velocity = velocity, .layer = 8 });
+        auto &spark = scene.spawn({ .position = at,
+                                    .size = { SPARK_SIZE, SPARK_SIZE },
+                                    .velocity = velocity,
+                                    .layer = 8 });
         spark.shape.color = color;
         spark.collision_layer = 0;
         spark.collision_mask = 0;
@@ -113,8 +117,8 @@ void sparks(rmp::Scene &scene, Vector2 at, Color color, int count) {
 }
 
 void float_text(rmp::Scene &scene, Vector2 at, std::string_view text, Color color) {
-    auto &words = scene.spawn({ .position = at, .velocity = { 0, -TEXT_RISE / TEXT_LIFE },
-                                .layer = 9 });
+    auto &words = scene.spawn(
+        { .position = at, .velocity = { 0, -TEXT_RISE / TEXT_LIFE }, .layer = 9 });
     words.collision_layer = 0;
     words.collision_mask = 0;
     words.add<Words>({ .text = std::string(text), .color = color });

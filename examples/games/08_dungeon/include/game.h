@@ -72,7 +72,8 @@ bool keep_if_best(int gems);
 void set_look();
 
 // A tile of tiles.png, centred on `at`, in the world.
-void draw_tile(int index, Vector2 at, Color tint = WHITE, float scale = 1, float rotation = 0);
+void draw_tile(int index, Vector2 at, Color tint = WHITE, float scale = 1,
+               float rotation = 0);
 // A glow of `radius` around `at`, added to what is under it.
 void draw_glow(Vector2 at, float radius, Color color);
 

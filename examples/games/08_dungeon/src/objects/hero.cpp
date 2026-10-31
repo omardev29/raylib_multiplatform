@@ -48,7 +48,8 @@ void Hero::_ready() {
     collider = rmp::rect({ 10, 10 });
     solid = true;
     collision_layer = layer::HERO;
-    collision_mask = layer::MONSTER | layer::PICKUP | layer::TRAP | layer::PLACE | layer::WALL;
+    collision_mask =
+        layer::MONSTER | layer::PICKUP | layer::TRAP | layer::PLACE | layer::WALL;
     layer = 5;
 
     add<rmp::behavior::TopDown>({ .speed = SPEED, .idle = "", .walk = "" });
@@ -94,20 +95,24 @@ void Hero::_update(float delta) {
 void Hero::swing() {
     _cooldown = SWING_EVERY;
     const Vector2 facing = get<rmp::behavior::TopDown>()->direction();
-    const Vector2 at{ position.x + (facing.x * SWING_REACH), position.y + (facing.y * SWING_REACH) };
+    const Vector2 at{ position.x + (facing.x * SWING_REACH),
+                      position.y + (facing.y * SWING_REACH) };
     auto &slash = scene().spawn({ .position = at, .layer = 6 });
     slash.collider = rmp::rect({ SWING_SIZE, SWING_SIZE }); // felt, and drawn by Slash
     slash.collision_layer = layer::SWING;
     slash.collision_mask = layer::MONSTER;
-    slash.add<rmp::behavior::Hitbox>(
-        { .damage = 1, .hits = layer::MONSTER, .knockback = SWING_KNOCKBACK,
-          .once_per_target = true,
-          .on_hit = [](rmp::Object &, rmp::Object &victim) {
-              rmp::audio::play("hit");
-              sparks(victim.scene(), victim.position, Color{ 255, 236, 180, 255 }, 6);
-          } });
+    slash.add<rmp::behavior::Hitbox>({ .damage = 1,
+                                       .hits = layer::MONSTER,
+                                       .knockback = SWING_KNOCKBACK,
+                                       .once_per_target = true,
+                                       .on_hit = [](rmp::Object &, rmp::Object &victim) {
+                                           rmp::audio::play("hit");
+                                           sparks(victim.scene(), victim.position,
+                                                  Color{ 255, 236, 180, 255 }, 6);
+                                       } });
     slash.add<rmp::behavior::Lifespan>({ .seconds = SWING_LASTS });
-    slash.add<Slash>({ .angle = std::atan2(facing.y, facing.x) * 180 / std::numbers::pi_v<float> });
+    slash.add<Slash>(
+        { .angle = std::atan2(facing.y, facing.x) * 180 / std::numbers::pi_v<float> });
     rmp::audio::play("swing", { .volume = 0.5f });
 }
 

@@ -566,7 +566,7 @@ def main() -> int:
     for name, (pack, path) in SOUNDS.items():
         write(name, member(inputs[pack], path))
     write("License-kenney.txt", (LICENSE_HEAD + member(inputs["tiny-dungeon"], "License.txt")
-                                 .decode("utf-8", "replace").replace("\r\n", "\n").strip()
+                                 .decode("utf-8", "replace").replace("\r", "").strip()
                                  + "\n").encode("utf-8"))
 
     world = OUT / "world.ldtk"

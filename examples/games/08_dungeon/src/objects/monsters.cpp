@@ -45,10 +45,10 @@ const Color GORE = { 120, 220, 120, 255 };
 // The Cyclops the Ghosts circle: built first, because LDtk lists it first.
 rmp::Handle<rmp::Object> boss;
 
-
 float distance(Vector2 a, Vector2 c) { return Vector2Distance(a, c); }
 
-rmp::Object &monster(rmp::Scene &s, const rmp::MapObject &o, std::string_view sheet, int hp) {
+rmp::Object &monster(rmp::Scene &s, const rmp::MapObject &o, std::string_view sheet,
+                     int hp) {
     auto &m = s.spawn({ .position = o.position, .layer = 4 });
     m.sprite.sheet = rmp::assets::load_sheet(sheet);
     m.collider = rmp::rect({ BODY, BODY });
@@ -56,12 +56,11 @@ rmp::Object &monster(rmp::Scene &s, const rmp::MapObject &o, std::string_view sh
     m.collision_layer = layer::MONSTER;
     m.collision_mask = layer::HERO | layer::SWING | layer::MONSTER | layer::WALL;
     m.add<b::Hitbox>({ .damage = 1, .hits = layer::HERO, .knockback = TOUCH_KNOCKBACK });
-    m.add<b::Health>({ .hp = hp,
-                       .invulnerable_for = 0.25f,
-                       .on_death = [](rmp::Object &self) {
-                           rmp::audio::play("hit", { .pitch = 0.7f });
-                           sparks(self.scene(), self.position, GORE, 14);
-                       } });
+    m.add<b::Health>(
+        { .hp = hp, .invulnerable_for = 0.25f, .on_death = [](rmp::Object &self) {
+             rmp::audio::play("hit", { .pitch = 0.7f });
+             sparks(self.scene(), self.position, GORE, 14);
+         } });
     m.add<b::Animator>();
     return m;
 }
@@ -69,16 +68,19 @@ rmp::Object &monster(rmp::Scene &s, const rmp::MapObject &o, std::string_view sh
 // A bolt of the wizard's or the cyclops's: a violet spark that hurts the hero
 // and ends at a wall.
 void bolt(rmp::Scene &s, Vector2 at, Vector2 velocity) {
-    auto &shot = s.spawn({ .position = at, .shape = rmp::circle(BOLT_RADIUS),
-                           .velocity = velocity, .layer = 7 });
+    auto &shot = s.spawn({ .position = at,
+                           .shape = rmp::circle(BOLT_RADIUS),
+                           .velocity = velocity,
+                           .layer = 7 });
     shot.shape.color = BOLT;
     shot.collision_layer = layer::TRAP;
     shot.collision_mask = layer::HERO;
-    shot.add<b::Hitbox>({ .damage = 1, .hits = layer::HERO, .knockback = 160,
-                          .destroy_on_hit = true });
+    shot.add<b::Hitbox>(
+        { .damage = 1, .hits = layer::HERO, .knockback = 160, .destroy_on_hit = true });
     shot.add<b::Projectile>({ .destroy_on_wall = true });
     shot.add<b::Lifespan>({ .seconds = BOLT_LIFE });
-    shot.add<Light>({ .radius = BOLT_GLOW, .color = Color{ 150, 80, 255, 170 }, .flicker = false });
+    shot.add<Light>(
+        { .radius = BOLT_GLOW, .color = Color{ 150, 80, 255, 170 }, .flicker = false });
 }
 
 } // namespace
@@ -111,22 +113,24 @@ void add_monsters(rmp::Scene &scene, rmp::Handle<rmp::Object> hero) {
         spider.add(std::move(chase));
         // Hurt down to its last point, it runs from you for a while.
         b::StateMachine mind;
-        mind.states.push_back({ .name = "hunt", .enables = b::kinds<b::Patrol, b::Chase>() });
         mind.states.push_back(
-            { .name = "flee",
-              .on_update = [hero](rmp::Object &self, float) {
-                  if (const auto h = hero.get()) {
-                      const Vector2 away = Vector2Normalize(Vector2Subtract(self.position, h->position));
-                      self.velocity = Vector2Scale(away, FLEE_SPEED);
-                  }
-              } });
-        mind.transitions.push_back({ .from = "hunt", .to = "flee", .when = [](rmp::Object &self) {
-                                         return self.get<b::Health>()->hp == 1;
-                                     } });
-        mind.transitions.push_back({ .from = "flee", .to = "hunt", .when = [](rmp::Object &self) {
-                                         return self.get<b::StateMachine>()->seconds_in_state() >
-                                             FLEE_SECONDS;
-                                     } });
+            { .name = "hunt", .enables = b::kinds<b::Patrol, b::Chase>() });
+        mind.states.push_back(
+            { .name = "flee", .on_update = [hero](rmp::Object &self, float) {
+                 if (const auto h = hero.get()) {
+                     const Vector2 away =
+                         Vector2Normalize(Vector2Subtract(self.position, h->position));
+                     self.velocity = Vector2Scale(away, FLEE_SPEED);
+                 }
+             } });
+        mind.transitions.push_back(
+            { .from = "hunt", .to = "flee", .when = [](rmp::Object &self) {
+                 return self.get<b::Health>()->hp == 1;
+             } });
+        mind.transitions.push_back(
+            { .from = "flee", .to = "hunt", .when = [](rmp::Object &self) {
+                 return self.get<b::StateMachine>()->seconds_in_state() > FLEE_SECONDS;
+             } });
         spider.add(std::move(mind));
     });
 
@@ -155,11 +159,13 @@ void add_monsters(rmp::Scene &scene, rmp::Handle<rmp::Object> hero) {
             static_cast<LevelScene &>(self.scene()).announce("The Sanctum falls silent");
         };
         cyclops.add<b::Pathfind>({ .target = hero, .speed = BOSS_SPEED, .clearance = 6 });
-        cyclops.add<b::Shooter>({ .every = 0.3f, .speed = 90, .count = 6, .spread = 360,
+        cyclops.add<b::Shooter>({ .every = 0.3f,
+                                  .speed = 90,
+                                  .count = 6,
+                                  .spread = 360,
                                   .rotate_per_shot = 17,
-                                  .on_shoot = [](rmp::Scene &scene, Vector2 at, Vector2 v) {
-                                      bolt(scene, at, v);
-                                  } });
+                                  .on_shoot = [](rmp::Scene &scene, Vector2 at,
+                                                 Vector2 v) { bolt(scene, at, v); } });
         // Asleep until you come near; then it hunts you, and stops to throw
         // a spiral of bolts, and hunts again.
         b::StateMachine mind;
@@ -168,18 +174,19 @@ void add_monsters(rmp::Scene &scene, rmp::Handle<rmp::Object> hero) {
         mind.states.push_back({ .name = "volley",
                                 .on_enter = [](rmp::Object &self) { self.velocity = {}; },
                                 .enables = b::kinds<b::Shooter>() });
-        mind.transitions.push_back({ .from = "asleep", .to = "hunt", .when = [hero](rmp::Object &self) {
-                                         const auto h = hero.get();
-                                         return h && distance(h->position, self.position) < WAKE_DISTANCE;
-                                     } });
-        mind.transitions.push_back({ .from = "hunt", .to = "volley", .when = [](rmp::Object &self) {
-                                         return self.get<b::StateMachine>()->seconds_in_state() >
-                                             HUNT_SECONDS;
-                                     } });
-        mind.transitions.push_back({ .from = "volley", .to = "hunt", .when = [](rmp::Object &self) {
-                                         return self.get<b::StateMachine>()->seconds_in_state() >
-                                             VOLLEY_SECONDS;
-                                     } });
+        mind.transitions.push_back(
+            { .from = "asleep", .to = "hunt", .when = [hero](rmp::Object &self) {
+                 const auto h = hero.get();
+                 return h && distance(h->position, self.position) < WAKE_DISTANCE;
+             } });
+        mind.transitions.push_back(
+            { .from = "hunt", .to = "volley", .when = [](rmp::Object &self) {
+                 return self.get<b::StateMachine>()->seconds_in_state() > HUNT_SECONDS;
+             } });
+        mind.transitions.push_back(
+            { .from = "volley", .to = "hunt", .when = [](rmp::Object &self) {
+                 return self.get<b::StateMachine>()->seconds_in_state() > VOLLEY_SECONDS;
+             } });
         cyclops.add(std::move(mind));
         cyclops.get<b::Shooter>()->automatic = true;
         cyclops.add<Light>({ .radius = 40, .color = Color{ 160, 40, 30, 90 } });
@@ -191,7 +198,7 @@ void add_monsters(rmp::Scene &scene, rmp::Handle<rmp::Object> hero) {
         b::Orbit orbit = b::Orbit::from(o);
         orbit.centre = boss;
         orbit.point = o.position;
-        ghost.add(std::move(orbit));
+        ghost.add(orbit);
         ghost.sprite.tint = Color{ 255, 255, 255, 200 };
     });
 }
