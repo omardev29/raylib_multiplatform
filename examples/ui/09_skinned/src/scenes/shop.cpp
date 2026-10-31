@@ -86,7 +86,7 @@ void ShopScene::show_shop() {
                                    { .width = 24, .height = 24 });
                     rmp::ui::text("Stars: " + std::to_string(_stars));
                 });
-                rmp::ui::text("¿Cuánto cuesta? Tres monedas, señor.");
+                rmp::ui::text("Three coins a star. No refunds, café prices.");
             });
         });
         rmp::ui::row([&] {

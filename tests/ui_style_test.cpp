@@ -109,6 +109,19 @@ std::vector<ui::Event> &heard() {
     return events;
 }
 
+// The dark theme with no Style for any kind of widget: the mechanism under
+// test and nothing of the framework's own look on top -- what the themes were
+// before buttons and panels had motion and shadows. The tests of that look
+// set theme_dark() themselves.
+ui::Theme plain_dark() {
+    ui::Theme t = ui::theme_dark();
+    // Not `t.styles = {}`: Styles{} is the framework's styles, its default
+    // member initialisers; a Style{} has none.
+    t.styles.button = {};
+    t.styles.panel = {};
+    return t;
+}
+
 struct HeadlessUi {
     HeadlessUi() {
         // From nothing: no event memory, no fonts, no letters left by a test before.
@@ -118,7 +131,7 @@ struct HeadlessUi {
         typing.typed.clear();
         heard().clear();
         rmp::detail::reset_reports_for_tests();
-        ui::set_theme(ui::theme_dark());
+        ui::set_theme(plain_dark());
         detail::set_measure_provider(measure_stub);
         detail::set_pointer_provider(pointer_stub);
         detail::set_nav_provider(keys_stub);
@@ -260,8 +273,11 @@ rmp::SpriteSheet fake_sheet() {
 TEST_SUITE("ui: looks") {
     // (each suite's cases are inside its braces)
 
-    TEST_CASE("the framework's themes carry no style, no sound and no motion") {
-        for (const ui::Theme &t : { ui::theme_dark(), ui::theme_light() }) {
+    TEST_CASE("the framework's themes: silent; buttons grow and give on a soft shadow, "
+              "panels rise in on a deeper one, and nothing else is styled") {
+        const ui::Theme dark = ui::theme_dark();
+        const ui::Theme light = ui::theme_light();
+        for (const ui::Theme &t : { dark, light }) {
             CHECK_FALSE(t.sounds.click);
             CHECK_FALSE(t.sounds.hover);
             CHECK_FALSE(t.sounds.volume);
@@ -269,20 +285,82 @@ TEST_SUITE("ui: looks") {
             CHECK(t.motion.press_scale == 1);
             CHECK(t.motion.hover_lift == 0);
             CHECK(t.motion.appear == 0);
+
+            const ui::Style &button = t.styles.button;
+            REQUIRE(button.motion);
+            REQUIRE(button.shadow);
+            const ui::Motion pressed = button.motion.value_or(ui::Motion{});
+            CHECK(pressed.hover_scale == doctest::Approx(1.03f));
+            CHECK(pressed.press_scale == doctest::Approx(0.97f));
+            CHECK(pressed.hover_lift == 0);
+            CHECK(pressed.appear == 0);
+            const ui::Shadow under = button.shadow.value_or(ui::Shadow{});
+            CHECK(under.offset.y == 2);
+            CHECK(under.blur == 6);
+            CHECK_FALSE(button.background);
+            CHECK_FALSE(button.text_shadow); // never a text shadow by default
+            CHECK_FALSE(button.text_outline);
+
+            const ui::Style &panel = t.styles.panel;
+            REQUIRE(panel.motion);
+            REQUIRE(panel.shadow);
+            const ui::Motion arriving = panel.motion.value_or(ui::Motion{});
+            CHECK(arriving.appear == doctest::Approx(0.18f));
+            CHECK(arriving.appear_offset == 10);
+            CHECK(arriving.hover_scale == 1);
+            CHECK(arriving.press_scale == 1);
+            const ui::Shadow deeper = panel.shadow.value_or(ui::Shadow{});
+            CHECK(deeper.offset.y == 8);
+            CHECK(deeper.blur == 18);
+            CHECK_FALSE(panel.text_shadow);
+
             for (const ui::Style &s :
-                 { t.styles.button, t.styles.label, t.styles.image, t.styles.panel,
-                   t.styles.checkbox, t.styles.slider, t.styles.dropdown,
-                   t.styles.text_input, t.styles.progress }) {
+                 { t.styles.label, t.styles.image, t.styles.checkbox, t.styles.slider,
+                   t.styles.dropdown, t.styles.text_input, t.styles.progress }) {
                 CHECK_FALSE(s.background);
                 CHECK_FALSE(s.skin);
                 CHECK_FALSE(s.shadow);
                 CHECK_FALSE(s.motion);
+                CHECK_FALSE(s.text_shadow);
                 CHECK_FALSE(s.font.valid());
             }
         }
+        // The same shadows, fainter on white.
+        const auto alpha = [](const std::optional<ui::Shadow> &shadow) {
+            return shadow.value_or(ui::Shadow{ .color = { 0, 0, 0, 1 } }).color.a;
+        };
+        CHECK(alpha(dark.styles.button.shadow) == 70);
+        CHECK(alpha(light.styles.button.shadow) == 36);
+        CHECK(alpha(dark.styles.panel.shadow) == 100);
+        CHECK(alpha(light.styles.panel.shadow) == 48);
+        // A default-constructed Theme is the dark one, look and all.
+        const ui::Theme made{};
+        CHECK(made.styles.button.motion.value_or(ui::Motion{}).hover_scale ==
+              doctest::Approx(1.03f));
+        CHECK(alpha(made.styles.panel.shadow) == 100);
     }
 
-    TEST_CASE("with the framework's themes a frame of every widget carries no record") {
+    TEST_CASE("with the framework's themes a button and a panel carry a record, "
+              "the other widgets none") {
+        const HeadlessUi headless;
+        ui::set_theme(ui::theme_dark());
+        bool on = false;
+        float value = 0.5f;
+        frame([&] {
+            ui::text("Title");
+            ui::checkbox("Sound", on);
+            ui::slider("Volume", value, 0, 1);
+            ui::progress(0.3f);
+        });
+        CHECK(records() == 0);
+        frame([] { ui::button("Play"); });
+        CHECK(records() == 1); // its shadow
+        frame([] { ui::panel([] { ui::text("inside"); }); });
+        CHECK(records() >= 1); // its shadow, and its appear on the first frames
+        CHECK(rmp::detail::report_count() == 0);
+    }
+
+    TEST_CASE("with no Style for any kind a frame of every widget carries no record") {
         const HeadlessUi headless;
         bool on = false;
         float value = 0.5f;

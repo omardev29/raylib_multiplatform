@@ -43,10 +43,12 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -975,6 +977,53 @@ Rectangle drawn(Clay_RenderCommandType type) {
     return Rectangle{};
 }
 
+// Hot reload's GPU half (tests/watch_test.cpp has the rest): a texture whose
+// file is redrawn while the game runs is loaded again into its slot, and every
+// handle to it -- the one the scene keeps, the one a sprite copied -- draws
+// the new picture. A file that does not decode keeps the old one.
+void a_texture_reloads_in_place() {
+#if !RMP_PRODUCTION_BUILD
+    const std::filesystem::path folder =
+        std::filesystem::temp_directory_path() / "rmp-ui-render-reload";
+    std::filesystem::create_directories(folder);
+    const std::string root = (folder / "").string();
+    rmp::assets::detail::set_resources_root(root.c_str());
+    const std::string file = (folder / "hero.png").string();
+    const auto put = [&](int width, Color color) {
+        const ::Image picture = GenImageColor(width, 4, color);
+        ExportImage(picture, file.c_str());
+        UnloadImage(picture);
+    };
+    put(4, RED);
+    {
+        rmp::Texture hero = rmp::assets::load_texture("hero.png");
+        // NOLINTNEXTLINE(performance-unnecessary-copy-initialization): a second handle
+        const rmp::Texture copy = hero;
+        check(hero.valid() && hero.raw().width == 4, "the first picture loads");
+        rmp::assets::detail::poll_watched_now();
+        check(!hero.changed(), "and is not changed before anything is saved");
+
+        put(8, GREEN);
+        rmp::assets::detail::poll_watched_now();
+        check(hero.changed() && copy.changed(),
+              "a redrawn file is a change, for every handle");
+        check(hero.reload(), "reload() loads it");
+        check(copy.raw().width == 8 && hero.raw().id == copy.raw().id,
+              "into the slot: the other handle has the new picture");
+        check(!hero.changed(), "and it is not changed any more");
+
+        std::filesystem::resize_file(file, 10); // saved half
+        rmp::assets::detail::poll_watched_now();
+        check(hero.changed() && !hero.reload() && hero.raw().width == 8,
+              "a file that does not decode leaves the picture as it was");
+    }
+    rmp::assets::detail::forget_watched();
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+#endif
+}
+
 // The bug a .ttf had: raylib bakes ASCII alone when it is handed no list of
 // letters, so n with a tilde, the accents and the inverted question mark were
 // drawn as '?'. The example's DejaVu subset has them all.
@@ -1120,6 +1169,45 @@ void a_skin_is_the_box() {
     rmp::ui::shutdown();
 }
 
+// The framework's own look, on a GPU: the dark theme's panel fades in, and
+// once it has arrived it sits on a soft shadow, darker below it than beside it.
+void the_framework_look() {
+    // A copy: set_theme() below writes over what current_theme() refers to.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    const rmp::ui::Theme before = rmp::ui::current_theme();
+    rmp::ui::Theme t = rmp::ui::theme_dark();
+    t.transition = 0;
+    rmp::ui::set_theme(t);
+    const Color page = Color{ 200, 200, 200, 255 };
+    const auto draw = [&] {
+        ClearBackground(page);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 20 });
+        rmp::ui::panel({ .box = { .width = 160, .height = 80 } }, [] {});
+        rmp::ui::end();
+    };
+    frame(draw);
+    const Shot first = frame(draw);
+    const Rectangle r = drawn(CLAY_RENDER_COMMAND_TYPE_RECTANGLE);
+    const int cx = static_cast<int>(r.x + r.width * 0.5f);
+    const int cy = static_cast<int>(r.y + r.height * 0.5f);
+    const Color arriving = first.at(cx, cy);
+    // Its 0.18 s go by on raylib's clock here: half a second of frames.
+    const double start = GetTime();
+    while (GetTime() - start < 0.5) frame(draw);
+    const Shot arrived = frame(draw);
+    const Color inside = arrived.at(cx, cy);
+    check(!same(arriving, inside), "the panel is still arriving on its second frame");
+    check(same(inside, t.panel), "and then it is the theme's panel colour");
+    const Color below =
+        arrived.at(cx, static_cast<int>(r.y + r.height + 6 * rmp::ui::scale()));
+    check(below.r < page.r && below.g < page.g && below.b < page.b,
+          "with a shadow under it, darker than the page");
+    check(same(arrived.at(arrived.width() - 2, arrived.height() - 2), page),
+          "and the page untouched away from it");
+    rmp::ui::set_theme(before);
+    rmp::ui::shutdown();
+}
+
 } // namespace
 
 int main() {
@@ -1144,6 +1232,15 @@ int main() {
 
     // The blur at once, unless a check says otherwise.
     set_transition(0);
+    // And the mechanisms without the framework's own look on top: no button
+    // grows and no panel fades in under a check that reads a pixel the frame
+    // after. the_framework_look() puts it back for itself.
+    {
+        rmp::ui::Theme t = rmp::ui::current_theme();
+        t.styles.button = {};
+        t.styles.panel = {};
+        rmp::ui::set_theme(t);
+    }
 
     untouched_without_an_overlay();
     nested_scrolls_clip_to_both();
@@ -1167,10 +1264,12 @@ int main() {
     follows_an_odd_size();
     what_assets_makes();
     a_ttf_has_its_latin_letters();
+    a_texture_reloads_in_place();
     a_nine_slice_keeps_its_corners();
     a_shadow_falls_under_its_box();
     an_outline_goes_around_the_letters();
     a_skin_is_the_box();
+    the_framework_look();
 
     rmp::ui::detail::set_test_blur_shader(std::nullopt);
     rmp::ui::shutdown();

@@ -492,21 +492,32 @@ struct Theme {
     float min_touch_size = 44;
 
     // --- feel, for every control ------------------------------------------
-    // Sounds and motion every widget starts from. Both empty in theme_dark()
-    // and theme_light(): silent and still, as they always were.
+    // Sounds and motion every widget starts from. Silent in theme_dark() and
+    // theme_light(); the motion they have is the buttons' and the panels',
+    // in `styles` below.
     Sounds sounds{};
     Motion motion{};
 
     // --- one Style per kind of widget ---------------------------------------
     // What every widget of that kind looks like before its own style: give
     // `styles.button` a skin and every button of the game wears it, the ones
-    // written as rmp::ui::button("Play") included. Empty in the framework's
-    // themes.
+    // written as rmp::ui::button("Play") included. In the framework's themes
+    // a button grows a little under the pointer, gives a little when pressed
+    // and sits on a soft shadow, and a panel -- an overlay's included --
+    // fades and rises into place on a deeper one; the rest are empty. A Style
+    // of your own replaces the whole field: `t.styles.button = {}` is a
+    // button that does none of it.
     struct Styles {
-        Style button{}; // button(), image_button(), Button
+        Style button{
+            .shadow = Shadow{ .offset = { 0, 2 }, .blur = 6, .color = { 0, 0, 0, 70 } },
+            .motion = Motion{ .hover_scale = 1.03f, .press_scale = 0.97f },
+        }; // button(), image_button(), Button
         Style label{}; // text(), Label
         Style image{}; // image(), Image
-        Style panel{}; // panel(), Panel
+        Style panel{
+            .shadow = Shadow{ .offset = { 0, 8 }, .blur = 18, .color = { 0, 0, 0, 100 } },
+            .motion = Motion{ .appear = 0.18f, .appear_offset = 10 },
+        }; // panel(), Panel
         Style checkbox{}; // checkbox(), Checkbox
         Style slider{}; // slider(), Slider
         Style dropdown{}; // dropdown(), Dropdown
