@@ -616,8 +616,11 @@ jobs:
     # pinned image on four processors the same 104 files took 519 s in path
     # order, and 369 s on a machine twice as loaded with the costliest first
     # and the e2e driver read once instead of sixteen times; with the image's
-    # ~90 s to start, about six minutes.
-    timeout-minutes: 12
+    # ~90 s to start, about six minutes. 20 since #18: rmp/ui.h includes
+    # rmp/object.h, so every file that draws a widget reads ~18k more lines,
+    # and the job took 9m59s on f6aa958 and ran into 12 minutes on bbd1f9b and
+    # b447ee0 (runs 41160787228 and 41185720704).
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
