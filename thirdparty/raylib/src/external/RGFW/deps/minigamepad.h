@@ -610,6 +610,12 @@ struct mg_gamepad {
 #ifdef MG_LINUX
 #include <linux/input.h>
 #include <linux/input-event-codes.h>
+/* PATCHED (raylib_cmake_template): ABS_PROFILE is newer than the kernel
+   headers of Ubuntu 22.04 (5.15), where the build stopped on it below. The
+   kernel's numbers never change, so it is defined as newer headers have it. */
+#ifndef ABS_PROFILE
+#define ABS_PROFILE 0x21
+#endif
 
 struct mg_gamepads_src {
     int inotify, watch;

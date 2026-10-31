@@ -152,7 +152,11 @@ bool parse_sheet(const void *bytes, int size, SheetData *out) {
         const Rectangle dst{ static_cast<float>(i * sheet.width), 0,
                              static_cast<float>(sheet.width),
                              static_cast<float>(sheet.height) };
-        ImageDraw(&atlas, one, src, dst, WHITE);
+#if RAYLIB_VERSION_MAJOR > 6 || (RAYLIB_VERSION_MAJOR == 6 && RAYLIB_VERSION_MINOR >= 2)
+        ImageDrawImagePro(&atlas, one, src, dst, Vector2{ 0, 0 }, 0.0f, WHITE);
+#else
+        ImageDraw(&atlas, one, src, dst, WHITE); // raylib 6.0: iOS's fork
+#endif
         // `one` is NOT unloaded: its pixels belong to the ase_t.
     }
 

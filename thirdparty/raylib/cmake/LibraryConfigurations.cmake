@@ -7,6 +7,30 @@ if(POLICY CMP0072)
   cmake_policy(SET CMP0072 NEW)
 endif()
 
+include(CheckCSourceCompiles)
+include(CMakePushCheckState)
+
+function(raylib_check_libatomic_required result)
+    set(_atomic_test_source "
+int main(void)
+{
+    volatile long long value = 0;
+    return (int)__atomic_fetch_add(&value, 1, __ATOMIC_SEQ_CST);
+}")
+
+    check_c_source_compiles("${_atomic_test_source}" RAYLIB_ATOMICS_WITHOUT_LIBATOMIC)
+
+    if (RAYLIB_ATOMICS_WITHOUT_LIBATOMIC)
+        set(${result} FALSE PARENT_SCOPE)
+    else ()
+        cmake_push_check_state()
+        list(APPEND CMAKE_REQUIRED_LIBRARIES atomic)
+        check_c_source_compiles("${_atomic_test_source}" RAYLIB_ATOMICS_WITH_LIBATOMIC)
+        cmake_pop_check_state()
+        set(${result} ${RAYLIB_ATOMICS_WITH_LIBATOMIC} PARENT_SCOPE)
+    endif ()
+endfunction()
+
 set(RAYLIB_DEPENDENCIES "include(CMakeFindDependencyMacro)")
 
 if (${PLATFORM} STREQUAL "Desktop")
@@ -67,6 +91,21 @@ if (${PLATFORM} STREQUAL "Desktop")
         endif ()
     endif ()
 
+elseif (${PLATFORM} STREQUAL "Win32")
+    if ((NOT WIN32) AND (NOT CMAKE_C_COMPILER MATCHES "mingw|mingw32|mingw64"))
+        message(FATAL_ERROR "Win32 platform requires Windows or a cross compiler.")
+    endif ()
+
+    set(PLATFORM_CPP "PLATFORM_DESKTOP_WIN32")
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+
+    if (${OPENGL_VERSION} MATCHES "Software")
+        set(GRAPHICS "GRAPHICS_API_OPENGL_SOFTWARE")
+    endif ()
+
+    find_package(OpenGL QUIET)
+    set(LIBS_PRIVATE ${OPENGL_LIBRARIES} winmm)
+
 elseif (${PLATFORM} STREQUAL "Web")
     set(PLATFORM_CPP "PLATFORM_WEB")
     if(NOT GRAPHICS)
@@ -75,7 +114,7 @@ elseif (${PLATFORM} STREQUAL "Web")
     set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
 
 elseif (${PLATFORM} STREQUAL "WebEmscripten")
-    # PATCHED (raylib_multiplatform): raylib 6.0 ships a GLFW-free web backend in
+    # PATCHED (raylib_multiplatform): raylib ships a GLFW-free web backend in
     # platforms/rcore_web_emscripten.c and rcore.c selects it with
     # PLATFORM_WEB_EMSCRIPTEN — but upstream never added a branch here, so there
     # is no way to ASK for it from CMake. This is that branch. Same situation,
@@ -194,40 +233,17 @@ elseif ("${PLATFORM}" STREQUAL "RGFW")
         find_package(X11 REQUIRED)
         find_package(OpenGL REQUIRED)
 
-        # PATCHED (raylib_multiplatform): upstream links only X11 and GL here,
-        # but RGFW's X11 backend calls into Xrandr (XRRGetScreenResourcesCurrent,
-        # XRRGetCrtcInfo, ...) for monitor enumeration, and Xcursor/Xi for the
-        # pointer and raw input. Without them PLATFORM=RGFW does not link AT ALL
-        # on Linux — it is not a corner case, it is every build.
-        #
-        # X11_Xrandr_LIB and friends come from FindX11, which has already run.
-        # See thirdparty/FROZEN_VERSIONS.md. Re-apply when bumping raylib.
-        set(LIBS_PRIVATE ${X11_LIBRARIES} ${OPENGL_LIBRARIES}
-                         ${X11_Xrandr_LIB} ${X11_Xcursor_LIB} ${X11_Xi_LIB}
-                         ${X11_Xinerama_LIB})
+        # PATCHED (raylib_cmake_template): upstream links only X11 and GL here,
+        # but RGFW's X11 backend calls Xrandr for the monitors, so PLATFORM=RGFW
+        # does not link at all on Linux without it. Xcursor and Xi it loads
+        # itself, at run time.
+        set(LIBS_PRIVATE ${X11_LIBRARIES} ${OPENGL_LIBRARIES} ${X11_Xrandr_LIB})
     endif ()
 
 elseif ("${PLATFORM}" STREQUAL "WebRGFW")
     set(PLATFORM_CPP "PLATFORM_WEB_RGFW")
     set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")
     set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
-
-elseif ("${PLATFORM}" STREQUAL "Win32")
-    # PATCHED (raylib_multiplatform): raylib 6.0 ships a native Win32 backend in
-    # platforms/rcore_desktop_win32.c and rcore.c selects it with
-    # PLATFORM_DESKTOP_WIN32 — but upstream never added a branch here, so there
-    # is no way to ASK for it from CMake. This is that branch.
-    #
-    # GLFW drops out on its own: GlfwImport.cmake only builds it when PLATFORM
-    # matches "Desktop", and "Win32" does not.
-    #
-    # See [windows] backend in raylib_multiplatform.toml, and the note in
-    # thirdparty/FROZEN_VERSIONS.md. Re-apply when bumping raylib.
-    set(PLATFORM_CPP "PLATFORM_DESKTOP_WIN32")
-
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    find_package(OpenGL QUIET)
-    set(LIBS_PRIVATE ${OPENGL_LIBRARIES} winmm gdi32)
 
 elseif ("${PLATFORM}" STREQUAL "Memory")
     set(PLATFORM_CPP "PLATFORM_MEMORY")
@@ -267,6 +283,14 @@ if (NOT GRAPHICS)
 endif ()
 
 set(LIBS_PRIVATE ${LIBS_PRIVATE} ${OPENAL_LIBRARY})
+
+if (SUPPORT_MODULE_RAUDIO AND UNIX AND NOT APPLE)
+    raylib_check_libatomic_required(RAYLIB_LIBATOMIC_REQUIRED)
+    if (RAYLIB_LIBATOMIC_REQUIRED)
+        message(STATUS "64-bit atomics require libatomic")
+        list(APPEND LIBS_PRIVATE atomic)
+    endif ()
+endif ()
 
 if (${PLATFORM} MATCHES "Desktop")
     set(LIBS_PRIVATE ${LIBS_PRIVATE} glfw)
