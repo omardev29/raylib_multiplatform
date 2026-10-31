@@ -159,10 +159,10 @@ struct NineSlice {
     rmp::Texture texture; // the picture
     rmp::SpriteSheet sheet; // or an Aseprite sheet's, when `texture` is empty
     Rectangle source{}; // the part of it to cut; {0,0,0,0} = all of it
-    float left = 0; // the margins, in pixels of the SOURCE
-    float top = 0;
-    float right = 0;
-    float bottom = 0;
+    float left = 0; // the margins, in pixels of the SOURCE: the left column
+    float top = 0; // the top row
+    float right = 0; // the right column
+    float bottom = 0; // the bottom row
     // How big a source pixel is drawn, in design units: the corners are
     // left * scale design units wide, and grow with the UI's scale like
     // everything else. 0 = 1, so a 24-pixel frame is drawn as drawn. Pixel art
@@ -237,20 +237,20 @@ struct Shadow {
     Vector2 offset{ 0, 4 }; // where it falls: down a little, as light from above
     float blur = 8; // how far it fades out past the box; 0 = a hard shadow
     float spread = 0; // how much bigger than the box it is before it fades
-    Color color = CLITERAL(Color){ 0, 0, 0, 90 };
+    Color color = CLITERAL(Color){ 0, 0, 0, 90 }; // at the box; fainter outwards
 };
 
 // An outline around every letter, so a title reads over any background. In
 // design units; drawn as copies of the text around it, so keep it small: 1 to 3.
 struct TextOutline {
-    float width = 1;
-    Color color = CLITERAL(Color){ 0, 0, 0, 255 };
+    float width = 1; // how far it reaches past each letter, in design units
+    Color color = CLITERAL(Color){ 0, 0, 0, 255 }; // its colour
 };
 
 // A copy of the text under it, offset: the shadow of a letter.
 struct TextShadow {
     Vector2 offset{ 1, 2 }; // design units
-    Color color = CLITERAL(Color){ 0, 0, 0, 160 };
+    Color color = CLITERAL(Color){ 0, 0, 0, 160 }; // its colour
 };
 
 // Pictures instead of a flat colour, one per state. Only `normal` is needed:
@@ -279,13 +279,18 @@ public:
     SoundName(const char (&name)[N]) {
         keep(std::string_view(name, N > 0 && name[N - 1] == '\0' ? N - 1 : N));
     }
+    // A name held in a string_view: copied, so the view may go.
     // NOLINTNEXTLINE(google-explicit-constructor): `.click = name`
     SoundName(std::string_view name) { keep(name); }
+    // A name held in a std::string: copied.
     // NOLINTNEXTLINE(google-explicit-constructor): `.click = name`
     SoundName(const std::string &name) { keep(name); }
 
+    // The name, as rmp::audio::play() takes it; valid while this SoundName is.
     [[nodiscard]] std::string_view view() const { return _name; }
+    // True for "": silence, which turns off a sound set further out.
     [[nodiscard]] bool empty() const { return _name.empty(); }
+    // True when it is that name: `sounds.click == "click"`.
     friend bool operator==(const SoundName &a, std::string_view b) {
         return a.view() == b;
     }
@@ -372,8 +377,8 @@ struct Style {
     std::optional<float> padding_y; // inside, above and below
     std::optional<float> gap; // between the children of a container
     // --- text -------------------------------------------------------------
-    std::optional<Color> text;
-    std::optional<Color> text_disabled;
+    std::optional<Color> text; // the colour of its text
+    std::optional<Color> text_disabled; // ...when enabled = false
     // A font you loaded: `.font = rmp::assets::load_font("title.ttf", 32)`.
     // The interface draws with that FILE, baked by itself at every size it
     // needs, with any letter a text asks for -- so the size you loaded it at
@@ -383,7 +388,7 @@ struct Style {
     std::optional<TextOutline> text_outline;
     std::optional<TextShadow> text_shadow;
     // --- feel -------------------------------------------------------------
-    std::optional<Motion> motion;
+    std::optional<Motion> motion; // how it moves; see Motion
     Sounds sounds; // per event; see Sounds
 };
 
@@ -507,7 +512,7 @@ struct Theme {
         Style dropdown{}; // dropdown(), Dropdown
         Style text_input{}; // text_input(), TextInput
         Style progress{}; // progress(), ProgressBar
-    } styles{};
+    } styles{}; // one Style per kind of widget, under every widget of it
 };
 
 // The theme every widget is drawn with: current_theme() reads it, set_theme()
@@ -1397,12 +1402,13 @@ bool navigation_enabled();
 // vibration on a phone, a particle, a counter:
 //
 //     rmp::ui::on_event([](const rmp::ui::Event &e) {
-//         if (e.kind == rmp::ui::EventKind::CLICK) rmp::app::vibrate(10);
+//         if (e.kind == rmp::ui::EventKind::CLICK) rmp::audio::play("tick");
 //     });
 //
 // Every control has them, the ones written as rmp::ui::button("Play") too.
 // ---------------------------------------------------------------------------
 
+// What a control did.
 enum class EventKind {
     HOVER, // the pointer arrived on it
     UNHOVER, // ...and left
@@ -1433,9 +1439,9 @@ enum class WidgetKind {
 // One event. `name` is the control's label, or its id when it has one; it is
 // valid during the call only.
 struct Event {
-    EventKind kind = EventKind::CLICK;
-    WidgetKind widget = WidgetKind::BUTTON;
-    std::string_view name{};
+    EventKind kind = EventKind::CLICK; // what happened
+    WidgetKind widget = WidgetKind::BUTTON; // to which kind of widget
+    std::string_view name{}; // its label or id
 };
 
 // The one hook every event goes to, after its sound. Setting it again
@@ -1480,9 +1486,9 @@ void on_event(rmp::Callback<const Event &> hook);
 
 // What a kept widget remembers between frames.
 struct KeptState {
-    bool hovered = false;
-    bool pressed = false;
-    bool focused = false;
+    bool hovered = false; // the pointer is on it
+    bool pressed = false; // held down on it
+    bool focused = false; // it has the focus
     int shakes = 0; // shake() calls not yet started
 };
 
@@ -1498,48 +1504,48 @@ struct Button {
     detail::Sizing size{}; // a step or design units, as ButtonOptions::size
     float width = 0; // > 0 = a fixed width; 0 = as the immediate one
     float height = 0; // > 0 = a fixed height
-    bool enabled = true;
+    bool enabled = true; // false = drawn disabled; no press, no change, no focus
     std::string id{}; // as ButtonOptions::id: only for two with one label
-    Style style{};
-    rmp::Callback<> on_click;
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_press;
-    rmp::Callback<> on_release;
-    rmp::Callback<> on_focus;
-    rmp::Callback<> on_blur;
+    Style style{}; // its own look; see Style
+    rmp::Callback<> on_click; // clicked: released on it, or Enter or A with the focus
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_press; // the pointer went down on it
+    rmp::Callback<> on_release; // ...and came up
+    rmp::Callback<> on_focus; // the keyboard or gamepad focus arrived
+    rmp::Callback<> on_blur; // ...and left
 
     // Lays it out here, runs the callbacks of what happened, and says whether
     // it was clicked -- `if (play.show())` works as well as on_click.
-    bool show();
+    bool show(); // lays it out here
     // Shakes it side to side (its style's Motion), plays its `shake` sound and
     // sends EventKind::SHAKE: "that did not work". Starts at the next show().
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool pressed() const { return ours.pressed; }
-    [[nodiscard]] bool focused() const { return ours.focused; }
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool pressed() const { return ours.pressed; } // held down on it
+    [[nodiscard]] bool focused() const { return ours.focused; } // it has the focus
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // Text, as text() draws it, with a style of its own: a title in another font,
 // with an outline. Clickable when it has an on_click.
 struct Label {
-    std::string text;
+    std::string text; // what it says
     ColorRole color = ColorRole::TEXT; // used when the style sets no text colour
-    detail::Sizing size{};
-    bool wrap = true;
-    std::string id{};
-    Style style{};
-    rmp::Callback<> on_click;
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
+    detail::Sizing size{}; // a step or design units, as TextOptions::size
+    bool wrap = true; // break between words to fit; false = never broken
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
+    rmp::Callback<> on_click; // clicked: released on it, or Enter or A with the focus
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
 
     bool show(); // true on the frame it was clicked
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A picture with a style -- a frame, a shadow -- that can be clicked. With a
@@ -1548,23 +1554,23 @@ struct Image {
     Picture picture{}; // what it shows, unless `sprite` has something
     rmp::Sprite sprite{}; // an animated picture, advanced every show()
     bool grow = false; // as ImageOptions
-    float width = 0;
-    float height = 0;
-    bool enabled = true;
-    std::string id{};
+    float width = 0; // > 0 = fixed, in design units
+    float height = 0; // > 0 = fixed, in design units
+    bool enabled = true; // false = drawn disabled; no press, no change, no focus
+    std::string id{}; // as ButtonOptions::id: for a shared label
     Style style{}; // tint, skin behind it, shadow, border
-    rmp::Callback<> on_click;
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_press;
-    rmp::Callback<> on_release;
+    rmp::Callback<> on_click; // clicked: released on it, or Enter or A with the focus
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_press; // the pointer went down on it
+    rmp::Callback<> on_release; // ...and came up
 
-    bool show();
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool pressed() const { return ours.pressed; }
+    bool show(); // lays it out here; true on the frame it was clicked
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool pressed() const { return ours.pressed; } // held down on it
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A container: a panel with a look of its own (`style`), and a look for
@@ -1582,116 +1588,116 @@ struct Panel {
     BoxOptions box{}; // its layout, as panel() takes it
     bool background =
         true; // false: a bare row or column, which still styles its children
-    std::string id{};
-    Style style{};
-    Style children{};
-    rmp::Callback<> on_click;
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_press;
-    rmp::Callback<> on_release;
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
+    Style children{}; // the look of everything inside it
+    rmp::Callback<> on_click; // clicked: released on it, or Enter or A with the focus
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_press; // the pointer went down on it
+    rmp::Callback<> on_release; // ...and came up
 
     // Lays it out with `body` inside it; true on the frame it was clicked.
-    template <class Body> bool show(Body &&body);
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool pressed() const { return ours.pressed; }
+    template <class Body> bool show(Body &&body); // lays it out here
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool pressed() const { return ours.pressed; } // held down on it
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A checkbox that holds its own value.
 struct Checkbox {
-    std::string text;
-    bool checked = false;
-    bool enabled = true;
-    std::string id{};
-    Style style{};
+    std::string text; // the label beside it
+    bool checked = false; // its value: ticked or not
+    bool enabled = true; // false = drawn disabled; no press, no change, no focus
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
     rmp::Callback<bool> on_change; // the new value
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_focus;
-    rmp::Callback<> on_blur;
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_focus; // the keyboard or gamepad focus arrived
+    rmp::Callback<> on_blur; // ...and left
 
     bool show(); // true on the frame it changed
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool focused() const { return ours.focused; }
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool focused() const { return ours.focused; } // it has the focus
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A slider that holds its own value.
 struct Slider {
-    std::string text;
-    float value = 0;
-    float min = 0;
-    float max = 1;
+    std::string text; // the label beside it
+    float value = 0; // its value, kept from min to max
+    float min = 0; // the value at the left end
+    float max = 1; // the value at the right end
     float step = 0; // as SliderOptions
-    float width = 0;
-    bool show_value = true;
-    bool enabled = true;
-    std::string id{};
-    Style style{};
+    float width = 0; // 0 = fill the space available
+    bool show_value = true; // draw the position, as a percentage, after the bar
+    bool enabled = true; // false = drawn disabled; no press, no change, no focus
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
     rmp::Callback<float> on_change; // the new value
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_focus;
-    rmp::Callback<> on_blur;
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_focus; // the keyboard or gamepad focus arrived
+    rmp::Callback<> on_blur; // ...and left
 
     bool show(); // true on any frame that changed it
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool focused() const { return ours.focused; }
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool focused() const { return ours.focused; } // it has the focus
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A dropdown that holds its items and its choice.
 struct Dropdown {
-    std::string text;
-    std::vector<std::string> items;
-    int selected = 0;
-    float width = 0;
-    bool enabled = true;
-    std::string id{};
-    Style style{};
+    std::string text; // the label beside it
+    std::vector<std::string> items; // the choices, in order
+    int selected = 0; // the index of the one chosen
+    float width = 0; // of the field, in design units; 0 = fill the space available
+    bool enabled = true; // false = drawn disabled; no press, no change, no focus
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
     rmp::Callback<int> on_change; // the new index
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_focus;
-    rmp::Callback<> on_blur;
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_focus; // the keyboard or gamepad focus arrived
+    rmp::Callback<> on_blur; // ...and left
 
     bool show(); // true on the frame `selected` changed
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool focused() const { return ours.focused; }
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool focused() const { return ours.focused; } // it has the focus
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A text field that holds its own text.
 struct TextInput {
     std::string text; // the label
     std::string value; // what is typed
-    std::string placeholder{};
+    std::string placeholder{}; // shown, muted, while it is empty
     int max_length = 0; // in characters; 0 = no limit
-    float width = 0;
-    bool enabled = true;
-    std::string id{};
-    Style style{};
+    float width = 0; // of the field, in design units; 0 = fill the space available
+    bool enabled = true; // false = drawn disabled; no press, no change, no focus
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
     rmp::Callback<std::string_view> on_change; // the text, after the change
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
-    rmp::Callback<> on_focus;
-    rmp::Callback<> on_blur;
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
+    rmp::Callback<> on_focus; // the keyboard or gamepad focus arrived
+    rmp::Callback<> on_blur; // ...and left
 
     bool show(); // true on any frame the text changed
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
-    [[nodiscard]] bool focused() const { return ours.focused; }
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
+    [[nodiscard]] bool focused() const { return ours.focused; } // it has the focus
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 // A progress bar with a look of its own: the style is the track's (its
@@ -1704,16 +1710,16 @@ struct ProgressBar {
     Color fill = CLITERAL(Color){ 0, 0, 0, 0 }; // {0,0,0,0} = the theme's primary
     Picture
         fill_picture{}; // the filled part as a picture: a nine-slice stretches with it
-    std::string id{};
-    Style style{};
-    rmp::Callback<> on_hover;
-    rmp::Callback<> on_unhover;
+    std::string id{}; // as ButtonOptions::id: for a shared label
+    Style style{}; // its own look; see Style
+    rmp::Callback<> on_hover; // the pointer arrived on it
+    rmp::Callback<> on_unhover; // ...and left
 
-    void show();
-    void shake();
-    [[nodiscard]] bool hovered() const { return ours.hovered; }
+    void show(); // lays it out here
+    void shake(); // shakes it, as Button::shake() does
+    [[nodiscard]] bool hovered() const { return ours.hovered; } // the pointer is on it
 
-    KeptState ours;
+    KeptState ours; // what it remembers; read it with the methods above
 };
 
 namespace detail {
