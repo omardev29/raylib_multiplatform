@@ -47,13 +47,13 @@ rapidcheck                  thirdparty/rapidcheck                               
 raylib-ios                  thirdparty/raylib-ios                                   zlib                     -              no        ios       file
 angle                       ios/ANGLE-LICENSE.txt                                   BSD-3                    -              no        ios       file
 # What raylib bundles under src/external/. Statically linked into every binary
-# that uses the module they back. One of them is modified by us, rlsw (a
-# backport of upstream's scissor fix and a texel clamp of our own, both named
-# in raylib's PATCHES.md), and its row says yes; the rest are recorded as
-# raylib ships them.
+# that uses the module they back. Three are modified, each named in raylib's
+# PATCHES.md, and their rows say yes: rlsw (a texel clamp of our own), RGFW
+# (minigamepad.h's ABS_PROFILE) and tinyobj_loader_c (upstream's face fix from
+# after 6.2); the rest are recorded as raylib ships them. pep.h is linked
+# nowhere: SUPPORT_FILEFORMAT_PEP is 0 in raylib's config.h.
 glfw                        thirdparty/raylib/src/external/glfw                     zlib                     -              no        desktop   file
-RGFW                        thirdparty/raylib/src/external/RGFW                     zlib                     -              no        desktop   header
-RGFW.h                      thirdparty/raylib/src/external/RGFW.h                   zlib                     -              no        desktop   header
+RGFW                        thirdparty/raylib/src/external/RGFW                     zlib                     -              yes       desktop   header
 glad                        thirdparty/raylib/src/external/glad.h                   WTFPL|CC0|public-domain  CC0            no        desktop   upstream:https://github.com/Dav1dde/glad
 glad-gles2                  thirdparty/raylib/src/external/glad_gles2.h             WTFPL|CC0|Apache-2.0     CC0            no        all       header
 cgltf                       thirdparty/raylib/src/external/cgltf.h                  MIT                      -              no        all       header
@@ -67,12 +67,11 @@ jar_mod                     thirdparty/raylib/src/external/jar_mod.h            
 jar_xm                      thirdparty/raylib/src/external/jar_xm.h                 WTFPL                    -              no        all       header
 m3d                         thirdparty/raylib/src/external/m3d.h                    MIT                      -              no        all       header
 miniaudio                   thirdparty/raylib/src/external/miniaudio.h              Unlicense|MIT-0          Unlicense      no        all       header
-msf_gif                     thirdparty/raylib/src/external/msf_gif.h                MIT|Unlicense            Unlicense      no        all       header
 par_shapes                  thirdparty/raylib/src/external/par_shapes.h             MIT                      -              no        all       header
 qoa                         thirdparty/raylib/src/external/qoa.h                    MIT                      -              no        all       header
 qoaplay                     thirdparty/raylib/src/external/qoaplay.c                MIT                      -              no        all       header
 qoi-raylib                  thirdparty/raylib/src/external/qoi.h                    MIT                      -              no        all       header
-rl_gputex                   thirdparty/raylib/src/external/rl_gputex.h              zlib                     -              no        all       header
+pep                         thirdparty/raylib/src/external/pep.h                    CC0                      -              no        none      upstream:https://github.com/ENDESGA/pep
 rlsw                        thirdparty/raylib/src/external/rlsw.h                   MIT                      -              yes       all       header
 rltexgpu                    thirdparty/raylib/src/external/rltexgpu.h               zlib                     -              no        all       header
 rprand                      thirdparty/raylib/src/external/rprand.h                 zlib                     -              no        all       header
@@ -85,7 +84,7 @@ stb_perlin                  thirdparty/raylib/src/external/stb_perlin.h         
 stb_rect_pack               thirdparty/raylib/src/external/stb_rect_pack.h          MIT|Unlicense            Unlicense      no        all       header
 stb_truetype                thirdparty/raylib/src/external/stb_truetype.h           MIT|Unlicense            Unlicense      no        all       header
 stb_vorbis                  thirdparty/raylib/src/external/stb_vorbis.c             MIT|Unlicense            Unlicense      no        all       header
-tinyobj_loader_c            thirdparty/raylib/src/external/tinyobj_loader_c.h       MIT                      -              no        all       header
+tinyobj_loader_c            thirdparty/raylib/src/external/tinyobj_loader_c.h       MIT                      -              yes       all       header
 vox_loader                  thirdparty/raylib/src/external/vox_loader.h             MIT                      -              no        all       header
 win32_clipboard             thirdparty/raylib/src/external/win32_clipboard.h        zlib                     -              no        desktop   part-of:raylib
 ```
@@ -101,7 +100,7 @@ inferred from a build:
   because a reader of the file cannot tell which alternative was chosen.
 - **monocypher**: BSD-2-Clause OR CC0-1.0 -- we take **CC0**. Its notice still
   ships, because it costs nothing and it is what the author would want.
-- **stb\_\***, **sdefl/sinfl**, **msf_gif**: MIT OR public domain -- **Unlicense**.
+- **stb\_\***, **sdefl/sinfl**: MIT OR public domain -- **Unlicense**.
 - **dr_flac/dr_mp3/dr_wav**, **miniaudio** (David Reid): public domain OR
   MIT-0 -- **Unlicense**.
 - **glad** loaders: the generated code is WTFPL OR CC0 -- **CC0**. `glad_gles2.h`
@@ -120,7 +119,7 @@ every change is commented at its site:
 
 | Component | Mark |
 |---|---|
-| raylib 6.0.0 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- six build-system and platform-selection patches, three memory fixes in `raudio.c` and the software renderer's scissor in `src/external/rlsw.h`, backported from upstream, a texel clamp of our own in the same renderer's nearest-texel lookup, and our own fix of the DRM backend's card probe (`rcore_drm.c`); no signature changed |
+| raylib 6.2 | [`thirdparty/raylib/PATCHES.md`](thirdparty/raylib/PATCHES.md) -- the web backend without GLFW selectable from CMake, Xrandr for RGFW, Android's EGL asking for the ES version raylib was compiled for, the DRM backend's card probe, Escape on its terminal and no flow control, a texel clamp in the software renderer, and, from raylib_cmake_template, raylib's own fixes from after 6.2 and the gaps its security audit left; no signature changed |
 | Clay 0.14 | [`thirdparty/clay/PATCHES.md`](thirdparty/clay/PATCHES.md) -- the C++ version guard, and the sizing loops stop when a pass moves nothing |
 | cute_tiled | [`thirdparty/cute_tiled/PATCHES.md`](thirdparty/cute_tiled/PATCHES.md) -- unknown JSON keys are skipped instead of failing the load, and any bytes are read without a crash, a leak or undefined behaviour |
 | raylib-cpp 6.0.3 | [`thirdparty/raylib-cpp/PATCHES.md`](thirdparty/raylib-cpp/PATCHES.md) -- a partial copy, the math headers only |
@@ -189,8 +188,8 @@ changing fails the build.
 - **raylib's bundled dependencies** (`thirdparty/raylib/src/external/`): the
   audio decoders (miniaudio, dr_flac, dr_mp3, dr_wav, stb_vorbis, qoa, jar_mod,
   jar_xm), the image and font code (stb_image, stb_image_write,
-  stb_image_resize2, stb_truetype, stb_rect_pack, stb_perlin, qoi, msf_gif,
-  sdefl, sinfl, rl_gputex, rltexgpu), the model loaders (cgltf, m3d,
+  stb_image_resize2, stb_truetype, stb_rect_pack, stb_perlin, qoi, pep,
+  sdefl, sinfl, rltexgpu), the model loaders (cgltf, m3d,
   tinyobj_loader_c, vox_loader, par_shapes), the windowing backends (GLFW,
   RGFW, glad), the software rasteriser (rlsw), the random generator (rprand)
   and three Windows shims (dirent, win32_clipboard, fix_win32_compatibility).

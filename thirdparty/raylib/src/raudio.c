@@ -344,7 +344,7 @@ typedef enum {
 // Audio buffer struct
 struct rAudioBuffer {
     ma_data_converter converter;    // Audio data converter
-    unsigned char* converterResidual;       // Cached residual input frames for use by the converter
+    unsigned char *converterResidual;       // Cached residual input frames for use by the converter
     unsigned int converterResidualCount;    // The number of valid frames sitting in converterResidual
 
     AudioCallback callback;         // Audio buffer callback for buffer filling on audio threads
@@ -378,7 +378,7 @@ struct rAudioProcessor {
     rAudioProcessor *prev;          // Previous audio processor on the list
 };
 
-#define AudioBuffer rAudioBuffer    // HACK: To avoid CoreAudio (macOS) symbol collision
+#define AudioBuffer rAudioBuffer    // WARNING: Renamed to avoid symbol collision with CoreAudio (macOS) AudioBuffer type
 
 // Audio data context
 typedef struct AudioData {
@@ -491,9 +491,26 @@ void InitAudioDevice(void)
     result = ma_device_init(&AUDIO.System.context, &config, &AUDIO.System.device);
     if (result != MA_SUCCESS)
     {
-        TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize playback device");
+        // PATCHED (raylib_multiplatform): a backend whose library loads -- ALSA
+        // on a machine that has libasound and no sound card -- wins the context
+        // and then has no device, and miniaudio never reaches its null backend,
+        // which it only tries when every other context fails. Try it here: a
+        // silent device that mixes in real time, as on a machine with no audio
+        // library at all, instead of none.
         ma_context_uninit(&AUDIO.System.context);
-        return;
+        const ma_backend nullBackend[1] = { ma_backend_null };
+        result = ma_context_init(nullBackend, 1, &ctxConfig, &AUDIO.System.context);
+        if (result == MA_SUCCESS)
+        {
+            result = ma_device_init(&AUDIO.System.context, &config, &AUDIO.System.device);
+            if (result != MA_SUCCESS) ma_context_uninit(&AUDIO.System.context);
+        }
+        if (result == MA_SUCCESS) TRACELOG(LOG_INFO, "AUDIO: No playback device; using the null backend");
+    }
+    if (result != MA_SUCCESS)
+    {
+        TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize playback device");
+        return; // the context is uninitialised above, on both ways here
     }
 
     // Mixing happens on a separate thread which means synchronization is needed
@@ -533,8 +550,9 @@ void CloseAudioDevice(void)
 {
     if (AUDIO.System.isReady)
     {
-        ma_mutex_uninit(&AUDIO.System.lock);
+        // Stop the device first (joins the callback thread) before destroying the mutex it locks
         ma_device_uninit(&AUDIO.System.device);
+        ma_mutex_uninit(&AUDIO.System.lock);
         ma_context_uninit(&AUDIO.System.context);
 
         AUDIO.System.isReady = false;
@@ -822,7 +840,7 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
             wave.sampleRate = wav.sampleRate;
             wave.sampleSize = 16;
             wave.channels = wav.channels;
-            wave.data = (short *)RL_MALLOC((size_t)wave.frameCount*wave.channels*sizeof(short));
+            wave.data = (short *)RL_CALLOC((size_t)wave.frameCount*wave.channels, sizeof(short));
 
             // NOTE: Forcing conversion to 16bit sample size on reading
             drwav_read_pcm_frames_s16(&wav, wave.frameCount, (drwav_int16 *)wave.data);
@@ -844,8 +862,8 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
             wave.sampleRate = info.sample_rate;
             wave.sampleSize = 16;       // By default, ogg data is 16 bit per sample (short)
             wave.channels = info.channels;
-            wave.frameCount = (unsigned int)stb_vorbis_stream_length_in_samples(oggData);  // NOTE: It returns frames!
-            wave.data = (short *)RL_MALLOC(wave.frameCount*wave.channels*sizeof(short));
+            wave.frameCount = stb_vorbis_stream_length_in_samples(oggData);  // NOTE: It returns frames!
+            wave.data = (short *)RL_CALLOC(wave.frameCount*wave.channels, sizeof(short));
 
             // NOTE: Get the number of samples to process (be careful! asking for number of shorts, not bytes!)
             stb_vorbis_get_samples_short_interleaved(oggData, info.channels, (short *)wave.data, wave.frameCount*wave.channels);
@@ -858,7 +876,7 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
     else if ((strcmp(fileType, ".mp3") == 0) || (strcmp(fileType, ".MP3") == 0))
     {
         drmp3_config config = { 0 };
-        unsigned long long int totalFrameCount = 0;
+        unsigned long long totalFrameCount = 0;
 
         // NOTE: Forcing conversion to 32bit float sample size on reading
         wave.data = drmp3_open_memory_and_read_pcm_frames_f32(fileData, dataSize, &config, &totalFrameCount, NULL);
@@ -868,7 +886,7 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
         {
             wave.channels = config.channels;
             wave.sampleRate = config.sampleRate;
-            wave.frameCount = (int)totalFrameCount;
+            wave.frameCount = (unsigned int)totalFrameCount; // WARNING: Potential loss of data
         }
         else TRACELOG(LOG_WARNING, "WAVE: Failed to load MP3 data");
 
@@ -896,13 +914,13 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
 #if SUPPORT_FILEFORMAT_FLAC
     else if ((strcmp(fileType, ".flac") == 0) || (strcmp(fileType, ".FLAC") == 0))
     {
-        unsigned long long int totalFrameCount = 0;
+        unsigned long long totalFrameCount = 0;
 
         // NOTE: Forcing conversion to 16bit sample size on reading
         wave.data = drflac_open_memory_and_read_pcm_frames_s16(fileData, dataSize, &wave.channels, &wave.sampleRate, &totalFrameCount, NULL);
         wave.sampleSize = 16;
 
-        if (wave.data != NULL) wave.frameCount = (unsigned int)totalFrameCount;
+        if (wave.data != NULL) wave.frameCount = (unsigned int)totalFrameCount; // WARNING: Potential loss of data
         else TRACELOG(LOG_WARNING, "WAVE: Failed to load FLAC data");
     }
 #endif
@@ -913,7 +931,7 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
     return wave;
 }
 
-// Checks if wave data is valid (data loaded and parameters)
+// Check if wave data is valid (data loaded and parameters)
 bool IsWaveValid(Wave wave)
 {
     bool result = false;
@@ -981,13 +999,13 @@ Sound LoadSoundFromWave(Wave wave)
     return sound;
 }
 
-// Clone sound from existing sound data, clone does not own wave data
+// Load sound alias, clone sound from existing sound data, clone does not own wave data
 // NOTE: Wave data must be unallocated manually and will be shared across all clones
 Sound LoadSoundAlias(Sound source)
 {
     Sound sound = { 0 };
 
-    if (source.stream.buffer->data != NULL)
+    if ((source.stream.buffer != NULL) && (source.stream.buffer->data != NULL))
     {
         AudioBuffer *audioBuffer = LoadAudioBuffer(AUDIO_DEVICE_FORMAT, AUDIO_DEVICE_CHANNELS, AUDIO.System.device.sampleRate, 0, AUDIO_BUFFER_USAGE_STATIC);
 
@@ -1013,7 +1031,7 @@ Sound LoadSoundAlias(Sound source)
     return sound;
 }
 
-// Checks if a sound is valid (data loaded and buffers initialized)
+// Check if sound is valid (data loaded and buffers initialized)
 bool IsSoundValid(Sound sound)
 {
     bool result = false;
@@ -1048,10 +1066,6 @@ void UnloadSoundAlias(Sound alias)
     {
         UntrackAudioBuffer(alias.stream.buffer);
         ma_data_converter_uninit(&alias.stream.buffer->converter, NULL);
-        // PATCHED (raylib_multiplatform): backport of upstream dcb0ca5d14
-        // (#5857). LoadAudioBuffer() allocates converterResidual for every
-        // buffer, an alias's included, and only UnloadAudioBuffer() freed it:
-        // 64 bytes leaked per alias, found by LeakSanitizer under rmp::audio.
         RL_FREE(alias.stream.buffer->converterResidual);
         RL_FREE(alias.stream.buffer);
     }
@@ -1158,7 +1172,7 @@ bool ExportWaveAsCode(Wave wave, const char *fileName)
 
     // Get file name from path and convert variable name to uppercase
     char varFileName[256] = { 0 };
-    strncpy(varFileName, GetFileNameWithoutExt(fileName), 256 - 1);
+    snprintf(varFileName, 256, "%s", GetFileNameWithoutExt(fileName)); // NOTE: Using function provided by [rcore] module
     for (int i = 0; varFileName[i] != '\0'; i++) if (varFileName[i] >= 'a' && varFileName[i] <= 'z') { varFileName[i] = varFileName[i] - 32; }
 
     // Add wave information
@@ -1219,7 +1233,7 @@ void StopSound(Sound sound)
     StopAudioBuffer(sound.stream.buffer);
 }
 
-// Check if a sound is playing
+// Check if sound is playing
 bool IsSoundPlaying(Sound sound)
 {
     bool result = false;
@@ -1262,7 +1276,7 @@ void WaveFormat(Wave *wave, int sampleRate, int sampleSize, int channels)
         return;
     }
 
-    void *data = RL_MALLOC(frameCount*channels*(sampleSize/8));
+    void *data = RL_CALLOC(frameCount*channels*(sampleSize/8), 1);
 
     frameCount = (ma_uint32)ma_convert_frames(data, frameCount, formatOut, channels, sampleRate, wave->data, frameCountIn, formatIn, wave->channels, wave->sampleRate);
     if (frameCount == 0)
@@ -1397,7 +1411,7 @@ Music LoadMusicStream(const char *fileName)
             music.stream = LoadAudioStream(info.sample_rate, 16, info.channels);
 
             // WARNING: It seems this function returns length in frames, not samples, so multiply by channels
-            music.frameCount = (unsigned int)stb_vorbis_stream_length_in_samples((stb_vorbis *)music.ctxData);
+            music.frameCount = stb_vorbis_stream_length_in_samples((stb_vorbis *)music.ctxData);
             music.looping = true; // Looping enabled by default
             musicLoaded = true;
         }
@@ -1579,7 +1593,7 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
     else if ((strcmp(fileType, ".ogg") == 0) || (strcmp(fileType, ".OGG") == 0))
     {
         // Open ogg audio stream
-        stb_vorbis *ctxOgg = stb_vorbis_open_memory((const unsigned char *)data, dataSize, NULL, NULL);
+        stb_vorbis *ctxOgg = stb_vorbis_open_memory(data, dataSize, NULL, NULL);
 
         if (ctxOgg != NULL)
         {
@@ -1591,7 +1605,7 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
             music.stream = LoadAudioStream(info.sample_rate, 16, info.channels);
 
             // WARNING: It seems this function returns length in frames, not samples, so multiply by channels
-            music.frameCount = (unsigned int)stb_vorbis_stream_length_in_samples((stb_vorbis *)music.ctxData);
+            music.frameCount = stb_vorbis_stream_length_in_samples((stb_vorbis *)music.ctxData);
             music.looping = true;   // Looping enabled by default
             musicLoaded = true;
         }
@@ -1755,7 +1769,7 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
     return music;
 }
 
-// Checks if a music stream is valid (context and buffers initialized)
+// Check if music stream is valid (context and buffers initialized)
 bool IsMusicValid(Music music)
 {
     return ((music.ctxData != NULL) &&          // Validate context loaded
@@ -1776,9 +1790,6 @@ void UnloadMusicStream(Music music)
     {
         if (false) { }
 #if SUPPORT_FILEFORMAT_WAV
-        // PATCHED (raylib_multiplatform): backport of upstream 86c7edfd74
-        // (#5963). The drwav was RL_CALLOC'd by LoadMusicStream*() and
-        // drwav_uninit() does not free it: 408 bytes leaked per WAV track.
         else if (music.ctxType == MUSIC_AUDIO_WAV) { drwav_uninit((drwav *)music.ctxData); RL_FREE(music.ctxData); }
 #endif
 #if SUPPORT_FILEFORMAT_OGG
@@ -1791,10 +1802,6 @@ void UnloadMusicStream(Music music)
         else if (music.ctxType == MUSIC_AUDIO_QOA) qoaplay_close((qoaplay_desc *)music.ctxData);
 #endif
 #if SUPPORT_FILEFORMAT_FLAC
-        // PATCHED (raylib_multiplatform): backport of upstream 8d31d0c3cc
-        // (#5916). drflac_close() already frees the context; the extra
-        // drflac_free() was a double free. Compiled out here while
-        // SUPPORT_FILEFORMAT_FLAC is 0, fixed so enabling it is safe.
         else if (music.ctxType == MUSIC_AUDIO_FLAC) drflac_close((drflac *)music.ctxData);
 #endif
 #if SUPPORT_FILEFORMAT_XM
@@ -2079,7 +2086,7 @@ void SetMusicPitch(Music music, float pitch)
     SetAudioBufferPitch(music.stream.buffer, pitch);
 }
 
-// Set pan for a music
+// Set pan for music
 void SetMusicPan(Music music, float pan)
 {
     SetAudioBufferPan(music.stream.buffer, pan);
@@ -2167,7 +2174,7 @@ AudioStream LoadAudioStream(unsigned int sampleRate, unsigned int sampleSize, un
     return stream;
 }
 
-// Checks if an audio stream is valid (buffers initialized)
+// Check if an audio stream is valid (buffers initialized)
 bool IsAudioStreamValid(AudioStream stream)
 {
     return ((stream.buffer != NULL) &&    // Validate stream buffer
@@ -2671,7 +2678,7 @@ static void MixAudioFrames(float *framesOut, const float *framesIn, ma_uint32 fr
     const float localVolume = buffer->volume;
     const ma_uint32 channels = AUDIO.System.device.playback.channels;
 
-    if (channels == 2)  // Consider panning
+    if (channels == 2) // Consider panning
     {
         const float right = (buffer->pan + 1.0f)/2.0f; // Normalize: [-1..1] -> [0..1]
         const float left = 1.0f - right;
@@ -2838,7 +2845,7 @@ static const char *GetFileNameWithoutExt(const char *filePath)
     static char fileName[MAX_FILENAMEWITHOUTEXT_LENGTH] = { 0 };
     memset(fileName, 0, MAX_FILENAMEWITHOUTEXT_LENGTH);
 
-    if (filePath != NULL) strncpy(fileName, GetFileName(filePath), MAX_FILENAMEWITHOUTEXT_LENGTH - 1); // Get filename with extension
+    if (filePath != NULL) snprintf(fileName, MAX_FILENAMEWITHOUTEXT_LENGTH, "%s", GetFileName(filePath));
 
     int fileNameLength = (int)strlen(fileName); // Get size in bytes
 

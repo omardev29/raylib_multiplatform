@@ -3980,7 +3980,10 @@ class WarningsOnOurCodeTest(unittest.TestCase):
                       [REPO / "CMakeLists.txt", *sorted((REPO / "cmake").glob("*.cmake"))])
 
     def test_every_target_of_ours_gets_the_warnings(self):
-        made = re.findall(r"^\s*add_(?:executable|library)\((\$\{\w+\}|\w+)", self.CMAKE, re.M)
+        # An IMPORTED library is a file someone else built (tcc's runtime):
+        # nothing of ours is compiled into it.
+        made = re.findall(r"^\s*add_(?:executable|library)\((\$\{\w+\}|\w+)(?![^)\n]*\bIMPORTED\b)",
+                          self.CMAKE, re.M)
         self.assertGreaterEqual(len(made), 8, made)
         for target in sorted(set(made)):
             with self.subTest(target=target):
@@ -4221,6 +4224,87 @@ class ConfigureHostToolchainTest(unittest.TestCase):
             for system in ("Linux", "Windows", "Darwin"):
                 with self.subTest(compiler=compiler, system=system):
                     self.assertIsNone(self.check(compiler, system))
+
+
+class ConfigureCCompilerTest(unittest.TestCase):
+    """[dev] c_compiler: what compiles the C of a Debug build. "tcc" is refused
+    where tcc's ELF objects cannot be linked -- off Linux, or under a Windows
+    toolchain -- at its line; "auto" and "same" are accepted everywhere, since
+    "auto" falls back to the C compiler of [dev] compiler where tcc cannot work."""
+
+    def outcome(self, c_compiler, compiler="clang", system="Linux"):
+        cfg = base_config(dev={"compiler": compiler, "c_compiler": c_compiler,
+                               "linker": "auto", "sanitize": []})
+        original = cfgmod.platform.system
+        cfgmod.platform.system = lambda: system
+        try:
+            with quiet():
+                cfgmod.validate(cfg, False)
+            return None
+        except cfgmod.ConfigError as exc:
+            where = cfgmod.locate_from(exc)
+            self.assertIsNotNone(where, f"{exc} cannot be located")
+            self.assertRegex(where[1], r"^c_compiler\s*=",
+                             f"{exc} is not located at the [dev] c_compiler line")
+            return str(exc)
+        finally:
+            cfgmod.platform.system = original
+
+    def test_every_value_is_accepted_on_linux(self):
+        for value in ("same", "tcc", "auto"):
+            with self.subTest(value=value):
+                self.assertIsNone(self.outcome(value))
+
+    def test_same_and_auto_are_accepted_everywhere(self):
+        for value in ("same", "auto"):
+            for system in ("Windows", "Darwin", "FreeBSD"):
+                with self.subTest(value=value, system=system):
+                    compiler = "mingw" if system == "Windows" else "clang"
+                    self.assertIsNone(self.outcome(value, compiler, system))
+
+    def test_tcc_is_refused_off_linux(self):
+        for system in ("Windows", "Darwin", "FreeBSD", "OpenBSD"):
+            with self.subTest(system=system):
+                message = self.outcome("tcc", "clang", system)
+                self.assertIsNotNone(message, f"tcc accepted on {system}")
+                self.assertIn("x86-64 Linux only", message)
+                self.assertIn(system, message)
+
+    def test_tcc_is_refused_with_a_windows_toolchain(self):
+        for compiler in ("mingw", "msvc"):
+            with self.subTest(compiler=compiler):
+                message = self.outcome("tcc", compiler, "Windows")
+                self.assertIsNotNone(message)
+
+    def test_a_wrong_value_and_a_wrong_type_are_refused(self):
+        for value in ("gcc", "", "TCC", 1, ["tcc"], True):
+            with self.subTest(value=value):
+                message = self.outcome(value)
+                self.assertIsNotNone(message, f"{value!r} accepted")
+                self.assertIn("[dev] c_compiler", message)
+
+    def test_the_toolchain_file_asks_for_tcc_only_when_asked(self):
+        """What gen_dev_toolchain() writes: nothing about tcc for "same", a
+        fallback for "auto", and a refusal for "tcc" where it cannot be had."""
+        texts = {}
+        for value in ("same", "auto", "tcc"):
+            cfg = base_config(dev={"compiler": "clang", "c_compiler": value,
+                                   "linker": "auto", "sanitize": []})
+            written = {}
+            original = cfgmod.write
+            cfgmod.write = lambda path, text: written.__setitem__(path.name, text) or True
+            try:
+                cfgmod.gen_dev_toolchain(cfg)
+            finally:
+                cfgmod.write = original
+            texts[value] = written["dev_toolchain.cmake"]
+        self.assertNotIn("tcc", texts["same"])
+        self.assertIn("find_program(_RMP_TCC NAMES tcc)", texts["auto"])
+        tcc_part = texts["auto"][texts["auto"].index("_RMP_TCC"):]
+        self.assertNotIn("FATAL_ERROR", tcc_part)
+        self.assertIn("message(STATUS", tcc_part)
+        tcc_part = texts["tcc"][texts["tcc"].index("_RMP_TCC"):]
+        self.assertIn("FATAL_ERROR", tcc_part)
 
 
 class ConfigureSanitizeTest(unittest.TestCase):
@@ -5963,7 +6047,7 @@ class DocumentedTargetCountTest(unittest.TestCase):
                 line_no = bisect.bisect_right(starts, match.start())
                 line = text.splitlines()[line_no - 1] if line_no else ""
                 # Historical sections describe what was true then, on purpose.
-                if line.lstrip().startswith(("<summary>", "Validado con el tag")):
+                if line.lstrip().startswith("<summary>"):
                     continue
                 with self.subTest(doc=name, line=line_no, said=match.group(0)):
                     self.assertEqual(
@@ -6903,19 +6987,22 @@ class LicenceGuardTest(unittest.TestCase):
     def test_every_alteration_has_its_mark(self):
         rows = ldb.load_rows(REPO)
         marked = {r["name"] for r in rows if r["modified"] in ("yes", "subset")}
-        self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob", "rlsw"})
+        self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob", "rlsw",
+                                  "RGFW", "tinyobj_loader_c"})
         for r in rows:
             if r["modified"] in ("yes", "subset"):
                 with self.subTest(component=r["name"]):
                     path = REPO / r["path"]
-                    if path.is_dir():
+                    if path.is_dir() and (path / "PATCHES.md").is_file():
                         note = (path / "PATCHES.md").read_text()
                     else:
-                        # A bundled file: its change is in the bundling
-                        # component's PATCHES.md, by name.
+                        # A bundled file, or a bundled folder (RGFW): its change
+                        # is in the bundling component's PATCHES.md, by name --
+                        # a folder's by a file under it.
                         owner = next(d for d in path.parents if (d / "PATCHES.md").is_file())
                         note = (owner / "PATCHES.md").read_text()
-                        self.assertIn(f"`{path.relative_to(owner).as_posix()}`", note)
+                        name = path.relative_to(owner).as_posix()
+                        self.assertIn(f"`{name}/" if path.is_dir() else f"`{name}`", note)
                     self.assertIn("MODIFIED", note)
                     self.assertIn("|", note)  # a table of file/line/change/why
 
@@ -6962,7 +7049,10 @@ class LicenceGuardTest(unittest.TestCase):
         marked = set()
         for path in (REPO / "thirdparty" / "raylib").rglob("*"):
             if path.is_file() and path.suffix in (".c", ".h", ".txt", ".cmake"):
-                if "PATCHED (raylib_multiplatform)" in path.read_text(errors="replace"):
+                # Ours, and raylib_cmake_template's, whose copy this one is.
+                text = path.read_text(errors="replace")
+                if ("PATCHED (raylib_multiplatform)" in text
+                        or "PATCHED (raylib_cmake_template)" in text):
                     marked.add(str(path.relative_to(REPO / "thirdparty" / "raylib")))
         self.assertEqual(marked, listed)
 
@@ -7996,6 +8086,7 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
         "[android] min_sdk":          ("android", ("min_sdk",), 19),
         "[raylib] disabled_modules":  ("raylib", ("disabled_modules",), ["rcore"]),
         "[dev] linker":               ("dev", ("linker",), "gold"),
+        "[dev] c_compiler":           ("dev", ("c_compiler",), "gcc"),
         "[icon] adaptive_background": ("icon", ("adaptive_background",), "blue"),
         "[resources] rres_password":  ("resources", ("rres_password",), ""),
         "[deploy] credits_note":      ("deploy", ("credits_note",), 5),

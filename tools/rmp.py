@@ -86,6 +86,9 @@ BUILD_DIRS = {
     "examples": "rmp example",
     "examples-drm": "rmp example on a Linux console",
     "examples-check": "tools/examples_build.sh: every example, built, booted and played",
+    "windows": "the windows preset: rmp build windows, the .exe made on Linux with MinGW-w64",
+    "windows-clang-cl": "the windows-clang-cl preset: rmp build windows clang-cl",
+    "package": "rmp package: what a release ships, zipped, made on this machine",
     "memory-release": "tools/shipped_check.sh: a release, started from another folder",
     "test-locales": "tools/test_locales.sh: the locales the unit tests read",
     "ksh": "the OpenBSD job: what `ksh ./rmp help` printed in the VM",
@@ -1049,6 +1052,8 @@ def one_of(args, allowed, default):
 
 
 def cmd_run(ctx, args):
+    if args and args[0] == "windows":
+        return run_windows(ctx, windows_toolchain(args[1:]))
     sudo = one_of(args, ("sudo",), "") == "sudo"
     if sudo:
         # Before the build, not after it: nothing is built for a refusal.
@@ -1059,6 +1064,10 @@ def cmd_run(ctx, args):
 
 
 def cmd_build(ctx, args):
+    if args and args[0] == "windows":
+        exe = build_windows(ctx, windows_toolchain(args[1:]))
+        print(f"  built  {exe.relative_to(ctx.root)}")
+        return OK
     release = one_of(args, ("release",), "debug") == "release"
     name = build(ctx, release)
     print(f"  built  {ctx.exe(f'{ctx.build_dir(release)}/{name}').relative_to(ctx.root)}")
@@ -1079,17 +1088,29 @@ def cmd_web(ctx, args):
     return OK
 
 
+def gradle_flags(ctx: Ctx) -> list[str]:
+    """`--offline` inside the build image, whose Gradle home (GRADLE_USER_HOME)
+    is warmed for this project and must be all Gradle reads: [android]
+    gradle_offline, which tools/configure.py writes to generated.properties.
+    Anywhere else Gradle fetches what it lacks, as it always has."""
+    if not os.environ.get("GRADLE_USER_HOME"):
+        return []
+    props = ctx.root / "raymob/generated.properties"
+    text = props.read_text(encoding="utf-8") if props.is_file() else ""
+    return ["--offline"] if "gradle.offline=true" in text.splitlines() else []
+
+
 def cmd_android(ctx, args):
     no_args(args)
     start = time.time()
     ctx.run([ctx.python, "tools/configure.py"])
     raymob = ctx.root / "raymob"
     if os.name == "nt":
-        ctx.run([str(raymob / "gradlew.bat"), "assembleDebug"], cwd=raymob)
+        ctx.run([str(raymob / "gradlew.bat"), "assembleDebug", *gradle_flags(ctx)], cwd=raymob)
     else:
         # sh ./gradlew and not ./gradlew: a checkout without the exec bit
         # (a zip, a copy) still builds.
-        ctx.run(["sh", "./gradlew", "assembleDebug"], cwd=raymob)
+        ctx.run(["sh", "./gradlew", "assembleDebug", *gradle_flags(ctx)], cwd=raymob)
     apks = sorted(raymob.rglob("*.apk"))
     if not apks:
         raise Refused("Gradle finished and wrote no APK")
@@ -1097,6 +1118,235 @@ def cmd_android(ctx, args):
         mark = "new " if apk.stat().st_mtime >= start - 1 else "    "
         print(f"  {mark} {apk.relative_to(ctx.root)}")
     return OK
+
+
+# ---------------------------------------------------------------------------
+# Windows, from Linux
+# ---------------------------------------------------------------------------
+#
+# The .exe a player gets, made on this machine: MinGW-w64's GCC by default, or
+# clang-cl, which builds against Microsoft's own C runtime and links with
+# lld-link, as MSVC builds on Windows. Both are release builds of the
+# windows-x64 target, each in a folder of its own (BUILD_DIRS).
+
+# Each toolchain's preset (CMakePresets.json), and the folder it builds into.
+WINDOWS_TOOLCHAINS = {"mingw": "windows", "clang-cl": "windows-clang-cl"}
+WINDOWS_DIRS = {"mingw": "build/windows", "clang-cl": "build/windows-clang-cl"}
+
+# xwin's default C++ library wants a clang-cl at least as new as the Visual
+# Studio it comes from (yvals_core.h says which, and cmake/windows_clang_cl.cmake
+# checks): an older clang-cl gets the newest library it can compile.
+CRT_FOR_CLANG = {16: "14.39.17.9", 17: "14.42.17.12", 18: "14.43.17.13"}
+
+
+def windows_toolchain(args) -> str:
+    if not args:
+        return "mingw"
+    if len(args) > 1 or args[0] not in WINDOWS_TOOLCHAINS:
+        raise Usage(f"expected `windows` or `windows clang-cl`, not "
+                    f"`windows {' '.join(args)}`")
+    return args[0]
+
+
+def xwin_dir() -> Path:
+    return Path(os.environ.get("XWIN_DIR") or Path.home() / ".xwin")
+
+
+def clang_cl_major() -> int:
+    """The major version of the clang-cl the toolchain file will find: on PATH,
+    or the newest of Debian's and Ubuntu's /usr/lib/llvm-*/bin."""
+    found = shutil.which("clang-cl")
+    if not found:
+        dirs = sorted(Path("/usr/lib").glob("llvm-*/bin/clang-cl"),
+                      key=lambda p: [int(x) for x in re.findall(r"\d+", p.parts[3])],
+                      reverse=True)
+        found = str(dirs[0]) if dirs else ""
+    if not found:
+        raise Refused("clang-cl is not installed: it comes with LLVM (Debian and Ubuntu: "
+                      "the clang and lld packages); the build image has it")
+    got = subprocess.run([found, "--version"], capture_output=True, text=True)
+    match = re.search(r"clang version (\d+)", got.stdout)
+    return int(match.group(1)) if match else 0
+
+
+def ensure_xwin(ctx: Ctx) -> None:
+    """Microsoft's C runtime and Windows SDK, for clang-cl, in XWIN_DIR
+    (~/.xwin): downloaded once, by xwin, after the licence is accepted --
+    their licence does not allow anyone else to hand them out, the build
+    image included."""
+    where = xwin_dir()
+    if ((where / "crt/include/yvals_core.h").is_file()
+            and (where / "crt/lib/x86_64/libcmtd.lib").is_file()
+            and (where / "sdk/include/um/windows.h").is_file()):
+        return
+    xwin = shutil.which("xwin")
+    if not xwin:
+        raise Refused("clang-cl needs Microsoft's C runtime and Windows SDK, which xwin "
+                      "downloads, and xwin is not installed: `cargo install --locked xwin`, "
+                      "or build inside the build image, which has it")
+    print("  clang-cl builds against Microsoft's C runtime and the Windows SDK, which")
+    print("  xwin downloads from Microsoft into " + str(where) + " (about 800 MB). That")
+    print("  is accepting Microsoft's licence for them, the one of Visual Studio's Build")
+    print("  Tools: https://go.microsoft.com/fwlink/?LinkId=2086102")
+    if os.environ.get("RMP_ACCEPT_MICROSOFT_LICENSE") != "1":
+        if not sys.stdin.isatty():
+            raise Refused("not asked on a terminal: run it on one, or set "
+                          "RMP_ACCEPT_MICROSOFT_LICENSE=1 to say you accept it")
+        answer = input("  Accept Microsoft's licence and download? Type yes: ")
+        if answer.strip().lower() != "yes":
+            raise Refused("not accepted: nothing was downloaded")
+    crt = CRT_FOR_CLANG.get(clang_cl_major())
+    ctx.run([xwin, "--accept-license", *(["--crt-version", crt] if crt else []),
+             "splat", "--include-debug-libs", "--output", str(where)])
+
+
+def build_windows(ctx: Ctx, toolchain: str) -> Path:
+    if on_windows():
+        raise Refused("this is Windows already: `rmp build release` builds the .exe here")
+    if toolchain == "clang-cl":
+        ensure_xwin(ctx)
+    preset = WINDOWS_TOOLCHAINS[toolchain]
+    configure(ctx, preset)
+    name = ctx.name()
+    ctx.run(["cmake", "--build", "--preset", preset, "--target", name])
+    return ctx.root / WINDOWS_DIRS[toolchain] / f"{name}.exe"
+
+
+def run_windows(ctx: Ctx, toolchain: str) -> int:
+    """The .exe, built and started here under Wine: a quick look, not a proof
+    of Windows -- Wine is not Windows."""
+    exe = build_windows(ctx, toolchain)
+    wine = shutil.which("wine64") or shutil.which("wine")
+    if not wine:
+        raise Refused(f"built {exe.relative_to(ctx.root)}; Wine is not installed to start "
+                      "it here (x86-64 only: there is no Wine for x86 programs on ARM)")
+    return ctx.run([wine, exe], env={"WINEDEBUG": "-all"}, check=False).returncode
+
+
+# ---------------------------------------------------------------------------
+# What a release ships, made here
+# ---------------------------------------------------------------------------
+#
+# The archive CI would upload for a target, made on this machine into
+# build/package/: the binary, the resource pack and the licences, packed with
+# UPX where [upx] asks -- the same scripts the release jobs run.
+
+
+
+def host_target(ctx: Ctx) -> str:
+    """This machine's target name, as the release jobs name theirs."""
+    system = system_name()
+    machine = platform.machine().lower()
+    arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64",
+            "riscv64": "riscv64"}.get(machine, machine)
+    if system == "Darwin":
+        return "macos"
+    if system == "Windows":
+        return f"windows-{arch}"
+    if system == "Linux":
+        return f"linux-{arch}-glibc" + ("-drm" if ctx.session().drm else "")
+    return f"{system.lower()}-{arch}"
+
+
+def make_pack(ctx: Ctx) -> None:
+    """resources/resources.rres, which a framework game's release ships alone:
+    made with this machine's own tools, whatever the archive is for."""
+    if (ctx.root / "src/rmp").is_dir():
+        cmd_pack(ctx, [])
+
+
+def stage_and_zip(ctx: Ctx, target: str, files: list[Path], licences: Path,
+                  ship_resources: bool = True) -> Path:
+    name = ctx.name()
+    out = ctx.root / "build/package"
+    stage = out / f"{name}-{target}"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    for f in files:
+        if not f.is_file():
+            raise Refused(f"{f.relative_to(ctx.root)} is not there: the build wrote no such file")
+        shutil.copy2(f, stage / f.name)
+    if licences.is_file():
+        shutil.copy2(licences, stage / "LICENSES.txt")
+    if ship_resources:
+        ctx.run(["sh", "tools/ship_resources.sh", stage])
+    archive = shutil.make_archive(str(out / f"{name}-{target}"), "zip", stage)
+    print(f"  packed {Path(archive).relative_to(ctx.root)}")
+    return Path(archive)
+
+
+def cmd_package(ctx, args):
+    target = one_of(args[:1], ("desktop", "windows", "web", "android"), "desktop")
+    rest = args[1:]
+    licences = ctx.root / "cmake/generated/LICENSES.txt"
+    if target == "desktop":
+        no_args(rest)
+        make_pack(ctx)
+        name = build(ctx, release=True)
+        exe = ctx.exe(f"{ctx.build_dir(release=True)}/{name}")
+        if not exe.is_file():
+            raise Refused(f"{exe.relative_to(ctx.root)} is not there: the build wrote no such file")
+        where = host_target(ctx)
+        shipped = ctx.root / "build/package" / exe.name
+        shipped.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(exe, shipped)
+        if not on_windows():
+            ctx.run([ctx.bash(), "tools/upx_pack.sh", where, shipped])
+        stage_and_zip(ctx, where, [shipped], licences)
+        shipped.unlink()
+    elif target == "windows":
+        toolchain = windows_toolchain(rest)
+        make_pack(ctx)
+        exe = build_windows(ctx, toolchain)
+        stage_and_zip(ctx, "windows-x64" + ("-clang-cl" if toolchain == "clang-cl" else ""),
+                      [exe], licences)
+    elif target == "web":
+        no_args(rest)
+        cmd_web(ctx, [])
+        name = ctx.name()
+        web = ctx.root / "build/web"
+        stage_and_zip(ctx, "web", [web / f"{name}.{ext}" for ext in ("html", "js", "wasm", "data")],
+                      ctx.root / "cmake/generated/web/LICENSES.txt", ship_resources=False)
+    else:
+        no_args(rest)
+        package_android(ctx)
+    return OK
+
+
+ANDROID_SIGNING = ("ANDROID_KEYSTORE_FILE", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS",
+                   "ANDROID_KEY_PASSWORD")
+
+
+def package_android(ctx: Ctx) -> None:
+    """The release bundle (.aab, what Google Play takes) and a release APK
+    (what a phone installs from a file), signed with your upload key."""
+    missing = [v for v in ANDROID_SIGNING if not os.environ.get(v)]
+    if missing:
+        raise Refused("a release for Android is signed with your upload key, and "
+                      f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set: "
+                      "ANDROID_KEYSTORE_FILE is the .jks or .keystore file, and the other "
+                      "three its passwords and alias. `rmp android` builds a debug APK "
+                      "without them")
+    keystore = Path(os.environ["ANDROID_KEYSTORE_FILE"]).expanduser().resolve()
+    if not keystore.is_file():
+        raise Refused(f"ANDROID_KEYSTORE_FILE is {keystore}, and there is no such file")
+    ctx.run([ctx.python, "tools/configure.py"])
+    raymob = ctx.root / "raymob"
+    gradle = ([str(raymob / "gradlew.bat")] if os.name == "nt" else ["sh", "./gradlew"])
+    ctx.run([*gradle, "bundleRelease", "assembleRelease", *gradle_flags(ctx)], cwd=raymob,
+            env={"ANDROID_KEYSTORE_FILE": str(keystore)})
+    out = ctx.root / "build/package"
+    out.mkdir(parents=True, exist_ok=True)
+    name = ctx.name()
+    found = 0
+    for kind, ext in (("bundle", "aab"), ("apk", "apk")):
+        for f in sorted((raymob / "app/build/outputs" / kind / "release").glob(f"*.{ext}")):
+            dest = out / f"{name}-android.{ext}"
+            shutil.copy2(f, dest)
+            print(f"  packed {dest.relative_to(ctx.root)}")
+            found += 1
+    if found < 2:
+        raise Refused("Gradle finished without both the release .aab and .apk")
 
 
 def cmd_pack(ctx, args):
@@ -1375,7 +1625,7 @@ def cmd_deploy(ctx, args):
 
 INCLUDE = (
     ".clang-format", ".clang-format-ignore", ".clangd", ".gitattributes", ".gitignore",
-    ".gitmodules", ".github/scripts/web_boot_test.js",
+    ".devcontainer/devcontainer.json", ".gitmodules", ".github/scripts/web_boot_test.js",
     ".github/workflows/ci.yml", ".github/workflows/_android.yml",
     ".github/workflows/_apple.yml", ".github/workflows/_bsd.yml",
     ".github/workflows/_firebase.yml", ".github/workflows/_itch.yml",
@@ -1384,7 +1634,8 @@ INCLUDE = (
     "CMakeLists.txt", "CMakePresets.json", "THIRD_PARTY_LICENSES.md", TOML,
     "branding/", "cmake/configure_hook.cmake", "cmake/find_python.cmake",
     "cmake/game_resources.cmake", "cmake/game_tests.cmake", "cmake/sanitize.cmake",
-    "cmake/sanitizer_hooks.c", "cmake/sanitize_ignore.txt",
+    "cmake/sanitizer_hooks.c", "cmake/sanitize_ignore.txt", "cmake/tcc.cmake",
+    "cmake/tcc_fixup.c", "cmake/windows_clang_cl.cmake", "cmake/windows_cross.cmake",
     "cmake/toolchain-riscv64-linux.cmake", "cmake/web/",
     "generate_android_commands.ps1", "generate_android_commands.sh",
     "update_clangd.ps1", "update_clangd.sh",
@@ -1730,6 +1981,10 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         # turns them on, and a fresh clone builds on a compiler without the
         # runtime without a warning to explain.
         (setting_in("dev", "sanitize"), assign_raw("[]")),
+        # tcc for the C of a Debug build, where it is installed and can work:
+        # raylib and GLFW in a second instead of ten. The framework keeps
+        # "same", so its Debug builds sanitize raylib too.
+        (setting_in("dev", "c_compiler"), assign("auto")),
     ])
     edit_lines(target / "THIRD_PARTY_LICENSES.md", [
         (lambda line: line.startswith("raylib_multiplatform "),
@@ -2172,7 +2427,7 @@ class Command:
 
 COMMANDS = {
     "run": Command(
-        "run [sudo]", "build the game (debug) and play it",
+        "run [sudo|windows]", "build the game (debug) and play it",
         "Build the game in debug, then play it; only what changed is compiled again. "
         "On a Linux console with no desktop it builds for DRM/KMS (build/debug-drm/) "
         "and first checks that the game can open the screen and read the keyboard, "
@@ -2180,19 +2435,25 @@ COMMANDS = {
         "game as root. RMP_DRM=1 or 0 overrides what rmp decides.",
         [("rmp run", "build, then start the game"),
          ("rmp run sudo", "on a console: the game as root, the build as you"),
-         ("rmp build release", "the optimised build players get"),
+         ("rmp run windows", "on Linux: the Windows .exe, built and started under Wine"),
          ("rmp clean", "if a build goes strange, start from nothing")],
         cmd_run),
     "build": Command(
-        "build [release]", "compile the game: debug, or release",
+        "build [release|windows]", "compile the game: debug, release, Windows",
         "Compile the game without running it: debug into build/debug/ by default, "
         "or release into build/release/ (optimised, reading ./resources/: the one "
         "next to the executable when there is one, as in a shipped package, and the "
         "working directory's otherwise -- so run it from the project folder). Each "
         "has its folder: switching between them rebuilds nothing. On a Linux console "
-        "with no desktop, build/debug-drm/ and build/release-drm/, for DRM/KMS.",
+        "with no desktop, build/debug-drm/ and build/release-drm/, for DRM/KMS. "
+        "On Linux, `windows` builds the release .exe for Windows: with MinGW-w64 into "
+        "build/windows/, or with `windows clang-cl` into build/windows-clang-cl/, against "
+        "Microsoft's own C runtime, which xwin downloads into ~/.xwin (XWIN_DIR) the first "
+        "time, once you accept Microsoft's licence.",
         [("rmp build", "writes build/debug/<name>"),
-         ("rmp build release", "writes build/release/<name>, as CI ships it")],
+         ("rmp build release", "writes build/release/<name>, as CI ships it"),
+         ("rmp build windows", "on Linux: build/windows/<name>.exe (MinGW-w64)"),
+         ("rmp build windows clang-cl", "the same with clang-cl and lld-link")],
         cmd_build),
     "web": Command(
         "web", "build for the browser (needs the emsdk)",
@@ -2201,6 +2462,20 @@ COMMANDS = {
         [("rmp web", "writes build/web/<name>.html"),
          ("python3 -m http.server -d build/web", "then open localhost:8000/<name>.html")],
         cmd_web),
+    "package": Command(
+        "package [desktop|windows|web|android]", "zip what a release ships, made here",
+        "Make, on this machine, the archive a release job would upload, into "
+        "build/package/: the release binary, the resource pack and LICENSES.txt, packed "
+        "with UPX where [upx] asks, zipped. desktop is this machine's own target; "
+        "windows is the .exe made on Linux (add clang-cl for clang-cl); web is the page, "
+        "zipped; android is the release .aab and .apk, signed with your upload key: set "
+        "ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and "
+        "ANDROID_KEY_PASSWORD.",
+        [("rmp package", "build/package/<name>-<this machine's target>.zip"),
+         ("rmp package windows", "build/package/<name>-windows-x64.zip, made on Linux"),
+         ("rmp package web", "build/package/<name>-web.zip, ready to upload"),
+         ("rmp package android", "build/package/<name>-android.aab and .apk, signed")],
+        cmd_package),
     "android": Command(
         "android", "build the Android APK (needs the SDK and NDK)",
         "Build a debug APK with Gradle; it needs the Android SDK and NDK.",
@@ -2311,17 +2586,29 @@ COMMANDS = {
 }
 
 
+USAGE_COLUMN = 15
+
+
 def usage_text(mode: str) -> str:
     lines = ["usage: rmp <command> [args]", ""]
-    width = max(len(c.usage) for c in COMMANDS.values()) + 2
+    # A usage longer than USAGE_COLUMN takes a line of its own, its summary
+    # under it in the column, so one long usage does not push every summary
+    # past 78 columns.
+    width = USAGE_COLUMN + 2
+
+    def entry(c: Command) -> list[str]:
+        if len(c.usage) <= USAGE_COLUMN:
+            return [f"  {c.usage:{width}} {c.summary}"]
+        return [f"  {c.usage}", f"  {'':{width}} {c.summary}"]
+
     for c in COMMANDS.values():
         if not c.framework_only:
-            lines.append(f"  {c.usage:{width}} {c.summary}")
+            lines += entry(c)
     if mode == "framework":
         lines += ["", "framework only:"]
         for c in COMMANDS.values():
             if c.framework_only:
-                lines.append(f"  {c.usage:{width}} {c.summary}")
+                lines += entry(c)
     lines += ["", "rmp help <command> explains one, with examples."]
     return "\n".join(lines)
 

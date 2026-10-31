@@ -40,6 +40,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <system_error>
@@ -473,6 +474,36 @@ bool valid_slot(std::string_view slot) {
 } // namespace detail
 
 } // namespace rmp::save
+
+// ---------------------------------------------------------------------------
+// A Value that remembers its file (rmp::assets::load_value(), watch.cpp)
+// ---------------------------------------------------------------------------
+
+namespace rmp {
+
+bool Value::changed() const {
+    if (_watch < 0) return false;
+    // 0: the watch list was cleared under this Value (a test's forget_watched()).
+    const unsigned generation = rmp::assets::detail::watch_generation(_watch);
+    return generation != 0 && generation != _seen;
+}
+
+bool Value::reload() {
+    if (_watch < 0) return false;
+    const unsigned generation = rmp::assets::detail::watch_generation(_watch);
+    if (generation == 0) return false;
+    const std::optional<std::string> text = rmp::assets::detail::read_watched(_watch);
+    if (!text) return false; // gone for a moment: an editor saving it
+    Value parsed;
+    if (!save::detail::from_json(*text, &parsed))
+        return false; // half saved: try again later
+    const int watch = _watch;
+    *this = std::move(parsed);
+    set_watch(watch, generation);
+    return true;
+}
+
+} // namespace rmp
 
 // ---------------------------------------------------------------------------
 // Where the files go

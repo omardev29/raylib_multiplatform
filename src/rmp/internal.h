@@ -11,6 +11,7 @@
 #include <rmp/assets.h> // rmp::Font, which assets::detail::load_font_glyphs() returns
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -133,6 +134,17 @@ void close_pack();
 // True between a successful open_pack() and close_pack().
 bool pack_is_open();
 
+// Files of resources/ watched for changes while a Debug build runs on the
+// desktop (watch.cpp): the index of `name`'s file, or -1 where nothing is
+// watched -- a release, a phone, the web, an open pack, a file not there. Its
+// generation moves each time the file's bytes change; what loaded it compares.
+int watch_file(std::string_view name);
+unsigned watch_generation(int index);
+// The watched file's bytes now; nothing when it cannot be read (gone, for now).
+std::optional<std::string> read_watched(int index);
+void forget_watched(); // for the tests: watch nothing again
+void poll_watched_now(); // for the tests: the next query looks at the files
+
 // One entry, by its name in the central directory. Returns bytes owned by the
 // caller (malloc'd, so UnloadFileData/RL_FREE frees them), or nullptr if the
 // name is not packed, does not decrypt, or no pack is open. `Size` receives
@@ -230,6 +242,15 @@ rmp::Font load_font_glyphs(std::string_view name, int font_size,
 #endif
 
 namespace rmp::detail {
+
+// --- resource.cpp: hot reload of a slot ------------------------------------
+// The slot remembers the file it was loaded from (an index of watch.cpp, -1
+// for none), and the generation of that file its payload is. replace_payload()
+// unloads what it held and takes `payload` in its place, its name, count and
+// handles kept; false, and nothing changed, for an empty or released slot.
+void watch_slot(Slot &slot, int watch);
+bool slot_watched(const Slot &slot); // held, and with a file
+bool replace_payload(Slot &slot, std::shared_ptr<void> payload);
 
 // --- report.cpp ------------------------------------------------------------
 // One diagnostic per call site, for the mistakes the framework notices every

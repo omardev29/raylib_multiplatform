@@ -394,6 +394,18 @@ disabled_modules = []
 # it work from MSYS2. Plain "gcc" on Windows is how you pick up a stray compiler
 # from a Git-for-Windows shell and end up with a build that asks for X11.
 compiler = "clang"
+# What compiles the C: raylib, GLFW, RGFW, miniaudio, cJSON. same | tcc | auto
+#
+#   same  [dev] compiler's own C compiler.
+#   tcc   the Tiny C Compiler: builds raylib and GLFW in about a second, and
+#         optimises nothing. x86-64 Linux only; the C++ compiler above still
+#         compiles the C++ and links the game, with GNU ld. tcc has no
+#         sanitizers, so the C it compiles is not instrumented.
+#   auto  tcc where it is installed and can work, same anywhere else.
+#
+# The framework keeps "same", so its Debug builds sanitize raylib too; `rmp new`
+# writes "auto" for a game, whose Debug build is for iterating fast.
+c_compiler = "same"
 linker   = "auto"    # auto | mold | lld | default
 strict   = false     # true: a framework warning aborts a DEBUG build
 # What a Debug build is instrumented with: address | undefined, or [] for none.

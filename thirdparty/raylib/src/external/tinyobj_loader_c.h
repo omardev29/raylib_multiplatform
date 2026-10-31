@@ -128,7 +128,10 @@ extern void tinyobj_materials_free(tinyobj_material_t *materials,
 #define TINYOBJ_FREE free
 #endif
 
-#define TINYOBJ_MAX_FACES_PER_F_LINE (16)
+// PATCHED (raylib_cmake_template): 64 rather than 16, from raylib's 430439e6,
+// after 6.2, as the face code in parseLine() is: a triangulated n-gon of up to
+// 23 vertices fits
+#define TINYOBJ_MAX_FACES_PER_F_LINE (64)
 
 #define IS_SPACE(x) (((x) == ' ') || ((x) == '\t'))
 #define IS_DIGIT(x) ((unsigned int)((x) - '0') < (unsigned int)(10))
@@ -1020,7 +1023,18 @@ static int parseLine(Command *command, const char *p, unsigned int p_len,
                      int triangulate) {
   char linebuf[4096];
   const char *token;
-  assert(p_len < 4095);
+  
+  // PATCHED (raylib_cmake_template): the check below (ROS: CLN-012) returns
+  // before the command is set empty, and the passes after parseLine() read
+  // every command as malloc() left it: a line of more than 4095 bytes was
+  // taken for whatever command that memory held
+  command->type = COMMAND_EMPTY;
+
+  // @raysan5: 
+  // WARNING: If -DNDEBUG is set when compiling, assertions will not 
+  // be present in the compiled binary, replacing by a runtime check
+  //assert(p_len < 4095);
+  if (p_len > 4095) return 0;
 
   memcpy(linebuf, p, p_len);
   linebuf[p_len] = '\0';
@@ -1084,15 +1098,31 @@ static int parseLine(Command *command, const char *p, unsigned int p_len,
     token += 2;
     skip_space(&token);
 
+    // PATCHED (raylib_cmake_template): the face code from here on is raylib's
+    // 430439e6, after 6.2. In 6.2 a face of more than 16 vertices overflowed
+    // f[] on the stack, and a face the checks below drop (ROS: CLN-012) was
+    // left marked COMMAND_F with nothing filled in, for the passes after
+    // parseLine() to read, and write past attrib->faces. Now an n-gon of up
+    // to 23 vertices loads, triangulated, and anything longer is dropped
+    // cleanly
     while (!IS_NEW_LINE(token[0])) {
       tinyobj_vertex_index_t vi = parseRawTriple(&token);
       skip_space_and_cr(&token);
 
+      // Guard the fixed-size f[] buffer against overrun.
+      if (num_f >= TINYOBJ_MAX_FACES_PER_F_LINE) return 0;
       f[num_f] = vi;
       num_f++;
     }
 
-    command->type = COMMAND_F;
+    // A face needs at least 3 vertices, otherwise the triangulation
+    // below reads uninitialized f[] entries.
+    if (num_f < 3) return 0;
+
+    // NOTE: command->type is deliberately not set here. A face rejected by
+    // the size checks below must not look like COMMAND_F to the later
+    // attribute-construction pass, which would otherwise consume
+    // uninitialized command->num_f/f[] fields (heap buffer overflow).
 
     if (triangulate) {
       unsigned int k;
@@ -1102,8 +1132,12 @@ static int parseLine(Command *command, const char *p, unsigned int p_len,
       tinyobj_vertex_index_t i1;
       tinyobj_vertex_index_t i2 = f[1];
 
-      assert(3 * num_f < TINYOBJ_MAX_FACES_PER_F_LINE);
-
+      // @raysan5: 
+      // WARNING: If -DNDEBUG is set when compiling, assertions will not 
+      // be present in the compiled binary, replacing by a runtime check
+      //assert(3 * num_f < TINYOBJ_MAX_FACES_PER_F_LINE);
+      if ((num_f - 2) * 3 > TINYOBJ_MAX_FACES_PER_F_LINE) return 0;
+      
       for (k = 2; k < num_f; k++) {
         i1 = i2;
         i2 = f[k];
@@ -1119,7 +1153,13 @@ static int parseLine(Command *command, const char *p, unsigned int p_len,
 
     } else {
       unsigned int k = 0;
-      assert(num_f < TINYOBJ_MAX_FACES_PER_F_LINE);
+      
+      // @raysan5: 
+      // WARNING: If -DNDEBUG is set when compiling, assertions will not 
+      // be present in the compiled binary, replacing by a runtime check
+      //assert(num_f < TINYOBJ_MAX_FACES_PER_F_LINE);
+      if (num_f > TINYOBJ_MAX_FACES_PER_F_LINE) return 0;     
+      
       for (k = 0; k < num_f; k++) {
         command->f[k] = f[k];
       }
@@ -1129,6 +1169,9 @@ static int parseLine(Command *command, const char *p, unsigned int p_len,
       command->num_f_num_verts = 1;
     }
 
+    // Mark COMMAND_F only after full validation/fill so a rejected face
+    // stays COMMAND_EMPTY for the attribute pass below.
+    command->type = COMMAND_F;
     return 1;
   }
 

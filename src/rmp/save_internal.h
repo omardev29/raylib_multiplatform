@@ -36,6 +36,10 @@ namespace rmp::detail {
 // The one door into Value's version for the framework.
 struct ValueAccess {
     static void set_version(Value &value, int version) { value.set_version(version); }
+    // What rmp::assets::load_value() and reload() record of the file.
+    static void set_watch(Value &value, int index, unsigned seen) {
+        value.set_watch(index, seen);
+    }
     // The number as stored, a double: as_float() would round it to a float,
     // and a save must write back exactly what it read.
     static double number(const Value &value) { return value.number(); }

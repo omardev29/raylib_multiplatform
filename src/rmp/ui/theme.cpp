@@ -89,6 +89,10 @@ Theme theme_light() {
     // The one metric that differs, and the reason the light Theme works at all.
     t.border_width = 1;
 
+    // Shadows on white read darker than on near-black: the same ones, fainter.
+    if (t.styles.button.shadow) t.styles.button.shadow->color.a = 36;
+    if (t.styles.panel.shadow) t.styles.panel.shadow->color.a = 48;
+
     return t;
 }
 

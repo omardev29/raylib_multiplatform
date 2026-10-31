@@ -17,12 +17,14 @@
 #include <string_view>
 #include <vector>
 #include <rmp/assets.h>
+#include <rmp/save.h>
 #include <rmp/tilemap.h>
 
 #include "animation_internal.h"
 #include "audio_internal.h"
 #include "tilemap_internal.h"
 #include "internal.h"
+#include "save_internal.h"
 
 namespace rmp::assets {
 
@@ -352,6 +354,7 @@ rmp::Texture load_texture(std::string_view name_view) {
         UnloadTexture(raw);
         return rmp::Texture{};
     }
+    rmp::detail::watch_slot(*slot, detail::watch_file(name_view));
     return rmp::Texture{ slot };
 }
 
@@ -552,6 +555,43 @@ std::vector<unsigned char> load_data(std::string_view name_view) {
     int size = 0;
     unsigned char *data = LoadFileData(path.c_str(), &size);
     return owned(data, size);
+}
+
+} // namespace rmp::assets
+
+namespace rmp::detail {
+
+bool reload_texture(Slot &slot) {
+    if (!slot_watched(slot)) return false;
+    const std::string name(name_of(slot));
+    const Texture2D raw = rmp::assets::load_texture_raw(name.c_str());
+    if (raw.id == 0) return false; // half saved: changed() stays true, try again
+    if (!replace_payload(slot, std::make_shared<Texture2D>(raw))) {
+        UnloadTexture(raw);
+        return false;
+    }
+    return true;
+}
+
+} // namespace rmp::detail
+
+namespace rmp::assets {
+
+rmp::Value load_value(std::string_view name) {
+    rmp::Value value;
+    if (refused(name)) return value;
+    const std::vector<unsigned char> bytes = load_data(name);
+    if (bytes.empty()) return value;
+    const std::string text(bytes.begin(), bytes.end());
+    if (!rmp::save::detail::from_json(text, &value)) {
+        ++detail::loads.failed;
+        RMP_REPORT_ONCE_KEYED(name, "ASSETS: '%.*s' is not JSON",
+                              static_cast<int>(name.size()), name.data());
+        return rmp::Value{};
+    }
+    const int watch = detail::watch_file(name);
+    rmp::detail::ValueAccess::set_watch(value, watch, detail::watch_generation(watch));
+    return value;
 }
 
 } // namespace rmp::assets

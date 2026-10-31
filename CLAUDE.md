@@ -340,6 +340,37 @@ here so that nobody "fixes" one back.
   The first two points get a gate each (task H9); the third is the reviewer's,
   and the templates' code is the first thing a newcomer reads.
 
+- **Hot reload is JSON and textures, asked for explicitly** (Omar,
+  2026-10-31). `rmp::assets::load_value()` gives an `rmp::Value` that
+  remembers its file, and a texture remembers its file too: `changed()` says,
+  `reload()` reads it again in place, and nothing happens behind the game's
+  back. Debug builds on the desktop only; everywhere else `changed()` is false.
+  `src/rmp/watch.cpp` looks at the files at most every 0.25 s (size and time,
+  the bytes only when one moved), so `changed()` can be asked every frame. No
+  hot reload of code.
+- **The framework's themes have a look of their own** (Omar, 2026-10-31):
+  `theme_dark()` and `theme_light()` give buttons a hover and press scale and a
+  soft shadow, and panels -- an overlay's content too -- a shadow and an
+  appearing fade and rise. Never a text shadow by default. `Theme::styles` is
+  where it lives; `t.styles.button = {}` takes it away.
+- **tcc is the C compiler of a game's Debug build when it is installed**
+  (Omar, 2026-10-31): `[dev] c_compiler = "auto"` in what `rmp new` writes, on
+  x86-64 Linux, for the C of raylib and its libraries; the C++ keeps the
+  platform compiler. The framework keeps `"same"`: its Debug is sanitized,
+  and tcc has no sanitizers. The image carries tcc 0.9.28rc built at one commit.
+- **Windows is built from Linux too** (Omar, 2026-10-31): `rmp build windows`
+  (MinGW-w64) and `rmp build windows clang-cl` (clang-cl, lld-link and
+  Microsoft's CRT and SDK, which xwin downloads on the developer's machine
+  once they accept Microsoft's licence -- never in the image, never in CI),
+  and `rmp run windows` starts the .exe under Wine.
+- **`rmp package` makes here what a release ships** (Omar, 2026-10-31):
+  desktop, windows, web and android (signed with the developer's upload key,
+  from the four `ANDROID_KEY*` variables). The web and Android jobs run it and
+  compare it with what they ship.
+- **The development container is the build image** (Omar, 2026-10-31):
+  `.devcontainer/devcontainer.json` is the pinned image plus a noVNC desktop,
+  copied into every game by `rmp new`; `versions_check.sh` holds its digest to
+  the workflows'.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.
@@ -1150,10 +1181,10 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
-  gives a hash of its own where every other target gives `a5819fdd`, because
+  gives a hash of its own where every other target gives `af22be47`, because
   it rasterises through OpenGL ES on llvmpipe and the golden hash comes from
   raylib's own software renderer. The pixel count and the coverage ratio are
-  identical (`pixels=94608 ratio=0.26280`), which is what says the geometry is
+  identical (`pixels=102752 ratio=0.28542`), which is what says the geometry is
   the same and only the shading differs. Do not "fix" it by copying one hash
   over the other. (The text is measured the way it is drawn since Stage E's
   P7, which moved both hashes; `drm-x64-run` prints DRM's.)

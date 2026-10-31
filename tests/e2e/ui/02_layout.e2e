@@ -6,7 +6,8 @@
 
 # --- the happy path: laid out, and moving ---------------------------------------
 
-1 shot laid_out
+# The panels fade and rise in for 0.18 s, eleven frames: the shot waits for them.
+15 shot laid_out
 61 shot one_second_on
 
 # --- the failure path: what is not a button ----------------------------------

@@ -35,6 +35,7 @@
 
 namespace rmp {
 class Tilemap;
+class Value;
 } // namespace rmp
 
 namespace rmp {
@@ -108,6 +109,11 @@ void release(Slot *slot);
 const void *payload(const Slot *slot);
 // The name a resource was loaded under, or "" for one adopted without one.
 std::string_view name_of(const Slot &slot);
+// Hot reload, for the kinds that have it (a texture): whether the file the
+// slot was loaded from differs now from what it holds, and loading that file
+// again into the slot, where every handle to it sees it.
+bool slot_changed(const Slot &slot);
+bool reload_texture(Slot &slot);
 
 // For tests, and for a debug overlay. How many distinct resources are loaded,
 // and how many references exist to a given name.
@@ -155,6 +161,28 @@ public:
     // an empty handle. Valid while this handle holds it.
     [[nodiscard]] std::string_view name() const {
         return _slot != nullptr ? name_of(*_slot) : std::string_view{};
+    }
+
+    // A texture loaded from a file in resources/ remembers it: changed() is
+    // true once the file differs from what the texture holds -- the sprite
+    // redrawn and saved while the game runs -- and reload() loads it again in
+    // place, so every handle to it draws the new picture:
+    //
+    //     if (rabbit.changed()) rabbit.reload();
+    //
+    // Debug builds on the desktop only, like rmp::Value::changed(); elsewhere,
+    // and for an empty handle, changed() is false and reload() does nothing.
+    // changed() compares two numbers: ask it every frame. reload() is false,
+    // and the texture as it was, when the file does not decode now.
+    [[nodiscard]] bool changed() const
+        requires(K == ResourceKind::TEXTURE)
+    {
+        return _slot != nullptr && slot_changed(*_slot);
+    }
+    bool reload()
+        requires(K == ResourceKind::TEXTURE)
+    {
+        return _slot != nullptr && reload_texture(*_slot);
     }
 
     // An empty resource yields a zeroed raylib struct rather than a crash.
@@ -364,6 +392,16 @@ rmp::Tilemap load_map(std::string_view name, std::string_view level);
 // every call reads the file again. Empty when the name is in neither the pack
 // nor resources/.
 std::vector<unsigned char> load_data(std::string_view name); // empty when it is not there
+
+// A JSON file -- tuning numbers, a table of items, dialogue -- read into an
+// rmp::Value, which remembers its file: while a Debug build runs on the
+// desktop, `if (tuning.changed()) tuning.reload();` picks up an edit made in
+// any text editor (rmp::Value::changed() says how). An empty Value, said once,
+// when the file is not there or is not JSON. Include rmp/save.h to use it:
+//
+//     #include <rmp/save.h>
+//     static rmp::Value tuning = rmp::assets::load_value("tuning.json");
+rmp::Value load_value(std::string_view name);
 
 // How many rmp::assets:: loads were asked for, and how many gave nothing usable:
 // nothing in the pack and nothing on disk, or a file that is there and does not

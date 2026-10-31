@@ -42,7 +42,7 @@ jobs:
       # fails if any two workflows disagree, or if this one drifts from
       # thirdparty/FROZEN_VERSIONS.md — so it cannot quietly become a different
       # emsdk from the one ci.yml builds with.
-      image: 'ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f'
+      image: 'ghcr.io/omardev29/raylib-build@sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0'
     defaults:
       run:
         shell: bash

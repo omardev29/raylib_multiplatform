@@ -121,6 +121,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json"
 
 project(${TEMPLATE_PROJECT_NAME})
 
+# The compilers this build uses, exactly, in every configure's output -- so a
+# log, a CI job's included, always says which C and C++ compiler and which
+# linker made what it reports on.
+set(_rmp_c_version "${CMAKE_C_COMPILER_VERSION}")
+if(_rmp_c_version STREQUAL "" AND CMAKE_C_COMPILER_ID STREQUAL "TinyCC")
+  # CMake reads no version out of tcc: tcc says it itself.
+  execute_process(COMMAND "${CMAKE_C_COMPILER}" -v OUTPUT_VARIABLE _rmp_c_version
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+message(STATUS "=== C compiler:   ${CMAKE_C_COMPILER} (${CMAKE_C_COMPILER_ID} ${_rmp_c_version})")
+message(STATUS "=== C++ compiler: ${CMAKE_CXX_COMPILER} (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
+message(STATUS "=== Linker:       ${CMAKE_LINKER} (as the C++ compiler drives it; [dev] linker below picks another)")
+
+# tcc as the C compiler ([dev] c_compiler): what it takes for its code to link
+# and run with everyone else's. Nothing when the C compiler is not tcc.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc.cmake")
+
 # --- what the .exe asks of the player's machine ------------------------------
 # Windows and nothing else: a player double-clicking the game has no compiler
 # installed, so the C and C++ runtimes go INTO the .exe. After project(),
@@ -543,7 +560,11 @@ function(rmp_apply_link_flags target)
   elseif(APPLE)
     target_link_options(${target} PRIVATE -Wl,-dead_strip)
   else()
-    target_link_options(${target} PRIVATE -Wl,--gc-sections)
+    # Not when tcc drives the link, as it does a game written in C whose C
+    # compiler is tcc ([dev] c_compiler): tcc's own -Wl parser refuses
+    # --gc-sections. That is a Debug build, where a few unused KB do not matter.
+    target_link_options(${target} PRIVATE
+      $<$<NOT:$<AND:$<LINK_LANGUAGE:C>,$<C_COMPILER_ID:TinyCC>>>:-Wl,--gc-sections>)
   endif()
   if(PRODUCTION_BUILD)
     if(MSVC)
@@ -1105,6 +1126,16 @@ if(RMP_BUILD_EXAMPLES)
   foreach(_t ${RMP_E2E_TARGETS})
     file(APPEND "${CMAKE_BINARY_DIR}/e2e_targets.txt" "${_t}\n")
   endforeach()
+endif()
+
+# --- tcc's launcher, read by clang-tidy ---------------------------------------
+# cmake/tcc_fixup.c is compiled by cmake/tcc.cmake while configuring, with tcc,
+# where no compile database sees it. An object library out of `all`, defined
+# with the tests, gives tools/lint.sh the entry it reads it with; nothing ever
+# builds it.
+if(BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc_fixup.c")
+  add_library(tcc_fixup_lint OBJECT EXCLUDE_FROM_ALL "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc_fixup.c")
+  rmp_apply_warnings(tcc_fixup_lint)
 endif()
 
 # --- the platformer, PLAYED -------------------------------------------------

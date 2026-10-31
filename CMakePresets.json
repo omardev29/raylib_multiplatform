@@ -30,6 +30,20 @@
             }
         },
         {
+            "name": "windows",
+            "displayName": "Release, Windows x64 from Linux (MinGW-w64)",
+            "inherits": "release",
+            "binaryDir": "${sourceDir}/build/windows",
+            "toolchainFile": "${sourceDir}/cmake/windows_cross.cmake"
+        },
+        {
+            "name": "windows-clang-cl",
+            "displayName": "Release, Windows x64 from Linux (clang-cl, Microsoft's runtime from xwin)",
+            "inherits": "release",
+            "binaryDir": "${sourceDir}/build/windows-clang-cl",
+            "toolchainFile": "${sourceDir}/cmake/windows_clang_cl.cmake"
+        },
+        {
             "name": "debug-drm",
             "displayName": "Debug, DRM/KMS (a Linux console: no X11, no Wayland)",
             "inherits": "debug",
@@ -92,6 +106,14 @@
         {
             "name": "release",
             "configurePreset": "release"
+        },
+        {
+            "name": "windows",
+            "configurePreset": "windows"
+        },
+        {
+            "name": "windows-clang-cl",
+            "configurePreset": "windows-clang-cl"
         },
         {
             "name": "debug-drm",

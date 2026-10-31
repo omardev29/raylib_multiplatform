@@ -142,7 +142,15 @@ function(rmp_apply_debug_checks target)
   if(NOT RMP_SANITIZE_APPLIED)
     return()
   endif()
-  target_compile_options(${target} PRIVATE ${RMP_SANITIZE_COMPILE_FLAGS})
+  if(CMAKE_C_COMPILER_ID STREQUAL "TinyCC")
+    # tcc has no sanitizers ([dev] c_compiler): the C++ is instrumented, the C
+    # tcc compiles is not, and links with the same runtime.
+    foreach(_flag IN LISTS RMP_SANITIZE_COMPILE_FLAGS)
+      target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${_flag}>)
+    endforeach()
+  else()
+    target_compile_options(${target} PRIVATE ${RMP_SANITIZE_COMPILE_FLAGS})
+  endif()
   # What the code can ask: RMP_SANITIZE for "any", and one per sanitizer.
   # tests/sanitize_test.cpp holds them to what the compiler itself says.
   target_compile_definitions(${target} PRIVATE RMP_SANITIZE=1)
