@@ -99,5 +99,6 @@
 1929 tap KEY_DOWN
 1932 tap KEY_ENTER
 1932 expect scene TitleScene
-1935 shot title_with_best
-1935 end
+# The title's panel arrives again: its eleven frames first.
+1946 shot title_with_best
+1946 end
