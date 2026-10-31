@@ -55,7 +55,23 @@ namespace rmp::behavior {
 
 namespace {
 
-constexpr float NEAR_ZERO = 0.0001f;
+// What a behavior writes -- into its object, and into what it keeps -- is a
+// finite number, or nothing. A value that is not one (a field that is NaN or
+// an infinity, a speed so large the arithmetic overflowed, an object already
+// at NaN) leaves the old value where it was and is said once per behavior:
+// written, it would be every position the object touches from then on.
+void not_written(std::string_view who, float value) {
+    RMP_REPORT_ONCE_KEYED(
+        who,
+        "BEHAVIOR: %.*s did not write %g: a behavior writes only finite "
+        "numbers, and left the old value. Look at its fields, and at the "
+        "object's position.",
+        static_cast<int>(who.size()), who.data(), static_cast<double>(value));
+}
+
+} // namespace
+
+namespace detail {
 
 float length_of(Vector2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 
@@ -90,20 +106,6 @@ float seconds_of(float delta) {
     return 0.0f;
 }
 
-// What a behavior writes -- into its object, and into what it keeps -- is a
-// finite number, or nothing. A value that is not one (a field that is NaN or
-// an infinity, a speed so large the arithmetic overflowed, an object already
-// at NaN) leaves the old value where it was and is said once per behavior:
-// written, it would be every position the object touches from then on.
-void not_written(std::string_view who, float value) {
-    RMP_REPORT_ONCE_KEYED(
-        who,
-        "BEHAVIOR: %.*s did not write %g: a behavior writes only finite "
-        "numbers, and left the old value. Look at its fields, and at the "
-        "object's position.",
-        static_cast<int>(who.size()), who.data(), static_cast<double>(value));
-}
-
 void put(float &slot, float value, std::string_view who) {
     if (std::isfinite(value)) {
         slot = value;
@@ -120,11 +122,6 @@ void put(Vector2 &slot, Vector2 value, std::string_view who) {
     not_written(who, std::isfinite(value.x) ? value.y : value.x);
 }
 
-// A field the game set, and its name.
-struct Field {
-    std::string_view name;
-    float value;
-};
 
 // A field that is NaN is said once, by name. Every comparison with one is
 // false, so it quietly turns a behavior off -- a Timer that never fires, a
@@ -150,6 +147,20 @@ float approach(float current, float target, float rate, float delta) {
     if (current > target) return current - step < target ? target : current - step;
     return current;
 }
+
+} // namespace detail
+
+namespace {
+
+using detail::approach;
+using detail::Field;
+using detail::finite;
+using detail::length_of;
+using detail::NEAR_ZERO;
+using detail::normalised;
+using detail::put;
+using detail::say_nan;
+using detail::seconds_of;
 
 // The action name a behavior was given, or the standard one when it was left
 // empty. Empty means "the defaults", and the defaults are what rmp::input ships.
@@ -512,6 +523,13 @@ void Projectile::_collision(Object &self, Object &other) {
 void Projectile::_update(Object &self, float delta) {
     (void)seconds_of(delta);
     say_nan("Projectile", { { "speed", speed } });
+    if (destroy_on_wall) {
+        const Ref<Scene> scene = Storage::spawned_in(self);
+        if (scene && scene->map.valid() && scene->map.solid_at(self.position)) {
+            self.destroy();
+            return;
+        }
+    }
     if (!(speed > 0)) return; // keep whatever it was given
     const Vector2 dir = normalised(self.velocity);
     if (dir.x == 0 && dir.y == 0) return;
@@ -1030,6 +1048,9 @@ void Health::_collision(Object &self, Object &other) {
     // with nothing configured is a hit-point counter and not a hazard detector.
     if (hurt_by == 0) return;
     if ((other.collision_layer & hurt_by) == 0) return;
+    // A Hitbox decides for itself, and calls damage() when it does: counted
+    // here too, one touch would cost twice.
+    if (other.has<Hitbox>()) return;
     // Through damage() and not through hp, so the invulnerable window, the
     // on_damage callback and the once-only death all apply -- which is what
     // stops standing inside a fire costing sixty hearts a second.

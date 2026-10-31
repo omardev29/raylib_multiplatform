@@ -28,9 +28,22 @@
 // named). A hook handed a delta that is not a number of seconds, 0 or more,
 // counts it as 0 and says so once; the framework never hands one.
 //
-// WHAT IS NOT HERE, and why, in short: `patrol` is a Tween, `magnet` is a
-// Follow, `draggable` is Object::on_drag, and `tetromino`, `formation` and
-// `paddle` are three games with a different name on them.
+// PAUSED, NOT REMOVED. `object.enable<B>(false)` stops a behavior's hooks and
+// keeps its state; a Chase pauses the Patrol it interrupts that way, and a
+// StateMachine's states say which behaviors run while they are on.
+//
+// FROM THE EDITOR. The behaviors a level designer places -- Patrol, Chase,
+// Orbit, Shooter, Hitbox, Collectible -- have `B::from(const MapObject &)`,
+// which reads the entity's fields by the names written above each of them,
+// and leaves every field the entity does not have at its default:
+//
+//     map.on_object("Bat", [](rmp::Scene &s, const rmp::MapObject &o) {
+//         auto &bat = s.spawn({ .position = o.position });
+//         bat.add(rmp::behavior::Patrol::from(o));
+//     });
+//
+// WHAT IS NOT HERE, and why, in short: `tetromino`, `formation` and `paddle`
+// are three games with a different name on them.
 // ---------------------------------------------------------------------------
 
 // <rmp/input.h> is NOT here, and that is deliberate: nothing this header
@@ -45,8 +58,29 @@
 #include <rmp/scene.h> // rmp::Scene, for Spawner's on_spawn -- and what every behavior game uses
 
 #include <array>
+#include <optional> // a Pathfind's goal, which may be none
+#include <span> // what overlapping() and path() hand back, without a copy
 #include <string> // the action and tag names a behavior is given, owned: a
 // std::string's c_str() or a temporary passed in cannot dangle
+#include <vector> // waypoints, states, rules and paths: lists the game writes
+
+namespace rmp {
+
+// How rmp::find_path() looks for a way through a map.
+struct PathOptions {
+    bool diagonal = true; // eight directions; false = four. A corner is never cut
+    float clearance = 0; // keeps this many units from every solid cell: half the walker's width
+};
+
+// The way from `from` to `to` across the map's cells, around its solid ones:
+// the centres of the cells to walk through, ending on `to` itself. A* on the
+// grid, with diagonal steps that never cut the corner of a solid cell. Empty
+// when there is no way, when either end is outside the map or solid, and for a
+// map with no cells. `from` itself is not on it.
+[[nodiscard]] std::vector<Vector2> find_path(const Tilemap &map, Vector2 from, Vector2 to,
+                                             const PathOptions &options = {});
+
+} // namespace rmp
 
 namespace rmp::behavior {
 
@@ -217,6 +251,7 @@ struct Ball {
 struct Projectile {
     float speed = 0; // 0 = keep whatever velocity it was given
     bool destroy_on_hit = true; // discarded on touching any object it collides with
+    bool destroy_on_wall = false; // discarded when its centre is in a solid map cell
 
     void _ready(Object &self);
     void _collision(Object &self, Object &other);
@@ -237,9 +272,6 @@ struct Follow {
 
 // ---------------------------------------------------------------------------
 // Tween: animate one property, with easing, looping and ping-pong.
-//
-// `patrol` is not in this catalogue because it is this: a position that goes
-// back and forth between two points with ping_pong on.
 // ---------------------------------------------------------------------------
 
 // The curve a Tween's value follows from `from` to `to` over its `seconds`.
@@ -492,6 +524,489 @@ struct Health {
         float invulnerable_left = 0;
         bool died = false;
         bool hid = false;
+    } ours;
+};
+
+// ---------------------------------------------------------------------------
+// Places, hits and pickups
+// ---------------------------------------------------------------------------
+
+// A region that says who comes and goes: a trigger, a door's sensor, a pit, a
+// shop's counter. It is the object it is on -- its collider, its layers -- so
+// it sees what that object collides with, and solid or not is the object's
+// business (a trigger is not solid, which is the default).
+//
+//     door.collision_mask = layer::PLAYER;
+//     door.add<rmp::behavior::Area>({ .on_enter = [](rmp::Object &, rmp::Object &who) {
+//         open_the_door(who);
+//     } });
+//
+// Five moments, each told with the area and the other object:
+//   on_enter    the first frame the other touches it
+//   on_stay     every frame after that it still does
+//   on_exit     the frame after the first one it no longer does
+//   on_inside   its collider is wholly inside the area's, from a frame it was not
+//   on_outside  it is no longer wholly inside: part of it is out, or it left
+// An object destroyed while it touches the area leaves overlapping() and is
+// told nothing: it is gone, and there is no object to hand over.
+struct Area {
+    Callback<Object &, Object &> on_enter; // (the area, who came in)
+    Callback<Object &, Object &> on_stay; // (the area, who is still touching)
+    Callback<Object &, Object &> on_exit; // (the area, who left)
+    Callback<Object &, Object &> on_inside; // (the area, who is wholly inside now)
+    Callback<Object &, Object &> on_outside; // (the area, who is no longer wholly inside)
+
+    // Who touched it in the last collision pass, as handles: one destroyed
+    // since then reads empty.
+    [[nodiscard]] std::span<const Handle<Object>> overlapping() const {
+        return ours.touching;
+    }
+    // Whether `other` touched it in the last collision pass.
+    [[nodiscard]] bool contains(const Object &other) const;
+
+    void _update(Object &self, float delta);
+    void _collision(Object &self, Object &other);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        std::vector<Handle<Object>> touching; // the last pass's, settled
+        std::vector<bool> inside; // beside `touching`: wholly inside, then
+        std::vector<Handle<Object>> now; // the pass under way
+        std::vector<bool> now_inside;
+    } ours;
+};
+
+// What hurts: a sword's swing, a spike, a bullet, an explosion. On touching an
+// object with an rmp::behavior::Health on one of the layers it `hits`, it
+// calls that Health's damage() -- the invulnerable window, on_damage and the
+// once-only death all apply -- and pushes it away. A Health's `hurt_by` does
+// not count an object with a Hitbox: the Hitbox is what decides, so nothing is
+// hurt twice for one touch.
+//
+// From the editor: "damage" (Int), "knockback" (Float).
+struct Hitbox {
+    int damage = 1; // what one hit costs
+    unsigned hits = 0xFFFFFFFFu; // the layers it hurts; the collision layers decide who it touches
+    float knockback = 0; // the impulse that pushes the one hit away from it
+    bool destroy_on_hit = false; // discarded after its first hit, landed or not: a bullet
+    bool once_per_target = false; // hits each object once at most: a sword's one swing
+    Callback<Object &, Object &> on_hit; // (the hitbox, who it hurt), when the damage landed
+
+    [[nodiscard]] static Hitbox from(const MapObject &object);
+
+    void _update(Object &self, float delta);
+    void _collision(Object &self, Object &other);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        std::vector<Handle<Object>> struck; // for once_per_target
+    } ours;
+};
+
+// A coin, a key, a heart. Touched by an object on a layer of `collected_by`,
+// it calls on_collect, plays its sound, stops colliding and vanishes -- it
+// rises, grows and fades for `vanish_seconds` -- and is destroyed. Within
+// `magnet` of a collector it flies to it first. What a coin is worth is the
+// game's: on_collect is where it counts.
+//
+// From the editor: "magnet" (Float).
+struct Collectible {
+    unsigned collected_by = 0xFFFFFFFFu; // the layers that pick it up
+    std::string sound; // played by rmp::audio when it is picked up; "" = silent
+    float magnet = 0; // within this many units of a collector it flies to it; 0 = never
+    float magnet_speed = 360; // how fast, in units per second
+    float vanish_seconds = 0.25f; // how long it takes to go; 0 = at once
+    Callback<Object &, Object &> on_collect; // (the pickup, who picked it up), once
+
+    // Whether it has been picked up: from then on it only vanishes.
+    [[nodiscard]] bool collected() const { return ours.collected; }
+
+    [[nodiscard]] static Collectible from(const MapObject &object);
+
+    void _update(Object &self, float delta);
+    void _collision(Object &self, Object &other);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        bool collected = false;
+        float vanished = 0; // seconds since it was picked up
+        Vector2 scale{ 1, 1 }; // what it had then
+        unsigned char alpha = 255;
+        bool pulled = false; // a magnet moved it at its last update
+    } ours;
+};
+
+// Fires. On an action held down, on its own every `every` seconds, or at a
+// target -- one bullet or a pattern of them: `count` spread over `spread`
+// degrees, the whole pattern turned by `rotate_per_shot` after each volley,
+// which is how a spiral is made.
+//
+// THE BULLET is a circle of `bullet_radius` in `bullet_color`, with a
+// Projectile (gone at a wall or a hit), a Lifespan of `bullet_life` and a
+// Hitbox of `damage` on the layers of `hits`. Or it is whatever `on_shoot`
+// makes, handed the scene, where it leaves from and its velocity:
+//
+//     .on_shoot = [](rmp::Scene &s, Vector2 at, Vector2 velocity) {
+//         auto &arrow = s.spawn({ .position = at, .velocity = velocity });
+//         arrow.sprite.texture = rmp::assets::load_texture("arrow.png");
+//     }
+//
+// From the editor: "every" (Float), "speed" (Float), "count" (Int), "spread"
+// (Float), "rotate" (Float, rotate_per_shot), "range" (Float).
+struct Shooter {
+    std::string action; // fires while it is held; "" = never on input
+    bool automatic = false; // fires every `every` seconds on its own
+    float every = 0.25f; // the least time between two volleys, in seconds
+    Handle<Object> target; // aims at it; while it is set and gone, it does not fire
+    float range = 0; // with a target: fires only when it is this close; 0 = any distance
+    Vector2 direction{}; // where it aims without a target; {0,0} = the way it faces
+    float speed = 360; // the bullets', in units per second
+    int count = 1; // bullets per volley
+    float spread = 0; // degrees the volley covers; 360 = all around, evenly
+    float rotate_per_shot = 0; // degrees the pattern turns after each volley
+    Vector2 offset{}; // where the bullets leave from, from its centre
+    std::string sound; // played by rmp::audio on each volley; "" = silent
+
+    float bullet_radius = 4; // the default bullet's
+    Color bullet_color = WHITE;
+    float bullet_life = 2; // seconds before it is discarded
+    int damage = 1; // what the default bullet's Hitbox costs
+    unsigned hits = 0; // the layers the bullets hit; 0 = its own mask, less its own layer
+
+    // Makes the bullet instead: (the scene, where it leaves from, its velocity).
+    Callback<Scene &, Vector2, Vector2> on_shoot;
+
+    // Fires a volley now, if `every` has passed since the last; true if it did.
+    bool fire(Object &self);
+    // How many volleys it has fired.
+    [[nodiscard]] int shots() const { return ours.shots; }
+
+    [[nodiscard]] static Shooter from(const MapObject &object);
+
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        float cooldown = 0; // seconds until it may fire again
+        float turned = 0; // degrees rotate_per_shot has added up to
+        int shots = 0;
+    } ours;
+};
+
+// ---------------------------------------------------------------------------
+// Moving on its own
+// ---------------------------------------------------------------------------
+
+// Goes from waypoint to waypoint -- round in a loop, or back and forth with
+// `ping_pong` -- waiting `wait` seconds at each. With no waypoints it walks
+// the floor instead: left and right at `speed`, turning at a wall and, with
+// `turn_at_ledges`, before a drop, which is a platformer's goomba. The way it
+// goes sets flip_x, and its sprite plays `walk` and `idle` when its sheet has
+// them -- unless the object has an Animator, which then chooses.
+//
+// Waypoints are for what flies or walks top-down: it moves straight to each,
+// on both axes. Floor walking moves only along x, and gravity is the object's.
+//
+// From the editor: "path" (Array<Point>; the entity's own position is the
+// first waypoint), "speed" (Float), "wait" (Float), "ping_pong" (Bool).
+struct Patrol {
+    std::vector<Vector2> waypoints; // world positions; empty = it walks the floor
+    float speed = 60; // units per second
+    float wait = 0; // seconds it stays at each waypoint
+    bool ping_pong = false; // back and forth; false = from the last straight to the first
+    bool turn_at_ledges = true; // walking the floor: turns before a drop
+    std::string walk = "walk"; // the tag played while it moves; "" = none
+    std::string idle = "idle"; // the tag played while it waits; "" = none
+
+    // The waypoint it is heading for, an index into `waypoints`.
+    [[nodiscard]] int heading_for() const { return ours.index; }
+
+    [[nodiscard]] static Patrol from(const MapObject &object);
+
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        int index = 0;
+        int step = 1; // +1 or -1, for ping_pong
+        float waited = 0;
+        float way = 1; // walking the floor: +1 right, -1 left
+        float was_x = 0; // where it was a frame ago, to see that it is stuck
+        bool walked = false; // it pushed itself along at its last update
+        bool started = false;
+    } ours;
+};
+
+// Walks to a target, or to a point, around the map's walls: rmp::find_path(),
+// asked again every `repath_every` seconds, and followed at `speed`. Top-down:
+// it moves on both axes. A Chase on the same object steers it.
+struct Pathfind {
+    Handle<Object> target; // where it goes, while it is there
+    std::optional<Vector2> goal; // where it goes without a target; empty = it stays
+    float speed = 100; // units per second
+    bool diagonal = true; // eight directions; false = four
+    float clearance = 0; // keeps this far from the walls; see PathOptions
+    float repath_every = 0.5f; // seconds between two searches while it walks
+
+    // The cells still ahead, the last one the goal.
+    [[nodiscard]] std::span<const Vector2> path() const {
+        return std::span<const Vector2>(ours.path).subspan(
+            static_cast<std::size_t>(ours.next) < ours.path.size()
+                ? static_cast<std::size_t>(ours.next)
+                : ours.path.size());
+    }
+    // Whether it is where it was going: at the goal, or with no way there.
+    [[nodiscard]] bool arrived() const { return ours.arrived; }
+
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        std::vector<Vector2> path;
+        int next = 0;
+        float since = 1000; // seconds since the last search
+        Vector2 aimed{}; // the goal the path was found for
+        bool arrived = false;
+    } ours;
+};
+
+// Sees a target and goes after it. It sees it within `sight` units, inside a
+// cone of `fov` degrees around the way it faces, and -- with `line_of_sight`
+// -- when no solid map cell stands between them. While it chases, a Patrol on
+// the same object is paused, and a Pathfind, when there is one, finds the way;
+// without one it runs straight at the target. After `lose_after` seconds
+// without seeing it, it gives up: on_lose, back home with `return_home`, and
+// the Patrol resumes.
+//
+// From the editor: "speed" (Float), "sight" (Float), "fov" (Float).
+struct Chase {
+    Handle<Object> target; // whom it looks for; the game sets it, usually the player
+    float speed = 120; // units per second while it chases
+    float sight = 160; // how far it sees; 0 = any distance
+    float fov = 360; // degrees of its view, centred on the way it faces
+    bool line_of_sight = true; // solid map cells hide the target
+    float lose_after = 2; // seconds without seeing it before it gives up
+    bool return_home = true; // goes back where it started after giving up
+    float stop_distance = 0; // stops this close to the target
+    Callback<Object &, Object &> on_spot; // (the chaser, the target), when a chase starts
+    Callback<Object &> on_lose; // when it gives up
+
+    // Whether it is chasing now.
+    [[nodiscard]] bool chasing() const { return ours.chasing; }
+    // Whether it saw the target at its last update.
+    [[nodiscard]] bool sees() const { return ours.sees; }
+
+    [[nodiscard]] static Chase from(const MapObject &object);
+
+    void _ready(Object &self);
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        bool chasing = false;
+        bool sees = false;
+        bool going_home = false;
+        float unseen = 0; // seconds since it last saw the target
+        Vector2 home{};
+        Vector2 last_seen{};
+        Vector2 facing{ 1, 0 };
+    } ours;
+};
+
+// Which way an Orbit turns its object.
+enum class Face {
+    NONE, // its rotation is left alone
+    CENTRE, // it looks at what it circles
+    OUTWARD, // it looks away from it
+};
+
+// Circles a handle or a point: a shield of blades, a moon, a fairy. Several on
+// one centre spread around it evenly with `index` and `of`.
+//
+// From the editor: "radius" (Float), "speed" (Float, degrees_per_second),
+// "angle" (Float).
+struct Orbit {
+    Handle<Object> centre; // what it circles, while it is there
+    Vector2 point{}; // what it circles without a centre
+    float radius = 48; // units from the centre
+    float degrees_per_second = 90; // negative turns the other way
+    float angle = 0; // degrees, where it is now; it is where it starts too
+    Face face = Face::NONE;
+    int index = 0; // this one's place among `of` on the same centre
+    int of = 1; // how many share the centre, spread evenly
+
+    [[nodiscard]] static Orbit from(const MapObject &object);
+
+    void _late_update(Object &self, float delta);
+};
+
+// ---------------------------------------------------------------------------
+// The sprite, the pointer and the brain
+// ---------------------------------------------------------------------------
+
+// A rule of an Animator: play `tag` while `when` says so. The rules are asked
+// in order, before anything the Animator works out itself.
+struct AnimationRule {
+    std::string tag;
+    Condition<Object &> when;
+};
+
+// Plays the tag that fits what the object is doing: `die` once its Health is
+// dead, `hurt` while it is invulnerable after a hit, `jump` and `fall` in the
+// air (with gravity), `run` while it moves and `idle` while it does not -- and
+// mirrors it with flip_x by the way it moves. The names are fields, the tags
+// of your .aseprite; a tag the sheet lacks is skipped for the next that fits,
+// and without a sheet only flip_x is set. Runs after everything has moved.
+struct Animator {
+    std::string idle = "idle";
+    std::string run = "run";
+    std::string jump = "jump";
+    std::string fall = "fall";
+    std::string hurt = "hurt";
+    std::string die = "die"; // played once, not looped
+    float moving_at = 10; // units per second under which it stands still
+    bool flip = true; // sets flip_x while it moves left; the art faces right
+    std::vector<AnimationRule> rules; // asked first, in order
+
+    // The tag it chose at its last update; "" when it chose none.
+    [[nodiscard]] std::string_view playing() const { return ours.chosen; }
+
+    void _late_update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        std::string chosen;
+    } ours;
+};
+
+// Picked up with the pointer and put down somewhere. It takes the object's
+// on_drag. Let go over an object with an Area -- on a layer of `drop_on`, and
+// `accepts` saying yes -- it is dropped there: on_drop, and centred on it with
+// `centre_on_drop`. Let go anywhere else it goes back where it was picked up,
+// with `return_if_rejected`, or stays, snapped to `snap`, and with `throwable`
+// keeps the pointer's speed and slides to a stop.
+struct Draggable {
+    Vector2 snap{}; // the grid it lands on; {0,0} = none
+    bool throwable = false; // keeps the pointer's speed when let go
+    float friction = 6; // how fast a throw slows: the share of its speed lost per second
+    Rectangle bounds{}; // where it can be dragged; {0,0,0,0} = anywhere
+    unsigned drop_on = 0xFFFFFFFFu; // the layers of the Areas it can be dropped on
+    bool return_if_rejected = true; // no Area took it: back where it was picked up
+    bool centre_on_drop = true; // dropped on an Area: put on its centre
+    Condition<Object &, Object &> accepts; // (this, the area); empty = every Area does
+    Callback<Object &> on_pick; // the first time it moves under the pointer
+    Callback<Object &, Object &> on_drop; // (this, the area it was dropped on)
+    Callback<Object &> on_reject; // let go where no Area took it
+
+    // Whether the pointer holds it now.
+    [[nodiscard]] bool held() const { return ours.held; }
+    // Lets go of it here, as the pointer letting go would: onto the Area under
+    // it, or back, or where it is.
+    void drop(Object &self);
+
+    void _ready(Object &self);
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        bool held = false;
+        bool moved = false; // a drag event since the last update
+        bool going_back = false;
+        Vector2 picked_at{};
+        Vector2 dragged{}; // this frame's movement, in world units
+        Vector2 pace{}; // the pointer's recent velocity
+    } ours;
+};
+
+// One state of a StateMachine: what it does on the way in, every frame, on
+// the way out, and which behaviors run while it is on.
+struct State {
+    std::string name;
+    Callback<Object &> on_enter;
+    Callback<Object &, float> on_update; // (the object, delta)
+    Callback<Object &> on_exit;
+    // The behaviors that run in this state: rmp::behavior::kinds<Patrol>().
+    // Every behavior some state names is paused in the states that do not.
+    std::vector<int> enables;
+};
+
+// A move from one state to another, taken when `when` says so.
+struct Transition {
+    std::string from; // "" = from any state
+    std::string to;
+    Condition<Object &> when;
+};
+
+// The behaviors a State turns on, by type: `.enables = kinds<Patrol, Animator>()`.
+template <class... B> [[nodiscard]] std::vector<int> kinds() {
+    return { rmp::detail::type_id<B>()... };
+}
+
+// Named states and the moves between them: an enemy that idles, patrols,
+// chases and flees; a boss's phases. It starts in `initial` at its first
+// update, asks the transitions in order every frame -- the first whose `from`
+// matches and whose `when` says yes is taken -- and runs the state's
+// on_update. go() moves by name, at its next update.
+struct StateMachine {
+    std::vector<State> states;
+    std::string initial; // "" = the first state
+    std::vector<Transition> transitions;
+
+    // Moves to the state called `name` at its next update; a name it does not
+    // have is said once and changes nothing.
+    void go(std::string_view name) { ours.pending = std::string(name); }
+    // The state it is in; "" before its first update.
+    [[nodiscard]] std::string_view state() const;
+    // How long it has been in it, in seconds.
+    [[nodiscard]] float seconds_in_state() const { return ours.seconds; }
+
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of. Readable, because sometimes you want it;
+    // not yours to write. It is one PUBLIC member and not a private block
+    // because a struct with a private member is not an aggregate in C++20, and
+    // then `{ .speed = 320 }` stops compiling -- which is the whole design. The
+    // name is the fence.
+    struct {
+        int current = -1; // an index into `states`
+        float seconds = 0;
+        std::string pending;
     } ours;
 };
 

@@ -266,6 +266,59 @@ private:
     Invoke _invoke = nullptr;
 };
 
+// A question the framework asks later with arguments of types A...: a
+// StateMachine's transition, an Animator's rule, whether a Draggable may be
+// dropped. A Callback that answers: a lambda returning something that converts
+// to bool converts to it, and an empty one answers false. It moves and does
+// not copy, for the reasons Callback gives.
+template <class... A> class Condition {
+public:
+    Condition() = default;
+    ~Condition() = default;
+    Condition(const Condition &) = delete;
+    Condition &operator=(const Condition &) = delete;
+    Condition(Condition &&other) noexcept : _state(other._state), _test(other._test) {
+        other._state.reset();
+        other._test = nullptr;
+    }
+    Condition &operator=(Condition &&other) noexcept {
+        if (this != &other) {
+            _state = other._state;
+            _test = other._test;
+            other._state.reset();
+            other._test = nullptr;
+        }
+        return *this;
+    }
+
+    // So that a lambda can be written straight into a designated initialiser.
+    template <class F>
+        requires(!std::is_same_v<std::decay_t<F>, Condition>)
+    Condition(F &&fn) { // NOLINT(google-explicit-constructor)
+        using Fn = std::decay_t<F>;
+        static_assert(std::is_invocable_v<Fn &, A...> &&
+                          std::is_convertible_v<std::invoke_result_t<Fn &, A...>, bool>,
+                      "a condition takes the arguments it is asked with and answers "
+                      "something that converts to bool -- a transition's `when` and an "
+                      "animation rule's are bool(rmp::Object &)");
+        _state = std::make_shared<Fn>(static_cast<F &&>(fn));
+        _test = [](void *state, A... args) -> bool {
+            return static_cast<bool>((*static_cast<Fn *>(state))(args...));
+        };
+    }
+
+    // Whether a function is stored.
+    explicit operator bool() const { return _test != nullptr; }
+    // The stored function's answer; an empty Condition answers false.
+    bool operator()(A... args) const {
+        return _test != nullptr && _test(_state.get(), args...);
+    }
+
+private:
+    std::shared_ptr<void> _state;
+    bool (*_test)(void *, A...) = nullptr;
+};
+
 // ---------------------------------------------------------------------------
 // The type tags and the stand-in behind rmp::Ref, below. Not for you.
 // ---------------------------------------------------------------------------
@@ -501,6 +554,10 @@ template <class B> const BehaviorOps &ops_for() {
 void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<void> data);
 void *find_behavior(const Object &self, int type);
 void detach(Object &self, int type);
+// Pauses or resumes the behavior of that type; false when there is none.
+bool set_enabled(Object &self, int type, bool on);
+// Whether the behavior of that type is there and not paused.
+bool is_enabled(const Object &self, int type);
 
 } // namespace detail
 
@@ -762,6 +819,24 @@ public:
         return static_cast<bool>(get<B>());
     }
     template <class B> void remove();
+
+    // Pauses a behavior without taking it off, and resumes it. A paused one
+    // keeps its fields and what it was keeping track of, and gets no hooks --
+    // no _update, _late_update, _draw or _collision -- until it is enabled
+    // again; it still gets its _end when it is removed or the object dies.
+    // How an enemy stops patrolling while it chases:
+    //
+    //     self.enable<rmp::behavior::Patrol>(false);
+    //
+    // Nothing happens for an object without a B, and enabled<B>() is false
+    // for it. A behavior is enabled when it is added, and adding it again
+    // replaces it with an enabled one.
+    template <class B> void enable(bool on = true) {
+        (void)rmp::detail::set_enabled(*this, rmp::detail::type_id<B>(), on);
+    }
+    template <class B> [[nodiscard]] bool enabled() const {
+        return rmp::detail::is_enabled(*this, rmp::detail::type_id<B>());
+    }
 
     // ---- callbacks, for when a subclass is more than you want --------------
     //

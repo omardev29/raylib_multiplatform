@@ -49,6 +49,8 @@ struct Attached {
     // until the walk is over -- see detach() for why erasing there cost the
     // next behavior its frame -- and is taken out by compact() afterwards.
     bool dead = false;
+    // Paused by Object::enable<B>(false): kept, and handed no hooks but _end.
+    bool paused = false;
 };
 
 struct Owner {
@@ -143,7 +145,7 @@ void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<voi
 
     void *raw = data.get();
     Owner &owner = owner_for(&self);
-    owner.list.push_back(Attached{ type, std::move(data), &ops, false });
+    owner.list.push_back(Attached{ type, std::move(data), &ops, false, false });
     if (ops.ready != nullptr) ops.ready(raw, self);
     return raw;
 }
@@ -155,6 +157,27 @@ void *find_behavior(const Object &self, int type) {
         if (a.type == type && !a.dead) return a.data.get();
     }
     return nullptr;
+}
+
+bool set_enabled(Object &self, int type, bool on) {
+    Owner *owner = owner_of(&self);
+    if (owner == nullptr) return false;
+    for (Attached &a : owner->list) {
+        if (a.type == type && !a.dead) {
+            a.paused = !on;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_enabled(const Object &self, int type) {
+    const Owner *owner = owner_of(&self);
+    if (owner == nullptr) return false;
+    for (const Attached &a : owner->list) {
+        if (a.type == type && !a.dead) return !a.paused;
+    }
+    return false;
 }
 
 void detach(Object &self, int type) {
@@ -205,7 +228,7 @@ void update_behaviors(Object &object, float delta) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
-        if (a.dead) continue;
+        if (a.dead || a.paused) continue;
         if (a.ops->update != nullptr) a.ops->update(a.data.get(), object, delta);
         if (!object.alive()) break;
     }
@@ -221,7 +244,7 @@ void late_update_behaviors(Object &object, float delta) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
-        if (a.dead) continue;
+        if (a.dead || a.paused) continue;
         if (a.ops->late_update != nullptr)
             a.ops->late_update(a.data.get(), object, delta);
         if (!object.alive()) break;
@@ -238,7 +261,7 @@ void draw_behaviors(Object &object) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
-        if (a.dead) continue;
+        if (a.dead || a.paused) continue;
         if (a.ops->draw != nullptr) a.ops->draw(a.data.get(), object);
     }
     end_walk(object);
@@ -253,7 +276,7 @@ void collide_behaviors(Object &object, Object &other) {
         Owner *live = owner_of(&object);
         if (live == nullptr || i >= live->list.size()) break;
         const Attached a = live->list[i];
-        if (a.dead) continue;
+        if (a.dead || a.paused) continue;
         if (a.ops->collision != nullptr) a.ops->collision(a.data.get(), object, other);
         if (!object.alive() || !other.alive()) break;
     }
