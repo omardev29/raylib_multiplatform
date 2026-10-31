@@ -31,7 +31,7 @@
 # run's log replaces it.
 #
 # binary               kind    unpacked    packed
-linux-x64-glibc        elf      1283840    385524  # measured at e2ea300
+linux-x64-glibc        elf      1300744    434336  # measured at d2f230b
 linux-arm64-glibc      elf      1206016    363576  # measured at e2ea300
 linux-riscv64-glibc    elf      1012848    413204  # measured at e2ea300
 linux-x64-musl         elf      1279896    384384  # measured at e2ea300
