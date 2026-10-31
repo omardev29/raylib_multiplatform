@@ -34,7 +34,6 @@
 // covers: rmp::Condition::Condition [template]
 // covers: rmp::Condition::operator bool [template]
 // covers: rmp::Condition::operator() [template]
-// covers: rmp::Condition::operator= [template]
 // covers: rmp::behavior::Hitbox::_update(Object &, float)
 // covers: rmp::behavior::Hitbox::_collision(Object &, Object &)
 // covers: rmp::behavior::Collectible::_update(Object &, float)
