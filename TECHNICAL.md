@@ -64,6 +64,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── ads.cpp           #   rmp::ads -- the one file that includes <admob.h>
 │       ├── assets.cpp        #   rmp::assets -- the public surface, with the loose-file fallback
 │       ├── resource.cpp      #   the counted resource slots behind rmp::Texture and friends
+│       ├── watch.cpp         #   hot reload: the files of resources/ that changed() asks about
 │       ├── pack.cpp          #   reads resources.rres itself, every field checked; one entry
 │       ├── pack_internal.h   #   the pack's reader in pieces, and the one rule for a name in it
 │       ├── loader_hook.cpp   #   routes raylib's own LoadFileData/Text through the pack
@@ -1396,7 +1397,7 @@ would force software rendering on every player.
 The gate is the **ratio** on every target, because llvmpipe, ANGLE-on-Metal, SwiftShader and
 mobile GPUs disagree about text antialiasing and texture filtering. The hash is asserted **too**,
 but only where it is deterministic: the targets that render through raylib's own software
-rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `a5819fdd`, and
+rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `af22be47`, and
 `tools/render_check.sh` fails on anything else. DRM renders through OpenGL ES on llvmpipe and
 gives a different hash with the same pixel count and ratio; that one is compared against its
 own golden and must not be "fixed" by copying one over the other.

@@ -154,6 +154,25 @@ public:
     // Value made in code is of this build's version. Not compared by ==.
     [[nodiscard]] int version() const { return _version; }
 
+    // A Value read with rmp::assets::load_value() remembers its file in
+    // resources/: changed() is true once the file differs from what this
+    // Value holds -- edited and saved while the game runs -- and reload()
+    // reads it again into this Value, which keeps remembering it:
+    //
+    //     if (tuning.changed()) tuning.reload();
+    //     speed = tuning["speed"].as_float(200);
+    //
+    // Debug builds on the desktop only: a release reads its resources from
+    // the pack, which does not change, and everywhere else changed() is false.
+    // Cheap enough for every frame: changed() compares two numbers, and the
+    // file itself is looked at four times a second at most. A Value made in
+    // code, read from a save or taken out of another (tuning["enemy"]) has no file: changed()
+    // is false and reload() does nothing. Neither is compared by ==.
+    [[nodiscard]] bool changed() const;
+    // Reads the file again into this Value; false, and this Value as it was,
+    // when it has no file or the file is not JSON now (half saved, say).
+    bool reload();
+
     // Same type and same contents, keys in any order. A true equality: a NaN
     // equals a NaN, so a Value always equals itself and every copy of it.
     friend bool operator==(const Value &a, const Value &b);
@@ -169,6 +188,12 @@ private:
     [[nodiscard]] std::vector<Value> &items() { return _items; }
     [[nodiscard]] const std::vector<Value> &items() const { return _items; }
     void set_version(int version) { _version = version; }
+    // The file it was read from, as watch.cpp numbers it, and the generation
+    // of that file it holds.
+    void set_watch(int index, unsigned seen) {
+        _watch = index;
+        _seen = seen;
+    }
 
     // An OBJECT's index, kept by every change to its members (value.cpp), so
     // that [key], size() and key(i) are not a walk over them. place() is
@@ -191,6 +216,8 @@ private:
     std::vector<std::size_t> _slots;
     std::vector<std::size_t> _absent;
     int _version = RMP_SAVE_VERSION;
+    int _watch = -1; // no file
+    unsigned _seen = 0;
 };
 
 // What [] on a non-const Value gives: the root it started from and the keys

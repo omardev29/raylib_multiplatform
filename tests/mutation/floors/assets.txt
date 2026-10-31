@@ -6,7 +6,7 @@
 # and a font that reach no GPU here, the Unload* of what was copied, and the
 # log lines.
 kind     cxx
-sources  src/rmp/assets.cpp
-tests    unit_test -sf=*assets_test.cpp,*tilemap_test.cpp
+sources  src/rmp/assets.cpp src/rmp/watch.cpp
+tests    unit_test -sf=*assets_test.cpp,*tilemap_test.cpp,*watch_test.cpp
 tests    property_test -tc=the?loaders*,a?font?size*
 floor    60

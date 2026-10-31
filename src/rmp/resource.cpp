@@ -39,6 +39,8 @@
 
 #include <rmp/assets.h>
 
+#include "internal.h"
+
 #include <raylib.h>
 
 #include <memory>
@@ -61,6 +63,8 @@ struct SlotData {
     bool named = false; // false = adopted, never matched by name
     bool stale = false; // emptied by release_all() with handles still on it
     std::shared_ptr<void> payload;
+    int watch = -1; // its file in watch.cpp, -1 for none (see changed())
+    unsigned seen = 0; // the generation of that file the payload is
 };
 
 // unique_ptr so a slot's address is stable while the vector grows: a handle
@@ -183,6 +187,37 @@ const void *payload(const Slot *slot) {
 std::string_view name_of(const Slot &slot) {
     const auto &data = reinterpret_cast<const SlotData &>(slot);
     return data.named ? std::string_view(data.name) : std::string_view{};
+}
+
+void watch_slot(Slot &slot, int watch) {
+    auto &data = reinterpret_cast<SlotData &>(slot);
+    data.watch = watch;
+    data.seen = rmp::assets::detail::watch_generation(watch);
+}
+
+bool slot_watched(const Slot &slot) {
+    const auto &data = reinterpret_cast<const SlotData &>(slot);
+    return data.watch >= 0 && data.refs > 0 && !data.stale;
+}
+
+bool slot_changed(const Slot &slot) {
+    if (!slot_watched(slot)) return false;
+    const auto &data = reinterpret_cast<const SlotData &>(slot);
+    // 0: the watch list was cleared under it (a test's forget_watched()).
+    const unsigned generation = rmp::assets::detail::watch_generation(data.watch);
+    return generation != 0 && generation != data.seen;
+}
+
+bool replace_payload(Slot &slot, std::shared_ptr<void> payload) {
+    auto &data = reinterpret_cast<SlotData &>(slot);
+    if (payload == nullptr || data.refs == 0 || data.stale) return false;
+    // The old one is unloaded first, by the one function that unloads, and
+    // the slot keeps its name, its count and its handles: every one of them
+    // reads the new payload on its next raw().
+    unload_payload(data);
+    data.payload = std::move(payload);
+    if (data.watch >= 0) data.seen = rmp::assets::detail::watch_generation(data.watch);
+    return true;
 }
 
 int live_count() {
