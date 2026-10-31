@@ -17,9 +17,8 @@ builds them, **boots them, and checks they actually put pixels on screen**.
   <img src=".github/img/skinned.png" width="49%" alt="A shop skinned with pictures, nine-slices and a custom font">
 </p>
 <p align="center">
-  <img src=".github/img/menu.png" width="32%" alt="A main menu in three calls">
-  <img src=".github/img/settings.png" width="32%" alt="A settings screen: checkboxes, sliders, dropdowns, a text field">
-  <img src=".github/img/style.png" width="32%" alt="The light theme, variants and sizes">
+  <img src=".github/img/settings.png" width="49%" alt="A settings screen: checkboxes, sliders, dropdowns, a text field">
+  <img src=".github/img/style.png" width="49%" alt="The light theme, variants and sizes">
 </p>
 <p align="center">
   <img src=".github/img/inventory.png" width="32%" alt="An inventory grid with tooltips and a scrolling list">
@@ -41,12 +40,16 @@ if (rmp::ui::button("Quit")) quit();
 rmp::ui::end();
 ```
 
+<p align="center">
+  <img src=".github/img/menu.png" width="70%" alt="The menu those calls draw">
+</p>
+
 Centred, sized for the screen it is on, and playable with a mouse, a finger, a keyboard or a
 gamepad without a line about any of them. That is the benchmark for every API here: anything that
 would make it longer is redesigned until it does not.
 
-When a screen is *designed* rather than written, the same controls are widgets you keep, Godot
-style — each with its own look, sounds and callbacks:
+When a screen is *designed* rather than written, the same controls are widgets you keep as members
+of your scene — each with its own look, sounds and callbacks:
 
 ```cpp
 rmp::ui::Button buy{
@@ -62,6 +65,57 @@ rmp::ui::Button buy{
 Themes, styles that children inherit, nine-slices, per-state skins, soft shadows, text outlines,
 motion (hover, press, appear, shake), any font with any letter baked on demand, overlays that
 blur the game behind them, tooltips and notices.
+
+## Scenes, objects and behaviors
+
+<p align="center">
+  <img src=".github/img/top_down.png" width="49%" alt="The top-down example: a player, enemies with health bars, bullets">
+  <img src=".github/img/breakout.png" width="49%" alt="The breakout example">
+</p>
+
+A game is **scenes** on a stack, and a scene is three hooks: `_ready()` builds it, `_update()`
+runs its logic and `_draw()` its interface, while the scene itself moves, collides and draws its
+**objects**. `src/main.cpp` names the first one and is done:
+
+```cpp
+RMP_GAME(MenuScene);   // opens the window and runs the scene, on every target
+```
+
+```cpp
+class ArenaScene : public rmp::Scene {
+    void _ready() override {
+        auto &player = spawn({ .position = { 200, 225 }, .shape = rmp::rect({ 26, 26 }) });
+        player.add<rmp::behavior::TopDown>({ .speed = 240 });          // eight directions
+        player.add<rmp::behavior::Health>({
+            .hp = 3,
+            .on_death = [](rmp::Object &) { rmp::Scene::push<OverScene>("You died"); },
+        });
+        camera.follow = player.handle();
+
+        auto &spawner = spawn({ .position = { 760, 225 } });
+        spawner.add<rmp::behavior::Spawner>({
+            .every_seconds = 2,
+            .max_alive = 5,
+            .on_spawn = [target = player.handle()](rmp::Scene &s, Vector2 at) {
+                auto &enemy = s.spawn({ .position = at, .shape = rmp::circle(14) });
+                enemy.add<rmp::behavior::Follow>({ .target = target, .speed = 90 });
+            },
+        });
+    }
+
+    void _update(float) override {
+        if (rmp::input::just_pressed("pause")) push<PauseScene>();  // pop() comes back
+    }
+};
+```
+
+An **object** is a position, a velocity, a shape or an animated sprite, collision layers and
+masks, and hooks of its own (`_update`, `_draw`, `_collision`) or callbacks (`on_click`,
+`on_collision`) — the sweeps, the separation, the raycasts and the drawing order are the scene's.
+A **behavior** is how it moves or what it does, one `add<>()` each: `TopDown`, `Platformer`,
+`Runner`, `Ball`, `Projectile`, `Follow`, `Tween`, `GridSnap`, `Parallax`, `Spawner`, `Timer`,
+`Lifespan`, `Health`, or one of your own. Keep an object across frames with its `rmp::Handle`,
+which goes empty when the object dies instead of dangling.
 
 ## A level from LDtk, and the objects in it
 
@@ -84,10 +138,9 @@ void LevelScene::_ready() {
 }
 ```
 
-Levels are placed, linked and tuned in [LDtk](https://ldtk.io) (or Tiled); sprites are Aseprite
-files with their tags as animations. The behaviours — `Platformer`, `TopDown`, `Runner`, `Ball`,
-`Projectile`, `Follow`, `Tween`, `Parallax`, `Spawner`, `Health`… — are one `add<>()` each, and the
-seven games in `examples/games/` (Pong to the platformer) are each playable start to finish.
+Levels are placed, linked and tuned in [LDtk](https://ldtk.io) (or Tiled), and each entity type
+is a factory of yours; sprites are Aseprite files with their tags as animations. The seven games in
+`examples/games/` (Pong to the platformer) are each playable start to finish.
 
 ## Input, sound, saves, tuning
 
