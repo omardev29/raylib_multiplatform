@@ -312,10 +312,11 @@ jobs:
         run: |
           set -euo pipefail
           ./rmp package android
-          AAB="build/package/${{ inputs.project_name }}-android.aab"
-          APK="build/package/${{ inputs.project_name }}-android.apk"
-          test -s "$AAB" || { echo "FAIL: rmp package android left no $AAB"; exit 1; }
-          test -s "$APK" || { echo "FAIL: rmp package android left no $APK"; exit 1; }
+          # <name>-android.aab and .apk, the name being the project's.
+          AAB=$(find build/package -maxdepth 1 -name '*-android.aab' | head -1)
+          APK=$(find build/package -maxdepth 1 -name '*-android.apk' | head -1)
+          test -s "$AAB" || { echo "FAIL: rmp package android left no build/package/*-android.aab"; exit 1; }
+          test -s "$APK" || { echo "FAIL: rmp package android left no build/package/*-android.apk"; exit 1; }
           jarsigner -verify -strict "$AAB" > /tmp/package-aab.txt 2>&1 || true
           grep -q "jar verified" /tmp/package-aab.txt || { cat /tmp/package-aab.txt; echo "FAIL: $AAB does not verify"; exit 1; }
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
