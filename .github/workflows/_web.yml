@@ -78,6 +78,18 @@ jobs:
           if [ -f LICENSES.txt ]; then FILES+=(LICENSES.txt); fi
           zip -r ../../web-build.zip "${FILES[@]}"
 
+      # What a developer types to make this zip on their own machine: `rmp
+      # package web`, over the same preset. Same files, same bytes.
+      - name: rmp package web makes the same zip
+        run: |
+          set -euo pipefail
+          ./rmp package web
+          rm -rf /tmp/web-ci /tmp/web-rmp
+          unzip -q web-build.zip -d /tmp/web-ci
+          unzip -q "build/package/${{ inputs.project_name }}-web.zip" -d /tmp/web-rmp
+          diff -r /tmp/web-ci /tmp/web-rmp || { echo "FAIL: rmp package web differs from the zip CI ships"; exit 1; }
+          echo "PASS: rmp package web makes the zip CI ships"
+
       # The .wasm, held to its line in tools/size_budget.txt (past 1.5% a
       # warning, past 10% a failure). It is what the browser downloads and
       # compiles, so it is the number that matters on the web. The measured line

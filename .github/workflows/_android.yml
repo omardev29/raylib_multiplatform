@@ -299,6 +299,30 @@ jobs:
               echo "PASS: AAB verified (throwaway CI signature, not publishable)" ;;
           esac
 
+      # What a developer types to make this release on their own machine:
+      # `rmp package android`, with their upload key in the same four
+      # variables. It runs Gradle again over the build above (offline, inside
+      # this image) and must leave a signed .aab and .apk in build/package/.
+      - name: rmp package android makes the signed release
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/raymob/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'ci-throwaway' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'ci-throwaway' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'ci-throwaway' }}
+        run: |
+          set -euo pipefail
+          ./rmp package android
+          AAB="build/package/${{ inputs.project_name }}-android.aab"
+          APK="build/package/${{ inputs.project_name }}-android.apk"
+          test -s "$AAB" || { echo "FAIL: rmp package android left no $AAB"; exit 1; }
+          test -s "$APK" || { echo "FAIL: rmp package android left no $APK"; exit 1; }
+          jarsigner -verify -strict "$AAB" > /tmp/package-aab.txt 2>&1 || true
+          grep -q "jar verified" /tmp/package-aab.txt || { cat /tmp/package-aab.txt; echo "FAIL: $AAB does not verify"; exit 1; }
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          test -n "$APKSIGNER" || { echo "FAIL: no apksigner under $ANDROID_HOME/build-tools"; exit 1; }
+          "$APKSIGNER" verify --print-certs "$APK"
+          echo "PASS: rmp package android: $AAB and $APK, both signed"
+
       # Two artifact names, on purpose. Only `android-release-aab` is attached to
       # the GitHub release, so a throwaway-signed bundle physically cannot end up
       # as a release asset.

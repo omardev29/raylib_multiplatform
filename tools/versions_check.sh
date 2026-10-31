@@ -133,7 +133,9 @@ echo "== Build image pin (workflows) =="
 # find out what is about to break, so the two rules here — "exactly one digest"
 # and "never :latest" — are exactly wrong for it. Without this exclusion the
 # canary would fail the lint job on the day it was added.
-WORKFLOWS=$(find .github/workflows -name '*.yml' ! -name 'canary.yml')
+# The development container runs the same image, so it is read with them.
+WORKFLOWS=$(find .github/workflows -name '*.yml' ! -name 'canary.yml'
+            find .devcontainer -name 'devcontainer.json' 2>/dev/null || true)
 
 # Every container job must pin the same digest, and it must be the declared one.
 # A while-read loop and not mapfile: mapfile is bash 4, and macOS ships bash 3.2

@@ -518,7 +518,8 @@ DEFAULTS: dict = {
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
-    "dev": {"compiler": "clang", "linker": "auto", "strict": False, "sanitize": []},
+    "dev": {"compiler": "clang", "c_compiler": "same", "linker": "auto", "strict": False,
+            "sanitize": []},
     "resources": {"rres_password": "raylib-template"},
     "deploy": {"licenses": True, "credits_note": "",
                "itch": {"user": "", "game": ""},
@@ -545,7 +546,7 @@ RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
     "ui_layout_test", "ui_render_test", "platformer_play", "input_play", "assembler",
     "pack_resources", "unpack_resources", "game_test", "sanitizer_canary",
-    "rmp_e2e_driver", "console_canary",
+    "rmp_e2e_driver", "console_canary", "tcc_runtime",
 }
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                    *(f"lpt{i}" for i in range(1, 10))}
@@ -769,6 +770,11 @@ ADMOB_IDS = (
 )
 
 COMPILERS = {"clang", "gcc", "mingw", "msvc", "default"}
+# [dev] c_compiler: what compiles the C of a Debug build -- raylib, GLFW, RGFW,
+# miniaudio, cJSON. "same" is [dev] compiler's own C compiler; "tcc" is the
+# Tiny C Compiler, many times faster and optimising nothing (x86-64 Linux);
+# "auto" is tcc where it is installed and can work, "same" anywhere else.
+C_COMPILERS = {"same", "tcc", "auto"}
 ORIENTATIONS = {"landscape", "portrait", "unspecified"}
 # [window] stretch, IN ORDER: RMP_WINDOW_STRETCH is the index, and src/rmp/
 # stretch.cpp casts it to rmp::app::Stretch { NONE, LETTERBOX, EXPAND }.
@@ -1272,6 +1278,22 @@ def validate_dev_toolchain(cfg: dict) -> None:
     # the two disagreed the moment mingw and msvc were added — which is exactly
     # what tests/configure_test.py caught.
     one_of(cfg["dev"]["linker"], LINKERS, "[dev] linker")
+    one_of(cfg["dev"]["c_compiler"], C_COMPILERS, "[dev] c_compiler")
+    # tcc writes x86-64 ELF and runs as a C compiler on Linux only here: its
+    # objects are not COFF or Mach-O, and on arm64 miniaudio reaches for NEON
+    # intrinsics tcc has not got. cmake/tcc.cmake refuses the processor too.
+    if cfg["dev"]["c_compiler"] == "tcc" and platform.system() != "Linux":
+        raise ConfigError(
+            f"[dev] c_compiler = \"tcc\" builds on x86-64 Linux only, and this is "
+            f"{platform.system()}.\n"
+            "tcc writes ELF objects, which the linkers of Windows and macOS do not read.\n"
+            "Use \"same\" (the C compiler of [dev] compiler), or \"auto\", which takes tcc "
+            "where it can and the same one elsewhere.")
+    if cfg["dev"]["c_compiler"] == "tcc" and cfg["dev"]["compiler"] in ("mingw", "msvc"):
+        raise ConfigError(
+            f"[dev] c_compiler = \"tcc\" with [dev] compiler = {cfg['dev']['compiler']!r}: "
+            "tcc writes ELF objects, and a Windows toolchain links COFF.\n"
+            "Use \"same\" or \"auto\".")
 
     # mingw and msvc are Windows toolchains, and [dev] is for this machine's
     # Debug builds -- release builds never read it. On Linux, asking for mingw
@@ -1983,6 +2005,39 @@ def gen_dev_toolchain(cfg: dict) -> None:
             "endif()",
             "",
         ]
+    # [dev] c_compiler. tcc only compiles C, so the C++ compiler above stays,
+    # and links everything. "auto" is a speed setting and never fails: tcc
+    # where it is installed and can work -- x86-64 Linux, a native build -- and
+    # the C compiler above anywhere else. "tcc" asked by name fails instead.
+    c_compiler = cfg["dev"]["c_compiler"]
+    if c_compiler != "same":
+        dev += [
+            "# [dev] c_compiler: tcc for the C, on x86-64 Linux (cmake/tcc.cmake says what",
+            "# it takes for tcc's code to link and run with everyone else's).",
+            "# Before project(), CMake knows nothing of the host yet: asked here.",
+            "find_program(_RMP_TCC NAMES tcc)",
+            "cmake_host_system_information(RESULT _rmp_host_os QUERY OS_NAME)",
+            "cmake_host_system_information(RESULT _rmp_host_cpu QUERY OS_PLATFORM)",
+            'if(_RMP_TCC AND _rmp_host_os STREQUAL "Linux"',
+            '   AND _rmp_host_cpu MATCHES "^(x86_64|AMD64|amd64)$"',
+            "   AND NOT CMAKE_TOOLCHAIN_FILE)",
+            '  set(CMAKE_C_COMPILER "${_RMP_TCC}" CACHE FILEPATH "" FORCE)',
+            '  set(RMP_DEV_COMPILER "${_RMP_TCC}" CACHE INTERNAL "")',
+        ]
+        if c_compiler == "tcc":
+            dev += [
+                "else()",
+                '  message(FATAL_ERROR "[dev] c_compiler = tcc: tcc is not installed here, or '
+                'this is not a native x86-64 Linux build. Install tcc, or set [dev] '
+                'c_compiler to \\"auto\\" or \\"same\\".")',
+            ]
+        else:
+            dev += [
+                "else()",
+                '  message(STATUS "[dev] c_compiler = auto: no tcc for this build; the C '
+                'compiler of [dev] compiler")',
+            ]
+        dev += ["endif()", ""]
     write(REPO / "cmake" / "generated" / "dev_toolchain.cmake", "\n".join(dev) + "\n")
 
 
@@ -2016,6 +2071,27 @@ def gen_dev_linker(cfg: dict) -> None:
     # up as a link error about `ld` with the word mold nowhere in it.
     candidates = {"auto": ["mold", "lld"], "mold": ["mold"], "lld": ["lld"]}.get(linker, [])
 
+    # Code tcc compiled links right with GNU ld only (cmake/tcc.cmake): mold
+    # drops its debug text and writes text relocations over newer tcc's
+    # read-only tables, and lld refuses them. So with tcc it is GNU ld, decided
+    # in CMake, where the C compiler is known.
+    tcc_rule = [
+        'if(CMAKE_C_COMPILER_ID STREQUAL "TinyCC")',
+        '  include(CheckLinkerFlag)',
+        '  check_linker_flag(CXX "-fuse-ld=bfd" _rmp_ld_works_bfd)',
+        '  if(_rmp_ld_works_bfd)',
+        '    add_link_options("-fuse-ld=bfd")',
+        '    message(STATUS "[dev] linker: bfd (GNU ld), the one that links tcc\'s code right")',
+        '  else()',
+        '    message(WARNING "[dev] linker: GNU ld (bfd) does not link here, and tcc\'s code '
+        'links right with it only; using the platform default")',
+        '  endif()',
+        '  return()',
+        'endif()',
+        '',
+    ]
+
+    lines += tcc_rule
     if not candidates:
         lines.append('message(STATUS "[dev] linker: the platform default")')
     else:

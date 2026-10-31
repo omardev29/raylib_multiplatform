@@ -121,6 +121,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json"
 
 project(${TEMPLATE_PROJECT_NAME})
 
+# The compilers this build uses, exactly, in every configure's output -- so a
+# log, a CI job's included, always says which C and C++ compiler and which
+# linker made what it reports on.
+set(_rmp_c_version "${CMAKE_C_COMPILER_VERSION}")
+if(_rmp_c_version STREQUAL "" AND CMAKE_C_COMPILER_ID STREQUAL "TinyCC")
+  # CMake reads no version out of tcc: tcc says it itself.
+  execute_process(COMMAND "${CMAKE_C_COMPILER}" -v OUTPUT_VARIABLE _rmp_c_version
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+message(STATUS "=== C compiler:   ${CMAKE_C_COMPILER} (${CMAKE_C_COMPILER_ID} ${_rmp_c_version})")
+message(STATUS "=== C++ compiler: ${CMAKE_CXX_COMPILER} (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
+message(STATUS "=== Linker:       ${CMAKE_LINKER} (as the C++ compiler drives it; [dev] linker below picks another)")
+
+# tcc as the C compiler ([dev] c_compiler): what it takes for its code to link
+# and run with everyone else's. Nothing when the C compiler is not tcc.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc.cmake")
+
 # --- what the .exe asks of the player's machine ------------------------------
 # Windows and nothing else: a player double-clicking the game has no compiler
 # installed, so the C and C++ runtimes go INTO the .exe. After project(),

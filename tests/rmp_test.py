@@ -194,6 +194,232 @@ class HelpTest(unittest.TestCase):
         self.assertNotIn("CI", rmp.page("fmt", "game"))
 
 
+class WindowsFromLinuxTest(unittest.TestCase):
+    """`rmp build windows [clang-cl]`, `rmp run windows`: the preset each
+    toolchain builds with, Microsoft's files fetched only once their licence
+    is accepted, and Wine asked for by name."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.game = fake_project(Path(self.tmp.name) / "g")
+        self.name = rmp.Ctx(self.game).name()
+        self.xwin = Path(self.tmp.name) / "xwin"
+        env = unittest.mock.patch.dict(os.environ, {"XWIN_DIR": str(self.xwin)})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("RMP_ACCEPT_MICROSOFT_LICENSE", None)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def which(self, **found):
+        return unittest.mock.patch.object(rmp.shutil, "which",
+                                          side_effect=lambda name: found.get(name))
+
+    def full_xwin(self):
+        for rel in ("crt/include/yvals_core.h", "crt/lib/x86_64/libcmtd.lib",
+                    "sdk/include/um/windows.h"):
+            (self.xwin / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.xwin / rel).write_text("")
+
+    def test_mingw_is_the_default_and_builds_the_game_with_its_preset(self):
+        with recording() as rec:
+            code, _, err = call(["build", "windows"], cwd=self.game)
+        self.assertEqual(code, rmp.OK, err)
+        builds = [a for a, _ in rec.calls if a[:2] == ["cmake", "--build"]]
+        self.assertEqual(builds, [["cmake", "--build", "--preset", "windows", "--target", self.name]])
+
+    def test_clang_cl_builds_with_its_own_preset_once_the_files_are_there(self):
+        self.full_xwin()
+        with recording() as rec:
+            code, _, err = call(["build", "windows", "clang-cl"], cwd=self.game)
+        self.assertEqual(code, rmp.OK, err)
+        self.assertIn(["cmake", "--build", "--preset", "windows-clang-cl", "--target", self.name],
+                      [a for a, _ in rec.calls])
+        self.assertFalse(any("xwin" in a[0] for a, _ in rec.calls))  # nothing downloaded
+
+    def test_a_toolchain_that_is_not_one_is_refused_by_name(self):
+        for args in (["windows", "msvc"], ["windows", "clang-cl", "x"]):
+            with self.subTest(args=args), recording() as rec:
+                code, _, err = call(["build", *args], cwd=self.game)
+                self.assertEqual(code, rmp.USAGE)
+                self.assertIn("windows clang-cl", err)
+                self.assertEqual(rec.calls, [])
+
+    def test_on_windows_it_points_at_the_native_build(self):
+        with windows(), recording() as rec:
+            code, out, _ = call(["build", "windows"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("rmp build release", out)
+        self.assertEqual(rec.calls, [])
+
+    def test_without_xwin_it_says_where_to_get_it(self):
+        with self.which(), recording() as rec:
+            code, out, _ = call(["build", "windows", "clang-cl"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("xwin is not installed", out)
+        self.assertEqual(rec.calls, [])
+
+    def test_the_licence_is_never_accepted_in_silence(self):
+        with self.which(xwin="/usr/bin/xwin"), recording() as rec, \
+                unittest.mock.patch.object(rmp.sys.stdin, "isatty", return_value=False):
+            code, out, _ = call(["build", "windows", "clang-cl"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("RMP_ACCEPT_MICROSOFT_LICENSE=1", out)
+        self.assertIn("licence", out)
+        self.assertEqual(rec.calls, [])
+
+    def test_a_no_on_the_terminal_downloads_nothing(self):
+        with self.which(xwin="/usr/bin/xwin"), recording() as rec, \
+                unittest.mock.patch.object(rmp.sys.stdin, "isatty", return_value=True), \
+                unittest.mock.patch("builtins.input", return_value="no"):
+            code, out, _ = call(["build", "windows", "clang-cl"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("nothing was downloaded", out)
+        self.assertEqual(rec.calls, [])
+
+    def test_accepted_it_fetches_the_crt_this_clang_cl_can_compile(self):
+        for major, crt in ((16, "14.39.17.9"), (17, "14.42.17.12"), (18, "14.43.17.13"),
+                           (19, None)):
+            with self.subTest(clang=major), self.which(xwin="/usr/bin/xwin"), \
+                    recording() as rec, \
+                    unittest.mock.patch.object(rmp, "clang_cl_major", return_value=major), \
+                    unittest.mock.patch.dict(os.environ, {"RMP_ACCEPT_MICROSOFT_LICENSE": "1"}):
+                call(["build", "windows", "clang-cl"], cwd=self.game)
+                fetch = [a for a, _ in rec.calls if a[0] == "/usr/bin/xwin"]
+                self.assertEqual(len(fetch), 1, rec.calls)
+                self.assertIn("--accept-license", fetch[0])
+                self.assertEqual(fetch[0][-2:], ["--output", str(self.xwin)])
+                if crt:
+                    self.assertEqual(fetch[0][fetch[0].index("--crt-version") + 1], crt)
+                else:
+                    self.assertNotIn("--crt-version", fetch[0])
+
+    def test_run_windows_starts_the_exe_under_wine_or_says_it_cannot(self):
+        with self.which(wine64="/usr/local/bin/wine64"), recording() as rec:
+            code, _, err = call(["run", "windows"], cwd=self.game)
+        self.assertEqual(code, rmp.OK, err)
+        started = [(a, e) for a, e in rec.calls if a[0] == "/usr/local/bin/wine64"]
+        self.assertEqual(len(started), 1)
+        self.assertEqual(Path(started[0][0][1]), self.game / f"build/windows/{self.name}.exe")
+        self.assertEqual(started[0][1], {"WINEDEBUG": "-all"})
+        with self.which(), recording():
+            code, out, _ = call(["run", "windows"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("Wine is not installed", out)
+
+
+class PackageTest(unittest.TestCase):
+    """`rmp package`: the archive a release ships, made here."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.game = fake_project(Path(self.tmp.name) / "g")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_target_that_is_not_one_is_refused(self):
+        for args in (["nope"], ["web", "x"], ["desktop", "y"]):
+            with self.subTest(args=args), recording() as rec:
+                code, _, _ = call(["package", *args], cwd=self.game)
+                self.assertEqual(code, rmp.USAGE)
+                self.assertEqual(rec.calls, [])
+
+    def test_android_names_every_signing_variable_it_lacks(self):
+        clean = {k: v for k, v in os.environ.items() if k not in rmp.ANDROID_SIGNING}
+        with unittest.mock.patch.dict(os.environ, clean, clear=True), recording() as rec:
+            code, out, _ = call(["package", "android"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        for name in rmp.ANDROID_SIGNING:
+            self.assertIn(name, out)
+        self.assertEqual(rec.calls, [])
+        partial = dict(clean, ANDROID_KEYSTORE_FILE="k.jks", ANDROID_KEY_ALIAS="a")
+        with unittest.mock.patch.dict(os.environ, partial, clear=True), recording():
+            code, out, _ = call(["package", "android"], cwd=self.game)
+        self.assertIn("ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD are not set", out)
+
+    def test_android_refuses_a_keystore_that_is_not_there(self):
+        env = {name: "x" for name in rmp.ANDROID_SIGNING}
+        env["ANDROID_KEYSTORE_FILE"] = str(Path(self.tmp.name) / "missing.jks")
+        with unittest.mock.patch.dict(os.environ, env), recording() as rec:
+            code, out, _ = call(["package", "android"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("no such file", out)
+        self.assertEqual(rec.calls, [])
+
+    def test_android_signs_both_and_copies_both(self):
+        keystore = Path(self.tmp.name) / "upload.jks"
+        keystore.write_text("")
+        out_dir = self.game / "raymob/app/build/outputs"
+        env = {name: "x" for name in rmp.ANDROID_SIGNING}
+        env["ANDROID_KEYSTORE_FILE"] = str(keystore)
+        for kind, ext in (("bundle", "aab"), ("apk", "apk")):
+            (out_dir / kind / "release").mkdir(parents=True)
+            (out_dir / kind / "release" / f"app-release.{ext}").write_text(ext)
+        with unittest.mock.patch.dict(os.environ, env), recording() as rec:
+            code, out, err = call(["package", "android"], cwd=self.game)
+        self.assertEqual(code, rmp.OK, out + err)
+        gradle = [(a, e) for a, e in rec.calls if "./gradlew" in a]
+        self.assertEqual(len(gradle), 1)
+        self.assertEqual(gradle[0][0][2:4], ["bundleRelease", "assembleRelease"])
+        self.assertEqual(gradle[0][1], {"ANDROID_KEYSTORE_FILE": str(keystore.resolve())})
+        for ext in ("aab", "apk"):
+            self.assertEqual((self.game / f"build/package/{rmp.Ctx(self.game).name()}-android.{ext}").read_text(), ext)
+
+    def test_android_without_both_files_is_a_failure(self):
+        keystore = Path(self.tmp.name) / "upload.jks"
+        keystore.write_text("")
+        env = {name: "x" for name in rmp.ANDROID_SIGNING}
+        env["ANDROID_KEYSTORE_FILE"] = str(keystore)
+        with unittest.mock.patch.dict(os.environ, env), recording():
+            code, out, _ = call(["package", "android"], cwd=self.game)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("without both", out)
+
+    def test_a_staged_archive_holds_the_files_and_the_licences(self):
+        ctx = rmp.Ctx(self.game)
+        exe = self.game / "demo.exe"
+        exe.write_text("binary")
+        licences = self.game / "LICENSES.txt"
+        licences.write_text("credits")
+        with recording():
+            archive = rmp.stage_and_zip(ctx, "windows-x64", [exe], licences,
+                                        ship_resources=False)
+        self.assertEqual(archive, self.game / f"build/package/{ctx.name()}-windows-x64.zip")
+        import zipfile
+        with zipfile.ZipFile(archive) as z:
+            self.assertEqual(sorted(z.namelist()), ["LICENSES.txt", "demo.exe"])
+            self.assertEqual(z.read("demo.exe"), b"binary")
+        with self.assertRaises(rmp.Refused):
+            rmp.stage_and_zip(ctx, "web", [self.game / "nothing.wasm"], licences,
+                              ship_resources=False)
+
+
+class GradleOfflineTest(unittest.TestCase):
+    """Gradle runs --offline only inside the build image, whose Gradle home
+    is warmed, and only when [android] gradle_offline says so."""
+
+    def flags(self, home, props):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if props is not None:
+                (root / "raymob").mkdir()
+                (root / "raymob/generated.properties").write_text(props)
+            env = {k: v for k, v in os.environ.items() if k != "GRADLE_USER_HOME"}
+            if home:
+                env["GRADLE_USER_HOME"] = home
+            with unittest.mock.patch.dict(os.environ, env, clear=True):
+                return rmp.gradle_flags(rmp.Ctx(root))
+
+    def test_each_case(self):
+        self.assertEqual(self.flags("/opt/gradle-home", "gradle.offline=true\n"), ["--offline"])
+        self.assertEqual(self.flags("/opt/gradle-home", "gradle.offline=false\n"), [])
+        self.assertEqual(self.flags("/opt/gradle-home", "x=1\ngradle.offline=truest\n"), [])
+        self.assertEqual(self.flags("/opt/gradle-home", None), [])
+        self.assertEqual(self.flags("", "gradle.offline=true\n"), [])
+
+
 class DispatchTest(unittest.TestCase):
     def test_an_unknown_command_suggests_the_near_one(self):
         code, _, err = call(["tset"])
@@ -2220,7 +2446,7 @@ class DocsTest(unittest.TestCase):
         elif slot.isupper():
             ok = True
         else:
-            ok = arg == slot
+            ok = arg in slot.split("|")  # [release|windows]: either word
         return None if ok else f"`rmp {command}` does not take {arg!r}"
 
     def test_every_command_shown_exists(self):
@@ -2647,6 +2873,9 @@ class NewTest(unittest.TestCase):
         # Sanitizers are the framework's always and a game's when it asks.
         self.assertEqual(base["dev"]["sanitize"], ["address", "undefined"])
         self.assertEqual(mine["dev"]["sanitize"], [])
+        # tcc for a game's Debug C where it can work; the framework keeps its own.
+        self.assertEqual(base["dev"]["c_compiler"], "same")
+        self.assertEqual(mine["dev"]["c_compiler"], "auto")
         # Omar, 2026-10-10: a new game letterboxes, like the framework.
         self.assertEqual(base["window"]["stretch"], "letterbox")
         self.assertEqual(mine["window"]["stretch"], "letterbox")
@@ -2655,6 +2884,7 @@ class NewTest(unittest.TestCase):
         mine["android"]["admob"] = dict(mine["android"]["admob"], enabled=True)
         mine["android"]["gl_version"] = base["android"]["gl_version"]
         mine["dev"]["sanitize"] = base["dev"]["sanitize"]
+        mine["dev"]["c_compiler"] = base["dev"]["c_compiler"]
         for key in ("name",):
             mine["project"][key] = base["project"][key]
         mine["window"]["title"] = base["window"]["title"]
@@ -2907,10 +3137,12 @@ class MakeGameInProcessTest(unittest.TestCase):
         self.assertRegex(toml.split("\n[android]")[1].split("\n[")[0],
                          r'(?m)^gl_version\s*= "ES20"')
         self.assertRegex(toml.split("\n[dev]")[1].split("\n[")[0], r"(?m)^sanitize\s*= \[\]")
+        self.assertRegex(toml.split("\n[dev]")[1].split("\n[")[0],
+                         r'(?m)^c_compiler\s*= "auto"')
         # Nothing else moved: every other line is the framework's.
         changed = [a for a, b in zip(framework.splitlines(), toml.splitlines()) if a != b]
         self.assertEqual(len(framework.splitlines()), len(toml.splitlines()))
-        self.assertEqual(len(changed), 8, changed)
+        self.assertEqual(len(changed), 9, changed)
 
     def test_the_licence_records_credit_the_framework_and_forget_rapidcheck(self):
         licences = self.text("THIRD_PARTY_LICENSES.md")

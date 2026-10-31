@@ -1,0 +1,45 @@
+// The development container: the build image CI runs in, pinned by the same
+// digest as every workflow (tools/versions_check.sh fails when they differ),
+// with a light desktop on top so a game can open its window. In VS Code,
+// "Dev Containers: Reopen in Container"; in a GitHub Codespace it is what
+// starts. The desktop is a browser tab: open the forwarded port 6080, password
+// "vscode". Every compiler, tool and library `rmp` uses is already in the
+// image, so `./rmp run`, `./rmp test` and `./rmp build windows` work at once.
+{
+  "name": "raylib_multiplatform",
+  "image": "ghcr.io/omardev29/raylib-build@sha256:271bb12e4c57208969c55e95d6dcf00822677472d256d5b44a247d8b3c11c02f",
+  "features": {
+    "ghcr.io/devcontainers/features/desktop-lite:1": {
+      "password": "vscode",
+      "webPort": "6080",
+      "vncPort": "5901"
+    }
+  },
+  "containerEnv": {
+    "DISPLAY": ":1",
+    "LIBGL_ALWAYS_SOFTWARE": "1"
+  },
+  "forwardPorts": [6080],
+  "portsAttributes": {
+    "6080": {
+      "label": "Desktop (noVNC)",
+      "onAutoForward": "notify"
+    },
+    "5901": {
+      "label": "VNC",
+      "onAutoForward": "silent"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-vscode.cmake-tools"
+      ],
+      "settings": {
+        "clangd.path": "/usr/lib/llvm-18/bin/clangd",
+        "cmake.useVsDeveloperEnvironment": "never"
+      }
+    }
+  }
+}
