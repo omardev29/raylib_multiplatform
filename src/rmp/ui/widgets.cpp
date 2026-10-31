@@ -16,10 +16,7 @@ namespace rmp::ui {
 
 namespace {
 
-using detail::font_px;
 using detail::px;
-using detail::px16;
-using detail::to_clay;
 
 // What the last pass asked to be drawn (detail::last_pass_commands()): Clay's
 // array, which lives in Clay's arena until the next layout.
@@ -271,10 +268,57 @@ void detail::close_frame(const bool draw) {
 bool button(std::string_view label) { return button(label, ButtonOptions{}); }
 
 bool button(std::string_view label, const ButtonOptions &o) {
-    if (!detail::frame_ready("button", label)) return false;
+    return detail::button_with(label, o, detail::Extra{});
+}
+
+bool image_button(const Picture &picture) {
+    return image_button(picture, ImageButtonOptions{});
+}
+
+bool image_button(const Picture &picture, const ImageButtonOptions &o) {
+    detail::Extra x;
+    x.icon = rmp::Ref<const Picture>(picture);
+    x.width = o.width;
+    x.height = o.height;
+    // Its size is the picture's, unless asked: no padding around it, no
+    // minimum height -- an icon is as big as it was drawn.
+    x.icon_size = o.height > 0 ? o.height : picture.size().y;
+    return detail::button_with({}, ButtonOptions{ .enabled = o.enabled, .id = o.id }, x);
+}
+
+namespace {
+
+// A picture as an element of its own: an icon in a button, the bar of a
+// progress. Sized in design units, and drawn by its record.
+void picture_element(const Picture &picture, float width, float height, Color tint) {
+    Clay_ElementDeclaration d{};
+    d.layout.sizing.width =
+        Clay_SizingAxis{ .size = { .minMax = { px(width), px(width) } },
+                         .type = CLAY__SIZING_TYPE_FIXED };
+    d.layout.sizing.height =
+        Clay_SizingAxis{ .size = { .minMax = { px(height), px(height) } },
+                         .type = CLAY__SIZING_TYPE_FIXED };
+    if (const auto rec = detail::picture_record(picture, tint)) {
+        d.image.imageData = &rec->raw;
+        d.userData = &*rec;
+    }
+    Clay__OpenElement();
+    Clay__ConfigureOpenElement(d);
+    Clay__CloseElement();
+}
+
+} // namespace
+
+bool detail::button_with(std::string_view label, const ButtonOptions &o, const Extra &x) {
+    if (!detail::frame_ready("button", label.empty() ? o.id : label)) return false;
+    const detail::LookScope scope(WidgetKind::BUTTON, x.own);
 
     const Theme &t = current_theme();
-    const Clay_ElementId id = detail::element_id(label, o.id);
+    const bool icon_only = label.empty() && x.icon;
+    // A picture has no label to be told apart by: the unnamed ones are counted
+    // as "image_button", the way two "Play" buttons are counted.
+    const Clay_ElementId id = detail::element_id(
+        label.empty() ? std::string_view("image_button") : label, o.id);
     detail::note_control(id);
 
     // Hit-testing uses the geometry this element had LAST frame — this one has
@@ -292,8 +336,20 @@ bool button(std::string_view label, const ButtonOptions &o) {
 
     // Keyboard and gamepad get here without the widget knowing how: it declares
     // itself focusable and asks whether it is the one.
-    const bool has_focus = o.enabled && detail::focusable(id, label);
+    const bool has_focus =
+        o.enabled && detail::focusable(id, label.empty() ? o.id : label);
     if (has_focus && detail::take_activate()) clicked = true;
+
+    detail::Interaction now;
+    now.over = over;
+    now.down = pressed && detail::press_id() == id.id;
+    now.focused = has_focus;
+    now.disabled = !o.enabled;
+    now.clicked = clicked;
+    const detail::Edges edges =
+        detail::track(id, WidgetKind::BUTTON, label.empty() ? o.id : label, now);
+    if (x.edges) *x.edges = edges;
+    if (x.element) *x.element = id.id;
 
     // Colour. Every Variant travels between the same three states and every one
     // of them goes through state_color(), which is why they all feel the same
@@ -346,6 +402,11 @@ bool button(std::string_view label, const ButtonOptions &o) {
                 break;
         }
     }
+    // A picture-only button with no skin and no fill of its own is the
+    // picture: no flat box behind it.
+    const Style &look = detail::look();
+    if (icon_only && !look.background && !look.skin)
+        background = detail::clear_alpha(background);
 
     // Size. The type step drives everything else, so a large button is large
     // all over rather than a normal one with bigger letters in it.
@@ -357,19 +418,35 @@ bool button(std::string_view label, const ButtonOptions &o) {
     // honouring what was asked for makes the control unusable.
     if (detail::touch_only() && min_height < t.min_touch_size)
         min_height = t.min_touch_size;
+    if (icon_only && !detail::touch_only()) min_height = 0;
 
     Clay_ElementDeclaration decl{};
     // GROW inside the FIT column from begin(): the column takes the width of
     // its widest child, then every button expands to match it.
-    decl.layout.sizing.width = size_grow();
+    // A picture-only button's width and height are its picture's: the button
+    // fits around it, padding and all.
+    if (icon_only)
+        decl.layout.sizing.width = size_fit();
+    else if (x.width > 0)
+        decl.layout.sizing.width =
+            Clay_SizingAxis{ .size = { .minMax = { px(x.width), px(x.width) } },
+                             .type = CLAY__SIZING_TYPE_FIXED };
+    else
+        decl.layout.sizing.width = size_grow();
     // min_touch_size is the whole reason a short label still makes a button a
     // thumb can hit.
-    decl.layout.sizing.height = size_fit_min(px(min_height));
+    decl.layout.sizing.height = x.height > 0 && !icon_only
+        ? Clay_SizingAxis{ .size = { .minMax = { px(x.height), px(x.height) } },
+                           .type = CLAY__SIZING_TYPE_FIXED }
+        : size_fit_min(px(min_height));
+    const float pad_x = icon_only && !look.padding_x ? 0.0f : t.padding_x * ratio;
+    const float pad_y = icon_only && !look.padding_y ? 0.0f : t.padding_y * ratio;
     decl.layout.padding =
-        Clay_Padding{ px16(t.padding_x * ratio), px16(t.padding_x * ratio),
-                      px16(t.padding_y * ratio), px16(t.padding_y * ratio) };
+        Clay_Padding{ px16(pad_x), px16(pad_x), px16(pad_y), px16(pad_y) };
     decl.layout.childAlignment =
         Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+    decl.layout.layoutDirection = x.icon_above ? CLAY_TOP_TO_BOTTOM : CLAY_LEFT_TO_RIGHT;
+    decl.layout.childGap = px16(t.gap * 0.5f * ratio);
     decl.backgroundColor = to_clay(background);
     const float r = px(t.corner_radius);
     decl.cornerRadius = Clay_CornerRadius{ r, r, r, r };
@@ -387,17 +464,27 @@ bool button(std::string_view label, const ButtonOptions &o) {
         decl.border.color = to_clay(outline);
         decl.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     }
+    detail::decorate(decl, id, now);
 
     // Clay 0.14 has no id field in the declaration: the id goes in when the
     // element is opened.
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(decl);
-    {
+    if (x.icon && !x.icon->empty()) {
+        const Vector2 size = x.icon->size();
+        const float h = x.icon_size > 0 ? x.icon_size : (icon_only ? size.y : font_units);
+        const float w =
+            (x.width > 0 && icon_only) ? x.width : (size.y > 0 ? h * size.x / size.y : h);
+        Color tint = look.tint.value_or(WHITE);
+        if (!o.enabled) tint = detail::mix_color(tint, Color{ 120, 120, 128, 200 }, 0.5f);
+        picture_element(*x.icon, w, x.height > 0 && icon_only ? x.height : h, tint);
+    }
+    if (!label.empty()) {
         Clay_TextElementConfig tc{};
         tc.textColor = to_clay(foreground);
         tc.fontSize = font_px(font_units);
         tc.wrapMode = CLAY_TEXT_WRAP_NONE;
-        Clay__OpenTextElement(detail::intern(label), tc);
+        detail::open_text(detail::intern(label), tc);
     }
     Clay__CloseElement();
 
@@ -407,7 +494,12 @@ bool button(std::string_view label, const ButtonOptions &o) {
 void text(std::string_view s) { text(s, TextOptions{}); }
 
 void text(std::string_view s, const TextOptions &o) {
+    detail::text_with(s, o, detail::Extra{});
+}
+
+void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x) {
     if (!detail::frame_ready("text", s)) return;
+    const detail::LookScope scope(WidgetKind::LABEL, x.own);
 
     const Theme &t = current_theme();
     Color c = t.text;
@@ -425,16 +517,55 @@ void text(std::string_view s, const TextOptions &o) {
             c = t.danger;
             break;
     }
+    // A text colour the style sets wins over the role.
+    if (const auto &text = detail::look().text) c = *text;
 
     Clay_TextElementConfig tc{};
     tc.textColor = to_clay(c);
     tc.fontSize = font_px(detail::resolve_size(o.size, t));
     tc.wrapMode = o.wrap ? CLAY_TEXT_WRAP_WORDS : CLAY_TEXT_WRAP_NONE;
 
+    // A kept Label is a box with an id around its text -- what can be hovered,
+    // clicked, shaken and given a skin; text() is the text alone.
+    const bool kept = x.state != nullptr;
+    detail::Interaction now;
+    Clay_ElementId id{};
+    if (kept) {
+        id = detail::element_id(s, x.id);
+        now.over = detail::pointer_over(id);
+        if (now.over && detail::pointer_just_pressed()) detail::set_press_id(id.id);
+        now.down = now.over && detail::pointer_down() && detail::press_id() == id.id;
+        now.clicked =
+            now.over && detail::pointer_released() && detail::press_id() == id.id;
+        const detail::Edges edges =
+            detail::track(id, WidgetKind::LABEL, x.id.empty() ? s : x.id, now);
+        if (x.edges) *x.edges = edges;
+        if (x.element) *x.element = id.id;
+        Clay_ElementDeclaration box{};
+        box.layout.sizing.width = o.wrap ? size_grow() : size_fit();
+        box.layout.sizing.height = size_fit();
+        const Style &look = detail::look();
+        if (look.background) box.backgroundColor = to_clay(*look.background);
+        if (look.padding_x || look.padding_y)
+            box.layout.padding = Clay_Padding{ px16(t.padding_x), px16(t.padding_x),
+                                               px16(t.padding_y), px16(t.padding_y) };
+        const float r = look.radius ? px(*look.radius) : 0.0f;
+        box.cornerRadius = Clay_CornerRadius{ r, r, r, r };
+        if (look.border && look.border_width && *look.border_width > 0) {
+            auto w = px16(*look.border_width);
+            box.border.color = to_clay(*look.border);
+            box.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
+        }
+        detail::decorate(box, id, now);
+        Clay__OpenElementWithId(id);
+        Clay__ConfigureOpenElement(box);
+    }
+
     // Copied on the way in, so text(std::to_string(score)) is safe: Clay keeps
     // the pointer and reads it at layout time, long after a temporary would be
     // gone.
-    Clay__OpenTextElement(detail::intern(s), tc);
+    detail::open_text(detail::intern(s), tc);
+    if (kept) Clay__CloseElement();
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,8 @@
 
 #include "internal.h"
 
+#include <rlgl.h> // rlPushMatrix(): a moving element and what is inside it
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -193,52 +195,278 @@ const char *cstr(Clay_StringSlice slice) {
     return scratch.text.data();
 }
 
+// --- the arithmetic of the looks: pure, and tested without a GPU ------------
+
+rmp::Ref<DrawRecord> draw_record(const Clay_RenderCommand &cmd) {
+    if (cmd.userData == nullptr || cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT)
+        return {};
+    auto &r = *static_cast<DrawRecord *>(cmd.userData);
+    return r.magic == DRAW_MAGIC ? rmp::Ref<DrawRecord>(r) : rmp::Ref<DrawRecord>{};
+}
+
+rmp::Ref<const TextRecord> text_record(const Clay_RenderCommand &cmd) {
+    if (cmd.userData == nullptr || cmd.commandType != CLAY_RENDER_COMMAND_TYPE_TEXT)
+        return {};
+    const auto &r = *static_cast<const TextRecord *>(cmd.userData);
+    return r.magic == TEXT_MAGIC ? rmp::Ref<const TextRecord>(r)
+                                 : rmp::Ref<const TextRecord>{};
+}
+
+Color faded(Color c, float alpha) {
+    if (alpha >= 1.0f) return c;
+    const float a = static_cast<float>(c.a) * std::clamp(alpha, 0.0f, 1.0f);
+    return Color{ c.r, c.g, c.b, static_cast<unsigned char>(std::lround(a)) };
+}
+
+int picture_parts(const DrawRecord &r, Rectangle dest, PictureParts &out) {
+    if (dest.width <= 0 || dest.height <= 0) return 0;
+    const Rectangle src = r.source;
+    const bool nine = r.left > 0 || r.top > 0 || r.right > 0 || r.bottom > 0;
+    if (!nine) {
+        out[0] = PicturePart{ src, dest };
+        return 1;
+    }
+    // The corners at their size, shrunk together when the box is too small
+    // for them; the edges stretch along, the middle both ways.
+    float l = r.left * r.slice_px;
+    float rt = r.right * r.slice_px;
+    float t = r.top * r.slice_px;
+    float b = r.bottom * r.slice_px;
+    if (l + rt > dest.width) {
+        const float k = dest.width / (l + rt);
+        l *= k;
+        rt *= k;
+    }
+    if (t + b > dest.height) {
+        const float k = dest.height / (t + b);
+        t *= k;
+        b *= k;
+    }
+    const std::array<float, 4> sx{ src.x, src.x + r.left, src.x + src.width - r.right,
+                                   src.x + src.width };
+    const std::array<float, 4> sy{ src.y, src.y + r.top, src.y + src.height - r.bottom,
+                                   src.y + src.height };
+    const std::array<float, 4> dx{ dest.x, dest.x + l, dest.x + dest.width - rt,
+                                   dest.x + dest.width };
+    const std::array<float, 4> dy{ dest.y, dest.y + t, dest.y + dest.height - b,
+                                   dest.y + dest.height };
+    int n = 0;
+    for (std::size_t row = 0; row < 3; ++row) {
+        for (std::size_t col = 0; col < 3; ++col) {
+            const Rectangle part{ sx[col], sy[row], sx[col + 1] - sx[col],
+                                  sy[row + 1] - sy[row] };
+            const Rectangle to{ dx[col], dy[row], dx[col + 1] - dx[col],
+                                dy[row + 1] - dy[row] };
+            if (part.width <= 0 || part.height <= 0 || to.width <= 0 || to.height <= 0)
+                continue;
+            out[static_cast<std::size_t>(n++)] = PicturePart{ part, to };
+        }
+    }
+    return n;
+}
+
+int shadow_layers(const DrawRecord &r, Clay_BoundingBox box, float alpha,
+                  ShadowLayers &out) {
+    const int layers = r.shadow_blur > 0 ? SHADOW_LAYERS : 1;
+    const Color c = faded(r.shadow_color, alpha);
+    const float share = static_cast<float>(c.a) / static_cast<float>(layers);
+    int n = 0;
+    // Biggest and faintest first, so the edges add up to a fade.
+    for (int i = layers - 1; i >= 0; --i) {
+        const float grow = r.shadow_spread +
+            r.shadow_blur * static_cast<float>(i + 1) / static_cast<float>(layers) -
+            (layers > 1 ? r.shadow_blur * 0.5f : 0.0f);
+        const Rectangle rect{ box.x + r.shadow_offset.x - grow,
+                              box.y + r.shadow_offset.y - grow, box.width + 2 * grow,
+                              box.height + 2 * grow };
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const Color layer{ c.r, c.g, c.b,
+                           static_cast<unsigned char>(std::clamp(share, 1.0f, 255.0f)) };
+        out[static_cast<std::size_t>(n++)] =
+            ShadowLayer{ rect, std::max(0.0f, r.radius + grow), layer };
+    }
+    return n;
+}
+
+int outline_offsets(float width, OutlineOffsets &out) {
+    // Eight copies around a letter, and eight more between them past two
+    // pixels, where gaps between the first eight would show.
+    const int steps = width > 2.0f ? 16 : 8;
+    for (int i = 0; i < steps; ++i) {
+        const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) /
+            static_cast<float>(steps);
+        out[static_cast<std::size_t>(i)] =
+            Vector2{ std::cos(angle) * width, std::sin(angle) * width };
+    }
+    return steps;
+}
+
+bool inside(Clay_BoundingBox inner, Clay_BoundingBox outer) {
+    constexpr float SLACK = 0.5f;
+    return inner.x >= outer.x - SLACK && inner.y >= outer.y - SLACK &&
+        inner.x + inner.width <= outer.x + outer.width + SLACK &&
+        inner.y + inner.height <= outer.y + outer.height + SLACK;
+}
+
+int Motions::leave(Clay_BoundingBox box) {
+    int left = 0;
+    while (_depth > 0 && !inside(box, _boxes[static_cast<std::size_t>(_depth - 1)].box)) {
+        left += _boxes[static_cast<std::size_t>(_depth - 1)].matrix ? 1 : 0;
+        --_depth;
+    }
+    return left;
+}
+
+float Motions::alpha() const {
+    return _depth > 0 ? _boxes[static_cast<std::size_t>(_depth - 1)].alpha : 1.0f;
+}
+
+bool Motions::enter(Clay_BoundingBox box, const DrawRecord &r) {
+    const bool matrix = r.scale != 1.0f || r.offset.x != 0.0f || r.offset.y != 0.0f;
+    if ((!matrix && r.alpha == 1.0f) || _depth >= MAX_MOTIONS) return false;
+    _boxes[static_cast<std::size_t>(_depth++)] = Moving{ box, alpha() * r.alpha, matrix };
+    return matrix;
+}
+
+int Motions::depth() const { return _depth; }
+
+int Motions::matrices() const {
+    int n = 0;
+    for (int i = 0; i < _depth; ++i)
+        n += _boxes[static_cast<std::size_t>(i)].matrix ? 1 : 0;
+    return n;
+}
+
+namespace {
+
+// A picture in a box, by its parts; lit by drawing it again, added on top.
+void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
+    if (r.raw.id == 0) return;
+    PictureParts parts{};
+    const int n = picture_parts(r, dest, parts);
+    for (int i = 0; i < n; ++i) {
+        const PicturePart &p = parts[static_cast<std::size_t>(i)];
+        DrawTexturePro(r.raw, p.source, p.dest, Vector2{ 0, 0 }, 0.0f, tint);
+    }
+    if (r.brighten > 0) {
+        BeginBlendMode(BLEND_ADDITIVE);
+        const auto a = static_cast<unsigned char>(
+            std::lround(255.0f * r.brighten * tint.a / 255.0f));
+        for (int i = 0; i < n; ++i) {
+            const PicturePart &p = parts[static_cast<std::size_t>(i)];
+            DrawTexturePro(r.raw, p.source, p.dest, Vector2{ 0, 0 }, 0.0f,
+                           Color{ 255, 255, 255, a });
+        }
+        EndBlendMode();
+    }
+}
+
+void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
+    ShadowLayers layers{};
+    const int n = shadow_layers(r, box, alpha, layers);
+    for (int i = 0; i < n; ++i) {
+        const ShadowLayer &l = layers[static_cast<std::size_t>(i)];
+        const float half = std::min(l.rect.width, l.rect.height) * 0.5f;
+        if (l.radius > 0 && half > 0) {
+            DrawRectangleRounded(l.rect, std::min(1.0f, l.radius / half), 8, l.color);
+        } else {
+            DrawRectangleRec(l.rect, l.color);
+        }
+    }
+}
+
+void draw_text(const ::Font &f, Clay_StringSlice text, Vector2 at, float size,
+               Color color, rmp::Ref<const TextRecord> extra, float alpha) {
+    const float spacing = letter_spacing(size);
+    if (extra && extra->shadow) {
+        DrawTextEx(f, cstr(text),
+                   Vector2{ at.x + extra->shadow_px.x, at.y + extra->shadow_px.y }, size,
+                   spacing, faded(extra->shadow_color, alpha));
+    }
+    if (extra && extra->outline) {
+        OutlineOffsets offsets{};
+        const int n = outline_offsets(extra->outline_px, offsets);
+        const Color c = faded(extra->outline_color, alpha);
+        for (int i = 0; i < n; ++i) {
+            const Vector2 o = offsets[static_cast<std::size_t>(i)];
+            DrawTextEx(f, cstr(text), Vector2{ at.x + o.x, at.y + o.y }, size, spacing,
+                       c);
+        }
+    }
+    DrawTextEx(f, cstr(text), at, size, spacing, faded(color, alpha));
+}
+
+} // namespace
+
 void draw(Clay_RenderCommandArray commands) {
     ScissorStack scissors{};
     const auto clip_to = [](Clay_BoundingBox b) {
         BeginScissorMode(static_cast<int>(b.x), static_cast<int>(b.y),
                          static_cast<int>(b.width), static_cast<int>(b.height));
     };
+    Motions moving;
     // Already sorted by z order, so drawing them in sequence is correct.
     for (int32_t i = 0; i < commands.length; ++i) {
         const Clay_RenderCommand &cmd = commands.internalArray[i];
         const Rectangle rect = to_rect(cmd.boundingBox);
 
+        // Out of the box of what was moving: no longer inside it.
+        for (int left = moving.leave(cmd.boundingBox); left > 0; --left) rlPopMatrix();
+
+        const rmp::Ref<DrawRecord> rec = draw_record(cmd);
+        if (rec && !rec->shadow_drawn) {
+            // The first command of a styled element: its motion on from here,
+            // with everything drawn inside its box, and its shadow under it.
+            rec->shadow_drawn = true;
+            if (moving.enter(cmd.boundingBox, *rec)) {
+                const float cx = rect.x + rect.width * 0.5f;
+                const float cy = rect.y + rect.height * 0.5f;
+                rlPushMatrix();
+                rlTranslatef(cx + rec->offset.x, cy + rec->offset.y, 0.0f);
+                rlScalef(rec->scale, rec->scale, 1.0f);
+                rlTranslatef(-cx, -cy, 0.0f);
+            }
+            if (rec->has_shadow) draw_shadow(*rec, cmd.boundingBox, moving.alpha());
+        }
+        const float alpha = moving.alpha();
+
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
                 const auto &r = cmd.renderData.rectangle;
+                const Color fill = faded(from_clay(r.backgroundColor), alpha);
                 const Corners corners = corners_of(r.cornerRadius, cmd.boundingBox);
                 // Four equal corners -- everything rmp::ui draws -- go through
                 // raylib's own call, exactly as they always have. Only a box
                 // given different corners, from Clay directly, is drawn here.
                 if (!same_corners(corners)) {
-                    fill_box(cmd.boundingBox, corners, from_clay(r.backgroundColor));
+                    fill_box(cmd.boundingBox, corners, fill);
                     break;
                 }
                 const float rn = roundness(corners, cmd.boundingBox);
                 if (rn > 0.0f) {
-                    DrawRectangleRounded(rect, rn, 8, from_clay(r.backgroundColor));
+                    DrawRectangleRounded(rect, rn, 8, fill);
                 } else {
-                    DrawRectangleRec(rect, from_clay(r.backgroundColor));
+                    DrawRectangleRec(rect, fill);
                 }
                 break;
             }
 
             case CLAY_RENDER_COMMAND_TYPE_BORDER: {
                 const auto &b = cmd.renderData.border;
+                const Color color = faded(from_clay(b.color), alpha);
                 const Corners corners = corners_of(b.cornerRadius, cmd.boundingBox);
                 // The same, and the same for the widths: raylib's outline has
                 // one width, and Clay gives each side its own.
                 if (!same_corners(corners) || !same_sides(b.width)) {
-                    stroke_box(cmd.boundingBox, corners, b.width, from_clay(b.color));
+                    stroke_box(cmd.boundingBox, corners, b.width, color);
                     break;
                 }
                 const float rn = roundness(corners, cmd.boundingBox);
                 auto w = static_cast<float>(b.width.left);
                 if (rn > 0.0f) {
-                    DrawRectangleRoundedLinesEx(rect, rn, 8, w, from_clay(b.color));
+                    DrawRectangleRoundedLinesEx(rect, rn, 8, w, color);
                 } else {
-                    DrawRectangleLinesEx(rect, w, from_clay(b.color));
+                    DrawRectangleLinesEx(rect, w, color);
                 }
                 break;
             }
@@ -247,32 +475,31 @@ void draw(Clay_RenderCommandArray commands) {
                 const auto &t = cmd.renderData.text;
                 if (t.stringContents.length <= 0) break; // see cstr()
                 auto size = static_cast<float>(t.fontSize);
-                const ::Font f = ui_font(size); // baked at exactly this size: sharp
-                DrawTextEx(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
-                           letter_spacing(size), from_clay(t.textColor));
+                // Baked at exactly this size, in the font this text asked for: sharp.
+                const ::Font f = ui_font(size, t.fontId);
+                draw_text(f, t.stringContents, Vector2{ rect.x, rect.y }, size,
+                          from_clay(t.textColor), text_record(cmd), alpha);
                 break;
             }
 
             case CLAY_RENDER_COMMAND_TYPE_IMAGE: {
-                // imageData is a pointer the element declaration passed through
-                // untouched, so the contract is simply: point it at a Texture2D
-                // you own and keep alive for the frame.
-                //
-                // rmp::ui::image() produces these, and so can a game that
-                // drops to Clay directly: both point imageData at a Texture2D.
+                // A picture of ours -- image(), an icon, a skin -- comes with
+                // its record: the part of the texture, the nine-slice margins,
+                // the tint, the handles that keep it loaded.
+                if (rec && rec->has_picture) {
+                    draw_picture(*rec, rect, faded(rec->tint, alpha));
+                    break;
+                }
+                // Anything else is a game driving Clay itself, and its
+                // imageData is a pointer to a Texture2D it keeps alive for the
+                // frame: drawn whole, untinted.
                 const auto &img = cmd.renderData.image;
                 if (img.imageData == nullptr) break;
                 const auto *tex = static_cast<const Texture2D *>(img.imageData);
                 const Rectangle src{ 0, 0, static_cast<float>(tex->width),
                                      static_cast<float>(tex->height) };
-                // The tint comes through userData as an optional Color*, not
-                // through backgroundColor: a background on an image element
-                // makes Clay emit a RECTANGLE as well, after the IMAGE, which
-                // paints a flat square over the picture. Null means untinted.
-                auto tint = WHITE;
-                if (cmd.userData != nullptr)
-                    tint = *static_cast<const Color *>(cmd.userData);
-                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f, tint);
+                DrawTexturePro(*tex, src, rect, Vector2{ 0, 0 }, 0.0f,
+                               faded(WHITE, alpha));
                 break;
             }
 
@@ -297,6 +524,7 @@ void draw(Clay_RenderCommandArray commands) {
                 break;
         }
     }
+    for (int left = moving.matrices(); left > 0; --left) rlPopMatrix();
     // A list that ended with one still open -- Clay pairs them, so never --
     // must not leave the rest of the game clipped.
     if (scissors.depth > 0) EndScissorMode();

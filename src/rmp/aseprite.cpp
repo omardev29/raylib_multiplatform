@@ -41,6 +41,8 @@
 
 #include "animation_internal.h"
 
+#include <rmp/assets.h> // SheetSlice, which the walk reads slices into
+
 #include <cute_aseprite.h>
 
 #include <algorithm>
@@ -117,9 +119,21 @@ public:
         return value < 0x8000U ? static_cast<int>(value)
                                : static_cast<int>(value) - 0x10000;
     }
+    std::int32_t s32() {
+        const std::uint32_t value = u32();
+        return value < 0x80000000U
+            ? static_cast<std::int32_t>(value)
+            : static_cast<std::int32_t>(std::int64_t{ value } - 0x100000000LL);
+    }
     void skip(std::size_t count) { take(count); }
     // The format's STRING: its length, then that many bytes.
     void string() { skip(u16()); }
+    // The same, read: the bytes it holds, or "" when they do not fit.
+    std::string_view text() {
+        const std::size_t length = u16();
+        if (!take(length)) return {};
+        return { reinterpret_cast<const char *>(_bytes.data() + _at - length), length };
+    }
     // What is left, taken whole.
     std::span<const unsigned char> rest() {
         const std::span<const unsigned char> left = _bytes.subspan(_at);
@@ -401,6 +415,10 @@ public:
     Walk(std::span<const unsigned char> file, std::vector<unsigned char> &out)
         : _file(file), _out(out) {}
 
+    // The slices it read on the way: cute_aseprite never sees them (see the
+    // top of this file), so this walk is what reads them for the sheet.
+    [[nodiscard]] std::vector<SheetSlice> take_slices() { return std::move(_slices); }
+
     std::string_view run() {
         if (const std::string_view why = header(); !why.empty()) return why;
         _out.assign(_file.begin(), _file.end());
@@ -497,14 +515,59 @@ private:
                 return cel(body);
             case TAGS:
                 return tags(body);
+            case SLICE:
+                read_slice(body);
+                return skip(at);
             case CEL_EXTRA:
             case COLOR_PROFILE:
             case USER_DATA:
-            case SLICE:
                 return skip(at);
             default:
                 return {}; // cute_aseprite steps over a chunk it does not know
         }
+    }
+
+    // A slice chunk: its name, and its first key -- where it is on the frame
+    // that key is for, and its 9-slices centre when it has one. One that does
+    // not read whole, or does not sit inside the canvas, is left out: a slice
+    // is never a reason to refuse the pictures. The bounds are moved to where
+    // that frame is in the packed texture, which lays the frames in one row.
+    void read_slice(std::span<const unsigned char> body) {
+        if (_slices.size() >= MAX_SLICES) return;
+        Cursor c(body);
+        const std::uint32_t keys = c.u32();
+        const std::uint32_t flags = c.u32();
+        c.u32(); // reserved
+        const std::string_view name = c.text();
+        if (!c.ok() || keys == 0) return;
+        const std::uint32_t frame = c.u32();
+        const std::int32_t x = c.s32();
+        const std::int32_t y = c.s32();
+        const std::uint32_t w = c.u32();
+        const std::uint32_t h = c.u32();
+        SheetSlice slice;
+        slice.name = std::string(name);
+        if ((flags & 1U) != 0) {
+            const std::int32_t cx = c.s32();
+            const std::int32_t cy = c.s32();
+            const std::uint32_t cw = c.u32();
+            const std::uint32_t ch = c.u32();
+            const bool inside = cx >= 0 && cy >= 0 && cw > 0 && ch > 0 &&
+                std::int64_t{ cx } + cw <= w && std::int64_t{ cy } + ch <= h;
+            if (inside) {
+                slice.nine = true;
+                slice.center =
+                    Rectangle{ static_cast<float>(cx), static_cast<float>(cy),
+                               static_cast<float>(cw), static_cast<float>(ch) };
+            }
+        }
+        if (!c.ok() || w == 0 || h == 0 || x < 0 || y < 0) return;
+        if (std::int64_t{ x } + w > _width || std::int64_t{ y } + h > _height) return;
+        if (std::cmp_greater_equal(frame, _frames)) return;
+        slice.bounds = Rectangle{ static_cast<float>(std::int64_t{ frame } * _width + x),
+                                  static_cast<float>(y), static_cast<float>(w),
+                                  static_cast<float>(h) };
+        _slices.push_back(std::move(slice));
     }
 
     // The chunk at `at`, retyped in the copy as one cute_aseprite steps over.
@@ -764,15 +827,29 @@ private:
     int _palette = 0; // the palette's size, as cute_aseprite last set it
     std::vector<Cel> _cels; // every frame's, in order
     std::vector<std::size_t> _frame_cels; // where each frame's cels start in _cels
+    std::vector<SheetSlice> _slices; // read_slice()'s, in the file's order
 };
 
 } // namespace
 
 std::string_view prepare_aseprite(std::span<const unsigned char> file,
                                   std::vector<unsigned char> &out) {
+    std::vector<SheetSlice> slices;
+    return prepare_aseprite(file, out, slices);
+}
+
+std::string_view prepare_aseprite(std::span<const unsigned char> file,
+                                  std::vector<unsigned char> &out,
+                                  std::vector<SheetSlice> &slices) {
     out.clear();
-    const std::string_view why = Walk(file, out).run();
-    if (!why.empty()) out.clear();
+    slices.clear();
+    Walk walk(file, out);
+    const std::string_view why = walk.run();
+    if (!why.empty()) {
+        out.clear();
+        return why;
+    }
+    slices = walk.take_slices();
     return why;
 }
 

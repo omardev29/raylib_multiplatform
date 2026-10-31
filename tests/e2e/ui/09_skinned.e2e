@@ -1,0 +1,36 @@
+# examples/ui/09_skinned, played: a skinned shop. A star bought with the
+# mouse, a second one refused -- the button shakes and "Not enough coins"
+# comes up -- the settings behind the gear, and closed from the keyboard.
+#
+# The shop panel slides in over its first quarter of a second, so the first
+# shot waits for it. See tests/e2e/script.h for the grammar.
+
+# --- the shop ----------------------------------------------------------------
+
+# Five coins, no stars: the panel in, its shadow under it, the spinner turning.
+20 shot shop
+
+# Buy a star: three coins of five, and the collection's bar fills a fifth.
+21 click 307 231
+32 shot bought
+
+# Again, with two coins left: refused. The button shakes for 0.4 s and the
+# notice says why.
+33 click 307 231
+38 shot not_enough
+70 expect scene ShopScene
+
+# --- the settings ------------------------------------------------------------
+
+# The gear opens them over the shop: the Sound box has the focus.
+71 click 352 343
+90 shot settings
+
+# Down past Volume to Close, and Enter: the shop again, with every click of
+# the run counted under it.
+91 tap KEY_DOWN
+93 tap KEY_DOWN
+95 tap KEY_ENTER
+110 shot closed
+110 expect scene ShopScene
+110 end

@@ -10415,8 +10415,9 @@ class StyleCheckTest(unittest.TestCase):
         def silent_again(ui):
             path = ui / "containers.cpp"
             text = path.read_text()
-            old = 'if (!detail::frame_ready("image", {})) return;'
-            self.assertIn(old, text, "image() changed: find its first line again")
+            # image() hands everything to image_with(), whose first line this is.
+            old = 'if (!detail::frame_ready("image", id_name)) return;'
+            self.assertIn(old, text, "image_with() changed: find its first line again")
             path.write_text(text.replace(old, "if (!detail::frame_open()) return;"))
 
         def new_silent(ui):
@@ -10427,7 +10428,7 @@ class StyleCheckTest(unittest.TestCase):
         got = run(silent_again)
         self.assertEqual(got.returncode, 1, got.stdout)
         self.assertIn("containers.cpp", got.stdout)
-        self.assertIn("S7 image()", got.stdout)
+        self.assertIn("S7 image_with()", got.stdout)
         got = run(new_silent)
         self.assertEqual(got.returncode, 1, got.stdout)
         self.assertIn("widgets.cpp", got.stdout)

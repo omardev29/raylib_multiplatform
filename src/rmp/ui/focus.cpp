@@ -171,7 +171,9 @@ constexpr float REPEAT_INTERVAL = 0.09f;
 
 void copy_name(Name &dst, std::string_view s) {
     const size_t n = s.size() < dst.size() - 1 ? s.size() : dst.size() - 1;
-    std::memcpy(dst.data(), s.data(), n);
+    // An empty view may hold no pointer at all, and memcpy from null is
+    // undefined even for 0 bytes: an image_button() with no id has no name.
+    if (n > 0) std::memcpy(dst.data(), s.data(), n);
     dst[n] = '\0';
 }
 

@@ -20,7 +20,6 @@ namespace {
 
 using detail::px;
 using detail::px16;
-using detail::to_clay;
 
 Clay_SizingAxis axis(bool grow, float fixed) {
     Clay_SizingAxis a{};
@@ -196,16 +195,25 @@ void open_column(const BoxOptions &o) {
     open_with_id(o.id, d);
 }
 
-void open_panel(const PanelOptions &o) {
+void open_panel(const PanelOptions &o) { open_panel_with(o, {}, {}, {}, false, false); }
+
+void open_panel_with(const PanelOptions &o, rmp::Ref<const Style> own,
+                     Clay_ElementId kept, rmp::Ref<const Interaction> now, bool row,
+                     bool bare) {
     if (!frame_ready("panel", o.box.id)) return;
+    const LookScope scope(WidgetKind::PANEL, own);
     const Theme &t = current_theme();
+    const Style &look = detail::look();
 
     Clay_ElementDeclaration d{};
     // A panel pads itself by default; a bare row or column does not. That is
     // the difference between the two, along with having a background.
-    d.layout = layout_of(o.box, CLAY_TOP_TO_BOTTOM,
-                         o.box.padding < 0 ? t.panel_padding : o.box.padding);
+    d.layout =
+        layout_of(o.box, row ? CLAY_LEFT_TO_RIGHT : CLAY_TOP_TO_BOTTOM,
+                  o.box.padding < 0 ? (bare ? 0.0f : t.panel_padding) : o.box.padding);
+    if (o.box.gap < 0 && look.gap) d.layout.childGap = px16(*look.gap);
     d.backgroundColor = to_clay(transparent(o.background) ? t.panel : o.background);
+    if (bare && !look.background) d.backgroundColor = Clay_Color{ 0, 0, 0, 0 };
 
     const float r = px(o.radius < 0 ? t.corner_radius : o.radius);
     d.cornerRadius = Clay_CornerRadius{ r, r, r, r };
@@ -214,7 +222,12 @@ void open_panel(const PanelOptions &o) {
         auto w = px16(o.border_width < 0 ? 1.0f : o.border_width);
         d.border.color = to_clay(o.border);
         d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
-    } else if (t.border_width > 0.0f) {
+    } else if (look.border && look.border_width && *look.border_width > 0) {
+        auto w = px16(*look.border_width);
+        if (w < 1) w = 1;
+        d.border.color = to_clay(*look.border);
+        d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
+    } else if (t.border_width > 0.0f && !bare) {
         // No border asked for, but the theme draws them. A light Theme has no
         // shadows to separate a white panel from a white page, so it says so
         // once — here — instead of every call site having to remember.
@@ -224,6 +237,23 @@ void open_panel(const PanelOptions &o) {
         d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     }
 
+    if (now) {
+        // A kept Panel: its own id, and what it is doing.
+        decorate(d, kept, *now);
+        Clay__OpenElementWithId(kept);
+        Clay__ConfigureOpenElement(d);
+        if (row) note_row();
+        return;
+    }
+    if (look.skin || look.shadow || look.motion) {
+        // Styled through Theme::styles.panel: an id to keep its motion by.
+        const Clay_ElementId id =
+            !o.box.id.empty() ? element_id(o.box.id, o.box.id) : element_id("panel", {});
+        decorate(d, id, Interaction{});
+        Clay__OpenElementWithId(id);
+        Clay__ConfigureOpenElement(d);
+        return;
+    }
     open_with_id(o.box.id, d);
 }
 
@@ -470,51 +500,117 @@ void spacer(float fixed) {
 void image(const Texture2D &texture) { image(texture, ImageOptions{}); }
 
 void image(const Texture2D &texture, const ImageOptions &o) {
-    if (!detail::frame_ready("image", {})) return;
+    detail::image_with(Picture{}, o, detail::Extra{}, {}, texture);
+}
+
+void image(const Picture &picture) { image(picture, ImageOptions{}); }
+
+void image(const Picture &picture, const ImageOptions &o) {
+    detail::image_with(picture, o, detail::Extra{}, {});
+}
+
+void image(const rmp::Texture &texture) { image(Picture(texture), ImageOptions{}); }
+
+void image(const rmp::Texture &texture, const ImageOptions &o) {
+    image(Picture(texture), o);
+}
+
+void detail::image_with(const Picture &picture, const ImageOptions &o, const Extra &x,
+                        std::string_view id_name, std::optional<Texture2D> raw) {
+    if (!detail::frame_ready("image", id_name)) return;
+    const LookScope scope(WidgetKind::IMAGE, x.own);
+    const Style &look = detail::look();
 
     Clay_ElementDeclaration d{};
+    const Vector2 own = raw
+        ? Vector2{ static_cast<float>(raw->width), static_cast<float>(raw->height) }
+        : picture.size();
+    const float want_w = x.width > 0 ? x.width : o.width;
+    const float want_h = x.height > 0 ? x.height : o.height;
     if (o.grow) {
         d.layout.sizing.width = axis(true, 0);
         d.layout.sizing.height = axis(true, 0);
     } else {
         // Its own pixel Size by default, scaled like everything else, so an
         // icon does not shrink into nothing on a big screen.
-        const float w = o.width > 0 ? o.width : static_cast<float>(texture.width);
-        const float h = o.height > 0 ? o.height : static_cast<float>(texture.height);
-        d.layout.sizing.width = axis(false, w);
-        d.layout.sizing.height = axis(false, h);
+        d.layout.sizing.width = axis(false, want_w > 0 ? want_w : own.x);
+        d.layout.sizing.height = axis(false, want_h > 0 ? want_h : own.y);
     }
-    // A COPY, in the frame arena. Clay keeps this pointer until end() draws, and
-    // the signature binds a temporary Texture2D happily -- one returned by value
-    // from a function, say -- and the address of a parameter whose object died
-    // at the semicolon is what the renderer would then dereference. (A
-    // temporary rmp::Texture does not get this far: its conversion is deleted,
-    // because the texture itself would go with it.) The struct is 20 bytes and the arena's lifetime is
-    // exactly the frame Clay needs, which makes the rule true by construction
-    // instead of true in a comment. A full arena leaves it null, and Clay emits
-    // no IMAGE command for that — the element is still laid out at its size.
-    if (void *copy = detail::frame_alloc(sizeof(Texture2D))) {
-        *static_cast<Texture2D *>(copy) = texture;
-        d.image.imageData = copy;
-    }
-    last_image.data = d.image.imageData;
 
     // The tint deliberately does NOT go in backgroundColor. Clay emits a
     // RECTANGLE for any element with a background, *in addition to* the IMAGE
     // and after it in the list — so a tint set that way is a coloured square
     // painted straight over the picture. Cost me a screenshot to find.
     //
-    // It travels in userData instead, which Clay hands to the renderer
-    // untouched. Null means untinted, so anyone driving Clay by hand gets the
-    // obvious behaviour without knowing this exists.
-    if (o.tint.r != 255 || o.tint.g != 255 || o.tint.b != 255 || o.tint.a != 255) {
-        if (void *mem = detail::frame_alloc(sizeof(Color))) {
-            *static_cast<Color *>(mem) = o.tint;
-            d.userData = mem;
+    // It travels in the element's record instead (userData), which also holds
+    // the part of the texture, the nine-slice margins, and -- for a Picture --
+    // the handles that keep the texture loaded until it is drawn: a temporary
+    // Picture is safe. A Texture2D you pass is copied: the 20 bytes of it,
+    // never the pixels, so the texture itself still has to stay loaded.
+    Color tint = look.tint.value_or(o.tint);
+    if (look.tint) {
+        const Color a = *look.tint;
+        tint = Color{ static_cast<unsigned char>(a.r * o.tint.r / 255),
+                      static_cast<unsigned char>(a.g * o.tint.g / 255),
+                      static_cast<unsigned char>(a.b * o.tint.b / 255),
+                      static_cast<unsigned char>(a.a * o.tint.a / 255) };
+    }
+    rmp::Ref<detail::DrawRecord> rec;
+    if (raw) {
+        if (raw->id != 0) rec = detail::raw_record(*raw, tint);
+    } else {
+        rec = detail::picture_record(picture, tint);
+    }
+    if (rec) d.image.imageData = &rec->raw;
+    last_image.data = d.image.imageData;
+
+    const bool kept = x.state != nullptr;
+    detail::Interaction now;
+    Clay_ElementId id{};
+    if (kept || look.shadow || look.motion || look.skin) {
+        id = detail::element_id(id_name.empty() ? std::string_view("image") : id_name,
+                                x.id);
+        if (kept) {
+            now.over = detail::pointer_over(id);
+            if (now.over) detail::set_pointer_over_ui();
+            if (now.over && detail::pointer_just_pressed()) detail::set_press_id(id.id);
+            now.down = now.over && detail::pointer_down() && detail::press_id() == id.id;
+            now.clicked =
+                now.over && detail::pointer_released() && detail::press_id() == id.id;
+            const detail::Edges edges = detail::track(id, WidgetKind::IMAGE, x.id, now);
+            if (x.edges) *x.edges = edges;
+            if (x.element) *x.element = id.id;
         }
     }
-
-    Clay__OpenElement();
+    if (look.skin && !look.skin->normal.empty()) {
+        // A frame behind the picture: the skin is the box, the picture inside
+        // it, as far in as the style's padding.
+        const Theme &t = current_theme();
+        Clay_ElementDeclaration frame{};
+        frame.layout.sizing.width = axis(false, 0);
+        frame.layout.sizing.height = axis(false, 0);
+        frame.layout.padding = Clay_Padding{ px16(t.padding_x), px16(t.padding_x),
+                                             px16(t.padding_y), px16(t.padding_y) };
+        frame.layout.childAlignment =
+            Clay_ChildAlignment{ CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+        detail::decorate(frame, id, now);
+        Clay__OpenElementWithId(id);
+        Clay__ConfigureOpenElement(frame);
+        if (rec) d.userData = &*rec;
+        Clay__OpenElement();
+        Clay__ConfigureOpenElement(d);
+        Clay__CloseElement();
+        Clay__CloseElement();
+        return;
+    }
+    if (id.id != 0) {
+        detail::decorate(d, id, now, rec);
+        if (!rec) d.userData = nullptr;
+        Clay__OpenElementWithId(id);
+    } else {
+        if (rec) d.userData = &*rec;
+        Clay__OpenElement();
+    }
     Clay__ConfigureOpenElement(d);
     Clay__CloseElement();
 }
@@ -522,8 +618,15 @@ void image(const Texture2D &texture, const ImageOptions &o) {
 void progress(float fraction) { progress(fraction, ProgressOptions{}); }
 
 void progress(float fraction, const ProgressOptions &o) {
+    detail::progress_with(fraction, o, {}, detail::Extra{});
+}
+
+void detail::progress_with(float fraction, const ProgressOptions &o,
+                           rmp::Ref<const Picture> fill, const Extra &x) {
     if (!detail::frame_ready("progress", o.id)) return;
+    const LookScope scope(WidgetKind::PROGRESS, x.own);
     const Theme &t = current_theme();
+    const Style &look = detail::look();
 
     // Clamped, as the header says; and NaN -- hp / max_hp with no max_hp --
     // is no fraction at all: an empty bar, and the mistake said once.
@@ -543,8 +646,30 @@ void progress(float fraction, const ProgressOptions &o) {
     track.layout.sizing.height = axis(false, h);
     track.backgroundColor = to_clay(transparent(o.track) ? t.surface : o.track);
     track.cornerRadius = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
+    if (look.border && look.border_width && *look.border_width > 0) {
+        auto w = px16(*look.border_width);
+        track.border.color = to_clay(*look.border);
+        track.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
+    }
 
-    open_with_id(o.id, track);
+    const bool styled = x.state != nullptr || look.skin || look.shadow || look.motion;
+    if (styled) {
+        const Clay_ElementId id =
+            element_id(o.id.empty() ? std::string_view("progress") : o.id, o.id);
+        detail::Interaction now;
+        if (x.state != nullptr) {
+            now.over = detail::pointer_over(id);
+            const detail::Edges edges =
+                detail::track(id, WidgetKind::PROGRESS, o.id, now);
+            if (x.edges) *x.edges = edges;
+            if (x.element) *x.element = id.id;
+        }
+        detail::decorate(track, id, now);
+        Clay__OpenElementWithId(id);
+        Clay__ConfigureOpenElement(track);
+    } else {
+        open_with_id(o.id, track);
+    }
     {
         // A percentage child rather than a fixed width, so the bar is right
         // whatever the track ends up measuring — including inside a grow.
@@ -556,6 +681,15 @@ void progress(float fraction, const ProgressOptions &o) {
         bar.layout.sizing.height = axis(true, 0);
         bar.backgroundColor = to_clay(transparent(o.fill) ? t.primary : o.fill);
         bar.cornerRadius = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
+        if (fill && !fill->empty()) {
+            // The filled part as a picture: a nine-slice stretches with it.
+            if (const auto rec =
+                    detail::picture_record(*fill, look.tint.value_or(WHITE))) {
+                bar.backgroundColor = Clay_Color{ 0, 0, 0, 0 };
+                bar.image.imageData = &rec->raw;
+                bar.userData = &*rec;
+            }
+        }
         Clay__OpenElement();
         Clay__ConfigureOpenElement(bar);
         Clay__CloseElement();
