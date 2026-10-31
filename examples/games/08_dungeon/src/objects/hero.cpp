@@ -1,7 +1,7 @@
 // The hero: walks with TopDown, is drawn by an Animator, lives with a Health,
 // and swings a sword -- a Hitbox that lives a fifth of a second, in front.
 
-#include "objects.h"
+#include "cast.h"
 
 #include <rmp/assets.h>
 #include <rmp/audio.h>

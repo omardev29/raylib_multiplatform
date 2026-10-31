@@ -1,7 +1,7 @@
 // A level: the map, the hero, what LDtk placed, and the HUD over it all.
 
-#include "game.h"
-#include "objects.h"
+#include "dungeon.h"
+#include "cast.h"
 
 #include <rmp/assets.h>
 #include <rmp/audio.h>

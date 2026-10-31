@@ -9,7 +9,7 @@
 //
 // Every one has an Animator, a Health and a Hitbox that hurts on touch.
 
-#include "objects.h"
+#include "cast.h"
 
 #include <rmp/assets.h>
 #include <rmp/audio.h>

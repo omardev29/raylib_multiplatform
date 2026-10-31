@@ -3,7 +3,7 @@
 // the blades round their pillar (Orbit and Hitbox), the gate a lever opens,
 // and the braziers that light it all.
 
-#include "objects.h"
+#include "cast.h"
 
 #include <rmp/assets.h>
 #include <rmp/audio.h>

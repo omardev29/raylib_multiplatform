@@ -1,6 +1,6 @@
 // The title: the Crypt behind the menu, the camera drifting through it.
 
-#include "game.h"
+#include "dungeon.h"
 
 #include <rmp/app.h>
 #include <rmp/assets.h>

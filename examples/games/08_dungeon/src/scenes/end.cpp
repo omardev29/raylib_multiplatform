@@ -1,6 +1,6 @@
 // The end of a run, won or lost, over the level it ended in.
 
-#include "game.h"
+#include "dungeon.h"
 
 #include <rmp/ui.h>
 

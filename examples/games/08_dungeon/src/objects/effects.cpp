@@ -1,7 +1,7 @@
 // Sparks and rising numbers: small objects that fade and go, made of the
 // catalogue's Tween and Lifespan.
 
-#include "objects.h"
+#include "cast.h"
 
 #include <rmp/app.h>
 #include <rmp/assets.h>

@@ -41,6 +41,6 @@
 
 #include <rmp/app.h>
 
-#include "game.h"
+#include "dungeon.h"
 
 RMP_GAME(game::TitleScene);

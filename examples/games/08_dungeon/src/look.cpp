@@ -1,7 +1,7 @@
 // The run, the best run, the look of every screen, and the two ways the game
 // draws a tile of its own.
 
-#include "game.h"
+#include "dungeon.h"
 
 #include <rmp/app.h>
 #include <rmp/assets.h>

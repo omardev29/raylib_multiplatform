@@ -6,7 +6,7 @@
 // fields. The hero has a class of its own, because the sword is the game's.
 // ---------------------------------------------------------------------------
 
-#include "game.h"
+#include "dungeon.h"
 
 #include <rmp/object.h>
 #include <rmp/tilemap.h>

@@ -1,6 +1,6 @@
 // The pause: the level frozen and blurred behind it.
 
-#include "game.h"
+#include "dungeon.h"
 
 #include <rmp/input.h>
 #include <rmp/ui.h>
