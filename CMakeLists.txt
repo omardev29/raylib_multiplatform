@@ -560,7 +560,11 @@ function(rmp_apply_link_flags target)
   elseif(APPLE)
     target_link_options(${target} PRIVATE -Wl,-dead_strip)
   else()
-    target_link_options(${target} PRIVATE -Wl,--gc-sections)
+    # Not when tcc drives the link, as it does a game written in C whose C
+    # compiler is tcc ([dev] c_compiler): tcc's own -Wl parser refuses
+    # --gc-sections. That is a Debug build, where a few unused KB do not matter.
+    target_link_options(${target} PRIVATE
+      $<$<NOT:$<AND:$<LINK_LANGUAGE:C>,$<C_COMPILER_ID:TinyCC>>>:-Wl,--gc-sections>)
   endif()
   if(PRODUCTION_BUILD)
     if(MSVC)
@@ -1122,6 +1126,16 @@ if(RMP_BUILD_EXAMPLES)
   foreach(_t ${RMP_E2E_TARGETS})
     file(APPEND "${CMAKE_BINARY_DIR}/e2e_targets.txt" "${_t}\n")
   endforeach()
+endif()
+
+# --- tcc's launcher, read by clang-tidy ---------------------------------------
+# cmake/tcc_fixup.c is compiled by cmake/tcc.cmake while configuring, with tcc,
+# where no compile database sees it. An object library out of `all`, defined
+# with the tests, gives tools/lint.sh the entry it reads it with; nothing ever
+# builds it.
+if(BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc_fixup.c")
+  add_library(tcc_fixup_lint OBJECT EXCLUDE_FROM_ALL "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc_fixup.c")
+  rmp_apply_warnings(tcc_fixup_lint)
 endif()
 
 # --- the platformer, PLAYED -------------------------------------------------

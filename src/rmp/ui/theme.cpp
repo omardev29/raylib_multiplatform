@@ -90,8 +90,8 @@ Theme theme_light() {
     t.border_width = 1;
 
     // Shadows on white read darker than on near-black: the same ones, fainter.
-    if (auto &shadow = t.styles.button.shadow) shadow->color.a = 36;
-    if (auto &shadow = t.styles.panel.shadow) shadow->color.a = 48;
+    if (t.styles.button.shadow) t.styles.button.shadow->color.a = 36;
+    if (t.styles.panel.shadow) t.styles.panel.shadow->color.a = 48;
 
     return t;
 }

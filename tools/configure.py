@@ -546,7 +546,7 @@ RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
     "ui_layout_test", "ui_render_test", "platformer_play", "input_play", "assembler",
     "pack_resources", "unpack_resources", "game_test", "sanitizer_canary",
-    "rmp_e2e_driver", "console_canary", "tcc_runtime",
+    "rmp_e2e_driver", "console_canary", "tcc_runtime", "tcc_fixup_lint",
 }
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                    *(f"lpt{i}" for i in range(1, 10))}

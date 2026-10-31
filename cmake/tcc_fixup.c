@@ -42,9 +42,12 @@ static int width(unsigned type, int *is_signed)
     }
 }
 
+/* "Annex K" on a NOLINT below: the static analyzer asks for C11's memcpy_s and
+   friends, which glibc, musl, macOS and the BSDs do not implement. */
 static Elf64_Shdr section(const unsigned char *d, const Elf64_Ehdr *eh, unsigned i)
 {
     Elf64_Shdr s;
+    /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
     memcpy(&s, d + eh->e_shoff + (uint64_t)i * sizeof s, sizeof s);
     return s;
 }
@@ -61,8 +64,12 @@ static unsigned char *slurp(const char *path, long *size)
     FILE *f = fopen(path, "rb");
     unsigned char *d = NULL;
 
-    if (f && fseek(f, 0, SEEK_END) == 0 && (*size = ftell(f)) >= 0 && fseek(f, 0, SEEK_SET) == 0
-        && (d = malloc(*size ? *size : 1)) != NULL && fread(d, 1, *size, f) != (size_t)*size) {
+    *size = -1;
+    if (f && fseek(f, 0, SEEK_END) == 0)
+        *size = ftell(f);
+    if (*size >= 0 && fseek(f, 0, SEEK_SET) == 0)
+        d = malloc(*size ? *size : 1);
+    if (d && fread(d, 1, *size, f) != (size_t)*size) {
         free(d);
         d = NULL;
     }
@@ -75,19 +82,22 @@ static unsigned char *slurp(const char *path, long *size)
 
 static int fix(const char *path)
 {
-    unsigned char *d;
     long size;
     Elf64_Ehdr eh;
     Elf64_Shdr names;
-    unsigned i, j;
-    int changed = 0, failed = 0;
+    unsigned i;
+    unsigned j;
+    int changed = 0;
+    int failed = 0;
+    unsigned char *d = slurp(path, &size);
 
-    if (!(d = slurp(path, &size)))
+    if (!d)
         return 1;
 
     /* Only what tcc writes for this machine; anything else stays as it is. */
     if ((size_t)size < sizeof eh)
         goto done;
+    /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
     memcpy(&eh, d, sizeof eh);
     if (memcmp(eh.e_ident, ELFMAG, SELFMAG) != 0 || eh.e_ident[EI_CLASS] != ELFCLASS64
         || eh.e_ident[EI_DATA] != ELFDATA2LSB || eh.e_type != ET_REL || eh.e_machine != EM_X86_64
@@ -99,7 +109,8 @@ static int fix(const char *path)
         goto done;
 
     for (i = 0; i < eh.e_shnum; i++) {
-        Elf64_Shdr rels = section(d, &eh, i), target;
+        Elf64_Shdr rels = section(d, &eh, i);
+        Elf64_Shdr target;
         const char *name;
 
         if (rels.sh_type != SHT_RELA || rels.sh_entsize != sizeof(Elf64_Rela) || rels.sh_info >= eh.e_shnum
@@ -114,22 +125,29 @@ static int fix(const char *path)
             continue;
 
         for (j = 0; j < rels.sh_size / sizeof(Elf64_Rela); j++) {
-            unsigned char *at = d + rels.sh_offset + (uint64_t)j * sizeof(Elf64_Rela), *p;
+            unsigned char *at = d + rels.sh_offset + (uint64_t)j * sizeof(Elf64_Rela);
+            unsigned char *p;
             Elf64_Rela r;
             uint64_t v = 0;
-            int n, is_signed, k;
+            int n;
+            int is_signed;
+            int k;
 
+            /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
             memcpy(&r, at, sizeof r);
             n = width(ELF64_R_TYPE(r.r_info), &is_signed);
             if (n == 0 || target.sh_size < (uint64_t)n || r.r_offset > target.sh_size - n)
                 continue;
             p = d + target.sh_offset + r.r_offset;
+            /* Inside the target, which is inside the file: both checked above. */
             for (k = n - 1; k >= 0; k--)
-                v = v << 8 | p[k];
+                v = v << 8 | p[k]; /* NOLINT(clang-analyzer-security.ArrayBound): checked above */
             if (v == 0)
                 continue;
             r.r_addend += n == 4 && is_signed ? (int64_t)(int32_t)(uint32_t)v : (int64_t)v;
+            /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
             memcpy(at, &r, sizeof r);
+            /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
             memset(p, 0, n);
             changed = 1;
         }
@@ -138,11 +156,13 @@ static int fix(const char *path)
     /* A new file, renamed over the old one: never half an object, and never
        ccache's copy, if ccache handed over a hard link to it. */
     if (changed) {
-        char *tmp = malloc(strlen(path) + sizeof ".fixup");
+        const size_t room = strlen(path) + sizeof ".fixup";
+        char *tmp = malloc(room);
         FILE *f = NULL;
 
         if (tmp) {
-            sprintf(tmp, "%s.fixup", path);
+            /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
+            snprintf(tmp, room, "%s.fixup", path);
             f = fopen(tmp, "wb");
         }
         if (!f || fwrite(d, 1, size, f) != (size_t)size) {
@@ -168,9 +188,11 @@ int main(int argc, char **argv)
 {
     const char *object = NULL;
     pid_t pid;
-    int status, i;
+    int status;
+    int i;
 
     if (argc < 2) {
+        /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling): Annex K */
         fprintf(stderr, "usage: tcc_fixup <compiler> <arguments>...\n");
         return 2;
     }

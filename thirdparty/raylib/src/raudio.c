@@ -491,9 +491,26 @@ void InitAudioDevice(void)
     result = ma_device_init(&AUDIO.System.context, &config, &AUDIO.System.device);
     if (result != MA_SUCCESS)
     {
-        TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize playback device");
+        // PATCHED (raylib_multiplatform): a backend whose library loads -- ALSA
+        // on a machine that has libasound and no sound card -- wins the context
+        // and then has no device, and miniaudio never reaches its null backend,
+        // which it only tries when every other context fails. Try it here: a
+        // silent device that mixes in real time, as on a machine with no audio
+        // library at all, instead of none.
         ma_context_uninit(&AUDIO.System.context);
-        return;
+        const ma_backend nullBackend[1] = { ma_backend_null };
+        result = ma_context_init(nullBackend, 1, &ctxConfig, &AUDIO.System.context);
+        if (result == MA_SUCCESS)
+        {
+            result = ma_device_init(&AUDIO.System.context, &config, &AUDIO.System.device);
+            if (result != MA_SUCCESS) ma_context_uninit(&AUDIO.System.context);
+        }
+        if (result == MA_SUCCESS) TRACELOG(LOG_INFO, "AUDIO: No playback device; using the null backend");
+    }
+    if (result != MA_SUCCESS)
+    {
+        TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize playback device");
+        return; // the context is uninitialised above, on both ways here
     }
 
     // Mixing happens on a separate thread which means synchronization is needed
