@@ -117,7 +117,7 @@ void keep(float &metric, float fallback, float most, const std::string &name) {
 // Inside a widget whose style sets colours or metrics, the Theme with them in
 // it (src/rmp/ui/look.cpp); everywhere else, the one set_theme() stored.
 const Theme &current_theme() {
-    if (const Theme *styled = detail::look_theme()) return *styled;
+    if (const auto styled = detail::look_theme()) return *styled;
     return active();
 }
 

@@ -19,10 +19,8 @@
 #include "internal.h"
 #include "../internal.h" // RMP_REPORT_ONCE
 
-#include <rmp/audio.h>
-
 #include <cmath>
-#include <deque>
+#include <list>
 #include <numbers>
 #include <unordered_map>
 #include <utility>
@@ -34,10 +32,10 @@ namespace rmp::ui {
 // Pictures
 // ---------------------------------------------------------------------------
 
-Picture::Picture(const rmp::Texture &whole) : texture(whole) {}
+Picture::Picture(rmp::Texture whole) : texture(std::move(whole)) {}
 
-Picture::Picture(const rmp::Texture &atlas, Rectangle part)
-    : texture(atlas), source(part) {}
+Picture::Picture(rmp::Texture atlas, Rectangle part)
+    : texture(std::move(atlas)), source(part) {}
 
 Picture::Picture(const rmp::Sprite &sprite) {
     if (sprite.sheet.valid()) {
@@ -70,41 +68,41 @@ bool Picture::sliced() const { return left > 0 || top > 0 || right > 0 || bottom
 
 namespace {
 
-// The slice called `name`, or nothing, said once per name.
-const SheetSlice *find_slice(const rmp::SpriteSheet &sheet, std::string_view name,
-                             const char *who) {
-    const SheetSlice &found = sheet.raw().slice(name);
-    if (found.bounds.width > 0) return &found;
+// Whether `found`, the slice called `name`, is not in the sheet -- said once
+// per name.
+bool missing(const SheetSlice &found, std::string_view name, std::string_view who) {
+    if (found.bounds.width > 0) return false;
     RMP_REPORT_ONCE_KEYED(
-        name, "UI: rmp::ui::%s(sheet, \"%.*s\"): the sheet has no slice by that name",
-        who, static_cast<int>(name.size()), name.data());
-    return nullptr;
+        name, "UI: rmp::ui::%.*s(sheet, \"%.*s\"): the sheet has no slice by that name",
+        static_cast<int>(who.size()), who.data(), static_cast<int>(name.size()),
+        name.data());
+    return true;
 }
 
 } // namespace
 
 Picture slice(const rmp::SpriteSheet &sheet, std::string_view name) {
-    const SheetSlice *s = find_slice(sheet, name, "slice");
-    if (s == nullptr) return Picture{};
+    const SheetSlice &s = sheet.raw().slice(name);
+    if (missing(s, name, "slice")) return Picture{};
     Picture p;
     p.sheet = sheet;
-    p.source = s->bounds;
-    if (s->nine) {
-        p.left = s->center.x;
-        p.top = s->center.y;
-        p.right = s->bounds.width - s->center.x - s->center.width;
-        p.bottom = s->bounds.height - s->center.y - s->center.height;
+    p.source = s.bounds;
+    if (s.nine) {
+        p.left = s.center.x;
+        p.top = s.center.y;
+        p.right = s.bounds.width - s.center.x - s.center.width;
+        p.bottom = s.bounds.height - s.center.y - s.center.height;
     }
     return p;
 }
 
 NineSlice nine_slice(const rmp::SpriteSheet &sheet, std::string_view name) {
-    const SheetSlice *s = find_slice(sheet, name, "nine_slice");
-    if (s == nullptr) return NineSlice{};
+    const SheetSlice &s = sheet.raw().slice(name);
+    if (missing(s, name, "nine_slice")) return NineSlice{};
     NineSlice n;
     n.sheet = sheet;
-    n.source = s->bounds;
-    if (!s->nine) {
+    n.source = s.bounds;
+    if (!s.nine) {
         RMP_REPORT_ONCE_KEYED(
             name,
             "UI: rmp::ui::nine_slice(sheet, \"%.*s\"): the slice has no "
@@ -112,10 +110,10 @@ NineSlice nine_slice(const rmp::SpriteSheet &sheet, std::string_view name) {
             static_cast<int>(name.size()), name.data());
         return n;
     }
-    n.left = s->center.x;
-    n.top = s->center.y;
-    n.right = s->bounds.width - s->center.x - s->center.width;
-    n.bottom = s->bounds.height - s->center.y - s->center.height;
+    n.left = s.center.x;
+    n.top = s.center.y;
+    n.right = s.bounds.width - s.center.x - s.center.width;
+    n.bottom = s.bounds.height - s.center.y - s.center.height;
     return n;
 }
 
@@ -144,16 +142,17 @@ constexpr float MOST_SCALE = 16.0f;
 // `v` if it is a number from `lo` to `hi`; otherwise the game's mistake, said
 // once by its name, and `fallback` in its place -- so a look of NaN draws the
 // way no look would, instead of drawing NaN.
-float usable(float v, float fallback, float lo, float hi, const char *what) {
+float usable(float v, float fallback, float lo, float hi, std::string_view what) {
     if (std::isfinite(v) && v >= lo && v <= hi) return v;
-    RMP_REPORT_ONCE_KEYED(what, "UI: a Style's %s of %g is not from %g to %g; %g is used",
-                          what, static_cast<double>(v), static_cast<double>(lo),
-                          static_cast<double>(hi), static_cast<double>(fallback));
+    RMP_REPORT_ONCE_KEYED(
+        what, "UI: a Style's %.*s of %g is not from %g to %g; %g is used",
+        static_cast<int>(what.size()), what.data(), static_cast<double>(v),
+        static_cast<double>(lo), static_cast<double>(hi), static_cast<double>(fallback));
     return fallback;
 }
 
 // A length: below 0 is 0, asked for or not -- a border of -4 is no border.
-float length(float v, const char *what) {
+float length(float v, std::string_view what) {
     if (std::isfinite(v) && v < 0) return 0.0f;
     return usable(v, 0.0f, 0.0f, MOST_UNITS, what);
 }
@@ -312,18 +311,25 @@ struct LookFrame {
     bool themed = false;
 };
 
-// One frame's records: deques, so that a pointer handed to Clay stays where it
+// One frame's records: lists, so that a pointer handed to Clay stays where it
 // is while more are added. Emptied at the frame boundary, after they were
 // drawn -- which is when the textures they hold may go.
 struct {
     std::vector<Style>
         inherited; // cumulative: each entry is the one below with a `children` over it
-    std::deque<LookFrame> stack; // the widgets being declared, innermost last
-    std::deque<DrawRecord> draws;
-    std::deque<TextRecord> texts;
+    std::list<LookFrame> stack; // the widgets being declared, innermost last
+    std::list<DrawRecord> draws;
+    std::list<TextRecord> texts;
     rmp::Callback<const Event &> hook;
     unsigned frame = 0;
 } looks;
+
+// What plays a sound by name. Nothing until a game writes a SoundName, whose
+// constructor (sound.cpp) puts rmp::audio::play() here: so the decoders come
+// into a game with the first sound it names, and never into one with none.
+struct {
+    rmp::Callback<std::string_view, float> play;
+} player;
 
 // Per element, across frames: what it was doing (for the events), when it
 // appeared (for `appear`) and how far into a shake it is.
@@ -395,27 +401,27 @@ bool moves(const Motion &m) {
 }
 
 // The picture a skin shows in this state: its own, or `normal` lit or shaded.
-const Picture *skin_picture(const Skin &skin, const Interaction &now, float &brighten,
+const Picture &skin_picture(const Skin &skin, const Interaction &now, float &brighten,
                             Color &tint) {
     brighten = 0;
     tint = WHITE;
     if (now.disabled) {
-        if (!skin.disabled.empty()) return &skin.disabled;
+        if (!skin.disabled.empty()) return skin.disabled;
         tint = Color{ 140, 140, 150, 220 };
-        return &skin.normal;
+        return skin.normal;
     }
     if (now.down) {
-        if (!skin.press.empty()) return &skin.press;
+        if (!skin.press.empty()) return skin.press;
         tint = Color{ 205, 205, 205, 255 };
-        return &skin.normal;
+        return skin.normal;
     }
     if (now.over) {
-        if (!skin.hover.empty()) return &skin.hover;
+        if (!skin.hover.empty()) return skin.hover;
         brighten = 0.18f;
-        return &skin.normal;
+        return skin.normal;
     }
-    if (now.focused && !skin.focus.empty()) return &skin.focus;
-    return &skin.normal;
+    if (now.focused && !skin.focus.empty()) return skin.focus;
+    return skin.normal;
 }
 
 Color times(Color a, Color b) {
@@ -456,7 +462,7 @@ void fill_picture(DrawRecord &r, const Picture &p) {
     r.slice_px = px(scale);
 }
 
-std::optional<std::string> sound_for(const Sounds &s, EventKind kind) {
+std::optional<SoundName> sound_for(const Sounds &s, EventKind kind) {
     switch (kind) {
         case EventKind::HOVER:
             return s.hover;
@@ -485,7 +491,7 @@ std::optional<std::string> sound_for(const Sounds &s, EventKind kind) {
 
 // The look of a widget that is not inside a LookScope -- an event emitted
 // after its scope closed: what the theme alone gives its kind.
-Style resolve(WidgetKind kind, const Style *own) {
+Style resolve(WidgetKind kind, rmp::Ref<const Style> own) {
     const Theme &t = base_theme();
     Style r;
     r.sounds = t.sounds;
@@ -498,7 +504,7 @@ Style resolve(WidgetKind kind, const Style *own) {
         r.motion = t.motion;
     merge(r, kind_style(t, kind));
     if (!looks.inherited.empty()) merge(r, looks.inherited.back());
-    if (own != nullptr) merge(r, *own);
+    if (own) merge(r, *own);
     return r;
 }
 
@@ -508,7 +514,7 @@ Style resolve(WidgetKind kind, const Style *own) {
 // The scope
 // ---------------------------------------------------------------------------
 
-LookScope::LookScope(WidgetKind kind, const Style *own) {
+LookScope::LookScope(WidgetKind kind, rmp::Ref<const Style> own) {
     LookFrame &f = looks.stack.emplace_back();
     f.kind = kind;
     f.style = resolve(kind, own);
@@ -527,9 +533,9 @@ const Style &look() {
     return looks.stack.empty() ? empty_style() : looks.stack.back().style;
 }
 
-const Theme *look_theme() {
-    if (looks.stack.empty() || !looks.stack.back().themed) return nullptr;
-    return &looks.stack.back().theme;
+rmp::Ref<const Theme> look_theme() {
+    if (looks.stack.empty() || !looks.stack.back().themed) return {};
+    return rmp::Ref<const Theme>(looks.stack.back().theme);
 }
 
 WidgetKind look_kind() {
@@ -578,27 +584,26 @@ void forget_looks() {
 // Records
 // ---------------------------------------------------------------------------
 
-DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
-                     const Interaction &now, DrawRecord *into) {
+rmp::Ref<DrawRecord> decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
+                              const Interaction &now, rmp::Ref<DrawRecord> into) {
     const Style &s = look();
     const Motion m = motion_of(s);
     Memory &mem = remember(id.id);
     const bool shaking = mem.shaking >= 0 && mem.shaking < m.shake;
     if (mem.shaking >= m.shake) mem.shaking = -1;
-    const bool skinned = into == nullptr && s.skin && !s.skin->normal.empty();
+    const bool skinned = !into && s.skin && !s.skin->normal.empty();
     if (!skinned && !s.shadow && !moves(m) && !shaking) {
-        if (into != nullptr) d.userData = into;
+        if (into) d.userData = &*into;
         return into;
     }
 
-    DrawRecord &r = into != nullptr ? *into : looks.draws.emplace_back();
+    DrawRecord &r = into ? *into : looks.draws.emplace_back();
     r.element = id.id;
     r.radius = d.cornerRadius.topLeft;
 
     if (skinned) {
-        Color state_tint = WHITE;
-        const Picture *p = skin_picture(*s.skin, now, r.brighten, state_tint);
-        fill_picture(r, *p);
+        auto state_tint = WHITE;
+        fill_picture(r, skin_picture(*s.skin, now, r.brighten, state_tint));
         r.tint = times(state_tint, s.tint.value_or(WHITE));
         // The picture IS the box: no flat fill over it or under it. Clay emits
         // an IMAGE command only for an element with imageData, so it points at
@@ -645,25 +650,25 @@ DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
     }
 
     d.userData = &r;
-    return &r;
+    return rmp::Ref<DrawRecord>(r);
 }
 
-DrawRecord *picture_record(const Picture &picture, Color tint) {
-    if (picture.empty()) return nullptr;
+rmp::Ref<DrawRecord> picture_record(const Picture &picture, Color tint) {
+    if (picture.empty()) return {};
     DrawRecord &r = looks.draws.emplace_back();
     fill_picture(r, picture);
     r.tint = tint;
-    return &r;
+    return rmp::Ref<DrawRecord>(r);
 }
 
-DrawRecord *raw_record(const Texture2D &texture, Color tint) {
+rmp::Ref<DrawRecord> raw_record(const Texture2D &texture, Color tint) {
     DrawRecord &r = looks.draws.emplace_back();
     r.has_picture = true;
     r.raw = texture;
     r.source = Rectangle{ 0, 0, static_cast<float>(texture.width),
                           static_cast<float>(texture.height) };
     r.tint = tint;
-    return &r;
+    return rmp::Ref<DrawRecord>(r);
 }
 
 void open_text(Clay_String text, Clay_TextElementConfig config) {
@@ -700,16 +705,21 @@ void open_text(Clay_String text, Clay_TextElementConfig config) {
 // Events
 // ---------------------------------------------------------------------------
 
+void set_sound_player(rmp::Callback<std::string_view, float> play) {
+    player.play = std::move(play);
+}
+
+bool has_sound_player() { return static_cast<bool>(player.play); }
+
 void emit(EventKind kind, WidgetKind widget, std::string_view name) {
     const bool scoped = !looks.stack.empty();
-    const Style resolved = scoped ? Style{} : resolve(widget, nullptr);
+    const Style resolved = scoped ? Style{} : resolve(widget, {});
     const Style &s = scoped ? look() : resolved;
-    if (const std::optional<std::string> sound = sound_for(s.sounds, kind);
-        sound && !sound->empty()) {
-        rmp::audio::play(*sound,
-                         rmp::audio::PlayOptions{
-                             .volume = usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f,
-                                              1.0f, "sounds.volume") });
+    if (const std::optional<SoundName> sound = sound_for(s.sounds, kind);
+        sound && !sound->empty() && player.play) {
+        player.play(
+            sound->view(),
+            usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f, 1.0f, "sounds.volume"));
     }
     if (looks.hook) {
         const Event e{ kind, widget, name };

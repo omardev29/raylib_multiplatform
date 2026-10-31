@@ -16,6 +16,7 @@
 
 #include "doctest.h"
 
+#include "../src/rmp/audio_internal.h"
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
 #include "../src/rmp/ui_internal.h"
@@ -86,10 +87,22 @@ void typed_stub(detail::Typed &out) {
     out = detail::Typed{};
     for (const char c : typing.typed) {
         if (out.count < detail::MAX_TYPED)
-            out.codepoints[static_cast<size_t>(out.count++)] = c;
+            out.codepoints[static_cast<size_t>(out.count++)] =
+                static_cast<unsigned char>(c);
     }
     typing.typed.clear();
 }
+
+// How many times rmp::audio asked for a sound device.
+struct {
+    int count = 0;
+} audio_opens;
+
+// What the test's sound player was asked to play.
+struct {
+    std::vector<std::string> names;
+    std::vector<float> volumes;
+} played;
 
 std::vector<ui::Event> &heard() {
     static std::vector<ui::Event> events;
@@ -123,6 +136,7 @@ struct HeadlessUi {
         detail::begin_frame();
         detail::end_frame();
         ui::on_event({});
+        detail::set_sound_player({});
         ui::focus("");
         ui::set_theme(ui::theme_dark());
         ui::set_font("");
@@ -151,18 +165,14 @@ std::span<const Clay_RenderCommand> commands() {
     return { a.internalArray, static_cast<std::size_t>(a.length) };
 }
 
-const detail::DrawRecord *record_of(const Clay_RenderCommand &c) {
-    if (c.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT || c.userData == nullptr)
-        return nullptr;
-    const auto *r = static_cast<const detail::DrawRecord *>(c.userData);
-    return r->magic == detail::DRAW_MAGIC ? r : nullptr;
+rmp::Ref<const detail::DrawRecord> record_of(const Clay_RenderCommand &c) {
+    const rmp::Ref<detail::DrawRecord> r = detail::draw_record(c);
+    return r ? rmp::Ref<const detail::DrawRecord>(*r)
+             : rmp::Ref<const detail::DrawRecord>{};
 }
 
-const detail::TextRecord *text_record_of(const Clay_RenderCommand &c) {
-    if (c.commandType != CLAY_RENDER_COMMAND_TYPE_TEXT || c.userData == nullptr)
-        return nullptr;
-    const auto *r = static_cast<const detail::TextRecord *>(c.userData);
-    return r->magic == detail::TEXT_MAGIC ? r : nullptr;
+rmp::Ref<const detail::TextRecord> text_record_of(const Clay_RenderCommand &c) {
+    return detail::text_record(c);
 }
 
 std::string text_of(const Clay_RenderCommand &c) {
@@ -181,11 +191,13 @@ const Clay_RenderCommand *text_command(std::string_view s) {
 // border) share one, so each is counted once.
 int records() {
     std::vector<const void *> seen;
+    const auto count = [&seen](const auto &record) {
+        if (record && std::ranges::find(seen, &*record) == seen.end())
+            seen.push_back(&*record);
+    };
     for (const Clay_RenderCommand &c : commands()) {
-        const void *r = record_of(c) != nullptr
-            ? static_cast<const void *>(record_of(c))
-            : static_cast<const void *>(text_record_of(c));
-        if (r != nullptr && std::ranges::find(seen, r) == seen.end()) seen.push_back(r);
+        count(record_of(c));
+        count(text_record_of(c));
     }
     return static_cast<int>(seen.size());
 }
@@ -257,15 +269,15 @@ TEST_SUITE("ui: looks") {
             CHECK(t.motion.press_scale == 1);
             CHECK(t.motion.hover_lift == 0);
             CHECK(t.motion.appear == 0);
-            for (const ui::Style *s :
-                 { &t.styles.button, &t.styles.label, &t.styles.image, &t.styles.panel,
-                   &t.styles.checkbox, &t.styles.slider, &t.styles.dropdown,
-                   &t.styles.text_input, &t.styles.progress }) {
-                CHECK_FALSE(s->background);
-                CHECK_FALSE(s->skin);
-                CHECK_FALSE(s->shadow);
-                CHECK_FALSE(s->motion);
-                CHECK_FALSE(s->font.valid());
+            for (const ui::Style &s :
+                 { t.styles.button, t.styles.label, t.styles.image, t.styles.panel,
+                   t.styles.checkbox, t.styles.slider, t.styles.dropdown,
+                   t.styles.text_input, t.styles.progress }) {
+                CHECK_FALSE(s.background);
+                CHECK_FALSE(s.skin);
+                CHECK_FALSE(s.shadow);
+                CHECK_FALSE(s.motion);
+                CHECK_FALSE(s.font.valid());
             }
         }
     }
@@ -311,9 +323,10 @@ TEST_SUITE("ui: looks") {
                            .text_disabled = GRAY,
                            .font_size = 40 };
         {
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+            const detail::LookScope scope(ui::WidgetKind::BUTTON,
+                                          rmp::Ref<const ui::Style>(s));
             const ui::Theme &t = ui::current_theme();
-            CHECK(detail::look_theme() == &t);
+            CHECK(&*detail::look_theme() == &t);
             CHECK(same(t.surface, RED));
             CHECK(same(t.primary, RED));
             CHECK(same(t.danger, RED));
@@ -354,7 +367,8 @@ TEST_SUITE("ui: looks") {
                            .border_width = -4,
                            .radius = -1,
                            .gap = -2 };
-        const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+        const detail::LookScope scope(ui::WidgetKind::BUTTON,
+                                      rmp::Ref<const ui::Style>(s));
         const ui::Theme &t = ui::current_theme();
         CHECK(same(t.surface_hover, GOLD));
         CHECK(same(t.primary_hover, GOLD));
@@ -376,37 +390,40 @@ TEST_SUITE("ui: looks") {
         ui::set_theme(t);
 
         {
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, nullptr);
-            CHECK(same(*detail::look().text, RED));
-            CHECK(*detail::look().sounds.click == "tick");
+            const detail::LookScope scope(ui::WidgetKind::BUTTON, {});
+            CHECK(same(detail::look().text.value_or(BLANK), RED));
+            CHECK(detail::look().sounds.click.value_or("") == "tick");
         }
         {
             // Theme::styles is per kind: a label does not get the buttons'.
-            const detail::LookScope scope(ui::WidgetKind::LABEL, nullptr);
+            const detail::LookScope scope(ui::WidgetKind::LABEL, {});
             CHECK_FALSE(detail::look().text);
             CHECK_FALSE(detail::look().radius);
         }
         detail::push_children(ui::Style{ .text = GREEN, .sounds = { .hover = "" } });
         detail::push_children(ui::Style{ .gap = 9 });
         {
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, nullptr);
-            CHECK(same(*detail::look().text, GREEN)); // the outer container's
-            CHECK(*detail::look().gap == 9); // the inner one's
-            CHECK(*detail::look().radius == 3); // the theme's, nobody else set it
-            CHECK(detail::look().sounds.hover->empty()); // silenced by a container
-            CHECK(*detail::look().sounds.click == "tick");
+            const detail::LookScope scope(ui::WidgetKind::BUTTON, {});
+            CHECK(same(detail::look().text.value_or(BLANK),
+                       GREEN)); // the outer container's
+            CHECK(detail::look().gap.value_or(-1) == 9); // the inner one's
+            CHECK(detail::look().radius.value_or(-1) == 3); // the theme's, nobody else's
+            // silenced by a container
+            CHECK(detail::look().sounds.hover.value_or("x").empty());
+            CHECK(detail::look().sounds.click.value_or("") == "tick");
         }
         {
             const ui::Style own{ .text = BLUE };
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, &own);
-            CHECK(same(*detail::look().text, BLUE));
+            const detail::LookScope scope(ui::WidgetKind::BUTTON,
+                                          rmp::Ref<const ui::Style>(own));
+            CHECK(same(detail::look().text.value_or(BLANK), BLUE));
         }
         detail::pop_children();
         detail::pop_children();
         detail::pop_children(); // one too many does nothing
         {
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, nullptr);
-            CHECK(same(*detail::look().text, RED));
+            const detail::LookScope scope(ui::WidgetKind::BUTTON, {});
+            CHECK(same(detail::look().text.value_or(BLANK), RED));
         }
     }
 
@@ -422,8 +439,7 @@ TEST_SUITE("ui: looks") {
         CHECK(same(play->renderData.text.textColor, GOLD));
         int shadows = 0;
         for (const Clay_RenderCommand &c : commands()) {
-            if (const detail::DrawRecord *r = record_of(c))
-                shadows += r->has_shadow ? 1 : 0;
+            if (const auto r = record_of(c)) shadows += r->has_shadow ? 1 : 0;
         }
         CHECK(shadows == 1);
     }
@@ -479,9 +495,9 @@ TEST_SUITE("ui: looks") {
                                                         .color = BLACK } } };
         frame([&] { go.show(); });
         const float k = ui::scale();
-        const detail::DrawRecord *r = nullptr;
+        rmp::Ref<const detail::DrawRecord> r;
         for (const Clay_RenderCommand &c : commands())
-            if (record_of(c) != nullptr) r = record_of(c);
+            if (record_of(c)) r = record_of(c);
         REQUIRE(r != nullptr);
         CHECK(r->has_shadow);
         CHECK(r->shadow_offset.x == doctest::Approx(2 * k));
@@ -510,7 +526,7 @@ TEST_SUITE("ui: looks") {
         });
         const Clay_RenderCommand *chapter = text_command("Chapter");
         REQUIRE(chapter != nullptr);
-        const detail::TextRecord *t = text_record_of(*chapter);
+        const auto t = text_record_of(*chapter);
         REQUIRE(t != nullptr);
         const float k = ui::scale();
         CHECK(t->outline);
@@ -558,7 +574,7 @@ struct {
     std::vector<int> glyphs;
 } bakes;
 
-rmp::Font counting_bake(const char * /*name*/, int pixel_size,
+rmp::Font counting_bake(const std::string & /*name*/, int pixel_size,
                         std::span<const int> glyphs) {
     ++bakes.bakes;
     bakes.glyphs.assign(glyphs.begin(), glyphs.end());
@@ -714,7 +730,7 @@ TEST_SUITE("ui: pictures") {
         int images = 0;
         for (const Clay_RenderCommand &c : commands()) {
             if (c.commandType != CLAY_RENDER_COMMAND_TYPE_IMAGE) continue;
-            const detail::DrawRecord *r = record_of(c);
+            const auto r = record_of(c);
             REQUIRE(r != nullptr);
             CHECK(r->has_picture);
             CHECK(r->raw.id == 9);
@@ -743,14 +759,14 @@ TEST_SUITE("ui: pictures") {
         const auto skin_record = [] {
             for (const Clay_RenderCommand &c : commands()) {
                 if (c.commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE)
-                    if (const detail::DrawRecord *r = record_of(c)) return r;
+                    if (const auto r = record_of(c)) return r;
             }
-            return static_cast<const detail::DrawRecord *>(nullptr);
+            return rmp::Ref<const detail::DrawRecord>{};
         };
         frame([&] { play.show(); });
         for (const Clay_RenderCommand &c : commands())
             CHECK(c.commandType != CLAY_RENDER_COMMAND_TYPE_RECTANGLE);
-        const detail::DrawRecord *r = skin_record();
+        auto r = skin_record();
         REQUIRE(r != nullptr);
         CHECK(r->raw.id == 11);
         CHECK(r->brighten == 0);
@@ -802,6 +818,25 @@ TEST_SUITE("ui: pictures") {
         CHECK(heard().back().widget == ui::WidgetKind::BUTTON);
     }
 
+    TEST_CASE("image_button() with no id has no name, and is still a control") {
+        // Its focus name is an empty view, with no pointer behind it: the focus
+        // list copies it without reading from null (UBSan said so once).
+        const HeadlessUi headless;
+        const FakeTexture gear(22, 32, 32);
+        int clicks = 0;
+        const auto draw = [&] { clicks += ui::image_button(gear.handle()) ? 1 : 0; };
+        frame(draw);
+        int pictures = 0;
+        for (const Clay_RenderCommand &c : commands())
+            pictures += c.commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE ? 1 : 0;
+        CHECK(pictures == 1);
+        keys.next.activate = true; // the first control of a screen has the focus
+        frame(draw);
+        frame(draw);
+        CHECK(clicks == 1);
+        CHECK(heard().back().name.empty());
+    }
+
     TEST_CASE("a ProgressBar's fill can be a picture, stretched with the bar") {
         const HeadlessUi headless;
         const FakeTexture fill(31, 16, 8);
@@ -809,7 +844,7 @@ TEST_SUITE("ui: pictures") {
         frame([&] { hp.show(); });
         bool found = false;
         for (const Clay_RenderCommand &c : commands()) {
-            const detail::DrawRecord *r = record_of(c);
+            const auto r = record_of(c);
             if (c.commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE && r != nullptr &&
                 r->raw.id == 31) {
                 found = true;
@@ -941,7 +976,7 @@ TEST_SUITE("ui: events and kept widgets") {
         frame([&] { tool.show(); });
         bool picture = false;
         for (const Clay_RenderCommand &c : commands()) {
-            const detail::DrawRecord *r = record_of(c);
+            const auto r = record_of(c);
             if (c.commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE && r != nullptr &&
                 r->raw.id == 41) {
                 picture = true;
@@ -978,7 +1013,7 @@ TEST_SUITE("ui: events and kept widgets") {
         const HeadlessUi headless;
         std::vector<std::string> calls;
         ui::Checkbox sound{ .text = "Sound", .on_change = [&](bool v) {
-                               calls.push_back(v ? "on" : "off");
+                               calls.emplace_back(v ? "on" : "off");
                            } };
         const auto draw = [&] { sound.show(); };
         frame(draw);
@@ -1096,8 +1131,7 @@ TEST_SUITE("ui: events and kept widgets") {
         for (int i = 0; i < 5; ++i) {
             frame([&] { wrong.show(); });
             for (const Clay_RenderCommand &c : commands())
-                if (const detail::DrawRecord *r = record_of(c))
-                    moved = moved || r->offset.x != 0;
+                if (const auto r = record_of(c)) moved = moved || r->offset.x != 0;
         }
         CHECK(moved);
         for (int i = 0; i < 40; ++i) frame([&] { wrong.show(); });
@@ -1116,7 +1150,7 @@ TEST_SUITE("ui: events and kept widgets") {
         for (int i = 0; i < 6; ++i) {
             frame([&] { dialog.show([] { ui::text("hi"); }); });
             for (const Clay_RenderCommand &c : commands()) {
-                if (const detail::DrawRecord *r = record_of(c)) {
+                if (const auto r = record_of(c)) {
                     alphas.push_back(r->alpha);
                     offsets.push_back(r->offset.y);
                     break;
@@ -1140,7 +1174,7 @@ TEST_SUITE("ui: events and kept widgets") {
                                                         .hover_lift = 4 } } };
         const auto scale_now = [] {
             for (const Clay_RenderCommand &c : commands())
-                if (const detail::DrawRecord *r = record_of(c)) return r->scale;
+                if (const auto r = record_of(c)) return r->scale;
             return 0.0f;
         };
         frame([&] { go.show(); });
@@ -1153,14 +1187,108 @@ TEST_SUITE("ui: events and kept widgets") {
         CHECK(scale_now() == doctest::Approx(1.1f * 0.9f));
     }
 
+    TEST_CASE("a SoundName is a string, and the first one written brings the player") {
+        const HeadlessUi headless;
+        CHECK_FALSE(detail::has_sound_player());
+        const ui::SoundName none;
+        CHECK(none.empty());
+        CHECK_FALSE(detail::has_sound_player()); // no name, nothing to play
+        const ui::SoundName click = "click";
+        CHECK(detail::has_sound_player()); // rmp::audio::play(), from sound.cpp
+        CHECK(click == "click");
+        CHECK(click.view() == "click");
+        CHECK_FALSE(click.empty());
+        const std::string kept = "chime";
+        const ui::SoundName from_string = kept;
+        const ui::SoundName from_view = std::string_view("bell");
+        CHECK(from_string == "chime");
+        CHECK(from_view == "bell");
+        // NOLINTNEXTLINE(modernize-avoid-c-arrays): what the constructor takes
+        constexpr char UNTERMINATED[3] = { 'a', 'b', 'c' };
+        CHECK(ui::SoundName(UNTERMINATED) == "abc"); // an array with no NUL: all of it
+        const ui::SoundName silence = "";
+        CHECK(silence.empty());
+    }
+
+    TEST_CASE("the player a SoundName brings is rmp::audio::play()") {
+        const HeadlessUi headless;
+        rmp::audio::detail::reset_for_tests();
+        audio_opens.count = 0;
+        rmp::audio::detail::set_device_opener([] {
+            ++audio_opens.count;
+            return false; // no device: play() asks for one, then plays nothing
+        });
+        ui::Theme t = ui::theme_dark();
+        t.sounds.click = "click"; // the first name: sound.cpp's player goes in
+        ui::set_theme(t);
+        REQUIRE(detail::has_sound_player());
+        const auto draw = [] { ui::button("Play"); };
+        frame(draw);
+        keys.next.activate = true; // the first button has the focus
+        frame(draw);
+        frame(draw);
+        CHECK(count(ui::EventKind::CLICK) == 1);
+        CHECK(audio_opens.count == 1); // rmp::audio::play("click") asked for the device
+        rmp::audio::detail::reset_for_tests();
+    }
+
+    TEST_CASE("an event plays its sound through the player, at the look's volume") {
+        const HeadlessUi headless;
+        played.names.clear();
+        played.volumes.clear();
+        detail::set_sound_player([](std::string_view name, float volume) {
+            played.names.emplace_back(name);
+            played.volumes.push_back(volume);
+        });
+        ui::Theme t = ui::theme_dark();
+        t.sounds.click = "click"; // the test's player stays: one was there already
+        t.sounds.hover = "over";
+        t.sounds.volume = 0.5f;
+        ui::set_theme(t);
+        ui::Button quiet{ .text = "Quiet", .style = { .sounds = { .click = "" } } };
+        const auto draw = [&] {
+            ui::button("Play");
+            quiet.show();
+        };
+        frame(draw);
+        pointer.position = middle_of("Play");
+        frame(draw);
+        pointer.down = true;
+        frame(draw);
+        pointer.down = false;
+        frame(draw);
+        CHECK(std::ranges::count(played.names, "over") == 1);
+        CHECK(std::ranges::count(played.names, "click") == 1);
+        for (const float v : played.volumes) CHECK(v == doctest::Approx(0.5f));
+        // The quiet one: hovered, it sounds; clicked, it is silent.
+        played.names.clear();
+        pointer.position = middle_of("Quiet");
+        frame(draw);
+        pointer.down = true;
+        frame(draw);
+        pointer.down = false;
+        frame(draw);
+        CHECK(std::ranges::count(played.names, "over") == 1);
+        CHECK(std::ranges::count(played.names, "click") == 0);
+        // A volume that is no number is said once and plays at 1.
+        t.sounds.volume = std::numeric_limits<float>::quiet_NaN();
+        ui::set_theme(t);
+        played.volumes.clear();
+        pointer.position = middle_of("Play");
+        frame(draw);
+        REQUIRE_FALSE(played.volumes.empty());
+        CHECK(played.volumes.back() == 1.0f);
+    }
+
     TEST_CASE("a theme's sounds are named per event, and an empty one is silence") {
         const HeadlessUi headless;
         ui::Theme t = ui::theme_dark();
         t.sounds.click = "click";
         ui::set_theme(t);
         const ui::Style quiet{ .sounds = { .click = "" } };
-        const detail::LookScope a(ui::WidgetKind::BUTTON, &quiet);
-        CHECK(detail::look().sounds.click->empty());
+        const detail::LookScope a(ui::WidgetKind::BUTTON,
+                                  rmp::Ref<const ui::Style>(quiet));
+        CHECK(detail::look().sounds.click.value_or("x").empty());
     }
 }
 
@@ -1237,17 +1365,31 @@ TEST_SUITE("ui: the arithmetic of the looks") {
         detail::DrawRecord draw;
         detail::TextRecord text;
         std::array<uint32_t, 4> other{ 1, 2, 3, 4 };
-        CHECK(detail::draw_record(&draw) == &draw);
-        CHECK(detail::draw_record(other.data()) == nullptr);
-        CHECK(detail::draw_record(nullptr) == nullptr);
-        CHECK(detail::text_record(&text) == &text);
-        CHECK(detail::text_record(other.data()) == nullptr);
-        CHECK(detail::text_record(nullptr) == nullptr);
+        Clay_RenderCommand box{};
+        box.commandType = CLAY_RENDER_COMMAND_TYPE_RECTANGLE;
+        Clay_RenderCommand words{};
+        words.commandType = CLAY_RENDER_COMMAND_TYPE_TEXT;
+        box.userData = &draw;
+        REQUIRE(detail::draw_record(box));
+        CHECK(&*detail::draw_record(box) == &draw);
+        CHECK_FALSE(detail::text_record(box)); // a record only a text carries
+        box.userData = other.data();
+        CHECK_FALSE(detail::draw_record(box));
+        box.userData = nullptr;
+        CHECK_FALSE(detail::draw_record(box));
+        words.userData = &text;
+        REQUIRE(detail::text_record(words));
+        CHECK(&*detail::text_record(words) == &text);
+        CHECK_FALSE(detail::draw_record(words)); // a text's record is no DrawRecord
+        words.userData = other.data();
+        CHECK_FALSE(detail::text_record(words));
+        words.userData = nullptr;
+        CHECK_FALSE(detail::text_record(words));
     }
 
     TEST_CASE("what moves pushes a matrix while its box holds what is drawn") {
         detail::Motions m;
-        detail::DrawRecord still;
+        const detail::DrawRecord still;
         CHECK_FALSE(m.enter(Clay_BoundingBox{ 0, 0, 100, 100 }, still)); // nothing moves
         CHECK(m.depth() == 0);
         detail::DrawRecord grows;
@@ -1372,11 +1514,11 @@ TEST_SUITE("ui: the looks of the immediate widgets") {
         frame([&] { framed.show(); });
         std::vector<unsigned> ids;
         for (const Clay_RenderCommand &c : commands())
-            if (const detail::DrawRecord *r = record_of(c)) ids.push_back(r->raw.id);
+            if (const auto r = record_of(c)) ids.push_back(r->raw.id);
         CHECK(std::ranges::find(ids, 73u) != ids.end()); // the frame
         CHECK(std::ranges::find(ids, 72u) != ids.end()); // the picture inside it
         for (const Clay_RenderCommand &c : commands()) {
-            const detail::DrawRecord *r = record_of(c);
+            const auto r = record_of(c);
             if (r != nullptr && r->raw.id == 72) CHECK(r->tint.r == 128);
         }
     }
@@ -1425,7 +1567,8 @@ TEST_SUITE("ui: the looks of the immediate widgets") {
     TEST_CASE("only a hover or a press colour, without a background, is used alone") {
         const HeadlessUi headless;
         const ui::Style s{ .background_hover = GOLD, .background_press = MAROON };
-        const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+        const detail::LookScope scope(ui::WidgetKind::BUTTON,
+                                      rmp::Ref<const ui::Style>(s));
         CHECK(same(ui::current_theme().surface_hover, GOLD));
         CHECK(same(ui::current_theme().surface_press, MAROON));
         CHECK(same(ui::current_theme().surface, ui::theme_dark().surface));
@@ -1445,7 +1588,8 @@ TEST_SUITE("ui: the looks of the immediate widgets") {
         const float nan = std::numeric_limits<float>::quiet_NaN();
         const ui::Style s{ .font_size = nan, .motion = ui::Motion{ .hover_scale = nan } };
         {
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+            const detail::LookScope scope(ui::WidgetKind::BUTTON,
+                                          rmp::Ref<const ui::Style>(s));
             CHECK(ui::current_theme().font_size == ui::theme_dark().font_size);
         }
         CHECK(rmp::detail::report_count() == 1);
@@ -1466,7 +1610,7 @@ TEST_SUITE("ui: the looks of the immediate widgets") {
         pointer.down = true;
         frame(draw);
         for (const Clay_RenderCommand &c : commands()) {
-            const detail::DrawRecord *r = record_of(c);
+            const auto r = record_of(c);
             if (r != nullptr && r->has_picture) {
                 CHECK(r->raw.id == 74);
                 CHECK(r->tint.r < 255);
@@ -1480,7 +1624,7 @@ TEST_SUITE("ui: the looks of the immediate widgets") {
         const float inf = std::numeric_limits<float>::infinity();
         frame([&] { ui::image(ui::Picture(art.handle(), Rectangle{ inf, 0, 5, 5 })); });
         for (const Clay_RenderCommand &c : commands()) {
-            if (const detail::DrawRecord *r = record_of(c)) CHECK(r->source.width == 30);
+            if (const auto r = record_of(c)) CHECK(r->source.width == 30);
         }
         CHECK(rmp::detail::report_count() == 1);
     }
@@ -1488,18 +1632,22 @@ TEST_SUITE("ui: the looks of the immediate widgets") {
 
 // ---------------------------------------------------------------------------
 
+// What the font provider of "ui: fonts by id" was asked for.
+struct {
+    std::vector<std::string> asked;
+} font_log;
+
 TEST_SUITE("ui: fonts by id") {
     TEST_CASE(
         "a style's font is baked from its own file, and one that fails is said once") {
         const HeadlessUi headless;
         detail::set_measure_provider(detail::measure_with_raylib);
-        std::vector<std::string> asked;
-        static std::vector<std::string> *log = nullptr;
-        log = &asked;
+        font_log.asked.clear();
+        const std::vector<std::string> &asked = font_log.asked;
         detail::set_font_provider(
-            [](const char *name, int size, std::span<const int>) {
-                log->emplace_back(name);
-                if (std::string_view(name) == "broken.ttf") return rmp::Font{};
+            [](const std::string &name, int size, std::span<const int>) {
+                font_log.asked.push_back(name);
+                if (name == "broken.ttf") return rmp::Font{};
                 ::Font face{};
                 face.baseSize = size;
                 face.glyphCount = 1;
@@ -1531,7 +1679,7 @@ TEST_SUITE("ui: fonts by id") {
         const HeadlessUi headless;
         detail::set_measure_provider(detail::measure_with_raylib);
         detail::set_font_provider(
-            [](const char *, int size, std::span<const int>) {
+            [](const std::string &, int size, std::span<const int>) {
                 ::Font face{};
                 face.baseSize = size;
                 face.glyphCount = 1;

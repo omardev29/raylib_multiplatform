@@ -16,10 +16,7 @@ namespace rmp::ui {
 
 namespace {
 
-using detail::font_px;
 using detail::px;
-using detail::px16;
-using detail::to_clay;
 
 // What the last pass asked to be drawn (detail::last_pass_commands()): Clay's
 // array, which lives in Clay's arena until the next layout.
@@ -280,7 +277,7 @@ bool image_button(const Picture &picture) {
 
 bool image_button(const Picture &picture, const ImageButtonOptions &o) {
     detail::Extra x;
-    x.icon = &picture;
+    x.icon = rmp::Ref<const Picture>(picture);
     x.width = o.width;
     x.height = o.height;
     // Its size is the picture's, unless asked: no padding around it, no
@@ -301,9 +298,9 @@ void picture_element(const Picture &picture, float width, float height, Color ti
     d.layout.sizing.height =
         Clay_SizingAxis{ .size = { .minMax = { px(height), px(height) } },
                          .type = CLAY__SIZING_TYPE_FIXED };
-    if (detail::DrawRecord *rec = detail::picture_record(picture, tint)) {
+    if (const auto rec = detail::picture_record(picture, tint)) {
         d.image.imageData = &rec->raw;
-        d.userData = rec;
+        d.userData = &*rec;
     }
     Clay__OpenElement();
     Clay__ConfigureOpenElement(d);
@@ -317,7 +314,7 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     const detail::LookScope scope(WidgetKind::BUTTON, x.own);
 
     const Theme &t = current_theme();
-    const bool icon_only = label.empty() && x.icon != nullptr;
+    const bool icon_only = label.empty() && x.icon;
     // A picture has no label to be told apart by: the unnamed ones are counted
     // as "image_button", the way two "Play" buttons are counted.
     const Clay_ElementId id = detail::element_id(
@@ -351,8 +348,8 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     now.clicked = clicked;
     const detail::Edges edges =
         detail::track(id, WidgetKind::BUTTON, label.empty() ? o.id : label, now);
-    if (x.edges != nullptr) *x.edges = edges;
-    if (x.element != nullptr) *x.element = id.id;
+    if (x.edges) *x.edges = edges;
+    if (x.element) *x.element = id.id;
 
     // Colour. Every Variant travels between the same three states and every one
     // of them goes through state_color(), which is why they all feel the same
@@ -428,10 +425,14 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     // its widest child, then every button expands to match it.
     // A picture-only button's width and height are its picture's: the button
     // fits around it, padding and all.
-    decl.layout.sizing.width = x.width > 0 && !icon_only
-        ? Clay_SizingAxis{ .size = { .minMax = { px(x.width), px(x.width) } },
-                           .type = CLAY__SIZING_TYPE_FIXED }
-        : (icon_only ? size_fit() : size_grow());
+    if (icon_only)
+        decl.layout.sizing.width = size_fit();
+    else if (x.width > 0)
+        decl.layout.sizing.width =
+            Clay_SizingAxis{ .size = { .minMax = { px(x.width), px(x.width) } },
+                             .type = CLAY__SIZING_TYPE_FIXED };
+    else
+        decl.layout.sizing.width = size_grow();
     // min_touch_size is the whole reason a short label still makes a button a
     // thumb can hit.
     decl.layout.sizing.height = x.height > 0 && !icon_only
@@ -469,7 +470,7 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
     // element is opened.
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(decl);
-    if (x.icon != nullptr && !x.icon->empty()) {
+    if (x.icon && !x.icon->empty()) {
         const Vector2 size = x.icon->size();
         const float h = x.icon_size > 0 ? x.icon_size : (icon_only ? size.y : font_units);
         const float w =
@@ -517,7 +518,7 @@ void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x)
             break;
     }
     // A text colour the style sets wins over the role.
-    if (detail::look().text) c = *detail::look().text;
+    if (const auto &text = detail::look().text) c = *text;
 
     Clay_TextElementConfig tc{};
     tc.textColor = to_clay(c);
@@ -538,8 +539,8 @@ void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x)
             now.over && detail::pointer_released() && detail::press_id() == id.id;
         const detail::Edges edges =
             detail::track(id, WidgetKind::LABEL, x.id.empty() ? s : x.id, now);
-        if (x.edges != nullptr) *x.edges = edges;
-        if (x.element != nullptr) *x.element = id.id;
+        if (x.edges) *x.edges = edges;
+        if (x.element) *x.element = id.id;
         Clay_ElementDeclaration box{};
         box.layout.sizing.width = o.wrap ? size_grow() : size_fit();
         box.layout.sizing.height = size_fit();

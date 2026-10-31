@@ -616,7 +616,7 @@ void read_typed(Typed &out);
 using MeasureFn = Clay_Dimensions (*)(Clay_StringSlice, Clay_TextElementConfig *, void *);
 using PointerFn = void (*)(Clay_Vector2 &position, bool &down);
 using NavFn = void (*)(NavState &out);
-using FontFn = rmp::Font (*)(const char *name, int pixel_size,
+using FontFn = rmp::Font (*)(const std::string &name, int pixel_size,
                              std::span<const int> glyphs);
 using TextFn = void (*)(Typed &out);
 
@@ -816,16 +816,16 @@ const Theme &base_theme();
 // with the colours and metrics it sets.
 class LookScope {
 public:
-    LookScope(WidgetKind kind, const Style *own);
+    explicit LookScope(WidgetKind kind, rmp::Ref<const Style> own = {});
     ~LookScope();
     LookScope(const LookScope &) = delete;
     LookScope &operator=(const LookScope &) = delete;
 };
 // The resolved style of the innermost open LookScope, or an empty one.
 const Style &look();
-// The Theme with that look's colours and metrics, or nullptr when it changes
+// The Theme with that look's colours and metrics, or empty when it changes
 // none of them: theme.cpp's current_theme() asks this first.
-const Theme *look_theme();
+rmp::Ref<const Theme> look_theme();
 // The kind of the innermost open LookScope (BUTTON outside one).
 WidgetKind look_kind();
 
@@ -883,10 +883,11 @@ struct TextRecord {
 
 // --- render.cpp: the arithmetic of the looks, without a GPU -----------------
 
-// A styled element's record out of a render command's userData, or nullptr:
-// the magic number tells ours from a pointer a game driving Clay put there.
-DrawRecord *draw_record(void *user);
-const TextRecord *text_record(const void *user);
+// A styled element's record out of a render command's userData, or empty: the
+// magic number tells ours from a pointer a game driving Clay put there. A text
+// command carries a TextRecord, any other a DrawRecord.
+rmp::Ref<DrawRecord> draw_record(const Clay_RenderCommand &cmd);
+rmp::Ref<const TextRecord> text_record(const Clay_RenderCommand &cmd);
 // `c` with its alpha times `alpha` (0..1).
 Color faded(Color c, float alpha);
 
@@ -960,16 +961,16 @@ struct Edges {
 };
 
 // Skin, shadow and motion onto a declaration, from look(): sets its userData
-// to a DrawRecord and returns it, or leaves it alone and returns nullptr when
-// the look asks for none of them -- which keeps an unstyled frame exactly as
-// it always was.
+// to a DrawRecord and returns it, or leaves it alone and returns an empty Ref
+// when the look asks for none of them -- which keeps an unstyled frame exactly
+// as it always was.
 // `into`: a record the element already has -- an image's picture -- to put the
 // shadow and the motion on, instead of a skin.
-DrawRecord *decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
-                     const Interaction &now, DrawRecord *into = nullptr);
+rmp::Ref<DrawRecord> decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
+                              const Interaction &now, rmp::Ref<DrawRecord> into = {});
 // A record that draws `picture` in its element's box, tinted: image() and
-// friends. nullptr for an empty picture.
-DrawRecord *picture_record(const Picture &picture, Color tint);
+// friends. Empty for an empty picture.
+rmp::Ref<DrawRecord> picture_record(const Picture &picture, Color tint);
 // A Clay text element, with the look's font, outline and shadow on it.
 void open_text(Clay_String text, Clay_TextElementConfig config);
 
@@ -980,36 +981,41 @@ Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name,
             const Interaction &now);
 // One event, now: its sound from look(), then the hook.
 void emit(EventKind kind, WidgetKind widget, std::string_view name);
+// What emit() plays a sound with (sound.cpp puts rmp::audio::play() there the
+// first time a SoundName is written; a test puts its own). Empty: silence.
+void set_sound_player(rmp::Callback<std::string_view, float> play);
+bool has_sound_player();
 // Start shaking the element with this id (its look's Motion), now.
 void start_shake(uint32_t element, WidgetKind widget, std::string_view name);
 
 // Everything a kept widget adds to the immediate one it is drawn as. The
 // immediate calls pass an empty one.
 struct Extra {
-    const Style *own = nullptr;
-    const Picture *icon = nullptr;
+    rmp::Ref<const Style> own;
+    rmp::Ref<const Picture> icon;
     float icon_size = 0;
     bool icon_above = false;
     float width = 0; // > 0 = fixed, design units
     float height = 0;
-    KeptState *state = nullptr; // filled in, when given
-    Edges *edges = nullptr; // filled in, when given
-    uint32_t *element = nullptr; // the element's id, when given
+    rmp::Ref<KeptState> state; // filled in, when given
+    rmp::Ref<Edges> edges; // filled in, when given
+    rmp::Ref<uint32_t> element; // the element's id, when given
     std::string_view id{}; // a kept widget's own id, for the ones with no label
 };
 bool button_with(std::string_view label, const ButtonOptions &o, const Extra &x);
 void text_with(std::string_view s, const TextOptions &o, const Extra &x);
 // `raw`: image(const Texture2D &), which draws a texture the game keeps.
 void image_with(const Picture &picture, const ImageOptions &o, const Extra &x,
-                std::string_view id, const Texture2D *raw = nullptr);
+                std::string_view id, std::optional<Texture2D> raw = std::nullopt);
 // A record that draws a raw texture, whole: image(const Texture2D &).
-DrawRecord *raw_record(const Texture2D &texture, Color tint);
+rmp::Ref<DrawRecord> raw_record(const Texture2D &texture, Color tint);
 // panel(), and a kept Panel: `own` its style, `kept` its id and `now` what it is
-// doing (nullptr = an immediate panel()).
+// doing (empty = an immediate panel()).
 // `row`: its children left to right; `bare`: no fill of its own unless the
 // style gives one, no padding unless asked (a kept Panel with background = false).
-void open_panel_with(const PanelOptions &o, const Style *own, Clay_ElementId kept,
-                     const Interaction *now, bool row, bool bare);
+void open_panel_with(const PanelOptions &o, rmp::Ref<const Style> own,
+                     Clay_ElementId kept, rmp::Ref<const Interaction> now, bool row,
+                     bool bare);
 bool checkbox_with(std::string_view label, bool &value, const CheckboxOptions &o,
                    const Extra &x);
 bool slider_with(std::string_view label, float &value, float min, float max,
@@ -1019,13 +1025,13 @@ bool dropdown_with(std::string_view label, int &selected,
                    const Extra &x);
 bool text_input_with(std::string_view label, std::string &value,
                      const TextInputOptions &o, const Extra &x);
-void progress_with(float fraction, const ProgressOptions &o, const Picture *fill,
+void progress_with(float fraction, const ProgressOptions &o, rmp::Ref<const Picture> fill,
                    const Extra &x);
 
 // --- context.cpp: fonts by id -------------------------------------------------
 // 0 is the global font; every other id is a file a Style named, registered the
 // first time it is asked for. Clay carries it in a text's fontId.
-uint16_t font_id_of(const rmp::Font &font);
+uint16_t font_id_of(const rmp::Font &face);
 ::Font ui_font(float pixel_size, uint16_t font_id);
 void set_global_font(std::string_view name);
 std::string_view global_font_name();

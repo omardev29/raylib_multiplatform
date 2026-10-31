@@ -48,8 +48,8 @@
 // covers: rmp::ui::Panel::show [template]
 // covers: rmp::ui::Picture::Picture(const NineSlice &)
 // covers: rmp::ui::Picture::Picture(const rmp::Sprite &)
-// covers: rmp::ui::Picture::Picture(const rmp::Texture &)
-// covers: rmp::ui::Picture::Picture(const rmp::Texture &, Rectangle)
+// covers: rmp::ui::Picture::Picture(rmp::Texture)
+// covers: rmp::ui::Picture::Picture(rmp::Texture, Rectangle)
 // covers: rmp::ui::Picture::empty() const
 // covers: rmp::ui::Picture::size() const
 // covers: rmp::ui::Picture::sliced() const
@@ -76,6 +76,12 @@
 // covers: rmp::ui::set_font(const rmp::Font &)
 // covers: rmp::ui::set_font(std::string_view)
 // covers: rmp::ui::slice(const rmp::SpriteSheet &, std::string_view)
+// covers: rmp::ui::SoundName::SoundName [template]
+// covers: rmp::ui::SoundName::SoundName(const std::string &)
+// covers: rmp::ui::SoundName::SoundName(std::string_view)
+// covers: rmp::ui::SoundName::empty() const
+// covers: rmp::ui::SoundName::view() const
+// covers: rmp::ui::operator==(const SoundName &, std::string_view)
 // ---------------------------------------------------------------------------
 
 #include "check.h"
@@ -168,6 +174,12 @@ struct Headless {
     }
 };
 
+// What the property's sound player heard.
+std::vector<std::string> &heard_sounds() {
+    static std::vector<std::string> names;
+    return names;
+}
+
 rc::Gen<Color> colour() {
     return rc::gen::map(rc::gen::arbitrary<std::array<unsigned char, 4>>(),
                         [](const auto &c) { return Color{ c[0], c[1], c[2], c[3] }; });
@@ -239,16 +251,13 @@ void records_are_numbers() {
     for (int32_t i = 0; i < a.length; ++i) {
         const Clay_RenderCommand &c = a.internalArray[i];
         RC_ASSERT(finite_box(c.boundingBox));
-        if (c.userData == nullptr) continue;
-        if (c.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
-            const auto *t = static_cast<const detail::TextRecord *>(c.userData);
-            if (t->magic != detail::TEXT_MAGIC) continue;
+        if (const auto t = detail::text_record(c)) {
             RC_ASSERT(std::isfinite(t->outline_px) && t->outline_px >= 0);
             RC_ASSERT(std::isfinite(t->shadow_px.x) && std::isfinite(t->shadow_px.y));
             continue;
         }
-        const auto *r = static_cast<const detail::DrawRecord *>(c.userData);
-        if (r->magic != detail::DRAW_MAGIC) continue;
+        const auto r = detail::draw_record(c);
+        if (!r) continue;
         RC_ASSERT(std::isfinite(r->scale) && r->scale >= 0);
         RC_ASSERT(std::isfinite(r->alpha) && r->alpha >= 0 && r->alpha <= 1);
         RC_ASSERT(std::isfinite(r->offset.x) && std::isfinite(r->offset.y));
@@ -391,7 +400,8 @@ TEST_SUITE("property: ui looks") {
             const Headless headless;
             const FakeTexture art(8, 8);
             const ui::Style s = hostile_style(art.handle());
-            const detail::LookScope scope(ui::WidgetKind::BUTTON, &s);
+            const detail::LookScope scope(ui::WidgetKind::BUTTON,
+                                          rmp::Ref<const ui::Style>(s));
             const ui::Theme &t = ui::current_theme();
             for (const float v : { t.font_size, t.font_size_small, t.font_size_large,
                                    t.padding_x, t.padding_y, t.gap, t.panel_padding,
@@ -482,6 +492,39 @@ TEST_SUITE("property: ui looks") {
         });
     }
 
+    TEST_CASE("a SoundName holds any name whole, and plays exactly it") {
+        rmp::test::check(
+            "ui: SoundName of any string; the player hears that name, or nothing", [] {
+                const Headless headless;
+                const std::string name = *gen::hostile_string();
+                const ui::SoundName from_string = name;
+                const ui::SoundName from_view = std::string_view(name);
+                const ui::SoundName literal = "tick";
+                RC_ASSERT(from_string.view() == name);
+                RC_ASSERT(from_view == name);
+                RC_ASSERT(from_string.empty() == name.empty());
+                RC_ASSERT(literal == "tick" && literal.view().size() == 4);
+                heard_sounds().clear();
+                detail::set_sound_player([](std::string_view sound, float) {
+                    heard_sounds().emplace_back(sound);
+                });
+                ui::Theme t = ui::theme_dark();
+                t.sounds.shake = from_string;
+                ui::set_theme(t);
+                ui::Button b{ .text = "b" };
+                b.shake();
+                detail::begin_frame();
+                ui::begin();
+                b.show();
+                ui::end();
+                detail::end_frame();
+                detail::set_sound_player({});
+                ui::set_theme(ui::theme_dark());
+                RC_ASSERT(heard_sounds().size() == (name.empty() ? 0U : 1U));
+                if (!name.empty()) RC_ASSERT(heard_sounds().front() == name);
+            });
+    }
+
     TEST_CASE("set_font() takes any name, and font_name() says it back") {
         rmp::test::check(
             "ui: set_font() with any name; font_name() is it up to a NUL", [] {
@@ -489,7 +532,7 @@ TEST_SUITE("property: ui looks") {
                 const std::string name = *gen::hostile_string();
                 ui::set_font(name);
                 const std::string_view back = ui::font_name();
-                RC_ASSERT(back == std::string_view(name.c_str()));
+                RC_ASSERT(back == std::string_view(name).substr(0, name.find('\0')));
                 const rmp::Font loaded{ rmp::detail::adopt_named(
                     rmp::detail::ResourceKind::FONT, "loaded.ttf", 12, ::Font{}) };
                 ui::set_font(loaded);

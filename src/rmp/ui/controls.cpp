@@ -100,8 +100,8 @@ Clay_ElementDeclaration control_row(bool has_focus) {
 
 // What a kept widget asked to be told: the edges and the element.
 void report(const detail::Extra &x, const detail::Edges &e, Clay_ElementId id) {
-    if (x.edges != nullptr) *x.edges = e;
-    if (x.element != nullptr) *x.element = id.id;
+    if (x.edges) *x.edges = e;
+    if (x.element) *x.element = id.id;
 }
 
 } // namespace

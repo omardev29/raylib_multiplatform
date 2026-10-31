@@ -189,9 +189,9 @@ struct Picture {
     Picture() = default;
     // The whole texture.
     // NOLINTNEXTLINE(google-explicit-constructor): `.icon = coin_texture`
-    Picture(const rmp::Texture &whole);
+    Picture(rmp::Texture whole);
     // A part of it: an atlas, a sprite sheet laid out by hand.
-    Picture(const rmp::Texture &atlas, Rectangle part);
+    Picture(rmp::Texture atlas, Rectangle part);
     // What the sprite shows right now: its texture or its sheet's current frame,
     // `source` if it sets one. A Picture is a snapshot, so to see the sprite
     // animate, make one each frame -- or keep an rmp::ui::Image, which plays it.
@@ -265,20 +265,49 @@ struct Skin {
     Picture focus; // has the keyboard or gamepad focus (the ring is still drawn)
 };
 
-// Sounds, by the names rmp::audio::play() takes ("click" is click.wav,
-// click.ogg...). Each event has its own; one that is not set is inherited from
-// what is around it and, at the end, from the Theme. An EMPTY name is silence:
-// `.hover = ""` turns off a hover sound set further out.
+// The name of a sound, as rmp::audio::play() takes it ("click" is click.wav,
+// click.ogg...): written as a string, `.click = "click"`. Giving one is what
+// brings the sound player into the game, so a UI that never names a sound
+// carries none of rmp::audio's decoders.
+class SoundName {
+public:
+    SoundName() = default;
+    // An array, not a pointer: what a string literal is. Implicit, and C, for
+    // `.click = "click"`.
+    template <std::size_t N>
+    // NOLINTNEXTLINE(google-explicit-constructor,modernize-avoid-c-arrays)
+    SoundName(const char (&name)[N]) {
+        keep(std::string_view(name, N > 0 && name[N - 1] == '\0' ? N - 1 : N));
+    }
+    // NOLINTNEXTLINE(google-explicit-constructor): `.click = name`
+    SoundName(std::string_view name) { keep(name); }
+    // NOLINTNEXTLINE(google-explicit-constructor): `.click = name`
+    SoundName(const std::string &name) { keep(name); }
+
+    [[nodiscard]] std::string_view view() const { return _name; }
+    [[nodiscard]] bool empty() const { return _name.empty(); }
+    friend bool operator==(const SoundName &a, std::string_view b) {
+        return a.view() == b;
+    }
+
+private:
+    void keep(std::string_view name);
+    std::string _name;
+};
+
+// Sounds, by name. Each event has its own; one that is not set is inherited
+// from what is around it and, at the end, from the Theme. An EMPTY name is
+// silence: `.hover = ""` turns off a hover sound set further out.
 struct Sounds {
-    std::optional<std::string> hover; // the pointer arrives on a control
-    std::optional<std::string> press; // the pointer goes down on it
-    std::optional<std::string> release; // ...and comes up
-    std::optional<std::string> click; // it was pressed: pointer, Enter, the A button
-    std::optional<std::string> focus; // the keyboard or gamepad focus arrives
-    std::optional<std::string> change; // a checkbox, slider, dropdown or field changed
-    std::optional<std::string> open; // a dropdown opened
-    std::optional<std::string> close; // ...and closed
-    std::optional<std::string> shake; // shake(): "no", a wrong password
+    std::optional<SoundName> hover; // the pointer arrives on a control
+    std::optional<SoundName> press; // the pointer goes down on it
+    std::optional<SoundName> release; // ...and comes up
+    std::optional<SoundName> click; // it was pressed: pointer, Enter, the A button
+    std::optional<SoundName> focus; // the keyboard or gamepad focus arrives
+    std::optional<SoundName> change; // a checkbox, slider, dropdown or field changed
+    std::optional<SoundName> open; // a dropdown opened
+    std::optional<SoundName> close; // ...and closed
+    std::optional<SoundName> shake; // shake(): "no", a wrong password
     std::optional<float> volume; // 0..1, for all of them; 1 when nobody sets it
 };
 

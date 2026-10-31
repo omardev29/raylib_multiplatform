@@ -119,7 +119,12 @@ public:
         return value < 0x8000U ? static_cast<int>(value)
                                : static_cast<int>(value) - 0x10000;
     }
-    std::int32_t s32() { return static_cast<std::int32_t>(u32()); }
+    std::int32_t s32() {
+        const std::uint32_t value = u32();
+        return value < 0x80000000U
+            ? static_cast<std::int32_t>(value)
+            : static_cast<std::int32_t>(std::int64_t{ value } - 0x100000000LL);
+    }
     void skip(std::size_t count) { take(count); }
     // The format's STRING: its length, then that many bytes.
     void string() { skip(u16()); }
@@ -558,7 +563,7 @@ private:
         }
         if (!c.ok() || w == 0 || h == 0 || x < 0 || y < 0) return;
         if (std::int64_t{ x } + w > _width || std::int64_t{ y } + h > _height) return;
-        if (frame >= static_cast<std::uint32_t>(_frames)) return;
+        if (std::cmp_greater_equal(frame, _frames)) return;
         slice.bounds = Rectangle{ static_cast<float>(std::int64_t{ frame } * _width + x),
                                   static_cast<float>(y), static_cast<float>(w),
                                   static_cast<float>(h) };

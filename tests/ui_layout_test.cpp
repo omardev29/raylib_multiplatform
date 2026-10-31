@@ -2416,7 +2416,8 @@ struct {
     std::string last_name; // and the file it was baked from
 } font_bakes;
 
-rmp::Font fake_bake(const char *name, int pixel_size, std::span<const int> glyphs) {
+rmp::Font fake_bake(const std::string &name, int pixel_size,
+                    std::span<const int> glyphs) {
     if (font_bakes.failing) {
         ++font_bakes.refused;
         return rmp::Font{};
@@ -3346,6 +3347,9 @@ TEST_CASE("a word too wide for its box, a space and a newline") {
 TEST_CASE("a game's numbers that are no lengths") {
     const Listening listening;
     rmp::ui::detail::set_test_viewport(1280, 720);
+    // A copy, to compare the theme after with the one before; a reference would
+    // always be the same.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const rmp::ui::Theme before = rmp::ui::current_theme();
 
     for (int frame = 0; frame < 2; ++frame) {

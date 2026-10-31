@@ -20,7 +20,6 @@ namespace {
 
 using detail::px;
 using detail::px16;
-using detail::to_clay;
 
 Clay_SizingAxis axis(bool grow, float fixed) {
     Clay_SizingAxis a{};
@@ -196,12 +195,11 @@ void open_column(const BoxOptions &o) {
     open_with_id(o.id, d);
 }
 
-void open_panel(const PanelOptions &o) {
-    open_panel_with(o, nullptr, {}, nullptr, false, false);
-}
+void open_panel(const PanelOptions &o) { open_panel_with(o, {}, {}, {}, false, false); }
 
-void open_panel_with(const PanelOptions &o, const Style *own, Clay_ElementId kept,
-                     const Interaction *now, bool row, bool bare) {
+void open_panel_with(const PanelOptions &o, rmp::Ref<const Style> own,
+                     Clay_ElementId kept, rmp::Ref<const Interaction> now, bool row,
+                     bool bare) {
     if (!frame_ready("panel", o.box.id)) return;
     const LookScope scope(WidgetKind::PANEL, own);
     const Theme &t = current_theme();
@@ -239,7 +237,7 @@ void open_panel_with(const PanelOptions &o, const Style *own, Clay_ElementId kep
         d.border.width = Clay_BorderWidth{ w, w, w, w, 0 };
     }
 
-    if (now != nullptr) {
+    if (now) {
         // A kept Panel: its own id, and what it is doing.
         decorate(d, kept, *now);
         Clay__OpenElementWithId(kept);
@@ -502,7 +500,7 @@ void spacer(float fixed) {
 void image(const Texture2D &texture) { image(texture, ImageOptions{}); }
 
 void image(const Texture2D &texture, const ImageOptions &o) {
-    detail::image_with(Picture{}, o, detail::Extra{}, {}, &texture);
+    detail::image_with(Picture{}, o, detail::Extra{}, {}, texture);
 }
 
 void image(const Picture &picture) { image(picture, ImageOptions{}); }
@@ -518,13 +516,13 @@ void image(const rmp::Texture &texture, const ImageOptions &o) {
 }
 
 void detail::image_with(const Picture &picture, const ImageOptions &o, const Extra &x,
-                        std::string_view id_name, const Texture2D *raw) {
+                        std::string_view id_name, std::optional<Texture2D> raw) {
     if (!detail::frame_ready("image", id_name)) return;
     const LookScope scope(WidgetKind::IMAGE, x.own);
     const Style &look = detail::look();
 
     Clay_ElementDeclaration d{};
-    const Vector2 own = raw != nullptr
+    const Vector2 own = raw
         ? Vector2{ static_cast<float>(raw->width), static_cast<float>(raw->height) }
         : picture.size();
     const float want_w = x.width > 0 ? x.width : o.width;
@@ -557,13 +555,13 @@ void detail::image_with(const Picture &picture, const ImageOptions &o, const Ext
                       static_cast<unsigned char>(a.b * o.tint.b / 255),
                       static_cast<unsigned char>(a.a * o.tint.a / 255) };
     }
-    detail::DrawRecord *rec = nullptr;
-    if (raw != nullptr) {
+    rmp::Ref<detail::DrawRecord> rec;
+    if (raw) {
         if (raw->id != 0) rec = detail::raw_record(*raw, tint);
     } else {
         rec = detail::picture_record(picture, tint);
     }
-    if (rec != nullptr) d.image.imageData = &rec->raw;
+    if (rec) d.image.imageData = &rec->raw;
     last_image.data = d.image.imageData;
 
     const bool kept = x.state != nullptr;
@@ -580,8 +578,8 @@ void detail::image_with(const Picture &picture, const ImageOptions &o, const Ext
             now.clicked =
                 now.over && detail::pointer_released() && detail::press_id() == id.id;
             const detail::Edges edges = detail::track(id, WidgetKind::IMAGE, x.id, now);
-            if (x.edges != nullptr) *x.edges = edges;
-            if (x.element != nullptr) *x.element = id.id;
+            if (x.edges) *x.edges = edges;
+            if (x.element) *x.element = id.id;
         }
     }
     if (look.skin && !look.skin->normal.empty()) {
@@ -598,7 +596,7 @@ void detail::image_with(const Picture &picture, const ImageOptions &o, const Ext
         detail::decorate(frame, id, now);
         Clay__OpenElementWithId(id);
         Clay__ConfigureOpenElement(frame);
-        if (rec != nullptr) d.userData = rec;
+        if (rec) d.userData = &*rec;
         Clay__OpenElement();
         Clay__ConfigureOpenElement(d);
         Clay__CloseElement();
@@ -607,10 +605,10 @@ void detail::image_with(const Picture &picture, const ImageOptions &o, const Ext
     }
     if (id.id != 0) {
         detail::decorate(d, id, now, rec);
-        if (rec == nullptr) d.userData = nullptr;
+        if (!rec) d.userData = nullptr;
         Clay__OpenElementWithId(id);
     } else {
-        if (rec != nullptr) d.userData = rec;
+        if (rec) d.userData = &*rec;
         Clay__OpenElement();
     }
     Clay__ConfigureOpenElement(d);
@@ -620,11 +618,11 @@ void detail::image_with(const Picture &picture, const ImageOptions &o, const Ext
 void progress(float fraction) { progress(fraction, ProgressOptions{}); }
 
 void progress(float fraction, const ProgressOptions &o) {
-    detail::progress_with(fraction, o, nullptr, detail::Extra{});
+    detail::progress_with(fraction, o, {}, detail::Extra{});
 }
 
-void detail::progress_with(float fraction, const ProgressOptions &o, const Picture *fill,
-                           const Extra &x) {
+void detail::progress_with(float fraction, const ProgressOptions &o,
+                           rmp::Ref<const Picture> fill, const Extra &x) {
     if (!detail::frame_ready("progress", o.id)) return;
     const LookScope scope(WidgetKind::PROGRESS, x.own);
     const Theme &t = current_theme();
@@ -663,8 +661,8 @@ void detail::progress_with(float fraction, const ProgressOptions &o, const Pictu
             now.over = detail::pointer_over(id);
             const detail::Edges edges =
                 detail::track(id, WidgetKind::PROGRESS, o.id, now);
-            if (x.edges != nullptr) *x.edges = edges;
-            if (x.element != nullptr) *x.element = id.id;
+            if (x.edges) *x.edges = edges;
+            if (x.element) *x.element = id.id;
         }
         detail::decorate(track, id, now);
         Clay__OpenElementWithId(id);
@@ -683,13 +681,13 @@ void detail::progress_with(float fraction, const ProgressOptions &o, const Pictu
         bar.layout.sizing.height = axis(true, 0);
         bar.backgroundColor = to_clay(transparent(o.fill) ? t.primary : o.fill);
         bar.cornerRadius = Clay_CornerRadius{ px(r), px(r), px(r), px(r) };
-        if (fill != nullptr && !fill->empty()) {
+        if (fill && !fill->empty()) {
             // The filled part as a picture: a nine-slice stretches with it.
-            if (detail::DrawRecord *rec =
+            if (const auto rec =
                     detail::picture_record(*fill, look.tint.value_or(WHITE))) {
                 bar.backgroundColor = Clay_Color{ 0, 0, 0, 0 };
                 bar.image.imageData = &rec->raw;
-                bar.userData = rec;
+                bar.userData = &*rec;
             }
         }
         Clay__OpenElement();

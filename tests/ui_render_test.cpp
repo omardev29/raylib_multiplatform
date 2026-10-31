@@ -987,7 +987,8 @@ void a_ttf_has_its_latin_letters() {
         const ::Font &f = font.raw();
         for (const int c : { 0xF1, 0xE1, 0xBF, 0xA1, 0xFC }) {
             const int index = GetGlyphIndex(f, c);
-            check(f.glyphs[index].value == c && f.recs[index].width > 0,
+            check(f.glyphs != nullptr && f.recs != nullptr &&
+                      f.glyphs[index].value == c && f.recs[index].width > 0,
                   "the .ttf is baked with a letter past ASCII: n with a tilde, an "
                   "accent, the "
                   "inverted marks, a diaeresis");
@@ -1099,7 +1100,7 @@ void an_outline_goes_around_the_letters() {
 
 // A skin is the box: its picture, not the theme's fill.
 void a_skin_is_the_box() {
-    ::Image img = GenImageColor(8, 8, GREEN);
+    const ::Image img = GenImageColor(8, 8, GREEN);
     const rmp::Texture art = texture_of(img);
     UnloadImage(img);
     rmp::ui::Button play{ .text = "Play",

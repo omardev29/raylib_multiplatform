@@ -197,16 +197,19 @@ const char *cstr(Clay_StringSlice slice) {
 
 // --- the arithmetic of the looks: pure, and tested without a GPU ------------
 
-DrawRecord *draw_record(void *user) {
-    if (user == nullptr) return nullptr;
-    auto *r = static_cast<DrawRecord *>(user);
-    return r->magic == DRAW_MAGIC ? r : nullptr;
+rmp::Ref<DrawRecord> draw_record(const Clay_RenderCommand &cmd) {
+    if (cmd.userData == nullptr || cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT)
+        return {};
+    auto &r = *static_cast<DrawRecord *>(cmd.userData);
+    return r.magic == DRAW_MAGIC ? rmp::Ref<DrawRecord>(r) : rmp::Ref<DrawRecord>{};
 }
 
-const TextRecord *text_record(const void *user) {
-    if (user == nullptr) return nullptr;
-    const auto *r = static_cast<const TextRecord *>(user);
-    return r->magic == TEXT_MAGIC ? r : nullptr;
+rmp::Ref<const TextRecord> text_record(const Clay_RenderCommand &cmd) {
+    if (cmd.userData == nullptr || cmd.commandType != CLAY_RENDER_COMMAND_TYPE_TEXT)
+        return {};
+    const auto &r = *static_cast<const TextRecord *>(cmd.userData);
+    return r.magic == TEXT_MAGIC ? rmp::Ref<const TextRecord>(r)
+                                 : rmp::Ref<const TextRecord>{};
 }
 
 Color faded(Color c, float alpha) {
@@ -372,24 +375,25 @@ void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
     }
 }
 
-void draw_text(const ::Font &f, const char *text, Vector2 at, float size, Color color,
-               const TextRecord *extra, float alpha) {
+void draw_text(const ::Font &f, Clay_StringSlice text, Vector2 at, float size,
+               Color color, rmp::Ref<const TextRecord> extra, float alpha) {
     const float spacing = letter_spacing(size);
-    if (extra != nullptr && extra->shadow) {
-        DrawTextEx(f, text,
+    if (extra && extra->shadow) {
+        DrawTextEx(f, cstr(text),
                    Vector2{ at.x + extra->shadow_px.x, at.y + extra->shadow_px.y }, size,
                    spacing, faded(extra->shadow_color, alpha));
     }
-    if (extra != nullptr && extra->outline) {
+    if (extra && extra->outline) {
         OutlineOffsets offsets{};
         const int n = outline_offsets(extra->outline_px, offsets);
         const Color c = faded(extra->outline_color, alpha);
         for (int i = 0; i < n; ++i) {
             const Vector2 o = offsets[static_cast<std::size_t>(i)];
-            DrawTextEx(f, text, Vector2{ at.x + o.x, at.y + o.y }, size, spacing, c);
+            DrawTextEx(f, cstr(text), Vector2{ at.x + o.x, at.y + o.y }, size, spacing,
+                       c);
         }
     }
-    DrawTextEx(f, text, at, size, spacing, faded(color, alpha));
+    DrawTextEx(f, cstr(text), at, size, spacing, faded(color, alpha));
 }
 
 } // namespace
@@ -409,10 +413,8 @@ void draw(Clay_RenderCommandArray commands) {
         // Out of the box of what was moving: no longer inside it.
         for (int left = moving.leave(cmd.boundingBox); left > 0; --left) rlPopMatrix();
 
-        DrawRecord *rec = cmd.commandType == CLAY_RENDER_COMMAND_TYPE_TEXT
-            ? nullptr
-            : draw_record(cmd.userData);
-        if (rec != nullptr && !rec->shadow_drawn) {
+        const rmp::Ref<DrawRecord> rec = draw_record(cmd);
+        if (rec && !rec->shadow_drawn) {
             // The first command of a styled element: its motion on from here,
             // with everything drawn inside its box, and its shadow under it.
             rec->shadow_drawn = true;
@@ -475,8 +477,8 @@ void draw(Clay_RenderCommandArray commands) {
                 auto size = static_cast<float>(t.fontSize);
                 // Baked at exactly this size, in the font this text asked for: sharp.
                 const ::Font f = ui_font(size, t.fontId);
-                draw_text(f, cstr(t.stringContents), Vector2{ rect.x, rect.y }, size,
-                          from_clay(t.textColor), text_record(cmd.userData), alpha);
+                draw_text(f, t.stringContents, Vector2{ rect.x, rect.y }, size,
+                          from_clay(t.textColor), text_record(cmd), alpha);
                 break;
             }
 
@@ -484,7 +486,7 @@ void draw(Clay_RenderCommandArray commands) {
                 // A picture of ours -- image(), an icon, a skin -- comes with
                 // its record: the part of the texture, the nine-slice margins,
                 // the tint, the handles that keep it loaded.
-                if (rec != nullptr && rec->has_picture) {
+                if (rec && rec->has_picture) {
                     draw_picture(*rec, rect, faded(rec->tint, alpha));
                     break;
                 }

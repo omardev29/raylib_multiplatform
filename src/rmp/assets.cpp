@@ -271,7 +271,6 @@ Texture2D load_texture_raw(const char *name) {
     // accented vowel and every inverted question mark as '?'. The list is ours,
     // always, so that never comes back.
     if (codepoints.empty()) codepoints = detail::default_codepoints();
-    const int *list = codepoints.data();
     const int count = static_cast<int>(codepoints.size());
     ++detail::loads.requested;
     if (detail::pack_is_open()) {
@@ -283,7 +282,8 @@ Texture2D load_texture_raw(const char *name) {
             int size = 0;
             unsigned char *data = detail::pack_read(name, &size);
             if (data != nullptr) {
-                ::Font font = LoadFontFromMemory(ext, data, size, font_size, list, count);
+                ::Font font = LoadFontFromMemory(ext, data, size, font_size,
+                                                 codepoints.data(), count);
                 UnloadFileData(data);
                 if (font_decoded(font)) return font;
                 // UnloadFont() leaves the default font alone, so this is safe
@@ -298,7 +298,7 @@ Texture2D load_texture_raw(const char *name) {
     std::string path;
     const bool there = fallback_path(name, path);
     if (!there) return ::Font{};
-    ::Font font = ::LoadFontEx(path.c_str(), font_size, list, count);
+    ::Font font = ::LoadFontEx(path.c_str(), font_size, codepoints.data(), count);
     if (!font_decoded(font)) {
         UnloadFont(font);
         decode_failed(name);
@@ -392,12 +392,13 @@ void drop_unuploaded(const ::Font &raw) {
 // The size check every font load makes. A size that is not one never reaches
 // the font: stb_truetype asserts on a negative one, and the atlas of a huge
 // one is past what an int can count.
-bool font_size_refused(const char *name, int font_size) {
+bool font_size_refused(const std::string &name, int font_size) {
     if (font_size >= 1 && font_size <= MAX_FONT_SIZE) return false;
     ++detail::loads.requested;
     ++detail::loads.failed;
-    RMP_REPORT_ONCE_KEYED(name, "ASSETS: load_font(\"%s\", %d): a font size is 1 to %d",
-                          name, font_size, MAX_FONT_SIZE);
+    RMP_REPORT_ONCE_KEYED(name.c_str(),
+                          "ASSETS: load_font(\"%s\", %d): a font size is 1 to %d",
+                          name.c_str(), font_size, MAX_FONT_SIZE);
     return true;
 }
 } // namespace
@@ -423,22 +424,18 @@ std::span<const int> detail::default_codepoints() {
 rmp::Font detail::load_font_glyphs(std::string_view name_view, int font_size,
                                    std::span<const int> codepoints) {
     if (refused(name_view)) return rmp::Font{};
-    const std::string key(name_view);
-    const char *name = key.c_str();
+    const std::string name(name_view);
     if (font_size_refused(name, font_size)) return rmp::Font{};
-    const ::Font raw = load_font_raw(name, font_size, codepoints);
+    const ::Font raw = load_font_raw(name.c_str(), font_size, codepoints);
     if (raw.texture.id == 0) {
         drop_unuploaded(raw);
         return rmp::Font{};
     }
     // Not under its name: the same file at the same size with another set of
     // glyphs is another atlas, and load_font()'s cache must not hand it out.
-    auto *slot = rmp::detail::adopt(rmp::detail::ResourceKind::FONT, raw);
-    if (slot == nullptr) {
-        UnloadFont(raw);
-        return rmp::Font{};
-    }
-    return rmp::Font{ slot };
+    const rmp::Font font{ rmp::detail::adopt(rmp::detail::ResourceKind::FONT, raw) };
+    if (!font.valid()) UnloadFont(raw);
+    return font;
 }
 
 rmp::Font load_font(std::string_view name_view, int font_size) {
@@ -451,7 +448,7 @@ rmp::Font load_font(std::string_view name_view, int font_size) {
     // of bounds where asserts are off -- and the atlas of a huge one is past
     // what an int can count. The game's mistake: an empty font, counted as a
     // failed load, and said once.
-    if (font_size_refused(name, font_size)) return rmp::Font{};
+    if (font_size_refused(key, font_size)) return rmp::Font{};
     // font_size is part of the key: the same face at 16 and at 32 is two
     // baked atlases, so it has to be two resources.
     if (auto *hit = rmp::detail::acquire_named(ResourceKind::FONT, name, font_size))

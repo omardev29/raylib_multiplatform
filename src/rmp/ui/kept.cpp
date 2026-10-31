@@ -66,10 +66,10 @@ void shakes(KeptState &state, uint32_t element, WidgetKind kind, std::string_vie
 detail::Extra extra_for(const Style &style, KeptState &state, detail::Edges &edges,
                         uint32_t &element, std::string_view id) {
     detail::Extra x;
-    x.own = &style;
-    x.state = &state;
-    x.edges = &edges;
-    x.element = &element;
+    x.own = rmp::Ref<const Style>(style);
+    x.state = rmp::Ref<KeptState>(state);
+    x.edges = rmp::Ref<detail::Edges>(edges);
+    x.element = rmp::Ref<uint32_t>(element);
     x.id = id;
     return x;
 }
@@ -93,7 +93,7 @@ bool Button::show() {
     detail::Edges e;
     uint32_t element = 0;
     detail::Extra x = extra_for(style, ours, e, element, id);
-    if (!icon.empty()) x.icon = &icon;
+    if (!icon.empty()) x.icon = rmp::Ref<const Picture>(icon);
     x.icon_size = icon_size;
     x.icon_above = icon_above;
     x.width = width;
@@ -173,8 +173,9 @@ bool open_kept_panel(Panel &panel) {
     now.clicked = clickable && now.over && pointer_released() && press_id() == id.id;
     const Edges e = track(id, WidgetKind::PANEL, panel.id, now);
 
-    PanelOptions o{ .box = panel.box };
-    open_panel_with(o, &panel.style, id, &now, panel.row, !panel.background);
+    const PanelOptions o{ .box = panel.box };
+    open_panel_with(o, rmp::Ref<const Style>(panel.style), id,
+                    rmp::Ref<const Interaction>(now), panel.row, !panel.background);
     push_children(panel.children);
     open_panels().push_back(true);
 
@@ -290,7 +291,10 @@ void ProgressBar::show() {
     const ProgressOptions o{
         .width = width, .height = height, .radius = radius, .fill = fill, .id = id
     };
-    detail::progress_with(value, o, fill_picture.empty() ? nullptr : &fill_picture, x);
+    const rmp::Ref<const Picture> fill_with = fill_picture.empty()
+        ? rmp::Ref<const Picture>{}
+        : rmp::Ref<const Picture>(fill_picture);
+    detail::progress_with(value, o, fill_with, x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::PROGRESS, id);
     pointer_calls(e, on_hover, on_unhover);

@@ -40,11 +40,11 @@ custom-rmp-raw-pointer  src/rmp/save.cpp                                      16
 custom-rmp-raw-pointer  src/rmp/save_internal.h                               4
 custom-rmp-raw-pointer  src/rmp/tilemap.cpp                                   46
 custom-rmp-raw-pointer  src/rmp/tilemap_internal.h                            17
-custom-rmp-raw-pointer  src/rmp/ui/containers.cpp                             4
-custom-rmp-raw-pointer  src/rmp/ui/context.cpp                                20
+custom-rmp-raw-pointer  src/rmp/ui/containers.cpp                             2
+custom-rmp-raw-pointer  src/rmp/ui/context.cpp                                19
 custom-rmp-raw-pointer  src/rmp/ui/controls.cpp                               2
 custom-rmp-raw-pointer  src/rmp/ui/focus.cpp                                  2
-custom-rmp-raw-pointer  src/rmp/ui/internal.h                                 8
+custom-rmp-raw-pointer  src/rmp/ui/internal.h                                 7
 custom-rmp-raw-pointer  src/rmp/ui/render.cpp                                 2
 custom-rmp-raw-pointer  src/rmp/value.cpp                                     12
 custom-rmp-raw-pointer  tests/animation_test.cpp                              2
@@ -65,4 +65,4 @@ custom-rmp-raw-pointer  tests/sanitizer_canary.cpp                            3
 custom-rmp-raw-pointer  tests/save_test.cpp                                   12
 custom-rmp-raw-pointer  tests/scene_test.cpp                                  6
 custom-rmp-raw-pointer  tests/tilemap_test.cpp                                19
-custom-rmp-raw-pointer  tests/ui_layout_test.cpp                              12
+custom-rmp-raw-pointer  tests/ui_layout_test.cpp                              11

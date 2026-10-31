@@ -101,6 +101,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │           ├── style.cpp     #     variants, sizes, transitions
 │           ├── look.cpp      #     Style resolved, pictures, skins, shadows, motion, events
 │           ├── kept.cpp      #     the widgets you keep: Button, Panel, Slider... show()
+│           ├── sound.cpp     #     SoundName: the one link from the UI to rmp::audio
 │           ├── render.cpp    #     draw commands -> raylib calls, records, nine-slices
 │           └── theme.cpp     #     the dark and light themes
 ├── include/                  # YOUR headers (already on the include path)

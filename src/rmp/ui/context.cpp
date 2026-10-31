@@ -169,8 +169,7 @@ void want_glyphs(std::string_view text) {
             break;
         }
         font.glyph_known[static_cast<std::size_t>(c)] = true;
-        font.glyph_list.insert(
-            std::upper_bound(font.glyph_list.begin(), font.glyph_list.end(), c), c);
+        font.glyph_list.insert(std::ranges::upper_bound(font.glyph_list, c), c);
         added = true;
     }
     if (added) ++font.glyph_generation;
@@ -332,7 +331,8 @@ struct {
 
 // Where measuring, the pointer and navigation come from: raylib, unless a test
 // has swapped one out.
-rmp::Font load_ui_font(const char *name, int pixel_size, std::span<const int> glyphs) {
+rmp::Font load_ui_font(const std::string &name, int pixel_size,
+                       std::span<const int> glyphs) {
     return rmp::assets::detail::load_font_glyphs(name, pixel_size, glyphs);
 }
 
@@ -350,10 +350,10 @@ const char *configured_font() {
     return font.global ? font.global->c_str() : RMP_UI_FONT;
 }
 
-// The file of font `id`: 0 is the global one.
-const char *font_file(uint16_t id) {
+// The file of font `id`: 0 is the global one; "" is raylib's built-in font.
+std::string_view font_file(uint16_t id) {
     if (id == 0 || id > font.files.size()) return configured_font();
-    return font.files[id - 1U].c_str();
+    return font.files[id - 1U];
 }
 
 // Test viewport. 0 means "ask raylib", which is every real run.
@@ -695,8 +695,8 @@ void set_font_failed(uint16_t id) {
 }
 
 ::Font ui_font(float pixel_size, uint16_t id) {
-    const char *file = font_file(id);
-    const bool builtin = (file[0] == '\0');
+    const std::string file(font_file(id));
+    const bool builtin = file.empty();
     if (builtin || font_failed(id)) return GetFontDefault();
     ensure_glyphs();
 
@@ -738,7 +738,8 @@ void set_font_failed(uint16_t id) {
     const rmp::Font baked = providers.font(file, wanted, font.glyph_list);
     if (baked.raw().glyphCount <= 0) {
         RMP_REPORT_ONCE_KEYED(
-            file, "UI: font '%s' could not be loaded; using the built-in font", file);
+            file.c_str(), "UI: font '%s' could not be loaded; using the built-in font",
+            file.c_str());
         set_font_failed(id); // say it once, then stop asking
         for (FontFace &face : font.faces) {
             if (face.id == id) face = FontFace{};
@@ -1327,7 +1328,7 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
     auto size = static_cast<float>(config->fontSize);
     // Measured before it is drawn, so this is where a letter no face has yet
     // is noticed: the face below is baked with it.
-    if (font_file(config->fontId)[0] != '\0' && text.length > 0)
+    if (!font_file(config->fontId).empty() && text.length > 0)
         want_glyphs(std::string_view(text.chars, static_cast<std::size_t>(text.length)));
     return measure_text(ui_font(size, config->fontId), text, size);
 }
