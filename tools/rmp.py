@@ -1284,6 +1284,8 @@ def cmd_package(ctx, args):
         make_pack(ctx)
         name = build(ctx, release=True)
         exe = ctx.exe(f"{ctx.build_dir(release=True)}/{name}")
+        if not exe.is_file():
+            raise Refused(f"{exe.relative_to(ctx.root)} is not there: the build wrote no such file")
         where = host_target(ctx)
         shipped = ctx.root / "build/package" / exe.name
         shipped.parent.mkdir(parents=True, exist_ok=True)

@@ -10,59 +10,61 @@
 
 # --- the title -----------------------------------------------------------------
 
-1 shot title
-4 expect scene TitleScene
+# Its panel fades and rises in for 0.18 s, eleven frames: the shot waits for it.
+
+15 shot title
+18 expect scene TitleScene
 # Play has the focus: Enter alone starts a run.
-5 tap KEY_ENTER
-5 expect scene LevelScene
+19 tap KEY_ENTER
+19 expect scene LevelScene
 
 # --- the happy path: the flag ---------------------------------------------------
 
 # The Meadow: right, and over what is in the way.
-6 press KEY_RIGHT
-84 tap KEY_SPACE
+20 press KEY_RIGHT
+98 tap KEY_SPACE
 # Space jumps, and does not press the HUD's Pause button, as it would the
 # focused button of a menu: the player reads Space, so the level is being
 # played, and a HUD over a game being played takes no focus by itself.
-84 expect scene LevelScene
-170 tap KEY_SPACE
-222 tap KEY_SPACE
+98 expect scene LevelScene
+184 tap KEY_SPACE
+236 tap KEY_SPACE
 # Off its right edge and into the Desert, a scene of its own.
-331 expect scene LevelScene
+345 expect scene LevelScene
 # Wait for the moving platform, ride it, and up to the key above it.
-404 tap KEY_SPACE
-447 release KEY_RIGHT
-731 press KEY_RIGHT
-755 tap KEY_SPACE
-784 tap KEY_SPACE
-813 release KEY_RIGHT
-813 press KEY_LEFT
-830 tap KEY_SPACE
-858 press KEY_RIGHT
-858 release KEY_LEFT
-860 shot key_taken
-873 tap KEY_SPACE
+418 tap KEY_SPACE
+461 release KEY_RIGHT
+745 press KEY_RIGHT
+769 tap KEY_SPACE
+798 tap KEY_SPACE
+827 release KEY_RIGHT
+827 press KEY_LEFT
+844 tap KEY_SPACE
+872 press KEY_RIGHT
+872 release KEY_LEFT
+874 shot key_taken
+887 tap KEY_SPACE
 # The key's door, opened by walking into it.
-930 shot door_open
+944 shot door_open
 # The Snowfield, where a bat costs a life on the way up to the flag.
-958 expect scene LevelScene
-994 tap KEY_SPACE
-1038 tap KEY_SPACE
-1083 tap KEY_SPACE
-1155 release KEY_RIGHT
-1213 press KEY_RIGHT
-1411 tap KEY_SPACE
-1455 tap KEY_SPACE
-1497 tap KEY_SPACE
-1541 expect scene LevelScene
-1542 expect scene EndScene
+972 expect scene LevelScene
+1008 tap KEY_SPACE
+1052 tap KEY_SPACE
+1097 tap KEY_SPACE
+1169 release KEY_RIGHT
+1227 press KEY_RIGHT
+1425 tap KEY_SPACE
+1469 tap KEY_SPACE
+1511 tap KEY_SPACE
+1555 expect scene LevelScene
+1556 expect scene EndScene
 # Nine coins in 25.6 s, and the first run is a new best, kept with rmp::save.
-1545 shot you_made_it
+1559 shot you_made_it
 
 # Play again: the first button has the focus. A new run, from the Meadow.
-1550 release KEY_RIGHT
-1555 tap KEY_ENTER
-1555 expect scene LevelScene
+1564 release KEY_RIGHT
+1569 tap KEY_ENTER
+1569 expect scene LevelScene
 
 # --- the pause -------------------------------------------------------------------
 
@@ -70,32 +72,32 @@
 # button fires on the way up, the frame after the click. The level freezes
 # behind the menu, clock and all: blurred where there is a GPU, and only dimmed
 # here, under raylib's software renderer.
-1560 click 730 42
-1560 expect scene LevelScene
-1561 expect scene PauseScene
-1564 shot paused
+1574 click 730 42
+1574 expect scene LevelScene
+1575 expect scene PauseScene
+1578 shot paused
 # Resume has the focus, whatever the pointer did: Enter resumes.
-1566 tap KEY_ENTER
-1566 expect scene LevelScene
+1580 tap KEY_ENTER
+1580 expect scene LevelScene
 # Escape pauses, and Escape resumes.
-1569 tap KEY_ESCAPE
-1569 expect scene PauseScene
-1572 tap KEY_ESCAPE
-1572 expect scene LevelScene
+1583 tap KEY_ESCAPE
+1583 expect scene PauseScene
+1586 tap KEY_ESCAPE
+1586 expect scene LevelScene
 
 # --- the failure path: three falls ------------------------------------------------
 
 # Straight into the Meadow's first pit, three times: a life lost each, and
 # back to the start.
-1574 press KEY_RIGHT
-1906 expect scene LevelScene
-1907 expect scene EndScene
-1910 shot game_over
+1588 press KEY_RIGHT
+1920 expect scene LevelScene
+1921 expect scene EndScene
+1924 shot game_over
 
 # Menu, the second button: down, then Enter. The title reads the best run back.
-1913 release KEY_RIGHT
-1915 tap KEY_DOWN
-1918 tap KEY_ENTER
-1918 expect scene TitleScene
-1921 shot title_with_best
-1921 end
+1927 release KEY_RIGHT
+1929 tap KEY_DOWN
+1932 tap KEY_ENTER
+1932 expect scene TitleScene
+1935 shot title_with_best
+1935 end
