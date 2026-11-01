@@ -486,6 +486,7 @@ Chase Chase::from(const MapObject &object) {
     return made;
 }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Chase::_ready(Object &self) {
     ours.home = self.position;
     ours.facing = Vector2{ self.flip_x ? -1.0f : 1.0f, 0 };

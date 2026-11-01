@@ -296,6 +296,28 @@ Shooter Shooter::from(const MapObject &object) {
     return made;
 }
 
+namespace {
+
+// The bullet a Shooter makes without an on_shoot: a circle with a Hitbox, a
+// Projectile and a Lifespan.
+void default_bullet(Scene &scene, const Shooter &gun, Vector2 from, Vector2 velocity,
+                    unsigned mask) {
+    Shape round = rmp::circle(gun.bullet_radius > 0 ? gun.bullet_radius : 1);
+    round.color = gun.bullet_color;
+    Object &bullet =
+        scene.spawn({ .position = from, .shape = round, .velocity = velocity });
+    bullet.collision_layer = 0;
+    bullet.collision_mask = mask;
+    // The Hitbox first: the Projectile's _collision destroys the bullet, and a
+    // behavior after it would not be told of the touch at all.
+    bullet.add<Hitbox>({ .damage = gun.damage, .hits = mask, .destroy_on_hit = true });
+    bullet.add<Projectile>(
+        { .speed = 0, .destroy_on_hit = true, .destroy_on_wall = true });
+    bullet.add<Lifespan>({ .seconds = gun.bullet_life });
+}
+
+} // namespace
+
 bool Shooter::fire(Object &self) {
     say_nan("Shooter",
             { { "every", every },
@@ -344,18 +366,7 @@ bool Shooter::fire(Object &self) {
             on_shoot(*scene, from, velocity);
             continue;
         }
-        Shape round = rmp::circle(bullet_radius > 0 ? bullet_radius : 1);
-        round.color = bullet_color;
-        Object &bullet =
-            scene->spawn({ .position = from, .shape = round, .velocity = velocity });
-        bullet.collision_layer = 0;
-        bullet.collision_mask = mask;
-        // The Hitbox first: the Projectile's _collision destroys the bullet,
-        // and a behavior after it would not be told of the touch at all.
-        bullet.add<Hitbox>({ .damage = damage, .hits = mask, .destroy_on_hit = true });
-        bullet.add<Projectile>(
-            { .speed = 0, .destroy_on_hit = true, .destroy_on_wall = true });
-        bullet.add<Lifespan>({ .seconds = bullet_life });
+        default_bullet(*scene, *this, from, velocity, mask);
     }
     if (std::isfinite(rotate_per_shot)) {
         ours.turned = std::fmod(ours.turned + rotate_per_shot, 360.0f);

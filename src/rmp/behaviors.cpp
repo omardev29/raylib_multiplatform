@@ -1039,7 +1039,6 @@ void Health::_update(Object &self, float delta) {
     }
 }
 
-// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Health::_collision(Object &self, Object &other) {
     // `hurt_by` is a mask over the OTHER object's layer, the same numbers
     // Object::collision_mask uses. 0 is "nothing hurts", which is why a Health

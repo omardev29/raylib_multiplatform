@@ -1068,7 +1068,10 @@ void a_culled_map_is_the_same_picture() {
             const int all = rmp::tilemap::detail::tiles_considered();
             const Shot culled = frame([&] {
                 BeginMode2D(camera);
-                map.draw(rmp::tilemap::detail::visible_area(camera));
+                map.draw(rmp::tilemap::detail::visible_area(
+                    camera,
+                    Rectangle{ 0, 0, static_cast<float>(WIDTH),
+                               static_cast<float>(HEIGHT) }));
                 EndMode2D();
             });
             const int seen = rmp::tilemap::detail::tiles_considered();

@@ -546,7 +546,7 @@ void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<voi
 void *find_behavior(const Object &self, int type);
 void detach(Object &self, int type);
 // Pauses or resumes the behavior of that type; false when there is none.
-bool set_enabled(Object &self, int type, bool on);
+bool set_enabled(const Object &self, int type, bool on);
 // Whether the behavior of that type is there and not paused.
 bool is_enabled(const Object &self, int type);
 

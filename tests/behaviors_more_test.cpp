@@ -429,8 +429,9 @@ TEST_CASE_FIXTURE(Fixture, "Hitbox: once_per_target and destroy_on_hit") {
     bullet.add<Hitbox>({ .destroy_on_hit = true });
     rmp::Object &target = box(world, { 102, 0 }, { 10, 10 });
     target.add<Health>({ .hp = 5 });
+    const rmp::Handle<> bullet_left = bullet.handle<>();
     frame(world);
-    CHECK_FALSE(bullet.alive());
+    CHECK_FALSE(bullet_left); // gone, and freed: asked through its handle
     // Nothing with a Health: a Hitbox does nothing at all.
     rmp::Object &blade = box(world, { 200, 0 }, { 4, 4 });
     blade.add<Hitbox>({ .destroy_on_hit = true });
@@ -469,8 +470,9 @@ TEST_CASE_FIXTURE(Fixture,
     CHECK(coin.alive());
     CHECK(coin.scale.x > 1);
     CHECK(coin.shape.color.a < 255);
+    const rmp::Handle<> coin_left = coin.handle<>();
     frames(world, 30);
-    CHECK_FALSE(coin.alive());
+    CHECK_FALSE(coin_left);
 }
 
 TEST_CASE_FIXTURE(Fixture,
@@ -491,8 +493,9 @@ TEST_CASE_FIXTURE(Fixture,
     frame(world);
     CHECK(coin.velocity.y == 0);
     near.position = { 0, 30 };
+    const rmp::Handle<> coin_left = coin.handle<>();
     frames(world, 30);
-    CHECK_FALSE(coin.alive()); // flew to it, and was picked up at once
+    CHECK_FALSE(coin_left); // flew to it, and was picked up at once
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,8 +1224,9 @@ TEST_CASE_FIXTURE(Fixture, "Projectile: destroy_on_wall ends it in a solid cell"
     ghost.collision_mask = 0;
     ghost.add<Projectile>();
     ghost.velocity = { 120, 0 };
+    const rmp::Handle<> shot_left = shot.handle<>();
     frames(world, 30);
-    CHECK_FALSE(shot.alive());
+    CHECK_FALSE(shot_left);
     CHECK(ghost.alive());
 }
 

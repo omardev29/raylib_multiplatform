@@ -34,7 +34,6 @@ std::string read(const std::string &path) {
 
 struct Parsed {
     rmp::Tilemap map;
-    const MapData *data = nullptr;
     explicit Parsed(const std::string &file, std::string_view level = {}) {
         const std::string text = read(std::string(RMP_TEST_FIXTURES) + file);
         REQUIRE_FALSE(text.empty());
@@ -42,8 +41,11 @@ struct Parsed {
             map,
             rmp::tilemap::detail::parse_map(text.data(), static_cast<int>(text.size()),
                                             file.c_str(), level));
-        data = rmp::tilemap::detail::Access::data(map);
-        REQUIRE(data != nullptr);
+        REQUIRE(rmp::tilemap::detail::Access::data(map) != nullptr);
+    }
+    // What the map read.
+    [[nodiscard]] const MapData &data() const {
+        return *rmp::tilemap::detail::Access::data(map);
     }
 };
 
@@ -72,7 +74,7 @@ TEST_SUITE("tilemap: culling") {
     TEST_CASE(
         "an LDtk level draws every tile with no area, and one screen of it with one") {
         const Parsed p("ldtk/Typical_2D_platformer_example.ldtk");
-        const int total = placed_total(*p.data);
+        const int total = placed_total(p.data());
         REQUIRE(total > 500);
         CHECK(drawn_all(p.map) == total);
         // The whole level in view: every tile, none twice.
@@ -92,16 +94,20 @@ TEST_SUITE("tilemap: culling") {
         // source's size from where it was put -- has to be looked at.
         const Parsed p("ldtk/Typical_TopDown_example.ldtk");
         const Rectangle b = p.map.bounds();
-        for (float x = b.x - 64; x < b.x + b.width; x += 97) {
-            for (float y = b.y - 64; y < b.y + b.height; y += 71) {
+        const int columns = static_cast<int>((b.width + 64) / 97) + 1;
+        const int rows = static_cast<int>((b.height + 64) / 71) + 1;
+        for (int i = 0; i < columns; ++i) {
+            for (int j = 0; j < rows; ++j) {
+                const float x = b.x - 64 + (97 * static_cast<float>(i));
+                const float y = b.y - 64 + (71 * static_cast<float>(j));
                 const Rectangle area{ x, y, 120, 80 };
                 int expected = 0;
-                for (const Layer &layer : p.data->layers) {
+                for (const Layer &layer : p.data().layers) {
                     if (!layer.visible || layer.opacity <= 0) continue;
-                    const Vector2 base{ p.data->origin.x + layer.offset.x,
-                                        p.data->origin.y + layer.offset.y };
+                    const Vector2 base{ p.data().origin.x + layer.offset.x,
+                                        p.data().origin.y + layer.offset.y };
                     const auto cell = static_cast<float>(
-                        layer.cell_width > 0 ? layer.cell_width : p.data->tile_width);
+                        layer.cell_width > 0 ? layer.cell_width : p.data().tile_width);
                     for (const auto &tile : layer.placed) {
                         const Rectangle r{ base.x + tile.at.x, base.y + tile.at.y, cell,
                                            cell };
@@ -121,7 +127,7 @@ TEST_SUITE("tilemap: culling") {
         // Past its far corner the edge chunk is asked, and only that.
         CHECK(drawn(p.map,
                     Rectangle{ b.x + b.width + 5000, b.y + b.height + 5000, 10, 10 }) <
-              placed_total(*p.data) / 4);
+              placed_total(p.data()) / 4);
         // A rectangle that is not one draws nothing.
         CHECK(drawn(p.map, Rectangle{ NAN, 0, 10, 10 }) == 0);
         CHECK(drawn(p.map, Rectangle{ 0, 0, -5, 10 }) == 0);
@@ -153,14 +159,14 @@ TEST_SUITE("tilemap: culling") {
             CAPTURE(file);
             const Parsed p(file);
             int solid = 0;
-            for (const Layer &layer : p.data->layers) {
+            for (const Layer &layer : p.data().layers) {
                 REQUIRE(layer.solid.size() >= layer.solid_cells.size());
                 for (std::size_t at = 0; at < layer.solid.size(); ++at) {
                     const bool intgrid =
                         at < layer.solid_cells.size() && layer.solid_cells[at];
                     const int gid = at < layer.gids.size() ? layer.gids[at] : 0;
                     bool tile = false;
-                    for (const auto &set : p.data->tilesets) {
+                    for (const auto &set : p.data().tilesets) {
                         if (gid >= set.first_gid && gid <= set.last_gid) {
                             const auto local =
                                 static_cast<std::size_t>(gid - set.first_gid);

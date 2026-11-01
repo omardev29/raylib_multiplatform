@@ -992,8 +992,8 @@ bool visible_cells(const MapData &data, const Layer &layer, Vector2 base, Rectan
     const int w = cell_w(data, layer);
     const int h = cell_h(data, layer);
     if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) return false;
-    float reach_x = static_cast<float>(w);
-    float reach_y = static_cast<float>(h);
+    auto reach_x = static_cast<float>(w);
+    auto reach_y = static_cast<float>(h);
     for (const Tileset &set : data.tilesets) {
         reach_x = std::max(reach_x, static_cast<float>(set.tile_width));
         reach_y = std::max(reach_y, static_cast<float>(set.tile_height));
@@ -1072,8 +1072,9 @@ void draw_map(const MapData &data, std::optional<Rectangle> area) {
             }
             // A tile over a chunk's edge is in both: once, in the order it was
             // put down.
-            std::sort(visible.begin(), visible.end());
-            visible.erase(std::unique(visible.begin(), visible.end()), visible.end());
+            std::ranges::sort(visible);
+            const auto repeated = std::ranges::unique(visible);
+            visible.erase(repeated.begin(), repeated.end());
             for (const std::uint32_t i : visible) draw_placed(layer.placed[i]);
             continue;
         }
@@ -1103,14 +1104,14 @@ void draw_map(const MapData &data, std::optional<Rectangle> area) {
 
 int tilemap::detail::tiles_considered() { return draw_scratch.considered; }
 
-Rectangle tilemap::detail::visible_area(const Camera2D &camera) {
-    const auto w = static_cast<float>(GetScreenWidth());
-    const auto h = static_cast<float>(GetScreenHeight());
+Rectangle tilemap::detail::visible_area(const Camera2D &camera, Rectangle screen) {
+    const float right_edge = screen.x + screen.width;
+    const float bottom_edge = screen.y + screen.height;
     const std::array<Vector2, 4> corners{
-        GetScreenToWorld2D(Vector2{ 0, 0 }, camera),
-        GetScreenToWorld2D(Vector2{ w, 0 }, camera),
-        GetScreenToWorld2D(Vector2{ 0, h }, camera),
-        GetScreenToWorld2D(Vector2{ w, h }, camera),
+        GetScreenToWorld2D(Vector2{ screen.x, screen.y }, camera),
+        GetScreenToWorld2D(Vector2{ right_edge, screen.y }, camera),
+        GetScreenToWorld2D(Vector2{ screen.x, bottom_edge }, camera),
+        GetScreenToWorld2D(Vector2{ right_edge, bottom_edge }, camera),
     };
     Rectangle out{ corners[0].x, corners[0].y, 0, 0 };
     float right = out.x;

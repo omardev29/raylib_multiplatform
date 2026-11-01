@@ -159,10 +159,10 @@ void *find_behavior(const Object &self, int type) {
     return nullptr;
 }
 
-bool set_enabled(Object &self, int type, bool on) {
-    Owner *owner = owner_of(&self);
-    if (owner == nullptr) return false;
-    for (Attached &a : owner->list) {
+bool set_enabled(const Object &self, int type, bool on) {
+    const int slot = Storage::behavior_slot(self);
+    if (slot < 0) return false;
+    for (Attached &a : owners()[static_cast<std::size_t>(slot)].list) {
         if (a.type == type && !a.dead) {
             a.paused = !on;
             return true;
@@ -172,9 +172,9 @@ bool set_enabled(Object &self, int type, bool on) {
 }
 
 bool is_enabled(const Object &self, int type) {
-    const Owner *owner = owner_of(&self);
-    if (owner == nullptr) return false;
-    for (const Attached &a : owner->list) {
+    const int slot = Storage::behavior_slot(self);
+    if (slot < 0) return false;
+    for (const Attached &a : owners()[static_cast<std::size_t>(slot)].list) {
         if (a.type == type && !a.dead) return !a.paused;
     }
     return false;

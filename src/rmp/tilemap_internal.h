@@ -207,10 +207,10 @@ struct Access {
 // it when it takes a map, so every map is indexed however it was made.
 void index_map(MapData &data);
 
-// The world rectangle the window shows through `camera`: the four corners of
-// the screen taken back into the world, rotation and all. What the scene hands
-// Tilemap::draw(area).
-Rectangle visible_area(const Camera2D &camera);
+// The world rectangle `screen` (in pixels: where the world is drawn) shows
+// through `camera`: its four corners taken back into the world, rotation and
+// all. What the scene hands Tilemap::draw(area).
+Rectangle visible_area(const Camera2D &camera, Rectangle screen);
 
 // How many tiles the last Tilemap::draw() looked at -- every tile of a draw(),
 // the ones in view of a draw(area) -- whether or not their texture is there.

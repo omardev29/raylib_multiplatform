@@ -279,14 +279,15 @@ void draw() {
         // object's _draw() describes is reported (rmp::ui::at() is the way).
         rmp::ui::detail::set_phase(rmp::ui::detail::Phase::WORLD);
         if (clip) BeginScissorMode(clip->x, clip->y, clip->width, clip->height);
-        if (window) BeginMode2D(camera);
-        // Only what the camera shows (the window's corners through the camera
-        // that draws, its shake and rotation included). With no window
-        // nothing is drawn anyway, and every tile is asked for.
         if (window) {
-            scene.map.draw(rmp::tilemap::detail::visible_area(camera));
+            BeginMode2D(camera);
+            // Only what the camera shows: the corners of where the world is
+            // drawn, through the camera that draws, its shake and rotation
+            // included.
+            scene.map.draw(rmp::tilemap::detail::visible_area(
+                camera, rmp::app::detail::world_viewport().area));
         } else {
-            scene.map.draw();
+            scene.map.draw(); // with no window nothing is drawn anyway
         }
         rmp::objects::detail::draw(scene);
         if (window) EndMode2D();
