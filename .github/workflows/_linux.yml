@@ -197,7 +197,7 @@ jobs:
           fi
           echo "PASS: the archive runs from any folder"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-x64-glibc-build
           path: linux-x64-glibc-build.zip
@@ -337,7 +337,7 @@ jobs:
           fi
           echo "PASS: the archive runs from any folder"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-arm64-glibc-build
           path: linux-arm64-glibc-build.zip
@@ -408,7 +408,7 @@ jobs:
           echo "  needs:"; objdump -p "$BIN" | grep NEEDED | sed 's/^/    /'
           echo "PASS: musl binary, no glibc symbols"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-x64-musl-headless
           path: build/memory/${{ inputs.project_name }}
@@ -446,7 +446,7 @@ jobs:
       - name: Within its size budget
         run: python3 tools/size_check.py linux-x64-musl "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-x64-musl-build
           path: linux-x64-musl-build.zip
@@ -796,7 +796,7 @@ jobs:
           fi
           echo "PASS: the archive's riscv64 binary booted and rendered under QEMU"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-riscv64-glibc-build
           path: linux-riscv64-glibc-build.zip
@@ -919,7 +919,7 @@ jobs:
       - name: Within its size budget
         run: python3 tools/size_check.py linux-x64-glibc-drm "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-x64-glibc-drm-build
           path: linux-x64-glibc-drm-build.zip
@@ -1239,7 +1239,7 @@ jobs:
       - name: Within its size budget
         run: python3 tools/size_check.py linux-arm64-glibc-drm "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: linux-arm64-glibc-drm-build
           path: linux-arm64-glibc-drm-build.zip
