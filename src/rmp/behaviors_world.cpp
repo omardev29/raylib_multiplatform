@@ -318,6 +318,7 @@ void default_bullet(Scene &scene, const Shooter &gun, Vector2 from, Vector2 velo
 
 } // namespace
 
+// cppcheck-suppress constParameterReference ; the object it fires from, as every hook takes it
 bool Shooter::fire(Object &self) {
     say_nan("Shooter",
             { { "every", every },
