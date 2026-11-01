@@ -205,8 +205,12 @@ public:
     [[nodiscard]] bool solid_in(Rectangle world_rect) const;
 
     // Drawn by the scene, underneath everything. Here because a game that wants
-    // the map somewhere else in its own order can call it.
+    // the map somewhere else in its own order can call it. The scene draws only
+    // what its camera shows -- draw(area), with `area` the world rectangle in
+    // view -- so a level a hundred screens long costs what one screen costs;
+    // draw() is every tile.
     void draw() const;
+    void draw(Rectangle area) const;
 
 private:
     // rmp::assets::load_map hands over what it parsed, through

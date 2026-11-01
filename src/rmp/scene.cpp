@@ -14,6 +14,7 @@
 #include "object_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
+#include "tilemap_internal.h"
 #include "ui_internal.h"
 
 #include <rmp/app.h>
@@ -278,8 +279,16 @@ void draw() {
         // object's _draw() describes is reported (rmp::ui::at() is the way).
         rmp::ui::detail::set_phase(rmp::ui::detail::Phase::WORLD);
         if (clip) BeginScissorMode(clip->x, clip->y, clip->width, clip->height);
-        if (window) BeginMode2D(camera);
-        scene.map.draw();
+        if (window) {
+            BeginMode2D(camera);
+            // Only what the camera shows: the corners of where the world is
+            // drawn, through the camera that draws, its shake and rotation
+            // included.
+            scene.map.draw(rmp::tilemap::detail::visible_area(
+                camera, rmp::app::detail::world_viewport().area));
+        } else {
+            scene.map.draw(); // with no window nothing is drawn anyway
+        }
         rmp::objects::detail::draw(scene);
         if (window) EndMode2D();
         if (clip) EndScissorMode();

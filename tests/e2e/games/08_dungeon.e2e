@@ -1,0 +1,35 @@
+# examples/games/08_dungeon, played: the title, into the Crypt, a swing, the
+# pause both ways, and then standing among the slimes of the hall until the
+# crypt keeps you -- and down again.
+#
+# The arrows walk, Space strikes, Escape pauses. Nothing in the game is
+# random but the sparks, and rmp::random is seeded. See tests/e2e/script.h for
+# the grammar.
+
+# The title's panel appears for 0.22 s, fourteen frames: the shot waits.
+20 shot title
+21 expect scene TitleScene
+# Descend has the focus: Enter alone starts a run.
+22 tap KEY_ENTER
+22 expect scene LevelScene
+60 shot crypt
+# Into the hall, where the slimes are, and a swing at the first.
+61 press KEY_RIGHT
+170 release KEY_RIGHT
+171 tap KEY_SPACE
+175 shot swing
+# The pause, by its key, both ways.
+200 tap KEY_ESCAPE
+200 expect scene PauseScene
+230 shot pause
+231 tap KEY_ESCAPE
+232 expect scene LevelScene
+# Standing still, the slimes and the bat do the rest.
+330 shot hurt
+560 shot fallen
+560 expect scene EndScene
+# Again has the focus.
+562 tap KEY_ENTER
+562 expect scene LevelScene
+600 shot again
+601 end

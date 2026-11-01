@@ -57,6 +57,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── collision.cpp     #   the broad-phase grid, sweeps, MTV, raycast, the pointer pass
 │       ├── behavior.cpp      #   the behavior ENGINE: slots, dispatch, the erased hooks
 │       ├── behaviors.cpp     #   the CATALOGUE: TopDown, Platformer, Runner, Ball, Spawner...
+│       ├── behaviors_world.cpp #   ...Area, Hitbox, Collectible, Shooter, Orbit, Animator, Draggable
+│       ├── behaviors_ai.cpp  #   ...Patrol, find_path() and Pathfind, Chase, StateMachine
 │       ├── behavior_internal.h
 │       ├── input.cpp         #   rmp::input -- actions, the device seam, routing against the UI
 │       ├── ui_internal.h     #   the UI's hooks the app, the scene stack and rmp::input call

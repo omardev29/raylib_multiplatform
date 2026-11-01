@@ -1,0 +1,9 @@
+# The behaviours of the catalogue's second and third parts -- Area, Hitbox,
+# Collectible, Shooter, Orbit, Animator, Draggable, Patrol, Pathfind, Chase,
+# StateMachine -- and rmp::find_path(). New with them: unmeasured until the
+# weekly run measures it, and from then it only rises.
+kind     cxx
+sources  src/rmp/behaviors_world.cpp src/rmp/behaviors_ai.cpp
+tests    unit_test -sf=*behaviors_more_test.cpp
+tests    property_test -sf=*behavior_more_prop.cpp
+floor    -

@@ -10,7 +10,39 @@
 // is the same seam rmp::ui and the animation clock already have.
 // ---------------------------------------------------------------------------
 
+#include <raylib.h>
+
+#include <initializer_list>
+#include <string_view>
+
 namespace rmp::behavior::detail {
+
+// The arithmetic every behavior shares, defined in src/rmp/behaviors.cpp.
+
+inline constexpr float NEAR_ZERO = 0.0001f;
+
+float length_of(Vector2 v);
+bool finite(Vector2 v);
+// The direction of `v`, or {0, 0} for one too short to have one or that is
+// not a number.
+Vector2 normalised(Vector2 v);
+// The seconds a hook was handed, as a behavior counts them: a finite number, 0
+// or more; anything else is 0, said once.
+float seconds_of(float delta);
+// Writes `value` into `slot` when it is a finite number; otherwise leaves the
+// slot and says so once, for `who`.
+void put(float &slot, float value, std::string_view who);
+void put(Vector2 &slot, Vector2 value, std::string_view who);
+
+// A field the game set, and its name.
+struct Field {
+    std::string_view name;
+    float value;
+};
+// Says once, by name, each of `fields` that is NaN.
+void say_nan(std::string_view who, std::initializer_list<Field> fields);
+// `current` moved towards `target` at `rate` per second; straight there at 0.
+float approach(float current, float target, float rate, float delta);
 
 // The most calls one Timer makes in one frame. More owed than that is an
 // interval far shorter than any frame, and the rest of the time is dropped.

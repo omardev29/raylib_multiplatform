@@ -35,11 +35,13 @@
 #include <cute_tiled.h>
 
 #include <algorithm>
+#include <array>
 #include <cinttypes>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -571,7 +573,10 @@ Tilemap::~Tilemap() = default;
 Tilemap::Tilemap(Tilemap &&other) noexcept = default;
 Tilemap &Tilemap::operator=(Tilemap &&other) noexcept = default;
 
-void Tilemap::adopt(tilemap::detail::MapPtr data) { _data = std::move(data); }
+void Tilemap::adopt(tilemap::detail::MapPtr data) {
+    _data = std::move(data);
+    if (_data != nullptr) tilemap::detail::index_map(*_data);
+}
 
 namespace {
 
@@ -631,10 +636,11 @@ int gid_at(const Layer &layer, int column, int row) {
     return at < layer.gids.size() ? layer.gids[at] : 0;
 }
 
-// Whether one cell of one layer stops you. Asked of THAT layer only: LDtk
-// layers can each have their own grid, and a cell of one is not a cell of
-// another.
-bool solid_cell(const MapData &data, const Layer &layer, int column, int row) {
+// Whether one cell of one layer stops you, worked out from what the reader
+// left: the IntGrid, a solid layer, the tile's own flag in its tileset.
+// index_map() asks it once a cell; solid_cell() below reads the answer.
+bool solid_cell_from_source(const MapData &data, const Layer &layer, int column,
+                            int row) {
     if (column < 0 || row < 0 || column >= layer.width || row >= layer.height)
         return false;
     // LDtk's IntGrid: the cells painted with the value called `solid`.
@@ -653,7 +659,130 @@ bool solid_cell(const MapData &data, const Layer &layer, int column, int row) {
     return false;
 }
 
+// Whether one cell of one layer stops you. Asked of THAT layer only: LDtk
+// layers can each have their own grid, and a cell of one is not a cell of
+// another. One byte, read out of the table index_map() built.
+bool solid_cell(const MapData &data, const Layer &layer, int column, int row) {
+    if (column < 0 || row < 0 || column >= layer.width || row >= layer.height)
+        return false;
+    const std::size_t at = cell_index(layer, column, row);
+    if (at < layer.solid.size()) return layer.solid[at] != 0;
+    return solid_cell_from_source(data, layer, column, row);
+}
+
+// What one placed tile covers, relative to its layer: its source's size, or a
+// cell when its tileset is gone.
+Rectangle placed_extent(const MapData &data, const Layer &layer,
+                        const tilemap::detail::PlacedTile &tile) {
+    const Tileset *set = tileset_for(data, tile.gid);
+    const Rectangle src = set != nullptr ? source_in(*set, tile.gid) : Rectangle{};
+    const float w = src.width > 0 ? src.width : static_cast<float>(cell_w(data, layer));
+    const float h = src.height > 0 ? src.height : static_cast<float>(cell_h(data, layer));
+    return Rectangle{ tile.at.x, tile.at.y, w, h };
+}
+
+// The chunks a rectangle (layer-relative pixels) overlaps, clamped to the
+// layer's: a tile placed past the layer's edge is in its edge chunk, and a
+// view past it asks that chunk. False only for a rectangle that is not one.
+bool chunk_span(const Layer &layer, Rectangle r, int &c0, int &r0, int &c1, int &r1) {
+    if (layer.chunk_columns <= 0 || layer.chunk_rows <= 0) return false;
+    if (!(r.width >= 0) || !(r.height >= 0)) return false;
+    const double x0 = std::floor(r.x / layer.chunk_width);
+    const double y0 = std::floor(r.y / layer.chunk_height);
+    const double x1 =
+        std::floor((static_cast<double>(r.x) + r.width) / layer.chunk_width);
+    const double y1 =
+        std::floor((static_cast<double>(r.y) + r.height) / layer.chunk_height);
+    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) ||
+        !std::isfinite(y1))
+        return false;
+    const double cols = layer.chunk_columns - 1;
+    const double rows = layer.chunk_rows - 1;
+    c0 = static_cast<int>(std::clamp(x0, 0.0, cols));
+    r0 = static_cast<int>(std::clamp(y0, 0.0, rows));
+    c1 = static_cast<int>(std::clamp(x1, 0.0, cols));
+    r1 = static_cast<int>(std::clamp(y1, 0.0, rows));
+    return true;
+}
+
 } // namespace
+
+void tilemap::detail::index_map(MapData &data) {
+    for (Layer &layer : data.layers) {
+        // The solid table: one byte a cell, every source folded in.
+        layer.solid.assign(layer.gids.size() > layer.solid_cells.size()
+                               ? layer.gids.size()
+                               : layer.solid_cells.size(),
+                           0);
+        // The cells the reader stored, and no more: a layer that CLAIMS a
+        // billion cells and stores a hundred is a hundred cells of work.
+        if (layer.width > 0 && layer.height > 0) {
+            const auto width = static_cast<std::size_t>(layer.width);
+            for (std::size_t at = 0; at < layer.solid.size(); ++at) {
+                const auto column = static_cast<int>(at % width);
+                const auto row = static_cast<int>(at / width);
+                if (row >= layer.height) break;
+                layer.solid[at] =
+                    solid_cell_from_source(data, layer, column, row) ? 1 : 0;
+            }
+        }
+
+        // The chunks of the placed tiles, ascending indices in each, so that
+        // gathering a view's chunks and sorting them gives back the order the
+        // tiles were put down in -- which is the order they are drawn in.
+        layer.chunks.clear();
+        layer.chunk_columns = layer.chunk_rows = 0;
+        if (layer.placed.empty()) continue;
+        const int w = cell_w(data, layer);
+        const int h = cell_h(data, layer);
+        if (w <= 0 || h <= 0) continue;
+        layer.chunk_width = static_cast<float>(w) * CHUNK_CELLS;
+        layer.chunk_height = static_cast<float>(h) * CHUNK_CELLS;
+        // The chunks cover the layer and every tile placed past its edge.
+        float right = static_cast<float>(layer.width) * static_cast<float>(w);
+        float bottom = static_cast<float>(layer.height) * static_cast<float>(h);
+        for (const tilemap::detail::PlacedTile &tile : layer.placed) {
+            const Rectangle r = placed_extent(data, layer, tile);
+            right = std::max(right, r.x + r.width);
+            bottom = std::max(bottom, r.y + r.height);
+        }
+        // Tiles placed above or left of the layer's corner land in its first
+        // chunks (chunk_span() clamps), so a level never loses a tile.
+        // A level is at most a few thousand chunks; a layer whose tiles claim
+        // to reach past that is drawn whole, unindexed, rather than cut into
+        // millions of empty lists.
+        constexpr double MOST_CHUNKS = 65536;
+        const double columns = std::ceil(static_cast<double>(right) / layer.chunk_width);
+        const double rows = std::ceil(static_cast<double>(bottom) / layer.chunk_height);
+        if (!(columns >= 1) || !(rows >= 1) || columns * rows > MOST_CHUNKS) {
+            layer.chunk_columns = layer.chunk_rows = 0;
+            continue;
+        }
+        layer.chunk_columns = static_cast<int>(columns);
+        layer.chunk_rows = static_cast<int>(rows);
+        layer.chunks.assign(static_cast<std::size_t>(layer.chunk_columns) *
+                                static_cast<std::size_t>(layer.chunk_rows),
+                            {});
+        for (std::size_t i = 0; i < layer.placed.size(); ++i) {
+            int c0 = 0;
+            int r0 = 0;
+            int c1 = 0;
+            int r1 = 0;
+            if (!chunk_span(layer, placed_extent(data, layer, layer.placed[i]), c0, r0,
+                            c1, r1))
+                continue;
+            for (int cr = r0; cr <= r1; ++cr) {
+                for (int cc = c0; cc <= c1; ++cc) {
+                    layer
+                        .chunks[(static_cast<std::size_t>(cr) *
+                                 static_cast<std::size_t>(layer.chunk_columns)) +
+                                static_cast<std::size_t>(cc)]
+                        .push_back(static_cast<std::uint32_t>(i));
+                }
+            }
+        }
+    }
+}
 
 Rectangle Tilemap::bounds() const {
     if (!valid()) return Rectangle{};
@@ -846,49 +975,166 @@ void Tilemap::spawn_objects(Scene &into) {
     }
 }
 
-void Tilemap::draw() const {
-    if (!valid()) return;
-    const MapData *data = _data.get();
-    for (const Layer &layer : data->layers) {
+namespace {
+
+// The indices of a view's chunks, kept between frames so a frame allocates
+// nothing once it has seen its largest view.
+struct {
+    std::vector<std::uint32_t> visible;
+    int considered = 0; // tiles the last draw looked at: tiles_considered()
+} draw_scratch;
+
+// The cells of a Tiled layer a world rectangle shows, widened by the biggest
+// tile of the map's tilesets so a tile taller than its cell -- a tree drawn up
+// from its cell -- is still drawn when only its top is in view.
+bool visible_cells(const MapData &data, const Layer &layer, Vector2 base, Rectangle area,
+                   int &c0, int &r0, int &c1, int &r1) {
+    const int w = cell_w(data, layer);
+    const int h = cell_h(data, layer);
+    if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) return false;
+    auto reach_x = static_cast<float>(w);
+    auto reach_y = static_cast<float>(h);
+    for (const Tileset &set : data.tilesets) {
+        reach_x = std::max(reach_x, static_cast<float>(set.tile_width));
+        reach_y = std::max(reach_y, static_cast<float>(set.tile_height));
+    }
+    const double x0 = std::floor((static_cast<double>(area.x) - base.x - reach_x) / w);
+    const double y0 = std::floor((static_cast<double>(area.y) - base.y - reach_y) / h);
+    const double x1 =
+        std::floor((static_cast<double>(area.x) + area.width - base.x + reach_x) / w);
+    const double y1 =
+        std::floor((static_cast<double>(area.y) + area.height - base.y + reach_y) / h);
+    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) ||
+        !std::isfinite(y1))
+        return false;
+    const double cols = layer.width - 1;
+    const double rows = layer.height - 1;
+    if (x1 < 0 || y1 < 0 || x0 > cols || y0 > rows) return false;
+    c0 = static_cast<int>(std::clamp(x0, 0.0, cols));
+    r0 = static_cast<int>(std::clamp(y0, 0.0, rows));
+    c1 = static_cast<int>(std::clamp(x1, 0.0, cols));
+    r1 = static_cast<int>(std::clamp(y1, 0.0, rows));
+    return true;
+}
+
+// Every tile, or only those `area` (world units) can show. The same tiles in
+// the same order either way, minus the ones out of sight: what the camera sees
+// is drawn exactly as it was before the map learnt to cull.
+void draw_map(const MapData &data, std::optional<Rectangle> area) {
+    std::vector<std::uint32_t> &visible = draw_scratch.visible;
+    draw_scratch.considered = 0;
+    for (const Layer &layer : data.layers) {
         if (!layer.visible || layer.opacity <= 0) continue;
-        const Vector2 base{ data->origin.x + layer.offset.x,
-                            data->origin.y + layer.offset.y };
+        const Vector2 base{ data.origin.x + layer.offset.x,
+                            data.origin.y + layer.offset.y };
         const auto alpha = [&](float a) {
             const float value = layer.opacity * a * 255.0f;
             return static_cast<unsigned char>(value < 0 ? 0
                                                         : (value > 255 ? 255 : value));
         };
+        const auto draw_placed = [&](const tilemap::detail::PlacedTile &tile) {
+            ++draw_scratch.considered;
+            const Tileset *set = tileset_for(data, tile.gid);
+            if (set == nullptr || !set->texture.valid()) return;
+            Rectangle src = source_in(*set, tile.gid);
+            // A negative source size is how raylib mirrors a region.
+            if (tile.flip_x) src.width = -src.width;
+            if (tile.flip_y) src.height = -src.height;
+            DrawTextureRec(set->texture, src,
+                           Vector2{ base.x + tile.at.x, base.y + tile.at.y },
+                           Color{ 255, 255, 255, alpha(tile.alpha) });
+        };
 
         if (!layer.placed.empty()) {
             // LDtk: every tile where it was put, bottom to top, each flipped
-            // and faded on its own. A negative source size is how raylib
-            // mirrors a region.
-            for (const tilemap::detail::PlacedTile &tile : layer.placed) {
-                const Tileset *set = tileset_for(*data, tile.gid);
-                if (set == nullptr || !set->texture.valid()) continue;
-                Rectangle src = source_in(*set, tile.gid);
-                if (tile.flip_x) src.width = -src.width;
-                if (tile.flip_y) src.height = -src.height;
-                DrawTextureRec(set->texture, src,
-                               Vector2{ base.x + tile.at.x, base.y + tile.at.y },
-                               Color{ 255, 255, 255, alpha(tile.alpha) });
+            // and faded on its own.
+            if (!area || layer.chunks.empty()) {
+                for (const tilemap::detail::PlacedTile &tile : layer.placed)
+                    draw_placed(tile);
+                continue;
             }
+            int c0 = 0;
+            int r0 = 0;
+            int c1 = 0;
+            int r1 = 0;
+            const Rectangle local{ area->x - base.x, area->y - base.y, area->width,
+                                   area->height };
+            if (!chunk_span(layer, local, c0, r0, c1, r1)) continue;
+            visible.clear();
+            for (int cr = r0; cr <= r1; ++cr) {
+                for (int cc = c0; cc <= c1; ++cc) {
+                    const auto &chunk =
+                        layer.chunks[(static_cast<std::size_t>(cr) *
+                                      static_cast<std::size_t>(layer.chunk_columns)) +
+                                     static_cast<std::size_t>(cc)];
+                    visible.insert(visible.end(), chunk.begin(), chunk.end());
+                }
+            }
+            // A tile over a chunk's edge is in both: once, in the order it was
+            // put down.
+            std::ranges::sort(visible);
+            const auto repeated = std::ranges::unique(visible);
+            visible.erase(repeated.begin(), repeated.end());
+            for (const std::uint32_t i : visible) draw_placed(layer.placed[i]);
             continue;
         }
 
         const Color tint{ 255, 255, 255, alpha(1.0f) };
-        for (int row = 0; row < layer.height; ++row) {
-            for (int column = 0; column < layer.width; ++column) {
+        int c0 = 0;
+        int r0 = 0;
+        int c1 = layer.width - 1;
+        int r1 = layer.height - 1;
+        if (area && !visible_cells(data, layer, base, *area, c0, r0, c1, r1)) continue;
+        for (int row = r0; row <= r1; ++row) {
+            for (int column = c0; column <= c1; ++column) {
                 const int gid = gid_at(layer, column, row);
                 if (gid == 0) continue;
-                const Tileset *set = tileset_for(*data, gid);
+                ++draw_scratch.considered;
+                const Tileset *set = tileset_for(data, gid);
                 if (set == nullptr || !set->texture.valid()) continue;
-                const Vector2 at = origin_in(*data, set, column, row);
+                const Vector2 at = origin_in(data, set, column, row);
                 DrawTextureRec(set->texture, source_in(*set, gid),
                                Vector2{ base.x + at.x, base.y + at.y }, tint);
             }
         }
     }
+}
+
+} // namespace
+
+int tilemap::detail::tiles_considered() { return draw_scratch.considered; }
+
+Rectangle tilemap::detail::visible_area(const Camera2D &camera, Rectangle screen) {
+    const float right_edge = screen.x + screen.width;
+    const float bottom_edge = screen.y + screen.height;
+    const std::array<Vector2, 4> corners{
+        GetScreenToWorld2D(Vector2{ screen.x, screen.y }, camera),
+        GetScreenToWorld2D(Vector2{ right_edge, screen.y }, camera),
+        GetScreenToWorld2D(Vector2{ screen.x, bottom_edge }, camera),
+        GetScreenToWorld2D(Vector2{ right_edge, bottom_edge }, camera),
+    };
+    Rectangle out{ corners[0].x, corners[0].y, 0, 0 };
+    float right = out.x;
+    float bottom = out.y;
+    for (const Vector2 &c : corners) {
+        out.x = std::min(out.x, c.x);
+        out.y = std::min(out.y, c.y);
+        right = std::max(right, c.x);
+        bottom = std::max(bottom, c.y);
+    }
+    out.width = right - out.x;
+    out.height = bottom - out.y;
+    return out;
+}
+
+void Tilemap::draw() const {
+    if (!valid()) return;
+    draw_map(*_data, std::nullopt);
+}
+
+void Tilemap::draw(Rectangle area) const {
+    if (!valid()) return;
+    draw_map(*_data, area);
 }
 
 } // namespace rmp
