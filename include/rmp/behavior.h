@@ -599,6 +599,8 @@ struct Hitbox {
     Callback<Object &, Object &>
         on_hit; // (the hitbox, who it hurt), when the damage landed
 
+    // A Hitbox with the fields the map's entity has by these names -- damage, knockback --
+    // and the defaults for the rest. See "FROM THE EDITOR" at the top of this file.
     [[nodiscard]] static Hitbox from(const MapObject &object);
 
     void _update(Object &self, float delta);
@@ -632,6 +634,8 @@ struct Collectible {
     // Whether it has been picked up: from then on it only vanishes.
     [[nodiscard]] bool collected() const { return ours.collected; }
 
+    // A Collectible with the fields the map's entity has by these names -- magnet --
+    // and the defaults for the rest. See "FROM THE EDITOR" at the top of this file.
     [[nodiscard]] static Collectible from(const MapObject &object);
 
     void _update(Object &self, float delta);
@@ -683,7 +687,7 @@ struct Shooter {
     std::string sound; // played by rmp::audio on each volley; "" = silent
 
     float bullet_radius = 4; // the default bullet's
-    Color bullet_color = WHITE;
+    Color bullet_color = WHITE; // the default bullet's fill
     float bullet_life = 2; // seconds before it is discarded
     int damage = 1; // what the default bullet's Hitbox costs
     unsigned hits = 0; // the layers the bullets hit; 0 = its own mask, less its own layer
@@ -696,6 +700,8 @@ struct Shooter {
     // How many volleys it has fired.
     [[nodiscard]] int shots() const { return ours.shots; }
 
+    // A Shooter with the fields the map's entity has by these names -- every, speed, count, spread, rotate, range --
+    // and the defaults for the rest. See "FROM THE EDITOR" at the top of this file.
     [[nodiscard]] static Shooter from(const MapObject &object);
 
     void _update(Object &self, float delta);
@@ -740,6 +746,8 @@ struct Patrol {
     // The waypoint it is heading for, an index into `waypoints`.
     [[nodiscard]] int heading_for() const { return ours.index; }
 
+    // A Patrol with the fields the map's entity has by these names -- path, speed, wait, ping_pong --
+    // and the defaults for the rest. See "FROM THE EDITOR" at the top of this file.
     [[nodiscard]] static Patrol from(const MapObject &object);
 
     void _update(Object &self, float delta);
@@ -823,6 +831,8 @@ struct Chase {
     // Whether it saw the target at its last update.
     [[nodiscard]] bool sees() const { return ours.sees; }
 
+    // A Chase with the fields the map's entity has by these names -- speed, sight, fov --
+    // and the defaults for the rest. See "FROM THE EDITOR" at the top of this file.
     [[nodiscard]] static Chase from(const MapObject &object);
 
     void _ready(Object &self);
@@ -862,10 +872,12 @@ struct Orbit {
     float radius = 48; // units from the centre
     float degrees_per_second = 90; // negative turns the other way
     float angle = 0; // degrees, where it is now; it is where it starts too
-    Face face = Face::NONE;
+    Face face = Face::NONE; // which way it turns its object as it goes round
     int index = 0; // this one's place among `of` on the same centre
     int of = 1; // how many share the centre, spread evenly
 
+    // A Orbit with the fields the map's entity has by these names -- radius, speed, angle --
+    // and the defaults for the rest. See "FROM THE EDITOR" at the top of this file.
     [[nodiscard]] static Orbit from(const MapObject &object);
 
     void _late_update(Object &self, float delta);
@@ -878,8 +890,8 @@ struct Orbit {
 // A rule of an Animator: play `tag` while `when` says so. The rules are asked
 // in order, before anything the Animator works out itself.
 struct AnimationRule {
-    std::string tag;
-    Condition<Object &> when;
+    std::string tag; // the tag played while `when` says so
+    Condition<Object &> when; // asked with the object, every update
 };
 
 // Plays the tag that fits what the object is doing: `die` once its Health is
@@ -889,11 +901,11 @@ struct AnimationRule {
 // of your .aseprite; a tag the sheet lacks is skipped for the next that fits,
 // and without a sheet only flip_x is set. Runs after everything has moved.
 struct Animator {
-    std::string idle = "idle";
-    std::string run = "run";
-    std::string jump = "jump";
-    std::string fall = "fall";
-    std::string hurt = "hurt";
+    std::string idle = "idle"; // standing still, on the ground
+    std::string run = "run"; // moving faster than `moving_at`
+    std::string jump = "jump"; // in the air, going up (with gravity)
+    std::string fall = "fall"; // in the air, coming down (with gravity)
+    std::string hurt = "hurt"; // while its Health is invulnerable after a hit
     std::string die = "die"; // played once, not looped
     float moving_at = 10; // units per second under which it stands still
     bool flip = true; // sets flip_x while it moves left; the art faces right
@@ -960,10 +972,10 @@ struct Draggable {
 // One state of a StateMachine: what it does on the way in, every frame, on
 // the way out, and which behaviors run while it is on.
 struct State {
-    std::string name;
-    Callback<Object &> on_enter;
+    std::string name; // what transitions and go() call it
+    Callback<Object &> on_enter; // once, as the machine moves into it
     Callback<Object &, float> on_update; // (the object, delta)
-    Callback<Object &> on_exit;
+    Callback<Object &> on_exit; // once, as the machine moves out of it
     // The behaviors that run in this state: rmp::behavior::kinds<Patrol>().
     // Every behavior some state names is paused in the states that do not.
     std::vector<int> enables;
@@ -972,8 +984,8 @@ struct State {
 // A move from one state to another, taken when `when` says so.
 struct Transition {
     std::string from; // "" = from any state
-    std::string to;
-    Condition<Object &> when;
+    std::string to; // the state it moves to
+    Condition<Object &> when; // asked with the object every update; yes takes the move
 };
 
 // The behaviors a State turns on, by type: `.enables = kinds<Patrol, Animator>()`.
@@ -987,9 +999,10 @@ template <class... B> [[nodiscard]] std::vector<int> kinds() {
 // matches and whose `when` says yes is taken -- and runs the state's
 // on_update. go() moves by name, at its next update.
 struct StateMachine {
-    std::vector<State> states;
+    std::vector<State> states; // every state it can be in, by name
     std::string initial; // "" = the first state
-    std::vector<Transition> transitions;
+    std::vector<Transition>
+        transitions; // asked in order; the first that says yes is taken
 
     // Moves to the state called `name` at its next update; a name it does not
     // have is said once and changes nothing.
