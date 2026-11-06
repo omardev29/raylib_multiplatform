@@ -481,6 +481,32 @@ int plural_count(std::string_view code) {
     return 0;
 }
 
+std::string_view plural_category(std::string_view code, double n, bool integer) {
+    const int form = plural_form(code, n, integer);
+    switch (rule_of(code)) {
+        case Rule::OTHER: return "other";
+        case Rule::ONE:
+        case Rule::ZERO_ONE: return form == 0 ? "one" : "other";
+        case Rule::EAST_SLAVIC:
+        case Rule::POLISH:
+        case Rule::CZECH: {
+            constexpr std::array<std::string_view, 4> NAMES{ "one", "few", "many", "other" };
+            return form >= 0 && form < 4 ? NAMES[static_cast<std::size_t>(form)] : "other";
+        }
+        case Rule::UNKNOWN: return "other";
+    }
+    return "other";
+}
+
+std::string_view ordinal_category(std::string_view code, double n) {
+    if (code.substr(0, code.find('-')) != "en" || !std::isfinite(n)) return "other";
+    const Whole w = whole(n);
+    if (w.mod10 == 1 && w.mod100 != 11) return "one";
+    if (w.mod10 == 2 && w.mod100 != 12) return "two";
+    if (w.mod10 == 3 && w.mod100 != 13) return "few";
+    return "other";
+}
+
 std::string format(std::string_view text, std::span<const TextArg> args, std::string_view code) {
     const std::string chosen = choose_form(text, args, code);
     if (args.empty() && chosen.find_first_of("{}") == std::string::npos) return chosen;

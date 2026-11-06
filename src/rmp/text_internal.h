@@ -58,6 +58,12 @@ std::string normalize(std::string_view locale);
 int plural_form(std::string_view code, double n, bool integer);
 int plural_count(std::string_view code);
 
+// The same as CLDR names them: "one", "few", "other"... -- for Yarn's [plural]
+// markup -- and the ordinal category ("one" for 1st, "two" for 2nd, "few" for
+// 3rd, "other"), which only English distinguishes here.
+std::string_view plural_category(std::string_view code, double n, bool integer);
+std::string_view ordinal_category(std::string_view code, double n);
+
 // Fill {name} from args and choose the plural form; `code` is the language the
 // text is in.
 std::string format(std::string_view text, std::span<const TextArg> args,
