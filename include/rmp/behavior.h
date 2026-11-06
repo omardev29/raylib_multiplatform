@@ -56,6 +56,7 @@
 #include <rmp/config.h>
 #include <rmp/object.h> // rmp::Object, Handle and Callback, held by value in the catalogue
 #include <rmp/scene.h> // rmp::Scene, for Spawner's on_spawn -- and what every behavior game uses
+#include <rmp/dialogue.h> // rmp::Dialogue, which a Talker holds by value
 
 #include <array>
 #include <optional> // a Pathfind's goal, which may be none
@@ -613,6 +614,48 @@ struct Hitbox {
     // name is the fence.
     struct {
         std::vector<Handle<Object>> struck; // for once_per_target
+    } ours;
+};
+
+// Someone to talk to. When `player` is within `range` and `action` is pressed
+// -- or as soon as it is within range, with no action -- it loads `dialogue`
+// (a .yarn of resources/, once), starts it at `node` and hands it to
+// on_talk, where the game shows it: a presenter of rmp::ui in a scene pushed
+// on top when it should pause the world (DialogueBox and DialogueStage), or
+// a DialogueBubble drawn in this scene's _draw(). in_range() is for the
+// prompt over its head -- rmp::ui::at(self.position, ...) "Talk". `once`
+// talks a single time; the dialogue's variables and visits stay with it.
+//
+// From the editor: "dialogue" (String), "node" (String), "range" (Float),
+// "once" (Bool).
+struct Talker {
+    std::string dialogue; // the .yarn file
+    std::string node = "Start"; // where it starts
+    float range = 40; // world units between the two positions
+    Handle<Object> player{}; // who talks to it
+    std::string action = "interact"; // the rmp::input action; "" = on arriving
+    bool once = false; // talks the first time only
+    Callback<Dialogue &> on_talk; // the conversation started: show it
+    Callback<> on_done; // ...and finished
+
+    [[nodiscard]] bool in_range() const { return ours.near; } // close enough to talk
+    [[nodiscard]] bool talking() const { return ours.talking; } // a conversation is running
+    [[nodiscard]] Dialogue &conversation() { return ours.talk; } // what it says
+
+    // A Talker with the fields the map's entity has by these names --
+    // dialogue, node, range, once -- and the defaults for the rest.
+    [[nodiscard]] static Talker from(const MapObject &object);
+
+    void _update(Object &self, float delta);
+
+    // What it is keeping track of; not yours to write.
+    struct {
+        Dialogue talk;
+        bool loaded = false;
+        bool near = false;
+        bool talking = false;
+        bool talked = false;
+        bool was_near = false;
     } ours;
 };
 
