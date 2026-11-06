@@ -305,7 +305,8 @@ Value Machine::call(const std::string &name, std::span<const Value> args) {
     return Value::of(false);
 }
 
-std::optional<Machine::Candidate> Machine::select(std::vector<Candidate> &candidates) {
+std::optional<Machine::Candidate>
+Machine::select(const std::vector<Candidate> &candidates) {
     // By their places in `candidates`: what passes, then the one chosen.
     std::vector<std::size_t> passing;
     for (std::size_t i = 0; i < candidates.size(); ++i) {

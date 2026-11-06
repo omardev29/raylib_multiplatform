@@ -1333,6 +1333,18 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
     return measure_text(ui_font(size, config->fontId), text, size);
 }
 
+Clay_Dimensions measure_piece(Clay_StringSlice text, std::uint16_t font_id, float size) {
+    if (providers.measure != measure_with_raylib) {
+        Clay_TextElementConfig config{};
+        config.fontId = font_id;
+        config.fontSize = static_cast<std::uint16_t>(std::lround(size));
+        return providers.measure(text, &config, nullptr);
+    }
+    if (!font_file(font_id).empty() && text.length > 0)
+        want_glyphs(std::string_view(text.chars, static_cast<std::size_t>(text.length)));
+    return measure_text(ui_font(size, font_id), text, size);
+}
+
 void pointer_from_raylib(Clay_Vector2 &position, bool &down) {
     const Vector2 p = GetMousePosition();
     position = Clay_Vector2{ p.x, p.y };

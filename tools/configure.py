@@ -2835,6 +2835,8 @@ def licenses_text(cfg: dict, family: str, rows=None) -> str:
     ]
     missing = []
     for row in license_db.rows_for(rows, family):
+        if license_db.left_out(row, REPO):
+            continue  # a game in plain C: the framework's C++ is not in it
         component = REPO / row["path"]
         text = license_db.notice_text(component, row["evidence"], row.families)
         if text is None and row["evidence"].startswith("part-of:"):

@@ -9,16 +9,24 @@
 // pressed" is gone. So this program is one runner, RMP_ENTRY_POINT, driven
 // with fake keys through rmp::input's seam, and it asks both questions:
 //
-//   1. frames 0-19, the RMP_ENTRY_POINT shape: the hook reads rmp::input
+//   1. frames 0-12, the RMP_ENTRY_POINT shape: the hook reads rmp::input
 //      itself and draws its own frame. Space held for four frames is pressed
 //      on those four, and just pressed on exactly one.
-//   2. frames 20-39, the RMP_GAME shape: the hook is rmp::app::detail::frame(),
+//   2. frames 13-25, the RMP_GAME shape: the hook is rmp::app::detail::frame(),
 //      and a scene's _update() reads it. The same press, seen exactly once.
+//   3. frames 26-39, the window out of sight, through the window-state seam:
+//      minimized (26-29), the scene moves and nothing is drawn; then, with
+//      [window] pause_unfocused on from here (under it a minimized window is
+//      a pause too), out of focus (30-33), the scene is told
+//      _suspend() and does not move, and is drawn again as it stands; then
+//      back (34-39): _resume(), and every frame moved and drawn again.
 //
 // Built with the examples (CMakeLists.txt, target input_play) and run by
 // tools/examples_build.sh: `rmp test examples` here, the examples job in CI.
 // It prints INPUT PASS or INPUT FAIL and the reason.
 // ===========================================================================
+
+#include "../src/rmp/internal.h"
 
 #include <rmp/app.h>
 #include <rmp/input.h>
@@ -31,7 +39,11 @@
 
 namespace {
 
-constexpr int SECOND_SHAPE = 20;
+constexpr int SECOND_SHAPE = 13;
+constexpr int THIRD_SHAPE = 26;
+constexpr int MINIMIZED_UNTIL = 30;
+constexpr int UNFOCUSED_UNTIL = 34;
+// 40: the coverage run plays it under RAY_TEST_MAX_FRAMES=40, as the smoke test.
 constexpr int LAST_FRAME = 40;
 constexpr int HELD_FROM = 5; // frames into each shape
 constexpr int HELD_FOR = 4;
@@ -44,8 +56,18 @@ struct {
     int hook_pressed = 0;
     int scene_held = 0;
     int scene_pressed = 0;
+    int updates = 0; // in the third shape
+    int draws = 0;
+    int suspends = 0;
+    int resumes = 0;
     int failures = 0;
 } run;
+
+// What the window is, frame by frame, in the third shape.
+void window(rmp::app::detail::WindowState &w) {
+    w.minimized = run.frame >= THIRD_SHAPE && run.frame < MINIMIZED_UNTIL;
+    w.focused = run.frame < MINIMIZED_UNTIL || run.frame >= UNFOCUSED_UNTIL;
+}
 
 void sample(rmp::input::detail::DeviceState &out) {
     out = rmp::input::detail::DeviceState{};
@@ -58,7 +80,13 @@ public:
     void _update(float /*delta*/) override {
         if (rmp::input::pressed("jump")) ++run.scene_held;
         if (rmp::input::just_pressed("jump")) ++run.scene_pressed;
+        if (run.frame >= THIRD_SHAPE) ++run.updates;
     }
+    void _draw() override {
+        if (run.frame >= THIRD_SHAPE) ++run.draws;
+    }
+    void _suspend() override { ++run.suspends; }
+    void _resume() override { ++run.resumes; }
 };
 
 void expect(const char *what, int got, int want) {
@@ -72,6 +100,7 @@ void expect(const char *what, int got, int want) {
 
 void ready() {
     rmp::input::detail::set_sample_provider(sample);
+    rmp::app::detail::set_window_state_provider(window);
     // Opens the window and enters the scene, as RMP_GAME's ready hook does.
     // The first shape below simply never calls frame(), so the scene sits
     // there while the hook reads the input itself.
@@ -96,13 +125,21 @@ void frame(float delta) {
     // one. So the press lands on frames HELD_FROM .. HELD_FROM+HELD_FOR-1 of
     // each shape, decided at the end of the frame before.
     ++run.frame;
-    const int next = run.frame < SECOND_SHAPE ? run.frame : run.frame - SECOND_SHAPE;
+    if (run.frame == MINIMIZED_UNTIL) rmp::app::detail::set_pause_unfocused(true);
+    const int next = run.frame < SECOND_SHAPE ? run.frame
+        : run.frame < THIRD_SHAPE             ? run.frame - SECOND_SHAPE
+                                              : 0;
     run.space = next >= HELD_FROM && next < HELD_FROM + HELD_FOR;
     if (run.frame < LAST_FRAME) return;
     expect("RMP_ENTRY_POINT, frames Space was held", run.hook_held, HELD_FOR);
     expect("RMP_ENTRY_POINT, presses", run.hook_pressed, 1);
     expect("RMP_GAME, frames Space was held", run.scene_held, HELD_FOR);
     expect("RMP_GAME, presses", run.scene_pressed, 1);
+    // Minimized: 4 steps, none drawn. Unfocused: 4 drawn, none moved. Back: 6 of each.
+    expect("out of sight, frames the scene moved", run.updates, 10);
+    expect("out of sight, frames the scene was drawn", run.draws, 10);
+    expect("out of sight, _suspend()", run.suspends, 1);
+    expect("out of sight, _resume()", run.resumes, 1);
     if (run.failures == 0) {
         std::printf("INPUT PASS\n");
     } else {

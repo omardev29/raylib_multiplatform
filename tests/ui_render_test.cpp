@@ -41,6 +41,7 @@
 #include <rmp/tilemap.h>
 #include <rmp/ui.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdarg>
 #include <cstdio>
@@ -1217,6 +1218,88 @@ void an_outline_goes_around_the_letters() {
     check(outlined > 20, "with a white outline, white around every letter");
 }
 
+// Rich text, drawn a letter at a time (src/rmp/ui/rich.cpp's draw_rich): its
+// colours, a typewriter's count, bold, and the letters that move.
+void rich_text_draws_its_letters() {
+    // What a rich text puts in its box: the pixels that match, and the ones
+    // that are not the black under it.
+    struct Count {
+        int matching = 0;
+        int lit = 0;
+        int coloured = 0; // neither grey nor black: a hue
+    };
+    const auto count = [](const Shot &shot, Rectangle r, Color want) {
+        Count n;
+        for (int y = static_cast<int>(r.y); y < static_cast<int>(r.y + r.height); ++y) {
+            for (int x = static_cast<int>(r.x); x < static_cast<int>(r.x + r.width);
+                 ++x) {
+                const Color c = shot.at(x, y);
+                n.matching += same(c, want) ? 1 : 0;
+                n.lit += same(c, BLACK) ? 0 : 1;
+                const int hi = std::max({ c.r, c.g, c.b });
+                const int lo = std::min({ c.r, c.g, c.b });
+                n.coloured += hi - lo > 60 ? 1 : 0;
+            }
+        }
+        return n;
+    };
+    const auto shoot = [&](std::string_view markup, rmp::ui::RichTextOptions o,
+                           Color want) {
+        o.id = "rich";
+        const auto draw = [&] {
+            ClearBackground(BLACK);
+            rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+            rmp::ui::rich_text(rmp::Text(std::string(markup)), o);
+            rmp::ui::end();
+        };
+        frame(draw);
+        const Shot shot = frame(draw);
+        const Count n = count(shot, drawn(CLAY_RENDER_COMMAND_TYPE_CUSTOM), want);
+        rmp::ui::shutdown();
+        return n;
+    };
+    const rmp::ui::RichTextOptions wide{ .width = 400, .size = 40.0f };
+    const Color pure_red{ 255, 0, 0, 255 };
+    check(shoot("[color=#ff0000]MMMM[/color]", wide, pure_red).matching > 40,
+          "rich text: [color] paints its letters");
+    check(shoot("[color=#ff0000]MMMM[/color]",
+                { .width = 400, .size = 40.0f, .visible = 0 }, RED)
+                  .lit == 0,
+          "rich text: a typewriter at 0 letters draws none");
+    const int plain = shoot("MMMM", wide, WHITE).lit;
+    const int bold = shoot("[b]MMMM[/b]", wide, WHITE).lit;
+    check(plain > 0 && bold > plain, "rich text: [b] is wider strokes than plain");
+    check(shoot("[rainbow]MMMM[/rainbow]", wide, WHITE).coloured > 40,
+          "rich text: [rainbow] colours its letters");
+    // Wave and shake move with the rich text's clock: ten frames of 1/60 s
+    // apart, the same letters stand elsewhere.
+    const auto differ = [](const Shot &a, const Shot &b) {
+        int n = 0;
+        for (int y = 0; y < a.height(); ++y)
+            for (int x = 0; x < a.width(); ++x) n += same(a.at(x, y), b.at(x, y)) ? 0 : 1;
+        return n;
+    };
+    rmp::app::detail::set_fixed_delta(1.0f / 60); // frame() steps the clock
+    for (const std::string_view moving :
+         { "[wave]MMMMMMMM[/wave]", "[shake]MMMMMMMM[/shake]" }) {
+        const auto draw = [&] {
+            ClearBackground(BLACK);
+            rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+            rmp::ui::rich_text(rmp::Text(std::string(moving)),
+                               { .width = 600, .size = 40.0f, .id = "rich" });
+            rmp::ui::end();
+        };
+        frame(draw);
+        const Shot first = frame(draw);
+        for (int i = 0; i < 9; ++i) frame(draw);
+        const Shot later = frame(draw);
+        check(differ(first, later) > 0,
+              "rich text: " + std::string(moving) + " moves its letters");
+        rmp::ui::shutdown();
+    }
+    rmp::app::detail::set_fixed_delta(0);
+}
+
 // A skin is the box: its picture, not the theme's fill.
 void a_skin_is_the_box() {
     const ::Image img = GenImageColor(8, 8, GREEN);
@@ -1340,6 +1423,7 @@ int main() {
     a_shadow_falls_under_its_box();
     an_outline_goes_around_the_letters();
     a_skin_is_the_box();
+    rich_text_draws_its_letters();
     the_framework_look();
 
     rmp::ui::detail::set_test_blur_shader(std::nullopt);

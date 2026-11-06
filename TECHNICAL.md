@@ -89,6 +89,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── save_internal.h
 │       ├── cjson_impl.c      #   compiles cJSON once, as C
 │       ├── json_internal.h   #   cJSON owned, and read in the "C" locale (saves and LDtk)
+│       ├── number_internal.h #   numbers as text in the "C" locale, the shortest that reads back
 │       ├── dialogue/         #   rmp::Dialogue -- Yarn Spinner 3, ported to C++
 │       │   ├── yarn.h        #     the tree, the program, the machine
 │       │   ├── yarn_parse.cpp #    .yarn -> the tree, a line at a time

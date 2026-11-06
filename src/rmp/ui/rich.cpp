@@ -132,21 +132,22 @@ std::vector<int> code_points(std::string_view s) {
     return out;
 }
 
-// How far a letter moves the pen: measured as the UI measures every text,
-// so a font with no glyphs (a headless test's) still answers.
-float advance(const ::Font &font, int codepoint, float size) {
+// How far a letter moves the pen: measured as the UI measures every text --
+// through its measure provider, so a headless test's stub answers, and a
+// letter the face lacks is baked into it.
+float advance(std::uint16_t font_id, int codepoint, float size) {
     int bytes = 0;
     // NOLINTNEXTLINE(custom-rmp-raw-pointer): raylib's static buffer, read at once
     const char *utf8 = CodepointToUTF8(codepoint, &bytes);
     const Clay_StringSlice slice{ bytes, utf8, utf8 };
-    return measure_text(font, slice, size).width;
+    return measure_piece(slice, font_id, size).width;
 }
 
 } // namespace
 
 // Lay the text out in `width` pixels, word by word.
 RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Color base,
-                    std::uint16_t font_id, float &height) {
+                    std::uint16_t font_id, float &height, float &widest) {
     RichRecord &r = rich.records.emplace_back();
     r.font = font_id;
     const std::vector<int> cps = code_points(marked.text);
@@ -185,6 +186,7 @@ RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Co
     float x = 0;
     float y = 0;
     float line_height = base_size;
+    widest = 0;
     std::size_t i = 0;
     while (i < glyphs.size()) {
         if (glyphs[i].codepoint == '\n') {
@@ -198,8 +200,7 @@ RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Co
         float word = 0;
         while (end < glyphs.size() && glyphs[end].codepoint != ' ' &&
                glyphs[end].codepoint != '\n') {
-            const ::Font f = ui_font(glyphs[end].size, font_id);
-            word += advance(f, glyphs[end].codepoint, glyphs[end].size);
+            word += advance(font_id, glyphs[end].codepoint, glyphs[end].size);
             ++end;
         }
         if (x > 0 && x + word > width) {
@@ -208,8 +209,7 @@ RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Co
             line_height = base_size;
         }
         for (std::size_t k = i; k < end; ++k) {
-            const ::Font f = ui_font(glyphs[k].size, font_id);
-            const float w = advance(f, glyphs[k].codepoint, glyphs[k].size);
+            const float w = advance(font_id, glyphs[k].codepoint, glyphs[k].size);
             if (x > 0 && x + w > width && word > width) {
                 x = 0;
                 y += line_height * 1.15f;
@@ -217,11 +217,11 @@ RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Co
             glyphs[k].at = Vector2{ x, y };
             line_height = std::max(line_height, glyphs[k].size);
             x += w;
+            widest = std::max(widest, x);
         }
         if (end < glyphs.size() && glyphs[end].codepoint == ' ') {
-            const ::Font f = ui_font(glyphs[end].size, font_id);
             glyphs[end].at = Vector2{ x, y };
-            x += advance(f, ' ', glyphs[end].size);
+            x += advance(font_id, ' ', glyphs[end].size);
             ++end;
         }
         i = end;
@@ -236,6 +236,7 @@ void rich_begin_frame() {
     rich.clock += frame_time();
 }
 
+// RMP_COVERAGE_OFF(on the GPU: the unit tests have no window; tests/ui_render_test.cpp draws every line)
 void draw_rich(const Clay_RenderCommand &cmd, float alpha) {
     const Vector2 origin{ cmd.boundingBox.x, cmd.boundingBox.y };
     // NOLINTNEXTLINE(custom-rmp-raw-pointer): Clay hands back the record as its void * customData
@@ -272,6 +273,7 @@ void draw_rich(const Clay_RenderCommand &cmd, float alpha) {
             DrawTextCodepoint(f, g.codepoint, Vector2{ at.x + 1, at.y }, g.size, c);
     }
 }
+// RMP_COVERAGE_ON
 
 void rich_with(const yarn::Marked &marked, const RichTextOptions &o,
                std::string_view label) {
@@ -287,8 +289,9 @@ void rich_with(const yarn::Marked &marked, const RichTextOptions &o,
     }
     const float size = px(resolve_size(o.size, t));
     float height = 0;
+    float widest = 0;
     RichRecord &r = lay_out(marked, width, size, theme_color(t, o.color),
-                            font_id_of(look().font), height);
+                            font_id_of(look().font), height, widest);
     r.visible = o.visible;
     r.time = rich.clock;
     Clay_ElementDeclaration d{};
@@ -296,7 +299,13 @@ void rich_with(const yarn::Marked &marked, const RichTextOptions &o,
         d.layout.sizing.width = Clay_SizingAxis{ .size = { .minMax = { width, width } },
                                                  .type = CLAY__SIZING_TYPE_FIXED };
     } else {
-        d.layout.sizing.width = Clay_SizingAxis{ .type = CLAY__SIZING_TYPE_GROW };
+        // Growing into the room there is, and never narrower than its own
+        // widest line: in a panel that fits its content, room is what the
+        // content asks for, and a text that asked for none was laid out 0 wide.
+        // (A max of 0 is none: Clay makes it the largest float.)
+        d.layout.sizing.width =
+            Clay_SizingAxis{ .size = { .minMax = { std::ceil(widest), 0 } },
+                             .type = CLAY__SIZING_TYPE_GROW };
     }
     d.layout.sizing.height = Clay_SizingAxis{ .size = { .minMax = { height, height } },
                                               .type = CLAY__SIZING_TYPE_FIXED };

@@ -679,6 +679,12 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
 // font of its own making -- baking one needs a GL context.
 Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size);
 
+// A piece of text as the UI measures it, at a size in pixels that need not be
+// whole: through the measure provider (a test's stub, headless), and with the
+// real one exactly as measure_with_raylib() measures, the face's missing
+// letters asked for. Rich text lays its letters out with it.
+Clay_Dimensions measure_piece(Clay_StringSlice text, std::uint16_t font_id, float size);
+
 // The space render.cpp draws between two letters of a text `font_size` pixels
 // tall, and the one every measurement counts.
 inline float letter_spacing(float font_size) { return font_size / 10.0f; }

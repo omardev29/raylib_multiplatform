@@ -87,6 +87,8 @@ TEST_SUITE("text: rmp::Text") {
         CHECK(say("Open") == "Open"); // no context: another row, and none
         CHECK(rmp::Text("Open", { .context = "door" }).id() != rmp::Text("Open").id());
         CHECK(rmp::Text("Open").id() == "Open");
+        CHECK(rmp::Text("Open", { .context = "door" }).context() == "door");
+        CHECK(rmp::Text("Open").context().empty());
     }
 
     TEST_CASE_FIXTURE(Tables, "placeholders are filled, and braces doubled are braces") {
@@ -96,6 +98,13 @@ TEST_SUITE("text: rmp::Text") {
               "x and 2.5");
         CHECK(say(rmp::Text("{{literal}} {missing}", { { "a", 1 } })) ==
               "{literal} {missing}");
+        const rmp::Text score("Score: {score}", { { "score", 42 } });
+        REQUIRE(score.args().size() == 1);
+        CHECK(score.args()[0].name() == "score");
+        CHECK(score.args()[0].number() == 42);
+        CHECK(rmp::Text("Play").args().empty());
+        CHECK(rmp::TextArg("n", 1e8).text() == "100000000");
+        CHECK(rmp::TextArg("n", 1378324.5).text() == "1378324.5");
         // The id does not change with the value: focus survives a score.
         CHECK(rmp::Text("Score: {score}", { { "score", 1 } }).id() ==
               rmp::Text("Score: {score}", { { "score", 2 } }).id());

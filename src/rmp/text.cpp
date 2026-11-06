@@ -10,6 +10,7 @@
 // ===========================================================================
 
 #include "internal.h"
+#include "number_internal.h"
 #include "text_internal.h"
 
 #include <rmp/assets.h>
@@ -233,15 +234,17 @@ bool few_slavic(const Whole &w) {
     return w.mod10 >= 2 && w.mod10 <= 4 && (w.mod100 < 12 || w.mod100 > 14);
 }
 
+// A whole number as one, a double's too while every digit is exact (below
+// 10^15): "Score: 100000000", never "1e+08". The rest, the shortest that reads
+// back.
 std::string number_text(double n, bool integer) {
-    std::array<char, 64> buffer{};
-    std::to_chars_result done{};
-    if (integer && std::isfinite(n) && std::fabs(n) < 9.2e18) {
-        done = std::to_chars(buffer.data(), buffer.data() + buffer.size(),
-                             static_cast<std::int64_t>(n));
-    } else {
-        done = std::to_chars(buffer.data(), buffer.data() + buffer.size(), n);
+    const double limit = integer ? 9.2e18 : 1e15;
+    if (!std::isfinite(n) || std::fabs(n) >= limit || n != std::trunc(n)) {
+        return rmp::detail::shortest_number(n, false);
     }
+    std::array<char, 24> buffer{};
+    const std::to_chars_result done = std::to_chars(
+        buffer.data(), buffer.data() + buffer.size(), static_cast<std::int64_t>(n));
     if (done.ec != std::errc{}) return {};
     return { buffer.data(), done.ptr };
 }
@@ -279,6 +282,7 @@ std::string translated(std::string_view key, std::string_view context,
             return format(*found, args, c);
         }
     }
+    // cppcheck-suppress knownConditionTrueFalse ; a build setting, and the .toml's
     if (is_debug() && RMP_LANG_COLLECT != 0 && !key.empty() &&
         !lang.rows.contains(row_key(key, context))) {
         lang.missing.insert(row_key(key, context));
@@ -360,11 +364,13 @@ void load_from_resources() {
     std::vector<Source> sources;
     std::vector<Watched> watch;
     const std::string file = RMP_LANG_FILE;
+    // cppcheck-suppress knownConditionTrueFalse ; [lang] file, which "" turns off
     if (!file.empty()) {
         if (auto text = read_resource(file, watch))
             sources.push_back({ {}, std::move(*text) });
     }
     const std::string folder = RMP_LANG_FOLDER;
+    // cppcheck-suppress knownConditionTrueFalse ; [lang] folder, which "" turns off
     if (!folder.empty()) {
         std::vector<std::string> codes = shipped();
         if (codes.empty()) codes.assign(KNOWN_CODES.begin(), KNOWN_CODES.end());
@@ -551,7 +557,8 @@ std::string format(std::string_view text, std::span<const TextArg> args,
         if (c == '{') {
             const std::size_t close = chosen.find('}', i + 1);
             if (close != std::string::npos) {
-                const std::string_view name(chosen.data() + i + 1, close - i - 1);
+                const std::string_view name =
+                    std::string_view(chosen).substr(i + 1, close - i - 1);
                 const auto arg = std::ranges::find(args, name, &TextArg::name);
                 if (arg != args.end()) {
                     out += arg->text();
@@ -691,6 +698,7 @@ struct FileClose {
 } // namespace
 
 void write_seen() {
+    // cppcheck-suppress knownConditionTrueFalse ; a build setting, and the .toml's
     if (!is_debug() || RMP_LANG_COLLECT == 0 || lang.missing.empty()) return;
     const std::string path = std::string(GetApplicationDirectory()) + "lang_seen.tsv";
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): the unique_ptr is the owner
@@ -764,10 +772,7 @@ namespace rmp {
 std::string TextArg::text() const {
     if (!_numeric) return _text;
     if (_single) {
-        std::array<char, 32> buffer{};
-        const auto done = std::to_chars(buffer.data(), buffer.data() + buffer.size(),
-                                        static_cast<float>(_number));
-        return { buffer.data(), done.ptr };
+        return rmp::detail::shortest_number(static_cast<float>(_number), true);
     }
     return rmp::lang::detail::number_text_for(_number, _integer);
 }

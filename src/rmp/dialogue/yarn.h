@@ -391,7 +391,7 @@ private:
     Value call(const std::string &name, std::span<const Value> args);
     Value evaluate(const std::vector<Instruction> &code) const;
     Value read(std::string_view name) const;
-    std::optional<Candidate> select(std::vector<Candidate> &candidates);
+    std::optional<Candidate> select(const std::vector<Candidate> &candidates);
     void fault(std::string message);
 
     Program _program;

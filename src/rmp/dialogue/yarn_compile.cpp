@@ -683,10 +683,12 @@ private:
     bool loops(const std::string &name, std::set<std::string> &path) {
         if (path.contains(name)) return true;
         const auto it = _vars.find(name);
-        if (it == _vars.end() || !it->second.smart || !it->second.init) return false;
+        if (it == _vars.end() || !it->second.smart) return false;
+        const auto &init = it->second.init;
+        if (!init) return false;
         path.insert(name);
         std::set<std::string> refs;
-        if (it->second.init) collect_vars(*it->second.init, refs);
+        collect_vars(*init, refs);
         for (const std::string &r : refs) {
             if (loops(r, path)) return true;
         }

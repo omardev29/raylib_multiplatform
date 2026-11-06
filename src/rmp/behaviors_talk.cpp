@@ -24,6 +24,7 @@ Talker Talker::from(const MapObject &object) {
     return made;
 }
 
+// cppcheck-suppress constParameterReference ; a hook's signature is the API's
 void Talker::_update(Object &self, float delta) {
     (void)delta;
     if (ours.talking) {

@@ -2459,6 +2459,8 @@ void run_font_sizes() {
         rmp::ui::text("medium");
         rmp::ui::text("large", { .size = rmp::ui::Size::LARGE });
         rmp::ui::text("exact", { .size = 34 });
+        // Rich text measures through the same faces: no size of its own here.
+        rmp::ui::rich_text("rich [b]medium[/b]");
         rmp::ui::end();
     };
     frame();
@@ -3190,6 +3192,200 @@ void run_dialogue_presenters() {
         rmp::ui::end();
     }
     check_near(box_of("rich").w, 300 * rmp::ui::scale(), 1.0f, "a fixed width is kept");
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin();
+        rmp::ui::rich_text("[b]plain[/b] options");
+        rmp::ui::end();
+    }
+    check(box_of("[b]plain[/b] options").w > 0, "with no options, the key is the id");
+    // Every colour it reads, every role, and the lines it breaks: laid out
+    // the same whatever their colour, taller for each line.
+    const auto height_of = [](std::string_view markup, rmp::ui::RichTextOptions o) {
+        o.id = "rich_lines";
+        for (int i = 0; i < 2; ++i) {
+            rmp::ui::begin();
+            rmp::ui::rich_text(rmp::Text(std::string(markup)), o);
+            rmp::ui::end();
+        }
+        return box_of("rich_lines").h;
+    };
+    const float one = height_of("one line", { .width = 400 });
+    for (const std::string_view colour :
+         { "red", "green", "blue", "yellow", "orange", "purple", "white", "black", "gray",
+           "pink", "#AbCdEf", "#ff000080", "#12345", "nonsense" }) {
+        const std::string markup = "[color=" + std::string(colour) + "]one line[/color]";
+        check_near(height_of(markup, { .width = 400 }), one, 0.5f,
+                   "a colour changes no layout");
+    }
+    for (const rmp::ui::ColorRole role :
+         { rmp::ui::ColorRole::MUTED, rmp::ui::ColorRole::PRIMARY,
+           rmp::ui::ColorRole::DANGER }) {
+        check_near(height_of("one line", { .width = 400, .color = role }), one, 0.5f,
+                   "nor does a role");
+    }
+    check(height_of("one\ntwo", { .width = 400 }) > one * 1.9f, "a new line is a line");
+    check(height_of("a few words that will not fit", { .width = 60 }) > one * 2.5f,
+          "words wrap at the width");
+    check(height_of("Unbreakablewordthatisfarwiderthanitsbox", { .width = 40 }) >
+              one * 2.5f,
+          "a word wider than the line is broken where it overflows");
+    rmp::ui::detail::set_test_frame_time(0);
+}
+
+// What the presenters do between the lines: moods and portraits, [speed] and
+// [pause], a recorded voice and the blips, auto-advance, skip-read, a choice
+// that is not available, the Stage's cast, and a bubble over its speaker.
+struct {
+    std::vector<std::string> names;
+} sounds_played;
+
+void run_dialogue_flow() {
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::detail::set_test_frame_time(1.0f / 60);
+    rmp::lang::detail::reset_for_tests();
+    rmp::lang::detail::set_persist(false);
+    rmp::lang::detail::load_tables({});
+    sounds_played.names.clear();
+    rmp::ui::detail::set_sound_player([](std::string_view name, float /*volume*/) {
+        sounds_played.names.emplace_back(name);
+    });
+    const auto count = [](std::string_view name) {
+        return std::ranges::count(sounds_played.names, std::string(name));
+    };
+
+    // A box: typed with [speed] and a [pause], its voice and blips, then on by itself.
+    rmp::Dialogue d = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\n"
+        "Mika: Hi [speed=4]quick[/speed] [pause=0.2/]then #line:hello #mood:happy\n"
+        "Mika: Again. #line:again\n"
+        "-> Locked <<if false>>\n    never\n-> Open\n    Sora: Opened. #mood:cross\n"
+        "===\n");
+    REQUIRE(d.loaded());
+    d.start();
+    rmp::ui::DialogueBox box{ .portraits = { { .speaker = "Mika", .mood = "happy" },
+                                             { .speaker = "Mika" } },
+                              .flow = { .letters_per_second = 30,
+                                        .blip = "blip",
+                                        .blip_every = 3,
+                                        .auto_advance = 0.1f,
+                                        .voices = "vo/" } };
+    const auto show_box = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_CENTER, .grow = true });
+        const bool showing = box.show(d);
+        rmp::ui::end();
+        return showing;
+    };
+    show_box();
+    check(count("vo/hello") == 1, "a line with an id plays its recorded voice, once");
+    int frames = 1;
+    while (d.has_line() && d.line().text.starts_with("Hi") && frames < 600) {
+        show_box();
+        ++frames;
+    }
+    check(count("blip") >= 4, "the letters blip as they appear");
+    // 21 letters at 30 a second is 42 frames; the quick ones go 4 times as
+    // fast, the pause holds 12, and auto-advance waits 6 more.
+    check(frames > 30 && frames < 80, "[speed], [pause] and auto-advance pace the line");
+    check(d.has_line() && d.line().text == "Again.", "and it went on by itself");
+    while (d.has_line() && frames < 1200) {
+        show_box();
+        ++frames;
+    }
+    check(d.has_options(), "then the choices");
+    show_box(); // laid out, and the focus on the one that can be taken
+    fake_nav.state.activate = true;
+    show_box();
+    fake_nav.state = rmp::ui::detail::NavState{};
+    check(d.has_line() && d.line().speaker == "Sora",
+          "a choice not available is not taken");
+
+    // Skip-read: a line read once goes by at once the second time.
+    rmp::Dialogue again = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\nOne. #line:one\n<<jump Start>>\n===\n");
+    again.start();
+    box.flow = { .letters_per_second = 0, .skip_seen = true };
+    box.ours = {};
+    box.ours.seen.emplace_back("line:one");
+    rmp::ui::begin();
+    box.show(again);
+    rmp::ui::end();
+    check(box.ours.history.size() == 1, "a line already read goes by at once");
+
+    // No choice available at all: the dialogue goes on without one.
+    rmp::Dialogue none =
+        rmp::dialogue::detail::compile_text("title: Start\n---\n-> A <<if false>>\n    "
+                                            "a\n-> B <<if false>>\n    b\nAfter.\n===\n");
+    none.start();
+    rmp::ui::DialogueBox plain{};
+    rmp::ui::begin();
+    plain.show(none);
+    rmp::ui::end();
+    check(none.has_line() && none.line().text == "After.", "with nothing to choose, on");
+
+    // A timed choice whose default is not available takes the first that is.
+    rmp::Dialogue timed = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\n-> A\n    picked A\n-> B <<if false>>\n    picked B\n===\n");
+    timed.start();
+    rmp::ui::DialogueBox clock{ .flow = { .choice_seconds = 0.2f, .default_choice = 1 } };
+    for (int i = 0; i < 30 && timed.has_options(); ++i) {
+        rmp::ui::begin();
+        clock.show(timed);
+        rmp::ui::end();
+    }
+    check(timed.has_line() && timed.line().text == "picked A",
+          "a default that cannot be taken: the first that can");
+
+    // The Stage: the cast as they speak, with their moods, and its choices.
+    rmp::Dialogue cast = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\nMika: One. #mood:happy\nSora: Two.\nRen: Three.\n"
+        "Aki: Four.\n-> Yes\n===\n");
+    cast.start();
+    rmp::ui::DialogueStage stage{
+        .portraits = { { .speaker = "Mika", .mood = "happy" }, { .speaker = "Sora" } },
+        .flow = { .letters_per_second = 0, .auto_advance = 0.05f }
+    };
+    for (int i = 0; i < 120 && !cast.has_options(); ++i) {
+        rmp::ui::begin();
+        stage.show(cast);
+        rmp::ui::end();
+    }
+    check(cast.has_options(), "the Stage goes through every line");
+    check(stage.ours.stage.size() == 3 && stage.ours.stage.front() == "Sora",
+          "three on stage at most, the first to speak gone first");
+    rmp::ui::begin();
+    stage.show(cast);
+    rmp::ui::end();
+    check(box_of("dialogue_choice_0").w > 0, "and the Stage's choices are buttons");
+
+    // A bubble over the object that speaks, and its choices beside it.
+    rmp::Object npc;
+    npc.position = Vector2{ 300, 200 };
+    rmp::Dialogue spoken = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\nNpc: Over here.\n-> Fine\n===\n");
+    spoken.start();
+    rmp::ui::DialogueBubble bubble{ .speakers = { { .name = "Npc",
+                                                    .object = npc.handle() } },
+                                    .flow = { .letters_per_second = 0 } };
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin();
+        bubble.show(spoken);
+        rmp::ui::end();
+    }
+    check(box_of("dialogue_bubble_line").w > 0, "the bubble stands over its speaker");
+    fake_nav.state.activate = true;
+    rmp::ui::begin();
+    bubble.show(spoken);
+    rmp::ui::end();
+    fake_nav.state = rmp::ui::detail::NavState{};
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin();
+        bubble.show(spoken);
+        rmp::ui::end();
+    }
+    check(spoken.has_options() && box_of("dialogue_choice_0").w > 0,
+          "and the bubble's choices beside it");
+
+    rmp::ui::detail::set_sound_player({});
     rmp::ui::detail::set_test_frame_time(0);
 }
 
@@ -3206,6 +3402,7 @@ TEST_CASE("grid") { run_grid(); }
 TEST_CASE("a grid that fits its columns") { run_grid_fit(); }
 TEST_CASE("interaction") { run_interaction(); }
 TEST_CASE("dialogue presenters and rich text") { run_dialogue_presenters(); }
+TEST_CASE("dialogue presenters: the flow between the lines") { run_dialogue_flow(); }
 TEST_CASE("dropdown") { run_dropdown(); }
 TEST_CASE("focus by name") { run_focus_by_name(); }
 TEST_CASE("slider: keyboard and gamepad") { run_slider_nav(); }

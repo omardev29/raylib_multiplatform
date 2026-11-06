@@ -7,6 +7,7 @@
 #include "check.h"
 #include "gen.h"
 
+#include "../../src/rmp/number_internal.h"
 #include "../../src/rmp/text_internal.h"
 
 #include <rmp/text.h>
@@ -14,6 +15,10 @@
 #include <doctest.h>
 #include <rapidcheck.h>
 
+#include <array>
+#include <charconv>
+#include <cmath>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -117,6 +122,52 @@ TEST_SUITE("property: text") {
             const std::string tail = std::to_string(n);
             RC_ASSERT(out == "A" || out == "B" || out == "C" || out == "D" + tail);
         });
+    }
+
+    TEST_CASE("a number has to_chars' digits, without to_chars") {
+        // shortest_number() stands in for the floating-point std::to_chars,
+        // whose tables cost 126 KB of a static release: the same significant
+        // digits, the fewest that read back, laid out as %g lays them.
+        const auto digits = [](std::string text) {
+            text = text.substr(0, text.find_first_of("eE"));
+            std::erase_if(text, [](char c) { return c == '-' || c == '.'; });
+            const std::size_t first = text.find_first_not_of('0');
+            if (first == std::string::npos) return std::string("0");
+            text = text.substr(first);
+            return text.substr(0, text.find_last_not_of('0') + 1);
+        };
+        const auto general = [](auto n) {
+            std::array<char, 64> buffer{};
+            const auto done = std::to_chars(buffer.data(), buffer.data() + buffer.size(),
+                                            n, std::chars_format::general);
+            return std::string(buffer.data(), done.ptr);
+        };
+        const auto same = [&](double x) {
+            const std::string out = rmp::detail::shortest_number(x, false);
+            if (!std::isfinite(x)) return out == general(x);
+            return std::strtod(out.c_str(), nullptr) == x &&
+                digits(out) == digits(general(x));
+        };
+        const auto same_float = [&](float x) {
+            const std::string out = rmp::detail::shortest_number(x, true);
+            if (!std::isfinite(x)) return out == general(x);
+            return std::strtof(out.c_str(), nullptr) == x &&
+                digits(out) == digits(general(x));
+        };
+        rmp::test::check("any double, any float", [&] {
+            const double x = *rmp::test::gen::hostile_double();
+            RC_ASSERT(same(x));
+            RC_ASSERT(same_float(static_cast<float>(x)));
+        });
+        for (const double x :
+             { 0.1, 1e8, 1e21, 123456789.0, 5e-324, -0.0, 2.5, 1.0 / 3 }) {
+            CHECK(same(x));
+            CHECK(same_float(static_cast<float>(x)));
+        }
+        CHECK(rmp::detail::shortest_number(1378324, false) == "1378324");
+        CHECK(rmp::detail::shortest_number(0.1, false) == "0.1");
+        CHECK(rmp::detail::shortest_number(1e21, false) == "1e+21");
+        CHECK(rmp::detail::shortest_number(0.1F, true) == "0.1");
     }
 
     TEST_CASE("a literal of any length is its own key") {

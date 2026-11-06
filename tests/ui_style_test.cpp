@@ -641,6 +641,24 @@ TEST_SUITE("ui: looks") {
         ui::set_font("");
         CHECK(ui::font_name().empty());
     }
+
+    TEST_CASE("a language's font replaces the UI's while it is the language") {
+        // [lang] fonts: lang::set() hands begin_frame() the language's file,
+        // and "" when it has none, which puts the UI's own font back.
+        const HeadlessUi headless;
+        ui::set_font("base.ttf");
+        detail::use_language_font("jp.ttf");
+        CHECK(ui::font_name() == "jp.ttf");
+        detail::use_language_font("jp.ttf"); // every frame: once is enough
+        CHECK(ui::font_name() == "jp.ttf");
+        detail::use_language_font("ko.ttf");
+        CHECK(ui::font_name() == "ko.ttf");
+        detail::use_language_font("");
+        CHECK(ui::font_name() == "base.ttf");
+        detail::use_language_font("");
+        CHECK(ui::font_name() == "base.ttf");
+        ui::set_font("");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1308,6 +1326,23 @@ TEST_SUITE("ui: events and kept widgets") {
         CHECK(count(ui::EventKind::CLICK) == 1);
         CHECK(audio_opens.count == 1); // rmp::audio::play("click") asked for the device
         rmp::audio::detail::reset_for_tests();
+    }
+
+    TEST_CASE("play_sound() plays a name through the player, and nothing for none") {
+        // What the dialogue presenters' blips go through.
+        const HeadlessUi headless;
+        played.names.clear();
+        played.volumes.clear();
+        detail::play_sound("blip", 0.25f); // no player yet: nothing
+        detail::set_sound_player([](std::string_view name, float volume) {
+            played.names.emplace_back(name);
+            played.volumes.push_back(volume);
+        });
+        detail::play_sound("blip", 0.25f);
+        detail::play_sound(ui::SoundName{}, 1.0f);
+        REQUIRE(played.names.size() == 1);
+        CHECK(played.names[0] == "blip");
+        CHECK(played.volumes[0] == doctest::Approx(0.25f));
     }
 
     TEST_CASE("an event plays its sound through the player, at the look's volume") {

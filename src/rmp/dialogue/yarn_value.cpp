@@ -5,6 +5,8 @@
 
 #include "yarn.h"
 
+#include "../number_internal.h"
+
 #include <array>
 #include <cctype>
 #include <charconv>
@@ -37,11 +39,8 @@ std::string number_text(float n) {
     if (std::isnan(n)) return "NaN";
     if (std::isinf(n)) return n > 0 ? "∞" : "-∞";
     if (n == 0) return "0";
-    std::array<char, 48> buffer{};
-    const auto done = std::to_chars(buffer.data(), buffer.data() + buffer.size(), n,
-                                    std::chars_format::general);
-    std::string out(buffer.data(), done.ptr);
-    // to_chars writes 1e+20 where C# writes 1E+20.
+    std::string out = rmp::detail::shortest_number(n, true);
+    // %g writes 1e+20 where C# writes 1E+20.
     if (const std::size_t e = out.find('e'); e != std::string::npos) out[e] = 'E';
     return out;
 }

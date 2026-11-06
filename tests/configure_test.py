@@ -30,6 +30,7 @@ import hashlib
 import contextlib
 import copy
 import re
+import shutil
 import importlib.util
 import io
 import json
@@ -7282,6 +7283,34 @@ class ConfigureLicencesTest(unittest.TestCase):
             self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), False)
             cfg["project"]["name"] = "renamed"
             self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), True)
+
+    def test_a_game_in_plain_c_owes_no_notice_for_the_framework_cpp(self):
+        """The plain-C recipe removes src/rmp/, and with it the Yarn Spinner
+        port and its notice: LICENSES.txt must neither fail on the missing
+        file nor credit code the game does not contain. With src/rmp/ there,
+        the notice is in, and a missing one still fails."""
+        rows = [r for r in cfgmod.license_db.load_rows(REPO)
+                if r["name"] in ("raylib_multiplatform", "yarnspinner")]
+        self.assertEqual(len(rows), 2)
+        notice = REPO / "src" / "rmp" / "dialogue" / "LICENSE-YarnSpinner.md"
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp)
+            shutil.copy(REPO / "LICENSE", tree / "LICENSE")
+            original = cfgmod.REPO
+            cfgmod.REPO = tree
+            try:
+                text = cfgmod.licenses_text(base_config(), "linux", rows)
+                self.assertNotIn("yarnspinner", text)
+                self.assertTrue(cfgmod.license_db.left_out(rows[1], tree))
+                self.assertFalse(cfgmod.license_db.left_out(rows[0], tree))
+                (tree / "src" / "rmp" / "dialogue").mkdir(parents=True)
+                self.assertFalse(cfgmod.license_db.left_out(rows[1], tree))
+                with self.assertRaises(cfgmod.ConfigError):
+                    cfgmod.licenses_text(base_config(), "linux", rows)
+                shutil.copy(notice, tree / "src" / "rmp" / "dialogue")
+                self.assertIn("yarnspinner", cfgmod.licenses_text(base_config(), "linux", rows))
+            finally:
+                cfgmod.REPO = original
 
     def test_write_says_whether_it_wrote(self):
         with tempfile.TemporaryDirectory() as tmp:

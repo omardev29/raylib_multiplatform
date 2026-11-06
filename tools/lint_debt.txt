@@ -28,7 +28,7 @@ custom-rmp-raw-pointer  src/rmp/collision.cpp                                 27
 custom-rmp-raw-pointer  src/rmp/global.cpp                                    2
 custom-rmp-raw-pointer  src/rmp/input.cpp                                     4
 custom-rmp-raw-pointer  src/rmp/internal.h                                    14
-custom-rmp-raw-pointer  src/rmp/json_internal.h                               3
+custom-rmp-raw-pointer  src/rmp/json_internal.h                               1
 custom-rmp-raw-pointer  src/rmp/ldtk.cpp                                      36
 custom-rmp-raw-pointer  src/rmp/loader_hook.cpp                               11
 custom-rmp-raw-pointer  src/rmp/object.cpp                                    27
