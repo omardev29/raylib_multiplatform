@@ -503,6 +503,11 @@ void draw(Clay_RenderCommandArray commands) {
                 break;
             }
 
+            case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
+                // rich_text(): its letters, where rich.cpp laid them out.
+                draw_rich(cmd.renderData.custom.customData, Vector2{ rect.x, rect.y }, alpha);
+                break;
+
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
                 // Cut to every scroll area around it: raylib has one scissor.
                 clip_to(push_scissor(scissors, cmd.boundingBox));

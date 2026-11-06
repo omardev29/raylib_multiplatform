@@ -12,6 +12,10 @@
 #include <rmp/ui.h>
 
 #include "clay.h"
+
+namespace rmp::yarn {
+struct Marked; // ../dialogue/yarn.h: a text with its markup parsed
+} // namespace rmp::yarn
 #include "../ui_internal.h" // the hooks the app, the scenes and rmp::input call
 
 #include <array>
@@ -1049,6 +1053,16 @@ bool text_input_with(std::string_view label, std::string &value,
                      const TextInputOptions &o, const Extra &x);
 void progress_with(float fraction, const ProgressOptions &o, rmp::Ref<const Picture> fill,
                    const Extra &x);
+
+// --- rich.cpp: rich_text() ----------------------------------------------------
+// The records of this frame's rich texts go with the frame; the effects' clock
+// advances by the UI's frame time. render.cpp hands a CUSTOM command to
+// draw_rich(), and a presenter lays out what it already parsed with rich_with().
+void rich_begin_frame();
+// A sound by name, as the presenters' blips and voices play it.
+void play_sound(const SoundName &sound, float volume);
+void draw_rich(const void *data, Vector2 origin, float alpha);
+void rich_with(const rmp::yarn::Marked &marked, const RichTextOptions &o, std::string_view label);
 
 // --- context.cpp: fonts by id -------------------------------------------------
 // 0 is the global font; every other id is a file a Style named, registered the

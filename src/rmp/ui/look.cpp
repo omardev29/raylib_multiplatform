@@ -577,6 +577,7 @@ void begin_pass_looks() {
 
 void begin_frame_looks() {
     ++looks.frame;
+    rich_begin_frame();
     looks.draws.clear();
     looks.texts.clear();
     // Forget what has not been declared for a while: a screen that is gone.
@@ -728,6 +729,10 @@ void set_sound_player(rmp::Callback<std::string_view, float> play) {
 }
 
 bool has_sound_player() { return static_cast<bool>(player.play); }
+
+void play_sound(const SoundName &sound, float volume) {
+    if (!sound.empty() && player.play) player.play(sound.view(), volume);
+}
 
 void emit(EventKind kind, WidgetKind widget, std::string_view name) {
     const bool scoped = !looks.stack.empty();

@@ -67,6 +67,10 @@
 #define RMP_UI_FONT_SIZE 20
 #endif
 
+namespace rmp {
+class Dialogue; // rmp/dialogue.h: what the presenters below show
+} // namespace rmp
+
 namespace rmp::ui {
 
 // ---------------------------------------------------------------------------
@@ -771,6 +775,28 @@ struct TextOptions {
     bool wrap = true; // break between words to fit; false = never broken to fit
 };
 
+// Text with markup, drawn a letter at a time: Yarn's markup, which a
+// dialogue line already carries --
+//
+//     rmp::ui::rich_text("A [wave]strange[/wave] [color=#ffcc00]light[/color]!");
+//
+//   [b]           bold                [color=#rrggbb] or [color=red]
+//   [size=30]     in design units     [wave] [shake] [rainbow]: moving letters
+//
+// Its `visible` letters, the rest held back: a typewriter counts them up.
+struct RichTextOptions {
+    float width = 0; // wrap at this many design units; 0 = the width it is given
+    detail::Sizing size{}; // a step, a number, or nothing for the theme's
+    ColorRole color = ColorRole::TEXT; // the colour of what no [color] paints
+    int visible = -1; // how many letters show; -1 = every one
+    std::string_view id{}; // as ButtonOptions::id: two with one text
+};
+void rich_text(const rmp::Text &text);
+void rich_text(const rmp::Text &text, const RichTextOptions &o);
+// How many letters a rich text has once its markup is gone: where a
+// typewriter stops.
+[[nodiscard]] int rich_text_length(const rmp::Text &text);
+
 // True on the frame it is pressed: the pointer released over it, or, while it
 // has the focus, Enter or the gamepad's accept button. Reads as it looks:
 //
@@ -1274,7 +1300,112 @@ template <class Body> void at(Vector2 world, Body &&body) {
     at(world, AtOptions{}, static_cast<Body &&>(body));
 }
 
-// How tooltip() places its line, and how long it waits.
+// ---------------------------------------------------------------------------
+// Dialogue presenters: an rmp::Dialogue shown three ways, each a widget you
+// keep and show() every frame between begin() and end().
+//
+//     rmp::ui::DialogueBox box{ .portraits = { { .speaker = "Mika", .picture = mika } } };
+//     ...
+//     rmp::ui::begin();
+//     box.show(talk);   // the line, typed out; the choices; Enter or a click goes on
+//     rmp::ui::end();
+//
+//   DialogueBox     a box at the bottom of the screen, a portrait and a name
+//                   beside the line: the classic RPG.
+//   DialogueBubble  a bubble over the speaker's head, in the world.
+//   DialogueStage   big portraits that slide in at the sides, the speaker in
+//                   front and the rest dimmed: a visual novel.
+//
+// Everything they draw is rmp::ui, so a Theme, a Style, a Skin of nine-slices
+// or Aseprite slices dresses them. The line's markup ([wave], [color=]...)
+// moves and paints its letters; [speed=2]..[/speed] types faster and
+// [pause=0.4/] waits. Unhandled commands are passed (register them with
+// Dialogue::on_command()).
+// ---------------------------------------------------------------------------
+
+// A speaker's picture, and one for each mood a line's #mood:happy names.
+struct Portrait {
+    std::string speaker;
+    std::string mood{}; // empty: the picture for any mood without its own
+    Picture picture{};
+};
+
+// How a presenter types a line out, and goes on.
+struct DialogueFlow {
+    float letters_per_second = 45; // the typewriter; 0 = the whole line at once
+    SoundName blip{}; // a sound as the letters appear
+    int blip_every = 2; // letters between two blips
+    float auto_advance = 0; // seconds a whole line stays before it goes on; 0 = wait
+    bool skip_seen = false; // a line already read goes by at once
+    std::string voices{}; // a recorded line: the sound named voices + its id ("vo/hello")
+    float choice_seconds = 0; // a timed choice: seconds to choose; 0 = no timer
+    int default_choice = 0; // what a timed choice takes when the time is up
+};
+
+// What a presenter remembers from one frame to the next.
+struct DialogueMemory {
+    std::string line_id; // the line on screen
+    float shown = 0; // letters typed so far
+    int length = 0; // letters in the line
+    float waited = 0; // seconds since it was all shown, or of a [pause]
+    float choice_left = 0; // seconds left of a timed choice
+    int blips = 0;
+    std::vector<std::pair<std::string, std::string>> history; // speaker, line: read so far
+    std::vector<std::string> seen; // the ids of the lines read
+    std::vector<std::string> stage; // DialogueStage: who is on stage, left to right
+    bool showing_history = false;
+};
+
+struct DialogueBox {
+    std::vector<Portrait> portraits{};
+    DialogueFlow flow{};
+    float height = 0; // design units; 0 = as the line needs
+    bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
+    Style style{}; // the box
+    Style name_style{}; // the name plate
+    Style choice_style{}; // each choice
+    DialogueMemory ours;
+
+    // Draws the line or the choices, and takes the player's answer. True
+    // while the dialogue has something to show.
+    bool show(rmp::Dialogue &dialogue);
+    void toggle_history(); // the lines read so far, in place of the box
+};
+
+// Who a bubble points at: a speaker by name, and the object that speaks.
+struct BubbleSpeaker {
+    std::string name;
+    rmp::Handle<rmp::Object> object{};
+    Vector2 offset{ 0, -18 }; // from the object's position, in world units
+};
+
+struct DialogueBubble {
+    std::vector<BubbleSpeaker> speakers{};
+    DialogueFlow flow{};
+    float width = 220; // design units: the line wraps inside it
+    bool pauses_world = false; // the world goes on around a bubble
+    Style style{}; // the bubble
+    Style choice_style{};
+    DialogueMemory ours;
+
+    bool show(rmp::Dialogue &dialogue);
+};
+
+struct DialogueStage {
+    std::vector<Portrait> portraits{};
+    DialogueFlow flow{};
+    float portrait_height = 300; // design units
+    bool pauses_world = true;
+    Style style{}; // the box under the portraits
+    Style name_style{};
+    Style choice_style{};
+    Color dimmed = CLITERAL(Color){ 120, 120, 130, 255 }; // the tint of who is not speaking
+    DialogueMemory ours;
+
+    bool show(rmp::Dialogue &dialogue);
+};
+
+// How tooltip() places its line, and how long it waits.// How tooltip() places its line, and how long it waits.
 struct TooltipOptions {
     Align side = Align::TOP_CENTER; // which side of the control it appears on
     // Seconds the pointer rests on the control before it shows; infinity: never

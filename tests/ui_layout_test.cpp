@@ -29,8 +29,11 @@
 
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
+#include "../src/rmp/dialogue/dialogue_internal.h"
+#include "../src/rmp/text_internal.h"
 
 #include <rmp/app.h>
+#include <rmp/dialogue.h>
 #include <rmp/object.h> // rmp::Callback, for the report sink
 #include <rmp/ui.h>
 
@@ -3099,6 +3102,93 @@ void run_typed() {
 
 // The cases, in the order they run: each starts from the UI the one before it
 // left, as they always have.
+// The dialogue presenters and rich_text, headless: a line typed out over the
+// frames, Enter finishing it and then going on, the choices as buttons, a
+// timed choice taking its default, the history.
+void run_dialogue_presenters() {
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::detail::set_test_frame_time(1.0f / 60);
+    rmp::lang::detail::reset_for_tests();
+    rmp::lang::detail::set_persist(false);
+    rmp::lang::detail::load_tables({});
+    rmp::Dialogue d = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\nMika: Hello [wave]there[/wave], traveller of the long road.\n"
+        "-> Stay\n    Mika: Good.\n-> Go\n===\n");
+    REQUIRE(d.loaded());
+    d.start();
+    rmp::ui::DialogueBox box{ .flow = { .letters_per_second = 30 } };
+    const auto frame = [&] {
+        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_CENTER, .grow = true });
+        const bool showing = box.show(d);
+        rmp::ui::end();
+        return showing;
+    };
+    for (int i = 0; i < 3; ++i) frame();
+    check(box.ours.shown > 0 && box.ours.shown < static_cast<float>(box.ours.length),
+          "the line is being typed out");
+    const Box line = box_of("dialogue_line");
+    check(line.w > 100 && line.h > 0, "the line has room in the box");
+    // Enter: first the whole line, then on.
+    fake_nav.state.activate = true;
+    frame();
+    fake_nav.state = rmp::ui::detail::NavState{};
+    check(box.ours.shown == static_cast<float>(box.ours.length), "Enter shows the whole line");
+    check(d.has_line(), "and the line is still there");
+    frame();
+    fake_nav.state.activate = true;
+    frame();
+    fake_nav.state = rmp::ui::detail::NavState{};
+    frame();
+    check(d.has_options(), "then Enter goes on, to the choices");
+    check(box.ours.history.size() == 1, "and the line went into the history");
+    for (int i = 0; i < 2; ++i) frame();
+    check(d.options().size() == 2, "both choices are offered");
+    fake_nav.state.activate = true;
+    frame();
+    fake_nav.state = rmp::ui::detail::NavState{};
+    check(d.has_line() && d.line().text == "Good.", "the first choice, focused, is taken");
+    box.toggle_history();
+    frame();
+    check(box.ours.showing_history, "the history shows");
+    box.toggle_history();
+
+    // A timed choice takes its default when the time is up.
+    rmp::Dialogue timed = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\n-> A\n    picked A\n-> B\n    picked B\n===\n");
+    timed.start();
+    rmp::ui::DialogueStage stage{ .flow = { .choice_seconds = 0.5f, .default_choice = 1 } };
+    for (int i = 0; i < 45 && timed.has_options(); ++i) {
+        rmp::ui::begin();
+        stage.show(timed);
+        rmp::ui::end();
+    }
+    check(timed.has_line() && timed.line().text == "picked B", "the timed choice took B");
+
+    // A bubble with no object to point at is drawn where it is.
+    rmp::Dialogue bubbled = rmp::dialogue::detail::compile_text(
+        "title: Start\n---\nNobody: [shake]Boo[/shake] [rainbow]!![/rainbow]\n===\n");
+    bubbled.start();
+    rmp::ui::DialogueBubble bubble{ .flow = { .letters_per_second = 0 } };
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin();
+        bubble.show(bubbled);
+        rmp::ui::end();
+    }
+    check(box_of("dialogue_bubble_line").w > 0, "the bubble's line is laid out");
+    check(bubble.ours.shown == static_cast<float>(bubble.ours.length), "at once, at 0 a second");
+
+    // rich_text on its own: the length a typewriter counts to.
+    check(rmp::ui::rich_text_length("A [b]bold[/b] word") == 11, "markup does not count");
+    for (int i = 0; i < 2; ++i) {
+        rmp::ui::begin();
+        rmp::ui::rich_text("[color=#ff0000]red[/color] [size=40]big[/size]",
+                           { .width = 300, .visible = 4, .id = "rich" });
+        rmp::ui::end();
+    }
+    check_near(box_of("rich").w, 300 * rmp::ui::scale(), 1.0f, "a fixed width is kept");
+    rmp::ui::detail::set_test_frame_time(0);
+}
+
 TEST_CASE("the menu, centred: small window (800x600)") {
     run_at(800, 600, "small window");
 }
@@ -3111,6 +3201,7 @@ TEST_CASE("a frame that fills the window") { run_frame_grow(); }
 TEST_CASE("grid") { run_grid(); }
 TEST_CASE("a grid that fits its columns") { run_grid_fit(); }
 TEST_CASE("interaction") { run_interaction(); }
+TEST_CASE("dialogue presenters and rich text") { run_dialogue_presenters(); }
 TEST_CASE("dropdown") { run_dropdown(); }
 TEST_CASE("focus by name") { run_focus_by_name(); }
 TEST_CASE("slider: keyboard and gamepad") { run_slider_nav(); }
