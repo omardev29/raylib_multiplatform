@@ -936,6 +936,11 @@ STAGES = [
     Stage("gates", "each tools/*_check.sh seen red on a planted mistake",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "gates_red_test.py"])]),
+    Stage("text", "every language [lang] ships has every text",
+          [("run", ["{python}", "tools/text_tool.py", "check"])], scope="both"),
+    Stage("text-tool", "rmp text's scanner and checker, each mistake seen",
+          [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "text_tool_test.py"])]),
     Stage("configure", "tools/configure.py, every rejection",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "configure_test.py"])]),
@@ -1356,6 +1361,13 @@ def cmd_pack(ctx, args):
     return OK
 
 
+def cmd_text(ctx, args):
+    if len(args) != 1 or args[0] not in ("scan", "check"):
+        raise Usage("rmp text takes scan or check")
+    ctx.run([ctx.python, ctx.root / "tools" / "text_tool.py", args[0]])
+    return OK
+
+
 def cmd_unpack(ctx, args):
     no_args(args)
     pack = ctx.root / "resources" / "resources.rres"
@@ -1648,7 +1660,7 @@ INCLUDE = (
     "tools/versions_check.sh",
     "tools/dev_shell.sh",
     "tools/android_release_check.py", "tools/binary_check.py", "tools/size_check.py",
-    "tools/rmp.py",
+    "tools/rmp.py", "tools/text_tool.py",
     "rmp", "rmp.ps1", "rmp.cmd",
 )
 
@@ -2505,6 +2517,19 @@ COMMANDS = {
         [("rmp pack", "the game reads the pack from now on"),
          ("rmp unpack", "back to the loose files while you add art")],
         cmd_pack),
+    "text": Command(
+        "text scan|check", "the translation tables: add the game's texts, check them",
+        "scan reads src/ and include/ for every literal the framework translates -- the "
+        "first argument of rmp::ui's text functions and of rmp::Text, the .text, "
+        ".placeholder and .items of a kept widget -- the line ids of resources/**/*.yarn "
+        "and what a debug build saw that the tables lack (build/debug/lang_seen.tsv), and adds "
+        "a row to [lang] file for each that is not there. It never deletes a translation: "
+        "a row nothing uses any more gets an x in its unused column. check fails on a text "
+        "a language of [lang] languages lacks, a placeholder a translation lost or added, "
+        "and a plural with the wrong number of forms; `rmp test` runs it.",
+        [("rmp text scan", "add the new texts to resources/lang.tsv"),
+         ("rmp text check", "what a translation lacks or got wrong")],
+        cmd_text),
     "unpack": Command(
         "unpack", "delete the pack; the game reads resources/ again",
         "Delete resources/resources.rres, so that the game reads the loose files "
@@ -2687,8 +2712,10 @@ def main(argv: list[str], cwd: Path | None = None) -> int:
         command, argv = "help", ["help"]
     rest = argv[1:]
     if command not in COMMANDS:
-        guess = difflib.get_close_matches(command, list(COMMANDS), n=1)
-        hint = f" (did you mean {guess[0]}?)" if guess else ""
+        # A command with the same letters swapped first: "tset" is test, not text.
+        guess = sorted(difflib.get_close_matches(command, list(COMMANDS), n=2),
+                       key=lambda c: sorted(c) != sorted(command))
+        hint = f" (did you mean {' or '.join(guess)}?)" if guess else ""
         print(f"rmp: unknown command {command!r}{hint}. Run rmp help.", file=sys.stderr)
         return USAGE
     spec = COMMANDS[command]
