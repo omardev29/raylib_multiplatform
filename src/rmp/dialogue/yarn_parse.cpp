@@ -48,7 +48,7 @@ std::string_view trim_right(std::string_view s) {
 
 struct Token {
     enum class Is : std::uint8_t {
-        END, NUMBER, STRING, TRUE, FALSE, NULL_, VARIABLE, ID, OP, LPAREN, RPAREN, COMMA, DOT,
+        END, NUMBER, STRING, KEYWORD_TRUE, KEYWORD_FALSE, KEYWORD_NULL, VARIABLE, ID, OP, LPAREN, RPAREN, COMMA, DOT,
         AS, ERROR,
     };
     Is is = Is::END;
@@ -127,11 +127,11 @@ public:
             _at = end;
             t.text = word;
             if (word == "true") {
-                t.is = Token::Is::TRUE;
+                t.is = Token::Is::KEYWORD_TRUE;
             } else if (word == "false") {
-                t.is = Token::Is::FALSE;
+                t.is = Token::Is::KEYWORD_FALSE;
             } else if (word == "null") {
-                t.is = Token::Is::NULL_;
+                t.is = Token::Is::KEYWORD_NULL;
             } else if (word == "as") {
                 t.is = Token::Is::AS;
             } else if (word == "is" || word == "eq") {
@@ -297,10 +297,10 @@ private:
                 e.text = _tok.text;
                 take();
                 return e;
-            case Token::Is::TRUE:
-            case Token::Is::FALSE:
+            case Token::Is::KEYWORD_TRUE:
+            case Token::Is::KEYWORD_FALSE:
                 e.is = Expr::Is::BOOL;
-                e.boolean = _tok.is == Token::Is::TRUE;
+                e.boolean = _tok.is == Token::Is::KEYWORD_TRUE;
                 take();
                 return e;
             case Token::Is::VARIABLE:
@@ -358,7 +358,7 @@ private:
                 take();
                 return e;
             }
-            case Token::Is::NULL_: fail(_tok, "null is not a value in Yarn"); return std::nullopt;
+            case Token::Is::KEYWORD_NULL: fail(_tok, "null is not a value in Yarn"); return std::nullopt;
             case Token::Is::END: fail(_tok, "an expression was expected"); return std::nullopt;
             case Token::Is::ERROR: fail(_tok, _tok.text); return std::nullopt;
             default: break;

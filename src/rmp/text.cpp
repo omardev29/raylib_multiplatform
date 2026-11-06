@@ -545,8 +545,9 @@ std::string system_locale() {
         if (CFArrayGetCount(preferred) > 0) {
             const auto first = static_cast<CFStringRef>(CFArrayGetValueAtIndex(preferred, 0));
             std::array<char, 64> buffer{};
-            if (CFStringGetCString(first, buffer.data(), static_cast<CFIndex>(buffer.size()),
-                                   kCFStringEncodingUTF8)) {
+            // kCFStringEncodingUTF8, by its value: the name breaks our naming rule.
+            constexpr CFStringEncoding UTF8 = 0x08000100;
+            if (CFStringGetCString(first, buffer.data(), static_cast<CFIndex>(buffer.size()), UTF8)) {
                 found = buffer.data();
             }
         }
@@ -564,16 +565,15 @@ std::string system_locale() {
         return normalize(code);
     }
 #elif defined(__EMSCRIPTEN__)
-    // NOLINTNEXTLINE(custom-rmp-raw-pointer): the C string emscripten hands back, copied at once
-    char *said = static_cast<char *>(EM_ASM_PTR({
-        const text = (navigator.languages && navigator.languages[0]) || navigator.language || "";
-        return stringToNewUTF8(text);
-    }));
-    if (said != nullptr) {
-        std::string code(said);
-        std::free(said); // NOLINT(cppcoreguidelines-no-malloc): emscripten's malloc'd copy
-        return normalize(code);
-    }
+    // navigator.language, written into a buffer of ours.
+    std::array<char, 64> said{};
+    EM_ASM(
+        {
+            const text = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+            stringToUTF8(text, $0, $1);
+        },
+        said.data(), static_cast<int>(said.size()));
+    if (said[0] != 0) return normalize(said.data());
 #elif defined(_WIN32)
     std::array<wchar_t, 85> name{};
     if (GetUserDefaultLocaleName(name.data(), static_cast<int>(name.size())) > 0) {

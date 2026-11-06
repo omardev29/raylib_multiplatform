@@ -517,6 +517,7 @@ DEFAULTS: dict = {
                         "linux-x64-glibc-drm", "linux-riscv64-glibc"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
+    "dialogue": {"build": "auto"},
     "lang": {"default": "en", "file": "lang.tsv", "folder": "lang", "collect": True,
              "languages": [], "fonts": {}},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
@@ -547,7 +548,7 @@ EXAMPLE_ID_PREFIX = "com.example."
 # any extension.
 RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
-    "ui_layout_test", "ui_render_test", "platformer_play", "input_play", "assembler",
+    "ui_layout_test", "ui_render_test", "platformer_play", "input_play", "assembler", "rmp_yarnc",
     "pack_resources", "unpack_resources", "game_test", "sanitizer_canary",
     "rmp_e2e_driver", "console_canary", "tcc_runtime", "tcc_fixup_lint",
 }
@@ -857,6 +858,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     validate_save(cfg)
     validate_ui(cfg)
     validate_lang(cfg)
+    validate_dialogue(cfg)
     validate_targets(cfg, strict_release)
 
 
@@ -1602,6 +1604,16 @@ def validate_ui(cfg: dict) -> None:
                           "on every platform including phones.")
 
 
+DIALOGUE_BUILDS = ("auto", "runtime", "embedded")
+
+
+def validate_dialogue(cfg: dict) -> None:
+    """[dialogue] build: where the .yarn scripts are compiled."""
+    one_of(cfg["dialogue"]["build"], DIALOGUE_BUILDS, "[dialogue] build",
+           "\"runtime\" compiles a script when the game loads it, \"embedded\" when the game "
+           "is built,\n  \"auto\" the first in a debug build and the second in a release.")
+
+
 LANG_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 
 
@@ -1627,9 +1639,12 @@ def validate_lang(cfg: dict, resources: Path | None = None) -> None:
     """[lang]: the default language, the tables, the languages a game ships and
     a font per language."""
     lang = cfg["lang"]
-    for key in ("default", "file", "folder"):
-        if not isinstance(lang[key], str):
-            raise ConfigError(f"[lang] {key} = {lang[key]!r} must be a string.")
+    if not isinstance(lang["default"], str):
+        raise ConfigError(f"[lang] default = {lang['default']!r} must be a code, like \"en\".")
+    if not isinstance(lang["file"], str):
+        raise ConfigError(f"[lang] file = {lang['file']!r} must be a file name, or \"\".")
+    if not isinstance(lang["folder"], str):
+        raise ConfigError(f"[lang] folder = {lang['folder']!r} must be a folder name, or \"\".")
     if not LANG_CODE.match(lang["default"]):
         raise ConfigError(f"[lang] default = {lang['default']!r} is not a language code.\n"
                           "Write it like \"en\", \"es\" or \"pt-BR\".")
@@ -1946,6 +1961,8 @@ void UnloadSound(Sound sound) {{ (void)sound; }}
 void UnloadSoundAlias(Sound alias) {{ (void)alias; }}
 void PlaySound(Sound sound) {{ (void)sound; }}
 bool IsSoundPlaying(Sound sound) {{ (void)sound; return false; }}
+void PauseSound(Sound sound) {{ (void)sound; }}
+void ResumeSound(Sound sound) {{ (void)sound; }}
 void SetSoundVolume(Sound sound, float volume) {{ (void)sound; (void)volume; }}
 void SetSoundPitch(Sound sound, float pitch) {{ (void)sound; (void)pitch; }}
 void SetSoundPan(Sound sound, float pan) {{ (void)sound; (void)pan; }}
@@ -1960,6 +1977,8 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
 void UnloadMusicStream(Music music) {{ (void)music; }}
 void PlayMusicStream(Music music) {{ (void)music; }}
 void StopMusicStream(Music music) {{ (void)music; }}
+void PauseMusicStream(Music music) {{ (void)music; }}
+void ResumeMusicStream(Music music) {{ (void)music; }}
 void UpdateMusicStream(Music music) {{ (void)music; }}
 bool IsMusicStreamPlaying(Music music) {{ (void)music; return false; }}
 float GetMusicTimePlayed(Music music) {{ (void)music; return 0.0f; }}
@@ -2006,6 +2025,7 @@ set(TEMPLATE_WEB_BACKEND "{cfg["web"]["backend"]}")
 set(TEMPLATE_WINDOWS_BACKEND "{cfg["windows"]["backend"]}")
 set(TEMPLATE_LINUX_BACKEND "{cfg["linux"]["backend"]}")
 set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
+set(TEMPLATE_DIALOGUE_BUILD "{cfg["dialogue"]["build"]}")
 """)
 
     # The game's name for the web's save folder, handed to cmake/web/rmp_web.js

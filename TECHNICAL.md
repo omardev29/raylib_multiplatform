@@ -81,11 +81,23 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── tiled_impl.cpp    #   compiles cute_tiled once
 │       ├── audio.cpp         #   rmp::audio -- lazy device, voices, the music stream
 │       ├── audio_internal.h
+│       ├── text.cpp          #   rmp::Text and rmp::lang -- the tables, plurals, the system language
+│       ├── text_internal.h
 │       ├── value.cpp         #   rmp::Value -- the tree a save holds, and its Ref
 │       ├── save.cpp          #   rmp::save -- the file format, sealing, where saves go
 │       ├── save_internal.h
 │       ├── cjson_impl.c      #   compiles cJSON once, as C
 │       ├── json_internal.h   #   cJSON owned, and read in the "C" locale (saves and LDtk)
+│       ├── dialogue/         #   rmp::Dialogue -- Yarn Spinner 3, ported to C++
+│       │   ├── yarn.h        #     the tree, the program, the machine
+│       │   ├── yarn_parse.cpp #    .yarn -> the tree, a line at a time
+│       │   ├── yarn_compile.cpp #  the tree -> instructions: types, saliency, once, visits
+│       │   ├── yarn_value.cpp #    Yarn's values, as C# prints them
+│       │   ├── yarn_vm.cpp   #     the machine: lines, options, commands, functions
+│       │   ├── yarn_markup.cpp #   [markup] -> text and attributes; select, plural, ordinal
+│       │   ├── yarn_bytes.cpp #    a program as bytes and back, for the embedded build
+│       │   ├── dialogue.cpp  #     rmp::Dialogue and load_dialogue()
+│       │   └── dialogue_internal.h #  the embedded table, a script from a string
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
@@ -119,6 +131,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── tilemap.h         #   rmp::Tilemap -- a level designed in LDtk (or Tiled)
 │       ├── audio.h           #   rmp::audio -- effects and music by name, three buses
 │       ├── save.h            #   rmp::Value and rmp::save -- saving the game
+│       ├── text.h            #   rmp::Text and rmp::lang -- the game in more than one language
+│       ├── dialogue.h        #   rmp::Dialogue -- conversations written in Yarn
 │       ├── random.h          #   rmp::random -- seeded, reproducible
 │       ├── ads.h             #   rmp::ads -- interstitial and rewarded ads; no-ops off Android
 │       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)

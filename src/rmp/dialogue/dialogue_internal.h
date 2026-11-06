@@ -20,6 +20,8 @@ struct Embedded {
 
 // What the generated dialogue_bytecode.cpp hands the game at start.
 void set_embedded(std::span<const Embedded> table);
+// Defined by that generated file, in a game built with RMP_DIALOGUE_EMBEDDED.
+std::span<const Embedded> embedded_programs();
 
 Dialogue compile_text(std::string_view source, std::string_view file = "test.yarn");
 Dialogue from_program(std::span<const std::uint8_t> bytes);

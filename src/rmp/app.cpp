@@ -10,6 +10,7 @@
 #include <rmp/app.h>
 
 #include "audio_internal.h"
+#include "dialogue/dialogue_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
 #include "text_internal.h"
@@ -269,6 +270,10 @@ void begin_run() {
     // the game's. Told before anything is loaded, so an example with its own
     // resources/ reads its own. See resources_root() in internal.h.
     rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
+#if defined(RMP_DIALOGUE_EMBEDDED)
+    // The game's .yarn, compiled when it was built ([dialogue] build).
+    rmp::dialogue::detail::set_embedded(rmp::dialogue::detail::embedded_programs());
+#endif
     // The one place rmp::random is seeded, and the reason it is HERE: a unit
     // test never comes through the entry point, so a headless run keeps the
     // fixed default seed and stays reproducible, while a shipped game gets a

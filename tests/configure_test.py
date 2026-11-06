@@ -2224,6 +2224,32 @@ class ConfigureErrorLocationTest(unittest.TestCase):
                     f"this rejection cannot be pointed at:\n  {caught.exception}")
 
 
+class ConfigureDialogueTest(unittest.TestCase):
+    """[dialogue] build: its three values, every wrong one, and where it goes."""
+
+    def test_default_and_values(self):
+        self.assertEqual(cfgmod.DEFAULTS["dialogue"]["build"], "auto")
+        for build in ("auto", "runtime", "embedded"):
+            with self.subTest(build=build), quiet():
+                cfgmod.validate(base_config(dialogue={"build": build}), False)
+
+    def test_wrong_values_are_refused(self):
+        for bad in ("", "Embedded", "aot", 1, True, None, ["runtime"]):
+            with self.subTest(build=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(base_config(dialogue={"build": bad}), False)
+                self.assertIn("[dialogue] build", str(caught.exception))
+
+    def test_it_reaches_cmake_and_the_toml_says_it(self):
+        gen = (REPO / "tools" / "configure.py").read_text()
+        self.assertIn('set(TEMPLATE_DIALOGUE_BUILD', gen)
+        cmake = (REPO / "CMakeLists.txt").read_text()
+        self.assertIn("TEMPLATE_DIALOGUE_BUILD", cmake)
+        self.assertIn("RMP_DIALOGUE_EMBEDDED", (REPO / "src/rmp/app.cpp").read_text())
+        toml = (REPO / "raylib_multiplatform.toml").read_text()
+        self.assertRegex(toml[toml.index("\n[dialogue]"):], r"\nbuild = \"auto\"\n")
+
+
 class ConfigureLangTest(unittest.TestCase):
     """[lang]: every key, every wrong value and type, the combinations that
     cannot work, and the header it reaches."""
@@ -3417,6 +3443,8 @@ class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
         ("icon", "adaptive_background"): "no background colour",
         ("linux", "glibc"): "build against the host's glibc",
         ("ui", "font"): "raylib's built-in font",
+        ("lang", "file"): "no table with a column per language",
+        ("lang", "folder"): "no folder of one table per language",
         ("deploy", "credits_note"): "nothing to say while licenses = true",
         ("deploy", "itch", "user"): "itch.io deployment off",
         ("deploy", "itch", "game"): "itch.io deployment off",
@@ -3431,6 +3459,7 @@ class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
     # Lists whose [] is a value. Every other list refuses [].
     EMPTY_LIST_MEANS = {
         ("targets", "disabled"): "nothing subtracted",
+        ("lang", "languages"): "every language the tables have",
         ("upx", "enabled"): "no compression",
         ("upx", "disabled"): "nothing subtracted",
         ("raylib", "disabled_modules"): "every module",
@@ -7407,6 +7436,7 @@ class DocumentedTreeTest(unittest.TestCase):
                "input.h": ["rmp::input"], "ui.h": ["rmp::ui"], "assets.h": ["rmp::assets"],
                "tilemap.h": ["rmp::Tilemap"], "audio.h": ["rmp::audio"], "save.h": ["rmp::save"],
                "random.h": ["rmp::random"], "ads.h": ["rmp::ads"],
+               "text.h": ["rmp::lang"], "dialogue.h": ["rmp::Dialogue"],
                "math.h": [], "config.h": []}  # math and config are not modules with a row
 
     def test_the_readme_namespace_table_names_every_module(self):
@@ -8174,6 +8204,11 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
     CASES = {
         "has to be a number between 0 and 1": ("audio", ("music",), "loud"),
         "[save] portable": ("save", ("portable",), "yes"),
+        "[lang] fonts": ("lang", ("fonts",), "jp.ttf"),
+        "[lang] default": ("lang", ("default",), 3),
+        "[lang] file": ("lang", ("file",), 3),
+        "[lang] folder": ("lang", ("folder",), 3),
+        "has to be a path inside resources/": ("lang", ("file",), "../lang.tsv"),
         "[save] encrypt": ("save", ("encrypt",), 1),
         "[save] version": ("save", ("version",), 0),
         "has to be between 0 and 1":  ("audio", ("sfx",), 2),

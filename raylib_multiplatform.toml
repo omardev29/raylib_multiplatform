@@ -606,6 +606,18 @@ font_size    = 20
 scale        = 0
 max_elements = 512
 
+[dialogue]
+# rmp::Dialogue -- conversations in Yarn Spinner 3 (.yarn files in resources/).
+#
+# build  Where a script is compiled:
+#          "runtime"   when the game loads it: edit, reload, see it at once.
+#          "embedded"  when the game is built, into the executable: nothing to
+#                      compile at start, and a script with a mistake fails the
+#                      build with its file, line and column. On the desktop;
+#                      a cross build (Android, iOS, the web) compiles at runtime.
+#          "auto"      runtime in a debug build, embedded in a release.
+build = "auto"
+
 [lang]
 # rmp::Text and rmp::lang -- the game in more than one language. A literal the
 # framework is handed ("Play") is looked up in the tables below by its text;
