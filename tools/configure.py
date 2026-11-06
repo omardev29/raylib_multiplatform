@@ -581,9 +581,9 @@ def deep_merge(base: dict, over: dict, path: str = "") -> dict:
                 f"Write it as a section: a line [{here}] with its keys under it.",
                 (path, k))
         if isinstance(base[k], dict) and isinstance(v, dict):
-            # [ios.settings] is a free-form passthrough; do not police its keys.
-            # [ios.settings] is a passthrough and [lang.fonts] is keyed by language
-            # code: neither has a fixed set of keys to hold the file to.
+            # [ios.settings] is a free-form passthrough and [lang.fonts] is keyed
+            # by language code: neither has a fixed set of keys to hold the file
+            # to. tools/api_change.py's FREE_FORM names the same two.
             out[k] = v if here in ("ios.settings", "lang.fonts") else deep_merge(base[k], v, here)
         else:
             out[k] = v

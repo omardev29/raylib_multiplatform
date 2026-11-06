@@ -53,7 +53,7 @@ CONFIGURE = "tools/configure.py"
 TOML = "raylib_multiplatform.toml"
 # configure.py's deep_merge() passes these tables through as the game wrote
 # them, so a key in one is the game's, not the framework's.
-FREE_FORM = ("ios.settings",)
+FREE_FORM = ("ios.settings", "lang.fonts")
 
 STATUS = {"A": "added", "C": "copied", "D": "deleted", "M": "modified", "R": "renamed",
           "T": "changed type"}
