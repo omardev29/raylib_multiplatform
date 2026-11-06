@@ -12,6 +12,7 @@
 #include "audio_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
+#include "text_internal.h"
 #include "ui_internal.h"
 
 #include <raylib.h>
@@ -366,6 +367,8 @@ void begin_frame() {
     // The window first: minimized or out of focus decides what this frame
     // does, and a pause has to hold the clock before the step is taken.
     begin_pace();
+    // The language's tables again, when a watched one changed.
+    rmp::lang::detail::begin_frame();
     rmp::input::detail::begin_frame();
     // And the UI's frame, for a game with its own frame hook: one UI frame
     // around however many begin()/end() pairs it draws. See ui_internal.h.
@@ -448,6 +451,8 @@ void begin_stop() {
 // device has closed is a free on a torn-down mixer. It is not on the GPU, so
 // the window being gone does not matter to it.
 void end_stop() {
+    // A debug build's texts the tables lack, for `rmp text scan`.
+    rmp::lang::detail::write_seen();
     rmp::audio::detail::close_device();
     rmp::assets::shutdown();
     // The UI is gone: a warning from here on is said in the log only.

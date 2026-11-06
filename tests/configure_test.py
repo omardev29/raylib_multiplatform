@@ -2224,6 +2224,106 @@ class ConfigureErrorLocationTest(unittest.TestCase):
                     f"this rejection cannot be pointed at:\n  {caught.exception}")
 
 
+class ConfigureLangTest(unittest.TestCase):
+    """[lang]: every key, every wrong value and type, the combinations that
+    cannot work, and the header it reaches."""
+
+    def validate(self, resources=None, **lang):
+        cfg = base_config(lang=lang)
+        with quiet():
+            cfgmod.validate(cfg, False)
+            if resources is not None:
+                cfgmod.validate_lang(cfg, resources)
+
+    def reject(self, said, resources=None, **lang):
+        cfg = base_config(lang=lang)
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+            cfgmod.validate_lang(cfg, resources)
+        self.assertIn(said, str(caught.exception))
+        return str(caught.exception)
+
+    def test_the_defaults(self):
+        lang = cfgmod.DEFAULTS["lang"]
+        self.assertEqual(lang["default"], "en")
+        self.assertEqual(lang["file"], "lang.tsv")
+        self.assertEqual(lang["folder"], "lang")
+        self.assertIs(lang["collect"], True)
+        self.assertEqual(lang["languages"], [])
+        self.assertEqual(lang["fonts"], {})
+        self.validate()
+
+    def test_good_values(self):
+        self.validate(default="pt-BR", languages=["pt-BR", "en", "ja"],
+                      fonts={"ja": "jp.ttf"}, file="", folder="", collect=False)
+
+    def test_default_is_a_code(self):
+        for bad in ("", "English", "EN", "e", "es_MX", 1, None, ["en"]):
+            with self.subTest(default=bad):
+                self.reject("[lang] default", default=bad)
+
+    def test_paths_stay_inside_resources(self):
+        for key in ("file", "folder"):
+            for bad in ("/etc/lang.tsv", "../lang.tsv", "a\\b", 3, None):
+                with self.subTest(key=key, bad=bad):
+                    self.reject(f"[lang] {key}", **{key: bad})
+
+    def test_collect_is_a_switch(self):
+        for bad in ("yes", 1, None, []):
+            with self.subTest(collect=bad):
+                self.reject("[lang] collect", collect=bad)
+
+    def test_languages_is_a_list_of_codes_without_repeats(self):
+        self.reject("must be a list", languages="en")
+        self.reject("must be a list", languages={"en": 1})
+        for bad in ("", "Spanish", 3, None, ["en"]):
+            with self.subTest(code=bad):
+                self.reject("is not a language code", languages=["en", bad])
+        self.reject("twice", languages=["en", "es", "en"])
+
+    def test_the_default_has_to_be_shipped(self):
+        self.reject("is not in [lang] languages", default="en", languages=["es", "ja"])
+
+    def test_fonts_are_files_by_code(self):
+        self.reject("must be a table", fonts="jp.ttf")
+        self.reject("is not a language code", fonts={"Japanese": "jp.ttf"})
+        self.reject("must be the name of a font file", fonts={"ja": ""})
+        self.reject("must be the name of a font file", fonts={"ja": 3})
+        self.reject("must be the name of a font file", fonts={"ja": "a;b"})
+        self.reject("not in [lang] languages", languages=["en"], fonts={"ja": "jp.ttf"})
+
+    def test_a_listed_language_the_tables_lack_fails_with_what_they_have(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            res = Path(tmp)
+            (res / "lang.tsv").write_text("key\tcontext\ten\tes\nPlay\t\tPlay\tJugar\n")
+            (res / "lang").mkdir()
+            (res / "lang" / "de.tsv").write_text("key\tcontext\ttext\n")
+            self.validate(resources=res, languages=["en", "es", "de"])
+            said = self.reject("have no column or file", resources=res,
+                               languages=["en", "es", "ja"])
+            self.assertIn("'ja'", said)
+            self.assertIn("'de'", said)
+            # No tables at all: nothing to hold the list to yet.
+            empty = res / "empty"
+            empty.mkdir()
+            self.validate(resources=empty, languages=["en", "ja"])
+
+    def test_it_reaches_the_header(self):
+        with generated_header(base_config(lang={"languages": ["en", "es"],
+                                                "fonts": {"ja": "jp.ttf"},
+                                                "collect": False})) as header:
+            self.assertRegex(header, r'#define RMP_LANG_LANGUAGES +"en,es"\n')
+            self.assertRegex(header, r'#define RMP_LANG_FONTS +"ja=jp.ttf"\n')
+            self.assertRegex(header, r"#define RMP_LANG_COLLECT +0\n")
+            self.assertRegex(header, r'#define RMP_LANG_DEFAULT +"en"\n')
+
+    def test_the_toml_documents_every_key(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        lang = text[text.index("\n[lang]"):text.index("\n[resources]")]
+        for key in cfgmod.DEFAULTS["lang"]:
+            self.assertRegex(lang, rf"\n{key} = ")
+
+
 class ConfigureWindowPacingTest(unittest.TestCase):
     """[window] vsync and fps: every value they can take, every one they cannot,
     the combination with [app] max_delta that cannot work, and the proof that

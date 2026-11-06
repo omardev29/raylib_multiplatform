@@ -606,6 +606,32 @@ font_size    = 20
 scale        = 0
 max_elements = 512
 
+[lang]
+# rmp::Text and rmp::lang -- the game in more than one language. A literal the
+# framework is handed ("Play") is looked up in the tables below by its text;
+# what is not there is shown as written. Nothing here is required.
+#
+# default    The language every other falls back to: es-MX, then es, then this,
+#            then the text as the code wrote it.
+# file       A table in resources/ with one column per language:
+#            key<TAB>context<TAB>en<TAB>es<TAB>...  ("" for none)
+# folder     A folder in resources/ with one table per language, es.tsv:
+#            key<TAB>context<TAB>text. Both may be used; they are merged.
+# collect    A debug build writes the texts it showed that the tables lack to
+#            lang_seen.tsv next to the executable; `rmp text scan` adds them.
+# languages  The languages the game ships, in the order a language menu lists
+#            them. [] is every language the tables have. With a list, `rmp
+#            text check` fails on a text one of them lacks, and the player's
+#            system language is only chosen when it is one of them.
+# fonts      A font per language, for an alphabet the [ui] font does not have:
+#            fonts = { ja = "jp.ttf" }. The UI changes font with the language.
+default = "en"
+file = "lang.tsv"
+folder = "lang"
+collect = true
+languages = []
+fonts = {}
+
 [resources]
 # Obfuscation, not security: the password ends up inside the binary. It exists
 # so casual unpacking of your assets is inconvenient, nothing more.

@@ -517,6 +517,8 @@ DEFAULTS: dict = {
                         "linux-x64-glibc-drm", "linux-riscv64-glibc"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
+    "lang": {"default": "en", "file": "lang.tsv", "folder": "lang", "collect": True,
+             "languages": [], "fonts": {}},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
     "dev": {"compiler": "clang", "c_compiler": "same", "linker": "auto", "strict": False,
@@ -579,7 +581,9 @@ def deep_merge(base: dict, over: dict, path: str = "") -> dict:
                 (path, k))
         if isinstance(base[k], dict) and isinstance(v, dict):
             # [ios.settings] is a free-form passthrough; do not police its keys.
-            out[k] = v if here == "ios.settings" else deep_merge(base[k], v, here)
+            # [ios.settings] is a passthrough and [lang.fonts] is keyed by language
+            # code: neither has a fixed set of keys to hold the file to.
+            out[k] = v if here in ("ios.settings", "lang.fonts") else deep_merge(base[k], v, here)
         else:
             out[k] = v
     return out
@@ -852,6 +856,7 @@ def validate(cfg: dict, strict_release: bool) -> None:
     validate_audio(cfg)
     validate_save(cfg)
     validate_ui(cfg)
+    validate_lang(cfg)
     validate_targets(cfg, strict_release)
 
 
@@ -1597,6 +1602,90 @@ def validate_ui(cfg: dict) -> None:
                           "on every platform including phones.")
 
 
+LANG_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+
+
+def lang_columns(resources: Path, file: str, folder: str) -> list[str]:
+    """The languages the game's tables have: the columns of [lang] file after
+    key and context, and one per file of [lang] folder. Empty when neither is
+    there."""
+    found: list[str] = []
+    table = resources / file if file else None
+    if table is not None and table.is_file():
+        for line in table.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            found += [c.strip() for c in line.split("\t")[2:] if c.strip()]
+            break
+    where = resources / folder if folder else None
+    if where is not None and where.is_dir():
+        found += sorted(f.stem for f in where.glob("*.tsv"))
+    return list(dict.fromkeys(found))
+
+
+def validate_lang(cfg: dict, resources: Path | None = None) -> None:
+    """[lang]: the default language, the tables, the languages a game ships and
+    a font per language."""
+    lang = cfg["lang"]
+    for key in ("default", "file", "folder"):
+        if not isinstance(lang[key], str):
+            raise ConfigError(f"[lang] {key} = {lang[key]!r} must be a string.")
+    if not LANG_CODE.match(lang["default"]):
+        raise ConfigError(f"[lang] default = {lang['default']!r} is not a language code.\n"
+                          "Write it like \"en\", \"es\" or \"pt-BR\".")
+    for key in ("file", "folder"):
+        value = lang[key]
+        if value.startswith("/") or ".." in value.split("/") or "\\" in value or "\0" in value:
+            raise ConfigError(f"[lang] {key} = {value!r} has to be a path inside resources/.")
+    if not isinstance(lang["collect"], bool):
+        raise ConfigError(f"[lang] collect = {lang['collect']!r} is a switch: true or false.")
+    languages = lang["languages"]
+    if not isinstance(languages, list):
+        raise ConfigError(f"[lang] languages = {languages!r} must be a list of codes, "
+                          "like [\"en\", \"es\"], or [] for every language the tables have.")
+    seen = set()
+    for code in languages:
+        if not isinstance(code, str) or not LANG_CODE.match(code):
+            raise ConfigError(f"[lang] languages: {code!r} is not a language code.\n"
+                              "Write it like \"en\", \"es\" or \"pt-BR\".")
+        if code in seen:
+            raise ConfigError(f"[lang] languages names {code!r} twice.")
+        seen.add(code)
+    if languages and lang["default"] not in languages:
+        raise ConfigError(f"[lang] default = {lang['default']!r} is not in [lang] languages "
+                          f"{languages!r}: the fallback has to be a language the game ships.")
+    fonts = lang["fonts"]
+    if not isinstance(fonts, dict):
+        raise ConfigError(f"[lang] fonts = {fonts!r} must be a table of language = font file,\n"
+                          "like fonts = { ja = \"jp.ttf\" }.")
+    for code, font in fonts.items():
+        if not LANG_CODE.match(code):
+            raise ConfigError(f"[lang] fonts: {code!r} is not a language code.")
+        if languages and code not in languages:
+            raise ConfigError(f"[lang] fonts names {code!r}, which is not in [lang] languages.")
+        if not isinstance(font, str) or not font or ";" in font or "=" in font:
+            raise ConfigError(f"[lang] fonts.{code} = {font!r} must be the name of a font file "
+                              "in resources/.")
+    if languages:
+        where = resources if resources is not None else REPO / "resources"
+        have = lang_columns(where, lang["file"], lang["folder"])
+        if have:
+            missing = [c for c in languages if c not in have]
+            if missing:
+                raise ConfigError(f"[lang] languages lists {missing!r}, and the tables in resources/ "
+                                  f"have no column or file for {'it' if len(missing) == 1 else 'them'}"
+                                  f" (they have {have!r}).\nAdd the column to {lang['file']} or a "
+                                  f"file {lang['folder']}/<code>.tsv, or take it off the list.")
+
+
+def _c_list(value: list) -> str:
+    return _c_string(",".join(value))
+
+
+def _c_fonts(value: dict) -> str:
+    return _c_string(";".join(f"{k}={v}" for k, v in value.items()))
+
+
 def validate_targets(cfg: dict, strict_release: bool) -> None:
     """[targets]: what is built, and what a release of it must not carry."""
     appid = cfg["android"]["application_id"]
@@ -2243,6 +2332,17 @@ APP_DEFINES = [
     ("RMP_UI_FONT_SIZE", "ui.font_size", _c_int),
     ("RMP_UI_SCALE", "ui.scale", _c_float),
     ("RMP_UI_MAX_ELEMENTS", "ui.max_elements", _c_int),
+    "[lang]. DEFAULT is the language every other falls back to; FILE the table with\n"
+    "   a column per language and FOLDER the folder of one table per language, both\n"
+    "   in resources/. COLLECT 1 writes, in a debug build, the texts shown that the\n"
+    "   tables lack. LANGUAGES is the list a game ships (\"\" for every one the\n"
+    "   tables have), FONTS a font per language: \"ja=jp.ttf;ko=ko.ttf\".",
+    ("RMP_LANG_DEFAULT", "lang.default", _c_string),
+    ("RMP_LANG_FILE", "lang.file", _c_string),
+    ("RMP_LANG_FOLDER", "lang.folder", _c_string),
+    ("RMP_LANG_COLLECT", "lang.collect", _c_bool),
+    ("RMP_LANG_LANGUAGES", "lang.languages", _c_list),
+    ("RMP_LANG_FONTS", "lang.fonts", _c_fonts),
     "[input]. The fraction of an analogue stick's travel that reads as zero.\n"
     "   rmp::input::set_deadzone() changes it at runtime — a settings screen.",
     ("RMP_INPUT_DEADZONE", "input.deadzone", _c_float),
@@ -2566,6 +2666,8 @@ targets:
         embed: true
       - framework: ../thirdparty/raylib-ios/deps/ANGLE/libGLESv2.xcframework
         embed: true
+      # The player's language: src/rmp/text.cpp asks CoreFoundation.
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: {yaml_scalar(ios['bundle_id'])}
