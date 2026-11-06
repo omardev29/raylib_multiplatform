@@ -44,10 +44,7 @@ struct Glyph {
     int index = 0; // its place among the letters
 };
 
-constexpr std::uint32_t RICH_MAGIC = 0x524D5052u; // "RMPR"
-
 struct RichRecord {
-    std::uint32_t magic = RICH_MAGIC;
     std::uint16_t font = 0;
     std::vector<Glyph> glyphs;
     int visible = -1;
@@ -239,21 +236,26 @@ void rich_begin_frame() {
 // RMP_COVERAGE_OFF(on the GPU: the unit tests have no window; tests/ui_render_test.cpp draws every line)
 void draw_rich(const Clay_RenderCommand &cmd, float alpha) {
     const Vector2 origin{ cmd.boundingBox.x, cmd.boundingBox.y };
-    // NOLINTNEXTLINE(custom-rmp-raw-pointer): Clay hands back the record as its void * customData
-    const auto *r = static_cast<const RichRecord *>(cmd.renderData.custom.customData);
-    if (r == nullptr || r->magic != RICH_MAGIC) return;
-    for (const Glyph &g : r->glyphs) {
-        if (r->visible >= 0 && g.index >= r->visible) break;
+    // Only a record of this frame's: a custom element is not always rich
+    // text (the overlay's input catcher is one, its data a 1-byte tag), and
+    // reading a magic number through someone else's pointer read past it.
+    const auto mine = std::ranges::find_if(rich.records, [&](const RichRecord &record) {
+        return &record == cmd.renderData.custom.customData;
+    });
+    if (mine == rich.records.end()) return;
+    const RichRecord &r = *mine;
+    for (const Glyph &g : r.glyphs) {
+        if (r.visible >= 0 && g.index >= r.visible) break;
         if (g.codepoint == ' ' || g.codepoint == '\n') continue;
         Vector2 at{ origin.x + g.at.x, origin.y + g.at.y };
         const auto phase = static_cast<float>(g.index);
         if ((g.effects & WAVE) != 0) {
             at.y +=
-                std::sin(r->time * WAVE_SPEED + phase * WAVE_STEP) * g.size * WAVE_HEIGHT;
+                std::sin(r.time * WAVE_SPEED + phase * WAVE_STEP) * g.size * WAVE_HEIGHT;
         }
         if ((g.effects & SHAKE) != 0) {
             // Deterministic under a fixed step: a hash of the letter and the frame.
-            const auto tick = static_cast<unsigned>(r->time * 30.0f);
+            const auto tick = static_cast<unsigned>(r.time * 30.0f);
             const unsigned h =
                 (static_cast<unsigned>(g.index) * 2654435761u) ^ (tick * 40503u);
             at.x += (static_cast<float>(h % 1000) / 500.0f - 1.0f) * g.size * SHAKE_SIZE;
@@ -263,11 +265,11 @@ void draw_rich(const Clay_RenderCommand &cmd, float alpha) {
         Color c = g.color;
         if ((g.effects & RAINBOW) != 0) {
             const float hue =
-                std::fmod(r->time * RAINBOW_SPEED + phase * RAINBOW_STEP, 360.0f);
+                std::fmod(r.time * RAINBOW_SPEED + phase * RAINBOW_STEP, 360.0f);
             c = ColorFromHSV(hue, 0.7f, 1.0f);
         }
         c.a = static_cast<unsigned char>(std::lround(static_cast<float>(c.a) * alpha));
-        const ::Font f = ui_font(g.size, r->font);
+        const ::Font f = ui_font(g.size, r.font);
         DrawTextCodepoint(f, g.codepoint, at, g.size, c);
         if ((g.effects & BOLD) != 0)
             DrawTextCodepoint(f, g.codepoint, Vector2{ at.x + 1, at.y }, g.size, c);
