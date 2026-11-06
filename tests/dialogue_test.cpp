@@ -14,6 +14,8 @@
 #include <rmp/dialogue.h>
 #include <rmp/save.h>
 
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -57,6 +59,38 @@ struct Clean {
 } // namespace
 
 TEST_SUITE("dialogue: rmp::Dialogue") {
+    TEST_CASE_FIXTURE(Clean, "an Ink story, converted by tools/ink_to_yarn.py, plays") {
+        std::ifstream in(std::string(__FILE__).substr(0, std::string(__FILE__).rfind('/')) +
+                             "/dialogue/ink/story.yarn",
+                         std::ios::binary);
+        const std::string text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+        REQUIRE_FALSE(text.empty());
+        rmp::Dialogue d = dd::compile_text(text, "story.yarn");
+        for (const std::string &e : d.errors()) MESSAGE(e);
+        REQUIRE(d.loaded());
+        d.start();
+        CHECK(d.line().text == "Welcome to the market.");
+        CHECK(d.line().tags == std::vector<std::string>{ "happy" });
+        d.advance();
+        CHECK(d.line().text == "What will it be? You have 3 gold.");
+        d.advance();
+        REQUIRE(d.options().size() == 3);
+        d.choose(1); // buy a pie
+        CHECK(d.line().text == "Enjoy it!");
+        d.advance();
+        CHECK(d.line().text == "What will it be? You have 1 gold.");
+        d.advance();
+        CHECK_FALSE(d.options()[1].available); // 1 gold: no pie
+        d.choose(0); // ask, once
+        d.advance();
+        d.advance();
+        CHECK_FALSE(d.options()[0].available); // asked already
+        d.choose(2);
+        CHECK(d.line().text == "Come back for more stories.");
+        d.advance();
+        CHECK_FALSE(d.running());
+    }
+
     TEST_CASE_FIXTURE(Clean, "a conversation, line by line, with its speaker, markup and tags") {
         rmp::Dialogue d = dd::compile_text(SCRIPT);
         for (const std::string &e : d.errors()) MESSAGE(e);

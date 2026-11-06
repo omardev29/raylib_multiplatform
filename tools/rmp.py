@@ -940,7 +940,9 @@ STAGES = [
           [("run", ["{python}", "tools/text_tool.py", "check"])], scope="both"),
     Stage("text-tool", "rmp text's scanner and checker, each mistake seen",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
-                    "text_tool_test.py"])]),
+                    "text_tool_test.py"]),
+           ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "ink_to_yarn_test.py"])]),
     Stage("configure", "tools/configure.py, every rejection",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "configure_test.py"])]),
@@ -1660,7 +1662,7 @@ INCLUDE = (
     "tools/versions_check.sh",
     "tools/dev_shell.sh",
     "tools/android_release_check.py", "tools/binary_check.py", "tools/size_check.py",
-    "tools/rmp.py", "tools/text_tool.py",
+    "tools/rmp.py", "tools/text_tool.py", "tools/ink_to_yarn.py", "tools/rmp_yarnc.cpp",
     "rmp", "rmp.ps1", "rmp.cmd",
 )
 

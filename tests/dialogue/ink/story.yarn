@@ -1,0 +1,32 @@
+title: Start
+---
+<<declare $gold = 3>>
+<<declare $met = false>>
+Mika: Welcome to the market. #happy
+<<jump shop>>
+===
+title: shop
+---
+Mika: What will it be? You have {$gold} gold.
+-> Ask about the pies <<once>>
+    Mika: Fresh this morning.
+    <<set $met = true>>
+    <<jump shop>>
+-> Buy a pie <<if $gold >= 2>>
+    <<set $gold = $gold - 2>>
+    Mika: Enjoy it!
+    <<jump shop>>
+-> Leave
+    <<jump goodbye>>
+
+Mika: Hm?
+===
+title: goodbye
+---
+<<if $met>>
+Mika: Come back for more stories.
+<<else>>
+Mika: Bye, stranger.
+<<endif>>
+<<stop>>
+===
