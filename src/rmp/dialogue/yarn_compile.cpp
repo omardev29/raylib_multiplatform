@@ -94,19 +94,25 @@ struct VarInfo {
 };
 
 int operator_count(const Expr &e) {
-    int n = e.is == Expr::Is::BINARY && (e.text == "&&" || e.text == "||" || e.text == "^") ? 1 : 0;
+    int n =
+        e.is == Expr::Is::BINARY && (e.text == "&&" || e.text == "||" || e.text == "^")
+        ? 1
+        : 0;
     for (const Expr &a : e.args) n += operator_count(a);
     return n;
 }
 
 std::string stem_of(std::string_view file) {
     std::string_view s = file;
-    if (const std::size_t slash = s.find_last_of("/\\"); slash != std::string_view::npos) {
+    if (const std::size_t slash = s.find_last_of("/\\");
+        slash != std::string_view::npos) {
         s = s.substr(slash + 1);
     }
-    if (const std::size_t dot = s.rfind('.'); dot != std::string_view::npos) s = s.substr(0, dot);
+    if (const std::size_t dot = s.rfind('.'); dot != std::string_view::npos)
+        s = s.substr(0, dot);
     std::string out;
-    for (const char c : s) out += (std::isalnum(static_cast<unsigned char>(c)) != 0) ? c : '_';
+    for (const char c : s)
+        out += (std::isalnum(static_cast<unsigned char>(c)) != 0) ? c : '_';
     return out;
 }
 
@@ -117,7 +123,8 @@ class Compiler {
 public:
     Compiler(std::span<const Source> sources, std::span<const FunctionType> functions)
         : _sources(sources) {
-        for (const FunctionType &f : functions) _functions[f.name] = Signature{ f.params, f.result };
+        for (const FunctionType &f : functions)
+            _functions[f.name] = Signature{ f.params, f.result };
     }
 
     Compiled run() {
@@ -163,8 +170,9 @@ private:
                 for (auto [f, n] : members) {
                     if (_scripts[f].nodes[n].whens.empty()) {
                         error(_scripts[f].file, _scripts[f].nodes[n].at,
-                              "the node '" + title + "' shares its title with a node group: "
-                              "every node of a group has a 'when' header");
+                              "the node '" + title +
+                                  "' shares its title with a node group: "
+                                  "every node of a group has a 'when' header");
                     }
                 }
                 continue;
@@ -175,8 +183,8 @@ private:
                     const std::string &sub = _scripts[f].nodes[n].subtitle;
                     if (!sub.empty() && !subtitles.insert(sub).second) {
                         error(_scripts[f].file, _scripts[f].nodes[n].at,
-                              "two nodes of the group '" + title + "' have the subtitle '" + sub +
-                                  "'");
+                              "two nodes of the group '" + title +
+                                  "' have the subtitle '" + sub + "'");
                     }
                 }
                 _groups[title] = members;
@@ -192,9 +200,14 @@ private:
     void gather_block(const std::string &file, const Block &block) {
         for (const Stmt &st : block) {
             switch (st.is) {
-                case Stmt::Is::ENUM: enum_def(file, st); break;
-                case Stmt::Is::DECLARE: declaration(file, st); break;
-                default: break;
+                case Stmt::Is::ENUM:
+                    enum_def(file, st);
+                    break;
+                case Stmt::Is::DECLARE:
+                    declaration(file, st);
+                    break;
+                default:
+                    break;
             }
             for (const Clause &c : st.clauses) gather_block(file, c.body);
             for (const Item &i : st.items) gather_block(file, i.body);
@@ -214,31 +227,36 @@ private:
         std::optional<Kind> kind;
         for (const EnumCase &c : st.cases) {
             if (!names.insert(c.name).second) {
-                error(file, c.at, "the enum " + st.name + " has the case " + c.name + " twice");
+                error(file, c.at,
+                      "the enum " + st.name + " has the case " + c.name + " twice");
             }
             any_raw = any_raw || c.raw.has_value();
             all_raw = all_raw && c.raw.has_value();
             if (c.raw) {
                 if (c.raw->is == Expr::Is::NUMBER) {
                     if (kind && *kind != Kind::NUMBER) {
-                        error(file, c.at, "the raw values of " + st.name + " are not all one type");
+                        error(file, c.at,
+                              "the raw values of " + st.name + " are not all one type");
                     }
                     kind = Kind::NUMBER;
                 } else if (c.raw->is == Expr::Is::STRING) {
                     if (kind && *kind != Kind::STRING) {
-                        error(file, c.at, "the raw values of " + st.name + " are not all one type");
+                        error(file, c.at,
+                              "the raw values of " + st.name + " are not all one type");
                     }
                     kind = Kind::STRING;
                 } else if (c.raw->is == Expr::Is::MEMBER) {
                     error(file, c.at, "a raw value cannot be an enum's case");
                 } else {
-                    error(file, c.at, "a raw value has to be a number or a string written out");
+                    error(file, c.at,
+                          "a raw value has to be a number or a string written out");
                 }
             }
         }
         def.raw = kind.value_or(Kind::NUMBER);
         if (any_raw && !all_raw && def.raw == Kind::STRING) {
-            error(file, st.at, "every case of " + st.name + " needs its string raw value");
+            error(file, st.at,
+                  "every case of " + st.name + " needs its string raw value");
         }
         float next = 0;
         std::set<std::string> raws;
@@ -256,7 +274,8 @@ private:
                 next += 1;
             }
             if (!raws.insert(v.str()).second) {
-                error(file, c.at, "two cases of " + st.name + " have the raw value " + v.str());
+                error(file, c.at,
+                      "two cases of " + st.name + " have the raw value " + v.str());
             }
             def.cases.emplace_back(c.name, v);
         }
@@ -279,7 +298,8 @@ private:
             if (t == "number" || t == "string" || t == "bool" || _enums.contains(t)) {
                 v.type = t;
             } else {
-                error(file, st.at, "'" + t + "' is not a type: number, string, bool or an enum");
+                error(file, st.at,
+                      "'" + t + "' is not a type: number, string, bool or an enum");
             }
         }
     }
@@ -300,9 +320,12 @@ private:
     // is in expects, which an untyped variable or member takes.
     std::string type_of(const Expr &e, const std::string &want, const Ctx &ctx) {
         switch (e.is) {
-            case Expr::Is::NUMBER: return std::string(NUMBER);
-            case Expr::Is::STRING: return std::string(STRING);
-            case Expr::Is::BOOL: return std::string(BOOL);
+            case Expr::Is::NUMBER:
+                return std::string(NUMBER);
+            case Expr::Is::STRING:
+                return std::string(STRING);
+            case Expr::Is::BOOL:
+                return std::string(BOOL);
             case Expr::Is::VARIABLE: {
                 VarInfo &v = _vars[e.text];
                 if (v.file.empty()) {
@@ -315,18 +338,24 @@ private:
                 }
                 return v.type;
             }
-            case Expr::Is::MEMBER: return member_type(e, want, ctx);
+            case Expr::Is::MEMBER:
+                return member_type(e, want, ctx);
             case Expr::Is::UNARY: {
                 const std::string t =
-                    type_of(e.args[0], e.text == "!" ? std::string(BOOL) : std::string(NUMBER), ctx);
-                const std::string need = e.text == "!" ? std::string(BOOL) : std::string(NUMBER);
+                    type_of(e.args[0],
+                            e.text == "!" ? std::string(BOOL) : std::string(NUMBER), ctx);
+                const std::string need =
+                    e.text == "!" ? std::string(BOOL) : std::string(NUMBER);
                 if (ctx.report && !t.empty() && t != need) {
-                    error(ctx.file, e.at, "'" + e.text + "' takes a " + need + ", not a " + t);
+                    error(ctx.file, e.at,
+                          "'" + e.text + "' takes a " + need + ", not a " + t);
                 }
                 return need;
             }
-            case Expr::Is::BINARY: return binary_type(e, want, ctx);
-            case Expr::Is::CALL: return call_type(e, want, ctx);
+            case Expr::Is::BINARY:
+                return binary_type(e, want, ctx);
+            case Expr::Is::CALL:
+                return call_type(e, want, ctx);
         }
         return {};
     }
@@ -335,11 +364,13 @@ private:
         if (!e.text.empty()) {
             const auto it = _enums.find(e.text);
             if (it == _enums.end()) {
-                if (ctx.report) error(ctx.file, e.at, "there is no enum called " + e.text);
+                if (ctx.report)
+                    error(ctx.file, e.at, "there is no enum called " + e.text);
                 return {};
             }
             if (!has_case(it->second, e.member)) {
-                if (ctx.report) error(ctx.file, e.at, e.text + " has no case " + e.member);
+                if (ctx.report)
+                    error(ctx.file, e.at, e.text + " has no case " + e.member);
                 return {};
             }
             return e.text;
@@ -355,15 +386,17 @@ private:
         if (ctx.report) {
             error(ctx.file, e.at,
                   owners.empty() ? "no enum has the case ." + e.member
-                                 : "." + e.member + " could be a case of more than one enum: "
-                                                    "write which, like " +
-                                       owners[0] + "." + e.member);
+                                 : "." + e.member +
+                          " could be a case of more than one enum: "
+                          "write which, like " +
+                          owners[0] + "." + e.member);
         }
         return {};
     }
 
     static bool has_case(const EnumDef &def, const std::string &name) {
-        return std::ranges::any_of(def.cases, [&](const auto &c) { return c.first == name; });
+        return std::ranges::any_of(def.cases,
+                                   [&](const auto &c) { return c.first == name; });
     }
 
     [[nodiscard]] bool is_enum(const std::string &t) const { return _enums.contains(t); }
@@ -371,7 +404,9 @@ private:
     std::string binary_type(const Expr &e, const std::string &want, const Ctx &ctx) {
         const std::string &o = e.text;
         if (o == "&&" || o == "||" || o == "^") {
-            for (const Expr &a : e.args) { // NOLINT(readability-use-anyofallof): every operand is checked and reported
+            for (
+                const Expr &a :
+                e.args) { // NOLINT(readability-use-anyofallof): every operand is checked and reported
                 const std::string t = type_of(a, std::string(BOOL), ctx);
                 if (ctx.report && !t.empty() && t != BOOL) {
                     error(ctx.file, a.at, "'" + o + "' takes bools, not a " + t);
@@ -385,7 +420,8 @@ private:
         if (left.empty() && !right.empty()) left = type_of(e.args[0], right, ctx);
         if (o == "==" || o == "!=") {
             if (ctx.report && !left.empty() && !right.empty() && left != right) {
-                error(ctx.file, e.at, "a " + left + " cannot be compared with a " + right);
+                error(ctx.file, e.at,
+                      "a " + left + " cannot be compared with a " + right);
             }
             return std::string(BOOL);
         }
@@ -393,7 +429,9 @@ private:
             const std::string t = left.empty() ? right : left;
             if (left.empty()) (void)type_of(e.args[0], std::string(NUMBER), ctx);
             if (right.empty()) (void)type_of(e.args[1], std::string(NUMBER), ctx);
-            if (ctx.report && ((!left.empty() && left != NUMBER) || (!right.empty() && right != NUMBER))) {
+            if (ctx.report &&
+                ((!left.empty() && left != NUMBER) ||
+                 (!right.empty() && right != NUMBER))) {
                 error(ctx.file, e.at, "'" + o + "' compares numbers");
             }
             (void)t;
@@ -409,10 +447,12 @@ private:
         }
         if (ctx.report) {
             if (!left.empty() && !right.empty() && left != right) {
-                error(ctx.file, e.at, "'" + o + "' needs two of one type, not a " + left +
-                                          " and a " + right);
+                error(ctx.file, e.at,
+                      "'" + o + "' needs two of one type, not a " + left + " and a " +
+                          right);
             } else if (o == "+" && !t.empty() && t != NUMBER && t != STRING) {
-                error(ctx.file, e.at, "'+' adds numbers or joins strings, not " + t + "s");
+                error(ctx.file, e.at,
+                      "'+' adds numbers or joins strings, not " + t + "s");
             } else if (o != "+" && !t.empty() && t != NUMBER) {
                 error(ctx.file, e.at, "'" + o + "' takes numbers, not " + t + "s");
             }
@@ -433,13 +473,16 @@ private:
         }
         // A built-in's is a copy, which nothing learns from; the game's is the
         // one inference fills in.
-        Signature copy = b != builtins().end() ? b->second : Signature{}; // NOLINT(misc-const-correctness): bound to the reference below
+        // NOLINTNEXTLINE(misc-const-correctness): bound to the reference below
+        Signature copy = b != builtins().end() ? b->second : Signature{};
         Signature &known_ref = b != builtins().end() ? copy : f->second;
-        Signature *known = &known_ref; // NOLINT(custom-rmp-raw-pointer): one of two, for the lines below
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): one of two, for the lines below
+        Signature *known = &known_ref;
         if (known->params.size() != e.args.size()) {
             if (ctx.report) {
-                error(ctx.file, e.at, e.text + "() takes " + std::to_string(known->params.size()) +
-                                          " argument(s), not " + std::to_string(e.args.size()));
+                error(ctx.file, e.at,
+                      e.text + "() takes " + std::to_string(known->params.size()) +
+                          " argument(s), not " + std::to_string(e.args.size()));
             }
             return known->result;
         }
@@ -450,16 +493,19 @@ private:
                 known->params[i] = got;
                 _changed = true;
             } else if (ctx.report && !need.empty() && !got.empty() && got != need &&
-                       (need != STRING || !is_enum(got) || _enums[got].raw != Kind::STRING)) {
-                error(ctx.file, e.args[i].at, e.text + "() takes a " + need + " here, not a " + got);
+                       (need != STRING || !is_enum(got) ||
+                        _enums[got].raw != Kind::STRING)) {
+                error(ctx.file, e.args[i].at,
+                      e.text + "() takes a " + need + " here, not a " + got);
             }
         }
         if (known->result.empty() && !want.empty()) {
             known->result = want;
             _changed = true;
-        } else if (ctx.report && b == builtins().end() && !known->result.empty() && !want.empty() &&
-                   known->result != want) {
-            error(ctx.file, e.at, e.text + "() is used as a " + known->result + " and as a " + want);
+        } else if (ctx.report && b == builtins().end() && !known->result.empty() &&
+                   !want.empty() && known->result != want) {
+            error(ctx.file, e.at,
+                  e.text + "() is used as a " + known->result + " and as a " + want);
         }
         return known->result;
     }
@@ -475,7 +521,9 @@ private:
         for (const Stmt &st : block) {
             switch (st.is) {
                 case Stmt::Is::LINE:
-                case Stmt::Is::COMMAND: line(st.line); break;
+                case Stmt::Is::COMMAND:
+                    line(st.line);
+                    break;
                 case Stmt::Is::SET: {
                     VarInfo &v = _vars[st.name];
                     if (v.file.empty()) {
@@ -483,18 +531,23 @@ private:
                         v.at = st.at;
                     }
                     if (v.smart && report) {
-                        error(file, st.at, st.name + " is a smart variable: it cannot be set");
+                        error(file, st.at,
+                              st.name + " is a smart variable: it cannot be set");
                     }
                     const std::string want = st.op == "=" ? v.type : std::string(NUMBER);
                     if (!st.expr) break;
-                    const std::string got = type_of(*st.expr, v.type.empty() ? want : v.type, ctx);
+                    const std::string got =
+                        type_of(*st.expr, v.type.empty() ? want : v.type, ctx);
                     if (v.type.empty() && !got.empty()) {
-                        v.type = st.op == "+=" ? got : (st.op == "=" ? got : std::string(NUMBER));
+                        v.type = st.op == "+="
+                            ? got
+                            : (st.op == "=" ? got : std::string(NUMBER));
                         _changed = true;
                     }
                     if (report && !v.type.empty() && !got.empty() && got != v.type) {
-                        error(file, st.at, st.name + " is a " + v.type + ", and this sets it to a " +
-                                               got);
+                        error(file, st.at,
+                              st.name + " is a " + v.type + ", and this sets it to a " +
+                                  got);
                     }
                     if (report && st.op != "=" && st.op != "+=" && !v.type.empty() &&
                         v.type != NUMBER) {
@@ -502,14 +555,17 @@ private:
                     }
                     break;
                 }
-                case Stmt::Is::DECLARE: break;
+                case Stmt::Is::DECLARE:
+                    break;
                 case Stmt::Is::JUMP:
                 case Stmt::Is::DETOUR:
                     if (st.expr) {
                         const std::string t = type_of(*st.expr, std::string(STRING), ctx);
                         if (report && !t.empty() && t != STRING) {
-                            error(file, st.at, "a jump goes to a node by its name, a string, "
-                                               "not a " + t);
+                            error(file, st.at,
+                                  "a jump goes to a node by its name, a string, "
+                                  "not a " +
+                                      t);
                         }
                     }
                     break;
@@ -530,7 +586,8 @@ private:
                         infer_block(file, i.body, report);
                     }
                     break;
-                default: break;
+                default:
+                    break;
             }
         }
     }
@@ -569,7 +626,8 @@ private:
             if (v.declared && v.init) {
                 const std::string t = type_of(*v.init, v.type, Ctx{ v.file, true });
                 if (!v.type.empty() && !t.empty() && t != v.type) {
-                    error(v.file, v.at, name + " is declared a " + v.type + " and given a " + t);
+                    error(v.file, v.at,
+                          name + " is declared a " + v.type + " and given a " + t);
                 }
             }
         }
@@ -584,8 +642,9 @@ private:
         for (const auto &[name, v] : _vars) {
             if (name.starts_with("$Yarn.Internal")) continue;
             if (v.type.empty()) {
-                error(v.file, v.at, "nothing says what type " + name + " is: <<declare " + name +
-                                        " = ...>> it, or use it where its type is known");
+                error(v.file, v.at,
+                      "nothing says what type " + name + " is: <<declare " + name +
+                          " = ...>> it, or use it where its type is known");
             }
         }
         // A function of the game's whose result nothing types is fine where
@@ -642,13 +701,18 @@ private:
 
     Value constant_value(const Expr &e, const std::string &type) {
         switch (e.is) {
-            case Expr::Is::NUMBER: return Value::of(e.number);
-            case Expr::Is::STRING: return Value::of(e.text);
-            case Expr::Is::BOOL: return Value::of(e.boolean);
-            case Expr::Is::MEMBER: return member_value(e, type);
+            case Expr::Is::NUMBER:
+                return Value::of(e.number);
+            case Expr::Is::STRING:
+                return Value::of(e.text);
+            case Expr::Is::BOOL:
+                return Value::of(e.boolean);
+            case Expr::Is::MEMBER:
+                return member_value(e, type);
             case Expr::Is::UNARY: {
                 const Value v = constant_value(e.args[0], type);
-                return e.text == "-" ? Value::of(-v.as_number()) : Value::of(!v.as_bool());
+                return e.text == "-" ? Value::of(-v.as_number())
+                                     : Value::of(!v.as_bool());
             }
             case Expr::Is::BINARY: {
                 Value a = constant_value(e.args[0], type);
@@ -673,7 +737,8 @@ private:
                 if (o == "^") return Value::of(a.boolean != b.boolean);
                 return a;
             }
-            default: return Value::of(0.0f);
+            default:
+                return Value::of(0.0f);
         }
     }
 
@@ -706,9 +771,10 @@ private:
                 const bool member = _groups.contains(n.title);
                 std::string name = n.title;
                 if (member) {
-                    name = n.title + "." + (n.subtitle.empty() ? stem_of(s.file) + "_" +
-                                                                     std::to_string(n.at.line)
-                                                               : n.subtitle);
+                    name = n.title + "." +
+                        (n.subtitle.empty()
+                             ? stem_of(s.file) + "_" + std::to_string(n.at.line)
+                             : n.subtitle);
                 }
                 if (!taken.insert(name).second) {
                     error(s.file, n.at, "more than one node is called '" + name + "'");
@@ -785,7 +851,9 @@ private:
         shadows();
     }
 
-    static std::string once_node_var(const std::string &node) { return "$Yarn.Internal.Once." + node; }
+    static std::string once_node_var(const std::string &node) {
+        return "$Yarn.Internal.Once." + node;
+    }
 
     void member_conditions(ProgramNode &out, const NodeSpec &n) {
         const Emitter em{ out.condition };
@@ -832,7 +900,8 @@ private:
     std::string line_id(const LineSpec &l) {
         ++_line_counter;
         if (!l.id.empty()) return l.id;
-        return "line:" + stem_of(_file) + "-" + _node + "-" + std::to_string(_line_counter);
+        return "line:" + stem_of(_file) + "-" + _node + "-" +
+            std::to_string(_line_counter);
     }
 
     // The line's text into the string table; its substitutions onto the
@@ -861,7 +930,8 @@ private:
         info.shadow = l.shadow;
         info.source_line = l.at.line;
         if (!l.shadow.empty() && n > 0) {
-            error(_file, l.at, "a shadow line cannot have expressions: it shows its source's");
+            error(_file, l.at,
+                  "a shadow line cannot have expressions: it shows its source's");
         }
         _out.program.lines.push_back(std::move(info));
         return { id, n };
@@ -872,7 +942,8 @@ private:
             if (l.shadow.empty()) continue;
             const int src = _out.program.line_index(l.shadow);
             if (src < 0) {
-                error(_file, { l.source_line, 1 }, "a shadow line has no line " + l.shadow + " to shadow");
+                error(_file, { l.source_line, 1 },
+                      "a shadow line has no line " + l.shadow + " to shadow");
                 continue;
             }
             const LineInfo &source = _out.program.lines[static_cast<std::size_t>(src)];
@@ -883,10 +954,13 @@ private:
         }
     }
 
-    static std::string once_var(const std::string &id) { return "$Yarn.Internal.Once." + id; }
+    static std::string once_var(const std::string &id) {
+        return "$Yarn.Internal.Once." + id;
+    }
 
     // A line's condition onto the stack (once, if, both). False when it has none.
-    bool line_condition(const Emitter &em, const LineSpec &l, const std::string &id, int &complexity) {
+    bool line_condition(const Emitter &em, const LineSpec &l, const std::string &id,
+                        int &complexity) {
         int count = 0;
         if (l.once) {
             em.add(Op::PUSH_VARIABLE).s = once_var(id);
@@ -920,7 +994,8 @@ private:
     // The id a line WILL get, without taking it: for a condition emitted first.
     std::string peek_id(const LineSpec &l) const {
         if (!l.id.empty()) return l.id;
-        return "line:" + stem_of(_file) + "-" + _node + "-" + std::to_string(_line_counter + 1);
+        return "line:" + stem_of(_file) + "-" + _node + "-" +
+            std::to_string(_line_counter + 1);
     }
 
     void statement(const Emitter &em, const Stmt &st) {
@@ -989,7 +1064,8 @@ private:
                 break;
             }
             case Stmt::Is::DECLARE:
-            case Stmt::Is::ENUM: break;
+            case Stmt::Is::ENUM:
+                break;
             case Stmt::Is::JUMP:
             case Stmt::Is::DETOUR: {
                 const bool jump = st.is == Stmt::Is::JUMP;
@@ -1003,17 +1079,27 @@ private:
                 }
                 break;
             }
-            case Stmt::Is::RETURN: em.add(Op::RETURN); break;
+            case Stmt::Is::RETURN:
+                em.add(Op::RETURN);
+                break;
             case Stmt::Is::CALL:
                 if (!st.expr) break;
                 _want.clear();
                 expr(em, *st.expr);
                 em.add(Op::POP);
                 break;
-            case Stmt::Is::IF: ifs(em, st); break;
-            case Stmt::Is::ONCE: once(em, st); break;
-            case Stmt::Is::OPTIONS: options(em, st); break;
-            case Stmt::Is::LINE_GROUP: line_group(em, st); break;
+            case Stmt::Is::IF:
+                ifs(em, st);
+                break;
+            case Stmt::Is::ONCE:
+                once(em, st);
+                break;
+            case Stmt::Is::OPTIONS:
+                options(em, st);
+                break;
+            case Stmt::Is::LINE_GROUP:
+                line_group(em, st);
+                break;
         }
     }
 
@@ -1039,7 +1125,8 @@ private:
     }
 
     void once(const Emitter &em, const Stmt &st) {
-        const std::string var = "$Yarn.Internal.Once." + _node + "-" + std::to_string(st.at.line);
+        const std::string var =
+            "$Yarn.Internal.Once." + _node + "-" + std::to_string(st.at.line);
         _out.program.initial[var] = Value::of(false);
         em.add(Op::PUSH_VARIABLE).s = var;
         Instruction &n = em.add(Op::CALL_FUNC);
@@ -1110,7 +1197,8 @@ private:
             LineSpec spec = item.line;
             spec.id = line_id(item.line);
             int complexity = 0;
-            if (!line_condition(em, spec, spec.id, complexity)) em.add(Op::PUSH_BOOL).a = 1;
+            if (!line_condition(em, spec, spec.id, complexity))
+                em.add(Op::PUSH_BOOL).a = 1;
             adds.push_back(em.here());
             Instruction &add = em.add(Op::ADD_SALIENCY_CANDIDATE);
             add.s = spec.id;
@@ -1145,10 +1233,18 @@ private:
 
     void expr(const Emitter &em, const Expr &e) {
         switch (e.is) {
-            case Expr::Is::NUMBER: em.add(Op::PUSH_FLOAT).f = e.number; return;
-            case Expr::Is::STRING: em.add(Op::PUSH_STRING).s = e.text; return;
-            case Expr::Is::BOOL: em.add(Op::PUSH_BOOL).a = e.boolean ? 1 : 0; return;
-            case Expr::Is::VARIABLE: em.add(Op::PUSH_VARIABLE).s = e.text; return;
+            case Expr::Is::NUMBER:
+                em.add(Op::PUSH_FLOAT).f = e.number;
+                return;
+            case Expr::Is::STRING:
+                em.add(Op::PUSH_STRING).s = e.text;
+                return;
+            case Expr::Is::BOOL:
+                em.add(Op::PUSH_BOOL).a = e.boolean ? 1 : 0;
+                return;
+            case Expr::Is::VARIABLE:
+                em.add(Op::PUSH_VARIABLE).s = e.text;
+                return;
             case Expr::Is::MEMBER: {
                 const Value v = member_value(e, _want);
                 if (v.kind == Kind::STRING) {
@@ -1216,7 +1312,8 @@ private:
 
 } // namespace
 
-Compiled compile(std::span<const Source> sources, std::span<const FunctionType> functions) {
+Compiled compile(std::span<const Source> sources,
+                 std::span<const FunctionType> functions) {
     Compiler c(sources, functions);
     Compiled out = c.run();
     // A jump to a node that is not there is said when the program is built.

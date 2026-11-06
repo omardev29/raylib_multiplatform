@@ -3132,7 +3132,8 @@ void run_dialogue_presenters() {
     fake_nav.state.activate = true;
     frame();
     fake_nav.state = rmp::ui::detail::NavState{};
-    check(box.ours.shown == static_cast<float>(box.ours.length), "Enter shows the whole line");
+    check(box.ours.shown == static_cast<float>(box.ours.length),
+          "Enter shows the whole line");
     check(d.has_line(), "and the line is still there");
     frame();
     fake_nav.state.activate = true;
@@ -3146,7 +3147,8 @@ void run_dialogue_presenters() {
     fake_nav.state.activate = true;
     frame();
     fake_nav.state = rmp::ui::detail::NavState{};
-    check(d.has_line() && d.line().text == "Good.", "the first choice, focused, is taken");
+    check(d.has_line() && d.line().text == "Good.",
+          "the first choice, focused, is taken");
     box.toggle_history();
     frame();
     check(box.ours.showing_history, "the history shows");
@@ -3156,7 +3158,8 @@ void run_dialogue_presenters() {
     rmp::Dialogue timed = rmp::dialogue::detail::compile_text(
         "title: Start\n---\n-> A\n    picked A\n-> B\n    picked B\n===\n");
     timed.start();
-    rmp::ui::DialogueStage stage{ .flow = { .choice_seconds = 0.5f, .default_choice = 1 } };
+    rmp::ui::DialogueStage stage{ .flow = { .choice_seconds = 0.5f,
+                                            .default_choice = 1 } };
     for (int i = 0; i < 45 && timed.has_options(); ++i) {
         rmp::ui::begin();
         stage.show(timed);
@@ -3175,7 +3178,8 @@ void run_dialogue_presenters() {
         rmp::ui::end();
     }
     check(box_of("dialogue_bubble_line").w > 0, "the bubble's line is laid out");
-    check(bubble.ours.shown == static_cast<float>(bubble.ours.length), "at once, at 0 a second");
+    check(bubble.ours.shown == static_cast<float>(bubble.ours.length),
+          "at once, at 0 a second");
 
     // rich_text on its own: the length a typewriter counts to.
     check(rmp::ui::rich_text_length("A [b]bold[/b] word") == 11, "markup does not count");

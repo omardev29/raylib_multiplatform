@@ -52,7 +52,8 @@ struct TextOptions {
 class TextArg {
 public:
     template <class N>
-        requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool> && !std::is_same_v<N, char>)
+        requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool> &&
+                 !std::is_same_v<N, char>)
     TextArg(std::string_view name, N value)
         : _name(name), _number(static_cast<double>(value)), _numeric(true),
           _integer(std::is_integral_v<N>), _single(std::is_same_v<N, float>) {}
@@ -70,7 +71,8 @@ private:
     double _number = 0;
     bool _numeric = false;
     bool _integer = false;
-    bool _single = false; // a float: written as the float it is, 0.1 and not 0.10000000149
+    bool _single =
+        false; // a float: written as the float it is, 0.1 and not 0.10000000149
 };
 
 // A text the framework draws: translated when it was a literal, as it is when
@@ -82,14 +84,14 @@ public:
     // A literal: translated, and the key is its own words. A reference to the
     // array, so a literal and a runtime string are told apart by their type.
     template <std::size_t N>
-    Text(const char (&literal)[N]) // NOLINT(google-explicit-constructor): a literal is a Text
+    // NOLINTNEXTLINE(google-explicit-constructor,modernize-avoid-c-arrays): a literal is a Text
+    Text(const char (&literal)[N])
         : _key(literal, length_of(literal)), _translate(true) {}
 
     // A string made at runtime -- std::string, std::string_view, TextFormat()'s
     // C string -- shown as it is, never looked up.
     template <class S>
-        requires(std::convertible_to<const S &, std::string_view> &&
-                 !std::is_array_v<S>)
+        requires(std::convertible_to<const S &, std::string_view> && !std::is_array_v<S>)
     Text(const S &runtime) // NOLINT(google-explicit-constructor): every string is a Text
         : _key(std::string_view(runtime)) {}
 
@@ -114,7 +116,9 @@ public:
 
 private:
     // Up to the first NUL: a char array that is not a literal may hold less.
-    template <std::size_t N> static std::size_t length_of(const char (&text)[N]) {
+    template <std::size_t N>
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays): the literal's own array
+    static std::size_t length_of(const char (&text)[N]) {
         std::size_t i = 0;
         while (i + 1 < N && text[i] != '\0') ++i;
         return i;

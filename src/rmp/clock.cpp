@@ -61,7 +61,8 @@ struct {
 // How long the frame took: what raylib timed, or the step a test fixed.
 float raw_delta() {
     if (timing.fixed > 0) return timing.fixed;
-    if (timing.drawn < 2 && timing.mark > 0) return static_cast<float>(GetTime() - timing.mark);
+    if (timing.drawn < 2 && timing.mark > 0)
+        return static_cast<float>(GetTime() - timing.mark);
     return GetFrameTime();
 }
 

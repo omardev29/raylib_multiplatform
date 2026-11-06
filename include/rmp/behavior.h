@@ -639,7 +639,9 @@ struct Talker {
     Callback<> on_done; // ...and finished
 
     [[nodiscard]] bool in_range() const { return ours.near; } // close enough to talk
-    [[nodiscard]] bool talking() const { return ours.talking; } // a conversation is running
+    [[nodiscard]] bool talking() const {
+        return ours.talking;
+    } // a conversation is running
     [[nodiscard]] Dialogue &conversation() { return ours.talk; } // what it says
 
     // A Talker with the fields the map's entity has by these names --

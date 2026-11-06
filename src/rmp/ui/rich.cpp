@@ -80,18 +80,24 @@ std::optional<Color> parse_color(std::string_view s) {
         const auto byte = [&](std::size_t i) {
             return static_cast<unsigned char>(hex(s[i]) * 16 + hex(s[i + 1]));
         };
-        return Color{ byte(1), byte(3), byte(5), s.size() == 9 ? byte(7) : static_cast<unsigned char>(255) };
+        return Color{ byte(1), byte(3), byte(5),
+                      s.size() == 9 ? byte(7) : static_cast<unsigned char>(255) };
     }
     struct Named {
         std::string_view name;
         Color color;
     };
     static constexpr std::array NAMES{
-        Named{ "red", Color{ 230, 41, 55, 255 } },     Named{ "green", Color{ 0, 228, 48, 255 } },
-        Named{ "blue", Color{ 0, 121, 241, 255 } },    Named{ "yellow", Color{ 253, 249, 0, 255 } },
-        Named{ "orange", Color{ 255, 161, 0, 255 } },  Named{ "purple", Color{ 200, 122, 255, 255 } },
-        Named{ "white", Color{ 255, 255, 255, 255 } }, Named{ "black", Color{ 0, 0, 0, 255 } },
-        Named{ "gray", Color{ 130, 130, 130, 255 } },  Named{ "pink", Color{ 255, 109, 194, 255 } },
+        Named{ "red", Color{ 230, 41, 55, 255 } },
+        Named{ "green", Color{ 0, 228, 48, 255 } },
+        Named{ "blue", Color{ 0, 121, 241, 255 } },
+        Named{ "yellow", Color{ 253, 249, 0, 255 } },
+        Named{ "orange", Color{ 255, 161, 0, 255 } },
+        Named{ "purple", Color{ 200, 122, 255, 255 } },
+        Named{ "white", Color{ 255, 255, 255, 255 } },
+        Named{ "black", Color{ 0, 0, 0, 255 } },
+        Named{ "gray", Color{ 130, 130, 130, 255 } },
+        Named{ "pink", Color{ 255, 109, 194, 255 } },
     };
     for (const Named &n : NAMES) {
         if (n.name == s) return n.color;
@@ -101,10 +107,14 @@ std::optional<Color> parse_color(std::string_view s) {
 
 Color theme_color(const Theme &t, ColorRole role) {
     switch (role) {
-        case ColorRole::TEXT: return t.text;
-        case ColorRole::MUTED: return t.text_muted;
-        case ColorRole::PRIMARY: return t.primary;
-        case ColorRole::DANGER: return t.danger;
+        case ColorRole::TEXT:
+            return t.text;
+        case ColorRole::MUTED:
+            return t.text_muted;
+        case ColorRole::PRIMARY:
+            return t.primary;
+        case ColorRole::DANGER:
+            return t.danger;
     }
     return t.text;
 }
@@ -126,7 +136,8 @@ std::vector<int> code_points(std::string_view s) {
 // so a font with no glyphs (a headless test's) still answers.
 float advance(const ::Font &font, int codepoint, float size) {
     int bytes = 0;
-    const char *utf8 = CodepointToUTF8(codepoint, &bytes); // NOLINT(custom-rmp-raw-pointer): raylib's static buffer, read at once
+    // NOLINTNEXTLINE(custom-rmp-raw-pointer): raylib's static buffer, read at once
+    const char *utf8 = CodepointToUTF8(codepoint, &bytes);
     const Clay_StringSlice slice{ bytes, utf8, utf8 };
     return measure_text(font, slice, size).width;
 }
@@ -148,7 +159,8 @@ RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Co
     }
     for (const yarn::Attribute &a : marked.attributes) {
         const auto from = static_cast<std::size_t>(std::max(0, a.position));
-        const auto to = std::min(glyphs.size(), from + static_cast<std::size_t>(std::max(0, a.length)));
+        const auto to = std::min(glyphs.size(),
+                                 from + static_cast<std::size_t>(std::max(0, a.length)));
         std::string value;
         for (const auto &[k, v] : a.properties) {
             if (k == a.name) value = v;
@@ -184,7 +196,8 @@ RichRecord &lay_out(const yarn::Marked &marked, float width, float base_size, Co
         }
         std::size_t end = i;
         float word = 0;
-        while (end < glyphs.size() && glyphs[end].codepoint != ' ' && glyphs[end].codepoint != '\n') {
+        while (end < glyphs.size() && glyphs[end].codepoint != ' ' &&
+               glyphs[end].codepoint != '\n') {
             const ::Font f = ui_font(glyphs[end].size, font_id);
             word += advance(f, glyphs[end].codepoint, glyphs[end].size);
             ++end;
@@ -234,30 +247,37 @@ void draw_rich(const Clay_RenderCommand &cmd, float alpha) {
         Vector2 at{ origin.x + g.at.x, origin.y + g.at.y };
         const auto phase = static_cast<float>(g.index);
         if ((g.effects & WAVE) != 0) {
-            at.y += std::sin(r->time * WAVE_SPEED + phase * WAVE_STEP) * g.size * WAVE_HEIGHT;
+            at.y +=
+                std::sin(r->time * WAVE_SPEED + phase * WAVE_STEP) * g.size * WAVE_HEIGHT;
         }
         if ((g.effects & SHAKE) != 0) {
             // Deterministic under a fixed step: a hash of the letter and the frame.
             const auto tick = static_cast<unsigned>(r->time * 30.0f);
-            const unsigned h = (static_cast<unsigned>(g.index) * 2654435761u) ^ (tick * 40503u);
+            const unsigned h =
+                (static_cast<unsigned>(g.index) * 2654435761u) ^ (tick * 40503u);
             at.x += (static_cast<float>(h % 1000) / 500.0f - 1.0f) * g.size * SHAKE_SIZE;
-            at.y += (static_cast<float>((h / 1000) % 1000) / 500.0f - 1.0f) * g.size * SHAKE_SIZE;
+            at.y += (static_cast<float>((h / 1000) % 1000) / 500.0f - 1.0f) * g.size *
+                SHAKE_SIZE;
         }
         Color c = g.color;
         if ((g.effects & RAINBOW) != 0) {
-            const float hue = std::fmod(r->time * RAINBOW_SPEED + phase * RAINBOW_STEP, 360.0f);
+            const float hue =
+                std::fmod(r->time * RAINBOW_SPEED + phase * RAINBOW_STEP, 360.0f);
             c = ColorFromHSV(hue, 0.7f, 1.0f);
         }
         c.a = static_cast<unsigned char>(std::lround(static_cast<float>(c.a) * alpha));
         const ::Font f = ui_font(g.size, r->font);
         DrawTextCodepoint(f, g.codepoint, at, g.size, c);
-        if ((g.effects & BOLD) != 0) DrawTextCodepoint(f, g.codepoint, Vector2{ at.x + 1, at.y }, g.size, c);
+        if ((g.effects & BOLD) != 0)
+            DrawTextCodepoint(f, g.codepoint, Vector2{ at.x + 1, at.y }, g.size, c);
     }
 }
 
-void rich_with(const yarn::Marked &marked, const RichTextOptions &o, std::string_view label) {
+void rich_with(const yarn::Marked &marked, const RichTextOptions &o,
+               std::string_view label) {
     const Theme &t = current_theme();
-    const Clay_ElementId id = element_id(label.empty() ? std::string_view("rich_text") : label, o.id);
+    const Clay_ElementId id =
+        element_id(label.empty() ? std::string_view("rich_text") : label, o.id);
     // As wide as it was given last frame, or as asked.
     float width = o.width > 0 ? px(o.width) : 0.0f;
     if (width <= 0) {
@@ -267,7 +287,8 @@ void rich_with(const yarn::Marked &marked, const RichTextOptions &o, std::string
     }
     const float size = px(resolve_size(o.size, t));
     float height = 0;
-    RichRecord &r = lay_out(marked, width, size, theme_color(t, o.color), font_id_of(look().font), height);
+    RichRecord &r = lay_out(marked, width, size, theme_color(t, o.color),
+                            font_id_of(look().font), height);
     r.visible = o.visible;
     r.time = rich.clock;
     Clay_ElementDeclaration d{};

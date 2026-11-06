@@ -58,14 +58,20 @@ public:
     enum class Kind : std::uint8_t { NUMBER, STRING, BOOL };
 
     DialogueValue() = default;
-    DialogueValue(float number) : _number(number) {} // NOLINT(google-explicit-constructor)
-    DialogueValue(int number) : _number(static_cast<float>(number)) {} // NOLINT(google-explicit-constructor)
-    DialogueValue(double number) : _number(static_cast<float>(number)) {} // NOLINT(google-explicit-constructor)
-    DialogueValue(bool value) : _kind(Kind::BOOL), _bool(value) {} // NOLINT(google-explicit-constructor)
-    DialogueValue(std::string text) : _kind(Kind::STRING), _text(std::move(text)) {} // NOLINT(google-explicit-constructor)
+    // Each one implicit, so `out = 3;` or `set_variable("$met", true)` reads as Yarn does.
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    DialogueValue(float number) : _number(number) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    DialogueValue(int number) : _number(static_cast<float>(number)) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    DialogueValue(double number) : _number(static_cast<float>(number)) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    DialogueValue(bool value) : _kind(Kind::BOOL), _bool(value) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    DialogueValue(std::string text) : _kind(Kind::STRING), _text(std::move(text)) {}
     template <std::size_t N>
-    DialogueValue(const char (&text)[N]) // NOLINT(google-explicit-constructor)
-        : _kind(Kind::STRING), _text(text) {}
+    // NOLINTNEXTLINE(google-explicit-constructor,modernize-avoid-c-arrays)
+    DialogueValue(const char (&text)[N]) : _kind(Kind::STRING), _text(text) {}
 
     [[nodiscard]] Kind kind() const { return _kind; }
     [[nodiscard]] float as_number() const; // a string read as a number; a bool 1 or 0
@@ -96,7 +102,8 @@ struct DialogueMarkup {
 struct DialogueLine {
     std::string id; // its #line: id, the key of its translation
     std::string speaker; // who says it ("Mika: ..."), or empty
-    std::string text; // what is said, in the current language, without the speaker or markup
+    std::string
+        text; // what is said, in the current language, without the speaker or markup
     std::vector<DialogueMarkup> markup; // where the markup was, in `text`
     std::vector<std::string> tags; // its #hashtags, without the #
 };
@@ -160,11 +167,13 @@ public:
 
     // <<name arg arg>> calls `handler` with the args, and the dialogue goes
     // on by itself. A command nobody handles waits in has_command().
-    void on_command(std::string_view name, rmp::Callback<std::span<const std::string>> handler);
+    void on_command(std::string_view name,
+                    rmp::Callback<std::span<const std::string>> handler);
     // name(...) in an expression: `function` reads the arguments and writes
     // the result in the value it is handed.
-    void on_function(std::string_view name,
-                     rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function);
+    void
+    on_function(std::string_view name,
+                rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function);
 
     // $variables: what the script set, and what the game sets for it.
     [[nodiscard]] DialogueValue variable(std::string_view name) const;

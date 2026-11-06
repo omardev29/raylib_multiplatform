@@ -45,13 +45,15 @@ extern "C" int LLVMFuzzerInitialize(int * /*argc*/, char *** /*argv*/) {
 // NOLINTNEXTLINE(readability-identifier-naming): libFuzzer's name
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size) {
     const std::span<const std::uint8_t> input = rmp::test::fuzz::input({ data, size });
-    const std::vector<rmp::yarn::Source> sources{ { "fuzz.yarn",
-                                                    std::string(input.begin(), input.end()) } };
+    const std::vector<rmp::yarn::Source> sources{
+        { "fuzz.yarn", std::string(input.begin(), input.end()) }
+    };
     const rmp::yarn::Compiled c = rmp::yarn::compile(sources);
     int lines = 1;
     for (const char ch : sources[0].text) lines += ch == '\n' ? 1 : 0;
     for (const rmp::yarn::Diagnostic &d : c.errors) {
-        require(d.at.line >= 0 && d.at.line <= lines, "an error is at a line of the file");
+        require(d.at.line >= 0 && d.at.line <= lines,
+                "an error is at a line of the file");
         require(!d.message.empty(), "an error says what is wrong");
     }
     if (!c.ok()) return 0;
@@ -66,7 +68,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
             for (int step = 0; step < STEPS && m.running(); ++step) {
                 const rmp::yarn::Event &e = m.event();
                 if (e.is == rmp::yarn::Event::Is::LINE) {
-                    require(c.program.line_index(e.id) >= 0, "every line shown is in the program");
+                    require(c.program.line_index(e.id) >= 0,
+                            "every line shown is in the program");
                     m.advance();
                 } else if (e.is == rmp::yarn::Event::Is::OPTIONS) {
                     const int count = static_cast<int>(e.options.size());

@@ -85,8 +85,10 @@ TEST_SUITE("property: text") {
             const Clean clean;
             const int n = *rc::gen::arbitrary<int>();
             const double x = *rmp::test::gen::hostile_double();
-            const std::string word = *rc::gen::container<std::string>(rc::gen::inRange('a', 'z'));
-            const rmp::Text t("[{a}] [{b}] [{c}]", { { "a", n }, { "b", x }, { "c", word } });
+            const std::string word =
+                *rc::gen::container<std::string>(rc::gen::inRange('a', 'z'));
+            const rmp::Text t("[{a}] [{b}] [{c}]",
+                              { { "a", n }, { "b", x }, { "c", word } });
             const std::string out = t.str();
             RC_ASSERT(out.find("{a}") == std::string::npos);
             RC_ASSERT(out.find("{b}") == std::string::npos);
@@ -108,8 +110,8 @@ TEST_SUITE("property: text") {
         rmp::test::check("whatever the number and the language", [] {
             const Clean clean;
             const int n = *rc::gen::arbitrary<int>();
-            const std::string code =
-                *rc::gen::element<std::string>("en", "es", "fr", "ru", "pl", "cs", "ja", "xx");
+            const std::string code = *rc::gen::element<std::string>(
+                "en", "es", "fr", "ru", "pl", "cs", "ja", "xx");
             rmp::lang::set(code);
             const std::string out = rmp::Text("A|B|C|D{n}", { { "n", n } }).str();
             const std::string tail = std::to_string(n);
@@ -119,7 +121,8 @@ TEST_SUITE("property: text") {
 
     TEST_CASE("a literal of any length is its own key") {
         const Clean clean;
-        constexpr char LITERAL[] = "Play"; // NOLINT(modernize-avoid-c-arrays): the literal path is the subject
+        // NOLINTNEXTLINE(modernize-avoid-c-arrays): the literal path is the subject
+        constexpr char LITERAL[] = "Play";
         const rmp::Text t(LITERAL);
         CHECK(t.translated());
         CHECK(t.key() == "Play");

@@ -19,20 +19,22 @@ namespace {
 
 namespace d = rmp::lang::detail;
 
-constexpr std::string_view WIDE = "key\tcontext\ten\tes\tja\n"
-                              "# a comment\n"
-                              "Play\t\tPlay\tJugar\tプレイ\n"
-                              "Open\tdoor\tOpen\tAbrir\t開ける\n"
-                              "Open\tfile\tOpen\tAbrir archivo\t\n"
-                              "{count} gem|{count} gems\t\t{count} gem|{count} gems\t{count} "
-                              "gema|{count} gemas\t{count}個の宝石\n"
-                              "Score: {score}\t\tScore: {score}\tPuntos: {score}\t\n"
-                              "language.name\t\tEnglish\tEspañol\t日本語\n";
+constexpr std::string_view WIDE =
+    "key\tcontext\ten\tes\tja\n"
+    "# a comment\n"
+    "Play\t\tPlay\tJugar\tプレイ\n"
+    "Open\tdoor\tOpen\tAbrir\t開ける\n"
+    "Open\tfile\tOpen\tAbrir archivo\t\n"
+    "{count} gem|{count} gems\t\t{count} gem|{count} gems\t{count} "
+    "gema|{count} gemas\t{count}個の宝石\n"
+    "Score: {score}\t\tScore: {score}\tPuntos: {score}\t\n"
+    "language.name\t\tEnglish\tEspañol\t日本語\n";
 
-constexpr std::string_view RUSSIAN = "key\tcontext\ttext\n"
-                                 "{count} gem|{count} gems\t\t{count} самоцвет|{count} "
-                                 "самоцвета|{count} самоцветов|{count} самоцвета\n"
-                                 "Play\t\tИграть\n";
+constexpr std::string_view RUSSIAN =
+    "key\tcontext\ttext\n"
+    "{count} gem|{count} gems\t\t{count} самоцвет|{count} "
+    "самоцвета|{count} самоцветов|{count} самоцвета\n"
+    "Play\t\tИграть\n";
 
 struct Tables {
     Tables() {
@@ -66,7 +68,8 @@ TEST_SUITE("text: rmp::Text") {
         CHECK(say("Quit") == "Quit");
     }
 
-    TEST_CASE_FIXTURE(Tables, "es-MX falls back to es, an unknown language to the default") {
+    TEST_CASE_FIXTURE(Tables,
+                      "es-MX falls back to es, an unknown language to the default") {
         rmp::lang::set("es-MX");
         CHECK(rmp::lang::current() == "es-MX");
         CHECK(say("Play") == "Jugar");
@@ -89,8 +92,10 @@ TEST_SUITE("text: rmp::Text") {
     TEST_CASE_FIXTURE(Tables, "placeholders are filled, and braces doubled are braces") {
         rmp::lang::set("es");
         CHECK(say(rmp::Text("Score: {score}", { { "score", 42 } })) == "Puntos: 42");
-        CHECK(say(rmp::Text("{a} and {b}", { { "a", "x" }, { "b", 2.5 } })) == "x and 2.5");
-        CHECK(say(rmp::Text("{{literal}} {missing}", { { "a", 1 } })) == "{literal} {missing}");
+        CHECK(say(rmp::Text("{a} and {b}", { { "a", "x" }, { "b", 2.5 } })) ==
+              "x and 2.5");
+        CHECK(say(rmp::Text("{{literal}} {missing}", { { "a", 1 } })) ==
+              "{literal} {missing}");
         // The id does not change with the value: focus survives a score.
         CHECK(rmp::Text("Score: {score}", { { "score", 1 } }).id() ==
               rmp::Text("Score: {score}", { { "score", 2 } }).id());
@@ -202,8 +207,10 @@ TEST_SUITE("text: the pieces") {
     }
 
     TEST_CASE("the fallback chain walks down to the default, each once") {
-        CHECK(d::fallback_chain("es-MX", "en") == std::vector<std::string>{ "es-MX", "es", "en" });
-        CHECK(d::fallback_chain("en-GB", "en") == std::vector<std::string>{ "en-GB", "en" });
+        CHECK(d::fallback_chain("es-MX", "en") ==
+              std::vector<std::string>{ "es-MX", "es", "en" });
+        CHECK(d::fallback_chain("en-GB", "en") ==
+              std::vector<std::string>{ "en-GB", "en" });
         CHECK(d::fallback_chain("", "en") == std::vector<std::string>{ "en" });
     }
 
@@ -241,12 +248,13 @@ TEST_SUITE("text: the pieces") {
         CHECK(d::plural_form("ru", 101, true) == 0);
         CHECK(d::plural_form("ru", 2.5, false) == 3);
         CHECK(d::plural_form("xx", 1, true) == -1);
-        CHECK(d::plural_form("en", std::numeric_limits<double>::quiet_NaN(), false) == -1);
+        CHECK(d::plural_form("en", std::numeric_limits<double>::quiet_NaN(), false) ==
+              -1);
     }
 
     TEST_CASE("an unknown language takes the last form, other") {
-        CHECK(d::format("{n} one|{n} other", std::vector<rmp::TextArg>{ { "n", 1 } }, "xx") ==
-              "1 other");
+        CHECK(d::format("{n} one|{n} other", std::vector<rmp::TextArg>{ { "n", 1 } },
+                        "xx") == "1 other");
     }
 
     TEST_CASE("numbers are written short and exact") {

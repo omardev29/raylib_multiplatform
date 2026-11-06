@@ -21,7 +21,7 @@ namespace rmp::yarn {
 
 std::string Diagnostic::str() const {
     return file + ":" + std::to_string(at.line) + ":" + std::to_string(at.column) + ": " +
-           message;
+        message;
 }
 
 namespace {
@@ -49,8 +49,21 @@ std::string_view trim_right(std::string_view s) {
 
 struct Token {
     enum class Is : std::uint8_t {
-        END, NUMBER, STRING, KEYWORD_TRUE, KEYWORD_FALSE, KEYWORD_NULL, VARIABLE, ID, OP, LPAREN, RPAREN, COMMA, DOT,
-        AS, ERROR,
+        END,
+        NUMBER,
+        STRING,
+        KEYWORD_TRUE,
+        KEYWORD_FALSE,
+        KEYWORD_NULL,
+        VARIABLE,
+        ID,
+        OP,
+        LPAREN,
+        RPAREN,
+        COMMA,
+        DOT,
+        AS,
+        ERROR,
     };
     Is is = Is::END;
     std::string text;
@@ -71,7 +84,8 @@ public:
         const auto rest = _text.substr(_at);
         if (std::isdigit(static_cast<unsigned char>(c)) != 0) {
             std::size_t end = _at;
-            while (end < _text.size() && std::isdigit(static_cast<unsigned char>(_text[end])) != 0) {
+            while (end < _text.size() &&
+                   std::isdigit(static_cast<unsigned char>(_text[end])) != 0) {
                 ++end;
             }
             if (end + 1 < _text.size() && _text[end] == '.' &&
@@ -94,7 +108,8 @@ public:
             bool closed = false;
             while (i < _text.size()) {
                 const char d = _text[i];
-                if (d == '\\' && i + 1 < _text.size() && (_text[i + 1] == '"' || _text[i + 1] == '\\')) {
+                if (d == '\\' && i + 1 < _text.size() &&
+                    (_text[i + 1] == '"' || _text[i + 1] == '\\')) {
                     out += _text[i + 1];
                     i += 2;
                     continue;
@@ -114,7 +129,8 @@ public:
         }
         if (c == '$') {
             std::size_t end = _at + 1;
-            while (end < _text.size() && id_char(static_cast<unsigned char>(_text[end]))) ++end;
+            while (end < _text.size() && id_char(static_cast<unsigned char>(_text[end])))
+                ++end;
             t.is = end > _at + 1 ? Token::Is::VARIABLE : Token::Is::ERROR;
             t.text = std::string(_text.substr(_at, end - _at));
             if (t.is == Token::Is::ERROR) t.text = "a $ with no variable name";
@@ -123,7 +139,8 @@ public:
         }
         if (id_head(static_cast<unsigned char>(c))) {
             std::size_t end = _at;
-            while (end < _text.size() && id_char(static_cast<unsigned char>(_text[end]))) ++end;
+            while (end < _text.size() && id_char(static_cast<unsigned char>(_text[end])))
+                ++end;
             const std::string word(_text.substr(_at, end - _at));
             _at = end;
             t.text = word;
@@ -162,8 +179,8 @@ public:
             }
             return t;
         }
-        for (const std::string_view two : { "<=", ">=", "==", "!=", "&&", "||", "+=", "-=", "*=",
-                                            "/=", "%=" }) {
+        for (const std::string_view two :
+             { "<=", ">=", "==", "!=", "&&", "||", "+=", "-=", "*=", "/=", "%=" }) {
             if (rest.starts_with(two)) {
                 _at += 2;
                 return op(t, two);
@@ -171,14 +188,31 @@ public:
         }
         ++_at;
         switch (c) {
-            case '(': t.is = Token::Is::LPAREN; return t;
-            case ')': t.is = Token::Is::RPAREN; return t;
-            case ',': t.is = Token::Is::COMMA; return t;
-            case '.': t.is = Token::Is::DOT; return t;
-            case '<': case '>': case '+': case '-': case '*': case '/': case '%': case '!':
-            case '^': case '=':
+            case '(':
+                t.is = Token::Is::LPAREN;
+                return t;
+            case ')':
+                t.is = Token::Is::RPAREN;
+                return t;
+            case ',':
+                t.is = Token::Is::COMMA;
+                return t;
+            case '.':
+                t.is = Token::Is::DOT;
+                return t;
+            case '<':
+            case '>':
+            case '+':
+            case '-':
+            case '*':
+            case '/':
+            case '%':
+            case '!':
+            case '^':
+            case '=':
                 return op(t, std::string_view(&c, 1));
-            default: break;
+            default:
+                break;
         }
         t.is = Token::Is::ERROR;
         t.text = std::string("an unexpected '") + c + "'";
@@ -199,7 +233,8 @@ private:
 
 class ExprParser {
 public:
-    ExprParser(std::string_view text, int line, int base_column, std::vector<std::string> &problems)
+    ExprParser(std::string_view text, int line, int base_column,
+               std::vector<std::string> &problems)
         : _lexer(text, base_column), _line(line), _problems(problems) {
         _tok = _lexer.next();
     }
@@ -333,8 +368,10 @@ private:
                     return e;
                 }
                 if (_tok.is != Token::Is::LPAREN) {
-                    fail(name, "'" + name.text + "' is not a value: a variable starts with $, "
-                                                 "and a function is called with ()");
+                    fail(name,
+                         "'" + name.text +
+                             "' is not a value: a variable starts with $, "
+                             "and a function is called with ()");
                     return std::nullopt;
                 }
                 take();
@@ -359,10 +396,17 @@ private:
                 take();
                 return e;
             }
-            case Token::Is::KEYWORD_NULL: fail(_tok, "null is not a value in Yarn"); return std::nullopt;
-            case Token::Is::END: fail(_tok, "an expression was expected"); return std::nullopt;
-            case Token::Is::ERROR: fail(_tok, _tok.text); return std::nullopt;
-            default: break;
+            case Token::Is::KEYWORD_NULL:
+                fail(_tok, "null is not a value in Yarn");
+                return std::nullopt;
+            case Token::Is::END:
+                fail(_tok, "an expression was expected");
+                return std::nullopt;
+            case Token::Is::ERROR:
+                fail(_tok, _tok.text);
+                return std::nullopt;
+            default:
+                break;
         }
         fail(_tok, "an unexpected '" + _tok.text + "'");
         return std::nullopt;
@@ -408,10 +452,11 @@ std::size_t indent_chars(std::string_view s) {
 // the end, so <<iffy>> and <<settings>> are commands of the game's.
 std::string_view keyword_of(std::string_view content) {
     content = trim(content);
-    for (const std::string_view k : { "if", "elseif", "else", "endif", "set", "call", "declare",
-                                      "jump", "detour", "return", "enum", "case", "endenum",
-                                      "once", "endonce", "local" }) {
-        if (content.starts_with(k) && (content.size() == k.size() || is_space(content[k.size()]))) {
+    for (const std::string_view k :
+         { "if", "elseif", "else", "endif", "set", "call", "declare", "jump", "detour",
+           "return", "enum", "case", "endenum", "once", "endonce", "local" }) {
+        if (content.starts_with(k) &&
+            (content.size() == k.size() || is_space(content[k.size()]))) {
             return k;
         }
     }
@@ -420,7 +465,8 @@ std::string_view keyword_of(std::string_view content) {
 
 class Parser {
 public:
-    Parser(std::string_view source, std::string_view file, std::vector<Diagnostic> &errors)
+    Parser(std::string_view source, std::string_view file,
+           std::vector<Diagnostic> &errors)
         : _file(file), _errors(errors) {
         std::size_t start = 0;
         int number = 1;
@@ -483,8 +529,8 @@ private:
                 continue;
             }
             std::size_t end = i + 1;
-            while (end < s.size() && !is_space(s[end]) && s[end] != '#' && s[end] != '$' &&
-                   s[end] != '<') {
+            while (end < s.size() && !is_space(s[end]) && s[end] != '#' &&
+                   s[end] != '$' && s[end] != '<') {
                 ++end;
             }
             if (end > i + 1) out.emplace_back(s.substr(i + 1, end - i - 1));
@@ -508,7 +554,8 @@ private:
                 break;
             }
             if (t == "===") {
-                error(raw.number, 1, "a node has to have a body: '---', its lines, then '==='");
+                error(raw.number, 1,
+                      "a node has to have a body: '---', its lines, then '==='");
                 ++_at;
                 return n;
             }
@@ -520,15 +567,18 @@ private:
             ++_at;
         }
         if (!started) {
-            error(n.at.line, 1, "a node has to have a body: '---', its lines, then '==='");
+            error(n.at.line, 1,
+                  "a node has to have a body: '---', its lines, then '==='");
             return n;
         }
         if (n.title.empty()) error(n.at.line, 1, "a node has to have a title: header");
         const std::size_t body_start = _at;
         std::size_t body_end = body_start;
-        while (body_end < _lines.size() && trim(_lines[body_end].text) != "===") ++body_end;
+        while (body_end < _lines.size() && trim(_lines[body_end].text) != "===")
+            ++body_end;
         if (body_end >= _lines.size()) {
-            error(_lines.back().number, 1, "the node '" + n.title + "' has no '===' to end it");
+            error(_lines.back().number, 1,
+                  "the node '" + n.title + "' has no '===' to end it");
         }
         _end = body_end;
         n.body = block(-1, {});
@@ -551,18 +601,23 @@ private:
         const std::string key(trim(t.substr(0, colon)));
         std::string_view value = trim(t.substr(colon + 1));
         if (key == "when") {
-            n.whens.push_back(when(value, raw.number,
-                                   static_cast<int>(raw.text.find(':')) + 2));
+            n.whens.push_back(
+                when(value, raw.number, static_cast<int>(raw.text.find(':')) + 2));
             n.headers.emplace_back(key, std::string(value));
             return;
         }
         value = trim(strip_comment(value));
         if (key == "title") {
             n.title = std::string(value);
-            bool ok = !value.empty() && id_head(static_cast<unsigned char>(value.front()));
-            for (const char c : value) ok = ok && (id_char(static_cast<unsigned char>(c)) || c == '.');
-            if (!ok) error(raw.number, 1, "'" + n.title + "' is not a node title: letters, "
-                                                           "digits and _, starting with a letter");
+            bool ok =
+                !value.empty() && id_head(static_cast<unsigned char>(value.front()));
+            for (const char c : value)
+                ok = ok && (id_char(static_cast<unsigned char>(c)) || c == '.');
+            if (!ok)
+                error(raw.number, 1,
+                      "'" + n.title +
+                          "' is not a node title: letters, "
+                          "digits and _, starting with a letter");
         } else if (key == "subtitle") {
             n.subtitle = std::string(value);
         } else if (key == "tags") {
@@ -589,8 +644,9 @@ private:
             value = trim(value.substr(0, c));
         }
         if (value.empty()) {
-            error(line, column, "a 'when' header has to have a condition: an expression, "
-                                "'always' or 'once'");
+            error(line, column,
+                  "a 'when' header has to have a condition: an expression, "
+                  "'always' or 'once'");
             return w;
         }
         if (value == "always") {
@@ -618,7 +674,8 @@ private:
         ExprParser p(text, line, column - 1, problems);
         auto e = p.parse();
         if (e && !p.failed() && p.peek().is != Token::Is::END) {
-            p.fail(p.peek(), "an unexpected '" + p.peek().text + "' after the expression");
+            p.fail(p.peek(),
+                   "an unexpected '" + p.peek().text + "' after the expression");
         }
         report(problems, line);
         if (p.failed()) return std::nullopt;
@@ -724,7 +781,8 @@ private:
         const std::string_view t = raw.text.substr(indent);
         const int column = static_cast<int>(indent) + 1;
         if (t.starts_with("->") || t.starts_with("=>")) {
-            out.push_back(items(t.starts_with("->") ? Stmt::Is::OPTIONS : Stmt::Is::LINE_GROUP));
+            out.push_back(
+                items(t.starts_with("->") ? Stmt::Is::OPTIONS : Stmt::Is::LINE_GROUP));
             return;
         }
         if (t.starts_with("<<")) {
@@ -745,7 +803,8 @@ private:
         Stmt s;
         s.is = is;
         const std::string_view arrow = is == Stmt::Is::OPTIONS ? "->" : "=>";
-        s.at = { _lines[_at].number, static_cast<int>(indent_chars(_lines[_at].text)) + 1 };
+        s.at = { _lines[_at].number,
+                 static_cast<int>(indent_chars(_lines[_at].text)) + 1 };
         const int group_indent = indent_of(_lines[_at].text);
         while (_at < _end) {
             const RawLine &raw = _lines[_at];
@@ -764,8 +823,9 @@ private:
             // and then the end, opens a body with nothing in it.
             if (_at < _end && trim(_lines[_at].text).empty() &&
                 indent_of(_lines[_at].text) > indent_of(raw.text) && _at + 1 >= _end) {
-                error(_lines[_at].number, 1, "the lines indented under an option have to say "
-                                             "something");
+                error(_lines[_at].number, 1,
+                      "the lines indented under an option have to say "
+                      "something");
             }
             item.body = block(indent_of(raw.text), {});
             s.items.push_back(std::move(item));
@@ -794,7 +854,8 @@ private:
         const std::string_view key = keyword_of(c.content);
         std::string_view args = trim(c.content);
         if (!key.empty()) args = trim(args.substr(key.size()));
-        const int args_column = column + static_cast<int>(c.content.find(args.empty() ? std::string_view(" ") : args));
+        const int args_column = column +
+            static_cast<int>(c.content.find(args.empty() ? std::string_view(" ") : args));
         const std::string_view after = trim(strip_comment(c.after));
         Stmt s;
         s.at = { line, static_cast<int>(indent) + 1 };
@@ -829,7 +890,8 @@ private:
         } else if (key == "jump" || key == "detour") {
             s.is = key == "jump" ? Stmt::Is::JUMP : Stmt::Is::DETOUR;
             if (args.starts_with("{") && args.ends_with("}")) {
-                s.expr = expression(args.substr(1, args.size() - 2), line, args_column + 1);
+                s.expr =
+                    expression(args.substr(1, args.size() - 2), line, args_column + 1);
             } else if (args.empty()) {
                 error(line, args_column, "<<" + std::string(key) + ">> needs a node");
             } else {
@@ -844,7 +906,8 @@ private:
         } else if (key == "local") {
             error(line, column, "<<local>> is not supported yet: use <<declare>>");
         } else {
-            error(line, column, "<<" + std::string(key) + ">> with nothing open to close");
+            error(line, column,
+                  "<<" + std::string(key) + ">> with nothing open to close");
         }
     }
 
@@ -899,7 +962,8 @@ private:
                 s.clauses.push_back(std::move(other));
             }
         }
-        if (_at < _end && keyword_of(command_line(trim(_lines[_at].text)).content) == "endonce") {
+        if (_at < _end &&
+            keyword_of(command_line(trim(_lines[_at].text)).content) == "endonce") {
             ++_at;
         } else {
             error(line, column, "a <<once>> with no <<endonce>>");
@@ -979,12 +1043,14 @@ private:
             const std::string_view key = keyword_of(c.content);
             if (key == "endenum") {
                 ++_at;
-                if (s.cases.empty()) error(line, column, "the enum " + s.name + " has no cases");
+                if (s.cases.empty())
+                    error(line, column, "the enum " + s.name + " has no cases");
                 out.push_back(std::move(s));
                 return;
             }
             if (key != "case") {
-                error(raw.number, 1, "an enum holds only <<case>>s, up to its <<endenum>>");
+                error(raw.number, 1,
+                      "an enum holds only <<case>>s, up to its <<endenum>>");
                 ++_at;
                 continue;
             }
@@ -1063,8 +1129,8 @@ private:
             if (c == '#') {
                 tail = true;
                 std::size_t end = i + 1;
-                while (end < t.size() && !is_space(t[end]) && t[end] != '#' && t[end] != '$' &&
-                       t[end] != '<') {
+                while (end < t.size() && !is_space(t[end]) && t[end] != '#' &&
+                       t[end] != '$' && t[end] != '<') {
                     ++end;
                 }
                 const std::string tag(t.substr(i + 1, end - i - 1));
@@ -1081,7 +1147,8 @@ private:
                 tail = true;
                 const CommandLine cl = command_line(t.substr(i));
                 if (!cl.closed) {
-                    error(line, column + static_cast<int>(i), "a condition has to end with '>>'");
+                    error(line, column + static_cast<int>(i),
+                          "a condition has to end with '>>'");
                     break;
                 }
                 condition(spec, cl.content, line, column + static_cast<int>(i) + 2);
@@ -1127,7 +1194,8 @@ private:
             spec.once = true;
             if (!args.empty()) {
                 if (!args.starts_with("if") || (args.size() != 2 && !is_space(args[2]))) {
-                    error(line, column, "<<once>> takes nothing, or 'if' and a condition");
+                    error(line, column,
+                          "<<once>> takes nothing, or 'if' and a condition");
                     return;
                 }
                 const std::string_view cond = trim(args.substr(2));
@@ -1138,8 +1206,9 @@ private:
                 spec.condition = expression(cond, line, column + 8);
             }
         } else {
-            error(line, column, "a line may end with <<if ...>> or <<once>>, not <<" +
-                                    std::string(trim(content)) + ">>");
+            error(line, column,
+                  "a line may end with <<if ...>> or <<once>>, not <<" +
+                      std::string(trim(content)) + ">>");
         }
     }
 
@@ -1152,7 +1221,8 @@ private:
 
 } // namespace
 
-Script parse(std::string_view source, std::string_view file, std::vector<Diagnostic> &errors) {
+Script parse(std::string_view source, std::string_view file,
+             std::vector<Diagnostic> &errors) {
     Parser p(source, file, errors);
     return p.run();
 }

@@ -138,7 +138,8 @@ struct {
 
 void use_language_font(std::string_view file) {
     if (file == language_font.applied) return;
-    if (language_font.applied.empty()) language_font.before = std::string(global_font_name());
+    if (language_font.applied.empty())
+        language_font.before = std::string(global_font_name());
     language_font.applied = std::string(file);
     set_global_font(file.empty() ? std::string_view(language_font.before) : file);
 }

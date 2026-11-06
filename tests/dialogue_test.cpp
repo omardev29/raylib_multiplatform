@@ -61,10 +61,12 @@ struct Clean {
 
 TEST_SUITE("dialogue: rmp::Dialogue") {
     TEST_CASE_FIXTURE(Clean, "an Ink story, converted by tools/ink_to_yarn.py, plays") {
-        std::ifstream in(std::string(__FILE__).substr(0, std::string(__FILE__).rfind('/')) +
-                             "/dialogue/ink/story.yarn",
-                         std::ios::binary);
-        const std::string text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+        std::ifstream in(
+            std::string(__FILE__).substr(0, std::string(__FILE__).rfind('/')) +
+                "/dialogue/ink/story.yarn",
+            std::ios::binary);
+        const std::string text{ std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>() };
         REQUIRE_FALSE(text.empty());
         rmp::Dialogue d = dd::compile_text(text, "story.yarn");
         for (const std::string &e : d.errors()) MESSAGE(e);
@@ -92,7 +94,8 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK_FALSE(d.running());
     }
 
-    TEST_CASE_FIXTURE(Clean, "a conversation, line by line, with its speaker, markup and tags") {
+    TEST_CASE_FIXTURE(Clean,
+                      "a conversation, line by line, with its speaker, markup and tags") {
         rmp::Dialogue d = dd::compile_text(SCRIPT);
         for (const std::string &e : d.errors()) MESSAGE(e);
         REQUIRE(d.loaded());
@@ -106,9 +109,10 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
             CHECK(args[0] == "3");
             ++shakes;
         });
-        d.on_function("lucky", [](rmp::DialogueValue &out, std::span<const rmp::DialogueValue> a) {
-            out = a[0].as_number() == 7;
-        });
+        d.on_function("lucky",
+                      [](rmp::DialogueValue &out, std::span<const rmp::DialogueValue> a) {
+                          out = a[0].as_number() == 7;
+                      });
         REQUIRE(d.start());
         CHECK(d.running());
         CHECK(d.node() == "Start");
@@ -184,8 +188,9 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
 
     TEST_CASE_FIXTURE(Clean, "a line in another language, by its id") {
         rmp::lang::detail::load_tables(
-            { { {}, "key\tcontext\ten\tes\nline:hello\t\t\tMika: ¡Hola, [b]viajero[/b]!\n"
-                    "line:buy\t\t\tComprar un pastel\n" } });
+            { { {},
+                "key\tcontext\ten\tes\nline:hello\t\t\tMika: ¡Hola, [b]viajero[/b]!\n"
+                "line:buy\t\t\tComprar un pastel\n" } });
         rmp::lang::set("es");
         rmp::Dialogue d = dd::compile_text(SCRIPT);
         d.start();
@@ -197,14 +202,16 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
     }
 
     TEST_CASE_FIXTURE(Clean, "compile errors say where") {
-        rmp::Dialogue d = dd::compile_text("title: Start\n---\n<<set $x = >>\n===\n", "bad.yarn");
+        rmp::Dialogue d =
+            dd::compile_text("title: Start\n---\n<<set $x = >>\n===\n", "bad.yarn");
         CHECK_FALSE(d.loaded());
         REQUIRE_FALSE(d.errors().empty());
         CHECK(d.errors()[0].starts_with("bad.yarn:3:"));
         CHECK_FALSE(d.start());
     }
 
-    TEST_CASE_FIXTURE(Clean, "a program as bytes runs the same, and damaged bytes are refused") {
+    TEST_CASE_FIXTURE(Clean,
+                      "a program as bytes runs the same, and damaged bytes are refused") {
         const std::vector<rmp::yarn::Source> sources{ { "s.yarn", std::string(SCRIPT) } };
         const rmp::yarn::Compiled c = rmp::yarn::compile(sources);
         REQUIRE(c.ok());
@@ -222,9 +229,11 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK_FALSE(dd::from_program(std::span(bytes).first(9)).loaded());
     }
 
-    TEST_CASE_FIXTURE(Clean, "load_dialogue takes the embedded program by its name first") {
+    TEST_CASE_FIXTURE(Clean,
+                      "load_dialogue takes the embedded program by its name first") {
         const std::vector<rmp::yarn::Source> sources{ { "s.yarn", std::string(SCRIPT) } };
-        const std::vector<std::uint8_t> bytes = rmp::yarn::to_bytes(rmp::yarn::compile(sources).program);
+        const std::vector<std::uint8_t> bytes =
+            rmp::yarn::to_bytes(rmp::yarn::compile(sources).program);
         const std::vector<dd::Embedded> table{ { "talk.yarn", bytes } };
         dd::set_embedded(table);
         rmp::Dialogue d = rmp::assets::load_dialogue("talk.yarn");
@@ -264,15 +273,19 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK(e.has_line());
     }
 
-    TEST_CASE_FIXTURE(Clean, "a loop with nothing to show stops, said, instead of hanging") {
-        rmp::Dialogue jumps = dd::compile_text("title: Start\n---\n<<jump Start>>\n===\n");
+    TEST_CASE_FIXTURE(Clean,
+                      "a loop with nothing to show stops, said, instead of hanging") {
+        rmp::Dialogue jumps =
+            dd::compile_text("title: Start\n---\n<<jump Start>>\n===\n");
         jumps.start();
         CHECK_FALSE(jumps.running());
-        rmp::Dialogue deep = dd::compile_text("title: Start\n---\n<<detour Start>>\n===\n");
+        rmp::Dialogue deep =
+            dd::compile_text("title: Start\n---\n<<detour Start>>\n===\n");
         deep.start();
         CHECK_FALSE(deep.running());
         // A detour into itself that has a line goes on, a line at a time.
-        rmp::Dialogue fine = dd::compile_text("title: Start\n---\nAgain.\n<<detour Start>>\n===\n");
+        rmp::Dialogue fine =
+            dd::compile_text("title: Start\n---\nAgain.\n<<detour Start>>\n===\n");
         fine.start();
         for (int i = 0; i < 100; ++i) fine.advance();
         CHECK(fine.has_line());
@@ -286,7 +299,8 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK(rmp::DialogueValue("TRUE").as_bool());
         CHECK_FALSE(rmp::DialogueValue(0.0f).as_bool());
         CHECK(rmp::DialogueValue(false).as_number() == 0);
-        CHECK(rmp::DialogueValue(std::string("x")).kind() == rmp::DialogueValue::Kind::STRING);
+        CHECK(rmp::DialogueValue(std::string("x")).kind() ==
+              rmp::DialogueValue::Kind::STRING);
         const rmp::DialogueMarkup m{ "wave", 0, 3, { { "speed", "2" } } };
         CHECK(m.property("speed") == "2");
         CHECK(m.property("none").empty());

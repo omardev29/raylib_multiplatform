@@ -23,7 +23,8 @@ public:
     std::vector<std::uint8_t> bytes;
 
     void u32(std::uint32_t v) {
-        for (int k = 0; k < 4; ++k) bytes.push_back(static_cast<std::uint8_t>(v >> (8 * k)));
+        for (int k = 0; k < 4; ++k)
+            bytes.push_back(static_cast<std::uint8_t>(v >> (8 * k)));
     }
     void i32(std::int32_t v) { u32(static_cast<std::uint32_t>(v)); }
     void f32(float v) {
@@ -92,7 +93,8 @@ public:
             ok = false;
             return {};
         }
-        std::string s(reinterpret_cast<const char *>(_b.data() + _at), n); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): bytes as chars
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): bytes as chars
+        std::string s(reinterpret_cast<const char *>(_b.data() + _at), n);
         _at += n;
         return s;
     }
@@ -239,8 +241,9 @@ std::optional<Program> from_bytes(std::span<const std::uint8_t> bytes) {
     for (const ProgramNode &n : p.nodes) {
         for (const Instruction &i : n.code) {
             const bool jumps = i.op == Op::JUMP_TO || i.op == Op::JUMP_IF_FALSE ||
-                               i.op == Op::ADD_OPTION || i.op == Op::SHOW_OPTIONS;
-            if (jumps && (i.a < 0 || static_cast<std::size_t>(i.a) > n.code.size())) return std::nullopt;
+                i.op == Op::ADD_OPTION || i.op == Op::SHOW_OPTIONS;
+            if (jumps && (i.a < 0 || static_cast<std::size_t>(i.a) > n.code.size()))
+                return std::nullopt;
             if (i.op == Op::ADD_SALIENCY_CANDIDATE &&
                 (i.b < 0 || static_cast<std::size_t>(i.b) > n.code.size())) {
                 return std::nullopt;

@@ -58,7 +58,7 @@ std::optional<Tag> read_tag(std::string_view text, std::size_t &i) {
     }
     const auto name_char = [](char c) {
         return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '-' ||
-               static_cast<unsigned char>(c) >= 0x80;
+            static_cast<unsigned char>(c) >= 0x80;
     };
     const std::size_t name_start = j;
     while (j < text.size() && name_char(text[j])) ++j;
@@ -127,7 +127,8 @@ std::string property(const Tag &tag, std::string_view key) {
 }
 
 bool has_property(const Tag &tag, std::string_view key) {
-    return std::ranges::any_of(tag.properties, [&](const auto &p) { return p.first == key; });
+    return std::ranges::any_of(tag.properties,
+                               [&](const auto &p) { return p.first == key; });
 }
 
 // What a replacement marker says: the property its value chooses, with % as
@@ -140,10 +141,11 @@ std::optional<std::string> replace(const Tag &tag, std::string_view language) {
     } else if (tag.name == "plural" || tag.name == "ordinal") {
         const double n = std::strtod(value.c_str(), nullptr);
         const bool integer = value.find('.') == std::string::npos;
-        const std::string_view category =
-            tag.name == "plural" ? rmp::lang::detail::plural_category(language, n, integer)
-                                 : rmp::lang::detail::ordinal_category(language, n);
-        chosen = has_property(tag, category) ? property(tag, category) : property(tag, "other");
+        const std::string_view category = tag.name == "plural"
+            ? rmp::lang::detail::plural_category(language, n, integer)
+            : rmp::lang::detail::ordinal_category(language, n);
+        chosen = has_property(tag, category) ? property(tag, category)
+                                             : property(tag, "other");
     } else {
         return std::nullopt;
     }
@@ -198,7 +200,8 @@ Marked parse_markup(std::string_view text, std::string_view language) {
     while (i < text.size()) {
         const char c = text[i];
         if (c == '\\' && i + 1 < text.size() &&
-            (text[i + 1] == '[' || text[i + 1] == ']' || text[i + 1] == ':' || text[i + 1] == '\\')) {
+            (text[i + 1] == '[' || text[i + 1] == ']' || text[i + 1] == ':' ||
+             text[i + 1] == '\\')) {
             out.text += text[i + 1];
             i += 2;
             continue;
@@ -206,13 +209,15 @@ Marked parse_markup(std::string_view text, std::string_view language) {
         if (c == '[') {
             std::size_t at = i;
             std::optional<Tag> tag = read_tag(text, at);
-            if (nomarkup && !(tag && tag->closing && tag->name == "nomarkup")) tag.reset();
+            if (nomarkup && !(tag && tag->closing && tag->name == "nomarkup"))
+                tag.reset();
             if (tag) {
                 i = at;
                 const int position = code_points(out.text);
                 if (tag->close_all) {
                     for (Open &o : open) {
-                        out.attributes.push_back({ o.name, o.position, position - o.position,
+                        out.attributes.push_back({ o.name, o.position,
+                                                   position - o.position,
                                                    std::move(o.properties) });
                     }
                     open.clear();
@@ -222,8 +227,9 @@ Marked parse_markup(std::string_view text, std::string_view language) {
                         if (open[k - 1].name == tag->name) {
                             Open o = std::move(open[k - 1]);
                             open.erase(open.begin() + static_cast<std::ptrdiff_t>(k - 1));
-                            out.attributes.push_back(
-                                { o.name, o.position, position - o.position, std::move(o.properties) });
+                            out.attributes.push_back({ o.name, o.position,
+                                                       position - o.position,
+                                                       std::move(o.properties) });
                             break;
                         }
                     }
@@ -231,10 +237,12 @@ Marked parse_markup(std::string_view text, std::string_view language) {
                     if (auto replaced = replace(*tag, language)) {
                         out.text += *replaced;
                     } else {
-                        out.attributes.push_back({ tag->name, position, 0, tag->properties });
+                        out.attributes.push_back(
+                            { tag->name, position, 0, tag->properties });
                         // A marker on its own takes the space after it with it.
                         const bool trim = property(*tag, "trimwhitespace") != "false";
-                        if (trim && i < text.size() && space(text[i]) && position > 0) ++i;
+                        if (trim && i < text.size() && space(text[i]) && position > 0)
+                            ++i;
                     }
                 } else {
                     if (tag->name == "nomarkup") nomarkup = true;
@@ -248,7 +256,8 @@ Marked parse_markup(std::string_view text, std::string_view language) {
     }
     const int end = code_points(out.text);
     for (Open &o : open) {
-        out.attributes.push_back({ o.name, o.position, end - o.position, std::move(o.properties) });
+        out.attributes.push_back(
+            { o.name, o.position, end - o.position, std::move(o.properties) });
     }
     return out;
 }

@@ -274,7 +274,9 @@ void tooltip_of(std::string_view text, const TooltipOptions &o);
 
 void tooltip(const rmp::Text &text) { tooltip(text, TooltipOptions{}); }
 
-void tooltip(const rmp::Text &text, const TooltipOptions &o) { tooltip_of(text.str(), o); }
+void tooltip(const rmp::Text &text, const TooltipOptions &o) {
+    tooltip_of(text.str(), o);
+}
 
 namespace {
 // The tooltip of a text already in the current language.

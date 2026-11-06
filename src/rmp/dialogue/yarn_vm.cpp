@@ -13,6 +13,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -23,7 +24,7 @@ namespace {
 
 constexpr std::string_view VISITING = "$Yarn.Internal.Visiting.";
 constexpr std::string_view VIEW_COUNT = "$Yarn.Internal.Content.ViewCount.";
-constexpr long MAX_STEPS = 100'000; // instructions between two events
+constexpr std::int64_t MAX_STEPS = 100'000; // instructions between two events
 constexpr std::size_t MAX_DEPTH = 256; // nodes on the detour stack
 // A command's words: split on spaces, a "quoted part" one word.
 std::vector<std::string> words(std::string_view text) {
@@ -55,7 +56,8 @@ std::vector<std::string> words(std::string_view text) {
 Machine::Machine(Program program) : _program(std::move(program)) {}
 
 void Machine::fault(std::string message) {
-    if (std::ranges::find(_errors, message) == _errors.end()) _errors.push_back(std::move(message));
+    if (std::ranges::find(_errors, message) == _errors.end())
+        _errors.push_back(std::move(message));
 }
 
 bool Machine::start(std::string_view node) {
@@ -91,7 +93,7 @@ void Machine::choose(int index) {
     if (!_waiting || _event.is != Event::Is::OPTIONS) return;
     const auto &opts = _event.options;
     const bool valid = index >= 0 && static_cast<std::size_t>(index) < opts.size() &&
-                       opts[static_cast<std::size_t>(index)].available;
+        opts[static_cast<std::size_t>(index)].available;
     if (!valid) {
         // Nothing chosen: on past the group, where a value waits to be popped.
         const bool any = std::ranges::any_of(opts, &OptionEvent::available);
@@ -99,13 +101,15 @@ void Machine::choose(int index) {
         _stack.push_back(Value::of(0.0f));
         _frames.back().pc = _fallthrough;
     } else {
-        _stack.push_back(Value::of(static_cast<float>(opts[static_cast<std::size_t>(index)].destination)));
+        _stack.push_back(Value::of(
+            static_cast<float>(opts[static_cast<std::size_t>(index)].destination)));
     }
     _waiting = false;
     run();
 }
 
-void Machine::on_command(std::string_view name, rmp::Callback<std::span<const std::string>> handler) {
+void Machine::on_command(std::string_view name,
+                         rmp::Callback<std::span<const std::string>> handler) {
     _commands.insert_or_assign(std::string(name), std::move(handler));
 }
 
@@ -162,11 +166,13 @@ int Machine::visits(std::string_view node) const {
 }
 
 Value Machine::read(std::string_view name) const {
-    if (const auto it = _vars.find(std::string(name)); it != _vars.end()) return it->second;
+    if (const auto it = _vars.find(std::string(name)); it != _vars.end())
+        return it->second;
     for (const SmartVariable &s : _program.smart) {
         if (s.name == name) return evaluate(s.code);
     }
-    if (const auto it = _program.initial.find(std::string(name)); it != _program.initial.end()) {
+    if (const auto it = _program.initial.find(std::string(name));
+        it != _program.initial.end()) {
         return it->second;
     }
     return Value::of(0.0f);
@@ -181,35 +187,49 @@ void Machine::set_variable(std::string_view name, Value value) {
 Value Machine::evaluate(const std::vector<Instruction> &code) const {
     // Smart variables and node conditions: pure code, run on a stack of its own.
     std::vector<Value> stack;
-    auto &self = const_cast<Machine &>(*this); // NOLINT(cppcoreguidelines-pro-type-const-cast): call() records faults
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): call() records faults
+    auto &self = const_cast<Machine &>(*this);
     for (const Instruction &i : code) {
         switch (i.op) {
-            case Op::PUSH_FLOAT: stack.push_back(Value::of(i.f)); break;
-            case Op::PUSH_STRING: stack.push_back(Value::of(i.s)); break;
-            case Op::PUSH_BOOL: stack.push_back(Value::of(i.a != 0)); break;
-            case Op::PUSH_VARIABLE: stack.push_back(read(i.s)); break;
+            case Op::PUSH_FLOAT:
+                stack.push_back(Value::of(i.f));
+                break;
+            case Op::PUSH_STRING:
+                stack.push_back(Value::of(i.s));
+                break;
+            case Op::PUSH_BOOL:
+                stack.push_back(Value::of(i.a != 0));
+                break;
+            case Op::PUSH_VARIABLE:
+                stack.push_back(read(i.s));
+                break;
             case Op::CALL_FUNC: {
                 const auto n = static_cast<std::size_t>(std::max(0, i.a));
                 if (stack.size() < n) return Value::of(false);
-                std::vector<Value> args(stack.end() - static_cast<std::ptrdiff_t>(n), stack.end());
+                std::vector<Value> args(stack.end() - static_cast<std::ptrdiff_t>(n),
+                                        stack.end());
                 stack.resize(stack.size() - n);
                 stack.push_back(self.call(i.s, args));
                 break;
             }
-            default: break;
+            default:
+                break;
         }
     }
     return stack.empty() ? Value::of(false) : stack.back();
 }
 
 Value Machine::call(const std::string &name, std::span<const Value> args) {
-    const auto num = [&](std::size_t k) { return k < args.size() ? args[k].as_number() : 0.0f; };
+    const auto num = [&](std::size_t k) {
+        return k < args.size() ? args[k].as_number() : 0.0f;
+    };
     const auto boo = [&](std::size_t k) { return k < args.size() && args[k].as_bool(); };
     if (args.size() == 2) {
         const Value &a = args[0];
         const Value &b = args[1];
         if (name == "+") {
-            if (a.kind == Kind::STRING || b.kind == Kind::STRING) return Value::of(a.str() + b.str());
+            if (a.kind == Kind::STRING || b.kind == Kind::STRING)
+                return Value::of(a.str() + b.str());
             return Value::of(a.as_number() + b.as_number());
         }
         if (name == "-") return Value::of(num(0) - num(1));
@@ -234,27 +254,32 @@ Value Machine::call(const std::string &name, std::span<const Value> args) {
         return out;
     }
     const auto truncate = [](float v) { return std::trunc(v); };
-    if (name == "visited") return Value::of(visits(args.empty() ? "" : args[0].str()) > 0);
+    if (name == "visited")
+        return Value::of(visits(args.empty() ? "" : args[0].str()) > 0);
     if (name == "visited_count") {
         return Value::of(static_cast<float>(visits(args.empty() ? "" : args[0].str())));
     }
-    if (name == "has_any_content") return Value::of(has_content(args.empty() ? "" : args[0].str()));
+    if (name == "has_any_content")
+        return Value::of(has_content(args.empty() ? "" : args[0].str()));
     if (name == "string") return Value::of(args.empty() ? std::string() : args[0].str());
     if (name == "number") return Value::of(args.empty() ? 0.0f : args[0].as_number());
     if (name == "bool") return Value::of(boo(0));
     if (name == "format_invariant") return Value::of(number_text(num(0)));
     if (name == "format") {
-        return Value::of(expand(args.empty() ? "" : args[0].str(),
-                                std::vector<std::string>{ args.size() > 1 ? args[1].str() : "" }));
+        return Value::of(
+            expand(args.empty() ? "" : args[0].str(),
+                   std::vector<std::string>{ args.size() > 1 ? args[1].str() : "" }));
     }
     if (name == "random") return Value::of(rmp::random::value());
     if (name == "random_range" || name == "random_range_float") {
         const auto lo = static_cast<int>(num(0));
         const auto hi = static_cast<int>(num(1));
-        return Value::of(static_cast<float>(rmp::random::range(0, std::max(0, hi - lo))) + num(0));
+        return Value::of(static_cast<float>(rmp::random::range(0, std::max(0, hi - lo))) +
+                         num(0));
     }
     if (name == "dice") {
-        return Value::of(static_cast<float>(rmp::random::range(1, std::max(1, static_cast<int>(num(0))))));
+        return Value::of(static_cast<float>(
+            rmp::random::range(1, std::max(1, static_cast<int>(num(0))))));
     }
     if (name == "min") return Value::of(std::min(num(0), num(1)));
     if (name == "max") return Value::of(std::max(num(0), num(1)));
@@ -275,8 +300,8 @@ Value Machine::call(const std::string &name, std::span<const Value> args) {
         const float v = num(0);
         return Value::of(v - truncate(v) == 0 ? truncate(v) - 1 : std::floor(v));
     }
-    fault("the script calls " + name + "(), and nothing registered it: on_function(\"" + name +
-          "\", ...)");
+    fault("the script calls " + name + "(), and nothing registered it: on_function(\"" +
+          name + "\", ...)");
     return Value::of(false);
 }
 
@@ -288,11 +313,13 @@ std::optional<Machine::Candidate> Machine::select(std::vector<Candidate> &candid
     }
     if (passing.empty()) return std::nullopt;
     const auto views = [&](std::size_t i) {
-        return static_cast<int>(read(std::string(VIEW_COUNT) + candidates[i].id).as_number());
+        return static_cast<int>(
+            read(std::string(VIEW_COUNT) + candidates[i].id).as_number());
     };
     std::size_t chosen = passing.front();
     switch (_saliency) {
-        case Saliency::FIRST: break;
+        case Saliency::FIRST:
+            break;
         case Saliency::BEST:
             for (const std::size_t c : passing) {
                 if (candidates[c].complexity > candidates[chosen].complexity) chosen = c;
@@ -304,7 +331,8 @@ std::optional<Machine::Candidate> Machine::select(std::vector<Candidate> &candid
             for (const std::size_t c : passing) {
                 const int v = views(c);
                 if (v < best_views ||
-                    (v == best_views && candidates[c].complexity > candidates[chosen].complexity)) {
+                    (v == best_views &&
+                     candidates[c].complexity > candidates[chosen].complexity)) {
                     chosen = c;
                     best_views = v;
                 }
@@ -317,7 +345,8 @@ std::optional<Machine::Candidate> Machine::select(std::vector<Candidate> &candid
                         equal.push_back(c);
                     }
                 }
-                chosen = equal[static_cast<std::size_t>(rmp::random::index(static_cast<int>(equal.size())))];
+                chosen = equal[static_cast<std::size_t>(
+                    rmp::random::index(static_cast<int>(equal.size())))];
             }
             const std::string key = std::string(VIEW_COUNT) + candidates[chosen].id;
             _vars[key] = Value::of(static_cast<float>(best_views + 1));
@@ -343,14 +372,14 @@ void Machine::run() {
     // node that detours into itself before any line -- would hang the game or
     // grow without end: a budget of instructions between two events, and of
     // nodes deep, stops it, said once.
-    long budget = MAX_STEPS;
+    std::int64_t budget = MAX_STEPS;
     while (!_waiting && !_frames.empty()) {
         if (--budget < 0 || _frames.size() > MAX_DEPTH) {
             fault(budget < 0 ? "the script ran " + std::to_string(MAX_STEPS) +
-                                   " instructions without a line or a choice: a loop with "
-                                   "nothing in it?"
+                          " instructions without a line or a choice: a loop with "
+                          "nothing in it?"
                              : "the script detoured " + std::to_string(MAX_DEPTH) +
-                                   " nodes deep: a detour that never returns?");
+                          " nodes deep: a detour that never returns?");
             stop();
             return;
         }
@@ -379,9 +408,12 @@ void Machine::step(const Instruction &i) {
         return out;
     };
     switch (i.op) {
-        case Op::JUMP_TO: f.pc = i.a; return;
+        case Op::JUMP_TO:
+            f.pc = i.a;
+            return;
         case Op::PEEK_AND_JUMP:
-            f.pc = _stack.empty() ? f.pc + 1 : static_cast<int>(_stack.back().as_number());
+            f.pc =
+                _stack.empty() ? f.pc + 1 : static_cast<int>(_stack.back().as_number());
             return;
         case Op::RUN_LINE:
             _event = Event{ Event::Is::LINE };
@@ -424,16 +456,24 @@ void Machine::step(const Instruction &i) {
             ++f.pc;
             _waiting = true;
             return;
-        case Op::PUSH_STRING: _stack.push_back(Value::of(i.s)); break;
-        case Op::PUSH_FLOAT: _stack.push_back(Value::of(i.f)); break;
-        case Op::PUSH_BOOL: _stack.push_back(Value::of(i.a != 0)); break;
+        case Op::PUSH_STRING:
+            _stack.push_back(Value::of(i.s));
+            break;
+        case Op::PUSH_FLOAT:
+            _stack.push_back(Value::of(i.f));
+            break;
+        case Op::PUSH_BOOL:
+            _stack.push_back(Value::of(i.a != 0));
+            break;
         case Op::JUMP_IF_FALSE:
             if (_stack.empty() || !_stack.back().as_bool()) {
                 f.pc = i.a;
                 return;
             }
             break;
-        case Op::POP: (void)pop(); break;
+        case Op::POP:
+            (void)pop();
+            break;
         case Op::CALL_FUNC: {
             const auto n = static_cast<std::size_t>(std::max(0, i.a));
             std::vector<Value> args(n);
@@ -442,16 +482,30 @@ void Machine::step(const Instruction &i) {
             _stack.push_back(std::move(result));
             break;
         }
-        case Op::PUSH_VARIABLE: _stack.push_back(read(i.s)); break;
+        case Op::PUSH_VARIABLE:
+            _stack.push_back(read(i.s));
+            break;
         case Op::STORE_VARIABLE:
             if (!_stack.empty()) _vars[i.s] = _stack.back();
             break;
-        case Op::STOP: stop(); return;
-        case Op::RUN_NODE: jump_to(i.s, false); return;
-        case Op::PEEK_AND_RUN_NODE: jump_to(pop().str(), false); return;
-        case Op::DETOUR_TO_NODE: jump_to(i.s, true); return;
-        case Op::PEEK_AND_DETOUR_TO_NODE: jump_to(pop().str(), true); return;
-        case Op::RETURN: leave_top(); return;
+        case Op::STOP:
+            stop();
+            return;
+        case Op::RUN_NODE:
+            jump_to(i.s, false);
+            return;
+        case Op::PEEK_AND_RUN_NODE:
+            jump_to(pop().str(), false);
+            return;
+        case Op::DETOUR_TO_NODE:
+            jump_to(i.s, true);
+            return;
+        case Op::PEEK_AND_DETOUR_TO_NODE:
+            jump_to(pop().str(), true);
+            return;
+        case Op::RETURN:
+            leave_top();
+            return;
         case Op::ADD_SALIENCY_CANDIDATE:
             _candidates.push_back({ i.s, i.a, i.b, pop().as_bool() });
             break;
@@ -459,7 +513,8 @@ void Machine::step(const Instruction &i) {
             const int index = _program.node_index(i.s);
             if (index >= 0) {
                 const ProgramNode &n = _program.nodes[static_cast<std::size_t>(index)];
-                _candidates.push_back({ n.name, n.complexity, index, evaluate(n.condition).as_bool() });
+                _candidates.push_back(
+                    { n.name, n.complexity, index, evaluate(n.condition).as_bool() });
             }
             break;
         }

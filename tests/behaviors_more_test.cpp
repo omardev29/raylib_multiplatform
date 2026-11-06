@@ -56,8 +56,8 @@ using rmp::behavior::Patrol;
 using rmp::behavior::Projectile;
 using rmp::behavior::Shooter;
 using rmp::behavior::State;
-using rmp::behavior::Talker;
 using rmp::behavior::StateMachine;
+using rmp::behavior::Talker;
 using rmp::behavior::Transition;
 
 class World : public rmp::Scene {
@@ -1292,7 +1292,9 @@ struct EmbeddedTalk {
     std::vector<rmp::dialogue::detail::Embedded> table;
     EmbeddedTalk() {
         const std::vector<rmp::yarn::Source> sources{
-            { "talk.yarn", "title: Start\n---\nMika: Hi!\n===\ntitle: Later\n---\nMika: Again?\n===\n" }
+            { "talk.yarn",
+              "title: Start\n---\nMika: Hi!\n===\ntitle: Later\n---\nMika: "
+              "Again?\n===\n" }
         };
         bytes = rmp::yarn::to_bytes(rmp::yarn::compile(sources).program);
         table = { { "talk.yarn", bytes } };
@@ -1305,7 +1307,8 @@ struct EmbeddedTalk {
 
 } // namespace
 
-TEST_CASE_FIXTURE(Fixture, "Talker: in range, on its action, it starts the conversation") {
+TEST_CASE_FIXTURE(Fixture,
+                  "Talker: in range, on its action, it starts the conversation") {
     const EmbeddedTalk embedded;
     World world;
     rmp::input::action("interact", KEY_E);
@@ -1317,10 +1320,11 @@ TEST_CASE_FIXTURE(Fixture, "Talker: in range, on its action, it starts the conve
     npc.add<Talker>({ .dialogue = "talk.yarn",
                       .range = 30,
                       .player = hero.handle<>(),
-                      .on_talk = [&](rmp::Dialogue &d) {
-                          ++talks;
-                          said = d.line().text;
-                      },
+                      .on_talk =
+                          [&](rmp::Dialogue &d) {
+                              ++talks;
+                              said = d.line().text;
+                          },
                       .on_done = [&] { ++done; } });
     fake.devices.keys[KEY_E] = true;
     frame(world);
@@ -1375,8 +1379,11 @@ TEST_CASE_FIXTURE(Fixture, "Talker: on arriving, once, from the editor's fields"
     CHECK(talks == 1); // once
     // A node that is not there starts nothing.
     rmp::Object &mute = box(world, { 0, 0 }, { 10, 10 });
-    mute.add<Talker>({ .dialogue = "talk.yarn", .node = "Nowhere", .player = hero.handle<>(),
-                       .action = "", .on_talk = [&](rmp::Dialogue &) { ++talks; } });
+    mute.add<Talker>({ .dialogue = "talk.yarn",
+                       .node = "Nowhere",
+                       .player = hero.handle<>(),
+                       .action = "",
+                       .on_talk = [&](rmp::Dialogue &) { ++talks; } });
     frame(world);
     CHECK(talks == 1);
     CHECK_FALSE(mute.get<Talker>()->talking());

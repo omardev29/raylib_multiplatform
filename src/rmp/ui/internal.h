@@ -1062,7 +1062,8 @@ void rich_begin_frame();
 // A sound by name, as the presenters' blips and voices play it.
 void play_sound(const SoundName &sound, float volume);
 void draw_rich(const Clay_RenderCommand &cmd, float alpha);
-void rich_with(const rmp::yarn::Marked &marked, const RichTextOptions &o, std::string_view label);
+void rich_with(const rmp::yarn::Marked &marked, const RichTextOptions &o,
+               std::string_view label);
 
 // --- context.cpp: fonts by id -------------------------------------------------
 // 0 is the global font; every other id is a file a Style named, registered the

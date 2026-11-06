@@ -52,7 +52,8 @@ std::string tag_value(const std::vector<std::string> &tags, std::string_view key
 }
 
 rmp::Ref<const Picture> portrait_for(const std::vector<Portrait> &portraits,
-                                     const std::string &speaker, const std::string &mood) {
+                                     const std::string &speaker,
+                                     const std::string &mood) {
     rmp::Ref<const Picture> any;
     for (const Portrait &p : portraits) {
         if (p.speaker != speaker) continue;
@@ -99,8 +100,8 @@ bool type(DialogueMemory &m, const DialogueFlow &f, const rmp::DialogueLine &lin
         m.length = letters(line.text);
         if (!f.voices.empty() && !line.id.empty()) {
             const std::string_view id = std::string_view(line.id).starts_with("line:")
-                                            ? std::string_view(line.id).substr(5)
-                                            : std::string_view(line.id);
+                ? std::string_view(line.id).substr(5)
+                : std::string_view(line.id);
             detail::play_sound(SoundName(f.voices + std::string(id)), 1.0f);
         }
         if (f.letters_per_second <= 0) m.shown = static_cast<float>(m.length);
@@ -160,7 +161,8 @@ bool answer_line(DialogueMemory &m, const DialogueFlow &f, rmp::Dialogue &d, boo
 }
 
 // The choices, as buttons; a timed choice's bar. True when one was taken.
-bool choices(DialogueMemory &m, const DialogueFlow &f, rmp::Dialogue &d, const Style &style) {
+bool choices(DialogueMemory &m, const DialogueFlow &f, rmp::Dialogue &d,
+             const Style &style) {
     const auto options = d.options();
     const bool any = std::ranges::any_of(options, &rmp::DialogueOption::available);
     if (!any) {
@@ -186,8 +188,9 @@ bool choices(DialogueMemory &m, const DialogueFlow &f, rmp::Dialogue &d, const S
         progress(std::clamp(m.choice_left / f.choice_seconds, 0.0f, 1.0f));
         if (m.choice_left <= 0) {
             chosen = f.default_choice;
-            const bool ok = chosen >= 0 && static_cast<std::size_t>(chosen) < options.size() &&
-                            options[static_cast<std::size_t>(chosen)].available;
+            const bool ok = chosen >= 0 &&
+                static_cast<std::size_t>(chosen) < options.size() &&
+                options[static_cast<std::size_t>(chosen)].available;
             if (!ok) {
                 for (std::size_t i = 0; i < options.size(); ++i) {
                     if (options[i].available) {
@@ -199,7 +202,8 @@ bool choices(DialogueMemory &m, const DialogueFlow &f, rmp::Dialogue &d, const S
         }
     }
     if (chosen < 0) return false;
-    m.history.emplace_back(std::string(), std::string(options[static_cast<std::size_t>(chosen)].text));
+    m.history.emplace_back(std::string(),
+                           std::string(options[static_cast<std::size_t>(chosen)].text));
     m.line_id.clear();
     d.choose(chosen);
     return true;
@@ -238,7 +242,9 @@ bool next_button(std::string_view id) {
 
 bool DialogueBox::show(rmp::Dialogue &dialogue) {
     if (!settle(dialogue)) return false;
-    Panel box{ .row = true, .box = { .gap = 16, .grow_x = true, .height = height }, .style = style };
+    Panel box{ .row = true,
+               .box = { .gap = 16, .grow_x = true, .height = height },
+               .style = style };
     box.show([&] {
         if (ours.showing_history) {
             column({ .grow_x = true }, [&] { history(ours); });
@@ -247,20 +253,24 @@ bool DialogueBox::show(rmp::Dialogue &dialogue) {
         }
         if (dialogue.has_line()) {
             const rmp::DialogueLine &line = dialogue.line();
-            if (const auto p = portrait_for(portraits, line.speaker, tag_value(line.tags, "mood"))) {
+            if (const auto p =
+                    portrait_for(portraits, line.speaker, tag_value(line.tags, "mood"))) {
                 image(*p, { .width = BOX_PORTRAIT, .height = BOX_PORTRAIT });
             }
             const bool full = type(ours, flow, line);
             bool pressed = false;
             column({ .gap = 6, .items = Align::TOP_LEFT, .grow_x = true }, [&] {
                 name_plate(line.speaker, name_style);
-                detail::rich_with(marked_of(line), RichTextOptions{ .visible = static_cast<int>(ours.shown) },
-                                  "dialogue_line");
+                detail::rich_with(
+                    marked_of(line),
+                    RichTextOptions{ .visible = static_cast<int>(ours.shown) },
+                    "dialogue_line");
             });
             pressed = next_button("dialogue_next");
             answer_line(ours, flow, dialogue, full, pressed);
         } else if (dialogue.has_options()) {
-            column({ .gap = 8, .grow_x = true }, [&] { choices(ours, flow, dialogue, choice_style); });
+            column({ .gap = 8, .grow_x = true },
+                   [&] { choices(ours, flow, dialogue, choice_style); });
         }
     });
     return dialogue.running();
@@ -271,11 +281,13 @@ void DialogueBox::toggle_history() { ours.showing_history = !ours.showing_histor
 bool DialogueBubble::show(rmp::Dialogue &dialogue) {
     if (!settle(dialogue)) return false;
     const auto bubble = [&](const rmp::DialogueLine &line) {
-        Panel p{ .box = { .gap = 6, .items = Align::TOP_LEFT, .width = width }, .style = style };
+        Panel p{ .box = { .gap = 6, .items = Align::TOP_LEFT, .width = width },
+                 .style = style };
         p.show([&] {
             const bool full = type(ours, flow, line);
             detail::rich_with(marked_of(line),
-                              RichTextOptions{ .width = width - 24, .visible = static_cast<int>(ours.shown) },
+                              RichTextOptions{ .width = width - 24,
+                                               .visible = static_cast<int>(ours.shown) },
                               "dialogue_bubble_line");
             const bool pressed = next_button("dialogue_bubble_next");
             answer_line(ours, flow, dialogue, full, pressed);
@@ -286,8 +298,10 @@ bool DialogueBubble::show(rmp::Dialogue &dialogue) {
         for (const BubbleSpeaker &s : speakers) {
             if (s.name != line.speaker) continue;
             if (const auto o = s.object.get()) {
-                const Vector2 world{ o->position.x + s.offset.x, o->position.y + s.offset.y };
-                at(world, AtOptions{ .anchor = Align::BOTTOM_CENTER, .id = "dialogue_bubble" },
+                const Vector2 world{ o->position.x + s.offset.x,
+                                     o->position.y + s.offset.y };
+                at(world,
+                   AtOptions{ .anchor = Align::BOTTOM_CENTER, .id = "dialogue_bubble" },
                    [&] { bubble(line); });
                 return dialogue.running();
             }
@@ -307,9 +321,11 @@ bool DialogueStage::show(rmp::Dialogue &dialogue) {
     if (dialogue.has_line()) {
         speaker = dialogue.line().speaker;
         mood = tag_value(dialogue.line().tags, "mood");
-        if (!speaker.empty() && std::ranges::find(ours.stage, speaker) == ours.stage.end()) {
+        if (!speaker.empty() &&
+            std::ranges::find(ours.stage, speaker) == ours.stage.end()) {
             ours.stage.push_back(speaker);
-            if (static_cast<float>(ours.stage.size()) > STAGE_ON_STAGE) ours.stage.erase(ours.stage.begin());
+            if (static_cast<float>(ours.stage.size()) > STAGE_ON_STAGE)
+                ours.stage.erase(ours.stage.begin());
         }
     }
     column({ .gap = 0, .grow_x = true }, [&] {
@@ -317,19 +333,25 @@ bool DialogueStage::show(rmp::Dialogue &dialogue) {
         row({ .gap = 24, .items = Align::BOTTOM_CENTER, .grow_x = true }, [&] {
             for (const std::string &who : ours.stage) {
                 const bool speaking = who == speaker;
-                if (const auto p = portrait_for(portraits, who, speaking ? mood : std::string())) {
-                    image(*p, { .height = portrait_height, .tint = speaking ? WHITE : dimmed });
+                if (const auto p =
+                        portrait_for(portraits, who, speaking ? mood : std::string())) {
+                    image(
+                        *p,
+                        { .height = portrait_height, .tint = speaking ? WHITE : dimmed });
                 }
             }
         });
-        Panel box{ .box = { .gap = 6, .items = Align::TOP_LEFT, .grow_x = true }, .style = style };
+        Panel box{ .box = { .gap = 6, .items = Align::TOP_LEFT, .grow_x = true },
+                   .style = style };
         box.show([&] {
             if (dialogue.has_line()) {
                 const rmp::DialogueLine &line = dialogue.line();
                 const bool full = type(ours, flow, line);
                 name_plate(line.speaker, name_style);
-                detail::rich_with(marked_of(line), RichTextOptions{ .visible = static_cast<int>(ours.shown) },
-                                  "dialogue_stage_line");
+                detail::rich_with(
+                    marked_of(line),
+                    RichTextOptions{ .visible = static_cast<int>(ours.shown) },
+                    "dialogue_stage_line");
                 const bool pressed = next_button("dialogue_stage_next");
                 answer_line(ours, flow, dialogue, full, pressed);
             } else if (dialogue.has_options()) {

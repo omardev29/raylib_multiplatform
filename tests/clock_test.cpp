@@ -291,7 +291,8 @@ TEST_SUITE("app: the window's pace") {
         CHECK(said().empty());
     }
 
-    TEST_CASE_FIXTURE(Paced, "pause_unfocused: the scene, the clock and the sound stop, once") {
+    TEST_CASE_FIXTURE(Paced,
+                      "pause_unfocused: the scene, the clock and the sound stop, once") {
         rmp::app::detail::set_pause_unfocused(true);
         CHECK(rmp::app::detail::pause_unfocused());
         CHECK(frame() == STEP);
@@ -309,7 +310,8 @@ TEST_SUITE("app: the window's pace") {
         CHECK(said() == "S");
     }
 
-    TEST_CASE_FIXTURE(Paced, "back in focus: resumed, and the first step is 0, then real") {
+    TEST_CASE_FIXTURE(Paced,
+                      "back in focus: resumed, and the first step is 0, then real") {
         rmp::app::detail::set_pause_unfocused(true);
         window().focused = false;
         (void)frame();
@@ -323,7 +325,8 @@ TEST_SUITE("app: the window's pace") {
         CHECK(said() == "SR");
     }
 
-    TEST_CASE_FIXTURE(Paced, "minimized under pause_unfocused is a pause with nothing drawn") {
+    TEST_CASE_FIXTURE(Paced,
+                      "minimized under pause_unfocused is a pause with nothing drawn") {
         rmp::app::detail::set_pause_unfocused(true);
         window().minimized = true; // a window that says it still has focus
         CHECK(frame() == 0.0f);
@@ -350,7 +353,8 @@ TEST_SUITE("app: the window's pace") {
         CHECK(frame() == STEP);
     }
 
-    TEST_CASE("on the real clock a skipped frame waits, and the next step is timed by the clock") {
+    TEST_CASE("on the real clock a skipped frame waits, and the next step is timed by "
+              "the clock") {
         rmp::app::detail::reset_pace_for_tests();
         rmp::app::detail::set_fixed_delta(0);
         (void)rmp::app::detail::step_delta();
@@ -363,7 +367,8 @@ TEST_SUITE("app: the window's pace") {
         rmp::app::detail::reset_pace_for_tests();
     }
 
-    TEST_CASE("with no provider the state is raylib's: focused, not minimized, headless") {
+    TEST_CASE(
+        "with no provider the state is raylib's: focused, not minimized, headless") {
         rmp::app::detail::reset_pace_for_tests();
         const rmp::app::detail::WindowState w = rmp::app::detail::window_state();
         CHECK_FALSE(w.minimized);

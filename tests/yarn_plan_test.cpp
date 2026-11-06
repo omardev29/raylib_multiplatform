@@ -78,16 +78,20 @@ std::vector<std::vector<Step>> read_plan(const std::string &source) {
         Step s;
         const std::size_t colon = line.find(':');
         s.kind = line.substr(0, colon == std::string::npos ? line.size() : colon);
-        while (!s.kind.empty() && (s.kind.back() == ' ' || s.kind.back() == '\t')) s.kind.pop_back();
-        if (const std::size_t c = s.kind.find("//"); c != std::string::npos) s.kind.resize(c);
-        while (!s.kind.empty() && (s.kind.back() == ' ' || s.kind.back() == '\t')) s.kind.pop_back();
+        while (!s.kind.empty() && (s.kind.back() == ' ' || s.kind.back() == '\t'))
+            s.kind.pop_back();
+        if (const std::size_t c = s.kind.find("//"); c != std::string::npos)
+            s.kind.resize(c);
+        while (!s.kind.empty() && (s.kind.back() == ' ' || s.kind.back() == '\t'))
+            s.kind.pop_back();
         std::string rest = colon == std::string::npos ? "" : line.substr(colon + 1);
         const std::size_t tick = rest.find('`');
         if (tick != std::string::npos) {
             const std::size_t end = rest.find('`', tick + 1);
             s.text = rest.substr(tick + 1, end - tick - 1);
             rest = rest.substr(end + 1);
-        } else if (rest.find('*') != std::string::npos && (s.kind == "line" || s.kind == "option")) {
+        } else if (rest.find('*') != std::string::npos &&
+                   (s.kind == "line" || s.kind == "option")) {
             s.any = true;
         }
         std::istringstream words(rest);
@@ -123,12 +127,15 @@ std::string composed(const y::Program &p, const std::string &id,
     int shown = index;
     const std::string &shadow = p.lines[static_cast<std::size_t>(index)].shadow;
     if (!shadow.empty() && p.line_index(shadow) >= 0) shown = p.line_index(shadow);
-    return y::parse_markup(y::expand(p.lines[static_cast<std::size_t>(shown)].text, subs), "en").text;
+    return y::parse_markup(y::expand(p.lines[static_cast<std::size_t>(shown)].text, subs),
+                           "en")
+        .text;
 }
 
 std::vector<std::string> tags_of(const y::Program &p, const std::string &id) {
     const int index = p.line_index(id);
-    return index < 0 ? std::vector<std::string>{} : p.lines[static_cast<std::size_t>(index)].tags;
+    return index < 0 ? std::vector<std::string>{}
+                     : p.lines[static_cast<std::size_t>(index)].tags;
 }
 
 // Runs one plan; an empty string when it went as planned.
@@ -143,15 +150,21 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
     m.on_function("add_three_operands", [](y::Value &out, std::span<const y::Value> a) {
         out = y::Value::of(a[0].as_number() + a[1].as_number() + a[2].as_number());
     });
-    m.on_function("set_objective_complete",
-                  [](y::Value &out, std::span<const y::Value>) { out = y::Value::of(true); });
-    m.on_function("is_objective_active",
-                  [](y::Value &out, std::span<const y::Value>) { out = y::Value::of(true); });
+    m.on_function("set_objective_complete", [](y::Value &out, std::span<const y::Value>) {
+        out = y::Value::of(true);
+    });
+    m.on_function("is_objective_active", [](y::Value &out, std::span<const y::Value>) {
+        out = y::Value::of(true);
+    });
     m.on_function("get_quest_status", [](y::Value &out, std::span<const y::Value>) {
         out = y::Value::of(std::string("InProgress"));
     });
-    m.on_function("dummy_bool", [](y::Value &out, std::span<const y::Value>) { out = y::Value::of(true); });
-    m.on_function("dummy_number", [](y::Value &out, std::span<const y::Value>) { out = y::Value::of(1.0f); });
+    m.on_function("dummy_bool", [](y::Value &out, std::span<const y::Value>) {
+        out = y::Value::of(true);
+    });
+    m.on_function("dummy_number", [](y::Value &out, std::span<const y::Value>) {
+        out = y::Value::of(1.0f);
+    });
     m.on_function("dummy_string", [](y::Value &out, std::span<const y::Value>) {
         out = y::Value::of(std::string("string"));
     });
@@ -204,13 +217,19 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
             const y::Event &now = m.event();
             (void)e;
             if (s.kind == "line") {
-                if (now.is != y::Event::Is::LINE) return "expected line `" + s.text + "`, got another event";
+                if (now.is != y::Event::Is::LINE)
+                    return "expected line `" + s.text + "`, got another event";
                 const std::string got = composed(program, now.id, now.substitutions);
-                if (!s.any && got != s.text) return "expected line `" + s.text + "`, got `" + got + "`";
+                if (!s.any && got != s.text)
+                    return "expected line `" + s.text + "`, got `" + got + "`";
                 const auto tags = tags_of(program, now.id);
                 for (const std::string &t : s.tags) {
-                    // NOLINTNEXTLINE(performance-inefficient-string-concatenation): a failure's message
-                    if (std::ranges::find(tags, t) == tags.end()) return "line `" + got + "` lacks #" + t;
+                    if (std::ranges::find(tags, t) == tags.end()) {
+                        std::string why = "line `" + got;
+                        why += "` lacks #";
+                        why += t;
+                        return why;
+                    }
                 }
                 m.advance();
             } else if (s.kind == "select") {
@@ -222,14 +241,15 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
                     return "expected options, got " + what;
                 }
                 if (now.options.size() != expected_options.size()) {
-                    return "expected " + std::to_string(expected_options.size()) + " options, got " +
-                           std::to_string(now.options.size());
+                    return "expected " + std::to_string(expected_options.size()) +
+                        " options, got " + std::to_string(now.options.size());
                 }
                 for (std::size_t k = 0; k < now.options.size(); ++k) {
                     const auto &o = now.options[k];
                     const std::string got = composed(program, o.id, o.substitutions);
                     if (!expected_options[k].any && got != expected_options[k].text) {
-                        return "expected option `" + expected_options[k].text + "`, got `" + got + "`";
+                        return "expected option `" + expected_options[k].text +
+                            "`, got `" + got + "`";
                     }
                     if (o.available == expected_options[k].disabled) {
                         return "option `" + got + "` availability is wrong";
@@ -238,8 +258,10 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
                 expected_options.clear();
                 m.choose(s.number - 1);
             } else if (s.kind == "command") {
-                if (now.is != y::Event::Is::COMMAND) return "expected command `" + s.text + "`";
-                if (now.command != s.text) return "expected command `" + s.text + "`, got `" + now.command + "`";
+                if (now.is != y::Event::Is::COMMAND)
+                    return "expected command `" + s.text + "`";
+                if (now.command != s.text)
+                    return "expected command `" + s.text + "`, got `" + now.command + "`";
                 m.advance();
             } else if (s.kind == "stop") {
                 if (now.is != y::Event::Is::DONE) {
@@ -285,7 +307,8 @@ TEST_SUITE("dialogue: Yarn Spinner's own tests") {
                 (f.parent_path().filename() == "ParseFailures" ? "ParseFailures/" : "") +
                 f.filename().string();
             seen.insert(key);
-            const std::vector<y::Source> sources{ { f.filename().string(), read_file(f) } };
+            const std::vector<y::Source> sources{ { f.filename().string(),
+                                                    read_file(f) } };
             const std::vector<y::FunctionType> functions{
                 { "add_three_operands", { "number", "number", "number" }, "number" },
                 { "set_objective_complete", { "string" }, "bool" },
@@ -305,8 +328,9 @@ TEST_SUITE("dialogue: Yarn Spinner's own tests") {
             }
             const bool listed = skip.contains(key);
             if (listed) {
-                CHECK_MESSAGE(!problem.empty(), key << " passes now: take its line out of "
-                                                       "tests/dialogue/yarn_unsupported.txt");
+                CHECK_MESSAGE(!problem.empty(),
+                              key << " passes now: take its line out of "
+                                     "tests/dialogue/yarn_unsupported.txt");
             } else {
                 CHECK_MESSAGE(problem.empty(), key << ": " << problem);
                 if (problem.empty()) ++passed;

@@ -48,27 +48,36 @@ std::string number_text(float n) {
 
 std::string Value::str() const {
     switch (kind) {
-        case Kind::NUMBER: return number_text(number);
-        case Kind::BOOL: return boolean ? "True" : "False";
-        case Kind::STRING: return text;
+        case Kind::NUMBER:
+            return number_text(number);
+        case Kind::BOOL:
+            return boolean ? "True" : "False";
+        case Kind::STRING:
+            return text;
     }
     return {};
 }
 
 float Value::as_number() const {
     switch (kind) {
-        case Kind::NUMBER: return number;
-        case Kind::BOOL: return boolean ? 1.0f : 0.0f;
-        case Kind::STRING: return std::strtof(text.c_str(), nullptr);
+        case Kind::NUMBER:
+            return number;
+        case Kind::BOOL:
+            return boolean ? 1.0f : 0.0f;
+        case Kind::STRING:
+            return std::strtof(text.c_str(), nullptr);
     }
     return 0;
 }
 
 bool Value::as_bool() const {
     switch (kind) {
-        case Kind::NUMBER: return number != 0;
-        case Kind::BOOL: return boolean;
-        case Kind::STRING: return word_is(text, "true");
+        case Kind::NUMBER:
+            return number != 0;
+        case Kind::BOOL:
+            return boolean;
+        case Kind::STRING:
+            return word_is(text, "true");
     }
     return false;
 }
@@ -88,7 +97,8 @@ std::string expand(std::string_view text, std::span<const std::string> substitut
             if (close != std::string_view::npos) {
                 int index = -1;
                 const auto inner = text.substr(i + 1, close - i - 1);
-                const auto [p, ec] = std::from_chars(inner.data(), inner.data() + inner.size(), index);
+                const auto [p, ec] =
+                    std::from_chars(inner.data(), inner.data() + inner.size(), index);
                 if (ec == std::errc{} && p == inner.data() + inner.size() && index >= 0 &&
                     static_cast<std::size_t>(index) < substitutions.size()) {
                     out += substitutions[static_cast<std::size_t>(index)];

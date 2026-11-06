@@ -85,22 +85,26 @@
 
 namespace {
 
-using rmp::test::gen::NOMINAL_SIZE;
-
 // A statement of Yarn, from the pieces of the language.
 rc::Gen<std::string> statement() {
     return rc::gen::element<std::string>(
         "Mika: Hello, [b]you[/b]!", "Line with {$n} and {$s}.", "<<set $n += 1>>",
-        "<<set $s = \"x\" + $s>>", "<<set $b = !$b>>", "<<if $n > 2>>\nBig.\n<<else>>\nSmall.\n<<endif>>",
-        "-> One <<if $b>>\n    Picked one.\n-> Two\n    <<jump Other>>\n-> Three <<once>>",
-        "=> Group A\n=> Group B <<if $n > 1>>\n=> Group C", "<<once>>\nOnce only.\n<<endonce>>",
-        "<<detour Other>>", "<<wave 1 2>>", "<<custom thing>>", "Visited: {visited(\"Other\")}",
+        "<<set $s = \"x\" + $s>>", "<<set $b = !$b>>",
+        "<<if $n > 2>>\nBig.\n<<else>>\nSmall.\n<<endif>>",
+        "-> One <<if $b>>\n    Picked one.\n-> Two\n    <<jump Other>>\n-> Three "
+        "<<once>>",
+        "=> Group A\n=> Group B <<if $n > 1>>\n=> Group C",
+        "<<once>>\nOnce only.\n<<endonce>>", "<<detour Other>>", "<<wave 1 2>>",
+        "<<custom thing>>", "Visited: {visited(\"Other\")}",
         "Count: {visited_count(\"Start\")} {round(1.5)} {floor(2.7)} {dice(6) > 0}",
-        "[plural value={$n} one=\"% gem\" other=\"% gems\"/]", "<<return>>", "Mood. #mood:sad");
+        R"([plural value={$n} one="% gem" other="% gems"/])", "<<return>>",
+        "Mood. #mood:sad");
 }
 
-std::string script(const std::vector<std::string> &start, const std::vector<std::string> &other) {
-    std::string s = "title: Start\n---\n<<declare $n = 0>>\n<<declare $s = \"\">>\n<<declare $b = false>>\n";
+std::string script(const std::vector<std::string> &start,
+                   const std::vector<std::string> &other) {
+    std::string s = "title: Start\n---\n<<declare $n = 0>>\n<<declare $s = "
+                    "\"\">>\n<<declare $b = false>>\n";
     for (const std::string &st : start) s += st + "\n";
     s += "===\ntitle: Other\n---\n";
     for (const std::string &st : other) s += st + "\n";
@@ -127,8 +131,10 @@ TEST_SUITE("property: dialogue") {
         rmp::test::check("compile, run, choose anything, save, load, bytes", [] {
             quiet_lang();
             SetTraceLogLevel(LOG_NONE);
-            const auto start = *rc::gen::resize(8, rc::gen::container<std::vector<std::string>>(statement()));
-            const auto other = *rc::gen::resize(4, rc::gen::container<std::vector<std::string>>(statement()));
+            const auto start = *rc::gen::resize(
+                8, rc::gen::container<std::vector<std::string>>(statement()));
+            const auto other = *rc::gen::resize(
+                4, rc::gen::container<std::vector<std::string>>(statement()));
             const std::string source = script(start, other);
             rmp::Dialogue d = rmp::dialogue::detail::compile_text(source);
             RC_ASSERT(d.loaded() == d.errors().empty());
@@ -140,10 +146,11 @@ TEST_SUITE("property: dialogue") {
                 RC_ASSERT(args.size() == 2U);
                 ++waves;
             });
-            d.on_function("unused", [](rmp::DialogueValue &out, std::span<const rmp::DialogueValue>) {
-                out = 1;
-            });
-            d.set_saliency(*rc::gen::element(rmp::DialogueSaliency::FIRST, rmp::DialogueSaliency::BEST,
+            d.on_function("unused",
+                          [](rmp::DialogueValue &out,
+                             std::span<const rmp::DialogueValue>) { out = 1; });
+            d.set_saliency(*rc::gen::element(rmp::DialogueSaliency::FIRST,
+                                             rmp::DialogueSaliency::BEST,
                                              rmp::DialogueSaliency::LEAST_SEEN,
                                              rmp::DialogueSaliency::RANDOM_LEAST_SEEN));
             RC_ASSERT(d.start());
@@ -153,14 +160,17 @@ TEST_SUITE("property: dialogue") {
                 RC_ASSERT(!d.node().empty());
                 if (d.has_line()) {
                     (void)d.line().text;
-                    for (const rmp::DialogueMarkup &m : d.line().markup) (void)m.property("value");
+                    for (const rmp::DialogueMarkup &m : d.line().markup)
+                        (void)m.property("value");
                     d.advance();
                 } else if (d.has_options()) {
                     const auto opts = d.options();
                     int chosen = -1;
                     for (std::size_t k = 0; k < opts.size(); ++k) {
-                        if (opts[(k + static_cast<std::size_t>(pick)) % opts.size()].available) {
-                            chosen = static_cast<int>((k + static_cast<std::size_t>(pick)) % opts.size());
+                        if (opts[(k + static_cast<std::size_t>(pick)) % opts.size()]
+                                .available) {
+                            chosen = static_cast<int>(
+                                (k + static_cast<std::size_t>(pick)) % opts.size());
                             break;
                         }
                     }
@@ -199,7 +209,8 @@ TEST_SUITE("property: dialogue") {
             RC_ASSERT(!n.as_string().empty());
             const int i = *rc::gen::inRange(-100000, 100000);
             RC_ASSERT(rmp::DialogueValue(i).as_number() == static_cast<float>(i));
-            RC_ASSERT(rmp::DialogueValue(static_cast<double>(i)).as_number() == static_cast<float>(i));
+            RC_ASSERT(rmp::DialogueValue(static_cast<double>(i)).as_number() ==
+                      static_cast<float>(i));
             const bool b = *rc::gen::arbitrary<bool>();
             RC_ASSERT(rmp::DialogueValue(b).as_number() == (b ? 1.0f : 0.0f));
             RC_ASSERT(rmp::DialogueValue(b).as_string() == (b ? "True" : "False"));
@@ -215,7 +226,8 @@ TEST_SUITE("property: dialogue") {
 
     TEST_CASE("any bytes are a program or refused, never read past") {
         rmp::test::check("from_bytes of any bytes", [] {
-            const auto bytes = *rc::gen::container<std::vector<std::uint8_t>>(rc::gen::arbitrary<std::uint8_t>());
+            const auto bytes = *rc::gen::container<std::vector<std::uint8_t>>(
+                rc::gen::arbitrary<std::uint8_t>());
             if (auto p = rmp::yarn::from_bytes(bytes)) {
                 RC_ASSERT(rmp::yarn::to_bytes(*p) == bytes);
             }
@@ -229,15 +241,20 @@ TEST_SUITE("property: dialogue") {
         rmp::ui::detail::set_test_frame_time(1.0f / 30);
         rmp::test::check("any script, any presenter, any frames", [] {
             quiet_lang();
-            const auto start = *rc::gen::resize(6, rc::gen::container<std::vector<std::string>>(statement()));
-            rmp::Dialogue d = rmp::dialogue::detail::compile_text(script(start, { "Bye." }));
+            const auto start = *rc::gen::resize(
+                6, rc::gen::container<std::vector<std::string>>(statement()));
+            rmp::Dialogue d =
+                rmp::dialogue::detail::compile_text(script(start, { "Bye." }));
             if (!d.loaded()) return;
             d.start();
-            rmp::ui::DialogueBox box{ .flow = { .letters_per_second = *rc::gen::element(0.0f, 30.0f, 1e9f),
+            rmp::ui::DialogueBox box{ .flow = { .letters_per_second =
+                                                    *rc::gen::element(0.0f, 30.0f, 1e9f),
                                                 .auto_advance = 0.01f,
                                                 .choice_seconds = 0.05f } };
-            rmp::ui::DialogueBubble bubble{ .flow = { .auto_advance = 0.01f, .choice_seconds = 0.05f } };
-            rmp::ui::DialogueStage stage{ .flow = { .auto_advance = 0.01f, .skip_seen = true,
+            rmp::ui::DialogueBubble bubble{ .flow = { .auto_advance = 0.01f,
+                                                      .choice_seconds = 0.05f } };
+            rmp::ui::DialogueStage stage{ .flow = { .auto_advance = 0.01f,
+                                                    .skip_seen = true,
                                                     .choice_seconds = 0.05f } };
             const int which = *rc::gen::inRange(0, 3);
             for (int f = 0; f < 120 && d.running(); ++f) {
@@ -245,7 +262,8 @@ TEST_SUITE("property: dialogue") {
                 if (which == 0) box.show(d);
                 if (which == 1) bubble.show(d);
                 if (which == 2) stage.show(d);
-                rmp::ui::rich_text(rmp::Text(*rmp::test::gen::hostile_string()), { .visible = f });
+                rmp::ui::rich_text(rmp::Text(*rmp::test::gen::hostile_string()),
+                                   { .visible = f });
                 rmp::ui::rich_text("[wave]a[/wave]");
                 rmp::ui::end();
                 if (f % 17 == 0) box.toggle_history();
@@ -260,9 +278,10 @@ TEST_SUITE("property: dialogue") {
             rmp::objects::detail::reset_for_tests();
             rmp::objects::detail::reset_behaviors_for_tests();
             World world;
-            const float range = *rc::gen::element(0.0f, 10.0f, 50.0f, std::nanf(""), INFINITY);
+            const float range =
+                *rc::gen::element(0.0f, 10.0f, 50.0f, std::nanf(""), INFINITY);
             const float x = static_cast<float>(*rc::gen::inRange(-200, 200));
-            rmp::Object &hero = world.spawn({ .position = { x, 0 } });
+            const rmp::Object &hero = world.spawn({ .position = { x, 0 } });
             rmp::Object &npc = world.spawn({ .position = { 0, 0 } });
             npc.add<rmp::behavior::Talker>({ .range = range, .player = hero.handle<>() });
             rmp::objects::detail::update(world, 1.0f / 60);

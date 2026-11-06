@@ -121,7 +121,8 @@ bool Label::show() {
     const detail::Said said(text);
     detail::Extra x = extra_for(style, ours, e, element, id);
     x.shown = said.shown;
-    detail::text_with(said.key, TextOptions{ .color = color, .size = size, .wrap = wrap }, x);
+    detail::text_with(said.key, TextOptions{ .color = color, .size = size, .wrap = wrap },
+                      x);
     keep(ours, e);
     shakes(ours, element, WidgetKind::LABEL, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);

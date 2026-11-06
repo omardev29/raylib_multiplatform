@@ -65,7 +65,16 @@ struct Position {
 };
 
 struct Expr {
-    enum class Is : std::uint8_t { NUMBER, STRING, BOOL, VARIABLE, CALL, UNARY, BINARY, MEMBER };
+    enum class Is : std::uint8_t {
+        NUMBER,
+        STRING,
+        BOOL,
+        VARIABLE,
+        CALL,
+        UNARY,
+        BINARY,
+        MEMBER
+    };
     Is is = Is::NUMBER;
     float number = 0;
     bool boolean = false;
@@ -112,14 +121,26 @@ struct EnumCase {
 
 struct Stmt {
     enum class Is : std::uint8_t {
-        LINE, COMMAND, SET, DECLARE, ENUM, JUMP, DETOUR, RETURN, IF, ONCE, OPTIONS, LINE_GROUP,
+        LINE,
+        COMMAND,
+        SET,
+        DECLARE,
+        ENUM,
+        JUMP,
+        DETOUR,
+        RETURN,
+        IF,
+        ONCE,
+        OPTIONS,
+        LINE_GROUP,
         CALL,
     };
     Is is = Is::LINE;
     LineSpec line; // LINE; COMMAND (its pieces and tags)
     std::string name; // SET/DECLARE: the variable; ENUM: its name; JUMP/DETOUR: the node
     std::string op; // SET: = += -= *= /= %=; DECLARE: the type after `as`
-    std::optional<Expr> expr; // SET/DECLARE: the value; JUMP/DETOUR: the node's name; CALL
+    std::optional<Expr>
+        expr; // SET/DECLARE: the value; JUMP/DETOUR: the node's name; CALL
     std::vector<Clause> clauses; // IF; ONCE (its condition, body, and else)
     std::vector<Item> items; // OPTIONS, LINE_GROUP
     std::vector<EnumCase> cases; // ENUM
@@ -159,7 +180,8 @@ struct Diagnostic {
 
 // Read one file. What could not be read is in `errors`, and the tree holds
 // what could.
-Script parse(std::string_view source, std::string_view file, std::vector<Diagnostic> &errors);
+Script parse(std::string_view source, std::string_view file,
+             std::vector<Diagnostic> &errors);
 
 // --- the program -------------------------------------------------------------
 
@@ -256,7 +278,8 @@ struct FunctionType {
     std::vector<std::string> params;
     std::string result;
 };
-Compiled compile(std::span<const Source> sources, std::span<const FunctionType> functions = {});
+Compiled compile(std::span<const Source> sources,
+                 std::span<const FunctionType> functions = {});
 
 // The program as bytes and back: what the embedded build writes and reads.
 std::vector<std::uint8_t> to_bytes(const Program &program);
@@ -330,7 +353,8 @@ public:
     [[nodiscard]] std::string node() const; // the node running now, or empty
 
     // A command's handler: called with its words, and the dialogue carries on.
-    void on_command(std::string_view name, rmp::Callback<std::span<const std::string>> handler);
+    void on_command(std::string_view name,
+                    rmp::Callback<std::span<const std::string>> handler);
     void on_function(std::string_view name, Function function);
 
     [[nodiscard]] Value variable(std::string_view name) const; // smart ones computed
@@ -376,7 +400,8 @@ private:
     std::vector<OptionEvent> _options;
     std::vector<Candidate> _candidates;
     std::map<std::string, Value> _vars;
-    std::map<std::string, rmp::Callback<std::span<const std::string>>, std::less<>> _commands;
+    std::map<std::string, rmp::Callback<std::span<const std::string>>, std::less<>>
+        _commands;
     std::map<std::string, Function, std::less<>> _functions;
     Event _event;
     int _fallthrough = 0;

@@ -146,8 +146,8 @@ std::vector<std::string> split(std::string_view text, char by) {
     std::size_t start = 0;
     while (start <= text.size()) {
         const std::size_t end = text.find(by, start);
-        const std::string_view part =
-            text.substr(start, end == std::string_view::npos ? text.size() - start : end - start);
+        const std::string_view part = text.substr(
+            start, end == std::string_view::npos ? text.size() - start : end - start);
         if (!part.empty()) out.emplace_back(part);
         if (end == std::string_view::npos) break;
         start = end + 1;
@@ -161,17 +161,20 @@ std::vector<std::string> shipped() { return split(RMP_LANG_LANGUAGES, ','); }
 // The codes a per-language file is looked for under: the list, else every
 // language with plural rules here, else nothing more. A folder cannot be
 // listed inside a pack or an APK, so the names are tried.
-constexpr std::array KNOWN_CODES{ "en", "es", "fr", "de", "it", "pt", "pt-BR", "nl", "sv", "da",
-                                  "nb", "fi", "et", "ca", "el", "hu", "tr", "bg", "ru", "uk",
-                                  "be", "pl", "cs", "sk", "ja", "zh", "zh-TW", "ko", "th", "vi",
-                                  "id", "ms", "hi", "ro", "hr", "sr", "sl", "lt", "lv", "eu",
-                                  "gl" };
+constexpr std::array KNOWN_CODES{ "en", "es", "fr", "de", "it", "pt",    "pt-BR",
+                                  "nl", "sv", "da", "nb", "fi", "et",    "ca",
+                                  "el", "hu", "tr", "bg", "ru", "uk",    "be",
+                                  "pl", "cs", "sk", "ja", "zh", "zh-TW", "ko",
+                                  "th", "vi", "id", "ms", "hi", "ro",    "hr",
+                                  "sr", "sl", "lt", "lv", "eu", "gl" };
 
-std::optional<std::string> read_resource(const std::string &name, std::vector<Watched> &watch) {
+std::optional<std::string> read_resource(const std::string &name,
+                                         std::vector<Watched> &watch) {
     if (!rmp::assets::detail::resource_exists(name.c_str())) return std::nullopt;
     const std::vector<unsigned char> bytes = rmp::assets::load_data(name);
     const int index = rmp::assets::detail::watch_file(name);
-    if (index >= 0) watch.push_back({ index, rmp::assets::detail::watch_generation(index) });
+    if (index >= 0)
+        watch.push_back({ index, rmp::assets::detail::watch_generation(index) });
     return std::string(bytes.begin(), bytes.end());
 }
 
@@ -205,12 +208,14 @@ enum class Rule {
 
 Rule rule_of(std::string_view code) {
     const std::string_view base = code.substr(0, code.find('-'));
-    for (const std::string_view c : { "ja", "zh", "ko", "th", "vi", "id", "ms", "lo", "my", "km" }) {
+    for (const std::string_view c :
+         { "ja", "zh", "ko", "th", "vi", "id", "ms", "lo", "my", "km" }) {
         if (base == c) return Rule::OTHER;
     }
-    for (const std::string_view c : { "en", "de", "es", "it", "nl", "sv", "da", "nb", "nn", "no",
-                                      "fi", "et", "ca", "el", "hu", "tr", "bg", "eu", "gl", "af",
-                                      "sq", "ka", "kk", "ky", "mn", "ur", "ta", "te", "ml" }) {
+    for (const std::string_view c :
+         { "en", "de", "es", "it", "nl", "sv", "da", "nb", "nn", "no",
+           "fi", "et", "ca", "el", "hu", "tr", "bg", "eu", "gl", "af",
+           "sq", "ka", "kk", "ky", "mn", "ur", "ta", "te", "ml" }) {
         if (base == c) return Rule::ONE;
     }
     for (const std::string_view c : { "fr", "pt", "hi", "bn", "fa" }) {
@@ -245,13 +250,14 @@ std::string number_text(double n, bool integer) {
 std::string choose_form(std::string_view text, std::span<const TextArg> args,
                         std::string_view code) {
     const auto number = std::ranges::find_if(args, &TextArg::numeric);
-    if (number == args.end() || text.find('|') == std::string_view::npos) return std::string(text);
+    if (number == args.end() || text.find('|') == std::string_view::npos)
+        return std::string(text);
     std::vector<std::string_view> forms;
     std::size_t start = 0;
     while (true) {
         const std::size_t bar = text.find('|', start);
-        forms.push_back(text.substr(start, bar == std::string_view::npos ? text.size() - start
-                                                                         : bar - start));
+        forms.push_back(text.substr(
+            start, bar == std::string_view::npos ? text.size() - start : bar - start));
         if (bar == std::string_view::npos) break;
         start = bar + 1;
     }
@@ -259,8 +265,8 @@ std::string choose_form(std::string_view text, std::span<const TextArg> args,
     const bool integer = std::isfinite(n) && n == std::floor(n);
     const int form = plural_form(code, n, integer);
     const std::size_t at = form < 0 || static_cast<std::size_t>(form) >= forms.size()
-                               ? forms.size() - 1
-                               : static_cast<std::size_t>(form);
+        ? forms.size() - 1
+        : static_cast<std::size_t>(form);
     return std::string(forms[at]);
 }
 
@@ -355,7 +361,8 @@ void load_from_resources() {
     std::vector<Watched> watch;
     const std::string file = RMP_LANG_FILE;
     if (!file.empty()) {
-        if (auto text = read_resource(file, watch)) sources.push_back({ {}, std::move(*text) });
+        if (auto text = read_resource(file, watch))
+            sources.push_back({ {}, std::move(*text) });
     }
     const std::string folder = RMP_LANG_FOLDER;
     if (!folder.empty()) {
@@ -389,7 +396,8 @@ std::optional<std::string> cell(std::string_view key, std::string_view context,
     const int column = code_index(code);
     if (column < 0) return std::nullopt;
     const auto row = lang.rows.find(row_key(key, context));
-    if (row == lang.rows.end() || row->second.size() <= static_cast<std::size_t>(column)) {
+    if (row == lang.rows.end() ||
+        row->second.size() <= static_cast<std::size_t>(column)) {
         return std::nullopt;
     }
     const std::string &text = row->second[static_cast<std::size_t>(column)];
@@ -402,10 +410,12 @@ std::vector<std::string> table_languages() {
     return lang.codes;
 }
 
-std::vector<std::string> fallback_chain(std::string_view code, std::string_view fallback) {
+std::vector<std::string> fallback_chain(std::string_view code,
+                                        std::string_view fallback) {
     std::vector<std::string> chain;
     const auto add = [&chain](std::string_view c) {
-        if (!c.empty() && std::ranges::find(chain, c) == chain.end()) chain.emplace_back(c);
+        if (!c.empty() && std::ranges::find(chain, c) == chain.end())
+            chain.emplace_back(c);
     };
     std::string_view rest = code;
     while (!rest.empty()) {
@@ -453,9 +463,12 @@ int plural_form(std::string_view code, double n, bool integer) {
     if (!std::isfinite(n)) return -1;
     const Whole w = whole(n);
     switch (rule_of(code)) {
-        case Rule::OTHER: return 0;
-        case Rule::ONE: return integer && w.i == 1 ? 0 : 1;
-        case Rule::ZERO_ONE: return w.i <= 1 ? 0 : 1;
+        case Rule::OTHER:
+            return 0;
+        case Rule::ONE:
+            return integer && w.i == 1 ? 0 : 1;
+        case Rule::ZERO_ONE:
+            return w.i <= 1 ? 0 : 1;
         case Rule::EAST_SLAVIC:
             if (!integer) return 3;
             if (w.mod10 == 1 && w.mod100 != 11) return 0;
@@ -468,20 +481,25 @@ int plural_form(std::string_view code, double n, bool integer) {
             if (!integer) return 2;
             if (w.i == 1) return 0;
             return w.i >= 2 && w.i <= 4 ? 1 : 3;
-        case Rule::UNKNOWN: return -1;
+        case Rule::UNKNOWN:
+            return -1;
     }
     return -1;
 }
 
 int plural_count(std::string_view code) {
     switch (rule_of(code)) {
-        case Rule::OTHER: return 1;
+        case Rule::OTHER:
+            return 1;
         case Rule::ONE:
-        case Rule::ZERO_ONE: return 2;
+        case Rule::ZERO_ONE:
+            return 2;
         case Rule::EAST_SLAVIC:
         case Rule::POLISH:
-        case Rule::CZECH: return 4;
-        case Rule::UNKNOWN: return 0;
+        case Rule::CZECH:
+            return 4;
+        case Rule::UNKNOWN:
+            return 0;
     }
     return 0;
 }
@@ -489,16 +507,21 @@ int plural_count(std::string_view code) {
 std::string_view plural_category(std::string_view code, double n, bool integer) {
     const int form = plural_form(code, n, integer);
     switch (rule_of(code)) {
-        case Rule::OTHER: return "other";
+        case Rule::OTHER:
+            return "other";
         case Rule::ONE:
-        case Rule::ZERO_ONE: return form == 0 ? "one" : "other";
+        case Rule::ZERO_ONE:
+            return form == 0 ? "one" : "other";
         case Rule::EAST_SLAVIC:
         case Rule::POLISH:
         case Rule::CZECH: {
-            constexpr std::array<std::string_view, 4> NAMES{ "one", "few", "many", "other" };
-            return form >= 0 && form < 4 ? NAMES[static_cast<std::size_t>(form)] : "other";
+            constexpr std::array<std::string_view, 4> NAMES{ "one", "few", "many",
+                                                             "other" };
+            return form >= 0 && form < 4 ? NAMES[static_cast<std::size_t>(form)]
+                                         : "other";
         }
-        case Rule::UNKNOWN: return "other";
+        case Rule::UNKNOWN:
+            return "other";
     }
     return "other";
 }
@@ -512,7 +535,8 @@ std::string_view ordinal_category(std::string_view code, double n) {
     return "other";
 }
 
-std::string format(std::string_view text, std::span<const TextArg> args, std::string_view code) {
+std::string format(std::string_view text, std::span<const TextArg> args,
+                   std::string_view code) {
     std::string chosen = choose_form(text, args, code);
     if (args.empty() && chosen.find_first_of("{}") == std::string::npos) return chosen;
     std::string out;
@@ -548,11 +572,13 @@ std::string system_locale() {
     const CFArrayRef preferred = CFLocaleCopyPreferredLanguages();
     if (preferred != nullptr) {
         if (CFArrayGetCount(preferred) > 0) {
-            const auto first = static_cast<CFStringRef>(CFArrayGetValueAtIndex(preferred, 0));
+            const auto first =
+                static_cast<CFStringRef>(CFArrayGetValueAtIndex(preferred, 0));
             std::array<char, 64> buffer{};
             // kCFStringEncodingUTF8, by its value: the name breaks our naming rule.
             constexpr CFStringEncoding UTF8 = 0x08000100;
-            if (CFStringGetCString(first, buffer.data(), static_cast<CFIndex>(buffer.size()), UTF8)) {
+            if (CFStringGetCString(first, buffer.data(),
+                                   static_cast<CFIndex>(buffer.size()), UTF8)) {
                 found = buffer.data();
             }
         }
@@ -574,7 +600,8 @@ std::string system_locale() {
     std::array<char, 64> said{};
     EM_ASM(
         {
-            const text = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+            const text = (navigator.languages && navigator.languages[0]) ||
+                navigator.language || "";
             stringToUTF8(text, $0, $1);
         },
         said.data(), static_cast<int>(said.size()));
@@ -590,8 +617,9 @@ std::string system_locale() {
         return normalize(code);
     }
 #endif
-    for (const std::string_view var : { std::string_view("LC_ALL"), std::string_view("LC_MESSAGES"),
-                                        std::string_view("LANG") }) {
+    for (const std::string_view var :
+         { std::string_view("LC_ALL"), std::string_view("LC_MESSAGES"),
+           std::string_view("LANG") }) {
         // NOLINTNEXTLINE(custom-rmp-raw-pointer,concurrency-mt-unsafe): read once, copied at once
         const char *value = std::getenv(std::string(var).c_str());
         if (value != nullptr && *value != '\0') {
@@ -649,14 +677,16 @@ std::vector<std::string> missing_seen() {
     std::vector<std::string> out;
     for (const std::string &k : lang.missing) {
         const std::size_t mark = k.find(CONTEXT_MARK);
-        out.push_back(escape_cell(k.substr(mark + 1)) + "\t" + escape_cell(k.substr(0, mark)));
+        out.push_back(escape_cell(k.substr(mark + 1)) + "\t" +
+                      escape_cell(k.substr(0, mark)));
     }
     return out;
 }
 
 namespace {
 struct FileClose {
-    void operator()(std::FILE *f) const { std::fclose(f); } // NOLINT(custom-rmp-raw-pointer): a deleter's parameter
+    // NOLINTNEXTLINE(custom-rmp-raw-pointer,cppcoreguidelines-owning-memory): the deleter is the owner
+    void operator()(std::FILE *f) const { std::fclose(f); }
 };
 } // namespace
 
@@ -745,7 +775,8 @@ std::string TextArg::text() const {
 Text::Text(std::string_view key, const TextOptions &options)
     : _key(key), _context(options.context), _translate(true) {}
 
-Text::Text(std::string_view key, std::initializer_list<TextArg> args, const TextOptions &options)
+Text::Text(std::string_view key, std::initializer_list<TextArg> args,
+           const TextOptions &options)
     : _key(key), _context(options.context), _args(args), _translate(true) {}
 
 std::string Text::str() const {

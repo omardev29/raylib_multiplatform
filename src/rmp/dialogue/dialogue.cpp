@@ -49,9 +49,13 @@ struct {
 
 yarn::Value to_yarn(const DialogueValue &v) {
     switch (v.kind()) {
-        case DialogueValue::Kind::NUMBER: return yarn::Value::of(v.as_number()); // NOLINT(misc-no-recursion): as_number() of a NUMBER reads the field
-        case DialogueValue::Kind::BOOL: return yarn::Value::of(v.as_bool());
-        case DialogueValue::Kind::STRING: return yarn::Value::of(v.as_string());
+        case DialogueValue::Kind::NUMBER:
+            // NOLINTNEXTLINE(misc-no-recursion): as_number() of a NUMBER reads the field
+            return yarn::Value::of(v.as_number());
+        case DialogueValue::Kind::BOOL:
+            return yarn::Value::of(v.as_bool());
+        case DialogueValue::Kind::STRING:
+            return yarn::Value::of(v.as_string());
     }
     return {};
 }
@@ -68,11 +72,13 @@ DialogueValue from_yarn(const yarn::Value &v) {
     return {};
 }
 
-std::vector<DialogueMarkup> markup_of(const std::vector<yarn::Attribute> &attributes, int shift) {
+std::vector<DialogueMarkup> markup_of(const std::vector<yarn::Attribute> &attributes,
+                                      int shift) {
     std::vector<DialogueMarkup> out;
     for (const yarn::Attribute &a : attributes) {
         if (a.name == "character") continue;
-        out.push_back({ a.name, std::max(0, a.position - shift), a.length, a.properties });
+        out.push_back(
+            { a.name, std::max(0, a.position - shift), a.length, a.properties });
     }
     return out;
 }
@@ -93,13 +99,14 @@ Shown show(const yarn::Program &program, const std::string &id,
         // A shadow line says what its source says.
         int shown = index;
         const std::string &shadow = program.lines[static_cast<std::size_t>(index)].shadow;
-        if (!shadow.empty() && program.line_index(shadow) >= 0) shown = program.line_index(shadow);
+        if (!shadow.empty() && program.line_index(shadow) >= 0)
+            shown = program.line_index(shadow);
         source = program.lines[static_cast<std::size_t>(shown)].text;
     }
     const std::optional<std::string> translated = rmp::lang::detail::find(id);
     const std::string language = rmp::lang::current();
-    const yarn::Marked marked =
-        yarn::parse_markup(yarn::expand(translated ? *translated : source, substitutions), language);
+    const yarn::Marked marked = yarn::parse_markup(
+        yarn::expand(translated ? *translated : source, substitutions), language);
     Shown out;
     out.text = marked.text;
     int shift = 0;
@@ -157,15 +164,19 @@ void refresh(detail::DialogueState &s) {
                 DialogueOption opt;
                 opt.id = o.id;
                 // An option's speaker is part of what it says.
-                opt.text = shown.speaker.empty() ? shown.text : shown.speaker + ": " + shown.text;
+                opt.text = shown.speaker.empty() ? shown.text
+                                                 : shown.speaker + ": " + shown.text;
                 opt.available = o.available;
                 opt.markup = std::move(shown.markup);
                 opt.tags = tags_of(p, o.id);
                 s.options.push_back(std::move(opt));
             }
             break;
-        case yarn::Event::Is::COMMAND: s.command = e.command; break;
-        default: break;
+        case yarn::Event::Is::COMMAND:
+            s.command = e.command;
+            break;
+        default:
+            break;
     }
 }
 
@@ -193,27 +204,36 @@ Dialogue from_sources(const std::vector<yarn::Source> &sources) {
 
 float DialogueValue::as_number() const {
     switch (_kind) {
-        case Kind::NUMBER: return _number;
-        case Kind::BOOL: return _bool ? 1.0f : 0.0f;
-        case Kind::STRING: return yarn::Value::of(_text).as_number();
+        case Kind::NUMBER:
+            return _number;
+        case Kind::BOOL:
+            return _bool ? 1.0f : 0.0f;
+        case Kind::STRING:
+            return yarn::Value::of(_text).as_number();
     }
     return 0;
 }
 
 bool DialogueValue::as_bool() const {
     switch (_kind) {
-        case Kind::NUMBER: return _number != 0;
-        case Kind::BOOL: return _bool;
-        case Kind::STRING: return yarn::Value::of(_text).as_bool();
+        case Kind::NUMBER:
+            return _number != 0;
+        case Kind::BOOL:
+            return _bool;
+        case Kind::STRING:
+            return yarn::Value::of(_text).as_bool();
     }
     return false;
 }
 
 std::string DialogueValue::as_string() const {
     switch (_kind) {
-        case Kind::NUMBER: return yarn::number_text(_number);
-        case Kind::BOOL: return _bool ? "True" : "False";
-        case Kind::STRING: return _text;
+        case Kind::NUMBER:
+            return yarn::number_text(_number);
+        case Kind::BOOL:
+            return _bool ? "True" : "False";
+        case Kind::STRING:
+            return _text;
     }
     return {};
 }
@@ -228,7 +248,8 @@ std::string DialogueMarkup::property(std::string_view key) const {
 // --- Dialogue -----------------------------------------------------------------
 
 Dialogue::Dialogue() : _state(std::make_unique<detail::DialogueState>()) {}
-Dialogue::Dialogue(std::unique_ptr<detail::DialogueState> state) : _state(std::move(state)) {}
+Dialogue::Dialogue(std::unique_ptr<detail::DialogueState> state)
+    : _state(std::move(state)) {}
 Dialogue::~Dialogue() = default;
 Dialogue::Dialogue(Dialogue &&other) noexcept = default;
 Dialogue &Dialogue::operator=(Dialogue &&other) noexcept = default;
@@ -248,7 +269,8 @@ bool Dialogue::start(std::string_view node) {
     if (!loaded()) return false;
     const bool ok = _state->machine.start(node);
     if (!ok) {
-        RMP_REPORT_ONCE_KEYED(node, "DIALOGUE: start(\"%.*s\"): the script has no such node",
+        RMP_REPORT_ONCE_KEYED(node,
+                              "DIALOGUE: start(\"%.*s\"): the script has no such node",
                               static_cast<int>(node.size()), node.data());
     }
     refresh(*_state);
@@ -312,20 +334,23 @@ void Dialogue::on_command(std::string_view name,
     if (_state) _state->machine.on_command(name, std::move(handler));
 }
 
-void Dialogue::on_function(std::string_view name,
-                           rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function) {
+void Dialogue::on_function(
+    std::string_view name,
+    rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function) {
     if (!_state) return;
     // The game's function in the game's types, around the machine's.
-    auto shared = std::make_shared<rmp::Callback<DialogueValue &, std::span<const DialogueValue>>>(
-        std::move(function));
-    _state->machine.on_function(name, [shared](yarn::Value &out, std::span<const yarn::Value> args) {
-        std::vector<DialogueValue> in;
-        in.reserve(args.size());
-        for (const yarn::Value &a : args) in.push_back(from_yarn(a));
-        DialogueValue result;
-        (*shared)(result, in);
-        out = to_yarn(result);
-    });
+    auto shared =
+        std::make_shared<rmp::Callback<DialogueValue &, std::span<const DialogueValue>>>(
+            std::move(function));
+    _state->machine.on_function(
+        name, [shared](yarn::Value &out, std::span<const yarn::Value> args) {
+            std::vector<DialogueValue> in;
+            in.reserve(args.size());
+            for (const yarn::Value &a : args) in.push_back(from_yarn(a));
+            DialogueValue result;
+            (*shared)(result, in);
+            out = to_yarn(result);
+        });
 }
 
 DialogueValue Dialogue::variable(std::string_view name) const {
@@ -346,9 +371,15 @@ void Dialogue::save(rmp::Value &out) const {
     if (!_state) return;
     for (const auto &[name, v] : _state->machine.variables()) {
         switch (v.kind) {
-            case yarn::Kind::NUMBER: out[name] = v.number; break;
-            case yarn::Kind::BOOL: out[name] = v.boolean; break;
-            case yarn::Kind::STRING: out[name] = v.text; break;
+            case yarn::Kind::NUMBER:
+                out[name] = v.number;
+                break;
+            case yarn::Kind::BOOL:
+                out[name] = v.boolean;
+                break;
+            case yarn::Kind::STRING:
+                out[name] = v.text;
+                break;
         }
     }
 }
@@ -361,10 +392,17 @@ void Dialogue::load(const rmp::Value &in) {
         if (name.empty()) continue;
         const rmp::Value &v = in[name];
         switch (v.type()) {
-            case rmp::Value::Type::BOOL: vars[name] = yarn::Value::of(v.as_bool()); break;
-            case rmp::Value::Type::NUMBER: vars[name] = yarn::Value::of(v.as_float()); break;
-            case rmp::Value::Type::STRING: vars[name] = yarn::Value::of(std::string(v.as_string())); break;
-            default: break;
+            case rmp::Value::Type::BOOL:
+                vars[name] = yarn::Value::of(v.as_bool());
+                break;
+            case rmp::Value::Type::NUMBER:
+                vars[name] = yarn::Value::of(v.as_float());
+                break;
+            case rmp::Value::Type::STRING:
+                vars[name] = yarn::Value::of(std::string(v.as_string()));
+                break;
+            default:
+                break;
         }
     }
     _state->machine.set_variables(std::move(vars));
@@ -373,13 +411,18 @@ void Dialogue::load(const rmp::Value &in) {
 void Dialogue::set_saliency(DialogueSaliency saliency) {
     if (!_state) return;
     switch (saliency) {
-        case DialogueSaliency::FIRST: _state->machine.set_saliency(yarn::Saliency::FIRST); break;
-        case DialogueSaliency::BEST: _state->machine.set_saliency(yarn::Saliency::BEST); break;
+        case DialogueSaliency::FIRST:
+            _state->machine.set_saliency(yarn::Saliency::FIRST);
+            break;
+        case DialogueSaliency::BEST:
+            _state->machine.set_saliency(yarn::Saliency::BEST);
+            break;
         case DialogueSaliency::LEAST_SEEN:
             _state->machine.set_saliency(yarn::Saliency::BEST_LEAST_RECENTLY_VIEWED);
             break;
         case DialogueSaliency::RANDOM_LEAST_SEEN:
-            _state->machine.set_saliency(yarn::Saliency::RANDOM_BEST_LEAST_RECENTLY_VIEWED);
+            _state->machine.set_saliency(
+                yarn::Saliency::RANDOM_BEST_LEAST_RECENTLY_VIEWED);
             break;
     }
 }
@@ -425,8 +468,9 @@ Dialogue load_dialogue(std::span<const std::string_view> files) {
     for (const std::string_view f : files) {
         const std::vector<unsigned char> bytes = load_data(f);
         if (bytes.empty()) {
-            RMP_REPORT_ONCE_KEYED(f, "DIALOGUE: load_dialogue(\"%.*s\"): no such file in resources/",
-                                  static_cast<int>(f.size()), f.data());
+            RMP_REPORT_ONCE_KEYED(
+                f, "DIALOGUE: load_dialogue(\"%.*s\"): no such file in resources/",
+                static_cast<int>(f.size()), f.data());
             auto state = std::make_unique<rmp::detail::DialogueState>();
             state->errors.push_back(std::string(f) + ": no such file in resources/");
             return Dialogue(std::move(state));

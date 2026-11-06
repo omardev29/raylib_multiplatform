@@ -44,10 +44,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     for (const auto &row : rows) {
         require(!row.empty(), "every row has a cell");
         for (const std::string &cell : row) {
-            const auto again = rmp::lang::detail::parse_tsv(rmp::lang::detail::escape_cell(cell));
-            require(cell.empty() || (again.size() == 1 && again[0].size() == 1 && again[0][0] == cell) ||
-                        cell.front() == '#',
-                    "a cell written back reads back the same");
+            const auto again =
+                rmp::lang::detail::parse_tsv(rmp::lang::detail::escape_cell(cell));
+            require(
+                cell.empty() ||
+                    (again.size() == 1 && again[0].size() == 1 && again[0][0] == cell) ||
+                    cell.front() == '#',
+                "a cell written back reads back the same");
         }
     }
     rmp::lang::detail::load_tables({ { {}, text }, { "ru", text } });
@@ -55,8 +58,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
         rmp::lang::set(code);
         for (const auto &row : rows) {
             if (row.empty()) continue;
-            const rmp::Text t(row[0], { { "count", 3 }, { "name", "x" } },
-                              { .context = row.size() > 1 ? std::string_view(row[1]) : "" });
+            const rmp::Text t(
+                row[0], { { "count", 3 }, { "name", "x" } },
+                { .context = row.size() > 1 ? std::string_view(row[1]) : "" });
             (void)t.str();
             (void)rmp::lang::translate(row[0]);
             (void)rmp::lang::name(code);

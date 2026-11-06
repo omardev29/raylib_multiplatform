@@ -189,7 +189,8 @@ bool detail::checkbox_with(std::string_view label, bool &value, const CheckboxOp
         }
         Clay__CloseElement();
 
-        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
+        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text,
+                   t.font_size);
     }
     Clay__CloseElement();
 
@@ -346,7 +347,8 @@ bool detail::slider_with(std::string_view label, float &value, float min, float 
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
     {
-        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
+        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text,
+                   t.font_size);
 
         Clay_ElementDeclaration track{};
         track.layout.sizing.width = o.width > 0 ? fixed(o.width) : grow();
@@ -406,12 +408,13 @@ bool dropdown(const rmp::Text &label, int &selected,
     return dropdown(label, selected, items, DropdownOptions{});
 }
 
-bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items) {
+bool dropdown(const rmp::Text &label, int &selected,
+              std::initializer_list<rmp::Text> items) {
     return dropdown(label, selected, items, DropdownOptions{});
 }
 
-bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items,
-              const DropdownOptions &o) {
+bool dropdown(const rmp::Text &label, int &selected,
+              std::initializer_list<rmp::Text> items, const DropdownOptions &o) {
     // The items as they read in the current language: they are drawn, and
     // told apart by their place, never by their words.
     std::vector<std::string> shown;
@@ -519,7 +522,8 @@ bool detail::dropdown_with(std::string_view label, int &selected,
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
     {
-        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
+        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text,
+                   t.font_size);
 
         Clay_ElementDeclaration field{};
         field.layout.sizing.width = o.width > 0 ? fixed(o.width) : grow();
@@ -720,7 +724,8 @@ bool detail::text_input_with(std::string_view label, std::string &value,
     Clay__ConfigureOpenElement(row);
     {
         if (!label.empty()) {
-            label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
+            label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text,
+                       t.font_size);
         }
 
         Clay_ElementDeclaration field{};

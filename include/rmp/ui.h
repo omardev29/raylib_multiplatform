@@ -1227,9 +1227,10 @@ bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items);
 bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o);
-bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items);
-bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items,
-              const DropdownOptions &o);
+bool dropdown(const rmp::Text &label, int &selected,
+              std::initializer_list<rmp::Text> items);
+bool dropdown(const rmp::Text &label, int &selected,
+              std::initializer_list<rmp::Text> items, const DropdownOptions &o);
 
 // Edits your string, in UTF-8 -- what the player types goes on the end, and
 // Backspace takes off the last character, never half of one -- and only while
@@ -1350,7 +1351,8 @@ struct DialogueMemory {
     float waited = 0; // seconds since it was all shown, or of a [pause]
     float choice_left = 0; // seconds left of a timed choice
     int blips = 0;
-    std::vector<std::pair<std::string, std::string>> history; // speaker, line: read so far
+    std::vector<std::pair<std::string, std::string>>
+        history; // speaker, line: read so far
     std::vector<std::string> seen; // the ids of the lines read
     std::vector<std::string> stage; // DialogueStage: who is on stage, left to right
     bool showing_history = false;
@@ -1399,7 +1401,8 @@ struct DialogueStage {
     Style style{}; // the box under the portraits
     Style name_style{};
     Style choice_style{};
-    Color dimmed = CLITERAL(Color){ 120, 120, 130, 255 }; // the tint of who is not speaking
+    Color dimmed =
+        CLITERAL(Color){ 120, 120, 130, 255 }; // the tint of who is not speaking
     DialogueMemory ours;
 
     bool show(rmp::Dialogue &dialogue);
