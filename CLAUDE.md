@@ -386,6 +386,35 @@ here so that nobody "fixes" one back.
   object that has one; the behaviors a level designer places have
   `B::from(const MapObject &)` reading fixed field names, written above each in
   `rmp/behavior.h`.
+- **A window out of sight costs nothing, and pausing on focus is the game's
+  choice** (Omar, 2026-11-01). A minimized desktop window draws nothing and
+  sleeps between frames while the world, the music and the clock go on -- no
+  `#if`: the web and the phones pause a hidden app themselves. `[window]
+  pause_unfocused` (off by default) stops the scenes, the clock and the sound
+  while the window has no focus, keeps the last picture, gives the top scene
+  `_suspend()`/`_resume()`, and the first step back is 0.
+- **Every text the framework draws is an `rmp::Text`, and a literal translates
+  itself** (Omar, 2026-11-01). `rmp/text.h`: the literal's words are its key in
+  `resources/lang.tsv` (a column per language) and `resources/lang/<code>.tsv`
+  (one per language), merged; a string made at runtime is shown as it is, and a
+  value that changes goes in a `{placeholder}`; plurals are CLDR's, `|` between
+  the forms; the language is the system's, `rmp::lang::set()`'s (saved) or
+  `[lang] default`, es-MX falling back to es. A widget's identity is the key,
+  never the translation. `rmp text scan` adds rows and never deletes one;
+  `rmp text check` holds the tables to `[lang] languages`. A font per language
+  in `[lang] fonts`. The window's title is not translated. Right-to-left and
+  complex shaping are out.
+- **Dialogue is Yarn Spinner 3, in .yarn files, compiled by the framework's own
+  C++** (Omar, 2026-11-01 and 2026-11-06). `rmp/dialogue.h`: a port of the
+  official compiler and machine (MIT), held to Yarn Spinner's own test cases
+  (`tests/dialogue/yarn/`; what does not pass yet is in
+  `tests/dialogue/yarn_unsupported.txt`, a list that only shrinks). No dialogue
+  written in C++, no JSON or TSV dialogue; Ink comes in through
+  `tools/ink_to_yarn.py`. A line's `#line:` id is its translation key. No Python
+  at runtime: `[dialogue] build` compiles at load ("runtime") or into the game
+  with `rmp_yarnc` ("embedded", desktop builds), "auto" for debug and release.
+  The presenters are rmp::ui widgets (DialogueBox, DialogueBubble,
+  DialogueStage), and `rmp::behavior::Talker` starts a conversation.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.

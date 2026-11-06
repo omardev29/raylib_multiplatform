@@ -9,6 +9,7 @@
 #include "../text_internal.h"
 #include "yarn.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <string>
@@ -78,7 +79,7 @@ std::optional<Tag> read_tag(std::string_view text, std::size_t &i) {
             return v;
         }
         while (j < text.size() && !space(text[j]) && text[j] != ']' &&
-               !(text[j] == '/' && j + 1 < text.size() && text[j + 1] == ']')) {
+               (text[j] != '/' || j + 1 >= text.size() || text[j + 1] != ']')) {
             v += text[j++];
         }
         return v;
@@ -126,10 +127,7 @@ std::string property(const Tag &tag, std::string_view key) {
 }
 
 bool has_property(const Tag &tag, std::string_view key) {
-    for (const auto &[k, v] : tag.properties) {
-        if (k == key) return true;
-    }
-    return false;
+    return std::ranges::any_of(tag.properties, [&](const auto &p) { return p.first == key; });
 }
 
 // What a replacement marker says: the property its value chooses, with % as
@@ -140,8 +138,7 @@ std::optional<std::string> replace(const Tag &tag, std::string_view language) {
     if (tag.name == "select") {
         chosen = has_property(tag, value) ? property(tag, value) : property(tag, "other");
     } else if (tag.name == "plural" || tag.name == "ordinal") {
-        char *end = nullptr;
-        const double n = std::strtod(value.c_str(), &end);
+        const double n = std::strtod(value.c_str(), nullptr);
         const bool integer = value.find('.') == std::string::npos;
         const std::string_view category =
             tag.name == "plural" ? rmp::lang::detail::plural_category(language, n, integer)

@@ -108,8 +108,11 @@ public:
     Value value() {
         Value v;
         const std::uint32_t k = u32();
-        if (k > static_cast<std::uint32_t>(Kind::BOOL)) ok = false;
-        v.kind = static_cast<Kind>(k);
+        if (k > static_cast<std::uint32_t>(Kind::BOOL)) {
+            ok = false;
+        } else {
+            v.kind = static_cast<Kind>(k);
+        }
         v.number = f32();
         v.boolean = u32() != 0;
         v.text = str();
@@ -119,8 +122,11 @@ public:
         std::vector<Instruction> c(count(24));
         for (Instruction &i : c) {
             const std::uint32_t op = u32();
-            if (op > static_cast<std::uint32_t>(Op::REPLACE_NODE)) ok = false;
-            i.op = static_cast<Op>(op);
+            if (op > static_cast<std::uint32_t>(Op::REPLACE_NODE)) {
+                ok = false;
+            } else {
+                i.op = static_cast<Op>(op);
+            }
             i.a = i32();
             i.b = i32();
             i.c = i32();

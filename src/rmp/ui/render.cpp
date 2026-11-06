@@ -505,7 +505,7 @@ void draw(Clay_RenderCommandArray commands) {
 
             case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
                 // rich_text(): its letters, where rich.cpp laid them out.
-                draw_rich(cmd.renderData.custom.customData, Vector2{ rect.x, rect.y }, alpha);
+                draw_rich(cmd, alpha);
                 break;
 
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {

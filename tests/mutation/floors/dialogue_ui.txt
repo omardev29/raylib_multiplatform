@@ -1,0 +1,8 @@
+# rich_text() and the dialogue presenters (DialogueBox, DialogueBubble,
+# DialogueStage). New with them: unmeasured until the weekly run measures it,
+# and from then it only rises.
+kind     cxx
+sources  src/rmp/ui/rich.cpp src/rmp/ui/dialogue_ui.cpp
+tests    ui_layout_test
+tests    property_test -sf=*dialogue_prop.cpp
+floor    -

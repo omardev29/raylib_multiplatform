@@ -1,0 +1,2 @@
+# libFuzzer flags for fuzz_lang_tsv, one a line: tools/fuzz.sh run and merge pass them.
+-max_len=4096

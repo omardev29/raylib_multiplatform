@@ -23,6 +23,8 @@ namespace {
 
 constexpr std::string_view VISITING = "$Yarn.Internal.Visiting.";
 constexpr std::string_view VIEW_COUNT = "$Yarn.Internal.Content.ViewCount.";
+constexpr long MAX_STEPS = 100'000; // instructions between two events
+constexpr std::size_t MAX_DEPTH = 256; // nodes on the detour stack
 // A command's words: split on spaces, a "quoted part" one word.
 std::vector<std::string> words(std::string_view text) {
     std::vector<std::string> out;
@@ -123,7 +125,7 @@ void Machine::leave_top() {
     const ProgramNode &n = _program.nodes[static_cast<std::size_t>(_frames.back().node)];
     if (n.tracked) {
         const std::string key = std::string(VISITING) + n.name;
-        Value count = _vars.contains(key) ? _vars[key] : Value::of(0.0f);
+        const Value count = _vars.contains(key) ? _vars[key] : Value::of(0.0f);
         _vars[key] = Value::of(count.as_number() + 1);
         if (!n.group.empty()) {
             // The group was visited too, through this member.
@@ -279,47 +281,50 @@ Value Machine::call(const std::string &name, std::span<const Value> args) {
 }
 
 std::optional<Machine::Candidate> Machine::select(std::vector<Candidate> &candidates) {
-    std::vector<Candidate *> passing;
-    for (Candidate &c : candidates) {
-        if (c.passing) passing.push_back(&c);
+    // By their places in `candidates`: what passes, then the one chosen.
+    std::vector<std::size_t> passing;
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        if (candidates[i].passing) passing.push_back(i);
     }
     if (passing.empty()) return std::nullopt;
-    const auto views = [&](const Candidate *c) {
-        return static_cast<int>(read(std::string(VIEW_COUNT) + c->id).as_number());
+    const auto views = [&](std::size_t i) {
+        return static_cast<int>(read(std::string(VIEW_COUNT) + candidates[i].id).as_number());
     };
-    Candidate *chosen = passing.front();
+    std::size_t chosen = passing.front();
     switch (_saliency) {
         case Saliency::FIRST: break;
         case Saliency::BEST:
-            for (Candidate *c : passing) {
-                if (c->complexity > chosen->complexity) chosen = c;
+            for (const std::size_t c : passing) {
+                if (candidates[c].complexity > candidates[chosen].complexity) chosen = c;
             }
             break;
         case Saliency::BEST_LEAST_RECENTLY_VIEWED:
         case Saliency::RANDOM_BEST_LEAST_RECENTLY_VIEWED: {
             int best_views = views(chosen);
-            for (Candidate *c : passing) {
+            for (const std::size_t c : passing) {
                 const int v = views(c);
-                if (v < best_views || (v == best_views && c->complexity > chosen->complexity)) {
+                if (v < best_views ||
+                    (v == best_views && candidates[c].complexity > candidates[chosen].complexity)) {
                     chosen = c;
                     best_views = v;
                 }
             }
             if (_saliency == Saliency::RANDOM_BEST_LEAST_RECENTLY_VIEWED) {
-                std::vector<Candidate *> equal;
-                for (Candidate *c : passing) {
-                    if (views(c) == best_views && c->complexity == chosen->complexity) {
+                std::vector<std::size_t> equal;
+                for (const std::size_t c : passing) {
+                    if (views(c) == best_views &&
+                        candidates[c].complexity == candidates[chosen].complexity) {
                         equal.push_back(c);
                     }
                 }
                 chosen = equal[static_cast<std::size_t>(rmp::random::index(static_cast<int>(equal.size())))];
             }
-            const std::string key = std::string(VIEW_COUNT) + chosen->id;
+            const std::string key = std::string(VIEW_COUNT) + candidates[chosen].id;
             _vars[key] = Value::of(static_cast<float>(best_views + 1));
             break;
         }
     }
-    return *chosen;
+    return candidates[chosen];
 }
 
 bool Machine::has_content(std::string_view group) {
@@ -328,15 +333,28 @@ bool Machine::has_content(std::string_view group) {
         i >= 0 && !_program.nodes[static_cast<std::size_t>(i)].hub) {
         return true;
     }
-    for (const ProgramNode &n : _program.nodes) {
-        if (n.group == group && evaluate(n.condition).as_bool()) return true;
-    }
-    return false;
+    return std::ranges::any_of(_program.nodes, [&](const ProgramNode &n) {
+        return n.group == group && evaluate(n.condition).as_bool();
+    });
 }
 
 void Machine::run() {
+    // A script that loops with nothing to show -- <<jump>> back to itself, a
+    // node that detours into itself before any line -- would hang the game or
+    // grow without end: a budget of instructions between two events, and of
+    // nodes deep, stops it, said once.
+    long budget = MAX_STEPS;
     while (!_waiting && !_frames.empty()) {
-        Frame &f = _frames.back();
+        if (--budget < 0 || _frames.size() > MAX_DEPTH) {
+            fault(budget < 0 ? "the script ran " + std::to_string(MAX_STEPS) +
+                                   " instructions without a line or a choice: a loop with "
+                                   "nothing in it?"
+                             : "the script detoured " + std::to_string(MAX_DEPTH) +
+                                   " nodes deep: a detour that never returns?");
+            stop();
+            return;
+        }
+        const Frame &f = _frames.back();
         const ProgramNode &node = _program.nodes[static_cast<std::size_t>(f.node)];
         if (f.pc < 0 || static_cast<std::size_t>(f.pc) >= node.code.size()) {
             leave_top();

@@ -7141,7 +7141,7 @@ class LicenceGuardTest(unittest.TestCase):
         rows = ldb.load_rows(REPO)
         marked = {r["name"] for r in rows if r["modified"] in ("yes", "subset")}
         self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob", "rlsw",
-                                  "RGFW", "tinyobj_loader_c"})
+                                  "RGFW", "tinyobj_loader_c", "yarnspinner"})
         for r in rows:
             if r["modified"] in ("yes", "subset"):
                 with self.subTest(component=r["name"]):

@@ -59,6 +59,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── behaviors.cpp     #   the CATALOGUE: TopDown, Platformer, Runner, Ball, Spawner...
 │       ├── behaviors_world.cpp #   ...Area, Hitbox, Collectible, Shooter, Orbit, Animator, Draggable
 │       ├── behaviors_ai.cpp  #   ...Patrol, find_path() and Pathfind, Chase, StateMachine
+│       ├── behaviors_talk.cpp #  ...Talker: a conversation an object starts
 │       ├── behavior_internal.h
 │       ├── input.cpp         #   rmp::input -- actions, the device seam, routing against the UI
 │       ├── ui_internal.h     #   the UI's hooks the app, the scene stack and rmp::input call
@@ -116,6 +117,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │           ├── style.cpp     #     variants, sizes, transitions
 │           ├── look.cpp      #     Style resolved, pictures, skins, shadows, motion, events
 │           ├── kept.cpp      #     the widgets you keep: Button, Panel, Slider... show()
+│           ├── rich.cpp      #     rich_text(): Yarn markup, laid out and drawn a letter at a time
+│           ├── dialogue_ui.cpp #   DialogueBox, DialogueBubble, DialogueStage
 │           ├── sound.cpp     #     SoundName: the one link from the UI to rmp::audio
 │           ├── render.cpp    #     draw commands -> raylib calls, records, nine-slices
 │           └── theme.cpp     #     the dark and light themes

@@ -58,9 +58,12 @@ yarn::Value to_yarn(const DialogueValue &v) {
 
 DialogueValue from_yarn(const yarn::Value &v) {
     switch (v.kind) {
-        case yarn::Kind::NUMBER: return DialogueValue(v.number);
-        case yarn::Kind::BOOL: return DialogueValue(v.boolean);
-        case yarn::Kind::STRING: return DialogueValue(v.text);
+        case yarn::Kind::NUMBER:
+            return { v.number };
+        case yarn::Kind::BOOL:
+            return { v.boolean };
+        case yarn::Kind::STRING:
+            return { v.text };
     }
     return {};
 }
@@ -87,12 +90,11 @@ Shown show(const yarn::Program &program, const std::string &id,
     std::string source;
     const int index = program.line_index(id);
     if (index >= 0) {
-        const yarn::LineInfo *info = &program.lines[static_cast<std::size_t>(index)];
-        if (!info->shadow.empty()) {
-            const int src = program.line_index(info->shadow);
-            if (src >= 0) info = &program.lines[static_cast<std::size_t>(src)];
-        }
-        source = info->text;
+        // A shadow line says what its source says.
+        int shown = index;
+        const std::string &shadow = program.lines[static_cast<std::size_t>(index)].shadow;
+        if (!shadow.empty() && program.line_index(shadow) >= 0) shown = program.line_index(shadow);
+        source = program.lines[static_cast<std::size_t>(shown)].text;
     }
     const std::optional<std::string> translated = rmp::lang::detail::find(id);
     const std::string language = rmp::lang::current();
@@ -271,8 +273,8 @@ bool Dialogue::has_line() const {
 }
 
 const DialogueLine &Dialogue::line() const {
-    static const DialogueLine none;
-    return has_line() ? _state->line : none;
+    static const DialogueLine NONE;
+    return has_line() ? _state->line : NONE;
 }
 
 bool Dialogue::has_options() const {
@@ -331,7 +333,7 @@ DialogueValue Dialogue::variable(std::string_view name) const {
     return from_yarn(_state->machine.variable(name));
 }
 
-void Dialogue::set_variable(std::string_view name, DialogueValue value) {
+void Dialogue::set_variable(std::string_view name, const DialogueValue &value) {
     if (_state) _state->machine.set_variable(name, to_yarn(value));
 }
 

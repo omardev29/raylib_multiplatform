@@ -268,11 +268,17 @@ void end_tooltip_pass() {
 
 } // namespace detail
 
-void tooltip(const rmp::Text &said) { tooltip(said, TooltipOptions{}); }
+namespace {
+void tooltip_of(std::string_view text, const TooltipOptions &o);
+} // namespace
 
-void tooltip(const rmp::Text &said, const TooltipOptions &o) {
-    const std::string shown = said.str();
-    const std::string_view text = shown;
+void tooltip(const rmp::Text &text) { tooltip(text, TooltipOptions{}); }
+
+void tooltip(const rmp::Text &text, const TooltipOptions &o) { tooltip_of(text.str(), o); }
+
+namespace {
+// The tooltip of a text already in the current language.
+void tooltip_of(std::string_view text, const TooltipOptions &o) {
     if (!detail::frame_ready("tooltip", text)) return;
     const uint32_t control = detail::take_last_control();
     if (control == 0) {
@@ -379,5 +385,6 @@ void tooltip(const rmp::Text &said, const TooltipOptions &o) {
     }
     Clay__CloseElement();
 }
+} // namespace
 
 } // namespace rmp::ui

@@ -46,7 +46,7 @@ struct Signature {
 };
 
 const std::map<std::string, Signature, std::less<>> &builtins() {
-    static const std::map<std::string, Signature, std::less<>> table{
+    static const std::map<std::string, Signature, std::less<>> TABLE{
         { "visited", { { "string" }, "bool" } },
         { "visited_count", { { "string" }, "number" } },
         { "has_any_content", { { "string" }, "bool" } },
@@ -75,7 +75,7 @@ const std::map<std::string, Signature, std::less<>> &builtins() {
         { "dummy_number", { {}, "number" } },
         { "dummy_string", { {}, "string" } },
     };
-    return table;
+    return TABLE;
 }
 
 struct EnumDef {
@@ -110,6 +110,9 @@ std::string stem_of(std::string_view file) {
     return out;
 }
 
+// The diagnostics below are built by joining their parts: once per mistake
+// in a script, never on a path a game runs every frame.
+// NOLINTBEGIN(performance-inefficient-string-concatenation)
 class Compiler {
 public:
     Compiler(std::span<const Source> sources, std::span<const FunctionType> functions)
@@ -283,10 +286,7 @@ private:
 
     static bool constant(const Expr &e) {
         if (e.is == Expr::Is::VARIABLE || e.is == Expr::Is::CALL) return false;
-        for (const Expr &a : e.args) {
-            if (!constant(a)) return false;
-        }
-        return true;
+        return std::ranges::all_of(e.args, [](const Expr &a) { return constant(a); });
     }
 
     // --- pass 2: types ---------------------------------------------------------
@@ -371,7 +371,7 @@ private:
     std::string binary_type(const Expr &e, const std::string &want, const Ctx &ctx) {
         const std::string &o = e.text;
         if (o == "&&" || o == "||" || o == "^") {
-            for (const Expr &a : e.args) {
+            for (const Expr &a : e.args) { // NOLINT(readability-use-anyofallof): every operand is checked and reported
                 const std::string t = type_of(a, std::string(BOOL), ctx);
                 if (ctx.report && !t.empty() && t != BOOL) {
                     error(ctx.file, a.at, "'" + o + "' takes bools, not a " + t);
@@ -422,15 +422,8 @@ private:
 
     std::string call_type(const Expr &e, const std::string &want, const Ctx &ctx) {
         const auto b = builtins().find(e.text);
-        Signature *known = nullptr;
-        Signature found;
-        if (b != builtins().end()) {
-            found = b->second;
-            known = &found;
-        } else if (auto f = _functions.find(e.text); f != _functions.end()) {
-            known = &f->second;
-        }
-        if (known == nullptr) {
+        const auto f = _functions.find(e.text);
+        if (b == builtins().end() && f == _functions.end()) {
             Signature s;
             for (const Expr &a : e.args) s.params.push_back(type_of(a, {}, ctx));
             s.result = want;
@@ -438,6 +431,11 @@ private:
             _changed = true;
             return want;
         }
+        // A built-in's is a copy, which nothing learns from; the game's is the
+        // one inference fills in.
+        Signature copy = b != builtins().end() ? b->second : Signature{}; // NOLINT(misc-const-correctness): bound to the reference below
+        Signature &known_ref = b != builtins().end() ? copy : f->second;
+        Signature *known = &known_ref; // NOLINT(custom-rmp-raw-pointer): one of two, for the lines below
         if (known->params.size() != e.args.size()) {
             if (ctx.report) {
                 error(ctx.file, e.at, e.text + "() takes " + std::to_string(known->params.size()) +
@@ -452,7 +450,7 @@ private:
                 known->params[i] = got;
                 _changed = true;
             } else if (ctx.report && !need.empty() && !got.empty() && got != need &&
-                       !(need == STRING && is_enum(got) && _enums[got].raw == Kind::STRING)) {
+                       (need != STRING || !is_enum(got) || _enums[got].raw != Kind::STRING)) {
                 error(ctx.file, e.args[i].at, e.text + "() takes a " + need + " here, not a " + got);
             }
         }
@@ -488,6 +486,7 @@ private:
                         error(file, st.at, st.name + " is a smart variable: it cannot be set");
                     }
                     const std::string want = st.op == "=" ? v.type : std::string(NUMBER);
+                    if (!st.expr) break;
                     const std::string got = type_of(*st.expr, v.type.empty() ? want : v.type, ctx);
                     if (v.type.empty() && !got.empty()) {
                         v.type = st.op == "+=" ? got : (st.op == "=" ? got : std::string(NUMBER));
@@ -514,7 +513,9 @@ private:
                         }
                     }
                     break;
-                case Stmt::Is::CALL: (void)type_of(*st.expr, {}, ctx); break;
+                case Stmt::Is::CALL:
+                    if (st.expr) (void)type_of(*st.expr, {}, ctx);
+                    break;
                 case Stmt::Is::IF:
                 case Stmt::Is::ONCE:
                     for (const Clause &c : st.clauses) {
@@ -626,7 +627,7 @@ private:
         if (it == _vars.end() || !it->second.smart || !it->second.init) return false;
         path.insert(name);
         std::set<std::string> refs;
-        collect_vars(*it->second.init, refs);
+        if (it->second.init) collect_vars(*it->second.init, refs);
         for (const std::string &r : refs) {
             if (loops(r, path)) return true;
         }
@@ -650,7 +651,7 @@ private:
                 return e.text == "-" ? Value::of(-v.as_number()) : Value::of(!v.as_bool());
             }
             case Expr::Is::BINARY: {
-                const Value a = constant_value(e.args[0], type);
+                Value a = constant_value(e.args[0], type);
                 const Value b = constant_value(e.args[1], type);
                 const std::string &o = e.text;
                 if (o == "+") {
@@ -690,11 +691,11 @@ private:
     // --- pass 3: instructions ------------------------------------------------
 
     struct Emitter {
-        std::vector<Instruction> *code = nullptr;
-        int here() const { return static_cast<int>(code->size()); }
-        Instruction &add(Op op) {
-            code->push_back(Instruction{ op });
-            return code->back();
+        std::vector<Instruction> &code;
+        [[nodiscard]] int here() const { return static_cast<int>(code.size()); }
+        Instruction &add(Op op) const {
+            code.push_back(Instruction{ op });
+            return code.back();
         }
     };
 
@@ -723,7 +724,7 @@ private:
                 _node = name;
                 _file = s.file;
                 _line_counter = 0;
-                Emitter em{ &out.code };
+                const Emitter em{ out.code };
                 if (member) member_conditions(out, n);
                 // A node 'when: once' marks itself seen as it starts.
                 for (const When &w : n.whens) {
@@ -755,13 +756,13 @@ private:
             hub.tracked = std::ranges::all_of(members, [&](const auto &m) {
                 return _scripts[m.first].nodes[m.second].tracked;
             });
-            Emitter em{ &hub.code };
+            const Emitter em{ hub.code };
             for (const ProgramNode &n : _out.program.nodes) {
                 if (n.group != title) continue;
                 em.add(Op::ADD_SALIENCY_CANDIDATE_FROM_NODE).s = n.name;
             }
             em.add(Op::SELECT_SALIENCY_CANDIDATE);
-            Instruction &none = em.add(Op::JUMP_IF_FALSE);
+            const Instruction &none = em.add(Op::JUMP_IF_FALSE);
             const std::size_t none_at = hub.code.size() - 1;
             em.add(Op::POP);
             em.add(Op::REPLACE_NODE);
@@ -776,7 +777,7 @@ private:
             if (!v.smart || !v.init) continue;
             SmartVariable sv;
             sv.name = name;
-            Emitter em{ &sv.code };
+            const Emitter em{ sv.code };
             _want = v.type;
             expr(em, *v.init);
             _out.program.smart.push_back(std::move(sv));
@@ -787,7 +788,7 @@ private:
     static std::string once_node_var(const std::string &node) { return "$Yarn.Internal.Once." + node; }
 
     void member_conditions(ProgramNode &out, const NodeSpec &n) {
-        Emitter em{ &out.condition };
+        const Emitter em{ out.condition };
         int complexity = 0;
         bool first = true;
         for (const When &w : n.whens) {
@@ -798,7 +799,7 @@ private:
                 if (w.once) {
                     em.add(Op::PUSH_VARIABLE).s = once_node_var(out.name);
                     em.add(Op::CALL_FUNC).s = "!";
-                    em.code->back().a = 1;
+                    em.code.back().a = 1;
                     count += 1;
                 }
                 if (w.condition) {
@@ -824,7 +825,7 @@ private:
         _out.program.initial[once_node_var(out.name)] = Value::of(false);
     }
 
-    void block(Emitter &em, const Block &b) {
+    void block(const Emitter &em, const Block &b) {
         for (const Stmt &st : b) statement(em, st);
     }
 
@@ -836,7 +837,7 @@ private:
 
     // The line's text into the string table; its substitutions onto the
     // stack. Gives back the id, and how many substitutions there are.
-    std::pair<std::string, int> line_text(Emitter &em, const LineSpec &l) {
+    std::pair<std::string, int> line_text(const Emitter &em, const LineSpec &l) {
         std::string text;
         int n = 0;
         for (const Piece &p : l.pieces) {
@@ -867,7 +868,7 @@ private:
     }
 
     void shadows() {
-        for (LineInfo &l : _out.program.lines) {
+        for (const LineInfo &l : _out.program.lines) {
             if (l.shadow.empty()) continue;
             const int src = _out.program.line_index(l.shadow);
             if (src < 0) {
@@ -885,7 +886,7 @@ private:
     static std::string once_var(const std::string &id) { return "$Yarn.Internal.Once." + id; }
 
     // A line's condition onto the stack (once, if, both). False when it has none.
-    bool line_condition(Emitter &em, const LineSpec &l, const std::string &id, int *complexity) {
+    bool line_condition(const Emitter &em, const LineSpec &l, const std::string &id, int &complexity) {
         int count = 0;
         if (l.once) {
             em.add(Op::PUSH_VARIABLE).s = once_var(id);
@@ -905,11 +906,11 @@ private:
                 a.a = 2;
             }
         }
-        if (complexity != nullptr) *complexity = count;
+        complexity = count;
         return l.once || l.condition.has_value();
     }
 
-    void mark_once(Emitter &em, const LineSpec &l, const std::string &id) {
+    static void mark_once(const Emitter &em, const LineSpec &l, const std::string &id) {
         if (!l.once) return;
         em.add(Op::PUSH_BOOL).a = 1;
         em.add(Op::STORE_VARIABLE).s = once_var(id);
@@ -922,11 +923,12 @@ private:
         return "line:" + stem_of(_file) + "-" + _node + "-" + std::to_string(_line_counter + 1);
     }
 
-    void statement(Emitter &em, const Stmt &st) {
+    void statement(const Emitter &em, const Stmt &st) {
         switch (st.is) {
             case Stmt::Is::LINE: {
                 const std::string id = peek_id(st.line);
-                if (line_condition(em, st.line, id, nullptr)) {
+                int unused = 0;
+                if (line_condition(em, st.line, id, unused)) {
                     const int skip = em.here();
                     em.add(Op::JUMP_IF_FALSE);
                     em.add(Op::POP);
@@ -937,9 +939,9 @@ private:
                     run.a = n;
                     const int to_end = em.here();
                     em.add(Op::JUMP_TO);
-                    (*em.code)[static_cast<std::size_t>(skip)].a = em.here();
+                    em.code[static_cast<std::size_t>(skip)].a = em.here();
                     em.add(Op::POP);
-                    (*em.code)[static_cast<std::size_t>(to_end)].a = em.here();
+                    em.code[static_cast<std::size_t>(to_end)].a = em.here();
                 } else {
                     const auto [lid, n] = line_text(em, st.line);
                     Instruction &run = em.add(Op::RUN_LINE);
@@ -970,6 +972,7 @@ private:
                 break;
             }
             case Stmt::Is::SET: {
+                if (!st.expr) break;
                 const VarInfo &v = _vars[st.name];
                 _want = v.type;
                 if (st.op != "=") {
@@ -1002,6 +1005,7 @@ private:
             }
             case Stmt::Is::RETURN: em.add(Op::RETURN); break;
             case Stmt::Is::CALL:
+                if (!st.expr) break;
                 _want.clear();
                 expr(em, *st.expr);
                 em.add(Op::POP);
@@ -1013,7 +1017,7 @@ private:
         }
     }
 
-    void ifs(Emitter &em, const Stmt &st) {
+    void ifs(const Emitter &em, const Stmt &st) {
         std::vector<int> to_end;
         for (const Clause &c : st.clauses) {
             if (c.condition) {
@@ -1025,16 +1029,16 @@ private:
                 block(em, c.body);
                 to_end.push_back(em.here());
                 em.add(Op::JUMP_TO);
-                (*em.code)[static_cast<std::size_t>(skip)].a = em.here();
+                em.code[static_cast<std::size_t>(skip)].a = em.here();
                 em.add(Op::POP);
             } else {
                 block(em, c.body);
             }
         }
-        for (const int j : to_end) (*em.code)[static_cast<std::size_t>(j)].a = em.here();
+        for (const int j : to_end) em.code[static_cast<std::size_t>(j)].a = em.here();
     }
 
-    void once(Emitter &em, const Stmt &st) {
+    void once(const Emitter &em, const Stmt &st) {
         const std::string var = "$Yarn.Internal.Once." + _node + "-" + std::to_string(st.at.line);
         _out.program.initial[var] = Value::of(false);
         em.add(Op::PUSH_VARIABLE).s = var;
@@ -1058,19 +1062,20 @@ private:
         block(em, primary.body);
         const int to_end = em.here();
         em.add(Op::JUMP_TO);
-        (*em.code)[static_cast<std::size_t>(skip)].a = em.here();
+        em.code[static_cast<std::size_t>(skip)].a = em.here();
         em.add(Op::POP);
         if (st.clauses.size() > 1) block(em, st.clauses[1].body);
-        (*em.code)[static_cast<std::size_t>(to_end)].a = em.here();
+        em.code[static_cast<std::size_t>(to_end)].a = em.here();
     }
 
-    void options(Emitter &em, const Stmt &st) {
+    void options(const Emitter &em, const Stmt &st) {
         std::vector<int> adds;
         std::vector<std::string> ids;
         for (const Item &item : st.items) {
             const std::string id = peek_id(item.line);
             const auto [lid, n] = line_text(em, item.line);
-            const bool has = line_condition(em, item.line, id, nullptr);
+            int unused = 0;
+            const bool has = line_condition(em, item.line, id, unused);
             adds.push_back(em.here());
             Instruction &add = em.add(Op::ADD_OPTION);
             add.s = lid;
@@ -1083,7 +1088,7 @@ private:
         em.add(Op::PEEK_AND_JUMP);
         std::vector<int> to_end;
         for (std::size_t i = 0; i < st.items.size(); ++i) {
-            (*em.code)[static_cast<std::size_t>(adds[i])].a = em.here();
+            em.code[static_cast<std::size_t>(adds[i])].a = em.here();
             em.add(Op::POP);
             mark_once(em, st.items[i].line, ids[i]);
             block(em, st.items[i].body);
@@ -1091,12 +1096,12 @@ private:
             em.add(Op::JUMP_TO);
         }
         // Nothing available, nothing chosen: on past the group.
-        (*em.code)[static_cast<std::size_t>(show)].a = em.here();
+        em.code[static_cast<std::size_t>(show)].a = em.here();
         em.add(Op::POP);
-        for (const int j : to_end) (*em.code)[static_cast<std::size_t>(j)].a = em.here();
+        for (const int j : to_end) em.code[static_cast<std::size_t>(j)].a = em.here();
     }
 
-    void line_group(Emitter &em, const Stmt &st) {
+    void line_group(const Emitter &em, const Stmt &st) {
         std::vector<int> adds;
         std::vector<std::string> ids;
         // Each item's id is taken here, in order, so the lines below reuse them.
@@ -1105,7 +1110,7 @@ private:
             LineSpec spec = item.line;
             spec.id = line_id(item.line);
             int complexity = 0;
-            if (!line_condition(em, spec, spec.id, &complexity)) em.add(Op::PUSH_BOOL).a = 1;
+            if (!line_condition(em, spec, spec.id, complexity)) em.add(Op::PUSH_BOOL).a = 1;
             adds.push_back(em.here());
             Instruction &add = em.add(Op::ADD_SALIENCY_CANDIDATE);
             add.s = spec.id;
@@ -1121,7 +1126,7 @@ private:
         std::vector<int> to_end;
         const int saved = _line_counter;
         for (std::size_t i = 0; i < st.items.size(); ++i) {
-            (*em.code)[static_cast<std::size_t>(adds[i])].b = em.here();
+            em.code[static_cast<std::size_t>(adds[i])].b = em.here();
             em.add(Op::POP);
             mark_once(em, specs[i], ids[i]);
             const auto [lid, n] = line_text(em, specs[i]);
@@ -1133,12 +1138,12 @@ private:
             em.add(Op::JUMP_TO);
         }
         (void)saved;
-        (*em.code)[static_cast<std::size_t>(none)].a = em.here();
+        em.code[static_cast<std::size_t>(none)].a = em.here();
         em.add(Op::POP);
-        for (const int j : to_end) (*em.code)[static_cast<std::size_t>(j)].a = em.here();
+        for (const int j : to_end) em.code[static_cast<std::size_t>(j)].a = em.here();
     }
 
-    void expr(Emitter &em, const Expr &e) {
+    void expr(const Emitter &em, const Expr &e) {
         switch (e.is) {
             case Expr::Is::NUMBER: em.add(Op::PUSH_FLOAT).f = e.number; return;
             case Expr::Is::STRING: em.add(Op::PUSH_STRING).s = e.text; return;
@@ -1206,6 +1211,8 @@ private:
     std::string _file;
     int _line_counter = 0;
 };
+
+// NOLINTEND(performance-inefficient-string-concatenation)
 
 } // namespace
 

@@ -28,7 +28,12 @@ namespace detail {
 
 namespace {
 
-enum Effect : std::uint8_t { NONE = 0, WAVE = 1, SHAKE = 2, RAINBOW = 4, BOLD = 8 };
+// What moves or paints a letter: bits of Glyph::effects.
+constexpr std::uint8_t NONE = 0;
+constexpr std::uint8_t WAVE = 1;
+constexpr std::uint8_t SHAKE = 2;
+constexpr std::uint8_t RAINBOW = 4;
+constexpr std::uint8_t BOLD = 8;
 
 struct Glyph {
     int codepoint = 0;
@@ -218,14 +223,16 @@ void rich_begin_frame() {
     rich.clock += frame_time();
 }
 
-void draw_rich(const void *data, Vector2 origin, float alpha) {
-    const auto *r = static_cast<const RichRecord *>(data);
+void draw_rich(const Clay_RenderCommand &cmd, float alpha) {
+    const Vector2 origin{ cmd.boundingBox.x, cmd.boundingBox.y };
+    // NOLINTNEXTLINE(custom-rmp-raw-pointer): Clay hands back the record as its void * customData
+    const auto *r = static_cast<const RichRecord *>(cmd.renderData.custom.customData);
     if (r == nullptr || r->magic != RICH_MAGIC) return;
     for (const Glyph &g : r->glyphs) {
         if (r->visible >= 0 && g.index >= r->visible) break;
         if (g.codepoint == ' ' || g.codepoint == '\n') continue;
         Vector2 at{ origin.x + g.at.x, origin.y + g.at.y };
-        const float phase = static_cast<float>(g.index);
+        const auto phase = static_cast<float>(g.index);
         if ((g.effects & WAVE) != 0) {
             at.y += std::sin(r->time * WAVE_SPEED + phase * WAVE_STEP) * g.size * WAVE_HEIGHT;
         }

@@ -182,7 +182,9 @@ void frame_skipped(const double seconds) {
     timing.drawn = 0;
     // Under a fixed step (the e2e driver, a test) nothing waits: the frames
     // are as long as the step says, however long the machine took.
-    if (timing.fixed <= 0 && seconds > 0) WaitTime(seconds);
+    // And only with a window: without one raylib's clock stands at 0, and
+    // WaitTime() would wait for ever.
+    if (timing.fixed <= 0 && seconds > 0 && IsWindowReady()) WaitTime(seconds);
 }
 
 void frame_drawn() {

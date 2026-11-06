@@ -21,6 +21,7 @@
 #include <rmp/object.h> // rmp::Callback
 #include <rmp/scene.h>
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -347,6 +348,19 @@ TEST_SUITE("app: the window's pace") {
         rmp::app::detail::frame_drawn();
         rmp::app::detail::frame_drawn();
         CHECK(frame() == STEP);
+    }
+
+    TEST_CASE("on the real clock a skipped frame waits, and the next step is timed by the clock") {
+        rmp::app::detail::reset_pace_for_tests();
+        rmp::app::detail::set_fixed_delta(0);
+        (void)rmp::app::detail::step_delta();
+        rmp::app::detail::frame_skipped(0.002);
+        const float step = rmp::app::detail::step_delta();
+        CHECK(std::isfinite(step));
+        CHECK(step >= 0.0f);
+        rmp::app::detail::frame_drawn();
+        rmp::app::detail::frame_drawn();
+        rmp::app::detail::reset_pace_for_tests();
     }
 
     TEST_CASE("with no provider the state is raylib's: focused, not minimized, headless") {

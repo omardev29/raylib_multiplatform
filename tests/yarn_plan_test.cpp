@@ -32,7 +32,7 @@ namespace y = rmp::yarn;
 fs::path data_root() { return fs::path(__FILE__).parent_path() / "dialogue"; }
 
 std::string read_file(const fs::path &p) {
-    std::ifstream in(p, std::ios::binary);
+    const std::ifstream in(p, std::ios::binary);
     std::stringstream ss;
     ss << in.rdbuf();
     return ss.str();
@@ -67,7 +67,7 @@ std::vector<std::vector<Step>> read_plan(const std::string &source) {
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        std::size_t b = line.find_first_not_of(" \t");
+        const std::size_t b = line.find_first_not_of(" \t");
         if (b == std::string::npos) continue;
         line = line.substr(b);
         if (line.starts_with("//")) continue;
@@ -120,12 +120,10 @@ std::string composed(const y::Program &p, const std::string &id,
                      const std::vector<std::string> &subs) {
     const int index = p.line_index(id);
     if (index < 0) return "<no line " + id + ">";
-    const y::LineInfo *info = &p.lines[static_cast<std::size_t>(index)];
-    if (!info->shadow.empty()) {
-        const int src = p.line_index(info->shadow);
-        if (src >= 0) info = &p.lines[static_cast<std::size_t>(src)];
-    }
-    return y::parse_markup(y::expand(info->text, subs), "en").text;
+    int shown = index;
+    const std::string &shadow = p.lines[static_cast<std::size_t>(index)].shadow;
+    if (!shadow.empty() && p.line_index(shadow) >= 0) shown = p.line_index(shadow);
+    return y::parse_markup(y::expand(p.lines[static_cast<std::size_t>(shown)].text, subs), "en").text;
 }
 
 std::vector<std::string> tags_of(const y::Program &p, const std::string &id) {
@@ -157,7 +155,7 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
     m.on_function("dummy_string", [](y::Value &out, std::span<const y::Value>) {
         out = y::Value::of(std::string("string"));
     });
-    std::map<std::string, y::Value> storage;
+    const std::map<std::string, y::Value> storage;
     std::vector<Step> expected_options;
     for (const auto &run : runs) {
         if (run.empty()) continue;
@@ -211,12 +209,16 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
                 if (!s.any && got != s.text) return "expected line `" + s.text + "`, got `" + got + "`";
                 const auto tags = tags_of(program, now.id);
                 for (const std::string &t : s.tags) {
+                    // NOLINTNEXTLINE(performance-inefficient-string-concatenation): a failure's message
                     if (std::ranges::find(tags, t) == tags.end()) return "line `" + got + "` lacks #" + t;
                 }
                 m.advance();
             } else if (s.kind == "select") {
                 if (now.is != y::Event::Is::OPTIONS) {
-                    std::string what = now.is == y::Event::Is::LINE ? "line `" + composed(program, now.id, now.substitutions) + "`" : now.is == y::Event::Is::DONE ? "stop" : "command `" + now.command + "`";
+                    const std::string what = now.is == y::Event::Is::LINE
+                        ? "line `" + composed(program, now.id, now.substitutions) + "`"
+                        : now.is == y::Event::Is::DONE ? "stop"
+                                                       : "command `" + now.command + "`";
                     return "expected options, got " + what;
                 }
                 if (now.options.size() != expected_options.size()) {
@@ -241,7 +243,9 @@ std::string play(const y::Program &program, const std::vector<std::vector<Step>>
                 m.advance();
             } else if (s.kind == "stop") {
                 if (now.is != y::Event::Is::DONE) {
-                    std::string what = now.is == y::Event::Is::LINE ? "line `" + composed(program, now.id, now.substitutions) + "`" : "another event";
+                    const std::string what = now.is == y::Event::Is::LINE
+                        ? "line `" + composed(program, now.id, now.substitutions) + "`"
+                        : "another event";
                     return "expected stop, got " + what;
                 }
                 break;
@@ -272,7 +276,7 @@ TEST_SUITE("dialogue: Yarn Spinner's own tests") {
         for (const auto &e : fs::directory_iterator(cases / "ParseFailures")) {
             if (e.path().extension() == ".yarn") files.push_back(e.path());
         }
-        std::sort(files.begin(), files.end());
+        std::ranges::sort(files);
         REQUIRE(files.size() > 60);
         int passed = 0;
         std::set<std::string> seen;

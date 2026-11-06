@@ -10,6 +10,7 @@
 #include "yarn.h"
 
 #include <cctype>
+#include <charconv>
 #include <cstdlib>
 #include <string>
 #include <string_view>
@@ -601,7 +602,7 @@ private:
             return w;
         }
         if (value.starts_with("once") && value.size() > 4 && is_space(value[4])) {
-            std::string_view rest = trim(value.substr(4));
+            const std::string_view rest = trim(value.substr(4));
             if (rest.starts_with("if") && (rest.size() == 2 || is_space(rest[2]))) {
                 w.once = true;
                 w.condition = expression(trim(rest.substr(2)), line, column);
@@ -627,7 +628,10 @@ private:
     void report(const std::vector<std::string> &problems, int line) {
         for (const std::string &p : problems) {
             const std::size_t sep = p.find('\x1f');
-            error(line, std::atoi(p.substr(0, sep).c_str()), p.substr(sep + 1));
+            int column = 0;
+            const std::string_view number = std::string_view(p).substr(0, sep);
+            (void)std::from_chars(number.data(), number.data() + number.size(), column);
+            error(line, column, p.substr(sep + 1));
         }
     }
 
@@ -878,7 +882,7 @@ private:
         s.is = Stmt::Is::ONCE;
         Clause first;
         if (!args.empty()) {
-            if (!(args.starts_with("if") && (args.size() == 2 || is_space(args[2])))) {
+            if (!args.starts_with("if") || (args.size() != 2 && !is_space(args[2]))) {
                 error(line, column, "<<once>> takes nothing, or 'if' and a condition");
             } else {
                 first.condition = expression(trim(args.substr(2)), line, column + 3);
@@ -1122,7 +1126,7 @@ private:
         } else if (key == "once") {
             spec.once = true;
             if (!args.empty()) {
-                if (!(args.starts_with("if") && (args.size() == 2 || is_space(args[2])))) {
+                if (!args.starts_with("if") || (args.size() != 2 && !is_space(args[2]))) {
                     error(line, column, "<<once>> takes nothing, or 'if' and a condition");
                     return;
                 }

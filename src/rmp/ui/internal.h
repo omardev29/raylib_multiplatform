@@ -1061,7 +1061,7 @@ void progress_with(float fraction, const ProgressOptions &o, rmp::Ref<const Pict
 void rich_begin_frame();
 // A sound by name, as the presenters' blips and voices play it.
 void play_sound(const SoundName &sound, float volume);
-void draw_rich(const void *data, Vector2 origin, float alpha);
+void draw_rich(const Clay_RenderCommand &cmd, float alpha);
 void rich_with(const rmp::yarn::Marked &marked, const RichTextOptions &o, std::string_view label);
 
 // --- context.cpp: fonts by id -------------------------------------------------

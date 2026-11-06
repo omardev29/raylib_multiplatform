@@ -12,13 +12,14 @@
 #include <cstddef>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
 
 namespace d = rmp::lang::detail;
 
-constexpr const char WIDE[] = "key\tcontext\ten\tes\tja\n"
+constexpr std::string_view WIDE = "key\tcontext\ten\tes\tja\n"
                               "# a comment\n"
                               "Play\t\tPlay\tJugar\tプレイ\n"
                               "Open\tdoor\tOpen\tAbrir\t開ける\n"
@@ -28,7 +29,7 @@ constexpr const char WIDE[] = "key\tcontext\ten\tes\tja\n"
                               "Score: {score}\t\tScore: {score}\tPuntos: {score}\t\n"
                               "language.name\t\tEnglish\tEspañol\t日本語\n";
 
-constexpr const char RUSSIAN[] = "key\tcontext\ttext\n"
+constexpr std::string_view RUSSIAN = "key\tcontext\ttext\n"
                                  "{count} gem|{count} gems\t\t{count} самоцвет|{count} "
                                  "самоцвета|{count} самоцветов|{count} самоцвета\n"
                                  "Play\t\tИграть\n";
@@ -38,7 +39,7 @@ struct Tables {
         d::reset_for_tests();
         d::set_persist(false);
         d::set_system_locale_for_tests("en");
-        d::load_tables({ { {}, WIDE }, { "ru", RUSSIAN } });
+        d::load_tables({ { {}, std::string(WIDE) }, { "ru", std::string(RUSSIAN) } });
     }
     ~Tables() { d::reset_for_tests(); }
     Tables(const Tables &) = delete;
@@ -137,7 +138,8 @@ TEST_SUITE("text: rmp::Text") {
     }
 
     TEST_CASE("a char array is read up to its NUL") {
-        char buffer[16] = "Hi";
+        // NOLINTNEXTLINE(modernize-avoid-c-arrays): a char array is what this test is about
+        const char buffer[16] = "Hi";
         const rmp::Text t(buffer);
         CHECK(t.key() == "Hi");
     }
@@ -162,7 +164,7 @@ TEST_SUITE("text: rmp::lang") {
         d::reset_for_tests();
         d::set_persist(false);
         d::set_system_locale_for_tests("es_MX.UTF-8");
-        d::load_tables({ { {}, WIDE } });
+        d::load_tables({ { {}, std::string(WIDE) } });
         CHECK(rmp::lang::current() == "es-MX");
         CHECK(say("Play") == "Jugar");
     }

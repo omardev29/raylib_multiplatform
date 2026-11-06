@@ -17,13 +17,14 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
 
 namespace dd = rmp::dialogue::detail;
 
-constexpr const char SCRIPT[] = R"(title: Start
+constexpr std::string_view SCRIPT = R"(title: Start
 tags: intro
 ---
 <<declare $gold = 3>>
@@ -204,7 +205,7 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
     }
 
     TEST_CASE_FIXTURE(Clean, "a program as bytes runs the same, and damaged bytes are refused") {
-        const std::vector<rmp::yarn::Source> sources{ { "s.yarn", SCRIPT } };
+        const std::vector<rmp::yarn::Source> sources{ { "s.yarn", std::string(SCRIPT) } };
         const rmp::yarn::Compiled c = rmp::yarn::compile(sources);
         REQUIRE(c.ok());
         std::vector<std::uint8_t> bytes = rmp::yarn::to_bytes(c.program);
@@ -212,7 +213,8 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         REQUIRE(d.loaded());
         d.start();
         CHECK(d.line().text == "Hello, traveller!");
-        for (std::size_t cut : { std::size_t{ 0 }, std::size_t{ 7 }, bytes.size() / 2, bytes.size() - 1 }) {
+        for (const std::size_t cut :
+             { std::size_t{ 0 }, std::size_t{ 7 }, bytes.size() / 2, bytes.size() - 1 }) {
             CHECK_FALSE(rmp::yarn::from_bytes(std::span(bytes).first(cut)).has_value());
         }
         bytes.push_back(0);
@@ -221,7 +223,7 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
     }
 
     TEST_CASE_FIXTURE(Clean, "load_dialogue takes the embedded program by its name first") {
-        const std::vector<rmp::yarn::Source> sources{ { "s.yarn", SCRIPT } };
+        const std::vector<rmp::yarn::Source> sources{ { "s.yarn", std::string(SCRIPT) } };
         const std::vector<std::uint8_t> bytes = rmp::yarn::to_bytes(rmp::yarn::compile(sources).program);
         const std::vector<dd::Embedded> table{ { "talk.yarn", bytes } };
         dd::set_embedded(table);
@@ -243,7 +245,7 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
     }
 
     TEST_CASE_FIXTURE(Clean, "saliency: the first, or the least seen") {
-        constexpr const char GROUPS[] = "title: Start\n---\n=> A\n=> B\n===\n";
+        constexpr std::string_view GROUPS = "title: Start\n---\n=> A\n=> B\n===\n";
         rmp::Dialogue d = dd::compile_text(GROUPS);
         d.set_saliency(rmp::DialogueSaliency::FIRST);
         d.start();
@@ -262,6 +264,20 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK(e.has_line());
     }
 
+    TEST_CASE_FIXTURE(Clean, "a loop with nothing to show stops, said, instead of hanging") {
+        rmp::Dialogue jumps = dd::compile_text("title: Start\n---\n<<jump Start>>\n===\n");
+        jumps.start();
+        CHECK_FALSE(jumps.running());
+        rmp::Dialogue deep = dd::compile_text("title: Start\n---\n<<detour Start>>\n===\n");
+        deep.start();
+        CHECK_FALSE(deep.running());
+        // A detour into itself that has a line goes on, a line at a time.
+        rmp::Dialogue fine = dd::compile_text("title: Start\n---\nAgain.\n<<detour Start>>\n===\n");
+        fine.start();
+        for (int i = 0; i < 100; ++i) fine.advance();
+        CHECK(fine.has_line());
+    }
+
     TEST_CASE("values convert as Yarn converts them") {
         CHECK(rmp::DialogueValue(2.5).as_string() == "2.5");
         CHECK(rmp::DialogueValue(2).as_string() == "2");
@@ -271,7 +287,7 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK_FALSE(rmp::DialogueValue(0.0f).as_bool());
         CHECK(rmp::DialogueValue(false).as_number() == 0);
         CHECK(rmp::DialogueValue(std::string("x")).kind() == rmp::DialogueValue::Kind::STRING);
-        rmp::DialogueMarkup m{ "wave", 0, 3, { { "speed", "2" } } };
+        const rmp::DialogueMarkup m{ "wave", 0, 3, { { "speed", "2" } } };
         CHECK(m.property("speed") == "2");
         CHECK(m.property("none").empty());
     }

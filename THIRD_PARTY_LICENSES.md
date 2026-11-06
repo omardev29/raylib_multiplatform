@@ -44,6 +44,10 @@ qoi                         thirdparty/rres/external/qoi.h                      
 raymob                      thirdparty/raymob                                       MIT                      -              yes       android   file
 doctest                     thirdparty/doctest                                      MIT                      -              no        none      file
 rapidcheck                  thirdparty/rapidcheck                                   BSD-2                    -              no        none      file
+# yarnspinner: Yarn Spinner's compiler and runtime, ported to C++ in src/rmp/dialogue/:
+# modified, its PATCHES.md says how. (Its test cases, tests/dialogue/yarn/,
+# carry their own LICENSE.md and ship in nothing.)
+yarnspinner                 src/rmp/dialogue/LICENSE-YarnSpinner.md                 MIT                      -              yes       all       file
 raylib-ios                  thirdparty/raylib-ios                                   zlib                     -              no        ios       file
 angle                       ios/ANGLE-LICENSE.txt                                   BSD-3                    -              no        ios       file
 # What raylib bundles under src/external/. Statically linked into every binary
@@ -124,6 +128,7 @@ every change is commented at its site:
 | cute_tiled | [`thirdparty/cute_tiled/PATCHES.md`](thirdparty/cute_tiled/PATCHES.md) -- unknown JSON keys are skipped instead of failing the load, and any bytes are read without a crash, a leak or undefined behaviour |
 | raylib-cpp 6.0.3 | [`thirdparty/raylib-cpp/PATCHES.md`](thirdparty/raylib-cpp/PATCHES.md) -- a partial copy, the math headers only |
 | raymob | [`thirdparty/raymob/PATCHES.md`](thirdparty/raymob/PATCHES.md) -- JNI hardening; MIT has no mark clause, recorded anyway |
+| Yarn Spinner | [`src/rmp/dialogue/PATCHES.md`](src/rmp/dialogue/PATCHES.md) -- the compiler and runtime ported to C++ for `rmp::Dialogue`; its test cases, in `tests/dialogue/yarn/` with their own `LICENSE.md`, unmodified and shipped in nothing |
 
 `thirdparty/FROZEN_VERSIONS.md` carries the same patches with the full
 reasoning, and the content pin of every unmodified component that is not a

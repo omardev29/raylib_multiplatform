@@ -209,7 +209,9 @@ bool choices(DialogueMemory &m, const DialogueFlow &f, rmp::Dialogue &d, const S
 void history(const DialogueMemory &m) {
     scroll({ .height = 240 }, [&] {
         for (const auto &[speaker, text] : m.history) {
-            ui::text(rmp::Text(speaker.empty() ? "> " + text : speaker + ": " + text));
+            std::string said = speaker.empty() ? std::string("> ") : speaker + ": ";
+            said += text;
+            ui::text(rmp::Text(said));
         }
     });
 }
@@ -280,7 +282,7 @@ bool DialogueBubble::show(rmp::Dialogue &dialogue) {
         });
     };
     if (dialogue.has_line()) {
-        const rmp::DialogueLine line = dialogue.line();
+        const rmp::DialogueLine &line = dialogue.line();
         for (const BubbleSpeaker &s : speakers) {
             if (s.name != line.speaker) continue;
             if (const auto o = s.object.get()) {

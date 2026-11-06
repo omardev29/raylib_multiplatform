@@ -23,6 +23,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -182,13 +183,13 @@ void ensure_loaded() {
 
 // The integer part, and what CLDR calls n % 10 and n % 100, of a whole number.
 struct Whole {
-    long long i;
-    long long mod10;
-    long long mod100;
+    std::int64_t i;
+    std::int64_t mod10;
+    std::int64_t mod100;
 };
 
 Whole whole(double n) {
-    const auto i = static_cast<long long>(std::fabs(n));
+    const auto i = static_cast<std::int64_t>(std::fabs(n));
     return { i, i % 10, i % 100 };
 }
 
@@ -232,7 +233,7 @@ std::string number_text(double n, bool integer) {
     std::to_chars_result done{};
     if (integer && std::isfinite(n) && std::fabs(n) < 9.2e18) {
         done = std::to_chars(buffer.data(), buffer.data() + buffer.size(),
-                             static_cast<long long>(n));
+                             static_cast<std::int64_t>(n));
     } else {
         done = std::to_chars(buffer.data(), buffer.data() + buffer.size(), n);
     }
@@ -361,7 +362,11 @@ void load_from_resources() {
         std::vector<std::string> codes = shipped();
         if (codes.empty()) codes.assign(KNOWN_CODES.begin(), KNOWN_CODES.end());
         for (const std::string &code : codes) {
-            if (auto text = read_resource(folder + "/" + code + ".tsv", watch)) {
+            std::string name = folder;
+            name += '/';
+            name += code;
+            name += ".tsv";
+            if (auto text = read_resource(name, watch)) {
                 sources.push_back({ code, std::move(*text) });
             }
         }
@@ -508,7 +513,7 @@ std::string_view ordinal_category(std::string_view code, double n) {
 }
 
 std::string format(std::string_view text, std::span<const TextArg> args, std::string_view code) {
-    const std::string chosen = choose_form(text, args, code);
+    std::string chosen = choose_form(text, args, code);
     if (args.empty() && chosen.find_first_of("{}") == std::string::npos) return chosen;
     std::string out;
     out.reserve(chosen.size() + 16);
@@ -585,9 +590,10 @@ std::string system_locale() {
         return normalize(code);
     }
 #endif
-    for (const char *var : { "LC_ALL", "LC_MESSAGES", "LANG" }) { // NOLINT(custom-rmp-raw-pointer)
+    for (const std::string_view var : { std::string_view("LC_ALL"), std::string_view("LC_MESSAGES"),
+                                        std::string_view("LANG") }) {
         // NOLINTNEXTLINE(custom-rmp-raw-pointer,concurrency-mt-unsafe): read once, copied at once
-        const char *value = std::getenv(var);
+        const char *value = std::getenv(std::string(var).c_str());
         if (value != nullptr && *value != '\0') {
             std::string code = normalize(value);
             if (!code.empty()) return code;
@@ -615,7 +621,7 @@ std::string starting_language() {
             if (!code.empty() && offered(code)) return code;
         }
     }
-    const std::string system = system_locale();
+    std::string system = system_locale();
     // es-MX, then es: the first of the chain the game ships. With no list,
     // the system's own code, which the lookup itself walks down.
     if (!system.empty()) {
@@ -648,11 +654,17 @@ std::vector<std::string> missing_seen() {
     return out;
 }
 
+namespace {
+struct FileClose {
+    void operator()(std::FILE *f) const { std::fclose(f); } // NOLINT(custom-rmp-raw-pointer): a deleter's parameter
+};
+} // namespace
+
 void write_seen() {
     if (!is_debug() || RMP_LANG_COLLECT == 0 || lang.missing.empty()) return;
     const std::string path = std::string(GetApplicationDirectory()) + "lang_seen.tsv";
-    const std::unique_ptr<std::FILE, int (*)(std::FILE *)> file(std::fopen(path.c_str(), "wb"),
-                                                                &std::fclose);
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): the unique_ptr is the owner
+    const std::unique_ptr<std::FILE, FileClose> file(std::fopen(path.c_str(), "wb"));
     if (!file) {
         // A condition of the machine (a read-only folder), not the game's
         // mistake: a line in the log, never a report.

@@ -58,9 +58,9 @@ public:
     enum class Kind : std::uint8_t { NUMBER, STRING, BOOL };
 
     DialogueValue() = default;
-    DialogueValue(float number) : _kind(Kind::NUMBER), _number(number) {} // NOLINT(google-explicit-constructor)
-    DialogueValue(int number) : _kind(Kind::NUMBER), _number(static_cast<float>(number)) {} // NOLINT(google-explicit-constructor)
-    DialogueValue(double number) : _kind(Kind::NUMBER), _number(static_cast<float>(number)) {} // NOLINT(google-explicit-constructor)
+    DialogueValue(float number) : _number(number) {} // NOLINT(google-explicit-constructor)
+    DialogueValue(int number) : _number(static_cast<float>(number)) {} // NOLINT(google-explicit-constructor)
+    DialogueValue(double number) : _number(static_cast<float>(number)) {} // NOLINT(google-explicit-constructor)
     DialogueValue(bool value) : _kind(Kind::BOOL), _bool(value) {} // NOLINT(google-explicit-constructor)
     DialogueValue(std::string text) : _kind(Kind::STRING), _text(std::move(text)) {} // NOLINT(google-explicit-constructor)
     template <std::size_t N>
@@ -168,7 +168,7 @@ public:
 
     // $variables: what the script set, and what the game sets for it.
     [[nodiscard]] DialogueValue variable(std::string_view name) const;
-    void set_variable(std::string_view name, DialogueValue value);
+    void set_variable(std::string_view name, const DialogueValue &value);
     [[nodiscard]] int visits(std::string_view node) const; // visited_count()
 
     // Everything the conversation remembers -- variables, visits, what was
