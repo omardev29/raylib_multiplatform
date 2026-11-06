@@ -2265,6 +2265,19 @@ class ConfigureWindowPacingTest(unittest.TestCase):
             with self.subTest(vsync=bad):
                 self.reject("[window] vsync", vsync=bad)
 
+    def test_pause_unfocused_is_off_by_default(self):
+        self.assertIs(cfgmod.DEFAULTS["window"]["pause_unfocused"], False)
+
+    def test_pause_unfocused_takes_a_switch(self):
+        for pause in (True, False):
+            with self.subTest(pause=pause):
+                self.validate(pause_unfocused=pause)
+
+    def test_pause_unfocused_is_a_switch_and_nothing_else(self):
+        for bad in ("true", "no", 1, 0, 0.0, None, [False], {"on": True}, ""):
+            with self.subTest(pause=bad):
+                self.reject("[window] pause_unfocused", pause_unfocused=bad)
+
     def test_fps_is_a_whole_number(self):
         for bad in (True, False, "60", 60.0, 59.94, None, [60], {"fps": 60}):
             with self.subTest(fps=bad):
@@ -2303,6 +2316,17 @@ class ConfigureWindowPacingTest(unittest.TestCase):
         with generated_header(base_config()) as header:
             self.assertRegex(header, r"#define RMP_WINDOW_VSYNC +1\n")
             self.assertRegex(header, r"#define RMP_WINDOW_FPS +0\n")
+
+    def test_pause_unfocused_reaches_the_header_and_the_clock(self):
+        with generated_header(base_config(window={"pause_unfocused": True})) as header:
+            self.assertRegex(header, r"#define RMP_WINDOW_PAUSE_UNFOCUSED +1\n")
+        with generated_header(base_config()) as header:
+            self.assertRegex(header, r"#define RMP_WINDOW_PAUSE_UNFOCUSED +0\n")
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        window = text[text.index("\n[window]"):text.index("\n[app]")]
+        self.assertRegex(window, r"\npause_unfocused = false\n")
+        clock = (REPO / "src" / "rmp" / "clock.cpp").read_text()
+        self.assertIn("RMP_WINDOW_PAUSE_UNFOCUSED", clock)
 
     def test_the_toml_documents_both_in_window(self):
         text = (REPO / "raylib_multiplatform.toml").read_text()

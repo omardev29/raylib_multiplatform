@@ -42,6 +42,12 @@ vsync = true
 # mode: 144 asks for a 144 Hz mode. 1/fps may not be longer than [app]
 # max_delta, or the game would run in slow motion.
 fps = 0
+# Pause the game while its window is out of focus: the scenes stop, the clock
+# stands still (no giant step on the way back), music and sounds pause, and the
+# last picture stays on screen. Off is what most games do: they keep running.
+# A minimized desktop window never draws whatever this says -- it keeps moving,
+# sleeps between frames and draws nothing.
+pause_unfocused = false
 # How the world fits a window that is not width x height -- a desktop window
 # dragged bigger, a phone of another shape, a TV:
 #   "none"       the world at 1:1: a bigger window shows more of it and a

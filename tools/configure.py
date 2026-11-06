@@ -481,7 +481,8 @@ DEFAULTS: dict = {
     # had. The framework's own .toml -- and every game `rmp new` makes from
     # it -- says "letterbox".
     "window": {"title": "Raylib is Multiplatform!", "width": 800, "height": 450,
-               "orientation": "landscape", "vsync": True, "fps": 0, "stretch": "none"},
+               "orientation": "landscape", "vsync": True, "fps": 0, "stretch": "none",
+               "pause_unfocused": False},
     "app": {"max_delta": 0.05},
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
@@ -1031,6 +1032,10 @@ def validate_window(cfg: dict) -> None:
     vsync = cfg["window"]["vsync"]
     if not isinstance(vsync, bool):
         raise ConfigError(f"[window] vsync = {vsync!r} is a switch: true or false.")
+    pause = cfg["window"]["pause_unfocused"]
+    if not isinstance(pause, bool):
+        raise ConfigError(
+            f"[window] pause_unfocused = {pause!r} is a switch: true or false.")
     fps = cfg["window"]["fps"]
     if isinstance(fps, bool) or not isinstance(fps, int):
         raise ConfigError(
@@ -2218,6 +2223,9 @@ APP_DEFINES = [
     "   ignore FPS: the browser and the display link pace the frame there.",
     ("RMP_WINDOW_VSYNC", "window.vsync", _c_bool),
     ("RMP_WINDOW_FPS", "window.fps", _c_int),
+    "[window] pause_unfocused: 1 stops the scenes, the clock and the sound while\n"
+    "   the window is out of focus; 0 (the default) keeps the game running.",
+    ("RMP_WINDOW_PAUSE_UNFOCUSED", "window.pause_unfocused", _c_bool),
     "[window] stretch, the mode rmp::app::stretch() starts in: 0 NONE, 1 LETTERBOX,\n"
     "   2 EXPAND -- the order of rmp::app::Stretch.",
     ("RMP_WINDOW_STRETCH", "window.stretch", _c_stretch),

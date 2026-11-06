@@ -46,6 +46,11 @@ Color clear_color();
 // the call that asked for it.
 void apply_pending();
 
+// The window went out of focus under [window] pause_unfocused, and came back:
+// the top scene's _suspend() and _resume(). Nothing when the stack is empty.
+void suspend_top();
+void resume_top();
+
 // Unwind the stack, top down, calling _end() on each. Runs while the window is
 // still open and before the resource table is released, because a scene can
 // hold an rmp::Texture and its destructor has to find its slot still there.

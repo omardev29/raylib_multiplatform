@@ -363,6 +363,9 @@ bool keep_running() {
 // sample in the same frame compares every key with itself, and every
 // just_pressed() of that frame is gone. tests/input_play.cpp plays both.
 void begin_frame() {
+    // The window first: minimized or out of focus decides what this frame
+    // does, and a pause has to hold the clock before the step is taken.
+    begin_pace();
     rmp::input::detail::begin_frame();
     // And the UI's frame, for a game with its own frame hook: one UI frame
     // around however many begin()/end() pairs it draws. See ui_internal.h.
@@ -506,24 +509,13 @@ void start(std::unique_ptr<rmp::Scene> first) {
     rmp::scenes::detail::start(std::move(first));
 }
 
-// One turn of the loop, and the order is the contract. It is documented in
-// next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
-// because every interesting property of a scene stack is an ordering property.
-void frame(float delta) {
-    // 1. The frame boundary. Once, whatever the stack looks like: the scroll
-    //    advances and the animation clock ticks exactly one frame's worth even
-    //    when three scenes describe UI.
-    //
-    //    The devices were sampled before this, by the runner -- begin_frame()
-    //    above, which every runner calls whether the hook is this function or
-    //    a game's own. Sampling once is what stops two scenes in the same
-    //    frame from disagreeing about what is held down; sampling here as well
-    //    would lose every press of the frame.
-    rmp::ui::detail::begin_frame();
+// How long a frame sleeps while the window is minimized (the world still
+// moves, at 30 steps a second), and while it is paused (it only shows).
+constexpr double MINIMIZED_FRAME = 1.0 / 30;
+constexpr double PAUSED_FRAME = 1.0 / 10;
 
-    // 2. Update, bottom upwards, skipping what the scene above freezes.
-    rmp::scenes::detail::update(delta);
-
+// Steps 3 to 6 of frame(): the frame drawn, and the UI's frame closed.
+void draw_frame() {
     // 3/4. Draw. The clear colour comes from the lowest scene that is still
     //      visible, which is what makes a full-screen loading scene work with
     //      one field and no policy.
@@ -546,6 +538,42 @@ void frame(float delta) {
     // 6.
     EndDrawing();
     rmp::ui::detail::end_frame();
+    frame_drawn();
+}
+
+// One turn of the loop, and the order is the contract. It is documented in
+// next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
+// because every interesting property of a scene stack is an ordering property.
+void frame(float delta) {
+    // 1. The frame boundary. Once, whatever the stack looks like: the scroll
+    //    advances and the animation clock ticks exactly one frame's worth even
+    //    when three scenes describe UI.
+    //
+    //    The devices were sampled before this, by the runner -- begin_frame()
+    //    above, which every runner calls whether the hook is this function or
+    //    a game's own. Sampling once is what stops two scenes in the same
+    //    frame from disagreeing about what is held down; sampling here as well
+    //    would lose every press of the frame.
+    rmp::ui::detail::begin_frame();
+
+    // 2. Update, bottom upwards, skipping what the scene above freezes --
+    //    unless the window is out of focus under [window] pause_unfocused.
+    const Pace now = pace();
+    if (now.update) rmp::scenes::detail::update(delta);
+
+    if (now.draw) {
+        draw_frame();
+        // Paused: the same picture again, a few times a second, so a window
+        // uncovered on a desktop with no compositor is not left blank.
+        if (!now.update) frame_skipped(PAUSED_FRAME);
+    } else {
+        // Minimized: nothing to see, so nothing drawn and no vsync to wait
+        // for. raylib polls the window's events in EndDrawing(), which does
+        // not run -- without this the window never hears it was restored.
+        PollInputEvents();
+        rmp::ui::detail::end_frame();
+        frame_skipped(now.update ? MINIMIZED_FRAME : PAUSED_FRAME);
+    }
 
     // 7. Deferred work, once nothing is mid-frame: scenes queued by change(),
     //    push(), replace() and pop() are applied here and nowhere else.

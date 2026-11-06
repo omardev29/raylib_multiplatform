@@ -99,6 +99,51 @@ std::optional<std::uint64_t> test_seed();
 void set_frame_observer(rmp::Callback<> on_frame_end);
 void frame_ended();
 
+// --- clock.cpp: the window's pace ------------------------------------------
+// What a frame does while the window is out of sight or out of focus (Omar,
+// 2026-11-01). Minimized (desktop; IsWindowMinimized() is false on the web and
+// on phones, whose browser and OS pause a hidden app themselves): the world
+// keeps moving and the music keeps playing, nothing is drawn and the loop
+// sleeps -- the frame is timed by the clock, not by raylib, whose timing lives
+// in EndDrawing(). Unfocused with [window] pause_unfocused: nothing moves, the
+// clock stands still, the sound pauses, the top scene gets _suspend() and, on
+// the way back, _resume() and a first step of 0 -- no giant delta. The last
+// picture stays on screen, drawn again a few times a second.
+struct WindowState {
+    bool minimized = false;
+    bool focused = true;
+};
+
+struct Pace {
+    bool update = true; // the scenes move this frame
+    bool draw = true; // the frame is drawn
+};
+
+// Where the window's state comes from: raylib, or a test's callback (which
+// fills the state it is handed). An empty one goes back to raylib.
+void set_window_state_provider(rmp::Callback<WindowState &> provider);
+WindowState window_state();
+
+// [window] pause_unfocused, which a test can change.
+void set_pause_unfocused(bool pause);
+bool pause_unfocused();
+
+// Called by begin_frame(), once a frame, before the step is taken: reads the
+// window, and on an edge into or out of a pause suspends or resumes the top
+// scene and the sound and holds or releases the clock. pace() is what it
+// decided, for frame() to read.
+void begin_pace();
+Pace pace();
+
+// Called by frame() once it has drawn the frame or skipped it. A skipped frame
+// sleeps `seconds` (the next step is timed by the clock); a drawn one tells the
+// clock raylib's timing can be trusted again from the frame after next.
+void frame_skipped(double seconds);
+void frame_drawn();
+
+// Back to a focused, drawing, unheld clock, for tests.
+void reset_pace_for_tests();
+
 // --- console.cpp -----------------------------------------------------------
 // The Linux console back, however a DRM/KMS game ends. guard_console() runs
 // before InitWindow: on a DRM/KMS build it remembers the terminal raylib is
