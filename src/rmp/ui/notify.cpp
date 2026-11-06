@@ -267,9 +267,11 @@ void lay_out_and_draw() {
 
 } // namespace
 
-void notify(std::string_view text) { notify(text, NotifyOptions{}); }
+void notify(const rmp::Text &said) { notify(said, NotifyOptions{}); }
 
-void notify(std::string_view text, const NotifyOptions &o) {
+void notify(const rmp::Text &said, const NotifyOptions &o) {
+    const std::string shown = said.str();
+    const std::string_view text = shown;
     if (text.empty()) {
         RMP_REPORT_ONCE("UI: rmp::ui::notify() with no text; there is nothing to show");
         return;

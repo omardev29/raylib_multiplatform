@@ -268,9 +268,11 @@ void end_tooltip_pass() {
 
 } // namespace detail
 
-void tooltip(std::string_view text) { tooltip(text, TooltipOptions{}); }
+void tooltip(const rmp::Text &said) { tooltip(said, TooltipOptions{}); }
 
-void tooltip(std::string_view text, const TooltipOptions &o) {
+void tooltip(const rmp::Text &said, const TooltipOptions &o) {
+    const std::string shown = said.str();
+    const std::string_view text = shown;
     if (!detail::frame_ready("tooltip", text)) return;
     const uint32_t control = detail::take_last_control();
     if (control == 0) {

@@ -1001,6 +1001,28 @@ struct Extra {
     rmp::Ref<Edges> edges; // filled in, when given
     rmp::Ref<uint32_t> element; // the element's id, when given
     std::string_view id{}; // a kept widget's own id, for the ones with no label
+    // What the label says in the current language, when it is not the label
+    // itself: the label is the widget's identity, and this is what is drawn.
+    std::optional<std::string_view> shown{};
+};
+
+// The label to draw: the translation, or the label.
+inline std::string_view drawn(std::string_view label, const Extra &x) {
+    return x.shown ? *x.shown : label;
+}
+
+// An rmp::Text at a widget's door: `key` is the identity the widget keeps
+// across languages, `shown` what it draws now.
+struct Said {
+    std::string key;
+    std::string shown;
+    explicit Said(const rmp::Text &t) : key(t.id()), shown(t.str()) {}
+    // The Extra that draws it.
+    [[nodiscard]] Extra extra() const {
+        Extra x;
+        x.shown = shown;
+        return x;
+    }
 };
 bool button_with(std::string_view label, const ButtonOptions &o, const Extra &x);
 void text_with(std::string_view s, const TextOptions &o, const Extra &x);

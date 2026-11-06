@@ -369,6 +369,7 @@ void begin_frame() {
     begin_pace();
     // The language's tables again, when a watched one changed.
     rmp::lang::detail::begin_frame();
+    rmp::ui::detail::use_language_font(rmp::lang::detail::font_for(rmp::lang::current()));
     rmp::input::detail::begin_frame();
     // And the UI's frame, for a game with its own frame hook: one UI frame
     // around however many begin()/end() pairs it draws. See ui_internal.h.

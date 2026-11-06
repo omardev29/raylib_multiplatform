@@ -110,12 +110,13 @@ void report(const detail::Extra &x, const detail::Edges &e, Clay_ElementId id) {
 // checkbox
 // ---------------------------------------------------------------------------
 
-bool checkbox(std::string_view label, bool &value) {
+bool checkbox(const rmp::Text &label, bool &value) {
     return checkbox(label, value, CheckboxOptions{});
 }
 
-bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o) {
-    return detail::checkbox_with(label, value, o, detail::Extra{});
+bool checkbox(const rmp::Text &label, bool &value, const CheckboxOptions &o) {
+    const detail::Said said(label);
+    return detail::checkbox_with(said.key, value, o, said.extra());
 }
 
 bool detail::checkbox_with(std::string_view label, bool &value, const CheckboxOptions &o,
@@ -188,7 +189,7 @@ bool detail::checkbox_with(std::string_view label, bool &value, const CheckboxOp
         }
         Clay__CloseElement();
 
-        label_text(label, o.enabled ? t.text : t.disabled_text, t.font_size);
+        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
     }
     Clay__CloseElement();
 
@@ -199,13 +200,14 @@ bool detail::checkbox_with(std::string_view label, bool &value, const CheckboxOp
 // slider
 // ---------------------------------------------------------------------------
 
-bool slider(std::string_view label, float &value, float min, float max) {
+bool slider(const rmp::Text &label, float &value, float min, float max) {
     return slider(label, value, min, max, SliderOptions{});
 }
 
-bool slider(std::string_view label, float &value, float min, float max,
+bool slider(const rmp::Text &label, float &value, float min, float max,
             const SliderOptions &o) {
-    return detail::slider_with(label, value, min, max, o, detail::Extra{});
+    const detail::Said said(label);
+    return detail::slider_with(said.key, value, min, max, o, said.extra());
 }
 
 bool detail::slider_with(std::string_view label, float &value, float min, float max,
@@ -344,7 +346,7 @@ bool detail::slider_with(std::string_view label, float &value, float min, float 
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
     {
-        label_text(label, o.enabled ? t.text : t.disabled_text, t.font_size);
+        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
 
         Clay_ElementDeclaration track{};
         track.layout.sizing.width = o.width > 0 ? fixed(o.width) : grow();
@@ -399,25 +401,30 @@ bool detail::slider_with(std::string_view label, float &value, float min, float 
 // dropdown
 // ---------------------------------------------------------------------------
 
-bool dropdown(std::string_view label, int &selected,
+bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items) {
     return dropdown(label, selected, items, DropdownOptions{});
 }
 
-bool dropdown(std::string_view label, int &selected,
-              std::initializer_list<std::string_view> items) {
-    return dropdown(label, selected, std::span(items.begin(), items.size()),
-                    DropdownOptions{});
+bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items) {
+    return dropdown(label, selected, items, DropdownOptions{});
 }
 
-bool dropdown(std::string_view label, int &selected,
-              std::initializer_list<std::string_view> items, const DropdownOptions &o) {
-    return dropdown(label, selected, std::span(items.begin(), items.size()), o);
+bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items,
+              const DropdownOptions &o) {
+    // The items as they read in the current language: they are drawn, and
+    // told apart by their place, never by their words.
+    std::vector<std::string> shown;
+    shown.reserve(items.size());
+    for (const rmp::Text &item : items) shown.push_back(item.str());
+    const std::vector<std::string_view> views(shown.begin(), shown.end());
+    return dropdown(label, selected, std::span(views), o);
 }
 
-bool dropdown(std::string_view label, int &selected,
+bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o) {
-    return detail::dropdown_with(label, selected, items, o, detail::Extra{});
+    const detail::Said said(label);
+    return detail::dropdown_with(said.key, selected, items, o, said.extra());
 }
 
 bool detail::dropdown_with(std::string_view label, int &selected,
@@ -512,7 +519,7 @@ bool detail::dropdown_with(std::string_view label, int &selected,
     Clay__OpenElementWithId(id);
     Clay__ConfigureOpenElement(row);
     {
-        label_text(label, o.enabled ? t.text : t.disabled_text, t.font_size);
+        label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
 
         Clay_ElementDeclaration field{};
         field.layout.sizing.width = o.width > 0 ? fixed(o.width) : grow();
@@ -617,12 +624,13 @@ bool detail::dropdown_with(std::string_view label, int &selected,
 // text input
 // ---------------------------------------------------------------------------
 
-bool text_input(std::string_view label, std::string &value) {
+bool text_input(const rmp::Text &label, std::string &value) {
     return text_input(label, value, TextInputOptions{});
 }
 
-bool text_input(std::string_view label, std::string &value, const TextInputOptions &o) {
-    return detail::text_input_with(label, value, o, detail::Extra{});
+bool text_input(const rmp::Text &label, std::string &value, const TextInputOptions &o) {
+    const detail::Said said(label);
+    return detail::text_input_with(said.key, value, o, said.extra());
 }
 
 bool detail::text_input_with(std::string_view label, std::string &value,
@@ -712,7 +720,7 @@ bool detail::text_input_with(std::string_view label, std::string &value,
     Clay__ConfigureOpenElement(row);
     {
         if (!label.empty()) {
-            label_text(label, o.enabled ? t.text : t.disabled_text, t.font_size);
+            label_text(detail::drawn(label, x), o.enabled ? t.text : t.disabled_text, t.font_size);
         }
 
         Clay_ElementDeclaration field{};
@@ -733,8 +741,8 @@ bool detail::text_input_with(std::string_view label, std::string &value,
         Clay__OpenElementWithId(field_id);
         Clay__ConfigureOpenElement(field);
         {
-            if (value.empty() && !o.placeholder.empty() && !typing) {
-                label_text(o.placeholder, t.text_muted, t.font_size);
+            if (value.empty() && !o.placeholder.key().empty() && !typing) {
+                label_text(o.placeholder.str(), t.text_muted, t.font_size);
             } else {
                 // The caret is a character rather than a drawn rectangle: it
                 // costs no render command, and it blinks by not being appended

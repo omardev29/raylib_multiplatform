@@ -265,10 +265,11 @@ void detail::close_frame(const bool draw) {
 // Widgets
 // ---------------------------------------------------------------------------
 
-bool button(std::string_view label) { return button(label, ButtonOptions{}); }
+bool button(const rmp::Text &label) { return button(label, ButtonOptions{}); }
 
-bool button(std::string_view label, const ButtonOptions &o) {
-    return detail::button_with(label, o, detail::Extra{});
+bool button(const rmp::Text &label, const ButtonOptions &o) {
+    const detail::Said said(label);
+    return detail::button_with(said.key, o, said.extra());
 }
 
 bool image_button(const Picture &picture) {
@@ -484,17 +485,18 @@ bool detail::button_with(std::string_view label, const ButtonOptions &o, const E
         tc.textColor = to_clay(foreground);
         tc.fontSize = font_px(font_units);
         tc.wrapMode = CLAY_TEXT_WRAP_NONE;
-        detail::open_text(detail::intern(label), tc);
+        detail::open_text(detail::intern(detail::drawn(label, x)), tc);
     }
     Clay__CloseElement();
 
     return clicked;
 }
 
-void text(std::string_view s) { text(s, TextOptions{}); }
+void text(const rmp::Text &s) { text(s, TextOptions{}); }
 
-void text(std::string_view s, const TextOptions &o) {
-    detail::text_with(s, o, detail::Extra{});
+void text(const rmp::Text &s, const TextOptions &o) {
+    const detail::Said said(s);
+    detail::text_with(said.key, o, said.extra());
 }
 
 void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x) {
@@ -564,7 +566,7 @@ void detail::text_with(std::string_view s, const TextOptions &o, const Extra &x)
     // Copied on the way in, so text(std::to_string(score)) is safe: Clay keeps
     // the pointer and reads it at layout time, long after a temporary would be
     // gone.
-    detail::open_text(detail::intern(s), tc);
+    detail::open_text(detail::intern(detail::drawn(s, x)), tc);
     if (kept) Clay__CloseElement();
 }
 

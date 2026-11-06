@@ -46,6 +46,9 @@
 // keep carries its callbacks as rmp::Callback (both rmp/object.h, which
 // includes rmp/assets.h). A forward declaration cannot hold a value.
 #include <rmp/object.h> // rmp::Sprite, rmp::Callback, and rmp/assets.h's handles by value
+// And rmp/text.h: every text the interface is handed is an rmp::Text, taken
+// by value in a kept widget's fields -- a literal is translated by itself.
+#include <rmp/text.h> // rmp::Text, rmp::TextArg, rmp::TextOptions
 
 // The standard library this header pays for, measured in tools/header_budget.txt:
 // <string_view> for every label, <string> for the text a text_input() edits,
@@ -773,8 +776,8 @@ struct TextOptions {
 //
 //     if (rmp::ui::button("Play")) play();
 //
-bool button(std::string_view label);
-bool button(std::string_view label, const ButtonOptions &o);
+bool button(const rmp::Text &label);
+bool button(const rmp::Text &label, const ButtonOptions &o);
 
 // How image_button() is sized, and whether it can be pressed. Sizes are in
 // design units.
@@ -800,8 +803,8 @@ bool image_button(const Picture &picture, const ImageButtonOptions &o);
 //
 //     rmp::ui::text(std::to_string(score));
 //
-void text(std::string_view s);
-void text(std::string_view s, const TextOptions &o);
+void text(const rmp::Text &s);
+void text(const rmp::Text &s, const TextOptions &o);
 
 // ---------------------------------------------------------------------------
 // Containers
@@ -1158,7 +1161,7 @@ struct TextInputOptions {
     bool enabled = true; // false = the theme's disabled colours; no typing, no focus
     // Shown in the theme's text_muted while the field is empty and does not have
     // the focus. It is copied, so a temporary is fine.
-    std::string_view placeholder{};
+    rmp::Text placeholder{};
     std::string_view id{}; // as ButtonOptions::id: for a shared label
     // The most CHARACTERS it holds -- what the player counts, so an "é" is one
     // and not the two bytes it takes. 0 = no limit. Typing stops at it, and a
@@ -1169,8 +1172,8 @@ struct TextInputOptions {
 
 // A box that flips `value` when it is clicked, or activated from the keyboard or
 // a gamepad while it has the focus. True on the frame it flipped.
-bool checkbox(std::string_view label, bool &value);
-bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o);
+bool checkbox(const rmp::Text &label, bool &value);
+bool checkbox(const rmp::Text &label, bool &value, const CheckboxOptions &o);
 
 // A bar that sets `value` between min and max: dragged, or moved with left and
 // right while it has the focus, one `step` (or 5% of the range) per press, then
@@ -1179,8 +1182,8 @@ bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o);
 // Nothing is drawn when max <= min -- nor when an end is NaN or an infinity,
 // which is said once. A value that is NaN is set to min, and a step that is not
 // a positive number is none, each said once.
-bool slider(std::string_view label, float &value, float min, float max);
-bool slider(std::string_view label, float &value, float min, float max,
+bool slider(const rmp::Text &label, float &value, float min, float max);
+bool slider(const rmp::Text &label, float &value, float min, float max,
             const SliderOptions &o);
 
 // `selected` is the index into `items`, and is kept inside it.
@@ -1194,14 +1197,13 @@ bool slider(std::string_view label, float &value, float min, float max,
 // Enter or A picks the one they are on, and Escape or B closes it without
 // changing anything. True on the frame `selected` changed. Nothing is drawn
 // for an empty list.
-bool dropdown(std::string_view label, int &selected,
+bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items);
-bool dropdown(std::string_view label, int &selected,
+bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o);
-bool dropdown(std::string_view label, int &selected,
-              std::initializer_list<std::string_view> items);
-bool dropdown(std::string_view label, int &selected,
-              std::initializer_list<std::string_view> items, const DropdownOptions &o);
+bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items);
+bool dropdown(const rmp::Text &label, int &selected, std::initializer_list<rmp::Text> items,
+              const DropdownOptions &o);
 
 // Edits your string, in UTF-8 -- what the player types goes on the end, and
 // Backspace takes off the last character, never half of one -- and only while
@@ -1213,8 +1215,8 @@ bool dropdown(std::string_view label, int &selected,
 // or the A button (Space is typed), on Escape or the B button, and on a click
 // anywhere else; the focus stays on it. Tab, up and down move the focus on from
 // a field as from any other control, and take the keyboard with them.
-bool text_input(std::string_view label, std::string &value);
-bool text_input(std::string_view label, std::string &value, const TextInputOptions &o);
+bool text_input(const rmp::Text &label, std::string &value);
+bool text_input(const rmp::Text &label, std::string &value, const TextInputOptions &o);
 
 // ---------------------------------------------------------------------------
 // Over the world, over a control, over everything
@@ -1289,8 +1291,8 @@ struct TooltipOptions {
 // The text is copied. One with no control before it in the frame is reported
 // once and shows nothing. An empty one shows nothing and is no mistake:
 // tooltip(item.description) for an item without one.
-void tooltip(std::string_view text);
-void tooltip(std::string_view text, const TooltipOptions &o);
+void tooltip(const rmp::Text &text);
+void tooltip(const rmp::Text &text, const TooltipOptions &o);
 
 // How long notify() keeps a message, and its colour.
 struct NotifyOptions {
@@ -1310,8 +1312,8 @@ struct NotifyOptions {
 // In a debug build the framework's own warnings arrive here too: a mistake it
 // reports once in the log (an action nobody defined, a widget outside
 // begin()/end()) is also said on screen, where it cannot scroll past.
-void notify(std::string_view text);
-void notify(std::string_view text, const NotifyOptions &o);
+void notify(const rmp::Text &text);
+void notify(const rmp::Text &text, const NotifyOptions &o);
 
 // ---------------------------------------------------------------------------
 // Input, and who gets it
@@ -1505,7 +1507,7 @@ struct KeptState {
 
 // A button: text, an icon, or both.
 struct Button {
-    std::string text; // the label; empty for an icon-only button
+    rmp::Text text; // the label; empty for an icon-only button
     Picture icon{}; // shown before the label, or alone
     // The icon's height in design units; 0 = the label's type size (or the
     // picture's own height when there is no label).
@@ -1542,7 +1544,7 @@ struct Button {
 // Text, as text() draws it, with a style of its own: a title in another font,
 // with an outline. Clickable when it has an on_click.
 struct Label {
-    std::string text; // what it says
+    rmp::Text text; // what it says
     ColorRole color = ColorRole::TEXT; // used when the style sets no text colour
     detail::Sizing size{}; // a step or design units, as TextOptions::size
     bool wrap = true; // break between words to fit; false = never broken
@@ -1619,7 +1621,7 @@ struct Panel {
 
 // A checkbox that holds its own value.
 struct Checkbox {
-    std::string text; // the label beside it
+    rmp::Text text; // the label beside it
     bool checked = false; // its value: ticked or not
     bool enabled = true; // false = drawn disabled; no press, no change, no focus
     std::string id{}; // as ButtonOptions::id: for a shared label
@@ -1640,7 +1642,7 @@ struct Checkbox {
 
 // A slider that holds its own value.
 struct Slider {
-    std::string text; // the label beside it
+    rmp::Text text; // the label beside it
     float value = 0; // its value, kept from min to max
     float min = 0; // the value at the left end
     float max = 1; // the value at the right end
@@ -1666,8 +1668,8 @@ struct Slider {
 
 // A dropdown that holds its items and its choice.
 struct Dropdown {
-    std::string text; // the label beside it
-    std::vector<std::string> items; // the choices, in order
+    rmp::Text text; // the label beside it
+    std::vector<rmp::Text> items; // the choices, in order
     int selected = 0; // the index of the one chosen
     float width = 0; // of the field, in design units; 0 = fill the space available
     bool enabled = true; // false = drawn disabled; no press, no change, no focus
@@ -1689,9 +1691,9 @@ struct Dropdown {
 
 // A text field that holds its own text.
 struct TextInput {
-    std::string text; // the label
+    rmp::Text text; // the label
     std::string value; // what is typed
-    std::string placeholder{}; // shown, muted, while it is empty
+    rmp::Text placeholder{}; // shown, muted, while it is empty
     int max_length = 0; // in characters; 0 = no limit
     float width = 0; // of the field, in design units; 0 = fill the space available
     bool enabled = true; // false = drawn disabled; no press, no change, no focus

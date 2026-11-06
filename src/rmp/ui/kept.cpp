@@ -92,16 +92,18 @@ std::vector<bool> &open_panels() {
 bool Button::show() {
     detail::Edges e;
     uint32_t element = 0;
+    const detail::Said said(text);
     detail::Extra x = extra_for(style, ours, e, element, id);
+    x.shown = said.shown;
     if (!icon.empty()) x.icon = rmp::Ref<const Picture>(icon);
     x.icon_size = icon_size;
     x.icon_above = icon_above;
     x.width = width;
     x.height = height;
     const ButtonOptions o{ .style = variant, .size = size, .enabled = enabled, .id = id };
-    const bool clicked = detail::button_with(text, o, x);
+    const bool clicked = detail::button_with(said.key, o, x);
     keep(ours, e);
-    shakes(ours, element, WidgetKind::BUTTON, name_of(text, id));
+    shakes(ours, element, WidgetKind::BUTTON, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);
     press_calls(e, on_press, on_release);
     if (clicked) on_click();
@@ -116,10 +118,12 @@ void Button::shake() { ++ours.shakes; }
 bool Label::show() {
     detail::Edges e;
     uint32_t element = 0;
-    const detail::Extra x = extra_for(style, ours, e, element, id);
-    detail::text_with(text, TextOptions{ .color = color, .size = size, .wrap = wrap }, x);
+    const detail::Said said(text);
+    detail::Extra x = extra_for(style, ours, e, element, id);
+    x.shown = said.shown;
+    detail::text_with(said.key, TextOptions{ .color = color, .size = size, .wrap = wrap }, x);
     keep(ours, e);
-    shakes(ours, element, WidgetKind::LABEL, name_of(text, id));
+    shakes(ours, element, WidgetKind::LABEL, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);
     if (e.click) on_click();
     return e.click;
@@ -205,11 +209,13 @@ void Panel::shake() { ++ours.shakes; }
 bool Checkbox::show() {
     detail::Edges e;
     uint32_t element = 0;
-    const detail::Extra x = extra_for(style, ours, e, element, id);
+    const detail::Said said(text);
+    detail::Extra x = extra_for(style, ours, e, element, id);
+    x.shown = said.shown;
     const bool changed = detail::checkbox_with(
-        text, checked, CheckboxOptions{ .enabled = enabled, .id = id }, x);
+        said.key, checked, CheckboxOptions{ .enabled = enabled, .id = id }, x);
     keep(ours, e);
-    shakes(ours, element, WidgetKind::CHECKBOX, name_of(text, id));
+    shakes(ours, element, WidgetKind::CHECKBOX, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);
     focus_calls(e, on_focus, on_blur);
     if (changed) on_change(checked);
@@ -223,15 +229,17 @@ void Checkbox::shake() { ++ours.shakes; }
 bool Slider::show() {
     detail::Edges e;
     uint32_t element = 0;
-    const detail::Extra x = extra_for(style, ours, e, element, id);
+    const detail::Said said(text);
+    detail::Extra x = extra_for(style, ours, e, element, id);
+    x.shown = said.shown;
     const SliderOptions o{ .width = width,
                            .step = step,
                            .enabled = enabled,
                            .show_value = show_value,
                            .id = id };
-    const bool changed = detail::slider_with(text, value, min, max, o, x);
+    const bool changed = detail::slider_with(said.key, value, min, max, o, x);
     keep(ours, e);
-    shakes(ours, element, WidgetKind::SLIDER, name_of(text, id));
+    shakes(ours, element, WidgetKind::SLIDER, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);
     focus_calls(e, on_focus, on_blur);
     if (changed) on_change(value);
@@ -245,13 +253,18 @@ void Slider::shake() { ++ours.shakes; }
 bool Dropdown::show() {
     detail::Edges e;
     uint32_t element = 0;
-    const detail::Extra x = extra_for(style, ours, e, element, id);
-    std::vector<std::string_view> views(items.begin(), items.end());
+    const detail::Said said(text);
+    detail::Extra x = extra_for(style, ours, e, element, id);
+    x.shown = said.shown;
+    std::vector<std::string> shown;
+    shown.reserve(items.size());
+    for (const rmp::Text &item : items) shown.push_back(item.str());
+    const std::vector<std::string_view> views(shown.begin(), shown.end());
     const bool changed = detail::dropdown_with(
-        text, selected, views,
+        said.key, selected, views,
         DropdownOptions{ .width = width, .enabled = enabled, .id = id }, x);
     keep(ours, e);
-    shakes(ours, element, WidgetKind::DROPDOWN, name_of(text, id));
+    shakes(ours, element, WidgetKind::DROPDOWN, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);
     focus_calls(e, on_focus, on_blur);
     if (changed) on_change(selected);
@@ -265,15 +278,17 @@ void Dropdown::shake() { ++ours.shakes; }
 bool TextInput::show() {
     detail::Edges e;
     uint32_t element = 0;
-    const detail::Extra x = extra_for(style, ours, e, element, id);
+    const detail::Said said(text);
+    detail::Extra x = extra_for(style, ours, e, element, id);
+    x.shown = said.shown;
     const TextInputOptions o{ .width = width,
                               .enabled = enabled,
                               .placeholder = placeholder,
                               .id = id,
                               .max_length = max_length };
-    const bool changed = detail::text_input_with(text, value, o, x);
+    const bool changed = detail::text_input_with(said.key, value, o, x);
     keep(ours, e);
-    shakes(ours, element, WidgetKind::TEXT_INPUT, name_of(text, id));
+    shakes(ours, element, WidgetKind::TEXT_INPUT, name_of(said.key, id));
     pointer_calls(e, on_hover, on_unhover);
     focus_calls(e, on_focus, on_blur);
     if (changed) on_change(value);

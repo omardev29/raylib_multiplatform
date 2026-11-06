@@ -130,6 +130,24 @@ std::string_view font_name() { return detail::global_font_name(); }
 namespace detail {
 
 namespace {
+struct {
+    std::string applied; // the language font in use; empty: none
+    std::string before; // the font it replaced, to go back to
+} language_font;
+} // namespace
+
+void use_language_font(std::string_view file) {
+    if (file == language_font.applied) return;
+    if (language_font.applied.empty()) language_font.before = std::string(global_font_name());
+    language_font.applied = std::string(file);
+    set_global_font(file.empty() ? std::string_view(language_font.before) : file);
+}
+
+} // namespace detail
+
+namespace detail {
+
+namespace {
 
 // --- resolving a look -------------------------------------------------------
 
