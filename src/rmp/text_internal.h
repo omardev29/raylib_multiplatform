@@ -86,6 +86,11 @@ std::string font_for(std::string_view code);
 std::vector<std::string> missing_seen();
 void write_seen();
 
+// The text of `key` in the current language or one it falls back to -- never
+// the key itself: nothing when no table has it. A dialogue line's lookup,
+// whose fallback is the .yarn's own text.
+std::optional<std::string> find(std::string_view key, std::string_view context = {});
+
 // The pieces rmp::Text and rmp::lang are built from.
 std::string number_text_for(double n, bool integer);
 std::string translate_with(std::string_view key, std::string_view context,

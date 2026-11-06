@@ -197,6 +197,11 @@ void Machine::on_function(std::string_view name, Function function) {
 
 void Machine::enter(int node) { _frames.push_back({ node, 0 }); }
 
+std::string Machine::node() const {
+    if (_frames.empty()) return {};
+    return _program.nodes[static_cast<std::size_t>(_frames.back().node)].name;
+}
+
 void Machine::leave_top() {
     if (_frames.empty()) return;
     const ProgramNode &n = _program.nodes[static_cast<std::size_t>(_frames.back().node)];

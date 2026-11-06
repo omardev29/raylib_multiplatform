@@ -587,13 +587,9 @@ private:
                                         " = ...>> it, or use it where its type is known");
             }
         }
-        for (const auto &[name, f] : _functions) {
-            if (f.result.empty()) {
-                error(_scripts.empty() ? std::string() : _scripts[0].file, {},
-                      "nothing says what " + name + "() gives back: use it where its type is "
-                                                    "known");
-            }
-        }
+        // A function of the game's whose result nothing types is fine where
+        // any value goes -- a line's {f()}, a command -- since it is registered
+        // after the script is compiled; a variable it sets must still be typed.
         smart_loops();
         // Initial values: declared, or the default of the type.
         for (const auto &[name, v] : _vars) {

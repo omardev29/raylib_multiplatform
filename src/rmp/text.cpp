@@ -683,6 +683,14 @@ void reset_for_tests() {
 
 std::string number_text_for(double n, bool integer) { return number_text(n, integer); }
 
+std::optional<std::string> find(std::string_view key, std::string_view context) {
+    ensure_loaded();
+    for (const std::string &c : fallback_chain(rmp::lang::current(), RMP_LANG_DEFAULT)) {
+        if (std::optional<std::string> found = cell(key, context, c)) return found;
+    }
+    return std::nullopt;
+}
+
 std::string translate_with(std::string_view key, std::string_view context,
                            std::span<const TextArg> args) {
     return translated(key, context, args);

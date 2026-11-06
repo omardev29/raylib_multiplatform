@@ -327,6 +327,7 @@ public:
     void stop();
     [[nodiscard]] const Event &event() const { return _event; }
     [[nodiscard]] bool running() const { return !_frames.empty(); }
+    [[nodiscard]] std::string node() const; // the node running now, or empty
 
     // A command's handler: called with its words, and the dialogue carries on.
     void on_command(std::string_view name, rmp::Callback<std::span<const std::string>> handler);
