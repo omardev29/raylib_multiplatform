@@ -43,7 +43,7 @@ macos                  macho    2090696         -  # measured at 9bc4418
 freebsd-x64            elf       991456         -  # measured at 9bc4418
 freebsd-arm64          elf       888688         -  # measured at 9bc4418
 openbsd-x64            elf      1083064         -  # measured at 9bc4418
-openbsd-arm64          elf       894848         -  # measured at e2ea300
+openbsd-arm64          elf      1052136         -  # measured at 9bc4418
 netbsd-x64             elf      1176656         -  # measured at 9bc4418
 web                    wasm      574669         -  # measured at 46b3c95
 android/arm64-v8a      so       1107728         -  # measured at c53a430
